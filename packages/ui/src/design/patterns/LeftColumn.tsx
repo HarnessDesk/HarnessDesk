@@ -5,8 +5,8 @@ import { Bar } from '../ui/bar'
 import { Button } from '../ui/button'
 import { SidebarMenuButton } from '../ui/sidebar'
 import { GroupLabel } from '../ui/group-label'
-import { Text } from './Settings'
-import { ArrowLeftIcon, ArrowRightIcon, MoreIcon, PlusIcon, SettingsIcon, SidebarIcon } from '../../components/Icons'
+import { Text, Search, Chip, NavigationGroupHeader } from './Settings'
+import { ArrowLeftIcon, ArrowRightIcon, MoreIcon, CrossIcon, PlusIcon, SettingsIcon, SidebarIcon } from '../../components/Icons'
 import styles from './LeftColumn.module.css'
 
 export type LeftColumnTrail =
@@ -25,6 +25,10 @@ export interface LeftColumnMenu {
 }
 
 export interface LeftColumnRowProps {
+  readonly insertion?: 'before' | 'after' | 'into'
+  readonly project?: boolean
+  readonly current?: boolean
+  readonly dragging?: boolean
   readonly menu?: LeftColumnMenu
   readonly label: string
   readonly icon?: ReactNode
@@ -39,8 +43,8 @@ export interface LeftColumnRowProps {
   readonly buttonProps?: Pick<ComponentProps<'button'>, 'aria-label' | 'aria-describedby' | 'onKeyDown' | 'onDragOver' | 'onDrop'>
 }
 export const LeftColumnRow = forwardRef<HTMLButtonElement, LeftColumnRowProps>((props, ref) =>
-  <div data-left-row className={styles.row} onContextMenu={props.onContextMenu}>
-    <SidebarMenuButton ref={ref} className={styles.button} label={props.label}
+  <div data-left-row data-insert={props.insertion} data-current={props.current ? '' : undefined} data-dragging={props.dragging ? '' : undefined} className={styles.row} onContextMenu={props.onContextMenu}>
+    <SidebarMenuButton data-draggable={props.project ? '' : undefined} ref={ref} className={styles.button} label={props.label}
       icon={props.icon ?? <span aria-hidden="true" />} isActive={props.selected}
       title={props.title ?? props.label} disabled={props.disabled}
       aria-current={props.selected ? 'page' : undefined} aria-expanded={props.expanded}
@@ -64,12 +68,12 @@ export const LeftColumnGroup = ({ label, children, heading = true }: { label: st
     {heading && <GroupLabel className={styles.label}><span data-left-group-text>{label}</span></GroupLabel>}{children}
   </section>
 export const LeftColumnHead = ({ label, controls }: { label: string; controls: ReactNode }) =>
-  <div data-left-head className={styles.head}><GroupLabel className={styles.headLabel}><span data-left-group-text>{label}</span></GroupLabel>
+  <div data-left-head className={styles.head}><GroupLabel className={`${styles.headLabel} ${styles.inkAfterIcon}`}><span data-left-group-text>{label}</span></GroupLabel>
     <div className={styles.headControls}>{controls}</div></div>
 export const LeftColumnBody = forwardRef<HTMLDivElement, {
   children: ReactNode; onScroll?: ComponentProps<'div'>['onScroll']; hidden?: boolean
 }>(({ children, onScroll, hidden }, ref) => <div ref={ref} hidden={hidden} inert={hidden}
-  data-region="sidebar-content" className={hidden ? styles.hidden : styles.body} onScroll={onScroll}>{children}</div>)
+  data-region="sidebar-content" className={hidden ? styles.hidden : `${styles.body} ${styles.inset}`} onScroll={onScroll}>{children}</div>)
 LeftColumnBody.displayName = 'LeftColumnBody'
 export interface LeftColumnTopProps {
   readonly shown: boolean
@@ -110,3 +114,50 @@ export const LeftColumn = ({ top, head, body, footer }: {
   <div data-region="sidebar-header">{top}{head}</div>{body}
   <div data-region="sidebar-footer" className={styles.footer}>{footer}</div>
 </div>
+
+export const LeftColumnList = forwardRef<HTMLDivElement, {
+  readonly children: ReactNode
+  readonly before?: number
+  readonly after?: number
+  readonly labels?: string
+  readonly footer?: ReactNode
+}>(({ children, before = 0, after = 0, labels, footer }, ref) => <div ref={ref} data-virtual-project="true"
+  data-virtual-labels={labels} className={styles.list}>
+  {before > 0 && <div aria-hidden="true" style={{ height: before }} />}
+  {children}
+  {after > 0 && <div aria-hidden="true" style={{ height: after }} />}
+  {footer}
+</div>)
+LeftColumnList.displayName = 'LeftColumnList'
+export const LeftColumnRename = ({ input }: { readonly input: ReactNode }) =>
+  <div data-left-rename className={styles.row}>{input}</div>
+export const LeftColumnNavigation = ({ children }: { readonly children: ReactNode }) =>
+  <nav className={`${styles.navigation} ${styles.inset}`} aria-label="Workspace actions">{children}</nav>
+export const LeftColumnProjectsHead = ({ value, onChange, focused, onFocusChange, options, onBrowseFolders }: {
+  readonly value: string; readonly onChange: (value: string) => void; readonly focused: boolean
+  readonly onFocusChange: (focused: boolean) => void; readonly options: ReactNode; readonly onBrowseFolders: () => void
+}) => {
+  const filtering = focused || value.length > 0
+  return <NavigationGroupHeader data-left-head data-left-projects-head filtering={filtering}
+    data-filtered={value ? '' : undefined} className={`${styles.head} ${styles.projectsHead} ${styles.inset}`}
+    label={<span className={`${styles.projectsLabel} ${styles.inkAfterIcon}`} data-left-group-text>Projects</span>}>
+    {value && <span className={styles.filtered}><Chip tone="neutral" label="Filtered" />
+      <Button variant="ghost" size="icon-xs" aria-label="Clear list filter" title="Clear list filter"
+        onClick={() => onChange('')}><CrossIcon size={16} /></Button></span>}
+    <div className={styles.projectFilter}>
+      <Search size="compact" icon="filter" placeholder="Filter by title" label="Filter this list" title="Filter this list"
+        value={value} onChange={onChange} onFocus={() => onFocusChange(true)} onBlur={() => onFocusChange(false)}
+        onKeyDown={event => { if (event.key === 'Escape') {
+          if (value) event.preventDefault()
+          onChange(''); event.currentTarget.blur()
+        } }} />
+    </div>
+    {options}
+    <Button variant="muted" size="icon-xs" aria-label="Open a project folder" title="Open a project folder"
+      onClick={onBrowseFolders}><PlusIcon size={16} /></Button>
+  </NavigationGroupHeader>
+}
+export const LeftColumnListOptions = ({ filtered, children }: { filtered: boolean; children: ReactNode }) =>
+  <span className={styles.options} data-filtered={filtered ? '' : undefined}>{children}</span>
+export const LeftColumnEmpty = ({ children }: { children: ReactNode }) =>
+  <div className={styles.label}><Text as="div" role="meta" className={styles.empty}>{children}</Text></div>

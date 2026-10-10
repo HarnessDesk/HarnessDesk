@@ -92,7 +92,7 @@ it('puts a pinned project mark in the row trailing slot beside its label', () =>
   })
   const head = heads()[0]
   const label = head?.querySelector('[data-slot="sidebar-menu-label"]')
-  const pin = head?.querySelector('[data-sidebar="menu-badge"][aria-label="Pinned"]')
+  const pin = head?.querySelector('[data-left-mark][aria-label="Pinned"]')
   expect(pin).not.toBeNull()
   expect(label?.contains(pin!)).toBe(false)
 })
@@ -302,7 +302,7 @@ const openControlSubmenu = async (name: string): Promise<HTMLElement> => {
   return trigger
 }
 
-it('keeps display controls to three flyouts and the project fold actions', () => {
+it('keeps display controls to two flyouts and the project fold actions', () => {
   const { store } = rig()
   act(() => root.render(<StoreProvider store={store}><SessionListControls /></StoreProvider>))
   const trigger = container.querySelector('button')!
@@ -310,8 +310,8 @@ it('keeps display controls to three flyouts and the project fold actions', () =>
   const menu = document.querySelector('[role="menu"]')!
   const labels = [...menu.querySelectorAll<HTMLElement>(':scope > [role="menuitem"]')]
     .map((item) => item.querySelector('[class*="title"]')?.textContent?.trim())
-  expect(labels).toEqual(['Sort projects', 'Density', 'Show agents', 'Collapse all', 'Expand all'])
-  expect(menu.querySelectorAll(':scope > [role="menuitem"]')).toHaveLength(5)
+  expect(labels).toEqual(['Sort projects', 'Show agents', 'Collapse all', 'Expand all'])
+  expect(menu.querySelectorAll(':scope > [role="menuitem"]')).toHaveLength(4)
   expect(menu.querySelector('[role="separator"]')).not.toBeNull()
   expect(container.querySelector('[data-filtered]')).toBeNull()
 })
@@ -324,7 +324,7 @@ it('keeps the filter dot on the display trigger while an agent filter hides rows
   expect(controls.querySelector('button[title="How this list is shown"]')).not.toBeNull()
 })
 
-it('sorts projects and changes density only through their flyouts', async () => {
+it('sorts projects through its flyout and leaves stored density without a menu', async () => {
   const { store } = rig()
   act(() => root.render(<StoreProvider store={store}><SessionListControls /></StoreProvider>))
   act(() => container.querySelector('button')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
@@ -335,11 +335,8 @@ it('sorts projects and changes density only through their flyouts', async () => 
   expect(store.setListPrefs).toHaveBeenCalledWith({ sort: 'name' })
 
   act(() => container.querySelector('button')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
-  await openControlSubmenu('Density')
-  const compact = [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
-    .find((item) => item.querySelector('[class*="title"]')?.textContent?.trim() === 'Compact')!
-  act(() => compact.dispatchEvent(new MouseEvent('click', { bubbles: true })))
-  expect(store.setListPrefs).toHaveBeenCalledWith({ density: 'compact', densityPicked: true })
+  expect([...document.querySelectorAll('[role="menuitem"]')].some(item => item.textContent?.includes('Density'))).toBe(false)
+  expect(store.setListPrefs).not.toHaveBeenCalledWith(expect.objectContaining({ density: expect.anything() }))
 })
 
 it('shows every runtime in the Show agents flyout and filters by the chosen runtime', async () => {

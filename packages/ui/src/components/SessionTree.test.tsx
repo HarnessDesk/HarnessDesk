@@ -282,21 +282,21 @@ it('uses one fixed trailing slot for conversation state and actions', () => {
   } as unknown as AppSnapshot
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
   act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
-  const rows = [...container.querySelectorAll<HTMLElement>('[data-slot="sidebar-menu-item"]')]
+  const rows = [...container.querySelectorAll<HTMLElement>('[data-left-row]')]
   const quiet = rows.find((row) => row.textContent?.includes('quiet'))!
   const busy = rows.find((row) => row.textContent?.includes('busy'))!
   const needsYou = rows.filter((row) => row.textContent?.includes('waiting'))
-  expect(quiet.querySelector('[data-slot="sidebar-menu-badge"]')).toBeNull()
-  expect(busy.querySelectorAll('[data-slot="sidebar-menu-badge"]')).toHaveLength(1)
+  expect(quiet.querySelector('[data-left-mark]')).toBeNull()
+  expect(busy.querySelectorAll('[data-left-mark]')).toHaveLength(1)
   expect(needsYou.length).toBeGreaterThan(0)
   for (const row of needsYou) {
-    expect(row.querySelectorAll('[data-slot="sidebar-menu-badge"]')).toHaveLength(0)
-    expect(row.querySelector('[data-slot="sidebar-menu-state"]')?.getAttribute('aria-label')).toBe('Needs you')
+    expect(row.querySelectorAll('[data-left-mark]')).toHaveLength(1)
+    expect(row.querySelector('[data-left-mark][aria-label="Needs you"]')?.getAttribute('aria-label')).toBe('Needs you')
   }
   const label = busy.querySelector('[data-slot="sidebar-menu-label"]')!
   const classes = label.className
   const action = busy.querySelector<HTMLElement>('[data-slot="sidebar-menu-action"]')!
-  expect(action.parentElement).toBe(busy)
+  expect(action.closest('[data-left-trailing]')?.parentElement).toBe(busy)
   action.focus()
   expect(busy.querySelector('[data-slot="sidebar-menu-label"]')).toBe(label)
   expect(label.className).toBe(classes)
@@ -358,7 +358,8 @@ it('a conversation with work still running in the background wears a quiet spinn
     return found as HTMLButtonElement
   }
   const glyph = (title: string): HTMLElement | null => row(title).parentElement?.querySelector('[data-slot="spinner"]') ?? null
-  expect(glyph('Busy one')?.hasAttribute('data-tasks')).toBe(true)
+  expect(glyph('Busy one')).not.toBeNull()
+  expect(row('Busy one').parentElement?.querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('Background tasks running')
   expect(row('Busy one').title).toContain('running in the background')
   // Finished work is not a reason to look: only running work earns the spinner.
   expect(glyph('Quiet one')).toBeNull()
@@ -637,7 +638,7 @@ it('keeps a conversation in its project when its turn ends', () => {
     sessions: new Map(),
     history: [completed],
   })
-  const project = view.container.querySelector('[class*="nested"]')
+  const project = view.container.querySelector('[data-virtual-project="true"]')
   expect(project && rowTitles(project as HTMLElement)).toEqual(['session-active'])
   expect(view.container.querySelector('[data-tone="working"]')).toBeNull()
 })
@@ -697,7 +698,7 @@ it('opens Other projects when the active session belongs to a far project', () =
   const fold = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.startsWith('Other projects'))
   expect(fold?.querySelector('[data-slot="sidebar-menu-icon"]')).not.toBeNull()
   expect(fold?.closest('[data-sidebar="group"]')).toBeNull()
-  expect(fold?.parentElement?.querySelector('[data-slot="sidebar-menu-badge"]')?.textContent).toBe('4')
+  expect(fold?.parentElement?.querySelector('[data-left-mark]')?.textContent).toBe('4')
 })
 
 it('shows ten conversations and a Show more control with the remaining count in its title', () => {
@@ -1078,7 +1079,7 @@ it('orders rooms and loose conversations together by recency', () => {
     [summary({ id: 'Loose', updatedAt: 20 })],
   )
 
-  const nested = tree.querySelector('[class*="nested"]')
+  const nested = tree.querySelector('[data-virtual-project="true"]')
   if (!nested) throw new Error('project rows did not render')
   const rows = [...nested.children].map((child) => {
     const roomRow = child.querySelector('[aria-label^="Room "]')
@@ -1098,7 +1099,7 @@ it('moves pinned conversations out of the project while leaving the room row', (
     { pinnedSessions: [sessionKey('codex', second.id), sessionKey('codex', first.id)] },
   )
 
-  const nested = tree.querySelector('[class*="nested"]')
+  const nested = tree.querySelector('[data-virtual-project="true"]')
   if (!nested) throw new Error('project rows did not render')
   const rows = [...nested.children].map((child) => {
     const roomRow = child.querySelector('[aria-label^="Room "]')
@@ -1343,7 +1344,7 @@ it('keeps an empty room quiet without a zero or empty-state sentence', () => {
   const { container: tree } = treeWith([room({ id: 'r1', name: 'Checkout rewrite' })])
   const row = roomRow(tree, 'Checkout rewrite')
   expect(row.parentElement?.textContent).not.toContain('No agents in here yet')
-  expect(row.parentElement?.querySelector('[data-slot="sidebar-menu-badge"]')).toBeNull()
+  expect(row.parentElement?.querySelector('[data-left-mark]')).toBeNull()
   expect(row.parentElement?.textContent).not.toContain('0')
 })
 
@@ -1724,7 +1725,7 @@ it('marks a row whose folder is gone, and leaves the others unmarked', () => {
   })
 
   const marks = [...container.querySelectorAll('[role="img"]')].filter((one) =>
-    one.getAttribute('aria-label')?.startsWith('Folder is gone'),
+    one.getAttribute('aria-label')?.includes('folder no longer exists'),
   )
   expect(marks).toHaveLength(1)
   // The refusal is the hover line, so the row answers "why" without a click.
@@ -1778,7 +1779,7 @@ it('shows the folder-gone mark before any click with the listing-sourced sentenc
   })
 
   const marks = [...container.querySelectorAll('[role="img"]')].filter((one) =>
-    one.getAttribute('aria-label')?.startsWith('Folder is gone'),
+    one.getAttribute('aria-label')?.includes('folder no longer exists'),
   )
   expect(marks).toHaveLength(1)
   expect(marks[0]?.getAttribute('title')).toContain("This conversation's folder no longer exists (/repo/gone).")
@@ -1869,10 +1870,6 @@ it('renames an inactive session without opening it or changing active session (#
   )
   expect(renameOption).toBeDefined()
 
-  // The row as it stands, two lines tall (a comfortable row's second line):
-  // the rename box must hold that height, or every row below moves up.
-  const rowB = menuB!.closest('[class*="rowWrap"]')!.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')!
-  rowB.getBoundingClientRect = () => ({ height: 55 }) as DOMRect
 
   act(() => {
     renameOption!.click()
@@ -1884,7 +1881,8 @@ it('renames an inactive session without opening it or changing active session (#
   expect(input?.value).toBe('Inactive Conversation')
   // It stands in for the row: the row's own box, at the height the row had.
   expect(input?.dataset.size).toBe('row')
-  expect(input?.style.minHeight).toBe('55px')
+  expect(input?.closest('[data-left-rename]')).not.toBeNull()
+  expect(input?.style.minHeight).toBe('')
 
   // Change input and press Enter
   act(() => {
@@ -1914,12 +1912,17 @@ it('keeps a pinned gone-folder row’s worktree and Needs you marks without dupl
       command: 'pwd', cwd: one.cwd, actions: [], options: [],
     } }],
   })
-  const row = container.querySelector('[data-region="session-row"] [data-slot="sidebar-menu-item"]')!
-  expect(row.querySelectorAll('[data-slot="sidebar-menu-badge"]')).toHaveLength(2)
-  expect(row.querySelector('[data-slot="sidebar-menu-state"]')).not.toBeNull()
+  const row = container.querySelector('[data-region="session-row"] [data-left-row]')!
+  expect(row.querySelectorAll('[data-left-mark]')).toHaveLength(1)
+  expect(row.querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('Needs you')
   expect(row.querySelector('[data-slot="spinner"]')).toBeNull()
-  expect(row.getAttribute('data-sidebar-trailing-marks')).toBe('3')
+  const facts = row.querySelector('button')!.title
+  expect(facts).toContain('Worktree')
+  expect(facts).toContain('The folder no longer exists.')
+  expect(facts).toContain('The transcript can be read; nothing more can be sent.')
+  expect(facts).toContain('Needs you')
 })
+
 
 it.each([
   ['needs-you', 'Needs you', 'warning', 'limit'],
@@ -1985,9 +1988,9 @@ it('keeps working and waiting state on the conversation row inside its project',
   const project = view.container.querySelector('[data-project-root="/repo"]')!
   const rows = project.querySelectorAll('[data-region="session-row"]')
   expect(rows).toHaveLength(2)
-  expect(project.querySelector('[data-slot="sidebar-menu-state"]')?.getAttribute('aria-label')).toBe('Needs you')
-  expect(project.querySelector('[data-slot="sidebar-menu-badge"][aria-label="Thinking"]')).not.toBeNull()
-  expect([...project.querySelectorAll('[data-region="session-row"] [data-slot="sidebar-menu-label"]')].map(one => one.textContent)).toEqual(['busy-row', 'waiting-rowNeeds you'])
+  expect(project.querySelector('[data-left-mark][aria-label="Needs you"]')?.getAttribute('aria-label')).toBe('Needs you')
+  expect(project.querySelector('[data-left-mark][aria-label="Thinking"]')).not.toBeNull()
+  expect([...project.querySelectorAll('[data-region="session-row"] [data-slot="sidebar-menu-label"]')].map(one => one.textContent)).toEqual(['busy-row', 'waiting-row'])
 })
 
 it('keeps pinned and waiting Seats owned by the sole Team row', () => {
@@ -2112,7 +2115,7 @@ it('keeps Teams and loose conversations in one project child list', () => {
   const board = room({ id: 'indent-team', name: 'Indent Team', members: [String(sessionKey(seat.runtime, seat.id))] })
   const view = treeWith([board], [seat, loose])
   const projectRows = view.container.querySelector('[data-virtual-project="true"]')!
-  expect(projectRows.getAttribute('data-sidebar-indent')).toBe('true')
+  expect(projectRows.hasAttribute('data-sidebar-indent')).toBe(false)
   expect(projectRows.querySelector('[data-nested="true"]')).toBeNull()
   expect(projectRows.querySelectorAll('[data-region="session-row"]')).toHaveLength(1)
   expect(roomRow(view.container, 'Indent Team').closest('[data-virtual-project="true"]')).toBe(projectRows)
@@ -2138,7 +2141,7 @@ it('keeps a running pinned conversation in Pinned and updates its wait there', (
   const pinned = view.container.querySelector('[data-sidebar-band="pinned"]')!
   expect(rowTitles(pinned as HTMLElement)).toEqual(['session-pinned-running'])
   view.update({ approvals: [{ key: sessionKey(live.runtime, live.id), approval: {} }] as unknown as AppSnapshot['approvals'] })
-  expect(pinned.querySelector('[data-slot="sidebar-menu-state"]')?.getAttribute('aria-label')).toBe('Needs you')
+  expect(pinned.querySelector('[data-left-mark][aria-label="Needs you"]')?.getAttribute('aria-label')).toBe('Needs you')
   expect(view.container.querySelectorAll('[data-region="session-row"]')).toHaveLength(1)
 })
 
@@ -2150,25 +2153,25 @@ it('keeps a Seat with another checkout out of that project’s loose rows', () =
   expect(rowTitles(view.container).filter(one => one === 'session-cross-checkout')).toHaveLength(0)
 })
 
-it('uses a quiet project header without a leading icon, including Other projects', () => {
+it('uses a leading disclosure and one action on every project header', () => {
   const view = treeWith([], [summary({ id: 'session-near' }), summary({ id: 'session-far', cwd: '/other' })], [], { othersOpen: true })
   const headers = view.container.querySelectorAll('[data-draggable]')
   expect(headers).toHaveLength(2)
   for (const header of headers) {
-    expect(header.querySelector('[data-slot="sidebar-menu-icon"]')).toBeNull()
-    const name = header.querySelector('[data-slot="text"]')!
-    expect(name.getAttribute('data-role')).toBe('prose')
-    expect(name.className).toContain('text-(--hd-secondary-foreground)')
-    expect(name.nextElementSibling?.getAttribute('data-slot')).toBe('disclosure-chevron')
+    expect(header.querySelector('[data-slot="sidebar-menu-icon"] [data-slot="disclosure-chevron"]')).not.toBeNull()
+    expect(header.querySelector('[data-slot="sidebar-menu-label-content"]')).not.toBeNull()
+    expect(header.closest('[data-left-row]')?.querySelectorAll('[data-slot="sidebar-menu-action"]')).toHaveLength(1)
   }
   act(() => (headers[0] as HTMLButtonElement).click())
   expect(view.store.toggleCollapsed).toHaveBeenCalledWith('/repo')
 })
 
-it('indents Pinned conversations by the shared project child step', () => {
+
+it('keeps Pinned conversations in the shared flat group', () => {
   const one = summary({ id: 'session-pin-indent' })
   const view = treeWith([], [one], [], { pinnedSessions: [sessionKey(one.runtime, one.id)] })
-  expect(view.container.querySelector('[data-sidebar-band="pinned"] [data-slot="sidebar-group-content"]')?.getAttribute('data-sidebar-indent')).toBe('true')
+  expect(view.container.querySelector('[data-sidebar-band="pinned"] [data-left-group]')).not.toBeNull()
+  expect(view.container.querySelector('[data-sidebar-band="pinned"] [data-nested]')).toBeNull()
 })
 
 it('shows no spinner for an opened completed conversation and shows one when its next turn starts', () => {
@@ -2196,7 +2199,7 @@ it('uses a quiet spinner for running conversations and Teams without a Working w
   const view = treeWith([board], [one], [live])
   expect(view.container.querySelectorAll('[data-slot="spinner"][data-tone="neutral"][data-size="sm"]')).toHaveLength(1)
   expect(view.container.textContent).not.toContain('Working')
-  expect(roomRow(view.container, board.name).querySelector('[data-slot="sidebar-menu-state"]')).toBeNull()
+  expect(roomRow(view.container, board.name).querySelector('[data-left-mark][aria-label="Needs you"]')).toBeNull()
   view.update({ approvals: [{ key: sessionKey(one.runtime, one.id), approval: {} }] as unknown as AppSnapshot['approvals'] })
   expect(roomRow(view.container, board.name).closest('[data-left-row]')?.querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('Needs you')
   expect(view.container.querySelectorAll('[data-slot="spinner"]')).toHaveLength(0)
@@ -2361,4 +2364,23 @@ it('keeps the agent-copy tooltip for an unlisted agent with readable history', (
   act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Actions for Unlisted copy"]')!.click())
   const remove = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(entry => entry.textContent === 'Remove from HarnessDesk')!
   expect(remove.title).toBe('Agent keeps its own copy')
+})
+
+it('the project keeps one-click New session and its keyboard context menu', async () => {
+  const start = vi.fn()
+  const { container: tree, store } = treeWith([], [summary({ id: 'one', cwd: '/repo' })], [], {},
+    undefined, null, new Map(), { startSessionIn: start })
+  const plus = tree.querySelector<HTMLButtonElement>('button[aria-label="New session in repo"]')!
+  const project = plus.closest('[data-left-row]')!
+  expect(project.querySelectorAll('[data-slot="sidebar-menu-action"]')).toHaveLength(1)
+  expect(project.querySelector('button[aria-label="Actions for repo"]')).toBeNull()
+  act(() => plus.click())
+  expect(start).toHaveBeenCalledOnce()
+  expect(start).toHaveBeenCalledWith('/repo')
+  expect(store.toggleCollapsed).not.toHaveBeenCalled()
+  const row = project.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')!
+  await act(async () => row.dispatchEvent(new KeyboardEvent('keydown', {
+    key: 'F10', shiftKey: true, bubbles: true, cancelable: true,
+  })))
+  expect(document.querySelector('[role="menu"][aria-label="Actions for repo"]')).not.toBeNull()
 })

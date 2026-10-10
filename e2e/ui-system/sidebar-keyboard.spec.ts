@@ -6,7 +6,7 @@ test('the sidebar list is one keyboard stop with row navigation and row menus', 
   const rows = tree.locator('[data-slot="sidebar-menu-button"]')
   await expect(rows.first()).toBeVisible()
   await expect.poll(() => rows.evaluateAll((entries) => entries.filter((entry) => (entry as HTMLElement).tabIndex === 0).length)).toBe(1)
-  await expect(tree.locator('[data-slot="sidebar-menu-action"][tabindex="0"]')).toHaveCount(0)
+  await expect(tree.locator('[data-slot="sidebar-menu-action"][aria-label^="Actions for"][tabindex="0"]')).toHaveCount(0)
 
   const first = rows.first()
   await first.focus()
@@ -50,29 +50,14 @@ test('the sidebar list is one keyboard stop with row navigation and row menus', 
   await expect.poll(() => tree.evaluate((node) => node.contains(document.activeElement))).toBe(false)
 })
 
-test('ArrowLeft from a nested Seat focuses its owning Team', async ({ page }) => {
-  await page.goto('/preview.html')
-  const tree = page.locator('[data-region="session-tree"]')
-  const disclosure = tree.getByRole('button', { name: /^Show the agents in / }).first()
-  // Teams start folded; expand through the real control before testing Seats.
-  await disclosure.evaluate(node => (node as HTMLButtonElement).click())
-  const seat = tree.locator('[data-nested="true"] [data-region="session-row"] [data-slot="sidebar-menu-button"]').first()
-  await expect(seat).toBeVisible()
-
-  // The nested list belongs to the Team row; neither row order nor the
-  // project's expanded state identifies this Seat's parent.
-  const teamRow = seat.locator('xpath=ancestor::ul[@data-nested="true"]/..')
-  const opener = teamRow.locator(':scope > div > [data-slot="sidebar-menu-button"]')
-  await expect(opener).toHaveCount(1)
-  const name = await opener.getAttribute('aria-label')
-  expect(name).toMatch(/^Room /)
-  // ArrowLeft folds the Seat's list, so keep the parent's exact name rather
-  // than resolving it through a child that is about to be unmounted.
-  const parent = tree.getByRole('button', { name: name!, exact: true })
-  await expect(parent).toHaveCount(1)
-  await parent.focus()
+test('a Team is one keyboard row whose parent is its project', async ({ page }) => {
+  await page.goto('/preview.html?sidebar-structure')
+  const tree = page.locator('#sidebar-structure [data-region="session-tree"]')
+  const team = tree.getByRole('button', { name: 'Room Ship checkout retry', exact: true })
+  await team.focus()
   await page.keyboard.press('ArrowRight')
-  await expect(seat).toBeFocused()
+  await expect(team).toBeFocused()
+  await expect(tree.locator('[data-nested="true"]')).toHaveCount(0)
   await page.keyboard.press('ArrowLeft')
-  await expect(parent).toBeFocused()
+  await expect(tree.locator('[data-project-root="/work/atlas"] button[data-draggable]')).toBeFocused()
 })

@@ -89,7 +89,10 @@ test('other real sidebar menus keep content width across sidebar widths', async 
     expect(startWidth).toBe(widths.start)
     await page.keyboard.press('Escape')
 
-    await sidebar.locator('button[aria-label^="Actions for "]').first().evaluate((node) => (node as HTMLButtonElement).click())
+    const project = sidebar.locator('[data-project-root] button[data-draggable]').first()
+    await project.focus()
+    await expect(project).toBeFocused()
+    await project.click({ button: 'right' })
     const projectMenu = page.locator('[role="menu"]').last()
     await expect(projectMenu).toBeVisible()
     const projectWidth = await projectMenu.evaluate((node) => node.getBoundingClientRect().width)

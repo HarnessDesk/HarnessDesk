@@ -12,5 +12,19 @@ export const applyLeftColumnActions = async (page: Page, actions: {
   if (actions.leftPopup === 'inbox') await column.locator('[data-slot="inbox-button"]').locator('..').click()
   if (actions.leftPopup === 'account') await column.locator('[data-left-seat] [data-slot="popover-trigger"]').click()
   if (actions.leftPopup === 'start') await column.getByRole('button', { name: 'More ways to start', exact: true }).click()
-  if (actions.leftPopup) await expect(page.locator('[data-slot="popover-popup"]:visible')).toBeVisible()
+  if (actions.leftPopup === 'project') {
+    await column.locator('[data-project-root] button[data-draggable]').first().focus()
+    await page.keyboard.press('Shift+F10')
+    await expect(page.getByRole('menu')).toBeVisible()
+  }
+  if (actions.leftPopup === 'session') {
+    await column.locator('[data-region="session-row"] [data-slot="sidebar-menu-button"]').first().focus()
+    await page.keyboard.press('ContextMenu')
+    await expect(page.getByRole('menu')).toBeVisible()
+  }
+  if (actions.leftPopup === 'card') {
+    await column.locator('[data-region="session-row"] [data-slot="hover-card-trigger"]').first().hover()
+    await expect(page.locator('[data-slot="hover-card-content"]:visible')).toBeVisible()
+  }
+  if (actions.leftPopup && ['inbox', 'account', 'start'].includes(actions.leftPopup)) await expect(page.locator('[data-slot="popover-popup"]:visible')).toBeVisible()
 }

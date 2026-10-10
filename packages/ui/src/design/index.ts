@@ -223,3 +223,5 @@ export { LeftColumn, LeftColumnBody, LeftColumnGroup, LeftColumnHead, LeftColumn
   type LeftColumnRowProps, type LeftColumnTrail, type LeftColumnAction, type LeftColumnTopProps } from './patterns/LeftColumn'
 
 export type { LeftColumnMenu } from './patterns/LeftColumn'
+
+export { LeftColumnList, LeftColumnRename, LeftColumnNavigation, LeftColumnProjectsHead, LeftColumnListOptions, LeftColumnEmpty } from './patterns/LeftColumn'

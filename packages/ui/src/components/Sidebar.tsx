@@ -1,4 +1,4 @@
-import { LeftColumnTop, LeftColumnRow, LeftColumnSeat, LeftColumnGroup } from '../design'
+import { LeftColumn, LeftColumnBody, LeftColumnNavigation, LeftColumnProjectsHead, LeftColumnTop, LeftColumnRow, LeftColumnSeat, LeftColumnGroup } from '../design'
 import { LibraryIcon } from './Icons'
 import { sidebarPlacement } from '../state/workbench'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -26,11 +26,8 @@ import {
   MenuNote,
   MenuSeparator,
   InboxPanel,
-  NavigationGroupHeader,
   Popover,
-  RailSection,
   Search,
-  Chip,
   Text,
   buttonVariants,
   type MenuAccountFigure,
@@ -102,7 +99,6 @@ export const Sidebar = ({
   const [filterFocused, setFilterFocused] = useState(false)
   /** The non-default start flow selected from the adjacent menu. */
   const [starting, setStarting] = useState<boolean>(false)
-  const filtering = filterFocused || query.length > 0
   const listRef = useRef<HTMLDivElement>(null)
   const now = Date.now()
   // Only the ones a person would want to know about: spent, or nearly.
@@ -152,93 +148,53 @@ export const Sidebar = ({
     { id: 'plugins' as const, label: 'Plugins', icon: <PluginIcon size={16} />, run: onOpenPlugins, count: pluginCount },
     { id: 'dashboard' as const, label: 'Dashboard', icon: <UsageIcon size={16} />, run: () => onOpenUsage(), count: lowAgents },
   ]
-  return (
-    <div data-left-column className={styles.sidebar}>
-      <div className={styles.header} data-region="sidebar-header">
-        {top}
-        {starting && projectRootOf(snapshot.workspace) && <FrontDoor context={{ kind: 'project', root: projectRootOf(snapshot.workspace)! }} onClose={() => setStarting(false)} onStarted={execution => { store.openGoal(execution.goal); setStarting(false) }} />}
-        <RailSection as="nav" stretch="head" className={styles.nav} aria-label="Workspace actions">
-          <LeftColumnRow label="New session" icon={<PlusIcon size={16} />}
-            disabled={!ready || !snapshot.workspace} title="Start a session here" onClick={() => store.newDraft()}
-            menu={{ label: 'More ways to start', onOpenChange: open => { if (open) void store.loadWorktrees() },
-              content: close => <WorktreeItems close={close} onChoose={() => setStarting(true)} /> }} />
-          <LeftColumnGroup label="Main sections" heading={false}>
-            {pageDoors.map(door => <LeftColumnRow key={door.id} label={door.label} icon={door.icon}
-              selected={activeDestination === door.id} onClick={door.run}
-              title={door.id === 'agents' && agentsBroken ? 'Agents, some unavailable' : door.label}
-              trailing={door.count > 0 ? { kind: 'count', value: door.count,
-                label: door.id === 'agents' ? `${door.count} Agents${agentsBroken ? ', some unavailable' : ''}` : door.id === 'dashboard' ? `${door.count} Agents need attention` : `${door.count} Plugins` } : undefined} />)}
-          </LeftColumnGroup>
-        </RailSection>
-      </div>
-      <div ref={listRef} className={styles.content} data-region="sidebar-content" onScroll={onScroll}>
-        <NavigationGroupHeader
-          labelInk="muted"
-          label={(
-            <span className={styles.groupLabel}>
-              <span className={styles.projectName}>Projects</span>
-              {query && <span className={styles.filterBadge}><Chip tone="neutral" label="Filtered" /><Button variant="ghost" size="icon-xs" aria-label="Clear list filter" title="Clear list filter" onClick={() => setQuery('')}><CrossIcon size={12} /></Button></span>}
-            </span>
-          )}
-          filtering={filtering}
-          keepLabelWhenFiltering
-          data-surface=""
-          data-filtered={query ? '' : undefined}
-        >
-          <div className={styles.filter}>
-            <Search
-              size="compact" icon="filter" className={styles.filterInput}
-              placeholder="Filter by title" label="Filter this list" title="Filter this list"
-              value={query} onChange={setQuery}
-              onFocus={() => setFilterFocused(true)} onBlur={() => setFilterFocused(false)}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  if (query) event.preventDefault()
-                  setQuery('')
-                  event.currentTarget.blur()
-                }
-              }}
-            />
-          </div>
-          <SessionListControls searching={searchQuery.length > 0} />
-          <Button
-            variant="muted" size="icon-xs" edge="end" edgeGlyph={12} className={styles.listAddButton}
-            onClick={onBrowseFolders} title="Open a project folder" aria-label="Open a project folder"
-          ><PlusIcon size={13} /></Button>
-        </NavigationGroupHeader>
-        <RailSection stretch="list">
-          {snapshot.history.length === 0 && !snapshot.historyLoading && !searchQuery && (
-            <EmptyState
-              variant="inline"
-              title={ready
-                ? `No sessions yet. Start one to see it here${runtime.presentation.historySource ? ` — sessions you run in ${runtime.presentation.historySource} show up too` : ''}.`
-                : 'Connect a runtime to see your sessions.'}
-            />
-          )}
-          <SessionTree
-            now={now}
-            searching={searchQuery.length > 0}
-            searchEmptyState={searchQuery && !snapshot.historyLoading ? (
-              <EmptyState variant="inline" title={`No conversations match “${searchQuery}”.`}>
-                {' '}
-                <Button variant="muted" size="sm" onClick={() => setQuery('')}>Clear search</Button>
-              </EmptyState>
-            ) : null}
-          />
-          {snapshot.historyCursor && query.length === 0 && (
-            <Button variant="muted" size="sm" disabled={snapshot.historyLoading} onClick={() => void store.loadHistory()}>
-              Load more conversations
-            </Button>
-          )}
-        </RailSection>
-      </div>
-      <div className={styles.footer} data-region="sidebar-footer">
-        <Slot name="sidebar.panel" />
-        <SidebarNotices />
-        <AccountFooter onOpenSettings={onOpenSettings} onOpenUsage={onOpenUsage} onSignIn={onSignIn} />
-      </div>
-    </div>
+  const sessionsHead = <>
+    {starting && projectRootOf(snapshot.workspace) && <FrontDoor context={{ kind: 'project', root: projectRootOf(snapshot.workspace)! }} onClose={() => setStarting(false)} onStarted={execution => { store.openGoal(execution.goal); setStarting(false) }} />}
+    <LeftColumnNavigation>
+      <LeftColumnRow label="New session" icon={<PlusIcon size={16} />}
+        disabled={!ready || !snapshot.workspace} title="Start a session here" onClick={() => store.newDraft()}
+        menu={{ label: 'More ways to start', onOpenChange: open => { if (open) void store.loadWorktrees() },
+          content: close => <WorktreeItems close={close} onChoose={() => setStarting(true)} /> }} />
+      <LeftColumnGroup label="Main sections" heading={false}>
+        {pageDoors.map(door => <LeftColumnRow key={door.id} label={door.label} icon={door.icon}
+          selected={activeDestination === door.id} onClick={door.run}
+          title={door.id === 'agents' && agentsBroken ? 'Agents, some unavailable' : door.label}
+          trailing={door.count > 0 ? { kind: 'count', value: door.count,
+            label: door.id === 'agents' ? `${door.count} Agents${agentsBroken ? ', some unavailable' : ''}` : door.id === 'dashboard' ? `${door.count} Agents need attention` : `${door.count} Plugins` } : undefined} />)}
+      </LeftColumnGroup>
+    </LeftColumnNavigation>
+  </>
+  const sessionsBody = (
+    <LeftColumnBody ref={listRef} onScroll={onScroll}>
+    <LeftColumnProjectsHead value={query} onChange={setQuery} focused={filterFocused}
+      onFocusChange={setFilterFocused} options={<SessionListControls searching={searchQuery.length > 0} />}
+      onBrowseFolders={onBrowseFolders} />
+      {snapshot.history.length === 0 && !snapshot.historyLoading && !searchQuery && (
+        <EmptyState
+          variant="inline"
+          title={ready
+            ? `No sessions yet. Start one to see it here${runtime.presentation.historySource ? ` — sessions you run in ${runtime.presentation.historySource} show up too` : ''}.`
+            : 'Connect a runtime to see your sessions.'}
+        />
+      )}
+      <SessionTree
+        now={now}
+        searching={searchQuery.length > 0}
+        searchEmptyState={searchQuery && !snapshot.historyLoading ? (
+          <EmptyState variant="inline" title={`No conversations match “${searchQuery}”.`}>
+            {' '}
+            <Button variant="muted" size="sm" onClick={() => setQuery('')}>Clear search</Button>
+          </EmptyState>
+        ) : null}
+      />
+      {snapshot.historyCursor && query.length === 0 && (
+        <LeftColumnRow label="Load more conversations" disabled={snapshot.historyLoading} onClick={() => { void store.loadHistory() }} />
+      )}
+    </LeftColumnBody>
   )
+  return <LeftColumn top={top} head={sessionsHead} body={sessionsBody}
+    footer={<><Slot name="sidebar.panel" /><SidebarNotices /><AccountFooter onOpenSettings={onOpenSettings}
+      onOpenUsage={onOpenUsage} onSignIn={onSignIn} /></>} />
 }
 
 /**

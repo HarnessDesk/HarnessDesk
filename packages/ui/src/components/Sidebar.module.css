@@ -1,52 +1,9 @@
 /* The sidebar owns only placement. Visible roles come from the design system. */
-.sidebar {
-  --panel-max: 320px;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  min-width: 0;
-}
-
-.header {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-}
-
-.content {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  min-width: 0;
-  gap: var(--hd-space-0);
-  flex-direction: column;
-  overflow-x: hidden;
-  overflow-y: auto;
-  container: sidebar-content / inline-size;
-}
-
-.footer {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  gap: var(--hd-space-1);
-}
-
-
 .groupChevron,
 .accountMeta {
   flex: none;
 }
 
-
-.nav {
-  flex: none;
-}
-
-.nav > * + * {
-  margin-top: var(--hd-space-0-5);
-}
 
 .accountRow,
 .youName {
@@ -60,98 +17,6 @@
   width: 100%;
 }
 
-
-.groupLabel,
-.filterBadge {
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-}
-
-.groupLabel {
-  gap: var(--hd-space-1);
-}
-
-@container sidebar-content (max-width: 15rem) {
-  :global([data-filtered]) .projectName {
-    display: none;
-  }
-}
-
-.filterBadge {
-  gap: var(--hd-space-0-5);
-}
-
-.filter {
-  position: relative;
-  display: flex;
-  align-items: center;
-  flex: none;
-  width: var(--hd-target-min);
-  margin-left: auto;
-  container-type: inline-size;
-}
-
-:global([data-slot='navigation-group-header'][data-filtering]) .filter {
-  flex: 1 1 auto;
-  width: auto;
-  min-width: var(--hd-target-min);
-}
-
-.filterInput,
-.renameInput {
-  width: 100%;
-  min-width: 0;
-}
-
-.listControls {
-  margin-inline-start: calc(-1 * var(--hd-space-1-5));
-  position: relative;
-  display: inline-flex; /* desk: flex → inline-flex, the controls occupy only their trailing rail. */
-}
-
-.filterState {
-  position: absolute;
-  top: 1px;
-  right: 1px;
-  pointer-events: none;
-}
-
-.groupHead,
-.rowWrap {
-  position: relative;
-}
-
-.groupHead {
-  width: 100%;
-  margin-top: var(--hd-space-1);
-}
-
-.nested > * + * {
-  margin-top: var(--hd-space-0-5);
-}
-
-.groupBlank {
-  margin: var(--hd-space-1) var(--hd-space-2) var(--hd-space-2) var(--hd-space-8);
-}
-
-
-.listAddButton {
-  flex: none;
-  width: var(--hd-icon-target);
-}
-
-.headerDisplayAction {
-  margin-inline-end: calc(-1 * var(--hd-space-1-5));
-}
-
-.triage {
-  margin: 0 0 var(--hd-space-2);
-}
-
-.triage > [data-slot='separator'] {
-  margin-top: var(--hd-space-1-5);
-}
 
 .accountRow {
   gap: var(--hd-space-2);
@@ -217,5 +82,3 @@
   gap: var(--hd-space-1-5);
   justify-content: flex-end;
 }
-
-/* @design-owners SessionTree */

@@ -3350,3 +3350,23 @@ export function LeftColumnBoard() { return <LeftColumn
   footer={<LeftColumnSeat settingsOpen={false} onSettings={() => {}}
     menu={<Button variant="ghost" size="pattern" className="inline-flex items-center gap-(--hd-space-2) px-(--hd-space-2) text-(length:--hd-text) font-(weight:--hd-weight-medium)" data-catalog-size="default"><UserIcon size={16} />Jane Doe</Button>} />} />
 }
+
+
+import { LeftColumnList, LeftColumnRename, LeftColumnNavigation, LeftColumnProjectsHead, LeftColumnListOptions, LeftColumnEmpty } from ".."
+export function LeftColumnWorkBoard() {
+  const [filter, setFilter] = useState('')
+  const [focused, setFocused] = useState(false)
+  return <LeftColumn head={<LeftColumnNavigation><LeftColumnRow label="New session" icon={<PlusIcon size={16} />} onClick={() => {}} /></LeftColumnNavigation>} body={<LeftColumnBody>
+    <LeftColumnProjectsHead value={filter} onChange={setFilter} focused={focused} onFocusChange={setFocused}
+      onBrowseFolders={() => {}} options={<LeftColumnListOptions filtered={false}><Button variant="muted" size="icon-xs" aria-label="List options"><MoreIcon size={16} /></Button></LeftColumnListOptions>} />
+    <LeftColumnList before={30} after={30} labels="Release plan|Rename">
+      <LeftColumnRow label="Release plan" icon={<FolderIcon size={16} />} project current expanded
+        action={{ kind: 'new', label: 'New session in Release plan', onClick: () => {} }} />
+      <LeftColumnRename input={<Input aria-label="Rename example" defaultValue="Release plan" />} />
+      <LeftColumnEmpty>No conversations yet — ⌘N starts one here.</LeftColumnEmpty>
+    </LeftColumnList>
+  </LeftColumnBody>} top={null} footer={null} />
+}
+COMPOSITION_BOARDS.push({ id: 'left-column-work', title: 'Left column work rows', about: 'Fixed rows, rename, virtual spacers and the existing project controls.', render: LeftColumnWorkBoard })
+
+import { MoreIcon } from '../../components/Icons'
