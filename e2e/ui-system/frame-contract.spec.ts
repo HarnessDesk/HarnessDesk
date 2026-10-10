@@ -249,3 +249,17 @@ for (const theme of WALL_THEMES) {
     await expect(nav.getByRole('button', { name: 'Back to app', exact: true })).toBeVisible()
   })
 }
+
+for (const theme of WALL_THEMES) {
+  test(`D3 Teams are single rows in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=left-work', theme)
+    const team = page.getByRole('button', { name: 'Room Ship checkout retry', exact: true })
+    await expect(team).toBeVisible()
+    expect((await team.boundingBox())!.height).toBe(FRAME.rail.rowHeight)
+    await expect(team.locator('..').locator('[data-left-trailing]')).toHaveCount(1)
+    await expect(page.locator('[data-left-column] [data-nested="true"]')).toHaveCount(0)
+    await expect(page.locator('[data-left-column] [aria-label*="agents in"]')).toHaveCount(0)
+    await team.click()
+    await expect(team).toHaveAttribute('aria-current', 'page')
+  })
+}

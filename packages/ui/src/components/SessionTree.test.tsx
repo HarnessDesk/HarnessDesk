@@ -18,6 +18,7 @@ import {
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { SessionTree } from './SessionTree'
+import { teamSeats } from '../lib/team-seats'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -128,60 +129,44 @@ it('keeps one tab stop and moves row focus with arrows, Home, End, and type-ahea
   expect(toggleCollapsed).toHaveBeenCalled()
 })
 
-it('keeps room opening separate from its disclosure in the tree keyboard model', () => {
+it('a Team opens once and has no member disclosure or nested conversations', () => {
   const member = summary({ id: 'room-member' })
   const key = String(sessionKey(member.runtime, member.id))
   const roomEntry = room({ id: 'room', name: 'Build', members: [key] })
   const { container: tree, store } = treeWith([roomEntry], [member], [], { collapsed: ['room'] })
   const opener = roomRow(tree, 'Build') as HTMLButtonElement
-  const disclosure = [...tree.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-action"]')].find((one) => one.getAttribute('aria-label')?.includes('agents in Build'))!
-  expect(opener.hasAttribute('aria-expanded')).toBe(false)
-  expect(disclosure.getAttribute('aria-expanded')).toBe('false')
-
+  expect(tree.querySelector('[aria-label*="agents in Build"]')).toBeNull()
+  expect(tree.querySelector('[data-nested="true"]')).toBeNull()
   act(() => opener.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+  expect(store.openTeamRoom).toHaveBeenCalledTimes(1)
   expect(store.openTeamRoom).toHaveBeenCalledWith('room')
   act(() => opener.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })))
   expect(store.openTeamRoom).toHaveBeenCalledTimes(1)
-  expect(tree.querySelector('[aria-label*="agents in Build"]')?.getAttribute('aria-expanded')).toBe('true')
 })
 
-it('ArrowLeft collapses an expanded room from its opening row', () => {
+it('ArrowLeft from a Team focuses its owning project without opening the Team', () => {
   const member = summary({ id: 'room-member' })
-  const key = String(sessionKey(member.runtime, member.id))
-  const { container: tree, store } = treeWith([room({ id: 'room', name: 'Build', members: [key] })], [member])
-  const opener = roomRow(tree, 'Build') as HTMLButtonElement
+  const { container: tree, store } = treeWith([room({ id: 'room', name: 'Build', members: [String(sessionKey(member.runtime, member.id))] })], [member])
+  const opener = roomRow(tree, 'Build')
   act(() => opener.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true })))
-  expect(tree.querySelector('[aria-label*="agents in Build"]')?.getAttribute('aria-expanded')).toBe('false')
+  expect(document.activeElement).toBe(tree.querySelector('[aria-expanded="true"]'))
   expect(store.openTeamRoom).not.toHaveBeenCalled()
 })
 
-it('ArrowLeft from a room member focuses the room row before collapsing it', () => {
+
+it('a Team keeps one keyboard row when its member is active', () => {
   const member = summary({ id: 'room-member' })
-  const key = String(sessionKey(member.runtime, member.id))
-  const { container: tree } = treeWith(
-    [room({ id: 'room', name: 'Build', members: [key] })],
-    [member],
-    [],
-    {},
-    undefined,
-    null,
-    new Map(),
-    {},
-  )
-  const opener = roomRow(tree, 'Build') as HTMLButtonElement
-  const memberRow = [...tree.querySelectorAll<HTMLButtonElement>('[data-nested="true"] [data-slot="sidebar-menu-button"]')]
-    .find((row) => row.textContent?.trim() === 'room-member')!
-  memberRow.focus()
-  expect(document.activeElement).toBe(memberRow)
-
-  act(() => memberRow.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true })))
-
+  const { container: tree } = treeWith([room({ id: 'room', name: 'Build', members: [String(sessionKey(member.runtime, member.id))] })], [member], [], {}, undefined, sessionKey(member.runtime, member.id))
+  const opener = roomRow(tree, 'Build')
+  opener.focus()
   expect(document.activeElement).toBe(opener)
-  expect(tree.querySelector('[data-nested="true"] [data-slot="sidebar-menu-button"]')).toBeNull()
-  expect(tree.querySelector('[data-slot="sidebar-menu-action"][aria-label*="agents in Build"]')?.getAttribute('aria-expanded')).toBe('false')
+  expect(tree.querySelector('[data-nested="true"]')).toBeNull()
+  act(() => opener.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true })))
+  expect(document.activeElement).toBe(tree.querySelector('[aria-expanded="true"]'))
 })
 
-it('uses each nested room member as its own navigation row inside a virtual project', () => {
+
+it('uses a Team as one navigation row inside a virtual project', () => {
   const first = summary({ id: 'first-member', updatedAt: 1000 })
   const second = summary({ id: 'second-member', updatedAt: 999 })
   const members = [String(sessionKey(first.runtime, first.id)), String(sessionKey(second.runtime, second.id))]
@@ -194,11 +179,14 @@ it('uses each nested room member as its own navigation row inside a virtual proj
   const mounted = tree.querySelector<HTMLButtonElement>('[data-virtual-index] [data-slot="sidebar-menu-button"]')!
   act(() => mounted.dispatchEvent(new KeyboardEvent('keydown', { key: 'Home', bubbles: true, cancelable: true })))
   const labels = [...tree.querySelectorAll<HTMLElement>('[data-slot="sidebar-menu-label"]')].map((one) => one.textContent?.trim())
-  expect(labels).toContain('first-member')
-  const firstButton = [...tree.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')].find((one) => one.textContent?.trim() === 'first-member')!
-  act(() => firstButton.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })))
-  expect(document.activeElement?.textContent?.trim()).toBe('second-member')
+  expect(labels).not.toContain('first-member')
+  expect(labels).not.toContain('second-member')
+  const team = roomRow(tree, 'Virtual room')
+  act(() => team.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true, cancelable: true })))
+  expect(document.activeElement?.textContent?.trim()).toBe('loose-0')
+  expect(tree.querySelector('[data-nested="true"]')).toBeNull()
 })
+
 
 it('uses the rendered room and live session names for virtual type-ahead', () => {
   const renamed = summary({ id: 'renamed', title: 'Old title', updatedAt: 1000 })
@@ -517,7 +505,6 @@ const treeWith = (
   goals: ReadonlyMap<string, GoalView> = new Map(),
   /** Extra store methods a test needs answered — `RoomOrigin`'s `triggerGoal`, say. */
   storeOverrides: Partial<AppStore> = {},
-  expandTeams = true,
 ): { container: HTMLElement; store: AppStore; update: (patch: Partial<AppSnapshot>) => void } => {
   let snapshot = {
     ...emptySnapshot(),
@@ -552,13 +539,6 @@ const treeWith = (
       </StoreProvider>,
     )
   })
-  // Tests inspecting child behavior expand through the real disclosure first.
-  if (expandTeams) {
-    for (const disclosure of container.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-action"][aria-label^="Show the agents in"]')) {
-      const board = rooms.find(one => disclosure.getAttribute('aria-label') === `Show the agents in ${goals.get(one.id)?.goal ? goals.get(one.id)!.goal.sentence : one.name}`)
-      if (!board || !prefs.collapsed?.includes(board.id)) act(() => disclosure.click())
-    }
-  }
   return {
     container,
     store,
@@ -576,7 +556,7 @@ it.each(['project', 'Other projects', 'Team'])('does not report matches hidden b
     ? [match, summary({ id: 'second', cwd: '/second' }), summary({ id: 'third', cwd: '/third' })]
     : [match]
   const prefs = fold === 'project' ? { collapsed: ['/repo'] } : { othersOpen: false }
-  const { store } = treeWith(rooms, sessions, [], prefs, undefined, null, undefined, {}, false)
+  const { store } = treeWith(rooms, sessions, [], prefs, undefined, null, undefined, {})
   act(() => root.render(
     <StoreProvider store={store}>
       <SessionTree now={3} searching searchEmptyState={<div data-testid="empty-search">No conversations match “needle”.</div>} />
@@ -636,8 +616,8 @@ it('keeps a working Seat under its Team', () => {
     [active],
   )
 
-  expect(rowTitles(tree).filter((title) => title === 'session-room-member')).toHaveLength(1)
-  expect(roomRow(tree, 'Release room')).toBeTruthy()
+  expect(rowTitles(tree).filter((title) => title === 'session-room-member')).toHaveLength(0)
+  expect(roomRow(tree, 'Release room').closest('[data-left-row]')?.querySelector('[aria-label="Working"]')).not.toBeNull()
 })
 
 it('keeps a conversation in its project when its turn ends', () => {
@@ -850,12 +830,10 @@ it('scrolls the active session row into view', () => {
   }
 })
 
-const roomRow = (where: HTMLElement, name: string): HTMLElement => {
-  const found = [...where.querySelectorAll('[role="button"]')].find(
-    (one) => one.getAttribute('aria-label') === `Room ${name}`,
-  )
-  if (!found) throw new Error(`no room row for ${name}`)
-  return found as HTMLElement
+const roomRow = (where: HTMLElement, name: string): HTMLButtonElement => {
+  const row = where.querySelector<HTMLButtonElement>(`[data-slot="sidebar-menu-button"][aria-label="Room ${name}"]`)
+  if (!row) throw new Error(`Missing Team row ${name}`)
+  return row
 }
 
 const rowTitles = (where: HTMLElement): string[] =>
@@ -874,7 +852,7 @@ const triggerGoalView = (board: TeamState, activity: GoalView['activity'] = 'wor
 })
 
 /** The Team header names the work; each folded Seat keeps its own conversation title. */
-it('names waiting Teams by their Goal and keeps each Seat’s title on its own line', () => {
+it('names waiting Teams by their Goal and retains attention without nested Seats', () => {
   const key1 = sessionKey('codex', sessionId('s1'))
   const key2 = sessionKey('codex', sessionId('s2'))
   const roomA = room({ id: 'g1', name: 'Issue #42, from trigger triage-issue', members: [key1] })
@@ -898,24 +876,16 @@ it('names waiting Teams by their Goal and keeps each Seat’s title on its own l
   expect(container.querySelector('[data-tone="waiting"]')).toBeNull()
   for (const name of ['Issue #42', 'Issue #43']) {
     const row = roomRow(container, name)
-    expect(row.textContent).toBe(`${name}Needs you`)
-    expect(row.querySelectorAll('[data-slot="chip"]')).toHaveLength(1)
+    expect(row.textContent).toBe(name)
+    expect(row.title).toContain('Needs you')
+    expect(row.closest('[data-left-row]')?.querySelector('[aria-label="Needs you"]')).not.toBeNull()
+    expect(row.querySelectorAll('[data-slot="chip"]')).toHaveLength(0)
     expect(row.querySelector('[class*="rowMeta"]')).toBeNull()
-    const disclosure = container.querySelector<HTMLButtonElement>(`[aria-label="Show the agents in ${name}"]`)!
-    act(() => disclosure.click())
-    const seat = row.closest('li')!.querySelector('[data-region="session-row"]')!
-    expect(seat.textContent).toContain('TriagerNeeds you')
+    expect(container.querySelector('[data-nested="true"]')).toBeNull()
   }
 })
 
-/**
- * A Goal's row is one line: its name, one state chip, then its counts. The
- * origin used to take a second line ("from issue #43") under a name that
- * already said "Issue #43", and the trigger's own id sat in the name itself.
- * jsdom lays nothing out, so the overlap the floor caused is read from its
- * shape: the chip and the counts are never inside the name's line box, and
- * the name is the only thing given to fade.
- */
+
 it('draws a trigger Goal’s row on one line: its subject and one running mark', async () => {
   const board = room({ id: 'g1', name: 'Issue #43, from trigger triage-issue', updatedAt: 4 })
   const triggerGoal = vi.fn(async () => ({
@@ -928,7 +898,7 @@ it('draws a trigger Goal’s row on one line: its subject and one running mark',
   const head = row.querySelector('[data-slot="sidebar-menu-label"]')
   expect(head?.textContent).toBe('Issue #43')
   expect(row.querySelectorAll('[data-slot="chip"]')).toHaveLength(0)
-  expect(row.closest('li')?.querySelector('[data-slot="spinner"]')).not.toBeNull()
+  expect(row.closest('[data-left-row]')?.querySelector('[data-slot="spinner"]')).not.toBeNull()
   expect(row.querySelector('[class*="rowMeta"]')).toBeNull()
   expect(row.textContent).not.toContain('from issue')
   expect(row.textContent).not.toContain('triage-issue')
@@ -937,7 +907,7 @@ it('draws a trigger Goal’s row on one line: its subject and one running mark',
   expect(triggerGoal).not.toHaveBeenCalled()
 })
 
-it('a room is a row under its project, and its members hang off it', () => {
+it('a Team is a single row under its project beside loose conversations', () => {
   const { container: tree } = treeWith(
     [room({ id: 'r1', name: 'Checkout rewrite', members: [sessionKey('codex', sessionId('session-1'))] })],
     [summary({ id: 'session-1' }), summary({ id: 'session-2' })],
@@ -947,11 +917,10 @@ it('a room is a row under its project, and its members hang off it', () => {
   expect(row.textContent).toContain('Checkout rewrite')
   expect(row.getAttribute('data-slot')).toBe('sidebar-menu-button')
   expect(row.tagName).toBe('BUTTON')
-  // The member is inside the room's own block; the loose one is not.
-  const nested = row.closest('[data-slot="sidebar-menu-item"]')?.querySelector('[data-slot="sidebar-menu"]')
-  expect(nested?.textContent).toContain('session-1')
-  expect(nested?.textContent).not.toContain('session-2')
+  expect(tree.querySelector('[data-nested="true"]')).toBeNull()
+  expect(rowTitles(tree)).toEqual(['session-2'])
 })
+
 
 it('shows Goal activity and keeps wrapped Goals on the Teams page', () => {
   const openBoard = room({ id: 'g1', name: 'Ship release', updatedAt: 4 })
@@ -971,7 +940,7 @@ it('shows Goal activity and keeps wrapped Goals on the Teams page', () => {
   ])
   const { container: tree } = treeWith([openBoard, wrappedBoard], [], [], {}, undefined, null, goals)
 
-  expect(roomRow(tree, 'Ship release').textContent).toContain('Needs you')
+  expect(roomRow(tree, 'Ship release').title).toContain('Needs you')
   expect(tree.textContent).not.toContain('Wrapped · 1')
   expect(tree.querySelector('[aria-label="Room Prepare release"]')).toBeNull()
 })
@@ -1034,7 +1003,7 @@ it('keeps unlinked receipt Seats off the sidebar', () => {
   expect(tree.textContent).not.toMatch(/Gamma|Delta|Keeper/)
 })
 
-it('a conversation in a room is listed once, under the room', () => {
+it('a conversation in a Team stays out of loose rows', () => {
   // Two rows for one session — the room's copy and a loose copy — would make
   // the tree disagree with itself about how many conversations there are, and
   // leave no way to tell which of the two could be pinned or deleted.
@@ -1042,27 +1011,21 @@ it('a conversation in a room is listed once, under the room', () => {
     [room({ id: 'r1', name: 'Checkout rewrite', members: [sessionKey('codex', sessionId('session-1'))] })],
     [summary({ id: 'session-1' }), summary({ id: 'session-2' })],
   )
-  expect(rowTitles(tree).filter((title) => title === 'session-1')).toHaveLength(1)
+  expect(rowTitles(tree).filter((title) => title === 'session-1')).toHaveLength(0)
   expect(rowTitles(tree)).toContain('session-2')
 })
 
-it('the twisty hides the members without opening the room', () => {
-  // "Show me who is in here" and "take me in there" are different questions,
-  // and a tree that answers the wrong one is a tree you stop expanding.
-  const { container: tree, store } = treeWith(
-    [room({ id: 'r1', name: 'Checkout rewrite', members: [sessionKey('codex', sessionId('session-1'))] })],
-    [summary({ id: 'session-1' })],
-  )
-  const twisty = roomRow(tree, 'Checkout rewrite').parentElement?.querySelector('[data-slot="sidebar-menu-action"]')
-  act(() => (twisty as HTMLButtonElement).click())
-
-  expect(twisty?.getAttribute('aria-expanded')).toBe('false')
+it('a Team has no disclosure even when legacy collapsed preferences name it', () => {
+  const { container: tree, store } = treeWith([room({ id: 'r1', name: 'Checkout rewrite', members: [sessionKey('codex', sessionId('session-1'))] })], [summary({ id: 'session-1' })], [], { collapsed: ['r1'] })
+  const opener = roomRow(tree, 'Checkout rewrite')
+  expect(opener.hasAttribute('aria-expanded')).toBe(false)
+  expect(opener.closest('[data-left-row]')?.querySelector('[data-slot="sidebar-menu-action"]')).toBeNull()
   expect(tree.querySelector('[data-nested="true"]')).toBeNull()
   expect(store.openTeamRoom).not.toHaveBeenCalled()
 })
 
-/* The row and the disclosure are sibling buttons; each answers its own keys. */
-it('the room row answers its own keys and leaves the twisty theirs', () => {
+
+it('the Team row answers Enter and Space exactly once', () => {
   const { container: tree, store } = treeWith([room({ id: 'r1', name: 'Checkout rewrite' })])
   const row = roomRow(tree, 'Checkout rewrite')
   expect([...tree.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')][0]!.tabIndex).toBe(0)
@@ -1077,41 +1040,19 @@ it('the room row answers its own keys and leaves the twisty theirs', () => {
   expect(store.openTeamRoom).toHaveBeenCalledTimes(2)
   expect(store.openTeamRoom).toHaveBeenLastCalledWith('r1')
 
-  // The disclosure's keys must not open the room.
-  const twisty = row.parentElement?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"]')!
-  for (const key of ['Enter', ' ']) {
-    const press = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
-    act(() => { twisty.dispatchEvent(press) })
-    expect(press.defaultPrevented, key).toBe(false)
-  }
-  expect(store.openTeamRoom).toHaveBeenCalledTimes(2)
-
   expect(row.querySelector('[aria-label^="Actions for"]')).toBeNull()
 })
 
-it('the twisty answers the keyboard too, and the row does not answer for it', () => {
-  /* The disclosure is a sibling button, so its keys stay separate. */
-  const { container: tree, store } = treeWith(
-    [room({ id: 'r1', name: 'Checkout rewrite', members: [sessionKey('codex', sessionId('session-1'))] })],
-    [summary({ id: 'session-1' })],
-  )
-  const twisty = roomRow(tree, 'Checkout rewrite').parentElement?.querySelector('[data-slot="sidebar-menu-action"]') as HTMLButtonElement
-
-  for (const key of ['Enter', ' ']) {
-    act(() => {
-      twisty.dispatchEvent(new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
-    })
-  }
+it('a Team ArrowRight preserves project disclosure and does not open the Team', () => {
+  const { container: tree, store } = treeWith([room({ id: 'r1', name: 'Checkout rewrite' })])
+  const row = roomRow(tree, 'Checkout rewrite')
+  act(() => row.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true })))
   expect(store.openTeamRoom).not.toHaveBeenCalled()
-
-  // And the row still answers for itself.
-  act(() => {
-    roomRow(tree, 'Checkout rewrite').dispatchEvent(
-      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
-    )
-  })
-  expect(store.openTeamRoom).toHaveBeenCalledWith('r1')
+  expect(tree.querySelector('[aria-expanded="true"]')).not.toBeNull()
+  act(() => row.click())
+  expect(store.openTeamRoom).toHaveBeenCalledTimes(1)
 })
+
 
 it('the row itself opens the room', () => {
   const { container: tree, store } = treeWith([room({ id: 'r1', name: 'Checkout rewrite' })])
@@ -1140,7 +1081,7 @@ it('orders rooms and loose conversations together by recency', () => {
   const nested = tree.querySelector('[class*="nested"]')
   if (!nested) throw new Error('project rows did not render')
   const rows = [...nested.children].map((child) => {
-    const roomRow = child.querySelector('[role="button"]')
+    const roomRow = child.querySelector('[aria-label^="Room "]')
     if (roomRow) return roomRow.getAttribute('aria-label')
     return child.querySelector('button')?.textContent?.trim() ?? null
   })
@@ -1160,7 +1101,7 @@ it('moves pinned conversations out of the project while leaving the room row', (
   const nested = tree.querySelector('[class*="nested"]')
   if (!nested) throw new Error('project rows did not render')
   const rows = [...nested.children].map((child) => {
-    const roomRow = child.querySelector('[role="button"]')
+    const roomRow = child.querySelector('[aria-label^="Room "]')
     if (roomRow) return roomRow.getAttribute('aria-label')
     return child.querySelector('button')?.textContent?.trim() ?? null
   })
@@ -1302,7 +1243,7 @@ it('two rooms of one name in a project outside the tree are two rows', () => {
     room({ id: 'r1', name: 'Checkout rewrite', root: '/checkout-api' }),
     room({ id: 'r2', name: 'Checkout rewrite', root: '/checkout-api' }),
   ])
-  const rows = [...tree.querySelectorAll('[role="button"]')].filter(
+  const rows = [...tree.querySelectorAll('button[aria-label^="Room "]')].filter(
     (one) => one.getAttribute('aria-label') === 'Room Checkout rewrite',
   )
   expect(rows).toHaveLength(2)
@@ -1328,7 +1269,7 @@ it('a room in a project the tree is already showing does not add a second row', 
   expect(roomRow(tree, 'Checkout rewrite')).toBeTruthy()
 })
 
-it('a room in a project the tree drew for its own sake keeps its members under an agent filter', () => {
+it('a Team-only project remains one row under an agent filter', () => {
   /* The member lookup used to be starved rather than filtered: it consulted
      the live session map only while no filter was set, which was the right
      rule by accident and only for as long as the room's own project carried
@@ -1348,15 +1289,12 @@ it('a room in a project the tree drew for its own sake keeps its members under a
   })
   // No history at all, so this project is in the tree only because the room is.
   const { container: tree } = treeWith([both], [], [codex, claude], { agent: runtimeId('codex') })
-  const row = roomRow(tree, 'Checkout rewrite')
-  expect(row.closest('[data-slot="sidebar-menu-item"]')?.textContent).not.toContain('No agents in here yet')
-  // The filter still decides *which* members: Codex's is kept, Claude's is not.
-  expect(rowTitles(row.closest('[data-slot="sidebar-menu-item"]') as HTMLElement)).toEqual(['session-1'])
-  const disclosure = row.parentElement?.querySelector('[data-slot="sidebar-menu-action"]')
-  expect(disclosure?.getAttribute('title')).toBe(
-    "1 of this room's conversations match the agent filter",
-  )
+  expect(roomRow(tree, 'Checkout rewrite')).toBeTruthy()
+  expect(tree.querySelector('[data-nested="true"]')).toBeNull()
+  expect(rowTitles(tree)).toEqual([])
+  expect(teamSeats(undefined, both, null).map(one => String(one.key))).toEqual(both.members)
 })
+
 
 it('a room-only project waits inside "Other projects" like any project you have not opened', () => {
   /* Where the extra folder ends up, said out loud. A pushed row is never the
@@ -1409,7 +1347,7 @@ it('keeps an empty room quiet without a zero or empty-state sentence', () => {
   expect(row.parentElement?.textContent).not.toContain('0')
 })
 
-it('lists a member the history has not caught up with', () => {
+it('keeps a live-only member owned by its Team before history catches up', () => {
   /* Adding an agent from the room's own rail put it in the roster while the
      tree said "No agents in here yet" directly beneath it — a conversation
      reaches `sessions` a beat before it reaches `history`, and the room was
@@ -1420,10 +1358,11 @@ it('lists a member the history has not caught up with', () => {
     [],
     [fresh],
   )
-  const block = roomRow(tree, 'Checkout rewrite').closest('[data-slot="sidebar-menu-item"]')
-  expect(block?.textContent).not.toContain('No agents in here yet')
-  expect(block?.textContent).toContain('Untitled session')
+  expect(roomRow(tree, 'Checkout rewrite')).toBeTruthy()
+  expect(tree.querySelector('[data-nested="true"]')).toBeNull()
+  expect(tree.textContent).not.toContain('Untitled session')
 })
+
 
 it('a filtered list does not smuggle a member back in through the live map', () => {
   // The filter applies to every other row; a room that ignored it would list
@@ -1437,14 +1376,11 @@ it('a filtered list does not smuggle a member back in through the live map', () 
     [fresh],
     { agent: runtimeId('codex') },
   )
-  const row = roomRow(tree, 'Checkout rewrite')
-  const block = row.closest('[data-slot="sidebar-menu-item"]')
-  expect(block?.textContent).not.toContain('No agents in here yet')
-  expect(block?.textContent).not.toContain('Filtered away')
-  expect(row.parentElement?.querySelector('[data-slot="sidebar-menu-action"]')?.getAttribute('title')).toBe(
-    "0 of this room's conversations match the agent filter",
-  )
+  expect(roomRow(tree, 'Checkout rewrite')).toBeTruthy()
+  expect(tree.textContent).not.toContain('Filtered away')
+  expect(tree.querySelector('[data-nested="true"]')).toBeNull()
 })
+
 
 it('a room reserves its trailing badge for messages and explains other counts on hover', () => {
   const { container: tree } = treeWith([
@@ -1452,12 +1388,12 @@ it('a room reserves its trailing badge for messages and explains other counts on
   ])
   const row = roomRow(tree, 'Checkout rewrite')
   expect(row.title).toContain('1 claimed job')
-  const badge = row.parentElement?.querySelector('[data-slot="sidebar-menu-badge"]')
+  const badge = row.closest('[data-left-row]')?.querySelector('[data-left-mark]')
   expect(badge?.textContent).toBe('1')
-  expect(badge?.getAttribute('title')).toContain('1 held message')
+  expect(badge?.getAttribute('aria-label')).toContain('1 held message')
 })
 
-it('a filtered room row says the number is filtered', () => {
+it('a filtered Team row never presents member counts as an unfiltered total', () => {
   /* `members` is resolved against what the tree is showing, so under an agent
      filter it is a subset. Stating it as "N conversations in this room" told
      the reader the room was smaller than it is — all three reviewers of
@@ -1470,15 +1406,13 @@ it('a filtered room row says the number is filtered', () => {
   ] })
 
   const plain = treeWith([both], [codex, claude])
-  const plainCount = roomRow(plain.container, 'Checkout rewrite').parentElement?.querySelector('[data-slot="sidebar-menu-action"]')
-  expect(plainCount?.getAttribute('title')).toBe('2 conversations in this room')
-
+  expect(roomRow(plain.container, 'Checkout rewrite').textContent).toBe('Checkout rewrite')
+  expect(plain.container.querySelector('[data-nested="true"]')).toBeNull()
   const filtered = treeWith([both], [codex], [], { agent: runtimeId('codex') })
-  const filteredCount = roomRow(filtered.container, 'Checkout rewrite').parentElement?.querySelector('[data-slot="sidebar-menu-action"]')
-  expect(filteredCount?.getAttribute('title')).toBe(
-    "1 of this room's conversations match the agent filter",
-  )
+  expect(roomRow(filtered.container, 'Checkout rewrite').textContent).toBe('Checkout rewrite')
+  expect(teamSeats(undefined, both, null).map(one => String(one.key))).toHaveLength(2)
 })
+
 
 it('no board readout stands over the whole tree', () => {
   // The old line said "Room · 2 open · 1 claimed" above every project while
@@ -2001,31 +1935,33 @@ it.each([
   }
   if (activity === 'working') {
     expect(roomRow(tree, board.name).textContent).toBe(board.name)
-    expect(roomRow(tree, board.name).closest('li')?.querySelector('[data-slot="spinner"]')).not.toBeNull()
+    expect(roomRow(tree, board.name).closest('[data-left-row]')?.querySelector('[data-slot="spinner"]')).not.toBeNull()
     return
   }
-  const mark = roomRow(tree, board.name).querySelector('[data-slot="sidebar-menu-state"]')!
+  const mark = roomRow(tree, board.name).closest('[data-left-row]')?.querySelector('[data-left-mark]')!
   expect(mark.getAttribute('aria-label')).toBe(label)
-  expect(mark.querySelector('[data-slot="chip"]')?.getAttribute('data-tone')).toBe(tone)
-  expect(mark.querySelector('[data-sidebar-menu-state-compact] [data-slot="dot"]')?.getAttribute('data-state')).toBe(state)
+  expect(mark.querySelector('[data-slot="dot"]')?.getAttribute('data-state')).toBe(state)
 })
 
-it('nests both Goal Seats under their Team once when its older roster is empty', () => {
+it('owns both Goal Seats without nested rows when its older roster is empty', () => {
  const first=summary({id:'session-flow-writer'}),second=summary({id:'session-flow-reviewer'})
  const board=room({id:'flow-team',name:'Flow team',members:[]})
  const view={goal:{id:board.id,state:'open',sentence:'Flow team',origin:{kind:'person'}},board,members:[first,second].map((one,index)=>({id:`seat-${index}`,session:{runtime:one.runtime,sessionId:one.id},role:index?'reviewer':'writer',openedAt:1,closed:null,agent:{name:'Agent'}}))} as unknown as GoalView
  const {container:tree}=treeWith([board],[first,second],[],{},undefined,null,new Map([[board.id,view]]))
- expect(rowTitles(tree).filter(title=>title==='session-flow-writer')).toHaveLength(1)
- const opener=roomRow(tree,'Flow team')!
- expect(opener.closest('[data-slot="sidebar-menu-item"]')?.textContent).toContain('session-flow-writer')
- expect(opener.closest('[data-slot="sidebar-menu-item"]')?.textContent).toContain('session-flow-reviewer')
+ expect(teamSeats(view, board, null).map(one => String(one.key))).toEqual([first, second].map(one => String(sessionKey(one.runtime, one.id))))
+ expect(rowTitles(tree)).toEqual([])
+ expect(roomRow(tree, 'Flow team')).toBeTruthy()
+ expect(tree.querySelector('[data-nested="true"]')).toBeNull()
 })
+
 
 it('keeps a durable Seat in the Team tree when no live session or history is held', () => {
  const board=room({id:'rested-team',name:'Rested Team',members:[]})
  const view={...triggerGoalView(board),members:[{id:'rested-seat',session:{runtime:'codex',sessionId:'rested'},role:'reviewer',openedAt:1,closed:null,agent:{name:'Rested reviewer'}}]} as unknown as GoalView
  const {container:tree}=treeWith([board],[],[],{},undefined,null,new Map([[board.id,view]]))
- expect(tree.textContent).toContain('Reviewer · Rested Team')
+ expect(teamSeats(view, board, null).map(one => String(one.key))).toEqual([String(sessionKey('codex', sessionId('rested')))])
+ expect(roomRow(tree, 'Rested Team')).toBeTruthy()
+ expect(tree.querySelector('[data-nested="true"]')).toBeNull()
 })
 
 it('keeps settled Teams and their Seats out of the sidebar, and brings attention back', () => {
@@ -2054,61 +1990,48 @@ it('keeps working and waiting state on the conversation row inside its project',
   expect([...project.querySelectorAll('[data-region="session-row"] [data-slot="sidebar-menu-label"]')].map(one => one.textContent)).toEqual(['busy-row', 'waiting-rowNeeds you'])
 })
 
-it('starts a Team folded and keeps every Seat under it even when pinned or needing you', () => {
+it('keeps pinned and waiting Seats owned by the sole Team row', () => {
   const seats = ['Writer', 'Reviewer', 'Tester'].map(id => summary({ id }))
   const board = room({ id: 'folded-team', name: 'Ship retry', members: seats.map(one => String(sessionKey(one.runtime, one.id))) })
-  const view = treeWith([board], seats, [], { pinnedSessions: [sessionKey(seats[0]!.runtime, seats[0]!.id)] }, undefined, null, new Map(), {}, false)
+  const view = treeWith([board], seats, [], { pinnedSessions: [sessionKey(seats[0]!.runtime, seats[0]!.id)] }, undefined, null, new Map(), {})
   view.update({ approvals: [{ key: sessionKey(seats[1]!.runtime, seats[1]!.id), approval: {} }] as unknown as AppSnapshot['approvals'] })
-  const disclosure = view.container.querySelector<HTMLButtonElement>('[aria-label="Show the agents in Ship retry"]')!
-  expect(disclosure).not.toBeNull()
-  expect(disclosure.getAttribute('aria-expanded')).toBe('false')
+  expect(view.container.querySelector('[aria-label*="agents in Ship retry"]')).toBeNull()
   expect(view.container.querySelectorAll('[data-region="session-row"]')).toHaveLength(0)
-  expect(roomRow(view.container, 'Ship retry').textContent).toContain('Needs you')
-  act(() => disclosure.click())
-  const nested = roomRow(view.container, 'Ship retry').closest('li')!.querySelector('[data-nested="true"]')!
-  expect(nested.querySelectorAll('[data-region="session-row"]')).toHaveLength(3)
+  expect(roomRow(view.container, 'Ship retry').title).toContain('Needs you')
   expect(view.container.querySelector('[data-sidebar-band="pinned"]')).toBeNull()
-  expect(view.container.querySelectorAll('[data-region="session-row"]')).toHaveLength(3)
+  expect(view.container.querySelector('[data-nested="true"]')).toBeNull()
 })
 
-it.each(['/repo', '/other-checkout'])('reveals an externally activated Seat from %s without undoing a deliberate fold', (cwd) => {
+
+it.each(['/repo', '/other-checkout'])('reveals the owning Team for an externally activated Seat from %s', (cwd) => {
   const seat = summary({ id: 'activated-seat', title: 'Writer', cwd })
   const key = sessionKey(seat.runtime, seat.id)
   const board = room({ id: 'activate-team', name: 'Ship retry', members: [String(key)] })
-  const view = treeWith([board], [seat], [], {}, undefined, null, new Map(), {}, false)
+  const view = treeWith([board], [seat], [], {}, undefined, null, new Map(), {})
   expect(view.container.querySelector('[aria-current="page"]')).toBeNull()
 
   view.update({ activeSessionKey: key })
 
-  const selected = view.container.querySelector<HTMLButtonElement>('[aria-current="page"]')
-  expect(selected?.textContent).toBe('Writer')
-  expect(selected?.closest('[data-project-root]')?.getAttribute('data-project-root')).toBe('/repo')
-  expect(selected?.closest('[data-nested="true"]')).not.toBeNull()
-  expect(selected?.tabIndex).toBe(0)
-  expect(view.container.querySelectorAll('[aria-current="page"]')).toHaveLength(1)
-
-  const disclosure = view.container.querySelector<HTMLButtonElement>('[aria-label="Hide the agents in Ship retry"]')!
-  act(() => disclosure.click())
+  const opener = roomRow(view.container, 'Ship retry')
+  expect(opener.closest('[data-project-root]')?.getAttribute('data-project-root')).toBe('/repo')
+  expect(view.container.querySelector('[data-nested="true"]')).toBeNull()
+  expect(view.container.querySelector('[aria-current="page"]')).toBeNull()
   view.update({ teams: new Map([[board.id, { ...board, updatedAt: 5 }]]) })
-  expect(view.container.querySelector('[aria-current="page"]')).toBeNull()
-  expect(view.container.querySelector('[aria-label="Show the agents in Ship retry"]')?.getAttribute('aria-expanded')).toBe('false')
-
-  view.update({ activeSessionKey: null })
-  view.update({ activeSessionKey: key })
-  expect(view.container.querySelector('[aria-current="page"]')?.textContent).toBe('Writer')
+  expect(roomRow(view.container, 'Ship retry')).toBeTruthy()
 })
+
 
 it('reveals an activated cross-checkout Seat in its owning far project, keeping later folds', () => {
   const seat = summary({ id: 'far-seat', cwd: '/other-checkout' })
   const key = sessionKey(seat.runtime, seat.id)
   const board = room({ id: 'far-team', name: 'Far Team', root: '/far', members: [String(key)] })
   const view = treeWith([board], [seat, summary({ id: 'near-one' })], [],
-    { collapsed: ['/far'] }, undefined, null, new Map(), {}, false)
+    { collapsed: ['/far'] }, undefined, null, new Map(), {})
   view.update({ activeSessionKey: key })
   expect(view.store.toggleCollapsed).toHaveBeenCalledWith('/far')
   expect(view.store.setOthersOpen).toHaveBeenCalledWith(true)
   view.update({ listPrefs: { ...view.store.getSnapshot().listPrefs, collapsed: [], othersOpen: true } })
-  expect(view.container.querySelector('[aria-current="page"]')?.closest('[data-project-root]')?.getAttribute('data-project-root')).toBe('/far')
+  expect(roomRow(view.container, 'Far Team').closest('[data-project-root]')?.getAttribute('data-project-root')).toBe('/far')
 
   vi.mocked(view.store.toggleCollapsed).mockClear()
   vi.mocked(view.store.setOthersOpen).mockClear()
@@ -2121,20 +2044,22 @@ it('reveals the owning Team when its roster arrives after activation', () => {
   const seat = summary({ id: 'late-seat' })
   const key = sessionKey(seat.runtime, seat.id)
   const board = room({ id: 'late-team', name: 'Late Team', members: [String(key)] })
-  const view = treeWith([], [seat], [], {}, undefined, key, new Map(), {}, false)
+  const view = treeWith([], [seat], [], {}, undefined, key, new Map(), {})
   view.update({ teams: new Map([[board.id, board]]) })
-  const selected = view.container.querySelector('[aria-current="page"]')!
-  expect(selected.closest('[data-nested="true"]')).not.toBeNull()
-  expect(view.container.querySelectorAll('[aria-current="page"]')).toHaveLength(1)
+  expect(roomRow(view.container, 'Late Team')).toBeTruthy()
+  expect(view.container.querySelector('[data-nested="true"]')).toBeNull()
+  expect(view.container.querySelectorAll('[aria-current="page"]')).toHaveLength(0)
 })
+
 
 it('reveals an activated durable Seat with no live session or history', () => {
   const board = room({ id: 'rested-active-team', name: 'Rested Team' })
   const goal = { ...triggerGoalView(board), members: [{ id: 'rested-seat', session: { runtime: 'codex', sessionId: 'rested' },
     role: 'reviewer', openedAt: 1, closed: null, agent: { name: 'Rested reviewer' } }] } as unknown as GoalView
-  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, goal]]), {}, false)
+  const view = treeWith([board], [], [], {}, undefined, null, new Map([[board.id, goal]]), {})
   view.update({ activeSessionKey: sessionKey('codex', sessionId('rested')) })
-  expect(view.container.querySelector('[aria-current="page"]')?.textContent).toBe('Reviewer · Rested Team')
+  expect(roomRow(view.container, 'Rested Team')).toBeTruthy()
+  expect(view.container.querySelector('[data-nested="true"]')).toBeNull()
 })
 
 it('mounts the owning Team for an activated Seat beyond the virtual project window', () => {
@@ -2148,50 +2073,51 @@ it('mounts the owning Team for an activated Seat beyond the virtual project wind
     return { x: 0, y: top, top, left: 0, bottom: top + 100, right: 320, width: 320, height: 100, toJSON: () => ({}) }
   })
   try {
-    const view = treeWith(boards, [seat], [], {}, undefined, null, new Map(), {}, false)
+    const view = treeWith(boards, [seat], [], {}, undefined, null, new Map(), {})
     expect(view.container.querySelector('[aria-label="Room Last Team"]')).toBeNull()
     const first = roomRow(view.container, 'Team 0')
     act(() => first.focus())
     first.blur()
     view.update({ activeSessionKey: sessionKey(seat.runtime, seat.id) })
-    expect(view.container.querySelector('[aria-current="page"]')?.textContent).toBe('windowed-seat')
+    expect(roomRow(view.container, 'Last Team')).toBeTruthy()
+    expect(view.container.querySelector('[data-nested="true"]')).toBeNull()
   } finally { rect.mockRestore() }
 })
 
-it.each([false, true])('keeps a folded Team running with unread output (same Seat: %s)', (sameSeat) => {
+it.each([false, true])('keeps Team unread, running and urgent facts in one priority slot (same Seat: %s)', (sameSeat) => {
   const unread = summary({ id: 'unread-seat' })
   const busy = { ...summary({ id: 'busy-seat', status: { type: 'active' } }),
     turns: [{ id: 'busy-turn', status: 'inProgress', items: [] }] } as unknown as Session
   const unreadKey = sessionKey((sameSeat ? busy : unread).runtime, (sameSeat ? busy : unread).id)
   const board = room({ id: 'mixed-team', name: 'Mixed Team', members: [unread, busy].map(one => String(sessionKey(one.runtime, one.id))) })
-  const view = treeWith([board], [unread, busy], [busy], {}, undefined, null, new Map(), {}, false)
+  const view = treeWith([board], [unread, busy], [busy], {}, undefined, null, new Map(), {})
   view.update({ inbox: [{ id: 'unread-output', read: false, at: 2, tone: 'neutral', title: 'Review ready',
     from: { runtime: busy.runtime, sessionId: sameSeat ? busy.id : unread.id, name: 'Reviewer' } }] })
-  const item = roomRow(view.container, board.name).closest('li')!
+  const item = roomRow(view.container, board.name).closest('[data-left-row]')!
   expect(view.container.querySelectorAll('[data-region="session-row"]')).toHaveLength(0)
-  expect(item.querySelector('[data-slot="spinner"]')).not.toBeNull()
+  expect(item.querySelector('[aria-label="Unread activity"]')).not.toBeNull()
+  expect(roomRow(view.container, board.name).title).toContain('Working')
   expect(item.textContent).not.toContain('Working')
   view.update({ approvals: [{ key: unreadKey, approval: {} }] as unknown as AppSnapshot['approvals'] })
   expect(item.querySelector('[data-slot="spinner"]')).toBeNull()
   expect(item.querySelector('[aria-label="Needs you"]')).not.toBeNull()
   view.update({ approvals: [], sessions: new Map([[sessionKey(busy.runtime, busy.id), { ...busy, status: { type: 'idle' }, turns: [] }]]) })
   expect(item.querySelector('[data-slot="spinner"]')).toBeNull()
+  expect(item.querySelector('[aria-label="Unread activity"]')).not.toBeNull()
 })
 
-it('indents project children once and a Team’s Seats a second time', () => {
+it('keeps Teams and loose conversations in one project child list', () => {
   const seat = summary({ id: 'indent-seat' })
   const loose = summary({ id: 'indent-loose' })
   const board = room({ id: 'indent-team', name: 'Indent Team', members: [String(sessionKey(seat.runtime, seat.id))] })
   const view = treeWith([board], [seat, loose])
   const projectRows = view.container.querySelector('[data-virtual-project="true"]')!
   expect(projectRows.getAttribute('data-sidebar-indent')).toBe('true')
-  const disclosure = view.container.querySelector<HTMLButtonElement>('[aria-label*="agents in Indent Team"]')!
-  if (disclosure.getAttribute('aria-expanded') !== 'true') act(() => disclosure.click())
-  const nested = projectRows.querySelector('[data-nested="true"]')!
-  expect(nested).not.toBeNull()
-  expect(nested.querySelector('[data-region="session-row"]')?.textContent).toContain('indent-seat')
-  expect([...projectRows.children].find(one => one.textContent?.includes('indent-loose'))?.querySelector('[data-nested]')).toBeNull()
+  expect(projectRows.querySelector('[data-nested="true"]')).toBeNull()
+  expect(projectRows.querySelectorAll('[data-region="session-row"]')).toHaveLength(1)
+  expect(roomRow(view.container, 'Indent Team').closest('[data-virtual-project="true"]')).toBe(projectRows)
 })
+
 
 it('removes a wrapped Team and its pinned receipt conversations from the sidebar', () => {
   const seat = summary({ id: 'wrapped-seat' })
@@ -2221,7 +2147,7 @@ it('keeps a Seat with another checkout out of that project’s loose rows', () =
   const board = room({ id: 'checkout-team', name: 'Checkout Team', members: [String(sessionKey(seat.runtime, seat.id))] })
   const view = treeWith([board], [seat], [seat as unknown as Session])
   expect(view.container.querySelector('[data-project-root="/other-checkout"] [data-region="session-row"]')).toBeNull()
-  expect(rowTitles(view.container).filter(one => one === 'session-cross-checkout')).toHaveLength(1)
+  expect(rowTitles(view.container).filter(one => one === 'session-cross-checkout')).toHaveLength(0)
 })
 
 it('uses a quiet project header without a leading icon, including Other projects', () => {
@@ -2268,11 +2194,11 @@ it('uses a quiet spinner for running conversations and Teams without a Working w
   const live = { ...one, turns: [{ id: 'spin-turn', status: 'inProgress', items: [] }] } as unknown as Session
   const board = room({ id: 'spin-team', name: 'Running Team', members: [String(sessionKey(one.runtime, one.id))] })
   const view = treeWith([board], [one], [live])
-  expect(view.container.querySelectorAll('[data-slot="spinner"][data-tone="neutral"][data-size="sm"]')).toHaveLength(2)
+  expect(view.container.querySelectorAll('[data-slot="spinner"][data-tone="neutral"][data-size="sm"]')).toHaveLength(1)
   expect(view.container.textContent).not.toContain('Working')
   expect(roomRow(view.container, board.name).querySelector('[data-slot="sidebar-menu-state"]')).toBeNull()
   view.update({ approvals: [{ key: sessionKey(one.runtime, one.id), approval: {} }] as unknown as AppSnapshot['approvals'] })
-  expect(roomRow(view.container, board.name).querySelector('[data-slot="sidebar-menu-state"]')?.getAttribute('aria-label')).toBe('Needs you')
+  expect(roomRow(view.container, board.name).closest('[data-left-row]')?.querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('Needs you')
   expect(view.container.querySelectorAll('[data-slot="spinner"]')).toHaveLength(0)
 })
 
@@ -2281,14 +2207,14 @@ it('keeps a history-only legacy Seat under its Team across checkouts', () => {
   const seat = summary({ id: 'session-stored-seat', cwd: '/other-checkout' })
   const board = room({ id: 'stored-team', name: 'Stored Team', members: [String(sessionKey(seat.runtime, seat.id))] })
   const view = treeWith([board], [seat], [], { pinnedSessions: [sessionKey(seat.runtime, seat.id)] })
-  const nested = roomRow(view.container, board.name).closest('li')!.querySelector('[data-nested="true"]')!
-  expect(nested).not.toBeNull()
-  expect(rowTitles(nested as HTMLElement)).toEqual(['session-stored-seat'])
-  expect(rowTitles(view.container)).toEqual(['session-stored-seat'])
+  expect(teamSeats(undefined, board, null).map(one => String(one.key))).toEqual([String(sessionKey(seat.runtime, seat.id))])
+  expect(roomRow(view.container, board.name)).toBeTruthy()
+  expect(view.container.querySelector('[data-nested="true"]')).toBeNull()
+  expect(rowTitles(view.container)).toEqual([])
   expect(view.container.querySelector('[data-sidebar-band="pinned"]')).toBeNull()
   expect(view.container.querySelector('[data-project-root="/other-checkout"] [data-region="session-row"]')).toBeNull()
-  act(() => nested.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')!.click())
-  expect(view.store.openSession).toHaveBeenCalledWith(seat.id, { runtime: seat.runtime })
+  act(() => roomRow(view.container, board.name).click())
+  expect(view.store.openTeamRoom).toHaveBeenCalledWith(board.id)
 })
 
 

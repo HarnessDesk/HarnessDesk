@@ -6,6 +6,8 @@ import {
   ContextMenu,
   DisclosureChevron,
   Dot,
+  LeftColumnRow,
+  type LeftColumnTrail,
   Input,
   Menu,
   MenuItem,
@@ -639,27 +641,9 @@ const GroupHead = ({
 }
 
 /**
- * A room, in the tree, with the conversations in it folded underneath.
- *
- * A project holds as many rooms as the work wants — the same way it holds
- * sessions — so a room is a row at the same level as a loose conversation,
- * and the ones it holds are one level further in. The group glyph says it is
- * several agents; the dot on each child says it is one.
- *
- * The whole row opens the room. The chevron is a separate button beside it,
- * because "show me who is in here" and "take me in there" are different
- * questions and a tree that answers the wrong one is a tree you stop
- * expanding.
- */
-/**
- * A room's members, resolved against what the tree is *showing* — the agent
- * filter applies here as it does everywhere else, and the live session map is
- * read too, because a conversation reaches `sessions` a beat before it
- * reaches `history`: adding an agent from the room's own rail put it in the
- * roster while the tree still said "0" beneath, for as long as the history
- * took to catch up. `RoomRow`'s own count and its nested member list both
- * read this, so the two can never disagree about how many the row is
- * showing.
+ * Resolve a Team's member data for agent-filter matching and external activation.
+ * History, live conversations and durable Seats all remain sources of ownership;
+ * the sidebar presents only the owning Team, without member disclosure rows.
  */
 const roomMembers = (
   room: TeamState,
@@ -696,131 +680,39 @@ const roomMembers = (
     )
 }
 
-const RoomRow = ({
-  room,
-  state,
-  sessions,
-  now,
-  open,
-  onToggle,
-  onDelete,
-  hiddenKeys,
-  virtualKey,
-  virtualIndex,
-  virtualCount,
-}: {
+const RoomRow = ({ room, state, virtualKey, virtualIndex, virtualCount }: {
   readonly room: TeamState
   readonly state: TeamListState
-  /** The project's conversations — members are matched against these. */
-  readonly sessions: readonly SessionSummary[]
-  readonly now: number
-  readonly open: boolean
-  readonly onToggle: () => void
-  readonly onDelete: (summary: SessionSummary) => void
-  readonly hiddenKeys: ReadonlySet<string>
   readonly virtualKey?: string
   readonly virtualIndex?: number
   readonly virtualCount?: number
 }) => {
-  const store = useStore()
-  const snapshot = useSnapshot()
+  const store = useStore(), snapshot = useSnapshot()
   const goal = snapshot.goals.get(room.id)
   const name = goal ? goalName(goal.goal) : room.name
   const seats = teamSeats(goal, room, goalRunOf(room.id, goal, snapshot.flowExecutions))
-  const waiting = state === 'needs-you' || seats.some(({ key }) =>
-    key && (snapshot.approvals.some(one => one.key === key) || snapshot.queues.get(key)?.status === 'paused' || (snapshot.sessions.get(key) && traceOf(snapshot.sessions.get(key)!, false) === 'waiting')))
+  const waiting = state === 'needs-you' || seats.some(({ key }) => key &&
+    (snapshot.approvals.some(one => one.key === key) || snapshot.queues.get(key)?.status === 'paused'
+      || (snapshot.sessions.get(key) && traceOf(snapshot.sessions.get(key)!, false) === 'waiting')))
   const running = !waiting && (state === 'working' || goal?.activity === 'working' || seats.some(({ key }) => {
     const live = key ? snapshot.sessions.get(key) : undefined
     return live !== undefined && isBusy(live)
   }))
-  /* Resolved against what the tree is *showing* first, so the agent filter
-     applies here as it does everywhere else — a room drawn straight from its
-     member list would keep conversations the filter had just removed from
-     every other row, the sidebar disagreeing with itself one line apart.
-     Then the live session map, because a conversation reaches `sessions` a
-     beat before it reaches `history`: adding an agent from the room's own
-     rail put it in the roster while the tree said "No agents in here yet"
-     directly beneath, for as long as the history took to catch up.
-
-     The filter is then applied to the answer rather than by withholding that
-     second lookup. Starving it was the same rule by accident and only while
-     the group happened to be carrying the members: a room in a project the
-     tree drew for the room's own sake has no sessions of its own, so every
-     member resolved to nothing and a full room read "No agents in here yet"
-     under a filter its members matched. Saying which conversations the
-     filter keeps is the rule; where they were found is not. */
-  const filtered = snapshot.listPrefs.agent !== null
-  const members = roomMembers(room, sessions, snapshot, hiddenKeys)
-  /* A wrapped Team's Seats whose conversation was not kept: names, with nothing to open. Listed together, as the
-     conversations that were kept are. */
-  const unlinked = open ? teamSeats(goal, room, goalRunOf(room.id, goal, snapshot.flowExecutions)).filter(one => !hasConversation(one)) : []
-  const claimed = room.intents.filter((one) => one.state === 'claimed').length
-  const held = room.channel.filter(
-    (entry) => entry.kind === 'message' && entry.state === 'held',
-  ).length
-
-  return (
-    <SidebarMenu data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount}>
-      <SidebarMenuItem trailingMarks={Number(held > 0) + Number(waiting || running) as 0 | 1 | 2}>
-        <div className="relative min-w-0">
-          <SidebarMenuButton
-            trailingOverlay
-            role="button"
-          aria-label={`Room ${name}`}
-          title={`${name} — ${held > 0 ? `${held} held ${held === 1 ? 'message' : 'messages'} waiting for you` : 'the board, the chat, and who is here'}${claimed > 0 ? ` · ${claimed} claimed ${claimed === 1 ? 'job' : 'jobs'}` : ''}`}
-          data-held={held > 0 ? '' : undefined}
-          onClick={() => store.openTeamRoom(room.id)}
-          onKeyDown={(event) => {
-            if (event.target !== event.currentTarget) return
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault()
-              event.stopPropagation()
-              store.openTeamRoom(room.id)
-            }
-          }}
-          icon={<Text role="meta"><TeamIcon size={14} /></Text>}
-          label={<span className="flex min-w-0 items-center gap-(--hd-space-1)">
-            <span className="min-w-0 truncate">{name}</span>
-            {waiting && <SidebarMenuState label="Needs you" tone="warning" state="limit" />}
-          </span>}
-        />
-        {running && <SidebarMenuBadge aria-label="Running" className={held > 0 ? 'end-[calc(var(--sidebar-menu-end-rail)+var(--hd-sidebar-end-action-step))]' : undefined}>
-          <Spinner size="sm" tone="neutral" aria-hidden />
-        </SidebarMenuBadge>}
-        {held > 0 && <SidebarMenuBadge kind="count" title={`${held} held ${held === 1 ? 'message' : 'messages'} waiting for you`}>
-          {held}
-        </SidebarMenuBadge>}
-        <SidebarMenuAction showOnHover
-          aria-expanded={open}
-          aria-label={open ? `Hide the agents in ${name}` : `Show the agents in ${name}`}
-          title={filtered
-            ? `${members.length} of this room's conversations match the agent filter`
-            : members.length === 1 ? '1 conversation in this room' : `${members.length} conversations in this room`}
-          onClick={onToggle}>
-          <DisclosureChevron open={open} size="xs" />
-        </SidebarMenuAction>
-        </div>
-        {unlinked.length > 0 && (
-          <SidebarMenu nested>
-            {unlinked.map((one) => (
-              <SidebarMenuItem key={one.record.id}>
-                <SidebarMenuButton disabled title="Conversation not kept" label={one.name} />
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        )}
-        {open && members.length > 0 && (
-          <SidebarMenu nested>
-            {members.map((summary) => (
-              <SidebarMenuItem key={summary.id}>
-                <SessionRow summary={summary} now={now} onDelete={onDelete} />
-              </SidebarMenuItem>
-            ))}
-          </SidebarMenu>
-        )}
-      </SidebarMenuItem>
-    </SidebarMenu>
-  )
+  const claimed = room.intents.filter(entry => entry.state === 'claimed').length
+  const unread = state === 'unread'
+  const held = room.channel.filter(entry => entry.kind === 'message' && entry.state === 'held').length
+  const selected = panes(snapshot.layout.root).some(pane => pane.view.kind === 'room' && pane.view.room === room.id)
+  const trailing: LeftColumnTrail | undefined = waiting
+    ? { kind: 'mark', icon: <Dot state="limit" variant="navigation" />, label: 'Needs you' }
+    : unread ? { kind: 'mark', icon: <Dot state="signin" variant="navigation" />, label: 'Unread activity' }
+      : running ? { kind: 'mark', icon: <Spinner size="sm" tone="neutral" />, label: 'Working' }
+      : held > 0 ? { kind: 'count', value: held, label: `${held} held messages` } : undefined
+  return <div data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount}>
+    <LeftColumnRow label={name} icon={<TeamIcon size={16} />} selected={selected}
+      title={`${name}${waiting ? ' · Needs you' : ''}${unread ? ' · Unread activity' : ''}${running ? ' · Working' : ''}${held > 0 ? ` · ${held} held messages` : ''}${claimed > 0 ? ` · ${claimed} claimed jobs` : ''}`}
+      buttonProps={{ 'aria-label': `Room ${name}` }} trailing={trailing}
+      onClick={() => store.openTeamRoom(room.id)} />
+  </div>
 }
 
 /**
@@ -1344,7 +1236,6 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
   const treeRef = useRef<HTMLDivElement>(null)
   const typeahead = useRef({ text: '', timer: 0 })
   const [navigationTarget, setNavigationTarget] = useState<{ root: string; index: number } | null>(null)
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
   const lastReveal = useRef<string | null>(null)
   const [revealedCount, setRevealedCount] = useState<ReadonlyMap<string, number>>(() => new Map())
   const { groups, noFolder, hiddenPinned, gone } = useProjectList({ searching })
@@ -1396,12 +1287,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
     () => new Set(pinnedRows.map((summary) => String(sessionKey(summary.runtime, summary.id)))),
     [pinnedRows],
   )
-  const toggleTeam = useCallback((id: string) => setExpanded(current => {
-    const next = new Set(current)
-    if (next.has(id)) next.delete(id)
-    else next.add(id)
-    return next
-  }), [])
+
 
   /* The rooms in each project, so a room can be drawn where it belongs.
      There used to be one line above the whole tree reading "Room · 2 open · 1
@@ -1484,8 +1370,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
     if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
       event.preventDefault()
       const direction = event.key === 'ArrowDown' ? 1 : -1
-      const nestedMember = target.closest('[data-nested="true"]') !== null
-      const virtual = nestedMember ? null : target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
+      const virtual = target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
       const project = target.closest<HTMLElement>('[data-virtual-project="true"]')
       const current = Number(virtual?.dataset.virtualIndex)
       const count = Number(virtual?.dataset.virtualCount)
@@ -1505,8 +1390,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
     }
     if (event.key === 'Home' || event.key === 'End') {
       event.preventDefault()
-      const nestedMember = target.closest('[data-nested="true"]') !== null
-      const virtual = nestedMember ? null : target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
+      const virtual = target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
       const project = target.closest<HTMLElement>('[data-virtual-project="true"]')
       const windowedProject = project?.hasAttribute('data-virtual-labels') ? project : null
       if (virtual && windowedProject) {
@@ -1524,18 +1408,6 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
       if (row) focus(row)
       return
     }
-    if (event.key === 'ArrowRight') {
-      const disclosure = target.parentElement?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"][aria-label*="agents in"]')
-      if (disclosure) {
-        event.preventDefault()
-        if (disclosure.getAttribute('aria-expanded') !== 'true') disclosure.click()
-        window.requestAnimationFrame(() => {
-          const member = target.parentElement?.parentElement?.querySelector<HTMLButtonElement>('[data-nested="true"] [data-slot="sidebar-menu-button"]')
-          focus(member ?? undefined)
-        })
-        return
-      }
-    }
     if (event.key === 'ArrowRight' && target.hasAttribute('aria-expanded')) {
       event.preventDefault()
       if (target.getAttribute('aria-expanded') !== 'true') {
@@ -1550,19 +1422,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
     }
     if (event.key === 'ArrowLeft') {
       event.preventDefault()
-      const nested = target.closest<HTMLElement>('[data-nested="true"]')
-      const room = nested?.parentElement
-      const roomOpener = room?.querySelector<HTMLButtonElement>('[aria-label^="Room "]')
-      const disclosure = room?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"][aria-label*="agents in"]')
-      if (nested && roomOpener && disclosure) {
-        if (disclosure.getAttribute('aria-expanded') === 'true') {
-          focus(roomOpener)
-          disclosure.click()
-        }
-        else focus(roomOpener)
-      } else if (target.parentElement?.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"][aria-label*="agents in"]')?.getAttribute('aria-expanded') === 'true') {
-        target.parentElement.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-action"][aria-label*="agents in"]')?.click()
-      } else if (target.getAttribute('aria-expanded') === 'true') target.click()
+      if (target.getAttribute('aria-expanded') === 'true') target.click()
       else {
         const parent = rows.slice(0, index).reverse().find((row) => row.getAttribute('aria-expanded') === 'true')
         focus(parent)
@@ -1574,8 +1434,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
       window.clearTimeout(typeahead.current.timer)
       typeahead.current.timer = window.setTimeout(() => { typeahead.current.text = '' }, 500)
       const query = typeahead.current.text
-      const nestedMember = target.closest('[data-nested="true"]') !== null
-      const virtual = nestedMember ? null : target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
+      const virtual = target.closest<HTMLElement>('[data-virtual-index][data-virtual-count]')
       const project = target.closest<HTMLElement>('[data-virtual-project="true"]')
       const windowedProject = project?.hasAttribute('data-virtual-labels') ? project : null
       const labels: string[] = virtual && windowedProject
@@ -1631,7 +1490,6 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
       if (activeGroup === noFolderGroup) setNoFolderOpen(true)
       else if (collapsed.has(activeGroup.root)) toggle(activeGroup.root)
       if (!othersOpen && far.some((group) => group.root === activeGroup.root)) store.setOthersOpen(true)
-      if (activeTeam) setExpanded(current => new Set(current).add(activeTeam.id))
     }
 
     const roomKeys = new Set(
@@ -1745,7 +1603,6 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
         return !teamKeys.has(key) && !liftedKeys.has(key)
       },
     )
-    const projectSessions = group.sessions.filter((summary) => !liftedKeys.has(String(sessionKey(summary.runtime, summary.id))))
     const visibleCount = Math.min(loose.length, revealedCount.get(group.root) ?? COLLAPSED_LIMIT)
     const shown = loose.slice(0, visibleCount)
     const pinnedIndexes = new Map(
@@ -1821,12 +1678,6 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
                   key={row.room.id}
                   room={row.room}
                   state={teamRows.get(row.room.id)!.state}
-                  sessions={projectSessions}
-                  now={now}
-                  open={expanded.has(row.room.id)}
-                  onToggle={() => toggleTeam(row.room.id)}
-                  onDelete={setDeleting}
-                  hiddenKeys={liftedKeys}
                   virtualKey={`room:${row.room.id}`}
                   virtualIndex={index}
                   virtualCount={rows.length}

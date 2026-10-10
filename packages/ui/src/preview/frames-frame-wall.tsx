@@ -1,3 +1,4 @@
+import { sidebarStructureFixture } from './sidebar-structure-fixture'
 import { useMemo, useState } from 'react'
 import { AgentsWindow } from '../components/AgentsWindow'
 import { AppWindowMode } from '../components/AppWindow'
@@ -24,7 +25,7 @@ import { usagePreviewStore } from './usage-fixture'
  * drawn here the same way, so the wall shows the app as it is.
  * Placeholder fixtures only.
  */
-export const FRAME_WALL_DESTINATIONS = ['conversation', 'draft', 'team', 'teams', 'agents', 'dashboard', 'settings'] as const
+export const FRAME_WALL_DESTINATIONS = ['conversation', 'draft', 'team', 'teams', 'agents', 'dashboard', 'settings', 'left-work'] as const
 type Destination = (typeof FRAME_WALL_DESTINATIONS)[number]
 
 const mainShowing = (view: PaneView) =>
@@ -45,6 +46,8 @@ const showing = (store: AppStore, view: PaneView, session: AppSnapshot['activeSe
 
 const storeFor = (destination: Destination): AppStore => {
   switch (destination) {
+    case 'left-work': return showing(previewStore(sidebarStructureFixture(previewStore().getSnapshot())),
+      { kind: 'room', room: 'structure-team' }, null)
     case 'conversation': return showing(previewStore(), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY)
     case 'draft': return showing(previewStore(), { kind: 'conversation', session: null }, null)
     case 'team': return showing(overviewTeamStore('running'), { kind: 'room', room: 'overview-team' }, null)

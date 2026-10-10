@@ -20,6 +20,7 @@ export const WALL_DESTINATIONS = [
   { id: 'left-inbox', query: 'frame-wall=conversation', leftOpen: true, leftPopup: 'inbox' },
   { id: 'left-account', query: 'frame-wall=conversation', leftOpen: true, leftPopup: 'account' },
   { id: 'left-start', query: 'frame-wall=conversation', leftOpen: true, leftPopup: 'start' },
+  { id: 'left-work', query: 'frame-wall=left-work', leftOpen: true },
 ] as const
 
 /** Wide (every region stands), between the folds, and the narrowest window. */
