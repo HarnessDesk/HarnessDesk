@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { PopupWall } from './popup-wall'
 import { AgentsWindow } from '../components/AgentsWindow'
 import { AppWindowMode } from '../components/AppWindow'
 import { Settings, type Section } from '../components/Settings'
@@ -78,6 +79,7 @@ export const FrameWall = () => {
         <div data-frame-id="frame-wall" data-destination={destination} className="h-screen bg-background">
           <Workbench sidebar={<Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />} />
           <PageOver destination={destination} />
+          <PopupWall />
         </div>
       </AppWindowMode.Provider>
     </ShellProvider>

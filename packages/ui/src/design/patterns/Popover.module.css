@@ -47,54 +47,9 @@
   z-index: var(--hd-z-popover);
 }
 
-.panel {
-  /* A floating panel is never a handle for moving the window. Electron's
-     drag region is geometric, not a matter of ancestry: the pane strip and
-     the conversation header each contribute one draggable rectangle, and a
-     panel that opens over one is inert unless it punches its own hole —
-     the trigger's `no-drag` only covers the trigger's own box. That is why
-     a right-click menu on a tab could be drawn but not clicked. */
-  -webkit-app-region: no-drag;
-
-  /* Short menus size to their own words rather than holding a fixed slab
-     open — Codex's list controls are about this wide. Anything with hints
-     or long labels still grows past it. */
-  min-width: var(--hd-menu-min); /* desk: 180 → 200, the app frame's menu minimum */
-  /* Never wider than the window it opens in, less the margin the placement
-     keeps at each side (`Popover.tsx`): on a phone-width window a menu with
-     a long value otherwise ran to the glass. */
-  max-width: calc(100vw - 2 * var(--hd-space-2));
-  /* The height is the window's to give: set at open time from the room under
-     the trigger (`Popover.tsx`). Only a window shorter than the menu scrolls. */
-  max-height: max(120px, var(--available-height, calc(100vh - 16px)));
-  overflow-y: auto;
-  padding: 4px;
-  border-radius: var(--hd-radius);
-  background: var(--hd-surface-fill);
-  box-shadow:
-    var(--hd-shadow), /* desk: 0 8px 28px rgba(0,0,0,.18) -> one floating rung */
-    inset 0 0 0 1px var(--hd-border-strong);
-}
-
-.panel[data-limit='trigger'] {
-  max-height: 300px;
-}
-
-.panel[data-limit='trigger'][data-width='trigger'] {
-  max-height: min(300px, var(--available-height, 300px));
-}
-
-/* The row that opened it, unfolded: exactly the trigger's width, which Base
-   UI's positioner measures as `--anchor-width`. The panel's menu minimum
-   still holds, so a sidebar dragged to its narrowest keeps a readable menu
-   that overhangs the column rather than wrapping every label. */
-.panel[data-width='trigger'] {
-  width: var(--anchor-width, auto); /* desk: content width → the trigger's, for a menu opened from a full-width row */
-}
-
-.panel[data-width='wide'] {
-  width: var(--hd-popover-width-wide);
-}
+/* Keep nested menu positioners anchored to the viewport rather than the
+   popup plate; the plate's scroll clipping must not contain its flyouts. */
+.panel { position: static; }
 
 .groupLabel {
   font-size: var(--hd-text-sm);

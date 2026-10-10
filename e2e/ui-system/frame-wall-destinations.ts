@@ -15,6 +15,8 @@ export const WALL_DESTINATIONS = [
   { id: 'agents', query: 'frame-wall=agents' },
   { id: 'dashboard', query: 'frame-wall=dashboard' },
   { id: 'settings', query: 'frame-wall=settings' },
+  { id: 'popup-menu-icons', query: 'frame-wall=conversation&popup=menu-icons', popup: 'Frame menu' },
+  { id: 'popup-menu-none', query: 'frame-wall=conversation&popup=menu-none', popup: 'Frame menu' },
 ] as const
 
 /** Wide (every region stands), between the folds, and the narrowest window. */

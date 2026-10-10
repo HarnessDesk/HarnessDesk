@@ -170,6 +170,7 @@
 --hd-icon-target = 24px
 --hd-icon-target-sm = 20px
 --hd-image-max-height = 280px
+--hd-info-card-key = 96px
 --hd-info-card-width = 288px
 --hd-input = rgb(255, 255, 255)
 --hd-input-shadow = none
@@ -186,8 +187,11 @@
 --hd-line-title = 30px
 --hd-line-xs = 16px
 --hd-member-weight = 500
+--hd-menu-label-line = 18px
 --hd-menu-min = 200px
+--hd-menu-row-h = 30px
 --hd-menu-row-radius = calc(10px - 4px)
+--hd-menu-search-h = 28px
 --hd-motion-rise = 4px
 --hd-motion-scale = 0.97
 --hd-muted = rgb(245, 245, 245)
@@ -709,6 +713,7 @@
 --hd-icon-target = 24px
 --hd-icon-target-sm = 20px
 --hd-image-max-height = 280px
+--hd-info-card-key = 96px
 --hd-info-card-width = 288px
 --hd-input = rgb(33, 33, 33)
 --hd-input-shadow = none
@@ -725,8 +730,11 @@
 --hd-line-title = 30px
 --hd-line-xs = 16px
 --hd-member-weight = 500
+--hd-menu-label-line = 18px
 --hd-menu-min = 200px
+--hd-menu-row-h = 30px
 --hd-menu-row-radius = calc(10px - 4px)
+--hd-menu-search-h = 28px
 --hd-motion-rise = 4px
 --hd-motion-scale = 0.97
 --hd-muted = rgb(49, 49, 49)
@@ -1253,6 +1261,7 @@
 --hd-icon-target = 24px
 --hd-icon-target-sm = 20px
 --hd-image-max-height = 280px
+--hd-info-card-key = 96px
 --hd-info-card-width = 288px
 --hd-input = rgb(255, 255, 255)
 --hd-input-shadow = 0 1px 2px rgba(0, 0, 0, 0.05)
@@ -1270,8 +1279,11 @@
 --hd-line-title = 30px
 --hd-line-xs = 16px
 --hd-member-weight = 500
+--hd-menu-label-line = 18px
 --hd-menu-min = 200px
+--hd-menu-row-h = 30px
 --hd-menu-row-radius = calc(10px - 4px)
+--hd-menu-search-h = 28px
 --hd-motion-rise = 4px
 --hd-motion-scale = 0.97
 --hd-muted = rgb(245, 245, 245)
@@ -1801,6 +1813,7 @@
 --hd-icon-target = 24px
 --hd-icon-target-sm = 20px
 --hd-image-max-height = 280px
+--hd-info-card-key = 96px
 --hd-info-card-width = 288px
 --hd-input = rgb(33, 33, 33)
 --hd-input-shadow = 0 0 0 1px rgba(255, 255, 255, 0.04)
@@ -1818,8 +1831,11 @@
 --hd-line-title = 30px
 --hd-line-xs = 16px
 --hd-member-weight = 500
+--hd-menu-label-line = 18px
 --hd-menu-min = 200px
+--hd-menu-row-h = 30px
 --hd-menu-row-radius = calc(10px - 4px)
+--hd-menu-search-h = 28px
 --hd-motion-rise = 4px
 --hd-motion-scale = 0.97
 --hd-muted = rgb(49, 49, 49)

@@ -218,3 +218,6 @@ export { ComparisonDecision } from './patterns/ComparisonDecision'
 export { ComparisonSummary } from './patterns/ComparisonSummary'
 
 export { MergeDialog, DiffRangeDialog } from './patterns/GitComparisonDialogs'
+
+import './ui/popup.css'
+export { MenuPresentation, MenuRowContent, menuRowAttributes, useMenuPresentation, type MenuRowData, type MenuIcons } from './ui/menu-row'

@@ -37,3 +37,17 @@ export const FRAME_TOKENS: Readonly<Record<string, number>> = {
   '--hd-popover-width-wide': FRAME.menu.max,
   '--hd-info-card-width': FRAME.infoCard.width,
 }
+
+/** Phase C row internals extend A's menu without rewriting its shared entry. */
+export const FRAME_MENU = {
+  ...FRAME.menu,
+  icon: 16, gap: 8, rowInset: 8, labelSize: 13, labelLine: 18,
+  hintSize: 12, hintLine: 16, earnedPad: 6, searchHeight: 28,
+  groupSize: 12, groupWeight: 500, separator: 1,
+} as const
+Object.assign(FRAME_TOKENS, {
+  '--hd-menu-row-h': FRAME_MENU.rowHeight,
+  '--hd-menu-label-line': FRAME_MENU.labelLine,
+  '--hd-menu-search-h': FRAME_MENU.searchHeight,
+  '--hd-info-card-key': FRAME.summaryKey.infoCard,
+})

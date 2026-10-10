@@ -533,6 +533,17 @@ A table scope owns its density, including list and settings examples. Restating 
 | `--hd-table-row-min-bare` | `44px` | `32px` |
 | `--hd-table-sentence-size` | `13px` | `12px` |
 
+### Popup rows
+
+App-frame row leading and height are independent of navigation density. The facts card keeps its key column in the same foundation contract.
+
+| token | value |
+| --- | --- |
+| `--hd-menu-row-h` | `30px` |
+| `--hd-menu-label-line` | `18px` |
+| `--hd-menu-search-h` | `28px` |
+| `--hd-info-card-key` | `96px` |
+
 ## When to use which
 
 When to use which — the layer the design system did not have.

@@ -1627,3 +1627,14 @@ body[data-hd-interface='studio'] [data-hd-density='comfortable'] {
   --hd-table-sentence-size: var(--hd-text-xs);
   --hd-table-end-gap: var(--hd-space-2);
 }
+
+/* --- popup rows -------------------------------------------------------------
+   App-frame row leading and height are independent of navigation density.
+   The facts card keeps its key column in the same foundation contract.
+*/
+:root {
+  --hd-menu-row-h: 30px;
+  --hd-menu-label-line: 18px;
+  --hd-menu-search-h: 28px;
+  --hd-info-card-key: 96px;
+}

@@ -3322,4 +3322,11 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     about: 'The real dialog, in both states (#1083): a round-ceiling stop shows a 1-to-20 count next to "Authorise another round" that relabels the button and is the count the wire sends; every other stop keeps the plain single button, with no count field at all.',
     render: FindingDecisionBoard,
   },
+  { id: 'popup-menu', title: 'Menu rows', about: 'One row renderer, with both whole-level icon policies.', render: () => <PopupMenuBoard /> },
 ]
+
+import { MenuExample } from '../catalog/popup-examples'
+const MENU_ROW_CATALOG_VARIANTS = ['default'] as const
+const MENU_ROW_CATALOG_SIZES = ['default'] as const
+const MENU_ROW_CATALOG_STATES = ['default'] as const
+const PopupMenuBoard = () => <>{MENU_ROW_CATALOG_VARIANTS.map(variant => MENU_ROW_CATALOG_SIZES.map(size => MENU_ROW_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><MenuExample /><MenuExample icons="none" /></div>)))}</>
