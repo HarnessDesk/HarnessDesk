@@ -35,7 +35,7 @@ const CLAUDE = runtimeId('claude')
  * apart the board strip silently stopped rendering — nothing threw, the line
  * was simply never there.
  */
-export const PREVIEW_ROOT = '/Users/shane/code/HarnessDesk'
+export const PREVIEW_ROOT = '/work/HarnessDesk'
 
 const HOME = PREVIEW_ROOT
 
@@ -549,17 +549,17 @@ export const previewHistory: SessionSummary[] = [
     0,
   ),
   ...seed(
-    '/Users/shane/code/harnessdesk-site',
+    '/work/harnessdesk-site',
     [
-      { title: 'Hero recording over the recorded wire', cwd: '/Users/shane/code/harnessdesk-site', branch: 'main', ago: 1200 },
-      { title: 'Launch checklist', cwd: '/Users/shane/code/harnessdesk-site', branch: 'main', ago: 2000 },
+      { title: 'Hero recording over the recorded wire', cwd: '/work/harnessdesk-site', branch: 'main', ago: 1200 },
+      { title: 'Launch checklist', cwd: '/work/harnessdesk-site', branch: 'main', ago: 2000 },
     ],
     20,
   ),
   ...seed(
-    '/Users/shane/code/harnessdesk-mobile',
+    '/work/harnessdesk-mobile',
     [
-      { title: 'Approvals are the product', cwd: '/Users/shane/code/harnessdesk-mobile', branch: 'main', ago: 3000, runtime: CURSOR },
+      { title: 'Approvals are the product', cwd: '/work/harnessdesk-mobile', branch: 'main', ago: 3000, runtime: CURSOR },
     ],
     40,
   ),
@@ -569,8 +569,8 @@ export const previewWorkspace = { path: HOME, name: 'HarnessDesk', lastOpenedAt:
 
 export const previewWorkspaces = [
   previewWorkspace,
-  { path: '/Users/shane/code/harnessdesk-site', name: 'harnessdesk-site', lastOpenedAt: minutes(1200) },
-  { path: '/Users/shane/code/harnessdesk-mobile', name: 'harnessdesk-mobile', lastOpenedAt: minutes(3000) },
+  { path: '/work/harnessdesk-site', name: 'harnessdesk-site', lastOpenedAt: minutes(1200) },
+  { path: '/work/harnessdesk-mobile', name: 'harnessdesk-mobile', lastOpenedAt: minutes(3000) },
 ]
 
 /**
@@ -660,12 +660,12 @@ export const previewTurns = [
         type: 'command',
         command: 'git worktree list --porcelain',
         durationMs: 80_000,
-        cwd: '/Users/shane/code/harnessdesk',
+        cwd: '/work/harnessdesk',
         origin: 'agent',
         status: 'completed',
         actions: [{ type: 'unknown', command: 'git worktree list --porcelain' }],
         output:
-          'worktree /Users/shane/code/harnessdesk\nHEAD 5a1253e9c0\nbranch refs/heads/main\n\nworktree /Users/shane/.claude/worktrees/dupe-accounts-91c2\nHEAD 8f21ab04d1\nbranch refs/heads/fix/dupe-accounts\n\nworktree /Users/shane/.claude/worktrees/settings-audit-77aa\nHEAD 1c07de5520\nbranch refs/heads/chore/settings-audit\n',
+          'worktree /work/harnessdesk\nHEAD 5a1253e9c0\nbranch refs/heads/main\n\nworktree /work/.claude/worktrees/dupe-accounts-91c2\nHEAD 8f21ab04d1\nbranch refs/heads/fix/dupe-accounts\n\nworktree /work/.claude/worktrees/settings-audit-77aa\nHEAD 1c07de5520\nbranch refs/heads/chore/settings-audit\n',
         exitCode: 0,
       }),
       item('i4', {

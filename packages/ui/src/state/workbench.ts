@@ -853,8 +853,16 @@ export const resizeDock = (workbench: Workbench, area: DockId, size: number): Wo
  * browser's pages must all survive being put away and taken out again, which is
  * the difference between collapsing a panel and closing one.
  */
-export const collapseDock = (workbench: Workbench, area: DockId, collapsed: boolean): Workbench =>
-  settle(patchDock(workbench, area, { ...workbench[area], collapsed }))
+export const collapseDock = (workbench: Workbench, area: DockId, collapsed: boolean): Workbench => {
+  const subject = area === 'right' ? fixedSubject(workbench.main) : null
+  const intent = subject === null ? undefined : workbench.frameTools[subject]
+  // Staged legacy inspectors still collapse their dock directly. Keep their
+  // existing intent coherent with that command without creating a new one.
+  const next = subject !== null && intent
+    ? { ...workbench, frameTools: { ...workbench.frameTools, [subject]: { ...intent, open: !collapsed } } }
+    : workbench
+  return settle(patchDock(next, area, { ...next[area], collapsed }))
+}
 
 /** Collapses a dock if it is open, opens it if it is not — the one control on a toggle. */
 export const toggleDock = (workbench: Workbench, area: DockId): Workbench =>
@@ -957,6 +965,7 @@ export const drawnInDock = (state: Parameters<typeof sidebarPlacement>[0], kind:
   DOCKS.some((area) => {
     const held = state.workbench[area]
     if (held.collapsed || !areaVisible(state.workbench, area)) return false
+    if (area === 'right' && !rightPanelDrawn(state.workbench)) return false
     if (area === 'sidebar' && sidebarPlacement(state) === 'away') return false
     return visibleViews(held).some((entry) => entry.view.kind === kind)
   })
@@ -983,8 +992,10 @@ export const unzoom = (workbench: Workbench): Workbench =>
 export const zoomedArea = (workbench: Workbench, area: AreaId): boolean => workbench.zoom?.area === area
 
 /** Whether the right panel draws a panel at all, rather than only its drop zone. */
-export const rightPanelDrawn = (workbench: Workbench): boolean =>
-  dockViews(workbench.right).length > 0 && areaVisible(workbench, 'right') && !workbench.right.collapsed
+export const rightPanelDrawn = (workbench: Workbench): boolean => {
+  const subject = fixedSubject(workbench.main)
+  return subject !== null && workbench.frameTools[subject]?.open === true && areaVisible(workbench, 'right')
+}
 
 /**
  * Whether the sidebar has to give up its column: a window under

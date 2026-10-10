@@ -15,7 +15,11 @@ import {
 import { findPane } from '../state/layout'
 import { shownView, sidebarPlacement, terminals } from '../state/workbench'
 import { summonable } from '../panels/views'
-import { Slot } from '../slots/registry'
+import { useTopBar, useTopBarMore, useWorkDetails } from '../panels/top-bar'
+import { WorkTools } from '../panels/WorkTools'
+import { ConversationDetails } from '../panels/work-details'
+import { handOverToComposer } from '../lib/compose'
+import { dismissOverlays } from '../lib/overlays'
 import { Composer } from './Composer'
 import {
   BranchIcon,
@@ -31,23 +35,18 @@ import {
   FolderIcon,
   MoreIcon,
   ReviewIcon,
-  GlobeIcon,
   TerminalIcon,
   TrashIcon,
-  UndoIcon,
   NewWorktreeIcon,
 } from './Icons'
 import { worktreeBranch } from '../lib/worktree-branch'
 import { isRecordConversation, RECORD_REASON } from '../lib/team-record'
 import { scriptedScrollBehavior } from '../lib/scripted-scroll'
 import {
-  Bar,
   Banner,
   Button,
   Chip,
-  HeaderStatusGroup,
-  HeaderStatusReading,
-  useHeaderStatusGroup,
+  ConfirmDialog,
   ComposerDock,
   ConversationEmptyState,
   Menu,
@@ -66,11 +65,9 @@ import {
   Spinner,
   Submenu,
   Text,
-  ToolPaneHeaderDivider,
   useComposerHeightVar,
   type Tone,
 } from '../design'
-import { Badge } from '../design'
 import { STATUS_LABEL, paneStatus, type PaneStatus } from '../lib/pane-status'
 import { splitTurn } from '../lib/turn-view'
 import { ItemView } from './Items'
@@ -78,7 +75,6 @@ import { BranchSwitcher } from './BranchSwitcher'
 import { TurnFiles } from './TurnFiles'
 import { TurnWork } from './TurnWork'
 import { GoalBar, JobsBar } from './SessionBars'
-import { splitTasks, tasksChipLabel } from '../lib/tasks'
 import { ConversationMap } from './ConversationMap'
 import { MessageQueue } from './MessageQueue'
 import { RemoveWorktree } from './RemoveWorktree'
@@ -91,7 +87,6 @@ import { describeLimits } from '../lib/limits'
 import { sessionLabel } from '../lib/sessions'
 import { ledBy } from '../lib/agents'
 import { useSeatAgent } from '../state/seat-agent'
-import { PlanMeters } from './PlanMeters'
 import { WindowControls } from './WindowControls'
 import { SaveAsAgentDialog } from './SaveAsAgent'
 import styles from './Conversation.module.css'
@@ -108,14 +103,6 @@ const EmptyBody = ({ children }: { children: ReactNode }) => (
     {children}
   </Text>
 )
-
-/** Shape and motion name a running turn; tone belongs to a condition needing attention. */
-const STATUS_TONE: Record<PaneStatus, Tone> = {
-  running: 'neutral',
-  waiting: 'warning',
-  failed: 'danger',
-  idle: 'neutral',
-}
 
 /**
  * The pill's own ground — its own judgement, not the dot's.
@@ -282,7 +269,7 @@ const ConversationEmpty = ({
  * capability, so a backend without one shows a shorter menu rather than a
  * disabled row — and no item is keyed to a runtime id.
  */
-const ConversationMenu = () => {
+const ConversationMenu = ({ embeddedHeader = false, folderActions }: { embeddedHeader?: boolean; folderActions?: (close: () => void) => ReactNode }) => {
   const store = useStore()
   const runtime = useRuntime()
   const snapshot = useSnapshot()
@@ -294,20 +281,10 @@ const ConversationMenu = () => {
   const capabilities = runtime.capabilities
   const [confirmUndo, setConfirmUndo] = useState(false)
   const [saving, setSaving] = useState(false)
-  if (!session) return null
-  const memoryOn = session.memory === true
-
   const pane = usePane()
+  const memoryOn = session?.memory === true
   const several = snapshot.layout.root.kind === 'split'
-
-  return (
-    <>
-      <Popover
-        align="right"
-        title="Conversation"
-        label={<MoreIcon size={15} />}
-      >
-        {(close) => (
+  const menuBody = (close: () => void) => (
           <>
           {capabilities.memory && (
             <PopoverOption
@@ -330,7 +307,7 @@ const ConversationMenu = () => {
           {capabilities.compaction && (
             <PopoverOption
               disabled={record}
-              title={record ? RECORD_REASON : undefined}
+              title={record ? RECORD_REASON : 'Summarise older turns to free up context.'}
               onClick={() => {
                 void store.compact(key)
                 close()
@@ -341,48 +318,14 @@ const ConversationMenu = () => {
               </PopoverOptionMark>
               <PopoverOptionBody>
                 <PopoverOptionLabel>Compact now</PopoverOptionLabel>
-                <PopoverOptionHint>{record ? RECORD_REASON : 'Summarise older turns to free up context.'}</PopoverOptionHint>
+                {record && <PopoverOptionHint>{RECORD_REASON}</PopoverOptionHint>}
               </PopoverOptionBody>
             </PopoverOption>
           )}
-          {capabilities.undo &&
-            (confirmUndo ? (
-              <PopoverOption as="div" style={{ cursor: 'default', display: 'block' }}>
-                <PopoverOptionLabel>Undo the last turn?</PopoverOptionLabel>
-                <PopoverOptionHint className="my-0.5 mb-1.5">
-                  Drops it from history. Files it changed on disk are <strong>not</strong> reverted.
-                </PopoverOptionHint>
-                <div style={{ display: 'flex', gap: 6 }}>
-                  <Button variant="secondary" size="sm" onClick={() => setConfirmUndo(false)}>
-                    Keep
-                  </Button>
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={() => {
-                      void store.rollback(1)
-                      setConfirmUndo(false)
-                      close()
-                    }}
-                  >
-                    Undo turn
-                  </Button>
-                </div>
-              </PopoverOption>
-            ) : (
-              <PopoverOption
-                onClick={() => setConfirmUndo(true)}
-              >
-                <PopoverOptionMark>
-                  <UndoIcon size={13} />
-                </PopoverOptionMark>
-                <PopoverOptionBody>
-                  <PopoverOptionLabel>Undo the last turn</PopoverOptionLabel>
-                  <PopoverOptionHint>History only — files are left as they are.</PopoverOptionHint>
-                </PopoverOptionBody>
-              </PopoverOption>
-            ))}
+          {capabilities.undo && <MenuItem label="Undo the last turn" hint="History only — files are left as they are."
+            onSelect={() => { setConfirmUndo(true); close() }} />}
             <PopoverOption
+              title="This seat, a brief and a ceiling, under a name to start again."
               onClick={() => {
                 setSaving(true)
                 close()
@@ -393,25 +336,13 @@ const ConversationMenu = () => {
               </PopoverOptionMark>
               <PopoverOptionBody>
                 <PopoverOptionLabel>Save as an Agent…</PopoverOptionLabel>
-                <PopoverOptionHint>This seat, a brief and a ceiling, under a name to start again.</PopoverOptionHint>
               </PopoverOptionBody>
             </PopoverOption>
-            {/* Every view of this conversation, so the panel's own tab row is
-              not the only way to reach one — it cannot be seen until the panel
-              is open. Changes is the exception: it belongs to the workspace
-              chip beside this menu, which carries the file count with it, and
-              a second copy here would be the same row twice in one header.
-
-              The descriptions ride on hover rather than under each label: a
-              view is one click away and one click back, so guessing wrong
-              costs nothing, and three lines of prose under three names is
-              what turned this group into a wall. */}
+            {folderActions?.(close)}
+            {/* Non-tool aliases stay in overflow; fixed tool doors live in TopBar. */}
           <PopoverGroupLabel>View</PopoverGroupLabel>
           {summonable()
-            /* Changes is the exception: it belongs to the workspace chip beside
-               this menu, which carries the file count with it, and a second
-               copy here would be the same row twice in one header. */
-            .filter((definition) => definition.menu === true && definition.kind !== 'changes')
+            .filter((definition) => definition.menu === true && definition.kind !== 'changes' && (embeddedHeader || !['agents', 'activity', 'trajectory', 'tasks', 'run-details', 'run-steps', 'browser'].includes(definition.kind)))
             .map((definition) => {
               const Glyph = definition.icon
               const open = shownView(snapshot.workbench, definition.kind)
@@ -450,6 +381,7 @@ const ConversationMenu = () => {
             })}
           {pane && several && (
             <PopoverOption
+              title="⌘W. The conversation stays in the sidebar."
               onClick={() => {
                 store.closePane(pane.paneId)
                 close()
@@ -460,60 +392,19 @@ const ConversationMenu = () => {
               </PopoverOptionMark>
               <PopoverOptionBody>
                 <PopoverOptionLabel>Close this pane</PopoverOptionLabel>
-                <PopoverOptionHint>⌘W. The conversation stays in the sidebar.</PopoverOptionHint>
               </PopoverOptionBody>
             </PopoverOption>
           )}
           </>
-        )}
-      </Popover>
-      {/* Outside the menu: the menu closes as the dialog opens. */}
-      {saving && <SaveAsAgentDialog session={session} onClose={() => setSaving(false)} />}
-    </>
   )
-}
-
-/**
- * The header's word on background work.
- *
- * A background task outlives the turn, and its panel is not always open —
- * so the header carries a chip while any are listed: a turning mark and the
- * count while something runs, a quiet count once everything has ended. It
- * sits with the status, because it states a fact about this conversation,
- * and pressing it summons the panel the way the ⋯ menu would. Nothing when
- * there is nothing: an agent without the concept never shows it.
- */
-const TasksChip = () => {
-  const grouped = useHeaderStatusGroup()
-  const store = useStore()
-  const key = useSessionKey()
-  const snapshot = useSnapshot()
-  const tasks = key ? snapshot.tasks.get(key) : undefined
-  if (!tasks || tasks.length === 0) return null
-  const split = splitTasks(tasks)
-  const live = split.running.length > 0
-  const open = shownView(snapshot.workbench, 'tasks')
-  return (
-    <HeaderStatusReading label="Background tasks" detail={tasksChipLabel(split)}>
-      <Button variant="quiet" size="inline" className={`${styles.tasksChip} hd-no-drag`}
-        data-testid="tasks-chip"
-        {...(live ? { 'data-live': '' } : {})}
-        aria-pressed={open}
-        /* Led by the chip's own words, which a narrow header folds down to its
-           mark: hover is where they are still read. */
-        aria-label={tasksChipLabel(split)}
-        title={grouped ? undefined : `${tasksChipLabel(split)}. ${
-          live
-            ? 'Work that keeps going after the turn. Opens the Background tasks panel, with the output.'
-            : 'Work that ran after a turn ended. Opens the Background tasks panel, with the output.'
-        }`}
-        onClick={() => store.showView('tasks')}
-      >
-        {live ? <Spinner size="sm" tone="neutral" aria-hidden="true" /> : <CheckIcon size={11} />}
-        <span className={styles.tasksLabel}>{tasksChipLabel(split)}</span>
-      </Button>
-    </HeaderStatusReading>
-  )
+  useTopBarMore(pane?.paneId ?? '', menuBody, Boolean(session && pane))
+  return <>
+    {confirmUndo && <ConfirmDialog title="Undo the last turn?" confirmLabel="Undo turn" onCancel={() => setConfirmUndo(false)}
+      onConfirm={() => { void store.rollback(1); setConfirmUndo(false) }}>
+      Drops it from history. Files it changed on disk are not reverted.
+    </ConfirmDialog>}
+    {saving && session && <SaveAsAgentDialog session={session} onClose={() => setSaving(false)} />}
+  </>
 }
 
 /**
@@ -570,6 +461,7 @@ export const Conversation = ({
   onOpenRuntimes,
   header = true,
   composer = true,
+  embeddedHeader = false,
 }: {
   onChooseProject: () => void
   onSignIn: (runtime?: RuntimeId) => void
@@ -583,6 +475,8 @@ export const Conversation = ({
   /** False where one composer elsewhere speaks for several conversations — a
       Side by side grid of two or more tiles — so this one draws none. */
   composer?: boolean
+  /** Staging only: an embedded Team member keeps its actions until Task 4 owns Team tools. */
+  embeddedHeader?: boolean
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -721,92 +615,22 @@ export const Conversation = ({
     setPinned(true)
   }, [])
 
+  useTopBar(pane?.paneId ?? '', {
+    lead: sidebarPlacement(snapshot) !== 'column' ? <WindowControls /> : undefined,
+    place: <HeaderTitle session={session} />,
+    state: session ? <Chip tone={STATUS_PILL_TONE[status]}>{STATUS_LABEL[status]}</Chip> : undefined,
+    tools: embeddedHeader ? undefined : <WorkTools draft={!session} />,
+    more: session ? () => null : () => <MenuItem label="Choose a project folder…" onSelect={onChooseProject} />,
+    corner: sidebarPlacement(snapshot) !== 'column',
+  }, header && pane !== null)
+  useWorkDetails(pane?.paneId ?? '', <ConversationDetails session={session}
+    placeAction={<GitControl onRemoveWorktree={() => setRemovingWorktree(true)} onBringHome={() => setBringingHome(true)} />} />,
+    header && pane !== null && !embeddedHeader)
+
   return (
     <div className={styles.conversation} ref={conversationRoot}>
-      {/* Room for the macOS window buttons is not asked for here: the header
-          leaves whatever `--titlebar-inset` says its box needs, which is
-          the width of the buttons only when this header is the row actually
-          under them. This used to test the collapsed sidebar and the platform
-          itself, and that was wrong twice over — it indented this header when
-          a tool pane was in the corner instead, and it left every other header
-          in the app printing its title under the buttons. */}
-      {header && (
-        <Bar as="header" corner inset="ink" rule="bottom" className={`${styles.header} hd-drag`}>
-          {/* The window's own controls, whenever the sidebar is not standing
-              beside this header to carry them: put away, or floating over the
-              conversation in a narrow window. Only the middle's own header takes
-              them — a conversation docked beside it, or a member's column in a
-              room, drew a second set a few inches from the first. */}
-          {pane && findPane(snapshot.layout, pane.paneId) && sidebarPlacement(snapshot) !== 'column' && (
-            <WindowControls />
-          )}
-          <HeaderTitle session={session} />
-          <HeaderStatusGroup>
-            {/* Folds at a phone's width, same as the idle status and the rule:
-                the title is the one name in this row and must win the space.
-                The ceiling itself is not lost — it is still read from the seat's
-                own card (AgentCards, opened from Settings › Agents or this
-                conversation's own ⋯ › Save as an Agent…). */}
-            {session && <HeaderCeiling session={session} />}
-            {session && (
-              <HeaderStatusReading label="Status" detail={STATUS_LABEL[status]} className={status === 'idle' ? styles.statusIdle : undefined}>
-                <Chip
-                  variant="quiet"
-                  tone={STATUS_PILL_TONE[status]}
-                  dotTone={STATUS_TONE[status]}
-                  dotPulse={status === 'running'}
-                  dotShape={status === 'running' ? 'square' : 'round'}
-                  className={`hd-no-drag${status === 'idle' ? ` ${styles.statusIdle}` : ''}`}
-                >
-                  {status !== 'idle' && <span className={styles.statusLabel}>{STATUS_LABEL[status]}</span>}
-                </Chip>
-              </HeaderStatusReading>
-            )}
-            {session && <TasksChip />}
-            <GitControl
-              onRemoveWorktree={() => setRemovingWorktree(true)}
-              onBringHome={() => setBringingHome(true)}
-            />
-            {/* Empty when nothing is registered — and an empty box in a flex row
-                still takes the row's gap, which left a hole in the header that
-                looked like a control had failed to draw. */}
-            <div className={`${styles.headerSlot} hd-no-drag`}>
-              <Slot name="session.header" />
-            </div>
-            {/* What every signed-in plan has left. Ambient, so it sits with the
-                status rather than with the buttons that do something. */}
-            <PlanMeters onOpen={onOpenUsage} onSignIn={onSignIn} />
-          </HeaderStatusGroup>
-          {/* Everything to the left of this states a fact; everything to the
-              right does something — the tool header's own divider, drawn for
-              the same reason between a tool's controls and its panel's. Wrapped
-              only so the phone-width fold below can hide it: the shared marker
-              takes no className of its own. */}
-          {pane && (
-            <span className={styles.headerRuleWrap}>
-              <ToolPaneHeaderDivider />
-            </span>
-          )}
-          {/* A door to a view folds into ⋯ › View at a phone's width — where
-              there is a ⋯ to fold into. A draft has none, so its browser button
-              stays: folded, it was a door closed with nothing in its place. */}
-          {pane && (
-            <span className={styles.headerButtonWrap} {...(session ? { 'data-folds': '' } : {})}>
-              <Button
-              variant="ghost" size="icon-sm" className={`${styles.headerButton} hd-no-drag`}
-              {...(session ? { 'data-folds': '' } : {})}
-              onClick={() => store.openBrowser()}
-              title="Open the browser beside this conversation — the page agents' browser tools drive"
-              aria-label="Open browser"
-            >
-              <GlobeIcon size={14} />
-              </Button>
-            </span>
-          )}
-          {pane && session && <TerminalToggle folds />}
-          {session && <ConversationMenu />}
-        </Bar>
-      )}
+      {header && session && <ConversationMenu embeddedHeader={embeddedHeader} folderActions={embeddedHeader
+        ? close => <GitControl menu menuClose={close} onRemoveWorktree={() => setRemovingWorktree(true)} onBringHome={() => setBringingHome(true)} /> : undefined} />}
 
       <div className={styles.body}>
         {/* Beside the transcript, not in it: the rail is a picture of the
@@ -967,16 +791,19 @@ export const Conversation = ({
 export const GitControl = ({
   onRemoveWorktree,
   onBringHome,
+  menu = false,
+  menuClose,
 }: {
   onRemoveWorktree: () => void
   onBringHome: () => void
-}) => {
+} & ({ menu: true; menuClose: () => void } | { menu?: false; menuClose?: never })) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const session = useActiveSession()
   // This control's own conversation — a room column's member, not whichever
   // one the window has focused — so a review is of the changes it names.
   const key = useSessionKey()
+  const pane = usePane()
   const record = isRecordConversation(snapshot.goals.values(), key)
   const runtime = useRuntime()
   // A draft pointed at a worktree will start there, and one armed with a new
@@ -1043,50 +870,7 @@ export const GitControl = ({
     ? `${branch} · new worktree off ${cwd}`
     : `${branch ?? folder}${linked ? ' · worktree' : ''} — ${cwd}`
 
-  return (
-    <HeaderStatusReading
-      label={branch ? "Branch" : "Folder"}
-      detail={placeTitle}
-      value={armed ? `${branch} · new worktree` : `${branch ?? folder}${linked ? ' · worktree' : ''}`}
-      note={cwd}
-      notePath
-    >
-      <Popover
-        /* What the chip says, then where it is. The words fold to the glyph in a
-           narrow header, and hover is where they are still read — the path alone
-           was not the word that folded. A worktree says so, as its badge does,
-           and a draft armed with a new one names the folder it will be cut from:
-           its worktree is not at that path yet. */
-        title={placeTitle}
-        align="right"
-        label={
-          <>
-            {/* The glyph says where, so it can stand alone when a narrow header
-                folds the words away: a branch for a worktree, a branch with a
-                plus for one a draft will cut, a laptop for the main checkout,
-                a folder for one that is not a repository. */}
-            {armed ? (
-              <NewWorktreeIcon size={13} />
-            ) : linked ? (
-              <BranchIcon size={13} />
-            ) : branch ? (
-              <LocalIcon size={13} />
-            ) : (
-              <FolderIcon size={13} />
-            )}
-            <span className={styles.gitWords}>
-              <Text as="span" role="navigation" className={styles.gitLabel}>{branch ?? folder}</Text>
-              {linked && (
-                <Badge variant="secondary" className={styles.gitBadge}>
-                  worktree
-                </Badge>
-              )}
-            </span>
-          </>
-        }
-      >
-        {(close) => (
-          <Menu close={close}>
+  const menuBody = (close: () => void) => <>
             <MenuLabel>{folder}</MenuLabel>
             {session && (
               <MenuItem
@@ -1154,52 +938,25 @@ export const GitControl = ({
                 icon={<CommitIcon size={16} />}
                 label="Commit the changes"
                 title="Asks the agent, in this conversation; you send it."
-                onSelect={() =>
-                  window.dispatchEvent(
-                    new CustomEvent('harnessdesk:compose', {
-                      detail:
-                        'Commit the changes from this conversation with a clear message, then tell me the commit hash.',
-                    }),
-                  )
-                }
+                onSelect={() => {
+                  dismissOverlays({ returnFocus: false })
+                  if (pane) store.focusPane(pane.paneId.split(':')[0]!)
+                  void handOverToComposer({
+                    paneId: pane?.paneId,
+                    text: 'Commit the changes from this conversation with a clear message, then tell me the commit hash.',
+                  }).then(taken => {
+                    if (!taken) store.notice('warning', 'The message box did not take it — click into the conversation and try again.')
+                  })
+                }}
               />
             )}
-          </Menu>
-        )}
-      </Popover>
-    </HeaderStatusReading>
-  )
+          </>
+  return menu ? <Submenu label="Folder actions" icon={<FolderIcon />}>{menuBody(menuClose!)}</Submenu>
+    : <Popover title="Folder actions" align="right" label={<MoreIcon />} triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}>
+      {close => <Menu close={close}>{menuBody(close)}</Menu>}
+    </Popover>
 }
 
-import { ceilingMeaning, seatCeilingWords } from '../lib/agents'
-import { ceilingTitle, seatCeilingOf } from '../lib/ceilings'
-
-/** The ceiling governing this conversation, or nothing on the plain path. */
-const HeaderCeiling = ({ session }: { readonly session: Session }) => {
-  const snapshot = useSnapshot()
-  const runs = useMemo(() => [...snapshot.flowRuns.values()].flat(), [snapshot.flowRuns])
-  const shown = seatCeilingOf(session.settings, runs, String(session.runtime), String(session.id))
-  return shown ? (
-    <span className={`${styles.ceilingWrap} hd-no-drag inline-flex flex-none`} data-slot="ceiling-wrap">
-      <HeaderStatusReading
-        label="Ceiling"
-        detail={ceilingTitle(shown.ceiling, shown.note)}
-        value={seatCeilingWords(shown.ceiling)}
-        /* The runtime's own word for how it holds, when it gave one; else what the ceiling allows. */
-        note={shown.note ? `${shown.ceiling.hold === 'held' ? 'Held' : 'Asked, not held'}: ${shown.note}` : ceilingMeaning(shown.ceiling.level)}
-      >
-        <Text role="meta" data-ceiling={shown.ceiling.level} data-hold={shown.ceiling.hold}>{seatCeilingWords(shown.ceiling)}</Text>
-      </HeaderStatusReading>
-    </span>
-  ) : null
-}
-
-/**
- * What the header calls the conversation. A fresh session has no stored
- * preview until the list is re-read, so the first thing the user wrote stands
- * in — the same line the sidebar shows — rather than "New session" for the
- * whole first turn.
- */
 const titleOf = (session: Session | null): string => {
   if (!session) return 'New session'
   const firstMessage = session.turns
@@ -1217,5 +974,5 @@ const titleOf = (session: Session | null): string => {
 /** The header's title: the conversation's own, led by the Agent it was seated as. */
 const HeaderTitle = ({ session }: { readonly session: Session | null }) => {
   const seated = useSeatAgent(session)
-  return <Text as="span" role="subject" className={styles.title}>{ledBy(seated?.name ?? null, titleOf(session))}</Text>
+  return <>{ledBy(seated?.name ?? null, titleOf(session))}</>
 }

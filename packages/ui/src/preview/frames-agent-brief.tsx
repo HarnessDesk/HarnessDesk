@@ -1,3 +1,4 @@
+import { ConversationFrame } from './ConversationFrame'
 import { useMemo } from 'react'
 import type { NoticeItem } from '@harnessdesk/protocol'
 import { Conversation } from '../components/Conversation'
@@ -49,7 +50,7 @@ const BriefFrames = () => {
     <Frame id="brief-conversation" title="Freshly seated conversation">
       <div className="h-[820px]">
         <PaneProvider scope={{ paneId: 'brief-preview' as never, view: { kind: 'conversation', session: SIDE_BY_SIDE_KEYS[0]! }, sessionKey: SIDE_BY_SIDE_KEYS[0]! }}>
-          <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+          <ConversationFrame><Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} /></ConversationFrame>
         </PaneProvider>
       </div>
     </Frame>

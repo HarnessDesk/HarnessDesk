@@ -120,3 +120,30 @@ test('a fractional title width below 180 uses the first fold to protect the full
   expect(render({})).toEqual([0, 1])
   expectFloor(1)
 })
+
+test('a standing tools column remeasures during a seam drag at the same outer width', () => {
+  const observed = new Set<Element>()
+  let resized = () => {}
+  vi.stubGlobal('ResizeObserver', class {
+    constructor(private callback: () => void) {}
+    observe(node: Element) {
+      observed.add(node)
+      if (node.matches('[data-slot="top-bar"]')) resized = this.callback
+    }
+    disconnect() {}
+  })
+  render({ tools: <button>Details</button>, rightColumnWidth: 460 })
+  expectFloor(0)
+  const tools = container.querySelector('[data-topbar="tools"]')!
+  expect(observed.has(tools)).toBe(true)
+  expect(observed.has(container.querySelector('[data-topbar-title]')!)).toBe(false)
+  availableTitle = 160
+  act(() => resized())
+  for (let pass = 0; frames.size && pass < 10; pass++) {
+    const pending = [...frames.values()]
+    frames.clear()
+    act(() => { for (const callback of pending) callback(pass) })
+  }
+  expectFloor(1)
+  expect(container.querySelector('[data-slot="top-bar"]')!.getBoundingClientRect().width).toBe(720)
+})

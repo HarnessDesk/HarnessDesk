@@ -49,6 +49,8 @@ import { useNeedsYouAnswers } from '../state/needs-you'
 import type { AppSnapshot } from '../state/snapshot'
 import { sidebarPlacement } from '../state/workbench'
 import { useMount } from '../panels/mount'
+import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
+import { WorkPanelToggle } from '../panels/WorkTools'
 import { PanelActionMenuItems } from '../panels/PanelActions'
 import { BrandMark } from './BrandIcons'
 import {
@@ -1281,6 +1283,7 @@ export const TeamRoomPane = ({
               onClick={() => void toggleMessaging()}>{messaging ? <CommentIcon size={14} /> : <MessageOffIcon size={14} />}</Button>
             {pullRequest && <Button variant="ghost" size="icon-sm" aria-label={`Pull request #${pullRequest.number}`} title={`Open pull request #${pullRequest.number}`} onClick={() => void openExternal(pullRequest.url)}><PullRequestIcon size={14} /></Button>}
           </span>
+          <WorkPanelToggle onToggle={open => store.collapsePanel('right', open)} />
           <Popover label={<MoreIcon size={14} />} title="More" align="right" triggerVariant={{variant:'ghost',size:'icon-sm'}}>
             {close => <Menu close={close}>
               {headerLayout.narrow && <>
@@ -1522,10 +1525,11 @@ export const TeamRoomPane = ({
                       </MemberCard>
                     </Bar>
                     <div className={styles.columnBody}>
-                      <PaneProvider scope={{ paneId: `${mount?.id ?? 'team-room'}:${key}`, view: { kind: 'conversation', session: key }, sessionKey: key }}>
-                        <Conversation onChooseProject={onChooseProject} onSignIn={onSignIn} onOpenUsage={onOpenUsage} onOpenRuntimes={onOpenRuntimes} />
+                      <TopBarProvider><PaneProvider scope={{ paneId: `${mount?.id ?? 'team-room'}:${key}`, view: { kind: 'conversation', session: key }, sessionKey: key }}>
+                        <TopBarOutlet owner={`${mount?.id ?? 'team-room'}:${key}`} fallback={{ place: 'Member', more: () => null }} />
+                        <Conversation embeddedHeader onChooseProject={onChooseProject} onSignIn={onSignIn} onOpenUsage={onOpenUsage} onOpenRuntimes={onOpenRuntimes} />
                         <Approvals />
-                      </PaneProvider>
+                      </PaneProvider></TopBarProvider>
                     </div>
                   </section>
                 </div>

@@ -27,6 +27,7 @@ import {
   readWorkbench,
   normalizeFixedWorkbench,
   rightPanelOverlays,
+  fixedSubject,
   removeAt,
   replaceView,
   resizeDock,
@@ -485,7 +486,8 @@ describe('docking something that is already here', () => {
 describe('protecting the reading column', () => {
   const right = (size = 280): Workbench => {
     const docked = dock(emptyWorkbench(), 'right', CHANGES)
-    return { ...docked, right: { ...docked.right, size } }
+    const subject = fixedSubject(docked.main)!
+    return { ...docked, right: { ...docked.right, size }, frameTools: { [subject]: { tool: 'changes', mode: 'changes', open: true } } }
   }
 
   test('keeps three columns at 1440 and keeps the sidebar at the 922px equality boundary', () => {
@@ -521,7 +523,7 @@ describe('protecting the reading column', () => {
 
   test('collapsed or empty right docks do not take the sidebar column at 900', () => {
     const drawn = right()
-    expect(sidebarCannotHaveColumn({ ...drawn, right: { ...drawn.right, collapsed: true } }, 900)).toBe(false)
+    expect(sidebarCannotHaveColumn({ ...drawn, right: { ...drawn.right, collapsed: true }, frameTools: { [fixedSubject(drawn.main)!]: { tool: 'changes', mode: 'changes', open: false } } }, 900)).toBe(false)
     expect(sidebarCannotHaveColumn(emptyWorkbench(), 900)).toBe(false)
   })
 
@@ -559,6 +561,23 @@ describe('size and visibility', () => {
     expect(toggleDock(workbench, 'bottom').bottom.collapsed).toBe(false)
   })
 
+  test('legacy right collapse synchronizes only an existing current-subject intent and retains its resource', () => {
+    const workbench = dock(emptyWorkbench(), 'right', CHANGES)
+    const subject = fixedSubject(workbench.main)!
+    const other = { tool: 'browser' as const, mode: 'browser', open: true }
+    const start = { ...workbench, frameTools: { [subject]: { tool: 'changes' as const, mode: 'file', open: true }, 'team:other': other } }
+    const closed = collapseDock(start, 'right', true)
+    expect(closed.frameTools[subject]).toEqual({ tool: 'changes', mode: 'file', open: false })
+    expect(closed.frameTools['team:other']).toBe(other)
+    expect(closed.right.root).toBe(start.right.root)
+    expect(closed.focus).toBe(start.focus)
+    const reopened = toggleDock(closed, 'right')
+    expect(reopened.frameTools[subject]).toEqual({ tool: 'changes', mode: 'file', open: true })
+    expect(reopened.right.root).toBe(start.right.root)
+    expect(collapseDock(workbench, 'right', true).frameTools).toEqual(workbench.frameTools)
+    expect(collapseDock(start, 'bottom', true).frameTools).toBe(start.frameTools)
+  })
+
   test('an empty area is never collapsed — there is nothing to collapse to', () => {
     const workbench = collapseDock(emptyWorkbench(), 'right', true)
     expect(workbench.right.collapsed).toBe(false)
@@ -585,10 +604,10 @@ describe('noticeArea — which area the strip above the panes rides', () => {
 
   test('the right panel takes notices only when its overlay covers the main area', () => {
     const placed = dock(emptyWorkbench(), 'right', CHANGES)
-    const right: Workbench = { ...placed, right: { ...placed.right, size: 280 } }
+    const right: Workbench = { ...placed, right: { ...placed.right, size: 280 }, frameTools: { [fixedSubject(placed.main)!]: { tool: 'changes', mode: 'changes', open: true } } }
     expect(noticeArea(right, 679)).toBe('right')
     expect(noticeArea(right, 700)).toBe('main')
-    expect(noticeArea(collapseDock(right, 'right', true), 679)).toBe('main')
+    expect(noticeArea({ ...collapseDock(right, 'right', true), frameTools: { [fixedSubject(right.main)!]: { tool: 'changes', mode: 'changes', open: false } } }, 679)).toBe('main')
     expect(noticeArea(emptyWorkbench(), 679)).toBe('main')
   })
 })
@@ -638,7 +657,7 @@ describe('mainNoticeHost — which pane in the split tree carries the strip', ()
     const zoomed = zoomArea(dock(emptyWorkbench(), 'right', CHANGES), 'right', 'content')
     expect(mainNoticeHost(zoomed, 1440)).toBeNull()
     const placed = dock(emptyWorkbench(), 'right', CHANGES)
-    const overlaidRight: Workbench = { ...placed, right: { ...placed.right, size: 280 } }
+    const overlaidRight: Workbench = { ...placed, right: { ...placed.right, size: 280 }, frameTools: { [fixedSubject(placed.main)!]: { tool: 'changes', mode: 'changes', open: true } } }
     expect(mainNoticeHost(overlaidRight, 679)).toBeNull()
     expect(mainNoticeHost(overlaidRight, 700)).not.toBeNull()
   })
@@ -676,7 +695,7 @@ describe('focusedComposerVisible — whether the focused mount is a composer tha
 
   test('a right panel below 400px of remaining width covers main even with no zoom', () => {
     const placed = dock(withMain({ kind: 'conversation', session: A }), 'right', CHANGES)
-    const workbench: Workbench = { ...placed, right: { ...placed.right, size: 280 } }
+    const workbench: Workbench = { ...placed, right: { ...placed.right, size: 280 }, frameTools: { [fixedSubject(placed.main)!]: { tool: 'changes', mode: 'changes', open: true } } }
     expect(focusedComposerVisible(workbench, 700)).toBe(true)
     expect(focusedComposerVisible(workbench, 679)).toBe(false)
   })
@@ -820,11 +839,11 @@ describe('the window buttons', () => {
   test('the right panel takes the corner only when it covers the middle', () => {
     // The panel covers main only when fewer than 400px remain beside it.
     const placed = dock(emptyWorkbench(), 'right', GIT)
-    const right: Workbench = { ...placed, right: { ...placed.right, size: 280 } }
+    const right: Workbench = { ...placed, right: { ...placed.right, size: 280 }, frameTools: { [fixedSubject(placed.main)!]: { tool: 'changes', mode: 'changes', open: true } } }
     expect(cornerArea(right, false, 679)).toBe('right')
     expect(cornerArea(right, false, 700)).toBe('main')
     // A collapsed or empty right panel lays nothing over the middle.
-    expect(cornerArea({ ...right, right: { ...right.right, collapsed: true } }, false, 679)).toBe('main')
+    expect(cornerArea({ ...right, right: { ...right.right, collapsed: true }, frameTools: { [fixedSubject(right.main)!]: { tool: 'changes', mode: 'changes', open: false } } }, false, 679)).toBe('main')
     expect(cornerArea(emptyWorkbench(), false, 679)).toBe('main')
     // And the floating sidebar never stands as a column, so it is not asked here.
   })
@@ -906,31 +925,49 @@ describe('the visible inspector', () => {
 describe('a view drawn in a dock', () => {
   const STEPS = { kind: 'run-steps' } as const
   const DETAILS = { kind: 'run-details' } as const
+  const rightRun = (view: PaneView): Workbench => {
+    const empty = emptyWorkbench()
+    const main = { root: { kind: 'pane' as const, id: 'drawn-team', view: { kind: 'room' as const, room: 'drawn-team' } }, focused: 'drawn-team', expanded: null }
+    const held = dock({ ...empty, main }, 'right', view)
+    const subject = fixedSubject(main)!
+    return { ...held, frameTools: { [subject]: { tool: 'details', mode: 'run-details', open: true } },
+      toolOwners: Object.fromEntries(dockViews(held.right).map(one => [one.id, subject])) }
+  }
   const appState = (
     workbench: Workbench,
     over: { narrowWindow?: boolean; sidebarCollapsed?: boolean; sidebarFloating?: boolean } = {},
   ) => ({ narrowWindow: false, sidebarCollapsed: false, sidebarFloating: false, workbench, ...over })
 
   test('is drawn while its dock is open and showing it', () => {
-    expect(drawnInDock(appState(dock(emptyWorkbench(), 'right', STEPS)), 'run-steps')).toBe(true)
+    expect(drawnInDock(appState(rightRun(STEPS)), 'run-steps')).toBe(true)
     expect(drawnInDock(appState(dock(emptyWorkbench(), 'bottom', STEPS)), 'run-steps')).toBe(true)
     expect(drawnInDock(appState(emptyWorkbench()), 'run-steps')).toBe(false)
   })
 
+  test('is not drawn when a retained right view has a closed subject intent despite an open raw dock', () => {
+    const raw = dock(emptyWorkbench(), 'right', STEPS)
+    const subject = fixedSubject(raw.main)!
+    const retained = { ...raw, frameTools: { [subject]: { tool: 'details' as const, mode: 'run-details', open: false } } }
+    expect(retained.right.collapsed).toBe(false)
+    expect(drawnInDock(appState(retained), 'run-steps')).toBe(false)
+    expect(drawnInDock(appState(raw), 'run-steps')).toBe(false)
+    expect(dockViews(retained.right)).toEqual(dockViews(raw.right))
+  })
+
   test('is not drawn while its dock is put away to the strip', () => {
-    const away = collapseDock(dock(emptyWorkbench(), 'right', STEPS), 'right', true)
+    const away = collapseDock(rightRun(STEPS), 'right', true)
     expect(drawnInDock(appState(away), 'run-steps')).toBe(false)
   })
 
   test('is not drawn behind the tab in front of it', () => {
-    const behind = dock(dock(emptyWorkbench(), 'right', STEPS), 'right', DETAILS)
+    const behind = dock(rightRun(STEPS), 'right', DETAILS)
     expect(drawnInDock(appState(behind), 'run-steps')).toBe(false)
     expect(drawnInDock(appState(behind), 'run-details')).toBe(true)
   })
 
   test('is not drawn while a zoom has the room elsewhere', () => {
     // `shownView` reads this dock as open, which it is; it is not on the screen.
-    const docked = dock(emptyWorkbench(), 'right', STEPS)
+    const docked = rightRun(STEPS)
     expect(drawnInDock(appState(docked), 'run-steps')).toBe(true)
     expect(drawnInDock(appState(zoomArea(docked, 'main', 'content')), 'run-steps')).toBe(false)
   })

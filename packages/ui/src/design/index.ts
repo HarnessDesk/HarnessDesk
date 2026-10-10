@@ -220,3 +220,5 @@ export { ComparisonSummary } from './patterns/ComparisonSummary'
 export { MergeDialog, DiffRangeDialog } from './patterns/GitComparisonDialogs'
 
 export { TopBar, type TopBarProps, type TopBarAction, type TopBarTab } from './patterns/TopBar'
+
+export { ToolBody, ToolSection, ToolProse } from './patterns/ToolBody'

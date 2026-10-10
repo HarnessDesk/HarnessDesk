@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import { BLANK, activeBrowserTab, browserView, drivenBrowserTab, type BrowserView } from './layout'
 import { AppStore } from './store'
-import { findView, viewAt, dockViews } from './workbench'
+import { activeView, findView, viewAt, dockViews } from './workbench'
 // The built-in views, so the browser opens where it does in the app — the
 // right-hand dock — rather than in the split tree these tests once assumed.
 // Two verbs (closing the panel, remembering a closed tab) only ever looked
@@ -38,6 +38,44 @@ const browser = (): { id: string; view: BrowserView } => {
 }
 
 const browserIsOpen = (): boolean => browserAnywhere() !== null
+
+it('legacy right-panel collapse keeps canonical intent visibility coherent without releasing Browser', () => {
+  store.openTeamRoom('fixture-a')
+  store.openBrowser('https://example.com/')
+  const resource = browser()
+  const subject = store.workSubject()!
+  store.togglePanel('right')
+  expect(store.getSnapshot().workbench.right.collapsed).toBe(true)
+  expect(store.getSnapshot().workbench.frameTools[subject]).toMatchObject({ tool: 'browser', mode: 'browser', open: false })
+  expect(browser()).toEqual(resource)
+  store.togglePanel('right')
+  expect(store.getSnapshot().workbench.frameTools[subject]).toMatchObject({ tool: 'browser', mode: 'browser', open: true })
+  expect(browser().view).toBe(resource.view)
+})
+
+it('explicit panel collapse preserves the selected cache when raw and intent visibility differ', () => {
+  store.openTeamRoom('fixture-a')
+  store.openBrowser('https://example.com/')
+  const resource = browser()
+  const subject = store.workSubject()!
+  store.togglePanel('right')
+  store.showViewIn('right', { kind: 'run-steps' })
+  const before = store.getSnapshot().workbench
+  const steps = activeView(before.right)!
+  expect(steps.view.kind).toBe('run-steps')
+  expect(before.right.collapsed).toBe(false)
+  expect(before.frameTools[subject]).toMatchObject({ tool: 'browser', mode: 'browser', open: false })
+  store.collapsePanel('right', false)
+  const after = store.getSnapshot().workbench
+  expect(after.frameTools[subject]).toMatchObject({ tool: 'browser', mode: 'browser', open: true })
+  expect(activeView(after.right)?.id).toBe(steps.id)
+  expect(dockViews(after.right)).toEqual(dockViews(before.right))
+  expect(activeView(after.right)?.view).toBe(steps.view)
+  expect(browser().view).toBe(resource.view)
+  store.togglePanel('right')
+  expect(store.getSnapshot().workbench.right.collapsed).toBe(true)
+  expect(store.getSnapshot().workbench.frameTools[subject]?.open).toBe(false)
+})
 
 beforeEach(() => {
   // Never connected: the socket queues, and layouts are only persisted once

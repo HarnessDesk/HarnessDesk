@@ -8,7 +8,7 @@ import { RunDockProvider } from '../panels/run-dock'
 import { flowGraphDocument } from '../preview/flow-graph-fixture'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
-import { collapseDock, dock, emptyWorkbench, zoomArea, type Workbench } from '../state/workbench'
+import { collapseDock, dock, dockViews, emptyWorkbench, fixedSubject, zoomArea, type Workbench } from '../state/workbench'
 import { RunFlow } from './RunFlow'
 import { canvasDOM } from '../test/flow-canvas-dom'
 
@@ -251,16 +251,32 @@ const listInNarrowPane = async (docked: boolean, workbench?: Workbench, pane?: s
   canvasDOM({ graphWidth: 500 })
   const flow = <RunFlow execution={run()} root="/repo" seats={[]} />
   const view = <StoreProvider store={fakeStore([], undefined, workbench)}>
-    {pane ? <PaneProvider scope={{ paneId: pane, view: { kind: 'room', room: pane }, sessionKey: null }}>{flow}</PaneProvider> : flow}
+    {pane ? <PaneProvider scope={{ paneId: pane, view: { kind: 'room', room: 'flow-team' }, sessionKey: null }}>{flow}</PaneProvider> : flow}
   </StoreProvider>
   await act(async () => { root.render(docked ? <RunDockProvider>{view}</RunDockProvider> : view) })
   await act(async () => { await vi.waitFor(() => expect(container.querySelector('.react-flow__node')).not.toBeNull()) })
   return container.querySelector<HTMLElement>('[data-slot="flow-list"]')!
 }
-const stepsDocked = dock(emptyWorkbench(), 'right', { kind: 'run-steps' })
+const stepsSeed = emptyWorkbench()
+const stepsMain = { root: { kind: 'pane' as const, id: 'flow-team', view: { kind: 'room' as const, room: 'flow-team' } }, focused: 'flow-team', expanded: null }
+const stepsRaw = dock({ ...stepsSeed, main: stepsMain }, 'right', { kind: 'run-steps' })
+const stepsSubject = fixedSubject(stepsMain)!
+const stepsDocked: Workbench = { ...stepsRaw,
+  frameTools: { [stepsSubject]: { tool: 'details', mode: 'run-details', open: true } },
+  toolOwners: Object.fromEntries(dockViews(stepsRaw.right).map(one => [one.id, stepsSubject])) }
 
 it('leaves the Steps to the Team dock in a narrow pane while the dock is drawing them', async () => {
   expect((await listInNarrowPane(true, stepsDocked)).dataset.placement).toBe('dock')
+})
+
+it('lists Steps and Rules below the drawing when intent hides a retained raw-open right dock', async () => {
+  const subject = fixedSubject(stepsDocked.main)!
+  const retained = { ...stepsDocked, frameTools: { [subject]: { tool: 'details' as const, mode: 'run-details', open: false } } }
+  expect(retained.right.collapsed).toBe(false)
+  expect((await listInNarrowPane(true, retained)).dataset.placement).toBe('below')
+  expect(container.querySelectorAll('[data-step-row]')).toHaveLength(6)
+  expect(container.querySelector('section[aria-label="Rules"]')?.textContent).toContain('Review → Fix')
+  expect(dockViews(retained.right)).toEqual(dockViews(stepsDocked.right))
 })
 
 it('lists the Steps under the drawing in a narrow pane that has no dock', async () => {
@@ -284,7 +300,7 @@ it('lists the Steps itself while a zoom has taken the Team dock off the screen',
 })
 
 it('lists the Steps itself when the dock is following another pane’s Run', async () => {
-  const focused = (id: string): Workbench => ({ ...stepsDocked, main: { ...stepsDocked.main, focused: id } })
+  const focused = (id: string): Workbench => ({ ...stepsDocked, main: { ...stepsMain, root: { ...stepsMain.root, id }, focused: id } })
   expect((await listInNarrowPane(true, focused('other'), 'this')).dataset.placement).toBe('below')
   expect((await listInNarrowPane(true, focused('this'), 'this')).dataset.placement).toBe('dock')
 })

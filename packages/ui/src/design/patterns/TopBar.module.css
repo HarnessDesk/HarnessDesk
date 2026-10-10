@@ -8,3 +8,6 @@
 .title > * { display: block; min-width: 0; }
 .spacer { flex: 0 0 0; min-width: 0; }
 .tabs { flex-wrap: nowrap; flex: none; }
+
+.row [data-topbar="tools"][data-standing] { width: calc(var(--topbar-right-column) - var(--hd-bar-pad) - var(--hd-btn-h-sm) - var(--hd-bar-gap) - var(--hd-border-width)); }
+.row [data-work-tools-spacer] { flex: 1; min-width: 0; }

@@ -4233,6 +4233,11 @@ export class AppStore {
     this.#setWorkbench(toggleDockIn(this.#snapshot.workbench, area))
   }
 
+  /** Sets panel visibility without changing its selected retained view. */
+  collapsePanel(area: DockId, collapsed: boolean): void {
+    this.#setWorkbench(collapseDockIn(this.#snapshot.workbench, area, collapsed))
+  }
+
   /** Gives an area the main content area, or the whole window. Again to leave. */
   zoomPanel(area: AreaId, scope: Zoom['scope']): void {
     this.#setWorkbench(zoomAreaIn(this.#snapshot.workbench, area, scope))

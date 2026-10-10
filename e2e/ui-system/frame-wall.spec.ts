@@ -2,6 +2,7 @@ import { applyFrameActions } from './frame-actions'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
+import { FRAME } from '../../packages/ui/src/design/frame'
 import { WALL_DESTINATIONS, WALL_THEMES, WALL_TIME, WALL_WIDTHS } from './frame-wall-destinations'
 
 /**
@@ -31,6 +32,12 @@ for (const destination of WALL_DESTINATIONS) {
         if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
         await applyFrameActions(page, destination)
         await page.evaluate(async () => { await document.fonts.ready })
+        // TopBar measures its two folds over animation frames. Capture the
+        // measured contract, rather than its initial unmeasured tab row.
+        for (const title of await page.locator('[data-slot="top-bar"]:visible [data-topbar-title]').all()) {
+          await expect.poll(async () => (await title.boundingBox())?.width ?? 0)
+            .toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+        }
         const name = `${destination.id}-${width}-${theme}.png`
         if (DIRECTORY) {
           mkdirSync(DIRECTORY, { recursive: true })

@@ -16,6 +16,7 @@ import {
   activate,
   dock,
   dockViews,
+  fixedSubject,
   MAX_RATIO,
   MIN_RATIO,
   moveView,
@@ -29,6 +30,7 @@ import {
   zoomArea,
   type Workbench as Model,
 } from '../state/workbench'
+import { toolOf } from '../state/frame-tools'
 import { Workbench } from './Workbench'
 import { permits, views } from './views'
 import './builtins'
@@ -121,7 +123,19 @@ afterEach(() => {
 
 const rig = (build: (start: Model) => Model = (start) => start, extra: Partial<AppSnapshot> = {}) => {
   let snapshot = { ...emptySnapshot(), status: 'open', ...extra } as AppSnapshot
+  // Raw dock fixtures deliberately preserve old split geometry until Task 7.
+  // Supply the new visibility contract without normalizing their resources.
+  const compatibility = Object.keys(snapshot.workbench.frameTools).length === 0
   const apply = (next: Model): void => {
+    const subject = fixedSubject(next.main)
+    const views = dockViews(next.right)
+    const last = views.at(-1)
+    const tool = last && toolOf(last.view.kind)
+    if (compatibility && subject && tool) next = { ...next, frameTools: { ...next.frameTools,
+      [subject]: { tool, mode: last!.view.kind, open: !next.right.collapsed } },
+      toolOwners: { ...next.toolOwners, ...Object.fromEntries(views.map(one => [one.id, subject])) },
+      frameSubjects: { ...next.frameSubjects, [subject]: { paneId: next.main.focused, view: next.main.root.kind === 'pane' ? next.main.root.view : { kind: 'conversation', session: null } } },
+    }
     snapshot = { ...snapshot, workbench: next, layout: next.main }
   }
   apply(build(snapshot.workbench))
@@ -792,7 +806,14 @@ it('and draws the published component once the contribution is there', () => {
     status: 'open',
     contributions: [contribution],
   } as AppSnapshot
-  snapshot = { ...snapshot, workbench: dock(snapshot.workbench, 'right', view) }
+  const admitted = dock(snapshot.workbench, 'right', view)
+  const subject = fixedSubject(admitted.main)!
+  const id = dockViews(admitted.right)[0]!.id
+  snapshot = { ...snapshot, workbench: { ...admitted,
+    frameTools: { [subject]: { tool: 'details', mode: 'plugin', open: true } },
+    toolOwners: { [id]: subject },
+    frameSubjects: { [subject]: { paneId: admitted.main.focused, view: admitted.main.root.kind === 'pane' ? admitted.main.root.view : { kind: 'conversation', session: null } } },
+  } }
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
@@ -831,7 +852,7 @@ it('a panel can be clicked through, moved, expanded and closed, and main never c
   expect(tabs()).toEqual(['Changes', 'repo'])
   expect(panels()).toHaveLength(1)
   const hidden = () =>
-    [...container.querySelectorAll('[data-slot="dock-panel-body"] > div')].filter((layer) =>
+    [...container.querySelectorAll('[data-slot="dock-panel-body"][data-under-bar] > div')].filter((layer) =>
       layer.hasAttribute('data-hidden'),
     ).length
   expect(hidden()).toBe(1)

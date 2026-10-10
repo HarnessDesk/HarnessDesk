@@ -29,10 +29,12 @@ export type GroupLabelProps = Omit<ComponentProps<'span'>, 'children'> & {
   children: ReactNode
   /** Muted for a quiet navigation band; other section labels keep secondary ink. */
   ink?: 'secondary' | 'muted'
+  /** A tool group's label stays on the rows' edge, above its body. */
+  surface?: 'default' | 'tool'
 }
 
 export const groupLabelClass =
   'm-0 text-(length:--hd-text-sm) leading-(--hd-line-sm) font-(weight:--hd-label-weight) text-(--hd-secondary-foreground)'
 
-export const GroupLabel = ({ as = 'span', className, ink = 'secondary', children, ...props }: GroupLabelProps) =>
-  createElement(as, { 'data-slot': 'group-label', className: cn(groupLabelClass, ink === 'muted' && 'text-(--hd-muted-foreground)', className), ...props }, children)
+export const GroupLabel = ({ as = 'span', className, ink = 'secondary', surface = 'default', children, ...props }: GroupLabelProps) =>
+  createElement(as, { 'data-slot': 'group-label', 'data-surface': surface, className: cn(groupLabelClass, surface === 'tool' && 'flex items-center gap-(--hd-space-2) px-(--hd-inset-row) pb-(--hd-space-2)', ink === 'muted' && 'text-(--hd-muted-foreground)', className), ...props }, children)

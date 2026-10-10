@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useLayoutEffect, useRef, useState, type ReactNode, type CSSProperties } from 'react'
 import { Separator } from '../ui/separator'
 import { Bar } from '../ui/bar'
 import { Button } from '../ui/button'
@@ -33,6 +33,8 @@ export interface TopBarProps {
   readonly verb?: TopBarAction
   readonly view?: { readonly disabled?: string | false; readonly narrowed?: boolean; readonly content: (close: () => void) => ReactNode }
   readonly tools?: ReactNode
+  /** Standing panel width; closed and floating panels reserve no column. */
+  readonly rightColumnWidth?: number | string
   readonly more: (close: () => void) => ReactNode
   readonly extraMore?: readonly TopBarAction[]
   readonly corner?: boolean
@@ -43,11 +45,13 @@ export const TopBar = (props: TopBarProps) => {
   const previousFold = useRef<0 | 1 | 2>(0)
   const root = useRef<HTMLElement | null>(null)
   const place = useRef<HTMLDivElement | null>(null)
+  const tools = useRef<HTMLDivElement | null>(null)
   const [fold, setFold] = useState<0 | 1 | 2>(0)
   const measuredFold = useRef<0 | 1 | 2>(0)
   const measureFrame = useRef(0)
   // Reset on inputs that change intrinsic room. ResizeObserver observes the
-  // outer row only: observing the title would feed the fold back into itself.
+  // outer row and externally sized standing tools: observing the title would
+  // feed the fold back into itself. A seam drag changes tools without the row.
   useLayoutEffect(() => {
     const node = root.current
     if (!node) return
@@ -71,8 +75,9 @@ export const TopBar = (props: TopBarProps) => {
     measure()
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
     observer?.observe(node)
+    if (props.rightColumnWidth && tools.current) observer?.observe(tools.current)
     return () => { observer?.disconnect(); cancelAnimationFrame(measureFrame.current) }
-  }, [props.place, props.parent?.label, Boolean(props.view), props.state, props.tab, props.tabs, props.verb?.label, props.verb?.icon, props.lead, props.tools])
+  }, [props.place, props.parent?.label, Boolean(props.view), props.state, props.tab, props.tabs, props.verb?.label, props.verb?.icon, props.lead, props.tools, props.rightColumnWidth])
   useLayoutEffect(() => {
     if (fold === 2 && previousFold.current !== 2 && restoreTabFocus.current) foldedTab.current?.focus()
     if (fold !== 2 && previousFold.current === 2 && restoreTabFocus.current) {
@@ -109,7 +114,8 @@ export const TopBar = (props: TopBarProps) => {
         triggerVariant={{ variant: 'ghost', size: 'icon-sm' }} label={<FilterIcon />}>
         {close => props.view?.content(close)}
       </Popover>}</div>
-      <div data-topbar="tools" className={styles.fixed}>{props.tools && <><Separator decorative orientation="vertical" length="bar" data-slot="bar-divider" />{props.tools}</>}</div>
+      <div ref={tools} data-topbar="tools" className={styles.fixed} data-standing={props.rightColumnWidth ? '' : undefined}
+        style={props.rightColumnWidth ? { '--topbar-right-column': typeof props.rightColumnWidth === 'number' ? `${props.rightColumnWidth}px` : props.rightColumnWidth } as CSSProperties : undefined}>{props.tools && <><Separator decorative orientation="vertical" length="bar" data-slot="bar-divider" />{props.tools}</>}</div>
       <div data-topbar="more" className={styles.fixed}><Popover title="More" label={<MoreIcon />}
         triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}>
         {close => <Menu close={close}>{props.more(close)}{props.extraMore?.map(one => <MenuItem

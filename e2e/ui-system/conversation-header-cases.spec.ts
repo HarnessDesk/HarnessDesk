@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { FRAME } from '../../packages/ui/src/design/frame'
 
 /**
  * The catalogue's conversation header cases (#983 follow-up).
@@ -53,14 +54,14 @@ test('all six header cases render a header, cropped to it and nothing more', asy
   }
 })
 
-test('the narrow case keeps at least 10 characters of the title', async ({ page }) => {
+test('the minimum desktop case keeps 180px and at least 10 title characters', async ({ page }) => {
   await page.goto('/design.html?view=conversation')
   await page.evaluate(async () => { await document.fonts.ready })
   await page.waitForTimeout(300)
 
   const bar = page.locator('[data-testid="conversation-header-narrow"] [data-slot="bar"]')
   const fit = await bar.evaluate((el) => {
-    const title = el.querySelector('span[class*="title_"]') as HTMLElement
+    const title = el.querySelector('[data-topbar-title] > *') as HTMLElement
     const cs = getComputedStyle(title)
     const canvas = document.createElement('canvas')
     const ctx = canvas.getContext('2d')!
@@ -72,7 +73,9 @@ test('the narrow case keeps at least 10 characters of the title', async ({ page 
       if (ctx.measureText(text.slice(0, index + 1)).width > width) break
       count = index + 1
     }
-    return count
+    return { count, width, overflow: el.scrollWidth - el.clientWidth }
   })
-  expect(fit).toBeGreaterThanOrEqual(10)
+  expect(fit.count).toBeGreaterThanOrEqual(10)
+  expect(fit.width).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+  expect(fit.overflow).toBeLessThanOrEqual(0)
 })

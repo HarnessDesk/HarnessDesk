@@ -9,6 +9,7 @@ import { PaneProvider, StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { Conversation } from './Conversation'
 import styles from './Conversation.module.css'
+import { TopBarProvider, TopBarOutlet, WorkDetailsOutlet } from '../panels/top-bar'
 
 /**
  * What a conversation says when it has nothing to show.
@@ -89,6 +90,7 @@ const rig = (
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
+    workSubject: () => one ? `session:${KEY}` : 'draft:p1',
     send: vi.fn(),
     setOption: vi.fn(),
     notice: vi.fn(),
@@ -118,20 +120,21 @@ const render = (store: AppStore, key: string | null = KEY): void => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <PaneProvider
+        <TopBarProvider><PaneProvider
           scope={{
             paneId: 'p1',
             view: { kind: 'conversation', session: key as never },
             sessionKey: key as never,
           }}
         >
+          <TopBarOutlet owner="p1" fallback={{ place: 'New session', more: () => null }} /><WorkDetailsOutlet owner="p1" />
           <Conversation
             onChooseProject={() => undefined}
             onSignIn={() => undefined}
             onOpenUsage={() => undefined}
             onOpenRuntimes={() => undefined}
           />
-        </PaneProvider>
+        </PaneProvider></TopBarProvider>
       </StoreProvider>,
     )
   })
@@ -293,7 +296,7 @@ it('carries the window’s own controls whenever the sidebar is not standing bes
     act(() => {
       root.render(
         <StoreProvider store={{ ...store, getSnapshot: () => snapshot } as unknown as AppStore}>
-          <PaneProvider
+          <TopBarProvider><TopBarOutlet owner={snapshot.layout.focused} fallback={{ place: 'New session', more: () => null }} /><PaneProvider
             scope={{ paneId: paneId as never, view: { kind: 'conversation', session: KEY as never }, sessionKey: KEY as never }}
           >
             <Conversation
@@ -302,7 +305,7 @@ it('carries the window’s own controls whenever the sidebar is not standing bes
               onOpenUsage={() => undefined}
               onOpenRuntimes={() => undefined}
             />
-          </PaneProvider>
+          </PaneProvider></TopBarProvider>
         </StoreProvider>,
       )
     })
@@ -325,39 +328,21 @@ it('carries the window’s own controls whenever the sidebar is not standing bes
   expect(toggle()).toBeNull()
 })
 
-it('marks a door to fold into ⋯ only where there is a ⋯ to fold it into', () => {
-  const browser = (): Element | null => container.querySelector('header button[aria-label="Open browser"]')
-  const menu = (): Element | null => container.querySelector('header button[aria-label="Conversation"]')
-
-  // A draft has no conversation menu, so its browser button must stay put: a
-  // narrow header that folded it left the draft with no way to the browser.
-  render(rig(null).store, null)
-  expect(menu()).toBeNull()
-  expect(browser()).not.toBeNull()
-  expect(browser()?.hasAttribute('data-folds')).toBe(false)
-
-  // With a conversation the ⋯ is there, and both doors fold into its View group.
-  render(rig(session()).store)
-  expect(menu()).not.toBeNull()
-  expect(browser()?.hasAttribute('data-folds')).toBe(true)
-  expect(container.querySelector('header button[aria-label="Open terminal"]')?.hasAttribute('data-folds')).toBe(true)
+it('draft and conversation keep the fixed browser door and More in the shell', () => {
+  for (const one of [null, session()]) {
+    render(rig(one).store, one ? KEY : null)
+    expect(container.querySelector('header button[aria-label="Browser"]')).not.toBeNull()
+    expect(container.querySelector('header button[aria-label="More"]')).not.toBeNull()
+    expect(container.querySelector('header button[aria-label="Browser"]')?.hasAttribute('data-folds')).toBe(false)
+  }
 })
 
-it('the chips a narrow header folds still say their words in the shared card', () => {
-  const { store } = rig(session())
-  const snapshot = {
-    ...store.getSnapshot(),
-    tasks: new Map([[KEY, [{ id: 't1', label: 'npm run dev', kind: 'command', state: 'running' }]]]),
-  } as unknown as AppSnapshot
-  render({ ...store, getSnapshot: () => snapshot } as unknown as AppStore)
-  keyboardFocus(container.querySelector<HTMLElement>('header [aria-label="Conversation status"]')!)
-  const card = document.querySelector('[data-slot="hover-card-content"]')!
-  // A phrase, then its path on the line under it.
-  expect(card.textContent).toContain('Folderrepo')
-  expect(card.querySelector('[data-slot="key-value-note"]')?.textContent).toContain('/repo')
-  expect(card.textContent).toContain('Background tasks1 running in the background')
-  expect(container.querySelector('[data-testid="tasks-chip"]')?.getAttribute('aria-label')).toBe('1 running in the background')
-  expect(container.querySelector('[data-testid="tasks-chip"]')?.getAttribute('title')).toBeNull()
+it('folder facts remain readable in Details when the shell title folds', () => {
+  render(rig(session()).store)
+  const facts = container.querySelector('[aria-label="Conversation facts"]')!
+  expect(facts.textContent).toContain('Folder/repo')
+  expect(facts.querySelector('[data-slot="middle-truncate"]')).not.toBeNull()
+  expect(container.querySelector('header [aria-label="Conversation status"]')).toBeNull()
 })
 
 it('the empty pane’s Sign in names this pane’s agent, not the default', () => {
@@ -446,29 +431,21 @@ it('a plain conversation’s header is unchanged, and asks nothing about an Agen
   expect(store.readSeatAgent).not.toHaveBeenCalled()
 })
 
-it('a conversation seated as an Agent carries its ceiling beside its title — held or asked — and a plain one carries none', () => {
-  render(
-    rig(
-      session({
-        settings: { cwd: '/repo', model: 'gpt-5.6', agent: 'reviewer', ceiling: { level: 'read', hold: 'held' }, ceilingNote: 'Read-only sandbox; anything past it asks you' },
-      }),
-    ).store,
-  )
-  const chip = container.querySelector('header [data-ceiling]') as HTMLElement | null
-  expect(chip?.textContent).toBe('Read only')
-  keyboardFocus(container.querySelector<HTMLElement>('header [aria-label="Conversation status"]')!)
-  expect(document.querySelector('[data-slot="hover-card-content"]')?.textContent).toMatch(/Ceiling.*Held: Read-only sandbox/)
-
+it('Details reports the recorded held or asked ceiling, and leaves unknown facts unknown', () => {
+  render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6', agent: 'reviewer', ceiling: { level: 'read', hold: 'held' }, ceilingNote: 'Read-only sandbox; anything past it asks you' } })).store)
+  const facts = () => container.querySelector('[aria-label="Conversation facts"]')?.textContent
+  expect(facts()).toContain('Read only')
+  expect(facts()).toContain('Held: Read-only sandbox')
+  expect(container.querySelector('header [data-ceiling]')).toBeNull()
   render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6', agent: 'writer', ceiling: { level: 'edit', hold: 'asked' } } })).store)
-  expect(container.querySelector('header [data-ceiling]')?.getAttribute('data-hold')).toBe('asked')
-
+  expect(facts()).toContain('Edit · asked, not enforced')
   render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6' } })).store)
-  expect(container.querySelector('[data-ceiling]')).toBeNull()
+  expect(facts()).toContain('CeilingNot recorded')
 })
 
 it('the conversation’s menu offers Save as an Agent…', () => {
   render(rig(session()).store)
-  act(() => container.querySelector<HTMLButtonElement>('header button[aria-label="Conversation"]')?.click())
+  act(() => container.querySelector<HTMLButtonElement>('header button[aria-label="More"]')?.click())
   const item = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find((one) =>
     one.textContent?.startsWith('Save as an Agent…'),
   )
@@ -496,7 +473,7 @@ const wrappedTeam = (...kept: readonly string[]): ReadonlyMap<string, GoalView> 
   } as unknown as GoalView]])
 
 const compactRow = (): HTMLButtonElement | undefined => {
-  act(() => container.querySelector<HTMLButtonElement>('header button[aria-label="Conversation"]')?.click())
+  act(() => container.querySelector<HTMLButtonElement>('header button[aria-label="More"]')?.click())
   return [...document.body.querySelectorAll<HTMLButtonElement>('button')].find((one) =>
     one.textContent?.startsWith('Compact now'),
   )
@@ -535,7 +512,7 @@ it('the conversation’s menu still compacts one outside a wrapped Team — the 
   const row = compactRow()
   if (!row) throw new Error('no Compact now in the menu')
   expect(row.disabled).toBe(false)
-  expect(row.textContent).toContain('Summarise older turns')
+  expect(row.title).toBe('Summarise older turns to free up context.')
   act(() => row.click())
   expect(compact).toHaveBeenCalledWith(KEY)
 })
@@ -774,20 +751,37 @@ it('heads a recorded typed lookalike with its pasted first line', () => {
   expect(container.querySelector('header')?.textContent).toContain('<context source="Git"')
 })
 
-it('groups and names the header facts for keyboard readers', () => {
+it('Details names the conversation facts and keeps the fresh checkout branch', () => {
   render(rig(session({ git: { branch: 'main' } as Session['git'] })).store)
-  const group = container.querySelector<HTMLElement>('header [role="group"][aria-label="Conversation status"]')
-  expect(group).not.toBeNull()
-  keyboardFocus(group!)
-  const card = document.querySelector('[data-slot="hover-card-content"]')!
-  expect(card.textContent).toContain('StatusIdle')
-  expect(card.textContent).toContain('Branchmain')
+  const facts = container.querySelector('[aria-label="Conversation facts"]')!
+  expect(facts).not.toBeNull()
+  expect(facts.textContent).toContain('Branchmain')
+  expect(container.querySelector('header')?.textContent).toContain('Idle')
 })
 
-it('marks a running status for its stationary shape as well as its pulse', () => {
+it('the shell records running status in its one state slot', () => {
   render(rig(session({ turns: [{ id: turnId('running'), status: 'inProgress', items: [] }] })).store)
-  const dot = container.querySelector('header [data-slot="dot"][data-pulse]')!
-  expect(dot.getAttribute('data-shape')).toBe('square')
+  expect(container.querySelector('[data-topbar="state"]')?.textContent).toBe('Working')
+})
+
+it('Details renders the latest recorded plan states and respects an explicit clear', () => {
+  const old = { id: turnId('older-plan'), status: 'completed' as const, items: [], plan: [{ step: 'Old plan', status: 'pending' as const }] }
+  const latest = { id: turnId('latest-plan'), status: 'completed' as const, items: [], plan: [
+    { step: 'Finished step', status: 'completed' as const },
+    { step: 'Review \u001b[31m<script>unsafe()</script>\u001b[0m changes', status: 'inProgress' as const },
+    { step: 'Next step', status: 'pending' as const },
+  ] }
+  render(rig(session({ turns: [old, latest] })).store)
+  const plan = container.querySelector('[data-slot="tool-body"] [aria-label="Plan"]')!
+  expect([...plan.querySelectorAll('[data-slot="checklist-item"]')].map(one => one.getAttribute('data-state'))).toEqual(['done', 'active', 'pending'])
+  expect(plan.textContent).not.toContain('Old plan')
+  expect(plan.querySelector('script')).toBeNull()
+  expect(plan.textContent).toContain('Review <script>unsafe()</script> changes')
+  expect(plan.textContent).not.toContain('\u001b')
+  render(rig(session({ turns: [old, { ...latest, plan: [] }] })).store)
+  const cleared = container.querySelector('[data-slot="tool-body"] [aria-label="Plan"]')!
+  expect(cleared.querySelector('[data-slot="checklist"]')).toBeNull()
+  expect(cleared.textContent).toContain('No plan yet.')
 })
 
 it('leaves no ceiling wrapper on the plain conversation path', () => {
@@ -795,11 +789,10 @@ it('leaves no ceiling wrapper on the plain conversation path', () => {
   expect(container.querySelector('header [data-slot="ceiling-wrap"]')).toBeNull()
 })
 
-it('allocates no empty git slot when a draft has no folder', () => {
+it('a draft with no folder has a truthful Details fact and no folder action', () => {
   render(rig(null, new Map(), { workspace: null }).store, null)
-  const emptySlots = [...container.querySelectorAll('header [data-slot="chip-words"] > div:empty')]
-  // The extension slot already has an :empty fold; git must not leave another.
-  expect(emptySlots.every((node) => node.classList.contains(styles.headerSlot!))).toBe(true)
+  expect(container.querySelector('[aria-label="Conversation facts"]')?.textContent).toContain('Choose a project folder')
+  expect(container.querySelector('button[aria-label="Folder actions"]')).toBeNull()
 })
 
 it('shows one quiet copy notice using the agent presentation name', () => {

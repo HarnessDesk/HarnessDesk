@@ -1,3 +1,4 @@
+import { ConversationFrame } from './ConversationFrame'
 import { useMemo } from 'react'
 import { turnId } from '@harnessdesk/protocol'
 import { Conversation } from '../components/Conversation'
@@ -12,7 +13,7 @@ const HeaderConversation = () => {
     <Frame id="header-status-conversation" title="Conversation status">
       <div className="h-[820px]">
         <PaneProvider scope={{ paneId: 'header-status-preview', view: { kind: 'conversation', session: PREVIEW_SESSION_KEY }, sessionKey: PREVIEW_SESSION_KEY }}>
-          <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+          <ConversationFrame><Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} /></ConversationFrame>
         </PaneProvider>
       </div>
     </Frame>

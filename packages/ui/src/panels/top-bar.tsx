@@ -66,13 +66,13 @@ export const WorkDetailsOutlet = ({ owner }: { owner: string }) => {
   const entries = useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot)
   return entries.get(owner)?.value.details ?? null
 }
-export const TopBarOutlet = ({ owner, fallback }: { owner: string; fallback: TopBarProps }) => {
+export const TopBarOutlet = ({ owner, fallback, rightColumnWidth }: { owner: string; fallback: TopBarProps; rightColumnWidth?: TopBarProps['rightColumnWidth'] }) => {
   const source = useContext(Context)
   if (!source) throw new Error('TopBarOutlet requires TopBarProvider')
   const entries = useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot)
   const current = entries.get(owner)?.value
   const base = current?.base ?? fallback
-  return <TopBar {...base} verb={current?.view ? current.view.verb : base.verb}
+  return <TopBar {...base} rightColumnWidth={rightColumnWidth ?? base.rightColumnWidth} verb={current?.view ? current.view.verb : base.verb}
     view={current?.view ? current.view.view : base.view}
     more={current?.more ?? base.more} extraMore={current?.view?.more} />
 }

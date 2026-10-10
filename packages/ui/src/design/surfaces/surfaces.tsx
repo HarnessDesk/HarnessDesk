@@ -1,3 +1,4 @@
+import { ConversationFrame } from '../../preview/ConversationFrame'
 import { TeamStartCases } from '../../preview/frames-team-start'
 import { GIT_PREVIEW_ROOT } from '../../preview/git-fixture'
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
@@ -255,12 +256,12 @@ export const ConversationSurface = () => (
             sessionKey: PREVIEW_SESSION_KEY,
           }}
         >
-          <Conversation
+          <ConversationFrame><Conversation
             onChooseProject={() => {}}
             onSignIn={() => {}}
             onOpenUsage={() => {}}
             onOpenRuntimes={() => {}}
-          />
+          /></ConversationFrame>
         </PaneProvider>
       </Frame>
     </Mount>
@@ -274,11 +275,11 @@ export const ConversationSurface = () => (
               sessionKey: PREVIEW_SESSION_KEY,
             }}
           >
-            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+            <ConversationFrame><Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} /></ConversationFrame>
           </PaneProvider>
         </Mount>
       </HeaderCase>
-      <HeaderCase id="conversation-header-ceiling" label="Ceiling chip (Read only)">
+      <HeaderCase id="conversation-header-ceiling" label="Read only seat · ceiling is in Details">
         <Mount>
           <PaneProvider
             scope={{
@@ -287,7 +288,7 @@ export const ConversationSurface = () => (
               sessionKey: PREVIEW_SESSION_KEY,
             }}
           >
-            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+            <ConversationFrame><Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} /></ConversationFrame>
           </PaneProvider>
         </Mount>
       </HeaderCase>
@@ -300,7 +301,7 @@ export const ConversationSurface = () => (
               sessionKey: PREVIEW_SESSION_KEY,
             }}
           >
-            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+            <ConversationFrame><Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} /></ConversationFrame>
           </PaneProvider>
         </Mount>
       </HeaderCase>
@@ -313,7 +314,7 @@ export const ConversationSurface = () => (
               sessionKey: PREVIEW_SESSION_KEY,
             }}
           >
-            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+            <ConversationFrame><Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} /></ConversationFrame>
           </PaneProvider>
         </Mount>
       </HeaderCase>
@@ -326,11 +327,11 @@ export const ConversationSurface = () => (
               sessionKey: PREVIEW_SESSION_KEY,
             }}
           >
-            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+            <ConversationFrame><Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} /></ConversationFrame>
           </PaneProvider>
         </Mount>
       </HeaderCase>
-      <HeaderCase id="conversation-header-narrow" label="Phone width (≤400px container)" width={360}>
+      <HeaderCase id="conversation-header-narrow" label="Minimum desktop width (720px)" width={720}>
         <Mount>
           <PaneProvider
             scope={{
@@ -339,7 +340,7 @@ export const ConversationSurface = () => (
               sessionKey: PREVIEW_SESSION_KEY,
             }}
           >
-            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+            <ConversationFrame><Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} /></ConversationFrame>
           </PaneProvider>
         </Mount>
       </HeaderCase>
@@ -376,12 +377,12 @@ export const ConversationMapDenseSurface = () => (
             sessionKey: PREVIEW_SESSION_KEY,
           }}
         >
-          <Conversation
+          <ConversationFrame><Conversation
             onChooseProject={() => {}}
             onSignIn={() => {}}
             onOpenUsage={() => {}}
             onOpenRuntimes={() => {}}
-          />
+          /></ConversationFrame>
         </PaneProvider>
       </Frame>
     </Mount>
@@ -433,12 +434,12 @@ export const ConversationMapPreviewOpenSurface = () => {
               sessionKey: PREVIEW_SESSION_KEY,
             }}
           >
-            <Conversation
+            <ConversationFrame><Conversation
               onChooseProject={() => {}}
               onSignIn={() => {}}
               onOpenUsage={() => {}}
               onOpenRuntimes={() => {}}
-            />
+            /></ConversationFrame>
           </PaneProvider>
         </Frame>
       </Mount>

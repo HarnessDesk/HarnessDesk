@@ -27,6 +27,35 @@ const resolvedPx = (page: Page, token: string) => page.evaluate((name) => {
 }, token)
 
 for (const theme of WALL_THEMES) {
+  test(`B3 narrow Team Run retains its timeline after automatic panel collapse in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=team', theme, 720)
+    await selectFrameTab(page, 'run')
+    const main = page.locator('[data-slot="workbench-main"]')
+    await expect(main).toBeVisible()
+    await expect(main.locator('[data-slot="run-workspace"]')).toBeVisible()
+    await expect(main).toContainText('Round 1')
+    await page.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
+    await expect(page.locator('[data-slot="run-inspector"]:visible')).toBeVisible()
+    // The retained overlay hides the outer bar until Task8; its own close
+    // remains the available control for returning to the same timeline.
+    await page.getByRole('button', { name: 'Hide this panel', exact: true }).click()
+    await expect(main).toBeVisible()
+    await expect(main).toContainText('Round 1')
+    // The ordinary wall Run truthfully records no Flow steps. Use the existing
+    // synthetic recorded-Flow rig for its narrow Steps visibility boundary.
+    await openFrame(page, 'run-dock', theme, 720)
+    await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
+    await selectFrameTab(page, 'run')
+    await main.getByRole('radio', { name: 'Flow', exact: true }).click()
+    await expect(main.locator('[data-slot="flow-list"]')).toHaveAttribute('data-placement', 'below')
+    // The visible intent toggle must open the retained Steps on one press,
+    // even when legacy Flow routing has left its raw cache uncollapsed.
+    await page.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
+    await expect(page.locator('[data-slot="run-steps"]:visible')).toBeVisible()
+    await page.getByRole('button', { name: 'Hide this panel', exact: true }).click()
+    await expect(main).toBeVisible()
+  })
+
   test(`frame tokens resolve to the contract in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation', theme)
     for (const [token, px] of Object.entries(FRAME_TOKENS)) {
@@ -42,7 +71,7 @@ for (const theme of WALL_THEMES) {
     const heights = await rows.evaluateAll((bars) => bars.map((bar) => Math.round(bar.getBoundingClientRect().height)))
     expect(heights.length).toBeGreaterThan(0)
     for (const height of heights) expect(height).toBe(FRAME.bar.height)
-    const header = page.locator('[data-slot="workbench-main"] header[data-slot="bar"]').first()
+    const header = page.locator('[data-slot="top-bar"]').locator('..')
     await expect(header).toBeVisible()
     expect(Math.round((await header.boundingBox())!.height)).toBe(FRAME.bar.height)
   })
@@ -160,7 +189,100 @@ for (const theme of WALL_THEMES) {
     await openFrame(page, 'frame-wall=conversation&frame-tool=tasks', theme)
     const main = page.locator('[data-slot="workbench-main"]')
     await expect(main).toBeVisible()
-    await expect(page.locator('[data-slot="inspector-panel"]')).toBeVisible()
+    await expect(page.locator('[data-slot="inspector-panel"]:visible')).toBeVisible()
     expect((await main.boundingBox())!.width).toBeGreaterThanOrEqual(FRAME.main.min)
+  })
+}
+
+for (const theme of WALL_THEMES) {
+  test(`B3 embedded member retains scoped actions until Team migration in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=team&frame-member-actions=1', theme)
+    await page.getByRole('button', { name: 'Team members', exact: true }).click()
+    const watch = page.getByRole('button', { name: /^Watch Alpha / })
+    await page.locator('[data-slot="team-members"] [data-slot="list-row"]').filter({ has: watch }).click()
+    const bar = page.locator('[data-slot="top-bar"]')
+    await expect(bar).toHaveCount(1)
+    await expect(bar.locator('[data-work-tool]')).toHaveCount(0)
+    await expect(bar.locator('[data-topbar-title]')).toContainText('Writer conversation')
+    await bar.getByRole('button', { name: 'More', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'Compact now', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Save as an Agent…', exact: true })).toBeVisible()
+    await expect(page.getByRole('menuitemcheckbox', { name: 'Browser', exact: true })).toBeVisible()
+    await page.getByRole('menuitem', { name: 'Folder actions', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Commit the changes', exact: true }).click()
+    const composer = page.locator('[data-slot="workbench-main"] textarea')
+    await expect(composer).toHaveValue('Commit the changes from this conversation with a clear message, then tell me the commit hash.')
+    await expect(composer).toBeFocused()
+    await page.screenshot({ path: `output/frame-wall/B3-member-actions-${theme}.png` })
+  })
+  test(`B3 Details Commit reaches its conversation after Browser focus in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme)
+    const bar = page.locator('[data-slot="top-bar"]')
+    await bar.getByRole('button', { name: 'Browser', exact: true }).click()
+    const address = page.getByRole('textbox', { name: 'Address', exact: true })
+    await address.click()
+    await expect(address).toBeFocused()
+    await bar.getByRole('button', { name: 'Details', exact: true }).click()
+    await page.getByRole('button', { name: 'Folder actions', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'Commit the changes', exact: true }).click()
+    const composer = page.locator('[data-slot="workbench-main"] textarea')
+    await expect(composer).toHaveValue('Commit the changes from this conversation with a clear message, then tell me the commit hash.')
+    await expect(composer).toBeFocused()
+    await expect(page.locator('input[aria-label="Address"]')).toHaveCount(1)
+    await expect(page.locator('input[aria-label="Address"]')).toBeHidden()
+  })
+  for (const destination of ['conversation', 'draft']) {
+    test(`B3 ${destination} has one shell row and four tool anchors in ${theme}`, async ({ page }) => {
+      await openFrame(page, `frame-wall=${destination}`, theme)
+      const top = page.locator('[data-slot="top-bar"]')
+      await expect(top).toHaveCount(1)
+      expect(Math.round((await top.locator('..').boundingBox())!.height)).toBe(FRAME.bar.height)
+      const divider = (await top.locator('[data-slot="bar-divider"]').boundingBox())!
+      expect(Math.round(divider.width)).toBe(1)
+      expect(Math.round(divider.height)).toBe(FRAME.bar.dividerHeight)
+      await expect(page.locator('[data-slot="workbench-main"] header[data-slot="bar"]')).toHaveCount(0)
+      expect(await top.locator('[data-work-tool]').evaluateAll(nodes => nodes.map(node => (node as HTMLElement).dataset.workTool)))
+        .toEqual(['details', 'changes', 'activity', 'browser'])
+      if (destination === 'draft') {
+        await expect(top.getByRole('button', { name: 'Changes', exact: true })).toBeDisabled()
+        await expect(top.getByRole('button', { name: 'Activity', exact: true })).toBeDisabled()
+      }
+      await top.getByRole('button', { name: 'Details', exact: true }).click()
+      const details = page.locator('[data-slot="tool-body"]:visible')
+      await expect(details.getByText('Plan', { exact: true })).toBeVisible()
+      await expect(details.locator('[data-slot="summary-card"]').first()).toHaveAttribute('data-surface', 'panel')
+      const firstTool = (await top.locator('[data-work-tool="details"]').boundingBox())!
+      const panel = (await details.boundingBox())!
+      expect(firstTool.x - panel.x).toBe(FRAME.bar.pad)
+      const more = (await top.getByRole('button', { name: 'More', exact: true }).boundingBox())!
+      expect(more.x + more.width + FRAME.bar.pad).toBe(1440)
+      const keys = details.locator('[data-slot="summary-item"] dt')
+      const widths = await keys.evaluateAll(nodes => nodes.map(node => Math.round(node.getBoundingClientRect().width)))
+      expect(widths).toEqual(widths.map(() => FRAME.summaryKey.panel))
+    })
+  }
+}
+
+for (const theme of WALL_THEMES) {
+  test(`B3 standing tools follow the painted panel seam in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme)
+    const top = page.locator('[data-slot="top-bar"]')
+    await top.getByRole('button', { name: 'Details', exact: true }).click()
+    const details = page.locator('[data-slot="tool-body"]:visible')
+    const first = top.locator('[data-work-tool="details"]')
+    const more = top.getByRole('button', { name: 'More', exact: true })
+    const panelBefore = (await details.boundingBox())!
+    const moreBefore = (await more.boundingBox())!
+    const seam = (await page.getByRole('separator', { name: 'Resize the right panel', exact: true }).boundingBox())!
+    const start = seam.x + seam.width / 2
+    await page.mouse.move(start, 400)
+    await page.mouse.down()
+    await page.mouse.move(start - 40, 400, { steps: 6 })
+    await expect.poll(async () => Math.round((await details.boundingBox())!.width)).toBe(Math.round(panelBefore.width) + 40)
+    const painted = (await details.boundingBox())!
+    expect((await first.boundingBox())!.x - painted.x).toBe(FRAME.bar.pad)
+    expect((await more.boundingBox())!.x).toBe(moreBefore.x)
+    await page.mouse.up()
+    expect((await first.boundingBox())!.x - (await details.boundingBox())!.x).toBe(FRAME.bar.pad)
   })
 }

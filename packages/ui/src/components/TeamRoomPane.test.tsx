@@ -27,6 +27,7 @@ import { toStored, type SideBySideState, type StoredSideBySide } from '../lib/si
 import { StoreProvider, usePane } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { TeamRoomPane } from './TeamRoomPane'
+import { useTopBar } from '../panels/top-bar'
 import styles from './TeamRoomPane.module.css'
 import { triggerPreferences, triggerProjectView, triggerView } from '../preview/intake-fixture'
 import { PREVIEW_FINDINGS } from '../preview/findings-fixture'
@@ -56,8 +57,9 @@ import { emptyFindingsState } from '../lib/findings'
 /* The real conversation is the app's largest component and needs a live host;
    what this surface owes it is a scope, so the double reports the scope. */
 vi.mock('./Conversation', () => ({
-  Conversation: () => {
+  Conversation: ({ header = true }: { header?: boolean }) => {
     const pane = usePane()
+    useTopBar(pane?.paneId ?? '', { place: `Member ${String(pane?.sessionKey)}`, more: () => <span>Member actions</span> }, header && pane !== null)
     return <div data-testid="conversation">conversation for {String(pane?.sessionKey)}<div data-slot="composer" /></div>
   },
 }))
@@ -520,6 +522,11 @@ it('pressing an agent shows that agent’s own conversation, scoped to its sessi
 
   const shown = container.querySelector('[data-testid="conversation"]')
   expect(shown?.textContent).toContain(sessionKey('codex', 'c1'))
+  const bar = container.querySelector('[data-slot="top-bar"]')!
+  expect(bar).not.toBeNull()
+  expect(bar.querySelector('[data-topbar-title]')?.textContent).toContain(sessionKey('codex', 'c1'))
+  act(() => (bar.querySelector('button[title="More"]') as HTMLButtonElement).click())
+  expect(document.body.textContent).toContain('Member actions')
 })
 
 it('Board opens in the right half, not as a second pane', async () => {

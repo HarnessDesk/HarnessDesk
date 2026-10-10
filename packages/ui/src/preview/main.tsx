@@ -1,3 +1,4 @@
+import { ConversationFrame } from './ConversationFrame'
 import { TeamStartFrames } from './frames-team-start'
 import { AgentPage } from '../components/AgentPage'
 import { ReleaseStills } from './release-stills'
@@ -860,12 +861,12 @@ const Preview = () => {
               sessionKey: PREVIEW_SESSION_KEY,
             }}
           >
-            <Conversation
+            <ConversationFrame><Conversation
               onChooseProject={() => {}}
               onSignIn={() => {}}
               onOpenUsage={() => {}}
               onOpenRuntimes={() => {}}
-            />
+            /></ConversationFrame>
           </PaneProvider>
         </div>
       </Frame>
@@ -884,12 +885,12 @@ const Preview = () => {
                   sessionKey: PREVIEW_EMPTY_SESSION_KEY,
                 }}
               >
-                <Conversation
+                <ConversationFrame><Conversation
                   onChooseProject={() => {}}
                   onSignIn={() => {}}
                   onOpenUsage={() => {}}
                   onOpenRuntimes={() => {}}
-                />
+                /></ConversationFrame>
               </PaneProvider>
             </StoreProvider>
           </div>
@@ -939,12 +940,12 @@ const Preview = () => {
                 sessionKey: COMPOSER_SESSION_KEY,
               }}
             >
-              <Conversation
+              <ConversationFrame><Conversation
                 onChooseProject={() => {}}
                 onSignIn={() => {}}
                 onOpenUsage={() => {}}
                 onOpenRuntimes={() => {}}
-              />
+              /></ConversationFrame>
             </PaneProvider>
           </StoreProvider>
         </div>

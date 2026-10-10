@@ -63,6 +63,7 @@ import { emptySnapshot, type AppSnapshot, type AppStore, type AuditRow } from '.
 import { withClosedTurnFiles } from '../state/snapshot'
 import {
   activate,
+  collapseDock,
   dock,
   areaVisible,
   areaOfMount,
@@ -1375,6 +1376,9 @@ class PreviewStore {
 
   togglePanel(area: DockId): void {
     this.#workbench(toggleDock(this.#snapshot.workbench, area))
+  }
+  collapsePanel(area: DockId, collapsed: boolean): void {
+    this.#workbench(collapseDock(this.#snapshot.workbench, area, collapsed))
   }
   zoomPanel(area: AreaId, scope: Zoom['scope']): void {
     this.#workbench(zoomArea(this.#snapshot.workbench, area, scope))

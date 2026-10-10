@@ -7,6 +7,7 @@ import { GroupLabel } from './group-label'
 import { KeyValueRow, SummaryItem, SummaryList } from './key-value'
 import { SectionHead } from '../patterns/Settings'
 import { Section } from './section'
+import { Checklist, ChecklistItem } from '../patterns/Checklist'
 
 /*
  * The page grammar: a `Section` that owns its spacing, a `GroupLabel` that is
@@ -207,4 +208,41 @@ it('a SectionHead inside a titled Section heads a group of it: an h3, where alon
   expect(alone?.tagName).toBe('H2')
   expect(grouped?.tagName).toBe('H3')
   expect(page.querySelector('section[aria-label="Approvals"] [data-slot="group-label"]')?.tagName).toBe('H2')
+})
+
+it('panel facts keep a fixed key column without a card or narrow stacked keys', () => {
+  const wrap = draw(<SummaryList surface="panel"><SummaryItem label="Context" numeric note="Recorded by the last completed turn.">12,480 tokens</SummaryItem></SummaryList>)
+  const list = wrap.querySelector('dl')!
+  expect(list.dataset['surface']).toBe('panel')
+  expect(list.style.getPropertyValue('--summary-key')).toBe('92px')
+  expect(list.className).toContain('bg-transparent')
+  expect(list.className).toContain('px-(--hd-inset-row)')
+  expect(list.className).toContain('gap-x-(--hd-bar-gap)')
+  expect(list.className).not.toContain('@max-md')
+  const item = wrap.querySelector('[data-slot="summary-item"]')!
+  expect(item.className).toContain('grid-cols-subgrid')
+  expect(item.className).toContain('py-(--hd-inset-row)')
+  expect(item.className).not.toContain('p-(--hd-inset-row)')
+  expect(item.className).not.toContain('gap-x-')
+  expect(wrap.querySelector('dt')?.className).not.toContain('col-span-full')
+  expect(wrap.querySelector('[data-slot="summary-value"]')?.className).toContain('text-left')
+})
+
+it('ToolBody composes the shared tool inset, group head and prose boundaries', async () => {
+  const { ToolBody, ToolSection, ToolProse } = await import('../patterns/ToolBody')
+  draw(<ToolBody><ToolSection label="Plan"><ToolProse>No plan yet.</ToolProse></ToolSection></ToolBody>)
+  const scroll = container.querySelector('[data-slot="tool-scroll"]')!
+  expect(scroll.getAttribute('data-inset')).toBe('tool')
+  expect(scroll.className).toContain('py-(--hd-inset-row)')
+  const head = container.querySelector('[data-slot="group-label"][data-surface="tool"]')!
+  expect(head.getAttribute('data-surface')).toBe('tool')
+  expect(head.className).toContain('px-(--hd-inset-row)')
+  expect(container.querySelector('[data-slot="tool-prose"]')?.className).toContain('px-(--hd-space-4)')
+})
+
+it('a panel Checklist requests the shared edge without changing default lists', () => {
+  draw(<><Checklist surface="panel"><ChecklistItem state="active">Review changes</ChecklistItem></Checklist><Checklist><ChecklistItem state="pending">Keep transcript spacing</ChecklistItem></Checklist></>)
+  const lists = container.querySelectorAll('[data-slot="checklist"]')
+  expect(lists[0]?.getAttribute('data-surface')).toBe('panel')
+  expect(lists[1]?.getAttribute('data-surface')).toBe('default')
 })

@@ -1,4 +1,6 @@
 import { tileBrowserWorkbench } from '../lib/browser-tiles'
+import { TopBarProvider, WorkDetailsOutlet, useRegisteredOwner } from './top-bar'
+import { WorkTopBar } from './WorkTopBar'
 import { RunDockProvider } from './run-dock'
 import {
   createContext,
@@ -47,6 +49,7 @@ import {
   MIN_RATIO,
   noticeArea,
   rightPanelDrawn,
+  fixedSubject,
   sidebarPlacement,
   stackOf,
   stackView,
@@ -249,7 +252,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   useFloatingSidebar(floating, sidebarBox, content)
 
   return (
-    <RunDockProvider><ComposerMountsProvider>
+    <TopBarProvider><RunDockProvider><ComposerMountsProvider>
     <DragContext.Provider value={{ dragging, setDragging }}>
     <ShellContext.Provider value={shell}>
     <WorkbenchCanvas
@@ -329,6 +332,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
       {/* `data-notice-bounds`: the box the desk's floating notices never
           leave (#896) — every pane and panel, never the sidebar. */}
       <div ref={content} className={styles.content} data-notice-bounds="">
+        <WorkTopBar />
         {/* The row holding the split tree and the right panel. It collapses as
             a unit when neither is on screen — a zoomed bottom panel would
             otherwise sit under the empty space where they were, which reads as
@@ -371,7 +375,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
     </WorkbenchCanvas>
     </ShellContext.Provider>
     </DragContext.Provider>
-    </ComposerMountsProvider></RunDockProvider>
+    </ComposerMountsProvider></RunDockProvider></TopBarProvider>
   )
 }
 
@@ -379,9 +383,11 @@ const RightPanel = () => {
   const store = useStore()
   const snapshot = useSnapshot()
   const workbench = tileBrowserWorkbench(snapshot)
-  // A panel with nothing in it is not a panel. Its seam, its strip and its
-  // border would all be furniture around an empty box — and the way back is
-  // the control that put something there in the first place.
+  const pane = findPane(snapshot.layout, snapshot.layout.focused)
+  const registered = useRegisteredOwner(pane?.id ?? '')
+  const subject = fixedSubject(workbench.main)
+  const details = registered && subject !== null && workbench.frameTools[subject]?.tool === 'details' && workbench.frameTools[subject]?.mode === 'details'
+  // ToolIntent draws this column, including facts with no legacy dock payload.
   // Collapsed means gone, for this one area. The bottom panel and the sidebar
   // stack collapse to their tab strips because a horizontal strip is a
   // legitimate resting state; a column has none — a vertical panel showing
@@ -426,7 +432,12 @@ const RightPanel = () => {
       >
         {noticeHost && <NoticeStripOutlet host area="right" hostId="workbench:right" />}
         {noticeHost && <NoticeStripFallback area="right" />}
-        <PanelArea area="right" />
+        <DockPanelBody className={styles.layers}>
+          <div className={styles.layer} {...(details ? {} : { 'data-hidden': '', inert: true })}>
+            {pane && <PaneProvider scope={{ paneId: pane.id, view: pane.view, sessionKey: pane.view.kind === 'conversation' ? pane.view.session : null }}><WorkDetailsOutlet owner={pane.id} /></PaneProvider>}
+          </div>
+          <div className={styles.layer} {...(details ? { 'data-hidden': '', inert: true } : {})}><PanelArea area="right" /></div>
+        </DockPanelBody>
       </div>
     </>
   )

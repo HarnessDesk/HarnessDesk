@@ -1,7 +1,7 @@
 import { runSeatCosts } from '../lib/run-cost'
 import { useRunDock } from '../panels/run-dock'
 import { usePane, useSnapshotSelector, useStore } from '../state/context'
-import { dockViews, rightPanelOverlays, stacks } from '../state/workbench'
+import { collapseDock, dockViews, rightPanelOverlays, stacks } from '../state/workbench'
 import { useLayoutEffect, useRef, useState, type ComponentProps } from 'react'
 import { BackLink } from '../design'
 import { RunInspector, type RunInspectorProps } from './RunInspector'
@@ -50,8 +50,7 @@ const DockedRunWorkspace = ({ inspector, ...view }: WorkspaceProps) => {
       for (const id of active) store.activateView(area, id)
       const after = store.getSnapshot()
       const nowCollapsed = after.workbench[area].collapsed
-      const wouldOverlay = area === 'right' && rightPanelOverlays({ ...after.workbench,
-        right: { ...after.workbench.right, collapsed: false } }, after.windowWidth)
+      const wouldOverlay = area === 'right' && rightPanelOverlays(collapseDock(after.workbench, 'right', false), after.windowWidth)
       const keepCollapsed = collapsedOnLeave ? wouldOverlay : collapsed
       if (keepCollapsed !== nowCollapsed) store.togglePanel(area)
     } else {

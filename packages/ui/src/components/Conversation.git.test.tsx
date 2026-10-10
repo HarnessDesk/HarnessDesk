@@ -18,7 +18,8 @@ import {
 import { PaneProvider, StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { GitControl } from './Conversation'
-import { HeaderStatusGroup } from '../design'
+import { ConversationDetails } from '../panels/work-details'
+import { Menu, Popover } from '../design'
 
 /**
  * The header's git chip: where a conversation runs, said in the header.
@@ -45,6 +46,33 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.restoreAllMocks()
+})
+
+it.each([false, true])('a successful branch switch closes only its canonical menu (embedded=%s)', async embedded => {
+  const snapshot = { ...emptySnapshot(), workspace: MAIN, workspaces: [MAIN], status: 'open' } as AppSnapshot
+  const checkoutBranch = vi.fn(async () => true)
+  const closeWindow = vi.spyOn(window, 'close').mockImplementation(() => {})
+  const store = {
+    subscribe: () => () => {}, getSnapshot: () => snapshot,
+    listBranches: async () => [{ name: 'main', current: true, committedAt: 1 }, { name: 'feature/retry', current: false, committedAt: 2 }],
+    checkoutBranch,
+  } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}>
+    {embedded
+      ? <Popover title="Member actions" label="Member actions">{close => <Menu close={close}><GitControl menu menuClose={close} onRemoveWorktree={() => {}} onBringHome={() => {}} /></Menu>}</Popover>
+      : <GitControl onRemoveWorktree={() => {}} onBringHome={() => {}} />}
+  </StoreProvider>))
+  await act(async () => document.querySelector<HTMLButtonElement>(`button[title="${embedded ? 'Member actions' : 'Folder actions'}"]`)!.click())
+  const row = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]')].find(one => one.textContent === label)!
+  if (embedded) await act(async () => row('Folder actions').click())
+  await act(async () => row('main').click())
+  const branch = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find(one => one.textContent?.startsWith('feature/retry'))!
+  expect(branch).not.toBeUndefined()
+  await act(async () => branch.click())
+  expect(checkoutBranch).toHaveBeenCalledWith(ROOT, 'feature/retry', { create: false })
+  expect(closeWindow).not.toHaveBeenCalled()
+  expect(document.querySelector('[role="menu"]')).toBeNull()
 })
 
 const ROOT = '/code/storefront'
@@ -67,7 +95,7 @@ const worktrees = (managed: boolean): Worktree[] => [
 const conversation = (cwd: string): Session =>
   ({ id: sessionId('s-1'), runtime: 'fake', cwd, status: { type: 'idle' }, createdAt: 1, updatedAt: 1, turns: [], itemsLoaded: true }) as unknown as Session
 
-const rig = (over: Partial<AppSnapshot>, grouped = false): void => {
+const rig = (over: Partial<AppSnapshot>): void => {
   const snapshot = { ...emptySnapshot(), status: 'open', workspace: MAIN, workspaces: [MAIN], ...over } as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -75,31 +103,32 @@ const rig = (over: Partial<AppSnapshot>, grouped = false): void => {
     listBranches: vi.fn(async () => []),
     setDetailsTab: vi.fn(),
     openGitHistory: vi.fn(),
+    seatRecord: vi.fn(async () => null),
   } as unknown as AppStore
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        {grouped ? <HeaderStatusGroup open><GitControl onRemoveWorktree={() => {}} onBringHome={() => {}} /></HeaderStatusGroup> : <GitControl onRemoveWorktree={() => {}} onBringHome={() => {}} />}
+        <ConversationDetails session={snapshot.activeSessionKey ? snapshot.sessions.get(snapshot.activeSessionKey) ?? null : null} placeAction={<GitControl onRemoveWorktree={() => {}} onBringHome={() => {}} />} />
       </StoreProvider>,
     )
   })
 }
 
-it('names an armed draft in the card as a new worktree off its source folder', () => {
-  rig({ draftPlace: { kind: 'worktree', root: ROOT, name: 'checkout retry' }, worktrees: worktrees(true) }, true)
-  const trigger = container.querySelector('[data-slot="popover-trigger"]')!
-  // The card says it as a phrase with the folder on the line under it; the
-  // accessible name says the same place as one sentence.
-  const detail = document.querySelector('[data-slot="hover-card-content"] dd')!
-  expect(detail.textContent).toBe('harnessdesk/checkout-retry · new worktree')
-  expect(document.querySelector('[data-slot="hover-card-content"] [data-slot="key-value-note"]')?.textContent).toContain(ROOT)
-  expect(trigger.getAttribute('aria-label')).toBe(`harnessdesk/checkout-retry · new worktree off ${ROOT}`)
+const fact = (label: string): string => {
+  const value = [...container.querySelectorAll('[data-slot="summary-item"]')]
+    .find(one => one.querySelector('dt')?.textContent === label)?.querySelector('[data-slot="summary-value"]')
+  return value?.querySelector('[data-slot="middle-truncate"] .sr-only')?.textContent ?? value?.textContent ?? ''
+}
+
+it('names an armed draft in Details as a branch off its source folder', () => {
+  rig({ draftPlace: { kind: 'worktree', root: ROOT, name: 'checkout retry' }, worktrees: worktrees(true) })
+  expect(fact('Branch')).toContain('harnessdesk/checkout-retry')
+  expect(fact('Folder')).toContain(ROOT)
+  expect(container.querySelector('[data-slot="summary-note"]')?.textContent).toContain('Source folder; the worktree is made when the message goes')
+  expect(chip()?.getAttribute('aria-label')).toBe('Folder actions')
 })
 
-const chip = (): HTMLButtonElement | null =>
-  document.querySelector<HTMLButtonElement>('button[title*=" — "], button[title*=" · new worktree off "]')
-
-const glyph = (): string => chip()?.querySelector('svg')?.getAttribute('class') ?? ''
+const chip = (): HTMLButtonElement | null => document.querySelector<HTMLButtonElement>('button[aria-label="Folder actions"]')
 
 const menu = (): string[] => {
   act(() => {
@@ -113,18 +142,19 @@ const inTree = { activeSessionKey: KEY, sessions: new Map([[KEY, conversation(TR
 it('names the branch of the worktree a conversation runs in, though its agent reports no git', () => {
   rig({ ...inTree, worktrees: worktrees(false) })
 
-  expect(chip()?.textContent).toContain('harnessdesk/checkout-retry')
-  expect(chip()?.textContent).toContain('worktree')
-  expect(glyph()).toContain('lucide-git-branch')
-  expect(chip()?.title).toBe(`harnessdesk/checkout-retry · worktree — ${TREE}`)
+  expect(fact('Branch')).toContain('harnessdesk/checkout-retry')
+  expect(fact('Folder')).toContain(TREE)
+  expect(fact('Folder')).toContain(TREE)
+  expect(chip()?.title).toBe('Folder actions')
+  expect(fact('Folder')).toContain(TREE)
 })
 
-it('wears a laptop for the main checkout, and no worktree badge', () => {
+it('reports the fresh branch and folder for the main checkout', () => {
   rig({ activeSessionKey: KEY, sessions: new Map([[KEY, conversation(ROOT)]]), worktrees: worktrees(true) })
 
-  expect(chip()?.textContent).toBe('main')
-  expect(glyph()).toContain('lucide-laptop')
-  expect(chip()?.title).toBe(`main — ${ROOT}`)
+  expect(fact('Branch')).toBe('main')
+  expect(fact('Folder')).toContain(ROOT)
+  expect(chip()?.title).toBe('Folder actions')
 })
 
 it('names the worktree a draft is pointed at, not the folder the window has open', () => {
@@ -132,8 +162,9 @@ it('names the worktree a draft is pointed at, not the folder the window has open
   // not name a second folder for the same draft.
   rig({ draftPlace: { kind: 'existing', path: TREE, branch: 'harnessdesk/checkout-retry' }, worktrees: worktrees(true) })
 
-  expect(chip()?.textContent).toContain('harnessdesk/checkout-retry')
-  expect(chip()?.title).toBe(`harnessdesk/checkout-retry · worktree — ${TREE}`)
+  expect(fact('Branch')).toContain('harnessdesk/checkout-retry')
+  expect(chip()?.title).toBe('Folder actions')
+  expect(fact('Folder')).toContain(TREE)
 })
 
 it("offers to bring back, or remove, a worktree HarnessDesk made", () => {
@@ -147,7 +178,7 @@ it("offers to bring back, or remove, a worktree HarnessDesk made", () => {
 it('offers neither for a worktree it did not make, though it still says it is one', () => {
   rig({ ...inTree, worktrees: worktrees(false) })
 
-  expect(chip()?.textContent).toContain('worktree')
+  expect(fact('Folder')).toContain(TREE)
   const rows = menu()
   expect(rows).not.toContain('Bring it back to the main checkout…')
   expect(rows).not.toContain('Remove this worktree…')
@@ -157,9 +188,9 @@ it('names the worktree a draft is armed to cut, not the folder it will be cut fr
   // The composer says New worktree; the header above it must not say Local.
   rig({ draftPlace: { kind: 'worktree', root: ROOT, name: 'checkout retry' }, worktrees: worktrees(true) })
 
-  expect(glyph()).toContain('lucide-git-branch-plus')
-  expect(chip()?.title).toBe(`harnessdesk/checkout-retry · new worktree off ${ROOT}`)
-  expect(chip()?.textContent).toContain('harnessdesk/checkout-retry')
+  expect(container.querySelector('[data-slot="summary-note"]')?.textContent).toContain('Source folder; the worktree is made when the message goes')
+  expect(fact('Folder')).toContain(ROOT)
+  expect(fact('Branch')).toContain('harnessdesk/checkout-retry')
 })
 
 it('keeps its git verbs for a draft in the folder the window has open', () => {
@@ -190,9 +221,9 @@ it('names the branch a draft is pointed at from the draft, though the worktree l
   // The list is emptied on any failed read; the draft carries its own branch.
   rig({ draftPlace: { kind: 'existing', path: TREE, branch: 'harnessdesk/checkout-retry' }, worktrees: [] })
 
-  expect(chip()?.title).toBe(`harnessdesk/checkout-retry · worktree — ${TREE}`)
-  expect(glyph()).toMatch(/lucide-git-branch(\s|$)/)
-  expect(chip()?.textContent).toContain('harnessdesk/checkout-retry')
+  expect(chip()?.title).toBe('Folder actions')
+  expect(fact('Folder')).toContain(TREE)
+  expect(fact('Branch')).toContain('harnessdesk/checkout-retry')
 })
 
 it("reviews its own conversation's changes — a room column's member, not the one the window has focused", () => {

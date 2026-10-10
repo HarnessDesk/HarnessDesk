@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { itemId, turnId } from '@harnessdesk/protocol'
 import { TopBar, Chip, Button, Menu, MenuItem } from '../design'
 import { PlusIcon, PlanIcon, DiffIcon, HistoryIcon, GlobeIcon, PanelIcon } from '../components/Icons'
 import { AgentsWindow } from '../components/AgentsWindow'
@@ -90,6 +91,35 @@ export const FrameWall = () => {
   const query = new URLSearchParams(location.search)
   const store = useMemo(() => {
     const next = storeFor(destination)
+    // Additional Details states for the same real frame; all data is synthetic.
+    const detailsCase = query.get('frame-details-case')
+    const snapshot = next.getSnapshot()
+    if (destination === 'team' && query.get('frame-member-actions') === '1') {
+      Object.assign(snapshot, { runtimes: snapshot.runtimes.map(runtime => ({
+        ...runtime, capabilities: { ...runtime.capabilities, compaction: true, undo: true },
+      })) })
+    }
+    if (destination === 'draft' && detailsCase === 'armed') {
+      Object.assign(snapshot, { draftPlace: { kind: 'worktree', root: snapshot.workspace?.path ?? '/work/storefront', name: 'checkout retry', base: 'main' } })
+    }
+    const session = snapshot.sessions.get(PREVIEW_SESSION_KEY)
+    if (destination === 'conversation' && session && ['active', 'complete', 'cleared', 'asked'].includes(detailsCase ?? '')) {
+      const plan = [
+        { step: 'Review the checkout and the recorded changes', status: 'completed' as const },
+        { step: 'Check the long account-recovery path and retry behavior', status: detailsCase === 'complete' ? 'completed' as const : 'inProgress' as const },
+        { step: 'Report the evidence and the remaining limitations', status: detailsCase === 'complete' ? 'completed' as const : 'pending' as const },
+      ]
+      const turns = [...session.turns, { id: turnId('frame-plan'), status: 'completed' as const, plan, items: [{
+        id: itemId('frame-subagents'), type: 'subagent' as const, action: 'spawn', status: 'completed' as const,
+        prompt: 'Check the recovery path against the recorded changes.',
+        members: [{ sessionId: 'frame-review', nickname: 'Recovery reviewer', role: 'Review', state: 'completed', openable: false }],
+      }] }]
+      if (detailsCase === 'cleared') turns.push({ id: turnId('frame-plan-cleared'), status: 'completed', plan: [], items: [] })
+      Object.assign(snapshot, { sessions: new Map(snapshot.sessions).set(PREVIEW_SESSION_KEY, {
+        ...session, turns,
+        ...(detailsCase === 'asked' ? { settings: { ...session.settings, cwd: session.cwd, model: session.settings?.model ?? 'model-a', ceiling: { level: 'read', hold: 'asked' } } } : {}),
+      }) })
+    }
     const tool = query.get('frame-tool'), path = query.get('frame-tool-path')
     if (tool === 'file' && path) next.openFile(path)
     else if (tool === 'preview' && path) next.openPreview(path)

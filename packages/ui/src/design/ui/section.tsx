@@ -249,7 +249,7 @@ const SectionBody = ({
   ...props
 }: React.ComponentProps<'div'> & {
   inset?: boolean
-  spacing?: 'default' | 'compact' | 'inline'
+  spacing?: 'default' | 'compact' | 'inline' | 'tool-prose'
 }) => (
   <div
     data-slot="section-body"
@@ -257,7 +257,7 @@ const SectionBody = ({
     className={cn(
       spacing === 'default' && 'py-4 first:pt-4 [&:not(:first-child)]:pt-3',
       spacing === 'compact' && 'py-3',
-      inset && (spacing === 'inline' ? 'px-(--hd-inset-row)' : spacing === 'compact' ? 'px-3' : 'px-4'),
+      inset && (spacing === 'tool-prose' ? 'px-(--hd-space-4)' : spacing === 'inline' ? 'px-(--hd-inset-row)' : spacing === 'compact' ? 'px-3' : 'px-4'),
       className,
     )}
     {...props}

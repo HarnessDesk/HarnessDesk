@@ -57,6 +57,7 @@ import {
   useQueue,
   useRuntime,
   useSessionKey,
+  usePane,
   useSnapshot,
   useStore,
 } from '../state/context'
@@ -166,6 +167,7 @@ const notePreview = (note: { readonly name: string; readonly text?: string }): s
 /** What a `harnessdesk:compose` event may hand the focused composer. */
 interface ComposeDetail {
   readonly text: string
+  readonly paneId?: string
   readonly replace?: boolean
   readonly attachments?: readonly {
     readonly name: string
@@ -189,6 +191,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   const snapshot = useSnapshot()
   const session = useActiveSession()
   const key = useSessionKey()
+  const pane = usePane()
   const record = isRecordConversation(snapshot.goals.values(), key)
   const focused = useIsFocusedPane()
   const mount = useMount()
@@ -979,6 +982,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       const raw = (event as CustomEvent<string | ComposeDetail>).detail
       const detail = typeof raw === 'string' ? { text: raw, replace: false } : raw
       if (!detail || typeof detail.text !== 'string') return
+      if (detail.paneId !== undefined && detail.paneId !== pane?.paneId) return
       // The receipt, first: a sender retrying each frame stops the moment
       // this composer says it has the message.
       detail.onReceived?.()
@@ -1009,7 +1013,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       window.removeEventListener('harnessdesk:compose', onCompose)
       window.removeEventListener('harnessdesk:recoverable-draft', onRecoverable)
     }
-  }, [focused, key, store])
+  }, [focused, key, pane?.paneId, store])
 
   const placeholder = useMemo(() => {
     if (record) return RECORD_REASON

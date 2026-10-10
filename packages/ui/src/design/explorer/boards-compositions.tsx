@@ -1,3 +1,4 @@
+import { ToolBody, ToolSection, ToolProse, SummaryList, SummaryItem, Checklist, ChecklistItem } from '../index'
 import { Timeline, TimelineItem, type TimelineState } from '../ui/timeline'
 import { TimelineCard, TimelineCardRow, TimelineCards, TimelineCardWords, TimelineDocument } from '../ui/timeline-cards'
 import { LibrarySection } from '../../components/Library'
@@ -191,8 +192,6 @@ import {
   Toolbar,
   ToolbarGap,
   toast,
-  SummaryItem,
-  SummaryList,
 } from '../ui'
 import { ConversationEmptyState } from '../patterns/ConversationEmptyState'
 import { entriesFromSilent, NotReportingList } from '../../components/usage/NotReporting'
@@ -3047,7 +3046,20 @@ export const TopBarBoard = () => {
   </section>)}</div>
 }
 
+const TOOLBODY_CATALOG_VARIANTS = ['light', 'dark'] as const
+const TOOLBODY_CATALOG_SIZES = ['default'] as const
+const TOOLBODY_CATALOG_STATES = ['default', 'empty', 'populated'] as const
+export const ToolBodyBoard = () => <div data-catalog-variants={TOOLBODY_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={TOOLBODY_CATALOG_SIZES.join(' ')} data-catalog-states={TOOLBODY_CATALOG_STATES.join(' ')}>
+  <ToolBody><ToolSection label="Conversation"><SummaryList surface="panel">
+    <SummaryItem label="Folder" kind="path">/work/storefront/packages/interface-with-a-long-name</SummaryItem>
+    <SummaryItem label="Branch" kind="path">feature/長いブランチ名</SummaryItem>
+    <SummaryItem label="Context" note="The last completed turn recorded this value.">12,480 tokens</SummaryItem>
+  </SummaryList></ToolSection><ToolSection label="Plan"><Checklist label="Plan" surface="panel"><ChecklistItem state="active">Review the checkout and the recorded changes</ChecklistItem></Checklist></ToolSection></ToolBody>
+  <ToolBody><ToolSection label="Plan"><ToolProse>No plan recorded.</ToolProse></ToolSection></ToolBody>
+</div>
+
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  { id: 'tool-body', title: 'ToolBody', about: 'Real-length content in both themes.', render: ToolBodyBoard },
   { id: 'top-bar', title: 'The top bar', about: 'Nine slots in both fold stages, with long names and CJK.', render: TopBarBoard },
   { id:'git-comparison-dialogs', title:'Git comparison questions', about:'Merge or compare recorded revisions through the shared Git dialogs.', render:GitComparisonDialogsBoard },
   { id: 'comparison-decision', title:'Comparison decision', about:'A recommendation and the person decision above the composer.', render:ComparisonDecisionBoard },
