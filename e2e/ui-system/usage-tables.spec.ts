@@ -3,6 +3,16 @@ import path from 'node:path'
 import { FRAME } from '../../packages/ui/src/design/frame'
 import { COLLECT, textReasons, USER } from '../../script/shots/audit.mjs'
 
+const mountPlanMeters = async (page: Page, fixtureUsage = false) => {
+  await page.evaluate(async fixtureUsage => {
+    const container = document.createElement('section')
+    document.body.appendChild(container)
+    const { mountPlanMetersSpecimen } = await import('/src/preview/frames-supported-controls.tsx' as string)
+    mountPlanMetersSpecimen(container, fixtureUsage)
+  }, fixtureUsage)
+  await expect(page.locator('[data-frame-id="supported-plan-meters"]')).toBeVisible()
+}
+
 const capture = async (page: Page, frame: Locator, name: string) => {
   if (!process.env.USAGE_TABLES_FRAMES_DIR) return
   // Audit the photographed surface, including its tooltip and field values.
@@ -98,6 +108,7 @@ for (const theme of ['light', 'dark'] as const) {
     const card = dashboard.locator('[data-slot="card"]').filter({ has: page.locator('[data-slot="usage-meter-row"]') }).first()
     await expect(card.locator('[data-slot="usage-meter-row"]')).toHaveCount(3)
     await alignedMeters(card.locator('[data-slot="usage-meter-row"]'))
+    await mountPlanMeters(page, true)
     await page.getByRole('group', { name: 'Plan usage' }).locator('button').first().click()
     await alignedMeters(page.getByRole('menu').locator('[data-slot="usage-meter-row"]'))
   })
@@ -255,8 +266,9 @@ for (const theme of ['light', 'dark'] as const) {
   test(`blocked plan popover names the gate clock in ${theme}`, async ({ page }) => {
     await page.goto('/preview.html')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+    await mountPlanMeters(page, true)
     const gate = await page.evaluate(() => {
-      const { store } = (window as unknown as { __hdPreview: { store: import('../../packages/ui/src/state/store').AppStore & { patch(value: object): void } } }).__hdPreview
+      const store = (window as unknown as { __hdPlanMetersStore: import('../../packages/ui/src/state/store').AppStore & { patch(value: object): void } }).__hdPlanMetersStore
       const until = Date.now() + 3 * 86400000
       store.patch({ usage: store.getSnapshot().usage.map(report => ({ ...report, lanes: report.lanes.length ? [
         { id: 'session', label: 'Session', usedPercent: 50, windowMinutes: 300, resetsAt: Date.now() + 3600000 },

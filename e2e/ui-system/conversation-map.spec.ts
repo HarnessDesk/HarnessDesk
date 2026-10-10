@@ -181,9 +181,13 @@ test('clicking a mark never leaves its card stuck open', async ({ page }) => {
   await expect(tipsOf(page)).toHaveCount(0)
 
   // And hovering a different mark shows that one, not the clicked one stuck
-  // open behind it or beside it.
-  await page.mouse.move(second.x + second.width / 2, second.y + second.height / 2 - 1)
-  await page.mouse.move(second.x + second.width / 2, second.y + second.height / 2)
+  // open behind it or beside it. The click scrolled the transcript: measure
+  // its settled mark rather than using coordinates from before the scroll.
+  await marks.nth(1).scrollIntoViewIfNeeded()
+  const movedSecond = await marks.nth(1).boundingBox()
+  if (!movedSecond) throw new Error('no box for the settled answer mark')
+  await page.mouse.move(movedSecond.x + movedSecond.width / 2, movedSecond.y + movedSecond.height / 2 - 1)
+  await page.mouse.move(movedSecond.x + movedSecond.width / 2, movedSecond.y + movedSecond.height / 2)
   await page.waitForTimeout(150)
   const tips = tipsOf(page)
   await expect(tips).toHaveCount(1)

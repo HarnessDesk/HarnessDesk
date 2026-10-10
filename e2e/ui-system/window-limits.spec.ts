@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { FRAME } from '../../packages/ui/src/design/frame'
 
 /*
  * What jsdom cannot see: the window's own width against the layout it draws.
@@ -17,7 +18,7 @@ const SEAM = 1
 
 const main = (page: Page): Locator => page.locator('[data-slot="workbench-main"]')
 // A dock's `data-edge` is the edge its rule is drawn on: the right panel's left.
-const rightPanel = (page: Page): Locator => page.locator('[data-slot="dock-panel"][data-edge="left"]')
+const rightPanel = (page: Page): Locator => page.locator('[data-fixed-tool-frame]')
 const seam = (page: Page): Locator => page.getByRole('separator', { name: 'Resize the right panel' })
 const widthOf = (locator: Locator): Promise<number> => locator.evaluate((node) => node.getBoundingClientRect().width)
 
@@ -78,12 +79,12 @@ const dragSeamTo = async (page: Page, x: number): Promise<void> => {
   await page.mouse.up()
 }
 
-test('below 720px the panel covers the window, the sidebar floats and nothing runs off the edge', async ({ page }) => {
+test('below the sidebar threshold the panel covers the window, the sidebar floats and nothing runs off the edge', async ({ page }) => {
   for (const width of [600, 480, 360]) {
     await page.goto('/narrow-overlay.html')
     await page.setViewportSize({ width, height: 800 })
     const shell = page.locator('[data-narrow]')
-    const hide = page.getByRole('button', { name: 'Hide this panel' })
+    const hide = page.getByRole('button', { name: 'Toggle right panel' })
 
     // The panel is the window: no column of it beside anything, and its own
     // controls are still inside the edge it was clipped to.
@@ -121,18 +122,18 @@ test('below 720px the panel covers the window, the sidebar floats and nothing ru
   }
 })
 
-test('the sidebar keeps its column at exactly 720px and gives it up at 719px', async ({ page }) => {
+test('the sidebar keeps its column at its exact threshold and gives it up one pixel below', async ({ page }) => {
   await page.goto('/narrow-overlay.html')
-  await page.setViewportSize({ width: 720, height: 800 })
-  await page.getByRole('button', { name: 'Hide this panel' }).click()
+  await page.setViewportSize({ width: FRAME.fold.sidebarFloats, height: 800 })
+  await page.getByRole('button', { name: 'Toggle right panel' }).click()
   await page.getByRole('button', { name: 'Show sidebar' }).click()
   await expect(page.locator('[data-narrow]')).toHaveCount(0)
   await expect(page.getByRole('dialog', { name: 'Sidebar' })).toHaveCount(0)
-  await widthRestsAt(main(page), 720 - SIDEBAR - SEAM, 'a column and the conversation beside it')
+  await widthRestsAt(main(page), FRAME.fold.sidebarFloats - SIDEBAR - SEAM, 'a column and the conversation beside it')
 
-  await page.setViewportSize({ width: 719, height: 800 })
+  await page.setViewportSize({ width: FRAME.fold.sidebarFloats - 1, height: 800 })
   await expect(page.locator('[data-narrow]')).toHaveCount(1)
-  await widthRestsAt(main(page), 719, 'no column left to take a share of the window')
+  await widthRestsAt(main(page), FRAME.fold.sidebarFloats - 1, 'no column left to take a share of the window')
 })
 
 test('the right seam stops where the conversation would fall under its reading width', async ({ page }) => {

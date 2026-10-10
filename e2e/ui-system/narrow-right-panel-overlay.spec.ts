@@ -3,10 +3,9 @@ import { expect, test } from '@playwright/test'
 test('a narrow right-panel overlay hides the covered conversation and returns focus', async ({ page }) => {
   await page.goto('/narrow-overlay.html')
   const main = page.locator('[data-slot="workbench-main"]')
-  const tab = page.getByRole('tab', { name: /Trajectory/ })
-  const meters = page.getByRole('group', { name: 'Plan usage' })
+  const tab = page.getByPlaceholder('Filter steps')
   await expect(tab).toBeVisible()
-  await expect(meters).toContainText(/out/i)
+  await expect(page.getByRole('button', { name: /^Context window/ })).toBeVisible()
 
   for (const width of [510, 710, 840]) {
     await page.setViewportSize({ width, height: 900 })
@@ -16,9 +15,9 @@ test('a narrow right-panel overlay hides the covered conversation and returns fo
     const tabIsClear = await tab.evaluate((node) => {
       const rect = node.getBoundingClientRect()
       const hits = document.elementsFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
-      return hits.every((hit) => !hit.closest('[aria-label="Plan usage"]'))
+      return hits.every((hit) => !hit.closest('[data-slot="workbench-main"]'))
     })
-    expect(tabIsClear, `conversation meter should not hit-test beneath the tab at ${width}px`).toBe(true)
+    expect(tabIsClear, `covered conversation should not hit-test beneath the panel control at ${width}px`).toBe(true)
 
     await tab.focus()
     for (let step = 0; step < 16; step += 1) {
@@ -42,6 +41,9 @@ test('a narrow right-panel overlay hides the covered conversation and returns fo
   await expect.poll(() => main.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThanOrEqual(400)
 
   await page.setViewportSize({ width: 1200, height: 900 })
+  await expect(main).not.toHaveAttribute('data-right-panel-overlay', '')
+  await expect.poll(() => main.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThanOrEqual(400)
+  await page.setViewportSize({ width: 1440, height: 900 })
   await page.getByRole('button', { name: 'Show sidebar' }).click()
   await expect(main).not.toHaveAttribute('data-right-panel-overlay', '')
   await expect(page.getByRole('dialog', { name: 'Sidebar' })).toHaveCount(0)
@@ -63,7 +65,7 @@ test('a narrow right-panel overlay hides the covered conversation and returns fo
     return store.getSnapshot().workbench.focus
   })
   expect(dockedFocus).not.toBeNull()
-  await page.getByRole('button', { name: 'Hide this panel' }).click()
+  await page.getByRole('button', { name: 'Toggle right panel' }).click()
   await expect(main).not.toHaveAttribute('inert', '')
   await expect(composer).toBeFocused()
   const logicalFocus = await page.evaluate(() => {

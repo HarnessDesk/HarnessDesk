@@ -8,24 +8,21 @@ test('real sidebar footer fills its column and its menu is painted and clickable
   // wrapper can look almost right at the minimum width and fail on resize.
   for (const width of [260, 480]) {
     await trigger.evaluate((node, width) => {
-      const sidebar = node.closest('[class*="sidebar_"]')
+      const sidebar = node.closest('[data-left-column]')
       if (!sidebar?.parentElement) throw new Error('sidebar frame missing')
       sidebar.parentElement.style.width = `${width}px`
     }, width)
     const gap = await trigger.evaluate(node => {
-      const footer = node.parentElement!.parentElement!
-      // The row is the seat and the inbox bell beside it: the seat opens the
-      // row, the bell closes it, and together they fill the column.
-      const end = footer.lastElementChild!.getBoundingClientRect()
+      const footer = node.closest('[data-region="sidebar-footer"]')!
+      // The seat and its Settings gear fill the footer inside the bar inset.
+      const end = footer.querySelector('[data-left-seat] button[aria-label="Settings"]')!.getBoundingClientRect()
       const box = footer.getBoundingClientRect(), seat = node.getBoundingClientRect()
       const row = { left: seat.left, right: end.right }
       // The column states one inset for every row it holds; the footer row is
       // one of them, so read the number rather than repeating it here — a
       // literal would have to be edited every time the column is re-spaced,
       // and the claim is "level with its neighbours", not "four pixels".
-      // `--hd-rail-inset` is `PaneColumn`'s own token (foundation/tokens.css)
-      // now, not a variable the sidebar scopes for itself.
-      const rail = parseFloat(getComputedStyle(node.closest('[class*="sidebar_"]')!).getPropertyValue('--hd-rail-inset'))
+      const rail = parseFloat(getComputedStyle(node.closest('[data-left-column]')!).getPropertyValue('--hd-bar-pad'))
       return { left: row.left - box.left, right: box.right - row.right, rail }
     })
     expect(gap.right).toBeCloseTo(gap.left, 0)
@@ -78,7 +75,7 @@ for (const height of [900, 520]) {
     // Put this existing preview frame at the viewport's bottom edge, just
     // like the production sidebar; do not alter the menu or its positioning.
     await trigger.evaluate(node => {
-      const frame = node.closest('[class*="sidebar_"]')?.parentElement
+      const frame = node.closest('[data-left-column]')?.parentElement
       if (!frame) throw new Error('sidebar frame missing')
       Object.assign(frame.style, { position: 'fixed', top: '8px', left: '8px', width: '240px', height: 'calc(100vh - 8px)' })
     })

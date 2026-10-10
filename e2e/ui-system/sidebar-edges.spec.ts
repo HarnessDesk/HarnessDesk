@@ -538,7 +538,7 @@ test('nested board and flat Team keep trailing marks on their own label line', a
 })
 
 // These are shipped Sidebar, SessionTree and AppWindow rows, not anatomy specimens.
-test('real section headers start at the shared text edge', async ({ page }) => {
+test('real section headers start at the shared icon edge', async ({ page }) => {
   test.setTimeout(120_000)
   await page.goto('/design.html?view=sidebar')
   const sidebar = page.locator('[data-catalog-example="sidebar"] [data-region="sidebar-header"]')
@@ -549,10 +549,11 @@ test('real section headers start at the shared text edge', async ({ page }) => {
   for (const width of [200, 220, 260, 320, 520]) {
     await frame.evaluate((node, next) => { const css = getComputedStyle(node); (node as HTMLElement).style.width = `${next + Number.parseFloat(css.borderLeftWidth) + Number.parseFloat(css.borderRightWidth)}px` }, width)
     await sidebar.evaluate((node) => { (node as HTMLElement).style.width = '100%' })
-    const name = sidebar.locator('[data-draggable] [data-slot="sidebar-menu-label-content"]').first()
-    const iconX = await name.evaluate(node => { const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect().x })
-    for (const header of [sidebar.getByText('Projects', { exact: true }), sidebar.getByText('Other projects', { exact: true }),
-      ]) {
+    const icon = sidebar.locator('[data-region="session-row"] [data-slot="sidebar-menu-icon"]').first()
+    const iconX = (await box(icon)).x
+    const ordinaryName = sidebar.locator('[data-region="session-row"] [data-slot="sidebar-menu-label-content"]').first()
+    const textX = await ordinaryName.evaluate(node => { const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect().x })
+    for (const header of [sidebar.getByText('Projects', { exact: true })]) {
       const x = await header.evaluate((node) => {
         const range = document.createRange(); range.selectNodeContents(node)
         return range.getBoundingClientRect().x
@@ -563,9 +564,13 @@ test('real section headers start at the shared text edge', async ({ page }) => {
       const header = group.locator('[data-left-group-text]')
       if (await header.count() === 0) continue
       const x = await header.evaluate(node => { const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect().x })
-      const rowX = (await box(group.locator('[data-slot="sidebar-menu-label-content"]').first())).x
+      const rowX = (await box(group.locator('[data-slot="sidebar-menu-icon"]').first())).x
       expect.soft(Math.abs(x - rowX), `${await header.textContent()} at ${width}px`).toBeLessThanOrEqual(1)
     }
+    // Other projects is a disclosure row, so it keeps the ordinary text slot.
+    const other = sidebar.getByRole('button', { name: 'Other projects', exact: true }).locator('[data-slot="sidebar-menu-label-content"]')
+    const otherX = await other.evaluate(node => { const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect().x })
+    expect.soft(Math.abs(otherX - textX), `Other projects at ${width}px`).toBeLessThanOrEqual(1)
   }
   await page.goto('/design.html?view=app-window')
   const nav = page.getByRole('navigation', { name: 'Window navigation' })
@@ -720,15 +725,19 @@ for (const theme of ['light', 'dark'] as const) {
         const label = node.querySelector('[data-slot="sidebar-menu-label-content"]')!.getBoundingClientRect()
         const trail = node.querySelector('[data-left-trailing]')!.getBoundingClientRect()
         const bounds = button.getBoundingClientRect()
+        const icon = node.querySelector('[data-slot="sidebar-menu-icon"]')!.getBoundingClientRect()
         return { name: node.querySelector('[data-slot="sidebar-menu-label-content"]')!.textContent, title: button.title, height: bounds.height,
-          label: label.x, trail: trail.x + trail.width / 2, target: trail.width,
+          project: node.hasAttribute('data-left-project'), icon: icon.x, label: label.x, trail: trail.x + trail.width / 2, target: trail.width,
           marks: node.querySelectorAll('[data-left-mark]').length }
       }))
       expect(rows.length).toBeGreaterThan(9)
+      const ordinary = rows.find(row => !row.project)!
+      expect(ordinary).toBeDefined()
       for (const row of rows) {
         expect(row.height).toBe(FRAME.rail.rowHeight)
         expect(row.target).toBe(24)
-        expect(Math.abs(row.label - rows[0]!.label)).toBeLessThanOrEqual(1)
+        expect(Math.abs(row.label - (row.project ? ordinary.icon : ordinary.label))).toBeLessThanOrEqual(1)
+        expect(Math.abs(row.icon - (row.project ? ordinary.icon - FRAME.rail.icon : ordinary.icon))).toBeLessThanOrEqual(1)
         expect(Math.abs(row.trail - rows[0]!.trail)).toBeLessThanOrEqual(1)
         expect(row.marks).toBeLessThanOrEqual(1)
         expect(row.title.length).toBeGreaterThan(0)

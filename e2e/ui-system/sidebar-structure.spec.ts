@@ -139,7 +139,11 @@ for (const theme of ['light', 'dark'] as const) {
     const project = tree.locator('[data-project-root="/work/atlas"]')
     const head = project.locator('button[data-draggable]')
     const position = (row: typeof team) => row.locator('[data-slot="sidebar-menu-icon"]').evaluate(node => node.getBoundingClientRect().x)
-    expect(await position(team)).toBeCloseTo(await position(head), 0)
+    const projectNameX = await head.locator('[data-slot="sidebar-menu-label-content"]').evaluate(node => {
+      const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect().x
+    })
+    expect(projectNameX).toBeCloseTo(await position(team), 0)
+    expect(await position(head)).toBeCloseTo(await position(team) - FRAME.rail.icon, 0)
     await team.focus()
     await page.keyboard.press('ArrowRight')
     await expect(team).toBeFocused()
@@ -189,7 +193,7 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(header).toHaveCSS('font-size', `${FRAME.rail.label}px`)
       await expect(header).toHaveCSS('font-weight', '500')
       const ink = await fixture.evaluate(node => ({ current: getComputedStyle(node).getPropertyValue('--hd-foreground').trim(), group: getComputedStyle(node).getPropertyValue('--hd-secondary-foreground').trim() }))
-      await expect(name).toHaveCSS('color', ink.current)
+      await expect(name).toHaveCSS('color', ink.group)
       await expect(pinned.locator('[data-left-group-text]')).toHaveCSS('color', ink.group)
       await expect(header.locator('[data-slot="disclosure-chevron"]')).toBeVisible()
       await header.hover()
@@ -225,8 +229,10 @@ for (const theme of ['light', 'dark'] as const) {
       await page.mouse.move(1000, 0)
       const origin = (await fixture.boundingBox())!.x
       const bounds = async (node: typeof team) => { const b = (await node.boundingBox())!; return [b.x - origin, b.x + b.width - origin] }
-      expect(await textX(pinned.locator('[data-left-group-text]')) - origin).toBe(40)
-      const reference = await textX(project.locator('button[data-draggable] [data-slot="sidebar-menu-label-content"]'))
+      const iconX = (await team.locator('[data-slot="sidebar-menu-icon"]').boundingBox())!.x
+      expect(await textX(pinned.locator('[data-left-group-text]')) - origin).toBe(FRAME.rail.inset * 2)
+      expect(await textX(project.locator('button[data-draggable] [data-slot="sidebar-menu-label-content"]'))).toBe(iconX)
+      const reference = iconX + FRAME.rail.icon + FRAME.rail.gap
       for (const row of [team, loose, pinned.locator('[data-slot="sidebar-menu-button"]')]) {
         expect(Math.abs(await textX(row.locator('[data-slot="sidebar-menu-label-content"]')) - reference)).toBeLessThanOrEqual(1)
         expect(await bounds(row)).toEqual([8, width - 8])

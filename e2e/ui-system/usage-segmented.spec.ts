@@ -1,8 +1,19 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 
-test('the conversation header keeps the plan track and separates its reading from the roster token', async ({ page }) => {
+const mountPlanMeters = async (page: Page, fixtureUsage = false) => {
+  await page.evaluate(async fixtureUsage => {
+    const container = document.createElement('section')
+    document.body.appendChild(container)
+    const { mountPlanMetersSpecimen } = await import('/src/preview/frames-supported-controls.tsx' as string)
+    mountPlanMetersSpecimen(container, fixtureUsage)
+  }, fixtureUsage)
+  await expect(page.locator('[data-frame-id="supported-plan-meters"]')).toBeVisible()
+}
+
+test('the supported plan control keeps the plan track and separates its reading from the roster token', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/preview.html')
+  await mountPlanMeters(page)
   const strip = page.getByRole('group', { name: 'Plan usage' })
   await expect(strip).toBeVisible()
   // The preview's plan strip holds a meter with a track and a second reading

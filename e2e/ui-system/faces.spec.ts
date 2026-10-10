@@ -58,7 +58,7 @@ const PAGES: readonly { readonly name: string; readonly url: string; readonly re
     how: 'attribute',
     surfaces: [
       { what: 'the Team rail’s members and the chat’s senders', frame: 'goal-roster', selector: '[data-slot="icon-tile"][data-shape="face"]' },
-      { what: 'a notice carrying an agent’s face', frame: 'goal-roster', selector: ':not([data-slot])[data-tone][data-shape="face"]' },
+      { what: 'a notice carrying an agent’s face', frame: 'conversation-composer', selector: ':not([data-slot])[data-tone][data-shape="face"]' },
       { what: 'a board card’s holder', frame: 'board-populated', selector: '[data-slot="icon-tile"][data-shape="face"]' },
       { what: 'the Activity panel’s rows', frame: 'panel-activity', selector: '[data-slot="icon-tile"][data-shape="face"]' },
       { what: 'a channel’s senders', frame: 'room-channel-grouping', selector: '[data-slot="icon-tile"][data-shape="face"]' },
@@ -102,6 +102,13 @@ const open = async (page: Page, url: string, ready: string) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto(url)
   await page.waitForSelector(ready)
+  if (url === '/preview.html') await page.evaluate(() => {
+    const { store, sessionKey } = (window as unknown as { __hdPreview: {
+      store: import('../../packages/ui/src/state/store').AppStore & { patch(value: object): void }; sessionKey: string
+    } }).__hdPreview
+    const main = { root: { kind: 'pane', id: 'preview', view: { kind: 'conversation', session: sessionKey } }, focused: 'preview', expanded: null }
+    store.patch({ layout: main, workbench: { ...store.getSnapshot().workbench, main, focus: null } })
+  })
   await page.evaluate(async () => { await document.fonts.ready })
 }
 
@@ -243,9 +250,9 @@ test.describe('rule: faces', () => {
     await open(page, spec.url, spec.ready)
     // A notice's face is translucent by design (its tone's wash), so it is not held to solid; it is held to having a ground at all.
     expect((await faceReport(page, NOT_SOMEONE)).findings).toEqual([])
-    await page.addStyleTag({ content: '[data-frame-id="goal-roster"] :not([data-slot])[data-tone][data-shape="face"] { background-color: transparent !important; }' })
+    await page.addStyleTag({ content: '[data-frame-id="conversation-composer"] :not([data-slot])[data-tone][data-shape="face"] { background-color: transparent !important; }' })
     const after = await faceReport(page, NOT_SOMEONE)
-    expect(after.findings.some((f) => f.rule === 'ground' && f.where === 'goal-roster')).toBe(true)
+    expect(after.findings.some((f) => f.rule === 'ground' && f.where === 'conversation-composer')).toBe(true)
   })
 
   test('rule: faces — the checker catches a notice’s face painted solid or washed out', async ({ page }) => {
@@ -254,9 +261,9 @@ test.describe('rule: faces', () => {
     expect((await faceReport(page, NOT_SOMEONE)).findings).toEqual([])
     // The wash is the tone's own, so any other ground on the face is wrong: too heavy (opaque) or too faint to see.
     for (const ground of ['rgb(52, 88, 240)', 'rgba(52, 88, 240, 0.01)']) {
-      const style = await page.addStyleTag({ content: `[data-frame-id="goal-roster"] :not([data-slot])[data-tone][data-shape="face"] { background-color: ${ground} !important; }` })
+      const style = await page.addStyleTag({ content: `[data-frame-id="conversation-composer"] :not([data-slot])[data-tone][data-shape="face"] { background-color: ${ground} !important; }` })
       const after = await faceReport(page, NOT_SOMEONE)
-      expect(after.findings.some((f) => f.rule === 'ground' && f.where === 'goal-roster'), ground).toBe(true)
+      expect(after.findings.some((f) => f.rule === 'ground' && f.where === 'conversation-composer'), ground).toBe(true)
       await style.evaluate((el) => el.remove())
     }
     expect((await faceReport(page, NOT_SOMEONE)).findings).toEqual([])

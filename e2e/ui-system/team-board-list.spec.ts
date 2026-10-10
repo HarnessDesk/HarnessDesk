@@ -31,7 +31,7 @@ for (const theme of ['light', 'dark'] as const) {
     await chooseBoardView(pane, 'List')
     const table = pane.getByRole('table', { name: 'Jobs' })
     await expect(table.locator('tbody tr')).toHaveCount(4)
-    await expect(pane.getByRole('button', { name: 'All 4', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(pane.getByRole('tab', { name: 'All 4', exact: true })).toHaveAttribute('aria-selected', 'true')
     await expect(table.locator('tbody tr').first()).toContainText('Choose the target')
     await page.evaluate(() => document.fonts.ready)
     const geometry = await pane.evaluate(root => {
@@ -78,9 +78,9 @@ for (const theme of ['light', 'dark'] as const) {
     if (process.env.HD_BOARD_LIST_FRAMES) {
       await pane.screenshot({ path: `${process.env.HD_BOARD_LIST_FRAMES}/list-${theme}.png` })
     }
-    await pane.getByRole('button', { name: 'Needs you 2', exact: true }).click()
+    await pane.getByRole('tab', { name: 'Needs you 2', exact: true }).click()
     await expect(table.locator('tbody tr')).toHaveCount(2)
-    await pane.getByRole('button', { name: 'All 4', exact: true }).click()
+    await pane.getByRole('tab', { name: 'All 4', exact: true }).click()
     await pane.getByRole('searchbox', { name: 'Filter jobs', exact: true }).fill('Retry the checkout')
     await expect(table.locator('tbody tr')).toHaveCount(1)
     await pane.getByRole('searchbox', { name: 'Filter jobs', exact: true }).fill('no matching job')

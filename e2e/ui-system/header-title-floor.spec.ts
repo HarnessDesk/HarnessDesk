@@ -13,10 +13,9 @@ test('the conversation title keeps at least 10 characters and the header never o
   const bar = page.locator('[data-slot="top-bar"]').locator('..')
   await expect(bar).toBeVisible()
   await expect(bar.locator('[data-work-tool]')).toHaveCount(4)
-  // The sidebar's fixed narrow-window fold lands in Task 8. Exercise the
-  // existing explicit-away state here so this checks the real lead controls.
-  await page.getByRole('button', { name: 'Hide sidebar', exact: true }).click()
-  await expect(bar.getByRole('button', { name: /^(Show|Hide) sidebar$/ })).toBeVisible()
+  // The canonical sidebar fold already gives main the whole narrow window.
+  // Its lead control must remain reachable alongside all four work tools.
+  await expect(bar.getByRole('button', { name: 'Show sidebar', exact: true })).toBeVisible()
 
   const measured = await bar.evaluate((el) => {
     const title = el.querySelector('[data-topbar-title] > *') as HTMLElement | null
