@@ -5,6 +5,9 @@ import { FRAME, FRAME_TOKENS } from '../../packages/ui/src/design/frame'
 import { WALL_DESTINATIONS, WALL_THEMES, WALL_WIDTHS } from './frame-wall-destinations'
 import { applyFrameActions, selectFrameTab } from './frame-actions'
 
+// Contract runs measure the preview; the final wall owns images and recordings.
+test.use({ screenshot: 'off', trace: 'off', video: 'off' })
+
 /**
  * The rendered check (spec, "How it is checked"): the app measured against
  * the frame contract in `packages/ui/src/design/frame.ts`. Each phase of the
@@ -28,6 +31,50 @@ const resolvedPx = (page: Page, token: string) => page.evaluate((name) => {
   probe.remove()
   return px
 }, token)
+
+test.describe('B11a owner corrections', () => {
+  for (const theme of WALL_THEMES) for (const width of WALL_WIDTHS) {
+    test(`B11a owner status tasks close from either control at ${width} in ${theme}`, async ({ page }) => {
+      await openFrame(page, 'frame-wall=conversation&frame-status=tasks', theme, width)
+      const bar = page.locator('[data-slot="top-bar"]:visible')
+      const panel = page.locator('[data-slot="work-tools"]:visible')
+      const tasks = page.locator('[data-slot="status-bar"]:visible').getByRole('button', { name: /background tasks?/ })
+      for (const closer of ['Toggle right panel', 'Activity']) {
+        await tasks.click()
+        await expect(panel).toBeVisible()
+        await expect(bar.getByRole('button', { name: 'Activity', exact: true })).toHaveAttribute('aria-pressed', 'true')
+        await bar.getByRole('button', { name: closer, exact: true }).click()
+        await expect(panel).toHaveCount(0)
+        await expect(bar.getByRole('button', { name: 'Toggle right panel', exact: true })).toHaveAttribute('aria-pressed', 'false')
+      }
+    })
+    test(`B11a owner bar edge and retained control geometry at ${width} in ${theme}`, async ({ page }) => {
+      for (const foundation of ['desk', 'studio'] as const) {
+        await openFrame(page, 'frame-wall=conversation', theme, width)
+        await page.locator('body').evaluate((body, value) => { body.dataset.hdInterface = value }, foundation)
+        const bar = page.locator('[data-slot="top-bar"]:visible')
+        const header = bar.locator('..')
+        await expect(header).not.toHaveAttribute('data-rule', 'bottom')
+        expect(await header.evaluate(node => getComputedStyle(node).borderBottomWidth)).toBe('0px')
+        expect((await header.boundingBox())!.height).toBe(FRAME.bar.height)
+        const toggle = bar.getByRole('button', { name: 'Toggle right panel', exact: true })
+        for (const open of [false, true, false]) {
+          if (open || await toggle.getAttribute('aria-pressed') === 'true') await toggle.click()
+          const box = (await toggle.boundingBox())!, head = (await header.boundingBox())!
+          // The former border occupied the final pixel of the 40px bar.
+          expect(box.y + box.height / 2 - head.y).toBe((FRAME.bar.height - 1) / 2)
+          const tools = bar.locator('[data-topbar="tools"]')
+          if (open && width >= FRAME.fold.panelFloats) {
+            const column = (await tools.boundingBox())!
+            expect(column.y).toBe(head.y)
+            expect(column.height).toBe(FRAME.bar.height)
+            expect(await tools.evaluate(node => getComputedStyle(node).borderLeftWidth)).toBe('1px')
+          } else expect(await tools.evaluate(node => getComputedStyle(node).borderLeftWidth)).toBe('0px')
+        }
+      }
+    })
+  }
+})
 
 for (const theme of WALL_THEMES) for (const destination of ['settings', 'agents', 'teams', 'dashboard']) {
   test(`B10 ${destination} has one shell bar and a modal footer in ${theme}`, async ({ page }) => {

@@ -1,4 +1,5 @@
-.bar { min-width: 0; }
+/* Retain the former rule's control inset without painting an edge. */
+.bar { min-width: 0; padding-bottom: var(--hd-border-width); }
 .row { display: flex; align-items: center; gap: var(--hd-bar-gap); width: 100%; min-width: 0; }
 .fixed { display: flex; align-items: center; flex: none; gap: var(--hd-bar-gap); }
 .fixed:empty { display: none; }
@@ -11,7 +12,7 @@
 .tabs { flex-wrap: nowrap; flex: none; }
 
 .row [data-topbar="tools"] { gap: var(--hd-space-0-5); }
-.row [data-topbar="tools"][data-standing] { width: var(--topbar-right-column); height: calc(var(--hd-bar-h) - var(--hd-border-width)); padding-inline: var(--hd-bar-pad); margin-right: calc(0px - var(--hd-bar-pad)); border-left: var(--hd-border-width) solid var(--hd-border); }
+.row [data-topbar="tools"][data-standing] { width: var(--topbar-right-column); height: var(--hd-bar-h); padding-inline: var(--hd-bar-pad); padding-bottom: var(--hd-border-width); margin-bottom: calc(0px - var(--hd-border-width)); margin-right: calc(0px - var(--hd-bar-pad)); border-left: var(--hd-border-width) solid var(--hd-border); }
 .row [data-work-tool][aria-pressed="true"],
 .row [data-work-panel-toggle][aria-pressed="true"] { background: var(--hd-muted); color: var(--hd-foreground); box-shadow: inset 0 0 0 var(--hd-border-width) var(--hd-border-strong); }
 .row [data-work-tools-spacer] { flex: 1; min-width: 0; }

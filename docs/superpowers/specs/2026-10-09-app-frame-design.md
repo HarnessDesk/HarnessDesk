@@ -234,7 +234,9 @@ One top bar, one height (`--hd-bar-h` 40), one padding (`--hd-bar-pad` 8,
 the leading words at `--hd-bar-ink`), one gap (`--hd-bar-gap` 6), one icon
 button (28), one divider (1 × 14).
 
-**The top bar** runs across main and the right panel's column. Its slots,
+**The top bar** runs across main and the right panel's column on main's own
+background, with no bottom hairline (owner, 2026-10-10). The standing right
+panel's vertical seam continues through the bar. Its slots,
 left to right, each optional except place and ⋯:
 
 1. **lead** — sidebar toggle, back, forward; only while the left column is not standing beside main (the existing rule). In a narrow window, where the column floats, the lead is the sidebar toggle alone, as drawn: back and forward are in the column's top row, and ⌘[ and ⌘] work everywhere.
