@@ -45,7 +45,7 @@
 [data-menu-row][data-highlighted], [data-menu-row][aria-expanded='true'] { background: var(--hd-hover); }
 [data-menu-row][data-current] { background: var(--hd-accent-dim); }
 [data-menu-row][data-danger], [data-menu-row][data-variant='destructive'] { color: var(--hd-danger); }
-[data-menu-row][data-disabled], [data-menu-row][aria-disabled='true'], [data-menu-row]:disabled { color: var(--hd-secondary-foreground); cursor: default; }
+[data-menu-row][data-disabled], [data-menu-row][aria-disabled='true'], [data-menu-row]:disabled { color: var(--hd-muted-foreground); cursor: default; }
 [data-menu-row]:disabled:hover { background: transparent; }
 [data-menu-icon] {
   flex: none;

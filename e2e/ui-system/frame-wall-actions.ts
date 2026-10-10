@@ -57,7 +57,15 @@ export const openWallDestination = async (page: Page, destination: WallActions):
       await expect(page.locator('[data-popup-kind="menu"],[data-popup-kind="wide-menu"]')).toHaveCount(0)
     }
   }
-  if (destination.plan) await page.locator(`[data-plan-popup="${destination.plan}"]`).locator('xpath=ancestor::button[1]').click()
+  if (destination.plan) {
+    await applyLeftColumnActions(page, { leftOpen: true, leftPopup: 'account' })
+    const usage = page.locator('[role="menuitem"][aria-expanded]').filter({
+      hasText: destination.plan === 'anchor' ? /^Usage remaining/ : / usage/,
+    }).first()
+    await usage.click()
+    await expect(usage).toHaveAttribute('aria-expanded', 'true')
+    await expect(page.locator('[data-usage-details]')).toBeVisible()
+  }
   if (destination.inbox) await page.getByRole('button', { name: 'Inbox, 1 unread', exact: true }).click()
   if (destination.expandInbox) await page.getByRole('menuitem', { name: /The Storefront catalogue compatibility check/ }).click()
   if (destination.select) await page.getByRole('combobox', { name: 'Frame Select', exact: true }).click()
