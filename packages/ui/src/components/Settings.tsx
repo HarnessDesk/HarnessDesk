@@ -18,16 +18,14 @@ import { useRuntime, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
 import {
   AppWindow,
-  WindowGroup,
   WindowNav,
   WindowNavEmpty,
   WindowNavCount,
   WindowNavIdentity,
-  WindowNavItem,
   WindowNavStateMark,
   WindowPage,
 } from './AppWindow'
-import { dismissOverlays, useEscapeSurface } from '../design'
+import { dismissOverlays, useEscapeSurface, LeftColumnGroup, LeftColumnRow } from '../design'
 import {
   ServerIcon,
   ArchiveIcon,
@@ -2023,23 +2021,21 @@ export const Settings = ({
           />
         )}
         {filtered.map((group) => (
-          <WindowGroup key={group.label} label={group.label}>
+          <LeftColumnGroup key={group.label} label={group.label}>
             {group.entries.map((entry) => (
-              <WindowNavItem
+              <LeftColumnRow
                 key={entry.id}
                 icon={entry.icon}
                 label={entry.label}
                 selected={section === entry.id}
                 onClick={() => onSection(entry.id)}
-                {...(entry.count !== undefined ? { count: entry.count } : {})}
-                {...(entry.state
-                  ? { trail: <WindowNavStateMark><Dot state={entry.state} /></WindowNavStateMark> }
-                  : entry.trail
-                    ? { trail: entry.trail }
-                    : {})}
+                trailing={entry.state || entry.trail
+                  ? { kind: 'mark', label: `${entry.label}${entry.count !== undefined ? ` · ${entry.count}` : ''}${entry.state ? ` · ${entry.state}` : ` · ${runtime.presentation.name}`}`,
+                    icon: <WindowNavStateMark>{entry.count !== undefined && <WindowNavCount>{entry.count}</WindowNavCount>}{entry.state ? <Dot state={entry.state} /> : entry.trail}</WindowNavStateMark> }
+                  : entry.count !== undefined ? { kind: 'count', value: entry.count, label: `${entry.count} ${entry.label}` } : undefined}
               />
             ))}
-          </WindowGroup>
+          </LeftColumnGroup>
         ))}
         {filtered.length === 0 && !showYou && (
           <WindowNavEmpty>Nothing in settings matches “{query.trim()}”.</WindowNavEmpty>

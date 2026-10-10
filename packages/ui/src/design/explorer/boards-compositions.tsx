@@ -3374,4 +3374,62 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     about: 'The real dialog, in both states (#1083): a round-ceiling stop shows a 1-to-20 count next to "Authorise another round" that relabels the button and is the count the wire sends; every other stop keeps the plain single button, with no count field at all.',
     render: FindingDecisionBoard,
   },
+  { id: 'left-column', title: 'Left column', about: 'Aligned rows with one trailing slot and long titles.', render: LeftColumnBoard },
 ]
+
+import { LeftColumn, LeftColumnTop, LeftColumnBody, LeftColumnRow, LeftColumnGroup, LeftColumnSeat } from ".."
+import { BellIcon, UserIcon } from '../../components/Icons'
+
+export const LEFTCOLUMN_CATALOG_VARIANTS = ['light', 'dark'] as const
+export const LEFTCOLUMN_CATALOG_SIZES = ['default'] as const
+export const LEFTCOLUMN_CATALOG_STATES = ['default', 'selected', 'disabled', 'long-title'] as const
+
+export function LeftColumnBoard() { return <LeftColumn
+  top={<LeftColumnTop shown back={false} forward={false} toggle={() => {}} goBack={() => {}} goForward={() => {}}
+    notifications={<Button variant="ghost" size="icon-sm" aria-label="Inbox"><BellIcon size={16} /></Button>}
+    search={<Button variant="ghost" size="icon-sm" aria-label="Search everything"><SearchIcon size={16} /></Button>} />}
+  head={null} body={<LeftColumnBody>
+  <LeftColumnRow label="Teams" icon={<TeamIcon size={16} />} onClick={() => {}} />
+  <LeftColumnGroup label="Projects">
+    <LeftColumnRow label="Release notes for checkout retry · 長い会話名" icon={<FolderIcon size={16} />}
+      title={'Release notes for checkout retry\nThe folder is gone; the transcript remains readable.'}
+      selected trailing={{ kind: 'count', value: 12, label: '12 held messages' }}
+      action={{ label: 'Actions for Release notes', onClick: () => {} }} />
+    <LeftColumnRow label="Conversation with no leading mark" onClick={() => {}} />
+    <LeftColumnRow label="Unavailable conversation" disabled title="Conversation not kept" />
+  </LeftColumnGroup>
+</LeftColumnBody>}
+  footer={<LeftColumnSeat settingsOpen={false} onSettings={() => {}}
+    menu={<Button variant="ghost" size="pattern" className="inline-flex items-center gap-(--hd-space-2) px-(--hd-space-2) text-(length:--hd-text) font-(weight:--hd-weight-medium)" data-catalog-size="default"><UserIcon size={16} />Jane Doe</Button>} />} />
+}
+
+
+import { LeftColumnList, LeftColumnRename, LeftColumnNavigation, LeftColumnProjectsHead, LeftColumnListOptions, LeftColumnEmpty } from ".."
+export function LeftColumnWorkBoard() {
+  const [filter, setFilter] = useState('')
+  const [focused, setFocused] = useState(false)
+  return <LeftColumn head={<LeftColumnNavigation><LeftColumnRow label="New session" icon={<PlusIcon size={16} />} onClick={() => {}} /></LeftColumnNavigation>} body={<LeftColumnBody>
+    <LeftColumnProjectsHead value={filter} onChange={setFilter} focused={focused} onFocusChange={setFocused}
+      onBrowseFolders={() => {}} options={<LeftColumnListOptions filtered={false}><Button variant="muted" size="icon-xs" aria-label="List options"><MoreIcon size={16} /></Button></LeftColumnListOptions>} />
+    <LeftColumnList before={30} after={30} labels="Release plan|Rename">
+      <LeftColumnRow label="Release plan" icon={<FolderIcon size={16} />} project current expanded
+        action={{ kind: 'new', label: 'New session in Release plan', onClick: () => {} }} />
+      <LeftColumnRename input={<Input aria-label="Rename example" defaultValue="Release plan" />} />
+      <LeftColumnEmpty>No conversations yet — ⌘N starts one here.</LeftColumnEmpty>
+    </LeftColumnList>
+  </LeftColumnBody>} top={null} footer={null} />
+}
+COMPOSITION_BOARDS.push({ id: 'left-column-work', title: 'Left column work rows', about: 'Fixed rows, rename, virtual spacers and the existing project controls.', render: LeftColumnWorkBoard })
+
+import { MoreIcon } from '../../components/Icons'
+
+import { SettingsNavigation } from '../../components/SettingsNavigation'
+import type { Section as SettingsSection } from '../../components/Settings'
+export const SettingsNavigationBoard = () => {
+  const store = useMemo(() => previewStore(), [])
+  const [section, setSection] = useState<SettingsSection>('general')
+  return <StoreProvider store={store}><LeftColumnBody>
+    <SettingsNavigation section={section} onSection={setSection} onBack={() => setSection('general')} />
+  </LeftColumnBody></StoreProvider>
+}
+COMPOSITION_BOARDS.push({ id: 'settings-navigation', title: 'Settings navigation', about: 'Controlled preferences with Back and search.', render: SettingsNavigationBoard })

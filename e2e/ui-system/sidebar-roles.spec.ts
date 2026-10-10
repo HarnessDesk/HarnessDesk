@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { FRAME } from '../../packages/ui/src/design/frame'
 
 for (const theme of ['light', 'dark'] as const) {
   test(`quiet chips keep each tone and type while removing the pill (${theme})`, async ({ page }) => {
@@ -51,24 +52,18 @@ test('sidebar navigation names stay regular and truncate at their trailing edge'
   expect(style.overflow).toBe('ellipsis')
 })
 
-test('sidebar destinations use the navigation text role and the brand uses the wordmark role', async ({ page }) => {
+test('sidebar destinations use the frame label scale and have no wordmark', async ({ page }) => {
   await page.goto('/preview.html')
-  const destinations = page.locator('[aria-label="Main sections"] [data-role="navigation"]')
-  await expect(destinations).toHaveCount(4)
-  await expect(destinations).toHaveText(['Teams', 'Agents', 'Dashboard', 'Plugins'])
-  const destinationStyles = await destinations.evaluateAll((nodes) => nodes.map((node) => {
-    const style = getComputedStyle(node)
-    return { size: style.fontSize, weight: style.fontWeight }
+  const rows = page.locator('[aria-label="Main sections"] [data-slot="sidebar-menu-button"]')
+  await expect(rows).toHaveCount(5)
+  expect(await rows.evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label'))))
+    .toEqual(['Teams', 'Agents', 'Library', 'Plugins', 'Dashboard'])
+  const styles = await rows.evaluateAll(nodes => nodes.map(node => {
+    const css = getComputedStyle(node)
+    return { size: css.fontSize, weight: css.fontWeight }
   }))
-  expect(destinationStyles).toEqual(Array.from({ length: 4 }, () => ({ size: '13px', weight: '400' })))
-
-  const brand = page.locator('[data-region="sidebar-header"] [data-role="wordmark"]')
-  await expect(brand).toHaveText('HarnessDesk')
-  const style = await brand.evaluate((node) => {
-    const computed = getComputedStyle(node)
-    return { size: computed.fontSize, weight: computed.fontWeight }
-  })
-  expect(style).toEqual({ size: '20px', weight: '600' })
+  expect(styles).toEqual(Array.from({ length: 5 }, () => ({ size: `${FRAME.rail.label}px`, weight: '400' })))
+  await expect(page.locator('[data-region="sidebar-header"] [data-role="wordmark"]')).toHaveCount(0)
 })
 
 test('a healthy account reading keeps plain ink rather than success ink', async ({ page }) => {

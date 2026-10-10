@@ -1,4 +1,5 @@
 import { runTeamStore, equivalentRunFixture, type RunScene } from './run-view-fixture'
+import { sidebarStructureFixture } from './sidebar-structure-fixture'
 import { useMemo, useState } from 'react'
 import { contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, turnId, type UiContribution } from '@harnessdesk/protocol'
 import { installPanelComponent } from '../slots/PanelBlocks'
@@ -33,7 +34,7 @@ import { usagePreviewStore } from './usage-fixture'
  * drawn here the same way, so the wall shows the app as it is.
  * Placeholder fixtures only.
  */
-export const FRAME_WALL_DESTINATIONS = ['conversation', 'draft', 'team', 'team-trigger', 'team-receipt', 'team-run-recorded', 'team-run-not-reached', 'team-run-repeated', 'team-run-equivalent', 'teams', 'agents', 'dashboard', 'settings'] as const
+export const FRAME_WALL_DESTINATIONS = ['conversation', 'draft', 'team', 'team-trigger', 'team-receipt', 'team-run-recorded', 'team-run-not-reached', 'team-run-repeated', 'team-run-equivalent', 'teams', 'agents', 'dashboard', 'settings', 'left-work'] as const
 type Destination = (typeof FRAME_WALL_DESTINATIONS)[number]
 
 const mainShowing = (view: PaneView) =>
@@ -84,6 +85,8 @@ const frameEquivalentRunStore = () => {
 
 const storeFor = (destination: Destination): AppStore => {
   switch (destination) {
+    case 'left-work': return showing(previewStore(sidebarStructureFixture(previewStore().getSnapshot())),
+      { kind: 'room', room: 'structure-team' }, null)
     case 'conversation': return showing(previewStore(), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY)
     case 'draft': return showing(previewStore(), { kind: 'conversation', session: null }, null)
     case 'team-run-recorded': return showing(frameRunStore('running'), { kind: 'room', room: 'overview-team' }, null)

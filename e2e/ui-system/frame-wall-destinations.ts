@@ -5,7 +5,7 @@
  */
 import type { FrameActions } from './frame-actions'
 
-export interface WallDestination extends FrameActions { readonly id: string; readonly query: string }
+export interface WallDestination extends FrameActions { readonly id: string; readonly query: string; readonly leftOpen?: boolean; readonly leftPopup?: string; readonly settingsQuery?: string }
 
 export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'topbar-probe', query: 'frame-wall=topbar' },
@@ -48,7 +48,20 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'agents', query: 'frame-wall=agents' },
   { id: 'dashboard', query: 'frame-wall=dashboard' },
   { id: 'settings', query: 'frame-wall=settings' },
-]
+  { id: 'left-column-probe', query: 'frame-wall=left-column' },
+  { id: 'conversation-left-open', query: 'frame-wall=conversation', leftOpen: true },
+  { id: 'left-inbox', query: 'frame-wall=conversation', leftOpen: true, leftPopup: 'inbox' },
+  { id: 'left-account', query: 'frame-wall=conversation', leftOpen: true, leftPopup: 'account' },
+  { id: 'left-start', query: 'frame-wall=conversation', leftOpen: true, leftPopup: 'start' },
+  { id: 'left-work', query: 'frame-wall=left-work', leftOpen: true },
+  { id: 'left-project-menu', query: 'frame-wall=left-work', leftOpen: true, leftPopup: 'project' },
+  { id: 'left-session-menu', query: 'frame-wall=left-work', leftOpen: true, leftPopup: 'session' },
+  { id: 'left-session-card', query: 'frame-wall=left-work', leftOpen: true, leftPopup: 'card' },
+  { id: 'left-work-pattern', query: 'frame-wall=left-work-pattern' },
+  { id: 'settings-middle', query: 'frame-wall=settings-middle' },
+  { id: 'settings-middle-filtered', query: 'frame-wall=settings-middle', settingsQuery: 'mute' },
+  { id: 'settings-middle-empty', query: 'frame-wall=settings-middle', settingsQuery: 'no matching preference with a deliberately long search phrase' },
+] as const
 
 /** Wide (every region stands), between the folds, and the narrowest window. */
 export const WALL_WIDTHS = [1440, 1100, 720] as const

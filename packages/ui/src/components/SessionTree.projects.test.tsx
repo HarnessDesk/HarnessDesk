@@ -97,12 +97,12 @@ const render = (history: SessionSummary[], open: WorkspaceEntry, over: Partial<A
 /** The project rows, by the name each one shows. */
 const projects = (): string[] =>
   [...container.querySelectorAll<HTMLElement>('[draggable="true"]')].map(
-    (head) => head.querySelector('[data-draggable] [data-role="prose"]')?.textContent ?? '',
+    (head) => head.querySelector('[data-draggable] [data-slot="sidebar-menu-label-content"]')?.textContent ?? '',
   )
 
 /** The row the list is calling the folder you are in. */
 const currentProject = (): string | null =>
-  container.querySelector<HTMLElement>('[data-current] [data-draggable] [data-role="prose"]')?.textContent ?? null
+  container.querySelector<HTMLElement>('[data-current] [data-draggable] [data-slot="sidebar-menu-label-content"]')?.textContent ?? null
 
 const currentProjectRoot = (): string | null =>
   container.querySelector<HTMLElement>('[data-current]')?.closest<HTMLElement>('[data-project-root]')?.dataset.projectRoot ?? null
@@ -311,15 +311,13 @@ it('only a stopped project adds capture text, including its folded canonical ali
     workspace(tree, { root: REPO, worktree: true }),
     { captureHealth: new Map([[REPO, off]]) },
   )
-  expect(container.textContent).toContain('Capture stopped')
-  const state = container.querySelector<HTMLElement>('[data-slot="sidebar-menu-state"]')
-  expect(state?.getAttribute('aria-label')).toBe('Capture stopped')
+  const state = container.querySelector<HTMLElement>('[data-left-mark]')
+  expect(state?.getAttribute('aria-label')).toBe('Capture is off. Turn capture on.')
   expect(state?.getAttribute('title')).toBe('Capture is off. Turn capture on.')
-  expect(state?.hasAttribute('data-compact-at-narrow')).toBe(true)
-  expect(state?.querySelector('[data-slot="chip"]')?.getAttribute('data-variant')).toBe('quiet')
-  expect(container.querySelector('[data-project-root="/repo"] [data-role="prose"]')?.textContent).toBe('repo')
+  expect(state?.querySelector('[data-slot="dot"]')).not.toBeNull()
+  expect(container.querySelector('[data-project-root="/repo"] [data-slot="sidebar-menu-label-content"]')?.textContent).toBe('repo')
   render([session('a', REPO, { root: REPO, worktree: false })], workspace(REPO, { root: REPO, worktree: false }), { captureHealth: new Map([[REPO, { ...off, enabled: true, state: 'healthy' }]]) })
-  expect(container.textContent).not.toContain('Capture stopped')
+  expect(container.querySelector('[data-left-mark]')).toBeNull()
 })
 
 it('a trigger Goal’s room is named by its Goal, with no origin line of its own, and no row asks Intake for one', async () => {

@@ -270,6 +270,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   UsageMeterRow: ['default', 'barless'],
   SidebarMenuState: ['default'],
   SettingsRowMenu: ['default'],
+  LeftColumn: ['light', 'dark'],
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
@@ -384,6 +385,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   PlanCard: ['empty', 'derived', 'populated', 'warning', 'error'],
   UsageMeterRow: ['default', 'warning', 'error', 'unknown'],
   SettingsRowMenu: ['closed', 'open'],
+  LeftColumn: ['default', 'selected', 'disabled', 'long-title'],
 }
 
 const DEFAULT_SIZE = ['default'] as const
@@ -402,6 +404,7 @@ Object.assign(SIZES, {
   textarea: ['default', 'compact', 'composer', 'paragraphs'],
   'toggle-group': ['default', 'sm', 'lg'],
   sidebar: ['sm', 'default', 'lg'],
+  LeftColumn: ['default'],
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
@@ -446,7 +449,11 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   UsageMeterRow: 'packages/ui/src/components/SettingsAgents.tsx',
   SidebarMenuState: 'packages/ui/src/components/SessionTree.tsx',
   SettingsRowMenu: 'packages/ui/src/components/Settings.tsx',
+  LeftColumn: 'packages/ui/src/preview/frames-left-column.tsx',
 }
+
+// Append the production adoption without rewriting the shared seed registry.
+Object.assign(PATTERN_CONSUMER, { LeftColumn: 'packages/ui/src/components/Sidebar.tsx' })
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   SeatList: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -489,6 +496,7 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   PlanCard: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   UsageMeterRow: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   SettingsRowMenu: 'packages/ui/src/design/explorer/boards.tsx',
+  LeftColumn: 'packages/ui/src/design/explorer/boards-compositions.tsx',
 }
 
 const variantsFor = (name: string): readonly CatalogVariant[] => {
@@ -642,6 +650,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['PaneColumn', 'conversation', 'The reading column\'s inset, shared by the transcript and the room stream, plus the bars strip, the jobs strip and the rail'],
   ['PlanCard', 'plan-card', 'A plan\'s price and a key or metered account\'s monthly budget, set once from a suggested price'],
   ['UsageMeterRow', 'usage-meter-row', 'A shared name, remaining meter, percentage and reset countdown'],
+  ['LeftColumn', 'left-column', 'One column row, group edge, top and seat in both modes'],
 ] as const satisfies readonly ModuleSeed[]
 
 /**

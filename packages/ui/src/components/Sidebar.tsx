@@ -1,3 +1,6 @@
+import { LeftColumn, LeftColumnBody, LeftColumnNavigation, LeftColumnProjectsHead, LeftColumnTop, LeftColumnRow, LeftColumnSeat, LeftColumnGroup } from '../design'
+import { LibraryIcon } from './Icons'
+import { sidebarPlacement } from '../state/workbench'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { SidebarNotices, useInboxMessages } from './Notices'
@@ -5,7 +8,6 @@ import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/
 import { useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
 import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
-import { WindowControls } from './WindowControls'
 import { FrontDoor } from './FrontDoor'
 import { SessionListControls, SessionTree } from './SessionTree'
 // Imported for its side effect: the Tasks panel registers itself into the
@@ -14,7 +16,6 @@ import './TaskPanel'
 import {
   AccountMark,
   UsageMeterRow,
-  Bar,
   Button,
   Dot,
   Menu,
@@ -25,16 +26,8 @@ import {
   MenuNote,
   MenuSeparator,
   InboxPanel,
-  NavigationGroupHeader,
   Popover,
-  RailSection,
   Search,
-  Chip,
-  Separator,
-  SidebarMenu,
-  SidebarMenuBadge,
-  SidebarMenuButton,
-  SidebarMenuItem,
   Text,
   buttonVariants,
   type MenuAccountFigure,
@@ -48,7 +41,7 @@ import { brandOf } from '../lib/identity'
 import { profileName } from '../lib/profile'
 import { READINESS_LABEL, readinessOf, type Readiness } from '../lib/readiness'
 import { AccountHoverCard } from './AgentCards'
-import { HarnessMark, RuntimeMark } from './BrandIcons'
+import { RuntimeMark } from './BrandIcons'
 import { ProfileFace } from './ProfileFace'
 import { Clipped, DisclosureChevron, EmptyState } from '../design'
 import type { Section } from './Settings'
@@ -72,6 +65,7 @@ import styles from './Sidebar.module.css'
 export const Sidebar = ({
   onOpenSettings,
   onOpenPlugins,
+  onOpenLibrary,
   onOpenAgents,
   onOpenTeams,
   onOpenUsage,
@@ -82,6 +76,7 @@ export const Sidebar = ({
 }: {
   onOpenSettings: (section?: Section) => void
   onOpenPlugins: () => void
+  onOpenLibrary?: () => void
   /** Opens the Agents window — the roster, never a Settings page. */
   onOpenAgents: () => void
   onOpenTeams: () => void
@@ -91,7 +86,7 @@ export const Sidebar = ({
   /** Opens the sign-in screen, on one runtime when the caller knows which. */
   onSignIn: (runtime?: RuntimeId) => void
   onSearch: () => void
-  activeDestination?: 'teams' | 'agents' | 'dashboard' | 'plugins' | null
+  activeDestination?: 'teams' | 'agents' | 'library' | 'plugins' | 'dashboard' | null
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -104,7 +99,6 @@ export const Sidebar = ({
   const [filterFocused, setFilterFocused] = useState(false)
   /** The non-default start flow selected from the adjacent menu. */
   const [starting, setStarting] = useState<boolean>(false)
-  const filtering = filterFocused || query.length > 0
   const listRef = useRef<HTMLDivElement>(null)
   const now = Date.now()
   // Only the ones a person would want to know about: spent, or nearly.
@@ -138,147 +132,69 @@ export const Sidebar = ({
   const agentsCount = inForce(agentsRoster).length
   const agentsBroken = anyBroken(agentsRoster)
   const pluginCount = livePlugins(snapshot.plugins).length
-  return (
-    <div className={styles.sidebar}>
-      <div className={styles.header} data-region="sidebar-header">
-        <Bar corner className="hd-drag"><WindowControls sidebarRow /></Bar>
-        <Bar inset="ink" className="hd-drag">
-          <Text role="subject" className={styles.brandMark} aria-hidden><HarnessMark size={14} /></Text>
-          <Text role="wordmark" truncate className={styles.workspaceName} title={snapshot.workspace?.path ?? undefined}>HarnessDesk</Text>
-          <div className={`${styles.headerActions} hd-no-drag`}>
-            <InboxPanel
-              side="bottom" size="icon-xs"
-              messages={inbox}
-              onOpen={(id) => store.markInboxRead(id)}
-              onMarkAllRead={() => store.markInboxRead(null)}
-              onClear={() => store.clearInbox()}
-            />
-            <Button
-              variant="ghost" size="icon-xs" className="hd-no-drag"
-              onClick={onSearch} title="Search everything (⌘K)" aria-label="Search everything" aria-keyshortcuts="Meta+K"
-            ><SearchIcon size={13} /></Button>
-          </div>
-        </Bar>
-        {starting && projectRootOf(snapshot.workspace) && <FrontDoor context={{ kind: 'project', root: projectRootOf(snapshot.workspace)! }} onClose={() => setStarting(false)} onStarted={execution => { store.openGoal(execution.goal); setStarting(false) }} />}
-        <RailSection as="nav" stretch="head" className={styles.nav} aria-label="Workspace actions">
-          <div className={styles.navRow}>
-            <Button
-              variant="navigation" size="navigation" className={styles.newSession}
-              disabled={!ready || !snapshot.workspace}
-              onClick={() => store.newDraft()} title="Start a session here"
-            >
-              <Text role="muted" className={styles.navIcon}><PlusIcon size={15} /></Text>
-              New session
-            </Button>
-            <WorktreeMenu onChoose={() => setStarting(true)} />
-          </div>
-          <SidebarMenu role="group" aria-label="Main sections">
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                icon={<TeamIcon size={14} />} label={<Text role="navigation">Teams</Text>} aria-label="Teams" title="Teams"
-                isActive={activeDestination === 'teams'} aria-current={activeDestination === 'teams' ? 'page' : undefined}
-                onClick={onOpenTeams}
-              />
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                icon={<AgentIcon size={14} />} label={<Text role="navigation">Agents</Text>} aria-label="Agents" title="Agents"
-                trailingOverlay={agentsCount > 0} labelTrailingContent={agentsCount > 0}
-                isActive={activeDestination === 'agents'} aria-current={activeDestination === 'agents' ? 'page' : undefined}
-                onClick={onOpenAgents}
-              />
-              {agentsCount > 0 && <SidebarMenuBadge title={`${agentsCount} Agents${agentsBroken ? ', some unavailable' : ''}`}><Text role="meta" numeric tone={agentsBroken ? 'warning' : undefined}>{agentsCount}</Text></SidebarMenuBadge>}
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                icon={<UsageIcon size={14} />} label={<Text role="navigation">Dashboard</Text>} aria-label="Dashboard" title="Dashboard"
-                trailingOverlay={lowAgents > 0} labelTrailingContent={lowAgents > 0}
-                isActive={activeDestination === 'dashboard'} aria-current={activeDestination === 'dashboard' ? 'page' : undefined}
-                onClick={() => onOpenUsage()}
-              />
-              {lowAgents > 0 && <SidebarMenuBadge title={`${lowAgents} Agents need attention`}><Text role="meta" numeric>{lowAgents}</Text></SidebarMenuBadge>}
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                icon={<PluginIcon size={14} />} label={<Text role="navigation">Plugins</Text>} aria-label="Plugins" title="Plugins"
-                trailingOverlay={pluginCount > 0} labelTrailingContent={pluginCount > 0}
-                isActive={activeDestination === 'plugins'} aria-current={activeDestination === 'plugins' ? 'page' : undefined}
-                onClick={onOpenPlugins}
-              />
-              {pluginCount > 0 && <SidebarMenuBadge title={`${pluginCount} Plugins`}><Text role="meta" numeric>{pluginCount}</Text></SidebarMenuBadge>}
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </RailSection>
-      </div>
-      <div ref={listRef} className={styles.content} data-region="sidebar-content" onScroll={onScroll}>
-        <NavigationGroupHeader
-          labelInk="muted"
-          label={(
-            <span className={styles.groupLabel}>
-              <span className={styles.projectName}>Projects</span>
-              {query && <span className={styles.filterBadge}><Chip tone="neutral" label="Filtered" /><Button variant="ghost" size="icon-xs" aria-label="Clear list filter" title="Clear list filter" onClick={() => setQuery('')}><CrossIcon size={12} /></Button></span>}
-            </span>
-          )}
-          filtering={filtering}
-          keepLabelWhenFiltering
-          data-surface=""
-          data-filtered={query ? '' : undefined}
-        >
-          <div className={styles.filter}>
-            <Search
-              size="compact" icon="filter" className={styles.filterInput}
-              placeholder="Filter by title" label="Filter this list" title="Filter this list"
-              value={query} onChange={setQuery}
-              onFocus={() => setFilterFocused(true)} onBlur={() => setFilterFocused(false)}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  if (query) event.preventDefault()
-                  setQuery('')
-                  event.currentTarget.blur()
-                }
-              }}
-            />
-          </div>
-          <SessionListControls searching={searchQuery.length > 0} />
-          <Button
-            variant="muted" size="icon-xs" edge="end" edgeGlyph={12} className={styles.listAddButton}
-            onClick={onBrowseFolders} title="Open a project folder" aria-label="Open a project folder"
-          ><PlusIcon size={13} /></Button>
-        </NavigationGroupHeader>
-        <RailSection stretch="list">
-          {snapshot.history.length === 0 && !snapshot.historyLoading && !searchQuery && (
-            <EmptyState
-              variant="inline"
-              title={ready
-                ? `No sessions yet. Start one to see it here${runtime.presentation.historySource ? ` — sessions you run in ${runtime.presentation.historySource} show up too` : ''}.`
-                : 'Connect a runtime to see your sessions.'}
-            />
-          )}
-          <SessionTree
-            now={now}
-            searching={searchQuery.length > 0}
-            searchEmptyState={searchQuery && !snapshot.historyLoading ? (
-              <EmptyState variant="inline" title={`No conversations match “${searchQuery}”.`}>
-                {' '}
-                <Button variant="muted" size="sm" onClick={() => setQuery('')}>Clear search</Button>
-              </EmptyState>
-            ) : null}
-          />
-          {snapshot.historyCursor && query.length === 0 && (
-            <Button variant="muted" size="sm" disabled={snapshot.historyLoading} onClick={() => void store.loadHistory()}>
-              Load more conversations
-            </Button>
-          )}
-        </RailSection>
-      </div>
-      <Separator />
-      <div className={styles.footer} data-region="sidebar-footer">
-        <Slot name="sidebar.panel" />
-        <SidebarNotices />
-        <AccountFooter onOpenSettings={onOpenSettings} onOpenUsage={onOpenUsage} onSignIn={onSignIn} />
-      </div>
-    </div>
+  const top = <LeftColumnTop shown={sidebarPlacement(snapshot) !== 'away'}
+    back={snapshot.navCanBack} forward={snapshot.navCanForward}
+    toggle={() => store.toggleSidebar()} goBack={() => { void store.navigateBack() }}
+    goForward={() => { void store.navigateForward() }}
+    notifications={<InboxPanel side="bottom" size="icon-sm" messages={inbox}
+      onOpen={id => store.markInboxRead(id)} onMarkAllRead={() => store.markInboxRead(null)}
+      onClear={() => store.clearInbox()} />}
+    search={<Button variant="ghost" size="icon-sm" onClick={onSearch}
+      title="Search everything (⌘K)" aria-label="Search everything" aria-keyshortcuts="Meta+K"><SearchIcon size={16} /></Button>} />
+  const pageDoors = [
+    { id: 'teams' as const, label: 'Teams', icon: <TeamIcon size={16} />, run: onOpenTeams, count: 0 },
+    { id: 'agents' as const, label: 'Agents', icon: <AgentIcon size={16} />, run: onOpenAgents, count: agentsCount },
+    { id: 'library' as const, label: 'Library', icon: <LibraryIcon size={16} />, run: onOpenLibrary ?? (() => onOpenSettings('library')), count: 0 },
+    { id: 'plugins' as const, label: 'Plugins', icon: <PluginIcon size={16} />, run: onOpenPlugins, count: pluginCount },
+    { id: 'dashboard' as const, label: 'Dashboard', icon: <UsageIcon size={16} />, run: () => onOpenUsage(), count: lowAgents },
+  ]
+  const sessionsHead = <>
+    {starting && projectRootOf(snapshot.workspace) && <FrontDoor context={{ kind: 'project', root: projectRootOf(snapshot.workspace)! }} onClose={() => setStarting(false)} onStarted={execution => { store.openGoal(execution.goal); setStarting(false) }} />}
+    <LeftColumnNavigation>
+      <LeftColumnRow label="New session" icon={<PlusIcon size={16} />}
+        disabled={!ready || !snapshot.workspace} title="Start a session here" onClick={() => store.newDraft()}
+        menu={{ label: 'More ways to start', onOpenChange: open => { if (open) void store.loadWorktrees() },
+          content: close => <WorktreeItems close={close} onChoose={() => setStarting(true)} /> }} />
+      <LeftColumnGroup label="Main sections" heading={false}>
+        {pageDoors.map(door => <LeftColumnRow key={door.id} label={door.label} icon={door.icon}
+          selected={activeDestination === door.id} onClick={door.run}
+          title={door.id === 'agents' && agentsBroken ? 'Agents, some unavailable' : door.label}
+          trailing={door.count > 0 ? { kind: 'count', value: door.count,
+            label: door.id === 'agents' ? `${door.count} Agents${agentsBroken ? ', some unavailable' : ''}` : door.id === 'dashboard' ? `${door.count} Agents need attention` : `${door.count} Plugins` } : undefined} />)}
+      </LeftColumnGroup>
+    </LeftColumnNavigation>
+  </>
+  const sessionsBody = (
+    <LeftColumnBody ref={listRef} onScroll={onScroll}>
+    <LeftColumnProjectsHead value={query} onChange={setQuery} focused={filterFocused}
+      onFocusChange={setFilterFocused} options={<SessionListControls searching={searchQuery.length > 0} />}
+      onBrowseFolders={onBrowseFolders} />
+      {snapshot.history.length === 0 && !snapshot.historyLoading && !searchQuery && (
+        <EmptyState
+          variant="inline"
+          title={ready
+            ? `No sessions yet. Start one to see it here${runtime.presentation.historySource ? ` — sessions you run in ${runtime.presentation.historySource} show up too` : ''}.`
+            : 'Connect a runtime to see your sessions.'}
+        />
+      )}
+      <SessionTree
+        now={now}
+        searching={searchQuery.length > 0}
+        searchEmptyState={searchQuery && !snapshot.historyLoading ? (
+          <EmptyState variant="inline" title={`No conversations match “${searchQuery}”.`}>
+            {' '}
+            <Button variant="muted" size="sm" onClick={() => setQuery('')}>Clear search</Button>
+          </EmptyState>
+        ) : null}
+      />
+      {snapshot.historyCursor && query.length === 0 && (
+        <LeftColumnRow label="Load more conversations" disabled={snapshot.historyLoading} onClick={() => { void store.loadHistory() }} />
+      )}
+    </LeftColumnBody>
   )
+  return <LeftColumn top={top} head={sessionsHead} body={sessionsBody}
+    footer={<><Slot name="sidebar.panel" /><SidebarNotices /><AccountFooter onOpenSettings={onOpenSettings}
+      onOpenUsage={onOpenUsage} onSignIn={onSignIn} /></>} />
 }
 
 /**
@@ -302,7 +218,7 @@ export const Sidebar = ({
  * It stays visible in a folder that is not a repository, disabled and saying
  * why. A control that vanishes teaches nobody what it was.
  */
-const WorktreeMenu = ({ onChoose }: { readonly onChoose: () => void }) => {
+const WorktreeItems = ({ onChoose, close }: { readonly onChoose: () => void; readonly close: () => void }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const health = useRuntimeHealth()
@@ -313,15 +229,6 @@ const WorktreeMenu = ({ onChoose }: { readonly onChoose: () => void }) => {
   const mine = snapshot.worktrees.filter((entry) => entry.managed)
 
   return (
-    <Popover
-      title="More ways to start"
-      drop="down"
-      align="right"
-      triggerClassName={buttonVariants({ variant: 'ghost', size: 'icon-xs', className: styles.navSecondary })}
-      label={<CaretIcon size={14} />}
-      onOpenChange={(open) => open && void store.loadWorktrees()}
-    >
-      {(close) => (
         <Menu close={close}>
           <MenuItem icon={<PlusIcon size={14} />} label="New session" shortcut="⌘N" onSelect={() => { close(); store.newDraft() }} />
           <MenuItem icon={<TeamIcon size={14} />} label="New Team…" shortcut="⌘⇧N" {...(!hasFolder ? { disabled: 'Open a folder to start one.' } : {})} onSelect={() => { close(); onChoose() }} />
@@ -353,8 +260,6 @@ const WorktreeMenu = ({ onChoose }: { readonly onChoose: () => void }) => {
             </>
           )}
         </Menu>
-      )}
-    </Popover>
   )
 }
 
@@ -432,8 +337,10 @@ export const AccountFooter = ({
   onOpenSettings,
   onOpenUsage,
   onSignIn,
+  settingsOpen = false,
 }: {
   onOpenSettings: (section?: Section) => void
+  settingsOpen?: boolean
   /** Opens the dashboard, scoped to one agent when the caller names it. */
   onOpenUsage: (runtime?: RuntimeId) => void
   /** Opens the sign-in screen, on one runtime when the caller knows which. */
@@ -648,7 +555,7 @@ export const AccountFooter = ({
   )
 
   return (
-    <Bar rule="top" ref={accountRef}>
+    <LeftColumnSeat settingsOpen={settingsOpen} onSettings={() => onOpenSettings('general')} menu={<div ref={accountRef}>
       <Popover
         title={here ? `New sessions run as ${nextAs}` : 'Accounts and settings'}
         /* Opens upward from the footer. Its width belongs to the menu so a
@@ -907,6 +814,6 @@ export const AccountFooter = ({
           </Menu>
         )}
       </Popover>
-    </Bar>
+    </div>} />
   )
 }

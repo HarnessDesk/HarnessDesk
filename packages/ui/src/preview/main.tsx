@@ -1,5 +1,8 @@
 import { TeamViewFrame } from './TeamViewFrame'
 import { ConversationFrame } from './ConversationFrame'
+import { SettingsNavigationProbe } from './frames-left-column'
+import { LeftColumnWorkProbe } from './frames-left-column'
+import { LeftColumnProbe } from './frames-left-column'
 import { TeamStartFrames } from './frames-team-start'
 import { AgentPage } from '../components/AgentPage'
 import { ReleaseStills } from './release-stills'
@@ -1246,6 +1249,12 @@ createRoot(container).render(
           ? <RuntimeCostPreview />
           : new URLSearchParams(window.location.search).has('native-servers')
           ? <NativeServersPreview />
+          : new URLSearchParams(window.location.search).get('frame-wall') === 'left-work-pattern'
+          ? <LeftColumnWorkProbe />
+          : new URLSearchParams(window.location.search).get('frame-wall') === 'left-column'
+          ? <LeftColumnProbe />
+          : new URLSearchParams(window.location.search).get('frame-wall') === 'settings-middle'
+          ? <SettingsNavigationProbe />
           : new URLSearchParams(window.location.search).has('frame-wall')
           ? <FrameWall />
           : new URLSearchParams(window.location.search).has('team-frame')
