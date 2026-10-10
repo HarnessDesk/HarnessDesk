@@ -27,14 +27,15 @@ const photograph = async (rig, goal, directory, mode) => {
     await page.getByText('Review the committed retry change', { exact: true }).click()
     await page.getByRole('tab', { name: /^Board\b/ }).click()
     await page.getByText('Build the retry change', { exact: false }).first().waitFor()
-    if (mode === 'switch') await page.getByText(SWITCH_NOTE, { exact: false }).first().waitFor()
+    if (mode === 'switch' && !process.env.HD_EVIDENCE_BEFORE) await page.getByText(SWITCH_NOTE, { exact: false }).first().waitFor()
     for (const theme of ['light', 'dark']) {
       await page.evaluate(value => window.__hdStore.setTheme(value), theme)
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
       await page.evaluate(TILDIFY(directory, '~/.branch-evidence-rig'))
       assert.deepEqual(textReasons(await page.evaluate(COLLECT), { user: USER }), [])
       mkdirSync(process.env.HD_EVIDENCE_FRAMES, { recursive: true })
-      await page.screenshot({ path: join(process.env.HD_EVIDENCE_FRAMES, `${mode}-${theme}.png`), animations: 'disabled' })
+      const phase = process.env.HD_EVIDENCE_BEFORE ? 'before' : 'after'
+      await page.screenshot({ path: join(process.env.HD_EVIDENCE_FRAMES, `${mode}-${phase}-${theme}.png`), animations: 'disabled' })
     }
   } catch (error) {
     mkdirSync(process.env.HD_EVIDENCE_FRAMES, { recursive: true })
@@ -100,6 +101,9 @@ for (const mode of ['same', 'switch', 'switch-back', 'isolated', 'switch-after']
       return found.length ? found : null
     }, 'the reviewer binding')
     assert.equal(candidates.length, 1)
+    // Capture the same completed writer before the assertions, so a frozen-
+    // branch mutation can leave its failing reproduction's before frames.
+    await photograph(rig, run.goal, directory, mode)
     const expected = mode === 'switch' ? 'changed' : mode === 'isolated' ? writerBranch : 'original'
     if (mode === 'isolated') assert.match(expected, /^harnessdesk\//)
     assert.equal(candidates[0].branch, expected, 'the candidate must name the writer checkout now, not its Seat opening branch')
@@ -124,6 +128,5 @@ for (const mode of ['same', 'switch', 'switch-back', 'isolated', 'switch-after']
     assert.equal(done.untilBranch, expected, 'the branch at completion is durable')
     if (mode === 'switch' || mode === 'switch-back') assert.ok(done.note.includes(SWITCH_NOTE), 'the card explains branch ambiguity, including a switch and return')
     else assert.equal(done.note, 'Scripted committed.')
-    await photograph(rig, run.goal, directory, mode)
   })
 }
