@@ -73,11 +73,16 @@ export const AppWindowLeftFrame = ({ left, top, body, status, placement, width, 
   const saved = useRef<HTMLElement | null>(null)
   useLayoutEffect(() => setLive(null), [width])
   useLayoutEffect(() => {
-    if (placement !== 'floating') return
-    saved.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    leftRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
-    return () => {
-      if (saved.current?.isConnected) saved.current.focus({ preventScroll: true })
+    if (placement === 'floating') {
+      saved.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      leftRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
+    } else if (saved.current) {
+      // Restore after the placement commit, when the active bar is mounted.
+      const frame = leftRef.current?.closest('[data-app-window-left-frame]')
+      const previous = saved.current
+      const target = previous.isConnected && frame?.contains(previous) && !previous.closest('[hidden], [inert]')
+        ? previous : frame?.querySelector<HTMLButtonElement>('[data-slot="top-bar"] button[aria-label="Show sidebar"]')
+      target?.focus({ preventScroll: true })
       saved.current = null
     }
   }, [placement])

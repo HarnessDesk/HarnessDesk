@@ -7,7 +7,7 @@ import type { FrameActions } from './frame-actions'
 
 import type { WallActions } from './frame-wall-actions'
 
-export interface WallDestination extends FrameActions, WallActions { readonly id: string; readonly query: string; readonly leftOpen?: boolean; readonly leftPopup?: string; readonly settingsQuery?: string; readonly surface?: 'pattern' }
+export interface WallDestination extends FrameActions, WallActions { readonly id: string; readonly query: string; readonly leftWidth?: number; readonly leftOpen?: boolean; readonly leftPopup?: string; readonly settingsQuery?: string; readonly surface?: 'pattern' }
 
 export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'topbar-probe', surface: 'pattern', query: 'frame-wall=topbar' },
@@ -90,4 +90,11 @@ export const WALL_TIME = new Date('2026-09-30T10:00:00-07:00')
   { id: 'settings-search-empty', query: 'frame-wall=settings-search', leftOpen: true, settingsQuery: 'zzzz' },
   { id: 'library-left', query: 'frame-wall=library', leftOpen: true },
   { id: 'plugins-left', query: 'frame-wall=plugins', leftOpen: true },
+)
+
+;(WALL_DESTINATIONS as WallDestination[]).push(
+  { id: 'sessions-left-200', query: 'frame-wall=conversation', leftOpen: true, leftWidth: 200 },
+  { id: 'sessions-left-360', query: 'frame-wall=left-work', leftOpen: true, leftWidth: 360 },
+  { id: 'settings-left-200', query: 'frame-wall=settings-navigation', leftOpen: true, leftWidth: 200 },
+  { id: 'settings-left-360', query: 'frame-wall=settings-navigation', leftOpen: true, leftWidth: 360 },
 )

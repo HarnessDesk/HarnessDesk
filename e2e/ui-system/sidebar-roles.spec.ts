@@ -120,12 +120,11 @@ test('the accounts menu opens above its row, left-aligned with it, at the founda
 })
 
 test('a settings group label is smaller than its page title', async ({ page }) => {
-  await page.goto('/preview.html')
-  await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('general')
+  await page.goto('/preview.html?frame-wall=settings-navigation')
   const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
 
-  const title = settings.locator('[data-slot="page-title"]')
-  const label = settings.locator('[data-slot="section-name"]').filter({ hasText: 'Your data' })
+  const title = settings.locator('[data-slot="top-bar"] [data-topbar-title] > [data-role="subject"]')
+  const label = settings.locator('[data-left-group-text]').filter({ hasText: 'General' })
   await expect(title).toBeVisible()
   await expect(label).toBeVisible()
   const sizes = await Promise.all([
@@ -135,12 +134,11 @@ test('a settings group label is smaller than its page title', async ({ page }) =
   expect(sizes[1]).toBeLessThan(sizes[0])
 })
 
-test('a page title computes the heading type', async ({ page }) => {
-  await page.goto('/preview.html')
-  await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('general')
+test('a page title computes the frame bar type', async ({ page }) => {
+  await page.goto('/preview.html?frame-wall=settings-navigation')
   const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
 
-  const title = settings.locator('[data-slot="page-title"]')
+  const title = settings.locator('[data-slot="top-bar"] [data-topbar-title] > [data-role="subject"]')
   await expect(title).toBeVisible()
 
   const type = (node: Element) => {
@@ -153,7 +151,7 @@ test('a page title computes the heading type', async ({ page }) => {
   }
   const expected = await title.evaluate((node) => {
     const probe = document.createElement('span')
-    probe.style.cssText = 'font-size:var(--hd-heading);line-height:var(--hd-line-heading);font-weight:var(--hd-weight-semibold)'
+    probe.style.cssText = 'font-size:var(--hd-text-base);line-height:var(--hd-line);font-weight:var(--hd-weight-medium)'
     node.parentElement!.append(probe)
     const style = getComputedStyle(probe)
     const result = { size: style.fontSize, line: style.lineHeight, weight: style.fontWeight }

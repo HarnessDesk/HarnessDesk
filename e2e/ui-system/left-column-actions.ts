@@ -2,13 +2,19 @@ import { expect, type Page } from '@playwright/test'
 
 /** Left-column probes use the current shell and popup APIs until B/C land. */
 export const applyLeftColumnActions = async (page: Page, actions: {
+  readonly leftWidth?: number
   readonly leftOpen?: boolean
   readonly leftPopup?: string
 }) => {
-  if (!actions.leftOpen) return
+  if (!actions.leftOpen && actions.leftWidth === undefined) return
   const column = page.locator('[data-left-column]:visible')
   if (!await column.count()) await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
   await expect(column).toHaveCount(1)
+  if (actions.leftWidth !== undefined) {
+    await page.evaluate(width => {
+      (window as Window & { __hdFrameWall: { resizeLeft: (width: number) => void } }).__hdFrameWall.resizeLeft(width)
+    }, actions.leftWidth)
+  }
   if (actions.leftPopup === 'inbox') await column.locator('[data-slot="inbox-button"]').locator('..').click()
   if (actions.leftPopup === 'account') await column.locator('[data-left-seat] [data-slot="popover-trigger"]:not(:has([data-slot="inbox-button"]))').click()
   if (actions.leftPopup === 'start') await column.getByRole('button', { name: 'More ways to start', exact: true }).click()

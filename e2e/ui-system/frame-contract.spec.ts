@@ -1427,3 +1427,63 @@ test('D6 float keeps portalled account actions and traps its boundary', async ({
   await modal.locator('[data-app-window-left-frame]').click({ position: { x: 500, y: 150 } })
   await expect(column).toBeHidden(); await expect(modal).toBeVisible()
 })
+
+for (const theme of WALL_THEMES) {
+  for (const foundation of ['desk', 'studio'] as const) {
+  for (const destination of ['conversation', 'settings-navigation']) {
+    for (const width of [200, 239, 240, FRAME.sidebar.width, 360]) {
+      test(`D7 ${destination} left width ${width} in ${theme}/${foundation}`, async ({ page }) => {
+        await openFrame(page, `frame-wall=${destination}`, theme)
+        await page.locator('body').evaluate((body, value) => { body.dataset.hdInterface = value }, foundation)
+        await page.evaluate(value => {
+          (window as Window & { __hdFrameWall: { resizeLeft: (width: number) => void } }).__hdFrameWall.resizeLeft(value)
+        }, width)
+        const column = page.locator('[data-left-column]:visible')
+        await expect(column).toHaveCount(1)
+        const region = destination === 'settings-navigation' ? page.locator('[data-app-window-left]:visible') : column
+        expect(Math.abs((await region.boundingBox())!.width - width)).toBeLessThanOrEqual(1)
+        const history = column.locator('[data-left-history]')
+        if (width < 240) await expect(history).toBeHidden()
+        else await expect(history).toBeVisible()
+        const top = (await column.locator('[data-left-top] [data-slot="bar"]').boundingBox())!
+        expect(top.height).toBe(FRAME.bar.height)
+        const geometry = await column.locator('[data-left-row]:not([data-left-project]):visible').evaluateAll(nodes => nodes.map(node => {
+          const button = node.querySelector<HTMLElement>('[data-slot="sidebar-menu-button"]')!
+          return { height: button.getBoundingClientRect().height,
+            text: button.querySelector<HTMLElement>('[data-slot="sidebar-menu-label-content"]')!.getBoundingClientRect().x,
+            icon: button.querySelector<HTMLElement>('[data-slot="sidebar-menu-icon"]')!.getBoundingClientRect().x }
+        }))
+        expect(geometry.length).toBeGreaterThan(2)
+        for (const row of geometry) expect(row.height).toBe(FRAME.rail.rowHeight)
+        for (const field of ['text', 'icon'] as const) {
+          const xs = geometry.map(row => row[field])
+          expect(Math.max(...xs) - Math.min(...xs)).toBeLessThanOrEqual(1)
+        }
+        const seat = column.locator('[data-left-seat]')
+        expect((await seat.locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
+        await expect(seat.getByRole('button', { name: 'Settings', exact: true }))
+          .toHaveAttribute('aria-pressed', destination === 'settings-navigation' ? 'true' : 'false')
+      })
+    }
+  }
+  }
+}
+
+for (const theme of WALL_THEMES) {
+  test(`D7 Settings opened from the work float restores its own lead in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme, 720)
+    await page.locator('[data-slot="top-bar"]').getByRole('button', { name: 'Show sidebar', exact: true }).click()
+    await page.locator('[data-left-column]:visible [data-left-seat]').getByRole('button', { name: 'Settings', exact: true }).click()
+    const modal = page.locator('[data-slot="app-window"]:visible')
+    const column = modal.locator('[data-left-column]:visible')
+    await expect(column).toBeVisible()
+    await column.locator('[data-left-seat] [data-slot="popover-trigger"]:not(:has([data-slot="inbox-button"]))').click()
+    await page.keyboard.press('Escape')
+    await expect(column).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(column).toBeHidden()
+    await expect(modal.getByRole('button', { name: 'Show sidebar', exact: true })).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(modal).toHaveCount(0)
+  })
+}

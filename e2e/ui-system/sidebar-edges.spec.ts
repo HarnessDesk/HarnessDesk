@@ -677,10 +677,9 @@ test('real working worktree uses one activity slot and preserves checkout facts'
 test('540px window floats the real sidebar with aligned headers and a Needs you mark', async ({ page }) => {
   test.setTimeout(120_000)
   await page.setViewportSize({ width: 540, height: 900 })
-  await page.goto('/design.html?view=panels&sidebar-geometry')
-  const canvas = page.locator('[data-slot="workbench-canvas"]')
-  // The explorer adds its own navigation; the rig's window is the workbench.
-  await canvas.evaluate((node) => Object.assign((node as HTMLElement).style, { position: 'fixed', inset: '0', width: '540px', height: '900px', zIndex: '100' }))
+  await page.goto('/preview.html?frame-wall=conversation&sidebar-geometry')
+  const canvas = page.locator('[data-slot="fixed-shell"]')
+  // The wall mounts B's real FixedShell at the actual viewport width.
   for (const hide of await canvas.getByRole('button', { name: 'Hide this panel', exact: true }).all()) {
     if (await hide.isVisible()) await hide.click()
   }

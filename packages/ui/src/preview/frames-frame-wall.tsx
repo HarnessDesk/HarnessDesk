@@ -1,6 +1,7 @@
+import { sidebarGeometryFixture } from './sidebar-geometry-fixture'
 import { runTeamStore, equivalentRunFixture, type RunScene } from './run-view-fixture'
 import { sidebarStructureFixture } from './sidebar-structure-fixture'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, turnId, type UiContribution, type BackgroundTask, type RuntimeId } from '@harnessdesk/protocol'
 import { installPanelComponent } from '../slots/PanelBlocks'
 
@@ -20,7 +21,7 @@ import { Workbench } from '../panels/Workbench'
 import { ShellProvider } from '../panels/views'
 import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 import { TopBarProvider } from '../panels/top-bar'
-import { StoreProvider } from '../state/context'
+import { StoreProvider, useStore } from '../state/context'
 import type { PaneView } from '../state/layout'
 import type { AppSnapshot, AppStore } from '../state/store'
 import { useTheme } from '../state/theme'
@@ -101,7 +102,8 @@ const storeFor = (destination: Destination): AppStore => {
   switch (destination) {
     case 'left-work': return showing(previewStore(sidebarStructureFixture(previewStore().getSnapshot())),
       { kind: 'room', room: 'structure-team' }, null)
-    case 'conversation': return showing(previewStore(), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY)
+    case 'conversation': return showing(previewStore(new URLSearchParams(window.location.search).has('sidebar-geometry')
+      ? sidebarGeometryFixture(previewStore().getSnapshot()) : undefined), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY)
     case 'draft': return showing(previewStore(), { kind: 'conversation', session: null }, null)
     case 'team-run-recorded': return showing(frameRunStore('running'), { kind: 'room', room: 'overview-team' }, null)
     case 'team-run-not-reached': return showing(frameRunStore('empty'), { kind: 'room', room: 'overview-team' }, null)
@@ -127,6 +129,12 @@ const storeFor = (destination: Destination): AppStore => {
 
 /** The page the app draws over the workbench for this destination, if any. */
 const FrameDestination = ({ destination }: { destination: Destination }) => {
+  const store = useStore()
+  useEffect(() => {
+    const api = { resizeLeft: (width: number) => store.resizePanel('sidebar', width) }
+    Object.assign(window, { __hdFrameWall: api })
+    return () => { delete (window as Window & { __hdFrameWall?: typeof api }).__hdFrameWall }
+  }, [store])
   const [page, setPage] = useState<PageOwner | null>(() => pageFor(destination))
   const [section, setSection] = useState<Section>(() => sectionFor(destination))
   const [view, setView] = useState<DashboardView>('overview')
