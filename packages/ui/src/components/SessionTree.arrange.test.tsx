@@ -296,7 +296,7 @@ it('expands a project folded under a clone while the agent filter delays migrati
 
 const openControlSubmenu = async (name: string): Promise<HTMLElement> => {
   const trigger = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
-    .find((item) => item.querySelector('[class*="title"]')?.textContent?.trim() === name)
+    .find((item) => item.querySelector('[data-menu-label]')?.textContent?.trim() === name)
   if (!trigger) throw new Error(`the ${name} submenu did not render`)
   act(() => trigger.dispatchEvent(new MouseEvent('click', { bubbles: true })))
   return trigger
@@ -309,7 +309,7 @@ it('keeps display controls to two flyouts and the project fold actions', () => {
   act(() => trigger.click())
   const menu = document.querySelector('[role="menu"]')!
   const labels = [...menu.querySelectorAll<HTMLElement>(':scope > [role="menuitem"]')]
-    .map((item) => item.querySelector('[class*="title"]')?.textContent?.trim())
+    .map((item) => item.querySelector('[data-menu-label]')?.textContent?.trim())
   expect(labels).toEqual(['Sort projects', 'Show agents', 'Collapse all', 'Expand all'])
   expect(menu.querySelectorAll(':scope > [role="menuitem"]')).toHaveLength(4)
   expect(menu.querySelector('[role="separator"]')).not.toBeNull()
@@ -330,7 +330,7 @@ it('sorts projects through its flyout and leaves stored density without a menu',
   act(() => container.querySelector('button')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
   await openControlSubmenu('Sort projects')
   const name = [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
-    .find((item) => item.querySelector('[class*="title"]')?.textContent?.trim() === 'Name')!
+    .find((item) => item.querySelector('[data-menu-label]')?.textContent?.trim() === 'Name')!
   act(() => name.dispatchEvent(new MouseEvent('click', { bubbles: true })))
   expect(store.setListPrefs).toHaveBeenCalledWith({ sort: 'name' })
 
@@ -349,10 +349,10 @@ it('shows every runtime in the Show agents flyout and filters by the chosen runt
   await openControlSubmenu('Show agents')
   const menus = [...document.querySelectorAll<HTMLElement>('[role="menu"]')]
   const labels = [...menus[1]!.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
-    .map((item) => item.querySelector('[class*="title"]')?.textContent?.trim())
+    .map((item) => item.querySelector('[data-menu-label]')?.textContent?.trim())
   expect(labels).toEqual(['All agents', 'Agent', 'Other Agent'])
   const other = [...menus[1]!.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
-    .find((item) => item.querySelector('[class*="title"]')?.textContent?.trim() === 'Other Agent')!
+    .find((item) => item.querySelector('[data-menu-label]')?.textContent?.trim() === 'Other Agent')!
   act(() => other.dispatchEvent(new MouseEvent('click', { bubbles: true })))
   expect(storeWithRuntimes.setListPrefs).toHaveBeenCalledWith({ agent: 'other' })
 })

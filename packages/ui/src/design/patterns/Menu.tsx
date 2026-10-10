@@ -211,7 +211,7 @@ export const Menu = ({ close, onEscape, children }: { close: () => void; onEscap
 }
 
 export const MenuNote = ({ children }: { children: ReactNode }) => <div data-menu-note="">{children}</div>
-export const MenuLabel = ({ children }: { children: ReactNode; size?: 'default' | 'compact' }) => <div data-menu-group="">{children}</div>
+export const MenuLabel = ({ children, size = 'default' }: { children: ReactNode; size?: 'default' | 'compact' }) => <div data-menu-group="" data-size={size}>{children}</div>
 
 /**
  * Several accounts of one agent, under one heading. `heading={false}` keeps

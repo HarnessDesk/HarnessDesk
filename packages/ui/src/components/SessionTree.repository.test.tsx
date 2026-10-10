@@ -255,7 +255,7 @@ it('moves a filtered project from its clone aliases using the effective pin orde
   answerPreferences(rig)
   act(() => container.querySelector<HTMLButtonElement>('[data-draggable]')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
   const menuItem = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
-    .find(one => one.querySelector('[class*="title"]')?.textContent?.trim() === label)!
+    .find(one => one.querySelector('[data-menu-label]')?.textContent?.trim() === label)!
   act(() => menuItem('Move').click())
   expect(menuItem('Move up').getAttribute('aria-disabled')).toBe('true')
   act(() => menuItem('Move down').click())

@@ -1856,7 +1856,7 @@ it('renames an inactive session without opening it or changing active session (#
 
   const menu = document.querySelector('[role="menu"]')!
   expect([...menu.querySelectorAll<HTMLElement>(':scope > [role="menuitem"]')]
-    .map((item) => item.querySelector('[class*="title"]')?.textContent?.trim()))
+    .map((item) => item.querySelector('[data-menu-label]')?.textContent?.trim()))
     .toEqual(['Rename', 'Pin', 'Open on the right', 'Branch from here', 'Copy', 'Archive', 'Remove from HarnessDesk', 'Delete everywhere…'])
   expect(menu.querySelectorAll('[role="separator"]')).toHaveLength(3)
   const deleteOption = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')]
