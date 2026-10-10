@@ -9,7 +9,8 @@ import {
   type WorkspaceEntry,
 } from '@harnessdesk/protocol'
 
-import { panes, sessionOf } from './layout'
+import { panes, sessionOf, browserView, type PaneView } from './layout'
+import { toolOf } from './frame-tools'
 import { mountedViews, dockViews, emptyWorkbench, navigationFor } from './workbench'
 import { AppStore } from './store'
 import type { TransportEvents } from '../lib/transport'
@@ -74,6 +75,75 @@ beforeEach(async () => {
   }) as never)
   await store.selectRuntime(AGENT)
   await store.openWorkspace(REPO.path)
+})
+
+it.each(['panel toggle', 'lit tool'] as const)('Activity tasks can be closed by the %s', async (closer) => {
+  answers['session/read'] = conversation('status-work', REPO.path)
+  await store.openSession(sessionId('status-work'), { runtime: AGENT })
+  store.openDetailsTab('tasks')
+  const subject = store.workSubject()!
+  const before = store.getSnapshot().workbench
+  expect(before.frameTools[subject]?.open).toBe(true)
+  if (closer === 'panel toggle') store.toggleWorkPanel()
+  else {
+    const current = before.frameTools[subject]!
+    store.chooseWorkTool(current.tool, current.mode, true)
+  }
+  expect(store.getSnapshot().workbench.frameTools[subject]?.open).toBe(false)
+  expect(store.getSnapshot().workbench.right.collapsed).toBe(true)
+  expect(dockViews(store.getSnapshot().workbench.right)).toEqual(dockViews(before.right))
+})
+
+describe.each(['panel toggle', 'lit tool'] as const)('right panel closure through the %s', (closer) => {
+  const views: readonly PaneView[] = [
+    { kind: 'run-details' }, { kind: 'agents' },
+    { kind: 'changes' }, { kind: 'file', path: '/repo/README.md', runtime: AGENT },
+    { kind: 'preview', path: '/repo/preview.html', runtime: AGENT },
+    { kind: 'activity' }, { kind: 'trajectory' }, { kind: 'tasks' },
+    { kind: 'git', root: REPO.path }, browserView('https://example.com/'),
+    { kind: 'plugin', contribution: 'fixture-panel', label: 'Fixture facts', mounts: ['right'] },
+  ]
+  const close = () => {
+    if (closer === 'panel toggle') store.toggleWorkPanel()
+    else {
+      const current = store.getSnapshot().workbench.frameTools[store.workSubject()!]!
+      store.chooseWorkTool(current.tool, current.mode, true)
+    }
+  }
+  const check = () => {
+    const subject = store.workSubject()!, before = store.getSnapshot().workbench
+    expect(before.frameTools[subject]?.open).toBe(true)
+    close()
+    expect(store.getSnapshot().workbench.frameTools[subject]?.open).toBe(false)
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(true)
+    expect(dockViews(store.getSnapshot().workbench.right)).toEqual(dockViews(before.right))
+    store.toggleWorkPanel()
+    expect(store.getSnapshot().workbench.frameTools[subject]).toEqual(before.frameTools[subject])
+  }
+  it.each(['changes', 'activity', 'trajectory', 'agents', 'tasks'] as const)('closes openDetailsTab(%s)', async (kind) => {
+    answers['session/read'] = conversation('status-work', REPO.path)
+    await store.openSession(sessionId('status-work'), { runtime: AGENT })
+    store.openDetailsTab(kind)
+    check()
+  })
+  it.each(views.map(view => [view.kind, view] as const))('closes showViewIn(right, %s)', async (_kind, view) => {
+    answers['session/read'] = conversation('status-work', REPO.path)
+    await store.openSession(sessionId('status-work'), { runtime: AGENT })
+    store.showViewIn('right', view)
+    expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]?.tool).toBe(toolOf(view.kind))
+    check()
+  })
+  it('keeps the More terminal independent of the tasks panel', async () => {
+    answers['session/read'] = conversation('status-work', REPO.path)
+    answers['terminal/open'] = { terminalId: 'status-terminal', runtime: AGENT }
+    await store.openSession(sessionId('status-work'), { runtime: AGENT })
+    store.openDetailsTab('tasks')
+    await store.openTerminal()
+    const bottom = dockViews(store.getSnapshot().workbench.bottom)
+    expect(bottom).toHaveLength(1)
+    check()
+    expect(dockViews(store.getSnapshot().workbench.bottom)).toEqual(bottom)
+  })
 })
 
 describe('where a draft starts', () => {
@@ -807,4 +877,12 @@ it('restoring a page hydrates remembered conversation without visiting it', asyn
   expect(store.getSnapshot().workbench.navigation).toEqual(navigation)
   expect(store.getSnapshot().layout).toEqual(main)
   expect(calls('session/close')).toEqual([])
+})
+
+it('historical tasks callers open the complete Activity body', async () => {
+  answers['session/read'] = conversation('activity-work', REPO.path)
+  await store.openSession(sessionId('activity-work'), { runtime: AGENT })
+  store.openDetailsTab('tasks')
+  const subject = store.workSubject()!
+  expect(store.getSnapshot().workbench.frameTools[subject]?.mode).toBe('activity')
 })

@@ -21,7 +21,8 @@ describe('a conversation opened from the Team', () => {
 })
 describe('the canonical Team row', () => {
   it('lets the name shrink without spending the fixed verbs', () => {
-    expect(barCss).toMatch(/\.place\s*\{[^}]*flex:\s*1 1 auto;[^}]*min-width:\s*0/s)
+    expect(barCss).toMatch(/\.place\s*\{[^}]*flex:\s*0 1 auto;[^}]*min-width:\s*0/s)
+    expect(barCss).toMatch(/\.spacer\s*\{[^}]*flex:\s*1 1 0;[^}]*min-width:\s*0/s)
     expect(barCss).toMatch(/\.fixed\s*\{[^}]*flex:\s*none/s)
     expect(source).toContain('useTopBar(mainOwner')
   })
@@ -69,7 +70,7 @@ describe('Seats and responsive tools', () => {
   it('uses the shared measured fold and leaves the four fixed tool doors standing', () => {
     expect(source).not.toContain('useNarrowLayout<HTMLElement>(608)')
     expect(barSource).toContain('new ResizeObserver(measure)')
-    expect(barSource).toContain('measuredFold.current === 2')
+    expect(barSource).toContain('fold === 2')
     expect(barSource).toContain('data-topbar="tools"')
   })
 })

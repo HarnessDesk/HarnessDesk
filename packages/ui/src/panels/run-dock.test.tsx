@@ -1,3 +1,4 @@
+import { installTopBarTestLayout } from '../test/top-bar-layout'
 import { StrictMode, act, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
@@ -12,6 +13,8 @@ import { RunDockProvider, RunDetailsView, useRunDock } from './run-dock'
 import { TopBarProvider, TopBarOutlet } from './top-bar'
 import { RECORD_REASON } from '../lib/team-record'
 import './builtins'
+
+installTopBarTestLayout()
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const scope = (owner: string) => ({ paneId: owner, view: { kind: 'room' as const, room: owner }, sessionKey: null })
@@ -83,7 +86,7 @@ it('selecting Timeline or Flow changes main only, while selecting a row explicit
     expect(store.getSnapshot().workbench.right).toBe(before)
     choose('Timeline')
     expect(store.getSnapshot().workbench.right).toBe(before)
-    act(() => container.querySelector<HTMLButtonElement>('[data-row="round-1"] button')!.click())
+    act(() => container.querySelector<HTMLButtonElement>('[data-row="card-1-1"] button')!.click())
     expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]).toMatchObject({tool:'details',mode:'run-details',open:true})
   } finally { act(() => root.unmount()); container.remove() }
 })

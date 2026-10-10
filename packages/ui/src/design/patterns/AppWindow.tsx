@@ -1,9 +1,9 @@
-import { forwardRef, type ComponentProps, type CSSProperties } from 'react'
+import { useState, useLayoutEffect, useRef, type ReactNode, forwardRef, type ComponentProps, type CSSProperties } from 'react'
 
 import { cn } from '@/lib/utils'
 
 import { DialogPopup } from '../ui/dialog'
-import { RailSection } from './DockPanel'
+import { PanelSeam, RailSection } from './DockPanel'
 import { FRAME } from '../frame'
 
 /**
@@ -21,7 +21,7 @@ export const AppWindowSurface = forwardRef<HTMLDivElement, ComponentProps<typeof
       {...props}
       style={{ ...style, '--titlebar-inset': nativeCorner ? 'var(--hd-titlebar-lights)' : '0px', display: 'grid',
         gridTemplateColumns: 'minmax(0, 1fr)',
-        gridTemplateRows: `${FRAME.bar.height}px minmax(0, 1fr) ${FRAME.statusBar.height}px` } as CSSProperties}
+        gridTemplateRows: `${FRAME.bar.height}px minmax(0, 1fr)` } as CSSProperties}
     />
   ),
 )
@@ -61,3 +61,63 @@ export const AppWindowPage = ({ className, ...props }: ComponentProps<'div'>) =>
     {...props}
   />
 )
+
+/** Main consumes the window's remaining height; notices precede the retained page. */
+export const AppWindowContent = ({ children }: { children: React.ReactNode }) =>
+  <div data-slot="app-window-content" className="flex min-h-0 flex-col">{children}</div>
+import frameStyles from './AppWindow.module.css'
+
+export const AppWindowLeftFrame = ({ left, top, body, placement, width, onWidth, onCloseFloat, native = false }: {
+  left: ReactNode; top: ReactNode; body: ReactNode
+  placement: 'column' | 'floating' | 'away'; native?: boolean; width: number; onWidth: (width: number) => void; onCloseFloat: () => void
+}) => {
+  const [live, setLive] = useState<number | null>(null)
+  const leftRef = useRef<HTMLElement>(null)
+  const saved = useRef<HTMLElement | null>(null)
+  useLayoutEffect(() => setLive(null), [width])
+  useLayoutEffect(() => {
+    if (placement === 'floating') {
+      saved.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+      leftRef.current?.querySelector<HTMLButtonElement>('button:not(:disabled)')?.focus()
+    } else if (saved.current) {
+      // Restore after the placement commit, when the active bar is mounted.
+      const frame = leftRef.current?.closest('[data-app-window-left-frame]')
+      const previous = saved.current
+      const target = previous.isConnected && frame?.contains(previous) && !previous.closest('[hidden], [inert]')
+        ? previous : frame?.querySelector<HTMLButtonElement>('[data-slot="top-bar"] button[aria-label="Show sidebar"]')
+      target?.focus({ preventScroll: true })
+      saved.current = null
+    }
+  }, [placement])
+  const size = live ?? width
+  return <div data-app-window-left-frame className={frameStyles.leftFrame}
+    data-placement={placement} data-native={native ? '' : undefined} style={{ '--window-left-width': `${size}px` } as CSSProperties}
+    onKeyDown={event => {
+      if (placement !== 'floating' || event.key !== 'Tab' || event.defaultPrevented) return
+      const nodes = [...(leftRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), a[href], [tabindex="0"]') ?? [])]
+        .filter(node => node.tabIndex >= 0 && node.getClientRects().length > 0 && getComputedStyle(node).visibility !== 'hidden' && !node.closest('[hidden], [inert]'))
+      const first = nodes[0], last = nodes[nodes.length - 1]
+      if (!first || !last) return
+      if (event.shiftKey && (document.activeElement === first || !leftRef.current?.contains(document.activeElement))) {
+        event.preventDefault(); last.focus()
+      } else if (!event.shiftKey && (document.activeElement === last || !leftRef.current?.contains(document.activeElement))) {
+        event.preventDefault(); first.focus()
+      }
+    }}
+    onPointerDownCapture={event => {
+      if (placement !== 'floating' || leftRef.current?.contains(event.target as Node)) return
+      // Popups render through portals inside this frame's React boundary.
+      if (event.target instanceof Element && event.target.closest('[data-popup-kind], [data-slot="popover-popup"]')) return
+      event.preventDefault(); event.stopPropagation(); onCloseFloat()
+    }}>
+    <aside ref={leftRef} data-app-window-left hidden={placement === 'away'} inert={placement === 'away'} className={frameStyles.left}>
+      {left}
+      {placement === 'column' && <PanelSeam orientation="vertical" label="Resize the sidebar" direction={1}
+        size={width} min={FRAME.sidebar.min} max={FRAME.sidebar.max}
+        onResize={setLive} onCancel={() => setLive(null)} onCommit={next => { onWidth(next); setLive(null) }}
+        onDoubleClick={() => onWidth(FRAME.sidebar.width)} />}
+    </aside>
+    <div className={frameStyles.top}>{top}</div>
+    <div className={frameStyles.body}>{body}</div>
+  </div>
+}

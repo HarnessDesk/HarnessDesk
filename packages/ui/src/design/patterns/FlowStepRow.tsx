@@ -9,6 +9,7 @@ import { ROLE_KIND_WORDS } from '../../lib/shapes'
 import { AvatarStack } from '../ui/avatar-stack'
 import { IconTile } from '../ui/icon-tile'
 import { ListRow } from '../ui/list-row'
+import { TimelineItem } from '../ui/timeline'
 import type { Tint, Tone } from '../ui/tone'
 import { Chip, Text } from './Settings'
 
@@ -39,7 +40,13 @@ const stateOf = (run: FlowStepRun): string => run.state === 'done' && run.line ?
   : ({ future: 'Not reached', done: 'Done', working: 'Working', waiting: 'Needs you', blocked: 'Waiting for evidence', stopping: 'Stopping', stopped: 'Stopped' })[run.state]
 
 /** A step in the Flow list or Timeline: kind and seated faces, a recorded state, and trailing time and run count. The caller owns its earned second line and selection. */
-export const FlowStepRow = ({ step, run, subtitle, selected, faces, faceTints, now = Date.now(), onSelect, tabIndex }: {
+export const FlowStepRow = ({ step, run, subtitle, selected, faces, faceTints, now = Date.now(), onSelect, tabIndex, timeline = false, seatNames, repeated = false, roundGroup, rowId, rowKind }: {
+  rowId?: string
+  rowKind?: string
+  roundGroup?: number
+  timeline?: boolean
+  repeated?: boolean
+  seatNames?: ReadonlyMap<string, { name: string }>
   step: FlowStep
   run?: FlowStepRun
   subtitle?: ReactNode
@@ -54,6 +61,16 @@ export const FlowStepRow = ({ step, run, subtitle, selected, faces, faceTints, n
   const seats = step.kind === 'agent' ? run?.seats : undefined
   const elapsed = run?.since != null && (run.state === 'working' || run.state === 'waiting') ? Math.max(0, now - run.since) : 0
   const duration = run?.durationMs == null ? null : formatDuration(run.durationMs + elapsed)
+  if (timeline) {
+    const state = !run || run.state === 'future' ? 'pending' : run.state === 'done' ? 'done' : run.state === 'working' ? 'active' : run.state === 'waiting' || run.state === 'blocked' ? 'warning' : 'pending'
+    const meta = [run?.state === 'future' ? words(step.line ?? '') : subtitle, run?.seats.map(id => seatNames?.get(id)?.name ?? wordOf(id)).join(', '),
+      run?.state !== 'future' ? `${duration ?? 'Time not recorded'}${repeated && duration ? ' each' : ''}` : null,
+      run?.state !== 'future' ? run?.runs == null ? 'Run count unavailable' : `${run.runs} ${run.runs === 1 ? 'run' : 'runs'}` : null].filter(Boolean)
+    return <TimelineItem flat state={state} data-row={rowId} data-kind={rowKind} data-round-group={roundGroup} data-step-row={step.id} data-flow-state={run?.state} data-selected={selected || undefined}
+      title={<span className="flex min-w-0 items-center gap-2"><span className="min-w-0 truncate">{sanitizeText(step.name)}</span><Chip size="sm" tint={tint}>{ROLE_KIND_WORDS[step.kind]}</Chip></span>}
+      detail={<Text role="meta">{meta.map((part, index) => <span key={index}>{index > 0 && ' · '}{part}</span>)}</Text>}
+      actions={run && <RunStateChip state={stateOf(run)} />} selected={selected} onSelect={onSelect ? () => onSelect(step.id) : undefined} />
+  }
   return <ListRow data-step-row={step.id} data-state={run?.state} data-selected={selected || undefined}
     tabIndex={tabIndex}
     as={onSelect ? 'button' : 'div'} interactive={Boolean(onSelect)} selected={selected}

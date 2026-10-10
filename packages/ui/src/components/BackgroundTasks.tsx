@@ -24,10 +24,9 @@ import { PanelBody, PanelFrame, PanelRow } from './Panel'
  * A panel has the room. Each task is a card: the sentence the agent named it
  * with, the kind and the state in words, a clock, a stop while it runs — and
  * then the command under a prompt mark and the output beneath, scrollable,
- * staying there after the turn. It is the fifth inspector, summoned from the
- * ⋯ menu and ⌘K like the other four, and it follows the focused conversation
- * the way they do. The header wears a chip while anything is listed, so the
- * panel does not have to be open for the work to be noticed.
+ * staying there after the turn. It leads the Activity tool, with the focused
+ * conversation's completed tasks retained beside running work across the app.
+ * Activity's tool button wears a dot while any task runs.
  *
  * Nothing here is derived: the host relays the runtime's own list, every
  * control is a request, and the rows redraw from the event that answers —

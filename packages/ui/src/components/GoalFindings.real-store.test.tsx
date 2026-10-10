@@ -1,3 +1,4 @@
+import { installTopBarTestLayout } from '../test/top-bar-layout'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -10,6 +11,8 @@ import { PaneProvider, StoreProvider } from '../state/context'
 import { TopBarOutlet, TopBarProvider } from '../panels/top-bar'
 import { AppStore } from '../state/store'
 import { GoalFindings } from './GoalFindings'
+
+installTopBarTestLayout()
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 

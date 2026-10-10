@@ -3,7 +3,7 @@ import { runtimeId, sessionKey, type SessionId } from '@harnessdesk/protocol'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterAll, afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { ContextMenu, MenuItem, Popover } from '../design'
+import { ContextMenu, Menu, MenuItem, Popover } from '../design'
 import { StoreProvider } from '../state/context'
 import { expand as expandLayout, panes as layoutPanes, split as splitLayout } from '../state/layout'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -34,7 +34,7 @@ import './builtins'
 /* The main area only needs to be something that can hold focus — and a menu,
    the kind a conversation's header has, to be open when something lies over it. */
 vi.mock('../components/Panes', async () => {
-  const { Popover: Menu } = await import('../design')
+  const { Popover, Menu, MenuItem } = await import('../design')
   const { useSnapshot } = await import('../state/context')
   const { panes } = await import('../state/layout')
   return {
@@ -64,7 +64,7 @@ vi.mock('../components/Panes', async () => {
               />
             )}
             {index === 0 && pane.view.kind === 'conversation' && (
-              <Menu label="Branch" title="Branch">{() => <input aria-label="Filter branches" />}</Menu>
+              <Popover label="Branch" title="Branch" panelWidth="wide" icons="none">{close => <Menu close={close}><div data-menu-search=""><input aria-label="Filter branches" /></div><MenuItem label="main" onSelect={close} /></Menu>}</Popover>
             )}
           </section>
         ))}
@@ -165,8 +165,8 @@ const render = (
           sidebar={
             <div>
               <button type="button">A row in the sidebar</button>
-              <Popover label="Account" title="Account">
-                {() => <button type="button">Sign out</button>}
+              <Popover label="Account" title="Account" panelWidth="wide" icons="none">
+                {close => <Menu close={close}><MenuItem label="Sign out" onSelect={close} /></Menu>}
               </Popover>
               {inSidebar}
             </div>

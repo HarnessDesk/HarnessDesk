@@ -99,10 +99,10 @@ it('lights for an agent that answered and confirmed nobody is signed in', () => 
 it('uses the left-column anatomy for the existing Settings pages and groups', () => {
   mount({})
   const nav = container.querySelector('[aria-label="Window navigation"]')!
-  expect(nav.querySelectorAll('[data-left-group]')).toHaveLength(5)
+  expect(nav.querySelectorAll('[data-left-group]')).toHaveLength(4)
   const row = runtimesRow()!
   expect(row.closest('[data-left-row]')).not.toBeNull()
   expect(row.closest('[data-left-row]')?.querySelectorAll('[data-left-trailing]')).toHaveLength(1)
   expect([...nav.querySelectorAll('[data-left-group-text]')].map(node => node.textContent))
-    .toEqual(['General', 'Conversations', 'Agents', 'Capabilities', 'Access'])
+    .toEqual(['General', 'Conversations', 'Agents', 'Access'])
 })

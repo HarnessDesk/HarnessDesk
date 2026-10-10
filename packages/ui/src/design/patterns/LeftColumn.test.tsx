@@ -3,6 +3,9 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { LeftColumnGroup, LeftColumnRow } from './LeftColumn'
 import { FolderIcon } from '../../components/Icons'
+import sheet from './LeftColumn.module.css?raw'
+import styles from './LeftColumn.module.css'
+import { DisclosureChevron } from '../ui/disclosure-chevron'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 let container: HTMLDivElement, root: Root
@@ -33,4 +36,57 @@ test('a row menu is beside its opener and remains the only trailing control', ()
   mount(<LeftColumnRow label="New session" menu={{ label: 'More ways to start', content: () => <div>Start choices</div> }} />)
   expect(container.querySelectorAll('[data-left-trailing] button')).toHaveLength(1)
   expect(container.querySelector('button button')).toBeNull()
+})
+
+test('a foldable heading puts the disclosure directly after its name, outside the trailing action', () => {
+  mount(<LeftColumnRow project label="Storefront" icon={<DisclosureChevron open size="xs" />} expanded action={{ kind: 'new', label: 'New session', onClick: vi.fn() }} />)
+  const name = button('Storefront').querySelector('[data-left-fold-name]') ?? button('Storefront').querySelector('[data-slot="sidebar-menu-label-content"]')!
+  const arrow = button('Storefront').querySelector('[data-slot="disclosure-chevron"]')!
+  expect(arrow).not.toBeNull()
+  expect(name.nextElementSibling).toBe(arrow)
+  expect(button('Storefront').querySelector('[data-slot="sidebar-menu-icon"]')).toBeNull()
+  expect(arrow.closest('[data-left-trailing]')).toBeNull()
+  expect(arrow.getAttribute('data-size')).toBe('xs')
+  expect(arrow.getAttribute('data-tone')).toBe('neutral')
+  expect(arrow.hasAttribute('data-open')).toBe(true)
+})
+
+test('open disclosures hide at rest and reveal on heading hover or keyboard focus; folded disclosures remain visible', () => {
+  // jsdom has no pointer or keyboard modality. Exercise the real visibility
+  // cascade with those pseudo states represented by test attributes; the
+  // browser contract below exercises actual hover and focus-visible.
+  const visibility = [...sheet.matchAll(/([^{}]+)\{([^{}]+)\}/g)]
+    .filter(([, , body]) => body!.includes('visibility:'))
+    .map(([, selector, body]) => `${selector}{${body}}`).join('\n')
+    .replace(/\.([\w-]+)/g, (match, name: string) => styles[name] ? `.${styles[name]}` : match)
+    .replaceAll(':hover', '[data-test-hover]')
+    .replaceAll(':focus-visible', '[data-test-focus-visible]')
+    .replaceAll(':focus-within', '[data-test-focus-within]')
+  const css = document.createElement('style')
+  css.textContent = visibility
+  document.head.append(css)
+  try {
+    mount(<LeftColumnRow project label="Storefront" icon={<DisclosureChevron open size="xs" />} expanded
+      action={{ kind: 'new', label: 'New session', onClick: vi.fn() }} />)
+    const heading = button('Storefront'), row = heading.parentElement!
+    const arrow = heading.querySelector('[data-slot="disclosure-chevron"]')!
+    expect(arrow).not.toBeNull()
+    expect(getComputedStyle(arrow).visibility).toBe('hidden')
+    row.setAttribute('data-test-focus-within', '')
+    expect(getComputedStyle(button('New session')).visibility).toBe('hidden')
+    row.setAttribute('data-test-hover', '')
+    expect(getComputedStyle(arrow).visibility).toBe('visible')
+    expect(getComputedStyle(button('New session')).visibility).toBe('visible')
+    row.removeAttribute('data-test-hover')
+    act(() => heading.focus())
+    heading.setAttribute('data-test-focus-visible', '')
+    expect(getComputedStyle(arrow).visibility).toBe('visible')
+    expect(getComputedStyle(button('New session')).visibility).toBe('visible')
+    heading.removeAttribute('data-test-focus-visible')
+    expect(getComputedStyle(arrow).visibility).toBe('hidden')
+    expect(getComputedStyle(button('New session')).visibility).toBe('hidden')
+    mount(<LeftColumnRow project label="Storefront" expanded={false} />)
+    expect(getComputedStyle(arrow).visibility).toBe('visible')
+    expect(arrow.hasAttribute('data-open')).toBe(false)
+  } finally { css.remove() }
 })

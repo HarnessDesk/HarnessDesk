@@ -263,7 +263,7 @@ describe('where a file and a preview open', () => {
 it('routes a sidebar tool and split file to the fixed right panel', () => {
   store.showViewIn('sidebar', { kind: 'tasks' })
   expect(dockViews(store.getSnapshot().workbench.sidebar)).toEqual([])
-  expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]).toEqual({ tool: 'activity', mode: 'tasks', open: true })
+  expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]).toEqual({ tool: 'activity', mode: 'activity', open: true })
   selectCodex()
   store.openFile('/repo/README.md', { split: 'row' })
   expect(store.getSnapshot().layout.root.kind).toBe('pane')

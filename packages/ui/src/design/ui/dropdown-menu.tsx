@@ -5,14 +5,23 @@ import { CheckIcon, BulletIcon, ChevronIcon } from '@/components/Icons'
 import { DialogFormContext } from '@/lib/dialog-form'
 import { cn } from '@/lib/utils'
 import { floatingMotion } from './motion'
+import { registerMenu } from './popup-state'
 import { MenuPresentation, MenuRowContent, menuRowAttributes, useMenuPresentation, type MenuRowData, type MenuIcons } from './menu-row'
 
 /* Vendored from shadcn/ui (dropdown-menu). Icons come from the app's
  * façade — the one place allowed to draw one — and the floating surface
  * takes the app's popover z-name rather than a bare number. */
 
-const DropdownMenu = ({ icons = 'none', wide = false, children, ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Root> & { icons?: MenuIcons; wide?: boolean }) =>
-  <MenuPresentation icons={icons} wide={wide}><DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props}>{children}</DropdownMenuPrimitive.Root></MenuPresentation>
+const DropdownMenu = ({ icons = 'none', wide = false, children, open: controlledOpen, defaultOpen, onOpenChange, ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Root> & { icons?: MenuIcons; wide?: boolean }) => {
+  const [localOpen, setLocalOpen] = React.useState(defaultOpen ?? false)
+  const effectiveOpen = controlledOpen ?? localOpen
+  const menuId = React.useRef(Symbol('menu'))
+  React.useLayoutEffect(() => effectiveOpen ? registerMenu(menuId.current) : undefined, [effectiveOpen])
+  return <MenuPresentation icons={icons} wide={wide}>
+    <DropdownMenuPrimitive.Root {...props} open={effectiveOpen} onOpenChange={(next, details) => { onOpenChange?.(next, details); if (!details.isCanceled) setLocalOpen(next) }} data-slot="dropdown-menu">{children}</DropdownMenuPrimitive.Root>
+  </MenuPresentation>
+}
+
 
 const DropdownMenuPortal = ({
   ...props
@@ -119,12 +128,12 @@ const DropdownMenuSubTrigger = ({ children, icon, hint, ...props }: Omit<React.C
   return <DropdownMenuPrimitive.SubmenuTrigger {...props} data-slot="dropdown-menu-sub-trigger" {...menuRowAttributes(data)}><MenuRowContent {...data} /></DropdownMenuPrimitive.SubmenuTrigger>
 }
 
-const DropdownMenuSubContent = ({ icons = 'none', align = 'start', side = 'right', sideOffset = 0, collisionAvoidance, sticky, children, ...props }:
-  DropdownContentProps & Pick<React.ComponentProps<typeof DropdownMenuPrimitive.Positioner>, 'collisionAvoidance' | 'sticky'> & { icons?: MenuIcons }) =>
+const DropdownMenuSubContent = ({ wide = true, icons = 'none', align = 'start', side = 'right', sideOffset = 0, collisionAvoidance, sticky, children, ...props }:
+  DropdownContentProps & Pick<React.ComponentProps<typeof DropdownMenuPrimitive.Positioner>, 'collisionAvoidance' | 'sticky'> & { icons?: MenuIcons; wide?: boolean }) =>
   <DialogFormContext.Provider value={false}><DropdownMenuPrimitive.Portal>
     <DropdownMenuPrimitive.Positioner align={align} side={side} sideOffset={sideOffset} collisionAvoidance={collisionAvoidance} sticky={sticky} className="z-(--hd-z-popover)">
-      <DropdownMenuPrimitive.Popup {...props} data-slot="dropdown-menu-sub-content" data-popup-kind="wide-menu" data-menu-icons={icons} className={cn(floatingMotion, SURFACE_FOCUS)}>
-        <MenuPresentation icons={icons} wide>{children}</MenuPresentation>
+      <DropdownMenuPrimitive.Popup {...props} data-slot="dropdown-menu-sub-content" data-popup-kind={wide ? 'wide-menu' : 'menu'} data-menu-icons={icons} className={cn(floatingMotion, SURFACE_FOCUS)}>
+        <MenuPresentation icons={icons} wide={wide}>{children}</MenuPresentation>
       </DropdownMenuPrimitive.Popup>
     </DropdownMenuPrimitive.Positioner>
   </DropdownMenuPrimitive.Portal></DialogFormContext.Provider>

@@ -35,7 +35,7 @@ beforeEach(() => {
   const computed = getComputedStyle
   const bounds = HTMLElement.prototype.getBoundingClientRect
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-    if (this.matches('[data-topbar-title]')) return { ...bounds.call(this), width: FRAME.bar.titleMin } as DOMRect
+    if (this.matches('[data-topbar-title], [data-topbar="place"]')) return { ...bounds.call(this), width: FRAME.bar.titleMin } as DOMRect
     return bounds.call(this)
   })
   vi.spyOn(globalThis, 'getComputedStyle').mockImplementation((node, pseudo) => {
@@ -81,6 +81,22 @@ const selectMember = async (name: string) => {
   await act(async () => opener.click())
 }
 const button = (label: string) => container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)
+
+/** Destination navigation uses the current shell transport at either fold. */
+const chooseTeamPage = async (page: string, within: ParentNode = container): Promise<void> => {
+  const tab = within.querySelector<HTMLButtonElement>(`[role="tab"][data-team-page="${page}"]`)
+  if (tab) {
+    await act(async () => tab.click())
+    return
+  }
+  const trigger = within.querySelector<HTMLButtonElement>('button[title="Destination views"]')
+  expect(trigger, 'folded Team destinations remain reachable').not.toBeNull()
+  if (trigger!.getAttribute('aria-expanded') !== 'true') await act(async () => trigger!.click())
+  const choice = document.body.querySelector<HTMLButtonElement>(`[role="menuitemradio"][data-team-page="${page}"]`)
+  expect(choice, `the folded menu keeps ${page}`).not.toBeNull()
+  await act(async () => choice!.click())
+}
+
 it('a draft has four tool doors and no second body header', () => {
   mountDraft()
   for (const label of ['Details', 'Changes', 'Activity', 'Browser']) expect(button(label)).not.toBeNull()
@@ -192,7 +208,7 @@ const chooseRunLayout = async (layout: 'Timeline' | 'Flow') => {
 it('a narrow Team Run publishes without opening an empty overlay, and Details opens persistent facts', async () => {
   const { store } = await mountTeam(false, 720)
   const before = store.getSnapshot().workbench.right
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  await chooseTeamPage('run')
   const snapshot = store.getSnapshot()
   const subject = store.workSubject()!
   expect(snapshot.workbench.right).toEqual(before)
@@ -212,7 +228,7 @@ it('the canonical Team toggle restores its remembered Browser while layout chang
   const { store } = await mountTeam()
   await act(async () => { await store.openBrowser() })
   const resource = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser')!
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  await chooseTeamPage('run')
   const before = store.getSnapshot().workbench
   await chooseRunLayout('Flow')
   expect(store.getSnapshot().workbench.right).toEqual(before.right)
@@ -229,7 +245,7 @@ it('the canonical Team toggle restores its remembered Browser while layout chang
 
 it('a narrow Team Flow opens persistent Details with one unpressed canonical toggle click', async () => {
   const { store } = await mountTeam(false, 720)
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  await chooseTeamPage('run')
   await chooseRunLayout('Flow')
   const subject = store.workSubject()!
   const before = store.getSnapshot().workbench.right
@@ -245,10 +261,10 @@ it('a narrow Team Flow opens persistent Details with one unpressed canonical tog
 
 it('direct Team tabs retain Flow while the historical Steps opener explicitly returns to Timeline', async () => {
   const { store } = await mountTeam()
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  await chooseTeamPage('run')
   await chooseRunLayout('Flow')
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="overview"]')!.click())
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  await chooseTeamPage('overview')
+  await chooseTeamPage('run')
   expect(container.querySelector('[data-slot="run-workspace"]')?.getAttribute('data-view')).toBe('flow')
   const before = store.getSnapshot().workbench.right
   await act(async () => store.showView('run-steps'))
@@ -286,7 +302,7 @@ it('a selected Team member keeps its scoped Folder Commit and capability actions
   await selectMember('Beta')
   expect(container.querySelector('[data-topbar-title]')?.textContent).toContain('Retry the checkout call')
   expect(container.querySelector<HTMLTextAreaElement>('[data-slot="workbench-main"] textarea')?.value).toBe('')
-  act(() => container.querySelector<HTMLButtonElement>('[data-team-page="room"]')!.click())
+  await chooseTeamPage('room')
   expect(container.querySelectorAll('[data-slot="top-bar"]')).toHaveLength(1)
 })
 
@@ -305,7 +321,7 @@ it('Team publishes one shell row, four tools and persistent Run then Seats on Ov
 
 it('a real selected Run inspection augments persistent Team Run and Seats in canonical Details', async () => {
   const {store} = await mountTeam()
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  await chooseTeamPage('run')
   const row = container.querySelector<HTMLElement>('[data-slot="run-workspace"] [data-row][data-kind="card"]')!
   expect(row).not.toBeNull()
   await act(async () => row.click())
@@ -348,7 +364,7 @@ it('standalone Team previews own their bar and Details registries through select
   await act(async()=>one.querySelector<HTMLButtonElement>('button[aria-label="Details"]')!.click())
   expect(one.querySelector('[aria-label="Team Run facts"]')).not.toBeNull()
   expect(two.querySelector('[data-slot="tool-body"]')).toBeNull()
-  await act(async()=>one.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  await chooseTeamPage('run', one)
   await act(async()=>one.querySelector<HTMLElement>('[data-row][data-kind="card"]')!.click())
   expect(one.querySelector('[data-slot="tool-body"] [data-slot="run-inspector"]')).not.toBeNull()
   await act(async()=>root.render(scenes(false)))
@@ -397,7 +413,7 @@ it('live-polish standalone Team uses one store for tool admission, Run selection
   await act(async()=>root.render(<StoreProvider store={store}><TeamFramePreview room="overview-team" /></StoreProvider>))
   await act(async()=>button('Details')!.click())
   expect(container.querySelector('[aria-label="Team Run facts"]')).not.toBeNull()
-  await act(async()=>container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  await chooseTeamPage('run')
   await act(async()=>container.querySelector<HTMLElement>('[data-row][data-kind="card"]')!.click())
   expect(container.querySelector('[data-slot="tool-body"] [data-slot="run-inspector"]')).not.toBeNull()
 })
@@ -435,7 +451,7 @@ it('preserves both recorded live-polish Seat ceilings when its sessions have no 
 it('keeps a selected Not reached step when returning from Flow without reopening the closed tool', async () => {
   const store = runTeamStore('empty')
   await act(async () => root.render(<StoreProvider store={store}><TeamFramePreview room="overview-team" /></StoreProvider>))
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  await chooseTeamPage('run')
   const future = container.querySelector<HTMLButtonElement>('[data-slot="run-steps"] [data-step-row="person"]')!
   await act(async () => future.click())
   expect(container.querySelector('[data-step-row="person"]')?.getAttribute('data-selected')).toBe('true')
@@ -467,7 +483,7 @@ it('standalone Team admission retains each original Seat browser profile and pla
 it('Run again retains both original Runs and continuation in the real parent Details', async () => {
   const store = runTeamStore('settled')
   await act(async () => root.render(<StoreProvider store={store}><TeamFramePreview room="overview-team" /></StoreProvider>))
-  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
+  await chooseTeamPage('run')
   const again = [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Run again…')!
   await act(async () => again.click())
   const start = () => [...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find(one => one.textContent === 'Start')!
@@ -656,11 +672,11 @@ it('default Changes and Activity provide actual subject bodies through canonical
 })
 
 
-it('the six region nodes and the Browser body survive closing and both exact folds', async () => {
+it('the five region nodes and the Browser body survive closing and both exact folds', async () => {
   const store = mountWork(true)
   await act(async () => { await store.openBrowser() })
   const regions = [...container.querySelectorAll('[data-frame-region]')]
-  expect(regions.map(node => node.getAttribute('data-frame-region'))).toEqual(['left', 'top', 'main', 'right', 'bottom', 'status'])
+  expect(regions.map(node => node.getAttribute('data-frame-region'))).toEqual(['left', 'top', 'main', 'right', 'bottom'])
   const browser = container.querySelector('[data-slot="tool-pane"]')!
   const resource = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser')!
   for (const width of [1280, 1279, 1000, 999, 720, 1440]) {

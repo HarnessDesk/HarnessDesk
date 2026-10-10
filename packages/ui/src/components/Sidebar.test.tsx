@@ -294,23 +294,23 @@ it('keeps the workbench-owned header, one content scroller, and footer as plain 
   expect(footer.childElementCount).toBeGreaterThan(0)
 })
 
-it('puts the unread Inbox before search in the title bar and keeps the footer for the person', () => {
+it('puts the unread Inbox beside the Settings gear in the seat row', () => {
   mount({ inbox: [{ id: 'kept', tone: 'info', title: 'Review ready', at: 0, read: false }] })
   const header = container.querySelector('[data-region="sidebar-header"]')!
   const footer = container.querySelector('[data-region="sidebar-footer"]')!
   const search = header.querySelector<HTMLButtonElement>('button[aria-label="Search everything"]')!
   const titleBar = search.closest('[data-slot="bar"]')!
-  const bell = titleBar.querySelector('[data-slot="inbox-button"]')!
+  const bell = container.querySelector('[data-left-seat] [data-slot="inbox-button"]')!
   expect(bell).not.toBeNull()
   expect(bell.hasAttribute('data-unread')).toBe(true)
   expect(bell.textContent).toBe('Inbox, 1 unread')
   expect(bell.querySelector('[data-slot="inbox-dot"]')).not.toBeNull()
   expect(bell.closest('button')?.title).toBe('Inbox, 1 unread')
-  expect(bell.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(bell.compareDocumentPosition(footer.querySelector('button[aria-label="Settings"]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(titleBar.classList.contains('hd-drag')).toBe(true)
   expect(bell.closest('.hd-no-drag')).not.toBeNull()
   expect(search.closest('.hd-no-drag')).not.toBeNull()
-  expect(footer.querySelector('[data-slot="inbox-button"]')).toBeNull()
+  expect(footer.contains(bell)).toBe(true)
   expect(footer.querySelector('button[data-slot="popover-trigger"]')).not.toBeNull()
 })
 

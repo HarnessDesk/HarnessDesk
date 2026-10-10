@@ -91,7 +91,7 @@ it('two tiles borrow separate live profiles, route browser keys and agent focus,
     // The selected tile stays selected while a different mount has the keys.
     // None of its browser shortcuts may take those keys or change its tabs.
     act(() => store.showViewIn('bottom', { kind: 'tasks' }))
-    const tool = findView(store.getSnapshot().workbench, { kind: 'tasks' })!
+    const tool = findView(store.getSnapshot().workbench, { kind: 'activity' })!
     expect(tool.area).toBe('right')
     const toolId = tool.area === 'main' ? tool.pane : tool.mounted.id
     expect(toolId).not.toBe(paneId)

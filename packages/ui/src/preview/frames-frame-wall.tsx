@@ -1,6 +1,9 @@
+import { shortcutFor } from '../lib/shortcuts'
+import { toggleTerminal } from '../components/TerminalToggle'
+import { sidebarGeometryFixture } from './sidebar-geometry-fixture'
 import { runTeamStore, equivalentRunFixture, type RunScene } from './run-view-fixture'
 import { sidebarStructureFixture } from './sidebar-structure-fixture'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, turnId, type UiContribution, type BackgroundTask, type RuntimeId } from '@harnessdesk/protocol'
 import { installPanelComponent } from '../slots/PanelBlocks'
 
@@ -9,6 +12,7 @@ import { gitWorktrees } from './git-fixture'
 import { TopBar, Chip, Button, Menu, MenuItem } from '../design'
 import { PlusIcon, PlanIcon, DiffIcon, HistoryIcon, GlobeIcon, PanelIcon } from '../components/Icons'
 import { PopupWall } from './popup-wall'
+import { triggerGoalStatus } from './intake-fixture'
 import { AgentsWindow } from '../components/AgentsWindow'
 import { ChangesReview } from '../components/ChangesReview'
 import { AppWindowMode } from '../components/AppWindow'
@@ -20,7 +24,7 @@ import { Workbench } from '../panels/Workbench'
 import { ShellProvider } from '../panels/views'
 import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 import { TopBarProvider } from '../panels/top-bar'
-import { StoreProvider } from '../state/context'
+import { StoreProvider, useStore } from '../state/context'
 import type { PaneView } from '../state/layout'
 import type { AppSnapshot, AppStore } from '../state/store'
 import { useTheme } from '../state/theme'
@@ -38,12 +42,12 @@ import { usagePreviewStore } from './usage-fixture'
  * drawn here the same way, so the wall shows the app as it is.
  * Placeholder fixtures only.
  */
-export const FRAME_WALL_DESTINATIONS = ['conversation', 'draft', 'team', 'team-trigger', 'team-receipt', 'team-run-recorded', 'team-run-not-reached', 'team-run-repeated', 'team-run-equivalent', 'teams', 'agents', 'agent', 'dashboard', 'settings', 'settings-general', 'settings-runtimes', 'library', 'plugins', 'changes-review', 'left-work'] as const
+export const FRAME_WALL_DESTINATIONS = ['conversation', 'draft', 'team', 'team-trigger', 'team-receipt', 'team-run-recorded', 'team-run-not-reached', 'team-run-repeated', 'team-run-equivalent', 'teams', 'agents', 'agent', 'dashboard', 'settings', 'settings-general', 'settings-runtimes', 'settings-navigation', 'settings-search', 'library', 'plugins', 'changes-review', 'left-work'] as const
 type Destination = (typeof FRAME_WALL_DESTINATIONS)[number]
 type PageOwner = 'teams' | 'agents' | 'dashboard' | 'settings' | 'changes-review'
 const pageFor = (destination: Destination): PageOwner | null => {
   if (destination === 'agent' || destination === 'agents') return 'agents'
-  if (['settings', 'settings-general', 'settings-runtimes', 'library', 'plugins'].includes(destination)) return 'settings'
+  if (['settings', 'settings-general', 'settings-runtimes', 'settings-navigation', 'settings-search', 'library', 'plugins'].includes(destination)) return 'settings'
   if (destination === 'changes-review') return 'changes-review'
   if (destination === 'teams' || destination === 'dashboard') return destination
   return null
@@ -70,9 +74,13 @@ const showing = (store: AppStore, view: PaneView, session: AppSnapshot['activeSe
 export const triggerTeamStore = (): AppStore => {
   const source = overviewTeamStore('running').getSnapshot()
   const goal = source.goals.get('overview-team')!
-  return previewStore({ ...source, goals: new Map(source.goals).set('overview-team', {
+  const store = previewStore({ ...source, goals: new Map(source.goals).set('overview-team', {
     ...goal, goal: { ...goal.goal, origin: { kind: 'trigger', trigger: 'fixture-trigger', event: 'fixture-event' } },
   }) })
+  return new URLSearchParams(location.search).get('popup') === 'origin-details' ? new Proxy(store, { get(target, key) {
+    if (key === 'triggerGoal') return async () => triggerGoalStatus({ goal: 'overview-team', trigger: 'fixture-trigger', budget: null })
+    return Reflect.get(target, key)
+  } }) : store
 }
 
 const frameRunStore = (scene: RunScene) => {
@@ -97,12 +105,25 @@ const frameEquivalentRunStore = () => {
   return store
 }
 
+const popupContent = (store: AppStore): AppStore => {
+  const snapshot = store.getSnapshot()
+  store.listBranches = async () => ['main', 'feature/storefront-checkout-diagnostics-and-retry-policy', 'feature/catalogue', 'release/next', 'fix/search', 'feature/发布前检查'].map((name, at) => ({ name, current: at === 0, committedAt: Date.now() - (at + 1) * 60_000 }))
+  if (new URLSearchParams(location.search).get('popup') === 'other-agents') {
+    const missing = snapshot.runtimes.at(-1)!.id
+    Object.assign(snapshot, { usage: snapshot.usage.filter(report => report.runtime !== missing) })
+  }
+  const names = ['Storefront catalogue review and checkout diagnostics', '发布前检查和目录兼容性说明', 'Warehouse inventory reconciliation and retry policy']
+  Object.assign(snapshot, { runtimes: snapshot.runtimes.map((runtime, at) => ({ ...runtime, presentation: { ...runtime.presentation, name: names[at] ?? runtime.presentation.name } })) })
+  return store
+}
+
 const storeFor = (destination: Destination): AppStore => {
   switch (destination) {
     case 'left-work': return showing(previewStore(sidebarStructureFixture(previewStore().getSnapshot())),
       { kind: 'room', room: 'structure-team' }, null)
-    case 'conversation': return showing(previewStore(), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY)
-    case 'draft': return showing(previewStore(), { kind: 'conversation', session: null }, null)
+    case 'conversation': return popupContent(showing(previewStore(new URLSearchParams(window.location.search).has('sidebar-geometry')
+      ? sidebarGeometryFixture(previewStore().getSnapshot()) : undefined), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY))
+    case 'draft': return popupContent(showing(previewStore(), { kind: 'conversation', session: null }, null))
     case 'team-run-recorded': return showing(frameRunStore('running'), { kind: 'room', room: 'overview-team' }, null)
     case 'team-run-not-reached': return showing(frameRunStore('empty'), { kind: 'room', room: 'overview-team' }, null)
     case 'team-run-equivalent': return showing(frameEquivalentRunStore(), { kind: 'room', room: 'overview-team' }, null)
@@ -116,6 +137,8 @@ const storeFor = (destination: Destination): AppStore => {
     case 'agent':
     case 'settings':
     case 'settings-general':
+    case 'settings-navigation':
+    case 'settings-search':
     case 'settings-runtimes':
     case 'library':
     case 'plugins':
@@ -125,6 +148,12 @@ const storeFor = (destination: Destination): AppStore => {
 
 /** The page the app draws over the workbench for this destination, if any. */
 const FrameDestination = ({ destination }: { destination: Destination }) => {
+  const store = useStore()
+  useEffect(() => {
+    const api = { resizeLeft: (width: number) => store.resizePanel('sidebar', width) }
+    Object.assign(window, { __hdFrameWall: api })
+    return () => { delete (window as Window & { __hdFrameWall?: typeof api }).__hdFrameWall }
+  }, [store])
   const [page, setPage] = useState<PageOwner | null>(() => pageFor(destination))
   const [section, setSection] = useState<Section>(() => sectionFor(destination))
   const [view, setView] = useState<DashboardView>('overview')
@@ -134,18 +163,24 @@ const FrameDestination = ({ destination }: { destination: Destination }) => {
   const settings = (next: Section = 'general') => { setSection(next); setPage('settings') }
   const agents = (id: string | null = null) => { setFocus(id); setPage('agents') }
   const usage = () => { setView('overview'); setScope(null); setPage('dashboard') }
+  const [leftFilter, setLeftFilter] = useState('')
+  const left = (inWindow: boolean) => <Sidebar active={inWindow || page !== 'settings'}
+    listFilter={{ value: leftFilter, onChange: setLeftFilter }} sessionsOwner={!inWindow}
+    onOpenSettings={settings} onOpenLibrary={() => settings('library')} onOpenPlugins={() => settings('plugins')}
+    onOpenAgents={agents} onOpenTeams={() => setPage('teams')} onOpenUsage={usage} onBrowseFolders={() => {}}
+    onSignIn={() => {}} onSearch={() => {}}
+    activeDestination={page === 'settings' && section === 'library' ? 'library' : page === 'settings' && section === 'plugins' ? 'plugins' : page === 'settings' || page === 'changes-review' ? null : page}
+    settings={inWindow && section !== 'library' && section !== 'plugins' ? { section, onSection: setSection, onBack: close } : undefined} />
   return <TopBarProvider><ShellHostsProvider>
     <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: usage,
       openRuntimes: () => settings('runtimes'), openAgents: agents, reviewImports: () => {} }}>
       <AppWindowMode.Provider value="modal">
         <div data-frame-id="frame-wall" data-destination={destination} className="h-screen bg-background">
-          <Workbench suspended={page !== null} sidebar={<Sidebar onOpenSettings={settings} onOpenPlugins={() => settings('plugins')}
-            onOpenAgents={agents} onOpenTeams={() => setPage('teams')} onOpenUsage={usage} onBrowseFolders={() => {}}
-            onSignIn={() => {}} onSearch={() => {}} activeDestination={page === 'settings' && section === 'plugins' ? 'plugins' : page === 'changes-review' || page === 'settings' ? null : page} />} />
+          <Workbench suspended={page !== null} sidebar={left(false)} />
           {page === 'teams' && <TeamsWindow onClose={close} />}
           {page === 'agents' && <AgentsWindow focus={focus} onClose={close} onFocus={setFocus} />}
           {page === 'dashboard' && <Usage view={view} scope={scope} onView={setView} onScope={setScope} onClose={close} onSignIn={() => {}} />}
-          {page === 'settings' && <Settings section={section} onSection={setSection} onClose={close} onSignIn={() => {}} />}
+          {page === 'settings' && <Settings leftColumn={left(true)} section={section} onSection={setSection} onClose={close} onSignIn={() => {}} />}
           {page === 'changes-review' && <ChangesReview onClose={close} />}
           <ShellOutlets activeOwner={page} />
           <PopupWall />
@@ -179,13 +214,18 @@ export const FrameWall = () => {
     // Additional Details states for the same real frame; all data is synthetic.
     const detailsCase = query.get('frame-details-case')
     const snapshot = next.getSnapshot()
+    if (query.get('frame-conversation-actions') === '1') {
+      Object.assign(snapshot, { runtimes: snapshot.runtimes.map(runtime => ({
+        ...runtime, capabilities: { ...runtime.capabilities, memory: true, compaction: true, undo: true },
+      })) })
+    }
     if (query.get('frame-sidebar-hidden') === '1') Object.assign(snapshot, { sidebarCollapsed: true, sidebarFloating: false })
     if (query.get('frame-status') === 'tasks') {
       const task: BackgroundTask = { id: 'frame-task', label: 'Review the checkout', kind: 'command', state: 'running',
         command: 'node review.mjs', cwd: '/work/storefront', stoppable: false }
       Object.assign(snapshot, { tasks: new Map([[PREVIEW_SESSION_KEY, [task]]]) })
     }
-    if (query.get('frame-status') === 'reconnecting') Object.assign(snapshot, { status: 'reconnecting' })
+    if (['connecting', 'reconnecting', 'closed'].includes(query.get('frame-status') ?? '')) Object.assign(snapshot, { status: query.get('frame-status') })
     if (destination === 'team' && query.get('frame-member-actions') === '1') {
       Object.assign(snapshot, { runtimes: snapshot.runtimes.map(runtime => ({
         ...runtime, capabilities: { ...runtime.capabilities, compaction: true, undo: true },
@@ -249,6 +289,19 @@ export const FrameWall = () => {
     if (query.get('frame-terminal') === '1') void next.openTerminal()
     return next
   }, [destination, location.search])
+  useEffect(() => {
+    const onConnection = (event: Event) => {
+      const status: unknown = (event as CustomEvent).detail
+      if (status === 'open' || status === 'connecting' || status === 'reconnecting' || status === 'closed') (store as ReturnType<typeof previewStore>).patch({ status })
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (shortcutFor(event)?.action !== 'toggle-terminal') return
+      event.preventDefault(); toggleTerminal(store)
+    }
+    window.addEventListener('harnessdesk:preview-connection', onConnection)
+    document.addEventListener('keydown', onKey)
+    return () => { window.removeEventListener('harnessdesk:preview-connection', onConnection); document.removeEventListener('keydown', onKey) }
+  }, [store])
   if (requested === 'topbar') return <TopBarProbe />
   return <StoreProvider store={store}>
     <FrameDestination destination={destination} />

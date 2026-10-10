@@ -10,7 +10,6 @@ export interface FixedShellProps extends Omit<HTMLAttributes<HTMLDivElement>, 'c
   readonly main: ReactNode
   readonly right: ReactNode
   readonly bottom: ReactNode
-  readonly status: ReactNode
   readonly leftFloating: boolean
   readonly panelFloating: boolean
   readonly leftOpen: boolean
@@ -18,8 +17,8 @@ export interface FixedShellProps extends Omit<HTMLAttributes<HTMLDivElement>, 'c
   readonly bottomOpen: boolean
   readonly children?: ReactNode
 }
-/** Six stable regions: folding and closing affect geometry, never body identity. */
-export const FixedShell = forwardRef<HTMLDivElement, FixedShellProps>(({ viewportWidth, left, top, main, right, bottom, status,
+/** Five stable regions: folding and closing affect geometry, never body identity. */
+export const FixedShell = forwardRef<HTMLDivElement, FixedShellProps>(({ viewportWidth, left, top, main, right, bottom,
   leftFloating, panelFloating, leftOpen, rightOpen, bottomOpen, children, className, style, ...props }, ref) => <WorkbenchCanvas {...props} ref={ref}
     style={{ '--frame-window-width': `${viewportWidth}px`, '--frame-main-min': `${FRAME.main.min}px`, '--frame-right-max': `${FRAME.rightPanel.max}px`, ...style } as CSSProperties}
     data-slot="fixed-shell" data-left-floats={leftFloating} data-panel-floats={panelFloating}
@@ -30,6 +29,9 @@ export const FixedShell = forwardRef<HTMLDivElement, FixedShellProps>(({ viewpor
   <div data-frame-region="main" className={styles.main}>{main}</div>
   <DockPanel data-slot="frame-panel" data-frame-region="right" edge="left" paintedRule className={styles.right} inert={!rightOpen}>{right}</DockPanel>
   <DockPanel data-slot="frame-panel" data-frame-region="bottom" edge="top" paintedRule className={styles.bottom} inert={!bottomOpen}>{bottom}</DockPanel>
-  <div data-frame-region="status" className={styles.status}>{status}</div>
 </WorkbenchCanvas>)
 FixedShell.displayName = 'FixedShell'
+
+/** A notice portal contributes only its Banner's height, including in flex main. */
+export const ShellNoticeHost = forwardRef<HTMLDivElement>((_, ref) => <div ref={ref} data-shell-host="main-notice" className="contents" />)
+ShellNoticeHost.displayName = 'ShellNoticeHost'

@@ -33,8 +33,3 @@
   align-items: center;
   flex: none;
 }
-
-.facts {
-  margin: var(--hd-space-2) 0 0;
-  row-gap: var(--hd-space-1-5);
-}

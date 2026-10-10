@@ -16,7 +16,7 @@ left column and which gutter. Each screen chose, and a read of the source on
   different leading edges (8, 12, 14, 16, 17, 24, 34, 36, 37); four title
   sizes in bars (13, 14, 16, 20); four switchers on one Team page (a 26px
   filled tab track, a 30px `Segmented`, the dock's 26px pills, `PanelPill`).
-- **Left columns:** the sidebar is 240 wide, the full-window rail 244 (a
+- **Left columns:** the sidebar is 256 wide (owner, 2026-10-10), the full-window rail 244 (a
   literal), the token 275 (used by nothing in the app). The rail pads 8 or 12,
   and a grouped row starts 8px further in than an ungrouped one, so Teams,
   Agents, Dashboard and Settings each start their text at a different x.
@@ -68,8 +68,10 @@ screen. Five causes, each checked in the source:
 2. **One bar height, 40px**: the top bar (one row across main and the right
    panel), the left column's top row and its seat row. A panel has no bar of
    its own.
-3. **One top row for the left column**: window buttons, sidebar toggle and
-   back/forward, then notifications and search. The wordmark row is dropped.
+3. **One top row for the left column**: window buttons, sidebar toggle,
+   search, back, forward, then empty space reserved for a later switch. The
+   notifications bell sits in the seat row beside the gear; the gear stays
+   last (owner, 2026-10-10). The wordmark row is dropped.
 4. **Flat panels.** Columns meet at hairlines and every bar sits on one
    continuous 40px line across the window.
 5. **Three content widths** — reading, wide, canvas — and **a page's title
@@ -107,26 +109,32 @@ screen. Five causes, each checked in the source:
 
 The owner's rule, after walking a new session, a Team's Run with Run
 details docked, and Settings: **the sidebar, the top bar, the panels and the
-bottom bar are fixed.** Every destination had drawn its own header, so a
+bottom panel are fixed; there is no status bar (owner, 2026-10-10).** Every destination had drawn its own header, so a
 draft's bar, a conversation's and a Team's were three different rows, and a
 docked inspector drew its own titled cards under the panel's strip. So:
 
-- **Six regions, always in the same places, each drawn by one shell
-  component:** the left column, the top bar, main, the right panel, the
-  bottom panel (the terminal), and the status bar along the window's foot.
+- **Five regions, always in the same places, each drawn by one shell
+  component:** the left column, the top bar, main, the right panel, and the
+  bottom panel (the terminal). The column and main reach the window's bottom;
+  the seat is the column's last row (owner, 2026-10-10).
 - **A page draws none of them.** It declares what goes in their slots — the
   top bar's place, state, tabs, verb, View options and ⋯ items through one
-  hook; a tool's body only; its status facts — and the shell renders them. The
+  hook; a tool's body only — and the shell renders them (owner, 2026-10-10). The
   conversation header, the Team bar and the draft's header stop being
   components of their own.
 - **The top bar is one component on every destination** — a draft, a
   conversation, a Team, a list page, an Agent, Settings — with its slots in
   the same places and the panel toggle and ⋯ always where they were.
-- **The status bar holds what is true of the whole app, not of the page:**
-  plan usage, the other agents, background tasks, sync and updates. Those
-  leave the top bar. A page's own facts (a conversation's branch, ceiling and
-  context; a Team's seats, trigger and pull request) leave it too, for the
-  right panel's Details tool: the top bar carries no facts pill.
+- **There is no strip at the window's foot (owner, 2026-10-10).** Plan usage
+  and the other agents' plan facts are rows in the seat menu, with Open usage
+  and Sign in. Background tasks lead Activity, retaining output, Stop and
+  Clear; its 28px tool button has a small dot while any task runs. Historical
+  tasks callers open Activity. Connection trouble is a Banner at main's top:
+  connecting only after five seconds, reconnecting or disconnected immediately,
+  absent when open. A native update fact is one actionable column row above the
+  seat, present only while the fact exists. Terminal is a toggle in ⋯ with
+  Control-backtick, and still opens at main's bottom. Page facts remain in
+  Details; the top bar carries no facts pill.
 - **A panel is one frame with no bar.** The tool icons in the top bar row
   choose what it shows, and its quiet footer line is the shell's; a tool
   supplies a body of sections — never a titled card or a header of its own.
@@ -137,12 +145,14 @@ Approved by the owner: the frame is fixed rather than freely arranged.
 
 | Region | Size | Limits | Holds |
 | --- | --- | --- | --- |
-| Left column | 240 | drag 200–360 | the session tree and its pages, or Settings' nav |
+| Left column | 256 (owner, 2026-10-10) | drag 200–360 | the session tree and its pages, or Settings' nav |
 | Top bar | 40 | — | one row across main and the right panel |
 | Main | the rest | keeps at least 480 beside a standing panel | one destination |
 | Right panel | 400 | drag 320–640 | one tool at a time, chosen by its icon in the top bar row |
 | Bottom panel | 240 | drag 120 to half the window | the terminal only |
-| Status bar | 28 | — | app-wide facts and the terminal's toggle |
+
+There is no status-bar region or reserved height: seat and main reach the
+window's bottom (owner, 2026-10-10).
 
 - **The right panel's tools are a fixed set of four icons** — Details,
   Changes, Activity, Browser — then the panel toggle, then ⋯, at the end of
@@ -153,7 +163,8 @@ Approved by the owner: the frame is fixed rather than freely arranged.
   Team have one; the Teams list, Agents, an Agent's page, Library, Plugins,
   Dashboard and Settings have none — no tool icons, and their bar ends at ⋯.
   The panel comes back as it was when work is in main again. A draft's
-  Changes and Activity are greyed until it is sent.
+  Changes and Activity are greyed until it is sent, except Activity stays available
+  when background tasks are running (owner, 2026-10-10).
 - **The panel has no bar and no arrangement of its own.** No tabs, no split
   (side by side or one above the other), no move to the bottom panel or the
   left column, no zoom, no collapse chevron. The lit tool is its title; the
@@ -165,7 +176,9 @@ Approved by the owner: the frame is fixed rather than freely arranged.
 - **The frame folds on its own:** at 1280 and wider every region stands;
   from 1000 to 1279 an opened right panel floats over the right of main
   instead of narrowing it; below 1000 the left column also floats, opened from
-  the top bar's lead slot.
+  the top bar's lead slot. No fold reserves a status-bar row: both standing
+  and floating columns, main and the terminal reach the window's bottom
+  (owner, 2026-10-10).
 
 ### The shell and its destinations
 
@@ -201,11 +214,11 @@ Sign in keeps its own surface: it is a first-run gate, not a page.
 
 One container, whatever main shows.
 
-- **Width:** `--hd-sidebar-width` 240, draggable 200–360. The 244 literal and
+- **Width:** `--hd-sidebar-width` 256 (owner, 2026-10-10), draggable 200–360. The 244 literal and
   the unused 275 go.
-- **Top row (40):** window buttons, sidebar toggle, back and forward … then
-  notifications and search. Back and forward fold away below 240 (⌘[ and ⌘]
-  remain).
+- **Top row (40):** window buttons, sidebar toggle, search, back, forward,
+  then empty space reserved for a later switch (owner, 2026-10-10). Back and
+  forward fold away below 240 (⌘[ and ⌘] remain).
 - **Rows:** one anatomy for every row in the column — 30 tall, 8px inset, a
   16px icon, 8px gap, 13px label, one trailing slot for a count or a dot,
   a grey selected fill. A row inside a group starts at the same x as one
@@ -216,8 +229,14 @@ One container, whatever main shows.
   bar, and its seats are in its Overview and the Details tool, not rows under
   it. Opening the Team returns to the view it was last on.
 - **Group label:** 13px/500, secondary ink, in both modes; it starts at the icons' x, not the text's, with 16px above a group that follows another (the owner's choice, 2026-10-10).
-- **Seat row (40):** you, at the bottom, with the gear that opens Settings.
-  The gear reads as pressed while Settings is open.
+  - Project headings keep the 16px gutter; the muted disclosure follows the visible name by the 6px spacing token, including when truncated, with room for the right-end +.
+    Open headings reveal the down arrow and + on hover or keyboard focus; folded headings keep the right arrow visible. Name and arrow toggle `aria-expanded`; right-click keeps the menu.
+    Every foldable left-column heading follows this rule in both modes, standing or floating (owner, 2026-10-10).
+- **Seat row (40):** you, at the bottom, then the notifications bell beside the
+  gear that opens Settings; the gear stays last (owner, 2026-10-10).
+  The gear reads as pressed while Settings is open. Usage lives in its avatar
+  menu, and a native update row sits immediately above the seat only while an
+  update fact exists (owner, 2026-10-10).
 - **Sessions mode:** New session ⌄, then one row each for Teams, Agents,
   Library, Plugins and Dashboard, then Projects and the session tree. Nothing
   docks in the column.
@@ -234,7 +253,9 @@ One top bar, one height (`--hd-bar-h` 40), one padding (`--hd-bar-pad` 8,
 the leading words at `--hd-bar-ink`), one gap (`--hd-bar-gap` 6), one icon
 button (28), one divider (1 × 14).
 
-**The top bar** runs across main and the right panel's column. Its slots,
+**The top bar** runs across main and the right panel's column on main's own
+background, with no bottom hairline (owner, 2026-10-10). The standing right
+panel's vertical seam continues through the bar. Its slots,
 left to right, each optional except place and ⋯:
 
 1. **lead** — sidebar toggle, back, forward; only while the left column is not standing beside main (the existing rule). In a narrow window, where the column floats, the lead is the sidebar toggle alone, as drawn: back and forward are in the column's top row, and ⌘[ and ⌘] work everywhere.
@@ -253,7 +274,8 @@ left to right, each optional except place and ⋯:
 8. **tools** — on a piece of work only: Details, Changes, Activity, Browser,
    then the panel toggle. They stand over the panel's column while it is open.
 9. **⋯** — always last, at the window's right edge, on every destination;
-   every verb on the subject that is not slot 6 lives here.
+   every verb on the subject that is not slot 6 lives here. Terminal is a
+   toggle here, with its Control-backtick shortcut (owner, 2026-10-10).
 
 **Why this order: nothing moves.** Icons have one width and words do not.
 The worded verb comes before the View icon, so its words grow leftwards into
@@ -275,7 +297,10 @@ card of its content or a row in Details, never a strip of its own.
 narrower than 180px, the bar first drops the state chip and the words of any
 verb that has an icon (the icon stays, the words become its title), then
 folds its tabs into one button naming the current tab, whose menu lists them
-all. A verb without an icon keeps its words.
+all. A verb without an icon keeps its words through those two steps. If the
+title would still be narrower than 180px, a third and last step moves that
+worded verb into the first item of ⋯ with the same words and action, followed
+by a separator; it returns to the bar as soon as there is room (controller, 2026-10-10).
 
 **One switcher.** Page tabs and list filters are one component at one size.
 
@@ -297,7 +322,8 @@ there, a menu elsewhere, controls that come and go. One rule each:
     the pull request), then its Seats.
   - **Changes** — the subject's diff: a conversation's uncommitted work, a
     Team's branch against its base.
-  - **Activity** — what the subject did, newest first.
+  - **Activity** — background tasks first (including running work across the app),
+    then what the subject did, newest first (owner, 2026-10-10).
   - **Browser** — the page it is building.
 - **The bottom panel** holds what runs beside it — the terminal.
 - A page never opens in a panel and a tool never becomes a page. The one
@@ -329,7 +355,7 @@ into a tool or a page; none adds a fifth icon without a decision here.
 
 | Destination | Tabs | Verb | View | Tools |
 | --- | --- | --- | --- | --- |
-| New session | — | — | — | four; Changes and Activity greyed until sent |
+| New session | — | — | — | four; Changes greyed until sent; Activity available for running tasks (owner, 2026-10-10) |
 | Conversation | — | — | — | four |
 | Team · Overview | its views | — | greyed | four |
 | Team · Run | its views | Stop run… | Timeline, Flow | four |
@@ -418,7 +444,7 @@ list, a list of agents with meters, a muted footer line under a separator.
 Long names wrap to a second line rather than widening it.
 
 **The info card.** 288 wide, padding 12, facts only, opened by hover or focus
-on a fact in the status bar or on a name. It never carries actions and never
+on a name or a fact in content (owner, 2026-10-10). It never carries actions and never
 stacks on top of a menu.
 
 `PopoverOption` (the 36px row) is retired into the menu row; the vendored
@@ -434,8 +460,9 @@ room. The left column's Settings mode floats the same way.
 
 | Token | Today | After |
 | --- | --- | --- |
+| `--hd-statusbar-h` | 28 | removed with the status-bar region (owner, 2026-10-10) |
 | `--hd-bar-h` (and `--hd-titlebar-height`, which follows it) | 46 | 40 |
-| `--hd-sidebar-width` | 275, unused | 240, used by the column and the explorer |
+| `--hd-sidebar-width` | 275, unused | 256, used by the column and the explorer (owner, 2026-10-10) |
 | `--hd-page-wide` | — (1320 literal in AppWindow) | 1320 |
 | `--hd-page-gutter` | — (`PaneColumn inset="reading"`) | 24, named |
 | `--hd-popover-width-wide` | 320 | 340 |
@@ -454,6 +481,7 @@ to the nonexistent `--hd-topbar-h` is fixed in the same pass.
 
 | Piece | Becomes |
 | --- | --- |
+| `WorkStatusBar`, `StatusBar` | retired with the frame region and catalogue entry (owner, 2026-10-10) |
 | `Bar` | the one bar; `size="lg"` (48) is removed |
 | Conversation header, Team header (`TeamRoomPane`), draft header | the top bar, built from one `TopBar` pattern with the nine slots |
 | Run header, Board header, Findings header, Runs head | the top bar's verb and View slots; `ViewBar` from step 0 is retired when the shell lands |
@@ -484,15 +512,16 @@ own with the app working:
 1. **Tokens.** Bar height 40 and the window-button position; the named widths
    and menu tokens; dead tokens out. Every screen moves with it; re-record
    `metrics.json`.
-2. **The fixed shell.** The shell renders the top bar, the panel frame and
-   the status bar; destinations register their slots instead of drawing
-   headers (`useTopBar`, tool bodies, status facts). It starts with an
+2. **The fixed shell.** The shell renders the top bar and the panel frame;
+   the status bar is retired (owner, 2026-10-10); destinations register their slots instead of drawing
+   headers (`useTopBar`, tool bodies) (owner, 2026-10-10). It starts with an
    inventory of every panel view, each placed in one of the four tools or a
    page. The conversation, Team and draft headers are deleted as they move;
    Run, Board, Findings and Runs register their verb and View menu, and step
    0's `ViewBar` goes; the panel bar, its split/move/zoom menu and the docked
    inspectors' own bars and titled cards go; page facts move to Details and
-   app-wide facts to the status bar; the right-panel toggle leaves the
+   app-wide facts to the seat menu, Activity, the connection Banner and update
+   row, with Terminal in ⋯ (owner, 2026-10-10); the right-panel toggle leaves the
    window-buttons row for its place before ⋯.
 3. **Popups.** The menu, the wide menu and the info card; every popup in the
    app renders one of the three.
@@ -616,8 +645,9 @@ Four things stop that here.
   every Team view, folded and unfolded, the left column in both modes, the three
   popups and the page wall, from the real components with real-length content
   (second lines, long names, CJK titles); `node script/ui-catalog.mjs` passes.
-- Each step is looked at in the built app in light and dark, at a wide window
-  and at 720, with frames from the rig.
+- The app check and frames run once after all work is done. Each task runs
+  only the fast gates and its added or changed frame-contract cases, and lists
+  destinations, widths and items for the final combined check (owner, 2026-10-10).
 
 ## Out of scope
 

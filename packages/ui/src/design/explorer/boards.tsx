@@ -102,6 +102,9 @@ import {
   NoteList,
   PaneColumn,
   PopoverSurface,
+  MenuPresentation,
+  MenuLabel,
+  MenuListboxOption,
   RefusedAction,
   SectionHead,
   Segmented,
@@ -1245,10 +1248,12 @@ const QueueBoard = () => (
           </ComposerNoticeStack>
         </div>
       </Case>
-      <PopoverSurface limit="trigger">
-        <Text role="muted" as="div" className="px-2 py-1">Commands</Text>
-        <Button variant="navigation" size="navigation" className="w-full">/review</Button>
-      </PopoverSurface>
+      <MenuPresentation icons="none" wide>
+        <PopoverSurface limit="trigger" role="listbox" aria-label="Command suggestions">
+          <MenuLabel>Commands</MenuLabel>
+          <MenuListboxOption data={{ label: '/review' }} aria-selected={false} />
+        </PopoverSurface>
+      </MenuPresentation>
       <Text role="muted" as="div">
         Press <Keycap>esc</Keycap> to close; “Set<Text as="b" role="meta" ink="primary" weight="semibold">tings</Text>” shows the matched text at full ink and weight.
       </Text>

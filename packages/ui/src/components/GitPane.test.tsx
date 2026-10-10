@@ -549,6 +549,10 @@ it('a branch row answers with the SourceTree menu, and delete asks in red first'
   await rightClick(row)
 
   const menu = document.querySelector('[role="menu"]')!
+  expect(menu.getAttribute('data-popup-kind')).toBe('wide-menu')
+  expect(menu.getAttribute('data-menu-icons')).toBe('all')
+  expect(menu.querySelector('[title="On the branch\'s forge, in the browser."]')?.querySelector('[data-menu-hint]')).toBeNull()
+  expect(menu.querySelector('[title="On the branch\'s forge, in the browser."]')).not.toBeNull()
   expect(menu.textContent).toContain('Check out feat/graph')
   expect(menu.textContent).toContain('Merge feat/graph into main')
   expect(menu.textContent).toContain('Rebase main onto feat/graph')

@@ -4,6 +4,7 @@ import { runtimeId, type AgentItem } from '@harnessdesk/protocol'
 
 import { BackgroundTasksView } from '../components/BackgroundTasks'
 import { BranchSwitcher } from '../components/BranchSwitcher'
+import { BranchCreateDialog } from '../components/BranchCreateDialog'
 import { ChangesReview } from '../components/ChangesReview'
 import { CommandPalette, type PaletteHost } from '../components/CommandPalette'
 import { DeleteSession } from '../components/DeleteSession'
@@ -101,7 +102,7 @@ const PALETTE_HOST: PaletteHost = {
 }
 
 const DIALOG_OPTIONS = [
-  'off', 'branch switcher', 'changes review', 'ask agent', 'worktree manager', 'new worktree',
+  'off', 'branch switcher', 'create branch', 'changes review', 'ask agent', 'worktree manager', 'new worktree',
   'folder picker', 'provenance', 'command palette', 'delete session',
   'commit', 'merge', 'rename branch', 'delete branch', 'tag', 'reset', 'stash', 'diff range',
 ] as const
@@ -125,10 +126,10 @@ const GIT_DIALOG_COMMIT = GIT_COMMITS[0]!
  * reproducing the hover mechanics themselves. Real popup chrome, not a
  * hand-drawn shell; not a re-enactment of a mouse that was never there.
  */
-const BranchSwitcherFlyout = ({ onDone }: { readonly onDone: () => void }) => (
+const BranchSwitcherFlyout = ({ onDone, onCreate }: { readonly onDone: () => void; readonly onCreate: () => void }) => (
   <Menu close={onDone}>
     <div className="w-[340px]">
-      <BranchSwitcher root="/work/storefront" onDone={onDone} />
+      <BranchSwitcher root="/work/storefront" onDone={onDone} onCreate={onCreate} />
     </div>
   </Menu>
 )
@@ -163,7 +164,8 @@ export const TranscriptFrames = () => {
           `PanelFrames`/`GoalFrames`/`SettingsFrames` included, not just
           this file's own. */}
       <Boundary>
-        {dialog === 'branch switcher' && <BranchSwitcherFlyout onDone={() => setDialog('off')} />}
+        {dialog === 'branch switcher' && <BranchSwitcherFlyout onDone={() => setDialog('off')} onCreate={() => setDialog('create branch')} />}
+        {dialog === 'create branch' && <BranchCreateDialog root={GIT_DIALOG_ROOT} onDone={() => {}} onClose={() => setDialog('off')} />}
         {dialog === 'changes review' && <ChangesReview onClose={() => setDialog('off')} />}
         {dialog === 'ask agent' && <AskAgentDialog trouble={TROUBLE} onDone={() => setDialog('off')} />}
         {dialog === 'worktree manager' && <WorktreeDialog root="/work/storefront" onAdd={() => {}} onDone={() => setDialog('off')} />}

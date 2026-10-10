@@ -99,6 +99,9 @@ import {
   Monitor,
   MonitorSmartphone,
   PanelLeft,
+  PanelRight,
+  SquareMenu,
+  FilePlus2,
   Paperclip,
   Pencil,
   Pin,
@@ -209,6 +212,9 @@ export const SidebarIcon = icon(PanelLeft, 'SidebarIcon')
 export const SideBySideIcon = icon(Columns2, 'SideBySideIcon')
 /** A plugin's panel contribution. */
 export const PanelIcon = icon(LayoutPanelLeft, 'PanelIcon')
+export const PanelRightIcon = icon(PanelRight, 'PanelRightIcon')
+export const SquareMenuIcon = icon(SquareMenu, 'SquareMenuIcon')
+export const FilePlusIcon = icon(FilePlus2, 'FilePlusIcon')
 
 // --- Status ----------------------------------------------------------------
 

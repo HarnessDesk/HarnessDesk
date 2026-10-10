@@ -1481,7 +1481,7 @@ const BrowserPaneContent = () => {
           label={<MoreIcon size={14} />}
           title="Browser settings"
           align="right"
-        >
+         icons="none">
           {(close) => (
             <Menu close={close}>
               <MenuItem
@@ -1641,7 +1641,7 @@ const BrowserPaneContent = () => {
           label={<DeviceGlyph size={14} />}
           title={`Size: ${spec.label}`}
           align="right"
-        >
+         icons="none">
           {(close) => (
             <Menu close={close}>
               {BROWSER_DEVICES.map((entry) => {
@@ -1814,7 +1814,7 @@ const BrowserPaneContent = () => {
         person debugging a page actually reaches for: the real browser, and
         the element inspector at the exact point they clicked.
       */}
-      <ContextMenu at={pageMenu?.at ?? null} label="Page" onClose={() => setPageMenu(null)}>
+      <ContextMenu at={pageMenu?.at ?? null} label="Page" onClose={() => setPageMenu(null)} icons="none">
         {pageMenu && (
           <>
             {pageMenu.target.linkURL && (
@@ -1881,7 +1881,7 @@ const BrowserPaneContent = () => {
           </>
         )}
       </ContextMenu>
-      <ContextMenu at={tabMenu.at} label="Tab" onClose={tabMenu.close}>
+      <ContextMenu at={tabMenu.at} label="Tab" onClose={tabMenu.close} icons="none">
         {tabMenu.tab && (
           <>
             <MenuItem

@@ -383,21 +383,19 @@ export const SideBySide = ({
                   }}>
                   {state.modes[key] === 'browser' ? <CommentIcon size={14} /> : <GlobeIcon size={14} />}
                 </Button></span>
-                <DropdownMenu>
+                <DropdownMenu icons="none">
                   <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon-sm" aria-label={`${nickname} actions`} title="Tile actions"><MoreIcon size={14} /></Button>} />
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${nickname}`} onClick={event => {
                       event.stopPropagation()
                       onChange(was => expandTile(was, isExpanded ? null : key))
-                    }}>{isExpanded ? 'Return to the grid' : 'Expand tile'}</DropdownMenuItem>
-                    <DropdownMenuItem onClick={(event) => { event.stopPropagation(); onOpenMember(key) }}>Open conversation</DropdownMenuItem>
+                    }} label={isExpanded ? 'Return to the grid' : 'Expand tile'} />
+                    <DropdownMenuItem onClick={(event) => { event.stopPropagation(); onOpenMember(key) }} label={"Open conversation"} />
                     <DropdownMenuItem onClick={(event) => {
                       event.stopPropagation()
                       onChange((was) => pinTile(was, key, !was.pinned.includes(key)))
-                    }}>
-                      {state.pinned.includes(key) ? 'Unpin' : 'Pin to the grid'}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={(event) => { event.stopPropagation(); onChange((was) => removeTile(was, key)) }}>Take off the grid</DropdownMenuItem>
+                    }} label={state.pinned.includes(key) ? 'Unpin' : 'Pin to the grid'} />
+                    <DropdownMenuItem onClick={(event) => { event.stopPropagation(); onChange((was) => removeTile(was, key)) }} label={"Take off the grid"} />
                   </DropdownMenuContent>
                 </DropdownMenu>
               </Bar>

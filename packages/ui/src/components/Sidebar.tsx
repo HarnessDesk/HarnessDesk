@@ -1,18 +1,25 @@
+import { describeStrip, type StripMeter } from '../lib/plan-strip'
+import { SidebarUpdate } from './SidebarUpdate'
+import { LeftColumnModeHead } from '../design'
+import { SettingsNavigation } from './SettingsNavigation'
 import { LeftColumn, LeftColumnBody, LeftColumnNavigation, LeftColumnProjectsHead, LeftColumnTop, LeftColumnRow, LeftColumnSeat, LeftColumnGroup } from '../design'
 import { LibraryIcon } from './Icons'
 import { Slot } from '../slots/registry'
 import { sidebarPlacement } from '../state/workbench'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { SidebarNotices, useInboxMessages } from './Notices'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
-import { useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
-import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
+import { useActiveSession, useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
+import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignInIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
 import { FrontDoor } from './FrontDoor'
 import { SessionListControls, SessionTree } from './SessionTree'
 import {
   AccountMark,
-  UsageMeterRow,
+  MenuFacts,
+  ConfirmDialog,
+  ActionError,
+  useDismissOverlays,
   Button,
   Dot,
   Menu,
@@ -42,7 +49,7 @@ import { RuntimeMark } from './BrandIcons'
 import { ProfileFace } from './ProfileFace'
 import { Clipped, DisclosureChevron, EmptyState } from '../design'
 import type { Section } from './Settings'
-import { bindingLane, describeReport, isBlocked } from '../lib/usage'
+import { bindingLane, describeReport, describeLane, formatAge, formatMoney, isBlocked } from '../lib/usage'
 import { usageReadingTone } from '../lib/limits'
 import { usageAccount } from '../lib/usage-alerts'
 import styles from './Sidebar.module.css'
@@ -70,6 +77,7 @@ export const Sidebar = ({
   onSignIn,
   onSearch,
   activeDestination = null,
+  active = true, settings, listFilter, sessionsOwner = true,
 }: {
   onOpenSettings: (section?: Section) => void
   onOpenPlugins: () => void
@@ -83,12 +91,18 @@ export const Sidebar = ({
   /** Opens the sign-in screen, on one runtime when the caller knows which. */
   onSignIn: (runtime?: RuntimeId) => void
   onSearch: () => void
+  active?: boolean
+  settings?: { section: Section; onSection: (section: Section) => void; onBack: () => void }
+  listFilter?: { value: string; onChange: (value: string) => void }
+  sessionsOwner?: boolean
   activeDestination?: 'teams' | 'agents' | 'library' | 'plugins' | 'dashboard' | null
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const inbox = useInboxMessages()
-  const [query, setQuery] = useState('')
+  const [localQuery, setLocalQuery] = useState('')
+  const query = listFilter?.value ?? localQuery
+  const setQuery = listFilter?.onChange ?? setLocalQuery
   const searchQuery = query.trim()
   // The filter takes the Projects row while it is in use and gives the
   // label back when it is empty and unfocused: a 200px sidebar has room for
@@ -107,9 +121,10 @@ export const Sidebar = ({
 
   // Debounced so typing does not fire a search per keystroke against the runtime.
   useEffect(() => {
+    if (!sessionsOwner) return
     const timer = window.setTimeout(() => void store.searchHistory(query), 220)
     return () => window.clearTimeout(timer)
-  }, [query, store])
+  }, [query, store, sessionsOwner])
 
   const onScroll = useCallback(() => {
     const element = listRef.current
@@ -133,9 +148,6 @@ export const Sidebar = ({
     back={snapshot.navCanBack} forward={snapshot.navCanForward}
     toggle={() => store.toggleSidebar()} goBack={() => { void store.navigateBack() }}
     goForward={() => { void store.navigateForward() }}
-    notifications={<InboxPanel side="bottom" size="icon-sm" messages={inbox}
-      onOpen={id => store.markInboxRead(id)} onMarkAllRead={() => store.markInboxRead(null)}
-      onClear={() => store.clearInbox()} />}
     search={<Button variant="ghost" size="icon-sm" onClick={onSearch}
       title="Search everything (⌘K)" aria-label="Search everything" aria-keyshortcuts="Meta+K"><SearchIcon size={16} /></Button>} />
   const pageDoors = [
@@ -146,11 +158,11 @@ export const Sidebar = ({
     { id: 'dashboard' as const, label: 'Dashboard', icon: <UsageIcon size={16} />, run: () => onOpenUsage(), count: lowAgents },
   ]
   const sessionsHead = <>
-    {starting && projectRootOf(snapshot.workspace) && <FrontDoor context={{ kind: 'project', root: projectRootOf(snapshot.workspace)! }} onClose={() => setStarting(false)} onStarted={execution => { store.openGoal(execution.goal); setStarting(false) }} />}
+
     <LeftColumnNavigation>
       <LeftColumnRow label="New session" icon={<PlusIcon size={16} />}
         disabled={!ready || !snapshot.workspace} title="Start a session here" onClick={() => store.newDraft()}
-        menu={{ label: 'More ways to start', onOpenChange: open => { if (open) void store.loadWorktrees() },
+        menu={{ icons: 'all', label: 'More ways to start', onOpenChange: open => { if (open) void store.loadWorktrees() },
           content: close => <WorktreeItems close={close} onChoose={() => setStarting(true)} /> }} />
       <LeftColumnGroup label="Main sections" heading={false}>
         {pageDoors.map(door => <LeftColumnRow key={door.id} label={door.label} icon={door.icon}
@@ -162,7 +174,7 @@ export const Sidebar = ({
     </LeftColumnNavigation>
   </>
   const sessionsBody = (
-    <LeftColumnBody ref={listRef} onScroll={onScroll}>
+    <LeftColumnBody hidden={Boolean(settings)} ref={listRef} onScroll={onScroll}>
     <LeftColumnProjectsHead value={query} onChange={setQuery} focused={filterFocused}
       onFocusChange={setFilterFocused} options={<SessionListControls searching={searchQuery.length > 0} />}
       onBrowseFolders={onBrowseFolders} />
@@ -189,9 +201,19 @@ export const Sidebar = ({
       )}
     </LeftColumnBody>
   )
-  return <LeftColumn top={top} head={sessionsHead} body={sessionsBody}
-    footer={<><Slot name="sidebar.panel" /><SidebarNotices /><AccountFooter onOpenSettings={onOpenSettings}
-      onOpenUsage={onOpenUsage} onSignIn={onSignIn} /></>} />
+  return <>
+    {starting && projectRootOf(snapshot.workspace) && <FrontDoor context={{ kind: 'project', root: projectRootOf(snapshot.workspace)! }} onClose={() => setStarting(false)} onStarted={execution => { store.openGoal(execution.goal); setStarting(false) }} />}
+  <LeftColumn active={active} top={top} head={<LeftColumnModeHead hidden={Boolean(settings)}>{sessionsHead}</LeftColumnModeHead>}
+    body={<>{sessionsBody}<LeftColumnBody hidden={!settings}>
+      {settings && <SettingsNavigation section={settings.section} onSection={settings.onSection} onBack={settings.onBack} />}
+    </LeftColumnBody></>}
+    footer={<><Slot name="sidebar.panel" /><SidebarNotices /><SidebarUpdate /><AccountFooter notifications={<InboxPanel side="top" size="icon-sm" messages={inbox}
+      onOpen={id => store.markInboxRead(id)} onMarkAllRead={() => store.markInboxRead(null)}
+      onClear={() => store.clearInbox()} />}
+      onOpenSettings={onOpenSettings}
+      onOpenUsage={onOpenUsage} onSignIn={onSignIn} settingsOpen={Boolean(settings)}
+      onGear={settings ? () => {} : () => onOpenSettings('general')} /></>} />
+  </>
 }
 
 /**
@@ -331,12 +353,16 @@ const readinessTone = (state: Readiness): Tone | undefined => ({
 } as const)[state]
 
 export const AccountFooter = ({
+  notifications,
   onOpenSettings,
   onOpenUsage,
   onSignIn,
   settingsOpen = false,
+  onGear = () => onOpenSettings('general'),
 }: {
   onOpenSettings: (section?: Section) => void
+  notifications?: ReactNode
+  onGear?: () => void
   settingsOpen?: boolean
   /** Opens the dashboard, scoped to one agent when the caller names it. */
   onOpenUsage: (runtime?: RuntimeId) => void
@@ -350,14 +376,13 @@ export const AccountFooter = ({
   const runtime = useRuntime()
   const [open, setOpen] = useState(false)
   const [accountsOpen, setAccountsOpen] = useState(false)
-  const [usageOpen, setUsageOpen] = useState(false)
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [signOutError, setSignOutError] = useState<string | null>(null)
+  useDismissOverlays(confirmingSignOut, () => { setSignOutError(null); setConfirmingSignOut(false) })
   const accountRef = useRef<HTMLDivElement>(null)
   const resetMenu = (): void => {
     setAccountsOpen(false)
-    setUsageOpen(false)
-    setConfirmingSignOut(false)
   }
 
   const seats: Seat[] = snapshot.runtimes.flatMap((info): Seat[] => {
@@ -437,10 +462,6 @@ export const AccountFooter = ({
   const nextAs = here?.account ? `${agentName} · ${here.name}` : agentName
   // You: the profile's name, which is HarnessDesk until you choose one.
   const yourName = profileName(snapshot.profile)
-  const usageView = here?.report
-    ? describeReport(here.report, { now: Date.now(), maxLanes: 8, preference: here.preference })
-    : null
-  const hasUsage = usageView !== null && usageView.all.length > 0
   // The chairs you can sit in. An agent that is waiting for a sign-in is not
   // one — choosing it would start nothing — so it waits behind "Add an
   // account…", whose chooser is where signing in happens. The default stays
@@ -496,10 +517,13 @@ export const AccountFooter = ({
   const signOut = async (close: () => void): Promise<void> => {
     if (!snapshot.activeRuntime) return
     setBusy(true)
+    setSignOutError(null)
     try {
       await store.signOutAgent(snapshot.activeRuntime)
       close()
       resetMenu()
+    } catch (error) {
+      setSignOutError(error instanceof Error ? error.message : String(error))
     } finally {
       setBusy(false)
     }
@@ -524,7 +548,6 @@ export const AccountFooter = ({
           side="right"
           align="end"
           className={styles.seatTrigger}
-          onOpenUsage={onOpenUsage}
           disabled={open}
         >
           <AccountMark
@@ -535,7 +558,7 @@ export const AccountFooter = ({
                 ? { 'data-off': '' }
                 : {})}
           >
-            <RuntimeMark runtime={here.info} size={13} />
+            <RuntimeMark runtime={here.info} size={16} />
           </AccountMark>
         </AccountHoverCard>
       )}
@@ -552,7 +575,7 @@ export const AccountFooter = ({
   )
 
   return (
-    <LeftColumnSeat settingsOpen={settingsOpen} onSettings={() => onOpenSettings('general')} menu={<div ref={accountRef}>
+    <LeftColumnSeat notifications={notifications} settingsOpen={settingsOpen} onSettings={onGear} menu={<div ref={accountRef}>
       <Popover
         title={here ? `New sessions run as ${nextAs}` : 'Accounts and settings'}
         /* Opens upward from the footer. Its width belongs to the menu so a
@@ -562,6 +585,7 @@ export const AccountFooter = ({
         sideOffset={6}
         fullWidth
         panelWidth="wide"
+        icons="all"
         triggerClassName={buttonVariants({ variant: 'navigation', size: 'navigation', className: styles.accountRow })}
         label={accountTrigger}
         onOpenChange={(next) => {
@@ -585,73 +609,15 @@ export const AccountFooter = ({
               such account yet, and a sign-in button for one would be a lie,
               so this is what is true today: your profile, kept on this Mac.
               Pressing it opens the page where it is set. */}
-          <MenuItem
-            layout="profile"
-            title="Your name and picture. Nothing syncs between machines."
-            onSelect={() => {
-              onOpenSettings('profile')
-            }}
-          >
-            <ProfileFace size={30} />
-            <span className={styles.youText}>
-              <span className={styles.youName}>
-                <Text role="row"><Clipped className={styles.youLabel}>{yourName}</Clipped></Text>
-              </span>
-            </span>
-          </MenuItem>
+          <MenuItem icon={<ProfileFace size={16} />} label={yourName} title="Your name and picture. Nothing syncs between machines." onSelect={() => onOpenSettings('profile')} />
 
           <MenuSeparator />
           <MenuLabel size="compact">Run new sessions as</MenuLabel>
             {groups.map((all) => {
               const group = accountsOpen || !here ? all : all.filter((seat) => seat.current)
               if (group.length === 0) return null
-              // The seat's own mark is the trigger, and — like every other one —
-              // it is out of the tab order. An earlier version of this comment
-              // claimed the card opened on keyboard focus here; review checked,
-              // and it does not. It could not: the trigger is `tabIndex={-1}`,
-              // and its parent is a `role="menuitem"` that owns the arrow keys.
-              // Making the span focusable would put a second stop inside a menu
-              // item, which is worse than the card being pointer-only. The
-              // seat's own press still does the thing the card's verb does.
-              //
-              // An account under its agent's heading wears no mark and no card
-              // — the heading carries the mark, and a card on the name would
-              // open at every rest on the list — only its colour, the ring it
-              // wears everywhere else, drawn small.
               const renderSeat = (seat: Seat, child: boolean) => {
-                const mark = child ? (
-                  <AccountMark
-                    size="dot"
-                    aria-hidden="true"
-                    {...(seat.account ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) } : {})}
-                  >
-                    {null}
-                  </AccountMark>
-                ) : (
-                  <AccountHoverCard
-                    info={seat.info}
-                    account={seat.account}
-                    side="right"
-                    align="start"
-                    className={styles.seatTrigger}
-                    /* The same verbs as the badge's card on the row below: two
-                       cards for one account that offered different things were
-                       the whole of the complaint. The sidebar's Dashboard opens
-                       the dashboard on everything; this opens it on this seat. */
-                    onOpenUsage={onOpenUsage}
-                  >
-                    <AccountMark
-                      size="sm"
-                      {...(seat.account
-                        ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) }
-                        : seat.state === 'signin'
-                          ? { 'data-off': '' }
-                          : {})}
-                    >
-                      <RuntimeMark runtime={seat.info} size={13} />
-                    </AccountMark>
-                  </AccountHoverCard>
-                )
+                const mark = child ? <AccountMark size="dot" aria-hidden="true" {...(seat.account ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) } : {})}>{null}</AccountMark> : <AccountMark size="menu" {...(seat.account ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) } : seat.state === 'signin' ? { 'data-off': '' } : {})}><RuntimeMark runtime={seat.info} size={16} /></AccountMark>
                 // What is left, where it is measured; otherwise the one word
                 // that is wrong. A ready seat with nothing metered says
                 // nothing, and neither does one that has not answered yet.
@@ -680,7 +646,6 @@ export const AccountFooter = ({
                     onSelect={() => {
                       if (seat.current && chairs.length > 1) {
                         setAccountsOpen((value) => !value)
-                        setUsageOpen(false)
                         return
                       }
                       void store.selectRuntime(seat.info.id)
@@ -700,7 +665,7 @@ export const AccountFooter = ({
                   label={agent.presentation.name}
                   mark={
                     <AccountMark size="sm">
-                      <RuntimeMark runtime={agent} size={13} />
+                      <RuntimeMark runtime={agent} size={16} />
                     </AccountMark>
                   }
                 >
@@ -709,7 +674,7 @@ export const AccountFooter = ({
               )
             })}
             <MenuItem
-              icon={<PlusIcon size={13} />}
+              icon={<PlusIcon size={16} />}
               label="Add an account…"
               onSelect={() => {
                 // Opens the chooser rather than adding one here. "An account"
@@ -723,94 +688,62 @@ export const AccountFooter = ({
             />
 
           <MenuSeparator />
-            {/* Only where something is metered: a row whose whole answer is
-                "—" took a line to say there was nothing to say. */}
-            {hasUsage && (
+            <SeatPlanUsage onOpen={onOpenUsage} onSignIn={onSignIn} />
             <MenuItem
-              expanded={usageOpen}
-              keepOpen
-              onSelect={() => {
-                setUsageOpen((value) => !value)
-              }}
-              /* The menu's own icon column and value slot, so the gauge and its
-                 words line up with Settings below. Dashboard is not in this
-                 menu: it is in the sidebar's own nav, always, with this gauge,
-                 and a second door here wore the same mark for another verb. */
-              icon={<UsageIcon size={13} />}
-              label="Usage remaining"
-              value={
-              <Text role="muted" tone={usageReadingTone(here?.tone)} numeric className={styles.accountMenuMeta}>
-                {here?.figure ?? '—'}
-                {/* The fold wears the figure's trouble, as the figure beside it does.
-                    A fold has one trouble tone, so a spent window's red figure
-                    folds under the warning mark. */}
-                <DisclosureChevron
-                  open={usageOpen}
-                  placement="trailing"
-                  tone={usageReadingTone(here?.tone) ? 'warning' : 'neutral'}
-                  className={styles.accountMenuCaret}
-                />
-              </Text>
-              }
-            />
-            )}
-            {usageOpen && usageView && (
-              <div className={styles.usageDetails} data-usage-details>
-                <div className={styles.usageLanes}>
-                  {usageView.all.map((lane) => (
-                    <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.resetCountdown} countdownTitle={lane.resetClock ? `resets ${lane.resetClock}` : undefined} tone={lane.tone === 'bad' ? 'danger' : lane.tone === 'warn' ? 'warning' : 'neutral'} standalone barless />
-                  ))}
-                </div>
-                {/* No link to the dashboard here: Dashboard is in the
-                    sidebar's nav, and a second door to it, indented under
-                    the fold, was one row and one ragged edge for nothing. */}
-              </div>
-            )}
-            <MenuItem
-              icon={<SettingsIcon size={13} />}
+              icon={<SettingsIcon size={16} />}
               label="Settings"
               shortcut="⌘,"
               onSelect={() => {
                 onOpenSettings()
               }}
             />
-            {signedIn && !confirmingSignOut && (
-              <MenuItem
-                icon={<SignOutIcon size={13} />}
-                label={`Sign out of ${agentName}…`}
-                danger
-                keepOpen
-                onSelect={() => setConfirmingSignOut(true)}
-              />
-            )}
-            {confirmingSignOut && (
-              <div>
-                <MenuNote>
-                  Sign out of {agentName}? You'll need to sign in again before the next turn.
-                </MenuNote>
-                <div className={styles.accountMenuConfirmActions}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => setConfirmingSignOut(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => void signOut(close)}
-                  >
-                    {busy ? 'Signing out…' : 'Sign out'}
-                  </Button>
-                </div>
-              </div>
-            )}
+            {signedIn && <MenuItem icon={<SignOutIcon size={16} />} label={`Sign out of ${agentName}…`} danger onSelect={() => { setSignOutError(null); setConfirmingSignOut(true) }} />}
           </Menu>
         )}
       </Popover>
+      {confirmingSignOut && <ConfirmDialog title={`Sign out of ${agentName}?`} confirmLabel="Sign out" cancelLabel="Keep signed in" tone="destructive" busy={busy} onCancel={() => { setSignOutError(null); setConfirmingSignOut(false) }} onConfirm={() => void signOut(() => setConfirmingSignOut(false))}>
+        <>You'll need to sign in again before the next turn.{signOutError && <ActionError>{signOutError}</ActionError>}</>
+      </ConfirmDialog>}
     </div>} />
   )
 }
+
+/** The same plan facts as PlanMeters, in the seat's existing menu rows. */
+const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime: RuntimeId) => void; onSignIn: (runtime: RuntimeId) => void }) => {
+  const snapshot = useSnapshot(), session = useActiveSession()
+  const [now, setNow] = useState(Date.now), [expanded, setExpanded] = useState<string | null>(null)
+  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 60_000); return () => window.clearInterval(timer) }, [])
+  const view = describeStrip({ runtimes: snapshot.runtimes, usage: snapshot.usage, accountsByRuntime: snapshot.accountsByRuntime,
+    accountPrefs: snapshot.accountPrefs, health: snapshot.health, activeRuntime: snapshot.activeRuntime, sessionRuntime: session?.runtime ?? null, now })
+  const meters: readonly StripMeter[] = [...(view.anchor?.kind === 'meter' ? [view.anchor.meter] : []), ...(view.rest?.meters ?? [])]
+  return <>
+    {view.anchor?.kind === 'signIn' && <MenuItem icon={<SignInIcon size={16} />} label={`Sign in to ${view.anchor.info.presentation.name}`}
+      onSelect={() => { if (view.anchor?.kind === 'signIn') onSignIn(view.anchor.info.id) }} />}
+    {meters.map((meter, index) => {
+      const key = `${meter.runtime}:${meter.report.account ?? ''}`, open = expanded === key
+      return <SeatUsageRows key={key} meter={meter} now={now} open={open}
+        label={index === 0 && view.anchor?.kind === 'meter' ? 'Usage remaining' : `${meter.name}${meter.account ? ` · ${meter.account}` : ''} usage`}
+        toggle={() => setExpanded(open ? null : key)} onOpen={() => onOpen(meter.runtime)} />
+    })}
+    {view.rest?.asides.map(aside => <MenuItem key={aside.runtime} icon={aside.detail === 'Needs sign-in' ? <SignInIcon size={16} /> : <UsageIcon size={16} />}
+      label={aside.detail === 'Needs sign-in' ? `Sign in to ${aside.info.presentation.name}` : `${aside.info.presentation.name} usage`}
+      hint={aside.detail === 'Needs sign-in' ? undefined : aside.detail}
+      onSelect={() => aside.detail === 'Needs sign-in' ? onSignIn(aside.runtime) : onOpen(aside.runtime)} />)}
+  </>
+}
+const SeatUsageRows = ({ meter, now, open, label, toggle, onOpen }: { meter: StripMeter; now: number; open: boolean; label: string; toggle: () => void; onOpen: () => void }) => <>
+  <MenuItem icon={<UsageIcon size={16} />} label={label} trailing={<><Text role="muted" tone={usageReadingTone(meter.tone)} numeric>{meter.figure}</Text><DisclosureChevron open={open} placement="trailing" tone={usageReadingTone(meter.tone) ? 'warning' : 'neutral'} /></>} expanded={open} keepOpen onSelect={toggle} title={meter.title} />
+  {open && <div data-usage-details>
+    {(meter.report.plan || meter.report.account) && <MenuNote>{[meter.report.plan, meter.report.account].filter(Boolean).join(' · ')}</MenuNote>}
+    <MenuFacts rows={meter.report.lanes.map(raw => {
+      const lane = describeLane(raw, now, meter.report.lanes)
+      return { id: lane.id, name: lane.title, percent: lane.remainingPercent,
+        countdown: lane.gatedUntil === null ? lane.resetCountdown : `blocked ${lane.gatedFor ?? '—'}`,
+        countdownTitle: lane.gatedUntil !== null ? `blocked until ${lane.gatedClock}` : lane.resetClock ? `resets ${lane.resetClock}` : undefined,
+        tone: lane.tone === 'bad' ? 'danger' as const : lane.tone === 'warn' ? 'warning' as const : 'neutral' as const, barless: true }
+    })} />
+    <MenuNote>{[meter.report.spend?.todayCost != null ? `${formatMoney(meter.report.spend.todayCost, meter.report.spend.currency)} today` : null,
+      meter.report.source.label, formatAge(meter.report.fetchedAt, now)].filter(Boolean).join(' · ')}</MenuNote>
+    <MenuItem icon={<UsageIcon size={16} />} label="Open usage" onSelect={onOpen} />
+  </div>}
+</>

@@ -50,6 +50,7 @@ import {
   Dot,
   KeyValue,
   KeyValueRow,
+  MiddleTruncate,
   Lightbox,
   ListRowDetail,
   Message,
@@ -878,7 +879,7 @@ const FileEntry = ({
       <Button type="button" variant="quiet" size="content" className={styles.fileHeader} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         <DisclosureChevron open={open} size="sm" />
         <Text role="muted" className={styles.filePath} title={change.path}>
-          {relativeTo(change.path, root)}
+          <MiddleTruncate>{relativeTo(change.path, root)}</MiddleTruncate>
         </Text>
         <ChangeStats added={added} removed={counts.removed} />
       </Button>

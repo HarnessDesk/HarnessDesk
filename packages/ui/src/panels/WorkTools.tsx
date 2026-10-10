@@ -1,10 +1,10 @@
-import { Button } from '../design'
-import { DiffIcon, HistoryIcon, GlobeIcon, PlanIcon, PanelIcon } from '../components/Icons'
+import { Button, TopBarToolButton } from '../design'
+import { FilePlusIcon, HistoryIcon, GlobeIcon, SquareMenuIcon, PanelRightIcon } from '../components/Icons'
 import { useSnapshot, useStore } from '../state/context'
 import { fixedSubject } from '../state/workbench'
 const tools = [
-  { value: 'details', label: 'Details', Icon: PlanIcon },
-  { value: 'changes', label: 'Changes', Icon: DiffIcon },
+  { value: 'details', label: 'Details', Icon: SquareMenuIcon },
+  { value: 'changes', label: 'Changes', Icon: FilePlusIcon },
   { value: 'activity', label: 'Activity', Icon: HistoryIcon },
   { value: 'browser', label: 'Browser', Icon: GlobeIcon },
 ] as const
@@ -14,7 +14,7 @@ export const WorkPanelToggle = ({ onToggle }: { onToggle?: (open: boolean) => vo
   const subject = fixedSubject(snapshot.workbench.main)
   const open = subject !== null && snapshot.workbench.frameTools[subject]?.open === true
   return <Button data-work-panel-toggle variant="ghost" size="icon-sm" aria-label="Toggle right panel" title="Toggle right panel"
-    aria-expanded={open} aria-pressed={open} onClick={() => onToggle ? onToggle(open) : store.toggleWorkPanel()}><PanelIcon /></Button>
+    aria-expanded={open} aria-pressed={open} onClick={() => onToggle ? onToggle(open) : store.toggleWorkPanel()}><PanelRightIcon /></Button>
 }
 export const WorkTools = ({ draft = false, changesRefusal }: { draft?: boolean; changesRefusal?: string }) => {
   const store = useStore()
@@ -22,14 +22,15 @@ export const WorkTools = ({ draft = false, changesRefusal }: { draft?: boolean; 
   const subject = store.workSubject()
   if (!subject) return null
   const current = snapshot.workbench.frameTools[subject]
+  const running = [...snapshot.tasks.values()].some(tasks => tasks.some(task => task.state === 'running'))
   return <>{tools.map(one => {
-    const reason = draft && (one.value === 'changes' || one.value === 'activity') ? 'Send this session before opening this tool' : one.value === 'changes' ? changesRefusal : undefined
-    return <Button key={one.value} variant="ghost" size="icon-sm" data-work-tool={one.value}
+    const reason = draft && (one.value === 'changes' || one.value === 'activity' && !running) ? 'Send this session before opening this tool' : one.value === 'changes' ? changesRefusal : undefined
+    return <TopBarToolButton key={one.value} attention={one.value === 'activity' && running} data-work-tool={one.value}
       aria-label={one.label} title={reason ?? one.label} disabled={Boolean(reason)}
       aria-pressed={current?.open === true && current.tool === one.value}
       onClick={() => {
         if (one.value === 'browser' && !(current?.open && current.tool === 'browser')) { void store.openBrowser(); return }
         store.chooseWorkTool(one.value, current?.open && current.tool === one.value ? current.mode : one.value, true)
-      }}><one.Icon /></Button>
+      }}><one.Icon /></TopBarToolButton>
   })}<span data-work-tools-spacer /><WorkPanelToggle /></>
 }

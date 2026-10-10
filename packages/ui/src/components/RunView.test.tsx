@@ -569,24 +569,22 @@ it.each(['settled', 'stopped'] as const)('keeps the timeline consent mounted whe
   } finally { act(() => root.unmount()); container.remove() }
 })
 
-it('keeps original rounds as ordered Timeline siblings so their rails can reach the next record', () => {
+it('renders taken and not reached as flat semantic Timeline siblings without cards', () => {
   const input = runFixture('running')
   const container = document.createElement('div'), root = createRoot(container)
   try {
     act(() => root.render(<RunView model={runTimeline(input)} stepsInput={input} number={1} selectedRow={null} onSelect={() => {}} />))
     const timeline = container.querySelector('[data-slot="timeline"]')!
     expect([...timeline.children].every(one => one.tagName === 'LI')).toBe(true)
-    const originals = [...timeline.querySelectorAll('[data-slot="timeline-item"]')].filter(one => one.querySelector('[data-row]'))
-    expect(originals).toHaveLength(6)
-    for (const round of [1, 2, 3]) {
-      const item = timeline.querySelector(`[data-row="round-${round}"]`)!.closest('[data-slot="timeline-item"]')!
-      expect(item.parentElement).toBe(timeline)
-      expect(item.nextElementSibling?.querySelector(`[data-row="round-${round + 1}"]`)).not.toBeNull()
-    }
+    expect(timeline.querySelectorAll('[data-slot="timeline-item"]')).toHaveLength(5)
+    expect(timeline.querySelectorAll('[data-slot="timeline-records"]')).toHaveLength(0)
+    expect(timeline.textContent).toContain('Taken 4')
+    expect(timeline.textContent).toContain('Not reached 1')
+    expect(timeline.querySelector('[data-step-row="writer"]')?.textContent).toContain('Round 1')
   } finally { act(() => root.unmount()) }
 })
 
-it('expands equivalent visits into original semantic siblings and keeps selected records', async () => {
+it('folds equivalent visits into one flat row and selects its latest recorded round', async () => {
   const { equivalentRunFixture } = await import('../preview/run-view-fixture')
   const input = equivalentRunFixture(), onSelect = vi.fn()
   const container = document.createElement('div'), root = createRoot(container)
@@ -594,13 +592,14 @@ it('expands equivalent visits into original semantic siblings and keeps selected
   try {
     render(null)
     const timeline = container.querySelector('[data-slot="timeline"]')!
-    expect(timeline.querySelector('[data-row="round-1"]')).toBeNull()
-    act(() => timeline.querySelector<HTMLButtonElement>('[data-round-group] button')!.click())
-    for (const round of [1, 2]) expect(timeline.querySelector(`[data-row="round-${round}"]`)!.closest('li')!.parentElement).toBe(timeline)
-    act(() => timeline.querySelector<HTMLButtonElement>('[data-row="round-2"] button')!.click())
-    expect(onSelect).toHaveBeenCalledWith('round-2')
+    const group = timeline.querySelector('[data-round-group]')!
+    expect(group.parentElement).toBe(timeline)
+    expect(group.textContent).toContain('Rounds 1–2')
+    expect(group.textContent).toContain('2 runs')
+    act(() => group.querySelector<HTMLButtonElement>('button')!.click())
+    expect(onSelect).toHaveBeenCalledWith('card-2-2')
     render('card-2-2')
-    expect(timeline.querySelector('[data-row="card-2-2"][aria-current="true"]')).not.toBeNull()
-    expect([...timeline.children].every(one => one.tagName === 'LI')).toBe(true)
+    expect(group.querySelector('[aria-current="true"]')).not.toBeNull()
+    expect(timeline.querySelectorAll('[data-slot="timeline-records"]')).toHaveLength(0)
   } finally { act(() => root.unmount()) }
 })

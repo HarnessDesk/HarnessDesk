@@ -59,6 +59,7 @@ export const readToolIntents = (raw: unknown): Readonly<Record<string, ToolInten
 }
 
 export const admitFixedTool = (before: Workbench, view: PaneView, toggle = false): Workbench | null => {
+  if (view.kind === 'tasks') view = { kind: 'activity' }
   const subject = fixedSubject(before.main), tool = toolOf(view.kind)
   if (!subject || !tool || !supportsFixedTool(view)) return null
   let routed = dock(before, 'right', view, subject)

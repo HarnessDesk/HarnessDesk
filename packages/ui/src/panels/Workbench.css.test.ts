@@ -61,9 +61,9 @@ describe('the dim over a narrow window', () => {
     expect(floating).toMatch(/visibility:\s*visible/)
   })
 
-  it('the fixed right float begins below the top bar and ends above bottom/status', () => {
+  it('the fixed right float begins below the top bar and ends above the terminal, with no window foot', () => {
     expect(shellCss).toMatch(/\.shell\[data-panel-floats='true'\] \.right\s*\{[^}]*top:\s*var\(--hd-bar-h\)/)
-    expect(shellCss).toContain('bottom: calc(var(--frame-bottom) + var(--frame-status))')
+    expect(shellCss).toContain('bottom: var(--frame-bottom)')
   })
   it('does not hide main or disable its bar dragging for a nonmodal right float', () => {
     expect(css).not.toContain('data-right-panel-overlay')

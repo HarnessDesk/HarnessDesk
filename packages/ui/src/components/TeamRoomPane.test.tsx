@@ -1,4 +1,5 @@
 import { emptyWorkbench } from '../state/workbench'
+import { FRAME } from '../design/frame'
 import type { TeamFramePage } from '../state/layout'
 import { previewStore } from '../preview/harness'
 import { act, type ComponentProps } from 'react'
@@ -34,7 +35,6 @@ import { TopBarProvider, TopBarOutlet, useTopBarMore, WorkDetailsOutlet, useTopB
 import styles from './TeamRoomPane.module.css'
 import { triggerPreferences, triggerProjectView, triggerView } from '../preview/intake-fixture'
 import { PREVIEW_FINDINGS } from '../preview/findings-fixture'
-import { FRAME } from '../design/frame'
 import { emptyFindingsState } from '../lib/findings'
 
 /**
@@ -82,25 +82,36 @@ const TeamTest = (props: ComponentProps<typeof TeamRoomPane>) => {
 let container: HTMLDivElement
 let root: Root
 
+// These body/data tests give their standalone bar enough measured title room.
+// jsdom supplies neither flex geometry nor tokens; real fold widths are pinned
+// by TopBar's measurement tests and frame-contract, not the body rig's viewport.
+let restoreBarGeometry = () => {}
 beforeEach(() => {
-  // These probes exercise Team routing. Keep the title at its real floor;
-  // jsdom's unlaid-out zero width must not fold tabs on a timing-dependent RAF.
-  const computed = getComputedStyle
   const bounds = HTMLElement.prototype.getBoundingClientRect
-  vi.spyOn(globalThis, 'getComputedStyle').mockImplementation((node, pseudo) =>
-    node.matches('[data-slot="top-bar"]') ? { getPropertyValue: () => `${FRAME.bar.titleMin}px` } as unknown as CSSStyleDeclaration : computed(node, pseudo))
-  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-    return this.matches('[data-topbar-title]') ? { ...bounds.call(this), width: FRAME.bar.titleMin } as DOMRect : bounds.call(this)
+  const geometry = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this.matches('[data-topbar-title]')) return new DOMRect(0, 0, FRAME.bar.titleMin, FRAME.bar.height)
+    return this.matches('[data-topbar="place"]') ? new DOMRect(0, 0, 300, FRAME.bar.height) : bounds.call(this)
   })
+  const computed = getComputedStyle
+  const token = vi.spyOn(globalThis, 'getComputedStyle').mockImplementation((node, pseudo) => {
+    const result = computed(node, pseudo)
+    if (!node.matches('[data-slot="top-bar"]')) return result
+    return new Proxy(result, { get(target, property) {
+      if (property === 'getPropertyValue') return (name: string) => name === '--hd-bar-title-min'
+        ? `${FRAME.bar.titleMin}px` : target.getPropertyValue(name)
+      const value = Reflect.get(target, property, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    } })
+  })
+  restoreBarGeometry = () => { token.mockRestore(); geometry.mockRestore() }
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
 })
 
 afterEach(() => {
-  act(() => root.unmount())
-  container.remove()
-  vi.restoreAllMocks()
+  try { act(() => root.unmount()); container.remove() }
+  finally { restoreBarGeometry() }
 })
 
 const ROOM = 'room-1'
@@ -475,6 +486,23 @@ const row = (text: string): HTMLElement => {
   return found
 }
 
+
+/** Selection survives the shell's measured tab-to-menu fold. */
+const expectChatSelected = async (): Promise<void> => {
+  const tab = container.querySelector<HTMLElement>('[role="tab"][data-team-page="room"]')
+  if (tab) {
+    expect(tab.getAttribute('aria-selected')).toBe('true')
+    return
+  }
+  const trigger = container.querySelector<HTMLButtonElement>('button[title="Destination views"]')
+  expect(trigger, 'folded Team destinations remain reachable').not.toBeNull()
+  await act(async () => trigger!.click())
+  const chat = document.body.querySelector<HTMLElement>('[role="menuitemradio"][data-team-page="room"]')
+  expect(chat, 'the folded menu keeps the Chat destination').not.toBeNull()
+  expect(chat!.getAttribute('aria-checked')).toBe('true')
+  await act(async () => trigger!.click())
+}
+
 it('the rail is the roster: who is here, and what each of them is holding', async () => {
   const { store } = rig()
   await render(store)
@@ -664,7 +692,8 @@ it.each(['Overview', 'Run'])('stops the %s Run with only its open Seats, from ca
   store.stopFlowExecution = stopping
   await render(store)
   if (door === 'Run') { act(() => row('Run').click()); await act(async () => {}) }
-  const frame = container.querySelector(door === 'Run' ? '[data-slot="top-bar"]' : '[aria-label="Run"]')!
+  if (door === 'Overview') { act(() => row('Run').click()); await act(async () => {}) }
+  const frame = container.querySelector('[data-slot="top-bar"]')!
   act(() => [...frame.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Stop run…')!.click())
   const question = document.body.querySelector('[role="alertdialog"]')!
   expect([...question.querySelectorAll('[data-stop-seat]')].map(one => one.textContent)).toEqual([
@@ -678,7 +707,10 @@ it.each(['Overview', 'Run'])('stops the %s Run with only its open Seats, from ca
     expect(stop.disabled).toBe(true)
     expect(stop.title).toBe('This Run is not running')
     expect(container.textContent).toContain('By you')
-  } else expect(container.textContent).not.toContain('Stop run…')
+  } else {
+    act(() => (row('Overview') as HTMLButtonElement).click())
+    expect(container.textContent).not.toContain('Stop run…')
+  }
 })
 
 it.each(['Close', 'Escape'])('keeps cleanup retry after a stopped push, late rejection and %s dismissal, even after reopening the pane', async dismissal => {
@@ -697,6 +729,7 @@ it.each(['Close', 'Escape'])('keeps cleanup retry after a stopped push, late rej
   store.stopFlowExecution = stopping
   await render(store)
   const click = (scope: Element, name: string) => [...scope.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === name)!.click()
+  await act(async () => row('Run').click())
   act(() => click(container, 'Stop run…'))
   let question = document.body.querySelector('[role="alertdialog"]')!
   act(() => {
@@ -707,7 +740,7 @@ it.each(['Close', 'Escape'])('keeps cleanup retry after a stopped push, late rej
   await act(async () => click(question, 'Stop run'))
   runs.set(execution.id, stopped)
   await pushes({ updatedAt: 2 })
-  expect(container.textContent).not.toContain('Stop run…')
+  expect([...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Stop run…')!.disabled).toBe(true)
   problems.set(execution.id, { reason: 'The brief changed.', message: 'One Seat could not be released.' })
   await pushes({ updatedAt: 3 })
   await act(async () => reject(new Error('One Seat could not be released.')))
@@ -773,7 +806,8 @@ it('names no pinned revision for a Goal with neither a flow target nor Goal.at',
   await render(store)
 
   const facts = teamFact('At')
-  expect(facts?.textContent).toContain('Not recorded')
+  expect(facts).toBeNull()
+  expect(container.textContent).toContain('No Run recorded.')
 })
 
 it('Findings joins only a Goal’s own navigation; a loose conversation keeps none of it', async () => {
@@ -1845,7 +1879,7 @@ it('the shared caution leaves each member\u2019s own card saying it', async () =
     trigger.dispatchEvent(new MouseEvent('mouseenter'))
   })
   await act(async () => { await new Promise((resolve) => setTimeout(resolve, 1000)) })
-  const card = document.body.querySelector('[data-slot="agent-card"]')
+  const card = document.body.querySelector('[data-popup-kind="info-card"]')
   expect(card, 'the member card opened').not.toBeNull()
   expect(card!.textContent).toContain('Reachable, but has taken nothing from the board this run.')
 })
@@ -2371,7 +2405,7 @@ it("the composer's own budget meter reads what is left, and its hover card has t
   expect(document.body.textContent).toContain('$1.20 of $5')
   // The same meaning as the footer's own "Round 1 of 1": the round being
   // worked, never a count of rounds used beside it.
-  const rows = [...document.body.querySelectorAll('[data-slot="key-value-row"]')].map((one) => one.textContent)
+  const rows = [...document.body.querySelectorAll('[data-info-pair]')].map((one) => one.textContent)
   expect(rows).toContain('Round1 of 1')
   expect(rows.some((one) => one?.startsWith('Rounds'))).toBe(false)
   expect(document.body.textContent).toContain('12 of 60 min')
@@ -2773,6 +2807,8 @@ it.each([
   const { store } = triggerRig([], {}, [one, wait({ id: 'old', sentence: 'Answered long ago.', resolvedAt: 5 })])
   await render(store)
   await act(async () => {})
+  expect(container.querySelector('[data-slot="top-bar"]')?.getAttribute('data-fold')).toBe('0')
+  expect(container.querySelector('[data-topbar-title]')!.getBoundingClientRect().width).toBe(FRAME.bar.titleMin)
 
   const chip = [...container.querySelector('header')!.querySelectorAll('[data-slot="chip"]')].find((c) => c.textContent?.includes('Needs you'))
   expect(chip).toBeTruthy()
@@ -2781,6 +2817,7 @@ it.each([
   expect(container.textContent).not.toContain('Answered long ago.')
   // Each of these waits on a person, so each leads with the pulsing light.
   expect(line.querySelector('[data-slot="dot"][data-pulse]')).not.toBeNull()
+
 })
 
 /**
@@ -3102,7 +3139,7 @@ it('sends the body back to the chat when the member opened on its own is release
   const remove = menuRow('Remove from Team')
   await act(async () => { remove.click() })
   await act(async () => {})
-  expect(row('Chat').getAttribute('aria-selected')).toBe('true')
+  await expectChatSelected()
 })
 
 it('takes a released member’s tile off the grid with it', async () => {
@@ -3125,7 +3162,7 @@ it('takes a released member’s tile off the grid with it', async () => {
   expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(0)
   expect(store.lastView().sideBySide).toBeUndefined()
   // The rail and the body agree: the room's chat is open, not an empty Side by side.
-  expect(row('Chat').getAttribute('aria-selected')).toBe('true')
+  await expectChatSelected()
 })
 
 /**
@@ -3338,7 +3375,7 @@ it('opens member information from its mark while Seat actions remain separate', 
   await render(store)
   const mark = row('Opus').querySelector('[data-slot="hover-card-trigger"]')!
   rest(mark)
-  expect(document.querySelector('[data-slot="agent-card"]')?.textContent).toContain('Opus')
+  expect(document.querySelector('[data-popup-kind="info-card"]')?.textContent).toContain('Opus')
   leave(mark)
   expect(mark.hasAttribute('data-popup-open')).toBe(false)
   vi.useRealTimers()
@@ -3349,7 +3386,7 @@ it('Open conversation in Seat actions opens exactly that member', async () => {
   await render(store)
   await seatAction('Opus', 'Open conversation')
   expect(container.querySelector('[data-testid="conversation"]')?.textContent).toContain(sessionKey('claude', 'k1'))
-  expect(row('Chat').getAttribute('aria-selected')).toBe('true')
+  await expectChatSelected()
 })
 
 it('Watch beside in Seat actions opens the grid without opening a full member page', async () => {
@@ -3358,7 +3395,7 @@ it('Watch beside in Seat actions opens the grid without opening a full member pa
   await clickRailWatch(container, 'Opus')
   expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(1)
   expect(store.lastView().sideBySide?.tiles).toEqual([sessionKey('claude', 'k1')])
-  expect(row('Chat').getAttribute('aria-selected')).toBe('true')
+  await expectChatSelected()
 })
 
 it('a pointer over Seat More does not open member information, then the mark does', async () => {
@@ -3383,7 +3420,7 @@ it('keyboard focus on Seat More opens no hover card', async () => {
   act(() => { document.body.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Tab' })); more.focus() })
   act(() => vi.advanceTimersByTime(1000))
   expect(document.activeElement).toBe(more)
-  expect(document.querySelector('[data-slot="agent-card"]')).toBeNull()
+  expect(document.querySelector('[data-popup-kind="info-card"]')).toBeNull()
   vi.useRealTimers()
 })
 
@@ -3414,7 +3451,7 @@ it('opens the room member card from a tile identity', async () => {
   if (!head) throw new Error('no tile head for the watched member')
 
   rest(textAt(head, CLAUDE.agent!))
-  expect(document.querySelector('[data-slot="agent-card"]')?.textContent).toContain('Opus')
+  expect(document.querySelector('[data-popup-kind="info-card"]')?.textContent).toContain('Opus')
   vi.useRealTimers()
 })
 
@@ -3984,9 +4021,9 @@ it('draws a check run more than once with each attempt under it, and asks the de
   const nav = row('Run') as HTMLButtonElement
   await act(async () => nav.click())
   expect(readCheckAttempts).toHaveBeenCalledWith('gate-run', 1)
-  expect([...container.querySelectorAll('[data-row]')].map(one => one.getAttribute('data-row'))).toEqual(['start', 'round-1', 'check-1-1', 'attempt-1-1-1', 'attempt-1-1-2'])
-  expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Run again…')).toBe(true)
+  expect([...container.querySelectorAll('[data-row]')].map(one => one.getAttribute('data-row'))).toEqual(['check-1-1'])
   await act(async () => (container.querySelector('[data-row="check-1-1"]') as HTMLButtonElement).click())
+  expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Run again…')).toBe(true)
   const inspector = container.querySelector('[data-slot="run-inspector"]')!
   expect([...inspector.querySelectorAll('section')].find(one => one.textContent?.startsWith('Attempts'))?.textContent).toContain('Attempt 2')
 })
@@ -4032,14 +4069,15 @@ it('a new attempt appears under the check when its result lands, and the earlier
   await render(store)
   const nav = row('Run') as HTMLButtonElement
   await act(async () => nav.click())
-  const rows = () => [...container.querySelectorAll('[data-kind="attempt"]')].map(one => one.getAttribute('data-row'))
-  expect(rows()).toEqual(['attempt-1-1-1', 'attempt-1-1-2'])
+  await act(async () => (container.querySelector('[data-row="check-1-1"]') as HTMLElement).click())
+  const rows = () => [...container.querySelectorAll('[data-slot="run-inspector"] [data-attempt]')].map(one => one.getAttribute('data-attempt'))
+  expect(rows()).toEqual(['2', '1'])
   // The person ran it again; its result lands as new evidence on the card, and the pane asks again.
   recorded = [...recorded, attempt(3)]
   snapshot = snapshotWith('f3')
   await render(store)
   expect(readCheckAttempts).toHaveBeenCalledTimes(2)
-  expect(rows()).toEqual(['attempt-1-1-1', 'attempt-1-1-2', 'attempt-1-1-3'])
+  expect(rows()).toEqual(['3', '2', '1'])
   await act(async () => (container.querySelector('[data-row="check-1-1"]') as HTMLButtonElement).click())
   const attempts = container.querySelector('[data-slot="run-inspector"] [data-attempt="1"]')!
   await act(async () => { [...attempts.querySelectorAll('button')].find(one => one.textContent === 'Show output')!.click() })
@@ -4365,12 +4403,12 @@ it('Chat View chooses Side by side and Thread while keeping Chat selected', asyn
  const side = row('Side by side')
  await act(async()=>side.click())
  expect(container.querySelector('[data-slot="side-by-side-grid"]')).not.toBeNull()
- expect(row('Chat').getAttribute('aria-selected')).toBe('true')
+ await expectChatSelected()
  act(()=>container.querySelector<HTMLButtonElement>('button[title="View"]')!.click())
  await act(async()=>menuRow('Thread').click())
  expect(container.querySelector('[data-slot="room-stream"]')).not.toBeNull()
  expect(container.querySelector('[data-slot="side-by-side-grid"]')).toBeNull()
- expect(row('Chat').getAttribute('aria-selected')).toBe('true')
+ await expectChatSelected()
 })
 
 it('a ready Team puts Wrap on Overview and preserves Wrap in More', async () => {
@@ -4385,7 +4423,7 @@ it('a member page normalizes its destination to Chat', async () => {
  const {store}=rig(undefined,undefined,{},GOAL)
  await render(store)
  await clickRailOpen(container,'Codex')
- expect(row('Chat').getAttribute('aria-selected')).toBe('true')
+ await expectChatSelected()
  expect(store.lastView().framePage).toBe('room')
 })
 
@@ -4459,7 +4497,7 @@ it('consumes Board beyond the Team component lifetime, accepts another room and 
   expect(row('Board').getAttribute('aria-selected')).toBe('true')
   expect(actual.getSnapshot().teamFrameRequests[ROOM]).toBeUndefined()
   act(() => row('Chat').click())
-  expect(row('Chat').getAttribute('aria-selected')).toBe('true')
+  await expectChatSelected()
   act(() => root.render(<div>Conversation</div>))
   await render(store)
   expect(row('Board').getAttribute('aria-selected')).toBe('false')

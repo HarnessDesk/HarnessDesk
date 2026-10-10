@@ -15,7 +15,7 @@ import {
 import { agentName, ceilingMeaning, ceilingWords, wordList } from '../lib/agents'
 import {
   Banner, BoardMenuButton, Button, Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
-  DropdownMenuTrigger, Field, Input, Note, Row, RowChoice, Rows, SectionHead, Text, Textarea,
+  DropdownMenuTrigger, Field, Input, MenuNote, MenuSearch, Note, Row, RowChoice, Rows, SectionHead, Text, Textarea,
 } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { MoveDownIcon, MoveUpIcon, PlusIcon, TrashIcon } from './Icons'
@@ -357,6 +357,8 @@ export const PreferFieldDialog = ({
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const [seatQuery, setSeatQuery] = useState('')
+  const shownSeats = snapshot.runtimes.filter(one => one.presentation.name.toLocaleLowerCase().includes(seatQuery.trim().toLocaleLowerCase()))
   const [seats, setSeats] = useState<readonly FlowSeat[]>(initial)
   const [expected, setExpected] = useState(digest)
   const [preview, setPreview] = useState<AuthoringSavePreview | null>(null)
@@ -459,29 +461,20 @@ export const PreferFieldDialog = ({
             title={seatRuntimeName(seat, snapshot.runtimes)}
             desc={[seat.model, seat.effort, seat.thinking ? 'thinking' : null].filter(Boolean).join(' · ') || undefined}
             control={(
-              <DropdownMenu>
+              <DropdownMenu wide icons="none">
                 <DropdownMenuTrigger disabled={busy} render={<BoardMenuButton aria-label={`${seatRuntimeName(seat, snapshot.runtimes)} seat actions`} disabled={busy} />} />
                 <DropdownMenuContent align="end">
-                  <DropdownMenuItem disabled={index === 0} onClick={() => move(index, -1)}>
-                    <MoveUpIcon size={14} />
-                    Move up
-                  </DropdownMenuItem>
-                  <DropdownMenuItem disabled={index === seats.length - 1} onClick={() => move(index, 1)}>
-                    <MoveDownIcon size={14} />
-                    Move down
-                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled={index === 0} onClick={() => move(index, -1)} label={"Move up"} icon={<MoveUpIcon size={14} />} />
+                  <DropdownMenuItem disabled={index === seats.length - 1} onClick={() => move(index, 1)} label={"Move down"} icon={<MoveDownIcon size={14} />} />
                   <DropdownMenuSeparator />
-                  <DropdownMenuItem variant="destructive" onClick={() => removeAt(index)}>
-                    <TrashIcon size={14} />
-                    Remove seat
-                  </DropdownMenuItem>
+                  <DropdownMenuItem variant="destructive" onClick={() => removeAt(index)} label={"Remove seat"} icon={<TrashIcon size={14} />} />
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
           />
         ))}
       </Rows>
-      <DropdownMenu>
+      <DropdownMenu wide icons="none">
         <DropdownMenuTrigger
           disabled={busy || seats.length >= SEAT_PREFERENCE_LIMIT}
           render={(
@@ -492,11 +485,9 @@ export const PreferFieldDialog = ({
           )}
         />
         <DropdownMenuContent align="start">
-          {snapshot.runtimes.map((one) => (
-            <DropdownMenuItem key={one.id} onClick={() => addSeat(one.id)}>
-              {one.presentation.name}
-            </DropdownMenuItem>
-          ))}
+          {snapshot.runtimes.length >= 6 && <MenuSearch label="Search Agents" value={seatQuery} onChange={setSeatQuery} autoFocus />}
+          {shownSeats.map(one => <DropdownMenuItem key={one.id} label={one.presentation.name} onClick={() => addSeat(one.id)} />)}
+          {shownSeats.length === 0 && <MenuNote>No Agents match.</MenuNote>}
         </DropdownMenuContent>
       </DropdownMenu>
       <Note>

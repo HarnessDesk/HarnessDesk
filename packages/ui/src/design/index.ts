@@ -130,6 +130,7 @@ export { FlowStepRow, RunStateChip } from './patterns/FlowStepRow'
 export { CopyButton, copyButtonIconMarkup } from './patterns/CopyButton'
 export { ActionError } from './patterns/ActionError'
 export {
+  AppWindowContent,
   AppWindowPage,
   AppWindowRail,
   AppWindowRailScroll,
@@ -177,6 +178,7 @@ export {
   useContextMenu,
   useMenuClose,
   type MenuAccountFigure,
+  type MenuItemProps,
   type MenuPoint,
 } from './patterns/Menu'
 export {
@@ -184,12 +186,6 @@ export {
   Popover,
   dismissOverlays,
   PopoverGroupLabel,
-  PopoverOption,
-  PopoverOptionBody,
-  PopoverOptionHint,
-  PopoverOptionLabel,
-  PopoverOptionLive,
-  PopoverOptionMark,
   PopoverSurface,
   useDismissOverlays,
   useEscapeSurface,
@@ -220,7 +216,7 @@ export { ComparisonSummary } from './patterns/ComparisonSummary'
 
 export { MergeDialog, DiffRangeDialog } from './patterns/GitComparisonDialogs'
 
-export { TopBar, type TopBarProps, type TopBarAction, type TopBarTab } from './patterns/TopBar'
+export { TopBar, TopBarToolButton, type TopBarProps, type TopBarAction, type TopBarTab } from './patterns/TopBar'
 
 export { ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolProse } from './patterns/ToolBody'
 export { ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet, ToolFooterSuppressed, type ToolFoot } from './patterns/ToolFooter'
@@ -233,10 +229,21 @@ export type { LeftColumnMenu } from './patterns/LeftColumn'
 
 export { LeftColumnList, LeftColumnRename, LeftColumnNavigation, LeftColumnProjectsHead, LeftColumnListOptions, LeftColumnEmpty } from './patterns/LeftColumn'
 import './ui/popup.css'
-export { MenuPresentation, MenuRowContent, menuRowAttributes, useMenuPresentation, type MenuRowData, type MenuIcons } from './ui/menu-row'
+export { MenuPresentation, MenuRowContent, MenuListboxOption, menuRowAttributes, useMenuPresentation, type MenuRowData, type MenuIcons } from './ui/menu-row'
 
-export { FixedShell, type FixedShellProps } from './patterns/FixedShell'
+export { FixedShell, ShellNoticeHost, type FixedShellProps } from './patterns/FixedShell'
 
-export { StatusBar, type StatusFact } from './patterns/StatusBar'
 
 export { PageHeadingProvider, usePageHeading, type PageHeadingData } from './patterns/AppWindow/PageHeading'
+
+export { AppWindowLeftFrame } from './patterns/AppWindow'
+export { LeftColumnModeHead } from './patterns/LeftColumn'
+export { WideMenu, WideMenuRows, MenuSearch, MenuFacts, type WideMenuItem, type MenuMeterData, type MenuSearchProps } from './patterns/WideMenu'
+
+export { InfoCard, InfoCardBody, type InfoFact, type InfoNote, type InfoCardData, type InfoComposition } from './patterns/InfoCard'
+export { useMenusOpen } from './ui/popup-state'
+
+export { AgentCardModeContext } from './patterns/AgentCard'
+export { SubjectActionRows, SubjectActionsMenu } from './patterns/SubjectActionsMenu'
+
+export { InboxMenu } from './patterns/InboxMenu'

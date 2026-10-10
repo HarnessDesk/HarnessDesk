@@ -1,3 +1,4 @@
+import { FRAME } from '../../packages/ui/src/design/frame'
 import { expect, test } from '@playwright/test'
 
 test('real sidebar footer fills its column and its menu is painted and clickable', async ({ page }) => {
@@ -74,11 +75,11 @@ for (const height of [900, 520]) {
     await expect(trigger).toBeAttached()
     // Put this existing preview frame at the viewport's bottom edge, just
     // like the production sidebar; do not alter the menu or its positioning.
-    await trigger.evaluate(node => {
+    await trigger.evaluate((node, width) => {
       const frame = node.closest('[data-left-column]')?.parentElement
       if (!frame) throw new Error('sidebar frame missing')
-      Object.assign(frame.style, { position: 'fixed', top: '8px', left: '8px', width: '240px', height: 'calc(100vh - 8px)' })
-    })
+      Object.assign(frame.style, { position: 'fixed', top: '8px', left: '8px', width: `${width}px`, height: 'calc(100vh - 8px)' })
+    }, FRAME.sidebar.width)
     const theme = page.getByRole('combobox', { name: 'theme', exact: true })
     await theme.selectOption('light')
     await trigger.click()

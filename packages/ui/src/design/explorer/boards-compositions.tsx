@@ -1,5 +1,6 @@
+import { InfoCardBody, SubjectActionsMenu } from '..'
 import { PlanMetersSpecimen, TerminalToggleSpecimen, MainWorkActionsSpecimen } from '../../preview/frames-supported-controls'
-import { FRAME, StatusBar, FixedShell, SeatList, ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolProse, ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet, SummaryList, SummaryItem, Checklist, ChecklistItem } from '../index'
+import { FRAME, FixedShell, SeatList, ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolProse, ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet, SummaryList, SummaryItem, Checklist, ChecklistItem } from '../index'
 import { Timeline, TimelineItem, type TimelineState } from '../ui/timeline'
 import { TimelineCard, TimelineCardRow, TimelineCards, TimelineCardWords, TimelineDocument } from '../ui/timeline-cards'
 import { LibrarySection } from '../../components/Library'
@@ -2137,6 +2138,8 @@ const AdoptedBoard = () => {
               <SelectItem value="studio">Studio</SelectItem>
             </SelectContent>
           </Select>
+          <SuggestionsExample />
+          <SelectExample />
         </Case>
 
         <Case label="scroll area &mdash; real overflow">
@@ -2164,7 +2167,7 @@ const AdoptedBoard = () => {
           <div className="flex flex-wrap gap-2">
             <HoverCard>
               <HoverCardTrigger render={<Button variant="outline">Preview details</Button>} />
-              <HoverCardContent className="p-3">A richer, enterable preview rather than a repeated label.</HoverCardContent>
+              <HoverCardContent><InfoCardBody title="Workspace facts" rows={[{ id: 'folder', label: 'Folder', value: 'workspace/storefront', kind: 'path' }]} /></HoverCardContent>
             </HoverCard>
             <Tooltip>
               <TooltipTrigger render={<Button variant="outline">Rest or focus</Button>} />
@@ -3052,10 +3055,10 @@ export const FixedShellBoard = () => <div data-catalog-variants={FIXEDSHELL_CATA
       style={{ '--frame-left': width < FRAME.fold.sidebarFloats ? '0px' : `${FRAME.sidebar.width}px`,
         '--frame-left-open': `${FRAME.sidebar.width}px`, '--frame-right': `${FRAME.rightPanel.width}px`,
         '--frame-right-open': `${FRAME.rightPanel.width}px`, '--frame-right-retained': `${FRAME.rightPanel.width}px`,
-        '--frame-bottom': '0px', '--frame-bottom-retained': `${FRAME.bottomPanel.height}px`, '--frame-status': `${FRAME.statusBar.height}px` } as CSSProperties}
+        '--frame-bottom': '0px', '--frame-bottom-retained': `${FRAME.bottomPanel.height}px` } as CSSProperties}
       left={<Text role="row">Sessions</Text>} top={<TopBar place="Checkout retry · 長いタイトル" more={() => null} />}
       main={<Text role="prose">The current work stays mounted.</Text>} right={<ToolBody><ToolSection label="Run"><ToolProse>No Run recorded.</ToolProse></ToolSection></ToolBody>}
-      bottom={null} status={<Text role="meta">App facts</Text>} />
+      bottom={null} />
   </section>)}
 </div>
 
@@ -3092,19 +3095,11 @@ export const SeatListBoard = () => {
   </div>
 }
 
-const STATUSBAR_CATALOG_VARIANTS = ['light', 'dark'] as const
-const STATUSBAR_CATALOG_SIZES = ['default'] as const
-const STATUSBAR_CATALOG_STATES = ['default', 'loading', 'disabled', 'populated'] as const
-export const StatusBarBoard = () => <div data-catalog-variants={STATUSBAR_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={STATUSBAR_CATALOG_SIZES.join(' ')} data-catalog-states={STATUSBAR_CATALOG_STATES.join(' ')}>
-  <StatusBar usage={<Text role="meta">Plan usage unavailable</Text>}
-    facts={[{ id: 'tasks', label: '3 background tasks', detail: 'Work across three conversations' },
-      { id: 'sync', label: 'Reconnecting', detail: 'Waiting for the host connection' },
-      { id: 'updates', label: 'Downloading Update…', run: () => {}, disabled: true }]}
-    terminal={<Button variant="ghost" size="icon-sm" aria-label="Open terminal"><TerminalIcon /></Button>} />
-</div>
-
 export const COMPOSITION_BOARDS: BoardSpec[] = [
-  { id: 'status-bar', title: 'StatusBar', about: 'Real-length content in both themes.', render: StatusBarBoard },
+  { id: 'popup-inbox', title: 'Inbox menu', about: 'Kept notifications, complete expanded facts and actions.', render: () => <PopupInboxBoard /> },
+  { id: 'subject-actions', title: 'Subject actions', about: 'Verbs and Messages choices retain their callbacks outside facts.', render: () => <PopupSubjectBoard /> },
+  { id: 'info-card', title: 'Info card', about: 'Complete facts on hover and focus, without actions or menu overlap.', render: () => <PopupInfoBoard /> },
+  { id: 'wide-menu', title: 'Wide menu', about: 'Search, long names, aligned usage and footer in one bounded surface.', render: () => <PopupWideBoard /> },
   { id: 'seat-list', title: 'SeatList', about: 'Real-length content in both themes.', render: SeatListBoard },
   { id: 'fixed-shell', title: 'FixedShell', about: 'Real-length content in both themes.', render: FixedShellBoard },
   { id: 'tool-body', title: 'ToolBody', about: 'Real-length content in both themes.', render: ToolBodyBoard },
@@ -3417,7 +3412,6 @@ export const LEFTCOLUMN_CATALOG_STATES = ['default', 'selected', 'disabled', 'lo
 
 export function LeftColumnBoard() { return <LeftColumn
   top={<LeftColumnTop shown back={false} forward={false} toggle={() => {}} goBack={() => {}} goForward={() => {}}
-    notifications={<Button variant="ghost" size="icon-sm" aria-label="Inbox"><BellIcon size={16} /></Button>}
     search={<Button variant="ghost" size="icon-sm" aria-label="Search everything"><SearchIcon size={16} /></Button>} />}
   head={null} body={<LeftColumnBody>
   <LeftColumnRow label="Teams" icon={<TeamIcon size={16} />} onClick={() => {}} />
@@ -3430,7 +3424,7 @@ export function LeftColumnBoard() { return <LeftColumn
     <LeftColumnRow label="Unavailable conversation" disabled title="Conversation not kept" />
   </LeftColumnGroup>
 </LeftColumnBody>}
-  footer={<LeftColumnSeat settingsOpen={false} onSettings={() => {}}
+  footer={<LeftColumnSeat notifications={<Button variant="ghost" size="icon-sm" aria-label="Inbox"><BellIcon size={16} /></Button>} settingsOpen={false} onSettings={() => {}}
     menu={<Button variant="ghost" size="pattern" className="inline-flex items-center gap-(--hd-space-2) px-(--hd-space-2) text-(length:--hd-text) font-(weight:--hd-weight-medium)" data-catalog-size="default"><UserIcon size={16} />Jane Doe</Button>} />} />
 }
 
@@ -3465,8 +3459,36 @@ export const SettingsNavigationBoard = () => {
 }
 COMPOSITION_BOARDS.push({ id: 'settings-navigation', title: 'Settings navigation', about: 'Controlled preferences with Back and search.', render: SettingsNavigationBoard })
 
-import { MenuExample } from '../catalog/popup-examples'
+import { MenuExample, SuggestionsExample, SelectExample } from '../catalog/popup-examples'
 const MENU_ROW_CATALOG_VARIANTS = ['default'] as const
 const MENU_ROW_CATALOG_SIZES = ['default'] as const
 const MENU_ROW_CATALOG_STATES = ['default'] as const
 const PopupMenuBoard = () => <>{MENU_ROW_CATALOG_VARIANTS.map(variant => MENU_ROW_CATALOG_SIZES.map(size => MENU_ROW_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><MenuExample /><MenuExample icons="none" /></div>)))}</>
+
+import { AppWindowLeftFrame } from '..'
+export const AppWindowLeftBoard = () => <div className="grid h-96 w-full" data-catalog-variant="default" data-catalog-size="default" data-catalog-state="nested-rail"><AppWindowLeftFrame placement="column" width={FRAME.sidebar.width} onWidth={() => {}} onCloseFloat={() => {}}
+  left={<LeftColumnBoard />} top={<Bar><Text role="navigation">General</Text></Bar>}
+  body={<Text as="p" role="row">Preference content stays in its existing window until phase E.</Text>}
+  /></div>
+COMPOSITION_BOARDS.push({ id: 'app-window-left', title: 'Window left column', about: 'Temporary shared left slot with one shell header and no status strip.', render: AppWindowLeftBoard })
+import { WideMenuExample, MeteredMenuExample, InfoCardExample } from '../catalog/popup-examples'
+const WIDEMENU_CATALOG_VARIANTS = ['default'] as const
+const WIDEMENU_CATALOG_SIZES = ['default'] as const
+const WIDEMENU_CATALOG_STATES = ['default'] as const
+const PopupWideBoard = () => <>{WIDEMENU_CATALOG_VARIANTS.map(variant => WIDEMENU_CATALOG_SIZES.map(size => WIDEMENU_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><WideMenuExample /><MeteredMenuExample /></div>)))}</>
+
+const INFOCARD_CATALOG_VARIANTS = ['default'] as const
+const INFOCARD_CATALOG_SIZES = ['default'] as const
+const INFOCARD_CATALOG_STATES = ['default'] as const
+const PopupInfoBoard = () => <>{INFOCARD_CATALOG_VARIANTS.map(variant => INFOCARD_CATALOG_SIZES.map(size => INFOCARD_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><InfoCardExample /></div>)))}</>
+
+const SUBJECTACTIONSMENU_CATALOG_VARIANTS = ['default'] as const
+const SUBJECTACTIONSMENU_CATALOG_SIZES = ['default'] as const
+const SUBJECTACTIONSMENU_CATALOG_STATES = ['default'] as const
+const PopupSubjectBoard = () => <>{SUBJECTACTIONSMENU_CATALOG_VARIANTS.map(variant => SUBJECTACTIONSMENU_CATALOG_SIZES.map(size => SUBJECTACTIONSMENU_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><SubjectActionsMenu label="Scout" actions={[{ label: 'Open', onSelect: () => {} }, { label: 'Message', onSelect: () => {} }]} choice={{ label: 'Messages', value: 'hold', options: [{ value: 'accept', label: 'Accept' }, { value: 'hold', label: 'Hold' }, { value: 'refuse', label: 'Refuse' }], onChange: () => {} }} /></div>)))}</>
+
+import { InboxExample } from '../catalog/popup-examples'
+const INBOXMENU_CATALOG_VARIANTS = ['default'] as const
+const INBOXMENU_CATALOG_SIZES = ['default'] as const
+const INBOXMENU_CATALOG_STATES = ['default'] as const
+const PopupInboxBoard = () => <>{INBOXMENU_CATALOG_VARIANTS.map(variant => INBOXMENU_CATALOG_SIZES.map(size => INBOXMENU_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><InboxExample /></div>)))}</>

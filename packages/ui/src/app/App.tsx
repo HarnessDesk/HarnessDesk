@@ -1,3 +1,4 @@
+import { toggleTerminal } from '../components/TerminalToggle'
 import { TopBarProvider } from '../panels/top-bar'
 import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 import { TeamsWindow } from '../components/TeamsWindow'
@@ -169,6 +170,9 @@ export const App = () => {
           return
         case 'open-folder':
           setFoldersOpen(true)
+          return
+        case 'toggle-terminal':
+          toggleTerminal(store)
           return
         case 'toggle-sidebar':
           store.toggleSidebar()
@@ -360,6 +364,18 @@ export const App = () => {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [run])
 
+  const [leftFilter, setLeftFilter] = useState('')
+  const closeSettings = () => { setSettingsOpen(false); setSettingsFocus(null); setLibraryImport(false) }
+  const renderLeftColumn = (inWindow: boolean) => <Sidebar active={inWindow || !settingsOpen}
+    listFilter={{ value: leftFilter, onChange: setLeftFilter }} sessionsOwner={!inWindow}
+    onOpenSettings={section => openSettingsAt(section ?? 'runtimes', null)}
+    onOpenLibrary={() => openSettingsAt('library', null)} onOpenPlugins={() => openSettingsAt('plugins', null)}
+    onOpenAgents={() => openAgents()}
+    onOpenTeams={() => { setSettingsOpen(false); setSettingsFocus(null); setAgentsOpen(false); setUsageOpen(false); setTeamsOpen(true) }}
+    onOpenUsage={openUsage} onBrowseFolders={chooseFolder} onSignIn={runtime => setSignInOpen(runtime ?? true)} onSearch={() => setPaletteOpen(true)}
+    activeDestination={teamsOpen ? 'teams' : agentsOpen ? 'agents' : usageOpen ? 'dashboard' : settingsOpen === 'library' ? 'library' : settingsOpen === 'plugins' ? 'plugins' : null}
+    settings={inWindow && settingsOpen && settingsOpen !== 'library' && settingsOpen !== 'plugins'
+      ? { section: settingsOpen, onSection: section => openSettingsAt(section, null), onBack: closeSettings } : undefined} />
   const frameOwner = reviewOpen ? 'changes-review' : agentsOpen ? 'agents' : teamsOpen ? 'teams' : usageOpen ? 'dashboard' : settingsOpen ? 'settings' : null
   return (
     /* One shell, one set of actions — including the app windows mounted
@@ -382,21 +398,7 @@ export const App = () => {
     <TopBarProvider><ShellHostsProvider><div className="hd-shell">
       <div className="hd-shellBody">
           <Workbench suspended={frameOwner !== null}
-            sidebar={
-              <Sidebar
-                onOpenSettings={(section) => openSettingsAt(section ?? 'runtimes', null)}
-                onOpenPlugins={() => openSettingsAt('plugins', null)}
-                onOpenAgents={() => openAgents()}
-                onOpenTeams={() => {
-                  setSettingsOpen(false); setSettingsFocus(null); setAgentsOpen(false); setUsageOpen(false); setTeamsOpen(true)
-                }}
-                onOpenUsage={openUsage}
-                onBrowseFolders={chooseFolder}
-                onSignIn={(runtime) => setSignInOpen(runtime ?? true)}
-                onSearch={() => setPaletteOpen(true)}
-                activeDestination={teamsOpen ? 'teams' : agentsOpen ? 'agents' : usageOpen ? 'dashboard' : settingsOpen === 'plugins' ? 'plugins' : null}
-              />
-            }
+            sidebar={renderLeftColumn(false)}
           />
       </div>
       {/* Results, and failures the store could not say in place, as toasts:
@@ -411,11 +413,8 @@ export const App = () => {
           focus={settingsFocus}
           libraryImport={libraryImport}
           onSection={(section, focus) => openSettingsAt(section, focus ?? null)}
-          onClose={() => {
-            setSettingsOpen(false)
-            setSettingsFocus(null)
-            setLibraryImport(false)
-          }}
+          leftColumn={renderLeftColumn(true)}
+          onClose={closeSettings}
           onSignIn={(runtime) => setSignInOpen(runtime)}
         />
       )}

@@ -48,7 +48,7 @@ export const IconFollowupsFrames = () => {
       <div className="h-[460px] p-4 pt-60">
         <Select defaultValue="16" items={projects}>
           <SelectTrigger aria-label="Choose a project"><SelectValue /></SelectTrigger>
-          <SelectContent className="max-h-60">
+          <SelectContent>
             {projects.map(project => <SelectItem key={project.value} value={project.value}>{project.label}</SelectItem>)}
           </SelectContent>
         </Select>

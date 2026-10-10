@@ -706,7 +706,7 @@ export const RoomComposer = ({
               <span>{tileLabels ? `To: ${tileAudience}` : audienceLabel(chosen)}</span>
             </>
           }
-        >
+         icons="none">
           {(close) => (
             <Menu close={close}>
               {tileLabels ? <>

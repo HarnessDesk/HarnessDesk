@@ -140,14 +140,13 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
             <TableCell><Text role="meta" className={styles.project} title={row.repo?.root ?? row.cwd}>{folderName(row.repo?.root ?? row.cwd)}</Text></TableCell>
             <TableCell align="end"><Text role="meta" title={scanTime(row.updatedAt)}>{new Date(row.updatedAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</Text></TableCell>
             <TableCell align="end"><span onClick={event => event.stopPropagation()}>
-              <DropdownMenu>
+              <DropdownMenu icons="none">
                 <DropdownMenuTrigger render={<BoardMenuButton aria-label={`${title} actions`} />} />
                 <DropdownMenuContent align="end">
                   {!row.hidden && <DropdownMenuItem title="The agent’s own files stay as they are." onClick={() => {
                     void store.removeSession(row.id, row.runtime).then(() => setRetry(was => was + 1))
-                  }}>Hide from HarnessDesk</DropdownMenuItem>}
-                  <DropdownMenuItem variant="destructive" disabled={!deletable} title={deleteReason} closeOnClick={deletable}
-                    onClick={() => { if (deletable) setDeleting(row) }}>Delete everywhere…</DropdownMenuItem>
+                  }} label={"Hide from HarnessDesk"} />}
+                  <DropdownMenuItem variant="destructive" disabled={!deletable} title={deleteReason} closeOnClick={deletable} onClick={() => { if (deletable) setDeleting(row) }} label={"Delete everywhere…"} />
                 </DropdownMenuContent>
               </DropdownMenu>
             </span></TableCell>

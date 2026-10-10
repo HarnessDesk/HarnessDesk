@@ -100,7 +100,7 @@ it('keeps moot controls greyed with their reason and omits empty Extension and M
   }
   expect(container.querySelector('[data-composer-track="extension"] button')).toBeNull()
   expect(container.querySelector('[data-composer-track="more"] button')).toBeNull()
-  expect(container.querySelector('button[title="No usage yet"]')).not.toBeNull()
+  expect(container.querySelector('button[aria-label="No usage yet"][data-info-source="context"]')).not.toBeNull()
 })
 
 it('draws Work in for drafts and leaves its track out of a live conversation', () => {

@@ -1,4 +1,4 @@
-import { createElement, forwardRef, isValidElement, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode, type Ref, type RefObject } from 'react'
+import { forwardRef, isValidElement, useEffect, useLayoutEffect, useId, useRef, useState, type HTMLAttributes, type ReactNode, type Ref, type RefObject } from 'react'
 
 import { escapeSurface, onDismissOverlays, type DismissDetail } from '../../lib/overlays'
 import {
@@ -14,6 +14,7 @@ import { buttonEdge, buttonVariants } from '../ui/button'
 
 import { MenuPresentation, useMenuPresentation, type MenuIcons } from '../ui/menu-row'
 import styles from './Popover.module.css'
+import { registerMenu } from '../ui/popup-state'
 import { useHeaderStatusGroup } from './HeaderStatusGroup'
 
 /* The contract itself is in `lib/overlays.ts`, free of React so that anything
@@ -166,6 +167,8 @@ export const Popover = ({
 }) => {
   const grouped = useHeaderStatusGroup()
   const [open, setOpenState] = useState(false)
+  const menuId = useRef(Symbol('popover-menu'))
+  useLayoutEffect(() => open ? registerMenu(menuId.current) : undefined, [open])
   // What the caller was last told, kept beside the state rather than read out
   // of an updater: an updater runs during render (twice, in StrictMode), and a
   // caller's `onOpenChange` sets the caller's own state — so telling it from
@@ -302,9 +305,8 @@ export const PopoverGroupLabel = ({
   inset?: boolean
 }) => (
   <div
-    data-slot="group-label"
+    data-menu-group=""
     data-inset={String(inset)}
-    className={styles.groupLabel}
   >
     {children}
   </div>
@@ -322,6 +324,8 @@ export const PopoverSurface = forwardRef<
   }
 >(({ className, limit, anchor, onDismiss, ...props }, ref) => {
   const { icons, wide } = useMenuPresentation()
+  const menuId = useRef(Symbol('popover-surface'))
+  useLayoutEffect(() => registerMenu(menuId.current), [])
   useDismissOverlays(Boolean(anchor), () => onDismiss?.())
   const surface = <div
     ref={ref}
@@ -354,46 +358,3 @@ export const PopoverSurface = forwardRef<
   )
 })
 PopoverSurface.displayName = 'PopoverSurface'
-
-export const PopoverOption = ({
-  as = 'button',
-  className,
-  children,
-  ...props
-}: {
-  as?: 'button' | 'div'
-  className?: string
-  children: ReactNode
-} & ButtonHTMLAttributes<HTMLButtonElement> & HTMLAttributes<HTMLDivElement>) => createElement(
-  as,
-  {
-    ...props,
-    ...(as === 'button' ? { type: props.type ?? 'button' } : {}),
-    className: `${styles.option}${className ? ` ${className}` : ''}`,
-  },
-  children,
-)
-
-export const PopoverOptionMark = ({
-  checked = false,
-  children,
-}: {
-  checked?: boolean
-  children?: ReactNode
-}) => <span className={checked ? styles.optionCheck : styles.optionIcon}>{children}</span>
-
-export const PopoverOptionBody = ({ children }: { children: ReactNode }) => (
-  <span className={styles.optionBody}>{children}</span>
-)
-
-export const PopoverOptionLabel = ({ children }: { children: ReactNode }) => (
-  <span className={styles.optionLabel}>{children}</span>
-)
-
-export const PopoverOptionHint = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <span className={`${styles.optionHint}${className ? ` ${className}` : ''}`}>{children}</span>
-)
-
-export const PopoverOptionLive = ({ label = 'Live' }: { label?: string }) => (
-  <span className={styles.optionLive} aria-label={label} />
-)

@@ -60,13 +60,12 @@ it.each(['start','end'] as const)('keeps a stopped duration unknown when its %s 
  act(()=>vi.advanceTimersByTime(120_000))
  expect(time()).toBe('—')
 })
-it('offers Stop run… in the running Overview strip and withdraws it when the Run ends',()=>{
+it('keeps Stop run… out of the Overview body in every Run state',()=>{
  const onStop=vi.fn()
  act(()=>root.render(<TeamOverview runRules={[{id:'after-review'},{id:'to-referee'}]} model={overviewModel('running')} onStop={onStop} />))
  const stop=[...box.querySelectorAll<HTMLButtonElement>('[aria-label="Run"] button')].find(one=>one.textContent==='Stop run…')
- expect(stop).toBeDefined()
- act(()=>stop!.click())
- expect(onStop).toHaveBeenCalledOnce()
+ expect(stop).toBeUndefined()
+ expect(onStop).not.toHaveBeenCalled()
  act(()=>root.render(<TeamOverview runRules={[{id:'after-review'},{id:'to-referee'}]} model={overviewModel('done')} onStop={onStop} />))
  expect(box.textContent).not.toContain('Stop run…')
 })
@@ -244,6 +243,15 @@ it('wraps the Agent work sentence in compact rows while names still truncate',()
  expect(work.classList.contains('truncate')).toBe(false)
  expect(work.closest('[data-slot="list-row-subtitle"]')?.hasAttribute('data-wrap-subtitle')).toBe(true)
  expect(box.querySelector('[data-role="subject"]')?.classList.contains('truncate')).toBe(true)
+})
+
+it.each(['packages/checkout/very-long-retry-budget-handler.ts', 'packages/checkout with spaces/very long handler.ts'])('keeps an edited path %s on one line in compact Agent rows',pathName=>{
+ vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({width:320} as DOMRect)
+ const path=`Edited ${pathName}`
+ render([row('Alpha',{state:'working',doing:path})])
+ const work=box.querySelector('[data-slot="seat-doing"]')!
+ expect(work.classList.contains('truncate')).toBe(true)
+ expect(work.querySelector('[data-slot="middle-truncate"] .sr-only')?.textContent).toBe(path)
 })
 
 it('wraps a compact Agent role line as well as its work sentence',()=>{

@@ -170,15 +170,11 @@ export const ArchiveSection = () => {
                           <UndoIcon size={13} />
                           Restore
                         </Button>
-                        <DropdownMenu>
+                        <DropdownMenu icons="none">
                           <DropdownMenuTrigger render={<BoardMenuButton aria-label={`${sessionLabel(summary.title, summary.preview)} actions`} />} />
                           <DropdownMenuContent align="end">
-                            {summary.worktree?.state === 'kept' && <DropdownMenuItem onClick={() => setDiscarding(summary)}>Discard worktree…</DropdownMenuItem>}
-                            <DropdownMenuItem variant="destructive"
-                              disabled={!deletable}
-                              title={deletable ? undefined : runtime.capabilities.deleteHistory === 'erase' ? `${runtime.presentation.name} erases it for good, so delete it there` : `${runtime.presentation.name} keeps no way to delete one.`}
-                              closeOnClick={deletable}
-                              onClick={() => { if (deletable) setDeleting(summary) }}>Delete everywhere…</DropdownMenuItem>
+                            {summary.worktree?.state === 'kept' && <DropdownMenuItem onClick={() => setDiscarding(summary)} label={"Discard worktree…"} />}
+                            <DropdownMenuItem variant="destructive" disabled={!deletable} title={deletable ? undefined : runtime.capabilities.deleteHistory === 'erase' ? `${runtime.presentation.name} erases it for good, so delete it there` : `${runtime.presentation.name} keeps no way to delete one.`} closeOnClick={deletable} onClick={() => { if (deletable) setDeleting(summary) }} label={"Delete everywhere…"} />
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </>

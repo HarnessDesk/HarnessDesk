@@ -24,3 +24,21 @@ it('insets scroll arrows from the popup edges over an opaque surface', () => {
     expect(arrow.classList.contains('bg-popover')).toBe(true)
   }
 })
+
+import { SelectGroup, SelectItem, SelectLabel, SelectSeparator } from './select'
+import { MenuPresentation } from './menu-row'
+
+it('shares canonical item, group and separator anatomy while retaining ItemText and selection', () => {
+  const box = document.createElement('div')
+  box.innerHTML = renderToStaticMarkup(<Select open defaultValue="scout"><SelectPrimitive.Positioner><SelectPrimitive.Popup><MenuPresentation icons="none"><SelectPrimitive.List>
+    <SelectGroup><SelectLabel>Agents</SelectLabel><SelectItem value="scout" label="Scout" hint="Keeps the checkout." /></SelectGroup><SelectSeparator /><SelectItem value="catalogue">Catalogue review</SelectItem>
+  </SelectPrimitive.List></MenuPresentation></SelectPrimitive.Popup></SelectPrimitive.Positioner></Select>)
+  const rows = box.querySelectorAll('[data-menu-row]')
+  expect(rows).toHaveLength(2)
+  expect(rows[0]!.querySelector('[data-menu-label]')?.textContent).toBe('Scout')
+  expect(rows[0]!.querySelector('[data-menu-hint]')?.textContent).toBe('Keeps the checkout.')
+  expect(rows[0]!.querySelector('[data-menu-trailing] svg')).not.toBeNull()
+  expect(box.querySelector('[data-menu-group]')?.textContent).toBe('Agents')
+  expect(box.querySelector('[data-menu-separator]')).not.toBeNull()
+  expect(rows[1]!.querySelector('[data-menu-label]')?.textContent).toBe('Catalogue review')
+})

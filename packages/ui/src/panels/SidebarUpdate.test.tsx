@@ -1,19 +1,19 @@
 import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { runtimeId, sessionKey, type BackgroundTask } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { previewStore } from '../preview/harness'
 import type { AppUpdateFact, DesktopBridge } from '../lib/desktop'
-import { WorkStatusBar } from './WorkStatusBar'
+import { Sidebar } from '../components/Sidebar'
 
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 let host: HTMLDivElement, root: Root
 const original = window.harnessdesk
 beforeEach(() => { host = document.createElement('div'); document.body.append(host); root = createRoot(host) })
 afterEach(() => { act(() => root.unmount()); host.remove(); window.harnessdesk = original; vi.restoreAllMocks() })
 const mount = (strict = false) => {
   const store = previewStore()
-  act(() => root.render(<StoreProvider store={store}>{strict ? <StrictMode><WorkStatusBar /></StrictMode> : <WorkStatusBar />}</StoreProvider>))
+  act(() => root.render(<StoreProvider store={store}>{strict ? <StrictMode><Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} /></StrictMode> : <Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />}</StoreProvider>))
   return store
 }
 const label = (name: string) => [...host.querySelectorAll('button')].find(one => one.textContent === name)
@@ -28,27 +28,11 @@ const bridge = () => {
   } satisfies DesktopBridge
   return { listeners, reads, order, action, push: (fact: AppUpdateFact | null) => act(() => listeners.forEach(receive => receive(fact))) }
 }
-it('projects all running work, connection facts and the existing scoped tasks action', () => {
-  const store = mount(), open = vi.spyOn(store, 'openDetailsTab'), subject = vi.spyOn(store, 'workSubject')
-  const task = (id: string, state: BackgroundTask['state']): BackgroundTask => ({ id, label: 'Review checkout', kind: 'command', state, command: 'node review.mjs', cwd: '/work/storefront', stoppable: false })
-  act(() => store.patch({ tasks: new Map([
-    [sessionKey(runtimeId('fixture'), 'first' as never), [task('one', 'running'), task('done', 'completed')]],
-    [sessionKey(runtimeId('fixture'), 'second' as never), [task('two', 'running')]],
-  ]) }))
-  act(() => label('2 background tasks')!.click())
-  expect(open).toHaveBeenCalledWith('tasks')
-  for (const [status, text] of [['connecting', 'Connecting'], ['open', 'Connected'], ['reconnecting', 'Reconnecting'], ['closed', 'Disconnected']] as const) {
-    act(() => store.patch({ status })); expect(host.textContent).toContain(text)
-  }
-  subject.mockReturnValue(null)
-  act(() => store.patch({ status: 'open' }))
-  expect(label('2 background tasks')?.disabled).toBe(true)
-  expect(host.querySelectorAll('[aria-label="Open terminal"]')).toHaveLength(1)
-})
-it('subscribes before reading; pushed data including null wins a late initial read', async () => {
+it('update row immediately above the seat subscribes before reading; pushed data including null wins a late initial read', async () => {
   const rig = bridge(); mount()
   expect(rig.order).toEqual(['subscribe', 'read'])
   rig.push({ label: 'Restart to Update (1.0.0)', enabled: true })
+  expect(host.querySelector('[data-left-seat]')?.parentElement?.previousElementSibling?.textContent).toContain('Restart to Update (1.0.0)')
   await act(async () => rig.reads[0]!({ label: 'Check for Updates…', enabled: true }))
   expect(label('Check for Updates…')).toBeUndefined()
   act(() => label('Restart to Update (1.0.0)')!.click()); expect(rig.action).toHaveBeenCalledOnce()

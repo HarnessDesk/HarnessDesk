@@ -563,9 +563,6 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   </> : null
 
   const owner = usePane()?.paneId ?? ''
-  const boardSummary = intents.length === 0 ? 'No work yet'
-    : `${byColumn.get('todo')?.length ?? 0} to do · ${byColumn.get('working')?.length ?? 0} working · ${byColumn.get('needs')?.length ?? 0} need you`
-  const summary = <SummaryList aria-label="Board summary"><SummaryItem label="Work">{boardSummary}</SummaryItem></SummaryList>
   useTopBarView(owner, {
     verb: { label: 'New job', icon: <PlusIcon />, disabled: record ? RECORD_REASON : false, run: openAdd },
     view: { content: close => <Menu close={close}>
@@ -583,7 +580,6 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
        width, so a narrow Board can retain its compact list geometry. */
     <ToolPane ref={paneRef} variant="integrated" className="@container/board">
       <ToolPaneBody ref={bodyRef} bleed={view === 'list'} inset="dense" className="[scrollbar-gutter:stable]">
-        {view === 'list' ? <PaneColumn inset="reading">{summary}</PaneColumn> : summary}
         {notices && (view === 'list' ? <PaneColumn inset="reading" className="flex flex-col gap-2">{notices}</PaneColumn> : notices)}
         {/* The goals on this board, above the work. A Room is permanent and a
             goal is not, so this is the only line that can ever say "finished" —
@@ -988,7 +984,7 @@ const IntentCard = ({
   const menuVerbs = verbs.filter(one => !listColumns || record || one !== primary)
   const actions = (
         menuVerbs.length > 0 || checkItems.length > 0 || onAssign ? (
-          <Popover label={<MoreIcon size={14} />} title={`What to do with #${intent.id}`} align="right">
+          <Popover label={<MoreIcon size={14} />} title={`What to do with #${intent.id}`} align="right" icons="none">
             {(close) => (
               <Menu close={close}>
                 {onAssign ? <MenuItem label="Give this to…" disabled={record ? RECORD_REASON : false} onSelect={onAssign} /> : null}
@@ -1128,7 +1124,6 @@ const IntentCard = ({
             <SessionHoverCard
               session={session ?? null}
               className="flex min-w-0 flex-1 items-center gap-1.5"
-              actions={[{ label: 'Open', primary: true, onSelect: onOpenHolder }]}
             >
               <IconTile size="sm" shape="face" tint={holderTint}>
                 {runtime ? (

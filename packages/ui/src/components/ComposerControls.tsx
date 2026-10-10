@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { ConfigOption, OptionChoice, RuntimeId, RuntimeInfo, SeatAttachmentsRecord, SelectOption } from '@harnessdesk/protocol'
 
-import { Button, Chip, CodeText, Dialog, RowChoice, Search, Text } from '../design'
+import { Button, Chip, CodeText, Dialog, RowChoice, Text } from '../design'
 import { Badge } from '../design'
 import { runtimeLabel } from '../lib/accounts'
 import { CARRY_OPTIONS, type Carry } from '../lib/handoff'
@@ -42,7 +42,7 @@ import {
   ZapIcon,
 } from './Icons'
 import { ModelMark, RuntimeMark } from './BrandIcons'
-import { Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, RefusedAction, Submenu } from '../design'
+import { Menu, MenuItem, MenuLabel, MenuNote, MenuSearch, MenuSeparator, MenuToggle, RefusedAction, Submenu } from '../design'
 import { useOptionConfirm } from './OptionConfirm'
 import { Popover } from '../design'
 import sheet from './ComposerControls.module.css'
@@ -412,7 +412,7 @@ const FilterableChoices = ({ option, close }: { option: SelectOption; close: () 
   const store = useStore()
   const key = useSessionKey()
   const [query, setQuery] = useState('')
-  if (option.choices.length <= 8) return <ChoiceRows option={option} />
+  if (option.choices.length < 6) return <ChoiceRows option={option} />
   const needle = query.trim().toLowerCase()
   const filtered = needle
     ? option.choices.filter(
@@ -422,16 +422,9 @@ const FilterableChoices = ({ option, close }: { option: SelectOption; close: () 
     : option.choices
   return (
     <>
-      {/* The list's filter is the one every list draws: the compact field, a
-          line among the menu's borderless rows rather than a form to fill in.
-          The margin sets it on the rows' own inset. */}
-      <Search
-        size="compact"
-        icon="filter"
-        className="mx-1 mt-1 mb-0.5"
-        // eslint-disable-next-line jsx-a11y/no-autofocus
+      <MenuSearch
         autoFocus
-        placeholder={`Type to filter ${option.choices.length} choices…`}
+        label={`Type to filter ${option.choices.length} choices…`}
         value={query}
         onChange={setQuery}
         onKeyDown={(event) => {
@@ -511,7 +504,7 @@ export const PermissionControl = () => {
               {!tight && <Chevron />}
             </>
           }
-        >
+         panelWidth="wide" icons="none">
           {(close) => (
             <Menu close={close}>
               {presets.length > 0 && (
@@ -661,7 +654,7 @@ export const ModelControl = () => {
               {!tight && <Chevron />}
             </>
           }
-        >
+         panelWidth="wide" icons="none">
           {(close) => (
             <Menu close={close}>
               {statuses.length > 0 && <MenuLabel>{name} {statuses.map((status) =>
@@ -691,8 +684,8 @@ export const ModelControl = () => {
                   label={option.label}
                   value={currentLabel(option)}
                   disabled={option.disabled}
-                  width={280}
-                >
+
+                 wide icons="none">
                   {option.description && <MenuNote>{option.description}</MenuNote>}
                   <ChoiceRows option={option} />
                   {/* Switches about thinking ride with the first effort select. */}
@@ -740,7 +733,7 @@ export const ModelControl = () => {
                 />
               )}
               {rest.length > 0 && model.type === 'select' && (
-                <Submenu icon={<ModelIcon size={14} />} label="More models" value={`${rest.length}`} width={300}>
+                <Submenu icon={<ModelIcon size={14} />} label="More models" value={`${rest.length}`}  wide icons="none">
                   <FilterableChoices option={{ ...model, choices: rest }} close={close} />
                 </Submenu>
               )}
@@ -750,8 +743,8 @@ export const ModelControl = () => {
                   icon={<RouteIcon size={14} />}
                   label="Model route"
                   value={activeRoute ? activeRoute.name : 'Direct'}
-                  width={300}
-                >
+
+                 wide icons="none">
                   <MenuItem
                     selected={snapshot.draftRouteId === null}
                     label="Direct"
@@ -868,7 +861,7 @@ export const ModeControl = () => {
               {!tight && <Chevron />}
             </>
           }
-        >
+         panelWidth="wide" icons="none">
           {(close) => (
             <Menu close={close}>
               {modes.map((option) => (
@@ -904,7 +897,7 @@ export const MoreControl = () => {
                 {!tight && <Chevron />}
               </>
             }
-          >
+           panelWidth="wide" icons="none">
             {(close) => (
               <Menu close={close}>
                 {others.map((option) => (
@@ -1022,7 +1015,7 @@ export const AgentControl = () => {
             {!tight && <Chevron />}
           </>
         }
-        >
+         panelWidth="wide" icons="none">
           {(close) => (
             <Menu close={close}>
               {session ? (
@@ -1326,7 +1319,7 @@ export const PlaceControl = () => {
             {!tight && <Chevron />}
           </>
         }
-        >
+         panelWidth="wide" icons="none">
           {(close) => (
             <Menu close={close}>
               <MenuLabel>Work in</MenuLabel>

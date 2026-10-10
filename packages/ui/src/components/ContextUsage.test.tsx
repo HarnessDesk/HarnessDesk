@@ -6,6 +6,7 @@ import { sessionKey, type RuntimeInfo, type Session, type SessionUsage } from '@
 
 import { StoreProvider } from '../state/context'
 import { formatReset } from '../lib/limits'
+import { formatResetCountdown } from '../lib/usage'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { ContextUsage } from './ContextUsage'
 
@@ -104,20 +105,20 @@ const open = (): void => {
   const trigger = container.querySelector('button')
   if (!trigger) throw new Error('no trigger')
   act(() => {
-    trigger.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    trigger.focus()
   })
 }
-const panelText = (): string => document.querySelector('[role="menu"]')?.textContent ?? ''
+const panelText = (): string => document.querySelector('[data-popup-kind="info-card"]')?.textContent ?? ''
 
 describe('ContextUsage', () => {
   it('draws an empty ring until the runtime has reported usage', () => {
     mount(withSession(runtime('alpha', 'Assistant A', false), null))
     const trigger = container.querySelector<HTMLButtonElement>('button')
-    expect(trigger?.title).toBe('No usage yet')
+    expect(trigger?.getAttribute('aria-label')).toBe('No usage yet')
     expect(ring()?.getAttribute('aria-label')).toBe('No usage yet')
     mount({})
     expect(container.querySelector('button')).not.toBeNull()
-    expect(container.querySelector<HTMLButtonElement>('button')?.title).toBe('No usage yet')
+    expect(container.querySelector<HTMLButtonElement>('button')?.getAttribute('aria-label')).toBe('No usage yet')
   })
 
   it('opens the empty context popover to No usage yet', () => {
@@ -145,16 +146,14 @@ describe('ContextUsage', () => {
     open()
     const text = panelText()
     expect(text).toContain('66% full')
-    expect(text).toContain('171K of 258K tokens in context')
-    expect(text).toContain('Last turn')
+    expect(text).toContain('171K of 258K tokens')
     expect(text).toContain('Input48K83% cached')
     expect(text).toContain('Output2K')
     expect(text).toContain('Thinking300')
-    expect(text).toContain('This session')
-    expect(text).toContain('Tokens2M100K out')
+    expect(text).toContain('Session tokens2M100K out')
     expect(text).toMatch(/Cost\$1\.25/)
     expect(text).toContain('Reported by Alpha Agent.')
-    expect(text).not.toContain('Plan usage')
+    expect(text).not.toContain('5-hour46% left')
   })
 
   it('turns amber, then red, as the window fills', () => {
@@ -174,7 +173,7 @@ describe('ContextUsage', () => {
     expect(glyph?.getAttribute('aria-label')).toBe('1.3K tokens this session — Beta Agent does not report its context window')
     open()
     expect(panelText()).toContain('Beta Agent does not report its context window size.')
-    expect(panelText()).toContain('Tokens1.3K80 out')
+    expect(panelText()).toContain('Session tokens1.3K80 out')
   })
 
   it('shows the plan windows only for the active, metered runtime', () => {
@@ -188,7 +187,7 @@ describe('ContextUsage', () => {
     const usage: SessionUsage = { total: tokens(10), last: tokens(10), contextUsed: 10, contextWindow: 100 }
     mount(withSession(runtime('alpha', 'Alpha', true), usage, { limits }))
     open()
-    expect(panelText()).toContain('Plan usage')
+    expect(panelText()).toContain('5-hour46% left')
     // Left, not used: the same scale and the same direction as the sidebar
     // footer, the header strip and the Dashboard. A panel that said "54%
     // used" beside a footer saying "46% left" made a reader convert one into
@@ -204,7 +203,7 @@ describe('ContextUsage', () => {
     // Not metered: the same limits are somebody else's.
     mount(withSession(runtime('alpha', 'Alpha', false), usage, { limits }))
     open()
-    expect(panelText()).not.toContain('Plan usage')
+    expect(panelText()).not.toContain('5-hour46% left')
 
     // Metered, but the pane is on another runtime than the active one.
     const other = runtime('gamma', 'Gamma', true)
@@ -217,7 +216,7 @@ describe('ContextUsage', () => {
       limits,
     })
     open()
-    expect(panelText()).not.toContain('Plan usage')
+    expect(panelText()).not.toContain('5-hour46% left')
   })
 
   it('keeps the reset clock in the context-panel countdown title', () => {
@@ -228,8 +227,9 @@ describe('ContextUsage', () => {
     const usage: SessionUsage = { total: tokens(10), last: tokens(10), contextUsed: 10, contextWindow: 100 }
     mount(withSession(runtime('alpha', 'Alpha', true), usage, { limits }))
     open()
-    const countdown = document.querySelector('[role="menu"] [data-slot="usage-meter-row"]')?.lastElementChild
-    expect(countdown?.getAttribute('title')).toBe(`resets ${formatReset(resetsAt)}`)
+    const countdown = [...document.querySelectorAll('[data-info-pair]')].find(row => row.querySelector('dt')?.textContent === '5-hour')?.querySelector('[data-info-pair-note]')
+    expect(countdown?.textContent).toContain(formatResetCountdown(resetsAt - Date.now()))
+    expect(countdown?.textContent).toContain(`resets ${formatReset(resetsAt)}`)
   })
   it('an agent that reports cache misses gets a verdict', () => {
     // Reads and writes both known: the panel can say the cache was cold, and
@@ -300,16 +300,9 @@ describe('ContextUsage', () => {
       }),
     )
     open()
-    const readings = [...document.querySelectorAll<HTMLElement>('[class*="rowReading"]')]
-    const input = readings.find((node) => node.textContent?.includes('180K'))
-    expect(input).toBeTruthy()
-    // Both live in the one flex row `Row` renders — the value first, its
-    // note last — not the value alone with the hint drawn beside it by
-    // `KeyValueRow`'s own end column.
-    expect(input?.querySelector('[data-role="value"]')).toBeTruthy()
-    const note = input?.querySelector('[data-role="meta"]')
-    expect(note).toBeTruthy()
-    expect(note?.textContent).toContain('cold cache')
+    const input = [...document.querySelectorAll('[data-info-pair]')].find(row => row.querySelector('dt')?.textContent === 'Input')
+    expect(input?.querySelector('dd')?.textContent).toBe('180K')
+    expect(input?.querySelector('[data-info-pair-note]')?.textContent).toContain('cold cache')
   })
 
   it('a reading with nothing to note draws no second child', () => {
@@ -322,11 +315,9 @@ describe('ContextUsage', () => {
       }),
     )
     open()
-    const readings = [...document.querySelectorAll<HTMLElement>('[class*="rowReading"]')]
-    const output = readings.find((node) => node.textContent === '500')
-    expect(output).toBeTruthy()
-    expect(output?.querySelector('[data-role="value"]')).toBeTruthy()
-    expect(output?.querySelector('[data-role="meta"]')).toBeNull()
+    const output = [...document.querySelectorAll('[data-info-pair]')].find(row => row.querySelector('dt')?.textContent === 'Output')
+    expect(output?.querySelector('dd')?.textContent).toBe('500')
+    expect(output?.querySelector('[data-info-pair-note]')).toBeNull()
   })
 
   it('wraps the head\'s subtitle whole only when it has no window to draw', () => {
@@ -335,9 +326,9 @@ describe('ContextUsage', () => {
     // than losing its end to an ellipsis.
     mount(withSession(runtime('beta', 'Beta Agent', false), { total: tokens(1280, 1200, 0, 80), last: tokens(1280, 1200, 0, 80) }))
     open()
-    const noWindowSubtitle = document.querySelector('[data-slot="list-row-subtitle"]')
-    expect(noWindowSubtitle?.hasAttribute('data-wrap-subtitle')).toBe(true)
-
+    const noWindowSubtitle = document.querySelector('[data-info-pair-note]')
+    expect(noWindowSubtitle?.textContent).toBe('Beta Agent does not report its context window size.')
+    expect(noWindowSubtitle?.classList.contains('truncate')).toBe(false)
     // A window: the subtitle is a reading ("171K of 258K tokens in
     // context"), truncated like any other value rather than wrapped.
     // Same root, same trigger — the popover's own open state carries over
@@ -351,7 +342,8 @@ describe('ContextUsage', () => {
         contextWindow: 258_000,
       }),
     )
-    const fillSubtitle = document.querySelector('[data-slot="list-row-subtitle"]')
-    expect(fillSubtitle?.hasAttribute('data-wrap-subtitle')).toBe(false)
+    const context = [...document.querySelectorAll('[data-info-pair]')].find(row => row.querySelector('dt')?.textContent === 'Context')
+    expect(context?.querySelector('dd')?.textContent).toBe('171K of 258K tokens')
+    expect(context?.querySelector('[data-info-pair-note]')).toBeNull()
   })
 })

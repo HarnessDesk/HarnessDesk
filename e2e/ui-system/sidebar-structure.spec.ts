@@ -8,7 +8,7 @@ for (const theme of ['light', 'dark'] as const) test(`activation reveals a folde
   await page.setViewportSize({ width: 1440, height: 1200 })
   await page.goto(`/preview.html?sidebar=folderless&theme=${theme}`)
   const sidebar = page.locator('[data-frame-id="sidebar-column"]')
-  const column = sidebar.locator('[style*="width: 240px"]')
+  const column = sidebar.locator(`[style*="width: ${FRAME.sidebar.width}px"]`)
   await column.evaluate(node => { (node as HTMLElement).style.height = '1000px' })
   const group = sidebar.locator('[data-no-folder]')
   const head = group.getByRole('button', { name: 'No folder', exact: true })

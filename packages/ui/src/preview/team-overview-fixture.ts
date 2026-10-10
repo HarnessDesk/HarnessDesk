@@ -1,6 +1,7 @@
 import { WAITING_LEDGER, approvalId, itemId, runtimeId, sessionId, sessionKey, turnId, type FlowExecution, type GoalView, type InsightAmounts, type InsightMetric, type InsightReport, type Intent, type SeatRecord, type Session } from '@harnessdesk/protocol'
 import { teamOverview, type TeamOverviewInput } from '../lib/team-overview'
 import { PREVIEW_GOAL } from './goal-fixture'
+import { PREVIEW_FINDINGS } from './findings-fixture'
 import { goalInsightsFrom, previewStore } from './harness'
 
 export const OVERVIEW_STATES = ['running','needs-you','unread','idle','stalled','no-run','no-seats','done','done-open','comparison','narrow'] as const
@@ -45,6 +46,15 @@ export const overviewTeamStore = (scene: 'done' | 'running' | 'needs-you' | 'sta
  const sessions=new Map(input.seats.slice(0,2).map(one=>[sessionKey(one.record.session.runtime,one.record.session.sessionId),one.session!]))
  const approvals=scene==='needs-you'?input.seats.flatMap(one=>one.approvals.map(approval=>({key:sessionKey(one.record.session.runtime,one.record.session.sessionId),approval}))):[]
  const findingRun:import('@harnessdesk/protocol').FindingRunView={run:run.id,goal:board.id,round:2,finished:1,total:1,embargoed:false,open:3,blocking:3,reason:'This review is waiting to be posted.',ceilingStop:false,stamp:'preview-posting',publication:'local',rounds:[{round:2,state:'local',reason:'This review is waiting to be posted.',pr:7,cards:[2]}],reviewersFinished:1,reviewersTotal:1,pendingExceptions:[],repair:null,boundPr:{repo:'acme/storefront',pr:7},unbound:null,undecidable:null}
- const base=previewStore({teams:new Map([[board.id,board]]),goals:new Map([[board.id,goal]]),flowExecutions:scene==='no-run'?new Map():new Map([[run.id,run]]),findingRuns:scene==='findings-and-posting'?new Map([[run.id,findingRun]]):new Map(),sessions,history:[...sessions.values()],inbox:[],approvals,workspace:{path:board.root,name:'Storefront',lastOpenedAt:at},workspaces:[{path:board.root,name:'Storefront',lastOpenedAt:at}],listPrefs:{...previewStore().getSnapshot().listPrefs,collapsed:[],pinned:[]}})
+ const ledger = PREVIEW_FINDINGS.filter(one => ['finding-open-1', 'finding-security-1', 'finding-carried-1'].includes(one.id)).map(one => ({ ...one, ownerGoal: board.id, origin: { ...one.origin, goal: board.id, run: run.id, round: 2, card: 2, seat: 'seat-1' } }))
+ const seededFindings = scene==='running'||scene==='findings-and-posting'
+ const findings = { filter: 'all' as const, rows: ledger, totals: { all: 3, open: 3, blocking: 3 }, next: null, problem: null, loading: false, loadingMore: false, error: null, stale: false }
+ const base=previewStore({findings:seededFindings?new Map([[board.id,findings]]):new Map(),teams:new Map([[board.id,board]]),goals:new Map([[board.id,goal]]),flowExecutions:scene==='no-run'?new Map():new Map([[run.id,run]]),findingRuns:seededFindings?new Map([[run.id,findingRun]]):new Map(),sessions,history:[...sessions.values()],inbox:[],approvals,workspace:{path:board.root,name:'Storefront',lastOpenedAt:at},workspaces:[{path:board.root,name:'Storefront',lastOpenedAt:at}],listPrefs:{...previewStore().getSnapshot().listPrefs,collapsed:[],pinned:[]}})
+ const loadFindings = base.loadFindings
+ if (seededFindings) Object.assign(base, { loadFindings: async (requestedGoal: string, filter: 'all' | 'open' | 'blocking' = 'all') => {
+   if (requestedGoal !== board.id) return loadFindings(requestedGoal, filter)
+   if (base.getSnapshot().findings.get(board.id)?.filter === filter) return
+   base.patch({ findings: new Map(base.getSnapshot().findings).set(board.id, { ...findings, filter }) })
+ } })
  return new Proxy(base,{get(target,key){if(key==='teamPeers')return async()=>[];if(key==='readGoalInsight')return async()=>overviewReport();if(key==='readGoalInsights')return goalInsightsFrom(async()=>overviewReport());return Reflect.get(target,key)}})
 }
