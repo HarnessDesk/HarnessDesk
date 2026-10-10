@@ -149,3 +149,13 @@
 .flat > .rail { inset-inline-start: calc((var(--hd-space-5) - var(--hd-border-width)) / 2); background: var(--hd-border); }
 .flat[data-state="done"] > .indicator { background: var(--hd-secondary-foreground); border-color: var(--hd-secondary-foreground); }
 .flat { padding-block-end: var(--hd-space-4); }
+
+/* Flat steps own only their outgoing segment. Group labels and a group's last
+   step have no rail; the segment starts after the 20px dot and its 2px gap. */
+.timeline:has(> .flat) > .section > .rail { display: none; }
+.item.flat > .rail {
+  inset-inline-start: calc(var(--hd-space-5) / 2 - var(--hd-border-width));
+  top: calc(var(--hd-space-5) + var(--hd-space-0-5));
+  bottom: 0;
+}
+.flat:has(+ .section) > .rail { display: none; }

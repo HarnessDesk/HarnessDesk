@@ -32,8 +32,9 @@ const container=document.createElement('div'); document.body.append(container)
 const root=createRoot(container)
 beforeEach(()=>{vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockReturnValue({width:1000} as DOMRect)})
 afterEach(()=>{act(()=>root.render(null));vi.restoreAllMocks();vi.unstubAllGlobals()})
-const mount=async(scene:Parameters<typeof overviewTeamStore>[0]='running')=>{
+const mount=async(scene:Parameters<typeof overviewTeamStore>[0]='running', withoutFindings=false)=>{
  const base=overviewTeamStore(scene)
+ if(withoutFindings)base.patch({findingRuns:new Map()})
  const seen=vi.fn(); const hidden=vi.fn(); const open=vi.fn(); const close=vi.fn()
  const store=new Proxy(base,{get(target,key){
   if(key==='markTeamSeen')return seen; if(key==='setTeamHidden')return hidden; if(key==='openTeamRoom')return open
@@ -44,7 +45,7 @@ const mount=async(scene:Parameters<typeof overviewTeamStore>[0]='running')=>{
 }
 const button=(label:string)=>[...container.querySelectorAll<HTMLButtonElement>('button')].find(one=>one.textContent?.includes(label))!
 it('opens Active with counts and the real Team sentence, face stack and earned round',async()=>{
- await mount()
+ await mount('running',true)
  expect(container.querySelector('nav [aria-current="page"]')?.textContent).toContain('Active')
  expect(container.querySelector('[data-team-row]')?.textContent).toContain('Retry the checkout call')
  expect(container.querySelectorAll('[data-team-row] [data-shape="face"]')).toHaveLength(2)

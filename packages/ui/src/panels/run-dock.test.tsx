@@ -83,7 +83,7 @@ it('selecting Timeline or Flow changes main only, while selecting a row explicit
     expect(store.getSnapshot().workbench.right).toBe(before)
     choose('Timeline')
     expect(store.getSnapshot().workbench.right).toBe(before)
-    act(() => container.querySelector<HTMLButtonElement>('[data-row="round-1"] button')!.click())
+    act(() => container.querySelector<HTMLButtonElement>('[data-row="card-1-1"] button')!.click())
     expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]).toMatchObject({tool:'details',mode:'run-details',open:true})
   } finally { act(() => root.unmount()); container.remove() }
 })

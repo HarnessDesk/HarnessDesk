@@ -48,7 +48,7 @@ export const TeamRunFacts = ({ input, number, chooser, at, flowFile, pullRequest
       {execution.continues && <SummaryItem label="Continues">{continuesNumber ? `Run ${continuesNumber}` : 'an earlier Run'}</SummaryItem>}
       {model.header.publication?.label && <SummaryItem label="Publication">{model.header.publication?.label}</SummaryItem>}
     </SummaryList>
-    {missing.length > 0 && <ToolProse>Not recorded for this Run: {missing.join(', ')}.</ToolProse>}
+    {missing.length > 0 && <ToolProse variant="note">Not recorded for this Run: {missing.join(', ')}.</ToolProse>}
     {facts.extra && <Text role="prose">{sanitizeText(facts.extra)}</Text>}
   </>
 }

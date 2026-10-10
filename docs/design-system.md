@@ -2218,6 +2218,12 @@ A quiet conversation or room state ends on the inset rail and folds to a dot for
 
 The app's readings share one window-wide foot, below every retained region.
 
+### `ToolProse`
+
+`packages/ui/src/design/patterns/ToolBody.tsx`
+
+A missing-fact note uses the row edge and second-line type; prose keeps its reading inset.
+
 ### `UsageMeterRow`
 
 `packages/ui/src/design/patterns/UsageMeterRow.tsx`

@@ -35,7 +35,7 @@ beforeEach(() => {
   const computed = getComputedStyle
   const bounds = HTMLElement.prototype.getBoundingClientRect
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-    if (this.matches('[data-topbar-title]')) return { ...bounds.call(this), width: FRAME.bar.titleMin } as DOMRect
+    if (this.matches('[data-topbar-title], [data-topbar="place"]')) return { ...bounds.call(this), width: FRAME.bar.titleMin } as DOMRect
     return bounds.call(this)
   })
   vi.spyOn(globalThis, 'getComputedStyle').mockImplementation((node, pseudo) => {

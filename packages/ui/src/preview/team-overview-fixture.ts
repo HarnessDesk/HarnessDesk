@@ -50,5 +50,11 @@ export const overviewTeamStore = (scene: 'done' | 'running' | 'needs-you' | 'sta
  const seededFindings = scene==='running'||scene==='findings-and-posting'
  const findings = { filter: 'all' as const, rows: ledger, totals: { all: 3, open: 3, blocking: 3 }, next: null, problem: null, loading: false, loadingMore: false, error: null, stale: false }
  const base=previewStore({findings:seededFindings?new Map([[board.id,findings]]):new Map(),teams:new Map([[board.id,board]]),goals:new Map([[board.id,goal]]),flowExecutions:scene==='no-run'?new Map():new Map([[run.id,run]]),findingRuns:seededFindings?new Map([[run.id,findingRun]]):new Map(),sessions,history:[...sessions.values()],inbox:[],approvals,workspace:{path:board.root,name:'Storefront',lastOpenedAt:at},workspaces:[{path:board.root,name:'Storefront',lastOpenedAt:at}],listPrefs:{...previewStore().getSnapshot().listPrefs,collapsed:[],pinned:[]}})
- return new Proxy(base,{get(target,key){if(key==='loadFindings' && seededFindings)return async(_goal:string,filter: 'all' | 'open' | 'blocking'='all')=>{if(target.getSnapshot().findings.get(board.id)?.filter===filter)return;target.patch({findings:new Map([[board.id,{...findings,filter}]])})};if(key==='teamPeers')return async()=>[];if(key==='readGoalInsight')return async()=>overviewReport();if(key==='readGoalInsights')return goalInsightsFrom(async()=>overviewReport());return Reflect.get(target,key)}})
+ const loadFindings = base.loadFindings
+ if (seededFindings) Object.assign(base, { loadFindings: async (requestedGoal: string, filter: 'all' | 'open' | 'blocking' = 'all') => {
+   if (requestedGoal !== board.id) return loadFindings(requestedGoal, filter)
+   if (base.getSnapshot().findings.get(board.id)?.filter === filter) return
+   base.patch({ findings: new Map(base.getSnapshot().findings).set(board.id, { ...findings, filter }) })
+ } })
+ return new Proxy(base,{get(target,key){if(key==='teamPeers')return async()=>[];if(key==='readGoalInsight')return async()=>overviewReport();if(key==='readGoalInsights')return goalInsightsFrom(async()=>overviewReport());return Reflect.get(target,key)}})
 }

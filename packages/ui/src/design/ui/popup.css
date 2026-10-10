@@ -83,3 +83,6 @@
 [data-info-facts] dt { color: var(--hd-secondary-foreground); }
 [data-info-facts] dd { min-width: 0; margin: 0; }
 [data-info-note] { margin-top: var(--hd-space-2); color: var(--hd-secondary-foreground); font-size: var(--hd-text-xs); line-height: var(--hd-line-xs); white-space: normal; }
+
+/* A refused row keeps its icon and reason in the label's disabled ink. */
+[data-menu-row]:is([data-disabled], [aria-disabled='true'], :disabled) :is([data-menu-icon], [data-menu-hint]) { color: inherit; }

@@ -21,7 +21,8 @@ describe('a conversation opened from the Team', () => {
 })
 describe('the canonical Team row', () => {
   it('lets the name shrink without spending the fixed verbs', () => {
-    expect(barCss).toMatch(/\.place\s*\{[^}]*flex:\s*1 1 auto;[^}]*min-width:\s*0/s)
+    expect(barCss).toMatch(/\.place\s*\{[^}]*flex:\s*0 1 auto;[^}]*min-width:\s*0/s)
+    expect(barCss).toMatch(/\.spacer\s*\{[^}]*flex:\s*1 1 0;[^}]*min-width:\s*0/s)
     expect(barCss).toMatch(/\.fixed\s*\{[^}]*flex:\s*none/s)
     expect(source).toContain('useTopBar(mainOwner')
   })

@@ -22,13 +22,16 @@ for (const filter of ['open', 'blocking', 'all'] satisfies FindingFilter[]) {
   })
 }
 
-it('retains Open and Blocking on the actual overview Team wall fixture with empty findings', async () => {
+it('retains Open and Blocking on the actual overview Team wall fixture with its seeded findings', async () => {
   const store = overviewTeamStore('running')
   const before = store.getSnapshot()
+  const original = before.findings.get('overview-team')!
+  expect(original.rows.map(row => row.id)).toEqual(['finding-open-1', 'finding-security-1', 'finding-carried-1'])
+  expect(original.totals).toEqual({ all: 3, open: 3, blocking: 3 })
   await store.loadFindings('overview-team', 'open')
-  expect(store.getSnapshot().findings.get('overview-team')).toEqual({ ...EMPTY_FINDINGS_STATE, filter: 'open' })
+  expect(store.getSnapshot().findings.get('overview-team')).toEqual({ ...original, filter: 'open' })
   await store.loadFindings('overview-team', 'blocking')
-  expect(store.getSnapshot().findings.get('overview-team')).toEqual({ ...EMPTY_FINDINGS_STATE, filter: 'blocking' })
+  expect(store.getSnapshot().findings.get('overview-team')).toEqual({ ...original, filter: 'blocking' })
   expect(store.getSnapshot().goals).toBe(before.goals)
   expect(store.getSnapshot().teams).toBe(before.teams)
   expect(store.getSnapshot().flowExecutions).toBe(before.flowExecutions)
