@@ -45,7 +45,7 @@
 [data-menu-row][data-highlighted], [data-menu-row][aria-expanded='true'] { background: var(--hd-hover); }
 [data-menu-row][data-current] { background: var(--hd-accent-dim); }
 [data-menu-row][data-danger], [data-menu-row][data-variant='destructive'] { color: var(--hd-danger); }
-[data-menu-row][data-disabled], [data-menu-row][aria-disabled='true'], [data-menu-row]:disabled { color: var(--hd-muted-foreground); cursor: default; }
+[data-menu-row][data-disabled], [data-menu-row][aria-disabled='true'], [data-menu-row]:disabled { color: var(--hd-secondary-foreground); cursor: default; }
 [data-menu-row]:disabled:hover { background: transparent; }
 [data-menu-icon] {
   flex: none;
@@ -84,5 +84,5 @@
 [data-info-facts] dd { min-width: 0; margin: 0; }
 [data-info-note] { margin-top: var(--hd-space-2); color: var(--hd-secondary-foreground); font-size: var(--hd-text-xs); line-height: var(--hd-line-xs); white-space: normal; }
 
-/* A refused row keeps its icon and reason in the label's disabled ink. */
+/* A refused row shares secondary ink with its earned reason, keeping it readable. */
 [data-menu-row]:is([data-disabled], [aria-disabled='true'], :disabled) :is([data-menu-icon], [data-menu-hint]) { color: inherit; }

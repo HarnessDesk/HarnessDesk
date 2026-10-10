@@ -89,7 +89,8 @@ let restoreBarGeometry = () => {}
 beforeEach(() => {
   const bounds = HTMLElement.prototype.getBoundingClientRect
   const geometry = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
-    return this.matches('[data-topbar-title], [data-topbar="place"]') ? new DOMRect(0, 0, 300, FRAME.bar.height) : bounds.call(this)
+    if (this.matches('[data-topbar-title]')) return new DOMRect(0, 0, FRAME.bar.titleMin, FRAME.bar.height)
+    return this.matches('[data-topbar="place"]') ? new DOMRect(0, 0, 300, FRAME.bar.height) : bounds.call(this)
   })
   const computed = getComputedStyle
   const token = vi.spyOn(globalThis, 'getComputedStyle').mockImplementation((node, pseudo) => {

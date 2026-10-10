@@ -864,7 +864,7 @@ for (const theme of WALL_THEMES) {
       await expect(pressed).toHaveAttribute('aria-pressed', 'true')
       expect(await pressed.evaluate(node => getComputedStyle(node).boxShadow)).toContain('inset')
       expect(await tools.evaluate(node => getComputedStyle(node).borderLeftWidth)).toBe(width >= FRAME.fold.panelFloats ? '1px' : '0px')
-      if (width >= FRAME.fold.panel) {
+      if (width >= FRAME.fold.panelFloats) {
         const top = (await tools.boundingBox())!, body = (await panel.boundingBox())!
         expect(top.x).toBe(body.x)
         expect(top.width).toBe(body.width)
@@ -1449,5 +1449,36 @@ for (const theme of WALL_THEMES) {
     await expect(row.locator('[data-menu-icon]')).toHaveCount(1)
     const ink = await row.evaluate(node => [node, ...node.querySelectorAll('[data-menu-icon],[data-menu-label],[data-menu-hint]')].map(one => getComputedStyle(one).color))
     expect(new Set(ink).size).toBe(1)
+  })
+}
+
+for (const theme of WALL_THEMES) {
+  test(`B11m merged seams clamp to both approved drag endpoints in ${theme}`, async ({ page }, testInfo) => {
+    await openFrame(page, 'frame-wall=conversation', theme, 1800)
+    const left = page.locator('[data-frame-region="left"]:visible')
+    const panel = page.locator('[data-frame-region="right"]:visible')
+    const measurements: Record<string, number> = {}
+    const drag = async (name: string, delta: number) => {
+      const seam = page.getByRole('separator', { name, exact: true })
+      const box = (await seam.boundingBox())!
+      await page.mouse.move(box.x + box.width / 2, 400)
+      await page.mouse.down()
+      await page.mouse.move(box.x + box.width / 2 + delta, 400, { steps: 8 })
+      await page.mouse.up()
+    }
+    await drag('Resize the sidebar', 500)
+    await expect.poll(async () => (await left.boundingBox())!.width).toBe(FRAME.sidebar.max)
+    measurements.leftMax = (await left.boundingBox())!.width
+    await drag('Resize the sidebar', -500)
+    await expect.poll(async () => (await left.boundingBox())!.width).toBe(FRAME.sidebar.min)
+    measurements.leftMin = (await left.boundingBox())!.width
+    await page.locator('[data-work-tool="details"]').click()
+    await drag('Resize the right panel', -800)
+    await expect.poll(async () => (await panel.boundingBox())!.width).toBe(FRAME.rightPanel.max)
+    measurements.rightMax = (await panel.boundingBox())!.width
+    await drag('Resize the right panel', 800)
+    await expect.poll(async () => (await panel.boundingBox())!.width).toBe(FRAME.rightPanel.min)
+    measurements.rightMin = (await panel.boundingBox())!.width
+    await testInfo.attach('merged-seam-endpoints', { body: JSON.stringify(measurements), contentType: 'application/json' })
   })
 }
