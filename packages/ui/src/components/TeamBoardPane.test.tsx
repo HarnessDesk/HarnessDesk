@@ -1689,7 +1689,7 @@ it('lists every job, including completed work awaiting evidence, with Needs you 
   ])
   expect(table.textContent).toContain('Checking evidence')
   expect(table.textContent).toContain('Unassigned')
-  expect([...container.querySelectorAll('button')].find(one => one.textContent === 'All 3')?.getAttribute('aria-pressed')).toBe('true')
+  expect([...container.querySelectorAll('button')].find(one => one.textContent === 'All 3')?.getAttribute('aria-selected')).toBe('true')
   act(() => button('Needs you 1').click())
   expect(table.querySelectorAll('tbody tr')).toHaveLength(1)
   expect(table.textContent).toContain('Blocked job')

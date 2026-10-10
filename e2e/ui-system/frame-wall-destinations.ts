@@ -7,10 +7,10 @@ import type { FrameActions } from './frame-actions'
 
 import type { WallActions } from './frame-wall-actions'
 
-export interface WallDestination extends FrameActions, WallActions { readonly id: string; readonly query: string; readonly leftOpen?: boolean; readonly leftPopup?: string; readonly settingsQuery?: string }
+export interface WallDestination extends FrameActions, WallActions { readonly id: string; readonly query: string; readonly leftOpen?: boolean; readonly leftPopup?: string; readonly settingsQuery?: string; readonly surface?: 'pattern' }
 
 export const WALL_DESTINATIONS: readonly WallDestination[] = [
-  { id: 'topbar-probe', query: 'frame-wall=topbar' },
+  { id: 'topbar-probe', surface: 'pattern', query: 'frame-wall=topbar' },
   { id: 'conversation', query: 'frame-wall=conversation' },
   { id: 'conversation-tasks', query: 'frame-wall=conversation&frame-tool=tasks' },
   { id: 'conversation-changes', query: 'frame-wall=conversation', tool: 'changes' },
@@ -50,7 +50,7 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'agents', query: 'frame-wall=agents' },
   { id: 'dashboard', query: 'frame-wall=dashboard' },
   { id: 'settings', query: 'frame-wall=settings' },
-  { id: 'left-column-probe', query: 'frame-wall=left-column' },
+  { id: 'left-column-probe', surface: 'pattern', query: 'frame-wall=left-column' },
   { id: 'conversation-left-open', query: 'frame-wall=conversation', leftOpen: true },
   { id: 'left-inbox', query: 'frame-wall=conversation', leftOpen: true, leftPopup: 'inbox' },
   { id: 'left-account', query: 'frame-wall=conversation', leftOpen: true, leftPopup: 'account' },
@@ -59,10 +59,10 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'left-project-menu', query: 'frame-wall=left-work', leftOpen: true, leftPopup: 'project' },
   { id: 'left-session-menu', query: 'frame-wall=left-work', leftOpen: true, leftPopup: 'session' },
   { id: 'left-session-card', query: 'frame-wall=left-work', leftOpen: true, leftPopup: 'card' },
-  { id: 'left-work-pattern', query: 'frame-wall=left-work-pattern' },
-  { id: 'settings-middle', query: 'frame-wall=settings-middle' },
-  { id: 'settings-middle-filtered', query: 'frame-wall=settings-middle', settingsQuery: 'mute' },
-  { id: 'settings-middle-empty', query: 'frame-wall=settings-middle', settingsQuery: 'no matching preference with a deliberately long search phrase' },
+  { id: 'left-work-pattern', surface: 'pattern', query: 'frame-wall=left-work-pattern' },
+  { id: 'settings-middle', surface: 'pattern', query: 'frame-wall=settings-middle' },
+  { id: 'settings-middle-filtered', surface: 'pattern', query: 'frame-wall=settings-middle', settingsQuery: 'mute' },
+  { id: 'settings-middle-empty', surface: 'pattern', query: 'frame-wall=settings-middle', settingsQuery: 'no matching preference with a deliberately long search phrase' },
   { id: 'popup-menu-icons', query: 'frame-wall=conversation&popup=menu-icons', popup: 'Frame menu' },
   { id: 'popup-menu-none', query: 'frame-wall=conversation&popup=menu-none', popup: 'Frame menu' },
   { id: 'popup-composer-add', query: 'frame-wall=conversation', composerAdd: true },

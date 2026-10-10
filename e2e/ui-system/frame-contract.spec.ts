@@ -483,7 +483,7 @@ for (const theme of WALL_THEMES) {
 
 // Task 10 extends this same window contract to the four transitional
 // AppWindow hosts. The pattern probe deliberately has no application lead.
-const B6_WORK_DESTINATIONS = WALL_DESTINATIONS.filter(destination => !['topbar-probe', 'teams', 'agents', 'dashboard', 'settings'].includes(destination.id))
+const B6_WORK_DESTINATIONS = WALL_DESTINATIONS.filter(destination => destination.surface !== 'pattern' && !['teams', 'agents', 'dashboard', 'settings'].includes(destination.id))
 for (const theme of WALL_THEMES) {
   for (const width of [720, 1440]) for (let group = 0; group < Math.ceil(B6_WORK_DESTINATIONS.length / 9); group++) {
     test(`B6 lead follows window state on work destinations group ${group + 1} at ${width} in ${theme}`, async ({ page }) => {

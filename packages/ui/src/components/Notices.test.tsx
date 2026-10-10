@@ -9,7 +9,7 @@ import { PaneProvider, StoreProvider, useSnapshot } from '../state/context'
 import { MountProvider } from '../panels/mount'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import type { Notice as StoreNotice } from '../state/snapshot'
-import { emptyWorkbench, type Workbench } from '../state/workbench'
+import { emptyWorkbench, fixedSubject, type Workbench } from '../state/workbench'
 import type { PaneView } from '../state/layout'
 import { afterDismiss, emptyNoticePolicy, withKept, withMuted, withoutKept, withSurface, type NoticeIdentity } from '../lib/notice-policy'
 import { kept as keptInInbox, type InboxEntry } from '../lib/inbox'
@@ -409,8 +409,10 @@ const workbenchFocusedOn = (paneId: string, view: PaneView): Workbench => ({
 
 const narrowOverlayOnFocusedComposer = (view: PaneView): Workbench => {
   const workbench = workbenchFocusedOn('focused-pane', view)
+  const subject = fixedSubject(workbench.main)!
   return {
     ...workbench,
+    frameTools: { [subject]: { open: true, tool: 'activity', mode: 'activity' } },
     right: {
       ...workbench.right,
       root: {

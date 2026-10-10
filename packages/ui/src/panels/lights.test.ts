@@ -5,6 +5,7 @@ import conversationTsx from '../components/Conversation.tsx?raw'
 import panesCss from '../components/Panes.module.css?raw'
 import sidebarCss from '../components/Sidebar.module.css?raw'
 import sidebarSource from '../components/Sidebar.tsx?raw'
+import leftColumnSource from '../design/patterns/LeftColumn.tsx?raw'
 import teamRoomCss from '../components/TeamRoomPane.module.css?raw'
 import teamRoomTsx from '../components/TeamRoomPane.tsx?raw'
 import terminalPaneSource from '../components/TerminalPane.tsx?raw'
@@ -69,7 +70,8 @@ describe('the row under the macOS window buttons', () => {
 
   it("the sidebar's title bar leaves room for them through the shared bar's corner", () => {
     expect(sidebarCss).not.toMatch(/\.titlebar\s*{[^}]*padding/s)
-    expect(sidebarSource).toMatch(/<Bar corner\b/)
+    expect(sidebarSource).toMatch(/<LeftColumnTop\b/)
+    expect(leftColumnSource).toMatch(/<Bar corner\b/)
     expect(barSystem).toContain("corner ? 'pl-[max(var(--hd-bar-pad),var(--titlebar-inset,0px))]'")
   })
 
