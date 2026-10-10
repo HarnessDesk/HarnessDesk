@@ -9,8 +9,8 @@ import { board, claimed, desk, E2E, execution, scopeOf, start, whenChanged } fro
 /*
  * The real Host, not the engine's rig: the claim an opening flow Seat is
  * given is the host's own, and it is held to the board's file rule (#1015).
- * The contract agrees a split; one part of it overlaps a card somebody else
- * already holds; that part's Seat is refused by name, and the sibling Seat
+ * The contract agrees a split in a shared checkout; one part overlaps a card
+ * somebody else already holds; that part's Seat is refused by name, and the sibling Seat
  * the round already opened is let go, so the two are never both seated.
  */
 const PAIR = `
@@ -18,7 +18,8 @@ version: 2
 name: Pair build
 roles:
   contract: { kind: agent, uses: implementer, grant: edit }
-  dev: { kind: agent, uses: implementer, count: 2, isolate: true, grant: edit }
+  # The compiler admits shared parallel readers; their file claims still contend.
+  dev: { kind: agent, uses: implementer, count: 2, isolate: false, grant: read }
 seed: { role: contract, title: Agree the split }
 rules:
   - { id: build, on: contract, then: { role: dev, title: "Build part {{n}}", split: contract } }
@@ -49,7 +50,23 @@ test('a flow Seat whose part overlaps a live claim is refused by the host by nam
   const root = await realpath(d.root)
   const away = await Promise.all(members.filter((seat) => seat.closed === null).map(async (seat) =>
     await realpath(seat.checkout.cwd) === root ? null : seat.id))
-  // Dev Seats are isolated, so any left open would stand in a lane of its own.
-  assert.deepEqual(away.filter((id) => id !== null), [], 'no dev Seat is left seated')
+  assert.deepEqual(away.filter((id) => id !== null), [])
+  assert.equal(members.filter((seat) => seat.role === 'dev' && seat.closed === null).length, 0, 'no dev Seat is left seated')
   assert.ok(stalled.rounds.at(-1)!.seats.length >= 1, 'the sibling was opened before the refusal, so it was let go, not never tried')
+})
+
+test('isolated flow Seats can own paths already claimed in another checkout (#1562)', E2E, async (t) => {
+  const d = await desk(t)
+  const run = await start(d, PAIR.replace('isolate: false, grant: read', 'isolate: true, grant: edit'), {})
+  const [contract] = await claimed(d, run.goal, 'contract', 1)
+  const held = await d.host.call('team/add', { room: run.goal, title: 'The guide', files: ['docs/guide.md'] }) as { id: number }
+  const other = await d.host.call('session/create', { runtime: runtimeId('fake'), options: { cwd: d.root } }) as Session
+  await d.host.call('goal/assign', { goal: run.goal, card: held.id, session: { runtime: 'fake', sessionId: other.id } })
+  assert.doesNotMatch(await d.host.teamPlane.complete(contract!.id, { split: [['src/**'], ['docs/**']] }, scopeOf(contract!)), /^Refused/)
+  const dev = await claimed(d, run.goal, 'dev', 2)
+  assert.deepEqual(dev.map(one => one.state), ['claimed', 'claimed'])
+  const members = (await d.host.call('goal/read', { goal: run.goal }) as GoalView).members.filter(one => one.role === 'dev' && one.closed === null)
+  assert.equal(new Set(members.map(one => one.checkout.cwd)).size, 2)
+  assert.ok(members.every(one => one.checkout.cwd !== d.root))
+  assert.equal((await execution(d, run.id)).state, 'running')
 })

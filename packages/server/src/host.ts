@@ -3820,7 +3820,7 @@ export class Host {
     return this.#claimableIn(this.#goalIntents(goal), goal, card, runtime, sessionId)
   }
 
-  #claimableIn(intents: readonly Intent[], goal: string, card: number, runtime: string, sessionId: string): boolean {
+  #claimableIn(intents: readonly Intent[], goal: string, card: number, runtime: string, sessionId: string, cwd?: string): boolean {
     /* A card a flow bound to one Seat is that Seat's alone; while the Seat is
        still opening, only that opening's own claim — the one GoalPlane.seat
        makes inside the same transaction — may take it. */
@@ -3836,7 +3836,7 @@ export class Host {
     })
     if (waits) return false
     // A card whose paths overlap a live claim is not claimable, exactly as `claim` refuses it for an agent.
-    if (this.#team.refuseOverlap(goal, intents, card, runtime, sessionId) !== null) return false
+    if (this.#team.refuseOverlap(goal, intents, card, runtime, sessionId, cwd) !== null) return false
     return !intents.some((one) =>
       one.id !== card && one.state === 'claimed' && one.claim?.runtime === runtime && one.claim.sessionId === sessionId,
     )
@@ -3951,10 +3951,10 @@ export class Host {
       const current = intents.find((one) => one.id === card)
       if (!current) throw new Error('Choose an existing card.')
       if (current.state === 'claimed' && current.claim?.runtime === runtime && current.claim.sessionId === sessionId) return intents
-      if (!this.#claimableIn(intents, goal, card, runtime, sessionId)) {
+      if (!this.#claimableIn(intents, goal, card, runtime, sessionId, opening.checkout.cwd)) {
         /* A file conflict says which paths, and which card holds them: the
            person reading the stalled run has to know what to untangle. */
-        const overlap = this.#team.refuseOverlap(goal, intents, card, runtime, sessionId)
+        const overlap = this.#team.refuseOverlap(goal, intents, card, runtime, sessionId, opening.checkout.cwd)
         if (overlap) throw new Error(`Refused: ${overlap}`)
         throw new Error('This card cannot be assigned now. Resolve its dependency, role or file conflict first.')
       }

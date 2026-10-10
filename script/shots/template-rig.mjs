@@ -47,7 +47,7 @@ export async function createTemplateRig({ home, work, template = 'comparison' })
   project.packageManager = 'pnpm@10.0.0'
   project.scripts = { ...project.scripts, test: 'node .harnessdesk/rig-check.mjs' }
   writeFileSync(packageFile, `${JSON.stringify(project, null, 2)}\n`)
-  writeFileSync(join(repo, '.harnessdesk', 'rig-check.mjs'), `import { existsSync, readFileSync, readdirSync } from 'node:fs'
+  writeFileSync(join(repo, '.harnessdesk', 'rig-check.mjs'), `import { existsSync, readFileSync } from 'node:fs'
 import { setTimeout as delay } from 'node:timers/promises'
 const until = Date.now() + 90000
 const gate = ${JSON.stringify(join(gates, 'checks'))}
@@ -56,8 +56,7 @@ while (!existsSync(gate)) {
   if (Date.now() > until) throw new Error('The scripted check camera gate was not released')
   await delay(50)
 }
-const attempts = readdirSync('.').filter(one => /^rig-attempt-[12]\\.txt$/.test(one))
-if (attempts.length !== 1 || !readFileSync(attempts[0], 'utf8').startsWith('Attempt ')) throw new Error('No committed retry attempt')
+if (!existsSync('rig-attempt.txt') || !readFileSync('rig-attempt.txt', 'utf8').startsWith('Attempt ')) throw new Error('No committed retry attempt')
 console.log('Retry attempt passed')
 `)
   git('add', 'package.json', '.harnessdesk/rig-check.mjs')
@@ -97,7 +96,7 @@ console.log('Retry attempt passed')
   setTeamEngine(host.teamPlane)
   setForgeEngine(host.forgePlane)
   const steps = {
-    attempts: { kind: 'write', title: TEMPLATE_TASK, outcomes: ['committed'], file: 'rig-attempt-{{intent}}.txt', contents: 'Attempt {{intent}}: retry transient checkout responses.\n', context: 'The committed retry attempt is ready to check.' },
+    attempts: { kind: 'write', title: TEMPLATE_TASK, outcomes: ['committed'], file: 'rig-attempt.txt', contents: 'Attempt {{intent}}: retry transient checkout responses.\n', context: 'The committed retry attempt is ready to check.' },
     judge: { kind: 'review', title: 'Pick the best attempt', outcomes: ['picked'], context: 'Attempt A handles transient checkout responses.' },
     writer: { kind: 'write', title: `${TEMPLATE_TASK} for review`, outcomes: ['published'], file: 'rig-review.txt', contents: 'Retry transient checkout responses.\n', publish: true, context: 'Pull request #41 records the committed retry change.' },
     reviewer: { kind: 'review', title: 'Review the pull request', outcomes: ['approve'], context: 'The published retry change is ready for the person to merge.' },

@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
-import { test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { TEMPLATE_TASK } from '../../script/shots/template-rig.mjs'
 
 const run = promisify(execFile)
@@ -20,7 +20,11 @@ test(`the shipped Team templates finish ${TEMPLATE_TASK} through the visible UI`
   await run(process.execPath, ['script/shots/templates.mjs', '--out', out, '--ui', ui], {
     cwd, timeout: 210_000, maxBuffer: 1024 * 1024,
   })
-  const sequence = JSON.parse(await readFile(resolve(out, 'sequence.json'), 'utf8')) as { frames: string[] }
+  const sequence = JSON.parse(await readFile(resolve(out, 'sequence.json'), 'utf8')) as { frames: string[]; evidence: { template: string; changedPaths?: string[][]; distinctContents?: boolean; settledSidebar?: boolean }[] }
+  const comparison = sequence.evidence.find(one => one.template === 'comparison')
+  expect(comparison?.changedPaths).toEqual([['rig-attempt.txt'], ['rig-attempt.txt']])
+  expect(comparison?.distinctContents).toBe(true)
+  expect(sequence.evidence.every(one => one.settledSidebar)).toBe(true)
   await info.attach('template-journey-evidence', { path: resolve(out, 'sequence.json'), contentType: 'application/json' })
   for (const frame of sequence.frames) await info.attach(frame, { path: resolve(out, frame), contentType: 'image/png' })
 })

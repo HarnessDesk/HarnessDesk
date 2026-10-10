@@ -42,6 +42,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { blockedByCaller, carryCardWork, retainedWorkExpired, RETAINED_WORK_MS } from './card-claims.js'
+import { claimCheckout } from './claim-checkouts.js'
 import { errnoOf, NOTHING_YET } from './errno.js'
 import { MemberWaits, type MemberStatus } from './goals/member-waits.js'
 import { memberNames } from './goals/members.js'
@@ -4392,7 +4393,7 @@ export class Team {
 
   #ownership(files: readonly string[]): string {
     return files.length > 0
-      ? ` You own ${files.join(', ')} until you complete or release it; nobody else can claim work that overlaps them.`
+      ? ` You own ${files.join(', ')} until you complete or release it; nobody else in this checkout can claim work that overlaps them.`
       : ' It owns no files yet, so nothing stops another conversation editing the same ones — claim again with `files` once you know which you will touch.'
   }
 
@@ -4413,13 +4414,14 @@ export class Team {
    * cards as they stand in its write, exactly as `claim` asks for an agent —
    * without it two sibling cards owning the same paths were both seated.
    */
-  refuseOverlap(room: string, intents: readonly Intent[], card: number, runtime: string, sessionId: string): string | null {
+  refuseOverlap(room: string, intents: readonly Intent[], card: number, runtime: string, sessionId: string, cwd?: string | null): string | null {
     const intent = intents.find((one) => one.id === card)
     if (!intent) return null
     const board = this.#boards.get(room)
-    const hits = this.#overlapping(board ?? null, intents, intent.files, { runtime, sessionId })
+    const checkout = cwd ?? this.#port.peers().find((one) => one.runtime === runtime && one.sessionId === sessionId)?.cwd
+    const hits = this.#overlapping(board ?? null, intents, intent.files, { runtime, sessionId, cwd: checkout })
     return hits.length > 0
-      ? `the files of card #${card} overlap a live claim — ${hits.join('; ')}. Two cards whose paths overlap are never worked at once.`
+      ? `the files of card #${card} overlap a live claim — ${hits.join('; ')}. Two cards whose paths overlap in one checkout are never worked at once.`
       : null
   }
 
@@ -4432,11 +4434,16 @@ export class Team {
     board: Board | null,
     intents: readonly Intent[],
     paths: readonly string[],
-    caller: { readonly runtime: string; readonly sessionId: string },
+    caller: { readonly runtime: string; readonly sessionId: string; readonly cwd?: string | null },
   ): string[] {
     const hits: string[] = []
     const cleanPaths = Array.isArray(paths) ? paths : []
     if (cleanPaths.length === 0) return hits
+    const checkouts = new Map<string, string | null>()
+    const checkoutOf = (cwd: string): string | null => {
+      if (!checkouts.has(cwd)) checkouts.set(cwd, claimCheckout(cwd))
+      return checkouts.get(cwd) ?? null
+    }
     for (const intent of intents) {
       if (intent.state !== 'claimed' || !intent.claim) continue
       if (intent.claim.runtime === caller.runtime && intent.claim.sessionId === caller.sessionId) {
@@ -4453,6 +4460,14 @@ export class Team {
       if (ownedFiles.length === 0) continue
       const overlap = ownedFiles.some((owned) => cleanPaths.some((path) => overlaps(owned, path)))
       if (overlap) {
+        // Assignment preflight receives wire-safe cards. Read only the cwd
+        // from the host's claim, and only for the same card and claim owner.
+        const stored = board?.intents.find(one => one.id === intent.id)?.claim
+        const cwd = intent.claim.cwd ?? (stored?.runtime === intent.claim.runtime && stored?.sessionId === intent.claim.sessionId ? stored.cwd : undefined)
+        if (caller.cwd && cwd && !sameCanonicalPath(caller.cwd, cwd)) {
+          const callerCheckout = checkoutOf(caller.cwd), heldCheckout = checkoutOf(cwd)
+          if (callerCheckout && heldCheckout && callerCheckout !== heldCheckout) continue
+        }
         hits.push(`${ownedFiles.join(', ')} is held by #${intent.id}${board ? ` (${this.#holderName(board, intent)})` : ''}`)
       }
     }
