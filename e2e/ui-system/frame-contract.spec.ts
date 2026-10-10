@@ -1,6 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { FRAME, FRAME_TOKENS } from '../../packages/ui/src/design/frame'
-import { WALL_THEMES } from './frame-wall-destinations'
+import { WALL_THEMES, WALL_WIDTHS } from './frame-wall-destinations'
 
 /**
  * The rendered check (spec, "How it is checked"): the app measured against
@@ -24,6 +24,46 @@ const resolvedPx = (page: Page, token: string) => page.evaluate((name) => {
   probe.remove()
   return px
 }, token)
+
+for (const theme of WALL_THEMES) {
+  for (const width of WALL_WIDTHS) {
+    for (const foundation of ['desk', 'studio'] as const) {
+      test(`D6fix following groups keep their space at ${width} in ${theme}/${foundation}`, async ({ page }, testInfo) => {
+        await openFrame(page, 'frame-wall=left-work', theme, width)
+        await page.locator('body').evaluate((body, value) => { body.dataset.hdInterface = value }, foundation)
+        const column = page.locator('[data-left-column]:visible')
+        if (!await column.count()) await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
+        const projects = column.locator('[data-left-projects-head] [data-slot="navigation-group-label"]')
+        const dashboard = column.getByRole('button', { name: 'Dashboard', exact: true })
+        const projectsBox = (await projects.boundingBox())!, dashboardBox = (await dashboard.boundingBox())!
+        const sessionsGap = projectsBox.y - dashboardBox.y - dashboardBox.height
+        const token = await resolvedPx(page, '--hd-label-space, var(--hd-space-1-5)')
+        const modes = []
+        for (const query of ['frame-wall=settings', 'frame-wall=settings-middle']) {
+          await openFrame(page, query, theme, width)
+          await page.locator('body').evaluate((body, value) => { body.dataset.hdInterface = value }, foundation)
+          const navigation = page.locator(query === 'frame-wall=settings' ? '[aria-label="Window navigation"]' : '[data-left-settings]')
+          const firstGroupInset = await navigation.locator('[data-left-group]').first().evaluate(group =>
+            group.querySelector(':scope > [data-slot="group-label"]')!.getBoundingClientRect().top - group.getBoundingClientRect().top)
+          expect(firstGroupInset, 'the first group keeps its existing spacing').toBe(0)
+          const gaps = await navigation.locator('[data-left-group] + [data-left-group]').evaluateAll(groups => groups.map(group => {
+            const previousRow = group.previousElementSibling!.querySelector('[data-left-row]:last-child')!
+            const label = group.querySelector(':scope > [data-slot="group-label"]')!
+            return { label: label.textContent, gap: label.getBoundingClientRect().top - previousRow.getBoundingClientRect().bottom }
+          }))
+          expect(gaps.length).toBeGreaterThan(0)
+          modes.push({ query, gaps })
+        }
+        await testInfo.attach('group-gaps', { body: JSON.stringify({ width, theme, foundation, token, sessionsGap, modes }, null, 2), contentType: 'application/json' })
+        expect(sessionsGap).toBeGreaterThanOrEqual(token)
+        for (const mode of modes) for (const group of mode.gaps) {
+          expect(group.gap, `${mode.query}: ${group.label}`).toBe(sessionsGap)
+          expect(group.gap, `${mode.query}: ${group.label}`).toBeGreaterThanOrEqual(token)
+        }
+      })
+    }
+  }
+}
 
 for (const theme of WALL_THEMES) {
   test(`frame tokens resolve to the contract in ${theme}`, async ({ page }) => {

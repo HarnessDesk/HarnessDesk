@@ -3,6 +3,9 @@
 .body { flex: 1; min-height: 0; min-width: 0; overflow-x: hidden; overflow-y: auto; }
 .hidden { display: none; }
 .group { min-width: 0; padding: 0; }
+/* Match the Projects label: the header's top inset plus the label's
+   centring within its control target. The first group keeps its own inset. */
+.group + .group { padding-block-start: calc(var(--hd-label-space, var(--hd-space-1-5)) + (var(--hd-icon-target) - var(--hd-line-sm)) / 2); }
 .label { font-weight: var(--hd-weight-medium); display: block; padding-inline-start: calc(var(--hd-space-2) + var(--hd-space-4) + var(--hd-space-2)); margin-block: var(--hd-space-2); }
 .row { position: relative; height: var(--hd-left-row-h); min-width: 0; }
 .row .button { box-sizing: border-box; border: 0; padding-block: 0; height: var(--hd-left-row-h); min-height: var(--hd-left-row-h); padding-inline: var(--hd-space-2); gap: var(--hd-space-2); border-radius: var(--hd-nav-radius); font-size: var(--hd-text-sm); line-height: var(--hd-line-sm); font-weight: var(--hd-weight-normal); }
@@ -16,7 +19,7 @@
 .row:is(:hover, :focus-within) .action, .action[aria-expanded='true'] { visibility: visible; opacity: 1; pointer-events: auto; }
 .row:is(:hover, :focus-within):has(.action) .mark, .row:has(.action[aria-expanded='true']) .mark { visibility: hidden; }
 .head { display: flex; align-items: center; gap: var(--hd-space-2); min-height: var(--hd-left-row-h); }
-.headLabel { font-weight: var(--hd-weight-medium); flex: 1; min-width: 0; }
+.headLabel { flex: 1; min-width: 0; }
 .headControls { display: flex; align-items: center; gap: var(--hd-space-0-5); min-width: 0; }
 .top { container: left-column-top / inline-size; }
 .lead, .history, .topActions { display: flex; align-items: center; gap: var(--hd-space-0-5); }
