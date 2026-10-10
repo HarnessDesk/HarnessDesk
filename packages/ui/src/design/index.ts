@@ -230,3 +230,5 @@ export { LeftColumn, LeftColumnBody, LeftColumnGroup, LeftColumnHead, LeftColumn
 export type { LeftColumnMenu } from './patterns/LeftColumn'
 
 export { LeftColumnList, LeftColumnRename, LeftColumnNavigation, LeftColumnProjectsHead, LeftColumnListOptions, LeftColumnEmpty } from './patterns/LeftColumn'
+import './ui/popup.css'
+export { MenuPresentation, MenuRowContent, menuRowAttributes, useMenuPresentation, type MenuRowData, type MenuIcons } from './ui/menu-row'

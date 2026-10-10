@@ -815,6 +815,14 @@
     "pad": "16 16 16 16",
     "radius": 16
   },
+  "popup-menu/div/variant/default": {
+    "h": 26,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
   "readings/key-value/variant/default": {
     "h": 116,
     "text": 14,

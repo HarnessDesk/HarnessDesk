@@ -56,6 +56,8 @@ for (const destination of WALL_DESTINATIONS) {
         }
         await applyLeftColumnActions(page, destination)
         await applySettingsNavigationActions(page, destination)
+        if ('composerAdd' in destination) await openWallDestination(page, destination)
+        if ('popup' in destination) await openWallDestination(page, destination)
         await page.evaluate(async () => { await document.fonts.ready })
         // TopBar measures its two folds over animation frames. Capture the
         // measured contract, rather than its initial unmeasured tab row.
@@ -73,3 +75,5 @@ for (const destination of WALL_DESTINATIONS) {
     })
   }
 }
+
+import { openWallDestination } from './frame-wall-actions'

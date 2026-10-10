@@ -32,12 +32,9 @@ import {
   Input,
   Lightbox,
   Popover,
-  PopoverGroupLabel,
-  PopoverOption,
-  PopoverOptionBody,
-  PopoverOptionHint,
-  PopoverOptionLabel,
-  PopoverOptionMark,
+  Menu,
+  MenuItem,
+  MenuLabel,
   Text,
 } from '../design'
 import { ComposerNotices, NoticeStripOutlet } from './Notices'
@@ -1247,103 +1244,18 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
             }}
           />
           <ComposerTrack name="add">
-          <Popover title="Add" fullWidth drop="up" align="left" label={<PlusIcon size={14} />}>
-            {(close) => (
-              <>
-                <PopoverOption
-                  disabled={!acceptsImages}
-                  // The other ways in ride on hover: they are a shortcut for
-                  // the row, not a thing to know before taking it. The refusal
-                  // stays on screen below — a disabled control cannot be
-                  // relied on to show a tooltip at all.
-                  title={acceptsImages ? 'Or paste, or drop them here.' : `${agentName} does not accept images.`}
-                  onClick={() => {
-                    filePicker.current?.click()
-                    close()
-                  }}
-                >
-                  <PopoverOptionMark>
-                    <ImageIcon size={13} />
-                  </PopoverOptionMark>
-                  <PopoverOptionBody>
-                    <PopoverOptionLabel>Attach images…</PopoverOptionLabel>
-                    {!acceptsImages && (
-                      <PopoverOptionHint>{agentName} does not accept images.</PopoverOptionHint>
-                    )}
-                  </PopoverOptionBody>
-                </PopoverOption>
-                <PopoverOption
-                  onClick={() => {
-                    onChange(text.length > 0 && !text.endsWith(' ') ? `${text} @` : `${text}@`)
-                    textarea.current?.focus()
-                    close()
-                  }}
-                >
-                  <PopoverOptionMark>
-                    <AtIcon size={13} />
-                  </PopoverOptionMark>
-                  <PopoverOptionBody>
-                    <PopoverOptionLabel>Add a file — @</PopoverOptionLabel>
-                  </PopoverOptionBody>
-                </PopoverOption>
-                <PopoverOption
-                  onClick={() => {
-                    onChange('/')
-                    textarea.current?.focus()
-                    close()
-                  }}
-                >
-                  <PopoverOptionMark>
-                    <SlashIcon size={13} />
-                  </PopoverOptionMark>
-                  <PopoverOptionBody>
-                    <PopoverOptionLabel>Slash commands — /</PopoverOptionLabel>
-                  </PopoverOptionBody>
-                </PopoverOption>
-                {chipProviders.length > 0 && (
-                  <>
-                    <PopoverGroupLabel>Add context</PopoverGroupLabel>
-                    {chipProviders.map((provider) => (
-                      <PopoverOption
-                        key={provider.id}
-                        onClick={() => {
-                          close()
-                          if (provider.chip?.prompt) setRefPrompt(provider)
-                          else addContext(provider)
-                        }}
-                      >
-                        <PopoverOptionMark>
-                          <PaperclipIcon size={13} />
-                        </PopoverOptionMark>
-                        <PopoverOptionBody>
-                          <PopoverOptionLabel>
-                            {provider.label}
-                            {provider.chip?.prompt ? '…' : ''}
-                          </PopoverOptionLabel>
-                          {provider.chip?.description && (
-                            <PopoverOptionHint>{provider.chip.description}</PopoverOptionHint>
-                          )}
-                        </PopoverOptionBody>
-                      </PopoverOption>
-                    ))}
-                    <PopoverGroupLabel>Project</PopoverGroupLabel>
-                  </>
-                )}
-                <PopoverOption
-                  onClick={() => {
-                    onChooseProject()
-                    close()
-                  }}
-                >
-                  <PopoverOptionMark>
-                    <FolderOpenIcon size={13} />
-                  </PopoverOptionMark>
-                  <PopoverOptionBody>
-                    <PopoverOptionLabel>Change project folder…</PopoverOptionLabel>
-                  </PopoverOptionBody>
-                </PopoverOption>
-              </>
-            )}
+          <Popover title="Add" fullWidth drop="up" align="left" icons="all" label={<PlusIcon size={14} />}>
+            {close => <Menu close={close}>
+              <MenuItem icon={<ImageIcon size={16} />} label="Attach images…" title="Or paste, or drop them here." disabled={acceptsImages ? false : `${runtime.presentation.name} does not accept images.`} onSelect={() => filePicker.current?.click()} />
+              <MenuItem icon={<AtIcon size={16} />} label="Add a file" shortcut="@" onSelect={() => { onChange(text.length > 0 && !text.endsWith(' ') ? `${text} @` : `${text}@`); textarea.current?.focus() }} />
+              <MenuItem icon={<SlashIcon size={16} />} label="Slash commands" shortcut="/" onSelect={() => { onChange('/'); textarea.current?.focus() }} />
+              {chipProviders.length > 0 && <>
+                <MenuLabel>Add context</MenuLabel>
+                {chipProviders.map(provider => <MenuItem key={provider.id} icon={<PaperclipIcon size={16} />} label={`${provider.label}${provider.chip?.prompt ? '…' : ''}`} title={provider.chip?.description} onSelect={() => { if (provider.chip?.prompt) setRefPrompt(provider); else addContext(provider) }} />)}
+                <MenuLabel>Project</MenuLabel>
+              </>}
+              <MenuItem icon={<FolderOpenIcon size={16} />} label="Change project folder…" onSelect={onChooseProject} />
+            </Menu>}
           </Popover>
           </ComposerTrack>
           {/* Where it runs, first: the one decision here that cannot be

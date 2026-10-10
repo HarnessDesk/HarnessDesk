@@ -5,7 +5,9 @@
  */
 import type { FrameActions } from './frame-actions'
 
-export interface WallDestination extends FrameActions { readonly id: string; readonly query: string; readonly leftOpen?: boolean; readonly leftPopup?: string; readonly settingsQuery?: string }
+import type { WallActions } from './frame-wall-actions'
+
+export interface WallDestination extends FrameActions, WallActions { readonly id: string; readonly query: string; readonly leftOpen?: boolean; readonly leftPopup?: string; readonly settingsQuery?: string }
 
 export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'topbar-probe', query: 'frame-wall=topbar' },
@@ -61,6 +63,9 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'settings-middle', query: 'frame-wall=settings-middle' },
   { id: 'settings-middle-filtered', query: 'frame-wall=settings-middle', settingsQuery: 'mute' },
   { id: 'settings-middle-empty', query: 'frame-wall=settings-middle', settingsQuery: 'no matching preference with a deliberately long search phrase' },
+  { id: 'popup-menu-icons', query: 'frame-wall=conversation&popup=menu-icons', popup: 'Frame menu' },
+  { id: 'popup-menu-none', query: 'frame-wall=conversation&popup=menu-none', popup: 'Frame menu' },
+  { id: 'popup-composer-add', query: 'frame-wall=conversation', composerAdd: true },
 ] as const
 
 /** Wide (every region stands), between the folds, and the narrowest window. */

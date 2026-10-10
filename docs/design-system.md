@@ -537,6 +537,17 @@ A table scope owns its density, including list and settings examples. Restating 
 | `--hd-table-row-min-bare` | `44px` | `32px` |
 | `--hd-table-sentence-size` | `13px` | `12px` |
 
+### Popup rows
+
+App-frame row leading and height are independent of navigation density. The facts card keeps its key column in the same foundation contract.
+
+| token | value |
+| --- | --- |
+| `--hd-menu-row-h` | `30px` |
+| `--hd-menu-label-line` | `18px` |
+| `--hd-menu-search-h` | `28px` |
+| `--hd-info-card-key` | `96px` |
+
 ## When to use which
 
 When to use which — the layer the design system did not have.
@@ -2219,7 +2230,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawDuration` | 0 | Will not follow a change to how fast the app moves — every other surface speeds up and this one keeps its own clock. |
 | `rawColour` | 0 | Will not follow a palette or theme change. |
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
-| `retiredComponent` | 86 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
+| `retiredComponent` | 81 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 21 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
 | `screenLayout` | 2955 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 

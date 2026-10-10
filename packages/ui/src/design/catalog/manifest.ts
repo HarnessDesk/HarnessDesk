@@ -54,6 +54,7 @@ const EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   propagation: 'packages/ui/src/design/explorer/Explorer.tsx',
   tools: 'packages/ui/src/design/explorer/Explorer.tsx',
   'tool-pane': 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  'popup-menu': 'packages/ui/src/design/explorer/boards-compositions.tsx',
 }
 
 const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
@@ -271,6 +272,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   SidebarMenuState: ['default'],
   SettingsRowMenu: ['default'],
   LeftColumn: ['light', 'dark'],
+  'menu-row': ['default'],
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
@@ -386,6 +388,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   UsageMeterRow: ['default', 'warning', 'error', 'unknown'],
   SettingsRowMenu: ['closed', 'open'],
   LeftColumn: ['default', 'selected', 'disabled', 'long-title'],
+  'menu-row': ['default'],
 }
 
 const DEFAULT_SIZE = ['default'] as const
@@ -606,6 +609,7 @@ export const CANONICAL_UI_MODULES = [
   ['tone', 'foundation', 'Typed semantic tone mapping'],
   ['heat-grid', 'chart', 'Calendar heatmap: quartile levels, a keyboard-walked cursor, its own tooltip'],
   ['tooltip', 'adopted', 'Accessible hover and focus help'],
+  ['menu-row', 'popup-menu', 'Shared row presentation used by Menu and vendored adapters'],
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
