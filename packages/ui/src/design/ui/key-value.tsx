@@ -89,10 +89,6 @@ const MiddleTruncate = ({ children, className, ...props }: MiddleTruncateProps) 
   )
 }
 
-/** In a list that mixes words and numbers, a number starts where the words do. */
-const MIXED_KV = 'group-has-[[data-slot=key-value-row]:not([data-numeric])]/kv:text-left'
-const MIXED_SUMMARY = 'group-has-[[data-slot=summary-item]:not([data-numeric])]/summary:text-left'
-
 /** The key column's look, one spelling for every shape of the list. */
 const KEY_CLASS = 'text-start text-(--hd-muted-foreground)'
 
@@ -113,13 +109,9 @@ const valueOf = (children: React.ReactNode, kind: 'text' | 'path'): React.ReactN
  * and read as sentences: they wrap inside their column and never push it past
  * the container. A path is given as `kind="path"` and gives up its middle,
  * with the whole path in its title while it is cut. Numbers — a count, a
- * total, money — are set on tabular figures when the row says `numeric`, and
- * right-aligned only in a list whose every value is a number, where lining
- * them up by place is the point (a receipt, a context breakdown). In a list
- * that mixes words and numbers they start where the words start: a count
- * right-aligned across a wide page sat 1,600px from its key, beside a word
- * that sat against it, and the reader could not tell which key either
- * belonged to.
+ * total, money — are right-aligned on tabular figures when the row says
+ * `numeric`, including beside words and paths. The page's measure keeps a
+ * fact near its key; alignment preserves the numeric column's reading rule.
  *
  * `emphasis` on the last pair is the totals-line rule: the figure everything
  * above was building toward gets weight, and it gets it from a prop rather
@@ -204,7 +196,7 @@ const KeyValueRow = ({
     <dd
       className={cn(
         'min-w-0 break-words',
-        numeric ? `text-right tabular-nums ${MIXED_KV}` : 'text-left',
+        numeric ? 'text-right tabular-nums' : 'text-left',
         variant === 'panel' && 'text-sm',
         emphasis && 'font-semibold',
       )}
@@ -227,8 +219,7 @@ const KeyValueRow = ({
  * Each `SummaryItem` is a row of three columns shared by the whole card: the
  * key, muted, in a column as wide as the widest key; the value, left-aligned
  * and wrapping as a sentence (`kind="path"` gives up the middle, `numeric`
- * sets tabular figures, right-aligned only when every value is a number — the
- * `KeyValueRow` rules); and an
+ * right-aligns tabular figures — the `KeyValueRow` rules); and an
  * optional trailing `action`, a small button or a ⋯ menu, at the row's end.
  * A `note` is one line of explanation under the value, in the secondary ink,
  * and wraps rather than ellipsises: it is a sentence.
@@ -301,7 +292,7 @@ const SummaryItem = ({
         data-slot="summary-value"
         className={cn(
           'min-w-0 break-words text-(--hd-foreground)',
-          numeric ? `text-right tabular-nums ${MIXED_SUMMARY}` : 'text-left',
+          numeric ? 'text-right tabular-nums' : 'text-left',
           /* With no action of its own, the value takes the action's column
              too, so a figure lines up with the ends of the actions above it. */
           action == null && 'col-span-2',
