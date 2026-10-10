@@ -7,6 +7,14 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Teams opens at once on a busy desk.** The page reads recorded usage only
+  for the Teams its open tab shows, with one read of the usage sources for all
+  of them rather than one per Team, and leaves wrapped Teams alone until
+  Settled is opened. Settled no
+  longer asks for every Run and review again each time one arrives, and a
+  wrapped Team's review is not read at all. Time in a state rolls over to hours
+  and days (`47m`, `5h`, `2d`) instead of counting thousands of minutes.
+
 - **One composer for a Team's visible Seats.** Side by side sends one message
   to everyone on the grid, or to the Seats picked with `@`, and Chat keeps it
   once. The room draft follows between Chat and the grid; a single tile keeps

@@ -267,6 +267,36 @@ it('loads several Teams of Runs in one store patch and reports partial failures'
 })
 
 
+it('reads the Runs a list needs eight at a time and keeps them in one patch, leaving out a refusal', async () => {
+  let active = 0; let peak = 0
+  const runs = Array.from({ length: 20 }, (_, n) => `run-${n}`)
+  const spy = vi.spyOn(store.transport, 'request').mockImplementation((async (_method: HostMethodName, params: { run: string }) => {
+    active++; peak = Math.max(peak, active)
+    await new Promise(resolve => setTimeout(resolve, 1))
+    active--
+    if (params.run === 'run-2') throw new Error('There is no flow run run-2.')
+    return { ...EXECUTION, id: params.run, state: 'settled' }
+  }) as never)
+  const patches = vi.fn(); const off = store.subscribe(patches)
+  await store.readFlowExecutions([...runs, 'run-0'])
+  await new Promise(resolve => setTimeout(resolve, 40)); off()
+  expect(spy).toHaveBeenCalledTimes(20)
+  expect(peak).toBeLessThanOrEqual(8)
+  expect(store.getSnapshot().flowExecutions.size).toBe(19)
+  expect(store.getSnapshot().flowExecutions.has('run-2')).toBe(false)
+  expect(patches).toHaveBeenCalledOnce()
+})
+
+it('keeps a Run a push brought while the list was reading it', async () => {
+  const pushed: FlowExecution = { ...EXECUTION, state: 'stalled' }
+  vi.spyOn(store.transport, 'request').mockImplementation((async () => {
+    push({ method: 'flow/execution-changed', params: { execution: pushed } })
+    return { ...EXECUTION, state: 'running' }
+  }) as never)
+  await store.readFlowExecutions(['run-1'])
+  expect(store.getSnapshot().flowExecutions.get('run-1')).toEqual(pushed)
+})
+
 it('limits history list and ended Run reads to eight requests at a time', async () => {
   let active = 0; let peak = 0
   const teams = Array.from({ length: 25 }, (_, n) => `team-${n}`)
