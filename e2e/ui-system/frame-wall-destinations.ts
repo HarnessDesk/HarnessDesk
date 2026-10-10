@@ -82,3 +82,12 @@ export const WALL_THEMES = ['light', 'dark'] as const
 
 /** The wall's clock: relative times read the same in every capture. */
 export const WALL_TIME = new Date('2026-09-30T10:00:00-07:00')
+
+// D6 keeps the real Settings bodies inside the shared window column.
+;(WALL_DESTINATIONS as WallDestination[]).push(
+  { id: 'settings-navigation', query: 'frame-wall=settings-navigation', leftOpen: true },
+  { id: 'settings-search', query: 'frame-wall=settings-search', leftOpen: true, settingsQuery: 'mute' },
+  { id: 'settings-search-empty', query: 'frame-wall=settings-search', leftOpen: true, settingsQuery: 'zzzz' },
+  { id: 'library-left', query: 'frame-wall=library', leftOpen: true },
+  { id: 'plugins-left', query: 'frame-wall=plugins', leftOpen: true },
+)

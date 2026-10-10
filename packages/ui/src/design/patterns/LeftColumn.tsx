@@ -113,9 +113,9 @@ export const LeftColumnSeat = ({ menu, notifications, settingsOpen, onSettings }
   <Button variant="ghost" size="pattern" className={styles.topButton} aria-label="Settings" title="Settings"
     aria-pressed={settingsOpen} onClick={onSettings}><SettingsIcon size={16} /></Button>
 </div></Bar>
-export const LeftColumn = ({ top, head, body, footer }: {
-  top: ReactNode; head: ReactNode; body: ReactNode; footer: ReactNode
-}) => <div data-left-column className={styles.column}>
+export const LeftColumn = ({ top, head, body, footer, active = true }: {
+  top: ReactNode; head: ReactNode; body: ReactNode; footer: ReactNode; active?: boolean
+}) => <div data-left-column hidden={!active} inert={!active} className={active ? styles.column : styles.hidden}>
   <div data-region="sidebar-header">{top}{head}</div>{body}
   <div data-region="sidebar-footer" className={styles.footer}>{footer}</div>
 </div>
@@ -166,3 +166,6 @@ export const LeftColumnListOptions = ({ filtered, children }: { filtered: boolea
   <span className={styles.options} data-filtered={filtered ? '' : undefined}>{children}</span>
 export const LeftColumnEmpty = ({ children }: { children: ReactNode }) =>
   <div className={styles.label}><Text as="div" role="meta" className={styles.empty}>{children}</Text></div>
+
+export const LeftColumnModeHead = ({ hidden, children }: { hidden: boolean; children: ReactNode }) =>
+  <div hidden={hidden} inert={hidden} className={hidden ? styles.hidden : undefined}>{children}</div>

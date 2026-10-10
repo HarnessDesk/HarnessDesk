@@ -696,8 +696,9 @@ for (const theme of WALL_THEMES) {
 // Task 10 extends this same window contract to the transitional
 // AppWindow hosts. The pattern probe deliberately has no application lead.
 const B10_NONWORK = /frame-wall=(?:teams|agents|agent|dashboard|settings(?:-general|-runtimes)?|library|plugins|changes-review)(?:&|$)/
-const B6_WORK_DESTINATIONS = WALL_DESTINATIONS.filter(destination => destination.surface !== 'pattern' && !B10_NONWORK.test(destination.query))
-const B10_NONWORK_DESTINATIONS = WALL_DESTINATIONS.filter(destination => B10_NONWORK.test(destination.query))
+const D6_NONWORK = /frame-wall=settings-(?:navigation|search)(?:&|$)/
+const B6_WORK_DESTINATIONS = WALL_DESTINATIONS.filter(destination => destination.surface !== 'pattern' && !B10_NONWORK.test(destination.query) && !D6_NONWORK.test(destination.query))
+const B10_NONWORK_DESTINATIONS = WALL_DESTINATIONS.filter(destination => B10_NONWORK.test(destination.query) || D6_NONWORK.test(destination.query))
 for (const theme of WALL_THEMES) for (const width of [720, 1440]) {
   test(`B10 nonwork place hierarchy and lead follow window state at ${width} in ${theme}`, async ({ page }) => {
     const hidden = width === 1440 ? '&frame-sidebar-hidden=1' : ''
@@ -833,8 +834,9 @@ for (const theme of WALL_THEMES) {
         const modes = []
         for (const query of ['frame-wall=settings', 'frame-wall=settings-middle']) {
           await openFrame(page, query, theme, width)
+          if (query === 'frame-wall=settings' && width === 720) await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
           await page.locator('body').evaluate((body, value) => { body.dataset.hdInterface = value }, foundation)
-          const navigation = page.locator(query === 'frame-wall=settings' ? '[aria-label="Window navigation"]' : '[data-left-settings]')
+          const navigation = page.locator(query === 'frame-wall=settings' ? '[aria-label="Settings navigation"]' : '[data-left-settings]')
           const groups = await navigation.locator('[data-left-group]').evaluateAll(groups => groups.map(group => {
             const previousRow = group.previousElementSibling?.querySelector('[data-left-row]:last-child')
             const label = group.querySelector(':scope > [data-slot="group-label"]')!
@@ -987,7 +989,7 @@ for (const theme of WALL_THEMES) {
 for (const theme of WALL_THEMES) {
   test(`D2 existing Settings rail shares row and group anatomy in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=settings', theme)
-    const nav = page.getByRole('navigation', { name: 'Window navigation' })
+    const nav = page.getByRole('navigation', { name: 'Settings navigation' })
     const group = nav.locator('[data-left-group]').first()
     const rows = group.locator('[data-left-row]')
     await expect(rows).toHaveCount(4)
@@ -1013,9 +1015,9 @@ for (const theme of WALL_THEMES) {
     await page.keyboard.press('Enter')
     await expect(rows.nth(1).getByRole('button')).toHaveAttribute('aria-current', 'page')
     await nav.getByRole('searchbox', { name: 'Search settings' }).fill('keyboard')
-    await expect(nav.locator('[data-left-row]')).toHaveCount(1)
+    await expect(nav.locator('[data-left-group] [data-left-row]')).toHaveCount(1)
     await expect(nav.getByRole('button', { name: 'Keyboard shortcuts', exact: true })).toBeVisible()
-    await expect(nav.getByRole('button', { name: 'Back to app', exact: true })).toBeVisible()
+    await expect(nav.getByRole('button', { name: 'Back', exact: true })).toBeVisible()
   })
 }
 
@@ -1313,3 +1315,115 @@ for (const theme of WALL_THEMES) {
     await page.keyboard.press('Escape')
   })
 }
+
+test('D6 active Settings column owns the gear and keyboard focus', async ({ page }) => {
+  await openFrame(page, 'frame-wall=settings', 'light')
+  const modal = page.locator('[data-slot="app-window"]:visible')
+  const column = modal.locator('[data-left-column]:visible')
+  await expect(column).toHaveCount(1)
+  await expect(column.locator('[data-left-seat] button[aria-label="Settings"]')).toHaveAttribute('aria-pressed', 'true')
+  await column.getByRole('button', { name: 'Appearance', exact: true }).focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(column.getByRole('button', { name: 'Notifications', exact: true })).toBeFocused()
+  await expect(page.locator('[data-frame-region="left"] [data-left-column]:visible')).toHaveCount(0)
+})
+
+for (const theme of WALL_THEMES) {
+  for (const width of [1440, 1100, 720]) {
+    test(`D6 Settings is a visible aligned mode at ${width} in ${theme}`, async ({ page }) => {
+      await openFrame(page, 'frame-wall=settings-navigation', theme, width)
+      const modal = page.locator('[data-slot="app-window"]:visible')
+      let column = modal.locator('[data-left-column]:visible')
+      if (await column.count() === 0) {
+        await modal.getByRole('button', { name: 'Show sidebar', exact: true }).click()
+      }
+      column = modal.locator('[data-left-column]:visible')
+      await expect(column).toHaveCount(1)
+      const top = column.locator('[data-left-top] [data-slot="bar"]')
+      const main = modal.locator('[data-shell-host="top"] [data-slot="bar"]')
+      const topBox = (await top.boundingBox())!, mainBox = (await main.boundingBox())!
+      expect(topBox.height).toBe(FRAME.bar.height)
+      expect(Math.abs(topBox.y + topBox.height - mainBox.y - mainBox.height)).toBeLessThanOrEqual(1)
+      const seatBox = (await column.locator('[data-left-seat]').locator('..').boundingBox())!
+      const statusBox = (await modal.locator('[data-slot="status-bar"]').boundingBox())!
+      expect(seatBox.height).toBe(FRAME.bar.height)
+      expect(Math.abs(seatBox.y + seatBox.height - statusBox.y)).toBeLessThanOrEqual(1)
+      await expect(column.locator('[data-left-seat]').getByRole('button', { name: 'Settings', exact: true }))
+        .toHaveAttribute('aria-pressed', 'true')
+      const values = await column.locator('[data-left-row]:visible').evaluateAll(nodes => nodes.map(node => {
+        const button = node.querySelector<HTMLElement>('[data-slot="sidebar-menu-button"]')!
+        return { height: button.getBoundingClientRect().height,
+          icon: button.querySelector<HTMLElement>('[data-slot="sidebar-menu-icon"]')!.getBoundingClientRect().x,
+          text: button.querySelector<HTMLElement>('[data-slot="sidebar-menu-label-content"]')!.getBoundingClientRect().x }
+      }))
+      expect(values.length).toBeGreaterThan(10)
+      await expect(column.getByRole('button', { name: 'New session', exact: true })).toHaveCount(0)
+      await expect(column.locator('[aria-label="Main sections"]:visible')).toHaveCount(0)
+      for (const row of values) expect(row.height).toBe(FRAME.rail.rowHeight)
+      for (const edge of ['text', 'icon'] as const) {
+        const xs = values.map(row => row[edge])
+        expect(Math.max(...xs) - Math.min(...xs)).toBeLessThanOrEqual(1)
+      }
+      await column.getByRole('searchbox', { name: 'Search settings' }).fill('mute')
+      await expect(column.getByRole('button', { name: 'Notifications', exact: true })).toBeVisible()
+      await expect(column.getByRole('button', { name: 'General', exact: true })).toHaveCount(0)
+      await column.getByRole('searchbox', { name: 'Search settings' }).fill('')
+      await column.getByRole('button', { name: 'Appearance', exact: true }).click()
+      await expect(column.getByRole('button', { name: 'Appearance', exact: true })).toHaveAttribute('aria-current', 'page')
+      await column.getByRole('button', { name: 'Settings', exact: true }).click()
+      await expect(column.getByRole('button', { name: 'Appearance', exact: true })).toHaveAttribute('aria-current', 'page')
+      await column.locator('[data-left-settings]').getByRole('button', { name: 'Back', exact: true }).click()
+      await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
+    })
+  }
+  for (const destination of ['library', 'plugins']) {
+    test(`D6 ${destination} keeps its Sessions door in ${theme}`, async ({ page }) => {
+      await openFrame(page, `frame-wall=${destination}`, theme)
+      const column = page.locator('[data-slot="app-window"]:visible [data-left-column]:visible')
+      const label = destination === 'library' ? 'Library' : 'Plugins'
+      await expect(column.getByRole('button', { name: label, exact: true })).toHaveAttribute('aria-current', 'page')
+      await expect(column.locator('[data-left-seat]').getByRole('button', { name: 'Settings', exact: true }))
+        .toHaveAttribute('aria-pressed', 'false')
+      await expect(column.locator('[data-left-settings]:visible')).toHaveCount(0)
+    })
+  }
+}
+test('D6 Escape closes the Settings float before the window and restores its lead focus', async ({ page }) => {
+  await openFrame(page, 'frame-wall=settings-navigation', 'light', 720)
+  const modal = page.locator('[data-slot="app-window"]:visible')
+  const show = modal.getByRole('button', { name: 'Show sidebar', exact: true })
+  await show.click()
+  const column = modal.locator('[data-left-column]:visible')
+  await expect(column).toHaveCount(1)
+  const back = column.locator('[data-left-settings]').getByRole('button', { name: 'Back', exact: true })
+  await back.focus()
+  await page.keyboard.press('Escape')
+  await expect(modal).toHaveCount(1)
+  await expect(modal.locator('[data-left-column]:visible')).toHaveCount(0)
+  await expect(show).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
+})
+test('D6 float keeps portalled account actions and traps its boundary', async ({ page }) => {
+  await openFrame(page, 'frame-wall=settings-navigation', 'light', 720)
+  const modal = page.locator('[data-slot="app-window"]:visible')
+  const show = modal.getByRole('button', { name: 'Show sidebar', exact: true })
+  await show.click()
+  const column = modal.locator('[data-left-column]:visible')
+  const hide = column.getByRole('button', { name: 'Hide sidebar', exact: true })
+  const gear = column.locator('[data-left-seat]').getByRole('button', { name: 'Settings', exact: true })
+  await gear.focus(); await page.keyboard.press('Tab'); await expect(hide).toBeFocused()
+  await page.keyboard.press('Shift+Tab'); await expect(gear).toBeFocused()
+  await column.locator('[data-left-seat] [data-slot="popover-trigger"]:not(:has([data-slot="inbox-button"]))').click()
+  await page.locator('[data-layout="profile"]:visible').click()
+  await expect(column).toBeVisible()
+  await expect(modal.locator('input[aria-label="Your name"]')).toBeVisible()
+  await column.locator('[data-left-seat] [data-slot="popover-trigger"]:not(:has([data-slot="inbox-button"]))').click()
+  await page.keyboard.press('Escape')
+  await expect(column).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(column).toBeHidden(); await expect(show).toBeFocused()
+  await show.click()
+  await modal.locator('[data-app-window-left-frame]').click({ position: { x: 500, y: 150 } })
+  await expect(column).toBeHidden(); await expect(modal).toBeVisible()
+})

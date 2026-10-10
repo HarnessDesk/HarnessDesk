@@ -240,3 +240,6 @@ export { FixedShell, type FixedShellProps } from './patterns/FixedShell'
 export { StatusBar, type StatusFact } from './patterns/StatusBar'
 
 export { PageHeadingProvider, usePageHeading, type PageHeadingData } from './patterns/AppWindow/PageHeading'
+
+export { AppWindowLeftFrame } from './patterns/AppWindow'
+export { LeftColumnModeHead } from './patterns/LeftColumn'

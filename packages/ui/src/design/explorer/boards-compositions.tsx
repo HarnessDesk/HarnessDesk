@@ -3469,3 +3469,10 @@ const MENU_ROW_CATALOG_VARIANTS = ['default'] as const
 const MENU_ROW_CATALOG_SIZES = ['default'] as const
 const MENU_ROW_CATALOG_STATES = ['default'] as const
 const PopupMenuBoard = () => <>{MENU_ROW_CATALOG_VARIANTS.map(variant => MENU_ROW_CATALOG_SIZES.map(size => MENU_ROW_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><MenuExample /><MenuExample icons="none" /></div>)))}</>
+
+import { AppWindowLeftFrame } from '..'
+export const AppWindowLeftBoard = () => <div className="grid h-96 w-full" data-catalog-variant="default" data-catalog-size="default" data-catalog-state="nested-rail"><AppWindowLeftFrame placement="column" width={FRAME.sidebar.width} onWidth={() => {}} onCloseFloat={() => {}}
+  left={<LeftColumnBoard />} top={<Bar><Text role="navigation">General</Text></Bar>}
+  body={<Text as="p" role="row">Preference content stays in its existing window until phase E.</Text>}
+  status={<StatusBar usage={<Text role="meta">Plan usage</Text>} facts={[]} terminal={<Button variant="ghost" size="icon-sm" aria-label="Terminal"><TerminalIcon size={16} /></Button>} />} /></div>
+COMPOSITION_BOARDS.push({ id: 'app-window-left', title: 'Window left column', about: 'Temporary shared left slot with one shell header and footer.', render: AppWindowLeftBoard })

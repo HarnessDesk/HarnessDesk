@@ -1,4 +1,5 @@
 import {
+  AppWindowLeftFrame,
   AppWindowPage,
   AppWindowRail,
   AppWindowRailScroll,
@@ -28,7 +29,7 @@ import { ArrowLeftIcon } from './Icons'
 import styles from './AppWindow.module.css'
 import { TopBarProvider, useTopBar } from '../panels/top-bar'
 import { ShellHostsProvider, ShellOutlets, useShellHosts } from '../panels/shell-hosts'
-import { useSnapshot } from '../state/context'
+import { useSnapshot, useStore } from '../state/context'
 import { sidebarPlacement } from '../state/workbench'
 import { WindowControls } from './WindowControls'
 import { hasTrafficLights } from '../lib/desktop'
@@ -73,15 +74,16 @@ export const moveWindowRailFocus = (event: ReactKeyboardEvent<HTMLElement>) => {
   rows[next]?.focus()
 }
 
-type AppWindowProps = { owner: string; label: string; children: ReactNode; responsive?: boolean; onBack?: () => void; onClose: () => void }
+type AppWindowProps = { owner: string; label: string; children: ReactNode; responsive?: boolean; onBack?: () => void; onClose: () => void; leftColumn?: ReactNode }
 export const AppWindow = (props: AppWindowProps) => {
   const embedded = useContext(AppWindowMode) === 'embedded'
   return embedded ? <TopBarProvider><ShellHostsProvider><AppWindowFrame {...props} />
     <ShellOutlets activeOwner={props.owner} /></ShellHostsProvider></TopBarProvider> : <AppWindowFrame {...props} />
 }
-const AppWindowFrame = ({ owner, label, children, responsive = false, onBack, onClose }: AppWindowProps) => {
+const AppWindowFrame = ({ owner, label, children, responsive = false, onBack, onClose, leftColumn }: AppWindowProps) => {
   const embedded = useContext(AppWindowMode) === 'embedded'
   const snapshot = useSnapshot()
+  const store = useStore()
   const columnWidth = sidebarPlacement(snapshot) === 'column' ? snapshot.workbench.sidebar.size : 0
   const { topRef, footRef } = useShellHosts(owner)
   const [heading, setHeading] = useState<PageHeadingData | null>(null)
@@ -123,9 +125,16 @@ const AppWindowFrame = ({ owner, label, children, responsive = false, onBack, on
               initialFocus={embedded ? false : surface}
               finalFocus={!embedded}
             >
+              {leftColumn === undefined ? <>
               <AppWindowTopHost columnWidth={columnWidth} ref={topRef} data-shell-host="top" />
               <div className={styles.winBody}><PageHeadingProvider onHeading={receiveHeading}>{children}</PageHeadingProvider></div>
               <div ref={footRef} data-shell-host="status" />
+              </> : <AppWindowLeftFrame native={hasTrafficLights()} left={leftColumn}
+                placement={sidebarPlacement(snapshot)} width={snapshot.workbench.sidebar.size}
+                onWidth={width => store.resizePanel('sidebar', width)} onCloseFloat={() => store.closeFloatingSidebar()}
+                top={<div ref={topRef} data-shell-host="top" />}
+                body={<PageHeadingProvider onHeading={receiveHeading}>{children}</PageHeadingProvider>}
+                status={<div ref={footRef} data-shell-host="status" />} />}
             </AppWindowSurface>
           </DialogPortal>
         )}
