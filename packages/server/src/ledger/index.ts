@@ -241,29 +241,34 @@ export class Ledger {
    * runtime share one pass: on a desk where every Team has a clone of its
    * own, one pass per root was one pass over every source per Team (#1567).
    *
-   * A shared pass carries the source-data budget of the reads it replaces,
-   * `INSIGHT_BYTE_LIMIT` for each of its roots, and spends it once. So each
-   * root reads exactly as it does alone, or further where reading it alone
-   * would have stopped at the budget. One budget for the whole pass capped
-   * every Team at once on a desk with more sources than that.
+   * A shared pass carries the source-data budget of every read it
+   * replaces, `INSIGHT_BYTE_LIMIT` for each query, and spends it once. So
+   * each query reads exactly as it would alone, or further where alone it
+   * would have stopped at the budget. A query repeated for the same root
+   * counts toward the budget but is answered once. One budget per pass,
+   * or per distinct root, left a cold read of a large desk partial: Teams
+   * that reuse a clone folder share a root.
    */
   async readInsights(queries: readonly InsightQuery[], options: { readonly refresh?: boolean; readonly signal?: AbortSignal } = {}): Promise<UsageDetail[]> {
     // Every sample's folder is compared with the root: one read resolves each
     // folder once, or a busy desk spends its main thread in realpath (#1567).
     const read = this.#insightRead.then(() => withCanonicalPaths(async () => {
       const keyOf = (query: InsightQuery) => `${query.from}\0${query.to}\0${query.runtime ?? ''}`
-      const roots = new Map<string, Set<string>>()
-      for (const query of queries) {
-        const held = roots.get(keyOf(query))
-        if (held) held.add(canonicalPath(query.root)); else roots.set(keyOf(query), new Set([canonicalPath(query.root)]))
-      }
+      const reads = new Map<string, number>()
+      for (const query of queries) reads.set(keyOf(query), (reads.get(keyOf(query)) ?? 0) + 1)
       const passes = new Map<string, Promise<InsightPass>>()
+      const answered = new Map<string, UsageDetail>()
       const details: UsageDetail[] = []
       for (const query of queries) {
         const key = keyOf(query)
+        const root = `${key}\0${canonicalPath(query.root)}`
+        const known = answered.get(root)
+        if (known) { details.push(known); continue }
         let pass = passes.get(key)
-        if (!pass) { pass = this.#insightPass(query, options, this.#insightByteLimit * roots.get(key)!.size); passes.set(key, pass) }
-        details.push(await this.#readInsight(query, options, await pass))
+        if (!pass) { pass = this.#insightPass(query, options, this.#insightByteLimit * reads.get(key)!); passes.set(key, pass) }
+        const detail = await this.#readInsight(query, options, await pass)
+        answered.set(root, detail)
+        details.push(detail)
       }
       return details
     }))

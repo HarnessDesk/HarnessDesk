@@ -273,7 +273,7 @@ test('roots read together share one pass over the usage sources, and each reads 
   assert.equal(listed.length, 2 * onePass, 'a different range is a pass of its own')
 })
 
-test('a pass for several roots carries each root’s byte budget, so none stops where reading it alone would not', async (t) => {
+test('a pass for several reads carries each read’s byte budget, so none stops where reading alone would not', async (t) => {
   const rollout = (cwd: string, id: string) =>
     `${JSON.stringify({ type: 'session_meta', payload: { id, cwd } })}\n${Array.from({ length: 40 }, (_, second) => event(second)).join('')}`
   const roots = [query.root, '/work/other', '/work/third']
@@ -289,4 +289,8 @@ test('a pass for several roots carries each root’s byte budget, so none stops 
   const together = await (await desk()).readInsights(roots.map((root) => ({ ...query, root })))
   assert.deepEqual(together.map(capped), [false, false, false], 'three roots carry three budgets')
   assert.deepEqual(together.map((detail) => detail.samples.length), [40, 40, 40])
+  // Teams that reuse a clone folder ask for the same root: each still brings its read's budget.
+  const repeated = await (await desk()).readInsights([query, query, query])
+  assert.deepEqual(repeated.map(capped), [false, false, false], 'three reads of one root carry three budgets')
+  assert.equal(repeated[1], repeated[0], 'and are answered once')
 })

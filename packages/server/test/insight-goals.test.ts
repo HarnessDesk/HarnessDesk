@@ -53,7 +53,7 @@ test('many Teams share one ledger read and one attribution per project, and each
   })
 
   const batch = await plane.goals(['goal-a', 'goal-b', 'goal-c', 'missing'])
-  assert.deepEqual(reads, [['/repo', '/other']], 'one ledger read for every project, not one per project or per Team')
+  assert.deepEqual(reads, [['/repo', '/repo', '/other']], 'one ledger read for every Team, a query each so each keeps its budget')
   assert.equal(windows.built, 3, 'each Seat window is built once per read, not once per sample')
   assert.deepEqual(batch.failed, ['missing'])
   assert.deepEqual(batch.reports.map((report) => report.goal).sort(), ['goal-a', 'goal-b', 'goal-c'])

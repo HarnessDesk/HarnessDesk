@@ -257,19 +257,25 @@ export class InsightPlane implements InsightReadApi {
       const read = [...projects.values()]
       let details: readonly UsageDetail[] = []
       try {
-        if (read.length) details = await this.port.ledger().readInsights(read.map((project) => project.query), { refresh: true })
+        // One query per Team: each keeps the source-data budget its own read
+        // had, so Teams sharing a project do not share one read's budget.
+        const queries = read.flatMap(({ query, documents }) => documents.map(() => query))
+        if (queries.length) details = await this.port.ledger().readInsights(queries, { refresh: true })
       } catch {
         for (const { documents } of read) for (const document of documents) failed.add(document.goal.id)
         return { reports, failed: ids.filter((id) => failed.has(id)) }
       }
       const held = { goals: this.port.goals.store.list().map((document) => document.goal), seats: this.port.seats() }
-      read.forEach(({ query, documents }, index) => {
+      let first = 0
+      for (const { query, documents } of read) {
+        const detail = details[first]!
+        first += documents.length
         let scan: ProjectScan
-        try { scan = this.#scanOf(query, details[index]!, held) } catch { for (const document of documents) failed.add(document.goal.id); return }
+        try { scan = this.#scanOf(query, detail, held) } catch { for (const document of documents) failed.add(document.goal.id); continue }
         for (const document of documents) {
           try { reports.push(this.#goalReport(document, query, scan)) } catch { failed.add(document.goal.id) }
         }
-      })
+      }
       return { reports, failed: ids.filter((id) => failed.has(id)) }
     })
   }
