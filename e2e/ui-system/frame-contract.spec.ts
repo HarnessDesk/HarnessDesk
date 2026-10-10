@@ -194,3 +194,19 @@ for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) for (con
 }
 
 import { FRAME_MENU } from '../../packages/ui/src/design/frame'
+
+// The independent Composer subset of C2; More/Undo follows B after the merge.
+for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
+  test(`C2 Composer Add at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme, width)
+    await page.getByRole('button', { name: 'Add', exact: true }).first().click()
+    const surface = page.locator('[data-popup-kind="menu"]:visible').last()
+    await expect(surface).toBeVisible()
+    await expectMenuGeometry(surface)
+    const rows = surface.locator('[data-menu-row]')
+    expect(await rows.count()).toBeGreaterThanOrEqual(4)
+    await expect(surface.getByRole('menuitem', { name: 'Add a file @', exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('button', { name: 'Add', exact: true }).first()).toBeFocused()
+  })
+}

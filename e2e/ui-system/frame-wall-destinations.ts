@@ -17,6 +17,7 @@ export const WALL_DESTINATIONS = [
   { id: 'settings', query: 'frame-wall=settings' },
   { id: 'popup-menu-icons', query: 'frame-wall=conversation&popup=menu-icons', popup: 'Frame menu' },
   { id: 'popup-menu-none', query: 'frame-wall=conversation&popup=menu-none', popup: 'Frame menu' },
+  { id: 'popup-composer-add', query: 'frame-wall=conversation', composerAdd: true },
 ] as const
 
 /** Wide (every region stands), between the folds, and the narrowest window. */
