@@ -22,6 +22,7 @@ export type CatalogEntry = {
 type ModuleSeed = readonly [name: string, exampleId: string, purpose: string]
 
 const EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  'app-frame': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   button: 'packages/ui/src/design/explorer/boards.tsx',
   control: 'packages/ui/src/design/explorer/boards.tsx',
   face: 'packages/ui/src/design/explorer/boards.tsx',
@@ -166,6 +167,8 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
     : undefined
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
+  Page: ['light', 'dark'],
+  ViewBar: ['light', 'dark'],
   GitComparisonDialogs: ['default'],
   ComparisonNotice: ['default'],
   ComparisonDecision: ['default'],
@@ -267,6 +270,8 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
+  Page: ['default'],
+  ViewBar: ['default'],
   GitComparisonDialogs: ['default'],
   ComparisonNotice: ['default', 'needs-you', 'empty'],
   ComparisonDecision: ['default', 'disabled'],
@@ -394,6 +399,8 @@ Object.assign(SIZES, {
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
+  Page: 'packages/ui/src/components/GoalFindings.tsx',
+  ViewBar: 'packages/ui/src/components/GoalFindings.tsx',
   GitComparisonDialogs: 'packages/ui/src/components/ComparisonActions.tsx',
   ComparisonNotice: 'packages/ui/src/components/ComparisonVerdict.tsx',
   ComparisonDecision: 'packages/ui/src/components/ComparisonActions.tsx',
@@ -614,6 +621,8 @@ export const CANONICAL_PATTERN_MODULES = [
   ['FlowCanvas', 'flow-canvas', 'A lazy, controlled plan canvas: pan, zoom, selection, edits and read-only Run state slots'],
   ['FlowGraph', 'flow-graph', 'A Flow’s steps and rules drawn read-only, with the list that says the same'],
   ['FlowStepRow', 'flow-graph', 'Shared Flow and Run dock step rows with kind, recorded state, time and run count'],
+  ['Page', 'app-frame', 'The page template at its reading, wide and canvas measures'],
+  ['ViewBar', 'app-frame', 'A view summary and its actions at the page gutter'],
   ['PaneColumn', 'conversation', 'The reading column\'s inset, shared by the transcript and the room stream, plus the bars strip, the jobs strip and the rail'],
   ['PlanCard', 'plan-card', 'A plan\'s price and a key or metered account\'s monthly budget, set once from a suggested price'],
   ['UsageMeterRow', 'usage-meter-row', 'A shared name, remaining meter, percentage and reset countdown'],

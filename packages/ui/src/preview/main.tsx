@@ -3,6 +3,7 @@ import { AgentPage } from '../components/AgentPage'
 import { ReleaseStills } from './release-stills'
 import { PREVIEW_AGENTS } from './harness'
 import { TeamFrame } from './frames-team-frame'
+import { FrameWall } from './frames-frame-wall'
 import { RunDockFrame } from './frames-run-dock'
 import { IconFollowupsFrames } from './frames-icon-followups'
 import { capabilityListsStore } from './capability-lists-fixture'
@@ -1233,6 +1234,8 @@ createRoot(container).render(
           ? <RuntimeCostPreview />
           : new URLSearchParams(window.location.search).has('native-servers')
           ? <NativeServersPreview />
+          : new URLSearchParams(window.location.search).has('frame-wall')
+          ? <FrameWall />
           : new URLSearchParams(window.location.search).has('team-frame')
           ? <TeamFrame />
           : new URLSearchParams(window.location.search).has('inapplicable-actions')
