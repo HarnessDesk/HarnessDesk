@@ -23,6 +23,42 @@ const settled = async (client: Client, runtime: string, sessionId: string): Prom
   }
 }
 
+test('assignment preflight keeps host checkout identity while wire claims stay private (#1562)', async (t) => {
+  const repo = await makeRepo('hd-goal-assign-checkouts-')
+  const isolated = join(repo.dir, 'isolated')
+  await repo.git('worktree', 'add', '--detach', isolated)
+  const subdir = join(repo.dir, 'subdir')
+  await mkdir(subdir)
+  const harness = await start()
+  const client = await Client.connect(harness.server)
+  t.after(async () => {
+    client.close()
+    await halt(harness)
+    await rm(harness.stateDir, { recursive: true, force: true })
+    await rm(repo.dir, { recursive: true, force: true })
+  })
+  await client.call('workspace/open', { path: repo.dir })
+  const goal = await client.call('goal/create', { root: repo.dir, sentence: 'Compare attempts' }) as GoalView
+  const sessions = await Promise.all([repo.dir, subdir, isolated].map(cwd =>
+    client.call('session/create', { runtime: 'fake', options: { cwd } }) as Promise<Session>))
+  const cards: number[] = []
+  for (const title of ['First', 'Shared checkout', 'Isolated checkout']) {
+    cards.push((await client.call('team/add', { room: goal.goal.id, title, files: ['src/game.js'] }) as { id: number }).id)
+  }
+  const assign = (index: number) => client.call('goal/assign', {
+    goal: goal.goal.id, card: cards[index], session: { runtime: 'fake', sessionId: sessions[index]!.id },
+  }) as Promise<SeatRecord>
+  await assign(0)
+  await assert.rejects(assign(1), /overlap a live claim/)
+  const assigned = await assign(2)
+  assert.equal(assigned.session.sessionId, sessions[2]!.id)
+  const view = await client.call('goal/read', { goal: goal.goal.id }) as GoalView
+  for (const card of view.board.intents.filter(one => one.claim)) {
+    assert.equal(Object.hasOwn(card.claim!, 'cwd'), false)
+    assert.equal(Object.hasOwn(card.claim!, 'dirtyPaths'), false)
+  }
+})
+
 test('wrapped Seats retain conversations and refuse send, steer, queued sends, review and compaction; open Seats still dispatch', async (t) => {
   const harness = await start()
   const client = await Client.connect(harness.server)
