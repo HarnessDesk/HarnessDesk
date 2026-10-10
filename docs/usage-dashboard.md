@@ -1571,7 +1571,11 @@ write-ahead-log changes) are read whole when changed. Files last modified before
 the requested range are skipped before reading their contents.
 
 Each request keeps the existing shared 64 MiB source-data budget and 10,000-file
-ceiling. A JSONL prefix stopped by the byte budget is cached with its cursor, so
+ceiling. A request for several projects at once (`insight/goals`, the Teams
+page) makes one pass over the sources for all of them and carries 64 MiB for
+each Team in it, spent once: no Team reads less than its own request would
+have. A
+JSONL prefix stopped by the byte budget is cached with its cursor, so
 later reads can continue. An oversized whole-file source stays partial. The
 Insight response qualifies totals and carries `scan: 'partial'` when a scan
 limit was reached; Projects shows **Partial** in a chip. Missing measurements

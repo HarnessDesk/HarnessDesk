@@ -231,3 +231,66 @@ for (const kind of ['claude', 'qwen'] as const) {
     })
   }
 }
+
+test('a read resolves each folder once, however many samples name it', async (t) => {
+  const { ledger, path } = await fixture(); t.after(() => ledger.close())
+  const other = `${JSON.stringify({ type: 'session_meta', payload: { id: 'session-2', cwd: '/work/other' } })}\n`
+  await writeFile(`${path}.other.jsonl`, other + Array.from({ length: 200 }, (_, second) => event(second % 60)).join(''))
+  const native = fs.realpathSync.native
+  let resolved = 0
+  t.mock.method(fs.realpathSync, 'native', ((target: fs.PathLike, options?: fs.EncodingOption) => { resolved += 1; return native(target, options) }) as typeof native)
+  const detail = await ledger.readInsight(query)
+  assert.equal(detail.samples.length, 1)
+  assert.ok(resolved <= 10, `${resolved} folder resolutions for 201 samples`)
+})
+
+test('roots read together share one pass over the usage sources, and each reads as it does alone', async (t) => {
+  const { ledger, path, corpus } = await fixture(); t.after(() => ledger.close())
+  const other = `${JSON.stringify({ type: 'session_meta', payload: { id: 'session-2', cwd: '/work/other' } })}\n`
+  await writeFile(`${path}.other.jsonl`, other + event(1) + event(2))
+  const listed: string[] = []
+  const readdir = fs.promises.readdir
+  t.mock.method(fs.promises, 'readdir', ((target: fs.PathLike, ...rest: unknown[]) => {
+    if (String(target).startsWith(corpus)) listed.push(String(target))
+    return (readdir as (...args: unknown[]) => unknown)(target, ...rest)
+  }) as typeof readdir)
+  const queries = [query, { ...query, root: '/work/other' }, { ...query, root: '/work/nothing-here' }]
+  const shape = (detail: Awaited<ReturnType<Ledger['readInsight']>>) =>
+    ({ samples: detail.samples.map((sample) => [sample.key, sample.project, sample.input.value]), gaps: detail.gaps, complete: detail.complete })
+
+  const alone = []
+  for (const one of queries) alone.push(shape(await ledger.readInsight(one)))
+  const onePass = listed.length / queries.length
+  assert.ok(onePass >= 1, 'a read lists the usage sources')
+  listed.length = 0
+  const together = (await ledger.readInsights(queries)).map(shape)
+  assert.deepEqual(together, alone)
+  assert.deepEqual(together.map((detail) => detail.samples.length), [1, 2, 0])
+  assert.equal(listed.length, onePass, 'three roots over one range list the sources once')
+
+  listed.length = 0
+  await ledger.readInsights([query, { ...query, from: query.from + 1 }])
+  assert.equal(listed.length, 2 * onePass, 'a different range is a pass of its own')
+})
+
+test('a pass for several reads carries each read’s byte budget, so none stops where reading alone would not', async (t) => {
+  const rollout = (cwd: string, id: string) =>
+    `${JSON.stringify({ type: 'session_meta', payload: { id, cwd } })}\n${Array.from({ length: 40 }, (_, second) => event(second)).join('')}`
+  const roots = [query.root, '/work/other', '/work/third']
+  const size = Buffer.byteLength(rollout(query.root, 'session-0'))
+  const desk = async () => {
+    const made = await fixture(Math.floor(size * 1.5)); t.after(() => made.ledger.close())
+    for (const [index, root] of roots.entries()) await writeFile(index === 0 ? made.path : `${made.path}.${index}.jsonl`, rollout(root, `session-${index}`))
+    return made.ledger
+  }
+  const capped = (detail: Awaited<ReturnType<Ledger['readInsight']>>) => detail.gaps.includes(INSIGHT_BYTE_LIMIT_MESSAGE)
+
+  assert.ok(capped(await (await desk()).readInsight(query)), 'one root alone stops at its budget on a desk with more sources than that')
+  const together = await (await desk()).readInsights(roots.map((root) => ({ ...query, root })))
+  assert.deepEqual(together.map(capped), [false, false, false], 'three roots carry three budgets')
+  assert.deepEqual(together.map((detail) => detail.samples.length), [40, 40, 40])
+  // Teams that reuse a clone folder ask for the same root: each still brings its read's budget.
+  const repeated = await (await desk()).readInsights([query, query, query])
+  assert.deepEqual(repeated.map(capped), [false, false, false], 'three reads of one root carry three budgets')
+  assert.equal(repeated[1], repeated[0], 'and are answered once')
+})

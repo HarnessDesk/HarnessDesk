@@ -15,7 +15,7 @@ import { runtimeId, type LedgerDay,
 } from '@harnessdesk/protocol'
 
 import { Pricing, defaultPricingPaths, type ModelRates } from './pricing.js'
-import { sameCanonicalPath } from '../path-identity.js'
+import { canonicalPath, sameCanonicalPath, withCanonicalPaths } from '../path-identity.js'
 import { safeLedgerDiagnostic } from './diagnostics.js'
 import type { RemoteEventsSource } from './remote.js'
 import { HOUR_CAPABLE_KINDS, listTargets, scanFile, wholeFile, type CorpusSpec, type ScanTarget } from './scan.js'
@@ -110,6 +110,15 @@ const IDLE: ScanProgress = {
   startedAt: null,
   finishedAt: null,
   error: null,
+}
+
+/** One pass over the usage sources for a range, shared by every root read over it. */
+interface InsightPass {
+  readonly samples: readonly UsageSample[]
+  readonly sources: readonly InsightSource[]
+  readonly gaps: readonly string[]
+  /** The samples by canonical folder, filed on the first root's read. */
+  byProject: Map<string, UsageSample[]> | null
 }
 
 interface Priced {
@@ -223,12 +232,52 @@ export class Ledger {
    * leave those amounts unattributed rather than manufacture a join.
    */
   async readInsight(query: InsightQuery, options: { readonly refresh?: boolean; readonly signal?: AbortSignal } = {}): Promise<UsageDetail> {
-    const read = this.#insightRead.then(() => this.#readInsight(query, options))
+    return (await this.readInsights([query], options))[0]!
+  }
+
+  /**
+   * Several roots' recorded usage, in order. Reading the usage sources is the
+   * cost of a read whatever its root, so roots over the same range and
+   * runtime share one pass: on a desk where every Team has a clone of its
+   * own, one pass per root was one pass over every source per Team (#1567).
+   *
+   * A shared pass carries the source-data budget of every read it
+   * replaces, `INSIGHT_BYTE_LIMIT` for each query, and spends it once. So
+   * each query reads exactly as it would alone, or further where alone it
+   * would have stopped at the budget. A query repeated for the same root
+   * counts toward the budget but is answered once. One budget per pass,
+   * or per distinct root, left a cold read of a large desk partial: Teams
+   * that reuse a clone folder share a root.
+   */
+  async readInsights(queries: readonly InsightQuery[], options: { readonly refresh?: boolean; readonly signal?: AbortSignal } = {}): Promise<UsageDetail[]> {
+    // Every sample's folder is compared with the root: one read resolves each
+    // folder once, or a busy desk spends its main thread in realpath (#1567).
+    const read = this.#insightRead.then(() => withCanonicalPaths(async () => {
+      const keyOf = (query: InsightQuery) => `${query.from}\0${query.to}\0${query.runtime ?? ''}`
+      const reads = new Map<string, number>()
+      for (const query of queries) reads.set(keyOf(query), (reads.get(keyOf(query)) ?? 0) + 1)
+      const passes = new Map<string, Promise<InsightPass>>()
+      const answered = new Map<string, UsageDetail>()
+      const details: UsageDetail[] = []
+      for (const query of queries) {
+        const key = keyOf(query)
+        const root = `${key}\0${canonicalPath(query.root)}`
+        const known = answered.get(root)
+        if (known) { details.push(known); continue }
+        let pass = passes.get(key)
+        if (!pass) { pass = this.#insightPass(query, options, this.#insightByteLimit * reads.get(key)!); passes.set(key, pass) }
+        const detail = await this.#readInsight(query, options, await pass)
+        answered.set(root, detail)
+        details.push(detail)
+      }
+      return details
+    }))
     this.#insightRead = read.catch(() => undefined)
     return read
   }
 
-  async #readInsight(query: InsightQuery, options: { readonly refresh?: boolean; readonly signal?: AbortSignal }): Promise<UsageDetail> {
+  /** Every usage source over a query's range and runtime, read once for every root that shares them, within `budget` bytes. */
+  async #insightPass(query: InsightQuery, options: { readonly signal?: AbortSignal }, budget: number): Promise<InsightPass> {
     if (!Number.isFinite(query.from) || !Number.isFinite(query.to) || query.from >= query.to) {
       throw new Error('Choose a valid Insight time range.')
     }
@@ -277,7 +326,7 @@ export class Ledger {
       // would let such a source spend past what this read promises overall.
       if (target.mtime < query.from) continue
       try {
-        const result = await this.#insightCache.read(target, this.#insightByteLimit - bytes, options.signal)
+        const result = await this.#insightCache.read(target, budget - bytes, options.signal)
         // `bytesRead`, never `offset`: `offset` is the incremental-scan
         // cursor, advanced only for a line actually committed, and a line
         // `take()` rejects as not JSON was still read off disk before it
@@ -300,7 +349,26 @@ export class Ledger {
         gaps.push('A recorded usage source could not be read.')
       }
     }
-    const selected = detailSamples.filter((sample) => sample.project !== null && sameCanonicalPath(sample.project, query.root) && sample.from !== null && sample.from >= query.from && sample.from < query.to)
+    return { samples: detailSamples, sources: detailSources, gaps, byProject: null }
+  }
+
+  /** The samples a pass holds for one root, filed by folder once per pass rather than compared per root. */
+  #ofRoot(pass: InsightPass, root: string): readonly UsageSample[] {
+    if (!pass.byProject) {
+      pass.byProject = new Map()
+      for (const sample of pass.samples) {
+        if (sample.project === null) continue
+        const project = canonicalPath(sample.project)
+        const held = pass.byProject.get(project)
+        if (held) held.push(sample); else pass.byProject.set(project, [sample])
+      }
+    }
+    return pass.byProject.get(canonicalPath(root)) ?? []
+  }
+
+  async #readInsight(query: InsightQuery, options: { readonly refresh?: boolean }, pass: InsightPass): Promise<UsageDetail> {
+    const { sources: detailSources, gaps } = pass
+    const selected = this.#ofRoot(pass, query.root).filter((sample) => sample.from !== null && sample.from >= query.from && sample.from < query.to)
     const priced = selected.map((sample) => {
       if (sample.usd.value !== null || !sample.model) return sample
       const rates = this.#pricing.rateObservation(sample.model).rates

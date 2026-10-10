@@ -4,19 +4,20 @@ import { isAbsolute } from 'node:path'
 import { INSIGHT_ROW_NOTES } from '@harnessdesk/protocol'
 
 import type {
-  AgentOrigin, InsightAmounts, InsightComparison, InsightCompareQuery, InsightMetric, InsightOrderPreview, InsightOrderQuery,
+  AgentOrigin, Goal, InsightAmounts, InsightComparison, InsightCompareQuery, InsightGoalsReport, InsightMetric, InsightOrderPreview, InsightOrderQuery,
   InsightQuery, InsightReport, InsightSelector, InsightSource, Measure, SeatRecord,
 } from '@harnessdesk/protocol'
 
 import type { MachineSeatingFile } from '../agent-seating-file.js'
 import type { GoalPlane } from '../goals/plane.js'
+import type { GoalDocument } from '../goals/store.js'
 import type { Ledger } from '../ledger/index.js'
 import { seatFor, seatWindowOf } from './attribution.js'
-import { sameCanonicalPath } from '../path-identity.js'
+import { canonicalPath, sameCanonicalPath, withCanonicalPaths } from '../path-identity.js'
 import { pairedCosts } from './compare.js'
 import { sumMeasures } from './measures.js'
 
-import { INSIGHT_BYTE_LIMIT_MESSAGE } from '../ledger/insight.js'
+import { INSIGHT_BYTE_LIMIT_MESSAGE, type UsageDetail, type UsageSample } from '../ledger/insight.js'
 
 const DAY = 86_400_000
 const unknown = (unit: InsightMetric['unit'], basis: InsightMetric['basis'] = 'unknown'): InsightMetric =>
@@ -72,6 +73,7 @@ const row = (
 
 export interface InsightReadApi {
   goal(goal: string): Promise<InsightReport>
+  goals(goals: readonly string[]): Promise<InsightGoalsReport>
   usage(query: InsightQuery): Promise<InsightReport>
   agent(root: string | undefined, agent: string, origin: AgentOrigin): Promise<InsightReport>
   compare(query: InsightCompareQuery): Promise<InsightComparison>
@@ -99,6 +101,18 @@ const comparisonFingerprint = (report: InsightComparison): string => createHash(
   sources: report.sources.map((source) => ({ id: source.id, observedAt: source.observedAt, stale: source.stale, problem: source.problem })),
 })).digest('hex')
 
+/**
+ * One read of a project's recorded usage, with its Goals and Seats, shared by
+ * every report drawn from it. Each sample is attributed to its Seat at most
+ * once, against windows built once, however many Teams read the project.
+ */
+interface ProjectScan {
+  readonly detail: UsageDetail
+  readonly projectGoals: readonly Goal[]
+  readonly projectSeats: readonly SeatRecord[]
+  readonly seatOf: (sample: UsageSample) => string | null
+}
+
 /** A deliberately narrow, read-first host plane. It never receives evidence writers or Goal mutators. */
 export class InsightPlane implements InsightReadApi {
   readonly #stamps = new Map<string, Stamp>()
@@ -117,20 +131,47 @@ export class InsightPlane implements InsightReadApi {
 
   async usage(query: InsightQuery): Promise<InsightReport> { return this.#usage(query) }
 
-  async #usage(query: InsightQuery, selectedSeatIds?: ReadonlySet<string>): Promise<InsightReport> {
-    this.#range(query)
+  /* One read shares folder identities: the ledger compares every sample's
+     project with the root, and resolving each anew is a realpath per sample. */
+  #usage(query: InsightQuery, selectedSeatIds?: ReadonlySet<string>): Promise<InsightReport> {
+    return withCanonicalPaths(async () => {
+      this.#range(query)
+      return this.#report(query, selectedSeatIds, await this.#scan(query))
+    })
+  }
+
+  async #scan(query: InsightQuery): Promise<ProjectScan> {
+    return this.#scanOf(query, await this.port.ledger().readInsight(query, { refresh: true }))
+  }
+
+  #scanOf(query: InsightQuery, detail: UsageDetail, held?: { readonly goals: readonly Goal[]; readonly seats: readonly SeatRecord[] }): ProjectScan {
+    if (detail.samples.length === 0 && detail.gaps.length === 0) return { detail, projectGoals: [], projectSeats: [], seatOf: () => null }
+    const projectGoals = (held?.goals ?? this.port.goals.store.list().map((document) => document.goal)).filter((goal) => sameCanonicalPath(goal.root, query.root))
+    const projectSeats = (held?.seats ?? this.port.seats()).filter((seat) => sameCanonicalPath(seat.checkout.project, query.root))
+    const windows = projectSeats.map(seatWindowOf)
+    // A sample's one Seat among the project's is also its one Seat among any
+    // subset holding it: `seatFor` matches runtime, session, folder and window
+    // alone, so a narrower report can reuse the project-wide answer.
+    const attributed = new Map<UsageSample, string | null>()
+    const seatOf = (sample: UsageSample): string | null => {
+      let id = attributed.get(sample)
+      if (id === undefined) { id = seatFor(sample, windows); attributed.set(sample, id) }
+      return id
+    }
+    return { detail, projectGoals, projectSeats, seatOf }
+  }
+
+  #report(query: InsightQuery, selectedSeatIds: ReadonlySet<string> | undefined, scan: ProjectScan): InsightReport {
     const generatedAt = this.#now()
-    const detail = await this.port.ledger().readInsight(query, { refresh: true })
+    const { detail, projectGoals, projectSeats, seatOf } = scan
     if (detail.samples.length === 0 && detail.gaps.length === 0) return emptyReport(query.root, query.from, query.to, generatedAt)
-    const projectGoals = this.port.goals.store.list().map((document) => document.goal).filter((goal) => sameCanonicalPath(goal.root, query.root))
-    const projectSeats = this.port.seats().filter((seat) => sameCanonicalPath(seat.checkout.project, query.root))
     const runtimeSeats = query.runtime === undefined ? projectSeats : projectSeats.filter((seat) => seat.session.runtime === query.runtime)
     const seats = selectedSeatIds ? runtimeSeats.filter((seat) => selectedSeatIds.has(seat.id)) : runtimeSeats
     const runtimeSamples = query.runtime === undefined ? detail.samples : detail.samples.filter((sample) => sample.runtime === query.runtime)
     const selectedSamples = selectedSeatIds ? runtimeSamples.filter((sample) => {
-      const id = seatFor(sample, projectSeats.map(seatWindowOf)); return id !== null && selectedSeatIds.has(id)
+      const id = seatOf(sample); return id !== null && selectedSeatIds.has(id)
     }) : runtimeSamples
-    const sourceFor = (samples: readonly import('../ledger/insight.js').UsageSample[]) =>
+    const sourceFor = (samples: readonly UsageSample[]) =>
       [...new Map(samples.map((sample) => [sample.source.id, sample.source])).values()]
     const sources = [...new Map([
       ...sourceFor(selectedSamples),
@@ -144,12 +185,14 @@ export class InsightPlane implements InsightReadApi {
       ? projectGoals.filter((goal) => seats.some((seat) => seat.board === goal.id))
       : projectGoals
     const total = amounts(selectedSamples, sources, detail.gaps)
-    const bySeat = new Map<string, import('../ledger/insight.js').UsageSample[]>()
-    const unattributed: import('../ledger/insight.js').UsageSample[] = []
+    const kept = new Set(seats.map((seat) => seat.id))
+    const bySeat = new Map<string, UsageSample[]>()
+    const unattributed: UsageSample[] = []
     for (const sample of selectedSamples) {
-      const id = seatFor(sample, seats.map(seatWindowOf))
-      if (!id) { unattributed.push(sample); continue }
-      bySeat.set(id, [...(bySeat.get(id) ?? []), sample])
+      const id = seatOf(sample)
+      if (!id || !kept.has(id)) { unattributed.push(sample); continue }
+      const held = bySeat.get(id)
+      if (held) held.push(sample); else bySeat.set(id, [sample])
     }
     const seatRows = seats.map((seat) => row(
       `seat:${seat.id}`, seat.seatLabel, bySeat.get(seat.id) ?? [], sourceFor(bySeat.get(seat.id) ?? []), detail.gaps,
@@ -181,9 +224,67 @@ export class InsightPlane implements InsightReadApi {
   async goal(id: string): Promise<InsightReport> {
     const document = this.port.goals.store.read(id)
     const to = this.#now(); const from = Math.max(0, to - 90 * DAY)
+    return withCanonicalPaths(async () => {
+      const query = { root: document.goal.root, from, to }
+      this.#range(query)
+      return this.#goalReport(document, query, await this.#scan(query))
+    })
+  }
+
+  /**
+   * Many Teams' usage from one ledger read: every project's share of the
+   * usage sources comes from a single pass over them, rather than one pass
+   * per Team or per project. A Team that cannot be read is named in
+   * `failed`, never a zero, and does not take the others down; a ledger
+   * read that fails names every Team it was for.
+   */
+  async goals(ids: readonly string[]): Promise<InsightGoalsReport> {
+    const to = this.#now(); const from = Math.max(0, to - 90 * DAY)
+    return withCanonicalPaths(async () => {
+      const failed = new Set<string>()
+      const projects = new Map<string, { query: InsightQuery; documents: GoalDocument[] }>()
+      for (const id of ids) {
+        try {
+          const document = this.port.goals.store.read(id)
+          const query = { root: document.goal.root, from, to }
+          this.#range(query)
+          const key = canonicalPath(query.root)
+          const project = projects.get(key)
+          if (project) project.documents.push(document); else projects.set(key, { query, documents: [document] })
+        } catch { failed.add(id) }
+      }
+      const reports: InsightReport[] = []
+      const read = [...projects.values()]
+      let details: readonly UsageDetail[] = []
+      try {
+        // One query per Team: each keeps the source-data budget its own read
+        // had, so Teams sharing a project do not share one read's budget.
+        const queries = read.flatMap(({ query, documents }) => documents.map(() => query))
+        if (queries.length) details = await this.port.ledger().readInsights(queries, { refresh: true })
+      } catch {
+        for (const { documents } of read) for (const document of documents) failed.add(document.goal.id)
+        return { reports, failed: ids.filter((id) => failed.has(id)) }
+      }
+      const held = { goals: this.port.goals.store.list().map((document) => document.goal), seats: this.port.seats() }
+      let first = 0
+      for (const { query, documents } of read) {
+        const detail = details[first]!
+        first += documents.length
+        let scan: ProjectScan
+        try { scan = this.#scanOf(query, detail, held) } catch { for (const document of documents) failed.add(document.goal.id); continue }
+        for (const document of documents) {
+          try { reports.push(this.#goalReport(document, query, scan)) } catch { failed.add(document.goal.id) }
+        }
+      }
+      return { reports, failed: ids.filter((id) => failed.has(id)) }
+    })
+  }
+
+  #goalReport(document: GoalDocument, query: InsightQuery, scan: ProjectScan): InsightReport {
+    const id = document.goal.id
     const receipt = document.receipt
-    const seatIds = new Set(receipt?.seats ?? this.port.seats().filter((seat) => sameCanonicalPath(seat.checkout.project, document.goal.root) && seat.board === id).map((seat) => seat.id))
-    const report = await this.#usage({ root: document.goal.root, from, to }, seatIds)
+    const seatIds = new Set(receipt?.seats ?? scan.projectSeats.filter((seat) => seat.board === id).map((seat) => seat.id))
+    const report = this.#report(query, seatIds, scan)
     return { ...report, goal: id, receipt: receipt?.id ?? null, goals: [document.goal], seats: report.seats,
       gaps: receipt ? report.gaps : [...report.gaps, 'This Goal is not wrapped; its history is so far, not a receipt.'] }
   }
