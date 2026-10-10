@@ -275,7 +275,10 @@ card of its content or a row in Details, never a strip of its own.
 narrower than 180px, the bar first drops the state chip and the words of any
 verb that has an icon (the icon stays, the words become its title), then
 folds its tabs into one button naming the current tab, whose menu lists them
-all. A verb without an icon keeps its words.
+all. A verb without an icon keeps its words through those two steps. If the
+title would still be narrower than 180px, a third and last step moves that
+worded verb into the first item of ⋯ with the same words and action, followed
+by a separator; it returns to the bar as soon as there is room (controller, 2026-10-10).
 
 **One switcher.** Page tabs and list filters are one component at one size.
 

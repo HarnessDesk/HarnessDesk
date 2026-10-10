@@ -29,6 +29,39 @@ const resolvedPx = (page: Page, token: string) => page.evaluate((name) => {
   return px
 }, token)
 
+for (const theme of WALL_THEMES) for (const filter of ['All', 'Open', 'Blocking']) {
+  test(`B11 native-width lead folds the Findings ${filter} verb last in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=team', theme, 720)
+    await applyFrameActions(page, { tab: 'findings', viewChoice: filter })
+    const bar = page.locator('[data-slot="top-bar"]:visible').first()
+    const verb = bar.locator('[data-topbar="verb"] button')
+    await expect(verb).toHaveText('Decide this run')
+    const refusal = await verb.getAttribute('title')
+    const fixed = bar.locator('[data-topbar="view"] button, [data-work-tool], [data-topbar="more"] button')
+    const positions = await fixed.evaluateAll(nodes => nodes.map(node => ({ x: node.getBoundingClientRect().x, width: node.getBoundingClientRect().width })))
+    // Match the measured native traffic-light reserve, without changing app
+    // tokens or the browser preview's ordinary corner policy.
+    await bar.evaluate(node => { node.closest('header')!.style.paddingLeft = '78px' })
+    await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+    await expect(bar).toHaveAttribute('data-fold', '3')
+    expect((await bar.locator('[data-topbar-title]').boundingBox())!.x).toBe(112)
+    await expect(bar.locator('[data-topbar="lead"] button')).toHaveCount(1)
+    await expect(verb).toHaveCount(0)
+    await expect(bar.locator('[data-work-tool]')).toHaveCount(4)
+    expect(await fixed.evaluateAll(nodes => nodes.map(node => ({ x: node.getBoundingClientRect().x, width: node.getBoundingClientRect().width })))).toEqual(positions)
+    await bar.getByRole('button', { name: 'More', exact: true }).click()
+    const first = page.getByRole('menu').getByRole('menuitem').first()
+    await expect(first.getByText('Decide this run', { exact: true })).toBeVisible()
+    await expect(first).toHaveAttribute('aria-disabled', 'true')
+    expect(await first.evaluate(node => node.nextElementSibling?.getAttribute('role'))).toBe('separator')
+    expect(await first.evaluate(node => document.getElementById(node.getAttribute('aria-describedby')!)?.textContent)).toBe(refusal)
+    await page.keyboard.press('Escape')
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect(verb).toHaveText('Decide this run')
+    await expect(bar.getByRole('button', { name: 'Destination views', exact: true })).toHaveCount(0)
+  })
+}
+
 for (const theme of WALL_THEMES) for (const destination of ['settings', 'agents', 'teams', 'dashboard']) {
   test(`B10 ${destination} has one shell bar and a modal footer in ${theme}`, async ({ page }) => {
     await openFrame(page, `frame-wall=${destination}`, theme, 720)
