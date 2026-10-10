@@ -1337,7 +1337,7 @@ test('two sibling cards whose paths overlap are never both claimed', async (t) =
   const intents = [...state.intents, sibling(5, ['src/**'], 'first'), sibling(6, ['src/app.ts'], null)]
   assert.equal(
     rig.team.refuseOverlap(run.goal, intents, 6, 'alpha', 'second'),
-    'the files of card #6 overlap a live claim — src/** is held by #5 (a conversation that is not running). Two cards whose paths overlap are never worked at once.',
+    'the files of card #6 overlap a live claim — src/** is held by #5 (a conversation that is not running). Two cards whose paths overlap in one checkout are never worked at once.',
   )
   assert.equal(rig.team.refuseOverlap(run.goal, intents, 6, 'alpha', 'first'), null, 'its own claim is not a conflict')
 })

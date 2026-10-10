@@ -414,10 +414,12 @@ An agent claims work using `claim_work(intent, files?)` or
 `claim_next(files?)`:
 - **Atomic check**: claims are refused if another agent claimed the intent
   first, if dependencies are unfinished, or if the declared file paths overlap
-  an active claim.
+  an active claim in the same checkout.
 - **File ownership**: `files` passed to `claim_work` are merged with the
   intent's declared paths. This union forms an exclusive lock, preventing
-  another agent from claiming overlapping files without using a worktree. Paths
+  another agent in that checkout from claiming overlapping files. Separate
+  isolated checkouts may claim the same relative paths. Older claims with no
+  recorded checkout still contend with every checkout. Paths
   are often unknown when an intent is created; allowing claims to declare files
   enables agents to register paths discovered during inspection. A claim
   owning no files states so in its return message.
