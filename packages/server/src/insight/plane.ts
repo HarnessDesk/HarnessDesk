@@ -141,10 +141,13 @@ export class InsightPlane implements InsightReadApi {
   }
 
   async #scan(query: InsightQuery): Promise<ProjectScan> {
-    const detail = await this.port.ledger().readInsight(query, { refresh: true })
+    return this.#scanOf(query, await this.port.ledger().readInsight(query, { refresh: true }))
+  }
+
+  #scanOf(query: InsightQuery, detail: UsageDetail, held?: { readonly goals: readonly Goal[]; readonly seats: readonly SeatRecord[] }): ProjectScan {
     if (detail.samples.length === 0 && detail.gaps.length === 0) return { detail, projectGoals: [], projectSeats: [], seatOf: () => null }
-    const projectGoals = this.port.goals.store.list().map((document) => document.goal).filter((goal) => sameCanonicalPath(goal.root, query.root))
-    const projectSeats = this.port.seats().filter((seat) => sameCanonicalPath(seat.checkout.project, query.root))
+    const projectGoals = (held?.goals ?? this.port.goals.store.list().map((document) => document.goal)).filter((goal) => sameCanonicalPath(goal.root, query.root))
+    const projectSeats = (held?.seats ?? this.port.seats()).filter((seat) => sameCanonicalPath(seat.checkout.project, query.root))
     const windows = projectSeats.map(seatWindowOf)
     // A sample's one Seat among the project's is also its one Seat among any
     // subset holding it: `seatFor` matches runtime, session, folder and window
@@ -229,9 +232,11 @@ export class InsightPlane implements InsightReadApi {
   }
 
   /**
-   * Many Teams' usage, reading each project's ledger once rather than once
-   * per Team. A Team that cannot be read is named in `failed`; it is never a
-   * zero, and it does not take the others down with it.
+   * Many Teams' usage from one ledger read: every project's share of the
+   * usage sources comes from a single pass over them, rather than one pass
+   * per Team or per project. A Team that cannot be read is named in
+   * `failed`, never a zero, and does not take the others down; a ledger
+   * read that fails names every Team it was for.
    */
   async goals(ids: readonly string[]): Promise<InsightGoalsReport> {
     const to = this.#now(); const from = Math.max(0, to - 90 * DAY)
@@ -249,13 +254,22 @@ export class InsightPlane implements InsightReadApi {
         } catch { failed.add(id) }
       }
       const reports: InsightReport[] = []
-      for (const { query, documents } of projects.values()) {
+      const read = [...projects.values()]
+      let details: readonly UsageDetail[] = []
+      try {
+        if (read.length) details = await this.port.ledger().readInsights(read.map((project) => project.query), { refresh: true })
+      } catch {
+        for (const { documents } of read) for (const document of documents) failed.add(document.goal.id)
+        return { reports, failed: ids.filter((id) => failed.has(id)) }
+      }
+      const held = { goals: this.port.goals.store.list().map((document) => document.goal), seats: this.port.seats() }
+      read.forEach(({ query, documents }, index) => {
         let scan: ProjectScan
-        try { scan = await this.#scan(query) } catch { for (const document of documents) failed.add(document.goal.id); continue }
+        try { scan = this.#scanOf(query, details[index]!, held) } catch { for (const document of documents) failed.add(document.goal.id); return }
         for (const document of documents) {
           try { reports.push(this.#goalReport(document, query, scan)) } catch { failed.add(document.goal.id) }
         }
-      }
+      })
       return { reports, failed: ids.filter((id) => failed.has(id)) }
     })
   }

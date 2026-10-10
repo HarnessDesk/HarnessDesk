@@ -470,8 +470,10 @@ new revision. Known waits order the page; an absent state timestamp remains
 unknown rather than borrowing the Run's age.
 
 The page reads what its open tab shows, and no more. Usage is asked for the
-rows on screen, in one `insight/goals` request that reads each project's
-ledger once and attributes it per Team, and lands in one update. A Run and its
+rows on screen, in one `insight/goals` request that reads the usage sources
+once for every project in it and attributes them per Team, and lands in one
+update. Once per project was not enough: on a desk where each Team has a
+clone of its own, every Team is its own project. A Run and its
 review are read for every Team that is not wrapped, because either can move a
 Team into Needs you and the counts would otherwise be wrong. A wrapped Team's
 Run is read once its row is shown, for its faces, and its review never:

@@ -37,22 +37,23 @@ const samples = [
   ...Array.from({ length: 10 }, (_, index) => sample('/other', 'seat-c', 100)),
 ]
 const without = ({ id: _id, ...report }: InsightReport) => report
+const detailOf = (root: string) => ({ samples: samples.filter((one) => one.project === root), sources: [source], gaps: [], complete: true })
 
-test('many Teams on one project share one ledger read and one attribution, and each keeps its own report', async () => {
+test('many Teams share one ledger read and one attribution per project, and each keeps its own report', async () => {
   const windows = { built: 0 }
   const seat = counted(windows)
   const seats = [seat('seat-a', 'goal-a', '/repo'), seat('seat-b', 'goal-b', '/repo'), seat('seat-c', 'goal-c', '/other')]
-  const reads: string[] = []
+  const reads: string[][] = []
   const plane = new InsightPlane({
-    ledger: () => ({ readInsight: async (query: InsightQuery) => {
-      reads.push(query.root)
-      return { samples: samples.filter((one) => one.project === query.root), sources: [source], gaps: [], complete: true }
-    } }) as never,
+    ledger: () => ({
+      readInsight: async (query: InsightQuery) => { reads.push([query.root]); return detailOf(query.root) },
+      readInsights: async (queries: readonly InsightQuery[]) => { reads.push(queries.map((query) => query.root)); return queries.map((query) => detailOf(query.root)) },
+    }) as never,
     goals: goals as never, seats: () => seats as never, seating: {} as never, now: () => 90 * 86_400_000 + 20,
   })
 
   const batch = await plane.goals(['goal-a', 'goal-b', 'goal-c', 'missing'])
-  assert.deepEqual(reads.sort(), ['/other', '/repo'], 'one read per project, not one per Team')
+  assert.deepEqual(reads, [['/repo', '/other']], 'one ledger read for every project, not one per project or per Team')
   assert.equal(windows.built, 3, 'each Seat window is built once per read, not once per sample')
   assert.deepEqual(batch.failed, ['missing'])
   assert.deepEqual(batch.reports.map((report) => report.goal).sort(), ['goal-a', 'goal-b', 'goal-c'])
@@ -65,18 +66,17 @@ test('many Teams on one project share one ledger read and one attribution, and e
   assert.equal(reads.length, 3)
 })
 
-test('a project whose ledger cannot be read fails only its own Teams', async () => {
+test('a ledger read that fails names every Team it was for, never a zero, and an unknown Team fails alone', async () => {
   const seat = counted({ built: 0 })
   const plane = new InsightPlane({
-    ledger: () => ({ readInsight: async (query: InsightQuery) => {
-      if (query.root === '/other') throw new Error('Recorded usage could not be read.')
-      return { samples: samples.filter((one) => one.project === query.root), sources: [source], gaps: [], complete: true }
-    } }) as never,
+    ledger: () => ({ readInsights: async () => { throw new Error('Recorded usage could not be read.') } }) as never,
     goals: goals as never, seats: () => [seat('seat-a', 'goal-a', '/repo'), seat('seat-c', 'goal-c', '/other')] as never, seating: {} as never, now: () => 20,
   })
-  const batch = await plane.goals(['goal-c', 'goal-a'])
-  assert.deepEqual(batch.failed, ['goal-c'])
-  assert.deepEqual(batch.reports.map((report) => report.goal), ['goal-a'])
+  const batch = await plane.goals(['goal-c', 'missing', 'goal-a'])
+  assert.deepEqual(batch.failed, ['goal-c', 'missing', 'goal-a'])
+  assert.deepEqual(batch.reports, [])
+  const alone = await plane.goals(['missing'])
+  assert.deepEqual(alone, { reports: [], failed: ['missing'] }, 'nothing to read is not a read')
 })
 
 test('one read resolves each folder once, the ledger’s own comparisons included', async (t) => {
@@ -88,8 +88,8 @@ test('one read resolves each folder once, the ledger’s own comparisons include
   const elsewhere = Array.from({ length: 200 }, (_, index) => sample(index % 2 ? '/repo/./' : '/unrelated', 'seat-a', 1))
   const seat = counted({ built: 0 })
   const plane = new InsightPlane({
-    ledger: () => ({ readInsight: async (query: InsightQuery) =>
-      ({ samples: elsewhere.filter((one) => sameCanonicalPath(one.project!, query.root)), sources: [source], gaps: [], complete: true }) }) as never,
+    ledger: () => ({ readInsights: async (queries: readonly InsightQuery[]) => queries.map((query) =>
+      ({ samples: elsewhere.filter((one) => sameCanonicalPath(one.project!, query.root)), sources: [source], gaps: [], complete: true })) }) as never,
     goals: goals as never, seats: () => [seat('seat-a', 'goal-a', '/repo')] as never, seating: {} as never, now: () => 20,
   })
   const batch = await plane.goals(['goal-a', 'goal-b'])

@@ -243,3 +243,32 @@ test('a read resolves each folder once, however many samples name it', async (t)
   assert.equal(detail.samples.length, 1)
   assert.ok(resolved <= 10, `${resolved} folder resolutions for 201 samples`)
 })
+
+test('roots read together share one pass over the usage sources, and each reads as it does alone', async (t) => {
+  const { ledger, path, corpus } = await fixture(); t.after(() => ledger.close())
+  const other = `${JSON.stringify({ type: 'session_meta', payload: { id: 'session-2', cwd: '/work/other' } })}\n`
+  await writeFile(`${path}.other.jsonl`, other + event(1) + event(2))
+  const listed: string[] = []
+  const readdir = fs.promises.readdir
+  t.mock.method(fs.promises, 'readdir', ((target: fs.PathLike, ...rest: unknown[]) => {
+    if (String(target).startsWith(corpus)) listed.push(String(target))
+    return (readdir as (...args: unknown[]) => unknown)(target, ...rest)
+  }) as typeof readdir)
+  const queries = [query, { ...query, root: '/work/other' }, { ...query, root: '/work/nothing-here' }]
+  const shape = (detail: Awaited<ReturnType<Ledger['readInsight']>>) =>
+    ({ samples: detail.samples.map((sample) => [sample.key, sample.project, sample.input.value]), gaps: detail.gaps, complete: detail.complete })
+
+  const alone = []
+  for (const one of queries) alone.push(shape(await ledger.readInsight(one)))
+  const onePass = listed.length / queries.length
+  assert.ok(onePass >= 1, 'a read lists the usage sources')
+  listed.length = 0
+  const together = (await ledger.readInsights(queries)).map(shape)
+  assert.deepEqual(together, alone)
+  assert.deepEqual(together.map((detail) => detail.samples.length), [1, 2, 0])
+  assert.equal(listed.length, onePass, 'three roots over one range list the sources once')
+
+  listed.length = 0
+  await ledger.readInsights([query, { ...query, from: query.from + 1 }])
+  assert.equal(listed.length, 2 * onePass, 'a different range is a pass of its own')
+})
