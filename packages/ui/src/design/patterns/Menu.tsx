@@ -304,7 +304,7 @@ export const MenuItem = ({
       hintId={reason ? reasonId : hintId}
       badge={typeof badge === 'string' ? <Chip size="sm" tone="neutral">{badge}</Chip> : badge}
       meter={meter}
-      trailing={trailing ?? <>{value}{shortcut}{selected !== undefined && <span aria-hidden="true">{selected && <CheckIcon size={16} />}</span>}</>}
+      trailing={trailing ?? <>{value}{shortcut}{selected !== undefined && <span aria-hidden="true" className="inline-flex">{selected && <CheckIcon size={16} />}</span>}</>}
       disabled={Boolean(disabled)}
       title={reason ?? title}
       closeOnClick={!keepOpen}

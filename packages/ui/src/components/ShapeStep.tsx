@@ -1,8 +1,10 @@
+import { useState } from 'react'
+
 import type { AgentEntry, FlowPolicyRole, FlowSeat, RuntimeInfo } from '@harnessdesk/protocol'
 
 import {
   BoardMenuButton, Button, Card, Checkbox, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
-  DropdownMenuTrigger, Field, FormStack, Input, NativeSelect, Note, Row, Rows, SectionHead, Textarea,
+  DropdownMenuTrigger, Field, FormStack, Input, MenuNote, MenuSearch, NativeSelect, Note, Row, Rows, SectionHead, Textarea,
 } from '../design'
 import { agentName, ceilingWords } from '../lib/agents'
 import {
@@ -35,6 +37,8 @@ export interface ShapeStepProps {
 }
 
 export const ShapeStep = ({ role, agents, runtimes, onChange }: ShapeStepProps) => {
+  const [seatQuery, setSeatQuery] = useState('')
+  const shownSeats = runtimes.filter(one => one.presentation.name.toLocaleLowerCase().includes(seatQuery.trim().toLocaleLowerCase()))
   const setId = (id: string): void => onChange({ ...role, id })
   const setKind = (kind: FlowPolicyRole['kind']): void => {
     if (kind === role.kind) return
@@ -103,11 +107,9 @@ export const ShapeStep = ({ role, agents, runtimes, onChange }: ShapeStepProps) 
                     <DropdownMenu>
                       <DropdownMenuTrigger render={<Button size="sm" variant="outline" aria-label="Add a seat"><PlusIcon size={14} />Add a seat</Button>} />
                       <DropdownMenuContent align="end">
-                        {runtimes.map((one) => (
-                          <DropdownMenuItem key={one.id} onClick={() => onChange({ ...role, seats: [...role.seats, { runtime: one.id }] })}>
-                            {one.presentation.name}
-                          </DropdownMenuItem>
-                        ))}
+                        {runtimes.length >= 6 && <MenuSearch label="Search Agents" value={seatQuery} onChange={setSeatQuery} autoFocus />}
+                        {shownSeats.map(one => <DropdownMenuItem key={one.id} label={one.presentation.name} onClick={() => onChange({ ...role, seats: [...role.seats, { runtime: one.id }] })} />)}
+                        {shownSeats.length === 0 && <MenuNote>No Agents match.</MenuNote>}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   }

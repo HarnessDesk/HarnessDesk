@@ -1366,3 +1366,27 @@ for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
     await expect(page.getByRole('alertdialog')).toBeHidden()
   })
 }
+
+
+for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
+  test(`C5 branch search and entry at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme, width)
+    await openWallDestination(page, { git: true, branch: true })
+    const flyout = page.locator('[data-slot="dropdown-menu-sub-content"]:visible').last()
+    await expectMenuGeometry(flyout)
+    const input = flyout.locator('[data-menu-search] input')
+    await expect(input).toBeFocused()
+    expect((await input.boundingBox())!.height).toBe(FRAME_MENU.searchHeight)
+    await input.fill('发布')
+    await expect(flyout.locator('[data-menu-row][role="menuitemradio"]')).toHaveCount(1)
+    await expect(flyout.locator('[data-menu-label]').filter({ hasText: 'feature/发布前检查' })).toHaveCount(1)
+    await input.fill('missing')
+    await expect(flyout.locator('[data-menu-note]')).toContainText(['No branch matches.', 'Checking out a branch keeps the existing folder.'])
+    await page.getByRole('menuitem', { name: 'Create and checkout new branch…', exact: true }).click()
+    await expect(page.getByRole('dialog', { name: 'Create and checkout new branch' })).toBeVisible()
+    await expect(page.locator('[data-popup-kind]:visible')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Keep current branch', exact: true }).click()
+    await expect(page.getByRole('dialog')).toBeHidden()
+  })
+
+}

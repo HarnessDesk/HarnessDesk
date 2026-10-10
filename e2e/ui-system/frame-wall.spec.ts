@@ -61,6 +61,7 @@ for (const destination of WALL_DESTINATIONS) {
         }
         await applyLeftColumnActions(page, destination)
         await applySettingsNavigationActions(page, destination)
+        if ('git' in destination) await openWallDestination(page, destination)
         if ('account' in destination) await openWallDestination(page, destination)
         if ('undo' in destination) await openWallDestination(page, destination)
         if ('composerAdd' in destination) await openWallDestination(page, destination)

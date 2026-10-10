@@ -461,3 +461,30 @@ it('no second default button sits beside Save, and the seating copy names no loc
   // shows up as a character.
   expect(document.body.textContent).not.toContain('*')
 })
+
+
+it('filters the six-seat preference menu without dropping existing model or effort', async () => {
+  const runtimes = Array.from({ length: 6 }, (_, at) => ({
+    id: `agent-${at}`, presentation: { name: at === 5 ? '发布前检查' : `Agent ${at}` },
+  })) as unknown as readonly RuntimeInfo[]
+  const initial = [{ runtime: 'agent-0', model: 'review-model', effort: 'high' }]
+  const snapshot = { ...emptySnapshot(), runtimes } as AppSnapshot
+  const store = preferStoreFor({ getSnapshot: () => snapshot })
+  act(() => root.render(<StoreProvider store={store}><PreferFieldDialog entry={ENTRY} target={AGENT_TARGET}
+    digest="digest-1" initial={initial} onOpenFile={() => {}} onClose={() => {}} onSaved={() => {}} /></StoreProvider>))
+  await settle()
+  act(() => dialogButton('Add a seat').click())
+  await settle()
+  const input = document.querySelector<HTMLInputElement>('input[aria-label="Search Agents"]')!
+  expect(input).not.toBeNull()
+  const filter = (value: string) => act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  filter('missing')
+  expect(document.body.textContent).toContain('No Agents match.')
+  filter('发布')
+  act(() => menuItem('发布前检查').click())
+  await settle()
+  expect(store.previewAgentEdit).toHaveBeenLastCalledWith(AGENT_TARGET, 'digest-1', { key: 'prefer', value: [...initial, { runtime: 'agent-5' }] })
+})

@@ -99,6 +99,7 @@ const frameEquivalentRunStore = () => {
 
 const popupContent = (store: AppStore): AppStore => {
   const snapshot = store.getSnapshot()
+  store.listBranches = async () => ['main', 'feature/storefront-checkout-diagnostics-and-retry-policy', 'feature/catalogue', 'release/next', 'fix/search', 'feature/发布前检查'].map((name, at) => ({ name, current: at === 0, committedAt: Date.now() - (at + 1) * 60_000 }))
   if (new URLSearchParams(location.search).get('popup') === 'other-agents') {
     const missing = snapshot.runtimes.at(-1)!.id
     Object.assign(snapshot, { usage: snapshot.usage.filter(report => report.runtime !== missing) })

@@ -10,7 +10,7 @@ import { ModelControl } from './ComposerControls'
 
 /**
  * The model picker draws with the system's parts, never its own: the trigger's
- * words are text roles, the long list's filter is the shared `Search`, and
+ * words are text roles, the long list's filter is the shared `MenuSearch`, and
  * the build's foot is a note in a text role with the command in the code face.
  */
 
@@ -65,13 +65,13 @@ const frame = () => act(async () => {
   await new Promise((resolve) => setTimeout(resolve, 30))
 })
 
-const mount = async () => {
+const mount = async (draftOptions = options) => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
     runtimes: [codex],
     activeRuntime: codex.id,
-    draftOptions: options,
+    draftOptions,
   }
   const store = {
     subscribe: () => () => {},
@@ -109,7 +109,7 @@ it('names the model in the row role and its effort in the muted ink', async () =
   expect(effort?.getAttribute('data-ink')).toBe('muted')
 })
 
-it('filters the long tail with the shared Search, and a letter typed there is the field’s', async () => {
+it('filters the long tail with the shared MenuSearch, and a letter typed there is the field’s', async () => {
   const store = await mount()
   await open()
   const more = row('More models')
@@ -119,7 +119,7 @@ it('filters the long tail with the shared Search, and a letter typed there is th
   await frame()
 
   const search = document.querySelector<HTMLElement>('[data-slot="search"]')
-  expect(search?.getAttribute('data-icon')).toBe('filter')
+  expect(search?.closest('[data-menu-search]')).not.toBeNull()
   expect(search?.getAttribute('data-size')).toBe('compact')
   const field = search!.querySelector('input')!
 
@@ -193,4 +193,22 @@ it('sets the update in a text role and its command in the shared command block',
   expect(command?.hasAttribute('data-wrap')).toBe(true)
   // The build line is the note's own ink: nothing inside it redraws it.
   expect(document.querySelector('[data-testid="runtime-build"] span')).toBeNull()
+})
+
+
+it.each([5, 6])('shows search at six tail choices and Enter skips a refused first match (%s)', async count => {
+  const choices = NAMES.slice(0, count + 4).map((label, at) => ({
+    label, value: label.toLowerCase(), ...(at === 4 ? { disabled: 'Unavailable here.' } : {}),
+  }))
+  const store = await mount([{ ...options[0], choices } as ConfigOption, options[1]!])
+  await open()
+  const more = row('More models')
+  act(() => more.focus())
+  act(() => more.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })))
+  await frame()
+  const field = document.querySelector<HTMLInputElement>('[data-menu-search] input')
+  if (count === 5) { expect(field).toBeNull(); return }
+  expect(field).not.toBeNull()
+  act(() => field!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+  expect(store.setOption).toHaveBeenCalledWith('model', 'rigel')
 })

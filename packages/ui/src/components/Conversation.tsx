@@ -68,6 +68,7 @@ import { STATUS_LABEL, paneStatus, type PaneStatus } from '../lib/pane-status'
 import { splitTurn } from '../lib/turn-view'
 import { ItemView } from './Items'
 import { BranchSwitcher } from './BranchSwitcher'
+import { BranchCreateDialog } from './BranchCreateDialog'
 import { TurnFiles } from './TurnFiles'
 import { TurnWork } from './TurnWork'
 import { GoalBar, JobsBar } from './SessionBars'
@@ -351,6 +352,7 @@ export const Conversation = ({
     : undefined
   const [removingWorktree, setRemovingWorktree] = useState(false)
   const [bringingHome, setBringingHome] = useState(false)
+  const [creatingBranchRoot, setCreatingBranchRoot] = useState<string | null>(null)
   const loading = key ? snapshot.loadingSessions.has(key) : false
   /* Keyed on the folder rather than on this conversation: the fact belongs to
      the folder, and every conversation that ran in it is in the same state. */
@@ -483,13 +485,13 @@ export const Conversation = ({
     corner: sidebarPlacement(snapshot) !== 'column',
   }, header && pane !== null)
   useWorkDetails(pane?.paneId ?? '', <ConversationDetails session={session}
-    placeAction={<GitControl onRemoveWorktree={() => setRemovingWorktree(true)} onBringHome={() => setBringingHome(true)} />} />,
+    placeAction={<GitControl onCreateBranch={setCreatingBranchRoot} onRemoveWorktree={() => setRemovingWorktree(true)} onBringHome={() => setBringingHome(true)} />} />,
     header && pane !== null)
 
   return (
     <div className={styles.conversation} ref={conversationRoot}>
       {(header || teamMenuOwner) && session && <ConversationMenu owner={teamMenuOwner} folderActions={teamMenuOwner
-        ? close => pane && <PaneProvider scope={pane}><GitControl menu menuClose={close} onRemoveWorktree={() => setRemovingWorktree(true)} onBringHome={() => setBringingHome(true)} /></PaneProvider> : undefined} />}
+        ? close => pane && <PaneProvider scope={pane}><GitControl menu menuClose={close} onCreateBranch={setCreatingBranchRoot} onRemoveWorktree={() => setRemovingWorktree(true)} onBringHome={() => setBringingHome(true)} /></PaneProvider> : undefined} />}
 
       <div className={styles.body}>
         {/* Beside the transcript, not in it: the rail is a picture of the
@@ -631,6 +633,7 @@ export const Conversation = ({
         <RemoveWorktree worktree={worktree} onClose={() => setRemovingWorktree(false)} />
       )}
       {bringingHome && worktree && <BringHome worktree={worktree} onClose={() => setBringingHome(false)} />}
+      {creatingBranchRoot && <BranchCreateDialog root={creatingBranchRoot} onDone={() => {}} onClose={() => setCreatingBranchRoot(null)} />}
     </div>
   )
 }
@@ -652,10 +655,11 @@ export const GitControl = ({
   onBringHome,
   menu = false,
   menuClose,
+  onCreateBranch,
 }: {
   onRemoveWorktree: () => void
   onBringHome: () => void
-} & ({ menu: true; menuClose: () => void } | { menu?: false; menuClose?: never })) => {
+} & ({ menu: true; menuClose: () => void; onCreateBranch: (root: string) => void } | { menu?: false; menuClose?: never; onCreateBranch?: (root: string) => void })) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const session = useActiveSession()
@@ -665,6 +669,7 @@ export const GitControl = ({
   const pane = usePane()
   const record = isRecordConversation(snapshot.goals.values(), key)
   const runtime = useRuntime()
+  const [creatingBranch, setCreatingBranch] = useState(false)
   // A draft pointed at a worktree will start there, and one armed with a new
   // worktree will start in the one it cuts — so that is where this says it
   // works: this chip and the composer's Work in control must never name two
@@ -759,8 +764,8 @@ export const GitControl = ({
                     hangs its list off the branch rather than repeating it as a
                     heading over a second list of the same names. */}
                 {branch ? (
-                  <Submenu icon={<BranchIcon size={16} />} label={branch} width={340}>
-                    <BranchSwitcher root={cwd} onDone={close} />
+                  <Submenu icon={<BranchIcon size={16} />} label={<span data-git-branch-row="">{branch}</span>} width={340} icons="all">
+                    <BranchSwitcher root={cwd} onDone={close} onCreate={() => onCreateBranch ? onCreateBranch(cwd) : setCreatingBranch(true)} />
                   </Submenu>
                 ) : (
                   <MenuItem icon={<BranchIcon size={16} />} label="Not a git branch" disabled={cwd} onSelect={() => {}} />
@@ -810,10 +815,13 @@ export const GitControl = ({
               />
             )}
           </>
-  return menu ? <Submenu label="Folder actions" icon={<FolderIcon />}>{menuBody(menuClose!)}</Submenu>
-    : <Popover title="Folder actions" align="right" label={<MoreIcon />} triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}>
+  return menu ? <Submenu label="Folder actions" icon={<FolderIcon size={16} />} icons="all">{menuBody(menuClose!)}</Submenu>
+    : <>
+    <Popover title="Folder actions" icons="all" align="right" label={<MoreIcon />} triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}>
       {close => <Menu close={close}>{menuBody(close)}</Menu>}
     </Popover>
+    {creatingBranch && <BranchCreateDialog root={cwd} onDone={() => {}} onClose={() => setCreatingBranch(false)} />}
+    </>
 }
 
 const titleOf = (session: Session | null): string => {

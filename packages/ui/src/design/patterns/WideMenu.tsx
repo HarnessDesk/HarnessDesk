@@ -1,4 +1,4 @@
-import type { KeyboardEventHandler, ReactNode } from 'react'
+import { useEffect, useRef, type KeyboardEventHandler, type ReactNode } from 'react'
 import { Menu, MenuItem, MenuLabel, MenuSeparator } from './Menu'
 import { Search } from './Settings'
 import { UsageMeterRow } from './UsageMeterRow'
@@ -36,12 +36,21 @@ export interface MenuSearchProps {
   readonly autoFocus?: boolean
   readonly onKeyDown?: KeyboardEventHandler<HTMLInputElement>
 }
-export const MenuSearch = ({ label, value, onChange, autoFocus = false, onKeyDown }: MenuSearchProps) => <div data-menu-search="">
+export const MenuSearch = ({ label, value, onChange, autoFocus = false, onKeyDown }: MenuSearchProps) => {
+  const host = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!autoFocus) return
+    // Menu registers and focuses its rows after the input mounts.
+    const frame = requestAnimationFrame(() => host.current?.querySelector<HTMLInputElement>('input')?.focus({ preventScroll: true }))
+    return () => cancelAnimationFrame(frame)
+  }, [autoFocus])
+  return <div ref={host} data-menu-search="">
   <Search size="compact" label={label} placeholder={label} value={value} onChange={onChange} autoFocus={autoFocus} onKeyDown={event => {
     if (event.key.length === 1 || ['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) event.stopPropagation()
     onKeyDown?.(event)
   }} />
 </div>
+}
 const reading = (data: MenuMeterData) => <UsageMeterRow popup label={data.label} barless={data.barless} name={data.name} percent={data.percent} countdown={data.countdown} countdownTitle={data.countdownTitle} tone={data.tone} note={data.note} standalone />
 export const MenuFacts = ({ rows, usageDetails = false }: { readonly rows: readonly MenuMeterData[]; readonly usageDetails?: boolean }) => <div data-menu-facts="" data-usage-details={usageDetails ? '' : undefined}>{rows.map(row => <div key={row.id} data-menu-fact="">{reading(row)}</div>)}</div>
 export const WideMenuRows = ({ items, facts = [] }: { readonly items: readonly WideMenuItem[]; readonly facts?: readonly MenuMeterData[] }) => <>
