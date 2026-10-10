@@ -2179,7 +2179,8 @@ the view's verbs at their own width and its switch (All | Open, Board |
 List). Its edge is the page's gutter on both sides, the same edge the
 window bar's title and the page's blocks start on; a Findings or Board row
 that drew its own icon and name at the dense inset sat 16px off both, and
-said "Findings" under a tab that already said it.
+said "Findings" under a tab that already said it. A table's summary uses
+`contentInset="reading-table"` to line up with its first cell's text.
 
 ## Known drift
 

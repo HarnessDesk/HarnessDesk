@@ -27,3 +27,7 @@
   align-items: center;
   gap: var(--hd-space-1-5);
 }
+
+.bar[data-content-inset='reading-table'] {
+  padding-inline-start: calc(var(--hd-page-gutter) + var(--hd-table-edge)); /* desk: 24 → 36, a table summary shares its first cell text edge */
+}

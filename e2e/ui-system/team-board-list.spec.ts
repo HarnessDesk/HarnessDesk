@@ -34,7 +34,7 @@ for (const theme of ['light', 'dark'] as const) {
       const rect = table.getBoundingClientRect()
       const pane = root.getBoundingClientRect()
       return {
-        titleEdge: root.querySelector('[data-slot=tool-pane-header] > div > span')!.getBoundingClientRect().left,
+        titleEdge: root.querySelector('[data-slot=view-bar] > div')!.getBoundingClientRect().left,
         jobEdge: root.querySelector('thead th')!.getBoundingClientRect().left + parseFloat(getComputedStyle(root.querySelector('thead th')!).paddingLeft),
         head: root.querySelector('thead')!.getBoundingClientRect().height,
         rows: [...root.querySelectorAll('tbody tr')].map(row => row.getBoundingClientRect().height),
@@ -68,7 +68,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(reveal).toHaveCSS('opacity', '0')
     await table.locator('tbody tr').first().hover({ position: { x: 10, y: 10 } })
     await expect(reveal).toHaveCSS('opacity', '1')
-    await pane.locator('[data-slot=tool-pane-header]').click({ position: { x: 150, y: 22 } })
+    await pane.locator('[data-slot=view-bar]').click({ position: { x: 150, y: 22 } })
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.HD_BOARD_LIST_FRAMES) {
       await pane.screenshot({ path: `${process.env.HD_BOARD_LIST_FRAMES}/list-${theme}.png` })
