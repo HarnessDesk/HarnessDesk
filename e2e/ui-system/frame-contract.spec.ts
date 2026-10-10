@@ -1352,3 +1352,54 @@ for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
     })
   }
 }
+
+const expectInfoGeometry = async (card: Locator) => {
+  await expect(card).toBeVisible()
+  const m = await menuMetrics(card)
+  expect(m.width).toBe(FRAME.infoCard.width)
+  expect(m.pad).toEqual(Array(4).fill(`${FRAME.infoCard.padding}px`))
+  expect(m.radius).toBe(`${FRAME.menu.radius}px`)
+  expect(m.overflow).toBe(false)
+  await expect(card.locator('button,a[href],input,select,textarea,[role="button"],[role^="menuitem"],[role="switch"]')).toHaveCount(0)
+  const edges = await card.evaluate(el => {
+    const x = el.getBoundingClientRect().left
+    return [...el.querySelectorAll<HTMLElement>('[data-info-title],[data-info-facts],[data-info-note]')].map(node => node.getBoundingClientRect().left - x)
+  })
+  for (const x of edges) expect(x).toBe(FRAME.infoCard.padding)
+  const keys = await card.locator('[data-info-facts] dt').evaluateAll(keys => keys.map(key => key.getBoundingClientRect().width))
+  for (const width of keys) expect(width).toBe(FRAME.summaryKey.infoCard)
+}
+for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
+  test(`C7 info card hover and focus at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&popup=info', theme, width)
+    const trigger = page.getByRole('button', { name: 'Storefront catalogue review', exact: true })
+    await trigger.hover()
+    const card = page.locator('[data-popup-kind="info-card"]:visible').last()
+    await expectInfoGeometry(card)
+    await page.mouse.move(0, 0)
+    await expect(card).toBeHidden()
+    await page.keyboard.press('Tab')
+    await trigger.focus()
+    await expectInfoGeometry(card)
+  })
+  test(`C7 menu cancels a pending facts card at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&popup=info-and-menu', theme, width)
+    await page.getByRole('button', { name: 'Storefront catalogue review', exact: true }).hover()
+    await page.getByRole('button', { name: 'Frame menu', exact: true }).click()
+    await expect(page.locator('[data-popup-kind="menu"]:visible')).toBeVisible()
+    await page.waitForTimeout(500)
+    await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(0)
+    await expect(page.locator('[data-popup-kind="menu"]:visible')).toBeVisible()
+    await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    const facts = page.getByRole('button', { name: 'Storefront catalogue review', exact: true })
+    await facts.focus()
+    await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(1)
+    await page.getByRole('button', { name: 'Frame menu', exact: true }).click()
+    await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(0)
+    await facts.focus()
+    await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(1)
+  })
+}

@@ -1,4 +1,4 @@
-import { Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MiddleTruncate, Popover } from '../index'
+import { Button, InfoCard, Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MiddleTruncate, Popover } from '../index'
 import { CopyIcon, FolderOpenIcon, UndoIcon } from '../../components/Icons'
 export const MenuExample = ({ icons = 'all' }: { icons?: 'all' | 'none' }) => <Popover title="Frame menu" label="Frame menu" icons={icons}>
   {close => <Menu close={close}>
@@ -24,3 +24,10 @@ export const MeteredMenuExample = () => <Popover label="Frame metered menu" titl
   { id: 'scout', label: 'Scout — storefront catalogue and checkout diagnostics', meter: { id: 'weekly', name: 'Weekly', percent: 78, countdown: '6h' }, onSelect: close },
   { id: 'reviewer', label: '发布前检查', meter: { id: 'missing', name: 'Weekly', percent: null, countdown: '', note: 'No usage reported' }, onSelect: close },
 ]} footer="Last read 2 minutes ago" />}</Popover>
+
+export const InfoCardExample = () => <InfoCard trigger={<Button variant="outline">Storefront catalogue review</Button>} title="Storefront catalogue review" rows={[
+  { id: 'agent', label: 'Agent', value: '发布前检查' },
+  { id: 'branch', label: 'Branch', value: 'feature/storefront-checkout-diagnostics-and-retry-policy', kind: 'path' },
+  { id: 'state', label: 'State', value: 'Working', note: '41 seconds into this turn' },
+  { id: 'context', label: 'Context', value: '740K left of 1M' },
+]} notes={['The next message uses the same checkout.']} />

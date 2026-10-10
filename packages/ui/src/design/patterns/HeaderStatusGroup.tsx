@@ -1,3 +1,4 @@
+import { useMenusOpen } from '../ui/popup-state'
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '../ui/hover-card'
 import { KeyValue, KeyValueRow, MiddleTruncate } from '../ui/key-value'
@@ -38,6 +39,8 @@ export const HeaderStatusGroup = ({ children, label = 'Conversation status', ope
 }) => {
   const [readings, setReadings] = useState<ReadonlyMap<string, RegisteredReading>>(() => new Map())
   const [open, setOpen] = useState(false)
+  const blockedByMenu = useMenusOpen()
+  useEffect(() => { if (blockedByMenu) setOpen(false) }, [blockedByMenu])
   const group = useRef<HTMLSpanElement>(null)
   const put = useCallback((id: string, reading: RegisteredReading) => {
     setReadings((held) => new Map(held).set(id, reading))

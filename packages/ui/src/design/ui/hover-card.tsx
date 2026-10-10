@@ -1,5 +1,7 @@
 import { PreviewCard as HoverCardPrimitive } from '@base-ui/react/preview-card'
-import type * as React from 'react'
+import * as React from 'react'
+import { useState, useEffect } from 'react'
+import { menusOpen, useMenusOpen } from './popup-state'
 
 import { cn } from '@/lib/utils'
 import { floatingMotion } from './motion'
@@ -56,22 +58,46 @@ const HOVER_CARD_SIDE_OFFSET = 8
  */
 const HOVER_CARD_COLLISION_PADDING = 0
 
-const HoverCard = ({ ...props }: React.ComponentProps<typeof HoverCardPrimitive.Root>) => (
-  <HoverCardPrimitive.Root data-slot="hover-card" {...props} />
-)
+const HoverCardIntent = React.createContext<(() => void) | undefined>(undefined)
+
+const HoverCard = ({ open: controlledOpen, defaultOpen, onOpenChange, ...props }: React.ComponentProps<typeof HoverCardPrimitive.Root>) => {
+  const blocked = useMenusOpen()
+  const [localOpen, setLocalOpen] = useState(defaultOpen ?? false)
+  const [disarmed, setDisarmed] = useState(false)
+  const disarmedRef = React.useRef(false)
+  useEffect(() => { if (blocked) { disarmedRef.current = true; setLocalOpen(false); setDisarmed(true) } }, [blocked])
+  const arm = React.useCallback(() => {
+    if (!menusOpen()) { disarmedRef.current = false; setDisarmed(false) }
+  }, [])
+  return <HoverCardIntent.Provider value={arm}><HoverCardPrimitive.Root {...props} open={!blocked && !disarmed && (controlledOpen ?? localOpen)} data-slot="hover-card"
+    onOpenChange={(next, details) => {
+      if (next && (menusOpen() || disarmedRef.current)) { details.cancel(); return }
+      onOpenChange?.(next, details)
+      if (details.isCanceled) return
+      setLocalOpen(next)
+    }} /></HoverCardIntent.Provider>
+}
+
 
 const HoverCardTrigger = ({
   delay = HOVER_CARD_OPEN_DELAY,
   closeDelay = HOVER_CARD_CLOSE_DELAY,
+  onPointerEnter,
+  onFocus,
   ...props
-}: React.ComponentProps<typeof HoverCardPrimitive.Trigger>) => (
+}: React.ComponentProps<typeof HoverCardPrimitive.Trigger>) => {
+  const arm = React.useContext(HoverCardIntent)
+  return (
   <HoverCardPrimitive.Trigger
     data-slot="hover-card-trigger"
     delay={delay}
     closeDelay={closeDelay}
+    onPointerEnter={event => { arm?.(); onPointerEnter?.(event) }}
+    onFocus={event => { arm?.(); onFocus?.(event) }}
     {...props}
   />
-)
+  )
+}
 
 /**
  * `bleed` is for a card whose body is a composed card of its own — a crest and
@@ -85,10 +111,12 @@ const HoverCardContent = ({
   side = 'right',
   sideOffset = HOVER_CARD_SIDE_OFFSET,
   bleed = false,
+  'data-popup-kind': popupKind,
   ...props
 }: React.ComponentProps<typeof HoverCardPrimitive.Popup> &
   Pick<React.ComponentProps<typeof HoverCardPrimitive.Positioner>, 'align' | 'side' | 'sideOffset'> & {
     bleed?: boolean
+    'data-popup-kind'?: 'info-card'
   }) => (
   <HoverCardPrimitive.Portal>
     <HoverCardPrimitive.Positioner
@@ -101,8 +129,9 @@ const HoverCardContent = ({
     >
       <HoverCardPrimitive.Popup
         data-slot="hover-card-content"
+        data-popup-kind={popupKind}
         {...(bleed ? { 'data-bleed': '' } : {})}
-        className={cn(
+        className={popupKind === 'info-card' ? floatingMotion : cn(
           /* `p-3`, so a card of plain facts — a sentence, a key/value list —
              is never the first thing that has to hand-roll its own inset;
              a card whose body is a composed card of its own says `bleed`. */

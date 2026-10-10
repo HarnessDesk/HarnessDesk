@@ -3104,6 +3104,7 @@ export const StatusBarBoard = () => <div data-catalog-variants={STATUSBAR_CATALO
 </div>
 
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  { id: 'info-card', title: 'Info card', about: 'Complete facts on hover and focus, without actions or menu overlap.', render: () => <PopupInfoBoard /> },
   { id: 'wide-menu', title: 'Wide menu', about: 'Search, long names, aligned usage and footer in one bounded surface.', render: () => <PopupWideBoard /> },
   { id: 'status-bar', title: 'StatusBar', about: 'Real-length content in both themes.', render: StatusBarBoard },
   { id: 'seat-list', title: 'SeatList', about: 'Real-length content in both themes.', render: SeatListBoard },
@@ -3472,8 +3473,13 @@ const MENU_ROW_CATALOG_SIZES = ['default'] as const
 const MENU_ROW_CATALOG_STATES = ['default'] as const
 const PopupMenuBoard = () => <>{MENU_ROW_CATALOG_VARIANTS.map(variant => MENU_ROW_CATALOG_SIZES.map(size => MENU_ROW_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><MenuExample /><MenuExample icons="none" /></div>)))}</>
 
-import { WideMenuExample, MeteredMenuExample } from '../catalog/popup-examples'
+import { WideMenuExample, MeteredMenuExample, InfoCardExample } from '../catalog/popup-examples'
 const WIDEMENU_CATALOG_VARIANTS = ['default'] as const
 const WIDEMENU_CATALOG_SIZES = ['default'] as const
 const WIDEMENU_CATALOG_STATES = ['default'] as const
 const PopupWideBoard = () => <>{WIDEMENU_CATALOG_VARIANTS.map(variant => WIDEMENU_CATALOG_SIZES.map(size => WIDEMENU_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><WideMenuExample /><MeteredMenuExample /></div>)))}</>
+
+const INFOCARD_CATALOG_VARIANTS = ['default'] as const
+const INFOCARD_CATALOG_SIZES = ['default'] as const
+const INFOCARD_CATALOG_STATES = ['default'] as const
+const PopupInfoBoard = () => <>{INFOCARD_CATALOG_VARIANTS.map(variant => INFOCARD_CATALOG_SIZES.map(size => INFOCARD_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><InfoCardExample /></div>)))}</>

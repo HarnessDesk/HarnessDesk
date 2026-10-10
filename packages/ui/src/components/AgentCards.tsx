@@ -1,3 +1,4 @@
+import { useMenusOpen } from '../design'
 import {
   useEffect,
   useId,
@@ -439,6 +440,8 @@ export const AgentHoverCard = ({
 }) => {
   const triggerId = useId()
   const [open, setOpen] = useState(false)
+  const blockedByMenu = useMenusOpen()
+  useEffect(() => { if (blockedByMenu) setOpen(false) }, [blockedByMenu])
   /* Where it opens — see `sideFor`. */
   const [placed, setPlaced] = useState<CardSide>(side ?? 'right')
   /* The trigger's element. Everything that measures the trigger or looks for

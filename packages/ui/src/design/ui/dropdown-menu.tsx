@@ -5,14 +5,23 @@ import { CheckIcon, BulletIcon, ChevronIcon } from '@/components/Icons'
 import { DialogFormContext } from '@/lib/dialog-form'
 import { cn } from '@/lib/utils'
 import { floatingMotion } from './motion'
+import { registerMenu } from './popup-state'
 import { MenuPresentation, MenuRowContent, menuRowAttributes, useMenuPresentation, type MenuRowData, type MenuIcons } from './menu-row'
 
 /* Vendored from shadcn/ui (dropdown-menu). Icons come from the app's
  * façade — the one place allowed to draw one — and the floating surface
  * takes the app's popover z-name rather than a bare number. */
 
-const DropdownMenu = ({ icons = 'none', wide = false, children, ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Root> & { icons?: MenuIcons; wide?: boolean }) =>
-  <MenuPresentation icons={icons} wide={wide}><DropdownMenuPrimitive.Root data-slot="dropdown-menu" {...props}>{children}</DropdownMenuPrimitive.Root></MenuPresentation>
+const DropdownMenu = ({ icons = 'none', wide = false, children, open: controlledOpen, defaultOpen, onOpenChange, ...props }: React.ComponentProps<typeof DropdownMenuPrimitive.Root> & { icons?: MenuIcons; wide?: boolean }) => {
+  const [localOpen, setLocalOpen] = React.useState(defaultOpen ?? false)
+  const effectiveOpen = controlledOpen ?? localOpen
+  const menuId = React.useRef(Symbol('menu'))
+  React.useLayoutEffect(() => effectiveOpen ? registerMenu(menuId.current) : undefined, [effectiveOpen])
+  return <MenuPresentation icons={icons} wide={wide}>
+    <DropdownMenuPrimitive.Root {...props} open={effectiveOpen} onOpenChange={(next, details) => { onOpenChange?.(next, details); if (!details.isCanceled) setLocalOpen(next) }} data-slot="dropdown-menu">{children}</DropdownMenuPrimitive.Root>
+  </MenuPresentation>
+}
+
 
 const DropdownMenuPortal = ({
   ...props

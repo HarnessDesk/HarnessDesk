@@ -242,3 +242,6 @@ export { StatusBar, type StatusFact } from './patterns/StatusBar'
 export { PageHeadingProvider, usePageHeading, type PageHeadingData } from './patterns/AppWindow/PageHeading'
 
 export { WideMenu, WideMenuRows, MenuSearch, MenuFacts, type WideMenuItem, type MenuMeterData, type MenuSearchProps } from './patterns/WideMenu'
+
+export { InfoCard, InfoCardBody, type InfoFact, type InfoNote, type InfoCardData, type InfoComposition } from './patterns/InfoCard'
+export { useMenusOpen } from './ui/popup-state'
