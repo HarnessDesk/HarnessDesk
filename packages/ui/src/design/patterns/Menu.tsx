@@ -28,7 +28,7 @@ import {
 } from '../ui/dropdown-menu'
 import { MenuRowContent, menuRowAttributes, useMenuPresentation, type MenuIcons } from '../ui/menu-row'
 import { SwitchShape } from '../ui/switch'
-import type { Tone } from '../ui/tone'
+import { inkTone, type Tone } from '../ui/tone'
 import { useDismissOverlays } from './Popover'
 import { Text, Chip } from './Settings'
 
@@ -211,7 +211,8 @@ export const Menu = ({ close, onEscape, children }: { close: () => void; onEscap
   )
 }
 
-export const MenuNote = ({ children }: { children: ReactNode }) => <div data-menu-note="">{children}</div>
+export const MenuNote = ({ children, tone }: { children: ReactNode; tone?: 'neutral' | 'info' | 'success' | 'warning' | 'danger' }) =>
+  <div data-menu-note="" data-tone={tone} className={tone && tone !== 'neutral' ? inkTone({ tone: tone === 'info' ? 'brand' : tone }) : undefined}>{children}</div>
 export const MenuLabel = ({ children, size = 'default' }: { children: ReactNode; size?: 'default' | 'compact' }) => <div data-menu-group="" data-size={size}>{children}</div>
 
 /** A stable account group whose heading shares the level's text edge. */

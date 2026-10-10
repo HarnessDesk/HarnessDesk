@@ -109,3 +109,8 @@
   color: inherit; /* desk: secondary → muted, refused icon and reason share the row's ink */
 }
 [data-menu-group][data-inset='false'] { padding: 0; }
+
+[data-menu-note][data-tone='warning'] { color: var(--hd-warning); }
+[data-menu-note][data-tone='danger'] { color: var(--hd-danger); }
+[data-menu-note][data-tone='info'] { color: var(--hd-accent); }
+[data-menu-note][data-tone='success'] { color: var(--hd-success); }

@@ -16,11 +16,30 @@ const MemberFactsProbe = () => {
 }
 const BudgetFactsProbe = () => <BudgetFooter state={triggerBudgetState()} now={1_700_000_060_000} />
 
-import { DropdownExample, MenuExample, WideMenuExample, MeteredMenuExample, InfoCardExample, SuggestionsExample, SelectExample } from '../design/catalog/popup-examples'
+import { DropdownExample, MenuExample, WideMenuExample, MeteredMenuExample, InfoCardExample, SuggestionsExample, SelectExample, InboxExample } from '../design/catalog/popup-examples'
 export const PopupWall = () => {
   const one = new URLSearchParams(location.search).get('popup')
-  if (one === 'dropdown-none' || one === 'dropdown-icons') return <div className="fixed left-(--hd-sidebar-width) top-(--hd-bar-h)"><DropdownExample icons={one === 'dropdown-icons' ? 'all' : 'none'} /></div>
-  return <div className="fixed left-(--hd-sidebar-width) top-(--hd-bar-h)">{one === 'menu-icons' ? <MenuExample /> : one === 'menu-none' ? <MenuExample icons="none" /> : one === 'wide' ? <WideMenuExample /> : one === 'metered' ? <MeteredMenuExample /> : one === 'publication-info' ? <PublicationFactsProbe /> : one === 'subject-actions' ? <SubjectActionsProbe /> : one === 'member-info' ? <MemberFactsProbe /> : one === 'budget-info' ? <BudgetFactsProbe /> : one === 'info' ? <InfoCardExample /> : one === 'info-and-menu' ? <><InfoCardExample /><MenuExample /></> : one === 'suggestions' ? <SuggestionsExample /> : one === 'select' ? <SelectExample /> : null}</div>
+  const body = (() => {
+    switch (one) {
+      case 'menu-icons': return <MenuExample />
+      case 'menu-none': return <MenuExample icons="none" />
+      case 'dropdown-icons': return <DropdownExample icons="all" />
+      case 'dropdown-none': return <DropdownExample icons="none" />
+      case 'wide': return <WideMenuExample />
+      case 'metered': return <MeteredMenuExample />
+      case 'info': return <InfoCardExample />
+      case 'info-and-menu': return <><InfoCardExample /><MenuExample /></>
+      case 'member-info': return <MemberFactsProbe />
+      case 'budget-info': return <BudgetFactsProbe />
+      case 'publication-info': return <PublicationFactsProbe />
+      case 'subject-actions': return <SubjectActionsProbe />
+      case 'suggestions': return <SuggestionsExample />
+      case 'inbox': return <InboxExample />
+      case 'select': return <SelectExample />
+      default: return null
+    }
+  })()
+  return <div className="fixed left-(--hd-sidebar-width) top-(--hd-bar-h)">{body}</div>
 }
 
 const PublicationFactsProbe = () => <Publication root="workspace/storefront" item={{ id: itemId('frame-publication'), type: 'publication', reference: {

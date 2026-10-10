@@ -1702,8 +1702,7 @@ last time; actions name their destination.
 `packages/ui/src/design/patterns/Notices.tsx`
 
 The bell and the inbox behind it. The bell carries the unread count in its
-own tint; the inbox opens beside it as a panel of its own, wide enough for
-a card to read in two lines, rather than folding into a menu.
+own tint; the wide menu keeps complete message facts and their actions.
 
 ### `showToast`
 

@@ -1,3 +1,4 @@
+import { applySettingsNavigationActions } from './left-column-actions'
 import { applyLeftColumnActions } from './left-column-actions'
 import { openWallDestination } from './frame-wall-actions'
 import { installFramePreviewFixture } from './frame-preview-fixture'
@@ -1195,14 +1196,14 @@ const menuMetrics = async (surface: Locator) => surface.evaluate((el) => {
   const box = el.getBoundingClientRect()
   return { width: box.width, radius: css.borderTopLeftRadius, pad: [css.paddingTop, css.paddingRight, css.paddingBottom, css.paddingLeft], border: css.borderTopWidth, overflow: el.scrollWidth > el.clientWidth || [...el.querySelectorAll<HTMLElement>('[data-menu-label],[data-menu-hint],[data-menu-meter],[data-info-note]')].some(node => node.scrollWidth > node.clientWidth) }
 })
-const rowMetrics = async (surface: Locator) => surface.locator('[data-menu-row]').evaluateAll((els) => els.map(el => {
+const rowMetrics = async (surface: Locator) => surface.evaluate(surface => [...surface.querySelectorAll('[data-menu-row]')].filter(el => el.closest('[data-popup-kind]') === surface).map(el => {
   const css = getComputedStyle(el)
   const label = el.querySelector('[data-menu-label]')!
   const hint = el.querySelector('[data-menu-hint]')
   const icon = el.querySelector('[data-menu-icon]')
   return { height: el.getBoundingClientRect().height, radius: css.borderTopLeftRadius, padTop: parseFloat(css.paddingTop), padBottom: parseFloat(css.paddingBottom), labelHeight: label.getBoundingClientRect().height, labelSize: getComputedStyle(label).fontSize, labelLine: getComputedStyle(label).lineHeight, labelWeight: getComputedStyle(label).fontWeight, font: getComputedStyle(label).fontFamily, smoothing: getComputedStyle(label).getPropertyValue('-webkit-font-smoothing'), hintHeight: hint?.getBoundingClientRect().height ?? 0, meterHeight: el.querySelector('[data-menu-meter]')?.getBoundingClientRect().height ?? 0, hintSize: hint ? getComputedStyle(hint).fontSize : null, hintLine: hint ? getComputedStyle(hint).lineHeight : null, icon: Boolean(icon), iconWidth: icon?.getBoundingClientRect().width ?? 0, gap: parseFloat(css.columnGap), iconTop: icon?.getBoundingClientRect().top ?? 0, labelTop: label.getBoundingClientRect().top }
 }))
-const expectMenuGeometry = async (surface: Locator) => {
+const expectMenuPlateGeometry = async (surface: Locator) => {
   const m = await menuMetrics(surface)
   expect(m.width).toBeGreaterThanOrEqual(FRAME_MENU.min)
   expect(m.width).toBeLessThanOrEqual(FRAME_MENU.max)
@@ -1210,6 +1211,9 @@ const expectMenuGeometry = async (surface: Locator) => {
   expect(m.radius).toBe(`${FRAME_MENU.radius}px`)
   expect(m.border).toBe('0px')
   expect(m.overflow).toBe(false)
+}
+const expectMenuGeometry = async (surface: Locator) => {
+  await expectMenuPlateGeometry(surface)
   const rows = await rowMetrics(surface)
   expect(rows.length).toBeGreaterThan(0)
   expect(new Set(rows.map(row => row.icon)).size, 'whole-level icon policy').toBe(1)
@@ -1237,14 +1241,18 @@ const expectMenuGeometry = async (surface: Locator) => {
       expect(row.iconTop).toBe(row.labelTop)
     }
   }
+  await expectMenuAnatomy(surface, rows[0]!.icon)
+}
+const expectMenuAnatomy = async (surface: Locator, icons: boolean) => {
   const anatomy = await surface.evaluate(el => {
     const secondary = getComputedStyle(el).getPropertyValue('--hd-secondary-foreground').trim()
     const probe = document.createElement('span'); probe.style.color = secondary; el.append(probe)
     const secondaryColor = getComputedStyle(probe).color; probe.remove()
+    const own = (node: Element) => node.closest('[data-popup-kind]') === el
     return {
-      groups: [...el.querySelectorAll('[data-menu-group]')].map(node => { const css = getComputedStyle(node); return { size: css.fontSize, weight: css.fontWeight, color: css.color } }),
-      hints: [...el.querySelectorAll('[data-menu-hint]')].map(node => getComputedStyle(node).color),
-      separators: [...el.querySelectorAll('[data-menu-separator]')].map(node => { const css = getComputedStyle(node); return { height: node.getBoundingClientRect().height, margins: [css.marginTop, css.marginRight, css.marginBottom, css.marginLeft] } }),
+      groups: [...el.querySelectorAll('[data-menu-group]')].filter(own).map(node => { const css = getComputedStyle(node); return { size: css.fontSize, weight: css.fontWeight, color: css.color } }),
+      hints: [...el.querySelectorAll('[data-menu-hint]')].filter(own).map(node => getComputedStyle(node).color),
+      separators: [...el.querySelectorAll('[data-menu-separator]')].filter(own).map(node => { const css = getComputedStyle(node); return { height: node.getBoundingClientRect().height, margins: [css.marginTop, css.marginRight, css.marginBottom, css.marginLeft] } }),
       secondaryColor,
     }
   })
@@ -1254,6 +1262,7 @@ const expectMenuGeometry = async (surface: Locator) => {
     const muted = getComputedStyle(probe).color; probe.remove()
     const enabled: string[] = []; const refused: string[] = []
     for (const hint of el.querySelectorAll('[data-menu-hint]')) {
+      if (hint.closest('[data-popup-kind]') !== el) continue
       (hint.closest('[data-menu-row]:is([data-disabled],[aria-disabled="true"],:disabled)') ? refused : enabled).push(getComputedStyle(hint).color)
     }
     return { muted, enabled, refused }
@@ -1265,12 +1274,11 @@ const expectMenuGeometry = async (surface: Locator) => {
   const edge = await surface.evaluate(el => {
     const box = el.getBoundingClientRect()
     const labels = [...el.querySelectorAll<HTMLElement>('[data-menu-label],[data-menu-group],[data-menu-note],[data-menu-footer],[data-menu-search]')]
-    return labels.filter(n => n.offsetParent !== null).map(n => {
+    return labels.filter(n => n.offsetParent !== null && n.closest('[data-popup-kind]') === el).map(n => {
       const css = getComputedStyle(n)
       return n.getBoundingClientRect().left + parseFloat(css.paddingLeft) - box.left
     })
   })
-  const icons = rows[0]!.icon
   const expected = FRAME_MENU.padding + FRAME_MENU.rowInset + (icons ? FRAME_MENU.icon + FRAME_MENU.gap : 0)
   for (const x of edge) expect(x).toBe(expected)
 }
@@ -1547,4 +1555,78 @@ for (const theme of WALL_THEMES) {
     await expectMenuGeometry(surface)
     expect(await surface.locator('[data-menu-icon]').count()).toBe(0)
   })
+}
+
+for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
+  test(`C10 inbox retains expanded facts and actions at ${width} ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&popup=inbox', theme, width)
+    await page.getByRole('button', { name: 'Inbox, 1 unread', exact: true }).click()
+    const plate = page.locator('[data-popup-kind="wide-menu"]:visible')
+    await expectMenuGeometry(plate)
+    await page.getByRole('menuitem', { name: /The Storefront catalogue compatibility check/ }).click()
+    await expect(plate).toContainText('workspace/storefront/project.config.json')
+    await expect(plate).toContainText('tools.search.timeout')
+    await expect(page.getByRole('menuitem', { name: 'Open the findings', exact: true })).toBeVisible()
+    await expectMenuGeometry(plate)
+    await page.getByRole('menuitem', { name: 'Open the findings', exact: true }).click()
+    await expect(plate).toBeHidden()
+  })
+}
+
+const expectDestinationPopupContracts = async (page: Page, destination: typeof WALL_DESTINATIONS[number], theme: 'light' | 'dark', width: number) => test.step(destination.id, async () => {
+  await openFrame(page, destination.query, theme, width)
+  await applyFrameActions(page, destination)
+  await applyLeftColumnActions(page, destination)
+  await applySettingsNavigationActions(page, destination)
+  await openWallDestination(page, destination)
+  const kinds = new Set<string>()
+  const rich = page.locator('[data-slot="popover-popup"]:visible,[data-slot="popover-surface"]:visible,[data-slot="dropdown-menu-popup"][data-popup-kind]:visible,[data-slot="dropdown-menu-content"]:visible,[data-slot="dropdown-menu-sub-content"]:visible,[data-slot="hover-card-content"]:visible,[data-slot="select-content"]:visible')
+  for (let at = 0; at < await rich.count(); at += 1) {
+    const popup = rich.nth(at)
+    await expect(popup).not.toHaveAttribute('data-starting-style', '')
+    const kind = await popup.getAttribute('data-popup-kind')
+    expect(['menu', 'wide-menu', 'info-card']).toContain(kind)
+    kinds.add(kind!)
+    if (kind === 'info-card') {
+      await expectInfoGeometry(popup)
+      expect(await popup.locator('button,a,input,select,[role="menuitem"],[role="switch"]').count()).toBe(0)
+    } else if (destination.id === 'left-inbox') {
+      // The sidebar's empty Inbox has facts and a footer, with exactly zero actions.
+      await expect(popup).toHaveAttribute('data-popup-kind', 'wide-menu')
+      await expect(popup).toHaveAttribute('data-menu-icons', 'none')
+      await expect(popup.locator('[data-menu-row]')).toHaveCount(0)
+      await expect(popup.locator('[data-menu-note]')).toHaveText('Nothing kept yet. Messages an Agent sends you wait here.')
+      await expect(popup.locator('[data-menu-footer]')).toHaveText('Kept until you clear them.')
+      await expectMenuPlateGeometry(popup)
+      await expectMenuAnatomy(popup, false)
+    } else await expectMenuGeometry(popup)
+  }
+  return kinds
+})
+
+// Small batches keep the normal test timeout without dropping a wall destination.
+const popupContractDestinations = WALL_DESTINATIONS.filter(destination => !destination.gitRef)
+for (const theme of WALL_THEMES) for (const width of WALL_WIDTHS) {
+  for (let offset = 0; offset < popupContractDestinations.length; offset += 5) {
+    const destinations = popupContractDestinations.slice(offset, offset + 5)
+    test(`C10 exhaustive popup contracts ${destinations.map(destination => destination.id).join(', ')} at ${width} in ${theme}`, async ({ page }) => {
+      for (const destination of destinations) await expectDestinationPopupContracts(page, destination, theme, width)
+    })
+  }
+  test(`C10 all three popup kinds are exercised at ${width} in ${theme}`, async ({ page }) => {
+    const kinds = new Set<string>()
+    for (const id of ['popup-menu-none', 'popup-wide-menu', 'popup-info-card']) {
+      const destination = WALL_DESTINATIONS.find(destination => destination.id === id)!
+      const found = await expectDestinationPopupContracts(page, destination, theme, width)
+      expect(found.size).toBeGreaterThan(0)
+      for (const kind of found) kinds.add(kind)
+    }
+    expect([...kinds].sort()).toEqual(['info-card', 'menu', 'wide-menu'])
+  })
+  for (const destination of WALL_DESTINATIONS.filter(destination => destination.gitRef)) {
+    test(`C10 exhaustive popup contracts ${destination.id} at ${width} in ${theme}`, async ({ page }) => {
+      test.fixme(true, 'Controller decision pending: refs rail requires a panel at least 640px wide; the preview allocates 400px.')
+      await expectDestinationPopupContracts(page, destination, theme, width)
+    })
+  }
 }

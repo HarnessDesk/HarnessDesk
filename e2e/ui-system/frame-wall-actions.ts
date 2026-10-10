@@ -40,21 +40,33 @@ export const openWallDestination = async (page: Page, destination: WallActions):
       }
       await page.locator('[data-git-ref="main"]').click({ button: 'right' })
     }
-    if (destination.createBranch) await page.getByRole('menuitem', { name: 'Create and checkout new branch…', exact: true }).click()
+    if (destination.createBranch) {
+      await page.getByRole('menuitem', { name: 'Create and checkout new branch…', exact: true }).click()
+      await expect(page.getByRole('dialog', { name: 'Create and checkout new branch', exact: true })).toBeVisible()
+      await expect(page.locator('[data-popup-kind="menu"],[data-popup-kind="wide-menu"]')).toHaveCount(0)
+    }
   }
   if (destination.account) {
     await applyLeftColumnActions(page, { leftOpen: true, leftPopup: 'account' })
     await page.locator('[role="menuitem"][data-current]').click()
     const usage = page.getByRole('menuitem', { name: /^Usage remaining/ })
     if (await usage.count()) await usage.click()
-    if (destination.signOut) await page.getByRole('menuitem', { name: /^Sign out of/ }).click()
+    if (destination.signOut) {
+      await page.getByRole('menuitem', { name: /^Sign out of/ }).click()
+      await expect(page.getByRole('alertdialog')).toBeVisible()
+      await expect(page.locator('[data-popup-kind="menu"],[data-popup-kind="wide-menu"]')).toHaveCount(0)
+    }
   }
   if (destination.plan) await page.locator(`[data-plan-popup="${destination.plan}"]`).locator('xpath=ancestor::button[1]').click()
+  if (destination.inbox) await page.getByRole('button', { name: 'Inbox, 1 unread', exact: true }).click()
+  if (destination.expandInbox) await page.getByRole('menuitem', { name: /The Storefront catalogue compatibility check/ }).click()
   if (destination.select) await page.getByRole('combobox', { name: 'Frame Select', exact: true }).click()
   if (destination.composerAdd) await page.getByRole('button', { name: 'Add', exact: true }).first().click()
   if (destination.undo) {
     await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
     await page.getByRole('menuitem', { name: /^Undo the last turn/ }).click()
+    await expect(page.getByRole('alertdialog', { name: 'Undo the last turn?', exact: true })).toBeVisible()
+    await expect(page.locator('[data-popup-kind="menu"],[data-popup-kind="wide-menu"]')).toHaveCount(0)
   }
   if (destination.popup === 'More') {
     await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
@@ -90,3 +102,5 @@ export interface WallActions { readonly git?: boolean; readonly branch?: boolean
 export interface WallActions { readonly select?: boolean }
 
 export interface WallActions { readonly composerModel?: boolean; readonly topbarPopup?: 'view' | 'tabs' }
+
+export interface WallActions { readonly inbox?: boolean; readonly expandInbox?: boolean }

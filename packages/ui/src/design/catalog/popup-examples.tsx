@@ -57,3 +57,9 @@ export const DropdownExample = ({ icons = 'none' }: { icons?: 'all' | 'none' }) 
     <DropdownMenuItem label="Delete branch…" icon={<CopyIcon size={16} />} hint="The branch is checked out in another worktree." disabled onClick={() => {}} />
   </DropdownMenuContent>
 </DropdownMenu>
+
+import { InboxPanel } from '../index'
+export const InboxExample = () => <InboxPanel now={Date.UTC(2026, 9, 9, 12)} messages={[
+  { id: 'build', title: 'The Storefront catalogue compatibility check needs your decision', body: 'The checkout was kept. Review the complete findings before running the next step.', at: Date.UTC(2026, 9, 9, 11), read: false, tone: 'warning', from: 'Scout', count: 3, file: 'workspace/storefront/project.config.json', settings: ['tools.search.timeout'], actions: [{ label: 'Open the findings', onSelect: () => {} }] },
+  { id: 'note', title: '发布前检查已完成，可以查看详细结果', at: Date.UTC(2026, 9, 9, 10), read: true },
+]} onOpen={() => {}} onMarkAllRead={() => {}} onClear={() => {}} />

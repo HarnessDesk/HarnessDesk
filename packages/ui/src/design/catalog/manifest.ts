@@ -22,6 +22,7 @@ export type CatalogEntry = {
 type ModuleSeed = readonly [name: string, exampleId: string, purpose: string]
 
 const EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  'popup-inbox': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   'subject-actions': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   'info-card': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   'wide-menu': 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -171,6 +172,7 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
     : undefined
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
+  InboxMenu: ['default'],
   SubjectActionsMenu: ['default'],
   InfoCard: ['default'],
   WideMenu: ['default'],
@@ -285,6 +287,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
+  InboxMenu: ['default'],
   SubjectActionsMenu: ['default'],
   InfoCard: ['default'],
   WideMenu: ['default'],
@@ -411,6 +414,7 @@ const SIZES: Record<string, readonly CatalogSize[]> = Object.fromEntries(
   Object.keys(VARIANTS).map((name) => [name, DEFAULT_SIZE]),
 )
 Object.assign(SIZES, {
+  InboxMenu: ['default'],
   SubjectActionsMenu: ['default'],
   InfoCard: ['default'],
   WideMenu: ['default'],
@@ -429,6 +433,7 @@ Object.assign(SIZES, {
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
+  InboxMenu: 'packages/ui/src/design/patterns/Notices.tsx',
   SubjectActionsMenu: 'packages/ui/src/components/TeamRoomPane.tsx',
   InfoCard: 'packages/ui/src/components/ContextUsage.tsx',
   WideMenu: 'packages/ui/src/components/PlanMeters.tsx',
@@ -640,6 +645,7 @@ export const CANONICAL_UI_MODULES = [
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
+  ['InboxMenu', 'popup-inbox', 'Kept messages and their actions through the wide-menu contract'],
   ['SubjectActionsMenu', 'subject-actions', 'Existing action callbacks and Messages choices outside facts'],
   ['InfoCard', 'info-card', 'Facts only on hover or focus, suppressed while any menu is open'],
   ['WideMenu', 'wide-menu', 'Search, long names, aligned usage and footer in one bounded surface'],
