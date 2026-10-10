@@ -214,23 +214,27 @@ it('opens the wide Team once through its named button',async()=>{
  expect(open).toHaveBeenCalledOnce()
 })
 
-/** The teams-page rig with some Goals edited and every read the page makes recorded. */
-const recorded=async(edit:(snapshot:ReturnType<AppStore['getSnapshot']>)=>Partial<ReturnType<AppStore['getSnapshot']>>=()=>({}))=>{
+type Snapshot=ReturnType<AppStore['getSnapshot']>
+/** The teams-page rig with some Goals edited and every read the page makes recorded; `land` changes what the store holds, as an answer does. */
+const recorded=async(edit:(snapshot:Snapshot)=>Partial<Snapshot>=()=>({}))=>{
  const {teamsPageStore}=await import('../preview/teams-page-fixture')
  const base=teamsPageStore('active')
- const snapshot={...base.getSnapshot(),...edit(base.getSnapshot())}
+ let snapshot={...base.getSnapshot(),...edit(base.getSnapshot())}
+ const listeners=new Set<()=>void>()
+ const land=(change:(snapshot:Snapshot)=>Partial<Snapshot>)=>{snapshot={...snapshot,...change(snapshot)};for(const notify of listeners)notify()}
  const answers:((report:InsightGoalsReport)=>void)[]=[]
  const insights=vi.fn((goals:readonly string[])=>new Promise<InsightGoalsReport>(resolve=>answers.push(resolve)))
- const runs=vi.fn(async(_run:string)=>{throw new Error('not read here')})
+ const runs=vi.fn(async(_runs:readonly string[])=>{})
  const findings=vi.fn(async(_goal:string,_run:string)=>{})
  const store=new Proxy(base,{get(target,key){
   if(key==='getSnapshot')return ()=>snapshot
+  if(key==='subscribe')return (notify:()=>void)=>{listeners.add(notify);return ()=>listeners.delete(notify)}
   if(key==='readGoalInsights')return insights
-  if(key==='readFlowExecution')return runs
+  if(key==='readFlowExecutions')return runs
   if(key==='loadFindingRun')return findings
   return Reflect.get(target,key)
  }}) as AppStore
- return {store,base,insights,answers,runs,findings}
+ return {store,base,insights,answers,runs,findings,land}
 }
 const tab=(label:string)=>[...container.querySelectorAll<HTMLButtonElement>('nav button')].find(one=>one.textContent?.startsWith(label))!
 
@@ -252,7 +256,7 @@ it('reads usage only for the rows the open tab shows, in one request and one upd
  expect(insights.mock.calls.at(-1)![0]).toEqual(['team-3','team-4'])
 })
 
-it('reads a wrapped Team\'s Run and review only once its row is shown',async()=>{
+it('reads a wrapped Team\'s Run once its row is shown, and never its review',async()=>{
  const {store,runs,findings}=await recorded(snapshot=>{
   const goals=new Map(snapshot.goals)
   for(const id of ['team-3','team-4']){const view=goals.get(id)!;goals.set(id,{...view,goal:{...view.goal,state:'wrapped'}})}
@@ -263,8 +267,24 @@ it('reads a wrapped Team\'s Run and review only once its row is shown',async()=>
  expect(runs).not.toHaveBeenCalled()
  expect(findings.mock.calls.map(([goal])=>goal).sort()).toEqual(['team-0','team-1','team-2'])
  await act(async()=>tab('Settled').click())
- expect(runs).toHaveBeenCalledWith('team-3-run')
- expect(findings).toHaveBeenCalledWith('team-4','team-4-run')
+ expect(runs.mock.calls).toEqual([[['team-3-run']]])
+ expect(findings.mock.calls.map(([goal])=>goal).sort()).toEqual(['team-0','team-1','team-2'])
+})
+
+it('asks for each Run and review once while the page is open, however many answers land',async()=>{
+ const missing=['team-0-run','team-1-run','team-2-run']
+ const {store,base,runs,findings,land}=await recorded(snapshot=>{
+  const flowExecutions=new Map(snapshot.flowExecutions);for(const run of missing)flowExecutions.delete(run)
+  return {flowExecutions}
+ })
+ await act(async()=>root.render(<StoreProvider store={store}><AppWindowMode.Provider value="embedded"><TeamsWindow onClose={()=>{}}/></AppWindowMode.Provider></StoreProvider>))
+ expect(runs.mock.calls).toEqual([[missing]])
+ for(const run of missing){
+  await act(async()=>land(snapshot=>({flowExecutions:new Map([...snapshot.flowExecutions,[run,base.getSnapshot().flowExecutions.get(run)!]])})))
+ }
+ await act(async()=>land(snapshot=>({findingRuns:new Map([...snapshot.findingRuns,['team-0-run',{run:'team-0-run',goal:'team-0',round:1,finished:1,total:1,embargoed:false,open:0,blocking:0,reason:null,ceilingStop:false,stamp:'read-1',publication:'local',rounds:[],reviewersFinished:null,reviewersTotal:null,pendingExceptions:[],repair:null,boundPr:null,unbound:null,undecidable:null} satisfies FindingRunView]])})))
+ expect(runs).toHaveBeenCalledOnce()
+ expect(findings.mock.calls.map(([goal,run])=>`${goal} ${run}`).sort()).toEqual(['team-0 team-0-run','team-1 team-1-run','team-2 team-2-run','team-3 team-3-run','team-4 team-4-run'])
 })
 
 it('says time in a state in hours and days, and only the time cells follow a minute clock',async()=>{

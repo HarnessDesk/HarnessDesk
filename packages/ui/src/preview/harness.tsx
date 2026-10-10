@@ -1444,6 +1444,7 @@ class PreviewStore {
     mode === 'update' ? PREVIEW_FLOW_UPDATE : PREVIEW_FLOW_CUSTOMIZE
   applyFlowUpdate = async (): Promise<FlowUpdateResult> => ({ state: 'applied', written: PREVIEW_FLOW_UPDATE.edits.map((edit) => edit.path), message: 'The flow update was applied.' })
   readFlowExecution = async (): Promise<FlowExecution> => { throw new Error('[preview] no live flow execution to read here') }
+  readFlowExecutions = async (): Promise<void> => {}
   /** `run-preview-ended` is a Run that has settled: the host refuses in its own sentence and mints no token. */
   previewFlowRetry = async (run?: string): Promise<FlowPreview> => run === 'run-preview-ended' ? {
     ...FIX_PREVIEW,

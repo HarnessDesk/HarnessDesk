@@ -4966,6 +4966,28 @@ export class AppStore {
     return execution
   }
 
+  /**
+   * Several runs a list needs, eight requests at a time like a Team's
+   * history, kept in one state update when the last lands: one patch per
+   * answer re-renders the whole list as many times. A run that cannot be
+   * read is left out; one a push brought meanwhile is kept as it is.
+   */
+  async readFlowExecutions(runs: readonly string[]): Promise<void> {
+    const ids = [...new Set(runs)]
+    const read: PromiseSettledResult<FlowExecution>[] = []
+    for (let start = 0; start < ids.length; start += 8) {
+      read.push(...await Promise.allSettled(ids.slice(start, start + 8).map(run => this.transport.request('flow/execution', { run }))))
+    }
+    const flowExecutions = new Map(this.#snapshot.flowExecutions)
+    let changed = false
+    for (const result of read) {
+      if (result.status === 'rejected' || flowExecutions.has(result.value.id)) continue
+      flowExecutions.set(result.value.id, result.value)
+      changed = true
+    }
+    if (changed) this.#patch({ flowExecutions })
+  }
+
   /** Stop one Run; the returned record also covers a stale view of a Run that already ended. */
   async stopFlowExecution(run: string, reason: string): Promise<FlowExecution> {
     try {

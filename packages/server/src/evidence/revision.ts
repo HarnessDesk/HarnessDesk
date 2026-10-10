@@ -190,12 +190,32 @@ export const canonical = async (path: string): Promise<string> => {
   }
 }
 
+/** Folders being asked about now, so callers asking at once share one answer. */
+const asking = new Map<string, Promise<string>>()
+
 /**
  * The project a folder belongs to: its repository's main checkout, or the
  * folder itself when it is in no repository. The key a store is kept under.
+ *
+ * Each read of a Team's review asks this several times, and a page reads
+ * every open Team's at once, mostly about the same few project folders: a
+ * question already being asked shares its answer rather than starting git
+ * again. A folder that is gone answers as written without asking git, which
+ * is where git's refusal led anyway — a wrapped Team's checkout is usually in
+ * the Trash.
  */
-export const projectOf = async (folder: string): Promise<string> =>
-  (await repositoryRoot(folder)) ?? (await canonical(folder))
+export const projectOf = (folder: string): Promise<string> => {
+  const key = resolve(folder)
+  const known = asking.get(key)
+  if (known) return known
+  const answer = (async () => {
+    const real = await realpath(folder).catch(() => null)
+    if (real === null) return key
+    return (await repositoryRoot(folder)) ?? real
+  })().finally(() => asking.delete(key))
+  asking.set(key, answer)
+  return answer
+}
 
 /**
  * How a fact bound to `at` stands now, against its branch in its checkout.

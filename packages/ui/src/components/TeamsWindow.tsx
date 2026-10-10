@@ -1,4 +1,4 @@
-import { Fragment, createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { INSIGHT_GOALS_LIMIT, type InsightGoalsReport, type InsightReport } from '@harnessdesk/protocol'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
@@ -92,13 +92,27 @@ export const TeamsWindow = ({onClose, initialFilter='active'}: {onClose:()=>void
   void read(); const timer=running?window.setInterval(read,60_000):null
   return()=>{live=false;if(timer!==null)window.clearInterval(timer)}
  },[store,usageScope,closed,running])
- // A Run and its review can move a Team into Needs you, so they are read for
- // every Team that is not wrapped; a wrapped Team's only once its row is shown.
- const wanted=(team:string)=>shownIds.has(team) || snapshot.goals.get(team)?.goal.state!=='wrapped'
- const missingRuns=[...snapshot.goals.values()].filter(goal=>wanted(goal.goal.id)).map(namedGoalRun).filter((id):id is string=>Boolean(id) && !snapshot.flowExecutions.has(id!)).sort().join('\0')
- useEffect(()=>{for(const id of missingRuns.split('\0').filter(Boolean))void store.readFlowExecution(id).catch(()=>{})},[store,missingRuns])
- const publicationScope=JSON.stringify(inputs.flatMap(input=>input.execution && wanted(input.team.id)?[[input.team.id,input.execution.id]]:[]).sort(([a],[b])=>a!.localeCompare(b!)))
- useEffect(()=>{for(const [goal,run] of JSON.parse(publicationScope) as [string,string][]){if(typeof store.loadFindingRun==='function')void store.loadFindingRun(goal,run).catch(()=>{})}},[store,publicationScope])
+ // A Run and its review can move a Team into Needs you, so both are read for
+ // every Team that is not wrapped. A wrapped Team's Run is read once its row
+ // is shown, for its faces, and its review never: nothing on a wrapped row
+ // follows it. Each is asked for once while the page is open, so an answer
+ // landing never sends the others again.
+ const asked=useRef({runs:new Set<string>(),reviews:new Set<string>()})
+ const wrapped=(team:string)=>snapshot.goals.get(team)?.goal.state==='wrapped'
+ const missingRuns=[...snapshot.goals.values()].filter(goal=>shownIds.has(goal.goal.id) || !wrapped(goal.goal.id)).map(namedGoalRun).filter((id):id is string=>Boolean(id) && !snapshot.flowExecutions.has(id!)).sort().join('\0')
+ useEffect(()=>{
+  const runs=missingRuns.split('\0').filter(run=>run && !asked.current.runs.has(run))
+  for(const run of runs)asked.current.runs.add(run)
+  if(runs.length)void store.readFlowExecutions(runs).catch(()=>{})
+ },[store,missingRuns])
+ const reviewScope=JSON.stringify(inputs.flatMap(input=>input.execution && !wrapped(input.team.id)?[[input.team.id,input.execution.id]]:[]).sort(([a],[b])=>a!.localeCompare(b!)))
+ useEffect(()=>{
+  for(const [goal,run] of JSON.parse(reviewScope) as [string,string][]){
+   const key=`${goal}\0${run}`
+   if(asked.current.reviews.has(key) || typeof store.loadFindingRun!=='function')continue
+   asked.current.reviews.add(key); void store.loadFindingRun(goal,run).catch(()=>{})
+  }
+ },[store,reviewScope])
  const open=(row:TeamListRow)=>{
   store.markTeamSeen(row.id,row.change); void store.openTeamRoom(row.id,row.change); onClose()
  }
