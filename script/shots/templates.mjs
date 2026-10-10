@@ -2,12 +2,13 @@
 /** New Team → completed shipped templates, driven only through the renderer. */
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium, expect } from '@playwright/test'
 import { serve } from '../../packages/server/dist/src/index.js'
+import { FRAME } from '../../packages/ui/src/design/frame.ts'
 import { COLLECT, TILDIFY, USER, textReasons } from './audit.mjs'
 import { createTemplateRig, TEMPLATE_CHECK, TEMPLATE_PUBLISH_BRANCH, TEMPLATE_TASK } from './template-rig.mjs'
 
@@ -65,7 +66,21 @@ try {
       // recent-project list. Reopening it here would mask the old-record bug.
       await expect(page.getByRole('button', { name: 'storefront', exact: true })).toHaveAttribute('title', /^The folder this app is working in/)
       await expect(page.getByRole('button', { name: 'More ways to start', exact: true })).toBeVisible()
-      if (template === 'fix-and-review') await expect(page.getByText(TEMPLATE_PUBLISH_BRANCH, { exact: true }).first()).toBeVisible()
+      if (template === 'fix-and-review') {
+        const branch = page.locator('[aria-label="Conversation facts"] [data-slot="summary-item"]')
+          .filter({ has: page.locator('dt', { hasText: /^Branch$/ }) }).locator('[data-slot="middle-truncate"]')
+        const details = page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Details', exact: true })
+        const openedDetails = !(await branch.isVisible())
+        if (openedDetails) await details.click()
+        await expect(branch).toBeVisible()
+        await expect(branch.locator(':scope > .sr-only')).toHaveText(TEMPLATE_PUBLISH_BRANCH)
+        const parts = branch.locator('[data-part]')
+        await expect(parts).toHaveCount(2)
+        await expect(parts.nth(0)).toBeVisible()
+        await expect(parts.nth(1)).toBeVisible()
+        expect((await parts.allTextContents()).join('')).toBe(TEMPLATE_PUBLISH_BRANCH)
+        if (openedDetails) await details.click()
+      }
       await photograph('00-project')
       await page.getByRole('button', { name: 'More ways to start', exact: true }).click()
       await page.getByRole('menuitem', { name: /^New Team/ }).click()
@@ -116,12 +131,37 @@ try {
           if (matches(view.board.intents, execution)) break
           await new Promise(done => setTimeout(done, 50))
         } while (Date.now() < until)
+        if (!matches(view.board.intents, execution)) {
+          const facts = await rig.host.call('evidence/board', { room: run.goal })
+          writeFileSync(join(out, `${template}-local-flow-diagnostic.json`), `${JSON.stringify({ label, execution, cards: view.board.intents, facts }, null, 2)}\n`)
+        }
         assert.ok(matches(view.board.intents, execution), `${label}: ${JSON.stringify({ execution, cards: view.board.intents })}`)
         await page.waitForFunction(({ goal, cards }) => cards.every(([id, state, outcome]) => window.__hdStore.getSnapshot().teams.get(goal)?.intents.some(one => one.id === id && one.state === state && (one.outcome ?? null) === outcome)),
           { goal: run.goal, cards: view.board.intents.map(one => [one.id, one.state, one.outcome ?? null]) })
         return { view, execution }
       }
-      const tab = async name => { await page.getByRole('tablist', { name: 'Team pages', exact: true }).getByRole('tab', { name: new RegExp(`^${name}\\b`) }).click() }
+      const tab = async name => {
+        const value = ({ Overview: 'overview', Run: 'run', Board: 'board', Chat: 'room' })[name]
+        assert.ok(value, `unknown Team destination ${name}`)
+        const bar = page.locator('[data-slot="top-bar"]:visible').first()
+        const direct = bar.locator(`[data-team-page="${value}"]:visible`)
+        const folded = bar.getByTitle('Destination views', { exact: true })
+        await direct.or(folded).first().click()
+        if (await bar.locator('button[title="Destination views"][aria-expanded="true"]').count()) {
+          await page.locator(`[role="menu"] [data-team-page="${value}"]:visible`).click()
+        }
+        await expect(bar.locator(`[data-team-page="${value}"][aria-selected="true"]:visible`)
+          .or(folded.filter({ hasText: new RegExp(`^${name}(?:\\s*\\d+)?$`) }))).toHaveCount(1)
+      }
+      const runView = async name => {
+        await page.locator('[data-slot="top-bar"]:visible').first().getByRole('button', { name: 'View', exact: true }).click()
+        await page.getByRole('menuitem', { name, exact: true }).click()
+      }
+      const chatView = async name => {
+        await tab('Chat')
+        await page.locator('[data-slot="top-bar"]:visible').first().getByRole('button', { name: 'View', exact: true }).click()
+        await page.getByRole('menuitemradio', { name, exact: true }).click()
+      }
       const boardTitle = title => page.getByRole('heading', { level: 4, name: new RegExp(`^#\\d+ ${title}$`) })
       const boardColumn = name => page.locator('[data-slot="board-column"]').filter({ has: page.getByRole('heading', { level: 3, name, exact: true }) })
       await observe(cards => cards.filter(one => one.role === (template === 'comparison' ? 'competitor' : 'fixer') && one.state === 'claimed').length === (template === 'comparison' ? 2 : 1), 'writers seated')
@@ -129,10 +169,10 @@ try {
       await expect(page.getByText('Working', { exact: true }).first()).toBeVisible()
       await photograph('04-writing-overview')
       await tab('Run')
-      await page.getByRole('radio', { name: 'Timeline', exact: true }).click()
+      await runView('Timeline')
       await expect(page.getByText(task, { exact: true }).first()).toBeVisible()
       await photograph('05-writing-timeline')
-      await page.getByRole('radio', { name: 'Flow', exact: true }).click()
+      await runView('Flow')
       await expect(page.getByText('The path this Run took', { exact: true })).toBeVisible()
       await photograph('06-writing-flow')
       await tab('Board')
@@ -175,7 +215,16 @@ try {
         await expect(boardTitle('Merge the picked change')).toBeVisible()
         await expect(boardColumn('Needs you').getByRole('heading', { level: 4, name: /^#\d+ Merge the picked change$/ })).toBeVisible()
         await photograph('10-referee-board')
-        await page.getByRole('button', { name: 'Side by side', exact: true }).click()
+        await chatView('Side by side')
+        // The View menu starts with every Team member. Compare the two
+        // attempts by taking the Judge off the grid through its tile menu.
+        const judgeTile = page.locator('[data-slot="side-by-side-tile"][aria-label="Judge"]')
+        await judgeTile.getByRole('button', { name: 'Judge actions', exact: true }).click()
+        await page.getByRole('menuitem', { name: 'Take off the grid', exact: true }).click()
+        await expect(judgeTile).toHaveCount(0)
+        await expect(page.locator('[data-slot="side-by-side-tile"]')).toHaveCount(2)
+        await expect(page.locator('[data-slot="side-by-side-tile"]').getByText('Picked', { exact: true })).toHaveCount(1)
+        await expect(page.locator('[data-slot="side-by-side-tile"]').getByText('Not kept', { exact: true })).toHaveCount(1)
         await expect(page.getByRole('button', { name: 'Merge A into main', exact: true })).toBeEnabled()
         await expect(page.getByText('The agent finished this turn without any output.', { exact: true })).toHaveCount(0)
         await photograph('11-picked-attempt')
@@ -211,8 +260,29 @@ try {
           await page.getByRole('option', { name: /^Show repository/ }).click()
         }
         await repository()
-        await page.getByRole('button', { name: 'Give this panel the whole area', exact: true }).last().click()
-        const main = page.getByTitle('main — click to find it, double-click to check it out', { exact: true })
+        const repositoryPanel = page.locator('[data-fixed-tool-frame]')
+        const activity = page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Activity', exact: true })
+        await expect(activity).toHaveAttribute('aria-pressed', 'true')
+        await expect(repositoryPanel).toBeVisible()
+        await expect(repositoryPanel.getByRole('grid', { name: 'Commits', exact: true })).toBeVisible()
+        await expect(repositoryPanel).toContainText('commits')
+        await expect.poll(() => repositoryPanel.evaluate(node => node.getBoundingClientRect().width)).toBe(FRAME.rightPanel.width)
+        await expect(repositoryPanel.getByRole('button', { name: 'Give this panel the whole area', exact: true })).toHaveCount(0)
+        // Fixed tools retire whole-area zoom. Resize through the real seam
+        // to the desired canonical FRAME width, where Git shows its branch
+        // rail; the inherited product limits still allow widths beyond it.
+        const repositorySeam = page.getByRole('separator', { name: 'Resize the right panel', exact: true })
+        const seamBox = await repositorySeam.boundingBox()
+        assert.ok(seamBox, 'the Repository panel has a visible resize seam')
+        const panelWidth = await repositoryPanel.evaluate(node => node.getBoundingClientRect().width)
+        const seamX = seamBox.x + seamBox.width / 2
+        const seamY = seamBox.y + seamBox.height / 2
+        await page.mouse.move(seamX, seamY)
+        await page.mouse.down()
+        await page.mouse.move(seamX - (FRAME.rightPanel.max - panelWidth), seamY, { steps: 6 })
+        await page.mouse.up()
+        await expect.poll(() => repositoryPanel.evaluate(node => node.getBoundingClientRect().width)).toBe(FRAME.rightPanel.max)
+        const main = repositoryPanel.getByTitle('main — click to find it, double-click to check it out', { exact: true })
         await main.dblclick()
         await expect(main).toHaveAttribute('data-current', '')
         await photograph('10-person-repository')
@@ -225,8 +295,9 @@ try {
         const published = JSON.parse(readFileSync(join(directory, 'home', 'template-forge.json'), 'utf8')).pr
         rig.git('merge-base', '--is-ancestor', published.headRefOid, 'main')
         await photograph('12-person-merged')
-        await page.getByRole('button', { name: 'Back to the layout', exact: true }).click()
-        await repository()
+        await activity.click()
+        await expect(activity).toHaveAttribute('aria-pressed', 'false')
+        await expect(repositoryPanel).toBeHidden()
         await tab('Board')
         await page.getByRole('button', { name: `What to do with #${referee.id}`, exact: true }).click()
         await page.getByRole('menuitem', { name: 'Answer merged', exact: true }).click()
@@ -260,7 +331,7 @@ try {
       evidence.at(-1).settledSidebar = true
       await photograph('13-finished-overview')
       await tab('Run')
-      await page.getByRole('radio', { name: 'Timeline', exact: true }).click()
+      await runView('Timeline')
       await photograph('14-finished-run')
       await tab('Board')
       const readyRail = page.getByRole('button', { name: /^Ready \d+ — Open column$/ })
@@ -269,13 +340,15 @@ try {
       await expect(boardColumn('In review').getByRole('heading', { level: 4 })).toHaveCount(0)
       await expect(boardColumn('Ready').getByRole('heading', { level: 4 })).toHaveCount(template === 'comparison' ? 6 : 3)
       await photograph('15-finished-board')
-      await tab('Chat')
+      await chatView('Thread')
+      await expect(page.locator('[data-slot="side-by-side-grid"]')).toHaveCount(0)
       await expect(page.getByText(/You (?:added|completed).*Check the attempt/)).toHaveCount(0)
       await expect(page.getByText(/The Flow .* added/).first()).toBeVisible()
       await expect(page.getByText(/\(Implementer\)/)).toHaveCount(0)
       await photograph('16-finished-chat')
       assert.deepEqual(rendererErrors, [], 'the shipped renderer had no uncaught errors')
     } catch (error) {
+      if (existsSync(rig.logFile)) writeFileSync(join(out, `${template}-local-host-diagnostic.ndjson`), readFileSync(rig.logFile))
       if (page) { writeFileSync(join(out, `${template}-local-diagnostic.txt`), await page.locator('body').innerText()); writeFileSync(join(out, `${template}-local-diagnostic.json`), JSON.stringify(await page.evaluate(COLLECT), null, 2)); await page.screenshot({ path: join(out, `${template}-local-diagnostic.png`) }) }
       throw error
     } finally { await page?.close(); await server?.close(); await rig.dispose() }
