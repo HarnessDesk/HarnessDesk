@@ -69,7 +69,7 @@ describe('Seats and responsive tools', () => {
   it('uses the shared measured fold and leaves the four fixed tool doors standing', () => {
     expect(source).not.toContain('useNarrowLayout<HTMLElement>(608)')
     expect(barSource).toContain('new ResizeObserver(measure)')
-    expect(barSource).toContain('measuredFold.current === 2')
+    expect(barSource).toContain('fold === 2')
     expect(barSource).toContain('data-topbar="tools"')
   })
 })

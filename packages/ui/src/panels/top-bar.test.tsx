@@ -3,8 +3,11 @@ import { createRoot, type Root } from 'react-dom/client'
 import { expect, test } from 'vitest'
 import { Chip, MenuItem, type TopBarProps } from '../design'
 import { TopBarProvider, TopBarOutlet, useTopBar, useTopBarMore, useTopBarView, type ViewSlots } from './top-bar'
+import { installTopBarTestLayout } from '../test/top-bar-layout'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+installTopBarTestLayout()
 
 const emptyMore = () => null
 const Base = ({ name }: { name: string }) => {

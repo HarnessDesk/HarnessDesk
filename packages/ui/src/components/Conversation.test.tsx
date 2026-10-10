@@ -1,3 +1,4 @@
+import { FRAME } from '../design/frame'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -30,14 +31,34 @@ import { TopBarProvider, TopBarOutlet, WorkDetailsOutlet } from '../panels/top-b
 let container: HTMLDivElement
 let root: Root
 
+// These body/data tests give their standalone bar enough measured title room.
+// jsdom supplies neither flex geometry nor tokens; real fold widths are pinned
+// by TopBar's measurement tests and frame-contract, not the body rig's viewport.
+let restoreBarGeometry = () => {}
 beforeEach(() => {
+  const bounds = HTMLElement.prototype.getBoundingClientRect
+  const geometry = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    return this.matches('[data-topbar-title]') ? new DOMRect(0, 0, FRAME.bar.titleMin, FRAME.bar.height) : bounds.call(this)
+  })
+  const computed = getComputedStyle
+  const token = vi.spyOn(globalThis, 'getComputedStyle').mockImplementation((node, pseudo) => {
+    const result = computed(node, pseudo)
+    if (!node.matches('[data-slot="top-bar"]')) return result
+    return new Proxy(result, { get(target, property) {
+      if (property === 'getPropertyValue') return (name: string) => name === '--hd-bar-title-min'
+        ? `${FRAME.bar.titleMin}px` : target.getPropertyValue(name)
+      const value = Reflect.get(target, property, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    } })
+  })
+  restoreBarGeometry = () => { token.mockRestore(); geometry.mockRestore() }
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
 })
 afterEach(() => {
-  act(() => root.unmount())
-  container.remove()
+  try { act(() => root.unmount()); container.remove() }
+  finally { restoreBarGeometry() }
 })
 
 // jsdom does not track keyboard/pointer modality across these rendered rigs.

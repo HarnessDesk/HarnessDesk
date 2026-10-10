@@ -824,3 +824,22 @@ for (const theme of WALL_THEMES) {
     await expect(chip).toHaveCount(0)
   })
 }
+
+for (const theme of WALL_THEMES) {
+  test(`B11 fixed tools retain work and refuse free docking in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&frame-terminal=1', theme)
+    const tools = page.locator('[data-slot="top-bar"] [data-work-tool]')
+    await expect(tools).toHaveCount(4)
+    await page.locator('[data-work-tool="details"]').click()
+    await page.locator('[data-work-tool="activity"]').click()
+    await page.locator('[data-work-tool="details"]').click()
+    await expect(page.locator('[data-slot="tool-body"]:visible').getByText('Plan', { exact: true })).toBeVisible()
+    await page.locator('[data-work-tool="details"]').click()
+    await expect(page.locator('[data-slot="work-tools"]')).toBeHidden()
+    await page.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
+    await expect(page.locator('[data-slot="work-tools"]')).toBeVisible()
+    await expect(page.locator('[data-frame-region="bottom"] [data-terminal-id]')).toBeVisible()
+    await expect(page.locator('[draggable="true"][data-tool-mount]')).toHaveCount(0)
+    await expect(page.locator('[data-slot="dock-panel-tabs"]')).toHaveCount(0)
+  })
+}

@@ -752,6 +752,9 @@ rules:
   let boardRevert = null
   const stageRoom = async () => {
     if (roomId) return roomId
+    // Seeded workspace metadata does not grant shell authority. Open the
+    // rig's project through the same verb a person uses before seating.
+    await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
     const keys = []
     // The fake Codex app-server deliberately reports `/w` as its transcript
     // cwd. That is useful adapter coverage, but a real room correctly refuses
@@ -1528,10 +1531,71 @@ rules:
     } },
 
     /** The same room, as a room: several agents' turns side by side. */
-    room: { leaveOverlay: true, expect: 'Agents', run: async () => {
+    room: { leaveOverlay: true, verify: async () => {
+      const ready = await cdp.eval(`(() => {
+        const grid = document.querySelector('[data-slot="side-by-side-grid"]')
+        if (!grid) return false
+        const tiles = [...grid.querySelectorAll('[data-slot="side-by-side-tile"]')].filter(one => !one.hasAttribute('data-hidden') && !one.hasAttribute('inert') && getComputedStyle(one).visibility !== 'hidden' && one.getBoundingClientRect().height > 0)
+        const composer = tiles.length === 1 ? tiles[0].querySelector('[data-slot="composer"] textarea') : document.querySelector('button[aria-label="Send to"]')
+        return Boolean(composer && composer.getBoundingClientRect().height > 0)
+      })()`)
+      if (!ready) throw new Error('room: Side by side and its visible composer are not on screen')
+    }, run: async () => {
       await stageRoom()
       await cdp.eval(`${STORE}.openTeamRoom(${q(roomId)}); true`)
-      await sleep(2200)
+      // Opening a Team restores its selected page; explicitly choose Chat
+      // through the current tab or folded destination menu for this scene.
+      // Measurement can replace expanded tabs with their folded menu. Choose
+      // the reachable control, rather than a transient DOM-presence snapshot.
+      if (!await press({ selector: '[role="tab"][data-team-page="room"]' }, { stable: true })) {
+        if (!await press({ selector: 'button[title="Destination views"]' }, { stable: true })) throw new Error('room: Destination views is not reachable')
+        await waitForSnapshot(() => cdp.eval(`Boolean(document.querySelector('[role="menuitemradio"][data-team-page="room"]'))`), Boolean).catch(async (error) => {
+          const controls = await cdp.json(`(() => ({
+            bars: [...document.querySelectorAll('[data-slot="top-bar"]')].map(bar => ({ text: bar.innerText, height: bar.getBoundingClientRect().height, hidden: Boolean(bar.closest('[inert], [aria-hidden="true"]')) })),
+            menus: [...document.querySelectorAll('[role="menu"]')].map(menu => ({ text: menu.innerText, height: menu.getBoundingClientRect().height })),
+          }))()`)
+          const shot = await cdp.send('Page.captureScreenshot', { format: 'png' })
+          writeFileSync(`${OUT}/room-controls-unready.png`, Buffer.from(shot.data, 'base64'))
+          throw new Error(`${error.message}; room controls: ${JSON.stringify(controls)}`)
+        })
+        if (!await press({ selector: '[role="menuitemradio"][data-team-page="room"]' }, { stable: true })) throw new Error('room: folded Chat is not reachable')
+      }
+      await waitForSnapshot(() => cdp.eval(`Boolean(document.querySelector('[data-topbar="view"] button'))`), Boolean)
+      if (!await press({ selector: '[data-topbar="view"] button' }, { stable: true })) throw new Error('room: View is not reachable')
+      await waitForSnapshot(() => cdp.eval(`[...document.querySelectorAll('[role="menuitemradio"]')].some(one => one.textContent.trim() === 'Side by side')`), Boolean).catch(async (error) => {
+          const controls = await cdp.json(`(() => ({
+            bars: [...document.querySelectorAll('[data-slot="top-bar"]')].map(bar => ({ text: bar.innerText, height: bar.getBoundingClientRect().height, hidden: Boolean(bar.closest('[inert], [aria-hidden="true"]')) })),
+            menus: [...document.querySelectorAll('[role="menu"]')].map(menu => ({ text: menu.innerText, height: menu.getBoundingClientRect().height })),
+          }))()`)
+          const shot = await cdp.send('Page.captureScreenshot', { format: 'png' })
+          writeFileSync(`${OUT}/room-controls-unready.png`, Buffer.from(shot.data, 'base64'))
+          throw new Error(`${error.message}; room controls: ${JSON.stringify(controls)}`)
+        })
+      if (!await press({ text: 'Side by side' }, { stable: true })) throw new Error('room: Side by side is not reachable')
+      await waitForSnapshot(() => cdp.eval(`(() => {
+        const grid = document.querySelector('[data-slot="side-by-side-grid"]')
+        if (!grid) return false
+        const tiles = [...grid.querySelectorAll('[data-slot="side-by-side-tile"]')].filter(one => !one.hasAttribute('data-hidden') && !one.hasAttribute('inert') && getComputedStyle(one).visibility !== 'hidden' && one.getBoundingClientRect().height > 0)
+        const composer = tiles.length === 1 ? tiles[0].querySelector('[data-slot="composer"] textarea') : document.querySelector('button[aria-label="Send to"]')
+        return Boolean(composer && composer.getBoundingClientRect().height > 0)
+      })()`), Boolean).catch(async (error) => {
+        const rendered = await cdp.json(`(() => ({
+          grids: [...document.querySelectorAll('[data-slot="side-by-side-grid"]')].map(grid => ({
+            hidden: Boolean(grid.closest('[data-hidden], [inert]')),
+            tiles: [...grid.querySelectorAll('[data-slot="side-by-side-tile"]')].map(tile => ({
+              hidden: tile.hasAttribute('data-hidden'), inert: tile.hasAttribute('inert'),
+              visibility: getComputedStyle(tile).visibility,
+              height: tile.getBoundingClientRect().height,
+              composer: Boolean(tile.querySelector('[data-slot="composer"] textarea')),
+              text: tile.innerText.slice(-800),
+            })),
+          })),
+          roomComposer: [...document.querySelectorAll('button[aria-label="Send to"]')].map(button => ({ height: button.getBoundingClientRect().height })),
+        }))()`)
+        const shot = await cdp.send('Page.captureScreenshot', { format: 'png' })
+        writeFileSync(`${OUT}/room-unready.png`, Buffer.from(shot.data, 'base64'))
+        throw new Error(`${error.message}; room rendered state: ${JSON.stringify(rendered)}`)
+      })
     } },
 
     /**
@@ -2086,7 +2150,7 @@ rules:
    * events a pointer sends — where `click` calls the element's own `click()`.
    * Found by a selector, or by the text it starts with.
    */
-  const press = async ({ selector = null, text = null }, { wait = 4000 } = {}) => {
+  const press = async ({ selector = null, text = null }, { wait = 4000, stable = false } = {}) => {
     const locate = () => cdp.json(`(() => {
       const wanted = ${q(text)}
       const all = ${selector ? `[...document.querySelectorAll(${q(selector)})]` : `[...document.querySelectorAll('button, [role="button"], [role="menuitem"]')].filter((e) => (e.textContent ?? '').trim().startsWith(wanted) || e.getAttribute('aria-label') === wanted)`}
@@ -2100,8 +2164,37 @@ rules:
       const el = ${selector ? 'shown[0]' : 'shown.sort((a, b) => (a.textContent ?? \'\').length - (b.textContent ?? \'\').length)[0]'}
       if (!el) return null
       const r = el.getBoundingClientRect()
-      return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+      const point = { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+      if (!${stable}) return point
+      const fold = el.closest('[data-slot="top-bar"]')?.getAttribute('data-fold')
+      return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+        const after = el.getBoundingClientRect()
+        const unchanged = el.isConnected && after.width > 0 && after.height > 0 && !el.closest('[aria-hidden="true"], [inert]')
+          && fold === el.closest('[data-slot="top-bar"]')?.getAttribute('data-fold')
+          && after.left + after.width / 2 === point.x && after.top + after.height / 2 === point.y
+          && el.contains(document.elementFromPoint(point.x, point.y))
+        resolve(unchanged ? point : null)
+      })))
     })()`)
+    if (stable) {
+      // Room navigation can arrive while the bar is measuring its folds.
+      // Revalidate the same hit-tested point after moving the pointer, so a
+      // moved destination trigger cannot activate its adjacent View control.
+      const deadline = Date.now() + wait
+      while (Date.now() < deadline) {
+        const point = await locate()
+        if (!point) { await sleep(200); continue }
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
+        const current = await locate()
+        if (!current || current.x !== point.x || current.y !== point.y) { await sleep(200); continue }
+        if (Date.now() >= deadline) return false
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...current, button: 'left', clickCount: 1 })
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...current, button: 'left', clickCount: 1 })
+        await sleep(900)
+        return true
+      }
+      return false
+    }
     let point = await locate()
     for (let waited = 0; !point && waited < wait; waited += 200) {
       await sleep(200)

@@ -184,8 +184,8 @@ const mountNarrowOverlay = (): ReturnType<typeof makeStore> => {
     root.render(
       <StoreProvider store={store}>
         <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
-          {/* The narrow layout gives the strip to the right panel while the
-              covered main conversation remains mounted and focused. */}
+          {/* Phase B's narrow right panel is nonmodal: the focused main
+              composer remains available and owns its notice. */}
           <NoticeStripOutlet host />
           <PaneProvider scope={{ paneId: 'focused-pane' as never, view: { kind: 'conversation', session }, sessionKey: session }}>
             <ComposerNotices />
@@ -468,12 +468,12 @@ it('a standing condition shows on the composer that is focused, and on no other 
   expect(container.querySelector('[data-testid="beside"]')?.textContent).toBe('')
 })
 
-it('puts a composer notice in the strip when a narrow window covers its focused composer', () => {
+it('keeps a composer notice on its focused composer beside the narrow nonmodal right panel', () => {
   const store = mountNarrowOverlay()
 
   expect(container.querySelectorAll('[data-slot="composer-notice"], [data-slot="notice-strip"]')).toHaveLength(1)
-  expect(container.querySelector('[data-slot="notice-strip"]')).not.toBeNull()
-  expect(container.querySelector('[data-slot="composer-notice"]')).toBeNull()
+  expect(container.querySelector('[data-slot="notice-strip"]')).toBeNull()
+  expect(container.querySelector('[data-slot="composer-notice"]')).not.toBeNull()
   expect(container.textContent).toContain('will run out before it refills')
   expect(store.policy().seen).toEqual([])
 })

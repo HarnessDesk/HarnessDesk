@@ -1,4 +1,5 @@
 import { emptyWorkbench } from '../state/workbench'
+import { FRAME } from '../design/frame'
 import type { TeamFramePage } from '../state/layout'
 import { previewStore } from '../preview/harness'
 import { act, type ComponentProps } from 'react'
@@ -81,15 +82,35 @@ const TeamTest = (props: ComponentProps<typeof TeamRoomPane>) => {
 let container: HTMLDivElement
 let root: Root
 
+// These body/data tests give their standalone bar enough measured title room.
+// jsdom supplies neither flex geometry nor tokens; real fold widths are pinned
+// by TopBar's measurement tests and frame-contract, not the body rig's viewport.
+let restoreBarGeometry = () => {}
 beforeEach(() => {
+  const bounds = HTMLElement.prototype.getBoundingClientRect
+  const geometry = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    return this.matches('[data-topbar-title]') ? new DOMRect(0, 0, FRAME.bar.titleMin, FRAME.bar.height) : bounds.call(this)
+  })
+  const computed = getComputedStyle
+  const token = vi.spyOn(globalThis, 'getComputedStyle').mockImplementation((node, pseudo) => {
+    const result = computed(node, pseudo)
+    if (!node.matches('[data-slot="top-bar"]')) return result
+    return new Proxy(result, { get(target, property) {
+      if (property === 'getPropertyValue') return (name: string) => name === '--hd-bar-title-min'
+        ? `${FRAME.bar.titleMin}px` : target.getPropertyValue(name)
+      const value = Reflect.get(target, property, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    } })
+  })
+  restoreBarGeometry = () => { token.mockRestore(); geometry.mockRestore() }
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
 })
 
 afterEach(() => {
-  act(() => root.unmount())
-  container.remove()
+  try { act(() => root.unmount()); container.remove() }
+  finally { restoreBarGeometry() }
 })
 
 const ROOM = 'room-1'
@@ -462,6 +483,23 @@ const row = (text: string): HTMLElement => {
   const found = seats.find(entry => entry.querySelector('[data-slot="list-row-title"]')?.textContent === text) ?? seats.find(entry => entry.textContent?.includes(text))
   if (!found) throw new Error(`no row containing ${text}`)
   return found
+}
+
+
+/** Selection survives the shell's measured tab-to-menu fold. */
+const expectChatSelected = async (): Promise<void> => {
+  const tab = container.querySelector<HTMLElement>('[role="tab"][data-team-page="room"]')
+  if (tab) {
+    expect(tab.getAttribute('aria-selected')).toBe('true')
+    return
+  }
+  const trigger = container.querySelector<HTMLButtonElement>('button[title="Destination views"]')
+  expect(trigger, 'folded Team destinations remain reachable').not.toBeNull()
+  await act(async () => trigger!.click())
+  const chat = document.body.querySelector<HTMLElement>('[role="menuitemradio"][data-team-page="room"]')
+  expect(chat, 'the folded menu keeps the Chat destination').not.toBeNull()
+  expect(chat!.getAttribute('aria-checked')).toBe('true')
+  await act(async () => trigger!.click())
 }
 
 it('the rail is the roster: who is here, and what each of them is holding', async () => {
@@ -2762,6 +2800,8 @@ it.each([
   const { store } = triggerRig([], {}, [one, wait({ id: 'old', sentence: 'Answered long ago.', resolvedAt: 5 })])
   await render(store)
   await act(async () => {})
+  expect(container.querySelector('[data-slot="top-bar"]')?.getAttribute('data-fold')).toBe('0')
+  expect(container.querySelector('[data-topbar-title]')!.getBoundingClientRect().width).toBe(FRAME.bar.titleMin)
 
   const chip = [...container.querySelector('header')!.querySelectorAll('[data-slot="chip"]')].find((c) => c.textContent?.includes('Needs you'))
   expect(chip).toBeTruthy()
@@ -2770,6 +2810,7 @@ it.each([
   expect(container.textContent).not.toContain('Answered long ago.')
   // Each of these waits on a person, so each leads with the pulsing light.
   expect(line.querySelector('[data-slot="dot"][data-pulse]')).not.toBeNull()
+
 })
 
 /**
@@ -3091,7 +3132,7 @@ it('sends the body back to the chat when the member opened on its own is release
   const remove = menuRow('Remove from Team')
   await act(async () => { remove.click() })
   await act(async () => {})
-  expect(row('Chat').getAttribute('aria-selected')).toBe('true')
+  await expectChatSelected()
 })
 
 it('takes a released member’s tile off the grid with it', async () => {
@@ -3114,7 +3155,7 @@ it('takes a released member’s tile off the grid with it', async () => {
   expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(0)
   expect(store.lastView().sideBySide).toBeUndefined()
   // The rail and the body agree: the room's chat is open, not an empty Side by side.
-  expect(row('Chat').getAttribute('aria-selected')).toBe('true')
+  await expectChatSelected()
 })
 
 /**
@@ -3338,7 +3379,7 @@ it('Open conversation in Seat actions opens exactly that member', async () => {
   await render(store)
   await seatAction('Opus', 'Open conversation')
   expect(container.querySelector('[data-testid="conversation"]')?.textContent).toContain(sessionKey('claude', 'k1'))
-  expect(row('Chat').getAttribute('aria-selected')).toBe('true')
+  await expectChatSelected()
 })
 
 it('Watch beside in Seat actions opens the grid without opening a full member page', async () => {
@@ -3347,7 +3388,7 @@ it('Watch beside in Seat actions opens the grid without opening a full member pa
   await clickRailWatch(container, 'Opus')
   expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(1)
   expect(store.lastView().sideBySide?.tiles).toEqual([sessionKey('claude', 'k1')])
-  expect(row('Chat').getAttribute('aria-selected')).toBe('true')
+  await expectChatSelected()
 })
 
 it('a pointer over Seat More does not open member information, then the mark does', async () => {
@@ -4354,12 +4395,12 @@ it('Chat View chooses Side by side and Thread while keeping Chat selected', asyn
  const side = row('Side by side')
  await act(async()=>side.click())
  expect(container.querySelector('[data-slot="side-by-side-grid"]')).not.toBeNull()
- expect(row('Chat').getAttribute('aria-selected')).toBe('true')
+ await expectChatSelected()
  act(()=>container.querySelector<HTMLButtonElement>('button[title="View"]')!.click())
  await act(async()=>menuRow('Thread').click())
  expect(container.querySelector('[data-slot="room-stream"]')).not.toBeNull()
  expect(container.querySelector('[data-slot="side-by-side-grid"]')).toBeNull()
- expect(row('Chat').getAttribute('aria-selected')).toBe('true')
+ await expectChatSelected()
 })
 
 it('a ready Team puts Wrap on Overview and preserves Wrap in More', async () => {
@@ -4374,7 +4415,7 @@ it('a member page normalizes its destination to Chat', async () => {
  const {store}=rig(undefined,undefined,{},GOAL)
  await render(store)
  await clickRailOpen(container,'Codex')
- expect(row('Chat').getAttribute('aria-selected')).toBe('true')
+ await expectChatSelected()
  expect(store.lastView().framePage).toBe('room')
 })
 
@@ -4448,7 +4489,7 @@ it('consumes Board beyond the Team component lifetime, accepts another room and 
   expect(row('Board').getAttribute('aria-selected')).toBe('true')
   expect(actual.getSnapshot().teamFrameRequests[ROOM]).toBeUndefined()
   act(() => row('Chat').click())
-  expect(row('Chat').getAttribute('aria-selected')).toBe('true')
+  await expectChatSelected()
   act(() => root.render(<div>Conversation</div>))
   await render(store)
   expect(row('Board').getAttribute('aria-selected')).toBe('false')

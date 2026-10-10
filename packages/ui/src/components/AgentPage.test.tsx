@@ -1,3 +1,4 @@
+import { installTopBarTestLayout } from '../test/top-bar-layout'
 import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -24,6 +25,8 @@ import { AgentsRosterSection } from './AgentRoster'
  * and their state on this Mac, what it hands back, and its brief — with
  * starting it, customizing it and removing it.
  */
+installTopBarTestLayout()
+
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let container: HTMLDivElement
