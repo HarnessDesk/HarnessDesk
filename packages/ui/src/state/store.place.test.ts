@@ -10,7 +10,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { panes, sessionOf } from './layout'
-import { mountedViews, dockViews } from './workbench'
+import { mountedViews, dockViews, emptyWorkbench, navigationFor } from './workbench'
 import { AppStore } from './store'
 import type { TransportEvents } from '../lib/transport'
 
@@ -765,4 +765,46 @@ it('a current manifest revision refuses the saved right plugin at admission, rev
     expect(store.getSnapshot().notices.at(-1)?.message).toContain('does not support the fixed right panel')
   }
   expect(dockViews(store.getSnapshot().workbench.right)).toContainEqual(held)
+})
+
+it('restores per-project page and history without changing remembered work or docks', async () => {
+  const seed = emptyWorkbench(), b = emptyWorkbench()
+  const a = { ...seed, bottom: { ...seed.bottom, root: { kind: 'stack' as const, id: 'fixture-bottom',
+    active: 'fixture-terminal', views: [{ id: 'fixture-terminal', view: { kind: 'terminal' as const,
+      terminalId: 'fixture-pty', runtime: AGENT, cwd: REPO.path } }] } } }
+  const aWork = navigationFor(a.main).current, bWork = navigationFor(b.main).current
+  const aPage = { kind: 'settings', route: { kind: 'section', section: 'appearance', focus: null } } as const
+  const bPage = { kind: 'dashboard', view: 'plans', scope: null } as const
+  answers['app/state/get'] = { layouts: {
+    [REPO.path]: { ...a, navigation: { current: aPage, back: [aWork], forward: [{ kind: 'agents', id: null }] } },
+    [OTHER.path]: { ...b, navigation: { current: bPage, back: [bWork], forward: [] } },
+  } }
+  await store.loadPreferences()
+  await store.openWorkspace(OTHER.path)
+  expect(store.getSnapshot().workbench.navigation.current).toEqual(bPage)
+  await store.openWorkspace(REPO.path)
+  expect(store.getSnapshot().workbench.navigation).toEqual({ current: aPage, back: [aWork], forward: [{ kind: 'agents', id: null }] })
+  expect(store.getSnapshot().workbench.main).toEqual(a.main)
+  expect(store.getSnapshot().workbench.bottom).toEqual(a.bottom)
+  await store.navigateBack()
+  expect(store.getSnapshot().workbench.navigation.current).toEqual(aWork)
+  await store.navigateForward()
+  expect(store.getSnapshot().workbench.navigation.current).toEqual(aPage)
+})
+
+it('restoring a page hydrates remembered conversation without visiting it', async () => {
+  const seed = emptyWorkbench()
+  const key = sessionKey(AGENT, sessionId('fixture-remembered'))
+  const main = { root: { kind: 'pane' as const, id: 'fixture-main', view: { kind: 'conversation' as const, session: key } },
+    focused: 'fixture-main', expanded: null }
+  const page = { kind: 'dashboard', view: 'plans', scope: null } as const
+  const navigation = { current: page, back: [{ kind: 'work' as const, view: main.root.view }], forward: [] }
+  answers['app/state/get'] = { layouts: { [REPO.path]: { ...seed, main, navigation } } }
+  answers['session/read'] = conversation('fixture-remembered', REPO.path)
+  answers['session/resume'] = conversation('fixture-remembered', REPO.path)
+  await store.loadPreferences()
+  await vi.waitFor(() => expect(store.getSnapshot().sessions.has(key)).toBe(true))
+  expect(store.getSnapshot().workbench.navigation).toEqual(navigation)
+  expect(store.getSnapshot().layout).toEqual(main)
+  expect(calls('session/close')).toEqual([])
 })

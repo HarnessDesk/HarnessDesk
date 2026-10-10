@@ -1291,3 +1291,13 @@ for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
     await expect(page.getByRole('button', { name: 'Add', exact: true }).first()).toBeFocused()
   })
 }
+
+for (const theme of ['light', 'dark'] as const) for (const width of [1440, 1100, 720]) {
+  test(`E1a navigation model preserves the work frame ${width} ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=team', theme, width)
+    const bar = page.locator('[data-slot="top-bar"]:visible')
+    expect((await bar.locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
+    const status = page.locator('[data-slot="status-bar"]:visible')
+    expect((await status.boundingBox())!.height).toBe(FRAME.statusBar.height)
+  })
+}

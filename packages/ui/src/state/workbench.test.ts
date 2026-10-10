@@ -1210,3 +1210,21 @@ describe('FRAME fixed boundaries and height limits', () => {
     expect(dockLimits('right')).toEqual({ min: 320, max: 640 })
   })
 })
+
+
+test('legacy workbenches gain history and serialized pages preserve all fixed tool and dock state', () => {
+  const original = emptyWorkbench()
+  const { navigation: _navigation, ...legacy } = original
+  const fallback = { kind: 'work', view: { kind: 'conversation', session: null } }
+  expect(readWorkbench(legacy)?.navigation).toEqual({ current: fallback, back: [], forward: [] })
+  expect(readWorkbench(original.main)?.navigation.current).toEqual(fallback)
+  const current = { kind: 'plugins', section: 'installed', id: 'demo' }
+  const restored = readWorkbench({ ...original, navigation: { current, back: [fallback, { kind: 'bad' }], forward: [] } })!
+  expect(restored.navigation).toEqual({ current, back: [fallback], forward: [] })
+  expect(restored.frameTools).toEqual(original.frameTools)
+  expect(restored.toolOwners).toEqual(original.toolOwners)
+  expect(restored.frameSubjects).toEqual(original.frameSubjects)
+  expect(restored.main).toEqual(original.main)
+  expect(restored.bottom).toEqual(original.bottom)
+  expect(restored.right).toEqual(original.right)
+})
