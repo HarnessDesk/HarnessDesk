@@ -247,7 +247,6 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-row-h` | `calc(20px + 4px * 2 + 2px)` |
 | `--hd-icon-target` | `24px` |
 | `--hd-icon-target-sm` | `20px` |
-| `--hd-statusbar-h` | `28px` |
 | `--hd-bar-h` | `40px` |
 | `--hd-bar-divider-h` | `14px` |
 | `--hd-bar-title-min` | `180px` |
@@ -1074,6 +1073,12 @@ The window rail's head, under the window buttons: the system's rail section.
 
 The window rail's scrolling list: the system's rail section.
 
+### `AppWindowContent`
+
+`packages/ui/src/design/patterns/AppWindow.tsx`
+
+Main consumes the window's remaining height; notices precede the retained page.
+
 ### `ApprovalReason`
 
 `packages/ui/src/design/patterns/ApprovalDialog.tsx`
@@ -1483,7 +1488,13 @@ Plugin sections join Details' flow; hidden native layers keep their existing box
 
 `packages/ui/src/design/patterns/FixedShell.tsx`
 
-Six stable regions: folding and closing affect geometry, never body identity.
+Five stable regions: folding and closing affect geometry, never body identity.
+
+### `ShellNoticeHost`
+
+`packages/ui/src/design/patterns/FixedShell.tsx`
+
+A notice portal contributes only its Banner's height, including in flex main.
 
 ### `FlowCanvas`
 
@@ -2212,17 +2223,17 @@ A Settings record's actions: its name and distinguishing location, with destruct
 
 A quiet conversation or room state ends on the inset rail and folds to a dot for its own row's actions.
 
-### `StatusBar`
-
-`packages/ui/src/design/patterns/StatusBar.tsx`
-
-The app's readings share one window-wide foot, below every retained region.
-
 ### `ToolProse`
 
 `packages/ui/src/design/patterns/ToolBody.tsx`
 
 A missing-fact note uses the row edge and second-line type; prose keeps its reading inset.
+
+### `TopBarToolButton`
+
+`packages/ui/src/design/patterns/TopBar.tsx`
+
+A fixed tool's 28px door with the drawing's small activity dot.
 
 ### `UsageMeterRow`
 

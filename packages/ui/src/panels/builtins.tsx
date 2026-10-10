@@ -1,7 +1,6 @@
 import { WorkChangesView, WorkActivityView } from '../components/WorkToolContents'
 import { RunDetailsView } from './run-dock'
 import { Approvals } from '../components/Approvals'
-import { BackgroundTasksView } from '../components/BackgroundTasks'
 import { BrowserPane } from '../components/BrowserPane'
 import { Conversation } from '../components/Conversation'
 import { AgentsView, TrajectoryView } from '../components/Details'
@@ -397,7 +396,7 @@ registerView({
      that is the reason anyone looks. */
   mounts: ['right', 'bottom', 'sidebar'],
   defaultMount: 'right',
-  component: BackgroundTasksView,
+  component: WorkActivityView,
   /* Something is still running for the conversation on screen: every door to
      this panel wears a dot, so a task that outlives the turn is noticed even
      with the panel closed. */

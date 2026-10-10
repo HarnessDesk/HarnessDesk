@@ -31,9 +31,6 @@ import { cn } from '@/lib/utils'
  *           not truncate (a member's name) wrap, and the bar grows to hold
  *           them rather than letting them spill into what it heads.
  *
- * `height="status"` is the app-wide 28px facts foot; its token is independent
- * of ordinary 40px bars. `as="footer"` exposes that region semantically.
- *
  * `as="header"` is for a bar that names what is under it — a page's own top
  * row, a column's head — so a screen reader can find it as that region's
  * header rather than as one more box.
@@ -47,7 +44,6 @@ const Bar = ({
   paintedRule = false,
   active = false,
   grow = false,
-  height = 'bar',
   ...props
 }: React.ComponentProps<'div'> & {
   as?: 'div' | 'header' | 'footer'
@@ -58,20 +54,17 @@ const Bar = ({
   paintedRule?: boolean
   active?: boolean
   grow?: boolean
-  /** App-wide status facts use the footer's own token; ordinary bars stay 40px. */
-  height?: 'bar' | 'status'
 }) => (
   <Element
     data-slot="bar"
     data-inset={inset}
-    {...(height === 'status' ? { 'data-height': height } : {})}
     {...(corner ? { 'data-corner': '' } : {})}
     {...(rule ? { 'data-rule': rule } : {})}
     {...(active ? { 'data-active': '' } : {})}
     className={cn(
       'flex shrink-0 items-center gap-(--hd-bar-gap) pr-(--hd-bar-pad)',
-      height === 'status' ? 'h-(--hd-statusbar-h)' : 'h-(--hd-bar-h)',
-      grow && ['h-auto py-(--hd-space-1)', height === 'status' ? 'min-h-(--hd-statusbar-h)' : 'min-h-(--hd-bar-h)'],
+      'h-(--hd-bar-h)',
+      grow && ['h-auto py-(--hd-space-1)', 'min-h-(--hd-bar-h)'],
       inset === 'box' && (corner ? 'pl-[max(var(--hd-bar-pad),var(--titlebar-inset,0px))]' : 'pl-(--hd-bar-pad)'),
       inset === 'ink' && (corner ? 'pl-[max(var(--hd-bar-ink),var(--titlebar-inset,0px))]' : 'pl-(--hd-bar-ink)'),
       rule === 'bottom' && !paintedRule && 'border-b border-(--hd-border)',

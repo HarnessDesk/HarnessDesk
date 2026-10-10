@@ -77,7 +77,7 @@ beforeEach(async () => {
   await store.openWorkspace(REPO.path)
 })
 
-it.each(['panel toggle', 'lit tool'] as const)('status bar tasks can be closed by the %s', async (closer) => {
+it.each(['panel toggle', 'lit tool'] as const)('Activity tasks can be closed by the %s', async (closer) => {
   answers['session/read'] = conversation('status-work', REPO.path)
   await store.openSession(sessionId('status-work'), { runtime: AGENT })
   store.openDetailsTab('tasks')
@@ -133,7 +133,7 @@ describe.each(['panel toggle', 'lit tool'] as const)('right panel closure throug
     expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]?.tool).toBe(toolOf(view.kind))
     check()
   })
-  it('keeps the status bar terminal independent of the tasks panel', async () => {
+  it('keeps the More terminal independent of the tasks panel', async () => {
     answers['session/read'] = conversation('status-work', REPO.path)
     answers['terminal/open'] = { terminalId: 'status-terminal', runtime: AGENT }
     await store.openSession(sessionId('status-work'), { runtime: AGENT })
@@ -835,4 +835,12 @@ it('a current manifest revision refuses the saved right plugin at admission, rev
     expect(store.getSnapshot().notices.at(-1)?.message).toContain('does not support the fixed right panel')
   }
   expect(dockViews(store.getSnapshot().workbench.right)).toContainEqual(held)
+})
+
+it('historical tasks callers open the complete Activity body', async () => {
+  answers['session/read'] = conversation('activity-work', REPO.path)
+  await store.openSession(sessionId('activity-work'), { runtime: AGENT })
+  store.openDetailsTab('tasks')
+  const subject = store.workSubject()!
+  expect(store.getSnapshot().workbench.frameTools[subject]?.mode).toBe('activity')
 })

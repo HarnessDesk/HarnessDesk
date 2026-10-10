@@ -130,6 +130,7 @@ export { FlowStepRow, RunStateChip } from './patterns/FlowStepRow'
 export { CopyButton, copyButtonIconMarkup } from './patterns/CopyButton'
 export { ActionError } from './patterns/ActionError'
 export {
+  AppWindowContent,
   AppWindowPage,
   AppWindowRail,
   AppWindowRailScroll,
@@ -220,7 +221,7 @@ export { ComparisonSummary } from './patterns/ComparisonSummary'
 
 export { MergeDialog, DiffRangeDialog } from './patterns/GitComparisonDialogs'
 
-export { TopBar, type TopBarProps, type TopBarAction, type TopBarTab } from './patterns/TopBar'
+export { TopBar, TopBarToolButton, type TopBarProps, type TopBarAction, type TopBarTab } from './patterns/TopBar'
 
 export { ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolProse } from './patterns/ToolBody'
 export { ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet, ToolFooterSuppressed, type ToolFoot } from './patterns/ToolFooter'
@@ -235,8 +236,7 @@ export { LeftColumnList, LeftColumnRename, LeftColumnNavigation, LeftColumnProje
 import './ui/popup.css'
 export { MenuPresentation, MenuRowContent, menuRowAttributes, useMenuPresentation, type MenuRowData, type MenuIcons } from './ui/menu-row'
 
-export { FixedShell, type FixedShellProps } from './patterns/FixedShell'
+export { FixedShell, ShellNoticeHost, type FixedShellProps } from './patterns/FixedShell'
 
-export { StatusBar, type StatusFact } from './patterns/StatusBar'
 
 export { PageHeadingProvider, usePageHeading, type PageHeadingData } from './patterns/AppWindow/PageHeading'

@@ -12,8 +12,8 @@ import { Menu, MenuLabel, MenuNote, Popover } from '../design'
 import styles from './PlanMeters.module.css'
 
 /**
- * The strip at the app foot: this conversation's agent, and one token for the
- * rest of the roster.
+ * Retained plan-meter catalogue specimen: this conversation's agent and the
+ * rest of the roster. The live shell uses the same facts in the seat menu.
  *
  * The screen answers "where do I stand" when you go and ask it. This answers
  * the question nobody thinks to ask — *is the agent I am about to use still

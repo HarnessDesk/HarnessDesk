@@ -21,7 +21,7 @@ export const AppWindowSurface = forwardRef<HTMLDivElement, ComponentProps<typeof
       {...props}
       style={{ ...style, '--titlebar-inset': nativeCorner ? 'var(--hd-titlebar-lights)' : '0px', display: 'grid',
         gridTemplateColumns: 'minmax(0, 1fr)',
-        gridTemplateRows: `${FRAME.bar.height}px minmax(0, 1fr) ${FRAME.statusBar.height}px` } as CSSProperties}
+        gridTemplateRows: `${FRAME.bar.height}px minmax(0, 1fr)` } as CSSProperties}
     />
   ),
 )
@@ -61,3 +61,7 @@ export const AppWindowPage = ({ className, ...props }: ComponentProps<'div'>) =>
     {...props}
   />
 )
+
+/** Main consumes the window's remaining height; notices precede the retained page. */
+export const AppWindowContent = ({ children }: { children: React.ReactNode }) =>
+  <div data-slot="app-window-content" className="flex min-h-0 flex-col">{children}</div>

@@ -2,11 +2,11 @@ import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRe
 import { renderShellSlot } from '../design'
 import { TopBarOutlet } from './top-bar'
 import { WorkTopBar } from './WorkTopBar'
-import { WorkStatusBar } from './WorkStatusBar'
+import { ConnectionNotice } from './ConnectionNotice'
 import { PaneProvider, useSnapshot } from '../state/context'
 import { findPane } from '../state/layout'
 
-type Hosts = { readonly top: HTMLElement | null; readonly foot: HTMLElement | null }
+type Hosts = { readonly top: HTMLElement | null; readonly main: HTMLElement | null }
 const hostsRegistry = () => {
   let hosts = new Map<string, { token: object; nodes: Hosts }>()
   let next = 0
@@ -24,7 +24,7 @@ const hostsRegistry = () => {
     publish: (owner: string, token: object, nodes: Hosts) => {
       if (claims.get(token)?.get(owner) !== latest.get(owner)) return
       const current = hosts.get(owner)
-      if (current?.token === token && current.nodes.top === nodes.top && current.nodes.foot === nodes.foot) return
+      if (current?.token === token && current.nodes.top === nodes.top && current.nodes.main === nodes.main) return
       hosts = new Map(hosts).set(owner, { token, nodes }); emit()
     },
     remove: (owner: string, token: object) => {
@@ -40,14 +40,14 @@ export const ShellHostsProvider = ({ children }: { children: ReactNode }) => {
 }
 export const useShellHosts = (owner: string) => {
   const source = useContext(HostsContext)
-  const nodes = useRef<Hosts>({ top: null, foot: null })
+  const nodes = useRef<Hosts>({ top: null, main: null })
   const token = useRef<object>({})
   const topRef = useCallback((top: HTMLElement | null) => {
     nodes.current = { ...nodes.current, top }
     source?.publish(owner, token.current, nodes.current)
   }, [source, owner])
-  const footRef = useCallback((foot: HTMLElement | null) => {
-    nodes.current = { ...nodes.current, foot }
+  const mainRef = useCallback((main: HTMLElement | null) => {
+    nodes.current = { ...nodes.current, main }
     source?.publish(owner, token.current, nodes.current)
   }, [source, owner])
   useLayoutEffect(() => {
@@ -56,7 +56,7 @@ export const useShellHosts = (owner: string) => {
     source?.publish(owner, identity, nodes.current)
     return () => source?.remove(owner, identity)
   }, [source, owner])
-  return { topRef, footRef }
+  return { topRef, mainRef }
 }
 export const ShellOutlets = ({ activeOwner }: { activeOwner: string | null }) => {
   const source = useContext(HostsContext), snapshot = useSnapshot()
@@ -69,6 +69,6 @@ export const ShellOutlets = ({ activeOwner }: { activeOwner: string | null }) =>
   const top = nodes.top && renderShellSlot(activeOwner
     ? <TopBarOutlet owner={activeOwner} fallback={{ place: 'New session', more: () => null }} />
     : <WorkTopBar />, nodes.top)
-  const foot = nodes.foot && renderShellSlot(<WorkStatusBar />, nodes.foot)
-  return scope ? <PaneProvider scope={scope}>{top}{foot}</PaneProvider> : <>{top}{foot}</>
+  const main = nodes.main && renderShellSlot(<ConnectionNotice />, nodes.main)
+  return scope ? <PaneProvider scope={scope}>{top}{main}</PaneProvider> : <>{top}{main}</>
 }

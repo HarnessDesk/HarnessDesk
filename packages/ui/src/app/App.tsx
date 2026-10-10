@@ -1,3 +1,4 @@
+import { toggleTerminal } from '../components/TerminalToggle'
 import { TopBarProvider } from '../panels/top-bar'
 import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 import { TeamsWindow } from '../components/TeamsWindow'
@@ -169,6 +170,9 @@ export const App = () => {
           return
         case 'open-folder':
           setFoldersOpen(true)
+          return
+        case 'toggle-terminal':
+          toggleTerminal(store)
           return
         case 'toggle-sidebar':
           store.toggleSidebar()

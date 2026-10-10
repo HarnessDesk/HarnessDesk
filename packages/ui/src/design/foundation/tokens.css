@@ -498,7 +498,6 @@ body {
   /* The one bar height (spec: one top bar, the left column's top row and its
      seat row; a panel has no bar). The window's buttons are centred on it —
      trafficLightPosition in packages/desktop/electron/main.mjs. */
-  --hd-statusbar-h: 28px;
   --hd-bar-h: 40px; /* desk: 46 → 40, the app frame's one bar height */
   /* What a bar holds its controls at, and how far they stand from its ends.
      One pair for every bar in the window, so a control in the title row and a

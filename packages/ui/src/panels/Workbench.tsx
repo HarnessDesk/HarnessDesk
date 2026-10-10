@@ -14,7 +14,7 @@ import {
   type RefObject,
 } from 'react'
 
-import { FRAME, FixedShell, FixedPanelFrame, FixedPanelBody, FixedToolLayer, Tabs, TabsList, TabsTrigger, ToolBody, ToolBodySections, ToolFooterProvider, ToolFooterScope, ToolFooterOutlet, WorkbenchRail, WorkbenchScrim } from '../design'
+import { FRAME, FixedShell, ShellNoticeHost, FixedPanelFrame, FixedPanelBody, FixedToolLayer, Tabs, TabsList, TabsTrigger, ToolBody, ToolBodySections, ToolFooterProvider, ToolFooterScope, ToolFooterOutlet, WorkbenchRail, WorkbenchScrim } from '../design'
 import { DockPanelBody, PanelSeam } from '../design'
 import { dismissOverlays } from '../design'
 import { ComposerMountsProvider, NoticeStripFallback, NoticeStripOutlet } from '../components/Notices'
@@ -108,7 +108,7 @@ const LIVE: Record<DockId, string> = {
 const WorkActive = createContext(true)
 
 export const Workbench = ({ sidebar, suspended = false }: { sidebar: ReactNode; suspended?: boolean }) => {
-  const { topRef, footRef } = useShellHosts('work')
+  const { topRef, mainRef } = useShellHosts('work')
   const store = useStore()
   const snapshot = useSnapshot()
   const workbench = tileBrowserWorkbench(snapshot)
@@ -215,7 +215,6 @@ export const Workbench = ({ sidebar, suspended = false }: { sidebar: ReactNode; 
     '--frame-right-open': `${rightWidth || retainedRight}px`, '--frame-right-retained': `${retainedRight}px`,
     '--frame-bottom-size': `${bottomHeight}px`, '--frame-bottom': 'var(--frame-bottom-drag, var(--frame-bottom-size))',
     '--frame-bottom-retained': `${Math.max(FRAME.bottomPanel.min, Math.min(workbench.bottom.size, Math.floor(snapshot.windowHeight / 2)))}px`,
-    '--frame-status': `${FRAME.statusBar.height}px`,
   } as CSSProperties
   return <WorkActive.Provider value={!suspended}><KeyboardHereContext.Provider value={suspended ? false : null}><RunDockProvider><ComposerMountsProvider><ShellContext.Provider value={shell}>
     <FixedShell ref={shell} viewportWidth={snapshot.windowWidth} style={frameStyle} className={styles.shell}
@@ -234,8 +233,8 @@ export const Workbench = ({ sidebar, suspended = false }: { sidebar: ReactNode; 
           const paneId = event.target.closest<HTMLElement>('[data-pane-id]')?.dataset.paneId
           const pane = paneId ? findPane(snapshot.layout, paneId) : undefined
           if (pane) mainFocus.current = { target: event.target, paneId: pane.id, view: pane.view }
-        }}><NoticeStripFallback area="main" /><Panes /></div>}
-      right={<RightPanel />} bottom={<BottomPanel />} status={<div ref={footRef} data-shell-host="status" />}>
+        }}><ShellNoticeHost ref={mainRef} /><NoticeStripFallback area="main" /><Panes /></div>}
+      right={<RightPanel />} bottom={<BottomPanel />}>
       {narrow && <WorkbenchScrim className={styles.scrim} {...(floating ? { 'data-open': '' } : {})} aria-hidden
         onMouseDown={event => event.preventDefault()} onClick={() => store.closeFloatingSidebar()} />}
     </FixedShell>

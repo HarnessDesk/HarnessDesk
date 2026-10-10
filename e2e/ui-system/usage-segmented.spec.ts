@@ -10,10 +10,14 @@ const mountPlanMeters = async (page: Page, fixtureUsage = false) => {
   await expect(page.locator('[data-frame-id="supported-plan-meters"]')).toBeVisible()
 }
 
-test('the app footer keeps the plan track and separates its reading from the roster token', async ({ page }) => {
+test('the PlanMeters specimen keeps the plan track and separates its reading from the roster token', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/preview.html')
-  const strip = page.getByRole('dialog', { name: 'Dashboard', exact: true }).locator('[data-slot="status-bar"]').getByRole('group', { name: 'Plan usage' })
+  await page.evaluate(async () => {
+    const { mountPlanMetersSpecimen } = await import('/src/preview/frames-supported-controls.tsx' as string)
+    const host = document.createElement('section'); document.querySelector('[role="dialog"][aria-label="Dashboard"]')!.append(host); mountPlanMetersSpecimen(host, true)
+  })
+  const strip = page.locator('[data-frame-id="supported-plan-meters"]').getByRole('group', { name: 'Plan usage' })
   await expect(strip).toBeVisible()
   // The preview's plan strip holds a meter with a track and a second reading
   // after it; whatever that reading says, it must sit clear of the first.

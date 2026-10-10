@@ -1,4 +1,6 @@
 import {
+  AppWindowContent,
+  ShellNoticeHost,
   AppWindowPage,
   AppWindowRail,
   AppWindowRailScroll,
@@ -83,7 +85,7 @@ const AppWindowFrame = ({ owner, label, children, responsive = false, onBack, on
   const embedded = useContext(AppWindowMode) === 'embedded'
   const snapshot = useSnapshot()
   const columnWidth = sidebarPlacement(snapshot) === 'column' ? snapshot.workbench.sidebar.size : 0
-  const { topRef, footRef } = useShellHosts(owner)
+  const { topRef, mainRef } = useShellHosts(owner)
   const [heading, setHeading] = useState<PageHeadingData | null>(null)
   useTopBar(owner, {
     place: heading?.place ?? label,
@@ -124,8 +126,7 @@ const AppWindowFrame = ({ owner, label, children, responsive = false, onBack, on
               finalFocus={!embedded}
             >
               <AppWindowTopHost columnWidth={columnWidth} ref={topRef} data-shell-host="top" />
-              <div className={styles.winBody}><PageHeadingProvider onHeading={receiveHeading}>{children}</PageHeadingProvider></div>
-              <div ref={footRef} data-shell-host="status" />
+              <AppWindowContent><ShellNoticeHost ref={mainRef} /><div className={styles.winBody}><PageHeadingProvider onHeading={receiveHeading}>{children}</PageHeadingProvider></div></AppWindowContent>
             </AppWindowSurface>
           </DialogPortal>
         )}

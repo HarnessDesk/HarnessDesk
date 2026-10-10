@@ -56,17 +56,8 @@ it('a growing bar keeps the bar height as its floor and is otherwise sized by it
   expect(fixed).not.toContain('h-auto')
 })
 
-it('gives app status its footer semantics and token without changing ordinary bars', () => {
-  const status = renderToStaticMarkup(<Bar as="footer" height="status" rule="top">Connection facts</Bar>)
-  expect(status).toMatch(/^<footer data-slot="bar"/)
-  expect(status).toContain('data-height="status"')
-  expect(classOf(status)).toContain('h-(--hd-statusbar-h)')
-  expect(classOf(status)).not.toContain('h-(--hd-bar-h)')
-  expect(classOf(renderToStaticMarkup(<Bar>Work tools</Bar>))).toContain('h-(--hd-bar-h)')
-})
-
-it('can paint a footer seam while retaining the entire status control height', () => {
-  const status = classOf(renderToStaticMarkup(<Bar as="footer" height="status" rule="top" paintedRule>Facts</Bar>))
+it('can paint a seam while retaining the entire bar control height', () => {
+  const status = classOf(renderToStaticMarkup(<Bar as="footer" rule="top" paintedRule>Facts</Bar>))
   expect(status).toContain('after:top-0')
   expect(status).toContain('after:h-(--hd-border-width)')
   expect(status).not.toContain('border-t')

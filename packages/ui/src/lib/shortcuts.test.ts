@@ -134,7 +134,7 @@ describe('a chord the focused surface already answered', () => {
     // Control: with the flag down every row in the table still matches, so the
     // loop above cannot pass by the table being empty or the matcher broken.
     for (const one of SHORTCUTS) {
-      const fresh = { key: one.key, metaKey: true, ctrlKey: false, shiftKey: Boolean(one.shift), altKey: Boolean(one.alt), code: one.code }
+      const fresh = { key: one.key, metaKey: !one.controlOnly, ctrlKey: Boolean(one.controlOnly), shiftKey: Boolean(one.shift), altKey: Boolean(one.alt), code: one.code }
       expect(shortcutFor(fresh)?.action).toBe(one.action)
     }
   })

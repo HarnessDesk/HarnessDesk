@@ -87,7 +87,8 @@ it('projects the top host by the actual standing sidebar width, and removes that
   await act(async () => root.render(draw()))
   const top = container.querySelector<HTMLElement>('[data-shell-host="top"]')!
   expect(top.style.marginInlineStart).toBe('312px')
-  expect(container.querySelector('[data-shell-host="status"]')?.getAttribute('style')).toBeNull()
+  expect(container.querySelector('[data-shell-host="status"]')).toBeNull()
+  expect(container.querySelector('[data-shell-host="main-notice"]')?.getAttribute('style')).toBeNull()
   act(() => store.toggleSidebar())
   expect(top.style.marginInlineStart).toBe('0px')
   act(() => store.setWindowSize(720, 900))

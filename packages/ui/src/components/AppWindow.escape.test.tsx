@@ -204,7 +204,7 @@ for (const which of ['Settings', 'Dashboard'] as const) {
   })
 }
 
-it('Agents spends footer menu Escape before its own close and returns focus to the opener', async () => {
+it('Agents spends More menu Escape before its own close and returns focus to the opener', async () => {
   const store = previewStore(), closed = vi.fn()
   const Harness = () => {
     const [open, setOpen] = useState(false)
@@ -221,7 +221,7 @@ it('Agents spends footer menu Escape before its own close and returns focus to t
   await frame()
   const agents = window_('Agents')!
   expect(agents).not.toBeNull()
-  const trigger = agents.querySelector<HTMLButtonElement>('[data-slot="status-bar"] [data-slot="popover-trigger"]')!
+  const trigger = agents.querySelector<HTMLButtonElement>('[data-slot="top-bar"] [aria-label="More"]')!
   expect(trigger).not.toBeNull()
   act(() => { trigger.focus(); trigger.click() })
   expect(menu()).not.toBeNull()

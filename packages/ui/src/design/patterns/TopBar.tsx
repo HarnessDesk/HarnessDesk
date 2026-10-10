@@ -1,4 +1,4 @@
-import { useId, useLayoutEffect, useRef, useState, type ReactNode, type CSSProperties } from 'react'
+import { useId, useLayoutEffect, useRef, useState, type ReactNode, type CSSProperties, type ComponentProps } from 'react'
 import { Bar } from '../ui/bar'
 import { Button } from '../ui/button'
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
@@ -136,3 +136,9 @@ export const TopBar = (props: TopBarProps) => {
     </div>
   </Bar>
 }
+
+/** A fixed tool's 28px door with the drawing's small activity dot. */
+export const TopBarToolButton = ({ attention = false, children, ...props }: ComponentProps<typeof Button> & { attention?: boolean }) =>
+  <Button {...props} variant="ghost" size="icon-sm" className={styles.toolButton}>{children}
+    {attention && <span data-slot="tool-dot" className={styles.dot} aria-hidden="true" />}
+  </Button>

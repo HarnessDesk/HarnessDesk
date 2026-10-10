@@ -1,3 +1,4 @@
+import { TerminalMenuItem } from '../components/TerminalToggle'
 import { createContext, useContext, useLayoutEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react'
 import { TopBar, type TopBarProps, type TopBarAction } from '../design'
 export type ViewSlots = Pick<TopBarProps, 'verb' | 'view'> & { readonly more?: readonly TopBarAction[] }
@@ -79,5 +80,5 @@ export const TopBarOutlet = ({ owner, fallback, rightColumnWidth }: { owner: str
   const base = current?.base ?? fallback
   return <TopBar {...base} rightColumnWidth={rightColumnWidth ?? base.rightColumnWidth} verb={current?.view ? current.view.verb : base.verb}
     view={current?.view ? current.view.view : base.view}
-    more={close => <>{base.more(close)}{current?.more?.(close)}</>} extraMore={current?.view?.more} />
+    more={close => <>{base.more(close)}{current?.more?.(close)}<TerminalMenuItem close={close} /></>} extraMore={current?.view?.more} />
 }
