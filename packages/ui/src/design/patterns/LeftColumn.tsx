@@ -43,7 +43,7 @@ export interface LeftColumnRowProps {
   readonly buttonProps?: Pick<ComponentProps<'button'>, 'aria-label' | 'aria-describedby' | 'onKeyDown' | 'onDragOver' | 'onDrop'>
 }
 export const LeftColumnRow = forwardRef<HTMLButtonElement, LeftColumnRowProps>((props, ref) =>
-  <div data-left-row data-insert={props.insertion} data-current={props.current ? '' : undefined} data-dragging={props.dragging ? '' : undefined} className={styles.row} onContextMenu={props.onContextMenu}>
+  <div data-left-row data-left-project={props.project ? '' : undefined} data-insert={props.insertion} data-current={props.current ? '' : undefined} data-dragging={props.dragging ? '' : undefined} className={styles.row} onContextMenu={props.onContextMenu}>
     <SidebarMenuButton data-draggable={props.project ? '' : undefined} ref={ref} className={styles.button} label={props.label}
       icon={props.icon ?? <span aria-hidden="true" />} isActive={props.selected}
       title={props.title ?? props.label} disabled={props.disabled}
@@ -71,7 +71,7 @@ export const LeftColumnHead = ({ label, controls, search }: {
   label?: string; controls?: ReactNode; search?: ReactNode
 }) => <div data-left-head className={search ? styles.head : `${styles.head} ${styles.inset}`}>
   {search ? <div className={styles.headSearch}>{search}</div> : <>
-    <GroupLabel className={`${styles.headLabel} ${styles.inkAfterIcon}`}><span data-left-group-text>{label}</span></GroupLabel>
+    <GroupLabel className={styles.headLabel}><span data-left-group-text>{label}</span></GroupLabel>
     <div className={styles.headControls}>{controls}</div>
   </>}
 </div>
@@ -145,7 +145,7 @@ export const LeftColumnProjectsHead = ({ value, onChange, focused, onFocusChange
   const filtering = focused || value.length > 0
   return <NavigationGroupHeader data-left-head data-left-projects-head filtering={filtering}
     data-filtered={value ? '' : undefined} className={`${styles.head} ${styles.projectsHead} ${styles.inset}`}
-    label={<span className={`${styles.projectsLabel} ${styles.inkAfterIcon}`} data-left-group-text>Projects</span>}>
+    label={<span className={styles.projectsLabel} data-left-group-text>Projects</span>}>
     {value && <span className={styles.filtered}><Chip tone="neutral" label="Filtered" />
       <Button variant="ghost" size="icon-xs" aria-label="Clear list filter" title="Clear list filter"
         onClick={() => onChange('')}><CrossIcon size={16} /></Button></span>}

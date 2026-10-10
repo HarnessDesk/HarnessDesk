@@ -28,37 +28,78 @@ const resolvedPx = (page: Page, token: string) => page.evaluate((name) => {
 for (const theme of WALL_THEMES) {
   for (const width of WALL_WIDTHS) {
     for (const foundation of ['desk', 'studio'] as const) {
-      test(`D6fix following groups keep their space at ${width} in ${theme}/${foundation}`, async ({ page }, testInfo) => {
+      test(`D7 group names sit with icons and following groups use the spacing token at ${width} in ${theme}/${foundation}`, async ({ page }, testInfo) => {
         await openFrame(page, 'frame-wall=left-work', theme, width)
         await page.locator('body').evaluate((body, value) => { body.dataset.hdInterface = value }, foundation)
         const column = page.locator('[data-left-column]:visible')
         if (!await column.count()) await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
-        const projects = column.locator('[data-left-projects-head] [data-slot="navigation-group-label"]')
-        const dashboard = column.getByRole('button', { name: 'Dashboard', exact: true })
-        const projectsBox = (await projects.boundingBox())!, dashboardBox = (await dashboard.boundingBox())!
-        const sessionsGap = projectsBox.y - dashboardBox.y - dashboardBox.height
-        const token = await resolvedPx(page, '--hd-label-space, var(--hd-space-1-5)')
+        const token = await resolvedPx(page, '--hd-space-4')
+        const sessions = await column.evaluate(column => {
+          const inkX = (element: Element) => {
+            const range = document.createRange()
+            range.selectNodeContents(element)
+            return range.getBoundingClientRect().x
+          }
+          const firstIcon = column.querySelector('[data-left-row] [data-slot="sidebar-menu-icon"]')!.getBoundingClientRect().x
+          const dashboard = column.querySelector('[aria-label="Dashboard"]')!.getBoundingClientRect()
+          const projects = column.querySelector('[data-left-projects-head] [data-slot="navigation-group-label"]')!
+          const names = [...column.querySelectorAll('[data-left-group-text], [data-draggable] [data-slot="sidebar-menu-label-content"]')]
+            .map(label => ({ label: label.textContent, x: inkX(label), size: parseFloat(getComputedStyle(label).fontSize), weight: parseInt(getComputedStyle(label).fontWeight, 10) }))
+          const gaps = [{ label: 'Projects', gap: projects.getBoundingClientRect().top - dashboard.bottom }]
+          const allRows = [...column.querySelectorAll('[data-left-row]')]
+          for (const project of column.querySelectorAll('[data-project-root]')) {
+            const label = project.querySelector('[data-draggable] [data-slot="sidebar-menu-label-content"]')!
+            const heading = label.closest('[data-left-row]')!
+            const previousRow = allRows[allRows.indexOf(heading) - 1]
+            if (previousRow) gaps.push({ label: label.textContent!, gap: label.getBoundingClientRect().top - previousRow.getBoundingClientRect().bottom })
+          }
+          const rows = [...column.querySelectorAll('[data-left-row]:not(:has([data-draggable])) [data-slot="sidebar-menu-button"]')].map(row => {
+            const style = getComputedStyle(row)
+            return { height: row.getBoundingClientRect().height, icon: row.querySelector('[data-slot="sidebar-menu-icon"]')!.getBoundingClientRect().width, gap: parseFloat(style.gap) }
+          })
+          const disclosures = [...column.querySelectorAll('[data-draggable]')].map(row => ({
+            iconRight: row.querySelector('[data-slot="sidebar-menu-icon"]')!.getBoundingClientRect().right,
+            nameX: row.querySelector('[data-slot="sidebar-menu-label-content"]')!.getBoundingClientRect().x,
+          }))
+          return { firstIcon, names, gaps, rows, disclosures }
+        })
         const modes = []
         for (const query of ['frame-wall=settings', 'frame-wall=settings-middle']) {
           await openFrame(page, query, theme, width)
           await page.locator('body').evaluate((body, value) => { body.dataset.hdInterface = value }, foundation)
           const navigation = page.locator(query === 'frame-wall=settings' ? '[aria-label="Window navigation"]' : '[data-left-settings]')
-          const firstGroupInset = await navigation.locator('[data-left-group]').first().evaluate(group =>
-            group.querySelector(':scope > [data-slot="group-label"]')!.getBoundingClientRect().top - group.getBoundingClientRect().top)
-          expect(firstGroupInset, 'the first group keeps its existing spacing').toBe(0)
-          const gaps = await navigation.locator('[data-left-group] + [data-left-group]').evaluateAll(groups => groups.map(group => {
-            const previousRow = group.previousElementSibling!.querySelector('[data-left-row]:last-child')!
+          const groups = await navigation.locator('[data-left-group]').evaluateAll(groups => groups.map(group => {
+            const previousRow = group.previousElementSibling?.querySelector('[data-left-row]:last-child')
             const label = group.querySelector(':scope > [data-slot="group-label"]')!
-            return { label: label.textContent, gap: label.getBoundingClientRect().top - previousRow.getBoundingClientRect().bottom }
+            const name = label.querySelector('[data-left-group-text]')!
+            const range = document.createRange()
+            range.selectNodeContents(name)
+            const icon = group.querySelector('[data-left-row] [data-slot="sidebar-menu-icon"]')!
+            return { label: name.textContent, x: range.getBoundingClientRect().x, iconX: icon.getBoundingClientRect().x,
+              gap: previousRow ? label.getBoundingClientRect().top - previousRow.getBoundingClientRect().bottom : null,
+              inset: label.getBoundingClientRect().top - group.getBoundingClientRect().top }
           }))
-          expect(gaps.length).toBeGreaterThan(0)
-          modes.push({ query, gaps })
+          expect(groups.length).toBeGreaterThan(1)
+          modes.push({ query, groups })
         }
-        await testInfo.attach('group-gaps', { body: JSON.stringify({ width, theme, foundation, token, sessionsGap, modes }, null, 2), contentType: 'application/json' })
-        expect(sessionsGap).toBeGreaterThanOrEqual(token)
-        for (const mode of modes) for (const group of mode.gaps) {
-          expect(group.gap, `${mode.query}: ${group.label}`).toBe(sessionsGap)
-          expect(group.gap, `${mode.query}: ${group.label}`).toBeGreaterThanOrEqual(token)
+        await testInfo.attach('group-labels', { body: JSON.stringify({ width, theme, foundation, token, sessions, modes }, null, 2), contentType: 'application/json' })
+        expect(sessions.names.length).toBeGreaterThan(2)
+        for (const name of sessions.names) {
+          expect(name.x, `Sessions: ${name.label}`).toBe(sessions.firstIcon)
+          expect(name.size).toBe(FRAME.rail.label)
+          expect(name.weight).toBe(FRAME.rail.groupWeight)
+        }
+        for (const group of sessions.gaps) expect(group.gap, `Sessions: ${group.label}`).toBe(token)
+        for (const disclosure of sessions.disclosures) expect(disclosure.iconRight, 'disclosure keeps a separate gutter beside the name').toBeLessThanOrEqual(disclosure.nameX)
+        for (const row of sessions.rows) {
+          expect(row.height).toBe(FRAME.rail.rowHeight)
+          expect(row.icon).toBe(FRAME.rail.icon)
+          expect(row.gap).toBe(FRAME.rail.gap)
+        }
+        for (const mode of modes) for (const group of mode.groups) {
+          expect(group.x, `${mode.query}: ${group.label}`).toBe(group.iconX)
+          if (group.gap !== null) expect(group.gap, `${mode.query}: ${group.label}`).toBe(token)
+          else expect(group.inset, 'the first group keeps its existing spacing').toBe(0)
         }
       })
     }
@@ -179,7 +220,7 @@ for (const theme of WALL_THEMES) {
     }))
     expect(group.size).toBe(FRAME.rail.label)
     expect(group.weight).toBe(FRAME.rail.groupWeight)
-    expect(Math.abs(group.x - values[0]!.textX)).toBeLessThanOrEqual(1)
+    expect(Math.abs(group.x - values[0]!.iconX)).toBeLessThanOrEqual(1)
     const controls = await page.locator('[data-left-top] button').evaluateAll(nodes => nodes.map(el => ({
       width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height,
     })))
@@ -264,10 +305,9 @@ for (const theme of WALL_THEMES) {
     const anatomy = await rows.evaluateAll(nodes => nodes.map(node => {
       const button = node.querySelector('[data-slot="sidebar-menu-button"]')!
       const icon = button.querySelector('[data-slot="sidebar-menu-icon"]')!
-      const label = button.querySelector('[data-slot="sidebar-menu-label-content"]')!
       const css = getComputedStyle(button)
       return { height: button.getBoundingClientRect().height, icon: icon.getBoundingClientRect().width,
-        textX: label.getBoundingClientRect().x, size: parseFloat(css.fontSize) }
+        iconX: icon.getBoundingClientRect().x, size: parseFloat(css.fontSize) }
     }))
     for (const row of anatomy) {
       expect(row.height).toBe(FRAME.rail.rowHeight)
@@ -275,7 +315,7 @@ for (const theme of WALL_THEMES) {
       expect(row.size).toBe(FRAME.rail.label)
     }
     const ink = await group.locator('[data-left-group-text]').boundingBox()
-    expect(ink!.x).toBe(anatomy[0]!.textX)
+    expect(ink!.x).toBe(anatomy[0]!.iconX)
     const general = rows.first().getByRole('button')
     await expect(general).toHaveAttribute('aria-current', 'page')
     await general.focus()
@@ -308,7 +348,7 @@ for (const theme of WALL_THEMES) {
   test(`D4 all work rows share the same text and icon edges in ${theme}`, async ({ page }) => {
     await openFrame(page, 'sidebar-structure', theme)
     const column = page.locator('#sidebar-structure')
-    const rows = column.locator('[data-left-row]:visible')
+    const rows = column.locator('[data-left-row]:visible:not(:has([data-draggable]))')
     expect(await rows.count()).toBeGreaterThan(3)
     const values = await rows.evaluateAll(nodes => nodes.map(node => {
       const button = node.querySelector<HTMLElement>('[data-slot="sidebar-menu-button"]')!
@@ -323,7 +363,7 @@ for (const theme of WALL_THEMES) {
     }
     const labels = await column.locator('[data-left-group] > [data-slot="group-label"] [data-left-group-text]:visible')
       .evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().x))
-    for (const x of labels) expect(Math.abs(x - values[0].text)).toBeLessThanOrEqual(1)
+    for (const x of labels) expect(Math.abs(x - values[0].icon)).toBeLessThanOrEqual(1)
     const groupType = await column.locator('[data-left-group] > [data-slot="group-label"] [data-left-group-text]:visible')
       .evaluateAll(nodes => nodes.map(node => ({ size: parseFloat(getComputedStyle(node).fontSize), weight: parseInt(getComputedStyle(node).fontWeight, 10) })))
     for (const group of groupType) { expect(group.size).toBe(FRAME.rail.label); expect(group.weight).toBe(FRAME.rail.groupWeight) }
@@ -382,8 +422,13 @@ for (const theme of WALL_THEMES) {
     const column = page.locator('[data-left-column]')
     const rows = column.locator('[data-left-row]')
     await expect(rows).toHaveCount(2)
-    const labels = await rows.locator('[data-slot="sidebar-menu-label-content"]').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().x))
-    expect(Math.abs(labels[0]! - labels[1]!)).toBeLessThanOrEqual(1)
+    const ordinary = rows.filter({ hasNot: page.locator('[data-draggable]') })
+    const project = rows.filter({ has: page.locator('[data-draggable]') })
+    const iconX = (await ordinary.locator('[data-slot="sidebar-menu-icon"]').boundingBox())!.x
+    expect((await project.locator('[data-slot="sidebar-menu-label-content"]').boundingBox())!.x,
+      'project name starts at the ordinary icon edge').toBe(iconX)
+    expect((await ordinary.locator('[data-slot="sidebar-menu-label-content"]').boundingBox())!.x - iconX,
+      'ordinary row text keeps its icon and gap').toBe(FRAME.rail.icon + FRAME.rail.gap)
     for (const row of await rows.all()) expect((await row.boundingBox())!.height).toBe(FRAME.rail.rowHeight)
     expect((await column.locator('[data-left-rename]').boundingBox())!.height).toBe(FRAME.rail.rowHeight)
     expect((await column.getByRole('textbox', { name: 'Rename example' }).boundingBox())!.height).toBe(FRAME.rail.rowHeight)

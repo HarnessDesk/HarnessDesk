@@ -3,10 +3,9 @@
 .body { flex: 1; min-height: 0; min-width: 0; overflow-x: hidden; overflow-y: auto; }
 .hidden { display: none; }
 .group { min-width: 0; padding: 0; }
-/* Match the Projects label: the header's top inset plus the label's
-   centring within its control target. The first group keeps its own inset. */
-.group + .group { padding-block-start: calc(var(--hd-label-space, var(--hd-space-1-5)) + (var(--hd-icon-target) - var(--hd-line-sm)) / 2); }
-.label { font-weight: var(--hd-weight-medium); display: block; padding-inline-start: calc(var(--hd-space-2) + var(--hd-space-4) + var(--hd-space-2)); margin-block: var(--hd-space-2); }
+/* The drawing's group rhythm is shared by both interfaces. */
+.group + .group { padding-block-start: var(--hd-space-4); }
+.label { font-weight: var(--hd-weight-medium); display: block; padding-inline-start: var(--hd-space-2); margin-block: var(--hd-space-2); }
 .row { position: relative; height: var(--hd-left-row-h); min-width: 0; }
 .row .button { box-sizing: border-box; border: 0; padding-block: 0; height: var(--hd-left-row-h); min-height: var(--hd-left-row-h); padding-inline: var(--hd-space-2); gap: var(--hd-space-2); border-radius: var(--hd-nav-radius); font-size: var(--hd-text-sm); line-height: var(--hd-line-sm); font-weight: var(--hd-weight-normal); }
 .row .button[data-active='true'] { background: var(--hd-selected); color: var(--hd-foreground); }
@@ -57,7 +56,17 @@
 .options > [data-slot='dot'] { position: absolute; inset-block-start: 0; inset-inline-end: 0; pointer-events: none; }
 .empty { white-space: normal; }
 .inset { padding-inline: var(--hd-space-2); }
-.inkAfterIcon { padding-inline-start: calc(var(--hd-space-4) + var(--hd-space-2)); }
 
 .headSearch { flex: 1; min-width: 0; }
 .headSearch > [data-slot="search"] { width: 100%; }
+
+/* Header controls centre a line inside their target; the air belongs to the
+   label, not the top of that larger target. */
+.head:has([data-left-group-text]) { padding-block-start: calc(var(--hd-space-4) - (var(--hd-icon-target) - var(--hd-line-sm)) / 2); }
+/* Project names use the ordinary icon edge. The disclosure has its own gutter
+   beside the name, leaving the ordinary rows' icon/text slots untouched. */
+.row[data-left-project] { margin-block-start: calc(var(--hd-space-4) - (var(--hd-left-row-h) - var(--hd-line-sm)) / 2); }
+.row[data-left-project] .button { overflow: visible; color: var(--hd-secondary-foreground); font-weight: var(--hd-weight-medium); }
+.row[data-left-project] [data-slot='sidebar-menu-icon'] { position: absolute; inset-inline-start: calc(-1 * var(--hd-space-2)); }
+/* The pinned band's hairline is already part of the following group's air. */
+.body [data-sidebar-band='pinned'] + [data-project-root] .row[data-left-project] { margin-block-start: calc(var(--hd-space-4) - (var(--hd-left-row-h) - var(--hd-line-sm)) / 2 - var(--hd-border-width)); }
