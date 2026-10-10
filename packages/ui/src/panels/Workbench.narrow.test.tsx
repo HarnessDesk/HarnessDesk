@@ -7,7 +7,7 @@ import { ContextMenu, MenuItem, Popover } from '../design'
 import { StoreProvider } from '../state/context'
 import { expand as expandLayout, panes as layoutPanes, split as splitLayout } from '../state/layout'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { dock, emptyWorkbench, type Workbench as Model } from '../state/workbench'
+import { dock, dockViews, emptyWorkbench, fixedSubject, type Workbench as Model } from '../state/workbench'
 import { Workbench } from './Workbench'
 import { views } from './views'
 import './builtins'
@@ -90,17 +90,28 @@ afterEach(() => {
 })
 
 const rig = (extra: Partial<AppSnapshot> = {}, workbench: Model = emptyWorkbench()) => {
+  // These compatibility fixtures predate owner-scoped fixed tools. Admit the
+  // original resource once while retaining its captured main scope.
+  const subject = fixedSubject(workbench.main)
+  const mounted = dockViews(workbench.right)
+  const initialPane = layoutPanes(workbench.main.root).find(one => one.id === workbench.main.focused)!
+  const prepare = (next: Model): Model => subject && mounted.length > 0 ? {
+    ...next,
+    frameTools: { ...next.frameTools, [subject]: { tool: 'changes', mode: 'changes', open: !next.right.collapsed } },
+    toolOwners: { ...next.toolOwners, ...Object.fromEntries(mounted.map(one => [one.id, subject])) },
+    frameSubjects: { ...next.frameSubjects, [subject]: { paneId: initialPane.id, view: initialPane.view } },
+  } : next
   let snapshot = {
     ...emptySnapshot(),
     status: 'open',
-    workbench,
+    workbench: prepare(workbench),
     layout: workbench.main,
     ...(extra.narrowWindow ? { windowWidth: 679 } : {}),
     ...extra,
   } as AppSnapshot
   const listeners = new Set<() => void>()
   const patch = (next: Partial<AppSnapshot>): void => {
-    snapshot = { ...snapshot, ...next }
+    snapshot = { ...snapshot, ...next, ...(next.workbench ? { workbench: prepare(next.workbench) } : {}) }
     act(() => {
       for (const listener of listeners) listener()
     })
@@ -111,6 +122,7 @@ const rig = (extra: Partial<AppSnapshot> = {}, workbench: Model = emptyWorkbench
       return () => listeners.delete(listener)
     },
     getSnapshot: () => snapshot,
+    workSubject: () => fixedSubject(snapshot.layout),
     closeFloatingSidebar: vi.fn(() => patch({ sidebarFloating: false })),
     // What ⌘B runs, in a narrow window.
     toggleSidebar: vi.fn(() => patch({ sidebarFloating: !snapshot.sidebarFloating })),

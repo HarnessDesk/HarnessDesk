@@ -1,3 +1,8 @@
+import { splitSessionKey, type CapabilityContribution } from '@harnessdesk/protocol'
+import { AppStore } from '../state/store'
+import { ToolBody, ToolSection } from '../design'
+import { useSessionKey, useIsFocusedPane } from '../state/context'
+import { publishComponent } from '../slots/registry'
 import { sideBySideStore, SIDE_BY_SIDE_KEYS } from '../preview/side-by-side-fixture'
 import { PREVIEW_ROOM } from '../preview/harness'
 import { runTeamStore } from '../preview/run-view-fixture'
@@ -462,4 +467,137 @@ it('Run again retains both original Runs and continuation in the real parent Det
   await act(async () => button('Details')!.click())
   expect([...container.querySelectorAll('[aria-label="Choose a Run"] button')].map(one => one.textContent)).toEqual(['Run 1', 'Run 2'])
   expect([...container.querySelectorAll('[data-slot="summary-item"]')].find(one => one.textContent?.startsWith('Continues'))?.textContent).toContain('Run 1')
+})
+
+it('B7 work tools have no dock strip, inspector bar or arrangement buttons', () => {
+  const store = mountWork(true)
+  act(() => store.showView('changes'))
+  expect(container.querySelector('[data-slot="dock-panel-tabs"]')).toBeNull()
+  expect(container.querySelector('[data-slot="inspector-tools"]')).toBeNull()
+  for (const name of ['Move panel', 'Split panel', 'Expand panel', 'Collapse panel']) expect(button(name)).toBeNull()
+})
+
+it('B7 retains both real Browser profile bodies across close, work navigation and older-profile reveal', async () => {
+  const store = mountWork(true)
+  await act(async () => store.openBrowser('https://example.com/first', { profile: 'lane-first' }))
+  const first = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser')!
+  const firstNode = container.querySelector('[data-slot="tool-pane"]')
+  expect(firstNode).not.toBeNull()
+  act(() => store.toggleWorkPanel())
+  expect(container.contains(firstNode)).toBe(true)
+  act(() => store.toggleWorkPanel())
+  await act(async () => store.openBrowser('https://example.com/second', { profile: 'lane-second' }))
+  const second = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser' && one.id !== first.id)!
+  const secondNode = container.querySelector(`[data-tool-mount="${second.id}"] [data-slot="tool-pane"]`)
+  expect(secondNode).not.toBeNull()
+  act(() => store.toggleWorkPanel())
+  act(() => store.toggleWorkPanel())
+  expect(activeView(store.getSnapshot().workbench.right)?.id).toBe(second.id)
+  expect(container.querySelector(`[data-tool-mount="${second.id}"]`)?.hasAttribute('data-hidden')).toBe(false)
+  act(() => store.revealView(first.id))
+  expect(container.querySelector(`[data-tool-mount="${first.id}"]`)?.hasAttribute('data-hidden')).toBe(false)
+  expect(container.querySelector(`[data-tool-mount="${second.id}"]`)?.hasAttribute('inert')).toBe(true)
+  act(() => store.toggleWorkPanel())
+  expect(container.querySelector(`[data-tool-mount="${first.id}"] [data-slot="tool-pane"]`)).toBe(firstNode)
+  act(() => store.openTeamRoom('another-team'))
+  expect(container.querySelector(`[data-tool-mount="${first.id}"] [data-slot="tool-pane"]`)).toBe(firstNode)
+  act(() => store.revealView(second.id))
+  expect(activeView(store.getSnapshot().workbench.right)?.id).toBe(second.id)
+  expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]?.open).toBe(true)
+  expect(container.querySelector(`[data-tool-mount="${second.id}"] [data-slot="tool-pane"]`)).toBe(secondNode)
+  expect(container.querySelector(`[data-tool-mount="${second.id}"]`)?.hasAttribute('data-hidden')).toBe(false)
+  expect(store.getSnapshot().workbench.toolOwners[first.id]).toBe(`session:${PREVIEW_SESSION_KEY}`)
+})
+
+
+it('B7 actual session removal retains the admitted Browser node, original owner and refusal', async () => {
+  const fixture = previewStore().getSnapshot()
+  const workbench = emptyWorkbench()
+  const main = { ...workbench.main, root: { kind: 'pane' as const, id: 'owner', view: { kind: 'conversation' as const, session: PREVIEW_SESSION_KEY } }, focused: 'owner' }
+  // AppStore coalesces notifications per frame; deliver a synthetic frame inside act.
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { queueMicrotask(() => callback(0)); return 1 })
+  const store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), fixture, { windowWidth: 1440, layout: main, workbench: { ...workbench, main }, activeSessionKey: PREVIEW_SESSION_KEY })
+  const requested = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string) => {
+    if (method === 'session/remove') return { undoUntil: null }
+    if (method === 'workspace/read') return fixture.workspace
+    if (method === 'workspace/recent') return []
+    return null
+  }) as never)
+  await act(async () => root.render(<StoreProvider store={store}><Workbench sidebar={<div />} /></StoreProvider>))
+  await act(async () => store.openBrowser('https://example.com/retained', { profile: 'lane-removed' }))
+  const entry = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser')!
+  const node = container.querySelector(`[data-tool-mount="${entry.id}"] [data-slot="tool-pane"]`)
+  expect(node).not.toBeNull()
+  const owner = store.getSnapshot().workbench.toolOwners[entry.id]
+  const { id, runtime } = splitSessionKey(PREVIEW_SESSION_KEY)
+  await act(async () => store.removeSession(id, runtime))
+  expect(container.querySelector(`[data-tool-mount="${entry.id}"] [data-slot="tool-pane"]`)).toBe(node)
+  expect(container.querySelector(`[data-tool-mount="${entry.id}"]`)?.hasAttribute('inert')).toBe(true)
+  expect(container.querySelector(`[data-tool-mount="${entry.id}"]`)?.hasAttribute('data-hidden')).toBe(true)
+  expect(store.getSnapshot().workbench.toolOwners[entry.id]).toBe(owner)
+  expect(dockViews(store.getSnapshot().workbench.right)).toContainEqual(entry)
+  expect(store.getSnapshot().workbench.frameSubjects[owner!]).toBeUndefined()
+  act(() => store.revealView(entry.id))
+  expect(store.getSnapshot().activeSessionKey).toBeNull()
+  expect(store.getSnapshot().notices.at(-1)?.message).toContain('no longer available')
+  expect(requested.mock.calls.filter(([method]) => method === 'session/close')).toHaveLength(0)
+  // A cold cache has no locally captured provenance: it must not instantiate this revoked entry.
+  const cold = previewStore(store.getSnapshot())
+  await act(async () => root.render(null))
+  await act(async () => root.render(<StoreProvider store={cold}><Workbench sidebar={<div />} /></StoreProvider>))
+  expect(container.querySelector(`[data-tool-mount="${entry.id}"]`)).toBeNull()
+  expect(container.querySelector('[data-slot="tool-pane"]')).toBeNull()
+})
+
+it('B7 admitted plugin facts join the actual parent Details scroll and keep their original session', async () => {
+  const store = mountWork(true)
+  const probe = () => <ToolBody><ToolSection label="Fixture facts"><span data-testid="plugin-scope">{useSessionKey()}</span><span data-testid="plugin-focused">{String(useIsFocusedPane())}</span></ToolSection></ToolBody>
+  publishComponent('fixture.b7-facts', probe)
+  const contribution = { kind: 'ui', id: 'fixture-b7', owner: 'fixture-extension', slot: 'sidebar.panel', label: 'Fixture facts', component: 'fixture.b7-facts', mounts: ['right'], order: 1 } as unknown as CapabilityContribution
+  act(() => store.patch({ contributions: [contribution] }))
+  act(() => store.showViewIn('right', { kind: 'plugin', contribution: String(contribution.id), label: 'Fixture facts', mounts: ['right'] }))
+  expect(container.querySelectorAll('[data-slot="tool-body"]')).toHaveLength(1)
+  expect(container.querySelectorAll('[data-slot="tool-scroll"]')).toHaveLength(1)
+  expect(container.querySelector('[aria-label="Conversation"]')).not.toBeNull()
+  expect(container.querySelector('[aria-label="Fixture facts"]')).not.toBeNull()
+  const node = container.querySelector('[data-testid="plugin-scope"]')
+  expect(node?.textContent).toBe(PREVIEW_SESSION_KEY)
+  const resource = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'plugin')!
+  act(() => store.focusView(resource.id))
+  expect(container.querySelector('[data-testid="plugin-focused"]')?.textContent).toBe('true')
+  act(() => store.toggleWorkPanel())
+  expect(container.querySelector('[data-testid="plugin-scope"]')).toBe(node)
+  expect(container.querySelector('[data-testid="plugin-focused"]')?.textContent).toBe('false')
+  act(() => store.openTeamRoom('another-team'))
+  expect(container.querySelector('[data-testid="plugin-scope"]')?.textContent).toBe(PREVIEW_SESSION_KEY)
+})
+
+
+it.each(['details', 'close'] as const)('B7 hidden fixed Browser cannot consume shortcuts after address focus then %s', async destination => {
+  const store = mountWork(true)
+  await act(async () => store.openBrowser('https://example.com/keyboard', { profile: 'lane-keyboard' }))
+  const entry = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser')!
+  const address = container.querySelector<HTMLInputElement>(`[data-tool-mount="${entry.id}"] [aria-label="Address"]`)!
+  expect(address).not.toBeNull()
+  act(() => address.focus())
+  expect(store.getSnapshot().workbench.focus).toBe(entry.id)
+  // Prove the real Browser listener was armed before hiding its retained body.
+  const visible = new KeyboardEvent('keydown', { key: 't', metaKey: true, bubbles: true, cancelable: true })
+  await act(async () => { document.dispatchEvent(visible); await new Promise(resolve => setTimeout(resolve, 0)) })
+  expect(visible.defaultPrevented).toBe(true)
+  const before = dockViews(store.getSnapshot().workbench.right).find(one => one.id === entry.id)!
+  expect(before.view.kind === 'browser' ? before.view.tabs.length : null).toBe(2)
+  const door = destination === 'details' ? button('Details')! : button('Toggle right panel')!
+  act(() => { door.focus(); door.click() })
+  const hidden = container.querySelector(`[data-tool-mount="${entry.id}"]`)!
+  expect(hidden.hasAttribute('inert')).toBe(true)
+  expect(hidden.hasAttribute('data-hidden')).toBe(true)
+  expect(hidden.querySelector('[aria-label="Address"]')).toBe(address)
+  // The store may still name the Browser as focused; hidden policy must win.
+  expect(store.getSnapshot().workbench.focus).toBe(entry.id)
+  const shortcut = new KeyboardEvent('keydown', { key: 't', metaKey: true, bubbles: true, cancelable: true })
+  act(() => document.dispatchEvent(shortcut))
+  expect(shortcut.defaultPrevented).toBe(false)
+  expect(dockViews(store.getSnapshot().workbench.right).find(one => one.id === entry.id)?.view).toBe(before.view)
 })

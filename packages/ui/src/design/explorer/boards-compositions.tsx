@@ -1,5 +1,5 @@
 import { PlanMetersSpecimen, TerminalToggleSpecimen, LegacyPanelMenuSpecimen } from '../../preview/frames-supported-controls'
-import { SeatList, ToolBody, ToolSection, ToolProse, SummaryList, SummaryItem, Checklist, ChecklistItem } from '../index'
+import { SeatList, ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolProse, ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet, SummaryList, SummaryItem, Checklist, ChecklistItem } from '../index'
 import { Timeline, TimelineItem, type TimelineState } from '../ui/timeline'
 import { TimelineCard, TimelineCardRow, TimelineCards, TimelineCardWords, TimelineDocument } from '../ui/timeline-cards'
 import { LibrarySection } from '../../components/Library'
@@ -624,6 +624,10 @@ const SectionBoard = () => (
           </Button>
           <Button size="sm">Save</Button>
         </SectionFooter>
+      </Section>
+      <Section variant="plain">
+        <SectionFooter variant="facts"><Text role="meta">12 recorded events · 長い記録</Text><ToolbarGap /><Text role="meta">Read from this work</Text></SectionFooter>
+        <SectionFooter variant="facts" ruled={false}><Text role="meta">1 Run of 2</Text><ToolbarGap /><Text role="meta">Recorded locally</Text></SectionFooter>
       </Section>
       <Section variant="quiet">
         <SectionHeader>
@@ -3050,14 +3054,22 @@ export const TopBarBoard = () => {
 
 const TOOLBODY_CATALOG_VARIANTS = ['light', 'dark'] as const
 const TOOLBODY_CATALOG_SIZES = ['default'] as const
-const TOOLBODY_CATALOG_STATES = ['default', 'empty', 'populated'] as const
+const TOOLBODY_CATALOG_STATES = ['default', 'empty', 'populated', 'editing'] as const
 export const ToolBodyBoard = () => <div data-catalog-variants={TOOLBODY_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={TOOLBODY_CATALOG_SIZES.join(' ')} data-catalog-states={TOOLBODY_CATALOG_STATES.join(' ')}>
   <ToolBody><ToolSection label="Conversation"><SummaryList surface="panel">
     <SummaryItem label="Folder" kind="path">/work/storefront/packages/interface-with-a-long-name</SummaryItem>
     <SummaryItem label="Branch" kind="path">feature/長いブランチ名</SummaryItem>
     <SummaryItem label="Context" note="The last completed turn recorded this value.">12,480 tokens</SummaryItem>
-  </SummaryList></ToolSection><ToolSection label="Plan"><Checklist label="Plan" surface="panel"><ChecklistItem state="active">Review the checkout and the recorded changes</ChecklistItem></Checklist></ToolSection></ToolBody>
-  <ToolBody><ToolSection label="Plan"><ToolProse>No plan recorded.</ToolProse></ToolSection></ToolBody>
+  </SummaryList><ToolBodyControls><Button variant="outline" size="sm">Save file</Button></ToolBodyControls></ToolSection><ToolSection label="Plan"><Checklist label="Plan" surface="panel"><ChecklistItem state="active">Review the checkout and the recorded changes</ChecklistItem></Checklist></ToolSection></ToolBody>
+  <ToolBody><ToolBodySections><ToolBody><ToolSection label="Plan"><ToolProse>No plan recorded.</ToolProse></ToolSection></ToolBody><ToolBody><ToolSection label="Plugin"><ToolProse>Plugin facts join the same scroll.</ToolProse></ToolSection></ToolBody></ToolBodySections></ToolBody>
+</div>
+
+const TOOLFOOTER_CATALOG_VARIANTS = ['light', 'dark'] as const
+const TOOLFOOTER_CATALOG_SIZES = ['default'] as const
+const TOOLFOOTER_CATALOG_STATES = ['default', 'empty', 'populated'] as const
+export const ToolFooterBoard = () => <div data-catalog-variants={TOOLFOOTER_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={TOOLFOOTER_CATALOG_SIZES.join(' ')} data-catalog-states={TOOLFOOTER_CATALOG_STATES.join(' ')}>
+  <ToolFooterProvider><ToolFooterScope id="recorded"><ToolFooterPublisher left="12 recorded events · 長い記録" right="Read from this work" /></ToolFooterScope>
+    <ToolFooterOutlet id="recorded" /><ToolFooterOutlet id="absent" /></ToolFooterProvider>
 </div>
 
 const SEATLIST_CATALOG_VARIANTS = ['light', 'dark'] as const
@@ -3076,6 +3088,7 @@ export const SeatListBoard = () => {
 export const COMPOSITION_BOARDS: BoardSpec[] = [
   { id: 'seat-list', title: 'SeatList', about: 'Real-length content in both themes.', render: SeatListBoard },
   { id: 'tool-body', title: 'ToolBody', about: 'Real-length content in both themes.', render: ToolBodyBoard },
+  { id: 'tool-footer', title: 'ToolFooter', about: 'Real-length content in both themes.', render: ToolFooterBoard },
   { id: 'top-bar', title: 'The top bar', about: 'Nine slots in both fold stages, with long names and CJK.', render: TopBarBoard },
   { id:'git-comparison-dialogs', title:'Git comparison questions', about:'Merge or compare recorded revisions through the shared Git dialogs.', render:GitComparisonDialogsBoard },
   { id: 'comparison-decision', title:'Comparison decision', about:'A recommendation and the person decision above the composer.', render:ComparisonDecisionBoard },

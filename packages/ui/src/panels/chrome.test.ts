@@ -51,7 +51,8 @@ it('every view that claims the chrome actually draws it', () => {
   for (const kind of claiming) {
     const source = SOURCE[kind]
     expect(source, `${kind} claims ownsChrome but has no source listed here`).toBeDefined()
-    expect(drawsThem(source ?? ''), `${kind} claims ownsChrome and draws no PanelActions`).toBe(true)
+    if (kind === 'room') expect(source).toContain('useTopBar')
+    else expect(drawsThem(source ?? ''), `${kind} keeps its native document controls until Task 7a`).toBe(true)
   }
 })
 
@@ -61,7 +62,8 @@ it('and the shared header is where four of the six get them', () => {
   // panel actions in its existing More menu.
   expect(toolPaneHeader).toContain('<PanelActions')
   expect(terminalPane).toContain('<PanelActions')
-  expect(teamRoomPane).toContain('<PanelActionMenuItems')
+  expect(teamRoomPane).not.toContain('<PanelActionMenuItems')
+  expect(teamRoomPane).toContain('useTopBar')
 })
 
 it('a view with nowhere to put them does not claim them', () => {

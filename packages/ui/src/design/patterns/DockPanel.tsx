@@ -748,3 +748,17 @@ export const PanelSeam = ({
     />
   )
 }
+
+/** Fixed shell regions retain native guest/grid geometry while out of the row. */
+export const FixedPanelFrame = ({ open, edge, style, className, ...props }: React.ComponentProps<'div'> & { open: boolean; edge: 'right' | 'bottom' }) => <div
+  {...(open ? {} : { 'data-hidden': '', inert: true })}
+  className={cn('flex flex-col data-[hidden]:absolute data-[hidden]:inset-y-0 data-[hidden]:right-0 data-[hidden]:invisible data-[hidden]:pointer-events-none data-[hidden]:overflow-hidden', edge === 'bottom' && 'data-[hidden]:left-0', className)}
+  style={{ ...(edge === 'bottom' ? { height: 'var(--panel-bottom)' } : {}), ...style }} {...props} />
+
+/** The retained frame's containing block, shared by standing and floating modes. */
+export const FixedPanelRow = ({ className, ...props }: React.ComponentProps<'div'>) => <div className={cn('relative', className)} {...props} />
+export const FixedPanelBody = ({ className, ...props }: React.ComponentProps<'div'>) => <div
+  className={cn('flex min-h-0 min-w-0 flex-1 flex-col', className)} {...props} />
+/** Plugin sections join Details' flow; hidden native layers keep their existing boxes. */
+export const FixedToolLayer = ({ section, className, ...props }: React.ComponentProps<'div'> & { section?: boolean }) => <div
+  className={cn(section ? 'flex min-h-0 min-w-0 flex-col' : className)} {...props} />

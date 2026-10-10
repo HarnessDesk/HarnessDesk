@@ -1,7 +1,7 @@
 import { type TeamChatLayout, type TeamFramePage } from './layout'
 import { replaceTeamPayload } from './workbench'
 import { fixedToolRefusal, forgetFrameSubject, supportsFixedTool, admitFixedTool, chooseTool, toolOf, revealFixedTool, type WorkTool } from './frame-tools'
-import { fixedSubject, normalizeFixedWorkbench } from './workbench'
+import { activeView, fixedSubject, normalizeFixedWorkbench } from './workbench'
 import { readTeamsPrefs, teamListRow } from '../lib/teams-list'
 import { teamsInput } from '../lib/teams-snapshot'
 import {
@@ -4050,7 +4050,9 @@ export class AppStore {
     }
     const pane = findPane(before.main, before.main.focused)!
     const candidates = dockViews(before.right).filter(one => before.toolOwners[one.id] === subject && one.view.kind === mode)
-    const cached = candidates.find(one => supportsFixedTool(one.view, this.#snapshot.contributions)) ?? candidates[0]
+    const active = activeView(before.right)
+    const cached = candidates.find(one => one.id === active?.id && supportsFixedTool(one.view, this.#snapshot.contributions))
+      ?? candidates.find(one => supportsFixedTool(one.view, this.#snapshot.contributions)) ?? candidates[0]
     const refusal = cached && fixedToolRefusal(before, cached.id, this.#snapshot.contributions)
     if (refusal) { this.resultNotice('warning', refusal); return }
     const selected = cached && intent.open ? activateIn(before, 'right', cached.id) : before

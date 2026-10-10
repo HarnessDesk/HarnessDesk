@@ -170,6 +170,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   TopBar: ['light', 'dark'],
   SeatList: ['light', 'dark'],
   ToolBody: ['light', 'dark'],
+  ToolFooter: ['light', 'dark'],
   Page: ['light', 'dark'],
   GitComparisonDialogs: ['default'],
   ComparisonNotice: ['default'],
@@ -273,7 +274,8 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   SeatList: ['default', 'populated', 'disabled', 'long-title'],
-  ToolBody: ['default', 'empty', 'populated'],
+  ToolBody: ['default', 'empty', 'populated', 'editing'],
+  ToolFooter: ['default', 'empty', 'populated'],
   TopBar: ['default', 'disabled', 'filtered', 'folded-state', 'long-title'],
   Page: ['default'],
   GitComparisonDialogs: ['default'],
@@ -405,6 +407,7 @@ Object.assign(SIZES, {
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   SeatList: 'packages/ui/src/components/TeamRoomPane.tsx',
   ToolBody: 'packages/ui/src/panels/work-details.tsx',
+  ToolFooter: 'packages/ui/src/panels/Workbench.tsx',
   TopBar: 'packages/ui/src/panels/top-bar.tsx',
   Page: 'packages/ui/src/components/GoalFindings.tsx',
   GitComparisonDialogs: 'packages/ui/src/components/ComparisonActions.tsx',
@@ -448,6 +451,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   SeatList: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   ToolBody: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  ToolFooter: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   TopBar: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   GitComparisonDialogs: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   ComparisonNotice: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -599,6 +603,7 @@ export const CANONICAL_UI_MODULES = [
 export const CANONICAL_PATTERN_MODULES = [
   ['SeatList', 'seat-list', 'SeatList presentation owned by the fixed shell'],
   ['ToolBody', 'tool-body', 'ToolBody presentation owned by the fixed shell'],
+  ['ToolFooter', 'tool-footer', 'ToolFooter presentation owned by the fixed shell'],
   ['TopBar', 'top-bar', 'TopBar presentation owned by the fixed shell'],
   ['GitComparisonDialogs', 'git-comparison-dialogs', 'Shared merge and revision-diff questions for Changes and Side by side'],
   ['ComparisonDecision', 'comparison-decision', 'A recorded comparison recommendation and the person merge, compare and keep actions'],

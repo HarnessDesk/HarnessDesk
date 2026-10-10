@@ -8,12 +8,13 @@ import { StoreProvider } from '../state/context'
 import { useSessionKey } from '../state/context'
 import { Slot, publishComponent } from '../slots/registry'
 import { PanelActions, splitRefusal } from './PanelActions'
-import { MountProvider } from './mount'
+import { MountProvider, useMount } from './mount'
 import { installPanelComponent } from '../slots/PanelBlocks'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { collapse as collapseIn, expand as expandIn } from '../state/layout'
 import {
   activate,
+  activeView,
   dock,
   dockViews,
   fixedSubject,
@@ -76,7 +77,7 @@ for (const kind of ['changes', 'activity', 'agents', 'terminal', 'git', 'convers
          own header, and the panel then draws no strip. A stub that skipped
          that would be testing a panel with no way to move, expand or close it
          — which is exactly the failure the flag has to be held to. */
-      const owns = definition.ownsChrome === true
+      const owns = definition.ownsChrome === true && !useMount()?.fixed
       /* The scope a panel is drawn under is the thing worth reporting: it is
          how a docked transcript ends up about its own session while every
          other panel stays about whichever conversation is in front. */
@@ -123,13 +124,13 @@ afterEach(() => {
 
 const rig = (build: (start: Model) => Model = (start) => start, extra: Partial<AppSnapshot> = {}) => {
   let snapshot = { ...emptySnapshot(), status: 'open', ...extra } as AppSnapshot
-  // Raw dock fixtures deliberately preserve old split geometry until Task 7.
-  // Supply the new visibility contract without normalizing their resources.
+  // Raw compatibility fixtures retain payloads and original scopes. Right
+  // and bottom now project the fixed shell; sidebar remains until Task 8.
   const compatibility = Object.keys(snapshot.workbench.frameTools).length === 0
   const apply = (next: Model): void => {
     const subject = fixedSubject(next.main)
     const views = dockViews(next.right)
-    const last = views.at(-1)
+    const last = activeView(next.right)
     const tool = last && toolOf(last.view.kind)
     if (compatibility && subject && tool) next = { ...next, frameTools: { ...next.frameTools,
       [subject]: { tool, mode: last!.view.kind, open: !next.right.collapsed } },
@@ -175,6 +176,8 @@ const rig = (build: (start: Model) => Model = (start) => start, extra: Partial<A
     collapsePane: () =>
       settle({ ...snapshot.workbench, main: collapseIn(snapshot.workbench.main) }),
     focusPane: vi.fn(),
+    focusView: vi.fn(),
+    workSubject: () => fixedSubject(snapshot.layout),
   } as unknown as AppStore
   return { store, get snapshot() { return snapshot } }
 }
@@ -227,14 +230,13 @@ it('an area with nothing docked draws no panel at all', () => {
   expect(container.querySelector('[data-testid="panes"]')).not.toBeNull()
 })
 
-it('a docked view gets a tab and a body', () => {
-  const { store } = rig((start) => dock(start, 'right', { kind: 'changes' }))
+it('a fixed work tool has a retained body without a dock tab', () => {
+  const { store } = rig(start => dock(start, 'right', { kind: 'changes' }))
   render(store)
-  expect(tabs()).toEqual(['Changes'])
+  expect(tabs()).toEqual([])
   expect(container.querySelector('[data-testid="view-changes"]')).not.toBeNull()
-  const zoom = control('Give this panel the whole area')
-  const collapse = control('Hide this panel')
-  expectOnlyPanelActionAtEnd([zoom, collapse], collapse)
+  expect(container.querySelector('[data-slot="dock-panel-tabs"]')).toBeNull()
+  expect(container.querySelector('[aria-label^="Move or split"]')).toBeNull()
 })
 
 it('explains the width or height needed before offering an unusable split', () => {
@@ -244,101 +246,57 @@ it('explains the width or height needed before offering an unusable split', () =
   expect(splitRefusal('column', { width: 900, height: 320 })).toBeNull()
 })
 
-it('keeps a too-narrow split action in the menu with its refusal reason', () => {
-  const { store } = rig((start) =>
-    dock(
-      dock(start, 'bottom', { kind: 'terminal', terminalId: 't1', runtime: 'codex' as never, cwd: '/repo/api' }),
-      'bottom',
-      { kind: 'terminal', terminalId: 't2', runtime: 'codex' as never, cwd: '/repo/ui' },
-    ),
-  )
+it('terminal process documents have no split action at any width', () => {
+  const { store } = rig(start => dock(dock(start, 'bottom', { kind: 'terminal', terminalId: 't1', runtime: 'codex' as never, cwd: '/repo/api' }),
+    'bottom', { kind: 'terminal', terminalId: 't2', runtime: 'codex' as never, cwd: '/repo/ui' }))
   render(store)
-  expect(panels()).toHaveLength(1)
-  const box = panels()[0]!
-  expect(box).not.toBeNull()
-  vi.spyOn(box!, 'getBoundingClientRect').mockReturnValue({
-    x: 0, y: 0, left: 0, top: 0, right: 280, bottom: 500, width: 280, height: 500,
-    toJSON: () => ({}),
-  } as DOMRect)
-
-  const trigger = [...container.querySelectorAll<HTMLButtonElement>('button')]
-    .find((entry) => entry.getAttribute('aria-label')?.startsWith('Move or split '))
-  expect(trigger).toBeTruthy()
-  act(() => trigger?.click())
-  const action = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
-    .find((entry) => entry.textContent?.includes('Side by side'))
-  expect(action).toBeTruthy()
-  expect(action?.getAttribute('aria-disabled')).toBe('true')
-  const reason = action?.getAttribute('aria-describedby')
-  expect(reason && document.getElementById(reason)?.textContent).toBe('Needs 440px; this panel is 280px')
+  expect(tabs()).toEqual(['api', 'ui'])
+  expect(container.querySelectorAll('[data-terminal-mount]')).toHaveLength(2)
+  expect(container.querySelector('[aria-label^="Move or split"]')).toBeNull()
+  expect(container.querySelector('[aria-label="Resize these panels"]')).toBeNull()
 })
 
-it('every view in a panel stays mounted; the ones off screen are hidden', () => {
-  const { store } = rig((start) =>
-    dock(dock(start, 'bottom', { kind: 'changes' }), 'bottom', { kind: 'activity' }),
-  )
+it('every retained work tool stays mounted under its original scope', () => {
+  const { store } = rig(start => dock(dock(start, 'right', { kind: 'changes' }), 'right', { kind: 'activity' }))
   render(store)
-
-  // Both drew. Unmounting the inactive one would lose a diff mid-read and a
-  // terminal's screen every time somebody changed tab.
   expect(seen.sort()).toEqual(['activity', 'changes'])
-  const layers = [...container.querySelectorAll('[data-slot="dock-panel-body"] > div')]
+  const layers = [...container.querySelectorAll('[data-tool-mount]')]
   expect(layers).toHaveLength(2)
-  expect(layers.filter((layer) => layer.hasAttribute('data-hidden'))).toHaveLength(1)
+  expect(layers.filter(layer => layer.hasAttribute('data-hidden'))).toHaveLength(1)
+  expect(layers.filter(layer => layer.hasAttribute('inert'))).toHaveLength(1)
 })
 
-it('the move menu offers exactly what the view declares', () => {
-  const { store } = rig((start) =>
-    dock(start, 'bottom', { kind: 'terminal', terminalId: 't1', runtime: 'codex' as never, cwd: '/repo/api' }),
-  )
+it('a terminal stays in its process frame without arrangement actions', () => {
+  const { store } = rig(start => dock(start, 'bottom', { kind: 'terminal', terminalId: 't1', runtime: 'codex' as never, cwd: '/repo/api' }))
   render(store)
-
-  // A terminal's tab is named for what it is running in, so that is what the
-  // move control is named for too — the menu acts on this panel, not on "a
-  // terminal", and there may be three of them side by side.
-  act(() => control('Move or split api').click())
-  const offered = [...document.querySelectorAll('[role="menuitem"], [role="menu"] button')]
-    .map((entry) => entry.textContent ?? '')
-    .filter((text) => text.startsWith('To '))
-  // A terminal declares bottom and right; it is in the bottom, so the right
-  // edge is all that is left. Neither the sidebar nor the main area is offered:
-  // a shell needs columns, and main holds a conversation or a room and nothing
-  // else. Offering a destination that would then be refused teaches the wrong
-  // rule about what the panel system will do.
-  expect(offered).toEqual(['To the right panel'])
+  expect(container.querySelector('[data-terminal-mount]')).not.toBeNull()
+  expect(container.querySelector('[aria-label^="Move or split"]')).toBeNull()
+  expect(dockViews(store.getSnapshot().workbench.bottom)[0]?.view.kind).toBe('terminal')
 })
 
-it('a zoomed bottom panel takes the room the split tree was using', () => {
-  const { store } = rig((start) => dock(start, 'bottom', { kind: 'activity' }))
+it('a terminal frame does not offer panel zoom', () => {
+  const { store } = rig(start => dock(start, 'bottom', { kind: 'terminal', terminalId: 't1', runtime: 'codex' as never, cwd: '/repo/api' }))
   render(store)
-
-  act(() => control('Give this panel the whole area').click())
-
-  const middle = container.querySelector('[data-testid="panes"]')?.closest('div[data-hidden]')
-  expect(middle, 'the row holding the split tree must collapse as a unit').not.toBeNull()
-  // And the sidebar stays: changing conversation is still a thing you do.
+  expect(container.querySelector('[aria-label="Give this panel the whole area"]')).toBeNull()
+  expect(container.querySelector('[data-testid="panes"]')).not.toBeNull()
   expect(container.querySelector('[data-testid="tree"]')).not.toBeNull()
 })
 
-it('the right panel disappears when it is put away, and the sidebar stack does not', () => {
-  const right = rig((start) => dock(start, 'right', { kind: 'changes' }))
+it('closing the right frame preserves its body and leaves the sidebar alone', () => {
+  const right = rig(start => dock(start, 'right', { kind: 'changes' }))
   render(right.store)
-  act(() => control('Hide this panel').click())
-  expect(panels()).toHaveLength(0)
-
-  act(() => root.unmount())
-  root = createRoot(container)
-
-  const side = rig((start) => dock(start, 'sidebar', { kind: 'activity' }))
-  render(side.store)
-  act(() => control('Collapse to the tabs').click())
-  // A horizontal strip is a legitimate resting state, and it is the way back.
-  expect(tabs()).toEqual(['Activity'])
-  expect(container.querySelector('[data-testid="view-activity"]')).toBeNull()
+  const node = container.querySelector('[data-testid="view-changes"]')
+  act(() => right.store.togglePanel('right'))
+  expect(container.querySelector('[data-testid="view-changes"]')).toBe(node)
+  expect(node?.closest('[inert]')).not.toBeNull()
+  expect(container.querySelector('[data-testid="tree"]')).not.toBeNull()
+  act(() => right.store.togglePanel('right'))
+  expect(container.querySelector('[data-testid="view-changes"]')).toBe(node)
+  expect(node?.closest('[inert]')).toBeNull()
 })
 
 it('each seam reports the size it drives, in the units that area uses', () => {
-  const { store } = rig((start) => dock(dock(start, 'right', { kind: 'changes' }), 'bottom', { kind: 'activity' }))
+  const { store } = rig((start) => dock(dock(start, 'right', { kind: 'changes' }), 'bottom', { kind: 'terminal', terminalId: 't1', runtime: 'codex' as never, cwd: '/repo' }))
   render(store)
   const seams = [...container.querySelectorAll('[data-slot="panel-seam"]')].map((seam) => ({
     label: seam.getAttribute('aria-label'),
@@ -423,7 +381,7 @@ it('a seam dragged past its limit stops at the limit, and commits that', () => {
 })
 
 it('the bottom panel grows upward, and its seam commits a height', () => {
-  const harness = rig((start) => dock(start, 'bottom', { kind: 'activity' }))
+  const harness = rig((start) => dock(start, 'bottom', { kind: 'terminal', terminalId: 't1', runtime: 'codex' as never, cwd: '/repo' }))
   render(harness.store)
   const seam = seamAt('Resize the bottom panel')
 
@@ -550,22 +508,12 @@ it('the arrow keys move a seam the way they point, on both edges', () => {
   expect(harness.snapshot.workbench.right.size).toBe(before)
 })
 
-it('a lone self-framing view gets no strip, and carries the verbs itself', () => {
-  const { store } = rig((start) =>
-    dock(start, 'bottom', { kind: 'terminal', terminalId: 't1', runtime: 'codex' as never, cwd: '/repo/api' }),
-  )
+it('one terminal process has no duplicate frame strip', () => {
+  const { store } = rig(start => dock(start, 'bottom', { kind: 'terminal', terminalId: 't1', runtime: 'codex' as never, cwd: '/repo/api' }))
   render(store)
-
-  // No tab strip: the browser showed a tab row above its own tab row this way,
-  // with expand and close in both of them.
-  expect(container.querySelectorAll('[role="tab"]')).toHaveLength(0)
-  // And exactly one of each verb, in the view's own header. A dock zooms to
-  // the content area — the sidebar stays — so it keeps the original label.
-  expect(container.querySelectorAll('[aria-label="Give this panel the whole area"]')).toHaveLength(1)
-  expect(container.querySelectorAll('[aria-label^="Move or split"]')).toHaveLength(1)
-  // And a close, because the main area has no tab carrying one. Without this
-  // the panel could be dragged to the middle and never got rid of.
-  expect(container.querySelectorAll('[aria-label^="Close "]')).toHaveLength(1)
+  expect(tabs()).toEqual([])
+  expect(container.querySelectorAll('[data-terminal-mount]')).toHaveLength(1)
+  expect(container.querySelector('[data-slot="dock-panel-bar"]')).toBeNull()
 })
 
 it('the main area gives its edge to zoom when it cannot close', () => {
@@ -592,42 +540,16 @@ it('the main area gives its edge to zoom when it cannot close', () => {
   expectOnlyPanelActionAtEnd([zoom], zoom)
 })
 
-it('a tab in a shared stack carries the only close', () => {
-  const { store } = rig((start) =>
-    dock(dock(start, 'right', { kind: 'changes' }), 'right', { kind: 'activity' }),
-  )
-  render(store)
-  // One ✕ per tab and none in the corner: a second one there would mean the
-  // same thing twice, and it is the corner one that would be ambiguous.
-  const closes = [...container.querySelectorAll('[aria-label^="Close "]')]
-  expect(closes.map((entry) => entry.getAttribute('aria-label'))).toEqual([
-    'Close Changes',
-    'Close Activity',
-  ])
-})
 
-it('closing a tab does not first bring forward what it is closing', () => {
-  const { store } = rig((start) =>
-    dock(dock(start, 'right', { kind: 'changes' }), 'right', { kind: 'activity' }),
-  )
-  render(store)
-  // The ✕ used to bubble to the tab list, which read it as "select this tab"
-  // and activated the very view being undocked.
-  act(() => control('Close Changes').click())
-  expect([...container.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual(['Activity'])
-})
 
-it('a shared stack gets the strip back, and the verbs live there instead', () => {
-  const { store } = rig((start) =>
-    dock(dock(start, 'bottom', { kind: 'terminal', terminalId: 't1', runtime: 'codex' as never, cwd: '/repo/api' }), 'bottom', {
-      kind: 'changes',
-    }),
-  )
-  render(store)
 
-  expect([...container.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual(['api', 'Changes'])
-  // Still one of each: the strip has them, and the view stops drawing them.
-  expect(container.querySelectorAll('[aria-label="Give this panel the whole area"]')).toHaveLength(1)
+
+it('bottom renders only terminal documents while retaining unsupported payloads', () => {
+  const { store } = rig(start => dock(dock(start, 'bottom', { kind: 'terminal', terminalId: 't1', runtime: 'codex' as never, cwd: '/repo/api' }), 'bottom', { kind: 'changes' }))
+  render(store)
+  expect(container.querySelector('[data-testid="view-terminal"]')).not.toBeNull()
+  expect(container.querySelector('[data-testid="view-changes"]')).toBeNull()
+  expect(dockViews(store.getSnapshot().workbench.bottom).map(entry => entry.view.kind)).toEqual(['terminal', 'changes'])
 })
 
 it('main holds exactly two things, and the registry is where that is true', () => {
@@ -672,7 +594,10 @@ it('a retained docked conversation does not draw a second subject, and Changes r
   const docked = 'codex\u0000docked'
   const inFront = 'codex\u0000in-front'
   const { store } = rig(
-    (start) => dock(dock(start, 'right', { kind: 'conversation', session: docked } as never), 'right', { kind: 'changes' }),
+    (start) => {
+      const main = { ...start.main, root: { kind: 'pane' as const, id: start.main.focused, view: { kind: 'conversation' as const, session: inFront as never } } }
+      return dock(dock({ ...start, main }, 'right', { kind: 'conversation', session: docked } as never), 'right', { kind: 'changes' })
+    },
     { activeSessionKey: inFront } as Partial<AppSnapshot>,
   )
   render(store)
@@ -720,6 +645,8 @@ it('a tool dropped into the main area keeps its verbs', () => {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     focusPane: vi.fn(),
+    focusView: vi.fn(),
+    workSubject: () => fixedSubject(snapshot.layout),
   } as unknown as AppStore
 
   act(() => {
@@ -746,30 +673,9 @@ it('a tool dropped into the main area keeps its verbs', () => {
   expectOnlyPanelActionAtEnd([zoom, close], close)
 })
 
-it('a tab in a shared stack carries the only close', () => {
-  const { store } = rig((start) =>
-    dock(dock(start, 'right', { kind: 'changes' }), 'right', { kind: 'activity' }),
-  )
-  render(store)
-  // One ✕ per tab and none in the corner: a second one there would mean the
-  // same thing twice, and it is the corner one that would be ambiguous.
-  const closes = [...container.querySelectorAll('[aria-label^="Close "]')]
-  expect(closes.map((entry) => entry.getAttribute('aria-label'))).toEqual([
-    'Close Changes',
-    'Close Activity',
-  ])
-})
 
-it('closing a tab does not first bring forward what it is closing', () => {
-  const { store } = rig((start) =>
-    dock(dock(start, 'right', { kind: 'changes' }), 'right', { kind: 'activity' }),
-  )
-  render(store)
-  // The ✕ used to bubble to the tab list, which read it as "select this tab"
-  // and activated the very view being undocked.
-  act(() => control('Close Changes').click())
-  expect([...container.querySelectorAll('[role="tab"]')].map((t) => t.textContent)).toEqual(['Activity'])
-})
+
+
 
 it('a plugin panel says so when its plugin is not running', () => {
   const view = {
@@ -783,7 +689,8 @@ it('a plugin panel says so when its plugin is not running', () => {
 
   // The tab is the plugin's own label, carried on the view — so a restored
   // layout names its panels before the plugin host has come back up.
-  expect(tabs()).toEqual(['Coverage'])
+  expect(tabs()).toEqual([])
+  expect(container.querySelector('[data-tool-mount]')).not.toBeNull()
   expect(container.textContent).toContain('not running')
 })
 
@@ -818,6 +725,8 @@ it('and draws the published component once the contribution is there', () => {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     focusPane: vi.fn(),
+    focusView: vi.fn(),
+    workSubject: () => fixedSubject(snapshot.layout),
   } as unknown as AppStore
 
   render(store)
@@ -834,101 +743,28 @@ it('and draws the published component once the contribution is there', () => {
  * close it — because every one of those steps has to leave the *middle* alone,
  * and nothing that checks one step at a time can notice that it did not.
  */
-it('a panel can be clicked through, moved, expanded and closed, and main never changes', () => {
-  /* Kept whole rather than destructured: `snapshot` is a getter, and spreading
-     it would freeze the value this test exists to watch change. */
-  const r = rig((start) =>
-    dock(dock(start, 'right', { kind: 'changes' }), 'right', { kind: 'git', root: '/repo' }),
-  )
+it('fixed tool selection and explicit resource close leave main intact', () => {
+  const r = rig(start => dock(dock(start, 'right', { kind: 'changes' }), 'right', { kind: 'activity' }))
   render(r.store)
-
-  const mainIsIntact = (): void => {
-    // Whatever happens to a panel, the middle still holds the one thing it may.
-    expect(container.querySelector('[data-testid="panes"]')).not.toBeNull()
-    expect(r.snapshot.workbench.main).toBe(r.snapshot.layout)
-  }
-
-  // ---- click: two views in one panel, one strip, both mounted -------------
-  expect(tabs()).toEqual(['Changes', 'repo'])
-  expect(panels()).toHaveLength(1)
-  const hidden = () =>
-    [...container.querySelectorAll('[data-slot="dock-panel-body"][data-under-bar] > div')].filter((layer) =>
-      layer.hasAttribute('data-hidden'),
-    ).length
-  expect(hidden()).toBe(1)
-
-  act(() => (container.querySelectorAll('[role="tab"]')[0] as HTMLElement).click())
-  // Switching tabs hides, never unmounts: a diff's scroll and a terminal's
-  // screen have to survive a glance at the thing beside them.
-  expect(hidden()).toBe(1)
-  mainIsIntact()
-
-  // ---- move: a declared destination is offered, and taken ----------------
-  act(() => control('Move or split Changes').click())
-  const offered = [...document.querySelectorAll('[role="menuitem"], [role="menu"] button')]
-    .map((entry) => entry.textContent ?? '')
-    .filter((text) => text.startsWith('To '))
-  // Changes is a list, so it declares right, bottom and the sidebar; it is in
-  // the right, so two are left. What matters is what is *not* there: the main
-  // area is never offered, however much room the middle has.
-  expect(offered).toEqual(['To the bottom panel', 'To the sidebar'])
-  expect(offered).not.toContain('To the main area')
-
-  act(() => {
-    const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"], [role="menu"] button')]
-      .find((entry) => entry.textContent === 'To the bottom panel')
-    if (!item) throw new Error('the declared destination was not offered')
-    item.click()
-  })
-  expect(panels()).toHaveLength(2)
-  mainIsIntact()
-
-  // ---- expand, then put it back ------------------------------------------
-  act(() => control('Give this panel the whole area').click())
-  expect(r.snapshot.workbench.zoom).not.toBeNull()
-  // The middle collapses as a unit rather than sitting under the expanded panel.
-  expect(container.querySelector('[data-testid="panes"]')?.closest('div[data-hidden]')).not.toBeNull()
-  act(() => control('Back to the layout').click())
-  expect(r.snapshot.workbench.zoom).toBeNull()
-  expect(container.querySelector('[data-testid="panes"]')?.closest('div[data-hidden]')).toBeNull()
-  // Expanding is not moving: the panel came back to the dock it left from.
-  expect(panels()).toHaveLength(2)
-  mainIsIntact()
-
-  // ---- close: the last view out closes the panel, not an empty frame -----
-  act(() => control('Close Changes').click())
-  // One panel left. It holds the repository view, which draws its own chrome —
-  // so there is no strip to count, which is itself the rule: a panel with one
-  // thing in it that owns its header does not grow a second header.
-  expect(panels()).toHaveLength(1)
-  expect(tabs()).toEqual([])
-  act(() => control('Close repo').click())
-  expect(panels()).toHaveLength(0)
-  // And the window is not left holding a strip, a seam and a border round
-  // nothing — the whole point of closing the last thing in a panel.
-  expect(container.querySelector('[data-slot="dock-panel"]')).toBeNull()
-  mainIsIntact()
+  const main = r.snapshot.workbench.main
+  const entries = dockViews(r.snapshot.workbench.right)
+  const original = container.querySelector('[data-testid="view-changes"]')
+  act(() => r.store.activateView('right', entries[0]!.id))
+  expect(container.querySelector('[data-testid="view-changes"]')).toBe(original)
+  expect(r.snapshot.workbench.main).toBe(main)
+  act(() => r.store.closeView(entries[1]!.id))
+  expect(dockViews(r.snapshot.workbench.right).map(entry => entry.id)).toEqual([entries[0]!.id])
+  expect(r.snapshot.workbench.main).toBe(main)
+  expect(container.querySelector('[data-testid="panes"]')).not.toBeNull()
 })
 
-it('the middle is not a destination, however the person asks', () => {
-  // Three ways to ask, one answer. The menu is the visible one; `moveView` is
-  // what a keyboard shortcut or a restored layout would reach for, and it is
-  // the one that has to refuse rather than merely not offer.
-  const r = rig((start) => dock(start, 'right', { kind: 'changes' }))
+it('fixed tools expose no free move menu and the model refuses main', () => {
+  const r = rig(start => dock(start, 'right', { kind: 'changes' }))
   render(r.store)
-
-  act(() => control('Move or split Changes').click())
-  const destinations = [...document.querySelectorAll('[role="menuitem"], [role="menu"] button')]
-    .map((entry) => entry.textContent ?? '')
-    .filter((text) => text.startsWith('To '))
-  expect(destinations).not.toContain('To the main area')
-
-  // The model refuses it too, so a caller that never opened the menu gets the
-  // same answer and the workbench comes back unchanged rather than half-moved.
+  expect(container.querySelector('[aria-label^="Move or split"]')).toBeNull()
   const before = r.snapshot.workbench
-  const id = before.right.root.id
-  const after = moveView(before, id, 'main', permits)
-  expect(after).toBe(before)
+  const id = dockViews(before.right)[0]!.id
+  expect(moveView(before, id, 'main', permits)).toBe(before)
 })
 
 /**
@@ -1051,25 +887,12 @@ it('leaves a zoom this build would no longer have asked for, in one press', () =
  * rather than the source, because what matters is which boxes carry the
  * classes once the components have composed.
  */
-it('a panel strip moves the window, and the things you press on it do not', () => {
-  const { store } = rig((start) => dock(dock(start, 'right', { kind: 'changes' }), 'right', { kind: 'activity' }))
+it('a work tool has no second draggable panel strip', () => {
+  const { store } = rig(start => dock(dock(start, 'right', { kind: 'changes' }), 'right', { kind: 'activity' }))
   render(store)
-
-  const strip = container.querySelector('[data-slot="dock-panel-bar"]')
-  expect(strip?.className, 'the strip is a drag region').toContain('hd-drag')
-
-  // The tab, not the tab list: the list is `w-full`, so no-dragging it would
-  // hand the whole strip back and leave the window with no handle at all.
-  const list = container.querySelector('[data-slot="dock-panel-tabs"]')
-  expect(list?.className ?? '', 'the tab list must stay draggable').not.toContain('hd-no-drag')
-  for (const tab of container.querySelectorAll('[data-slot="dock-panel-tab"]')) {
-    expect(tab.closest('.hd-no-drag'), 'a tab is out of the drag region').not.toBeNull()
-  }
-  // A drag region eats the press, so the verbs have to opt out or they work
-  // about every other time.
-  const actions = container.querySelector('[data-slot="dock-panel-actions"]')
-  expect(actions?.className).toContain('hd-no-drag')
-  expect(control('Give this panel the whole area').closest('.hd-no-drag')).not.toBeNull()
+  expect(container.querySelector('[data-slot="dock-panel-bar"]')).toBeNull()
+  expect(container.querySelector('[data-slot="dock-panel-tabs"]')).toBeNull()
+  expect(container.querySelector('[draggable="true"][data-tool-mount]')).toBeNull()
 })
 
 /**
@@ -1079,13 +902,13 @@ it('a panel strip moves the window, and the things you press on it do not', () =
  */
 const splitRig = (direction: 'row' | 'column') => {
   const harness = rig((start) => {
-    const both = dock(dock(start, 'right', { kind: 'changes' }), 'right', { kind: 'activity' })
-    return splitDock(both, dockViews(both.right)[1]!.id, direction)
+    const both = dock(dock(start, 'sidebar', { kind: 'changes' }), 'sidebar', { kind: 'activity' })
+    return splitDock(both, dockViews(both.sidebar)[1]!.id, direction)
   })
   const resizePanelSplit = vi.spyOn(harness.store as unknown as Record<string, never>, 'resizePanelSplit')
   render(harness.store)
   const seam = container.querySelector<HTMLElement>('[aria-label="Resize these panels"]')
-  expect(seam, 'the right panel is split').toBeTruthy()
+  expect(seam, 'the transitional sidebar panel is split').toBeTruthy()
   const box = seam!.parentElement as HTMLElement
   box.getBoundingClientRect = () =>
     ({ x: 0, y: 0, top: 0, left: 0, right: 1000, bottom: 600, width: 1000, height: 600, toJSON: () => ({}) }) as DOMRect
@@ -1201,32 +1024,18 @@ const labelled = (label: string): HTMLButtonElement[] =>
  * 1199 × 1 px with one file docked at the bottom, with nothing in the dock to
  * bring it back.
  */
-it('a lone self-framing view collapsed still draws the way back (#232)', () => {
-  const harness = rig((start) => dock(start, 'bottom', { kind: 'git', root: '/repo' }))
+it('a collapsed terminal frame can return the same process document', () => {
+  const harness = rig(start => dock(start, 'bottom', { kind: 'terminal', terminalId: 't1', runtime: 'codex' as never, cwd: '/repo' }))
   render(harness.store)
-
-  /* The control, true before this fix and after: open, this stack draws no
-     strip at all. What the fix changes is the collapsed state, and a test that
-     could not tell the two apart would pass on a panel that never had a view. */
-  expect(tabs()).toEqual([])
-  expect(container.querySelector('[data-testid="view-git"]')).not.toBeNull()
-
-  act(() => control('Collapse to the tabs').click())
+  const node = container.querySelector('[data-testid="view-terminal"]')
+  expect(node).not.toBeNull()
+  act(() => harness.store.togglePanel('bottom'))
   expect(harness.snapshot.workbench.bottom.collapsed).toBe(true)
-  // The view is gone, and with it the header it drew the verbs in.
-  expect(container.querySelector('[data-testid="view-git"]')).toBeNull()
-  expect(tabs()).toEqual(['repo'])
-  expect(
-    labelled('Show this panel'),
-    'a collapsed panel needs a control that shows it again',
-  ).toHaveLength(1)
-  /* And one ✕, not two: the tab carries the close, so the panel's verbs do
-     not. They wear the same label, which is what would make the pair a puzzle
-     rather than a choice — see `chrome` in `mount.tsx`. */
-  expect(labelled('Close repo')).toHaveLength(1)
-
-  act(() => labelled('Show this panel')[0]!.click())
-  expect(container.querySelector('[data-testid="view-git"]')).not.toBeNull()
+  expect(container.querySelector('[data-testid="view-terminal"]')).toBe(node)
+  expect(node?.closest('[inert]')).not.toBeNull()
+  act(() => harness.store.togglePanel('bottom'))
+  expect(container.querySelector('[data-testid="view-terminal"]')).toBe(node)
+  expect(node?.closest('[inert]')).toBeNull()
 })
 
 /**
@@ -1276,7 +1085,7 @@ it('a second pointer on a split seam does not take the drag, and the window is g
 })
 
 it('a second pointer on an area seam leaves no suppression behind (#252)', () => {
-  const harness = rig((start) => dock(start, 'bottom', { kind: 'activity' }))
+  const harness = rig((start) => dock(start, 'bottom', { kind: 'terminal', terminalId: 't1', runtime: 'codex' as never, cwd: '/repo' }))
   render(harness.store)
   const seam = seamAt('Resize the bottom panel')
 

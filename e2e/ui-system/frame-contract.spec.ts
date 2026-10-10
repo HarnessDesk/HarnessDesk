@@ -28,6 +28,24 @@ const resolvedPx = (page: Page, token: string) => page.evaluate((name) => {
 }, token)
 
 for (const theme of WALL_THEMES) {
+  test(`B7 shell owns the retained tool frame in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme)
+    await page.locator('[data-work-tool="changes"]').click()
+    await expect(page.locator('[data-slot="dock-panel-tabs"]')).toHaveCount(0)
+    await expect(page.locator('[data-slot="inspector-tools"]')).toHaveCount(0)
+    const tool = page.locator('[data-slot="work-tools"]')
+    await expect(tool).toBeVisible()
+    expect(Math.round((await page.locator('[data-slot="top-bar"]').locator('..').boundingBox())!.height)).toBe(FRAME.bar.height)
+    const mounts = await page.locator('[data-tool-mount]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-tool-mount')))
+    await page.locator('[data-work-panel-toggle]').click()
+    await expect(tool).toBeHidden()
+    await page.locator('[data-work-panel-toggle]').click()
+    await expect(tool).toBeVisible()
+    expect(await page.locator('[data-tool-mount]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-tool-mount')))).toEqual(mounts)
+  })
+}
+
+for (const theme of WALL_THEMES) {
   test(`B6 Team view controls keep one View x and no second toolbar in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team', theme)
     const xs: number[] = []

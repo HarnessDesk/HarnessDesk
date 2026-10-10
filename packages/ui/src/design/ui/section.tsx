@@ -28,8 +28,8 @@ import { GroupLabel } from './group-label'
  *                               warns looks like the four that natter. Give a
  *                               section a description when it needs one.
  *
- *   The footer is for actions.   Not for a summary, not for a count. A bar at
- *                               the bottom of a card promises something to press.
+ *   The default footer is for actions. A bar at the bottom of a card promises
+ *   something to press. Quiet facts use the facts variant with natural height.
  *
  * It comes in two forms, chosen by whether it has a `title`. With one, it is a
  * section of a page: the label over a card, the spacing owned (below). Without
@@ -264,11 +264,18 @@ const SectionBody = ({
   />
 )
 
-const SectionFooter = ({ className, ...props }: React.ComponentProps<'div'>) => (
+/** Quiet facts wrap at natural height; action footers retain their existing spacing. */
+const SectionFooter = ({ className, variant = 'actions', ruled = true, ...props }: React.ComponentProps<'div'> & {
+  variant?: 'actions' | 'facts'
+  ruled?: boolean
+}) => (
   <div
     data-slot="section-footer"
+    data-variant={variant}
     className={cn(
-      'mt-auto flex items-center gap-2 border-t border-(--hd-border) px-4 py-3',
+      variant === 'actions' ? 'mt-auto flex items-center gap-2 border-t border-(--hd-border) px-4 py-3'
+        : 'flex shrink-0 flex-wrap items-center gap-(--hd-bar-gap) px-(--hd-inset-row) py-(--hd-space-1)',
+      variant === 'facts' && ruled && 'border-t border-(--hd-border)',
       className,
     )}
     {...props}

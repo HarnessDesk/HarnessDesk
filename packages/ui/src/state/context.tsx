@@ -187,6 +187,8 @@ const FALLBACK_RUNTIME: RuntimeInfo = {
  */
 export interface PaneScope {
   readonly paneId: PaneId
+  /** Keyboard target may be a retained tool while provenance stays with its original pane. */
+  readonly keyboardMountId?: string
   readonly view: PaneView
   readonly sessionKey: SessionKey | null
 }
@@ -250,5 +252,5 @@ export const useIsFocusedPane = (): boolean => {
   if (!pane) return true
   const focused = focusedMount(snapshot.workbench)
   const rootId = pane.paneId.includes(':') ? pane.paneId.split(':')[0] : pane.paneId
-  return focused === rootId || focused === pane.paneId || rootId === 'team-room'
+  return focused === pane.keyboardMountId || focused === rootId || focused === pane.paneId || rootId === 'team-room'
 }

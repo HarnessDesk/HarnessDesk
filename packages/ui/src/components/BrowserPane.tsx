@@ -760,11 +760,11 @@ const BrowserPaneContent = () => {
 
   /** The runtime of the conversation beside this pane, for the driven mark. */
   const activeRuntime = useMemo(() => {
-    const key = mount?.embedded ? sessionKey : snapshot.activeSessionKey
+    const key = mount?.embedded || mount?.fixed ? sessionKey : snapshot.activeSessionKey
     const session = key ? (snapshot.sessions.get(key) ?? null) : null
     if (!session) return null
     return snapshot.runtimes.find((entry) => entry.id === session.runtime) ?? null
-  }, [mount?.embedded, sessionKey, snapshot.activeSessionKey, snapshot.sessions, snapshot.runtimes])
+  }, [mount?.embedded, mount?.fixed, sessionKey, snapshot.activeSessionKey, snapshot.sessions, snapshot.runtimes])
 
   /*
    * Who would receive the browser tools if a turn asked for them now.
@@ -1271,7 +1271,7 @@ const BrowserPaneContent = () => {
   /* Both halves of focus: this browser is usually docked to the right now, and
    `layout.focused` names panes only — the shortcuts stopped arming entirely
    the day the browser stopped being a pane. */
-  const focused = mount?.embedded ? focusedTile : focusedMount(snapshot.workbench) === paneId
+  const focused = mount?.embedded || mount?.fixed ? focusedTile : focusedMount(snapshot.workbench) === paneId
   useEffect(() => {
     if (!focused || !paneId || !view) return
     const onKeyDown = (event: KeyboardEvent): void => {

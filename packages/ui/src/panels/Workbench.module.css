@@ -455,11 +455,6 @@
   }
 }
 
-.shell[data-narrow] .middle,
-.shell[data-right-overlay] .middle {
-  position: relative;
-}
-
 /* Over the conversation's own raised layers — its composer dock — and under
    the notices, which belong on top of whatever is being read.
 

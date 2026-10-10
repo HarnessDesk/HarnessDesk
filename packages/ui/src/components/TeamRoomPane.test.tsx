@@ -3876,7 +3876,7 @@ it.each([1, 2])('uses singular Run counts with %s recorded Runs, including a fil
   const page = container.querySelector('[data-slot="team-runs"]')!
   expect(page.textContent).toContain(`${count} ${count === 1 ? 'Run' : 'Runs'} ·`)
   await chooseRunsFilter('Settled')
-  expect(page.querySelector('[data-slot="inspector-footer"]')!.textContent).toContain(count === 1 ? '1 Run' : '1 Run of 2')
+  expect(page.querySelector('[data-slot="content-footer"]')!.textContent).toContain(count === 1 ? '1 Run' : '1 Run of 2')
   expect(page.textContent).not.toContain('1 Runs')
 })
 

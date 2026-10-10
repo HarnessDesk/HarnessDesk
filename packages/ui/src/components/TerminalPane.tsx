@@ -9,7 +9,7 @@ import { useMount } from '../panels/mount'
 import { PanelActions } from '../panels/PanelActions'
 import { ltr } from './ToolPaneHeader'
 import { useTheme } from '../state/theme'
-import { PlusIcon } from './Icons'
+import { CrossIcon, PlusIcon } from './Icons'
 import { terminalAppearance } from '../design/adapters/terminal'
 import {
   Button,
@@ -90,7 +90,8 @@ export const TerminalSurface = () => {
         {/* Alone in its panel, this row is the only one — so the panel's verbs
             live at the end of it rather than in a strip above saying
             "Terminal" over a bar that already says where the shell is. */}
-        <PanelActions />
+        {mount?.fixed ? <Button variant="ghost" size="icon-sm" aria-label="Close terminal" title="Close terminal"
+          onClick={() => store.closeTerminal(view.terminalId)}><CrossIcon size={12} /></Button> : <PanelActions />}
       </ToolPaneBar>
       <TerminalScreen view={view} />
     </ToolPane>
@@ -126,9 +127,9 @@ const TerminalScreen = ({ view }: { view: TerminalView }) => {
     escapeToTabDeadline.current = 0
     event.preventDefault()
     event.stopPropagation()
-    const panel = event.currentTarget.closest<HTMLElement>('[data-slot="dock-panel"]')
+    const panel = event.currentTarget.closest<HTMLElement>('[data-terminal-frame], [data-slot="dock-panel"]')
     panel?.querySelector<HTMLElement>(
-      '[aria-label="Hide this panel"], [aria-label="Collapse to the tabs"]',
+      '[aria-label="Close terminal"], [aria-label="Hide this panel"], [aria-label="Collapse to the tabs"]',
     )?.focus()
   }
 

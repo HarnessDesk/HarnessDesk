@@ -2,7 +2,7 @@ import { panes, type TeamChatLayout, type TeamFramePage } from '../state/layout'
 import { replaceTeamPayload } from '../state/workbench'
 import { toStored, type SideBySideState } from '../lib/side-by-side'
 import { fixedToolRefusal, supportsFixedTool, admitFixedTool, chooseTool, toolOf, revealFixedTool, type WorkTool } from '../state/frame-tools'
-import { fixedSubject, dockViews } from '../state/workbench'
+import { activeView, fixedSubject, dockViews } from '../state/workbench'
 import { browserView, drivenBrowserTab, findPane, show as showPane, type PaneView } from '../state/layout'
 import { BrowserTileRegistry, type BrowserTileMount } from '../lib/browser-tiles'
 import { addBrowserTab, patchBrowserTab, type BrowserView } from '../state/layout'
@@ -1300,7 +1300,9 @@ class PreviewStore {
     }
     const pane = findPane(before.main, before.main.focused)!
     const candidates = dockViews(before.right).filter(one => before.toolOwners[one.id] === subject && one.view.kind === mode)
-    const cached = candidates.find(one => supportsFixedTool(one.view, this.#snapshot.contributions)) ?? candidates[0]
+    const active = activeView(before.right)
+    const cached = candidates.find(one => one.id === active?.id && supportsFixedTool(one.view, this.#snapshot.contributions))
+      ?? candidates.find(one => supportsFixedTool(one.view, this.#snapshot.contributions)) ?? candidates[0]
     const refusal = cached && fixedToolRefusal(before, cached.id, this.#snapshot.contributions)
     if (refusal) { this.resultNotice('warning', refusal); return }
     const selected = cached && intent.open ? activate(before, 'right', cached.id) : before

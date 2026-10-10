@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import tokenSheet from '../foundation/tokens.css?raw'
-import { GroupLine, PanelBody, PanelFrame, PanelPill, PanelRow, PanelTools } from './InspectorPanel'
+import { GroupLine, PanelBody, PanelFrame, PanelFooter, PanelPill, PanelRow, PanelTools } from './InspectorPanel'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -84,10 +84,11 @@ it.each([
   expect(row.querySelector('[data-role="row"]')?.textContent).toBe('Review')
 })
 
-it('a reading inspector gives its tools and body one reading gutter', () => {
+it('a reading inspector keeps its reading body and gives ordinary controls their row gutter', () => {
   const host = document.createElement('div')
   host.innerHTML = renderToStaticMarkup(<PanelFrame inset="reading"><PanelTools>Title</PanelTools><PanelBody>Words</PanelBody></PanelFrame>)
-  expect(host.querySelector('[data-slot="inspector-tools"]')!.className).toContain('px-(--hd-space-6)')
+  expect(host.querySelector('[data-slot="tool-controls"]')!.className).toContain('px-(--hd-inset-row)')
+  expect(host.querySelector('[data-slot="bar"]')).toBeNull()
   expect(host.querySelector('[data-slot="inspector-body"] [data-slot="pane-column"]')!.getAttribute('data-inset')).toBe('reading')
   expect(host.querySelector('[data-slot="inspector-body"]')!.className).not.toContain('p-2')
 })
@@ -104,4 +105,12 @@ it('clamps prompts to two lines in secondary ink while allowing full refusal sen
     expect(ask.className).toContain('text-(--hd-secondary-foreground)')
     expect(ask.className).toContain('[overflow-wrap:anywhere]')
   }
+})
+
+it('B7 inspector footer is a quiet content footer outside a shell, never another bar', () => {
+  const markup = renderToStaticMarkup(<PanelFooter left="12 recorded events" right="Read from this work" />)
+  expect(markup).toContain('data-slot="content-footer"')
+  expect(markup).not.toContain('data-slot="bar"')
+  expect(markup).toContain('12 recorded events')
+  expect(markup).toContain('Read from this work')
 })

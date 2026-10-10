@@ -17,7 +17,7 @@ import {
   type RefObject,
 } from 'react'
 
-import { DockDropEdge, DockDropTarget, ResizeHandle, WorkbenchCanvas, WorkbenchRail, WorkbenchScrim } from '../design'
+import { FixedPanelFrame, FixedPanelRow, FixedPanelBody, FixedToolLayer, Tabs, TabsList, TabsTrigger, ToolBody, ToolBodySections, ToolFooterProvider, ToolFooterScope, ToolFooterOutlet, DockDropEdge, DockDropTarget, ResizeHandle, WorkbenchCanvas, WorkbenchRail, WorkbenchScrim } from '../design'
 import {
   DockPanel,
   DockPanelActions,
@@ -31,7 +31,7 @@ import { Menu, MenuItem, MenuLabel, Popover, dismissOverlays } from '../design'
 import { CaretIcon, ExpandIcon, MoreIcon, RestoreIcon } from '../components/Icons'
 import { ComposerMountsProvider, NoticeStripFallback, NoticeStripOutlet } from '../components/Notices'
 import { Panes } from '../components/Panes'
-import { PaneProvider, useSnapshot, useStore } from '../state/context'
+import { KeyboardHereContext, PaneProvider, useSnapshot, useStore, type PaneScope } from '../state/context'
 import { findPane, sameView, type PaneView } from '../state/layout'
 import {
   AREA_EDGE,
@@ -45,6 +45,7 @@ import {
   MIN_READING,
   SEAM,
   dockViews,
+  activeView,
   MAX_RATIO,
   MIN_RATIO,
   noticeArea,
@@ -61,6 +62,7 @@ import {
   type Workbench as WorkbenchModel,
 } from '../state/workbench'
 import { hasTrafficLights } from '../lib/desktop'
+import { supportsFixedTool, toolOf } from '../state/frame-tools'
 import { beginResize, endResize, markDragging } from '../lib/resizing'
 import { registerSlot } from '../slots/registry'
 import { MountProvider } from './mount'
@@ -337,12 +339,12 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
             a unit when neither is on screen — a zoomed bottom panel would
             otherwise sit under the empty space where they were, which reads as
             a panel that failed to expand rather than one that did. */}
-        <div
+        <FixedPanelRow
           className={styles.middle}
           onFocusCapture={(event) => {
             const target = event.target
             rightPanelFocus.current = target instanceof HTMLElement &&
-              target.closest('[data-slot="dock-panel"]')
+              target.closest('[data-fixed-tool-frame]')
               ? target
               : null
           }}
@@ -369,7 +371,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
             <DropZone area="main" />
           </div>
           <RightPanel />
-        </div>
+        </FixedPanelRow>
         <BottomPanel />
       </div>
     </WorkbenchCanvas>
@@ -379,96 +381,120 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   )
 }
 
-const RightPanel = () => {
-  const store = useStore()
-  const snapshot = useSnapshot()
-  const workbench = tileBrowserWorkbench(snapshot)
-  const pane = findPane(snapshot.layout, snapshot.layout.focused)
-  const registered = useRegisteredOwner(pane?.id ?? '')
-  const subject = fixedSubject(workbench.main)
-  const details = registered && subject !== null && workbench.frameTools[subject]?.tool === 'details' && (workbench.frameTools[subject]?.mode === 'details' || pane?.view.kind === 'room' && workbench.frameTools[subject]?.mode === 'run-details')
-  // ToolIntent draws this column, including facts with no legacy dock payload.
-  // Collapsed means gone, for this one area. The bottom panel and the sidebar
-  // stack collapse to their tab strips because a horizontal strip is a
-  // legitimate resting state; a column has none — a vertical panel showing
-  // only a row of tabs is a column of nothing with a border. The way back is
-  // the control that opened it, which is where it has always been.
-  // An area with nothing in it draws no panel — but it must still be a place
-  // you can drag something to, or the only way to fill it is the ⋯ menu and
-  // the drag is a gesture that silently does nothing.
-  if (!rightPanelDrawn(workbench)) return <EdgeDropZone area="right" />
-  // A zoomed panel takes the room rather than its remembered width, and the
-  // seam goes with it: there is nothing on the other side of it to resize
-  // against, and a handle that moves nothing is a handle that looks broken.
-  const zoomed = workbench.zoom?.area === 'right'
-  // When fewer than 400px remain beside the panel, it covers the conversation
-  // and the seam goes for the same reason it goes in a zoom: nothing beside it
-  // to trade with.
-  const overlay = rightPanelOverlays(workbench, snapshot.windowWidth)
-  const sized = !zoomed && !overlay
-  // Zoomed, or laid over the main area, this is the panel being
-  // read, and the strip above the panes rides here instead of the main area.
-  const noticeHost = noticeArea(workbench, snapshot.windowWidth) === 'right'
-  const min = dockLimits('right').min
-  const max = Math.max(
-    min,
-    Math.min(
-      dockLimits('right').max,
-      snapshot.windowWidth -
-        (sidebarPlacement(snapshot) === 'column' ? workbench.sidebar.size + SEAM : 0) -
-        SEAM -
-        MIN_READING,
-    ),
-  )
-  return (
-    <>
-      {sized && (
-        <AreaSeam area="right" orientation="vertical" label="Resize the right panel" direction={-1} max={max} />
-      )}
-      <div
-        className={styles.right}
-        style={sized ? { width: 'var(--panel-right)' } : undefined}
-        {...(noticeHost ? { 'data-notice-host': '' } : {})}
-      >
-        {noticeHost && <NoticeStripOutlet host area="right" hostId="workbench:right" />}
-        {noticeHost && <NoticeStripFallback area="right" />}
-        <DockPanelBody className={styles.layers}>
-          <div className={styles.layer} {...(details ? {} : { 'data-hidden': '', inert: true })}>
-            {pane && <PaneProvider scope={{ paneId: pane.id, view: pane.view, sessionKey: pane.view.kind === 'conversation' ? pane.view.session : null }}><WorkDetailsOutlet owner={pane.id} /></PaneProvider>}
-          </div>
-          <div className={styles.layer} {...(details ? { 'data-hidden': '', inert: true } : {})}><PanelArea area="right" /></div>
-        </DockPanelBody>
-      </div>
-    </>
-  )
+/** A retained cache captures provenance at admission, never from the newly focused work. */
+const RetainedTool = ({ entry, shown, section = false }: { entry: ReturnType<typeof dockViews>[number]; shown: boolean; section?: boolean }) => {
+  const store = useStore(), snapshot = useSnapshot()
+  const owner = snapshot.workbench.toolOwners[entry.id]
+  const remembered = owner ? snapshot.workbench.frameSubjects[owner] : undefined
+  const admitted = supportsFixedTool(entry.view, snapshot.contributions)
+  const captured = useRef<PaneScope | null>(null)
+  if (remembered && admitted) captured.current = { paneId: remembered.paneId, keyboardMountId: entry.id, view: remembered.view,
+    sessionKey: remembered.view.kind === 'conversation' ? remembered.view.session : null }
+  const scope = captured.current
+  if (!scope || !admitted) return null
+  const visible = shown && Boolean(remembered)
+  return <FixedToolLayer data-tool-mount={entry.id} section={section && visible} className={styles.layer}
+    {...(visible ? {} : { 'data-hidden': '', inert: true })}
+    onPointerDownCapture={() => { if (visible) store.focusView(entry.id) }}
+    onFocusCapture={() => { if (visible) store.focusView(entry.id) }}>
+    <KeyboardHereContext.Provider value={visible ? null : false}><PaneProvider scope={scope}>
+      <MountProvider scope={{ area: 'right', id: entry.id, view: entry.view, fixed: true }}>
+        <ToolFooterScope id={entry.id}><ViewHost view={entry.view} /></ToolFooterScope>
+      </MountProvider>
+    </PaneProvider></KeyboardHereContext.Provider>
+  </FixedToolLayer>
 }
 
-const BottomPanel = () => {
-  const store = useStore()
+const WorkToolBodies = ({ drawn }: { drawn: boolean }) => {
+  const store = useStore(), snapshot = useSnapshot()
+  const subject = store.workSubject(), owner = snapshot.layout.focused
+  const selected = subject ? snapshot.workbench.frameTools[subject] : undefined
+  const entries = dockViews(snapshot.workbench.right)
+  const focused = findPane(snapshot.layout, owner)
+  const current = activeView(snapshot.workbench.right)
+  const matching = entries.filter(entry => snapshot.workbench.toolOwners[entry.id] === subject &&
+    toolOf(entry.view.kind) === selected?.tool && entry.view.kind === selected?.mode && supportsFixedTool(entry.view, snapshot.contributions))
+  const active = matching.find(entry => entry.id === current?.id)?.id ?? matching[0]?.id ?? null
+  const registered = useRegisteredOwner(owner)
+  const open = Boolean(drawn && subject && focused && selected?.open)
+  const details = open && registered && selected?.tool === 'details'
+  const detailsId = `details:${owner}`
+  const plugin = details && selected?.mode === 'plugin' ? active : null
+  return <ToolFooterProvider>
+    <FixedPanelBody data-slot="work-tools" data-open={open} data-tool={selected?.tool} inert={!open}>
+      <DockPanelBody className={styles.layers}>
+        <div className={styles.layer} {...(details ? {} : { 'data-hidden': '', inert: true })}>
+          <KeyboardHereContext.Provider value={details ? null : false}>
+            <ToolFooterScope id={detailsId}><ToolBody><ToolBodySections>
+              {focused && <PaneProvider scope={{ paneId: owner, view: focused.view,
+                sessionKey: focused.view.kind === 'conversation' ? focused.view.session : null }}><WorkDetailsOutlet owner={owner} /></PaneProvider>}
+              {entries.filter(entry => entry.view.kind === 'plugin').map(entry => <RetainedTool key={entry.id} entry={entry} shown={entry.id === plugin} section />)}
+            </ToolBodySections></ToolBody></ToolFooterScope>
+          </KeyboardHereContext.Provider>
+        </div>
+        {entries.filter(entry => entry.view.kind !== 'plugin').map(entry => <RetainedTool key={entry.id} entry={entry}
+          shown={open && !details && entry.id === active} />)}
+      </DockPanelBody>
+      <ToolFooterOutlet id={open ? details ? plugin ?? detailsId : active : null} />
+    </FixedPanelBody>
+  </ToolFooterProvider>
+}
+
+const RightPanel = () => {
   const snapshot = useSnapshot()
   const workbench = tileBrowserWorkbench(snapshot)
-  const dock = workbench.bottom
-  const shown = areaVisible(workbench, 'bottom')
-  if (dockViews(dock).length === 0 || !shown) return <EdgeDropZone area="bottom" />
+  const drawn = rightPanelDrawn(workbench)
+  const zoomed = workbench.zoom?.area === 'right'
+  const overlay = rightPanelOverlays(workbench, snapshot.windowWidth)
+  const sized = !zoomed && !overlay
+  const rememberedWidth = useRef('var(--panel-right)')
+  if (drawn) rememberedWidth.current = sized ? 'var(--panel-right)' : '100%'
+  const noticeHost = drawn && noticeArea(workbench, snapshot.windowWidth) === 'right'
+  const min = dockLimits('right').min
+  const max = Math.max(min, Math.min(dockLimits('right').max, snapshot.windowWidth -
+    (sidebarPlacement(snapshot) === 'column' ? workbench.sidebar.size + SEAM : 0) - SEAM - MIN_READING))
+  return <>
+    {drawn && sized && <AreaSeam area="right" orientation="vertical" label="Resize the right panel" direction={-1} max={max} />}
+    <FixedPanelFrame edge="right" open={drawn} className={styles.right} data-fixed-tool-frame="" style={{ width: rememberedWidth.current }}
+       {...(noticeHost ? { 'data-notice-host': '' } : {})}>
+      {noticeHost && <NoticeStripOutlet host area="right" hostId="workbench:right" />}
+      {noticeHost && <NoticeStripFallback area="right" />}
+      <WorkToolBodies drawn={drawn} />
+    </FixedPanelFrame>
+  </>
+}
+
+/** Only process documents share the bottom frame; closing the region retains every xterm. */
+const BottomPanel = () => {
+  const store = useStore(), snapshot = useSnapshot()
+  const workbench = tileBrowserWorkbench(snapshot), dock = workbench.bottom
+  const entries = dockViews(dock).filter(entry => entry.view.kind === 'terminal')
+  const titleOf = useViewTitle()
+  const current = activeView(dock)
+  const active = entries.find(entry => entry.id === current?.id) ?? entries[0]
+  const shown = entries.length > 0 && !dock.collapsed && areaVisible(workbench, 'bottom')
   const zoomed = workbench.zoom?.area === 'bottom'
-  const height = dock.collapsed || zoomed ? undefined : 'var(--panel-bottom)'
-  const noticeHost = noticeArea(workbench, snapshot.windowWidth) === 'bottom'
-  return (
-    <>
-      {!dock.collapsed && !zoomed && (
-        <AreaSeam area="bottom" orientation="horizontal" label="Resize the bottom panel" direction={-1} />
-      )}
-      <div
-        className={styles.bottom}
-        style={height ? { height } : undefined}
-        {...(noticeHost ? { 'data-notice-host': '' } : {})}
-      >
-        {noticeHost && <NoticeStripOutlet host area="bottom" hostId="workbench:bottom" />}
-        {noticeHost && <NoticeStripFallback area="bottom" />}
-        <PanelArea area="bottom" />
-      </div>
-    </>
-  )
+  const noticeHost = shown && noticeArea(workbench, snapshot.windowWidth) === 'bottom'
+  return <>
+    {shown && !zoomed && <AreaSeam area="bottom" orientation="horizontal" label="Resize the bottom panel" direction={-1} />}
+    <FixedPanelFrame edge="bottom" open={shown} className={styles.bottom} data-terminal-frame=""
+       {...(noticeHost ? { 'data-notice-host': '' } : {})}>
+      {noticeHost && <NoticeStripOutlet host area="bottom" hostId="workbench:bottom" />}
+      {noticeHost && <NoticeStripFallback area="bottom" />}
+      {entries.length > 1 && <Tabs value={active?.id ?? null} onValueChange={id => { if (id) store.activateView('bottom', id) }}>
+        <TabsList aria-label="Terminal processes" variant="line">{entries.map(entry => <TabsTrigger key={entry.id} value={entry.id}>
+          {titleOf(entry.view)}</TabsTrigger>)}</TabsList>
+      </Tabs>}
+      <DockPanelBody className={styles.layers}>
+        {entries.map(entry => <div key={entry.id} data-terminal-mount={entry.id} className={styles.layer}
+          {...(shown && entry.id === active?.id ? {} : { 'data-hidden': '', inert: true })}>
+          <KeyboardHereContext.Provider value={shown && entry.id === active?.id ? null : false}>
+            <MountProvider scope={{ area: 'bottom', id: entry.id, view: entry.view, fixed: true }}><ViewHost view={entry.view} /></MountProvider>
+          </KeyboardHereContext.Provider>
+        </div>)}
+      </DockPanelBody>
+    </FixedPanelFrame>
+  </>
 }
 
 /**

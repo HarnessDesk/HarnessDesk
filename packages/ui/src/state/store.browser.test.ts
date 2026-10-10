@@ -387,3 +387,22 @@ it.each(['thread','side-by-side'] as const)('real Browser reveal preserves the c
   expect(store.getSnapshot().workbench.main.root).toMatchObject({id:remembered.paneId,view:fresh.view})
   expect(store.getSnapshot().workbench.toolOwners[resource.id]).toBe(owner)
 })
+
+
+it('B7 closing and reopening keeps the actually selected second Browser profile', () => {
+  store.openTeamRoom('fixture-profile-owner')
+  store.openBrowser('https://example.com/first', { profile: 'lane-first' })
+  const first = activeView(store.getSnapshot().workbench.right)!
+  store.openBrowser('https://example.com/second', { profile: 'lane-second' })
+  const second = activeView(store.getSnapshot().workbench.right)!
+  expect(second.id).not.toBe(first.id)
+  const retained = dockViews(store.getSnapshot().workbench.right)
+  store.toggleWorkPanel()
+  store.toggleWorkPanel()
+  expect(activeView(store.getSnapshot().workbench.right)?.id).toBe(second.id)
+  expect(dockViews(store.getSnapshot().workbench.right)).toEqual(retained)
+  store.revealView(first.id)
+  store.toggleWorkPanel()
+  store.toggleWorkPanel()
+  expect(activeView(store.getSnapshot().workbench.right)?.id).toBe(first.id)
+})

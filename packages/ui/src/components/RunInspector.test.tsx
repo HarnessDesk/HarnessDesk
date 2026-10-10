@@ -577,7 +577,7 @@ it('uses cards, toned Seat states and two-column facts for the Run summary', () 
     expect(view.container.querySelector('[data-slot="icon-tile"]')?.getAttribute('data-tint')).toBe('violet')
     expect(view.container.querySelector('[data-slot="chip"][data-tone="info"]')?.textContent).toBe('Working')
     expect(view.container.querySelector('[data-slot="key-value"]')).not.toBeNull()
-    expect(view.container.querySelector('[data-slot="inspector-footer"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-slot="content-footer"]')).not.toBeNull()
   } finally { view.close() }
 })
 it('omits the Seats card when the Run recorded no Seat details', () => {
@@ -639,8 +639,8 @@ it('uses a singular footer for a Run with one round', () => {
   const fixture = runFixture()
   const view = render({ input: { ...fixture, execution: { ...fixture.execution, rounds: fixture.execution.rounds.slice(0, 1) } } })
   try {
-    expect(view.container.querySelector('[data-slot="inspector-footer"]')?.textContent).toContain('1 round')
-    expect(view.container.querySelector('[data-slot="inspector-footer"]')?.textContent).not.toContain('1 rounds')
+    expect(view.container.querySelector('[data-slot="content-footer"]')?.textContent).toContain('1 round')
+    expect(view.container.querySelector('[data-slot="content-footer"]')?.textContent).not.toContain('1 rounds')
   } finally { view.close() }
 })
 

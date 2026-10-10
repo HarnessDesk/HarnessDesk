@@ -27,7 +27,7 @@ import {
   TrajectoryIcon,
 } from '../components/Icons'
 import { offeredHere } from '../lib/contributions'
-import { useSnapshot } from '../state/context'
+import { useSnapshot, useSessionKey } from '../state/context'
 import { resolveComponent } from '../slots/registry'
 import { EmptyState } from '../design'
 import { useMount } from './mount'
@@ -162,10 +162,11 @@ const PluginView = () => {
   const mount = useMount()
   const snapshot = useSnapshot()
   const view = mount?.view.kind === 'plugin' ? mount.view : null
+  const key = useSessionKey()
   /* Among what applies here: a panel scoped to one project or one conversation
      is not this one's, and a tab that outlived its scope says so below rather
      than drawing another conversation's panel. `lib/contributions.ts`. */
-  const contribution = offeredHere(snapshot, snapshot.activeSessionKey).find(
+  const contribution = offeredHere(snapshot, key).find(
     (entry) => entry.kind === 'ui' && String(entry.id) === view?.contribution,
   )
   const Component = contribution?.kind === 'ui' ? resolveComponent(contribution.component) : undefined

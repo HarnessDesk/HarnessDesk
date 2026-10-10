@@ -1,10 +1,14 @@
-import type { ReactNode } from 'react'
+import { createContext, useContext, type ReactNode } from 'react'
 import { Text } from './Settings'
 import { GroupLabel } from '../ui/group-label'
 import { ToolPaneBody } from '../ui/tool-pane'
 import { SectionBody } from '../ui/section'
 
-export const ToolBody = ({ children }: { children: ReactNode }) => <div
+/** Registered sections share the shell's one scroll owner; standalone bodies keep theirs. */
+const SectionsOnly = createContext(false)
+export const useToolBodySections = () => useContext(SectionsOnly)
+export const ToolBodySections = ({ children }: { children: ReactNode }) => <SectionsOnly.Provider value>{children}</SectionsOnly.Provider>
+export const ToolBody = ({ children }: { children: ReactNode }) => useContext(SectionsOnly) ? <>{children}</> : <div
   data-slot="tool-body" className="flex min-h-0 min-w-0 flex-1 flex-col">
   <ToolPaneBody data-slot="tool-scroll" inset="tool">{children}</ToolPaneBody>
 </div>
@@ -13,3 +17,6 @@ export const ToolSection = ({ label, children, action }: { label: string; childr
   <GroupLabel as="div" surface="tool"><Text role="meta" weight="medium" ink="secondary">{label}</Text>{action}</GroupLabel>{children}
 </section>
 export const ToolProse = ({ children }: { children: ReactNode }) => <SectionBody data-slot="tool-prose" spacing="tool-prose"><Text role="prose" ink="secondary">{children}</Text></SectionBody>
+
+export const ToolBodyControls = ({ children }: { children: ReactNode }) => <div data-slot="tool-controls"
+  className="flex min-w-0 flex-wrap items-center gap-(--hd-space-2) px-(--hd-inset-row) py-(--hd-space-2)">{children}</div>

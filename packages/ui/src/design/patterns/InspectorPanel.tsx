@@ -1,8 +1,8 @@
 import { createContext, useContext, createElement, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
 
 import { cn } from '../../lib/utils'
-import { Bar } from '../ui/bar'
-import { ToolbarGap } from '../ui/section'
+import { ToolBodyControls, useToolBodySections } from './ToolBody'
+import { ToolFooterPublisher } from './ToolFooter'
 import { Button, buttonVariants } from '../ui/button'
 import { ChangeStats } from './Change'
 import { PaneColumn } from './PaneColumn'
@@ -12,15 +12,15 @@ import { Chip, Dot, Search, Text } from './Settings'
  * The anatomy shared by the right-hand inspectors.
  *
  * Changes, Activity, Agents and background tasks are different lists inside
- * the same piece of furniture: a bar, rows that state one event or object,
- * and a quiet facts line. Owning those roles here means a selected row stays
+ * the same piece of furniture: ordinary control rows, recorded events or objects,
+ * and shell-published facts. Owning those roles here means a selected row stays
  * a fill, a running mark stays the same dot, and the list's labels cannot
  * drift back into a fifth spelling.
  */
 
-/** A prose inspector owns one reading gutter in both its bar and body. */
+/** Standalone prose bodies keep their reading gutter; controls use the ordinary row inset. */
 const PanelInset = createContext<'dense' | 'reading'>('dense')
-const PanelFrame = ({ children, testId, inset = 'dense' }: { children: ReactNode; testId?: string; inset?: 'dense' | 'reading' }) => (
+const PanelFrame = ({ children, testId, inset = 'dense' }: { children: ReactNode; testId?: string; inset?: 'dense' | 'reading' }) => useToolBodySections() ? <>{children}</> : (
   <PanelInset.Provider value={inset}>
     <div data-slot="inspector-panel" data-inset={inset} data-testid={testId} className="flex h-full min-w-0 flex-col">
       {children}
@@ -28,27 +28,19 @@ const PanelFrame = ({ children, testId, inset = 'dense' }: { children: ReactNode
   </PanelInset.Provider>
 )
 
-const PanelTools = ({ children }: { children: ReactNode }) => (
-  <Bar data-slot="inspector-tools" rule="bottom" className={useContext(PanelInset) === 'reading' ? 'px-(--hd-space-6)' : undefined}>
-    {children}
-  </Bar>
-)
+const PanelTools = ({ children }: { children: ReactNode }) => <ToolBodyControls>{children}</ToolBodyControls>
 
 const PanelBody = ({ children }: { children: ReactNode }) => {
   const reading = useContext(PanelInset) === 'reading'
+  const sections = useToolBodySections()
+  if (sections) return <>{children}</>
   return <div data-slot="inspector-body" className={cn('min-h-0 flex-1 overflow-y-auto', !reading && 'p-(--hd-inset-dense)')}>
     {reading ? <PaneColumn inset="reading">{children}</PaneColumn> : children}
   </div>
 }
 
-/** The quiet facts line under the list: a bar whose two readings are the meta role. */
-const PanelFooter = ({ left, right }: { left: ReactNode; right: ReactNode }) => (
-  <Bar data-slot="inspector-footer" rule="top">
-    <Text role="meta">{left}</Text>
-    <ToolbarGap />
-    <Text role="meta">{right}</Text>
-  </Bar>
-)
+/** Facts retain their existing calculations while the fixed shell owns their footer. */
+const PanelFooter = ({ left, right }: { left: ReactNode; right: ReactNode }) => <ToolFooterPublisher left={left} right={right} />
 
 /**
  * A count on the left, and a fact about the whole group on the right.
