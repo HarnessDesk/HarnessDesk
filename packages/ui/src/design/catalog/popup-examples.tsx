@@ -1,4 +1,4 @@
-import { Button, InfoCard, Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MiddleTruncate, Popover } from '../index'
+import { Button, InfoCard, Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MiddleTruncate, Popover, Input, Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../index'
 import { CopyIcon, FolderOpenIcon, UndoIcon } from '../../components/Icons'
 export const MenuExample = ({ icons = 'all' }: { icons?: 'all' | 'none' }) => <Popover title="Frame menu" label="Frame menu" icons={icons}>
   {close => <Menu close={close}>
@@ -12,7 +12,7 @@ export const MenuExample = ({ icons = 'all' }: { icons?: 'all' | 'none' }) => <P
   </Menu>}
 </Popover>
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { WideMenu } from '../index'
 export const WideMenuExample = () => {
   const [query, setQuery] = useState('')
@@ -31,3 +31,21 @@ export const InfoCardExample = () => <InfoCard trigger={<Button variant="outline
   { id: 'state', label: 'State', value: 'Working', note: '41 seconds into this turn' },
   { id: 'context', label: 'Context', value: '740K left of 1M' },
 ]} notes={['The next message uses the same checkout.']} />
+
+import { TriggerMenu } from '../../components/TriggerMenu'
+export const SuggestionsExample = () => {
+  const anchor = useRef<HTMLInputElement>(null)
+  return <><Input ref={anchor} aria-label="Frame suggestion anchor" defaultValue="/" />
+    <TriggerMenu anchor={anchor} title="Workspace suggestions" activeIndex={0} onHover={() => {}} onPick={() => {}} items={[
+      { id: 'one', name: '/review-storefront-checkout-and-retry-policy', pathStyle: true, mono: true, badge: 'command', hint: 'Keeps the checkout and reports unresolved findings.' },
+      { id: 'two', name: '发布前检查和目录兼容性', badge: 'skill' },
+      { id: 'three', name: 'Archived conversation with a long descriptive title', badge: 'session', disabled: 'This conversation is archived. Restore it before sending a message.' },
+    ]} /></>
+}
+const SELECT_EXAMPLE_ITEMS = [
+  { value: 'scout', label: 'Scout — Storefront compatibility review' },
+  { value: 'catalogue', label: 'Catalogue diagnostics and checkout retry policy' },
+] as const
+export const SelectExample = () => <Select defaultValue="scout" items={SELECT_EXAMPLE_ITEMS}><SelectTrigger aria-label="Frame Select"><SelectValue /></SelectTrigger><SelectContent>
+  {SELECT_EXAMPLE_ITEMS.map(item => <SelectItem key={item.value} value={item.value} label={item.label} />)}
+</SelectContent></Select>

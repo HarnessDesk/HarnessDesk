@@ -83,6 +83,8 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'popup-info-card', query: 'frame-wall=conversation&popup=info', hover: 'Storefront catalogue review' },
   { id: 'popup-info-card-focused', query: 'frame-wall=conversation&popup=info', focus: 'Storefront catalogue review' },
   { id: 'popup-info-menu-exclusion', query: 'frame-wall=conversation&popup=info-and-menu', popup: 'Frame menu' },
+  { id: 'popup-suggestions', query: 'frame-wall=conversation&popup=suggestions' },
+  { id: 'popup-select', query: 'frame-wall=conversation&popup=select', select: true },
 ] as const
 
 /** Wide (every region stands), between the folds, and the narrowest window. */

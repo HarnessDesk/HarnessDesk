@@ -1,4 +1,4 @@
-import { createContext, useContext, type ReactNode } from 'react'
+import { createContext, useContext, type ButtonHTMLAttributes, type ReactNode } from 'react'
 
 export type MenuIcons = 'all' | 'none'
 export interface MenuRowData {
@@ -33,3 +33,7 @@ export const MenuRowContent = ({ label, icon, hint, hintId, trailing, badge, met
     {trailing != null && <span data-menu-trailing="">{trailing}</span>}
   </>
 }
+
+/** A typing picker's native option shares presentation without taking collection ownership. */
+export const MenuListboxOption = ({ data, ...props }: { readonly data: MenuRowData } & Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children' | 'className' | 'role' | 'type'>) =>
+  <button {...props} type="button" role="option" {...menuRowAttributes(data)}><MenuRowContent {...data} /></button>

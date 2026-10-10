@@ -2137,6 +2137,8 @@ const AdoptedBoard = () => {
               <SelectItem value="studio">Studio</SelectItem>
             </SelectContent>
           </Select>
+          <SuggestionsExample />
+          <SelectExample />
         </Case>
 
         <Case label="scroll area &mdash; real overflow">
@@ -3467,7 +3469,7 @@ export const SettingsNavigationBoard = () => {
 }
 COMPOSITION_BOARDS.push({ id: 'settings-navigation', title: 'Settings navigation', about: 'Controlled preferences with Back and search.', render: SettingsNavigationBoard })
 
-import { MenuExample } from '../catalog/popup-examples'
+import { MenuExample, SuggestionsExample, SelectExample } from '../catalog/popup-examples'
 const MENU_ROW_CATALOG_VARIANTS = ['default'] as const
 const MENU_ROW_CATALOG_SIZES = ['default'] as const
 const MENU_ROW_CATALOG_STATES = ['default'] as const
