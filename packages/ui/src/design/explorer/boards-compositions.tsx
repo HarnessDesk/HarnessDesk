@@ -1,3 +1,4 @@
+import { InfoCardBody, SubjectActionsMenu } from '..'
 import { PlanMetersSpecimen, TerminalToggleSpecimen, MainWorkActionsSpecimen } from '../../preview/frames-supported-controls'
 import { FRAME, StatusBar, FixedShell, SeatList, ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolProse, ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet, SummaryList, SummaryItem, Checklist, ChecklistItem } from '../index'
 import { Timeline, TimelineItem, type TimelineState } from '../ui/timeline'
@@ -2164,7 +2165,7 @@ const AdoptedBoard = () => {
           <div className="flex flex-wrap gap-2">
             <HoverCard>
               <HoverCardTrigger render={<Button variant="outline">Preview details</Button>} />
-              <HoverCardContent className="p-3">A richer, enterable preview rather than a repeated label.</HoverCardContent>
+              <HoverCardContent><InfoCardBody title="Workspace facts" rows={[{ id: 'folder', label: 'Folder', value: 'workspace/storefront', kind: 'path' }]} /></HoverCardContent>
             </HoverCard>
             <Tooltip>
               <TooltipTrigger render={<Button variant="outline">Rest or focus</Button>} />
@@ -3104,6 +3105,7 @@ export const StatusBarBoard = () => <div data-catalog-variants={STATUSBAR_CATALO
 </div>
 
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  { id: 'subject-actions', title: 'Subject actions', about: 'Verbs and Messages choices retain their callbacks outside facts.', render: () => <PopupSubjectBoard /> },
   { id: 'info-card', title: 'Info card', about: 'Complete facts on hover and focus, without actions or menu overlap.', render: () => <PopupInfoBoard /> },
   { id: 'wide-menu', title: 'Wide menu', about: 'Search, long names, aligned usage and footer in one bounded surface.', render: () => <PopupWideBoard /> },
   { id: 'status-bar', title: 'StatusBar', about: 'Real-length content in both themes.', render: StatusBarBoard },
@@ -3483,3 +3485,8 @@ const INFOCARD_CATALOG_VARIANTS = ['default'] as const
 const INFOCARD_CATALOG_SIZES = ['default'] as const
 const INFOCARD_CATALOG_STATES = ['default'] as const
 const PopupInfoBoard = () => <>{INFOCARD_CATALOG_VARIANTS.map(variant => INFOCARD_CATALOG_SIZES.map(size => INFOCARD_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><InfoCardExample /></div>)))}</>
+
+const SUBJECTACTIONSMENU_CATALOG_VARIANTS = ['default'] as const
+const SUBJECTACTIONSMENU_CATALOG_SIZES = ['default'] as const
+const SUBJECTACTIONSMENU_CATALOG_STATES = ['default'] as const
+const PopupSubjectBoard = () => <>{SUBJECTACTIONSMENU_CATALOG_VARIANTS.map(variant => SUBJECTACTIONSMENU_CATALOG_SIZES.map(size => SUBJECTACTIONSMENU_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><SubjectActionsMenu label="Scout" actions={[{ label: 'Open', onSelect: () => {} }, { label: 'Message', onSelect: () => {} }]} choice={{ label: 'Messages', value: 'hold', options: [{ value: 'accept', label: 'Accept' }, { value: 'hold', label: 'Hold' }, { value: 'refuse', label: 'Refuse' }], onChange: () => {} }} /></div>)))}</>

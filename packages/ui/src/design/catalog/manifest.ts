@@ -22,6 +22,7 @@ export type CatalogEntry = {
 type ModuleSeed = readonly [name: string, exampleId: string, purpose: string]
 
 const EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  'subject-actions': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   'info-card': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   'wide-menu': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   'app-frame': 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -111,7 +112,7 @@ const TABLE_CONSUMERS = [
 const KEY_VALUE_CONSUMERS = [
   'packages/ui/src/components/TeamRoomPane.tsx',
   'packages/ui/src/components/TriggerSettings.tsx',
-  'packages/ui/src/components/ContextUsage.tsx',
+  'packages/ui/src/components/AgentAttachments.tsx',
   'packages/ui/src/components/GitPane.tsx',
 ] as const
 
@@ -170,6 +171,7 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
     : undefined
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
+  SubjectActionsMenu: ['default'],
   InfoCard: ['default'],
   WideMenu: ['default'],
   StatusBar: ['light', 'dark'],
@@ -283,6 +285,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
+  SubjectActionsMenu: ['default'],
   InfoCard: ['default'],
   WideMenu: ['default'],
   StatusBar: ['default', 'loading', 'disabled', 'populated'],
@@ -408,6 +411,7 @@ const SIZES: Record<string, readonly CatalogSize[]> = Object.fromEntries(
   Object.keys(VARIANTS).map((name) => [name, DEFAULT_SIZE]),
 )
 Object.assign(SIZES, {
+  SubjectActionsMenu: ['default'],
   InfoCard: ['default'],
   WideMenu: ['default'],
   button: ['default', 'xs', 'sm', 'sidebar-nav', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'log-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'],
@@ -425,7 +429,8 @@ Object.assign(SIZES, {
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
-  InfoCard: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  SubjectActionsMenu: 'packages/ui/src/components/TeamRoomPane.tsx',
+  InfoCard: 'packages/ui/src/components/ContextUsage.tsx',
   WideMenu: 'packages/ui/src/components/PlanMeters.tsx',
   StatusBar: 'packages/ui/src/panels/WorkStatusBar.tsx',
 
@@ -635,6 +640,7 @@ export const CANONICAL_UI_MODULES = [
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
+  ['SubjectActionsMenu', 'subject-actions', 'Existing action callbacks and Messages choices outside facts'],
   ['InfoCard', 'info-card', 'Facts only on hover or focus, suppressed while any menu is open'],
   ['WideMenu', 'wide-menu', 'Search, long names, aligned usage and footer in one bounded surface'],
   ['StatusBar', 'status-bar', 'StatusBar presentation owned by the fixed shell'],

@@ -524,7 +524,6 @@ export const AccountFooter = ({
           side="right"
           align="end"
           className={styles.seatTrigger}
-          onOpenUsage={onOpenUsage}
           disabled={open}
         >
           <AccountMark
@@ -723,6 +722,7 @@ export const AccountFooter = ({
             />
 
           <MenuSeparator />
+          {groups.flat().map(seat => <MenuItem key={`usage:${seat.key}`} icon={<UsageIcon size={16} />} label={`Usage for ${seat.info.presentation.name}`} title={seat.sub ?? undefined} onSelect={() => onOpenUsage(seat.info.id)} />)}
             {/* Only where something is metered: a row whose whole answer is
                 "—" took a line to say there was nothing to say. */}
             {hasUsage && (

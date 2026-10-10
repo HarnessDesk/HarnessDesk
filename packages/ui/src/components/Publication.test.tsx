@@ -141,10 +141,9 @@ describe('the publication row', () => {
       act(() => {
         vi.advanceTimersByTime(1000)
       })
-      const heading = [...document.querySelectorAll('[data-slot="hover-card-content"] span')].find(
-        (one) => one.textContent === long,
-      )
-      expect(heading?.getAttribute('title')).toBe(long)
+      const heading = document.querySelector('[data-info-title]')
+      expect(heading?.textContent).toBe(long)
+      expect(heading?.classList.contains('line-clamp-2')).toBe(false)
     } finally {
       vi.useRealTimers()
     }
@@ -205,4 +204,29 @@ describe('the publication row', () => {
     render(item({ kind: 'review', action: 'posted' }))
     expect([...document.body.querySelectorAll('button')].some((one) => one.textContent?.trim().startsWith('Review'))).toBe(false)
   })
+})
+
+it('keeps Open reference and Copy link in the publication row’s sibling More menu', () => {
+  const opened = vi.fn(), copied = vi.fn()
+  const previousClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
+  Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: copied } })
+  ;(window as unknown as { harnessdesk?: unknown }).harnessdesk = { openExternal: opened }
+  try {
+    render(item())
+    const more = container.querySelector<HTMLButtonElement>('button[aria-label="acme/widgets #7 actions"]')!
+    expect(more).not.toBeNull()
+    act(() => more.click())
+    const row = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent === label)!
+    act(() => row('Copy link').click())
+    expect(copied).toHaveBeenCalledExactlyOnceWith('https://github.com/acme/widgets/pull/7')
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    act(() => more.click())
+    act(() => row('Open reference').click())
+    expect(opened).toHaveBeenCalledExactlyOnceWith('https://github.com/acme/widgets/pull/7')
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+  } finally {
+    if (previousClipboard) Object.defineProperty(navigator, 'clipboard', previousClipboard)
+    else delete (navigator as { clipboard?: unknown }).clipboard
+    delete (window as unknown as { harnessdesk?: unknown }).harnessdesk
+  }
 })

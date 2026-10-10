@@ -1,35 +1,17 @@
-import { useMemo, type ReactNode } from 'react'
-
-import type { UsageWindow } from '@harnessdesk/protocol'
+import { useMemo } from 'react'
 
 import { cacheHealthOf } from '../lib/cache-health'
 import {
   describeContext,
   formatCost,
   formatTokens,
-  type ContextComposition,
   type ContextFill,
 } from '../lib/context-usage'
 import { describeLimits, formatReset } from '../lib/limits'
 import { formatResetCountdown } from '../lib/usage'
 import { useActiveSession, useRuntime, useSnapshot } from '../state/context'
 import { ComposerTrack } from './ComposerControls'
-import styles from './ContextUsage.module.css'
-import {
-  KeyValue,
-  KeyValueRow,
-  ListRow,
-  Menu,
-  MenuLabel,
-  MenuNote,
-  Popover,
-  UsageMeterRow,
-  Progress,
-  ProgressRing,
-  ProgressStack,
-  Text,
-  type Tone,
-} from '../design'
+import { Button, InfoCard, ProgressRing, type InfoFact, type Tone } from '../design'
 
 /**
  * The ring beside the model: how full the context window is, for whichever
@@ -58,161 +40,31 @@ export const ContextUsage = () => {
   const metered = runtime.capabilities.metered && runtime.id === snapshot.activeRuntime
   const limits = metered ? describeLimits(snapshot.limits) : null
 
-  if (!view) {
-    return (
-      <ComposerTrack name="context">
-        <Popover
-          fullWidth
-          title="No usage yet"
-          drop="up"
-          align="right"
-          label={<Ring fill={null} size={16} label="No usage yet" />}
-        >
-          {(close) => <Menu close={close}><MenuNote>No usage yet</MenuNote></Menu>}
-        </Popover>
-      </ComposerTrack>
-    )
-  }
+  if (!view) return <ComposerTrack name="context"><InfoCard title="No usage yet" side="top" align="end" trigger={<Button variant="ghost" size="icon-sm" data-info-source="context"><Ring fill={null} size={16} label="No usage yet" /></Button>} rows={[{ id: 'usage', label: 'Usage', value: 'No usage yet' }]} /></ComposerTrack>
   const { fill, last, total, cost, delegated, composition } = view
 
-  return (
-    <ComposerTrack name="context">
-      <Popover
-        fullWidth
-        title={view.title}
-        drop="up"
-        align="right"
-        label={<Ring fill={fill} size={16} label={view.title} />}
-      >
-        {(close) => (
-          <Menu close={close}>
-            <div className={styles.panel}>
-              <ListRow
-                size="sm"
-                lead={<Ring fill={fill} size={28} />}
-                title={
-                  <Text role="subject" tone={toneOf(fill?.tone)} numeric>
-                    {fill ? `${fill.percent}% full` : 'Context window unknown'}
-                  </Text>
-                }
-                // Without a window the line is a sentence, and an earned
-                // sentence wraps whole rather than ending in an ellipsis.
-                wrapSubtitle={!fill}
-                subtitle={
-                  fill
-                    ? `${formatTokens(fill.used)} of ${formatTokens(fill.size)} tokens in context`
-                    : `${agent} does not report its context window size.`
-                }
-              />
-              {fill && (
-                <Progress
-                  className={styles.headProgress}
-                  value={fill.percent}
-                  tone={toneOf(fill.tone)}
-                  size="sm"
-                  label={false}
-                  aria-label="Context window"
-                />
-              )}
-
-              {composition && <Composition composition={composition} />}
-
-              {last && (
-                <>
-                  <MenuLabel>Last turn</MenuLabel>
-                  {/* The hint is a cache *verdict* where the agent reports both
-                      halves, and the share it can vouch for where it reports
-                      only hits — see `lib/cache-health.ts` for why those must
-                      not read the same. */}
-                  <Row
-                    label="Input"
-                    value={formatTokens(last.inputTokens)}
-                    hint={cache ? <span title={cache.title}>{cache.label}</span> : null}
-                  />
-                  <Row label="Output" value={formatTokens(last.outputTokens)} />
-                  {last.reasoningOutputTokens > 0 && <Row label="Thinking" value={formatTokens(last.reasoningOutputTokens)} />}
-                </>
-              )}
-
-              {(total || cost) && (
-                <>
-                  <MenuLabel>This session</MenuLabel>
-                  {total && (
-                    <Row
-                      label="Tokens"
-                      value={formatTokens(total.totalTokens)}
-                      hint={total.outputTokens > 0 ? `${formatTokens(total.outputTokens)} out` : null}
-                    />
-                  )}
-                  {cost && <Row label="Cost" value={formatCost(cost)} />}
-                  {/* Delegated spend is a *split* of the tokens above and never
-                      an addition to them: the runtimes that attribute a child's
-                      usage have already folded it into the session's own
-                      counts. Shown as a share so a session that handed most of
-                      its work away says so. */}
-                  {delegated && total && (
-                    <Row
-                      label="Delegated"
-                      value={formatTokens(delegated.totalTokens)}
-                      hint={
-                        total.totalTokens > 0
-                          ? `${Math.round((delegated.totalTokens / total.totalTokens) * 100)}% of the session`
-                          : null
-                      }
-                    />
-                  )}
-                </>
-              )}
-
-              {limits && limits.windows.length > 0 && (
-                <>
-                  <MenuLabel>Plan usage</MenuLabel>
-                  {limits.windows.map((window) => (
-                    <WindowRow key={window.label} window={window} />
-                  ))}
-                </>
-              )}
-
-              <MenuNote>Reported by {agent}.</MenuNote>
-            </div>
-          </Menu>
-        )}
-      </Popover>
-    </ComposerTrack>
-  )
+  const facts: InfoFact[] = [
+    ...(fill ? [{ id: 'context', label: 'Context', value: `${formatTokens(fill.used)} of ${formatTokens(fill.size)} tokens` }, { id: 'full', label: 'Full', value: `${fill.percent}%` }] : [{ id: 'context', label: 'Context', value: 'Window size unknown', note: `${agent} does not report its context window size.` }]),
+    ...(last ? [{ id: 'input', label: 'Input', value: formatTokens(last.inputTokens), note: cache?.label }, { id: 'output', label: 'Output', value: formatTokens(last.outputTokens) }, ...(last.reasoningOutputTokens > 0 ? [{ id: 'thinking', label: 'Thinking', value: formatTokens(last.reasoningOutputTokens) }] : [])] : []),
+    ...(total ? [{ id: 'tokens', label: 'Session tokens', value: formatTokens(total.totalTokens), note: total.outputTokens > 0 ? `${formatTokens(total.outputTokens)} out` : undefined }] : []),
+    ...(cost ? [{ id: 'cost', label: 'Cost', value: formatCost(cost) }] : []),
+    ...(delegated && total ? [{ id: 'delegated', label: 'Delegated', value: formatTokens(delegated.totalTokens), note: total.totalTokens > 0 ? `${Math.round(delegated.totalTokens / total.totalTokens * 100)}% of the session` : undefined }] : []),
+    ...(composition ? composition.segments.map(segment => ({ id: `composition:${segment.id}`, label: segment.label, value: `${formatTokens(segment.tokens)} · ${segment.percent}%`, note: segment.count != null ? `${segment.count} items` : undefined })) : []),
+    ...(limits ? limits.windows.map(window => {
+      const left = Math.min(100, Math.max(0, Math.round(100 - window.usedPercent)))
+      return { id: `limit:${window.label}`, label: window.label, tone: toneOf(left <= 0 ? 'bad' : left < 20 ? 'warn' : 'good'), value: `${left}% left`, note: window.resetsAt === null ? undefined : `${formatResetCountdown(window.resetsAt - Date.now())} · resets ${formatReset(window.resetsAt)}` }
+    }) : []),
+  ]
+  const compositionData = composition ? {
+    label: 'What is in context', source: composition.source,
+    measured: formatTokens(composition.measured), approximate: composition.approximate,
+    parts: composition.segments.map(segment => ({ id: segment.id, label: segment.label, value: segment.percent, reading: formatTokens(segment.tokens), meta: `${segment.percent}%`, detail: segment.count != null ? `(${segment.count})` : undefined })),
+  } : undefined
+  const contextMeter = fill ? { label: 'Context window', value: fill.percent, max: 100, tone: toneOf(fill.tone), reading: `${fill.percent}% full` } : undefined
+  return <ComposerTrack name="context"><InfoCard title={view.title} side="top" align="end"
+    trigger={<Button variant="ghost" size="icon-sm" data-info-source="context"><Ring fill={fill} size={16} label={view.title} /></Button>}
+    rows={facts} meter={contextMeter} composition={compositionData} notes={[...(cache ? [cache.title] : []), `Reported by ${agent}.`]} /></ComposerTrack>
 }
-
-/**
- * What the context is made of, for the agents that can say.
- *
- * Deliberately *not* drawn as segments of the ring above it. The ring is
- * anchored to what the provider charged; these are the agent's own pricing of
- * the parts, and when they are approximate the two do not reconcile — the
- * agent said so, and stacking one inside the other would quietly overrule it.
- * So this is its own bar, sharing the parts against each other, with its own
- * total and its own footnote naming who measured it.
- */
-const Composition = ({ composition }: { composition: ContextComposition }) => (
-  <>
-    <MenuLabel>What is in context</MenuLabel>
-    <ProgressStack
-      label="What is in context"
-      parts={composition.segments.map((segment) => ({
-        id: segment.id,
-        value: segment.percent,
-        label: segment.label,
-        ...(segment.count != null ? { detail: `(${segment.count})` } : {}),
-        reading: formatTokens(segment.tokens),
-        meta: `${segment.percent}%`,
-      }))}
-    />
-    <MenuNote>
-      {composition.approximate
-        ? `${formatTokens(composition.measured)} tokens, as ${composition.source} estimates them — a composition, not a total, so it will not match the figure above.`
-        : `${formatTokens(composition.measured)} tokens, measured by ${composition.source}.`}
-    </MenuNote>
-  </>
-)
 
 /**
  * The ring itself: a conic gradient over a masked disc. Drawn in CSS rather
@@ -231,43 +83,3 @@ export const Ring = ({ fill, size, label }: { fill: ContextFill | null; size: nu
     {...(label ? { label } : {})}
   />
 )
-
-const Row = ({
-  label,
-  value,
-  hint,
-  tone,
-}: {
-  label: ReactNode
-  value: ReactNode
-  hint?: ReactNode | null
-  tone?: Tone
-}) => (
-  <KeyValue className={styles.row}>
-    <KeyValueRow label={label} numeric>
-      {/* The value and its note share one line — "54K · 74% cached" — the
-          note pushed to the row's end, so a short reading never stacks its
-          qualifier under itself in a panel with room to spare. */}
-      <span className={styles.rowReading}>
-        <Text role="value" tone={tone}>{value}</Text>
-        {hint != null && hint !== '' && <Text role="meta" align="end">{hint}</Text>}
-      </span>
-    </KeyValueRow>
-  </KeyValue>
-)
-
-/**
- * One rolling allowance: what is left, and when it refills.
- *
- * **Left, not used.** This panel spent a release saying `24% used` under a
- * bar that filled as the allowance drained, two inches from a sidebar footer
- * saying `76% left` and a header strip whose bar emptied — one account,
- * three surfaces, two scales and two directions. The rule the rest of the app
- * keeps is that a meter's fill *is* what remains, so a full bar always means
- * "plenty" wherever a reader meets one; this row now keeps it too.
- */
-const WindowRow = ({ window }: { window: UsageWindow }) => {
-  const left = Math.min(100, Math.max(0, Math.round(100 - window.usedPercent)))
-  const tone = left <= 0 ? 'bad' : left < 20 ? 'warn' : 'good'
-  return <div className={styles.window}><UsageMeterRow name={window.label} percent={left} countdown={formatResetCountdown(window.resetsAt === null ? null : window.resetsAt - Date.now())} countdownTitle={window.resetsAt === null ? undefined : `resets ${formatReset(window.resetsAt)}`} tone={toneOf(tone)} standalone barless /></div>
-}

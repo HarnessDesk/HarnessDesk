@@ -64,6 +64,8 @@ for (const destination of WALL_DESTINATIONS) {
         if ('undo' in destination) await openWallDestination(page, destination)
         if ('composerAdd' in destination) await openWallDestination(page, destination)
         if ('hover' in destination || 'focus' in destination) await openWallDestination(page, destination)
+        if ('contextInfo' in destination || 'memberInfo' in destination) await openWallDestination(page, destination)
+        if ('infoTarget' in destination || 'infoFocus' in destination) await openWallDestination(page, destination)
         if ('plan' in destination) await openWallDestination(page, destination)
         if ('popup' in destination) await openWallDestination(page, destination)
         await page.evaluate(async () => { await document.fonts.ready })

@@ -9,6 +9,7 @@ import { gitWorktrees } from './git-fixture'
 import { TopBar, Chip, Button, Menu, MenuItem } from '../design'
 import { PlusIcon, PlanIcon, DiffIcon, HistoryIcon, GlobeIcon, PanelIcon } from '../components/Icons'
 import { PopupWall } from './popup-wall'
+import { triggerGoalStatus } from './intake-fixture'
 import { AgentsWindow } from '../components/AgentsWindow'
 import { ChangesReview } from '../components/ChangesReview'
 import { AppWindowMode } from '../components/AppWindow'
@@ -70,9 +71,13 @@ const showing = (store: AppStore, view: PaneView, session: AppSnapshot['activeSe
 export const triggerTeamStore = (): AppStore => {
   const source = overviewTeamStore('running').getSnapshot()
   const goal = source.goals.get('overview-team')!
-  return previewStore({ ...source, goals: new Map(source.goals).set('overview-team', {
+  const store = previewStore({ ...source, goals: new Map(source.goals).set('overview-team', {
     ...goal, goal: { ...goal.goal, origin: { kind: 'trigger', trigger: 'fixture-trigger', event: 'fixture-event' } },
   }) })
+  return new URLSearchParams(location.search).get('popup') === 'origin-details' ? new Proxy(store, { get(target, key) {
+    if (key === 'triggerGoal') return async () => triggerGoalStatus({ goal: 'overview-team', trigger: 'fixture-trigger', budget: null })
+    return Reflect.get(target, key)
+  } }) : store
 }
 
 const frameRunStore = (scene: RunScene) => {

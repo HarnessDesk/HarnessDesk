@@ -1403,3 +1403,13 @@ for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
     await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(1)
   })
 }
+
+for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) for (const source of ['context', 'member', 'budget']) {
+  test(`C8 production ${source} info adapter at ${width} in ${theme}`, async ({ page }) => {
+    const query = source === 'context' ? 'frame-wall=conversation' : `frame-wall=conversation&popup=${source}-info`
+    await openFrame(page, query, theme, width)
+    const trigger = source === 'budget' ? page.getByRole('button', { name: 'Run budget', exact: true }) : page.locator(`[data-info-source="${source}"]`).first()
+    await trigger.hover()
+    await expectInfoGeometry(page.locator('[data-popup-kind="info-card"]:visible').last())
+  })
+}

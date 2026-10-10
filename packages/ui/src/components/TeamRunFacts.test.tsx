@@ -25,3 +25,14 @@ it('preserves the recorded brief, frozen base and only fresh checks and clean ch
     expect(container.querySelector('[data-slot="card"]')).toBeNull()
   } finally {act(() => root.unmount())}
 })
+
+it('keeps the origin description and its Open action on Started by', () => {
+  const fixture = runFixture()
+  const container = document.createElement('div'), root = createRoot(container)
+  try {
+    act(() => root.render(<TeamRunFacts input={fixture} number={1} at="head-a" originNote="From the pull request" originAction={<button type="button">Open origin</button>} />))
+    const row = [...container.querySelectorAll('[data-slot="summary-item"]')].find(one => one.textContent?.includes('Started by'))
+    expect(row?.textContent).toContain('From the pull request')
+    expect(row?.querySelector('button')?.textContent).toBe('Open origin')
+  } finally { act(() => root.unmount()) }
+})

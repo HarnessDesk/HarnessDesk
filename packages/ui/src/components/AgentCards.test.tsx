@@ -1,3 +1,6 @@
+import { FRAME } from '../design/frame'
+import { ceilingTitle } from '../lib/ceilings'
+import { SubjectActionsMenu } from '../design'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -10,7 +13,6 @@ import { seatAgentKey } from '../lib/agents'
 import {
   HOVER_CARD_COLLISION_PADDING,
   HOVER_CARD_SIDE_OFFSET,
-  HOVER_CARD_WIDTH_REM,
 } from '../design'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -52,6 +54,10 @@ beforeEach(() => {
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
+  const actualBox = HTMLElement.prototype.getBoundingClientRect
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    return this.style.width === 'var(--hd-info-card-width)' ? { width: FRAME.infoCard.width } as DOMRect : actualBox.call(this)
+  })
 })
 
 afterEach(() => {
@@ -173,38 +179,23 @@ const trigger = (): Element => {
   return found
 }
 
-const openCard = (): Element | null => document.querySelector('[data-slot="agent-card"]')
+const openCard = (): Element | null => document.querySelector('[data-popup-kind="info-card"]')
 
-it('a verb dismisses the card that offered it', () => {
+it('a verb in subject More dismisses facts and retains its callback', () => {
   vi.useFakeTimers()
   const open = vi.fn()
-  act(() =>
-    root.render(
-      <AgentHoverCard
-        body={() => (
-          <AgentCard
-            subject={{
-              kind: 'session',
-              name: 'A chat about the limiter',
-              tint: 'blue',
-              mark: <svg />,
-              actions: [{ label: 'Open', onSelect: open, primary: true }],
-            }}
-          />
-        )}
-      >
-        <span>mark</span>
-      </AgentHoverCard>,
-    ),
-  )
+  act(() => root.render(<>
+    <AgentHoverCard body={() => <AgentCard subject={{ kind: 'session', name: 'A chat about the limiter', tint: 'blue', mark: <svg /> }} />}><span>mark</span></AgentHoverCard>
+    <SubjectActionsMenu label="A chat about the limiter" actions={[{ label: 'Open', onSelect: open }]} />
+  </>))
   rest(trigger())
   expect(openCard()).not.toBeNull()
-
-  const verb = [...document.querySelectorAll('button')].find((b) => b.textContent === 'Open')
-  act(() => verb?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
-
+  expect(openCard()?.querySelector('button,a,[role="menuitem"]')).toBeNull()
+  act(() => container.querySelector('button')!.click())
+  expect(openCard()).toBeNull()
+  const verb = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(row => row.textContent === 'Open')!
+  act(() => verb.click())
   expect(open).toHaveBeenCalledOnce()
-  // The verb opened something behind this card; the card does not stay over it.
   expect(trigger().hasAttribute('data-popup-open')).toBe(false)
   vi.useRealTimers()
 })
@@ -434,7 +425,7 @@ const wait = (ms: number): void => {
 
 /** The trigger's box, where the layout jsdom does not do would put it. */
 const spans = (left: number, right: number): void => {
-  vi.spyOn(trigger(), 'getBoundingClientRect').mockReturnValue({
+  Object.defineProperty(trigger(), 'getBoundingClientRect', { configurable: true, value: () => ({
     left,
     right,
     top: 100,
@@ -444,7 +435,7 @@ const spans = (left: number, right: number): void => {
     x: left,
     y: 100,
     toJSON: () => ({}),
-  } as DOMRect)
+  } as DOMRect) })
 }
 
 /* The viewport: the root element's width, and a visual viewport as wide — the
@@ -1388,7 +1379,7 @@ it('needs the card, its gap and the positioner’s padding beside a trigger, to 
   vi.useFakeTimers()
   act(() => root.render(withAControl()))
   viewport(1024)
-  const reach = HOVER_CARD_WIDTH_REM * 16 + HOVER_CARD_SIDE_OFFSET + HOVER_CARD_COLLISION_PADDING
+  const reach = FRAME.infoCard.width + HOVER_CARD_SIDE_OFFSET + HOVER_CARD_COLLISION_PADDING
 
   // Exactly the reach to the right edge, and nothing at all on the left.
   spans(0, 1024 - reach)
@@ -1447,12 +1438,12 @@ it('brings back a card a keyboard opened, on the side that fits now', () => {
  * stays current for that open: the root's font size cannot change under an
  * open card without the window resizing, and a resize is a new measurement.
  */
-it('reads what a rem is once per open, and measures the whole of that open by it', () => {
+it('uses the fixed info width when the root font changes', () => {
   vi.useFakeTimers()
   act(() => root.render(withAControl()))
   viewport(1024)
-  /* 300px to the right edge: room for a card of 18rem + 8px at a 16px root,
-     and not for the same card at a 20px one. */
+  /* 300px to the right edge: the fixed 288px card and 8px gap fit
+     at either a 16px or a 20px root. */
   document.documentElement.style.fontSize = '16px'
   spans(20, 724)
   rest(trigger())
@@ -1467,10 +1458,10 @@ it('reads what a rem is once per open, and measures the whole of that open by it
   })
   expect(trigger().hasAttribute('data-popup-open')).toBe(true)
 
-  // The next open reads it afresh, and there is no longer room on the right.
+  // The token stays 288px even at a different root font; the next open still fits.
   leave(trigger())
   rest(trigger())
-  expect(side()).toBe('bottom')
+  expect(side()).toBe('right')
   document.documentElement.style.fontSize = ''
   vi.useRealTimers()
 })
@@ -1731,13 +1722,10 @@ it('a conversation seated as an Agent is carded as it, and says when its brief h
   rest(trigger())
   const text = openCard()?.textContent ?? ''
   expect(text).toContain('Reviews a change it did not write.')
-  expect(text).toContain('Edit · asked, not enforced')
-  const chip = openCard()?.querySelector('[data-ceiling]')
-  expect(chip?.getAttribute('data-hold')).toBe('asked')
-  // Neutral: `asked` is the ordinary state, not a warning (#898).
-  expect(chip?.querySelector('[data-tone]')?.getAttribute('data-tone')).toBe('neutral')
+  expect(text).toContain(ceilingTitle({ level: 'edit', hold: 'asked' }))
+  expect(openCard()?.querySelector('button,[role="switch"]')).toBeNull()
   expect(text).toContain('Built in')
-  expect(text).toContain('Seated on Claude · Opus 5 · High')
+  expect(text).toContain('Seated onClaude · Opus 5 · High')
   expect(text).toContain('Passed over Cursor — Cursor is signed out')
   expect(text).toContain('The brief has changed since this started.')
   expect(store.readSeatAgent).not.toHaveBeenCalled()
@@ -1765,7 +1753,7 @@ it('a plain conversation carries no Agent band, and reads nothing for one', () =
     ),
   )
   rest(trigger())
-  const labels = [...container.querySelectorAll('[data-slot="agent-card-band"] p')].map((el) => el.textContent)
+  const labels = [...container.querySelectorAll('[data-info-facts] dt')].map((el) => el.textContent)
   expect(labels).not.toContain('Agent')
   expect(store.readSeatAgent).not.toHaveBeenCalled()
   vi.useRealTimers()

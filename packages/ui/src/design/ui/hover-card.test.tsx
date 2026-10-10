@@ -7,25 +7,9 @@ import { DropdownMenu, DropdownMenuTrigger } from './dropdown-menu'
 import { Select } from './select'
 import { PopoverSurface } from '../patterns/Popover'
 
-import { HOVER_CARD_WIDTH_REM, HoverCard, HoverCardContent, HoverCardTrigger } from './hover-card'
+import { HoverCard, HoverCardContent, HoverCardTrigger } from './hover-card'
 
-/**
- * The width a caller measures is the width the card is drawn at.
- *
- * `AgentHoverCard` decides beside-or-under by asking whether
- * `HOVER_CARD_WIDTH_REM` fits next to the trigger, while the card itself is
- * drawn by a Tailwind class. The two are written in different places and
- * nothing else ties them: widen the class and every decision is made for a
- * card that no longer exists, and the symptom is a card drawn off the window
- * in exactly the narrow room the measurement is for — with a green suite.
- * Review found the gap; this is the tie.
- *
- * It ties the class, not the width the class is drawn at: Tailwind turns
- * `w-72` into a multiple of `--spacing`, and a theme that rebound that would
- * change the drawn width with this test still green. Nothing rebinds it, and
- * jsdom lays nothing out, so the width drawn — 288px at the app's 16px root —
- * is measured in the real app instead (the traces in #148).
- */
+/** The adapter delegates its fixed width and inset to the frame's info plate. */
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -55,9 +39,8 @@ it('is drawn at the width callers measure it by', () => {
   )
   const card = document.querySelector('[data-slot="hover-card-content"]')
   expect(card, 'an open card renders its content').not.toBeNull()
-  // Tailwind's spacing unit is a quarter of a rem, so 18rem is `w-72`.
-  const width = [...(card?.classList ?? [])].filter((name) => /^w-\d+$/.test(name))
-  expect(width).toEqual([`w-${HOVER_CARD_WIDTH_REM * 4}`])
+  expect(card?.getAttribute('data-popup-kind')).toBe('info-card')
+  expect([...card!.classList].some(name => /^w-|^p-/.test(name))).toBe(false)
 })
 
 it('associates a controlled open state with its trigger', () => {
@@ -79,22 +62,11 @@ it('associates a controlled open state with its trigger', () => {
   expect(document.querySelector('[data-slot="hover-card-content"]')).not.toBeNull()
 })
 
-it('keeps its inset for plain facts, and bleeds for a body that is a card of its own', () => {
-  const inset = (bleed: boolean): string[] => {
-    act(() =>
-      root.render(
-        <HoverCard open>
-          <HoverCardTrigger render={<span />}>trigger</HoverCardTrigger>
-          <HoverCardContent bleed={bleed}>card</HoverCardContent>
-        </HoverCard>,
-      ),
-    )
-    const card = document.querySelector('[data-slot="hover-card-content"]')
-    expect(card?.hasAttribute('data-bleed')).toBe(bleed)
-    return [...(card?.classList ?? [])].filter((name) => /^p-\d+$/.test(name))
-  }
-  expect(inset(false)).toEqual(['p-3'])
-  expect(inset(true)).toEqual(['p-0'])
+it('the info adapter exposes no caller-supplied ground or inset', () => {
+  act(() => root.render(<HoverCard open><HoverCardTrigger render={<span />}>trigger</HoverCardTrigger><HoverCardContent>card</HoverCardContent></HoverCard>))
+  const card = document.querySelector('[data-popup-kind="info-card"]')!
+  expect(card.hasAttribute('data-bleed')).toBe(false)
+  expect(card.hasAttribute('style')).toBe(false)
 })
 
 // Shared exclusion survives nested menus and cannot revive a stale controlled card.

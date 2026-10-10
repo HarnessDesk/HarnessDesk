@@ -13,6 +13,7 @@ export interface InfoFact {
   readonly kind?: 'text' | 'path'
   readonly note?: string
   readonly noteKind?: 'text' | 'path'
+  readonly tone?: Tone
 }
 export type InfoNote = string | { readonly text: string; readonly tone?: Tone }
 export interface InfoComposition {
@@ -32,7 +33,7 @@ export interface InfoCardData {
 export const InfoCardBody = ({ title, rows, notes = [], meter, composition }: InfoCardData) => <>
   <p data-info-title="">{title}</p>
   <dl data-info-facts="">{rows.map(row => <div key={row.id} data-info-pair="">
-    <dt>{row.label}</dt><dd>{row.kind === 'path' ? <MiddleTruncate>{String(row.value)}</MiddleTruncate> : row.value}</dd>
+    <dt>{row.label}</dt><dd>{row.kind === 'path' ? <MiddleTruncate>{String(row.value)}</MiddleTruncate> : row.tone ? <Text role="value" tone={row.tone}>{row.value}</Text> : row.value}</dd>
     {row.note && <dd data-info-pair-note="">{row.noteKind === 'path' ? <MiddleTruncate>{row.note}</MiddleTruncate> : row.note}</dd>}
   </div>)}</dl>
   {meter && <div data-info-meter=""><Progress value={meter.value} max={meter.max} tone={meter.tone} size="sm" label={false} aria-label={meter.label} /><Text role="meta" numeric>{meter.reading}</Text></div>}

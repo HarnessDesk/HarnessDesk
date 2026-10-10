@@ -428,7 +428,7 @@ it('opens the account’s card from the badge, and the card offers no switch to 
   act(() => {
     vi.advanceTimersByTime(1000)
   })
-  const card = document.querySelector('[data-slot="agent-card"]')
+  const card = document.querySelector('[data-popup-kind="info-card"]')
   expect(card).not.toBeNull()
   expect(card?.textContent).toContain('Shane-Claude')
   expect(card?.textContent).toContain('olivia@acme.dev')
@@ -478,50 +478,28 @@ it('a card that was open when the menu took the seat does not come back when the
   act(() => {
     vi.advanceTimersByTime(1000)
   })
-  expect(document.querySelector('[data-slot="agent-card"]')).not.toBeNull()
+  expect(document.querySelector('[data-popup-kind="info-card"]')).not.toBeNull()
   click(row())
   expect(document.querySelector('[role="menu"]')).not.toBeNull()
-  expect(document.querySelector('[data-slot="agent-card"]')).toBeNull()
+  expect(document.querySelector('[data-popup-kind="info-card"]')).toBeNull()
   click(row())
   act(() => {
     vi.advanceTimersByTime(1000)
   })
   expect(document.querySelector('[role="menu"]')).toBeNull()
-  expect(document.querySelector('[data-slot="agent-card"]')).toBeNull()
+  expect(document.querySelector('[data-popup-kind="info-card"]')).toBeNull()
 })
 
-it('the badge card’s Usage verb opens the dashboard on that agent', () => {
+it('the badge card exposes facts while scoped Usage stays in account More', () => {
   vi.useFakeTimers()
-  const onOpenUsage = vi.fn()
-  const claudeAccount = signedIn('olivia@acme.dev')
-  const snapshot: AppSnapshot = {
-    ...emptySnapshot(),
-    status: 'open',
-    runtimes: [codex, claude],
-    activeRuntime: CLAUDE,
-    accountsByRuntime: { [CODEX]: signedIn('shane@example.com'), [CLAUDE]: claudeAccount },
-    healthByRuntime: { [CODEX]: { state: 'ready' }, [CLAUDE]: { state: 'ready' } },
-  } as AppSnapshot
-  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, selectRuntime: vi.fn(async () => {}) } as unknown as AppStore
-  act(() => {
-    root.render(
-      <StoreProvider store={store}>
-        <AccountFooter onOpenSettings={() => {}} onOpenUsage={onOpenUsage} onSignIn={() => {}} />
-      </StoreProvider>,
-    )
-  })
-  const trigger = row().querySelector('[data-slot="hover-card-trigger"]')
-  act(() => {
-    trigger?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
-    trigger?.dispatchEvent(new MouseEvent('mouseenter'))
-  })
-  act(() => {
-    vi.advanceTimersByTime(1000)
-  })
-  const usage = [...document.querySelectorAll('[data-slot="agent-card"] button')].find((b) => b.textContent?.trim() === 'Usage')
-  if (!usage) throw new Error('no Usage verb on the card')
-  click(usage)
-  expect(onOpenUsage).toHaveBeenCalledWith(CLAUDE)
+  mount()
+  const trigger = row().querySelector('[data-slot="hover-card-trigger"]')!
+  act(() => { trigger.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' })); trigger.dispatchEvent(new MouseEvent('mouseenter')); vi.advanceTimersByTime(1000) })
+  const card = document.querySelector('[data-popup-kind="info-card"]')!
+  expect(card).not.toBeNull()
+  expect(card.querySelector('button,a,input,[role="menuitem"],[role="switch"]')).toBeNull()
+  click(row())
+  expect(document.querySelector('[data-popup-kind="info-card"]')).toBeNull()
 })
 
 it('a seat inside the menu offers Usage too, on the same account as the badge below it', () => {
@@ -551,26 +529,11 @@ it('a seat inside the menu offers Usage too, on the same account as the badge be
     )
   })
   click(row())
-  const current = document.querySelector('[role="menuitem"][data-current]')
-  if (!current) throw new Error('no current seat')
-  click(current)
-  const codexSeat = seatNamed('shane@example.com')
-  const trigger = codexSeat?.querySelector('[data-slot="hover-card-trigger"]')
-  if (!trigger) throw new Error('no card trigger on the menu seat')
-  act(() => {
-    trigger.dispatchEvent(new PointerEvent('pointerover', { bubbles: true, pointerType: 'mouse' }))
-    trigger.dispatchEvent(new MouseEvent('mouseenter'))
-  })
-  act(() => {
-    vi.advanceTimersByTime(1000)
-  })
-  const usage = [...document.querySelectorAll('[data-slot="agent-card"] button')].find(
-    (b) => b.textContent?.trim() === 'Usage',
-  )
-  if (!usage) throw new Error('no Usage verb on the menu seat card')
+  const usage = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.querySelector('[data-menu-label]')?.textContent === `Usage for ${codex.presentation.name}`)!
+  expect(usage).not.toBeNull()
   click(usage)
-  // Scoped to the seat the card is about, not to the default agent.
-  expect(onOpenUsage).toHaveBeenCalledWith(CODEX)
+  expect(onOpenUsage).toHaveBeenCalledExactlyOnceWith(CODEX)
+  expect(document.querySelector('[data-popup-kind="info-card"]')).toBeNull()
 })
 
 it('is you once you have chosen: your name and your face, with the pen still beside them', () => {

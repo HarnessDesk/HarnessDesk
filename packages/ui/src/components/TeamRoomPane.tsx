@@ -1,3 +1,4 @@
+import { InfoCard, SubjectActionsMenu } from '../design'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react'
 
 import {
@@ -114,13 +115,8 @@ import {
   ComposerDock,
   Dot,
   EmptyState,
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
   IconTile,
   MemberName,
-  KeyValue,
-  KeyValueRow,
   Menu,
   MenuItem,
   MenuToggle,
@@ -1083,7 +1079,9 @@ export const TeamRoomPane = ({
         chooser={runChooser} at={detailsAt}
         continuesNumber={detailsRun?.continues ? runs.findIndex(one => one.id === detailsRun.continues) + 1 || undefined : undefined}
         flowFile={detailsRun && <RunFlowFile root={goal?.goal.root ?? null} name={detailsRun.document.flow.name} compact />}
-        pullRequest={detailsPullRequest} cost={detailsCosts} trigger={triggerKind ? <>{teamTriggerLabel(originStatus, triggerControl.view)}{originStatus && <Text as="span" role="meta" ink="secondary"> · {originHoverWords(originStatus, triggerSourceTitle ?? 'Trigger')}</Text>}{triggerControl.view && <Text as="span" role="meta" title={triggerControl.view.reason ?? undefined}> · {triggerControl.view.armed && triggerControl.prefs?.paused ? 'Paused' : ({ armed: 'Armed', off: 'Off', changed: 'Changed', refused: 'Refused', paused: 'Paused' } as const)[triggerControl.view.state]}</Text>}{triggerControl.view?.reason && <Text as="span" role="meta"> · {triggerControl.view.reason}</Text>}{originStatus?.url && <Button variant="link" size="inline-link" onClick={() => void openExternal(originStatus.url!)}>Open</Button>}</> : undefined} />
+        originAction={originStatus?.url ? <Button variant="link" size="inline-link" onClick={() => void openExternal(originStatus.url!)}>Open</Button> : undefined}
+        originNote={originStatus ? originHoverWords(originStatus, triggerSourceTitle ?? 'Trigger') : undefined}
+        pullRequest={detailsPullRequest} cost={detailsCosts} trigger={triggerKind ? <>{teamTriggerLabel(originStatus, triggerControl.view)}{originStatus && <Text as="span" role="meta" ink="secondary"> · {originHoverWords(originStatus, triggerSourceTitle ?? 'Trigger')}</Text>}{triggerControl.view && <Text as="span" role="meta" title={triggerControl.view.reason ?? undefined}> · {triggerControl.view.armed && triggerControl.prefs?.paused ? 'Paused' : ({ armed: 'Armed', off: 'Off', changed: 'Changed', refused: 'Refused', paused: 'Paused' } as const)[triggerControl.view.state]}</Text>}{triggerControl.view?.reason && <Text as="span" role="meta"> · {triggerControl.view.reason}</Text>}{!detailsInput && originStatus?.url && <Button variant="link" size="inline-link" onClick={() => void openExternal(originStatus.url!)}>Open</Button>}</> : undefined} />
       <RunDetailsView inspectionOnly />
     </ToolSection>
     <ToolSection label="Seats" action={<Button variant="ghost" size="icon-sm" aria-label="Seat an Agent in this Team"
@@ -1488,34 +1486,9 @@ const MemberCard = ({
   readonly openOnFocus?: boolean
 }) => {
   if (!entry) return <>{children}</>
-  const actions = [
-    ...(onOpen ? [{ label: 'Open', onSelect: onOpen, primary: true }] : []),
-    ...(onWatch ? [{ label: 'Watch beside', onSelect: onWatch }] : []),
-    ...(onClose ? [{ label: 'Close column', onSelect: onClose }] : []),
-    /* Last, and last for a reason: the two above put something on screen and
-       this one takes an agent out of the work. The conversation itself is
-       untouched — it goes back to the project's own list — which is what the
-       label has to say, because "Remove" beside a conversation reads like a
-       delete. */
-    ...(onRemove ? [{ label: 'Take out of the room', onSelect: onRemove }] : []),
-  ]
   return (
     <MemberHoverCard
       member={cardFacts(entry)}
-      actions={actions}
-      {...(onInbound
-        ? {
-            choice: {
-              /* "Messages", not "Inbound": the band names what it governs in
-                 the words the room already uses — the switch on the room's own
-                 header says "messaging on". */
-              label: 'Messages',
-              value: entry.peer.inbound,
-              options: INBOUND_MODES.map((mode) => ({ value: mode.value, label: mode.label })),
-              onChange: (next: string) => onInbound(next as TeamInbound),
-            },
-          }
-        : {})}
       {...(side ? { side } : {})}
       {...(as ? { as } : {})}
       {...(className ? { className } : {})}
@@ -1743,7 +1716,7 @@ const triggerRootOf = (snapshot: AppSnapshot, room: string): string | null =>
  * Hovering opens the exact numbers: spend, rounds and time, each as used of
  * its own total, and the one footnote a trigger's budget always carries.
  */
-const BudgetFooter = ({ state, now }: { readonly state: TriggerBudgetState; readonly now: number }) => {
+export const BudgetFooter = ({ state, now }: { readonly state: TriggerBudgetState; readonly now: number }) => {
   const words = budgetMeterWords(state, now)
   /* Brand ink while there is plenty left, like the context ring: in grey a
      full 14px ring was the track's own colour one step darker, and read as
@@ -1755,30 +1728,18 @@ const BudgetFooter = ({ state, now }: { readonly state: TriggerBudgetState; read
   const reading = words.leftUsd === null ? 'Spend unknown' : `${formatMeterUsd(words.leftUsd)} left`
   return (
     <div data-slot="room-budget" className="mt-2 flex items-center justify-end gap-(--hd-space-2)">
-      <HoverCard>
-        <HoverCardTrigger render={<span className="inline-flex items-center gap-(--hd-space-1-5)" />}>
-          <ProgressRing value={words.percentLeft} size={14} tone={tone} label="Budget left" />
-          <Text role="meta">
-            {reading}
-            {words.roundNow !== null && ` · Round ${words.roundNow} of ${words.roundsTotal}`}
-          </Text>
-        </HoverCardTrigger>
-        <HoverCardContent side="top" align="end">
-          <KeyValue variant="panel">
-            <KeyValueRow label="Spend">{words.spentUsd === null ? 'Unknown' : formatMeterUsd(words.spentUsd)} of {formatMeterUsd(words.totalUsd)}</KeyValueRow>
-            {/* The footer's own meaning — the round being worked — so the two never disagree. */}
-            {words.roundNow !== null && <KeyValueRow label="Round">{words.roundNow} of {words.roundsTotal}</KeyValueRow>}
-            <KeyValueRow label="Time">{words.minutesUsed} of {words.minutesTotal} min</KeyValueRow>
-          </KeyValue>
-          <Note className="mt-2">
-            {words.spentUsd === null
-              ? 'The run stops while its spend cannot be read.'
-              : state.budget.withoutProgress === 1
-                ? 'Stops after a round with no progress.'
-                : `Stops after ${state.budget.withoutProgress} rounds with no progress.`}
-          </Note>
-        </HoverCardContent>
-      </HoverCard>
+      <InfoCard
+        trigger={<Button variant="ghost" size="chip"><ProgressRing value={words.percentLeft} size={14} tone={tone} label="Budget left" /><Text role="meta">{reading}{words.roundNow !== null && ` · Round ${words.roundNow} of ${words.roundsTotal}`}</Text></Button>}
+        title="Run budget"
+        side="top"
+        align="end"
+        rows={[
+          { id: 'spend', label: 'Spend', value: `${words.spentUsd === null ? 'Unknown' : formatMeterUsd(words.spentUsd)} of ${formatMeterUsd(words.totalUsd)}` },
+          ...(words.roundNow === null ? [] : [{ id: 'round', label: 'Round', value: `${words.roundNow} of ${words.roundsTotal}` }]),
+          { id: 'time', label: 'Time', value: `${words.minutesUsed} of ${words.minutesTotal} min` },
+        ]}
+        notes={[words.spentUsd === null ? 'The run stops while its spend cannot be read.' : state.budget.withoutProgress === 1 ? 'Stops after a round with no progress.' : `Stops after ${state.budget.withoutProgress} rounds with no progress.`]}
+      />
     </div>
   )
 }
@@ -1973,22 +1934,13 @@ const Room = ({
         (one) => one.peer.runtime === actor.runtime && one.peer.sessionId === actor.sessionId,
       )
       if (!entry) return node
-      return (
-        <MemberHoverCard
-          member={cardFacts(entry)}
-          actions={[
-            { label: 'Open', onSelect: () => onShow(entry.key), primary: true },
-            /* `entry.key` rather than a string joined here: the audience is
-               keyed by `SessionKey`, and the two spellings this used to have —
-               space-joined in the composer, NUL-joined everywhere else — were
-               a disagreement waiting to be found by a member whose id has a
-               space in it. */
-            { label: 'Message', onSelect: () => composer.current?.address(entry.key) },
-          ]}
-        >
-          {node}
-        </MemberHoverCard>
-      )
+      return <>
+        <MemberHoverCard source="member" member={cardFacts(entry)}>{node}</MemberHoverCard>
+        <SubjectActionsMenu label={entry.peer.nickname} actions={[
+          { label: 'Open', onSelect: () => onShow(entry.key) },
+          { label: 'Message', onSelect: () => composer.current?.address(entry.key) },
+        ]} />
+      </>
     },
     [members, onShow],
   )
@@ -2143,14 +2095,10 @@ const Room = ({
             card={(key, node) => {
               const entry = members.find((one) => one.key === key)
               if (!entry) return node
-              return (
-                <MemberHoverCard
-                  member={cardFacts(entry)}
-                  actions={[{ label: 'Open', onSelect: () => onShow(entry.key), primary: true }]}
-                >
-                  {node}
-                </MemberHoverCard>
-              )
+              return <>
+                <MemberHoverCard source="member" member={cardFacts(entry)}>{node}</MemberHoverCard>
+                <SubjectActionsMenu label={entry.peer.nickname} actions={[{ label: 'Open', onSelect: () => onShow(entry.key) }]} />
+              </>
             }}
             onTrouble={setTrouble}
             onPosted={toFloor}

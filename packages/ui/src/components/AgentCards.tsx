@@ -1,3 +1,5 @@
+import { AgentCardModeContext } from '../design'
+import { ceilingTitle } from '../lib/ceilings'
 import { useMenusOpen } from '../design'
 import {
   useEffect,
@@ -39,7 +41,6 @@ import {
   HOVER_CARD_COLLISION_PADDING,
   HOVER_CARD_OPEN_DELAY,
   HOVER_CARD_SIDE_OFFSET,
-  HOVER_CARD_WIDTH_REM,
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
@@ -276,9 +277,18 @@ const beside = (side: CardSide): side is 'left' | 'right' => side === 'left' || 
 const rootRem = (): number =>
   Number.parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
 
+const infoWidth = (trigger: HTMLElement): number => {
+  const probe = document.createElement('span')
+  probe.style.cssText = 'position:absolute;visibility:hidden;width:var(--hd-info-card-width)'
+  trigger.ownerDocument.body.append(probe)
+  const width = probe.getBoundingClientRect().width
+  probe.remove()
+  return width
+}
+
 const roomOn = (trigger: HTMLElement, side: 'left' | 'right', rem: number): boolean => {
   const box = trigger.getBoundingClientRect()
-  const reach = HOVER_CARD_WIDTH_REM * rem + HOVER_CARD_SIDE_OFFSET + HOVER_CARD_COLLISION_PADDING
+  const reach = infoWidth(trigger) + HOVER_CARD_SIDE_OFFSET + HOVER_CARD_COLLISION_PADDING
   const view = window.visualViewport
   const viewLeft = view ? view.offsetLeft : 0
   const viewRight = Math.min(document.documentElement.clientWidth, view ? view.offsetLeft + view.width : Number.POSITIVE_INFINITY)
@@ -403,6 +413,7 @@ export const AgentHoverCard = ({
   inset,
   openOnFocus = true,
   disabled = false,
+  source,
 }: {
   /**
    * The card's contents, built on demand.
@@ -437,6 +448,7 @@ export const AgentHoverCard = ({
   readonly openOnFocus?: boolean
   /** The surface has nothing worth a card; the mark renders bare. */
   readonly disabled?: boolean
+  readonly source?: 'member' | 'account' | 'session'
 }) => {
   const triggerId = useId()
   const [open, setOpen] = useState(false)
@@ -635,6 +647,7 @@ export const AgentHoverCard = ({
      `PaneColumn` where `inset` composes its own padding onto it. Typed
      against `HTMLElement` so the one ref callback fits either. */
   const triggerProps = {
+    'data-info-source': source,
     ref: (node: HTMLElement | null) => {
       if (!node) return
       if (triggerRef.current && triggerRef.current !== node) setRedrawn((count) => count + 1)
@@ -722,32 +735,11 @@ export const AgentHoverCard = ({
           ref={setCard}
           side={placed}
           {...(align ? { align } : {})}
-          bleed
-          /* A verb dismisses the card that offered it. Every action here opens,
-             renames or addresses something *behind* this card, and review found
-             it left floating over the destination until the pointer happened to
-             move away. Keyed on a real control rather than on any click, so a
-             press that selects a path or a task title does not close the thing
-             being read from. */
-          onClick={(event) => {
-            /* The card is a portal, and a React portal's events bubble through
-               the React *tree* — so every press inside it also reached the row
-               this card hangs off. Open was harmless (the row opens too), and
-               the rest were not: Watch beside opened the member as well as
-               putting it in a column, Take out of the room opened the
-               conversation it had just removed, and picking an inbound mode
-               navigated away from the room. Found by photographing the real app.
-               The card acts on its own behalf; the row is not part of it. */
-            event.stopPropagation()
-            const target = event.target as HTMLElement
-            /* A setting is not a verb. The band that holds one says which value
-               is current, which is the whole reason to look at it, so it does
-               not dismiss the card the way an action does. */
-            if (target.closest('[data-slot="agent-card-choice"]')) return
-            if (target.closest('button')) setOpen(false)
-          }}
+          /* A press selecting a fact stays inside this portaled card and
+             cannot activate the row that owns its trigger. */
+          onClick={event => event.stopPropagation()}
         >
-          {body()}
+          <AgentCardModeContext.Provider value="facts">{body()}</AgentCardModeContext.Provider>
         </HoverCardContent>
       )}
     </HoverCard>
@@ -860,6 +852,7 @@ const seatedOf = (
   return {
     agent: {
       name: seated.name,
+      ceilingText: ceilingTitle(settings?.ceiling ?? { level: definition?.ceiling ?? 'read', hold: 'asked' }, settings?.ceilingNote),
       ceiling: <CeilingChip ceiling={settings?.ceiling ?? { level: definition?.ceiling ?? 'read', hold: 'asked' }} note={settings?.ceilingNote} />,
       description: definition?.description ?? null,
       origin: seated.entry ? originWords(seated.entry.origin, projectOfAgent(seated.entry)) : null,
@@ -1010,6 +1003,7 @@ const MemberCardBody = ({
 
 export const MemberHoverCard = ({
   member,
+  source,
   actions,
   choice,
   children,
@@ -1018,6 +1012,7 @@ export const MemberHoverCard = ({
   as,
   openOnFocus,
 }: {
+  readonly source?: 'member'
   readonly member: MemberCardFacts
   readonly actions?: readonly AgentCardAction[]
   readonly choice?: AgentCardSubject['choice']
@@ -1030,6 +1025,7 @@ export const MemberHoverCard = ({
   readonly openOnFocus?: boolean
 }) => (
   <AgentHoverCard
+    {...(source ? { source } : {})}
     body={() => (
       <MemberCardBody
         member={member}
@@ -1129,6 +1125,7 @@ export const SessionHoverCard = ({
      invented reading is worse than none. Decided here rather than inside the
      body, because it needs no store and must be known before the card opens. */
   <AgentHoverCard
+    source="session"
     disabled={session === null}
     body={() =>
       session ? <SessionCardBody session={session} {...(actions ? { actions } : {})} /> : null
@@ -1264,6 +1261,7 @@ export const AccountHoverCard = ({
   readonly disabled?: boolean
 }) => (
   <AgentHoverCard
+    source="account"
     {...(disabled !== undefined ? { disabled } : {})}
     body={() => (
       <AccountCardBody
