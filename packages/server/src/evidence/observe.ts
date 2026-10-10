@@ -59,6 +59,12 @@ export interface Look {
    */
   readonly until?: Sha | null
   /**
+   * The branch captured with `until`, including null for a detached HEAD.
+   * Only the bounded diff uses it: later forge facts still describe the
+   * branch the forge was asked about. Absent for legacy stops and live cards.
+   */
+  readonly untilBranch?: string | null
+  /**
    * A card no longer held with no `until` is never diffed, whether or not it
    * already has a diff fact: it keeps whatever it last showed, or none at
    * all — diffing it just this once, unbounded, is exactly how a stopped
@@ -165,7 +171,17 @@ export class Observer {
       if (line.record.restored) continue
       known.set(factKey(line.record.fact), line.record)
     }
-    const changed = facts.filter((fact) => JSON.stringify(known.get(factKey(fact))?.fact) !== JSON.stringify(fact))
+    const checkoutOf = (fact: Evidence) => ({ cwd: look.cwd,
+      branch: fact.kind === 'diff' && look.until != null && look.untilBranch !== undefined ? look.untilBranch : revision.branch,
+    })
+    // The same payload on another branch is another observation. Otherwise
+    // a same-commit switch silently keeps the earlier checkout identity.
+    const changed = facts.filter((fact) => {
+      const before = known.get(factKey(fact))
+      const checkout = checkoutOf(fact)
+      return JSON.stringify(before?.fact) !== JSON.stringify(fact) ||
+        before?.checkout?.cwd !== checkout.cwd || before?.checkout?.branch !== checkout.branch
+    })
     if (changed.length === 0) return false
     const observedAt = this.#now()
     await this.#store.append(
@@ -177,7 +193,7 @@ export class Observer {
           id: mintId(),
           fact,
           card: { board: look.room, id: look.card },
-          checkout: { cwd: look.cwd, branch: revision.branch },
+          checkout: checkoutOf(fact),
           seat: look.seat,
           round: null,
           observedAt,

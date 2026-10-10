@@ -395,6 +395,9 @@ offered must be requested again before a verdict can be recorded.
 The final branch is kept with the card's stopping commit: switching that
 checkout again after completion refuses review candidates until it returns,
 rather than substituting work on another branch.
+A stopped diff keeps that commit and branch on every later look. A new
+observation of the same fact on another branch is kept too; an unchanged
+payload does not preserve its earlier branch label.
 
 A project names its checks in `checks.yml` in its `.harnessdesk` folder —
 `verify: { run: pnpm verify, timeout: 1200 }` — and every card offers *Run
