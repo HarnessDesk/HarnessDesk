@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { FRAME } from '../../packages/ui/src/design/frame'
 
 const seatMenuBoard = (page: import('@playwright/test').Page) => page.locator('[data-catalog-case="seat-menu-width"]')
 
@@ -52,7 +53,7 @@ test('seat menu keeps the design token width across sidebar widths and clamps to
       const anchor = document.querySelector('[data-catalog-case="seat-menu-width"] button[class*="accountRow"]')!.getBoundingClientRect()
       return { width: panel.width, x: panel.x, anchorX: anchor.x }
     })
-    expect(measured.width).toBe(320)
+    expect(measured.width).toBe(FRAME.menu.max)
     expect(measured.x).toBeCloseTo(measured.anchorX, 0)
     await page.keyboard.press('Escape')
   }
