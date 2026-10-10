@@ -83,7 +83,7 @@ const GEMINI = member(peer('cursor', 'g1', 'Gemini'))
 /* One snapshot object for every rig. `useSyncExternalStore` compares identity,
    so a getter that mints a fresh snapshot re-renders forever — the same trap
    the room pane keeps `NO_ENTRIES` for. */
-const rig = (members: readonly RoomMember[] | null = [OPUS, GPT, GEMINI], messaging = true, defaultAudience?: readonly SessionKey[], view: AppSnapshot = snapshot, tileLabels?: ReadonlyMap<SessionKey, string>) => {
+const rig = (members: readonly RoomMember[] | null = [OPUS, GPT, GEMINI], messaging = true, defaultAudience?: readonly SessionKey[], view: AppSnapshot = snapshot, tileLabels?: ReadonlyMap<SessionKey, string>, messagingControl: { onMessaging?: () => Promise<void>; reason?: string } = {}) => {
   const store = {
     subscribe: () => () => {},
     getSnapshot: (): AppSnapshot => view,
@@ -93,13 +93,16 @@ const rig = (members: readonly RoomMember[] | null = [OPUS, GPT, GEMINI], messag
   } as unknown as AppStore
   const trouble = vi.fn()
   const posted = vi.fn()
-  act(() => {
+  const onMessaging = messagingControl.onMessaging ?? vi.fn().mockResolvedValue(undefined)
+  const render = (nextMessaging = messaging) => act(() => {
     root.render(
       <StoreProvider store={store}>
         <RoomComposer
           room={ROOM}
           members={members}
-          messaging={messaging}
+          messaging={nextMessaging}
+          onMessaging={onMessaging}
+          messagingReason={messagingControl.reason}
           defaultAudience={defaultAudience}
           tileLabels={tileLabels}
           onTrouble={trouble}
@@ -108,7 +111,8 @@ const rig = (members: readonly RoomMember[] | null = [OPUS, GPT, GEMINI], messag
       </StoreProvider>,
     )
   })
-  return { store, trouble, posted }
+  render()
+  return { store, trouble, posted, onMessaging, render }
 }
 
 const box = (): HTMLTextAreaElement => container.querySelector('textarea') as HTMLTextAreaElement
@@ -537,7 +541,7 @@ it('counts towards the limit only near it, and refuses to send past it', () => {
 
 it('an empty room says so, and a roster not yet answered does not', () => {
   rig([])
-  expect(container.textContent).toContain('No agents in this Team yet')
+  expect(container.textContent).toContain('No agents in this Team yet. Add one from Seats in Details.')
   expect(container.textContent).not.toContain('room')
 
   act(() => root.render(<div />))
@@ -583,6 +587,7 @@ it('an addressed member that leaves takes its chip with it', () => {
           room={ROOM}
           members={[GPT]}
           messaging
+          onMessaging={() => Promise.resolve()}
           onTrouble={vi.fn()}
           onPosted={vi.fn()}
         />
@@ -698,6 +703,7 @@ it('a chip carries the room’s own name card, and the ✕ stays outside it', ()
           room={ROOM}
           members={[OPUS, GPT]}
           messaging
+          onMessaging={() => Promise.resolve()}
           /* The pane's own reader turns a member into card facts; this only
              proves the composer asks for one per chip and wraps what it is
              given. A card built in here would be the second reader the rail
@@ -771,6 +777,7 @@ it('another surface in the room can address a member through the handle', () => 
           room={ROOM}
           members={[OPUS, GPT]}
           messaging
+          onMessaging={() => Promise.resolve()}
           onTrouble={vi.fn()}
           onPosted={vi.fn()}
         />
@@ -797,6 +804,7 @@ it('another surface in the room can address a member through the handle', () => 
           room={ROOM}
           members={[OPUS, GPT, GEMINI]}
           messaging
+          onMessaging={() => Promise.resolve()}
           onTrouble={vi.fn()}
           onPosted={vi.fn()}
         />
@@ -888,4 +896,74 @@ it('keeps @A and @B picks in step with the To control', () => {
 it('shows the quiet queue hint while either tile is working', () => {
   rig([{...OPUS, busy:true}, GPT], true, [OPUS.key, GPT.key], snapshot, tileLabels)
   expect(container.textContent).toContain('Waits for their turns')
+})
+
+
+for (const layout of ['thread', 'side-by-side'] as const) {
+  it(`holds messages from Send to without changing the ${layout} draft, audience or person's send`, async () => {
+    let release!: () => void
+    const onMessaging = vi.fn(() => new Promise<void>(resolve => { release = resolve }))
+    const { render, store } = rig([OPUS, GPT], true, layout === 'side-by-side' ? [OPUS.key, GPT.key] : undefined,
+      snapshot, layout === 'side-by-side' ? tileLabels : undefined, { onMessaging })
+    act(() => type('@op'))
+    act(() => press('Enter'))
+    act(() => type('Check the retry budget'))
+    expect(anchor().getAttribute('aria-label')).toBe('Send to')
+    expect(anchor().title).toBe('This message reaches Opus')
+    expect(anchor().textContent).toContain(layout === 'side-by-side' ? 'To: A' : 'Opus')
+    act(() => anchor().click())
+    const hold = audienceRow('Hold messages')
+    expect(hold.getAttribute('aria-checked')).toBe('false')
+    act(() => hold.click())
+    expect(onMessaging).toHaveBeenCalledTimes(1)
+    expect(audienceMenu()).toBeNull()
+    expect(box().value).toBe('Check the retry budget')
+    expect(chips()).toEqual(['Opus'])
+    await act(async () => release())
+    render(false)
+    expect(chips()).toEqual(['Opus', 'Holding messages'])
+    expect(box().value).toBe('Check the retry budget')
+    expect(box().disabled).toBe(false)
+    expect(send().disabled).toBe(false)
+    expect(container.textContent).toContain('You still can')
+    act(() => anchor().click())
+    expect(audienceRow('Hold messages').getAttribute('aria-checked')).toBe('true')
+    act(() => anchor().click())
+    await act(async () => send().click())
+    expect(store.teamPost).toHaveBeenCalledWith(ROOM, 'Check the retry budget', { runtime: 'claude', sessionId: 'k1' })
+    render(true)
+    expect(chips()).toEqual(['Opus'])
+  })
+}
+
+it('refuses Hold with its whole reason while leaving the person able to post', () => {
+  const reason = 'The Team messaging setting is unavailable until its connection returns.'
+  const { onMessaging } = rig([OPUS, GPT], true, undefined, snapshot, undefined, { reason })
+  act(() => type('carry on'))
+  act(() => anchor().click())
+  const hold = audienceRow('Hold messages')
+  expect(hold.getAttribute('aria-disabled')).toBe('true')
+  expect(hold.title).toBe(reason)
+  expect(hold.textContent).toContain(reason)
+  act(() => hold.click())
+  expect(onMessaging).not.toHaveBeenCalled()
+  expect(box().disabled).toBe(false)
+  expect(send().disabled).toBe(false)
+})
+
+it('a wrapped record refuses Hold with the record reason ahead of any caller reason', () => {
+  const view = { ...snapshot, goals: new Map([[ROOM, { goal: { id: ROOM, state: 'wrapped' } } as never]]) }
+  const before = JSON.stringify([...view.goals])
+  const { onMessaging, store } = rig([OPUS, GPT], false, undefined, view, undefined, { reason: 'Connection unavailable' })
+  act(() => anchor().click())
+  const hold = audienceRow('Hold messages')
+  expect(hold.getAttribute('aria-disabled')).toBe('true')
+  expect(hold.getAttribute('aria-checked')).toBe('true')
+  expect(hold.title).toBe('This Team is wrapped')
+  expect(hold.textContent).toContain('This Team is wrapped')
+  act(() => hold.click())
+  expect(onMessaging).not.toHaveBeenCalled()
+  expect(store.teamPost).not.toHaveBeenCalled()
+  expect(box().disabled).toBe(true)
+  expect(JSON.stringify([...view.goals])).toBe(before)
 })

@@ -17,6 +17,7 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'draft-browser', query: 'frame-wall=draft', tool: 'browser' },
   { id: 'team-details', query: 'frame-wall=team', tool: 'details' },
   { id: 'team-chat-side-by-side', query: 'frame-wall=team', tab: 'room', viewChoice: 'Side by side' },
+  { id: 'team-chat-holding', query: 'frame-wall=team', tab: 'room', holdMessages: true },
   { id: 'team-runs', query: 'frame-wall=team-trigger', tab: 'runs' },
   { id: 'team-receipt', query: 'frame-wall=team-receipt', tab: 'receipt' },
   { id: 'team-overview', query: 'frame-wall=team', tab: 'overview' },

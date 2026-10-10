@@ -1780,8 +1780,10 @@ class PreviewStore {
     }))
   }
 
-  teamMessaging = async (_root: string, on: boolean) => {
-    this.#team((team) => ({ ...team, messaging: on }))
+  teamMessaging = async (room: string, on: boolean) => {
+    const team = this.#snapshot.teams.get(room)
+    if (!team) return
+    this.patch({ teams: new Map(this.#snapshot.teams).set(room, { ...team, messaging: on }) })
   }
 
   teamDeliver = async (_root: string, id: string) => {

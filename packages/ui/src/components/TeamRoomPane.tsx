@@ -421,8 +421,6 @@ export const TeamRoomPane = ({
   const [wrapping, setWrapping] = useState(false)
   /** A finding opened from the wrapped Goal's receipt: its full history, read on its own. */
   const [receiptFinding, setReceiptFinding] = useState<string | null>(null)
-  /** The top row's own failure — the board-only switch not landing. */
-  const [barTrouble, setBarTrouble] = useState<string | null>(null)
   /**
    * What a member control could not do, said in the Details Seats.
    *
@@ -567,16 +565,13 @@ export const TeamRoomPane = ({
   const team = snapshot.teams.get(room)
   const entries = team?.channel ?? NO_ENTRIES
   const intents = team?.intents ?? NO_INTENTS
-  /* Read here rather than in the chat, because the switch is on the room's own
-     row now and the chat is only one of the three things the room can show. */
+  /* One host setting, shared by the Thread and side-by-side composers. */
   const messaging = team?.messaging ?? true
-  /* Shared by the bar's full button and its narrow ⋯ fallback, so the two can
-     never call the toggle two different ways. */
   const toggleMessaging = (): Promise<void> =>
     store
       .teamMessaging(room, !messaging)
-      .then(() => setBarTrouble(null))
-      .catch(() => setBarTrouble('The host did not take the change; the switch is as it was.'))
+      .then(() => setComposerTrouble(null))
+      .catch(() => setComposerTrouble('The host did not take the change; the switch is as it was.'))
   /* Messages the board is holding: delivered nowhere until a person releases
      them, and the one thing in the channel that is waiting on the reader. */
   const held = entries.filter(
@@ -1030,7 +1025,6 @@ export const TeamRoomPane = ({
     tools: <WorkTools changesRefusal={teamChangesRefusal} />,
     more: close => <>
       {pullRequest && <MenuItem label="Open pull request" onSelect={() => { void openExternal(pullRequest.url); close() }} />}
-      <MenuToggle label="Hold messages at the board" checked={!messaging} disabled={record ? RECORD_REASON : false} onChange={() => { void toggleMessaging(); close() }} />
       <MenuItem label="Wrap…" disabled={record ? RECORD_REASON : wrapDisabled} onSelect={() => { setWrapping(true); close() }} />
       <MenuItem label="Fill the window" onSelect={() => { store.zoomPanel('main', 'window'); close() }} />
     </>, corner: sidebarPlacement(snapshot) !== 'column',
@@ -1138,15 +1132,7 @@ export const TeamRoomPane = ({
         return failure ? <StopRunFailure key={execution.id} number={index + 1} message={failure.message}
           refusal={record ? RECORD_REASON : null} onRetry={() => setStoppingRun(execution.id)} /> : null
       })}
-      {/* The one failure this row can have, said out loud and across the whole
-          room: the chat's own trouble line is inside the chat, and a toggle
-          that failed while the board was up had nowhere to say so. */}
       {railTrouble && <ToolPaneNotice tone="danger"><span role="alert">{railTrouble}</span></ToolPaneNotice>}
-      {barTrouble && (
-        <ToolPaneNotice tone="danger">
-          <span role="alert">{barTrouble}</span>
-        </ToolPaneNotice>
-      )}
 
       {/* No inset reserved here, on purpose: a standing notice for the room
           lives inside `RoomComposer`'s own strip, below, over its composer —
@@ -1318,6 +1304,8 @@ export const TeamRoomPane = ({
                   tileLabels={new Map(grid.tiles.map((key, index) => [key, comparisonLetters.get(key) ?? String.fromCharCode(65 + index)]))}
                   draftState={roomDraft}
                   messaging={messaging}
+                  onMessaging={toggleMessaging}
+                  messagingReason={record ? RECORD_REASON : undefined}
                   onTrouble={setComposerTrouble}
                   onPosted={() => {}}
                 />
@@ -1351,7 +1339,7 @@ export const TeamRoomPane = ({
               )
             })()
           ) : (
-            <Room composerRef={chatComposer} room={room} draftState={roomDraft} trouble={composerTrouble} onTrouble={setComposerTrouble} members={roster} loaded={peers !== null} onShow={show} pendingApproval={pendingApproval} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} />
+            <Room onMessaging={toggleMessaging} messagingReason={record ? RECORD_REASON : undefined} composerRef={chatComposer} room={room} draftState={roomDraft} trouble={composerTrouble} onTrouble={setComposerTrouble} members={roster} loaded={peers !== null} onShow={show} pendingApproval={pendingApproval} triggerStatus={originStatus} flowExecution={flowExecution} needsYou={needsYou} />
           )}
         </div>
       </div>
@@ -1791,6 +1779,8 @@ const BudgetFooter = ({ state, now }: { readonly state: TriggerBudgetState; read
 }
 
 const Room = ({
+  onMessaging,
+  messagingReason,
   room,
   draftState,
   composerRef,
@@ -1805,6 +1795,8 @@ const Room = ({
   needsYou,
 }: {
   readonly room: string
+  readonly onMessaging: () => Promise<void>
+  readonly messagingReason?: string
   readonly draftState: RoomComposerDraftState
   readonly composerRef: RefObject<RoomComposerHandle | null>
   readonly trouble: string | null
@@ -2029,7 +2021,7 @@ const Room = ({
             {entries.length === 0 ? (
               <EmptyState
                 variant="inline" align="start"
-                title={messaging ? <span title="The agents in this room can message each other and you. Signals — a claim, a completion — land here too.">Nothing said yet</span> : 'Nothing said yet. Board-only: agents may claim and signal, but not message. Turn messaging back on at the top of the room.'}
+                title={messaging ? <span title="The agents in this room can message each other and you. Signals — a claim, a completion — land here too.">Nothing said yet</span> : 'Nothing said yet. Board-only: agents may claim and signal, but not message. Turn messaging back on in Send to.'}
               />
             ) : (
               <ChannelStream
@@ -2134,6 +2126,8 @@ const Room = ({
             draftState={draftState}
             members={loaded ? members : null}
             messaging={messaging}
+            onMessaging={onMessaging}
+            messagingReason={messagingReason}
             statusLine={<RoomLiveLine members={members} snapshot={snapshot} now={now} triggerStatus={triggerStatus} flowExecution={flowExecution} needsYou={needsYou} room={room} />}
             suspended={pendingApproval !== null}
             /* The same card the rail and the chat draw, off the same one

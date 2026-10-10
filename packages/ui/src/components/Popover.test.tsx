@@ -55,6 +55,13 @@ const click = (el: Element): void => {
 }
 
 describe('Popover', () => {
+  it('accepts a stable accessible name while retaining its visible audience and description', () => {
+    act(() => root.render(<Popover aria-label="Send to" label={<span>Everyone</span>} title="This message reaches everyone in the Team">{() => null}</Popover>))
+    expect(trigger().getAttribute('aria-label')).toBe('Send to')
+    expect(trigger().textContent).toBe('Everyone')
+    expect(trigger().title).toBe('This message reaches everyone in the Team')
+  })
+
   it('draws a trigger dressed as a button the way the button draws: its classes merged, so an outline keeps its edge', () => {
     act(() => {
       root.render(

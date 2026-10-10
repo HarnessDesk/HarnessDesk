@@ -1072,7 +1072,7 @@ const SideBySideBoard = () => {
           entryOf={(key) => entryOf(store, key)}
           onOpenMember={() => {}}
           composer={sharedComposer ? shown => <RoomComposer room="preview-room" members={SIDE_BY_SIDE_MEMBERS.map((member, index) => ({key:SIDE_BY_SIDE_KEYS[index]!, peer:{...member, sessionId:member.id, here:true, busy:index === 0, title:null, inbound:'accept' as const, canUseBoard:true, idleOnBoard:false, onTask:null}, busy:index === 0, brand:null, canUseBoard:true, title:null}))}
-            defaultAudience={shown} tileLabels={new Map(state.tiles.map((key,index) => [key,String.fromCharCode(65+index)]))} messaging onTrouble={() => {}} onPosted={() => {}} /> : undefined}
+            defaultAudience={shown} tileLabels={new Map(state.tiles.map((key,index) => [key,String.fromCharCode(65+index)]))} messaging onMessaging={() => Promise.resolve()} onTrouble={() => {}} onPosted={() => {}} /> : undefined}
           conversationProps={{ onChooseProject: () => {}, onSignIn: () => {}, onOpenUsage: () => {}, onOpenRuntimes: () => {} }}
         />
       </div>

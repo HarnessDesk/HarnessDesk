@@ -95,6 +95,7 @@ const hasText = (node: ReactNode): boolean => {
 export const Popover = ({
   label,
   title,
+  'aria-label': ariaLabel,
   disabled = false,
   reason,
   narrowed = false,
@@ -117,6 +118,8 @@ export const Popover = ({
 }: {
   label: ReactNode
   title?: string
+  /** A stable control name when the visible label is a changing value. */
+  'aria-label'?: string
   disabled?: boolean
   reason?: string
   narrowed?: boolean
@@ -241,7 +244,7 @@ export const Popover = ({
            facts accessible without a second tooltip; their caller must
            include every visible word in that title, including countdowns,
            so voice commands can still match the control (WCAG 2.5.3). */
-          {...(title === undefined || (!grouped && hasText(label)) ? {} : { 'aria-label': title })}
+          aria-label={ariaLabel ?? (title !== undefined && (grouped || !hasText(label)) ? title : undefined)}
         >
           {label}
         </PopoverTrigger>

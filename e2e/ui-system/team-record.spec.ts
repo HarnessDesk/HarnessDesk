@@ -114,9 +114,10 @@ for (const theme of ['light','dark'] as const) {
   await expect(rail.getByRole('button',{name:'Seat an Agent in this Team',exact:true})).toBeDisabled()
   await expect(rail.getByRole('button',{name:'Seat an Agent in this Team',exact:true})).toHaveAttribute('title','This Team is wrapped')
   await closeTeamDetails(frame)
-  await teamBar(frame).getByRole('button',{name:'More',exact:true}).click()
+  await selectTeamPage(frame,'room')
+  await frame.getByRole('button',{name:'Send to',exact:true}).click()
   {
-   const hold=page.getByRole('switch',{name:/^Hold messages at the board(?:\s|$)/})
+   const hold=page.getByRole('switch',{name:/^Hold messages(?:\s|$)/})
    await expect(hold).toHaveAttribute('aria-disabled','true')
    await expect(hold).toHaveAttribute('title','This Team is wrapped')
    await expect(hold).toContainText('This Team is wrapped')

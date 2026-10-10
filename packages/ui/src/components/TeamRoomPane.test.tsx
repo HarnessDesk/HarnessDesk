@@ -435,6 +435,13 @@ const topMore = (): HTMLElement => {
   if (trigger.getAttribute('aria-expanded') !== 'true') act(() => trigger.click())
   return document.body.querySelector<HTMLElement>('[role="menu"]')!
 }
+const sendTo = (): HTMLElement => {
+  const trigger = audience()
+  if (!trigger) throw new Error('Chat has no Send to control')
+  expect(trigger.getAttribute('aria-label')).toBe('Send to')
+  if (trigger.getAttribute('aria-expanded') !== 'true') act(() => trigger.click())
+  return document.body.querySelector<HTMLElement>('[role="menu"]')!
+}
 const watchAction = (name: string): HTMLButtonElement => { seatMenu(row(name)); return menuRow('Watch beside') }
 const seatAction = async (name: string, label: string): Promise<void> => {
   seatMenu(row(name)); await act(async () => menuRow(label).click())
@@ -917,12 +924,12 @@ it('an agent that leaves the board leaves the rail and the audience', async () =
  * merge would have been a quiet regression rather than a visible one.
  */
 
-it('board-only is one press from the room’s header, and says which way it is set', async () => {
+it('board-only is one press from Chat Send to, and says which way it is set', async () => {
   const { store } = rig()
   await render(store)
 
-  topMore()
-  const toggle = menuRow('Hold messages at the board')
+  sendTo()
+  const toggle = menuRow('Hold messages')
   if (!toggle) throw new Error('no messaging switch')
   act(() => toggle.click())
   expect(store.teamMessaging).toHaveBeenCalledWith(ROOM, false)
@@ -2915,42 +2922,17 @@ it('keeps Wrap in More, hides it after wrapping, and refuses it while wrapping o
   expect(wrapItem()?.getAttribute('aria-disabled')).toBe('true')
 })
 
-/**
- * A validator frame at 760px (a docked room rail, not the window's own
- * width) showed the bar's own `overflow: hidden` clipping the whole verbs
- * group off entirely rather than folding it — actions, unlike the muted
- * facts beside them, that must stay reachable at any width. A first pass
- * folded only Wrap, and a re-shot frame at the same width still showed
- * nothing: the messaging toggle beside it was exactly as fixed-width, so the
- * row still overflowed by its own icon button's worth. Both the full row and
- * a two-item ⋯ menu exist in the DOM at once, and `hd-header` (a real
- * `@container` query, not asserted here) decides which is visible; this pins
- * that the menu calls the same presses, so it cannot drift from the buttons
- * it stands in for.
- */
-it('keeps messaging and Wrap reachable through one ⋯ menu when the bar is too narrow for their own buttons, calling the same presses', async () => {
+/** The shell keeps Wrap; Hold belongs to Chat's audience menu at every bar width. */
+it('keeps Wrap reachable through More and Hold only through Chat Send to', async () => {
   const { store } = rig(undefined, undefined, {}, GOAL)
   await render(store)
-
   const bar = container.querySelector('header')!
-  const fullWrap = [...bar.querySelectorAll('button')].find((one) => one.textContent === 'Wrap')
-  expect(fullWrap).toBeUndefined()
+  expect([...bar.querySelectorAll('button')].some(one => one.textContent === 'Wrap')).toBe(false)
   expect(bar.querySelector('[aria-label="Hold messages at the board"]')).toBeNull()
-
-  const more = [...bar.querySelectorAll('[title="More"]')][0] as HTMLElement | undefined
-  expect(more, 'a compact ⋯ trigger stands beside the full buttons').not.toBeUndefined()
-  act(() => more!.click())
-
-  const wrapItem = [...document.body.querySelectorAll('[role="menuitem"], button')].find((one) => one.textContent === 'Wrap…')
-  expect(wrapItem, 'the menu offers the same Wrap action').not.toBeUndefined()
-  const messagingItem = [...document.body.querySelectorAll('[role="menuitem"], button')].find(
-    (one) => one.textContent === 'Hold messages at the board',
-  )
-  expect(messagingItem, 'the menu offers the same messaging toggle').not.toBeUndefined()
-
-  act(() => (wrapItem as HTMLElement).click())
-  // GoalWrap only mounts once wrapping is asked for — the same effect the
-  // full button's own onClick has.
+  topMore()
+  expect(menuRows().some(one => one.textContent?.includes('Hold messages'))).toBe(false)
+  const wrapItem = menuRow('Wrap…')
+  act(() => wrapItem.click())
   expect(document.body.querySelector('[role="dialog"]')).not.toBeNull()
 })
 
@@ -2989,15 +2971,7 @@ it('carries the panel’s verbs on its own row, so the pane draws no strip', asy
   expect(views.get('room')?.ownsChrome).toBe(true)
 })
 
-/**
- * The one failure the top row can have, said out loud.
- *
- * Board-only used to live in the chat's own header, where the chat's trouble
- * line was there to carry a refusal. It is on the room's row now, one surface
- * up — so a switch that failed while the *board* was open had nowhere at all
- * to say so, and the control simply sprang back with no explanation. The
- * redesign claimed this line; nothing pinned it until review asked.
- */
+/** The composer's existing trouble boundary carries a refused Hold change. */
 it('says so when the host will not take the board-only switch', async () => {
   const { store } = rig()
   const refusing = {
@@ -3006,8 +2980,8 @@ it('says so when the host will not take the board-only switch', async () => {
   } as unknown as AppStore
   await render(refusing)
 
-  topMore()
-  const toggle = menuRow('Hold messages at the board')
+  sendTo()
+  const toggle = menuRow('Hold messages')
   if (!toggle) throw new Error('no messaging switch')
   await act(async () => {
     toggle.click()
@@ -3017,8 +2991,8 @@ it('says so when the host will not take the board-only switch', async () => {
   const alert = container.querySelector('[role="alert"]')
   expect(alert?.textContent).toContain('The host did not take the change')
   // And the switch still reads as it really is, rather than as it was pressed.
-  topMore()
-  expect(menuRow('Hold messages at the board').getAttribute('aria-checked')).toBe('false')
+  sendTo()
+  expect(menuRow('Hold messages').getAttribute('aria-checked')).toBe('false')
 })
 
 /**
@@ -4173,10 +4147,11 @@ it('a wrapped Team keeps receipt Seats and its Run readable while dispatching ve
  expect(memberList()?.textContent).toContain('Writer')
  expect(memberList()?.textContent).toContain('Gamma')
  expect(memberList().querySelector('[title="Conversation not kept"]')).toBeTruthy()
- topMore()
- const hold = menuRow('Hold messages at the board')
- expect(hold.getAttribute('aria-disabled')).toBe('true');expect(hold.title).toBe('This Team is wrapped')
- act(()=>container.querySelector<HTMLButtonElement>('button[title="More"]')!.click())
+ act(()=>row('Chat').click());await act(async()=>{})
+ sendTo()
+ const hold = menuRow('Hold messages')
+ expect(hold.getAttribute('aria-disabled')).toBe('true');expect(hold.title).toBe('This Team is wrapped');expect(hold.textContent).toContain('This Team is wrapped')
+ act(()=>audience().click())
  const pick=async(label:string)=>{const button=[...container.querySelectorAll<HTMLButtonElement>('[data-team-page]')].find(one=>(label==='Run'?one.textContent?.startsWith(label):one.textContent===label));expect(button).toBeTruthy();act(()=>button!.click());await act(async()=>{})}
  await pick('Run');expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('Completed review')
  await pick('Receipt');expect(container.textContent).toContain('this page shows the Team as it was then')
@@ -4377,9 +4352,11 @@ it('explains why a Team has no Run to open', async () => {
  expect(run.title).toBe('This Team has no Run yet')
 })
 
-it('keeps held board messages checked in the Team More control', async () => {
+it('keeps held board messages checked in Chat Send to', async () => {
  const {store}=rig(undefined,undefined,{messaging:false},GOAL); await render(store)
- topMore(); expect(menuRow('Hold messages at the board').getAttribute('aria-checked')).toBe('true')
+ act(()=>row('Chat').click());await act(async()=>{})
+ sendTo(); expect(menuRow('Hold messages').getAttribute('aria-checked')).toBe('true')
+ expect(container.querySelector('[data-slot="composer-chip"]')?.textContent).toBe('Holding messages')
 })
 
 it('Details lists retained members including unavailable conversations', async () => {

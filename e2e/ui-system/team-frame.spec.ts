@@ -55,10 +55,16 @@ for (const theme of ['light','dark'] as const) {
   await page.evaluate(async () => {await document.fonts.ready})
   await captureFrame(page,`after-frame-720-${theme}`)
   await header.getByRole('button',{name:'More',exact:true}).click()
-  await expect(page.getByRole('switch',{name:'Hold messages at the board',exact:true})).toBeVisible()
+  await expect(page.getByRole('switch',{name:'Hold messages at the board',exact:true})).toHaveCount(0)
   await expect(page.getByRole('menuitem',{name:'Open pull request',exact:true})).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(header.getByRole('button',{name:'More',exact:true})).toBeFocused()
+  await selectTeamPage(team,'room')
+  // This fixture is waiting for approval: its existing permission boundary
+  // suspends the composer. The frame contract proves Send to at this width
+  // in the running fixture where the person can compose.
+  await expect(team.getByRole('heading',{name:'Grant additional access?',exact:true})).toBeVisible()
+  await expect(team.getByRole('button',{name:'Send to',exact:true})).toHaveCount(0)
   await selectTeamPage(team,'findings')
   await expect(team.locator('[data-slot="tool-pane"][aria-label="Findings"]')).toBeVisible()
   expect(await team.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
@@ -93,19 +99,27 @@ for (const theme of ['light','dark'] as const) {
   else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme','')
   const team=page.locator('[data-frame-id="team-frame"]')
   await teamBar(team).getByRole('button',{name:'More',exact:true}).click()
-  const labelLeft = (role: 'switch' | 'menuitem', label: string) =>
+  const labelLeft = (role: 'switch' | 'menuitem' | 'menuitemradio', label: string) =>
    page.getByRole(role,{name:label,exact:true}).evaluate((row, label) => {
     const text = [...row.querySelectorAll('span')].find(span => span.textContent?.trim() === label)
     return text!.getBoundingClientRect().left
    }, label)
   const edges = await Promise.all([
-   labelLeft('switch','Hold messages at the board'),
    labelLeft('menuitem','Open pull request'),
    labelLeft('menuitem','Wrap…'),
    labelLeft('menuitem','Fill the window'),
   ])
   expect(Math.max(...edges)-Math.min(...edges)).toBeLessThanOrEqual(1)
   await captureFrame(page, `after-controls-${theme}`)
+  await page.keyboard.press('Escape')
+  await selectTeamPage(team,'room')
+  await team.getByRole('button',{name:'Send to',exact:true}).click()
+  const audienceEdges=await Promise.all([
+   labelLeft('menuitemradio','Everyone in the Team'),
+   labelLeft('switch','Hold messages'),
+  ])
+  expect(Math.max(...audienceEdges)-Math.min(...audienceEdges)).toBeLessThanOrEqual(1)
+  await expect(page.getByRole('switch',{name:'Hold messages',exact:true})).toBeVisible()
  })
  test(`Team frame: Wrap is outlined on a ready Overview in ${theme}`, async ({page}) => {
   await page.emulateMedia({colorScheme:theme})
@@ -242,7 +256,7 @@ for (const theme of ['light','dark'] as const) {
   await page.setViewportSize({width:720,height:760})
   await page.emulateMedia({colorScheme:theme as 'light'|'dark'})
   await page.goto(`/preview.html?team-frame=controls&theme=${theme}`)
-  await expect(page.getByRole('switch',{name:'Hold messages at the board',exact:true})).toBeVisible()
+  await expect(page.getByRole('switch',{name:'Hold messages at the board',exact:true})).toHaveCount(0)
   await expect(page.getByRole('menuitem',{name:'Open pull request',exact:true})).toBeVisible()
   await expect(page.getByRole('menuitem',{name:'Fill the window',exact:true})).toBeVisible()
   await captureFrame(page,`after-controls-720-${theme}`)
