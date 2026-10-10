@@ -771,8 +771,9 @@ for (const theme of WALL_THEMES) {
 // Task 10 extends this same window contract to the transitional
 // AppWindow hosts. The pattern probe deliberately has no application lead.
 const B10_NONWORK = /frame-wall=(?:teams|agents|agent|dashboard|settings(?:-general|-runtimes)?|library|plugins|changes-review)(?:&|$)/
-const B6_WORK_DESTINATIONS = WALL_DESTINATIONS.filter(destination => destination.surface !== 'pattern' && !B10_NONWORK.test(destination.query))
-const B10_NONWORK_DESTINATIONS = WALL_DESTINATIONS.filter(destination => B10_NONWORK.test(destination.query))
+const D6_NONWORK = /frame-wall=settings-(?:navigation|search)(?:&|$)/
+const B6_WORK_DESTINATIONS = WALL_DESTINATIONS.filter(destination => destination.surface !== 'pattern' && !B10_NONWORK.test(destination.query) && !D6_NONWORK.test(destination.query))
+const B10_NONWORK_DESTINATIONS = WALL_DESTINATIONS.filter(destination => B10_NONWORK.test(destination.query) || D6_NONWORK.test(destination.query))
 for (const theme of WALL_THEMES) for (const width of [720, 1440]) {
   test(`B10 nonwork place hierarchy and lead follow window state at ${width} in ${theme}`, async ({ page }) => {
     const hidden = width === 1440 ? '&frame-sidebar-hidden=1' : ''
@@ -969,21 +970,22 @@ for (const theme of WALL_THEMES) {
             const previousRow = allRows[allRows.indexOf(heading) - 1]
             if (previousRow) gaps.push({ label: label.textContent!, gap: label.getBoundingClientRect().top - previousRow.getBoundingClientRect().bottom })
           }
-          const rows = [...column.querySelectorAll('[data-left-row]:not(:has([data-draggable])) [data-slot="sidebar-menu-button"]')].map(row => {
+          const rows = [...column.querySelectorAll('[data-left-row] [data-slot="sidebar-menu-button"]:not([aria-expanded])')].map(row => {
             const style = getComputedStyle(row)
             return { height: row.getBoundingClientRect().height, icon: row.querySelector('[data-slot="sidebar-menu-icon"]')!.getBoundingClientRect().width, gap: parseFloat(style.gap) }
           })
           const disclosures = [...column.querySelectorAll('[data-draggable]')].map(row => ({
-            iconRight: row.querySelector('[data-slot="sidebar-menu-icon"]')!.getBoundingClientRect().right,
-            nameX: row.querySelector('[data-slot="sidebar-menu-label-content"]')!.getBoundingClientRect().x,
+            arrowX: row.querySelector('[data-slot="disclosure-chevron"]')!.getBoundingClientRect().x,
+            nameRight: row.querySelector('[data-left-fold-name]')!.getBoundingClientRect().right,
           }))
           return { firstIcon, names, gaps, rows, disclosures }
         })
         const modes = []
         for (const query of ['frame-wall=settings', 'frame-wall=settings-middle']) {
           await openFrame(page, query, theme, width)
+          if (query === 'frame-wall=settings' && width === 720) await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
           await page.locator('body').evaluate((body, value) => { body.dataset.hdInterface = value }, foundation)
-          const navigation = page.locator(query === 'frame-wall=settings' ? '[aria-label="Window navigation"]' : '[data-left-settings]')
+          const navigation = page.locator(query === 'frame-wall=settings' ? '[aria-label="Settings navigation"]' : '[data-left-settings]')
           const groups = await navigation.locator('[data-left-group]').evaluateAll(groups => groups.map(group => {
             const previousRow = group.previousElementSibling?.querySelector('[data-left-row]:last-child')
             const label = group.querySelector(':scope > [data-slot="group-label"]')!
@@ -1006,7 +1008,7 @@ for (const theme of WALL_THEMES) {
           expect(name.weight).toBe(FRAME.rail.groupWeight)
         }
         for (const group of sessions.gaps) expect(group.gap, `Sessions: ${group.label}`).toBe(token)
-        for (const disclosure of sessions.disclosures) expect(disclosure.iconRight, 'disclosure keeps a separate gutter beside the name').toBeLessThanOrEqual(disclosure.nameX)
+        for (const disclosure of sessions.disclosures) expect(disclosure.arrowX - disclosure.nameRight, 'disclosure follows the name by the spacing token').toBe(6)
         for (const row of sessions.rows) {
           expect(row.height).toBe(FRAME.rail.rowHeight)
           expect(row.icon).toBe(FRAME.rail.icon)
@@ -1062,7 +1064,7 @@ for (const theme of WALL_THEMES) {
     const controls = await page.locator('[data-left-top] button').evaluateAll(nodes => nodes.map(el => ({
       width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height,
     })))
-    expect(controls).toHaveLength(5)
+    expect(controls).toHaveLength(4)
     for (const control of controls) {
       expect(control.width).toBe(FRAME.bar.iconButton)
       expect(control.height).toBe(FRAME.bar.iconButton)
@@ -1136,7 +1138,7 @@ for (const theme of WALL_THEMES) {
 for (const theme of WALL_THEMES) {
   test(`D2 existing Settings rail shares row and group anatomy in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=settings', theme)
-    const nav = page.getByRole('navigation', { name: 'Window navigation' })
+    const nav = page.getByRole('navigation', { name: 'Settings navigation' })
     const group = nav.locator('[data-left-group]').first()
     const rows = group.locator('[data-left-row]')
     await expect(rows).toHaveCount(4)
@@ -1162,9 +1164,9 @@ for (const theme of WALL_THEMES) {
     await page.keyboard.press('Enter')
     await expect(rows.nth(1).getByRole('button')).toHaveAttribute('aria-current', 'page')
     await nav.getByRole('searchbox', { name: 'Search settings' }).fill('keyboard')
-    await expect(nav.locator('[data-left-row]')).toHaveCount(1)
+    await expect(nav.locator('[data-left-group] [data-left-row]')).toHaveCount(1)
     await expect(nav.getByRole('button', { name: 'Keyboard shortcuts', exact: true })).toBeVisible()
-    await expect(nav.getByRole('button', { name: 'Back to app', exact: true })).toBeVisible()
+    await expect(nav.getByRole('button', { name: 'Back', exact: true })).toBeVisible()
   })
 }
 
@@ -1531,3 +1533,324 @@ for (const theme of WALL_THEMES) {
     await testInfo.attach('merged-seam-endpoints', { body: JSON.stringify(measurements), contentType: 'application/json' })
   })
 }
+for (const theme of WALL_THEMES) {
+  test(`D6a owner top order and seat bell in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme)
+    const column = page.locator('[data-left-column]:visible')
+    expect((await column.boundingBox())!.width).toBe(FRAME.sidebar.width)
+    const top = column.locator('[data-left-top]')
+    expect(await top.locator('button').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label'))))
+      .toEqual(['Hide sidebar', 'Search everything', 'Back', 'Forward'])
+    await expect(top.locator('[data-slot="inbox-button"]')).toHaveCount(0)
+    const seat = column.locator('[data-left-seat]')
+    const bell = seat.locator('[data-slot="inbox-button"]').locator('..')
+    await expect(bell).toBeVisible()
+    expect((await bell.boundingBox())!.width).toBe(FRAME.bar.iconButton)
+    expect((await bell.boundingBox())!.height).toBe(FRAME.bar.iconButton)
+    const gear = seat.getByRole('button', { name: 'Settings', exact: true })
+    expect((await gear.boundingBox())!.x).toBeGreaterThan((await bell.boundingBox())!.x)
+    await bell.click()
+    await expect(page.getByRole('dialog', { name: 'Inbox', exact: true })).toBeVisible()
+    await page.keyboard.press('Escape')
+  })
+}
+
+test('D6 active Settings column owns the gear and keyboard focus', async ({ page }) => {
+  await openFrame(page, 'frame-wall=settings', 'light')
+  const modal = page.locator('[data-slot="app-window"]:visible')
+  const column = modal.locator('[data-left-column]:visible')
+  await expect(column).toHaveCount(1)
+  await expect(column.locator('[data-left-seat] button[aria-label="Settings"]')).toHaveAttribute('aria-pressed', 'true')
+  await column.getByRole('button', { name: 'Appearance', exact: true }).focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(column.getByRole('button', { name: 'Notifications', exact: true })).toBeFocused()
+  await expect(page.locator('[data-frame-region="left"] [data-left-column]:visible')).toHaveCount(0)
+})
+
+for (const theme of WALL_THEMES) {
+  for (const width of [1440, 1100, 720]) {
+    test(`D6 Settings is a visible aligned mode at ${width} in ${theme}`, async ({ page }) => {
+      await openFrame(page, 'frame-wall=settings-navigation', theme, width)
+      const modal = page.locator('[data-slot="app-window"]:visible')
+      let column = modal.locator('[data-left-column]:visible')
+      if (await column.count() === 0) {
+        await modal.getByRole('button', { name: 'Show sidebar', exact: true }).click()
+      }
+      column = modal.locator('[data-left-column]:visible')
+      await expect(column).toHaveCount(1)
+      const top = column.locator('[data-left-top] [data-slot="bar"]')
+      const main = modal.locator('[data-shell-host="top"] [data-slot="bar"]')
+      const topBox = (await top.boundingBox())!, mainBox = (await main.boundingBox())!
+      expect(topBox.height).toBe(FRAME.bar.height)
+      expect(Math.abs(topBox.y + topBox.height - mainBox.y - mainBox.height)).toBeLessThanOrEqual(1)
+      const seatBox = (await column.locator('[data-left-seat]').locator('..').boundingBox())!
+      await expect(modal.locator('[data-slot="status-bar"], [data-shell-host="status"]')).toHaveCount(0)
+      const windowBox = (await modal.boundingBox())!
+      expect(seatBox.height).toBe(FRAME.bar.height)
+      expect(Math.abs(seatBox.y + seatBox.height - windowBox.y - windowBox.height)).toBeLessThanOrEqual(1)
+      await expect(column.locator('[data-left-seat]').getByRole('button', { name: 'Settings', exact: true }))
+        .toHaveAttribute('aria-pressed', 'true')
+      const values = await column.locator('[data-left-row]:visible').evaluateAll(nodes => nodes.map(node => {
+        const button = node.querySelector<HTMLElement>('[data-slot="sidebar-menu-button"]')!
+        return { height: button.getBoundingClientRect().height,
+          icon: button.querySelector<HTMLElement>('[data-slot="sidebar-menu-icon"]')!.getBoundingClientRect().x,
+          text: button.querySelector<HTMLElement>('[data-slot="sidebar-menu-label-content"]')!.getBoundingClientRect().x }
+      }))
+      expect(values.length).toBeGreaterThan(10)
+      await expect(column.getByRole('button', { name: 'New session', exact: true })).toHaveCount(0)
+      await expect(column.locator('[aria-label="Main sections"]:visible')).toHaveCount(0)
+      for (const row of values) expect(row.height).toBe(FRAME.rail.rowHeight)
+      for (const edge of ['text', 'icon'] as const) {
+        const xs = values.map(row => row[edge])
+        expect(Math.max(...xs) - Math.min(...xs)).toBeLessThanOrEqual(1)
+      }
+      await column.getByRole('searchbox', { name: 'Search settings' }).fill('mute')
+      await expect(column.getByRole('button', { name: 'Notifications', exact: true })).toBeVisible()
+      await expect(column.getByRole('button', { name: 'General', exact: true })).toHaveCount(0)
+      await column.getByRole('searchbox', { name: 'Search settings' }).fill('')
+      await column.getByRole('button', { name: 'Appearance', exact: true }).click()
+      await expect(column.getByRole('button', { name: 'Appearance', exact: true })).toHaveAttribute('aria-current', 'page')
+      await column.getByRole('button', { name: 'Settings', exact: true }).click()
+      await expect(column.getByRole('button', { name: 'Appearance', exact: true })).toHaveAttribute('aria-current', 'page')
+      await column.locator('[data-left-settings]').getByRole('button', { name: 'Back', exact: true }).click()
+      await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
+    })
+  }
+  for (const destination of ['library', 'plugins']) {
+    test(`D6 ${destination} keeps its Sessions door in ${theme}`, async ({ page }) => {
+      await openFrame(page, `frame-wall=${destination}`, theme)
+      const column = page.locator('[data-slot="app-window"]:visible [data-left-column]:visible')
+      const label = destination === 'library' ? 'Library' : 'Plugins'
+      await expect(column.getByRole('button', { name: label, exact: true })).toHaveAttribute('aria-current', 'page')
+      await expect(column.locator('[data-left-seat]').getByRole('button', { name: 'Settings', exact: true }))
+        .toHaveAttribute('aria-pressed', 'false')
+      await expect(column.locator('[data-left-settings]:visible')).toHaveCount(0)
+    })
+  }
+}
+test('D6 Escape closes the Settings float before the window and restores its lead focus', async ({ page }) => {
+  await openFrame(page, 'frame-wall=settings-navigation', 'light', 720)
+  const modal = page.locator('[data-slot="app-window"]:visible')
+  const show = modal.getByRole('button', { name: 'Show sidebar', exact: true })
+  await show.click()
+  const column = modal.locator('[data-left-column]:visible')
+  await expect(column).toHaveCount(1)
+  const back = column.locator('[data-left-settings]').getByRole('button', { name: 'Back', exact: true })
+  await back.focus()
+  await page.keyboard.press('Escape')
+  await expect(modal).toHaveCount(1)
+  await expect(modal.locator('[data-left-column]:visible')).toHaveCount(0)
+  await expect(show).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
+})
+test('D6 float keeps portalled account actions and traps its boundary', async ({ page }) => {
+  await openFrame(page, 'frame-wall=settings-navigation', 'light', 720)
+  const modal = page.locator('[data-slot="app-window"]:visible')
+  const show = modal.getByRole('button', { name: 'Show sidebar', exact: true })
+  await show.click()
+  const column = modal.locator('[data-left-column]:visible')
+  const hide = column.getByRole('button', { name: 'Hide sidebar', exact: true })
+  const gear = column.locator('[data-left-seat]').getByRole('button', { name: 'Settings', exact: true })
+  await gear.focus(); await page.keyboard.press('Tab'); await expect(hide).toBeFocused()
+  await page.keyboard.press('Shift+Tab'); await expect(gear).toBeFocused()
+  await column.locator('[data-left-seat] [data-slot="popover-trigger"]:not(:has([data-slot="inbox-button"]))').click()
+  await page.locator('[data-layout="profile"]:visible').click()
+  await expect(column).toBeVisible()
+  await expect(modal.locator('input[aria-label="Your name"]')).toBeVisible()
+  await column.locator('[data-left-seat] [data-slot="popover-trigger"]:not(:has([data-slot="inbox-button"]))').click()
+  await page.keyboard.press('Escape')
+  await expect(column).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(column).toBeHidden(); await expect(show).toBeFocused()
+  await show.click()
+  await modal.locator('[data-app-window-left-frame]').click({ position: { x: 500, y: 150 } })
+  await expect(column).toBeHidden(); await expect(modal).toBeVisible()
+})
+
+for (const theme of WALL_THEMES) {
+  for (const foundation of ['desk', 'studio'] as const) {
+  for (const destination of ['conversation', 'settings-navigation']) {
+    for (const width of [200, 239, 240, FRAME.sidebar.width, 360]) {
+      test(`D7 ${destination} left width ${width} in ${theme}/${foundation}`, async ({ page }) => {
+        await openFrame(page, `frame-wall=${destination}`, theme)
+        await page.locator('body').evaluate((body, value) => { body.dataset.hdInterface = value }, foundation)
+        await page.evaluate(value => {
+          (window as Window & { __hdFrameWall: { resizeLeft: (width: number) => void } }).__hdFrameWall.resizeLeft(value)
+        }, width)
+        const column = page.locator('[data-left-column]:visible')
+        await expect(column).toHaveCount(1)
+        const region = destination === 'settings-navigation' ? page.locator('[data-app-window-left]:visible') : column
+        expect(Math.abs((await region.boundingBox())!.width - width)).toBeLessThanOrEqual(1)
+        const history = column.locator('[data-left-history]')
+        if (width < 240) await expect(history).toBeHidden()
+        else await expect(history).toBeVisible()
+        const top = (await column.locator('[data-left-top] [data-slot="bar"]').boundingBox())!
+        expect(top.height).toBe(FRAME.bar.height)
+        const geometry = await column.locator('[data-left-row]:not([data-left-project]):visible').evaluateAll(nodes => nodes.map(node => {
+          const button = node.querySelector<HTMLElement>('[data-slot="sidebar-menu-button"]')!
+          return { height: button.getBoundingClientRect().height,
+            text: button.querySelector<HTMLElement>('[data-slot="sidebar-menu-label-content"]')!.getBoundingClientRect().x,
+            icon: button.querySelector<HTMLElement>('[data-slot="sidebar-menu-icon"]')!.getBoundingClientRect().x }
+        }))
+        expect(geometry.length).toBeGreaterThan(2)
+        for (const row of geometry) expect(row.height).toBe(FRAME.rail.rowHeight)
+        for (const field of ['text', 'icon'] as const) {
+          const xs = geometry.map(row => row[field])
+          expect(Math.max(...xs) - Math.min(...xs)).toBeLessThanOrEqual(1)
+        }
+        const seat = column.locator('[data-left-seat]')
+        expect((await seat.locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
+        await expect(seat.getByRole('button', { name: 'Settings', exact: true }))
+          .toHaveAttribute('aria-pressed', destination === 'settings-navigation' ? 'true' : 'false')
+      })
+    }
+  }
+  }
+}
+
+for (const theme of WALL_THEMES) {
+  test(`D7 Settings opened from the work float restores its own lead in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme, 720)
+    await page.locator('[data-slot="top-bar"]').getByRole('button', { name: 'Show sidebar', exact: true }).click()
+    await page.locator('[data-left-column]:visible [data-left-seat]').getByRole('button', { name: 'Settings', exact: true }).click()
+    const modal = page.locator('[data-slot="app-window"]:visible')
+    const column = modal.locator('[data-left-column]:visible')
+    await expect(column).toBeVisible()
+    await column.locator('[data-left-seat] [data-slot="popover-trigger"]:not(:has([data-slot="inbox-button"]))').click()
+    await page.keyboard.press('Escape')
+    await expect(column).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(column).toBeHidden()
+    await expect(modal.getByRole('button', { name: 'Show sidebar', exact: true })).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(modal).toHaveCount(0)
+  })
+}
+
+// D7a is additive. Measure painted list content, rather than the containing
+// backgrounds and hit targets, whose inset deliberately precedes their ink.
+const d7a = test.extend({})
+d7a.use({ screenshot: 'off', trace: 'off' })
+d7a.describe('D7a heading disclosure', () => {
+  for (const theme of WALL_THEMES) for (const width of WALL_WIDTHS) {
+    for (const mode of ['left-work', 'settings-navigation'] as const) {
+      d7a(`D7a ${mode} list ink respects the gutter and disclosures follow names at ${width} in ${theme}`, async ({ page }) => {
+        await openFrame(page, `frame-wall=${mode}`, theme, width)
+        await applyLeftColumnActions(page, { leftOpen: true })
+        const column = page.locator('[data-left-column]:visible')
+        // Include the default and both clamp endpoints in standing and floating modes.
+        for (const leftWidth of [256, 200, 360]) {
+          await applyLeftColumnActions(page, { leftOpen: true, leftWidth })
+          await column.evaluate(node => { if (node.contains(document.activeElement)) (document.activeElement as HTMLElement).blur() })
+          await page.mouse.move(width - 1, 899)
+          const gutter = await column.evaluate(node => node.getBoundingClientRect().left) + 16
+          const escaped = await column.evaluate((column, gutter) => {
+            const visible = (node: Element) => {
+              for (let ancestor: Element | null = node; ancestor; ancestor = ancestor.parentElement) {
+                const css = getComputedStyle(ancestor)
+                if (css.display === 'none' || css.visibility !== 'visible' || css.opacity === '0') return false
+              }
+              return node.getBoundingClientRect().width > 0
+            }
+            const failures: { text: string; x: number }[] = []
+            for (const root of column.querySelectorAll('[data-region="sidebar-content"], nav[aria-label="Workspace actions"], [data-left-head]')) {
+              for (const node of root.querySelectorAll('svg, img')) {
+                if (visible(node) && node.getBoundingClientRect().left < gutter) failures.push({ text: node.getAttribute('data-slot') ?? node.tagName, x: node.getBoundingClientRect().left })
+              }
+              const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+              while (walker.nextNode()) {
+                const text = walker.currentNode
+                if (!text.textContent?.trim() || !text.parentElement || !visible(text.parentElement) || text.parentElement.closest('svg')) continue
+                const range = document.createRange(); range.selectNodeContents(text)
+                const box = range.getBoundingClientRect()
+                if (box.width && box.left < gutter) failures.push({ text: text.textContent, x: box.left })
+              }
+            }
+            return failures
+          }, gutter)
+          expect(escaped, `${mode}/${leftWidth}: every visible list glyph and text starts at the gutter or later`).toEqual([])
+          if (mode === 'settings-navigation') continue
+          const headings = column.locator('[data-slot="sidebar-menu-button"][aria-expanded]')
+          expect(await headings.count()).toBeGreaterThan(2)
+          for (const heading of await headings.all()) {
+            const arrow = heading.locator('[data-slot="disclosure-chevron"]')
+            const name = heading.locator('[data-left-fold-name]')
+            const row = heading.locator('..')
+            const action = row.locator('[data-slot="sidebar-menu-action"]')
+            const open = await heading.getAttribute('aria-expanded') === 'true'
+            if (open) await expect(arrow).toBeHidden()
+            else await expect(arrow).toBeVisible()
+            await row.hover()
+            await expect(arrow).toBeVisible()
+            if (await action.count()) await expect(action).toBeVisible()
+            const measured = await heading.evaluate(heading => {
+              const name = heading.querySelector('[data-left-fold-name]')!
+              const range = document.createRange(); range.selectNodeContents(name)
+              const arrow = heading.querySelector('[data-slot="disclosure-chevron"]')!.getBoundingClientRect()
+              const box = name.getBoundingClientRect()
+              return { name: box.left, arrow: arrow.left, end: Math.min(range.getBoundingClientRect().right, box.right), right: arrow.right }
+            })
+            expect(measured.name).toBe(gutter)
+            expect(measured.arrow - measured.end).toBeGreaterThanOrEqual(0)
+            expect(measured.arrow - measured.end).toBeLessThanOrEqual(10)
+            if (await action.count()) expect(measured.right).toBeLessThanOrEqual((await action.boundingBox())!.x)
+            if (leftWidth === 256) console.log(`D7a ${width}/${theme} ${await name.textContent()}: gutter=${gutter}, name=${measured.name}, arrow=${measured.arrow}`)
+            // Traverse the real tree with arrow keys to return keyboard focus
+            // to this heading, including headings outside the sole Tab stop.
+            await page.mouse.move(width - 1, 899)
+            await heading.focus()
+            await page.keyboard.press('ArrowUp')
+            await page.keyboard.press('ArrowDown')
+            await expect(heading).toBeFocused()
+            expect(await heading.evaluate(node => node.matches(':focus-visible'))).toBe(true)
+            await expect(arrow).toBeVisible()
+            if (await action.count()) await expect(action).toBeVisible()
+            // End keyboard focus before testing a fresh pointer focus. A click
+            // on the already keyboard-focused button retains focus-visible.
+            await heading.evaluate(node => (node as HTMLElement).blur())
+            await name.click()
+            await expect(heading).toHaveAttribute('aria-expanded', String(!open))
+            await arrow.click()
+            await expect(heading).toHaveAttribute('aria-expanded', String(open))
+            await page.mouse.move(width - 1, 899)
+            if (open) await expect(arrow).toBeHidden()
+            else await expect(arrow).toBeVisible()
+            if (await action.count()) await expect(action).toBeHidden()
+            await heading.evaluate(node => (node as HTMLElement).blur())
+          }
+          // Truncate an actual project label in-place without changing its action or semantics.
+          const project = column.locator('[data-project-root] button[data-draggable]').first()
+          const name = project.locator('[data-left-fold-name]')
+          const original = await name.textContent()
+          await name.evaluate(node => { node.textContent = 'A deliberately long project name · 長い名前'.repeat(4) })
+          await project.hover()
+          await expect(project.locator('[data-slot="disclosure-chevron"]')).toBeVisible()
+          const long = await project.evaluate(node => {
+            const name = node.querySelector<HTMLElement>('[data-left-fold-name]')!
+            const arrow = node.querySelector('[data-slot="disclosure-chevron"]')!.getBoundingClientRect()
+            const action = node.parentElement!.querySelector('[data-slot="sidebar-menu-action"]')!.getBoundingClientRect()
+            return { truncated: name.scrollWidth > name.clientWidth, end: name.getBoundingClientRect().right, arrow: arrow.left, right: arrow.right, action: action.left }
+          })
+          expect(long.truncated).toBe(true)
+          expect(long.arrow - long.end).toBeGreaterThanOrEqual(0)
+          expect(long.arrow - long.end).toBeLessThanOrEqual(10)
+          expect(long.right).toBeLessThanOrEqual(long.action)
+          await name.evaluate((node, value) => { node.textContent = value }, original!)
+          await project.click({ button: 'right' })
+          await expect(page.getByRole('menu')).toBeVisible()
+          await expect(page.getByRole('menuitem', { name: /^(Pin|Unpin)$/ })).toBeVisible()
+          await page.keyboard.press('Escape')
+        }
+        if (mode === 'left-work') {
+          const project = column.locator('[data-project-root] button[data-draggable]').first()
+          const action = project.locator('..').locator('[data-slot="sidebar-menu-action"]')
+          await applyLeftColumnActions(page, { leftOpen: true, leftWidth: 256, leftHeading: 'hover-open' })
+          await expect(action).toBeVisible()
+          await applyLeftColumnActions(page, { leftOpen: true, leftHeading: 'folded' })
+          await expect(action).toBeHidden()
+        }
+      })
+    }
+  }
+})

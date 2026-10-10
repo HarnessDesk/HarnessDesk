@@ -15,8 +15,8 @@
 .trailing { pointer-events: none; position: absolute; inset-inline-end: var(--hd-space-2); top: 50%; translate: 0 -50%; width: var(--hd-icon-target); height: var(--hd-icon-target); display: grid; place-items: center; }
 .mark, .action { grid-area: 1 / 1; }
 .action { display: inline-flex; align-items: center; justify-content: center; width: var(--hd-icon-target); height: var(--hd-icon-target); border-radius: var(--hd-radius-sm); visibility: hidden; opacity: 0; pointer-events: none; }
-.row:is(:hover, :focus-within) .action, .action[aria-expanded='true'] { visibility: visible; opacity: 1; pointer-events: auto; }
-.row:is(:hover, :focus-within):has(.action) .mark, .row:has(.action[aria-expanded='true']) .mark { visibility: hidden; }
+.row:is(:hover, :focus-within:not(:has(.button[aria-expanded])), :has(:focus-visible)) .action, .action[aria-expanded='true'] { visibility: visible; opacity: 1; pointer-events: auto; }
+.row:is(:hover, :focus-within:not(:has(.button[aria-expanded])), :has(:focus-visible)):has(.action) .mark, .row:has(.action[aria-expanded='true']) .mark { visibility: hidden; }
 .head { display: flex; align-items: center; gap: var(--hd-space-2); min-height: var(--hd-left-row-h); }
 .headLabel { flex: 1; min-width: 0; }
 .headControls { display: flex; align-items: center; gap: var(--hd-space-0-5); min-width: 0; }
@@ -63,10 +63,13 @@
 /* Header controls centre a line inside their target; the air belongs to the
    label, not the top of that larger target. */
 .head:has([data-left-group-text]) { padding-block-start: calc(var(--hd-space-4) - (var(--hd-icon-target) - var(--hd-line-sm)) / 2); }
-/* Project names use the ordinary icon edge. The disclosure has its own gutter
-   beside the name, leaving the ordinary rows' icon/text slots untouched. */
+/* Foldable group names start at the ordinary icon edge. The disclosure follows
+   the visible name, inside the label's reserved space beside the end action. */
 .row[data-left-project] { margin-block-start: calc(var(--hd-space-4) - (var(--hd-left-row-h) - var(--hd-line-sm)) / 2); }
-.row[data-left-project] .button { overflow: visible; color: var(--hd-secondary-foreground); font-weight: var(--hd-weight-medium); }
-.row[data-left-project] [data-slot='sidebar-menu-icon'] { position: absolute; inset-inline-start: calc(-1 * var(--hd-space-2)); }
+.button[aria-expanded] { color: var(--hd-secondary-foreground); font-weight: var(--hd-weight-medium); }
+.button[aria-expanded] [data-slot='sidebar-menu-label-content'] { display: flex; width: fit-content; max-width: 100%; align-items: center; gap: var(--hd-space-1-5); }
+.foldName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.disclosure { flex: none; visibility: hidden; }
+.button[aria-expanded='false'] .disclosure, .row:hover .disclosure, .row:has(:focus-visible) .disclosure { visibility: visible; }
 /* The pinned band's hairline is already part of the following group's air. */
 .body [data-sidebar-band='pinned'] + [data-project-root] .row[data-left-project] { margin-block-start: calc(var(--hd-space-4) - (var(--hd-left-row-h) - var(--hd-line-sm)) / 2 - var(--hd-border-width)); }

@@ -1,10 +1,12 @@
 import { describeStrip, type StripMeter } from '../lib/plan-strip'
 import { SidebarUpdate } from './SidebarUpdate'
+import { LeftColumnModeHead } from '../design'
+import { SettingsNavigation } from './SettingsNavigation'
 import { LeftColumn, LeftColumnBody, LeftColumnNavigation, LeftColumnProjectsHead, LeftColumnTop, LeftColumnRow, LeftColumnSeat, LeftColumnGroup } from '../design'
 import { LibraryIcon } from './Icons'
 import { Slot } from '../slots/registry'
 import { sidebarPlacement } from '../state/workbench'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { SidebarNotices, useInboxMessages } from './Notices'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
@@ -72,6 +74,7 @@ export const Sidebar = ({
   onSignIn,
   onSearch,
   activeDestination = null,
+  active = true, settings, listFilter, sessionsOwner = true,
 }: {
   onOpenSettings: (section?: Section) => void
   onOpenPlugins: () => void
@@ -85,12 +88,18 @@ export const Sidebar = ({
   /** Opens the sign-in screen, on one runtime when the caller knows which. */
   onSignIn: (runtime?: RuntimeId) => void
   onSearch: () => void
+  active?: boolean
+  settings?: { section: Section; onSection: (section: Section) => void; onBack: () => void }
+  listFilter?: { value: string; onChange: (value: string) => void }
+  sessionsOwner?: boolean
   activeDestination?: 'teams' | 'agents' | 'library' | 'plugins' | 'dashboard' | null
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const inbox = useInboxMessages()
-  const [query, setQuery] = useState('')
+  const [localQuery, setLocalQuery] = useState('')
+  const query = listFilter?.value ?? localQuery
+  const setQuery = listFilter?.onChange ?? setLocalQuery
   const searchQuery = query.trim()
   // The filter takes the Projects row while it is in use and gives the
   // label back when it is empty and unfocused: a 200px sidebar has room for
@@ -109,9 +118,10 @@ export const Sidebar = ({
 
   // Debounced so typing does not fire a search per keystroke against the runtime.
   useEffect(() => {
+    if (!sessionsOwner) return
     const timer = window.setTimeout(() => void store.searchHistory(query), 220)
     return () => window.clearTimeout(timer)
-  }, [query, store])
+  }, [query, store, sessionsOwner])
 
   const onScroll = useCallback(() => {
     const element = listRef.current
@@ -135,9 +145,6 @@ export const Sidebar = ({
     back={snapshot.navCanBack} forward={snapshot.navCanForward}
     toggle={() => store.toggleSidebar()} goBack={() => { void store.navigateBack() }}
     goForward={() => { void store.navigateForward() }}
-    notifications={<InboxPanel side="bottom" size="icon-sm" messages={inbox}
-      onOpen={id => store.markInboxRead(id)} onMarkAllRead={() => store.markInboxRead(null)}
-      onClear={() => store.clearInbox()} />}
     search={<Button variant="ghost" size="icon-sm" onClick={onSearch}
       title="Search everything (⌘K)" aria-label="Search everything" aria-keyshortcuts="Meta+K"><SearchIcon size={16} /></Button>} />
   const pageDoors = [
@@ -148,7 +155,7 @@ export const Sidebar = ({
     { id: 'dashboard' as const, label: 'Dashboard', icon: <UsageIcon size={16} />, run: () => onOpenUsage(), count: lowAgents },
   ]
   const sessionsHead = <>
-    {starting && projectRootOf(snapshot.workspace) && <FrontDoor context={{ kind: 'project', root: projectRootOf(snapshot.workspace)! }} onClose={() => setStarting(false)} onStarted={execution => { store.openGoal(execution.goal); setStarting(false) }} />}
+
     <LeftColumnNavigation>
       <LeftColumnRow label="New session" icon={<PlusIcon size={16} />}
         disabled={!ready || !snapshot.workspace} title="Start a session here" onClick={() => store.newDraft()}
@@ -164,7 +171,7 @@ export const Sidebar = ({
     </LeftColumnNavigation>
   </>
   const sessionsBody = (
-    <LeftColumnBody ref={listRef} onScroll={onScroll}>
+    <LeftColumnBody hidden={Boolean(settings)} ref={listRef} onScroll={onScroll}>
     <LeftColumnProjectsHead value={query} onChange={setQuery} focused={filterFocused}
       onFocusChange={setFilterFocused} options={<SessionListControls searching={searchQuery.length > 0} />}
       onBrowseFolders={onBrowseFolders} />
@@ -191,9 +198,19 @@ export const Sidebar = ({
       )}
     </LeftColumnBody>
   )
-  return <LeftColumn top={top} head={sessionsHead} body={sessionsBody}
-    footer={<><Slot name="sidebar.panel" /><SidebarNotices /><SidebarUpdate /><AccountFooter onOpenSettings={onOpenSettings}
-      onOpenUsage={onOpenUsage} onSignIn={onSignIn} /></>} />
+  return <>
+    {starting && projectRootOf(snapshot.workspace) && <FrontDoor context={{ kind: 'project', root: projectRootOf(snapshot.workspace)! }} onClose={() => setStarting(false)} onStarted={execution => { store.openGoal(execution.goal); setStarting(false) }} />}
+  <LeftColumn active={active} top={top} head={<LeftColumnModeHead hidden={Boolean(settings)}>{sessionsHead}</LeftColumnModeHead>}
+    body={<>{sessionsBody}<LeftColumnBody hidden={!settings}>
+      {settings && <SettingsNavigation section={settings.section} onSection={settings.onSection} onBack={settings.onBack} />}
+    </LeftColumnBody></>}
+    footer={<><Slot name="sidebar.panel" /><SidebarNotices /><SidebarUpdate /><AccountFooter notifications={<InboxPanel side="top" size="icon-sm" messages={inbox}
+      onOpen={id => store.markInboxRead(id)} onMarkAllRead={() => store.markInboxRead(null)}
+      onClear={() => store.clearInbox()} />}
+      onOpenSettings={onOpenSettings}
+      onOpenUsage={onOpenUsage} onSignIn={onSignIn} settingsOpen={Boolean(settings)}
+      onGear={settings ? () => {} : () => onOpenSettings('general')} /></>} />
+  </>
 }
 
 /**
@@ -333,12 +350,16 @@ const readinessTone = (state: Readiness): Tone | undefined => ({
 } as const)[state]
 
 export const AccountFooter = ({
+  notifications,
   onOpenSettings,
   onOpenUsage,
   onSignIn,
   settingsOpen = false,
+  onGear = () => onOpenSettings('general'),
 }: {
   onOpenSettings: (section?: Section) => void
+  notifications?: ReactNode
+  onGear?: () => void
   settingsOpen?: boolean
   /** Opens the dashboard, scoped to one agent when the caller names it. */
   onOpenUsage: (runtime?: RuntimeId) => void
@@ -548,7 +569,7 @@ export const AccountFooter = ({
   )
 
   return (
-    <LeftColumnSeat settingsOpen={settingsOpen} onSettings={() => onOpenSettings('general')} menu={<div ref={accountRef}>
+    <LeftColumnSeat notifications={notifications} settingsOpen={settingsOpen} onSettings={onGear} menu={<div ref={accountRef}>
       <Popover
         title={here ? `New sessions run as ${nextAs}` : 'Accounts and settings'}
         /* Opens upward from the footer. Its width belongs to the menu so a

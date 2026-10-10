@@ -363,7 +363,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   CopyButton: ['default'],
   PublicationCard: ['default', 'open', 'draft', 'merged', 'closed', 'passed', 'failed', 'running', 'skipped', 'timed out'],
   ActionError: ['error'],
-  AppWindow: ['default'],
+  AppWindow: ['default', 'nested-rail'],
   Change: ['default', 'selected', 'warning', 'error'],
   RefusedAction: ['disabled', 'focus-visible'],
   InspectorPanel: ['default', 'selected', 'empty', 'running'],
@@ -555,6 +555,7 @@ const pattern = ([name, exampleId, purpose]: ModuleSeed): CatalogEntry => ({
   consumers: [PATTERN_CONSUMER[name] ?? 'packages/ui/src/design/explorer/Explorer.tsx'],
   coverageExemption: compoundCoverageExemption(name, exampleId),
   visual: true,
+  ...(name === 'AppWindow' ? { examples: [PATTERN_EXAMPLE_CONSUMER[name]!, 'packages/ui/src/design/explorer/boards-compositions.tsx'] } : {}),
 })
 
 export const CANONICAL_UI_MODULES = [

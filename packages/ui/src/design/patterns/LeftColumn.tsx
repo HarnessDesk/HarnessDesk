@@ -5,6 +5,7 @@ import { Bar } from '../ui/bar'
 import { Button } from '../ui/button'
 import { SidebarMenuButton } from '../ui/sidebar'
 import { GroupLabel } from '../ui/group-label'
+import { DisclosureChevron } from '../ui/disclosure-chevron'
 import { Text, Search, Chip, NavigationGroupHeader } from './Settings'
 import { ArrowLeftIcon, ArrowRightIcon, MoreIcon, CrossIcon, PlusIcon, SettingsIcon, SidebarIcon } from '../../components/Icons'
 import styles from './LeftColumn.module.css'
@@ -45,8 +46,9 @@ export interface LeftColumnRowProps {
 }
 export const LeftColumnRow = forwardRef<HTMLButtonElement, LeftColumnRowProps>((props, ref) =>
   <div data-left-row data-left-project={props.project ? '' : undefined} data-insert={props.insertion} data-current={props.current ? '' : undefined} data-dragging={props.dragging ? '' : undefined} className={styles.row} onContextMenu={props.onContextMenu}>
-    <SidebarMenuButton data-draggable={props.project ? '' : undefined} ref={ref} className={styles.button} label={props.label}
-      icon={props.icon ?? <span aria-hidden="true" />} isActive={props.selected}
+    <SidebarMenuButton data-draggable={props.project ? '' : undefined} ref={ref} className={styles.button}
+      label={props.expanded === undefined ? props.label : <><span data-left-fold-name className={styles.foldName}>{props.label}</span><DisclosureChevron open={props.expanded} size="xs" className={styles.disclosure} /></>}
+      icon={props.expanded === undefined ? props.icon ?? <span aria-hidden="true" /> : undefined} isActive={props.selected}
       title={props.title ?? props.label} disabled={props.disabled}
       aria-current={props.selected ? 'page' : undefined} aria-expanded={props.expanded}
       aria-label={props.label} onClick={props.onClick} {...props.buttonProps} />
@@ -88,7 +90,6 @@ export interface LeftColumnTopProps {
   readonly toggle: () => void
   readonly goBack: () => void
   readonly goForward: () => void
-  readonly notifications: ReactNode
   readonly search: ReactNode
 }
 export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top className={styles.top}>
@@ -97,6 +98,7 @@ export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top c
       <Button variant="ghost" size="pattern" className={`${styles.topButton} hd-no-drag`}
         aria-label={props.shown ? 'Hide sidebar' : 'Show sidebar'} title={props.shown ? 'Hide the sidebar' : 'Show the sidebar'}
         onClick={props.toggle}><SidebarIcon size={16} /></Button>
+      <div className={`${styles.topActions} hd-no-drag`}>{props.search}</div>
       <span data-left-history className={styles.history}>
         <Button variant="ghost" size="pattern" className={`${styles.topButton} hd-no-drag`} disabled={!props.back}
           aria-label="Back" title="Back" onClick={props.goBack}><ArrowLeftIcon size={16} /></Button>
@@ -104,19 +106,19 @@ export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top c
           aria-label="Forward" title="Forward" onClick={props.goForward}><ArrowRightIcon size={16} /></Button>
       </span>
     </div>
-    <div className={`${styles.topActions} hd-no-drag`}>{props.notifications}{props.search}</div>
   </Bar>
 </div>
-export const LeftColumnSeat = ({ menu, settingsOpen, onSettings }: {
-  menu: ReactNode; settingsOpen: boolean; onSettings: () => void
+export const LeftColumnSeat = ({ menu, notifications, settingsOpen, onSettings }: {
+  menu: ReactNode; notifications?: ReactNode; settingsOpen: boolean; onSettings: () => void
 }) => <Bar rule="top"><div data-left-seat className={styles.seat}>
   <div className={styles.seatMenu}>{menu}</div>
+  <div className={`${styles.topActions} hd-no-drag`}>{notifications}</div>
   <Button variant="ghost" size="pattern" className={styles.topButton} aria-label="Settings" title="Settings"
     aria-pressed={settingsOpen} onClick={onSettings}><SettingsIcon size={16} /></Button>
 </div></Bar>
-export const LeftColumn = ({ top, head, body, footer }: {
-  top: ReactNode; head: ReactNode; body: ReactNode; footer: ReactNode
-}) => <div data-left-column className={styles.column}>
+export const LeftColumn = ({ top, head, body, footer, active = true }: {
+  top: ReactNode; head: ReactNode; body: ReactNode; footer: ReactNode; active?: boolean
+}) => <div data-left-column hidden={!active} inert={!active} className={active ? styles.column : styles.hidden}>
   <div data-region="sidebar-header">{top}{head}</div>{body}
   <div data-region="sidebar-footer" className={styles.footer}>{footer}</div>
 </div>
@@ -159,7 +161,7 @@ export const LeftColumnProjectsHead = ({ value, onChange, focused, onFocusChange
         } }} />
     </div>
     {options}
-    <Button variant="muted" size="icon-xs" edge="end" edgeGlyph={16} aria-label="Open a project folder" title="Open a project folder"
+    <Button variant="muted" size="icon-xs" aria-label="Open a project folder" title="Open a project folder"
       onClick={onBrowseFolders}><PlusIcon size={16} /></Button>
   </NavigationGroupHeader>
 }
@@ -167,3 +169,6 @@ export const LeftColumnListOptions = ({ filtered, children }: { filtered: boolea
   <span className={styles.options} data-filtered={filtered ? '' : undefined}>{children}</span>
 export const LeftColumnEmpty = ({ children }: { children: ReactNode }) =>
   <div className={styles.label}><Text as="div" role="meta" className={styles.empty}>{children}</Text></div>
+
+export const LeftColumnModeHead = ({ hidden, children }: { hidden: boolean; children: ReactNode }) =>
+  <div hidden={hidden} inert={hidden} className={hidden ? styles.hidden : undefined}>{children}</div>

@@ -1,3 +1,5 @@
+import { settingsGroups, filterSettingsGroups } from './settings-navigation'
+import { sidebarPlacement } from '../state/workbench'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 
 import type {
@@ -20,8 +22,6 @@ import {
   AppWindow,
   WindowNav,
   WindowNavEmpty,
-  WindowNavCount,
-  WindowNavIdentity,
   WindowNavStateMark,
   WindowPage,
 } from './AppWindow'
@@ -57,7 +57,6 @@ import {
   UserIcon,
 } from './Icons'
 import { humanizeLabel } from '../lib/identity'
-import { livePlugins } from '../lib/plugins'
 import { brandForRuntime } from '../lib/brands'
 import { ModelMark, RuntimeMark } from './BrandIcons'
 import { describeLimits, formatReset } from '../lib/limits'
@@ -70,14 +69,13 @@ import { HistorySection } from './History'
 import { ArchiveSection } from './Archive'
 import { StorageSection } from './Storage'
 import { LibrarySection } from './Library'
-import { RuntimesSection, agentReadiness } from './SettingsAgents'
+import { RuntimesSection } from './SettingsAgents'
 import { PluginsSection } from './PluginsSection'
 import { ExtensionsSection } from './Extensions'
 import { CeilingsSection } from './SettingsCeilings'
 import { QuestionWaitSection } from './SettingsQuestionWait'
 import { ClientAnswersSection } from './SettingsClientAnswers'
 import { RemoveWorktree } from './RemoveWorktree'
-import { isBlocking, worstReadiness, type Readiness } from '../lib/readiness'
 import {
   BackLink,
   Button,
@@ -110,8 +108,6 @@ import {
 import { Dialog, ConfirmDialog, EmptyState } from '../design'
 import type { PolicyRule, RouteInfo, StoredCredential } from '../state/store'
 import { ProfileSection, GeneralSection, AppearanceSection, NotificationsSection, ShortcutsSection } from './SettingsYou'
-import { ProfileFace } from './ProfileFace'
-import { profileName } from '../lib/profile'
 import { shortPath } from '../lib/paths'
 import { NewSessionDefaults } from './SettingsAgents'
 import { ProjectPage } from './ProjectPage'
@@ -1710,33 +1706,6 @@ const WorktreeRows = () => {
  * thinking about — themselves, the work they have put away, the agents, what
  * those agents can do, and what they are allowed to reach.
  */
-interface NavEntry {
-  readonly id: Section
-  readonly label: string
-  readonly icon: ReactNode
-  /** How many of the thing this page lists, when the number is worth knowing. */
-  readonly count?: number
-  /** The most urgent state among what this page lists, if any is worth showing. */
-  readonly state?: Readiness
-  /** After the count — the scope mark on a page that belongs to one agent. */
-  readonly trail?: ReactNode
-  /** Words that should find this page, beyond its own label. */
-  readonly keywords?: readonly string[]
-}
-
-interface NavGroup {
-  readonly label: string
-  readonly entries: readonly NavEntry[]
-}
-
-/** Case- and punctuation-insensitive: "keyboard shortcuts" finds "Keyboard shortcuts". */
-const matches = (entry: NavEntry, query: string): boolean => {
-  const needle = query.trim().toLowerCase()
-  if (!needle) return true
-  const hay = [entry.label, ...(entry.keywords ?? [])].join(' ').toLowerCase()
-  return hay.includes(needle)
-}
-
 /**
  * Settings, with the page it is on owned by whoever opened it.
  *
@@ -1762,7 +1731,9 @@ export const Settings = ({
   onSection,
   onClose,
   onSignIn,
+  leftColumn,
 }: {
+  leftColumn?: ReactNode
   /** The page on show. Owned by the caller, so any route can redirect it. */
   section?: Section
   /** The thing inside the page to open — handed down once, as it arrives. */
@@ -1794,7 +1765,11 @@ export const Settings = ({
    * the key is still marked spent, so a sidebar floating under the window and
    * an approval waiting in the pane behind it both stand aside.
    */
-  useEscapeSurface(true, onClose)
+  const store = useStore()
+  useEscapeSurface(true, () => {
+    if (leftColumn && sidebarPlacement(snapshot) === 'floating') { store.closeFloatingSidebar(); return }
+    onClose()
+  })
 
   const hasExtensions = runtime.capabilities.extensionStore || runtime.capabilities.mcp
 
@@ -1806,204 +1781,11 @@ export const Settings = ({
     if (section === 'extensions' && !hasExtensions) onSection('runtimes')
   }, [section, hasExtensions, onSection])
 
-  // The Runtimes row carries the one state that stops a first session, so the
-  // nav can say there is something to do without being opened.
-  // Asked per agent, not per runtime, so the rail and the page it opens
-  // cannot disagree: a second account added but never signed into is an
-  // unfinished extra, and reading it as "this agent needs a sign-in" put a
-  // dot on a nav row whose page said everything was fine.
-  const agentsState = useMemo(() => {
-    const worst = worstReadiness(
-      agentGroups(snapshot.runtimes).map((group) => agentReadiness(group.siblings, snapshot)),
-    )
-    return isBlocking(worst) ? worst : undefined
-  }, [snapshot.runtimes, snapshot.healthByRuntime, snapshot.accountsByRuntime, snapshot.usage])
-
-  // One roster, three counts — the sidebar's, this nav's and the page's — so
-  // a plugin a built-in has taken over cannot be counted in one and not another.
-  const pluginCount = livePlugins(snapshot.plugins).length
-
-  const accountCount = snapshot.runtimes.reduce(
-    (total, info) => total + (snapshot.accountsByRuntime[info.id]?.accounts.length ?? 0),
-    0,
-  )
-
-  const scoped = (page: string): ReactNode => (
-    <WindowNavCount
-      title={`${page} belongs to ${runtime.presentation.name}, the agent the active conversation is with.`}
-    >
-      {runtime.presentation.name}
-    </WindowNavCount>
-  )
-
-  const groups: readonly NavGroup[] = [
-    {
-      label: 'General',
-      entries: [
-        {
-          id: 'general',
-          label: 'General',
-          icon: <SlidersIcon size={14} />,
-          keywords: ['backup', 'restore', 'export', 'diagnostics', 'support', 'data', 'sync', 'account', 'transcripts', 'this mac'],
-        },
-        {
-          id: 'appearance',
-          label: 'Appearance',
-          icon: <ThemeSystemIcon size={14} />,
-          keywords: ['theme', 'dark', 'light', 'system', 'interface', 'desk', 'studio', 'palette', 'blueprint', 'editorial', 'accent', 'colour', 'color', 'corners', 'radius', 'faces', 'avatar shape', 'round', 'font', 'text size', 'line numbers', 'wrap', 'indent', 'tab', 'density', 'sort', 'code editor'],
-        },
-        {
-          id: 'notifications',
-          label: 'Notifications',
-          icon: <BellIcon size={14} />,
-          // "Stop showing this" is the sentence on the menu that sends people
-          // here, and "mute" is what they will type looking for it afterwards.
-          keywords: ['banner', 'message', 'mute', 'silence', 'alert', 'stop showing', 'remind', 'finished turns', 'failures', 'approvals', 'needs you', 'quota', 'rate limit', 'macos'],
-        },
-        {
-          id: 'shortcuts',
-          label: 'Keyboard shortcuts',
-          icon: <KeyboardIcon size={14} />,
-          keywords: ['keys', 'bindings', 'command', 'new session', 'open folder', 'close pane', 'sidebar', 'changes', 'palette', 'send', 'new line'],
-        },
-      ],
-    },
-    {
-      label: 'Conversations',
-      entries: [
-        {
-          id: 'workspaces',
-          label: 'Workspaces',
-          icon: <FolderIcon size={14} />,
-          keywords: ['folders', 'projects', 'worktrees', 'forget', 'open folder', 'checkout', 'branch'],
-        },
-        {
-          id: 'history',
-          label: 'History',
-          icon: <ArchiveIcon size={14} />,
-          keywords: ['history', 'import', 'other agents', 'past conversations'],
-        },
-        {
-          id: 'storage',
-          label: 'Storage',
-          icon: <FolderIcon size={14} />,
-          keywords: ['storage', 'disk', 'space', 'clean up', 'worktrees', 'cache'],
-        },
-        {
-          id: 'archive',
-          label: 'Archive',
-          icon: <ArchiveIcon size={14} />,
-          keywords: ['archived', 'history', 'restore', 'delete', 'trash', 'old sessions'],
-        },
-      ],
-    },
-    {
-      label: 'Agents',
-      entries: [
-        {
-          id: 'runtimes',
-          label: 'Runtimes',
-          icon: <ServerIcon size={14} />,
-          ...(accountCount > 0 ? { count: accountCount } : {}),
-          ...(agentsState ? { state: agentsState } : {}),
-          keywords: ['runtimes', 'installed', 'cli', 'accounts', 'sign in', 'sign out', 'add runtime', 'registry', 'nickname', 'ring', 'usage', 'plan', 'new sessions', 'defaults', 'update', 'remove'],
-        },
-        {
-          id: 'models',
-          label: 'Models',
-          icon: <RouteIcon size={14} />,
-          keywords: ['endpoint', 'api', 'provider', 'proxy', 'gateway', 'route', 'presets', 'hide', 'composer', 'effort', 'thinking'],
-        },
-        {
-          id: 'skills',
-          // The page heads itself with the runtime's own word for these —
-          // "Skills & commands" on an ACP agent — and the nav should not
-          // promise a narrower page than the one it opens.
-          label: runtime.presentation.skillsLabel ?? 'Skills',
-          icon: <SparkIcon size={14} />,
-          // No count beside the scope: a row has one trailing slot, and whose
-          // page this is outranks how many are on it — which the page says in
-          // its own heading anyway. Extensions, its neighbour, already reads
-          // this way; carrying both was what wrapped this row onto two lines.
-          trail: scoped(runtime.presentation.skillsLabel ?? 'Skills'),
-          keywords: ['skills', 'commands', 'slash', 'hooks'],
-        },
-        ...(hasExtensions
-          ? [
-              {
-                id: 'extensions' as const,
-                label: 'Extensions',
-                icon: <ExtensionIcon size={14} />,
-                trail: scoped('Extensions'),
-                keywords: ['mcp', 'servers', 'apps', 'connect', 'marketplace', 'install'],
-              },
-            ]
-          : []),
-      ],
-    },
-    {
-      // The library leads because it is the overview — the page that says
-      // which agent has what — then the desk's own plugins. (A group headed
-      // by the agent's name was tried and rejected — an agent is not a
-      // settings category — so the agent's own pages sit under Agents with
-      // its name as their scope.)
-      label: 'Capabilities',
-      entries: [
-        {
-          id: 'library',
-          label: 'Library',
-          icon: <LibraryIcon size={14} />,
-          keywords: ['skills', 'mcp', 'across', 'agents', 'reach', 'cost', 'fired', 'import', 'new skill'],
-        },
-        {
-          id: 'plugins',
-          label: 'Plugins',
-          icon: <PluginIcon size={14} />,
-          ...(pluginCount > 0 ? { count: pluginCount } : {}),
-          keywords: ['tools', 'browser', 'git', 'capabilities', 'add plugin', 'install'],
-        },
-      ],
-    },
-    {
-      label: 'Access',
-      entries: [
-        {
-          id: 'permissions',
-          label: 'Permissions',
-          icon: <ShieldIcon size={14} />,
-          keywords: ['approve', 'approval', 'sandbox', 'rules', 'deny', 'allow', 'commands', 'file changes', 'network', 'ceiling', 'ceilings', 'held', 'asked', 'clients', 'command-line', 'answer'],
-        },
-        {
-          id: 'browser',
-          label: 'Browser',
-          icon: <GlobeIcon size={14} />,
-          keywords: ['pane', 'chrome', 'links', 'window', 'profile', 'cookies', 'logins', 'browsing data'],
-        },
-      ],
-    },
-  ]
-
-  // You, first — found the way every row is: by its label, which is your own
-  // name, and by the words someone looking for the page would type. Not
-  // "account": there is no HarnessDesk account, and the word is the agents'.
-  const yourName = profileName(snapshot.profile)
-  const showYou = matches(
-    {
-      id: 'profile',
-      label: yourName,
-      icon: null,
-      keywords: ['profile', 'you', 'me', 'name', 'picture', 'avatar', 'photo', 'face', 'identity', 'reset'],
-    },
-    query,
-  )
-
-  const filtered = groups
-    .map((group) => ({ ...group, entries: group.entries.filter((entry) => matches(entry, query)) }))
-    .filter((group) => group.entries.length > 0)
+  const filtered = filterSettingsGroups(settingsGroups(snapshot, runtime), query)
 
   return (
-    <AppWindow owner="settings" onClose={onClose} onBack={() => onSection('general')} label="Settings">
-      <WindowNav
+    <AppWindow owner="settings" onClose={onClose} onBack={() => onSection('general')} label="Settings" leftColumn={leftColumn}>
+      {leftColumn === undefined && <WindowNav
         onBack={onClose}
         search={{
           value: query,
@@ -2012,14 +1794,6 @@ export const Settings = ({
           onChange: setQuery,
         }}
       >
-        {showYou && (
-          <WindowNavIdentity
-            face={<ProfileFace size={24} />}
-            name={yourName}
-            selected={section === 'profile'}
-            onClick={() => onSection('profile')}
-          />
-        )}
         {filtered.map((group) => (
           <LeftColumnGroup key={group.label} label={group.label}>
             {group.entries.map((entry) => (
@@ -2029,18 +1803,19 @@ export const Settings = ({
                 label={entry.label}
                 selected={section === entry.id}
                 onClick={() => onSection(entry.id)}
-                trailing={entry.state || entry.trail
-                  ? { kind: 'mark', label: `${entry.label}${entry.count !== undefined ? ` · ${entry.count}` : ''}${entry.state ? ` · ${entry.state}` : ` · ${runtime.presentation.name}`}`,
-                    icon: <WindowNavStateMark>{entry.count !== undefined && <WindowNavCount>{entry.count}</WindowNavCount>}{entry.state ? <Dot state={entry.state} /> : entry.trail}</WindowNavStateMark> }
+                title={entry.title ?? entry.label}
+                trailing={entry.state
+                  ? { kind: 'mark', label: `${entry.label} · ${entry.state}`,
+                    icon: <WindowNavStateMark><Dot state={entry.state!} /></WindowNavStateMark> }
                   : entry.count !== undefined ? { kind: 'count', value: entry.count, label: `${entry.count} ${entry.label}` } : undefined}
               />
             ))}
           </LeftColumnGroup>
         ))}
-        {filtered.length === 0 && !showYou && (
+        {filtered.length === 0 && (
           <WindowNavEmpty>Nothing in settings matches “{query.trim()}”.</WindowNavEmpty>
         )}
-      </WindowNav>
+      </WindowNav>}
 
       {/* Every Settings page shares one measure. Library descriptions wrap;
           State and Loaded by keep the space their contents need. */}

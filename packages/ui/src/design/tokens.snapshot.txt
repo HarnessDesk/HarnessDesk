@@ -266,7 +266,7 @@
 --hd-sidebar-plate = rgb(249, 249, 249)
 --hd-sidebar-selected = color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)
 --hd-sidebar-start-inset = 8px
---hd-sidebar-width = 240px
+--hd-sidebar-width = 256px
 --hd-sidebar-width-icon = 48px
 --hd-skeleton = rgba(9, 12, 17, 0.05)
 --hd-solid = rgb(27, 27, 27)
@@ -814,7 +814,7 @@
 --hd-sidebar-plate = rgb(41, 41, 41)
 --hd-sidebar-selected = color-mix(in srgb, rgb(231, 231, 231) 12%, transparent)
 --hd-sidebar-start-inset = 8px
---hd-sidebar-width = 240px
+--hd-sidebar-width = 256px
 --hd-sidebar-width-icon = 48px
 --hd-skeleton = rgba(255, 255, 255, 0.07)
 --hd-solid = rgb(231, 231, 231)
@@ -1371,7 +1371,7 @@
 --hd-sidebar-selected-foreground = rgb(255, 255, 255)
 --hd-sidebar-selected-muted-foreground = color-mix( in srgb, rgb(255, 255, 255) 86%, transparent )
 --hd-sidebar-start-inset = 8px
---hd-sidebar-width = 240px
+--hd-sidebar-width = 256px
 --hd-sidebar-width-icon = 48px
 --hd-skeleton = rgba(9, 12, 17, 0.05)
 --hd-solid = rgb(27, 27, 27)
@@ -1928,7 +1928,7 @@
 --hd-sidebar-selected-foreground = rgb(17, 17, 17)
 --hd-sidebar-selected-muted-foreground = color-mix( in srgb, rgb(17, 17, 17) 86%, transparent )
 --hd-sidebar-start-inset = 8px
---hd-sidebar-width = 240px
+--hd-sidebar-width = 256px
 --hd-sidebar-width-icon = 48px
 --hd-skeleton = rgba(255, 255, 255, 0.07)
 --hd-solid = rgb(231, 231, 231)

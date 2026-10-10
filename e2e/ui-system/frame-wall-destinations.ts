@@ -7,7 +7,7 @@ import type { FrameActions } from './frame-actions'
 
 import type { WallActions } from './frame-wall-actions'
 
-export interface WallDestination extends FrameActions, WallActions { readonly id: string; readonly query: string; readonly leftOpen?: boolean; readonly leftPopup?: string; readonly settingsQuery?: string; readonly surface?: 'pattern' }
+export interface WallDestination extends FrameActions, WallActions { readonly id: string; readonly query: string; readonly leftWidth?: number; readonly leftOpen?: boolean; readonly leftPopup?: string; readonly settingsQuery?: string; readonly surface?: 'pattern' }
 
 export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'topbar-probe', surface: 'pattern', query: 'frame-wall=topbar' },
@@ -91,3 +91,26 @@ export const WALL_THEMES = ['light', 'dark'] as const
 
 /** The wall's clock: relative times read the same in every capture. */
 export const WALL_TIME = new Date('2026-09-30T10:00:00-07:00')
+
+// D6 keeps the real Settings bodies inside the shared window column.
+;(WALL_DESTINATIONS as WallDestination[]).push(
+  { id: 'settings-navigation', query: 'frame-wall=settings-navigation', leftOpen: true },
+  { id: 'settings-search', query: 'frame-wall=settings-search', leftOpen: true, settingsQuery: 'mute' },
+  { id: 'settings-search-empty', query: 'frame-wall=settings-search', leftOpen: true, settingsQuery: 'zzzz' },
+  { id: 'library-left', query: 'frame-wall=library', leftOpen: true },
+  { id: 'plugins-left', query: 'frame-wall=plugins', leftOpen: true },
+)
+
+;(WALL_DESTINATIONS as WallDestination[]).push(
+  { id: 'sessions-left-200', query: 'frame-wall=conversation', leftOpen: true, leftWidth: 200 },
+  { id: 'sessions-left-360', query: 'frame-wall=left-work', leftOpen: true, leftWidth: 360 },
+  { id: 'settings-left-200', query: 'frame-wall=settings-navigation', leftOpen: true, leftWidth: 200 },
+  { id: 'settings-left-360', query: 'frame-wall=settings-navigation', leftOpen: true, leftWidth: 360 },
+)
+
+// D7a: both heading states at every wall width and theme, including the float.
+export interface WallDestination { readonly leftHeading?: 'hover-open' | 'folded' }
+;(WALL_DESTINATIONS as WallDestination[]).push(
+  { id: 'left-project-hover', query: 'frame-wall=left-work', leftOpen: true, leftHeading: 'hover-open' },
+  { id: 'left-project-folded', query: 'frame-wall=left-work', leftOpen: true, leftHeading: 'folded' },
+)

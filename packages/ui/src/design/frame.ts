@@ -11,7 +11,7 @@
  */
 export const FRAME = {
   bar: { height: 40, pad: 8, gap: 6, iconButton: 28, titleMin: 180, dividerHeight: 14 },
-  sidebar: { width: 240, min: 200, max: 360 },
+  sidebar: { width: 256, min: 200, max: 360 },
   rightPanel: { width: 400, min: 320, max: 640 },
   bottomPanel: { height: 240, min: 120 },
   main: { min: 480 },

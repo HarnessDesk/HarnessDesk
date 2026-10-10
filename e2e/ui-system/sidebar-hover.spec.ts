@@ -10,7 +10,7 @@ test('conversation labels reach the row rail without changing box width on hover
   await page.goto('/design.html?view=sidebar')
   const example = page.locator('[data-catalog-example="sidebar"]')
   const panel = example.locator(':scope > div').first()
-  for (const width of [240, 200]) {
+  for (const width of [FRAME.sidebar.width, FRAME.sidebar.min]) {
     await panel.evaluate((node, width) => {
       ;(node as HTMLElement).style.width = `${width}px`
       ;(node as HTMLElement).style.maxWidth = 'none'

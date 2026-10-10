@@ -1151,10 +1151,10 @@ body {
   --hd-sidebar-muted-foreground: var(--hd-tertiary-foreground);
   --hd-sidebar-border: var(--hd-border);
   --hd-sidebar-hover: var(--hdp-alias-interactive-bg-hover);
-  /* The left column's default width (spec: 240, dragged 200–360). Named
+  /* The left column's default width (spec: 256, dragged 200–360). Named
      here rather than measured in a layout file, so the column and everything
      that reserves room for it move together. */
-  --hd-sidebar-width: 240px; /* desk: 275 → 240, the app frame's left column */
+  --hd-sidebar-width: 256px; /* desk: 240 → 256, owner 2026-10-10 left column */
   --hd-sidebar-width-icon: 48px;
 
   /* --- the nav row ---------------------------------------------------------

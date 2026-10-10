@@ -19,7 +19,7 @@ for (const theme of ['light', 'dark'] as const) {
       const measured = await sidebar.evaluate(node => {
         const top = node.querySelector('[data-left-top] [data-slot="bar"]')!
         const search = top.querySelector('button[aria-label="Search everything"]')!
-        const bell = top.querySelector('[data-slot="inbox-button"]')!.closest('button')!
+        const bell = node.querySelector('[data-slot="inbox-button"]')!.closest('button')!
         const rect = (element: Element) => {
           const r = element.getBoundingClientRect()
           return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, width: r.width, height: r.height }
@@ -33,10 +33,10 @@ for (const theme of ['light', 'dark'] as const) {
       })
       measurements.push({ width, ...measured })
       expect(measured.top.height).toBe(FRAME.bar.height)
-      expect(measured.bellInFooter).toBe(false)
+      expect(measured.bellInFooter).toBe(true)
       expect(measured.unread.width).toBeGreaterThan(0)
       expect(measured.unread.width).toBe(measured.unread.height)
-      expect(measured.bell.right).toBeLessThanOrEqual(measured.search.left)
+      expect(measured.bell.top).toBeGreaterThan(measured.search.bottom)
       for (const control of measured.controls) {
         expect(control.width).toBe(FRAME.bar.iconButton)
         expect(control.height).toBe(FRAME.bar.iconButton)
@@ -46,7 +46,7 @@ for (const theme of ['light', 'dark'] as const) {
       expect(measured.noDrag).toBe(true)
       await expect(sidebar.locator('[data-role="wordmark"]')).toHaveCount(0)
       const history = sidebar.locator('[data-left-history]')
-      if (width < FRAME.sidebar.width) await expect(history).toBeHidden()
+      if (width < 240) await expect(history).toBeHidden()
       else await expect(history).toBeVisible()
       const search = sidebar.getByRole('button', { name: 'Search everything', exact: true })
       await expect(search).toHaveAttribute('title', 'Search everything (⌘K)')
@@ -55,9 +55,9 @@ for (const theme of ['light', 'dark'] as const) {
       await bell.click()
       const popup = page.locator('[data-slot="inbox-list"]:visible').locator('xpath=ancestor::*[@data-slot="popover-popup"]')
       await expect(popup).toBeVisible()
-      await expect(popup).toHaveAttribute('data-side', 'bottom')
+      await expect(popup).toHaveAttribute('data-side', 'top')
       const bounds = (await popup.boundingBox())!
-      expect(bounds.y).toBeGreaterThanOrEqual(measured.bell.bottom)
+      expect(bounds.y + bounds.height).toBeLessThanOrEqual(measured.bell.top)
       expect(bounds.x).toBeGreaterThanOrEqual(0)
       expect(bounds.x + bounds.width).toBeLessThanOrEqual(page.viewportSize()!.width)
       await page.keyboard.press('Escape')

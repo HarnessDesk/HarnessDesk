@@ -1,3 +1,4 @@
+import { Sidebar } from './Sidebar'
 import type { ComponentProps, ReactNode } from 'react'
 import { StoreProvider } from '../state/context'
 import { previewStore } from '../preview/harness'
@@ -256,4 +257,23 @@ it('gives a clipped long identity name its full title', () => {
   const clipped = label.parentElement as HTMLElement
   clipped.dispatchEvent(new MouseEvent('mouseenter', { bubbles: false }))
   expect(clipped.title).toBe('A very long profile name that cannot fit in the narrow navigation row')
+})
+
+it('includes the actual shared column in the modal focus boundary with one shell pair', async () => {
+  act(() => { store.setWindowSize(1440, 900); if (store.getSnapshot().sidebarCollapsed) store.toggleSidebar() })
+  await act(async () => root.render(<Tree><AppWindow label="Settings" leftColumn={<Sidebar sessionsOwner={false}
+    onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}}
+    onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}}
+    settings={{ section: 'general', onSection: () => {}, onBack: () => {} }} />}><button>Page control</button></AppWindow></Tree>))
+  const modal = container.querySelector<HTMLElement>('[data-slot="app-window"]')!
+  const column = modal.querySelector<HTMLElement>('[data-left-column]')!
+  expect(column).not.toBeNull()
+  const appearance = column.querySelector<HTMLButtonElement>('button[aria-label="Appearance"]')!
+  act(() => appearance.focus())
+  expect(modal.contains(document.activeElement)).toBe(true)
+  expect(document.activeElement).toBe(appearance)
+  expect(column.querySelector('button[aria-label="Settings"]')?.getAttribute('aria-pressed')).toBe('true')
+  expect(modal.querySelectorAll('[data-shell-host="top"]')).toHaveLength(1)
+  expect(modal.querySelectorAll('[data-shell-host="status"]')).toHaveLength(0)
+  expect(modal.querySelectorAll('[data-shell-host="main-notice"]')).toHaveLength(1)
 })

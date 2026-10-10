@@ -1,3 +1,4 @@
+import { Sidebar } from './Sidebar'
 import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -305,4 +306,50 @@ it('the surface on top answers, and the pane below hears that the key is spent (
   expect(over).toHaveBeenCalledTimes(1)
   expect(spent).toEqual([true, false])
   window.removeEventListener('keydown', inThePane)
+})
+
+it('the shared Settings column spends Escape on its menu, float, then window', async () => {
+  const frame = () => act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
+  // jsdom omits inert focus refusal. React restores the pre-commit account
+  // focus after the float hides; browsers refuse that hidden inert target.
+  const focusMethod = HTMLElement.prototype.focus
+  const inertFocus = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (this: HTMLElement, options) {
+    if (!this.closest('[inert]')) focusMethod.call(this, options)
+  })
+  const store = previewStore()
+  act(() => store.setWindowSize(720, 900))
+  const Harness = () => {
+    const [open, setOpen] = useState(true)
+    return open && <Settings section="appearance" onSection={() => {}} onClose={() => setOpen(false)} onSignIn={() => {}}
+      leftColumn={<Sidebar sessionsOwner={false} onOpenSettings={() => {}} onOpenPlugins={() => {}}
+        onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}}
+        onSignIn={() => {}} onSearch={() => {}}
+        settings={{ section: 'appearance', onSection: () => {}, onBack: () => setOpen(false) }} />} />
+  }
+  await act(async () => root.render(<StoreProvider store={store}><TopBarProvider><ShellHostsProvider>
+    <Harness /><ShellOutlets activeOwner="settings" />
+  </ShellHostsProvider></TopBarProvider></StoreProvider>))
+  await frame()
+  const modal = window_('Settings')!
+  const show = modal.querySelector<HTMLButtonElement>('[data-shell-host="top"] button[aria-label="Show sidebar"]')!
+  expect(show).not.toBeNull()
+  act(() => show.focus())
+  expect(document.activeElement).toBe(show)
+  await act(async () => show.click())
+  const column = modal.querySelector<HTMLElement>('[data-left-column]')!
+  expect(column.closest('[data-app-window-left]')?.hasAttribute('hidden')).toBe(false)
+  const account = column.querySelector<HTMLButtonElement>('[data-left-seat] [data-slot="popover-trigger"]')!
+  await act(async () => account.click())
+  expect(menu()).not.toBeNull()
+  const covered = vi.fn()
+  const handler = (event: KeyboardEvent) => { if (event.key === 'Escape' && !event.defaultPrevented) covered() }
+  window.addEventListener('keydown', handler)
+  try {
+    expect(await escape()).toBe(true); expect(menu()).toBeNull(); await frame()
+    expect(store.getSnapshot().sidebarFloating).toBe(true)
+    expect(await escape()).toBe(true); expect(store.getSnapshot().sidebarFloating).toBe(false); await frame()
+    expect(window_('Settings')).not.toBeNull(); expect(document.activeElement).toBe(show)
+    expect(await escape()).toBe(true); expect(window_('Settings')).toBeNull()
+    expect(covered).not.toHaveBeenCalled()
+  } finally { window.removeEventListener('keydown', handler); inertFocus.mockRestore() }
 })
