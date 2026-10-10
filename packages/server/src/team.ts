@@ -329,7 +329,9 @@ export interface TeamPort {
    */
   startOf?(cwd: string): Promise<{
     readonly head: string | null
+    readonly branch?: string | null
     readonly upstream: string | null
+    readonly checkoutMark?: string | null
     /** Paths already dirty in this checkout the moment a claim reads it — `IntentClaim.dirtyPaths`'s source. Null when that read failed. */
     readonly dirtyPaths?: readonly string[] | null
   } | null>
@@ -860,7 +862,7 @@ export const cardsForWire = (intents: readonly Intent[]): readonly Intent[] =>
   intents.map((intent) => {
     const { previousClaim: _previousClaim, ...publicIntent } = intent
     if (!intent.claim) return publicIntent
-    const { dirtyPaths: _dirtyPaths, cwd: _cwd, ...claim } = intent.claim
+    const { dirtyPaths: _dirtyPaths, cwd: _cwd, checkoutMark: _checkoutMark, ...claim } = intent.claim
     return { ...publicIntent, claim }
   })
 
@@ -2552,13 +2554,15 @@ export class Team {
       files: owned,
       // A live claim measures to HEAD, not to wherever it last stopped.
       until: null,
+      untilBranch: undefined,
       claim: {
         runtime: caller.runtime,
         sessionId: caller.sessionId,
         cwd: caller.cwd,
         at: Date.now(),
         leaseUntil: Date.now() + LEASE_MS,
-        ...(start ? { head: start.head, upstream: start.upstream, dirtyPaths: start.dirtyPaths ?? null } : {}),
+        ...(start ? { head: start.head, upstream: start.upstream, dirtyPaths: start.dirtyPaths ?? null,
+          ...(start.checkoutMark !== undefined ? { checkoutMark: start.checkoutMark } : {}) } : {}),
       },
       blockedReason: null,
       blockedBy: null,
@@ -4657,7 +4661,16 @@ export class Team {
       const now = board?.intents.find((entry) => entry.id === id)
       // Reclaimed since this began: a live claim measures to HEAD, not to this stale read.
       if (!board || !now || now.claim !== null) return
-      this.#patchIntent(board, id, { until: read.head })
+      const warning = claim.checkoutMark === undefined ? null
+        : claim.checkoutMark === null || read.checkoutMark == null
+          ? 'Branch history unavailable; review the final revision.'
+          : claim.checkoutMark !== read.checkoutMark
+            ? 'Work may span branches; review the final revision.'
+            : null
+      this.#patchIntent(board, id, { until: read.head,
+        ...(read.branch !== undefined ? { untilBranch: read.branch } : {}),
+        ...(warning ? { note: [warning, now.note].filter(Boolean).join(' ') } : {}),
+      })
       await this.#commit(board)
     })()
     let pending = this.#stopping.get(room)
