@@ -231,3 +231,15 @@ for (const kind of ['claude', 'qwen'] as const) {
     })
   }
 }
+
+test('a read resolves each folder once, however many samples name it', async (t) => {
+  const { ledger, path } = await fixture(); t.after(() => ledger.close())
+  const other = `${JSON.stringify({ type: 'session_meta', payload: { id: 'session-2', cwd: '/work/other' } })}\n`
+  await writeFile(`${path}.other.jsonl`, other + Array.from({ length: 200 }, (_, second) => event(second % 60)).join(''))
+  const native = fs.realpathSync.native
+  let resolved = 0
+  t.mock.method(fs.realpathSync, 'native', ((target: fs.PathLike, options?: fs.EncodingOption) => { resolved += 1; return native(target, options) }) as typeof native)
+  const detail = await ledger.readInsight(query)
+  assert.equal(detail.samples.length, 1)
+  assert.ok(resolved <= 10, `${resolved} folder resolutions for 201 samples`)
+})

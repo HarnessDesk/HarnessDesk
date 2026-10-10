@@ -15,7 +15,7 @@ import { runtimeId, type LedgerDay,
 } from '@harnessdesk/protocol'
 
 import { Pricing, defaultPricingPaths, type ModelRates } from './pricing.js'
-import { sameCanonicalPath } from '../path-identity.js'
+import { sameCanonicalPath, withCanonicalPaths } from '../path-identity.js'
 import { safeLedgerDiagnostic } from './diagnostics.js'
 import type { RemoteEventsSource } from './remote.js'
 import { HOUR_CAPABLE_KINDS, listTargets, scanFile, wholeFile, type CorpusSpec, type ScanTarget } from './scan.js'
@@ -223,7 +223,9 @@ export class Ledger {
    * leave those amounts unattributed rather than manufacture a join.
    */
   async readInsight(query: InsightQuery, options: { readonly refresh?: boolean; readonly signal?: AbortSignal } = {}): Promise<UsageDetail> {
-    const read = this.#insightRead.then(() => this.#readInsight(query, options))
+    // Every sample's folder is compared with the root: one read resolves each
+    // folder once, or a busy desk spends its main thread in realpath (#1567).
+    const read = this.#insightRead.then(() => withCanonicalPaths(() => this.#readInsight(query, options)))
     this.#insightRead = read.catch(() => undefined)
     return read
   }

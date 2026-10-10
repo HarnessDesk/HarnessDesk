@@ -41,7 +41,7 @@ import type {
   TriggerArmPreview, TriggerAttention, TriggerDefinition, TriggerGoalStatus, TriggerHistoryPage, TriggerPreferences,
   TriggerProjectView, TriggerSource, TriggerView,
 } from './intake.js'
-import type { InsightCompareQuery, InsightComparison, InsightOrderPreview, InsightOrderQuery, InsightQuery, InsightReport } from './insight.js'
+import type { InsightCompareQuery, InsightComparison, InsightGoalsReport, InsightOrderPreview, InsightOrderQuery, InsightQuery, InsightReport } from './insight.js'
 import type {
   FlowCheckAttempts,
   FlowEntry,
@@ -975,6 +975,11 @@ export interface HostMethods {
   'usage/plan/set': { params: PlanSetInput; result: PlanEntry }
   /** Source-qualified historical usage. These reads never mutate a receipt, Goal, or source corpus. */
   'insight/goal': { params: { readonly goal: GoalId }; result: InsightReport }
+  /**
+   * Many Teams' `insight/goal` reports from one ledger read per project, for
+   * a page that lists Teams; at most `INSIGHT_GOALS_LIMIT` per request.
+   */
+  'insight/goals': { params: { readonly goals: readonly GoalId[] }; result: InsightGoalsReport }
   'insight/usage': { params: InsightQuery; result: InsightReport }
   'insight/agent': { params: { readonly root?: string; readonly agent: string; readonly origin: AgentOrigin }; result: InsightReport }
   'insight/compare': { params: InsightCompareQuery; result: InsightComparison }

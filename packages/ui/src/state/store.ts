@@ -117,6 +117,7 @@ import {
   type UserContent,
   type WireNotification,
   type InsightQuery,
+  type InsightGoalsReport,
   type InsightReport,
   type InsightCompareQuery,
   type InsightComparison,
@@ -2063,6 +2064,8 @@ export class AppStore {
 
   /** Insight is intentionally pull-only: hidden screens never trigger a corpus read. */
   readGoalInsight(goal: string): Promise<InsightReport> { return this.transport.request('insight/goal', { goal }) }
+  /** Several Teams at once, at most `INSIGHT_GOALS_LIMIT`: the host reads each project's ledger once for all of them. */
+  readGoalInsights(goals: readonly string[]): Promise<InsightGoalsReport> { return this.transport.request('insight/goals', { goals }) }
   readUsageInsight(query: InsightQuery): Promise<InsightReport> { return this.transport.request('insight/usage', query) }
   readAgentInsight(root: string | undefined, agent: string, origin: AgentOrigin): Promise<InsightReport> {
     return this.transport.request('insight/agent', { ...(root ? { root } : {}), agent, origin })

@@ -1,15 +1,21 @@
-import { act } from 'react'
+import { Profiler, act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { StoreProvider } from '../state/context'
 import { AppWindowMode } from './AppWindow'
 import { TeamsWindow } from './TeamsWindow'
 import { overviewTeamStore } from '../preview/team-overview-fixture'
-import type { FindingRunView } from '@harnessdesk/protocol'
+import { goalInsightsFrom } from '../preview/harness'
+import type { FindingRunView, InsightGoalsReport } from '@harnessdesk/protocol'
 import { teamsInput } from '../lib/teams-snapshot'
 import { teamsList } from '../lib/teams-list'
 import type { AppStore } from '../state/store'
 
+const drawn=vi.hoisted(()=>({marks:0}))
+vi.mock('./BrandIcons',async original=>{
+ const actual=await original<typeof import('./BrandIcons')>()
+ return {...actual,RuntimeMark:(props:Parameters<typeof actual.RuntimeMark>[0])=>{drawn.marks+=1;return actual.RuntimeMark(props)}}
+})
 ;(globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true
 const container=document.createElement('div'); document.body.append(container)
 const root=createRoot(container)
@@ -189,7 +195,7 @@ it('explains unavailable time and both known and unavailable money',async()=>{
  const meteredSnapshot={...snapshot,runtimes:snapshot.runtimes.map(runtime=>({...runtime,capabilities:{...runtime.capabilities,metered:true}}))}
  const store=new Proxy(base,{get(target,key){
   if(key==='getSnapshot')return ()=>meteredSnapshot
-  if(key==='readGoalInsight')return (id:string)=>id==='team-0'?Promise.reject(new Error('Usage unavailable')):target.readGoalInsight(id)
+  if(key==='readGoalInsights')return goalInsightsFrom((id:string)=>id==='team-0'?Promise.reject(new Error('Usage unavailable')):target.readGoalInsight(id))
   return Reflect.get(target,key)
  }})
  await act(async()=>root.render(<StoreProvider store={store}><AppWindowMode.Provider value="embedded"><TeamsWindow onClose={()=>{}}/></AppWindowMode.Provider></StoreProvider>))
@@ -206,4 +212,82 @@ it('opens the wide Team once through its named button',async()=>{
  expect(action).not.toBeNull()
  await act(async()=>action!.click())
  expect(open).toHaveBeenCalledOnce()
+})
+
+/** The teams-page rig with some Goals edited and every read the page makes recorded. */
+const recorded=async(edit:(snapshot:ReturnType<AppStore['getSnapshot']>)=>Partial<ReturnType<AppStore['getSnapshot']>>=()=>({}))=>{
+ const {teamsPageStore}=await import('../preview/teams-page-fixture')
+ const base=teamsPageStore('active')
+ const snapshot={...base.getSnapshot(),...edit(base.getSnapshot())}
+ const answers:((report:InsightGoalsReport)=>void)[]=[]
+ const insights=vi.fn((goals:readonly string[])=>new Promise<InsightGoalsReport>(resolve=>answers.push(resolve)))
+ const runs=vi.fn(async(_run:string)=>{throw new Error('not read here')})
+ const findings=vi.fn(async(_goal:string,_run:string)=>{})
+ const store=new Proxy(base,{get(target,key){
+  if(key==='getSnapshot')return ()=>snapshot
+  if(key==='readGoalInsights')return insights
+  if(key==='readFlowExecution')return runs
+  if(key==='loadFindingRun')return findings
+  return Reflect.get(target,key)
+ }}) as AppStore
+ return {store,base,insights,answers,runs,findings}
+}
+const tab=(label:string)=>[...container.querySelectorAll<HTMLButtonElement>('nav button')].find(one=>one.textContent?.startsWith(label))!
+
+it('reads usage only for the rows the open tab shows, in one request and one update',async()=>{
+ const {store,base,insights,answers}=await recorded()
+ const commits=vi.fn()
+ await act(async()=>root.render(<Profiler id="teams" onRender={commits}><StoreProvider store={store}><AppWindowMode.Provider value="embedded"><TeamsWindow onClose={()=>{}}/></AppWindowMode.Provider></StoreProvider></Profiler>))
+ expect(insights).toHaveBeenCalledOnce()
+ expect(insights.mock.calls[0]![0]).toEqual(['team-0','team-1','team-2'])
+ const reports=await Promise.all(['team-0','team-1','team-2'].map(id=>base.readGoalInsight(id)))
+ commits.mockClear()
+ await act(async()=>answers[0]!({reports,failed:[]}))
+ expect(commits).toHaveBeenCalledOnce()
+ expect(container.querySelector('[data-team-row="team-2"]')?.textContent).toContain('137')
+ // Settled Teams are read when they are shown: unfolded, or on their own tab.
+ await act(async()=>button('Ready to wrap').click())
+ expect(insights.mock.calls.at(-1)![0]).toEqual(['team-0','team-1','team-2','team-3','team-4'])
+ await act(async()=>tab('Settled').click())
+ expect(insights.mock.calls.at(-1)![0]).toEqual(['team-3','team-4'])
+})
+
+it('reads a wrapped Team\'s Run and review only once its row is shown',async()=>{
+ const {store,runs,findings}=await recorded(snapshot=>{
+  const goals=new Map(snapshot.goals)
+  for(const id of ['team-3','team-4']){const view=goals.get(id)!;goals.set(id,{...view,goal:{...view.goal,state:'wrapped'}})}
+  const flowExecutions=new Map(snapshot.flowExecutions);flowExecutions.delete('team-3-run')
+  return {goals,flowExecutions}
+ })
+ await act(async()=>root.render(<StoreProvider store={store}><AppWindowMode.Provider value="embedded"><TeamsWindow onClose={()=>{}}/></AppWindowMode.Provider></StoreProvider>))
+ expect(runs).not.toHaveBeenCalled()
+ expect(findings.mock.calls.map(([goal])=>goal).sort()).toEqual(['team-0','team-1','team-2'])
+ await act(async()=>tab('Settled').click())
+ expect(runs).toHaveBeenCalledWith('team-3-run')
+ expect(findings).toHaveBeenCalledWith('team-4','team-4-run')
+})
+
+it('says time in a state in hours and days, and only the time cells follow a minute clock',async()=>{
+ vi.useFakeTimers({toFake:['Date','setInterval','clearInterval']})
+ try {
+  const now=Date.now()
+  const {store,answers}=await recorded(snapshot=>{
+   const flowExecutions=new Map(snapshot.flowExecutions)
+   for(const [run,endedAt] of [['team-3-run',now-63*3_600_000],['team-4-run',now-5*3_600_000-20*60_000]] as const)flowExecutions.set(run,{...flowExecutions.get(run)!,endedAt})
+   return {flowExecutions}
+  })
+  await act(async()=>root.render(<StoreProvider store={store}><AppWindowMode.Provider value="embedded"><TeamsWindow onClose={()=>{}}/></AppWindowMode.Provider></StoreProvider>))
+  await act(async()=>answers[0]!({reports:[],failed:[]}))
+  await act(async()=>tab('Settled').click())
+  const time=(id:string)=>container.querySelector(`[data-team-row="${id}"] td[data-align="end"] [data-slot="text"]`)!.textContent
+  expect([time('team-3'),time('team-4')]).toEqual(['3d','5h'])
+  await act(async()=>tab('Active').click())
+  const before=time('team-2'); const marks=drawn.marks
+  expect(marks).toBeGreaterThan(0)
+  await act(async()=>{vi.advanceTimersByTime(59_000)})
+  expect(drawn.marks).toBe(marks)
+  await act(async()=>{vi.advanceTimersByTime(1_000)})
+  expect(time('team-2')).not.toBe(before)
+  expect(drawn.marks).toBe(marks)
+ } finally { vi.useRealTimers() }
 })

@@ -469,6 +469,17 @@ returns hidden work without deleting it. Usage refreshes do not count as a
 new revision. Known waits order the page; an absent state timestamp remains
 unknown rather than borrowing the Run's age.
 
+The page reads what its open tab shows, and no more. Usage is asked for the
+rows on screen, in one `insight/goals` request that reads each project's
+ledger once and attributes it per Team, and lands in one update. A Run and its
+review are read for every Team that is not wrapped, because either can move a
+Team into Needs you and the counts would otherwise be wrong; a wrapped Team's
+are read only once its row is shown. Time in a state is said in its largest
+unit (`47m`, `5h`, `2d`), and only those cells follow a minute clock. A desk
+with about 500 Teams had made one full ledger scan per Team on every open,
+and a one-second clock re-rendered the whole table
+([#1567](https://github.com/HarnessDesk/HarnessDesk/issues/1567)).
+
 **The rule:** one plain-data contract derives the rows; no overview fact is
 invented to fill a missing observation.
 
