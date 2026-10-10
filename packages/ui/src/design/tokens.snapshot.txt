@@ -99,6 +99,7 @@
 --hd-composer-max = 320px
 --hd-composer-min = 44px
 --hd-composer-radius = 28px
+--hd-composer-send-size = 30px
 --hd-composer-slots-preview-narrow = 560px
 --hd-composer-slots-preview-tight = 360px
 --hd-composer-track-add = 32px
@@ -646,6 +647,7 @@
 --hd-composer-max = 320px
 --hd-composer-min = 44px
 --hd-composer-radius = 28px
+--hd-composer-send-size = 30px
 --hd-composer-slots-preview-narrow = 560px
 --hd-composer-slots-preview-tight = 360px
 --hd-composer-track-add = 32px
@@ -1198,6 +1200,7 @@
 --hd-composer-min = 44px
 --hd-composer-radius = 28px
 --hd-composer-ring = 0 0 0 3px color-mix(in srgb, rgb(52, 88, 240) 45%, transparent)
+--hd-composer-send-size = 30px
 --hd-composer-slots-preview-narrow = 560px
 --hd-composer-slots-preview-tight = 360px
 --hd-composer-track-add = 32px
@@ -1301,8 +1304,8 @@
 --hd-muted = rgb(245, 245, 245)
 --hd-muted-foreground = rgb(71, 71, 71)
 --hd-nav-gap = 8px
---hd-nav-h = 34px
---hd-nav-h-group = 34px
+--hd-nav-h = 30px
+--hd-nav-h-group = 30px
 --hd-nav-inset = 10px
 --hd-nav-padding = 0 10px
 --hd-nav-radius = 6px
@@ -1333,7 +1336,7 @@
 --hd-ring-muted = color-mix(in srgb, rgb(52, 88, 240) 45%, transparent)
 --hd-ring-offset = 0px
 --hd-ring-width = 3px
---hd-row-h = 34px
+--hd-row-h = 30px
 --hd-scrim = rgba(7, 9, 14, 0.28)
 --hd-scrollbar-fill = rgb(228, 228, 228)
 --hd-scrollbar-fill-hover = rgb(211, 211, 211)
@@ -1754,6 +1757,7 @@
 --hd-composer-min = 44px
 --hd-composer-radius = 28px
 --hd-composer-ring = 0 0 0 3px color-mix(in srgb, rgb(112, 142, 250) 55%, transparent)
+--hd-composer-send-size = 30px
 --hd-composer-slots-preview-narrow = 560px
 --hd-composer-slots-preview-tight = 360px
 --hd-composer-track-add = 32px
@@ -1857,8 +1861,8 @@
 --hd-muted = rgb(49, 49, 49)
 --hd-muted-foreground = rgb(177, 177, 177)
 --hd-nav-gap = 8px
---hd-nav-h = 34px
---hd-nav-h-group = 34px
+--hd-nav-h = 30px
+--hd-nav-h-group = 30px
 --hd-nav-inset = 10px
 --hd-nav-padding = 0 10px
 --hd-nav-radius = 6px
@@ -1889,7 +1893,7 @@
 --hd-ring-muted = color-mix(in srgb, rgb(112, 142, 250) 55%, transparent)
 --hd-ring-offset = 0px
 --hd-ring-width = 3px
---hd-row-h = 34px
+--hd-row-h = 30px
 --hd-scrim = rgba(7, 9, 14, 0.56)
 --hd-scrollbar-fill = rgb(65, 65, 65)
 --hd-scrollbar-fill-hover = rgb(93, 93, 93)

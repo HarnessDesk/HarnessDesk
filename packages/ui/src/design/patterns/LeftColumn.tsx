@@ -158,7 +158,7 @@ export const LeftColumnProjectsHead = ({ value, onChange, focused, onFocusChange
         } }} />
     </div>
     {options}
-    <Button variant="muted" size="icon-xs" aria-label="Open a project folder" title="Open a project folder"
+    <Button variant="muted" size="icon-xs" edge="end" edgeGlyph={16} aria-label="Open a project folder" title="Open a project folder"
       onClick={onBrowseFolders}><PlusIcon size={16} /></Button>
   </NavigationGroupHeader>
 }

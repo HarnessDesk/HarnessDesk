@@ -290,6 +290,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-composer-track-model-folded` | `48px` |
 | `--hd-composer-track-model-tight` | `24px` |
 | `--hd-composer-track-send` | `32px` |
+| `--hd-composer-send-size` | `30px` |
 | `--hd-composer-slots-preview-narrow` | `560px` |
 | `--hd-composer-slots-preview-tight` | `360px` |
 | `--hd-dialog-max-height` | `calc(100dvh - 2 * 24px)` |

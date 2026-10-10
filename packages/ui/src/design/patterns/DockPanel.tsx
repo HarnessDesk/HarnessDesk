@@ -233,7 +233,7 @@ export const DockPanel = ({
  * its own expand button is a view that knows where it lives, which is the
  * coupling the whole panel system exists to remove.
  */
-export const DockPanelBar = ({ className, ...props }: React.ComponentProps<'header'>) => (
+export const DockPanelBar = ({ className, contentInset, ...props }: React.ComponentProps<'header'> & { contentInset?: 'tool' }) => (
   <header
     data-slot="dock-panel-bar"
     className={cn(
@@ -242,7 +242,10 @@ export const DockPanelBar = ({ className, ...props }: React.ComponentProps<'head
          beside it put a step in the one horizontal line the eye follows
          across the window. */
       // A plain view title shares the inspector search's leading glyph inset.
-      'flex h-(--hd-bar-h) shrink-0 items-center gap-1 border-b border-(--hd-border) px-2 [&>[data-slot=text]]:ml-2.5',
+      'flex h-(--hd-bar-h) shrink-0 items-center gap-1 border-b border-(--hd-border)',
+      contentInset === 'tool'
+        ? 'px-(--hd-inset-row)'
+        : 'px-2 [&>[data-slot=text]]:ml-2.5',
       /* And a top row is a handle for the window, like every other one: the
          conversation's header, a tool's, the sidebar's title bar. This strip
          was the only chrome in the app that was not, so a room or a board in
@@ -255,7 +258,9 @@ export const DockPanelBar = ({ className, ...props }: React.ComponentProps<'head
          to fill the window, a board in the middle with the sidebar away — so
          its left padding is the greater of its own and whatever room the shell
          says this box owes them. See `--titlebar-inset` in `app.css`. */
-      'pl-[max(var(--hd-space-2),var(--titlebar-inset,0px))]',
+      contentInset === 'tool'
+        ? 'pl-[max(var(--hd-inset-row),var(--titlebar-inset,0px))]'
+        : 'pl-[max(var(--hd-space-2),var(--titlebar-inset,0px))]',
       className,
     )}
     {...props}

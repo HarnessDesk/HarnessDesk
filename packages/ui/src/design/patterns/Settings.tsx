@@ -884,6 +884,7 @@ export const NavigationGroupHeader = ({
   <GroupLabel as="div" surface="navigation" navigationInset={inset}
     {...props}
     data-slot="navigation-group-header"
+    data-surface=""
     {...(filtering ? { 'data-filtering': '' } : {})}
     {...(keepLabelWhenFiltering ? { 'data-keep-label': '' } : {})}
     {...(inset === 'nav' ? { 'data-inset': 'nav' } : {})}

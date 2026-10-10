@@ -39,9 +39,14 @@ export const TeamFrame = () => {
 }
 
 const TeamBarExample = ({narrow = false, sideBySide = false}:{narrow?:boolean;sideBySide?:boolean}) => {
+ const box = useRef<HTMLDivElement>(null)
  const store=useMemo(()=>overviewTeamStore(narrow?'no-run':'running'),[narrow])
  const view=useMemo(()=>({kind:'room' as const,room:'overview-team',...(sideBySide ? {framePage:'room' as const,sideBySide:{tiles:[...store.getSnapshot().sessions.keys()].slice(0,2)}} : {})}),[store,sideBySide])
- return <div className={`h-96 w-full${narrow?' max-w-180':''}`}><StoreProvider store={store}><TeamFramePreview room="overview-team" view={view} /></StoreProvider></div>
+ useEffect(() => {
+  // Keep all three catalogue cases measured on their replacement frame Bar.
+  box.current?.querySelector('header[data-slot="bar"]')?.setAttribute('data-catalog-size', narrow ? 'sm' : sideBySide ? 'lg' : 'default')
+ }, [narrow, sideBySide])
+ return <div ref={box} className={`h-96 w-full${narrow?' max-w-180':''}`}><StoreProvider store={store}><TeamFramePreview room="overview-team" view={view} /></StoreProvider></div>
 }
 
 /** Production Team chrome at a full width, a narrowed pane and Side by side. */

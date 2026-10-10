@@ -235,8 +235,8 @@ it('ToolBody composes the shared tool inset, group head and prose boundaries', a
   const scroll = container.querySelector('[data-slot="tool-scroll"]')!
   expect(scroll.getAttribute('data-inset')).toBe('tool')
   expect(scroll.className).toContain('py-(--hd-inset-row)')
-  const head = container.querySelector('[data-slot="group-label"][data-surface="tool"]')!
-  expect(head.getAttribute('data-surface')).toBe('tool')
+  const head = container.querySelector('[data-slot="group-label"][data-group-surface="tool"]')!
+  expect(head.getAttribute('data-group-surface')).toBe('tool')
   expect(head.className).toContain('px-(--hd-inset-row)')
   expect(container.querySelector('[data-slot="tool-prose"]')?.className).toContain('px-(--hd-space-4)')
 })

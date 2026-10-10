@@ -585,6 +585,7 @@ body {
   --hd-composer-track-model-folded: 48px;
   --hd-composer-track-model-tight: var(--hd-target-min);
   --hd-composer-track-send: 32px;
+  --hd-composer-send-size: 30px;
   --hd-composer-slots-preview-narrow: 560px;
   --hd-composer-slots-preview-tight: 360px;
 
@@ -1466,9 +1467,8 @@ body[data-hd-interface='studio'] {
     var(--hd-sidebar-selected-foreground) 86%,
     transparent
   );
-  --hd-nav-h: 34px;
-  /* One height for every row in a navigation column, as Desk has too since
-     #1073 — only taller. */
+  --hd-nav-h: var(--hd-left-row-h); /* desk: shared 30px FRAME destination contract; Studio 34 → 30, Desk stays 30 */
+  /* One height for every row in a navigation column, shared with FRAME left-column and menu rows. */
   --hd-nav-h-group: var(--hd-nav-h); /* One height for every row in the column. */
   --hd-nav-radius: var(--hd-radius-sm);
   --hd-nav-inset: var(--hd-space-2-5);
