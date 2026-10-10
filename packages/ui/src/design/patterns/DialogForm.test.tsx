@@ -1,3 +1,5 @@
+import { HoverCard, HoverCardTrigger, HoverCardContent } from '../ui/hover-card'
+import { InfoCardBody } from './InfoCard'
 import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -5,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { Input } from '../ui/input'
 import { AlertDialog, AlertDialogContent } from '../ui/alert-dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuPopup, DropdownMenuPortal, DropdownMenuPositioner } from '../ui/dropdown-menu'
-import { Popover, PopoverContent, PopoverPopup, PopoverPortal, PopoverPositioner } from '../ui/popover'
+import { Popover, PopoverPopup, PopoverPortal, PopoverPositioner } from '../ui/popover'
 import formSheet from './DialogForm.module.css?raw'
 import { ChoiceList, DialogFormScope, Fieldset } from './DialogForm'
 import { Dialog } from './ModalDialog'
@@ -128,16 +130,11 @@ describe('inside a dialog', () => {
 
   it('does not reach into a popover opened from the dialog, or a flush body', async () => {
     await render(
-      <DialogFormScope>
-        <Popover open>
-          <PopoverContent>
-            <SectionHead name="In the popover" />
-          </PopoverContent>
-        </Popover>
-      </DialogFormScope>,
+      <DialogFormScope><HoverCard open><HoverCardTrigger render={<button type="button">Facts</button>} /><HoverCardContent><InfoCardBody title="In the popover" rows={[{ id: 'state', label: 'State', value: 'Held' }]} /></HoverCardContent></HoverCard></DialogFormScope>,
     )
     expect(document.body.textContent).toContain('In the popover')
     expect(document.querySelector('[data-slot="fieldset-legend"]')).toBeNull()
+    expect(document.querySelector('[data-popup-kind="info-card"] button')).toBeNull()
     await act(async () => root.render(
       <Dialog title="Pick" flush onClose={() => {}}>
         <SectionHead name="A list" />

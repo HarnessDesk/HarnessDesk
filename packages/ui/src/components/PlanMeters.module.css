@@ -23,43 +23,6 @@
   width: 50px; /* desk: 34px → 50px, the plan meter keeps a legible reading between its mark and percentage */
 }
 
-.panel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hd-space-2);
-  min-width: 300px;
-}
-
-.panelHead {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-1-5);
-}
-
-.panelName {
-  flex: 1;
-  min-width: 0;
-}
-
-.lanes {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hd-space-1-5);
-}
-
-
-.foot {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-1);
-}
-
-.roster {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hd-space-0-5);
-}
-
 .signInChip {
   display: inline-flex;
   flex: none;

@@ -557,7 +557,7 @@ it('opens the holder’s card from its name as well as its face', async () => {
   act(() => {
     vi.advanceTimersByTime(1000)
   })
-  expect(document.querySelector('[data-slot="agent-card"]')?.textContent).toContain('API migration')
+  expect(document.querySelector('[data-popup-kind="info-card"]')?.textContent).toContain('API migration')
   vi.useRealTimers()
 })
 

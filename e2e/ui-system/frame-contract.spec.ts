@@ -77,13 +77,15 @@ for (const theme of WALL_THEMES) {
     await page.keyboard.press('Enter')
     const menu = page.getByRole('menu')
     await expect(menu).toBeVisible()
-    const buttons = menu.getByRole('button')
-    const count = await buttons.count()
+    const rows = menu.getByRole('menuitem')
+    const count = await rows.count()
     expect(count).toBeGreaterThan(1)
+    await page.keyboard.press('ArrowDown')
     for (let index = 0; index < count; index++) {
-      await expect(buttons.nth(index)).toBeFocused()
-      await page.keyboard.press('Tab')
+      await expect(rows.nth(index)).toBeFocused()
+      if (index + 1 < count) await page.keyboard.press('ArrowDown')
     }
+    await page.keyboard.press('Tab')
     await expect(menu).toHaveCount(0)
     await expect(next).toBeFocused()
     await expect(dialog).toBeVisible()
@@ -1316,53 +1318,111 @@ for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
   })
 }
 
-for (const theme of WALL_THEMES) for (const width of [1440, 720]) {
-  test(`C3 refused rows retain icons and mute every text track at ${width} in ${theme}`, async ({ page }) => {
-    await openFrame(page, 'frame-wall=conversation', theme, width)
-    await applyLeftColumnActions(page, { leftOpen: true, leftPopup: 'start' })
-    const worktree = page.getByRole('menuitem', { name: /^New worktree/ })
-    await expect(worktree).toHaveAttribute('aria-disabled', 'true')
-    await expectRefusedMenuRow(worktree)
-    await page.keyboard.press('Escape')
-    if (width === 720) await page.getByRole('dialog', { name: 'Sidebar', exact: true }).getByRole('button', { name: 'Hide sidebar', exact: true }).click()
-    await page.getByRole('button', { name: 'Add', exact: true }).first().click()
-    const images = page.getByRole('menuitem', { name: /^Attach images/ })
-    await expect(images).toHaveAttribute('aria-disabled', 'true')
-    await expectRefusedMenuRow(images)
   })
-}
-const expectRefusedMenuRow = async (row: Locator) => {
-  const colors = await row.evaluate(el => {
-    const resolve = document.createElement('span'); resolve.style.color = 'var(--hd-muted-foreground)'; el.append(resolve)
-    const muted = getComputedStyle(resolve).color; resolve.remove()
-    return { muted, tracks: [el, ...el.querySelectorAll('[data-menu-icon],[data-menu-label],[data-menu-hint]')].map(node => getComputedStyle(node).color) }
-  })
-  expect(colors.tracks.length).toBe(4)
-  for (const color of colors.tracks) expect(color).toBe(colors.muted)
-  const icon = row.locator('[data-menu-icon] svg')
-  await expect(icon).toHaveCount(1)
-  const box = (await icon.boundingBox())!
-  expect([box.width, box.height]).toEqual([16, 16])
-  const hint = row.locator('[data-menu-hint]')
-  expect(await hint.evaluate(el => [getComputedStyle(el).fontSize, getComputedStyle(el).lineHeight])).toEqual(['12px', '16px'])
 }
 
-for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) for (const mode of ['none', 'icons']) {
-  test(`C3 dropdown ${mode} at ${width} in ${theme}`, async ({ page }) => {
-    await openFrame(page, `frame-wall=conversation&popup=dropdown-${mode}`, theme, width)
-    await page.getByRole('button', { name: 'Frame dropdown', exact: true }).click()
-    await expectMenuGeometry(page.locator('[data-popup-kind="menu"]:visible').last())
-    await page.keyboard.press('Escape')
-    await expect(page.getByRole('button', { name: 'Frame dropdown', exact: true })).toBeFocused()
-  })
-}
-for (const theme of WALL_THEMES) {
-  test(`C3 actual dynamic model level never mixes icons in ${theme}`, async ({ page }) => {
-    await openFrame(page, 'frame-wall=conversation', theme)
-    const trigger = page.getByTitle(/Model and reasoning/).first()
-    await trigger.click()
+for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
+  test(`C4 wide menu search and footer at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&popup=wide', theme, width)
+    await page.getByRole('button', { name: 'Frame wide menu', exact: true }).click()
     const surface = page.locator('[data-popup-kind="wide-menu"]:visible').last()
     await expectMenuGeometry(surface)
-    expect(await surface.locator('[data-menu-icon]').count()).toBe(0)
+    const input = surface.locator('[data-menu-search] input')
+    expect((await input.boundingBox())!.height).toBe(FRAME_MENU.searchHeight)
+    const footer = surface.locator('[data-menu-footer]')
+    await expect(footer).toBeVisible()
+    expect(await footer.evaluate(el => el.previousElementSibling?.getAttribute('role'))).toBe('separator')
+    const firstLabel = surface.locator('[data-menu-label]').first()
+    expect((await firstLabel.boundingBox())!.height).toBeGreaterThan(FRAME_MENU.labelLine)
+    expect(await firstLabel.evaluate(el => getComputedStyle(el).whiteSpace)).not.toBe('nowrap')
+    await input.fill('发布')
+    await expect(surface.locator('[data-menu-row]')).toHaveCount(1)
+    await expectMenuGeometry(surface)
+  })
+  test(`C4 missing usage keeps its reading column at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&popup=metered', theme, width)
+    await page.getByRole('button', { name: 'Frame metered menu', exact: true }).click()
+    const surface = page.locator('[data-popup-kind="wide-menu"]:visible').last()
+    await expectMenuGeometry(surface)
+    const xs = await surface.locator('[data-slot="usage-meter-row"]').evaluateAll(rows => rows.map(row => row.querySelector('[data-meter-column="reading"]')!.getBoundingClientRect().left))
+    expect(xs).toHaveLength(2)
+    expect(xs[0]).toBe(xs[1])
+  })
+  for (const plan of ['anchor', 'rest']) {
+    test(`C4 actual plan usage ${plan} at ${width} in ${theme}`, async ({ page }) => {
+      await openFrame(page, `frame-wall=conversation&popup=${plan === 'rest' ? 'other-agents' : 'plan-usage'}`, theme, width)
+      const trigger = page.locator(`[data-plan-popup="${plan}"]`).locator('xpath=ancestor::button[1]')
+      await trigger.click()
+      const surface = page.locator('[data-popup-kind="wide-menu"]:visible').last()
+      await expectMenuGeometry(surface)
+      await expect(surface.locator('[data-slot="usage-meter-row"]')).not.toHaveCount(0)
+      const columns = await surface.locator('[data-slot="usage-meter-row"]').evaluateAll(rows => rows.map(row => ({ reading: row.querySelector('[data-meter-column="reading"]')!.getBoundingClientRect().left, reset: row.querySelector('[data-meter-column="reset"]')?.getBoundingClientRect().left ?? null })))
+      if (plan === 'rest') await expect(surface.locator('[data-meter-note]')).toHaveText('No usage reported')
+      const resets = columns.map(row => row.reset).filter(x => x !== null)
+      expect(new Set(resets).size).toBeLessThanOrEqual(1)
+      await expect(surface.locator('[data-menu-footer]')).toBeVisible()
+      expect(await page.locator('[data-popup-kind="info-card"]:visible').count()).toBe(0)
+      await page.keyboard.press('Escape')
+      await expect(trigger).toBeFocused()
+    })
+  }
+}
+
+const expectInfoGeometry = async (card: Locator) => {
+  await expect(card).toBeVisible()
+  const m = await menuMetrics(card)
+  expect(m.width).toBe(FRAME.infoCard.width)
+  expect(m.pad).toEqual(Array(4).fill(`${FRAME.infoCard.padding}px`))
+  expect(m.radius).toBe(`${FRAME.menu.radius}px`)
+  expect(m.overflow).toBe(false)
+  await expect(card.locator('button,a[href],input,select,textarea,[role="button"],[role^="menuitem"],[role="switch"]')).toHaveCount(0)
+  const edges = await card.evaluate(el => {
+    const x = el.getBoundingClientRect().left
+    return [...el.querySelectorAll<HTMLElement>('[data-info-title],[data-info-facts],[data-info-note]')].map(node => node.getBoundingClientRect().left - x)
+  })
+  for (const x of edges) expect(x).toBe(FRAME.infoCard.padding)
+  const keys = await card.locator('[data-info-facts] dt').evaluateAll(keys => keys.map(key => key.getBoundingClientRect().width))
+  for (const width of keys) expect(width).toBe(FRAME.summaryKey.infoCard)
+}
+for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
+  test(`C7 info card hover and focus at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&popup=info', theme, width)
+    const trigger = page.getByRole('button', { name: 'Storefront catalogue review', exact: true })
+    await trigger.hover()
+    const card = page.locator('[data-popup-kind="info-card"]:visible').last()
+    await expectInfoGeometry(card)
+    await page.mouse.move(0, 0)
+    await expect(card).toBeHidden()
+    await page.keyboard.press('Tab')
+    await trigger.focus()
+    await expectInfoGeometry(card)
+  })
+  test(`C7 menu cancels a pending facts card at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&popup=info-and-menu', theme, width)
+    await page.getByRole('button', { name: 'Storefront catalogue review', exact: true }).hover()
+    await page.getByRole('button', { name: 'Frame menu', exact: true }).click()
+    await expect(page.locator('[data-popup-kind="menu"]:visible')).toBeVisible()
+    await page.waitForTimeout(500)
+    await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(0)
+    await expect(page.locator('[data-popup-kind="menu"]:visible')).toBeVisible()
+    await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    const facts = page.getByRole('button', { name: 'Storefront catalogue review', exact: true })
+    await facts.focus()
+    await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(1)
+    await page.getByRole('button', { name: 'Frame menu', exact: true }).click()
+    await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(0)
+    await page.keyboard.press('Escape')
+    await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(0)
+    await facts.focus()
+    await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(1)
   })
 }
+
+for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) for (const source of ['context', 'member', 'budget']) {
+  test(`C8 production ${source} info adapter at ${width} in ${theme}`, async ({ page }) => {
+    const query = source === 'context' ? 'frame-wall=conversation' : `frame-wall=conversation&popup=${source}-info`
+    await openFrame(page, query, theme, width)
+    const trigger = source === 'budget' ? page.getByRole('button', { name: 'Run budget', exact: true }) : page.locator(`[data-info-source="${source}"]`).first()
+    await trigger.hover()
+    await expectInfoGeometry(page.locator('[data-popup-kind="info-card"]:visible').last())

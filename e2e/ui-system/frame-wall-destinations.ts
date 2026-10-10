@@ -81,6 +81,26 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'changes-review', query: 'frame-wall=changes-review' },
   { id: 'popup-conversation-more', query: 'frame-wall=conversation&frame-conversation-actions=1', popup: 'More' },
   { id: 'popup-undo-confirmation', query: 'frame-wall=conversation&frame-conversation-actions=1', undo: true },
+  { id: 'popup-wide-menu', query: 'frame-wall=conversation&popup=wide', popup: 'Frame wide menu' },
+  { id: 'popup-metered-menu', query: 'frame-wall=conversation&popup=metered', popup: 'Frame metered menu' },
+  { id: 'popup-plan-usage', query: 'frame-wall=conversation&popup=plan-usage', plan: 'anchor' },
+  { id: 'popup-other-agents', query: 'frame-wall=conversation&popup=other-agents', plan: 'rest' },
+  { id: 'popup-info-card', query: 'frame-wall=conversation&popup=info', hover: 'Storefront catalogue review' },
+  { id: 'popup-info-card-focused', query: 'frame-wall=conversation&popup=info', focus: 'Storefront catalogue review' },
+  { id: 'popup-info-menu-exclusion', query: 'frame-wall=conversation&popup=info-and-menu', popup: 'Frame menu' },
+  { id: 'popup-context-info', query: 'frame-wall=conversation', contextInfo: true },
+  { id: 'popup-member-info', query: 'frame-wall=conversation&popup=member-info', memberInfo: true },
+  { id: 'popup-budget-info', query: 'frame-wall=conversation&popup=budget-info', hover: 'Run budget' },
+  { id: 'popup-seat-actions', query: 'frame-wall=team', tool: 'details', popup: 'Actions for Alpha' },
+  { id: 'popup-context-info-focused', query: 'frame-wall=conversation', infoFocus: 'context' },
+  { id: 'popup-member-info-focused', query: 'frame-wall=conversation&popup=member-info', focus: 'Frame member facts' },
+  { id: 'popup-budget-info-focused', query: 'frame-wall=conversation&popup=budget-info', focus: 'Run budget' },
+  { id: 'popup-account-info', query: 'frame-wall=conversation', infoTarget: '[data-info-source="account"]' },
+  { id: 'popup-header-info', query: 'frame-wall=conversation', infoTarget: '[data-info-source="header"]' },
+  { id: 'popup-publication-info', query: 'frame-wall=conversation&popup=publication-info', infoTarget: '[data-kind="pullRequest"] a[href]' },
+  { id: 'popup-publication-actions', query: 'frame-wall=conversation&popup=publication-info', popup: 'acme/storefront #12 actions' },
+  { id: 'popup-subject-actions', query: 'frame-wall=conversation&popup=subject-actions', popup: 'Scout actions' },
+  { id: 'popup-origin-details', query: 'frame-wall=team-trigger&popup=origin-details', tool: 'details' },
 ] as const
 
 /** Wide (every region stands), between the folds, and the narrowest window. */
@@ -89,3 +109,5 @@ export const WALL_THEMES = ['light', 'dark'] as const
 
 /** The wall's clock: relative times read the same in every capture. */
 export const WALL_TIME = new Date('2026-09-30T10:00:00-07:00')
+
+export interface WallDestination { readonly plan?: 'anchor' | 'rest' }

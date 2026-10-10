@@ -1,5 +1,6 @@
 import { Select as SelectPrimitive } from '@base-ui/react/select'
-import type * as React from 'react'
+import * as React from 'react'
+import { registerMenu } from './popup-state'
 
 import { CaretIcon, CheckIcon } from '@/components/Icons'
 import { cn } from '@/lib/utils'
@@ -9,9 +10,13 @@ import { floatingMotion } from './motion'
  * utilities dropped. For a picker that must survive jsdom (tests drive it
  * with a plain change event), reach for NativeSelect instead. */
 
-const Select = ({ ...props }: React.ComponentProps<typeof SelectPrimitive.Root>) => (
-  <SelectPrimitive.Root data-slot="select" {...props} />
-)
+const Select = ({ open: controlledOpen, defaultOpen, onOpenChange, ...props }: React.ComponentProps<typeof SelectPrimitive.Root>) => {
+  const [localOpen, setLocalOpen] = React.useState(defaultOpen ?? false)
+  const effectiveOpen = controlledOpen ?? localOpen
+  const menuId = React.useRef(Symbol('select'))
+  React.useLayoutEffect(() => effectiveOpen ? registerMenu(menuId.current) : undefined, [effectiveOpen])
+  return <SelectPrimitive.Root {...props} open={effectiveOpen} onOpenChange={(next, details) => { onOpenChange?.(next, details); if (!details.isCanceled) setLocalOpen(next) }} data-slot="select" />
+}
 
 const SelectGroup = ({ ...props }: React.ComponentProps<typeof SelectPrimitive.Group>) => (
   <SelectPrimitive.Group data-slot="select-group" {...props} />

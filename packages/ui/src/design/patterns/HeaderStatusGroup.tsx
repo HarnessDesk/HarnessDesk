@@ -1,7 +1,8 @@
+import { useMenusOpen } from '../ui/popup-state'
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '../ui/hover-card'
-import { KeyValue, KeyValueRow, MiddleTruncate } from '../ui/key-value'
-import { Chip, Text } from './Settings'
+import { InfoCardBody } from './InfoCard'
+import { Chip } from './Settings'
 import styles from './HeaderStatusGroup.module.css'
 
 /**
@@ -38,6 +39,8 @@ export const HeaderStatusGroup = ({ children, label = 'Conversation status', ope
 }) => {
   const [readings, setReadings] = useState<ReadonlyMap<string, RegisteredReading>>(() => new Map())
   const [open, setOpen] = useState(false)
+  const blockedByMenu = useMenusOpen()
+  useEffect(() => { if (blockedByMenu) setOpen(false) }, [blockedByMenu])
   const group = useRef<HTMLSpanElement>(null)
   const put = useCallback((id: string, reading: RegisteredReading) => {
     setReadings((held) => new Map(held).set(id, reading))
@@ -74,7 +77,7 @@ export const HeaderStatusGroup = ({ children, label = 'Conversation status', ope
         }
         setOpen(next)
       }}>
-        <HoverCardTrigger render={<span ref={group} role="group" tabIndex={0} />} aria-label={label}
+        <HoverCardTrigger data-info-source="header" render={<span ref={group} role="group" tabIndex={0} />} aria-label={label}
           className={`${styles.group} hd-no-drag`} hidden={readings.size === 0}
           onFocus={(event) => {
             if (event.currentTarget.contains(event.target)
@@ -90,24 +93,7 @@ export const HeaderStatusGroup = ({ children, label = 'Conversation status', ope
           <Chip tone="neutral" autoTitle={false} className={styles.chip}>{children}</Chip>
         </HoverCardTrigger>
         <HoverCardContent side="bottom" align="end">
-          <Text as="div" role="subject">{label}</Text>
-          {/* The facts block, as everywhere: each key the size of its value,
-              on one line, in one column; a value a phrase; one line under it
-              when the phrase is not the whole. */}
-          <KeyValue variant="panel" className={styles.facts}>
-            {[...readings].map(([id, reading]) => (
-              <KeyValueRow
-                key={id}
-                variant="panel"
-                label={reading.label}
-                {...(reading.note
-                  ? { note: reading.notePath ? <MiddleTruncate>{reading.note}</MiddleTruncate> : reading.note }
-                  : {})}
-              >
-                {reading.value ?? reading.detail}
-              </KeyValueRow>
-            ))}
-          </KeyValue>
+          <InfoCardBody title={label} rows={[...readings].map(([id, reading]) => ({ id, label: reading.label, value: reading.value ?? reading.detail, note: reading.note, noteKind: reading.notePath ? 'path' : 'text' }))} />
         </HoverCardContent>
       </HoverCard>
     </StatusGroupContext.Provider>

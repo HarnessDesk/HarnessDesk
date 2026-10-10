@@ -231,10 +231,7 @@ const SessionRow = memo(({
         if (event.key === 'Escape') { event.preventDefault(); setRenaming(false) }
       }} />} /> : <LeftColumnRow ref={rowRef} label={label} title={facts} selected={active}
       onClick={() => { void store.openSession(summary.id, { runtime: summary.runtime }) }}
-      icon={<SessionHoverCard session={summary} actions={[
-      ...(active ? [] : [{ label: 'Open', primary: true, onSelect: () => { void store.openSession(summary.id, { runtime: summary.runtime }) } }]),
-      { label: 'Rename', onSelect: startRename },
-    ]}><span aria-label={agentName}>{runtime ? <RuntimeMark runtime={runtime} size={16} /> : <AgentIcon size={16} />}</span></SessionHoverCard>}
+      icon={<SessionHoverCard session={summary}><span aria-label={agentName}>{runtime ? <RuntimeMark runtime={runtime} size={16} /> : <AgentIcon size={16} />}</span></SessionHoverCard>}
       trailing={trailing} action={{ label: `Actions for ${label}`, expanded: menu.at !== null,
         onClick: event => { rowRef.current?.focus({ preventScroll: true }); menu.open(event) } }} />}
       <ContextMenu at={menu.at} label={`Actions for ${label}`} onClose={menu.close} icons="none">

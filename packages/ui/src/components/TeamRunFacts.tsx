@@ -6,9 +6,10 @@ import { sanitizeText } from '../lib/sanitize'
 import { openExternal } from '../lib/desktop'
 import { formatDuration } from './TurnTail'
 import { commitDate } from '../lib/git-refs'
-export const TeamRunFacts = ({ input, number, chooser, at, flowFile, pullRequest, cost, trigger, continuesNumber }: {
+export const TeamRunFacts = ({ input, number, chooser, at, flowFile, pullRequest, cost, trigger, continuesNumber, originAction, originNote }: {
   input: RunTimelineInput | null; number: number; chooser?: ReactNode; at: string | null
   continuesNumber?: number
+  originAction?: ReactNode; originNote?: string
   trigger?: ReactNode; flowFile?: ReactNode; pullRequest?: { number: number; url: string | null } | null; cost?: string | null
 }) => {
   if (!input) return <><Text role="meta">No Run recorded.</Text><SummaryList surface="panel" aria-label="Team Run facts">
@@ -28,7 +29,7 @@ export const TeamRunFacts = ({ input, number, chooser, at, flowFile, pullRequest
       <SummaryItem label="Flow file" action={flowFile}>Current catalogue</SummaryItem>
       <SummaryItem label="Budget">{facts.budget}</SummaryItem>
       <SummaryItem label="No progress">{facts.idle}</SummaryItem>
-      <SummaryItem label="Started by">{facts.origin}</SummaryItem>
+      <SummaryItem label="Started by" action={originAction} note={originNote}>{facts.origin}</SummaryItem>
       {trigger && <SummaryItem label="Trigger">{trigger}</SummaryItem>}
       <SummaryItem label="At" kind="path">{sanitizeText(at ?? 'Not recorded')}</SummaryItem>
       <SummaryItem label="Branch" kind="path">{sanitizeText(facts.branch ?? 'Not recorded')}</SummaryItem>
