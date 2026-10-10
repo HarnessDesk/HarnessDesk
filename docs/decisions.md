@@ -478,7 +478,9 @@ review are read for every Team that is not wrapped, because either can move a
 Team into Needs you and the counts would otherwise be wrong. A wrapped Team's
 Run is read once its row is shown, for its faces, and its review never:
 nothing on a wrapped row follows one, so its unread mark leaves the review out
-too. Each is asked for once while the page is open; asking again for every
+too. Successful reads are kept while the page is open; a failed Run or review
+read gets at most two retries, five seconds apart, and an in-flight read is
+never duplicated. Asking again for every
 Run still missing whenever one landed sent a large desk's Settled tab
 thousands of reads. Time in a state is said in its largest unit (`47m`, `5h`,
 `2d`), and only those cells follow a minute clock. A desk with about 500

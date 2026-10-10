@@ -1,4 +1,4 @@
-import { Fragment, createContext, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Fragment, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { INSIGHT_GOALS_LIMIT, type InsightGoalsReport, type InsightReport } from '@harnessdesk/protocol'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
@@ -44,6 +44,38 @@ const MinuteClock = ({children}: {children: ReactNode}) => {
 }
 const StateTime = ({since}: {since: number | null}) => <>{stateTime(since,useContext(MinuteNow))}</>
 const parts = <T,>(items: readonly T[], size: number): T[][] => Array.from({length:Math.ceil(items.length/size)},(_,index)=>items.slice(index*size,(index+1)*size))
+/** Successful reads stay read; refusals get two delayed retries during this opening. */
+const useReadOnce = (scope: string, read: (keys: readonly string[]) => Promise<readonly string[]>) => {
+ const reads=useRef({pending:new Set<string>(),waiting:new Set<string>(),done:new Set<string>(),attempts:new Map<string,number>()})
+ const live=useRef(false)
+ const timers=useRef(new Set<number>())
+ const [retry,setRetry]=useState(0)
+ useEffect(()=>{
+  live.current=true
+  return()=>{live.current=false;for(const timer of timers.current)window.clearTimeout(timer);timers.current.clear()}
+ },[])
+ useEffect(()=>{
+  const state=reads.current
+  const keys=scope.split('\0').filter(key=>key && !state.pending.has(key) && !state.waiting.has(key) && !state.done.has(key) && (state.attempts.get(key)??0)<3)
+  if(!keys.length)return
+  for(const key of keys){state.pending.add(key);state.attempts.set(key,(state.attempts.get(key)??0)+1)}
+  void read(keys).catch(()=>[] as string[]).then(success=>{
+   if(!live.current)return
+   for(const key of keys)state.pending.delete(key)
+   for(const key of success)state.done.add(key)
+   const failed=keys.filter(key=>!state.done.has(key) && state.attempts.get(key)!<3)
+   if(failed.length){
+    for(const key of failed)state.waiting.add(key)
+    const timer=window.setTimeout(()=>{
+     timers.current.delete(timer)
+     for(const key of failed)state.waiting.delete(key)
+     setRetry(value=>value+1)
+    },5_000)
+    timers.current.add(timer)
+   }
+  })
+ },[scope,read,retry])
+}
 const withCount = (label: string, count: number): string => `${label} · ${count}`
 const labels = {active:'Active','needs-you':'Needs you',settled:'Settled'} as const
 const stateLabels = {'needs-you':'Needs you',unread:'Unread',working:'Working',idle:'Idle',settled:'Settled',wrapped:'Wrapped',wrapping:'Wrapping',stopped:'Stopped'} as const
@@ -95,24 +127,26 @@ export const TeamsWindow = ({onClose, initialFilter='active'}: {onClose:()=>void
  // A Run and its review can move a Team into Needs you, so both are read for
  // every Team that is not wrapped. A wrapped Team's Run is read once its row
  // is shown, for its faces, and its review never: nothing on a wrapped row
- // follows it. Each is asked for once while the page is open, so an answer
- // landing never sends the others again.
- const asked=useRef({runs:new Set<string>(),reviews:new Set<string>()})
+ // follows it. Successful reads are kept for this opening; failures get at
+ // most two retries, five seconds apart, without duplicating pending reads.
  const wrapped=(team:string)=>snapshot.goals.get(team)?.goal.state==='wrapped'
  const missingRuns=[...snapshot.goals.values()].filter(goal=>shownIds.has(goal.goal.id) || !wrapped(goal.goal.id)).map(namedGoalRun).filter((id):id is string=>Boolean(id) && !snapshot.flowExecutions.has(id!)).sort().join('\0')
- useEffect(()=>{
-  const runs=missingRuns.split('\0').filter(run=>run && !asked.current.runs.has(run))
-  for(const run of runs)asked.current.runs.add(run)
-  if(runs.length)void store.readFlowExecutions(runs).catch(()=>{})
- },[store,missingRuns])
- const reviewScope=JSON.stringify(inputs.flatMap(input=>input.execution && !wrapped(input.team.id)?[[input.team.id,input.execution.id]]:[]).sort(([a],[b])=>a!.localeCompare(b!)))
- useEffect(()=>{
-  for(const [goal,run] of JSON.parse(reviewScope) as [string,string][]){
-   const key=`${goal}\0${run}`
-   if(asked.current.reviews.has(key) || typeof store.loadFindingRun!=='function')continue
-   asked.current.reviews.add(key); void store.loadFindingRun(goal,run).catch(()=>{})
-  }
- },[store,reviewScope])
+ const readRuns=useCallback(async(runs:readonly string[])=>{
+  await store.readFlowExecutions(runs)
+  // The batch reader resolves after partial refusals: only a stored Run was read.
+  return runs.filter(run=>store.getSnapshot().flowExecutions.has(run))
+ },[store])
+ useReadOnce(missingRuns,readRuns)
+ const reviewScope=inputs.flatMap(input=>input.execution && !wrapped(input.team.id)?[JSON.stringify([input.team.id,input.execution.id])]:[]).sort().join('\0')
+ const readReviews=useCallback(async(keys:readonly string[])=>{
+  if(typeof store.loadFindingRun!=='function')return []
+  const answers=await Promise.allSettled(keys.map(key=>{
+   const [goal,run]=JSON.parse(key) as [string,string]
+   return store.loadFindingRun(goal,run)
+  }))
+  return keys.filter((_,index)=>answers[index]!.status==='fulfilled')
+ },[store])
+ useReadOnce(reviewScope,readReviews)
  const open=(row:TeamListRow)=>{
   store.markTeamSeen(row.id,row.change); void store.openTeamRoom(row.id,row.change); onClose()
  }

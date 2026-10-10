@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
@@ -109,6 +109,18 @@ test('a checkout that is gone is its own project without asking git, and callers
   assert.equal((await asked()).split('\n').length, 2 * once - 1, 'twenty callers at once start git as one does')
   await projectOf(dir)
   assert.equal((await asked()).split('\n').length, 3 * once - 2, 'and a later question is asked afresh')
+})
+
+test('concurrent project reads preserve traversal through a symlink before its parent', async () => {
+  const first = await makeRepo()
+  const second = await makeRepo()
+  await mkdir(join(second.dir, 'child'))
+  await symlink(join(second.dir, 'child'), join(first.dir, 'link'))
+  // Joining or resolving this spelling would erase the symlink traversal.
+  const throughLink = `${first.dir}/link/..`
+  const expected = [await realpath(second.dir), await realpath(first.dir)]
+  assert.deepEqual(await Promise.all([projectOf(throughLink), projectOf(first.dir)]), expected)
+  assert.deepEqual(await Promise.all([projectOf(first.dir), projectOf(throughLink)]), [...expected].reverse())
 })
 
 test('a merged pull request is final only when its branch is gone; commits after the merge still leave it behind', async () => {

@@ -205,12 +205,13 @@ const asking = new Map<string, Promise<string>>()
  * the Trash.
  */
 export const projectOf = (folder: string): Promise<string> => {
-  const key = resolve(folder)
+  // Lexical normalisation erases symlink traversal before `..`.
+  const key = folder
   const known = asking.get(key)
   if (known) return known
   const answer = (async () => {
     const real = await realpath(folder).catch(() => null)
-    if (real === null) return key
+    if (real === null) return resolve(folder)
     return (await repositoryRoot(folder)) ?? real
   })().finally(() => asking.delete(key))
   asking.set(key, answer)

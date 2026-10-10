@@ -287,6 +287,69 @@ it('asks for each Run and review once while the page is open, however many answe
  expect(findings.mock.calls.map(([goal,run])=>`${goal} ${run}`).sort()).toEqual(['team-0 team-0-run','team-1 team-1-run','team-2 team-2-run','team-3 team-3-run','team-4 team-4-run'])
 })
 
+it('retries only failed Run and review reads after a delay, without duplicating pending or successful reads',async()=>{
+ vi.useFakeTimers()
+ try {
+  const missing=['team-0-run','team-1-run']
+  const {store,base,runs,findings,land}=await recorded(snapshot=>{
+   const flowExecutions=new Map(snapshot.flowExecutions);for(const run of missing)flowExecutions.delete(run)
+   return {flowExecutions}
+  })
+  let finish!:()=>void
+  // The real batch reader resolves even when one request was refused.
+  runs.mockImplementationOnce(()=>new Promise<void>(resolve=>{finish=()=>{
+   land(snapshot=>({flowExecutions:new Map([...snapshot.flowExecutions,['team-0-run',base.getSnapshot().flowExecutions.get('team-0-run')!]])}))
+   resolve()
+  }})).mockImplementation(async ids=>{
+   land(snapshot=>({flowExecutions:new Map([...snapshot.flowExecutions,...ids.map(id=>[id,base.getSnapshot().flowExecutions.get(id)!] as const)])}))
+  })
+  findings.mockImplementation(async goal=>{if(goal==='team-2')throw new Error('temporarily unavailable')})
+  await act(async()=>root.render(<StoreProvider store={store}><AppWindowMode.Provider value="embedded"><TeamsWindow onClose={()=>{}}/></AppWindowMode.Provider></StoreProvider>))
+  await act(async()=>land(snapshot=>({goals:new Map(snapshot.goals)})))
+  await act(async()=>vi.advanceTimersByTimeAsync(5_000))
+  expect(runs.mock.calls).toEqual([[missing]])
+  expect(findings.mock.calls.filter(([goal])=>goal==='team-2')).toHaveLength(2)
+  await act(async()=>finish())
+  findings.mockImplementation(async()=>{})
+  const succeeded=findings.mock.calls.filter(([goal])=>goal!=='team-2')
+  await act(async()=>vi.advanceTimersByTimeAsync(5_000))
+  expect(runs.mock.calls).toEqual([[missing],[['team-1-run']]])
+  expect(findings.mock.calls.filter(([goal])=>goal==='team-2')).toHaveLength(3)
+  // Two refusals, then success; further snapshots and time never reread it.
+  await act(async()=>land(snapshot=>({goals:new Map(snapshot.goals)})))
+  await act(async()=>vi.advanceTimersByTimeAsync(60_000))
+  expect(runs).toHaveBeenCalledTimes(2)
+  expect(findings.mock.calls.filter(([goal])=>goal==='team-2')).toHaveLength(3)
+  for(const [goal,run] of succeeded)expect(findings.mock.calls.filter(call=>call[0]===goal&&call[1]===run)).toHaveLength(1)
+ } finally {act(()=>root.render(null));vi.useRealTimers()}
+})
+
+it('bounds permanent Run and review refusals to three attempts and cancels retries on close',async()=>{
+ vi.useFakeTimers()
+ try {
+  const {store,runs,findings,land}=await recorded(snapshot=>{
+   const flowExecutions=new Map(snapshot.flowExecutions);flowExecutions.delete('team-0-run')
+   return {flowExecutions}
+  })
+  runs.mockRejectedValue(new Error('Run unavailable'))
+  findings.mockRejectedValue(new Error('review unavailable'))
+  const render=()=>root.render(<StoreProvider store={store}><AppWindowMode.Provider value="embedded"><TeamsWindow onClose={()=>{}}/></AppWindowMode.Provider></StoreProvider>)
+  await act(async()=>render())
+  await act(async()=>vi.advanceTimersByTimeAsync(5_000))
+  await act(async()=>vi.advanceTimersByTimeAsync(5_000))
+  await act(async()=>vi.advanceTimersByTimeAsync(50_000))
+  await act(async()=>land(snapshot=>({goals:new Map(snapshot.goals)})))
+  expect(runs).toHaveBeenCalledTimes(3)
+  for(const goal of ['team-1','team-2','team-3','team-4'])expect(findings.mock.calls.filter(call=>call[0]===goal)).toHaveLength(3)
+  act(()=>root.render(null));runs.mockClear();findings.mockClear()
+  await act(async()=>render())
+  act(()=>root.render(null))
+  await act(async()=>vi.advanceTimersByTimeAsync(60_000))
+  expect(runs).toHaveBeenCalledOnce()
+  expect(findings).toHaveBeenCalledTimes(4)
+ } finally {act(()=>root.render(null));vi.useRealTimers()}
+})
+
 it('says time in a state in hours and days, and only the time cells follow a minute clock',async()=>{
  vi.useFakeTimers({toFake:['Date','setInterval','clearInterval']})
  try {
