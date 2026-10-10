@@ -1,4 +1,4 @@
-import { PlanMetersSpecimen, TerminalToggleSpecimen, LegacyPanelMenuSpecimen } from '../../preview/frames-supported-controls'
+import { PlanMetersSpecimen, TerminalToggleSpecimen, MainWorkActionsSpecimen } from '../../preview/frames-supported-controls'
 import { SeatList, ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolProse, ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet, SummaryList, SummaryItem, Checklist, ChecklistItem } from '../index'
 import { Timeline, TimelineItem, type TimelineState } from '../ui/timeline'
 import { TimelineCard, TimelineCardRow, TimelineCards, TimelineCardWords, TimelineDocument } from '../ui/timeline-cards'
@@ -46,7 +46,6 @@ import {
 } from '@harnessdesk/protocol'
 import { FindingDecision } from '../../components/FindingDecision'
 import { WindowControls } from '../../components/WindowControls'
-import { splitRefusal } from '../../panels/PanelActions'
 import { SideBySide, sideBySideTileEntry } from '../../components/SideBySide'
 import { ChangeStats, Chip, HeaderStatusGroup, HeaderStatusReading, Menu, MenuItem } from '..'
 import { OverviewStrip, type StripMetric } from '../../components/usage/OverviewStrip'
@@ -215,7 +214,6 @@ import {
   PanelFooter,
   PanelFrame,
   PanelRow,
-  PanelTools,
   RunDot,
 } from '../patterns/InspectorPanel'
 import { PatchHeader } from '../patterns/Change'
@@ -344,11 +342,9 @@ const PanelControlsBoard = () => {
     { kind: 'changes' },
     { kind: 'agents' },
   ], true)
-  const rowRefusal = splitRefusal('row', { width: 280, height: 280 })
-  const columnRefusal = splitRefusal('column', { width: 280, height: 280 })
   return (
     <>
-      <Specimen measure="page" caption="The header toggle counts views left in a hidden right panel; split actions carry their measured refusal">
+      <Specimen measure="page" caption="The header toggle counts retained tools; work keeps Fill and close">
         <div className={styles.matrix}>
           <Case label="right panel shown — Hide the right panel, no badge">
             <StoreProvider store={shown}><WindowControls /></StoreProvider>
@@ -359,17 +355,11 @@ const PanelControlsBoard = () => {
           <Case label="right panel put away — 3 views badge">
             <StoreProvider store={putAwayThree}><WindowControls /></StoreProvider>
           </Case>
-          <Case label="Side by side disabled at 280px">
-            <Menu close={() => { }}><MenuItem label="Side by side" disabled={rowRefusal ?? false} onSelect={() => {}} /></Menu>
-          </Case>
-          <Case label="One above the other disabled at 280px">
-            <Menu close={() => { }}><MenuItem label="One above the other" disabled={columnRefusal ?? false} onSelect={() => {}} /></Menu>
-          </Case>
         </div>
       </Specimen>
-      <TerminalToggleSpecimen /><LegacyPanelMenuSpecimen />
+      <TerminalToggleSpecimen /><MainWorkActionsSpecimen />
       <Rule>
-        The header examples mount the shipped WindowControls against three right-dock snapshots. The split rows use the shipped splitRefusal result and MenuItem props from PanelActions; they are rendered directly because opening the panel menu needs a mounted workbench.
+        The header examples mount WindowControls against retained tool snapshots; the work specimen keeps its actual Fill and close controls.
       </Rule>
     </>
   )
@@ -983,9 +973,9 @@ const ToolPaneBoard = () => {
         </Case>
         <Case label="inspector panel">
           <PanelFrame>
-            <PanelTools>
+            <ToolBodyControls>
               <PanelFilter value={filter} placeholder="Filter changes" onChange={setFilter} />
-            </PanelTools>
+            </ToolBodyControls>
             <PanelBody>
               <GroupLine left="Today" right="2" />
               <PanelRow title="src/app.ts" sub="Modified" selected trail={<Counts added={4} removed={2} />} />

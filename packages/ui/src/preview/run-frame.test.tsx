@@ -75,16 +75,14 @@ it('the supported terminal specimen opens and closes the real PreviewStore resou
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close terminal"]')!.click())
   expect(container.textContent).toContain('0 terminal resources')
 })
-it('the supported legacy panel menu changes the actual mount zoom and admits no main/sidebar destination', async () => {
-  const { LegacyPanelMenuSpecimen } = await import('./frames-supported-controls')
-  const container = await mount(<LegacyPanelMenuSpecimen />)
-  const press = async (text: string) => { await act(async () => [...container.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent === text)!.click()) }
-  expect(container.textContent).not.toContain('To the main area')
-  expect(container.textContent).not.toContain('To the sidebar')
-  await press('Give this panel the whole area')
-  expect(container.textContent).toContain('Panel fills its area')
-  await press('Back to the layout')
-  expect(container.textContent).toContain('Panel in its layout')
+it('the main work specimen changes actual Fill state and restores the layout without arrangement actions', async () => {
+  const { MainWorkActionsSpecimen } = await import('./frames-supported-controls')
+  const container = await mount(<MainWorkActionsSpecimen />)
+  expect(container.querySelectorAll('[role="menuitem"]')).toHaveLength(0)
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Fill the window"]')!.click())
+  expect(container.querySelector('[aria-label="Back to the layout"]')).not.toBeNull()
+  await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Back to the layout"]')!.click())
+  expect(container.querySelector('[aria-label="Fill the window"]')).not.toBeNull()
 })
 it('the supported plan specimen opens its real recorded Weekly allowance and dispatches its details action', async () => {
   const { PlanMetersSpecimen } = await import('./frames-supported-controls')

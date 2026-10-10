@@ -1,3 +1,5 @@
+import { sessionKey, type SessionKey } from '@harnessdesk/protocol'
+import { sanitizeText } from '../lib/sanitize'
 import { useEffect, useMemo, useState } from 'react'
 
 import { useSnapshot, useStore } from '../state/context'
@@ -82,7 +84,7 @@ const describe = (row: AuditRow): string => {
   }
 }
 
-export const Activity = ({ query, onFoot }: { query: string; onFoot: ReportFoot }) => {
+export const Activity = ({ query, onFoot, sessionKeys }: { query: string; onFoot: ReportFoot; sessionKeys?: readonly SessionKey[] }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [rows, setRows] = useState<readonly AuditRow[] | null>(null)
@@ -99,12 +101,13 @@ export const Activity = ({ query, onFoot }: { query: string; onFoot: ReportFoot 
 
   const infoOf = (runtime: string) =>
     snapshot.runtimes.find((entry) => entry.id === runtime) ?? null
-  const nameOf = (runtime: string): string => infoOf(runtime)?.presentation.name ?? runtime
+  const nameOf = (runtime: string): string => infoOf(runtime)?.presentation.name ?? 'Agent'
 
   const needle = query.trim().toLowerCase()
   const shown = useMemo(
     () =>
-      (rows ?? []).filter(
+      (rows ?? []).filter(row => sessionKeys === undefined || sessionKeys.includes(sessionKey(row.runtime, row.sessionId)))
+        .sort((a, b) => b.at - a.at).filter(
         (row) =>
           needle.length === 0 ||
           describe(row).toLowerCase().includes(needle) ||
@@ -112,7 +115,7 @@ export const Activity = ({ query, onFoot }: { query: string; onFoot: ReportFoot 
       ),
     // `nameOf` reads the runtime list, which is what actually changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [rows, needle, snapshot.runtimes],
+    [rows, needle, snapshot.runtimes, sessionKeys],
   )
 
   const byDay = useMemo(() => {
@@ -166,8 +169,8 @@ export const Activity = ({ query, onFoot }: { query: string; onFoot: ReportFoot 
                     <RuntimeFace size="sm" runtime={info} />
                   ) : <IconTile size="sm" shape="square">{iconOf(row)}</IconTile>
                 }
-                title={describe(row)}
-                sub={nameOf(row.runtime)}
+                title={sanitizeText(describe(row))}
+                sub={sanitizeText(nameOf(row.runtime))}
                 trail={<RowTime>{timeOf(row.at)}</RowTime>}
                 tall
               />

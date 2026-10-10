@@ -516,3 +516,6 @@ export const migratedRoots = (
   }
   return [...new Set(spelled.map((root) => homeOfFolder.get(root) ?? root))]
 }
+
+/** Preserve path direction in an RTL truncation box. */
+export const ltr = (text: string): string => `\u200e${text}\u200e`

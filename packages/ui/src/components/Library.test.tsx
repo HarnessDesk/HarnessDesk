@@ -286,7 +286,7 @@ it('a count with nothing to show is not offered', async () => {
   expect(counts.some((text) => text?.startsWith('Everything'))).toBe(true)
 })
 
-it('the toolbar is one row: listing, search, filter and view, and a pill only for the filter that is on', async () => {
+it('the toolbar is one row: listing, search, filter and view, and a clear-filter command only for the filter that is on', async () => {
   await mount(library([entry('good', ['reaches', 'reaches']), entry('empty', ['hollow', 'absent'])]))
   const toolbar = document.body.querySelector('[data-slot="library-toolbar"]') as HTMLElement | null
   expect(toolbar, 'the page should have one toolbar').toBeTruthy()
@@ -306,11 +306,11 @@ it('the toolbar is one row: listing, search, filter and view, and a pill only fo
   expect(document.body.querySelector('select[aria-label="Agent"]')).toBeNull()
   await openFilter()
   expect(filterRow('Empty on disk')?.querySelector('[data-tone="warning"]')?.textContent).toBe('1')
-  // A filter that is on is a pressed pill in the toolbar, so the narrowed list
+  // A filter that is on is a clear-filter command in the toolbar, so the narrowed list
   // says why — and pressing it lets go.
   await act(async () => filterRow('Empty on disk')?.click())
-  const pill = [...(toolbar?.querySelectorAll<HTMLButtonElement>('button[aria-pressed="true"]') ?? [])].find((node) => node.textContent === 'Empty on disk')
-  expect(pill, 'the filter that is on should be a pressed pill').toBeTruthy()
+  const pill = [...(toolbar?.querySelectorAll<HTMLButtonElement>('button[title="Show everything again"]') ?? [])].find((node) => node.textContent === 'Empty on disk')
+  expect(pill, 'the filter that is on should be a clear-filter command').toBeTruthy()
   expect(filterTrigger().textContent).toBe('Filter')
   expect(cards().length).toBe(1)
   // From the pill itself, as a keyboard reaches it: the pill goes away with
@@ -1743,9 +1743,9 @@ it('Agent filter preserves measured reach: same skill declared by two origins bu
   expect(document.body.textContent).toContain('shared-skill')
   expect(document.body.textContent).not.toContain('orphan-skill')
 
-  // The Agent chosen is a pressed pill; pressing it lets go of the Agent.
-  const agentPill = [...document.body.querySelectorAll<HTMLButtonElement>('[data-slot="library-toolbar"] button[aria-pressed="true"]')].find((node) => node.textContent === 'Agent A')
-  expect(agentPill, 'the chosen Agent should be a pressed pill').toBeTruthy()
+  // The Agent chosen is a clear-filter command; pressing it lets go of the Agent.
+  const agentPill = [...document.body.querySelectorAll<HTMLButtonElement>('[data-slot="library-toolbar"] button[title="Show what every Agent declares"]')].find((node) => node.textContent === 'Agent A')
+  expect(agentPill, 'the chosen Agent should be a clear-filter command').toBeTruthy()
   act(() => agentPill?.focus())
   await act(async () => agentPill?.click())
   expect(document.body.textContent).toContain('orphan-skill')

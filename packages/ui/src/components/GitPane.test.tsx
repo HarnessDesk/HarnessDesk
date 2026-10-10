@@ -214,7 +214,7 @@ const button = (label: string): HTMLButtonElement => {
 
 /** What the pane's header says, and every hint it says on hover. */
 const headerStrip = (): { readonly text: string; readonly tooltips: readonly string[] } => {
-  const header = document.body.querySelector('header')
+  const header = document.body.querySelector('[data-slot="tool-section"][aria-label="Repository history"]')
   if (!header) throw new Error('no header')
   return {
     // `ltr` wraps the subtitle in bidi marks; the path itself is what matters.
@@ -409,7 +409,7 @@ it('writes the repository path with a tilde', async () => {
   expect(tooltips).toContain('~/work/storefront')
   expect(tooltips.some((hint) => hint.includes('/home/u'))).toBe(false)
   // The folder is still the folder — only the prefix was rewritten.
-  expect(text).toContain('History — storefront')
+  expect(text).toContain('Repository history')
 })
 
 it('leaves a repository outside home written in full', async () => {
@@ -483,13 +483,9 @@ const DIRTY: GitStatus = {
 it('the toolbar carries the client verbs, counting work to commit and push', async () => {
   await mount({ log: [commit('aaaa1111111', 'tip')], status: DIRTY })
   const bar = document.body.querySelector('[role="toolbar"]')!
-  expect(bar.textContent).toContain('Commit')
-  expect(bar.textContent).toContain('Pull')
-  expect(bar.textContent).toContain('Push')
-  expect(bar.textContent).toContain('Fetch')
-  expect(bar.textContent).toContain('Branch')
-  expect(bar.textContent).toContain('Merge')
-  expect(bar.textContent).toContain('Stash')
+  expect(bar.getAttribute('aria-label')).toBe('Repository actions')
+  expect([...bar.querySelectorAll('button')].map(one => one.getAttribute('aria-label')))
+    .toEqual(['Commit', 'Pull', 'Push', 'Fetch', 'Branch', 'Merge', 'Stash', 'Worktrees'])
   // Two dirty files on Commit, two commits ahead on Push — SourceTree's counts.
   const commitBtn = [...bar.querySelectorAll('button')].find((node) => node.textContent?.includes('Commit'))!
   expect(commitBtn.textContent).toContain('2')

@@ -97,6 +97,26 @@ test.describe('a Popover’s menu', () => {
   test('Tab walks a panel’s own buttons first, and past the last one leaves the same way', async ({ page }) => {
     // The plan meters' "other agents" menu holds plain buttons, not rows, and
     // Tab is how the keyboard gets from one to the next.
+    // The frame moves these facts out of Conversation; exercise the same
+    // live PlanMeters menu with the existing synthetic multi-agent store.
+    await page.route('**/src/preview/main.tsx*', async route => {
+      const response = await route.fetch(), source = await response.text()
+      const reactUrl = /from "([^"\n]*\/react\.js[^"\n]*)"/.exec(source)?.[1]
+      if (!reactUrl) throw new Error('preview React import missing')
+      await route.fulfill({ response, body: `${source}
+        import meterReact from ${JSON.stringify(reactUrl)};
+        import { PlanMeters as MenuMeters } from '/src/components/PlanMeters.tsx';
+        import { StoreProvider as MeterStoreProvider } from '/src/state/context.tsx';
+        import { store as meterStore } from '/src/preview/harness.tsx';
+        import { HeaderStatusGroup as MeterGroup, Button as MeterButton } from '/src/design/index.ts';
+        const meterHost = document.createElement('section'); document.body.append(meterHost);
+        createRoot(meterHost).render(meterReact.createElement(MeterStoreProvider, { store: meterStore },
+          meterReact.createElement(meterReact.Fragment, null,
+            meterReact.createElement(MeterGroup, null, meterReact.createElement(MenuMeters, { onOpen: () => {}, onSignIn: () => {} })),
+            meterReact.createElement(MeterButton, null, 'Following control'))));
+      ` })
+    })
+    await page.reload()
     const trigger = page.locator('[data-slot="popover-trigger"][aria-label*="other agents"]')
     await trigger.scrollIntoViewIfNeeded()
     const next = await stopAfter(page, trigger)

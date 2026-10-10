@@ -1,3 +1,4 @@
+import { installFramePreviewFixture } from './frame-preview-fixture'
 import { applyFrameActions } from './frame-actions'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
@@ -23,6 +24,7 @@ test.skip(!DIRECTORY && !COMPARE, 'set FRAME_WALL_DIR or FRAME_WALL_COMPARE=1 to
 for (const destination of WALL_DESTINATIONS) {
   for (const theme of WALL_THEMES) {
     test(`frame wall: ${destination.id} in ${theme}`, async ({ page }) => {
+      await installFramePreviewFixture(page)
       await page.clock.setFixedTime(WALL_TIME)
       await page.emulateMedia({ colorScheme: theme })
       for (const width of WALL_WIDTHS) {
@@ -31,6 +33,20 @@ for (const destination of WALL_DESTINATIONS) {
         await expect(page.locator('[data-frame-id="frame-wall"]')).toBeVisible()
         if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
         await applyFrameActions(page, destination)
+        if (destination.id === 'conversation-file') {
+          // The native editor loads after the shell; a blank box is not File evidence.
+          await expect(page.locator('[data-slot="work-tools"] .cm-content')).toContainText('Storefront')
+        }
+        if (destination.id === 'conversation-preview') {
+          // The opaque fixture guest must load its actual document before evidence.
+          await expect(page.locator('[data-slot="work-tools"] iframe').contentFrame().getByRole('heading', { name: 'Storefront preview' })).toBeVisible()
+        }
+        if (destination.id === 'conversation-plugin') {
+          // Show the actual contribution, rather than the earlier Details sections.
+          const facts = page.locator('[data-slot="work-tools"]').getByText('Synthetic work facts · 長い記録', { exact: true })
+          await facts.scrollIntoViewIfNeeded()
+          await expect(facts).toBeInViewport()
+        }
         if (destination.viewChoice === 'Flow') {
           // The native Flow engine is lazy. Its outer Run is visible while
           // Suspense still shows loading text; capture the recorded drawing.

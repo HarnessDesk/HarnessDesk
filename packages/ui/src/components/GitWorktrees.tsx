@@ -36,7 +36,7 @@ import {
   WorktreeIcon,
 } from './Icons'
 import { shortSha } from '../lib/git-refs'
-import { ltr } from './ToolPaneHeader'
+import { ltr } from '../lib/projects'
 import styles from './GitWorktrees.module.css'
 
 /**

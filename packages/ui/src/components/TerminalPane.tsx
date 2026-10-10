@@ -6,8 +6,7 @@ import '@xterm/xterm/css/xterm.css'
 import { useSnapshot, useStore } from '../state/context'
 import type { TerminalView } from '../state/layout'
 import { useMount } from '../panels/mount'
-import { PanelActions } from '../panels/PanelActions'
-import { ltr } from './ToolPaneHeader'
+import { ltr } from '../lib/projects'
 import { useTheme } from '../state/theme'
 import { CrossIcon, PlusIcon } from './Icons'
 import { terminalAppearance } from '../design/adapters/terminal'
@@ -62,7 +61,7 @@ export const TerminalSurface = () => {
   if (!view) return null
   const runtime = snapshot.runtimes.find((entry) => entry.id === view.runtime)
   return (
-    <ToolPane variant="integrated">
+    <ToolPane variant="integrated" data-terminal-id={view.terminalId}>
       <ToolPaneBar
         variant="terminal"
         title={
@@ -90,8 +89,8 @@ export const TerminalSurface = () => {
         {/* Alone in its panel, this row is the only one — so the panel's verbs
             live at the end of it rather than in a strip above saying
             "Terminal" over a bar that already says where the shell is. */}
-        {mount?.fixed ? <Button variant="ghost" size="icon-sm" aria-label="Close terminal" title="Close terminal"
-          onClick={() => store.closeTerminal(view.terminalId)}><CrossIcon size={12} /></Button> : <PanelActions />}
+        {<Button variant="ghost" size="icon-sm" aria-label="Close terminal" title="Close terminal"
+          onClick={() => store.closeTerminal(view.terminalId)}><CrossIcon size={12} /></Button>}
       </ToolPaneBar>
       <TerminalScreen view={view} />
     </ToolPane>

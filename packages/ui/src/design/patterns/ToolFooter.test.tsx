@@ -1,7 +1,7 @@
-import { act, StrictMode, useState } from 'react'
+import { act, StrictMode, useState, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet } from './ToolFooter'
+import { ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet, ToolFooterSuppressed } from './ToolFooter'
 import { ToolBody, ToolBodySections, ToolSection } from './ToolBody'
 import { PanelFrame, PanelBody } from './InspectorPanel'
 
@@ -52,4 +52,17 @@ it('composes registered fact and plugin sections under one tool body and scroll 
   expect(container.querySelectorAll('[data-slot="tool-scroll"]')).toHaveLength(1)
   expect(container.querySelectorAll('[data-slot="tool-section"]')).toHaveLength(2)
   expect(container.querySelector('[data-slot="inspector-body"]')).toBeNull()
+})
+
+
+it('suppression removes a published foot without remounting its producer and prevents standalone fallback', () => {
+  const mount = vi.fn(), unmount = vi.fn()
+  const Producer = () => { useEffect(() => { mount(); return unmount }, []); return <ToolFooterScope id="one"><ToolFooterPublisher left="Events" right="Recorded" /></ToolFooterScope> }
+  const draw = (suppressed: boolean) => act(() => root.render(<ToolFooterProvider><ToolFooterSuppressed when={suppressed}><Producer /></ToolFooterSuppressed><ToolFooterOutlet id="one" /></ToolFooterProvider>))
+  draw(false); expect(container.querySelector('[data-slot="tool-footer"]')?.textContent).toBe('EventsRecorded')
+  draw(true); expect(container.querySelector('[data-slot="tool-footer"]')).toBeNull()
+  expect(mount).toHaveBeenCalledOnce(); expect(unmount).not.toHaveBeenCalled()
+  draw(false); expect(container.querySelector('[data-slot="tool-footer"]')?.textContent).toBe('EventsRecorded')
+  act(() => root.render(<ToolFooterSuppressed><ToolFooterPublisher left="Events" right="Recorded" /></ToolFooterSuppressed>))
+  expect(container.querySelector('[data-slot="content-footer"]')).toBeNull()
 })

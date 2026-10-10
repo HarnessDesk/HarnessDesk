@@ -54,7 +54,6 @@ import {
   Card as SurfaceCard,
   CardContent,
   CardFooter,
-  CardHeader,
   Chip,
   EmptyState,
   UsageMeterRow,
@@ -213,7 +212,7 @@ export const ScopeControl = ({
           {runtimes.length > 0 && <MenuSeparator />}
           {runtimes.map((report) => {
             const info = byId.get(report.runtime) ?? null
-            const name = info?.presentation.name ?? String(report.runtime)
+            const name = info?.presentation.name ?? 'Agent'
             return (
               <MenuItem
                 key={report.runtime}
@@ -324,7 +323,7 @@ export const Card = ({
   const balance = balanceOf(report.credits)
   const state = stateOf(report, borrowed ? describeReport(report, { now, maxLanes: 0 }) : view)
   const hero = view.hero
-  const agent = info?.presentation.name ?? String(report.runtime)
+  const agent = info?.presentation.name ?? 'Agent'
 
   // The headline. It is not a second number: it is whichever row of the table
   // below has least left, promoted — which is why the word beside it is only
@@ -361,14 +360,8 @@ export const Card = ({
       variant={hero || balance || money ? 'default' : 'muted'}
       className={styles.card}
     >
-      {/* `CardHeader`'s own `grid`/`grid-rows-[auto_auto]` (design/ui/card.tsx)
-          beats `.cardHead { display: flex }` in the cascade once the frame
-          beside it (`PlanFrame.tsx`) widened the header enough to make the
-          collision visible — the mark centred alone and the chips stretched
-          wide. Utilities here, not the CSS module, are what tell
-          tailwind-merge to drop `CardHeader`'s grid classes (review of
-          #1069, N9). */}
-      <CardHeader className={cn(styles.cardHead, 'flex items-center gap-(--hd-space-1-5)')}>
+      {/* The canonical card inset holds the recorded heading and its state. */}
+      <CardContent className={cn(styles.cardHead, 'flex items-center gap-(--hd-space-1-5)')}>
         {info && (
           <Text role="muted" className={styles.cardMark}>
             <RuntimeMark runtime={info} size={15} />
@@ -379,7 +372,7 @@ export const Card = ({
         <ToolbarGap />
         {shapeChip}
         <Chip state={state} {...(plan ? { label: plan } : {})} />
-      </CardHeader>
+      </CardContent>
 
       {moneyRow}
 

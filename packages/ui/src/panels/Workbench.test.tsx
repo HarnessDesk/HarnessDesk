@@ -7,7 +7,7 @@ import type { CapabilityContribution } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { useSessionKey } from '../state/context'
 import { Slot, publishComponent } from '../slots/registry'
-import { PanelActions, splitRefusal } from './PanelActions'
+import { MainWorkActions } from './MainWorkActions'
 import { MountProvider, useMount } from './mount'
 import { installPanelComponent } from '../slots/PanelBlocks'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
@@ -86,7 +86,7 @@ for (const kind of ['changes', 'activity', 'agents', 'terminal', 'git', 'convers
         <div data-testid={`view-${kind}`}>
           {kind}
           <span data-testid="scope">{key ?? 'none'}</span>
-          {owns && <PanelActions />}
+          {owns && <MainWorkActions />}
         </div>
       )
     },
@@ -237,13 +237,6 @@ it('a fixed work tool has a retained body without a dock tab', () => {
   expect(container.querySelector('[data-testid="view-changes"]')).not.toBeNull()
   expect(container.querySelector('[data-slot="dock-panel-tabs"]')).toBeNull()
   expect(container.querySelector('[aria-label^="Move or split"]')).toBeNull()
-})
-
-it('explains the width or height needed before offering an unusable split', () => {
-  expect(splitRefusal('row', { width: 280, height: 500 })).toBe('Needs 440px; this panel is 280px')
-  expect(splitRefusal('row', { width: 440, height: 500 })).toBeNull()
-  expect(splitRefusal('column', { width: 900, height: 300 })).toBe('Needs 320px; this panel is 300px')
-  expect(splitRefusal('column', { width: 900, height: 320 })).toBeNull()
 })
 
 it('terminal process documents have no split action at any width', () => {
@@ -530,7 +523,7 @@ it('the main area gives its edge to zoom when it cannot close', () => {
     root.render(
       <StoreProvider store={store}>
         <MountProvider scope={{ area: 'main', id: pane.id, view: pane.view }}>
-          <PanelActions />
+          <MainWorkActions />
         </MountProvider>
       </StoreProvider>,
     )
@@ -653,7 +646,7 @@ it('a tool dropped into the main area keeps its verbs', () => {
     root.render(
       <StoreProvider store={single}>
         <MountProvider scope={{ area: 'main', id: 'p1', view: { kind: 'git', root: '/repo' } }}>
-          <PanelActions />
+          <MainWorkActions />
         </MountProvider>
       </StoreProvider>,
     )
@@ -663,7 +656,7 @@ it('a tool dropped into the main area keeps its verbs', () => {
   // which of the two zooms the press will actually perform.
   expect(container.querySelectorAll('[aria-label="Fill the window"]')).toHaveLength(1)
   expect(container.querySelectorAll('[aria-label="Give this panel the whole area"]')).toHaveLength(0)
-  expect(container.querySelectorAll('[aria-label^="Move or split"]')).toHaveLength(1)
+  expect(container.querySelectorAll('[aria-label^="Move or split"]')).toHaveLength(0)
   // And a close, because the main area has no tab carrying one. Without this
   // the panel could be dragged to the middle and never got rid of.
   expect(container.querySelectorAll('[aria-label^="Close "]')).toHaveLength(1)
@@ -805,7 +798,7 @@ it('the middle expands to the window, and the way back undoes both halves', () =
       <StoreProvider store={r.store}>
         <Workbench sidebar={<div data-testid="tree">sessions</div>} />
         <MountProvider scope={{ area: 'main', id: 'p-room', view: { kind: 'room', room: 'room-1' } }}>
-          <PanelActions />
+          <MainWorkActions />
         </MountProvider>
       </StoreProvider>,
     )
@@ -866,7 +859,7 @@ it('leaves a zoom this build would no longer have asked for, in one press', () =
       <StoreProvider store={r.store}>
         <Workbench sidebar={<div data-testid="tree">sessions</div>} />
         <MountProvider scope={{ area: 'main', id: 'p-room', view: { kind: 'room', room: 'room-1' } }}>
-          <PanelActions />
+          <MainWorkActions />
         </MountProvider>
       </StoreProvider>,
     )

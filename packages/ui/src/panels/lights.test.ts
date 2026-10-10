@@ -8,7 +8,7 @@ import sidebarSource from '../components/Sidebar.tsx?raw'
 import teamRoomCss from '../components/TeamRoomPane.module.css?raw'
 import teamRoomTsx from '../components/TeamRoomPane.tsx?raw'
 import terminalPaneSource from '../components/TerminalPane.tsx?raw'
-import toolPaneHeaderSource from '../components/ToolPaneHeader.tsx?raw'
+import topBarSystem from '../design/patterns/TopBar.tsx?raw'
 import toolPanesCss from '../components/ToolPanes.module.css?raw'
 import toolPaneSystem from '../design/ui/tool-pane.tsx?raw'
 import barSystem from '../design/ui/bar.tsx?raw'
@@ -47,18 +47,18 @@ import appCss from '../styles/app.css?raw'
 
 describe('the row under the macOS window buttons', () => {
   it("a conversation's header leaves room for them through the shared bar's corner", () => {
-    expect(conversationTsx).toMatch(/<Bar as="header" corner inset="ink"/)
+    expect(conversationTsx).toContain('useTopBar')
     expect(barSystem).toContain("corner ? 'pl-[max(var(--hd-bar-ink),var(--titlebar-inset,0px))]'")
   })
 
   it('a room’s top row leaves room for the window buttons through the shared bar’s corner', () => {
     // The window header delegates its corner inset to the shared tool header.
-    expect(teamRoomTsx).toMatch(/<ToolPaneHeader ref=\{headerLayout\.ref\} variant="window" corner/)
+    expect(teamRoomTsx).toContain('useTopBar')
     expect(barSystem).toContain("corner ? 'pl-[max(var(--hd-bar-ink),var(--titlebar-inset,0px))]'")
   })
 
   it("a tool's header leaves room for them through the shared corner role", () => {
-    expect(toolPaneHeaderSource).toContain('corner')
+    expect(topBarSystem).toContain('corner')
     expect(toolPaneSystem).toContain("corner && 'pl-[max(var(--hd-space-4),var(--titlebar-inset,0px))]'")
   })
 

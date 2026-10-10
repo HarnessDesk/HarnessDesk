@@ -215,7 +215,7 @@ describe('BrowserPane', () => {
     expect(failureState?.textContent).toContain('http://127.0.0.1:9/')
     expect(failureState?.textContent).not.toContain('https://last-good.example/')
     expect(container.textContent).toContain('Try again')
-    const footer = [...container.querySelectorAll('[data-slot="bar"][data-rule="top"]')]
+    const footer = [...container.querySelectorAll('[data-slot="content-footer"]')]
       .find((bar) => bar.textContent?.includes('Page failed to load'))
     expect(footer).toBeDefined()
     expect(footer?.textContent).not.toContain('Idle')
@@ -407,7 +407,7 @@ describe('BrowserPane', () => {
     mount(browserView('https://a.test/'))
     expect(container.textContent).toContain('Idle')
     expect(container.textContent).not.toContain('Being driven')
-    const footer = [...container.querySelectorAll('[data-slot="bar"][data-rule="top"]')]
+    const footer = [...container.querySelectorAll('[data-slot="content-footer"]')]
       .find((bar) => bar.textContent?.includes('Idle'))
     expect(footer).toBeDefined()
     expect(footer?.querySelector('[data-slot="text"][data-role="meta"]')?.textContent).toBe('Idle')
@@ -564,14 +564,15 @@ describe('BrowserPane', () => {
    */
   it('keeps the whole tab strip out of the window-drag region', () => {
     mount(addBrowserTab(browserView('https://a.test/'), 'https://b.test/'))
-    const header = container.querySelector('header')
-    expect(header?.className).toContain('hd-drag')
+    const controls = container.querySelector('[data-slot="tool-controls"]')
+    expect(controls).not.toBeNull()
+    expect(controls?.closest('.hd-drag')).toBeNull()
     for (const control of [
       ...container.querySelectorAll('[role="tab"]'),
       container.querySelector('[aria-label="New tab"]')!,
       container.querySelector('[role="tab"] button[aria-label^="Close"]')!,
     ]) {
-      expect(control.closest('.hd-no-drag'), `${control.getAttribute('aria-label') ?? control.textContent} is draggable`).not.toBeNull()
+      expect(control.closest('.hd-drag'), `${control.getAttribute('aria-label') ?? control.textContent} is draggable`).toBeNull()
     }
   })
 

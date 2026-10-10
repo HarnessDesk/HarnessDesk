@@ -16,7 +16,7 @@ for (const check of ['counted names', 'selected Set aside'] as const) it(`list r
     renderRow={intent => <TableRow key={intent.id}><TableCell>{intent.title}</TableCell></TableRow>} />))
   try {
     render(true)
-    const all = container.querySelector('button[aria-pressed="true"]')!
+    const all = container.querySelector('button[role="tab"][aria-selected="true"]')!
     if (check === 'counted names') {
       expect(all.getAttribute('aria-label') ?? all.textContent).toBe('All 1')
       return
@@ -24,7 +24,7 @@ for (const check of ['counted names', 'selected Set aside'] as const) it(`list r
     const aside = [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Set aside 1')!
     act(() => aside.click())
     render(false)
-    const selected = container.querySelector('button[aria-pressed="true"]')!
+    const selected = container.querySelector('button[role="tab"][aria-selected="true"]')!
     expect(selected).not.toBeNull()
     expect(selected.getAttribute('aria-label') ?? selected.textContent).toBe('Set aside 0')
     expect(container.textContent).toContain('No jobs match')

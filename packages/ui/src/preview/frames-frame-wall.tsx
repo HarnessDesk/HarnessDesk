@@ -1,6 +1,10 @@
 import { runTeamStore, equivalentRunFixture, type RunScene } from './run-view-fixture'
 import { useMemo, useState } from 'react'
-import { itemId, turnId } from '@harnessdesk/protocol'
+import { contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, turnId, type UiContribution } from '@harnessdesk/protocol'
+import { installPanelComponent } from '../slots/PanelBlocks'
+
+installPanelComponent()
+import { gitWorktrees } from './git-fixture'
 import { TopBar, Chip, Button, Menu, MenuItem } from '../design'
 import { PlusIcon, PlanIcon, DiffIcon, HistoryIcon, GlobeIcon, PanelIcon } from '../components/Icons'
 import { AgentsWindow } from '../components/AgentsWindow'
@@ -140,6 +144,16 @@ export const FrameWall = () => {
     if (destination === 'draft' && detailsCase === 'armed') {
       Object.assign(snapshot, { draftPlace: { kind: 'worktree', root: snapshot.workspace?.path ?? '/work/storefront', name: 'checkout retry', base: 'main' } })
     }
+    // This explicit range state has recorded synthetic source facts. The
+    // parent Team fixture still keeps its unavailable Changes reason.
+    if (destination === 'team' && query.get('frame-work-range') === '1') {
+      Object.assign(snapshot, {
+        worktrees: [{ ...gitWorktrees()[0]!, path: '/work/storefront', branch: 'retry-checkout' }],
+        flowExecutions: new Map([...snapshot.flowExecutions].map(([id, execution]) => [id, {
+          ...execution, target: { kind: 'branch' as const, label: 'Retry checkout', base: '1111111', head: '2222222', pr: null, dirty: false },
+        }])),
+      })
+    }
     const session = snapshot.sessions.get(PREVIEW_SESSION_KEY)
     if (destination === 'conversation' && session && ['active', 'complete', 'cleared', 'asked'].includes(detailsCase ?? '')) {
       const plan = [
@@ -158,11 +172,30 @@ export const FrameWall = () => {
         ...(detailsCase === 'asked' ? { settings: { ...session.settings, cwd: session.cwd, model: session.settings?.model ?? 'model-a', ceiling: { level: 'read', hold: 'asked' } } } : {}),
       }) })
     }
+    if (destination === 'conversation' && session && query.get('frame-browser-driving') === '1') {
+      Object.assign(snapshot, { sessions: new Map(snapshot.sessions).set(PREVIEW_SESSION_KEY, {
+        ...session, status: { type: 'active' as const }, turns: [...session.turns, {
+          id: turnId('frame-browser-turn'), status: 'inProgress' as const,
+          items: [{ id: itemId('frame-browser-call'), type: 'toolCall' as const, tool: 'browser_click',
+            source: { kind: 'builtin' as const }, status: 'inProgress' as const, args: { selector: 'Checkout' } }],
+        }],
+      }) })
+    }
     const tool = query.get('frame-tool'), path = query.get('frame-tool-path')
     if (tool === 'file' && path) next.openFile(path)
     else if (tool === 'preview' && path) next.openPreview(path)
     else if (tool === 'git') next.openGitHistory()
     else if (tool === 'tasks' || tool === 'trajectory' || tool === 'agents' || tool === 'activity' || tool === 'changes') next.openDetailsTab(tool)
+    if (tool === 'plugin' || tool === 'plugin-unavailable') {
+      const contribution: UiContribution = {
+        id: contributionId('frame.plugin'), owner: pluginInstanceId('frame-fixture'), revision: 1, scope: GLOBAL_SCOPE,
+        kind: 'ui', slot: 'details.tab', label: 'Recorded work', order: 0, component: 'hd.panel',
+        mounts: tool === 'plugin' ? ['right'] : ['bottom'],
+        data: { title: 'Recorded work', blocks: [{ type: 'markdown', text: 'Synthetic work facts · 長い記録' }] },
+      }
+      Object.assign(next.getSnapshot(), { contributions: [contribution] })
+      next.showViewIn('right', { kind: 'plugin', contribution: contribution.id, label: contribution.label, mounts: contribution.mounts! })
+    }
     if (query.get('frame-terminal') === '1') void next.openTerminal()
     return next
   }, [destination, location.search])

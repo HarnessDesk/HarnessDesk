@@ -1,3 +1,4 @@
+import { DOCUMENT_DIFF } from './run-shapes-fixture'
 import { panes, type TeamChatLayout, type TeamFramePage } from '../state/layout'
 import { replaceTeamPayload } from '../state/workbench'
 import { toStored, type SideBySideState } from '../lib/side-by-side'
@@ -12,8 +13,11 @@ import type { ReactNode } from 'react'
 import {
   matchPlanSuggestion,
   runtimeId,
+  splitSessionKey,
+  orderTasks,
   sessionKey,
   type AgentAttachmentsView,
+  type BackgroundTask,
   type AgentEntry,
   type AgentFieldEdit,
   type AgentNotesView,
@@ -1414,6 +1418,12 @@ class PreviewStore {
   collapsePanel(area: DockId, collapsed: boolean): void {
     this.#workbench(collapseDock(this.#snapshot.workbench, area, collapsed))
   }
+  zoomMainPane(paneId: string, scope: Zoom['scope']): void {
+    const workbench = this.#snapshot.workbench
+    const leaving = workbench.zoom?.area === 'main' && workbench.zoom.scope === scope
+    const main = { ...workbench.main, expanded: leaving ? null : paneId, focused: paneId }
+    this.#workbench(zoomArea({ ...workbench, main }, 'main', scope))
+  }
   zoomPanel(area: AreaId, scope: Zoom['scope']): void {
     this.#workbench(zoomArea(this.#snapshot.workbench, area, scope))
   }
@@ -2053,6 +2063,18 @@ class PreviewStore {
    * error boundary. A real implementation, even a small one, is the fix —
    * the same shape the real `Store.loadAudit` returns, never the floor.
    */
+  refreshTasks = async (key: SessionKey | null = this.#snapshot.activeSessionKey): Promise<void> => {
+    if (!key) return
+    const address = splitSessionKey(key)
+    const runtime = this.#snapshot.runtimes.find(one => one.id === address.runtime)
+    if (runtime && !runtime.capabilities.backgroundTasks) return
+    const tasks = await this.transport.request('tasks/list', { runtime: address.runtime, sessionId: address.id }) as readonly BackgroundTask[]
+    const next = new Map(this.#snapshot.tasks)
+    if (tasks.length === 0) next.delete(key)
+    else next.set(key, orderTasks(tasks))
+    this.patch({ tasks: next })
+  }
+  readWorkDiff = async (_root: string, _from: string, _to: string): Promise<{ diff: string }> => ({ diff: DOCUMENT_DIFF })
   loadAudit = async (): Promise<readonly AuditRow[]> => AUDIT_ROWS
 
   /**
@@ -2089,6 +2111,7 @@ class PreviewStore {
   }
 
   // --- the wire, method-aware ----------------------------------------------
+  #previewTicket = 0
   transport = {
     request: async (method: string, params?: unknown): Promise<unknown> => {
       if (method === 'session/index') {
@@ -2154,8 +2177,14 @@ class PreviewStore {
          `terminal-fixture.ts`. Writes and resizes answer `null`, as the host
          does — there is no shell here to receive them. */
       if (method === 'terminal/attach') return terminalAttach()
+      if (method === 'tasks/list') {
+        const address = params as { runtime: string; sessionId: string }
+        return this.#snapshot.tasks.get(sessionKey(address.runtime, address.sessionId)) ?? []
+      }
+      if (method === 'preview/ticket') return { ticket: `frame-preview-synthetic-${++this.#previewTicket}` }
       if (method === 'workspace/readFile') {
         const path = (params as { path?: string } | undefined)?.path ?? ''
+        if (path.endsWith('README.md')) return { kind: 'text', content: '# Storefront\n\nRecorded checkout work.', truncated: false, hash: 'fixture-readme' }
         if (path.endsWith('lib/brands.ts'))
           return { kind: 'text', content: editorSource, truncated: false, hash: `len-${editorSource.length}` }
         return { kind: 'missing' }

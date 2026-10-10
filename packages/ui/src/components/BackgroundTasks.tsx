@@ -1,3 +1,4 @@
+import { ToolBodyControls } from '../design'
 import { useEffect, useMemo, useState } from 'react'
 
 import { isFinishedTask, type BackgroundTask } from '@harnessdesk/protocol'
@@ -6,7 +7,7 @@ import { Button, CodeBlock, EmptyState, Spinner, Text } from '../design'
 import { splitTasks, taskElapsed, taskKindWord, tasksCount, taskStateWord, taskTooltip } from '../lib/tasks'
 import { useActiveSession, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { AlertIcon, BackgroundIcon, CheckIcon, StopIcon } from './Icons'
-import { PanelBody, PanelFrame, PanelRow, PanelTools } from './Panel'
+import { PanelBody, PanelFrame, PanelRow } from './Panel'
 
 /**
  * What the agent has running in the background — as a panel.
@@ -71,7 +72,7 @@ export const BackgroundTasksView = () => {
 
   return (
     <PanelFrame testId="background-tasks-panel">
-      <PanelTools>
+      <ToolBodyControls>
         <Text role="meta" truncate className="min-w-0 flex-1">
           {tasks.length > 0 ? tasksCount(split) : 'Background tasks'}
         </Text>
@@ -85,7 +86,7 @@ export const BackgroundTasksView = () => {
             Clear
           </Button>
         )}
-      </PanelTools>
+      </ToolBodyControls>
 
       <PanelBody>
         {tasks.length === 0 ? (

@@ -1,10 +1,11 @@
+import { ToolBodyControls } from './ToolBody'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import tokenSheet from '../foundation/tokens.css?raw'
-import { GroupLine, PanelBody, PanelFrame, PanelFooter, PanelPill, PanelRow, PanelTools } from './InspectorPanel'
+import { GroupLine, PanelBody, PanelFrame, PanelFooter, PanelRow } from './InspectorPanel'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -47,25 +48,6 @@ it('says who produced a row before its mark, at the meta step and in the words g
   expect(lead?.className).not.toContain('uppercase')
 })
 
-describe('the filter pill', () => {
-  it('steps its own fill toward the ink under the pointer, and keeps the accent while pressed', () => {
-    const rest = renderToStaticMarkup(<PanelPill>Staged</PanelPill>)
-    expect(rest).toContain('hover:bg-(--hd-chip-fill-hover)')
-    expect(rest).toContain('aria-pressed="false"')
-    const pressed = renderToStaticMarkup(<PanelPill pressed>Staged</PanelPill>)
-    expect(pressed).toContain('aria-pressed="true"')
-    expect(pressed).toContain('hover:bg-(--hd-accent-dim)')
-    expect(pressed).not.toContain('hover:bg-(--hd-chip-fill-hover)')
-  })
-
-  it('takes a longer hover step in the dark theme, where a short one reads as none', () => {
-    const step = (block: string): number => Number(/--hd-chip-fill-hover:\s*color-mix\(in srgb, var\(--hd-chip-fill\) (\d+)%/.exec(block)?.[1])
-    const dark = tokenSheet.slice(tokenSheet.indexOf('body[data-hd-dark-theme] {'))
-    expect(step(tokenSheet)).toBeGreaterThan(step(dark))
-    expect(step(dark)).toBeLessThanOrEqual(88)
-  })
-})
-
 it.each([
   { sub: 'A path' },
   { tall: true, sub: 'A path' },
@@ -86,7 +68,7 @@ it.each([
 
 it('a reading inspector keeps its reading body and gives ordinary controls their row gutter', () => {
   const host = document.createElement('div')
-  host.innerHTML = renderToStaticMarkup(<PanelFrame inset="reading"><PanelTools>Title</PanelTools><PanelBody>Words</PanelBody></PanelFrame>)
+  host.innerHTML = renderToStaticMarkup(<PanelFrame inset="reading"><ToolBodyControls>Title</ToolBodyControls><PanelBody>Words</PanelBody></PanelFrame>)
   expect(host.querySelector('[data-slot="tool-controls"]')!.className).toContain('px-(--hd-inset-row)')
   expect(host.querySelector('[data-slot="bar"]')).toBeNull()
   expect(host.querySelector('[data-slot="inspector-body"] [data-slot="pane-column"]')!.getAttribute('data-inset')).toBe('reading')

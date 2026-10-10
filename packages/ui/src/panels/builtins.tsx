@@ -1,9 +1,10 @@
+import { WorkChangesView, WorkActivityView } from '../components/WorkToolContents'
 import { RunDetailsView } from './run-dock'
 import { Approvals } from '../components/Approvals'
 import { BackgroundTasksView } from '../components/BackgroundTasks'
 import { BrowserPane } from '../components/BrowserPane'
 import { Conversation } from '../components/Conversation'
-import { ActivityView, AgentsView, ChangesView, TrajectoryView } from '../components/Details'
+import { AgentsView, TrajectoryView } from '../components/Details'
 import { FilePane } from '../components/FilePane'
 import { GitPane } from '../components/GitPane'
 import { PreviewPane } from '../components/PreviewPane'
@@ -344,7 +345,7 @@ registerView({
   icon: DiffIcon,
   mounts: ['right', 'bottom', 'sidebar'],
   defaultMount: 'right',
-  component: ChangesView,
+  component: WorkChangesView,
 })
 
 registerView({
@@ -380,7 +381,7 @@ registerView({
   icon: HistoryIcon,
   mounts: ['right', 'bottom', 'sidebar'],
   defaultMount: 'right',
-  component: ActivityView,
+  component: WorkActivityView,
 })
 
 registerView({

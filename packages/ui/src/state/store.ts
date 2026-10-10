@@ -1104,6 +1104,10 @@ export class AppStore {
   }
 
   /** What every agent did here, whichever vendor made it. */
+  readWorkDiff(root: string, from: string, to: string): Promise<{ diff: string }> {
+    return this.transport.request('git/diffRange', { root, from, to })
+  }
+
   async loadAudit(sinceDays = 7): Promise<readonly AuditRow[]> {
     const root = this.#snapshot.workspace?.path
     return this.transport

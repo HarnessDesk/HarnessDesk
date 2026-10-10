@@ -121,13 +121,13 @@ test('a tile has only the slim address bar while a full pane keeps its toolbar',
   try {
     const render = (embedded: boolean) => act(() => root.render(<StoreProvider store={store}><MountProvider scope={{area:'main', id:browser.id, view:browser.view, embedded}}><BrowserPane /></MountProvider></StoreProvider>))
     render(true)
-    expect(container.querySelector('[data-slot="tool-pane-header"]')).toBeNull()
+    expect(container.querySelector('[data-slot="tool-controls"]')).toBeNull()
     const bar = container.querySelector('[data-slot="tool-pane-bar"]')!
     expect(bar.getAttribute('data-variant')).toBe('address-slim')
     expect([...bar.querySelectorAll('button')].map(one => one.getAttribute('aria-label'))).toEqual(['Back','Forward','Reload'])
     expect(bar.querySelector('[aria-label="Address"]')).not.toBeNull()
     render(false)
-    expect(container.querySelector('[data-slot="tool-pane-header"]')).not.toBeNull()
+    expect(container.querySelector('[data-slot="tool-controls"]')).not.toBeNull()
     expect(container.querySelector('[aria-label="Annotate the page"]')).not.toBeNull()
   } finally { act(() => root.unmount()); container.remove() }
 })

@@ -1,3 +1,4 @@
+import { sanitizeText } from '../lib/sanitize'
 import {
   useCallback,
   useEffect,
@@ -66,7 +67,8 @@ import {
 } from './Icons'
 import { ContextMenu, MenuItem, MenuLabel, MenuSeparator, useContextMenu } from '../design'
 import { FrontDoor } from './FrontDoor'
-import { ltr, ToolPaneHeader } from './ToolPaneHeader'
+import { ltr } from '../lib/projects'
+import { ToolBodyControls, ToolSection, SummaryList, SummaryItem } from '../design'
 import {
   CommitDialog,
   ConfirmDialog,
@@ -747,7 +749,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
   if (isRepo === false) {
     return (
       <>
-        <ToolPaneHeader title={folder ? `History — ${folder}` : 'History'} subtitle={shown} />
+        <ToolSection label="Repository history"><SummaryList surface="panel"><SummaryItem label="Folder" kind="path" title={sanitizeText(shown)}>{sanitizeText(shown)}</SummaryItem></SummaryList></ToolSection>
         <EmptyState tight title="No repository" description="This folder is not a git repository, so there is no history to show." />
       </>
     )
@@ -755,7 +757,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
 
   return (
     <div className={styles.frame} ref={frame}>
-      <ToolPaneHeader title={folder ? `History — ${folder}` : 'History'} subtitle={shown} hint={shown}>
+      <ToolSection label="Repository history"><SummaryList surface="panel"><SummaryItem label="Folder" kind="path" title={sanitizeText(shown)}>{sanitizeText(shown)}</SummaryItem></SummaryList><ToolBodyControls>
         {fit.rail && (
           <Button
             variant={railOpen ? 'secondary' : 'ghost'}
@@ -777,9 +779,9 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
         >
           <RefreshIcon size={13} />
         </Button>
-      </ToolPaneHeader>
+      </ToolBodyControls></ToolSection>
 
-      <ToolPaneBar variant="tools" role="toolbar" aria-label="Repository actions">
+      <ToolBodyControls role="toolbar" aria-label="Repository actions">
         <ActionBtn
           icon={<CommitIcon size={15} />}
           label="Commit"
@@ -820,7 +822,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
           title="Fetch every remote"
           onClick={doFetch}
         />
-        <Separator orientation="vertical" className={styles.actionSep} />
+        <Separator orientation="vertical" length="bar" className={styles.actionSep} />
         <ActionBtn
           icon={<BranchIcon size={15} />}
           label="Branch"
@@ -860,7 +862,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
         />
         <ToolbarGap />
         {working && <Text role="meta">{working}</Text>}
-      </ToolPaneBar>
+      </ToolBodyControls>
 
       {conflicted && (
         <Alert tone="warning" className={styles.troubleBar} role="status">

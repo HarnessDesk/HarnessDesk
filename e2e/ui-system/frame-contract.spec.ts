@@ -1,3 +1,4 @@
+import { installFramePreviewFixture } from './frame-preview-fixture'
 import { selectRunView } from './run-frame-actions'
 import { expect, test, type Page } from '@playwright/test'
 import { FRAME, FRAME_TOKENS } from '../../packages/ui/src/design/frame'
@@ -10,6 +11,7 @@ import { applyFrameActions, selectFrameTab } from './frame-actions'
  * frame work adds what it moved; nothing here is a literal of its own.
  */
 const openFrame = async (page: Page, query: string, theme: 'light' | 'dark', width = 1440) => {
+  await installFramePreviewFixture(page)
   await page.setViewportSize({ width, height: 900 })
   await page.emulateMedia({ colorScheme: theme })
   await page.goto(`/preview.html?${query}&theme=${theme}`)
@@ -26,6 +28,22 @@ const resolvedPx = (page: Page, token: string) => page.evaluate((name) => {
   probe.remove()
   return px
 }, token)
+
+for (const theme of WALL_THEMES) for (const tool of ['details', 'changes', 'activity', 'browser']) {
+  test(`B7a ${tool} is a flat body without furniture in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme)
+    await page.locator(`[data-work-tool="${tool}"]`).click()
+    const panel = page.locator('[data-slot="work-tools"]')
+    await expect(panel).toBeVisible()
+    for (const slot of ['dock-panel-tabs', 'dock-panel-bar', 'inspector-tools', 'tool-pane-header', 'card-header']) {
+      expect(await panel.locator(`[data-slot="${slot}"]`).count(), `${tool}: ${slot} retired`).toBe(0)
+    }
+    const panelBox = (await panel.boundingBox())!
+    const topBox = (await page.locator('[data-slot="top-bar"]').locator('..').boundingBox())!
+    expect(Math.abs(panelBox.y - topBox.y - topBox.height)).toBeLessThanOrEqual(1)
+    if (tool === 'activity') await expect(panel.getByText('Events', { exact: true })).toBeVisible()
+  })
+}
 
 for (const theme of WALL_THEMES) {
   test(`B7 shell owns the retained tool frame in ${theme}`, async ({ page }) => {
@@ -467,10 +485,13 @@ for (const theme of WALL_THEMES) {
 // AppWindow hosts. The pattern probe deliberately has no application lead.
 const B6_WORK_DESTINATIONS = WALL_DESTINATIONS.filter(destination => !['topbar-probe', 'teams', 'agents', 'dashboard', 'settings'].includes(destination.id))
 for (const theme of WALL_THEMES) {
-  for (const width of [720, 1440]) {
-    test(`B6 lead follows window state on every work destination at ${width} in ${theme}`, async ({ page }) => {
-      const titleXs: number[] = []
-      for (const destination of B6_WORK_DESTINATIONS) {
+  for (const width of [720, 1440]) for (let group = 0; group < Math.ceil(B6_WORK_DESTINATIONS.length / 9); group++) {
+    test(`B6 lead follows window state on work destinations group ${group + 1} at ${width} in ${theme}`, async ({ page }) => {
+      await openFrame(page, 'frame-wall=conversation', theme, width)
+      if (width === 1440) await page.getByRole('button', { name: 'Hide sidebar', exact: true }).click()
+      const referenceX = (await page.locator('[data-slot="top-bar"] [data-topbar-title]').boundingBox())!.x
+      const titleXs: number[] = [referenceX]
+      for (const destination of B6_WORK_DESTINATIONS.slice(group * 9, (group + 1) * 9)) {
         await openFrame(page, destination.query, theme, width)
         if (width === 1440) await page.getByRole('button', { name: 'Hide sidebar', exact: true }).click()
         await applyFrameActions(page, destination)

@@ -1,12 +1,12 @@
 import { useMemo, useState } from 'react'
-import { runtimeId, type UsageReport } from '@harnessdesk/protocol'
-import { Menu, Text } from '../design'
+import { type UsageReport } from '@harnessdesk/protocol'
+import { Text } from '../design'
 import { PlanMeters } from '../components/PlanMeters'
 import { TerminalToggle } from '../components/Conversation'
 import { StoreProvider, useSnapshot } from '../state/context'
-import { dock, dockViews, emptyWorkbench } from '../state/workbench'
+import { dockViews } from '../state/workbench'
 import { MountProvider } from '../panels/mount'
-import { PanelActionMenuItems } from '../panels/PanelActions'
+import { MainWorkActions } from '../panels/MainWorkActions'
 import { previewStore } from './harness'
 import '../panels/builtins'
 
@@ -36,15 +36,10 @@ const TerminalReading = () => {
   const count = [...dockViews(snapshot.workbench.bottom), ...dockViews(snapshot.workbench.right)].filter(one => one.view.kind === 'terminal').length
   return <Text role="meta">{count} terminal resources</Text>
 }
-export const LegacyPanelMenuSpecimen = () => {
+export const MainWorkActionsSpecimen = () => {
   const [store, scope] = useMemo(() => {
-    const view = { kind: 'terminal' as const, terminalId: 'catalogue-terminal', runtime: runtimeId('fixture-agent'), cwd: '/repo' }
-    const workbench = dock(emptyWorkbench(), 'bottom', view)
-    const one = dockViews(workbench.bottom)[0]!
-    return [previewStore({ workbench, layout: workbench.main }), { area: 'bottom' as const, id: one.id, view }]
+    const store = previewStore(), one = store.getSnapshot().layout
+    return [store, { area: 'main' as const, id: one.focused, view: { kind: 'conversation' as const, session: null } }]
   }, [])
-  return <StoreProvider store={store}><MountProvider scope={scope}><div data-frame-id="supported-panel-menu">
-    <Menu close={() => {}}><PanelActionMenuItems /></Menu><PanelReading />
-  </div></MountProvider></StoreProvider>
+  return <StoreProvider store={store}><MountProvider scope={scope}><div data-frame-id="supported-work-actions"><MainWorkActions /></div></MountProvider></StoreProvider>
 }
-const PanelReading = () => <Text role="meta">{useSnapshot().workbench.zoom ? 'Panel fills its area' : 'Panel in its layout'}</Text>

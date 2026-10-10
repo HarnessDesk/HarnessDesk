@@ -95,7 +95,7 @@ import {
   useSortable,
 } from '../design'
 import { useTabStrip } from './TabStrip'
-import { ToolPaneHeader } from './ToolPaneHeader'
+import { ToolBodyControls, ToolFooterPublisher } from '../design'
 import styles from './ToolPanes.module.css'
 
 /**
@@ -676,7 +676,7 @@ const useDriving = (): Driving | null => {
         const info = snapshot.runtimes.find((entry) => entry.id === session.runtime) ?? null
         return {
           what,
-          who: info?.presentation.name ?? String(session.runtime),
+          who: info?.presentation.name ?? 'Agent',
           step: index + 1,
           key,
           info,
@@ -1382,9 +1382,7 @@ const BrowserPaneContent = () => {
 
   return (
     <ToolPane variant="integrated" className="@container/browser">
-      {!mount.embedded && <ToolPaneHeader
-        title="Browser"
-        lead={
+      {!mount.embedded && <ToolBodyControls>
           <div className={styles.tabStrip}>
             <ToolPaneTabViewport
               edges={strip.edges}
@@ -1479,8 +1477,6 @@ const BrowserPaneContent = () => {
               <PlusIcon size={12} />
             </Button>
           </div>
-        }
-      >
         <Popover
           label={<MoreIcon size={14} />}
           title="Browser settings"
@@ -1580,7 +1576,7 @@ const BrowserPaneContent = () => {
             </Menu>
           )}
         </Popover>
-      </ToolPaneHeader>}
+      </ToolBodyControls>}
       <ToolPaneBar as="form" variant={mount.embedded ? "address-slim" : "address"} onSubmit={go}>
         <Button variant="ghost"
           type="button"
@@ -1976,28 +1972,8 @@ const BrowserPaneContent = () => {
       </ToolPaneBody>
       {/* What the pane is, said once at the bottom: whether a turn has the
           wheel, and that the profile is never the one your own browser uses. */}
-      <Bar rule="top">
-        {loadFailures[view.active] ? (
-          <Text role="meta">Page failed to load</Text>
-        ) : driving ? (
-          <>
-            <Dot state="signin" pulse />
-            <Text role="meta">Being driven</Text>
-          </>
-        ) : (
-          <Text role="meta">Idle</Text>
-        )}
-        <ToolbarGap />
-        {/* The bar is one row tall, so the sentence may wrap to two lines and
-            no further: a pane split narrower than that keeps only the state
-            on the left rather than spilling the sentence past the bar. With
-            the driven state beside it (a dot and a longer word) the sentence
-            first needs a third line at 252px, so it gives way below 18rem.
-            `@container/browser` is on the pane. */}
-        <Text role="meta" className="hidden @[18rem]/browser:inline">
-          {inline ? 'Never your own browser profile' : 'Framed pages only — the desktop app runs a real browser'}
-        </Text>
-      </Bar>
+      <ToolFooterPublisher left={loadFailures[view.active] ? 'Page failed to load' : driving ? <><Dot state="signin" pulse /> Being driven</> : 'Idle'}
+        right={inline ? 'Never your own browser profile' : 'Framed pages only — the desktop app runs a real browser'} />
     </ToolPane>
   )
 }

@@ -601,3 +601,12 @@ it.each(['details', 'close'] as const)('B7 hidden fixed Browser cannot consume s
   expect(shortcut.defaultPrevented).toBe(false)
   expect(dockViews(store.getSnapshot().workbench.right).find(one => one.id === entry.id)?.view).toBe(before.view)
 })
+
+
+it('default Changes and Activity provide actual subject bodies through canonical doors', async () => {
+  mountWork(true)
+  await act(async () => button('Changes')!.click())
+  expect(container.querySelector('[data-slot="work-tools"][data-tool="changes"] [data-slot="tool-body"]')).not.toBeNull()
+  await act(async () => button('Activity')!.click())
+  expect(container.querySelector('[data-slot="work-tools"]')?.textContent).toContain('Events')
+})

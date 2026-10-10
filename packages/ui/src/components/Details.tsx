@@ -11,7 +11,7 @@ import { Agents } from './Agents'
 import { SeatRecordBlock } from './SeatRecordBlock'
 import { DiffView } from './Diff'
 import { FileIcon, ReviewIcon } from './Icons'
-import { Button, ListRowDetail } from '../design'
+import { Button, ListRowDetail, ToolBodyControls, Switch, Tabs, TabsList, TabsTrigger, Chip } from '../design'
 import {
   Counts,
   GroupLine,
@@ -20,9 +20,7 @@ import {
   PanelFilter,
   PanelFooter,
   PanelFrame,
-  PanelPill,
   PanelRow,
-  PanelTools,
 } from './Panel'
 import { Trajectory } from './Trajectory'
 import styles from './Details.module.css'
@@ -111,7 +109,7 @@ const InspectorFrame = ({
   const session = useActiveSession()
   return (
     <PanelFrame>
-      <PanelTools>
+      <ToolBodyControls>
         <PanelFilter value={query} placeholder={find} onChange={onQuery} />
         {tools}
         <Button variant="ghost" size="icon-sm" edge="end" edgeGlyph={14}
@@ -126,7 +124,7 @@ const InspectorFrame = ({
         >
           <FileIcon size={14} />
         </Button>
-      </PanelTools>
+      </ToolBodyControls>
 
       <PanelBody>{children}</PanelBody>
 
@@ -159,13 +157,7 @@ export const ChangesView = () => {
       foot={foot}
       tools={
         <>
-          <PanelPill
-            pressed={staged}
-            title="Show what is staged instead of what is not"
-            onClick={() => setStaged((value) => !value)}
-          >
-            Staged
-          </PanelPill>
+          <label className="inline-flex items-center gap-2"><Switch aria-label="Staged" checked={staged} onCheckedChange={setStaged} title="Show what is staged instead of what is not" />Staged</label>
           {/* Not the panel's expand glyph, which sits directly above this one
               in the panel's own strip. That one gives this panel the room; this
               one leaves the layout entirely for the review workspace. Two ⤢ an
@@ -196,13 +188,9 @@ export const TrajectoryView = () => {
       onQuery={setQuery}
       foot={foot}
       tools={
-        <PanelPill
-          pressed={timedOnly}
-          title="Show only steps the runtime timed"
-          onClick={() => setTimedOnly((value) => !value)}
-        >
-          Timed
-        </PanelPill>
+        <Tabs value={timedOnly ? 'timed' : 'all'} onValueChange={value => setTimedOnly(value === 'timed')}><TabsList>
+          <TabsTrigger value="all">All</TabsTrigger><TabsTrigger value="timed" title="Show only steps the runtime timed">Timed</TabsTrigger>
+        </TabsList></Tabs>
       }
     >
       <Trajectory query={query} timedOnly={timedOnly} onFoot={onFoot} />
@@ -230,7 +218,7 @@ export const ActivityView = () => {
       query={query}
       onQuery={setQuery}
       foot={foot}
-      tools={<PanelPill as="span">this week</PanelPill>}
+      tools={<Chip tone="neutral">this week</Chip>}
     >
       <Activity query={query} onFoot={onFoot} />
     </InspectorFrame>

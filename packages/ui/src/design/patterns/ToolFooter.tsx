@@ -22,6 +22,8 @@ const createFeet = () => {
   }
 }
 const Feet = createContext<ReturnType<typeof createFeet> | null>(null)
+const Suppressed = createContext(false)
+export const ToolFooterSuppressed = ({ children, when = true }: { children: ReactNode; when?: boolean }) => <Suppressed.Provider value={when}>{children}</Suppressed.Provider>
 const FootId = createContext<string | null>(null)
 export const ToolFooterProvider = ({ children }: { children: ReactNode }) => {
   const source = useMemo(createFeet, [])
@@ -30,13 +32,14 @@ export const ToolFooterProvider = ({ children }: { children: ReactNode }) => {
 export const ToolFooterScope = ({ id, children }: { id: string; children: ReactNode }) =>
   <FootId.Provider value={id}>{children}</FootId.Provider>
 export const ToolFooterPublisher = ({ left, right }: ToolFoot) => {
+  const suppressed = useContext(Suppressed)
   const source = useContext(Feet), id = useContext(FootId), token = useRef<object>({})
-  useLayoutEffect(() => { if (source && id) source.publish(id, { left, right }, token.current) }, [source, id, left, right])
+  useLayoutEffect(() => { if (source && id && !suppressed) source.publish(id, { left, right }, token.current) }, [source, id, left, right, suppressed])
   useLayoutEffect(() => {
     const identity = token.current
     return () => { if (source && id) source.remove(id, identity) }
-  }, [source, id])
-  return !source || !id ? <SectionFooter variant="facts" ruled={false} data-slot="content-footer">
+  }, [source, id, suppressed])
+  return !suppressed && (!source || !id) ? <SectionFooter variant="facts" ruled={false} data-slot="content-footer">
     <Text role="meta">{left}</Text><span className="flex-1" /><Text role="meta">{right}</Text>
   </SectionFooter> : null
 }

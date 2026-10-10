@@ -13,7 +13,6 @@ import {
   Card as SurfaceCard,
   CardContent,
   CardFooter,
-  CardHeader,
   Chip,
   ToolbarGap,
   Text,
@@ -52,13 +51,12 @@ export const PlanFrame = ({
   onOpenPlanSettings?: () => void
   children: ReactNode
 }) => {
-  const agent = info?.presentation.name ?? String(report.runtime)
+  const agent = info?.presentation.name ?? 'Agent'
   const plan = planLabel(report.plan)
   return (
     <SurfaceCard as="article" className={styles.frame} data-shape={shape}>
-      {/* See `shared.tsx`'s own `Card` for why this needs utilities rather
-          than the CSS module's `display: flex` alone (review of #1069, N9). */}
-      <CardHeader className={cn(styles.frameHead, 'flex items-center gap-(--hd-space-1-5)')}>
+      {/* The canonical card inset holds the recorded heading and its state. */}
+      <CardContent className={cn(styles.frameHead, 'flex items-center gap-(--hd-space-1-5)')}>
         {info && (
           <Text role="muted" className={styles.cardMark}>
             <RuntimeMark runtime={info} size={15} />
@@ -70,7 +68,7 @@ export const PlanFrame = ({
         {shapeChip}
         {plan && <Chip label={plan} tone="neutral" />}
         <Chip tone={statusPresentation(status).tone} label={statusPresentation(status).label} />
-      </CardHeader>
+      </CardContent>
 
       <MoneyRowView money={money} onOpenPlanSettings={onOpenPlanSettings} />
 

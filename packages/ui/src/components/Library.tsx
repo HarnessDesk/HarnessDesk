@@ -47,7 +47,6 @@ import {
   MenuSeparator,
   MetaList,
   PageHead,
-  PanelPill,
   Popover,
   Search,
   Segmented,
@@ -746,14 +745,14 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
               the same wherever it is on. Letting go hands the focus to Filter,
               where the next choice is made, rather than to the top of the page. */}
           {filter !== 'all' && (
-            <PanelPill pressed title="Show everything again" onClick={() => { setFilter('all'); filterTrigger.current?.focus() }}>
+            <Button variant="ghost" size="chip" title="Show everything again" onClick={() => { setFilter('all'); filterTrigger.current?.focus() }}>
               {FILTER_WORDS[filter]}
-            </PanelPill>
+            </Button>
           )}
           {agentName && (
-            <PanelPill pressed title="Show what every Agent declares" onClick={() => { setAgentFilter(''); filterTrigger.current?.focus() }}>
+            <Button variant="ghost" size="chip" title="Show what every Agent declares" onClick={() => { setAgentFilter(''); filterTrigger.current?.focus() }}>
               {agentName}
-            </PanelPill>
+            </Button>
           )}
           <Toolbar className="flex-nowrap">
             <Popover

@@ -66,7 +66,7 @@ import { supportsFixedTool, toolOf } from '../state/frame-tools'
 import { beginResize, endResize, markDragging } from '../lib/resizing'
 import { registerSlot } from '../slots/registry'
 import { MountProvider } from './mount'
-import { PanelActions } from './PanelActions'
+import { MainWorkActions } from './MainWorkActions'
 import { ViewHost, iconOf, useViewTitle, views } from './views'
 import styles from './Workbench.module.css'
 
@@ -839,7 +839,7 @@ const StackPanel = ({
               given its mount to read — the same one the view itself gets. */}
           {shown && (
             <MountProvider scope={{ area, id: shown.id, view: shown.view }}>
-              <PanelActions where="strip" />
+              <MainWorkActions />
             </MountProvider>
           )}
         </DockPanelActions>

@@ -1,69 +1,41 @@
 import { expect, test } from '@playwright/test'
 
-/**
- * The browser pane's footer is the system's bar, and a bar is one row tall.
- *
- * It used to be a strip that grew with its text, so a narrow pane made it
- * taller; as a `Bar` it holds `--hd-bar-h`, and a split can leave a pane at a
- * sixth of its parent. The sentence on the right may wrap to two lines inside
- * the bar and no further: below 18rem the pane keeps only its state on the
- * left. The checks are on the real pane in the real engine, at widths from a
- * roomy pane down to a thin split, and at the threshold itself: nothing in the
- * footer ends outside it, the bar keeps its height, and the sentence is there
- * when there is room for it.
- *
- * Both states the left side takes are measured. The preview pane is idle, and
- * driving it for real takes a browser tool in flight on a live conversation,
- * so the driven state is built the way the pane draws it — a 6px dot before
- * "Being driven" — since that width is all the layout depends on.
- */
-const WIDTHS = [480, 300, 288, 280, 240, 140]
-const THRESHOLD = 288
-
-test('the browser pane footer stays one bar tall at every pane width, idle or driven', async ({ page }) => {
-  await page.setViewportSize({ width: 1200, height: 900 })
-  await page.goto('/preview.html')
-
-  // Found by its state once, then held by a mark: the driven case below
-  // rewrites that state, and the footer must still be the same element.
-  const idle = page.locator('[data-slot="tool-pane"] [data-slot="bar"][data-rule="top"]').filter({ hasText: 'Idle' }).first()
-  await expect(idle).toBeVisible()
-  await idle.evaluate((bar) => bar.setAttribute('data-testid', 'browser-footer'))
-  const footer = page.getByTestId('browser-footer')
-  const sentence = footer.getByText(/Framed pages only|Never your own browser profile/)
-
-  for (const state of ['idle', 'driven'] as const) {
-    if (state === 'driven') {
-      await footer.evaluate((bar) => {
-        const dot = document.createElement('span')
-        dot.style.cssText = 'display:block;flex:none;width:6px;height:6px'
-        bar.prepend(dot)
-        const left = bar.querySelector('[data-slot="text"]')
-        if (!left) throw new Error('the footer has no state on its left')
-        left.textContent = 'Being driven'
+/** The shell's quiet facts footer retains the complete state and profile
+ * sentence at each supported panel width. Drive state comes from a real
+ * host-shaped in-flight tool item in the isolated frame fixture. */
+for (const theme of ['light', 'dark'] as const) for (const state of ['idle', 'driven'] as const) {
+  test(`the Browser facts stay whole in ${state} ${theme} at supported panel widths`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/preview.html?frame-wall=conversation${state === 'driven' ? '&frame-browser-driving=1' : ''}&theme=${theme}`)
+    await page.locator('[data-work-tool="browser"]').click()
+    const panel = page.locator('[data-slot="work-tools"]')
+    const footer = page.locator('[data-slot="tool-footer"]')
+    await expect(footer.getByText(state === 'idle' ? 'Idle' : 'Being driven', { exact: true })).toBeVisible()
+    const sentence = footer.getByText('Framed pages only — the desktop app runs a real browser', { exact: true })
+    for (const width of [320, 400, 640]) {
+      const seam = page.getByRole('separator', { name: 'Resize the right panel' })
+      const current = (await panel.boundingBox())!.width
+      const handle = (await seam.boundingBox())!
+      await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2)
+      await page.mouse.down()
+      await page.mouse.move(handle.x + handle.width / 2 + current - width, handle.y + handle.height / 2, { steps: 6 })
+      await page.mouse.up()
+      await expect.poll(async () => (await panel.boundingBox())!.width).toBe(width)
+      await expect(sentence).toBeVisible()
+      const held = await footer.evaluate(element => {
+        const box = element.getBoundingClientRect()
+        const children = [...element.querySelectorAll('*')].map(child => child.getBoundingClientRect())
+        return { height: box.height, sideways: element.scrollWidth > element.clientWidth,
+          spills: children.filter(rect => rect.height > 0 && (rect.top < box.top - 0.5 || rect.bottom > box.bottom + 0.5)).length,
+          ellipsis: [...element.querySelectorAll('[data-slot="text"]')].some(child => getComputedStyle(child).textOverflow === 'ellipsis'),
+        }
       })
+      expect(held.height).toBeGreaterThan(0)
+      expect(held.sideways, `${state}: footer fits at ${width}`).toBe(false)
+      expect(held.spills, `${state}: whole facts fit the natural footer at ${width}`).toBe(0)
+      expect(held.ellipsis).toBe(false)
+      await page.screenshot({ path: `output/frame-wall/B7a-tools/browser-${state}-${width}-${theme}.png` })
     }
-
-    for (const width of WIDTHS) {
-      await footer.evaluate((bar, px) => {
-        const pane = bar.closest<HTMLElement>('[data-slot="tool-pane"]')
-        if (!pane) throw new Error('the footer is not inside its pane')
-        pane.style.width = `${px}px`
-      }, width)
-
-      const held = await footer.evaluate((bar) => {
-        const box = bar.getBoundingClientRect()
-        const barHeight = parseFloat(getComputedStyle(document.body).getPropertyValue('--hd-bar-h')) || box.height
-        const spilled = [...bar.querySelectorAll('*')]
-          .map((node) => node.getBoundingClientRect())
-          .filter((rect) => rect.height > 0 && (rect.top < box.top - 0.5 || rect.bottom > box.bottom + 0.5))
-        return { height: Math.round(box.height), barHeight: Math.round(barHeight), spilled: spilled.length }
-      })
-      expect(held.spilled, `${state}: nothing in the footer ends outside it at ${width}px`).toBe(0)
-      expect(held.height, `${state}: the footer keeps the bar height at ${width}px`).toBe(held.barHeight)
-
-      if (width >= THRESHOLD) await expect(sentence, `${state}: the sentence is shown at ${width}px`).toBeVisible()
-      else await expect(sentence, `${state}: the sentence gives way at ${width}px`).toBeHidden()
-    }
-  }
-})
+  })
+}

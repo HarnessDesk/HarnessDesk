@@ -44,7 +44,7 @@ export interface RunInspectorProps {
   attemptsRead?: 'reading' | 'failed'
 }
 
-import { Button, Card, CardHeader, CardTitle, CardAction, CardContent, Chip, CodeText, IconTile, KeyValue, KeyValueRow, ChangeStats, PanelBody, SectionBody, PanelFooter, PanelFrame, PanelRow, PanelTools, Progress, RunStateChip, stateTone, Text, type Tint } from '../design'
+import { Button, SummaryList, SummaryItem, Chip, CodeText, IconTile, ChangeStats, PanelBody, SectionBody, PanelFooter, PanelFrame, PanelRow, ToolBodyControls, Progress, RunStateChip, stateTone, Text, type Tint } from '../design'
 import { commandShown } from '../lib/projects'
 import { sanitizeText } from '../lib/sanitize'
 import { wordOf } from '../lib/agents'
@@ -212,13 +212,8 @@ const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: R
   return <div data-slot="run-inspector" className="min-h-0 min-w-0 flex-1">
     <PanelFrame>
       <PanelBody><div className="flex min-w-0 flex-col gap-(--hd-inset-dense)">
-        {execution.brief && <Card as="section">
-          <CardHeader><CardTitle><Text role="section">Brief</Text></CardTitle></CardHeader>
-          <CardContent><Words>{execution.brief}</Words></CardContent>
-        </Card>}
-        {recorded.length > 0 && <Card as="section">
-          <CardHeader><CardTitle><Text role="section">{`Seats ${ids.length}`}</Text></CardTitle></CardHeader>
-          <CardContent inset="none">
+        {execution.brief && <ToolSection label="Brief"><ToolProse><Words>{execution.brief}</Words></ToolProse></ToolSection>}
+        {recorded.length > 0 && <ToolSection label={`Seats ${ids.length}`}>
             {recorded.map(one => {
               const keep = rows.find(row => row.seat === one.id && row.attempt)?.keep
               const state = keep === 'kept' ? 'Picked' : keep === 'not-kept' ? 'Not kept' : [...rows].reverse().find(row => row.seat === one.id && row.status)?.status
@@ -226,41 +221,32 @@ const RunSummary = ({ input, seats, faces, faceTints, pullRequest, flowFile }: R
                 title={sanitizeText(rows.find(row => row.seat === one.id && row.attempt)?.attempt ?? one.name)} sub={one.override ? sanitizeText(one.override) : undefined}
                 trail={state ? <RunStateChip state={state} /> : undefined} onClick={one.onOpen} />
             })}
-          </CardContent>
-        </Card>}
-        {request && <Card as="section">
-          <CardHeader>
-            <CardTitle className="flex min-w-0 flex-wrap items-center gap-2"><PullRequestIcon /><Text role="section">{`Pull request #${request.number}`}</Text>
-              {pr && <Chip tone={stateTone(pr.state).tone} stale={prRecord?.freshness.state !== 'fresh'}>{wordOf(pr.state)}</Chip>}
-            </CardTitle>
-            {request.url && <CardAction><Button variant="link" size="inline-link" onClick={() => openExternal(request.url!)}>Open</Button></CardAction>}
-          </CardHeader>
-          <CardContent><KeyValue variant="panel" className="grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-            {branch && <KeyValueRow label="Branch" variant="panel"><CodeText wrap>{sanitizeText(branch)}</CodeText></KeyValueRow>}
-            {pr && prRecord?.freshness.state !== 'fresh' && <KeyValueRow label="Observation" variant="panel">Earlier observation</KeyValueRow>}
-            {ci?.kind === 'ci' && <KeyValueRow label="Checks" variant="panel"><span className="inline-flex flex-wrap items-center gap-1">
+        </ToolSection>}
+        {request && <ToolSection label={`Pull request #${request.number}`} action={<>
+          {pr && <Chip tone={stateTone(pr.state).tone} stale={prRecord?.freshness.state !== 'fresh'}>{wordOf(pr.state)}</Chip>}
+          {request.url && <Button variant="link" size="inline-link" onClick={() => openExternal(request.url!)}>Open</Button>}
+        </>}><SummaryList surface="panel">
+            {branch && <SummaryItem label="Branch"><CodeText wrap>{sanitizeText(branch)}</CodeText></SummaryItem>}
+            {pr && prRecord?.freshness.state !== 'fresh' && <SummaryItem label="Observation">Earlier observation</SummaryItem>}
+            {ci?.kind === 'ci' && <SummaryItem label="Checks"><span className="inline-flex flex-wrap items-center gap-1">
               {[...new Set(ci.checks.map(one => one.state))].map((state, index) => <span key={state} className="inline-flex items-center gap-1">
                 {index > 0 && <Text role="meta">·</Text>}
                 <Text role="meta" numeric tone={state === 'pending' ? 'info' : state === 'cancelled' ? 'neutral' : stateTone(state).tone}>{`${ci.checks.filter(one => one.state === state).length} ${state}`}</Text>
               </span>)}
               {ci.checks.length === 0 && <Text role="meta">No checks</Text>}
-            </span></KeyValueRow>}
-            {diff?.kind === 'diff' && <KeyValueRow label="Changes" variant="panel"><ChangeStats added={diff.added} removed={diff.removed} /></KeyValueRow>}
-          </KeyValue></CardContent>
-        </Card>}
-        <Card as="section">
-          <CardHeader><CardTitle><Text role="section">Run</Text></CardTitle>{flowFile && <CardAction>{flowFile}</CardAction>}</CardHeader>
-          <CardContent><KeyValue variant="panel" className="grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
-            <KeyValueRow label="Flow" variant="panel">{sanitizeText(execution.document.flow.name)}{execution.revision ? ` · ${sanitizeText(execution.revision)}` : ''}</KeyValueRow>
-            {execution.base && <KeyValueRow label="Base" variant="panel">{sanitizeText(`${execution.base.remote} · ${execution.base.branch ?? 'Default branch'} · ${execution.base.at}`)}</KeyValueRow>}
-            {input.origin && <KeyValueRow label="Started by" variant="panel">{sanitizeText(input.origin)}</KeyValueRow>}
-            {budget && <KeyValueRow label="Budget" variant="panel"><Progress size="sm" value={closed} max={limit!} label={`${closed} of ${limit} rounds`} aria-label="Budget" /></KeyValueRow>}
-            {budget && <KeyValueRow label="Without progress" variant="panel"><Progress size="sm" value={idle} max={budget.withoutProgress} label={`${idle} of ${budget.withoutProgress} rounds`} aria-label="Without progress" /></KeyValueRow>}
-            {costSummary !== null && <KeyValueRow label="Cost" variant="panel">{costSummary}</KeyValueRow>}
-          </KeyValue>
+            </span></SummaryItem>}
+            {diff?.kind === 'diff' && <SummaryItem label="Changes"><ChangeStats added={diff.added} removed={diff.removed} /></SummaryItem>}
+          </SummaryList></ToolSection>}
+        <ToolSection label="Run" action={flowFile}><SummaryList surface="panel">
+            <SummaryItem label="Flow">{sanitizeText(execution.document.flow.name)}{execution.revision ? ` · ${sanitizeText(execution.revision)}` : ''}</SummaryItem>
+            {execution.base && <SummaryItem label="Base">{sanitizeText(`${execution.base.remote} · ${execution.base.branch ?? 'Default branch'} · ${execution.base.at}`)}</SummaryItem>}
+            {input.origin && <SummaryItem label="Started by">{sanitizeText(input.origin)}</SummaryItem>}
+            {budget && <SummaryItem label="Budget"><Progress size="sm" value={closed} max={limit!} label={`${closed} of ${limit} rounds`} aria-label="Budget" /></SummaryItem>}
+            {budget && <SummaryItem label="Without progress"><Progress size="sm" value={idle} max={budget.withoutProgress} label={`${idle} of ${budget.withoutProgress} rounds`} aria-label="Without progress" /></SummaryItem>}
+            {costSummary !== null && <SummaryItem label="Cost">{costSummary}</SummaryItem>}
+          </SummaryList>
           {extra && <div className="mt-2"><Words>{`Authorized after round ${extra.after}: ${extra.count ?? 1} more ${(extra.count ?? 1) === 1 ? 'round' : 'rounds'}\n${extra.reason}`}</Words></div>}
-          </CardContent>
-        </Card>
+        </ToolSection>
         {gaps.length > 0 && <div data-slot="run-recording-gaps"><SectionBody spacing="inline"><Text as="p" role="meta">{`This Run did not record: ${gaps.join(', ')}.`}</Text></SectionBody></div>}
       </div></PanelBody>
       <PanelFooter left="Recorded for this Run" right={`${execution.rounds.length} ${execution.rounds.length === 1 ? 'round' : 'rounds'}`} />
