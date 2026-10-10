@@ -17,6 +17,7 @@ import {
 
 import { errnoOf } from '../src/errno.js'
 import { Team, type TeamFlows, type TeamPeer, type TeamPort, type TeamSender, roomCap } from '../src/team.js'
+import { makeRepo } from './fixtures/evidence-desk.js'
 
 /**
  * The team plane, against a fake host port.
@@ -198,7 +199,13 @@ test('files are ownership: overlapping work is refused while the claim lives', a
 test('isolated checkouts may claim the same paths through every claim entry point (#1562)', async (t) => {
   const { team, port, room } = await rig(t)
   await twoAgents(port, team, room)
-  port.peers = port.peers.map(one => ({ ...one, cwd: one.sessionId === 'c1' ? '/repo/attempt-a' : '/repo/attempt-b' }))
+  const repo = await makeRepo('hd-team-checkouts-')
+  t.after(() => rm(repo.dir, { recursive: true, force: true }))
+  const isolated = join(repo.dir, 'attempt-b')
+  await repo.git('worktree', 'add', '--detach', isolated)
+  const nested = join(isolated, 'nested')
+  await mkdir(nested)
+  port.peers = port.peers.map(one => ({ ...one, cwd: one.sessionId === 'c1' ? repo.dir : nested }))
   await team.addIntent({ title: 'Attempt A', files: ['src/game.js'] }, codex)
   await team.addIntent({ title: 'Attempt B', files: ['src/game.js'] }, claude)
   assert.match(await team.claim(1, codex), /^Claimed #1/)
@@ -206,10 +213,42 @@ test('isolated checkouts may claim the same paths through every claim entry poin
   assert.match(await team.claimNext(claude), /^Claimed #2/)
   assert.match(await team.claim(1, codex, ['src/shared.js']), /now own src\/shared.js/)
   assert.match(await team.claim(2, claude, ['src/shared.js']), /now own src\/shared.js/)
-  // Public board projections omit the host-only cwd; the host passes its stored cards.
-  const cards = team.stateFor(room).intents.map(one => one.claim ? { ...one, claim: { ...one.claim, cwd: one.id === 1 ? '/repo/attempt-a' : '/repo/attempt-b' } } : one)
+  // Public projections omit cwd; preflight recovers the host's stored identity.
+  const cards = team.stateFor(room).intents.map(one => one.claim ? { ...one, claim: { ...one.claim, cwd: one.id === 1 ? repo.dir : isolated } } : one)
+  assert.equal(team.refuseOverlap(room, team.stateFor(room).intents, 2, 'claude', 'k1'), null)
   assert.equal(team.refuseOverlap(room, cards, 2, 'claude', 'k1'), null)
   assert.match(team.refuseOverlap(room, cards, 2, 'other', 'other') ?? '', /overlap a live claim/, 'unknown checkouts cannot bypass ownership')
+  const legacy = cards.map(one => one.claim ? { ...one, claim: { ...one.claim, cwd: undefined } } : one)
+  assert.match(team.refuseOverlap('unloaded-board', legacy, 2, 'claude', 'k1', isolated) ?? '', /overlap a live claim/, 'old claims without a host identity still contend')
+})
+
+test('working in different subdirectories of one checkout still contends (#1562)', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  const repo = await makeRepo('hd-team-subdirectories-')
+  t.after(() => rm(repo.dir, { recursive: true, force: true }))
+  const left = join(repo.dir, 'left'), right = join(repo.dir, 'right')
+  await mkdir(left)
+  await mkdir(right)
+  const alias = join(repo.dir, 'alias')
+  await symlink(right, alias)
+  port.peers = port.peers.map(one => ({ ...one, cwd: one.sessionId === 'c1' ? left : alias }))
+  await team.addIntent({ title: 'First', files: ['src/game.js'] }, codex)
+  await team.addIntent({ title: 'Second', files: ['src/game.js'] }, claude)
+  await team.claim(1, codex)
+  assert.match(await team.conflicts(['src/game.js'], claude), /^Conflicts:/)
+  assert.match(await team.claim(2, claude), /overlap a live claim/)
+  assert.match(await team.claimNext(claude), /Nothing to take right now/)
+})
+
+test('unresolved checkout folders cannot bypass claims (#1562)', async (t) => {
+  const { team, port, room } = await rig(t)
+  await twoAgents(port, team, room)
+  port.peers = port.peers.map(one => ({ ...one, cwd: join('/missing-checkouts', one.sessionId) }))
+  await team.addIntent({ title: 'First', files: ['src/game.js'] }, codex)
+  await team.addIntent({ title: 'Second', files: ['src/game.js'] }, claude)
+  await team.claim(1, codex)
+  assert.match(await team.claim(2, claude), /overlap a live claim/)
 })
 
 test('checkout aliases and old claims without a checkout still contend (#1562)', async (t) => {

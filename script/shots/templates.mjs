@@ -248,6 +248,16 @@ try {
         evidence.at(-1).reviewCommentUrl = comments[0].html_url
       }
       await expect(page.getByText(template === 'comparison' ? 'Rounds 4 of 4' : 'Rounds 3 of 7', { exact: true })).toBeVisible()
+      // The board settles before the final turn/activity event reaches the
+      // sidebar. Capture the finished Goal only once both surfaces agree.
+      await page.waitForFunction(({ goal, run }) => {
+        const snapshot = window.__hdStore.getSnapshot()
+        return snapshot.flowExecutions.get(run)?.state === 'settled' &&
+          snapshot.goals.has(goal) && snapshot.goals.get(goal).activity !== 'working'
+      }, { goal: run.goal, run: run.id })
+      // The rig uses the active list: a finished Team leaves that sidebar.
+      await expect(page.getByRole('button', { name: `Room ${task}`, exact: true })).toHaveCount(0, { timeout: 30000 })
+      evidence.at(-1).settledSidebar = true
       await photograph('13-finished-overview')
       await tab('Run')
       await page.getByRole('radio', { name: 'Timeline', exact: true }).click()

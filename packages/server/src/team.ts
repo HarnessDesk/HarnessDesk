@@ -42,6 +42,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { blockedByCaller, carryCardWork, retainedWorkExpired, RETAINED_WORK_MS } from './card-claims.js'
+import { claimCheckout } from './claim-checkouts.js'
 import { errnoOf, NOTHING_YET } from './errno.js'
 import { MemberWaits, type MemberStatus } from './goals/member-waits.js'
 import { memberNames } from './goals/members.js'
@@ -4438,6 +4439,11 @@ export class Team {
     const hits: string[] = []
     const cleanPaths = Array.isArray(paths) ? paths : []
     if (cleanPaths.length === 0) return hits
+    const checkouts = new Map<string, string | null>()
+    const checkoutOf = (cwd: string): string | null => {
+      if (!checkouts.has(cwd)) checkouts.set(cwd, claimCheckout(cwd))
+      return checkouts.get(cwd) ?? null
+    }
     for (const intent of intents) {
       if (intent.state !== 'claimed' || !intent.claim) continue
       if (intent.claim.runtime === caller.runtime && intent.claim.sessionId === caller.sessionId) {
@@ -4450,13 +4456,18 @@ export class Team {
          found. A claim that can be taken over has already stopped owning
          things; the two rules have to agree. */
       if (this.#stranded(intent)) continue
-      // Relative paths belong to the checkout that claimed them, not the
-      // whole board. Older claims without a cwd still contend conservatively.
-      if (caller.cwd && intent.claim.cwd && !sameCanonicalPath(caller.cwd, intent.claim.cwd)) continue
       const ownedFiles = Array.isArray(intent.files) ? intent.files : []
       if (ownedFiles.length === 0) continue
       const overlap = ownedFiles.some((owned) => cleanPaths.some((path) => overlaps(owned, path)))
       if (overlap) {
+        // Assignment preflight receives wire-safe cards. Read only the cwd
+        // from the host's claim, and only for the same card and claim owner.
+        const stored = board?.intents.find(one => one.id === intent.id)?.claim
+        const cwd = intent.claim.cwd ?? (stored?.runtime === intent.claim.runtime && stored?.sessionId === intent.claim.sessionId ? stored.cwd : undefined)
+        if (caller.cwd && cwd && !sameCanonicalPath(caller.cwd, cwd)) {
+          const callerCheckout = checkoutOf(caller.cwd), heldCheckout = checkoutOf(cwd)
+          if (callerCheckout && heldCheckout && callerCheckout !== heldCheckout) continue
+        }
         hits.push(`${ownedFiles.join(', ')} is held by #${intent.id}${board ? ` (${this.#holderName(board, intent)})` : ''}`)
       }
     }
