@@ -17,19 +17,20 @@ import {
 import { CheckIcon, ChevronIcon } from '../../components/Icons'
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
+  DropdownMenuCheckboxControl,
   DropdownMenuItem,
   DropdownMenuPopup,
   DropdownMenuPortal,
   DropdownMenuPositioner,
   DropdownMenuSub,
   DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
+  DropdownMenuSubControl,
 } from '../ui/dropdown-menu'
+import { MenuRowContent, menuRowAttributes, useMenuPresentation, type MenuIcons } from '../ui/menu-row'
 import { SwitchShape } from '../ui/switch'
 import type { Tone } from '../ui/tone'
 import { useDismissOverlays } from './Popover'
-import { Text } from './Settings'
+import { Text, Chip } from './Settings'
 
 import styles from './Menu.module.css'
 
@@ -140,6 +141,7 @@ const FIRST_ROW =
  * it after the last.
  */
 export const Menu = ({ close, onEscape, children }: { close: () => void; onEscape?: () => void; children: ReactNode }) => {
+  const presentation = useMenuPresentation()
   const scope = useMemo<Scope>(() => ({ close }), [close])
   const level = useRef<HTMLDivElement>(null)
   const host = useRef<HTMLDivElement>(null)
@@ -165,6 +167,7 @@ export const Menu = ({ close, onEscape, children }: { close: () => void; onEscap
   return (
     <div ref={host} className={styles.levelHost}>
       <DropdownMenu
+        {...presentation}
         open
         onOpenChange={(open, details) => {
           // Item presses close through the typed row contract below; asking
@@ -207,13 +210,8 @@ export const Menu = ({ close, onEscape, children }: { close: () => void; onEscap
   )
 }
 
-export const MenuNote = ({ children }: { children: ReactNode }) => (
-  <div className={styles.note}>{children}</div>
-)
-
-export const MenuLabel = ({ children, size = 'default' }: { children: ReactNode; size?: 'default' | 'compact' }) => (
-  <div className={styles.label} data-size={size}>{children}</div>
-)
+export const MenuNote = ({ children }: { children: ReactNode }) => <div data-menu-note="">{children}</div>
+export const MenuLabel = ({ children, size = 'default' }: { children: ReactNode; size?: 'default' | 'compact' }) => <div data-menu-group="" data-size={size}>{children}</div>
 
 /**
  * Several accounts of one agent, under one heading. `heading={false}` keeps
@@ -258,7 +256,7 @@ export const MenuAccountGroup = ({
   )
 }
 
-export const MenuSeparator = () => <div className={styles.separator} role="separator" />
+export const MenuSeparator = () => <div data-menu-separator="" role="separator" />
 
 export const MenuItem = ({
   ref,
@@ -270,6 +268,9 @@ export const MenuItem = ({
   value,
   title,
   badge,
+  trailing,
+  meter,
+  hintId,
   selected,
   teamPage,
   current,
@@ -291,7 +292,10 @@ export const MenuItem = ({
   shortcut?: string
   value?: ReactNode
   title?: string
-  badge?: string
+  badge?: ReactNode
+  trailing?: ReactNode
+  meter?: ReactNode
+  hintId?: string
   selected?: boolean
   teamPage?: string
   /** Marks the app's current account/session independently of checked semantics. */
@@ -317,14 +321,21 @@ export const MenuItem = ({
       ref={ref}
       render={<button type="button" disabled={Boolean(disabled)} />}
       nativeButton
-      className={`${styles.row}${className ? ` ${className}` : ''}`}
       role={selected === undefined ? 'menuitem' : 'menuitemradio'}
       {...(selected === undefined ? {} : { 'aria-checked': selected })}
       {...(danger ? { 'data-danger': '' } : {})}
       {...(current ? { 'data-current': '', 'aria-current': true } : {})}
       {...(expanded === undefined ? {} : { 'aria-expanded': expanded })}
       {...(reason ? { 'aria-describedby': reasonId } : {})}
+      className={className}
       data-layout={layout}
+      label={layout === 'default' ? label ?? children : <span data-menu-rich-row="" className={styles.richRow}>{label ?? children}</span>}
+      icon={icon}
+      hint={reason ?? hint}
+      hintId={reason ? reasonId : hintId}
+      badge={typeof badge === 'string' ? <Chip size="sm" tone="neutral">{badge}</Chip> : badge}
+      meter={meter}
+      trailing={trailing ?? <>{value}{shortcut}{selected !== undefined && <span aria-hidden="true">{selected && <CheckIcon size={16} />}</span>}</>}
       disabled={Boolean(disabled)}
       title={reason ?? title}
       closeOnClick={!keepOpen}
@@ -335,27 +346,7 @@ export const MenuItem = ({
         onSelect()
         if (!keepOpen) scope.close()
       }}
-    >
-      {children ?? (
-        <>
-          {icon !== undefined && <span className={styles.icon}>{icon}</span>}
-          <span className={styles.body}>
-            <span className={styles.title}>
-              {label}
-              {badge && <span className={styles.badge}>{badge}</span>}
-            </span>
-            {(reason ?? hint) && (
-              <span id={reason ? reasonId : undefined} className={styles.hint}>{reason ?? hint}</span>
-            )}
-          </span>
-          {value !== undefined && <span className={styles.value}>{value}</span>}
-          {shortcut && <span className={styles.shortcut}>{shortcut}</span>}
-          {selected !== undefined && (
-            <span className={styles.check} aria-hidden="true">{selected && <CheckIcon size={15} />}</span>
-          )}
-        </>
-      )}
-    </DropdownMenuItem>
+    />
   )
 }
 
@@ -453,12 +444,13 @@ export const MenuToggle = ({
   onChange: (next: boolean) => void
 }) => {
   const reason = typeof disabled === 'string' ? disabled : undefined
+  const data = { icon, label, hint: reason ?? hint, trailing: <>{value}<SwitchShape checked={checked} size="sm" disabled={Boolean(disabled)} /></> }
   return (
-    <DropdownMenuCheckboxItem
+    <DropdownMenuCheckboxControl
+      data-slot="dropdown-menu-checkbox-item"
       render={<button type="button" disabled={Boolean(disabled)} />}
       nativeButton
-      indicator={false}
-      className={styles.row}
+      {...menuRowAttributes(data)}
       role="switch"
       checked={checked}
       disabled={Boolean(disabled)}
@@ -466,14 +458,8 @@ export const MenuToggle = ({
       closeOnClick={false}
       onCheckedChange={(next) => onChange(next)}
     >
-      {icon !== undefined && <span className={styles.icon}>{icon}</span>}
-      <span className={styles.body}>
-        <span className={styles.title}>{label}</span>
-        {(hint ?? reason) && <span className={styles.hint}>{hint ?? reason}</span>}
-      </span>
-      {value !== undefined && <span className={styles.value}>{value}</span>}
-      <SwitchShape checked={checked} size="sm" disabled={Boolean(disabled)} />
-    </DropdownMenuCheckboxItem>
+      <MenuRowContent {...data} />
+    </DropdownMenuCheckboxControl>
   )
 }
 
@@ -483,7 +469,8 @@ export const Submenu = ({
   hint,
   value,
   disabled,
-  width,
+  width: _width,
+  icons: childIcons = 'none',
   children,
 }: {
   icon?: ReactNode
@@ -492,9 +479,12 @@ export const Submenu = ({
   value?: ReactNode
   disabled?: string | boolean
   width?: number
+  icons?: MenuIcons
+  wide?: boolean
   children: ReactNode
 }) => {
   const reason = typeof disabled === 'string' ? disabled : undefined
+  const data = { icon, label, hint: reason ?? hint, trailing: <>{value}<ChevronIcon size={16} /></> }
   const row = useRef<HTMLButtonElement>(null)
   const flyout = useRef<HTMLDivElement | null>(null)
   const closedBy = useRef<string | null>(null)
@@ -585,11 +575,12 @@ export const Submenu = ({
         }
       }}
     >
-      <DropdownMenuSubTrigger
+      <DropdownMenuSubControl
+        data-slot="dropdown-menu-sub-trigger"
         ref={row}
         render={<button type="button" disabled={Boolean(disabled)} />}
         nativeButton
-        className={styles.row}
+        {...menuRowAttributes(data)}
         disabled={Boolean(disabled)}
         title={reason}
         openOnHover
@@ -617,14 +608,8 @@ export const Submenu = ({
           onward.find((candidate) => !passedOver(candidate))?.focus()
         }}
       >
-        {icon !== undefined && <span className={styles.icon}>{icon}</span>}
-        <span className={styles.body}>
-          <span className={styles.title}>{label}</span>
-          {(hint ?? reason) && <span className={styles.hint}>{hint ?? reason}</span>}
-        </span>
-        {value !== undefined && <span className={styles.value}>{value}</span>}
-        <ChevronIcon size={14} className={styles.chevron} />
-      </DropdownMenuSubTrigger>
+        <MenuRowContent {...data} />
+      </DropdownMenuSubControl>
       {/* Beside its row, or over the menu at its row — never above or below
           it. With no room on either side Base UI turned the flyout onto the
           other axis, over the menu's other rows, and the way there crossed
@@ -635,8 +620,7 @@ export const Submenu = ({
           itself, and the pointer reaches it without leaving the row. */}
       <DropdownMenuSubContent
         ref={placeFlyout}
-        className={styles.flyout}
-        style={width ? { width } : undefined}
+        icons={childIcons}
         collisionAvoidance={{ fallbackAxisSide: 'none' }}
         sticky
       >
@@ -672,11 +656,15 @@ export const useContextMenu = (): {
 }
 
 export const ContextMenu = ({
+  icons = 'none',
+  wide = false,
   at,
   label,
   onClose,
   children,
 }: {
+  icons?: MenuIcons
+  wide?: boolean
   at: MenuPoint | null
   label: string
   onClose: () => void
@@ -732,6 +720,8 @@ export const ContextMenu = ({
 
   return (
     <DropdownMenu
+      icons={icons}
+      wide={wide}
       open={at !== null}
       onOpenChange={(open, details) => {
         if (open) return
@@ -768,6 +758,8 @@ export const ContextMenu = ({
             <DropdownMenuPopup
               ref={panel}
               className={styles.surface}
+              data-popup-kind={wide ? 'wide-menu' : 'menu'}
+              data-menu-icons={icons}
               aria-label={label}
               finalFocus={false}
               onContextMenu={(event) => event.preventDefault()}

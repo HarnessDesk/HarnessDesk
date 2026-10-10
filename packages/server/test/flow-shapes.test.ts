@@ -145,22 +145,15 @@ test('renaming every role, and reordering equivalent role declarations, changes 
   assert.deepEqual(topologyOf(reordered), originalTopology, 'reordered role declarations compile to the identical shape')
 })
 
-test('mechanical-contest maps exit statuses to declared winners with no "winner" branch in the engine', async () => {
+test('mechanical-contest starts without a desk-specific script and lets the person choose when checks are skipped', async () => {
   const agents = await agentsOf()
   const source = await readFile(join(builtinFlowRoot(), 'mechanical-contest.yml'), 'utf8')
   const compiled = compileShape(source, agents)
   const document = compiled.document
   if (document.format !== 'agents') throw new Error('expected the current format')
-  const decide = document.flow.roles.find((role) => role.kind === 'check')
-  assert.ok(decide?.kind === 'check')
-  // The mapping lives entirely in ordinary file data — exits, and the rules
-  // reading their answers — never a kind the engine special-cases. A draw is
-  // its own distinct outcome, routed to a person; a missing result (the
-  // script's own error, `otherwise`) is not itself routed anywhere.
-  assert.deepEqual(decide.check.exits, { '0': 'first', '1': 'second', '2': 'draw' })
-  assert.equal(decide.check.otherwise, 'no-contest')
-  assert.ok(document.flow.rules.some((rule) => rule.when?.every?.includes('draw')), 'a draw is routed, distinctly from a missing result')
-  assert.ok(!document.flow.rules.some((rule) => rule.when?.every?.includes('no-contest') || rule.when?.any?.includes('no-contest')), 'a missing result opens nothing — it is not itself routed anywhere')
+  assert.doesNotMatch(source, /script\/flow-contest\.sh|pnpm verify/)
+  assert.equal(document.flow.roles.some(role => role.kind === 'check'), false)
+  assert.deepEqual(document.flow.rules, [{ id: 'to-person', on: 'competitor', then: { role: 'referee', title: 'Choose and merge an attempt' } }])
 })
 
 test('unattended: a topology only ever started by hand today, with its future trigger recorded rather than switched on', () => {

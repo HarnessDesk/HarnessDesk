@@ -79,7 +79,7 @@ const runtimesRow = (): HTMLElement | undefined =>
   [...container.querySelectorAll('button')].find((node) => node.textContent?.trim().startsWith('Runtimes'))
 
 const dotOf = (row: HTMLElement | undefined): Element | null =>
-  row?.closest('[data-slot="sidebar-menu-item"]')?.querySelector('[data-slot="dot"]') ?? null
+  row?.closest('[data-left-row]')?.querySelector('[data-slot="dot"]') ?? null
 
 it('does not light for an agent that has not answered yet', () => {
   // Absent from accountsByRuntime altogether: still loading, or a read that
@@ -93,4 +93,16 @@ it('lights for an agent that answered and confirmed nobody is signed in', () => 
   const dot = dotOf(runtimesRow())
   expect(dot).not.toBeNull()
   expect(dot?.getAttribute('data-state')).toBe('signin')
+})
+
+
+it('uses the left-column anatomy for the existing Settings pages and groups', () => {
+  mount({})
+  const nav = container.querySelector('[aria-label="Window navigation"]')!
+  expect(nav.querySelectorAll('[data-left-group]')).toHaveLength(5)
+  const row = runtimesRow()!
+  expect(row.closest('[data-left-row]')).not.toBeNull()
+  expect(row.closest('[data-left-row]')?.querySelectorAll('[data-left-trailing]')).toHaveLength(1)
+  expect([...nav.querySelectorAll('[data-left-group-text]')].map(node => node.textContent))
+    .toEqual(['General', 'Conversations', 'Agents', 'Capabilities', 'Access'])
 })

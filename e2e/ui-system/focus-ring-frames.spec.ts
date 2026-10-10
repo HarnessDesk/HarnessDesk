@@ -29,9 +29,9 @@ for (const theme of ['light', 'dark'] as const) {
       await safe()
       await sidebar.screenshot({ path: `${folder}/after-sidebar-keyboard-${theme}.png` })
     }
-    const label = 'Draft the 2.5 migration notes after reviewing the sidebar target behavior'
-    const conversation = sidebar.locator('[data-region="session-row"] [data-slot="sidebar-menu-item"]')
-      .filter({ has: page.getByRole('button', { name: `Actions for ${label}`, exact: true }) })
+    const label = 'Pin the flaky inventory test after reconciling every retry branch'
+    const conversation = sidebar.locator('[data-region="session-row"] [data-left-row]')
+      .filter({ has: page.getByRole('button', { name: `Actions for ${label}`, exact: true, includeHidden: true }) })
       .locator('[data-slot="sidebar-menu-button"]')
     await conversation.hover()
     await sidebar.getByRole('button', { name: `Actions for ${label}`, exact: true }).click()

@@ -192,8 +192,9 @@
   align-items: center; /* desk: flex-start → center so a one-line notice shares the controls' midpoint */
   gap: var(--hd-space-2-5);
   min-height: var(--hd-space-10);
-  /* The dismiss glyph shares the composer toolbar's trailing inset. */
-  padding: var(--hd-space-1-5) var(--hd-space-2) var(--hd-space-1-5) var(--hd-space-2); /* desk: trailing inset 6px → 8px to share Send’s column */
+  /* The send coin is start-aligned in its reserved track. Share its actual
+     trailing edge without changing the composer's recorded geometry. */
+  padding: var(--hd-space-1-5) calc(var(--hd-space-2) + var(--hd-composer-track-send) - var(--hd-composer-send-size)) var(--hd-space-1-5) var(--hd-space-2); /* desk: dismiss inset follows Send's track clearance */
   border-radius: var(--hd-radius-xl);
   background: var(--hd-muted);
   font-size: var(--hd-text-sm);

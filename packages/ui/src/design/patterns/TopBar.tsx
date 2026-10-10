@@ -101,7 +101,7 @@ export const TopBar = (props: TopBarProps) => {
     previousFold.current = fold
   }, [fold])
   const current = props.tabs?.find(one => one.value === props.tab)
-  return <Bar as="header" corner={props.corner} rule="bottom" className={`${styles.bar} hd-drag`}>
+  return <Bar as="header" data-content-inset="frame" corner={props.corner} rule="bottom" className={`${styles.bar} hd-drag`}>
     <div data-slot="top-bar" data-fold={fold} className={styles.row} ref={node => { root.current = node }}>
       <div data-topbar="lead" className={styles.fixed}>{props.lead}</div>
       <div data-topbar="place" className={styles.place}>

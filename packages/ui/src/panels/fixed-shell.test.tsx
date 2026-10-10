@@ -33,6 +33,11 @@ beforeEach(() => {
   // browser contracts and ComposerControls.narrow test their geometry/folds.
   const tokens = new Map([...foundationTokens.matchAll(/(--hd-[\w-]+):\s*([\d.]+px)/g)].map(([, name, value]) => [name!, value!]))
   const computed = getComputedStyle
+  const bounds = HTMLElement.prototype.getBoundingClientRect
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this.matches('[data-topbar-title]')) return { ...bounds.call(this), width: FRAME.bar.titleMin } as DOMRect
+    return bounds.call(this)
+  })
   vi.spyOn(globalThis, 'getComputedStyle').mockImplementation((node, pseudo) => {
     if (node.matches('[data-slot="top-bar"]')) return { getPropertyValue: name => name === '--hd-bar-title-min' ? `${FRAME.bar.titleMin}px` : '' } as CSSStyleDeclaration
     if (node.matches('[data-slot="composer-tools"]')) return {
@@ -600,7 +605,9 @@ it.each(['details', 'close'] as const)('B7 hidden fixed Browser cannot consume s
   expect(hidden.hasAttribute('inert')).toBe(true)
   expect(hidden.hasAttribute('data-hidden')).toBe(true)
   expect(hidden.querySelector('[aria-label="Address"]')).toBe(address)
-  // The store may still name the Browser as focused; hidden policy must win.
+  // Deliberately name the hidden Browser as focused: its visibility policy
+  // must win even when logical focus has not followed the closed panel.
+  act(() => store.focusView(entry.id))
   expect(store.getSnapshot().workbench.focus).toBe(entry.id)
   const shortcut = new KeyboardEvent('keydown', { key: 't', metaKey: true, bubbles: true, cancelable: true })
   act(() => document.dispatchEvent(shortcut))

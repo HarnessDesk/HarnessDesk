@@ -7,6 +7,7 @@ import { TRIGGER_DAILY_USD_MAX, TRIGGER_ID } from './intake.js'
 import type { TriggerBudget, TriggerCommentFrom, TriggerDefinition, TriggerField, TriggerOn, TriggerSource } from './intake.js'
 import { QUESTION_WAIT_PREFERENCE, QUESTION_WAITS } from './question-wait.js'
 import { CEILING_LEVELS } from './ceiling.js'
+import { INSIGHT_GOALS_LIMIT } from './insight.js'
 import type {
   ClientToHost,
   GitWorktreeCheckout,
@@ -870,13 +871,14 @@ const insightSelector = goalShape({
   briefDigest: nullableString,
   seat: (value: unknown, path = '') => value === null ? null : flowSeatValidator(value, path),
 })
-const insightGoals: Validator<string[]> = (value, path = '') => {
+const distinctGoals = (limit: number): Validator<string[]> => (value, path = '') => {
   const goals = arrayOf(goalId)(value, path)
-  if (goals.length === 0 || goals.length > 50 || new Set(goals).size !== goals.length) {
-    throw new ValidationError(path, 'expected 1 to 50 distinct Goal ids')
+  if (goals.length === 0 || goals.length > limit || new Set(goals).size !== goals.length) {
+    throw new ValidationError(path, `expected 1 to ${limit} distinct Goal ids`)
   }
   return goals
 }
+const insightGoals = distinctGoals(50)
 const insightCompare = (value: unknown, path = '') => {
   const object = isObject(value, path)
   const query = insightQuery({ root: object.root, from: object.from, to: object.to }, path)
@@ -886,6 +888,7 @@ const insightCompare = (value: unknown, path = '') => {
 }
 const insightValidators = {
   'insight/goal': goalShape({ goal: goalId }),
+  'insight/goals': goalShape({ goals: distinctGoals(INSIGHT_GOALS_LIMIT) }),
   'insight/usage': insightQuery,
   'insight/agent': goalShape({ root: optional(atMost(4096, isFilled)), agent: goalIdentifier, origin: literalUnion('project', 'user', 'builtin') }),
   'insight/compare': insightCompare,

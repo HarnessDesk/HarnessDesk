@@ -9,7 +9,7 @@ import { PaneProvider, StoreProvider, useSnapshot } from '../state/context'
 import { MountProvider } from '../panels/mount'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import type { Notice as StoreNotice } from '../state/snapshot'
-import { emptyWorkbench, type Workbench } from '../state/workbench'
+import { emptyWorkbench, fixedSubject, type Workbench } from '../state/workbench'
 import type { PaneView } from '../state/layout'
 import { afterDismiss, emptyNoticePolicy, withKept, withMuted, withoutKept, withSurface, type NoticeIdentity } from '../lib/notice-policy'
 import { kept as keptInInbox, type InboxEntry } from '../lib/inbox'
@@ -409,8 +409,10 @@ const workbenchFocusedOn = (paneId: string, view: PaneView): Workbench => ({
 
 const narrowOverlayOnFocusedComposer = (view: PaneView): Workbench => {
   const workbench = workbenchFocusedOn('focused-pane', view)
+  const subject = fixedSubject(workbench.main)!
   return {
     ...workbench,
+    frameTools: { [subject]: { open: true, tool: 'activity', mode: 'activity' } },
     right: {
       ...workbench.right,
       root: {
@@ -468,12 +470,12 @@ it('a standing condition shows on the composer that is focused, and on no other 
   expect(container.querySelector('[data-testid="beside"]')?.textContent).toBe('')
 })
 
-it('puts a composer notice in the strip when a narrow window covers its focused composer', () => {
+it('keeps a composer notice in its visible composer beside a nonmodal floating tool', () => {
   const store = mountNarrowOverlay()
 
   expect(container.querySelectorAll('[data-slot="composer-notice"], [data-slot="notice-strip"]')).toHaveLength(1)
-  expect(container.querySelector('[data-slot="notice-strip"]')).not.toBeNull()
-  expect(container.querySelector('[data-slot="composer-notice"]')).toBeNull()
+  expect(container.querySelector('[data-slot="notice-strip"]')).toBeNull()
+  expect(container.querySelector('[data-slot="composer-notice"]')).not.toBeNull()
   expect(container.textContent).toContain('will run out before it refills')
   expect(store.policy().seen).toEqual([])
 })

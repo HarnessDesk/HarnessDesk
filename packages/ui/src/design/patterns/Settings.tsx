@@ -861,14 +861,16 @@ export const NavigationGroupHeader = ({
    * header adds back in (`--hd-bar-ink`). A rail with no bar of its own,
    * such as the app window's nav, reads `'nav'` instead: the row's own
    * `--hd-nav-inset`, the same number `Button size="navigation"` uses.
+   * `'row'` answers to the frame's fixed icon edge inside an inset column.
    */
-  inset?: 'bar' | 'nav'
+  inset?: 'bar' | 'nav' | 'row'
   labelInk?: 'secondary' | 'muted'
   children?: ReactNode
 }) => (
   <GroupLabel as="div" surface="navigation" navigationInset={inset}
     {...props}
     data-slot="navigation-group-header"
+    data-surface=""
     {...(filtering ? { 'data-filtering': '' } : {})}
     {...(keepLabelWhenFiltering ? { 'data-keep-label': '' } : {})}
     {...(inset === 'nav' ? { 'data-inset': 'nav' } : {})}

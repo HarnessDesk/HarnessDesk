@@ -1,5 +1,7 @@
 import { installFramePreviewFixture } from './frame-preview-fixture'
 import { applyFrameActions, settleFrameBar } from './frame-actions'
+import { applyLeftColumnActions } from './left-column-actions'
+import { applySettingsNavigationActions } from './left-column-actions'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
@@ -57,6 +59,10 @@ for (const destination of WALL_DESTINATIONS) {
           // Suspense still shows loading text; capture the recorded drawing.
           await expect(page.locator('[data-slot="workbench-main"] [data-slot="flow-canvas"] .react-flow__node')).toHaveCount(4)
         }
+        await applyLeftColumnActions(page, destination)
+        await applySettingsNavigationActions(page, destination)
+        if ('composerAdd' in destination) await openWallDestination(page, destination)
+        if ('popup' in destination) await openWallDestination(page, destination)
         await page.evaluate(async () => { await document.fonts.ready })
         // TopBar measures its two folds over animation frames. Capture the
         // measured contract, rather than its initial unmeasured tab row.
@@ -78,3 +84,5 @@ for (const destination of WALL_DESTINATIONS) {
     })
   }
 }
+
+import { openWallDestination } from './frame-wall-actions'

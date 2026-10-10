@@ -118,6 +118,7 @@ export const Workbench = ({ sidebar, suspended = false }: { sidebar: ReactNode; 
   const mainFocus = useRef<{ target: HTMLElement; paneId: string; view: PaneView } | null>(null)
   const rightPanelFocus = useRef<HTMLElement | null>(null)
   const wasRightPanelDrawn = useRef(false)
+  const wasBottomPanelDrawn = useRef(false)
 
   /*
    * Where the sidebar is, and whether it is on screen at all. A narrow window
@@ -137,12 +138,14 @@ export const Workbench = ({ sidebar, suspended = false }: { sidebar: ReactNode; 
 
   useLayoutEffect(() => {
     if (suspended) return
-    if (rightPanelDrawn(workbench)) {
-      wasRightPanelDrawn.current = true
-      return
-    }
-    if (!wasRightPanelDrawn.current) return
-    wasRightPanelDrawn.current = false
+    const rightDrawn = rightPanelDrawn(workbench)
+    const bottomDrawn = !workbench.bottom.collapsed && areaVisible(workbench, 'bottom') &&
+      dockViews(workbench.bottom).some(one => one.view.kind === 'terminal')
+    const rightClosed = wasRightPanelDrawn.current && !rightDrawn
+    const bottomClosed = wasBottomPanelDrawn.current && !bottomDrawn
+    wasRightPanelDrawn.current = rightDrawn
+    wasBottomPanelDrawn.current = bottomDrawn
+    if (!rightClosed && !bottomClosed) return
     // A right panel has no resting strip, so hiding it returns focus to the
     // conversation target it displaced. This covers both wide docks and the
     // narrow overlay; widening alone leaves the panel drawn.
@@ -151,6 +154,7 @@ export const Workbench = ({ sidebar, suspended = false }: { sidebar: ReactNode; 
     const active = document.activeElement
     const focusWasStranded = active === document.body || (
       active instanceof HTMLElement && (
+        (rightClosed && active.matches('[data-work-panel-toggle]')) ||
         active === rightPanelFocus.current ||
         (!active.isConnected && rightPanelFocus.current?.contains(active) === true)
       )

@@ -82,10 +82,10 @@ test('a path gives up its middle and a sentence wraps, inside a narrow dialog', 
   expect(laid.headCut).toBe(true)
   expect(laid.headShown).toBeGreaterThan(10)
   expect(laid.tailWhole).toBe(true)
-  // Mixed facts start on one value edge; a numeric-only list aligns by place.
+  // Prose shares its value edge; numeric facts align by place in either list.
   expect(laid.sentenceAlign).toMatch(/^(left|start)$/)
   expect(laid.sentenceLines).toBeGreaterThan(1)
-  expect(laid.moneyAlign).toMatch(/^(left|start)$/)
+  expect(laid.moneyAlign).toMatch(/^(right|end)$/)
   expect(laid.numericAlign).toHaveLength(2)
   for (const alignment of laid.numericAlign) expect(alignment).toMatch(/^(right|end)$/)
   // One key column, one value column.

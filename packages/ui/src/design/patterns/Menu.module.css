@@ -1,7 +1,3 @@
-/* One set of rows for every menu with depth: the model control, the
-   workspace menu, and whatever comes next. A level inside a Popover borrows
-   its panel; a flyout and a context menu bring their own. */
-
 .level {
   display: block;
 }
@@ -10,90 +6,26 @@
   display: block;
 }
 
-.surface,
-.flyout {
-  /* A floating panel is never a handle for moving the window. Electron's
-     drag region is geometric, not a matter of ancestry: the pane strip and
-     the conversation header each contribute one draggable rectangle, and a
-     panel that opens over one is inert unless it punches its own hole —
-     the trigger's `no-drag` only covers the trigger's own box. That is why
-     a right-click menu on a tab could be drawn but not clicked. */
-  -webkit-app-region: no-drag;
-
-  /* Narrow enough that a short menu — density, agent, sort — sizes to its
-     own words the way Codex's does, instead of holding a fixed slab open. */
-  min-width: var(--hd-menu-min);
-  max-width: 380px;
-  max-height: calc(100vh - 16px);
-  overflow-y: auto;
-  padding: 4px;
-  border-radius: var(--hd-radius);
-  background: var(--hd-card);
-  box-shadow:
-    var(--hd-shadow), /* desk: 0 10px 30px rgba(0,0,0,.2) -> one floating rung */
-    inset 0 0 0 1px var(--hd-border-strong);
-}
-
 .contextPositioner {
   z-index: var(--hd-z-popover);
 }
 
-.flyout {
-  min-width: var(--hd-menu-min);
-}
-
-.submenu {
-  position: relative;
-}
-
-/* Menu rows read at the size everything else does: the sidebar's list, the
-   transcript, and the menus over them are one interface, not a document with
-   fine print attached. */
-.row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: var(--hd-row-h);
-  padding: var(--hd-space-1) var(--hd-nav-inset); /* desk: 10 → 8 inline, every part of a menu starts its words on one edge: a row button's */
-  border: none;
-  border-radius: var(--hd-menu-row-radius); /* desk: 10 → 6, parallel to the menu's corner: its radius less its padding */
-  background: none;
-  color: var(--hd-foreground);
-  cursor: pointer;
-  text-align: left;
-  font-size: var(--hd-text-sm); /* desk: var(--hd-text) → var(--hd-text-sm), menu rows use the chrome step */
-  line-height: var(--hd-line-sm); /* desk: var(--hd-line) → var(--hd-line-sm), the line follows its type step */
-}
-
-/* An account menu has two rows whose content is taller than the ordinary
-   one-line action. Their padding is part of that anatomy, not the menu that
-   happens to contain them.
-
-   The profile row's own 30px face already reaches the row floor
-   (`--hd-row-h`) a plain row only gets to by its `min-height`, so adding the
-   same vertical padding an ordinary row keeps made this one taller still —
-   panel padding (4px) plus this row's own 8px landed its centred name 18px
-   under the panel's top edge, against the last plain row's centred label
-   sitting 9-10px over the bottom one: the menu the seat opens, top-heavy by
-   design rather than by mistake. Dropping the vertical padding here (the
-   horizontal stays, so the face keeps its own breathing room) lets the face
-   set the row's height exactly the way a plain row's `min-height` already
-   does, and the two edges land the same. */
-.row[data-layout='profile'] {
+[data-menu-row][data-layout='profile'] {
   padding: 0 var(--hd-space-2); /* desk: 8px all sides → 0 vertical, the 30px face sets the row's height the way a plain row's min-height already does */
 }
 
-.row[data-layout='account'] {
+[data-menu-row][data-layout='account'] {
   padding: var(--hd-space-1-5) var(--hd-space-2);
 }
 
-/* A group's heading sits where an account row's contents do — the row's
-   inset, a 22px mark, the gap — with no box or ground of its own, because it
-   is not a choice. The rows under it step in 12px, so that the row's inset,
-   a 10px colour dot and the gap put their names on the heading's name (40px)
-   and their fill says they belong to it. A group drawn without its heading
-   steps nothing in. */
+/* Rich profile/account anatomy keeps one line inside the canonical label. */
+.richRow {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--hd-space-2);
+}
+
 .groupHead {
   display: flex;
   align-items: center;
@@ -110,14 +42,11 @@
   min-width: 0;
 }
 
-.group[data-heading] > .row[data-layout='account'] {
+.group[data-heading] > [data-menu-row][data-layout='account'] {
   margin-left: var(--hd-space-3);
   width: calc(100% - var(--hd-space-3));
 }
 
-/* An account row is one line: the name, and — only where two share it — the
-   tag that tells them apart. The tag keeps its width up to half the line;
-   the name gives way first, and the figure holds the trailing edge. */
 .accountText {
   flex: 1;
   min-width: 0;
@@ -142,154 +71,4 @@
   flex: none;
 }
 
-.row:hover,
-.row:focus-visible,
-.row[data-open],
-.row[data-popup-open],
-.row[aria-expanded='true'] {
-  background: var(--hd-hover);
-  outline: none;
-}
-
-.row[data-current] {
-  background: var(--hd-accent-dim);
-}
-
-.row:disabled {
-  cursor: default;
-  color: var(--hd-muted-foreground);
-}
-
-.row:disabled:hover {
-  background: none;
-}
-
-.row[data-danger] {
-  color: var(--hd-danger);
-}
-
-.row[data-danger]:hover,
-.row[data-danger]:focus-visible {
-  background: var(--hd-danger-dim);
-}
-
-.icon {
-  flex: none;
-  display: inline-flex;
-  width: 18px;
-  justify-content: center;
-  color: var(--hd-secondary-foreground);
-}
-
-.row[data-danger] .icon {
-  color: inherit;
-}
-
-.body {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-}
-
-.title {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-2);
-  min-width: 0;
-}
-
-.hint {
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm); /* desk: 17 → 18, the line the 13px step is set on */
-  color: var(--hd-muted-foreground);
-  white-space: normal;
-}
-
-.badge {
-  flex: none;
-  padding: 0 6px;
-  border-radius: var(--hd-radius-sm);
-  background: var(--hd-card-raised, var(--hd-hover));
-  color: var(--hd-secondary-foreground);
-  font-size: var(--hd-text-xs);
-  line-height: var(--hd-line-xs); /* desk: 18 → 16, the line the 12px step is set on */
-  font-weight: var(--hd-weight-medium);
-}
-
-.shortcut,
-.value {
-  flex: none;
-  font-size: var(--hd-text-sm);
-  color: var(--hd-muted-foreground);
-  font-variant-numeric: tabular-nums;
-}
-
-/* A value is a fact about the row — an age, a count, a branch — and a branch
-   can be forty characters. It never takes more than a short name's room: past
-   that it ends in an ellipsis, and the row's title carries it whole. Without
-   the cap a long one set the width of the whole menu, and on a narrow window
-   pushed its own row's label out. A shortcut is exact and is never cut. */
-.value {
-  max-width: 24ch;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.check {
-  flex: none;
-  display: inline-flex;
-  width: 16px;
-  justify-content: flex-end;
-  color: var(--hd-accent);
-}
-
-.chevron {
-  flex: none;
-  color: var(--hd-muted-foreground);
-}
-
-.separator {
-  height: 1px;
-  margin: 4px 6px;
-  background: var(--hd-border);
-}
-
-/* Section headers read as words, not as a filing cabinet: sentence case at
-   the size of a quiet label and no weight of their own, the way Codex writes
-   "Organize sidebar" over its own list controls. Uppercase, bold and
-   letter-spacing all shouted over the rows, which are the text that matters. */
-.label {
-  font-weight: var(--hd-weight-medium);
-  padding: 8px var(--hd-nav-inset) var(--hd-space-1); /* desk: 10 → 8 inline, on the rows' edge */
-  font-size: var(--hd-text-sm);
-  color: var(--hd-secondary-foreground);
-}
-
-.label[data-size='compact'] {
-  padding: var(--hd-space-1) var(--hd-space-2);
-  color: var(--hd-muted-foreground);
-  font-size: var(--hd-text-xs);
-  line-height: var(--hd-line-xs);
-  font-weight: var(--hd-weight-normal);
-}
-
-/* A note explains the rows; it never sets the menu's width. A menu sizes to
-   its words, and a note's words are a sentence: the model menu's footer —
-   "a newer build is available … npm i -g …" — stretched the menu across the
-   window, left its reasoning flyout no room at either side, and put that
-   flyout over the model list. Contained, a note wraps at the width the rows
-   give the menu. */
-.note {
-  contain: inline-size;
-  padding: 6px var(--hd-nav-inset) 8px; /* desk: 10 → 8 inline, on the rows' edge */
-  font-size: var(--hd-text-sm);
-  line-height: var(--hd-line-sm); /* desk: 17 → 18, the line the 13px step is set on */
-  color: var(--hd-muted-foreground);
-}
-
-/* The switch is the canonical primitive's compact mounting. A menu row
-   is itself the control, so it wears the shape rather than nesting a button
-   inside a button, and nothing about its appearance is spelled here. */
+.surface, .flyout { position: relative; }

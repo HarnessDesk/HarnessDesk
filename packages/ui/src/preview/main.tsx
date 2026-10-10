@@ -1,6 +1,9 @@
 import { NativeServersPreview } from './native-servers'
 import { TeamViewFrame } from './TeamViewFrame'
 import { ConversationFrame } from './ConversationFrame'
+import { SettingsNavigationProbe } from './frames-left-column'
+import { LeftColumnWorkProbe } from './frames-left-column'
+import { LeftColumnProbe } from './frames-left-column'
 import { TeamStartFrames } from './frames-team-start'
 import { ReleaseStills } from './release-stills'
 import { TeamFrame } from './frames-team-frame'
@@ -384,7 +387,12 @@ Object.assign(store as unknown as Record<string, unknown>, {
 const TeamStandaloneFrame = ({room}:{room:string}) => {
   const own=useMemo(()=> {
     const frame=previewStore(store.getSnapshot())
-    Object.assign(frame,{teamPeers:store.teamPeers.bind(store),triggerGoal:store.triggerGoal.bind(store),readGoalInsight:store.readGoalInsight.bind(store)})
+    Object.assign(frame,{teamPeers:store.teamPeers.bind(store),triggerGoal:store.triggerGoal.bind(store),readGoalInsight:store.readGoalInsight.bind(store),
+      respondToApproval: async (key: Parameters<AppStore['respondToApproval']>[0], id: Parameters<AppStore['respondToApproval']>[1]) => {
+        frame.patch({ approvals: frame.getSnapshot().approvals.filter(one => one.key !== key || one.approval.id !== id) })
+        return { ok: true as const }
+      },
+    })
     return frame
   },[])
   return <Mount with={own}><TeamFramePreview room={room} /></Mount>
@@ -1239,6 +1247,12 @@ createRoot(container).render(
           ? <RuntimeCostPreview />
           : new URLSearchParams(window.location.search).has('native-servers')
           ? <NativeServersPreview />
+          : new URLSearchParams(window.location.search).get('frame-wall') === 'left-work-pattern'
+          ? <LeftColumnWorkProbe />
+          : new URLSearchParams(window.location.search).get('frame-wall') === 'left-column'
+          ? <LeftColumnProbe />
+          : new URLSearchParams(window.location.search).get('frame-wall') === 'settings-middle'
+          ? <SettingsNavigationProbe />
           : new URLSearchParams(window.location.search).has('frame-wall')
           ? <FrameWall />
           : new URLSearchParams(window.location.search).has('team-frame')

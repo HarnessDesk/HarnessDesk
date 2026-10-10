@@ -33,12 +33,16 @@ for (const theme of ['light', 'dark'] as const) {
     }
   })
 
-  test(`Team members keep their full keyboard ring inside clipping ancestors in ${theme}`, async ({ page }) => {
+  test(`Team seat actions keep their full keyboard ring inside clipping ancestors in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?team-frame=running&theme=${theme}`)
     for (const width of [1440, 320]) {
       await page.setViewportSize({ width, height: 900 })
-      const trigger = page.getByRole('button', { name: 'Team members', exact: true })
+      const details = page.getByRole('button', { name: 'Details', exact: true })
+      if (await details.getAttribute('aria-pressed') !== 'true') await details.click()
+      const seats = page.locator('[data-slot="tool-section"][aria-label="Seats"]')
+      const trigger = seats.locator('[data-slot="list-row"] button[title^="Actions for"]').first()
+      await expect(trigger).toBeVisible()
       await trigger.focus()
       await page.keyboard.press('Tab')
       await trigger.focus()

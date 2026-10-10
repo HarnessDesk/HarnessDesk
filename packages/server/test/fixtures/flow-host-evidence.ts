@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { chmod, mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { TestContext } from 'node:test'
 import { promisify } from 'node:util'
@@ -113,12 +113,6 @@ export interface DeskOptions {
 
 export const desk = async (t: TestContext, second: Second = { id: 'fake-b', provider: 'vendor-b' }, options: DeskOptions = {}): Promise<Desk> => {
   const repo = await makeRepo('hd-flow-host-')
-  // A committed contest script, so the mechanical contest's own command runs as shipped.
-  await mkdir(join(repo.dir, 'script'), { recursive: true })
-  await writeFile(join(repo.dir, 'script', 'flow-contest.sh'), '#!/bin/sh\nexit 0\n')
-  await chmod(join(repo.dir, 'script', 'flow-contest.sh'), 0o755)
-  await repo.git('add', '.')
-  await repo.git('commit', '-q', '-m', 'contest script')
   // Work happens on a branch, so what an Agent commits is a real diff against `main` — unless the test says it stays there.
   if (!options.onMain) await repo.git('checkout', '-q', '-b', 'work')
   const gh = forge()

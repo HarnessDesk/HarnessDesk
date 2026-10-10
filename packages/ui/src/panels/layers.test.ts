@@ -3,6 +3,8 @@ import { expect, it } from 'vitest'
 import host from './Workbench.module.css?raw'
 import workbench from './Workbench.tsx?raw'
 import resizeHandle from '../design/ui/resize-handle.tsx?raw'
+import dockPanel from '../design/patterns/DockPanel.tsx?raw'
+import fixedShell from '../design/patterns/FixedShell.module.css?raw'
 
 /**
  * How a panel hides the views that are not in front.
@@ -88,26 +90,22 @@ const atRules = (sheet: string): string[] => {
 /** A sheet as the flat matcher can read it: no comments, and no at-rule blocks, which it would read into. */
 const flat = (sheet: string): string => atRules(bare(sheet)).reduce((rest, block) => rest.replace(block, ''), bare(sheet))
 
-it('collapses a panel to its tabs in the sidebar only (review of #183, rounds 5 and 6)', () => {
-  // The rule matcher below is flat: a [data-collapsed] rule inside an at-rule, or nested in another rule,
-  // would drop out of the comparison without a word. An at-rule holding one fails here, and the rest are taken
-  // out before the matcher reads, as the workbench's reduced-motion block is (#192); nesting fails outright.
-  // Read without comments, so a comment that only mentions an at-rule isn't one (round 7).
-  for (const block of atRules(bare(host))) expect(block).not.toContain('[data-collapsed]')
-  expect(flat(host)).not.toMatch(/\{[^}]*\{|&/)
-  const collapsing = (sheet: string) =>
-    [...flat(sheet).matchAll(/([^{}]+)\{([^}]*)\}/g)]
-      .filter((rule) => /flex:\s*none/.test(rule[2] ?? ''))
-      .flatMap((rule) => (rule[1] ?? '').split(',').map((selector) => selector.trim()))
-      .filter((selector) => selector.includes('[data-collapsed]'))
-  expect(collapsing(host).length).toBeGreaterThan(0)
-  // Only the sidebar lays its panels out in a column. In the row docks, flex: none gives back width,
-  // and a collapsed bottom strip shrank to its tabs (353 px of 1199 in the app).
-  for (const selector of collapsing(host)) expect(selector.startsWith('.sidebar ')).toBe(true)
+it('fixed panels hide without a resting tab strip and retain native geometry', () => {
+  // B retires the sidebar dock and collapsed strips. Hidden fixed hosts keep
+  // boxes for native guests without taking a grid track or focus ownership.
+  expect(flat(host)).not.toContain('[data-collapsed]')
+  expect(workbench).not.toContain('DockPanelTabs')
+  for (const area of ['right', 'bottom']) {
+    expect(fixedShell).toContain(`.shell[data-${area}-open='false'] .${area}`)
+  }
+  expect(fixedShell).toContain('visibility: hidden; pointer-events: none;')
+  expect(fixedShell).toContain('width: var(--frame-right-retained)')
+  expect(fixedShell).toContain('var(--frame-bottom-retained)')
 })
 
 it('the seam has a place to grab wider than the line it draws (review of #183, round 7; #202)', () => {
-  expect(workbench).toContain('appearance="line"')
+  expect(workbench).toContain('<PanelSeam orientation={orientation}')
+  expect(dockPanel).toContain('appearance="line"')
   expect(resizeHandle).toContain("after:-inset-x-1")
   expect(resizeHandle).toContain("after:-inset-y-1")
 })

@@ -34,6 +34,7 @@ import { TopBarProvider, TopBarOutlet, useTopBarMore, WorkDetailsOutlet, useTopB
 import styles from './TeamRoomPane.module.css'
 import { triggerPreferences, triggerProjectView, triggerView } from '../preview/intake-fixture'
 import { PREVIEW_FINDINGS } from '../preview/findings-fixture'
+import { FRAME } from '../design/frame'
 import { emptyFindingsState } from '../lib/findings'
 
 /**
@@ -90,7 +91,7 @@ beforeEach(() => {
   })
   const computed = getComputedStyle
   vi.spyOn(globalThis, 'getComputedStyle').mockImplementation((node, pseudo) => node.matches('[data-slot="top-bar"]')
-    ? { getPropertyValue: name => name === '--hd-bar-title-min' ? '180px' : '' } as CSSStyleDeclaration : computed(node, pseudo))
+    ? { getPropertyValue: name => name === '--hd-bar-title-min' ? `${FRAME.bar.titleMin}px` : '' } as CSSStyleDeclaration : computed(node, pseudo))
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)

@@ -1,3 +1,4 @@
+import { previewStore } from '../preview/harness'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -1020,4 +1021,15 @@ it('calls an unanswered account under a heading unknown even when its own health
   // account", never "No account".
   expect(names).toEqual(['jane', 'Unknown accountUnavailable'])
   expect(names.some((name) => name?.startsWith('No account'))).toBe(false)
+})
+
+it('gear is independent of the account menu and reflects Settings mode', () => {
+  const onOpenSettings = vi.fn()
+  act(() => root.render(<StoreProvider store={previewStore()}><AccountFooter settingsOpen
+    onOpenSettings={onOpenSettings} onOpenUsage={() => {}} onSignIn={() => {}} /></StoreProvider>))
+  const gear = container.querySelector<HTMLButtonElement>('[data-left-seat] button[aria-label="Settings"]')!
+  expect(gear.getAttribute('aria-pressed')).toBe('true')
+  act(() => gear.click())
+  expect(onOpenSettings).toHaveBeenCalledWith('general')
+  expect(document.querySelector('[role="menu"]')).toBeNull()
 })

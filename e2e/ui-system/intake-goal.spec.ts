@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { closeTeamDetails, selectTeamPage, teamDetails } from './team-frame-actions'
 
 /**
  * The machine-wide controls in Settings › Workspaces, and a trigger Goal's
@@ -6,8 +7,8 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
  * `TriggerSettings` and `TeamRoomPane` modules the app renders.
  *
  * A trigger Goal's page puts nothing between its one-row header and the
- * conversation. Where it came from is the header's origin chip and its hover
- * card; what the run is doing is the header's one state chip; what it waits
+ * conversation. Where it came from is in Details; what the run is doing is
+ * the header's one state chip; what it waits
  * on, or why it stopped, is the thread's one live line; a member's approval
  * takes the composer's slot; and the budget is the composer's footer strip.
  */
@@ -19,17 +20,17 @@ const scene = async (page: Page, name: string): Promise<void> => {
 }
 /** Chat remains reachable at every pane width. */
 const showChat = async (frame: Locator): Promise<void> => {
- await frame.getByRole('tab', {name:/^Chat/}).click()
+ await selectTeamPage(frame, 'room')
 }
 const stateChip = (frame: Locator): Locator => frame.locator('header [data-slot="chip"]').first()
 const liveLine = (frame: Locator): Locator => frame.locator('[data-slot="room-live-line"]')
 const budget = (frame: Locator): Locator => frame.locator('[data-slot="room-budget"]')
 
 /**
- * A person's own front-door start: the header's meta line names what the run
+ * A person's own front-door start: Details names what the run
  * reviews (a pinned revision, or a diff/working tree's own label alone), and
  * the thread's live line carries a person's own stop, exactly as
- * `TeamRoomPane`'s `pinnedAt`/`stopText` computations claim but nothing here
+ * `TeamRoomPane`'s target/stop computations claim but nothing here
  * had shown before this spec — the fixture drives `flowExecutions` directly
  * (`packages/ui/src/preview/flow-fixture.ts`), the only way to reach that
  * state without a real host's `flow/start-goal`.
@@ -40,32 +41,42 @@ const flowScene = async (page: Page, name: string): Promise<void> => {
   await page.locator('select', { has: page.locator('option', { hasText: 'working-diff' }) }).first().selectOption(name)
 }
 
-test('a front-door start pins its revision in the header, names a diff or working tree by its label alone, and a person’s own stop shows as its live line', async ({ page }) => {
+const runFact = (details: Locator, label: string): Locator => details.locator('[aria-label="Team Run facts"] [data-slot="summary-item"]')
+  .filter({ has: details.page().locator('dt', { hasText: new RegExp(`^${label}$`) }) })
+/** A path has one accessible full value and two painted truncation pieces.
+ * Check both representations; their combined textContent repeats the value. */
+const expectAt = async (frame: Locator, expected: string): Promise<void> => {
+  const value = runFact(await teamDetails(frame), 'At').locator('[data-slot="middle-truncate"]')
+  await expect(value.locator(':scope > .sr-only')).toHaveText(expected)
+  expect((await value.locator('[data-part]').allTextContents()).join('')).toBe(expected)
+}
+
+test('a front-door start pins its revision in Details, names a diff or working tree by its label alone, and a person’s own stop shows as its live line', async ({ page }) => {
   await page.goto('/preview.html')
   const frame = flowFrame(page)
   await showChat(frame)
-  const revision = frame.locator('header [data-team-pinned-at]')
-
   await flowScene(page, 'pinned')
+  await showChat(frame)
   await expect(stateChip(frame)).toHaveText('Running')
-  await expect(revision).toHaveText('at a1b2c3d on branch feature')
+  await expectAt(frame, 'a1b2c3d4e5f678901234567890abcdef12345678 on branch feature')
+  await expect(frame.locator('header')).not.toContainText('a1b2c3d')
 
   await flowScene(page, 'diff')
   // A diff's own label already carries both ends of the range, so no head is
   // repeated beside it.
-  // Exact revision text also refuses a repeated head. A whole-header
-  // substring check for "at " normalizes to "at" and now matches Chat.
-  await expect(revision).toHaveText('changes from abc123 to def456')
+  // Exact Details text also refuses a repeated head.
+  await expectAt(frame, 'changes from abc123 to def456')
 
   await flowScene(page, 'working-diff')
   // A working tree has no committed head to pin — its label stands alone too.
-  await expect(revision).toHaveText('the working tree')
+  await expectAt(frame, 'the working tree')
 
   await flowScene(page, 'stopped')
+  await showChat(frame)
   await expect(stateChip(frame)).toHaveText('Stopped')
   await expect(liveLine(frame)).toContainText('The person stopped this flow')
   // The pinned revision from the same target still names what was reviewed.
-  await expect(revision).toHaveText('at a1b2c3d on branch feature')
+  await expectAt(frame, 'a1b2c3d4e5f678901234567890abcdef12345678 on branch feature')
 })
 
 test('pausing every trigger is read back before it shows paused, and the daily cap is a labelled currency field', async ({ page }) => {
@@ -84,20 +95,22 @@ test('pausing every trigger is read back before it shows paused, and the daily c
   await expect(section).toContainText('Charged today')
 })
 
-test('a Goal a trigger opened shows its origin as a header chip whose card names the source, with no Intake data for a plain Goal beside it', async ({ page }) => {
+test('a Goal a trigger opened names its source in Details, with no Intake data for a plain Goal beside it', async ({ page }) => {
   await page.goto('/preview.html')
   const frame = triggerFrame(page)
-  const chip = frame.locator('header [data-slot="hover-card-trigger"]', { hasText: '#12' })
-  await expect(chip).toBeVisible()
-  await chip.hover()
-  const card = page.locator('[data-slot="hover-card-content"]', { hasText: 'started this Goal' })
-  await expect(card).toContainText('Pull request #12')
-  await expect(card.getByRole('button', { name: 'Open' })).toBeVisible()
-  // The origin is the chip's; the title never repeats the trigger's own id.
+  const origin = runFact(await teamDetails(frame), 'Trigger')
+  await expect(origin).toBeVisible()
+  await expect(origin).toContainText('Pull request #12')
+  await expect(origin).toContainText(/started this Goal/i)
+  await expect(origin.getByRole('button', { name: 'Open', exact: true })).toBeVisible()
+  // The title never repeats the trigger's own id or source facts.
   await expect(frame.locator('header')).not.toContainText('from trigger')
+  await expect(frame.locator('header')).not.toContainText('#12')
+  await closeTeamDetails(frame)
 
   const plain = plainFrame(page)
   await expect(plain.locator('header [data-slot="hover-card-trigger"]')).toHaveCount(0)
+  await expect(runFact(await teamDetails(plain), 'Trigger')).toHaveCount(0)
   await expect(budget(plain)).toHaveCount(0)
 })
 

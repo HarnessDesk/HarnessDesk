@@ -20,7 +20,7 @@ it('keeps transcript animations bound to shared global keyframes', () => {
   // either, kept in base.css as a general motion utility the same way
   // `hd-blink` and `hd-spin` already are below.
   expect(conversationTsx).not.toMatch(/animate-\[hd-pulse_/)
-  expect(conversationTsx).toMatch(/dotTone=\{STATUS_TONE\[status\]\}/)
+  expect(conversationTsx).toMatch(/state: session \? <Chip tone=\{STATUS_PILL_TONE\[status\]\}/)
   // The still-writing caret converged onto the same pulsing `Dot` a sign-in
   // row already wears, so `hd-blink` now names no direct consumer either —
   // kept in base.css as a general motion utility, as hd-spin is below.

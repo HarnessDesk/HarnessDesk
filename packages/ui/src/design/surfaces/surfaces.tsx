@@ -1,6 +1,7 @@
 import { TopBarProvider } from '../../panels/top-bar'
 import { ShellHostsProvider, ShellOutlets } from '../../panels/shell-hosts'
 import { TeamViewFrame } from '../../preview/TeamViewFrame'
+import { TeamFramePreview } from '../../preview/TeamFramePreview'
 import { ConversationFrame } from '../../preview/ConversationFrame'
 import { TeamStartCases } from '../../preview/frames-team-start'
 import { GIT_PREVIEW_ROOT } from '../../preview/git-fixture'
@@ -715,7 +716,11 @@ const seatRefusedStore = (): AppStore => {
   })
 }
 
-const SEAT_REFUSED_STORE = seatRefusedStore()
+/** This shell writes its own layout; sibling catalogue states keep theirs. */
+const StalledTeamFrame = () => {
+  const own = useMemo(seatRefusedStore, [])
+  return <Mount with={own}><Frame><TeamFramePreview room={PREVIEW_FLOW_GOAL.goal.id} /></Frame></Mount>
+}
 
 const keptAnswerStore = (scene: 'answer-kept' | 'answer-seat-gone'): AppStore =>
   previewStore({ flowExecutions: new Map([['preview-flow-run', sceneFlowExecution(scene)]]) })
@@ -811,11 +816,7 @@ export const GroupSurface = () => (
         {/* The room alone, at the width its conversation needs: the live
             line is the tail of the room's chat, which a half-width frame
             folds away behind the room's own rail. */}
-        <Mount with={SEAT_REFUSED_STORE}>
-          <Frame>
-            <TeamRoomPane room={PREVIEW_FLOW_GOAL.goal.id} />
-          </Frame>
-        </Mount>
+        <StalledTeamFrame />
       </div>
       <div className={styles.headerCase} data-testid="group-run-kept-answer">
         <span className={styles.headerCaseLabel}>A stalled run keeps an answer that can be sent again</span>

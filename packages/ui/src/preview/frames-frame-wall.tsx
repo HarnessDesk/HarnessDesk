@@ -1,4 +1,5 @@
 import { runTeamStore, equivalentRunFixture, type RunScene } from './run-view-fixture'
+import { sidebarStructureFixture } from './sidebar-structure-fixture'
 import { useMemo, useState } from 'react'
 import { contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, turnId, type UiContribution, type BackgroundTask, type RuntimeId } from '@harnessdesk/protocol'
 import { installPanelComponent } from '../slots/PanelBlocks'
@@ -7,6 +8,7 @@ installPanelComponent()
 import { gitWorktrees } from './git-fixture'
 import { TopBar, Chip, Button, Menu, MenuItem } from '../design'
 import { PlusIcon, PlanIcon, DiffIcon, HistoryIcon, GlobeIcon, PanelIcon } from '../components/Icons'
+import { PopupWall } from './popup-wall'
 import { AgentsWindow } from '../components/AgentsWindow'
 import { ChangesReview } from '../components/ChangesReview'
 import { AppWindowMode } from '../components/AppWindow'
@@ -36,7 +38,7 @@ import { usagePreviewStore } from './usage-fixture'
  * drawn here the same way, so the wall shows the app as it is.
  * Placeholder fixtures only.
  */
-export const FRAME_WALL_DESTINATIONS = ['conversation', 'draft', 'team', 'team-trigger', 'team-receipt', 'team-run-recorded', 'team-run-not-reached', 'team-run-repeated', 'team-run-equivalent', 'teams', 'agents', 'agent', 'dashboard', 'settings', 'settings-general', 'settings-runtimes', 'library', 'plugins', 'changes-review'] as const
+export const FRAME_WALL_DESTINATIONS = ['conversation', 'draft', 'team', 'team-trigger', 'team-receipt', 'team-run-recorded', 'team-run-not-reached', 'team-run-repeated', 'team-run-equivalent', 'teams', 'agents', 'agent', 'dashboard', 'settings', 'settings-general', 'settings-runtimes', 'library', 'plugins', 'changes-review', 'left-work'] as const
 type Destination = (typeof FRAME_WALL_DESTINATIONS)[number]
 type PageOwner = 'teams' | 'agents' | 'dashboard' | 'settings' | 'changes-review'
 const pageFor = (destination: Destination): PageOwner | null => {
@@ -97,6 +99,8 @@ const frameEquivalentRunStore = () => {
 
 const storeFor = (destination: Destination): AppStore => {
   switch (destination) {
+    case 'left-work': return showing(previewStore(sidebarStructureFixture(previewStore().getSnapshot())),
+      { kind: 'room', room: 'structure-team' }, null)
     case 'conversation': return showing(previewStore(), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY)
     case 'draft': return showing(previewStore(), { kind: 'conversation', session: null }, null)
     case 'team-run-recorded': return showing(frameRunStore('running'), { kind: 'room', room: 'overview-team' }, null)
@@ -144,6 +148,7 @@ const FrameDestination = ({ destination }: { destination: Destination }) => {
           {page === 'settings' && <Settings section={section} onSection={setSection} onClose={close} onSignIn={() => {}} />}
           {page === 'changes-review' && <ChangesReview onClose={close} />}
           <ShellOutlets activeOwner={page} />
+          <PopupWall />
         </div>
       </AppWindowMode.Provider>
     </ShellProvider>

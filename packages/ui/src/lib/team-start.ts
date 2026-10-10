@@ -1,6 +1,10 @@
 import type { FlowEntry, FlowPolicy } from '@harnessdesk/protocol'
 
-/** The existing comparison form edits the policy itself; the engine receives only concrete commands and routes. */
+/** Both attempt forms edit ordinary policy data; the engine receives only concrete commands and routes. */
+export const supportsAttemptCheck = (flow: FlowPolicy): boolean =>
+  flow.roles.some(role => role.id === 'competitor' && role.kind === 'agent') &&
+  flow.rules.some(rule => (rule.on === 'competitor' || rule.on === 'verify') && (rule.then.role === 'judge' || rule.then.role === 'referee'))
+
 export const withAttemptCheck = (flow: FlowPolicy, template: FlowPolicy, command: string): FlowPolicy => {
   const run = command.trim() ? command : ''
   const previous = flow.roles.find(role => role.id === 'verify' && role.kind === 'check')

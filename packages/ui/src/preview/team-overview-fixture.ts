@@ -2,7 +2,7 @@ import { WAITING_LEDGER, approvalId, itemId, runtimeId, sessionId, sessionKey, t
 import { teamOverview, type TeamOverviewInput } from '../lib/team-overview'
 import { PREVIEW_GOAL } from './goal-fixture'
 import { PREVIEW_FINDINGS } from './findings-fixture'
-import { previewStore } from './harness'
+import { goalInsightsFrom, previewStore } from './harness'
 
 export const OVERVIEW_STATES = ['running','needs-you','unread','idle','stalled','no-run','no-seats','done','done-open','comparison','narrow'] as const
 export type OverviewScene = typeof OVERVIEW_STATES[number]
@@ -50,5 +50,5 @@ export const overviewTeamStore = (scene: 'done' | 'running' | 'needs-you' | 'sta
  const seededFindings = scene==='running'||scene==='findings-and-posting'
  const findings = { filter: 'all' as const, rows: ledger, totals: { all: 3, open: 3, blocking: 3 }, next: null, problem: null, loading: false, loadingMore: false, error: null, stale: false }
  const base=previewStore({findings:seededFindings?new Map([[board.id,findings]]):new Map(),teams:new Map([[board.id,board]]),goals:new Map([[board.id,goal]]),flowExecutions:scene==='no-run'?new Map():new Map([[run.id,run]]),findingRuns:seededFindings?new Map([[run.id,findingRun]]):new Map(),sessions,history:[...sessions.values()],inbox:[],approvals,workspace:{path:board.root,name:'Storefront',lastOpenedAt:at},workspaces:[{path:board.root,name:'Storefront',lastOpenedAt:at}],listPrefs:{...previewStore().getSnapshot().listPrefs,collapsed:[],pinned:[]}})
- return new Proxy(base,{get(target,key){if(key==='loadFindings' && seededFindings)return async(_goal:string,filter: 'all' | 'open' | 'blocking'='all')=>{if(target.getSnapshot().findings.get(board.id)?.filter===filter)return;target.patch({findings:new Map([[board.id,{...findings,filter}]])})};if(key==='teamPeers')return async()=>[];if(key==='readGoalInsight')return async()=>overviewReport();return Reflect.get(target,key)}})
+ return new Proxy(base,{get(target,key){if(key==='loadFindings' && seededFindings)return async(_goal:string,filter: 'all' | 'open' | 'blocking'='all')=>{if(target.getSnapshot().findings.get(board.id)?.filter===filter)return;target.patch({findings:new Map([[board.id,{...findings,filter}]])})};if(key==='teamPeers')return async()=>[];if(key==='readGoalInsight')return async()=>overviewReport();if(key==='readGoalInsights')return goalInsightsFrom(async()=>overviewReport());return Reflect.get(target,key)}})
 }

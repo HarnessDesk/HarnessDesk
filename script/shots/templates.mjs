@@ -2,12 +2,13 @@
 /** New Team → completed shipped templates, driven only through the renderer. */
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { chromium, expect } from '@playwright/test'
 import { serve } from '../../packages/server/dist/src/index.js'
+import { FRAME } from '../../packages/ui/src/design/frame.ts'
 import { COLLECT, TILDIFY, USER, textReasons } from './audit.mjs'
 import { createTemplateRig, TEMPLATE_CHECK, TEMPLATE_PUBLISH_BRANCH, TEMPLATE_TASK } from './template-rig.mjs'
 
@@ -21,8 +22,11 @@ let browser
 const frames = [], evidence = []
 try {
   browser = await chromium.launch({ headless: true })
-  for (const template of ['comparison', 'fix-and-review']) {
-    const directory = join(scratch, template)
+  const journeys = process.argv.includes('--contest') ? [['mechanical-contest', 'skipped'], ['mechanical-contest', 'declared']] : [['comparison', 'edited'], ['fix-and-review', 'none']]
+  for (const [template, checkMode] of journeys) {
+    const contest = template === 'mechanical-contest'
+    const scene = contest ? `${template}-${checkMode}` : template
+    const directory = join(scratch, scene)
     const rig = await createTemplateRig({ home: join(directory, 'home'), work: join(directory, 'person', 'work'), template })
     let server, page
     try {
@@ -55,7 +59,7 @@ try {
           }, [...photographedRevisions])
           assert.doesNotMatch(await page.locator('body').innerText(), /(?:harnessdesk\/)?lane-[0-9a-f-]{20,}/, 'managed lane identifiers stay out of visible text')
           assert.deepEqual(textReasons(await page.evaluate(COLLECT), { user: USER }), [], `privacy audit: ${name}`)
-          const filename = `${template}-${name}-${theme}.png`
+          const filename = `${scene}-${name}-${theme}.png`
           await page.screenshot({ path: join(out, filename), animations: 'disabled' })
           frames.push(filename)
           process.stdout.write(`Captured ${filename}\n`)
@@ -65,34 +69,56 @@ try {
       // recent-project list. Reopening it here would mask the old-record bug.
       await expect(page.getByRole('button', { name: 'storefront', exact: true })).toHaveAttribute('title', /^The folder this app is working in/)
       await expect(page.getByRole('button', { name: 'More ways to start', exact: true })).toBeVisible()
-      if (template === 'fix-and-review') await expect(page.getByText(TEMPLATE_PUBLISH_BRANCH, { exact: true }).first()).toBeVisible()
+      if (template === 'fix-and-review') {
+        const branch = page.locator('[aria-label="Conversation facts"] [data-slot="summary-item"]')
+          .filter({ has: page.locator('dt', { hasText: /^Branch$/ }) }).locator('[data-slot="middle-truncate"]')
+        const details = page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Details', exact: true })
+        const openedDetails = !(await branch.isVisible())
+        if (openedDetails) await details.click()
+        await expect(branch).toBeVisible()
+        await expect(branch.locator(':scope > .sr-only')).toHaveText(TEMPLATE_PUBLISH_BRANCH)
+        const parts = branch.locator('[data-part]')
+        await expect(parts).toHaveCount(2)
+        await expect(parts.nth(0)).toBeVisible()
+        await expect(parts.nth(1)).toBeVisible()
+        expect((await parts.allTextContents()).join('')).toBe(TEMPLATE_PUBLISH_BRANCH)
+        if (openedDetails) await details.click()
+      }
       await photograph('00-project')
       await page.getByRole('button', { name: 'More ways to start', exact: true }).click()
       await page.getByRole('menuitem', { name: /^New Team/ }).click()
       await expect(page.getByRole('dialog', { name: 'New Team', exact: true })).toBeVisible()
       await photograph('01-new-team')
-      const name = template === 'comparison' ? 'Side by side' : 'Write and review'
+      const name = contest ? 'Mechanical contest' : template === 'comparison' ? 'Side by side' : 'Write and review'
       await page.getByRole('dialog').getByRole('button', { name: new RegExp(`^${name}`) }).click()
       // The first dry run can still be installing the project's suggested
       // check when the task field appears. Wait for its editable Seat controls.
       await expect(page.getByRole('dialog').getByRole('combobox', { name: /^Agent for / }).first()).toBeEnabled({ timeout: 30000 })
-      const task = template === 'comparison' ? TEMPLATE_TASK : `${TEMPLATE_TASK} for review`
+      const task = template === 'comparison' || contest ? TEMPLATE_TASK : `${TEMPLATE_TASK} for review`
       await page.getByRole('textbox', { name: template === 'comparison' ? 'What should both try?' : 'What should they do?', exact: true }).fill(task)
-      if (template === 'comparison') {
+      if (template === 'comparison' || contest) {
         const command = page.getByRole('textbox', { name: 'Check each attempt with', exact: true })
         await expect(command).toHaveValue('pnpm test')
-        await command.fill(TEMPLATE_CHECK)
-        await expect(command).toHaveValue(TEMPLATE_CHECK)
+        const chosenCheck = contest ? (checkMode === 'skipped' ? '' : 'pnpm test') : TEMPLATE_CHECK
+        await command.fill(chosenCheck)
+        await expect(command).toHaveValue(chosenCheck)
       }
       await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeEnabled({ timeout: 30000 })
       await expect(page.getByRole('dialog').getByRole('combobox', { name: /^Model for / }).first()).toBeVisible()
       await page.getByRole('textbox', { name: template === 'comparison' ? 'What should both try?' : 'What should they do?', exact: true }).scrollIntoViewIfNeeded()
       await photograph('02-task')
       await page.getByText('Details', { exact: true }).click()
-      const reviewer = page.getByRole('combobox', { name: template === 'comparison' ? 'Agent for Judge' : 'Agent for Reviews', exact: true })
-      await reviewer.selectOption('codex-review')
-      await expect(reviewer).toHaveValue('codex-review')
+      if (!contest) {
+        const reviewer = page.getByRole('combobox', { name: template === 'comparison' ? 'Agent for Judge' : 'Agent for Reviews', exact: true })
+        await reviewer.selectOption('codex-review')
+        await expect(reviewer).toHaveValue('codex-review')
+      }
       if (template === 'comparison') await expect(page.getByRole('region', { name: 'Commands it runs' }).getByText(new RegExp(TEMPLATE_CHECK.replaceAll('.', '\\.')))).toBeVisible()
+      if (contest) {
+        const commands = page.getByRole('region', { name: 'Commands it runs' })
+        if (checkMode === 'declared') await expect(commands.getByText(/pnpm test/)).toBeVisible()
+        else await expect(commands).toHaveCount(0)
+      }
       await expect(page.getByRole('button', { name: 'Start', exact: true })).toBeEnabled({ timeout: 30000 })
       await page.getByRole('region', { name: 'Seats this would open' }).scrollIntoViewIfNeeded()
       await photograph('03-preview')
@@ -116,23 +142,126 @@ try {
           if (matches(view.board.intents, execution)) break
           await new Promise(done => setTimeout(done, 50))
         } while (Date.now() < until)
+        if (!matches(view.board.intents, execution)) {
+          const facts = await rig.host.call('evidence/board', { room: run.goal })
+          writeFileSync(join(out, `${template}-local-flow-diagnostic.json`), `${JSON.stringify({ label, execution, cards: view.board.intents, facts }, null, 2)}\n`)
+        }
         assert.ok(matches(view.board.intents, execution), `${label}: ${JSON.stringify({ execution, cards: view.board.intents })}`)
         await page.waitForFunction(({ goal, cards }) => cards.every(([id, state, outcome]) => window.__hdStore.getSnapshot().teams.get(goal)?.intents.some(one => one.id === id && one.state === state && (one.outcome ?? null) === outcome)),
           { goal: run.goal, cards: view.board.intents.map(one => [one.id, one.state, one.outcome ?? null]) })
         return { view, execution }
       }
-      const tab = async name => { await page.getByRole('tablist', { name: 'Team pages', exact: true }).getByRole('tab', { name: new RegExp(`^${name}\\b`) }).click() }
+      const tab = async name => {
+        const value = ({ Overview: 'overview', Run: 'run', Board: 'board', Chat: 'room' })[name]
+        assert.ok(value, `unknown Team destination ${name}`)
+        const bar = page.locator('[data-slot="top-bar"]:visible').first()
+        const direct = bar.locator(`[data-team-page="${value}"]:visible`)
+        const folded = bar.getByTitle('Destination views', { exact: true })
+        await direct.or(folded).first().click()
+        if (await bar.locator('button[title="Destination views"][aria-expanded="true"]').count()) {
+          await page.locator(`[role="menu"] [data-team-page="${value}"]:visible`).click()
+        }
+        await expect(bar.locator(`[data-team-page="${value}"][aria-selected="true"]:visible`)
+          .or(folded.filter({ hasText: new RegExp(`^${name}(?:\\s*\\d+)?$`) }))).toHaveCount(1)
+      }
+      const runView = async name => {
+        await page.locator('[data-slot="top-bar"]:visible').first().getByRole('button', { name: 'View', exact: true }).click()
+        await page.getByRole('menuitem', { name, exact: true }).click()
+      }
+      const chatView = async name => {
+        await tab('Chat')
+        await page.locator('[data-slot="top-bar"]:visible').first().getByRole('button', { name: 'View', exact: true }).click()
+        await page.getByRole('menuitemradio', { name, exact: true }).click()
+      }
       const boardTitle = title => page.getByRole('heading', { level: 4, name: new RegExp(`^#\\d+ ${title}$`) })
       const boardColumn = name => page.locator('[data-slot="board-column"]').filter({ has: page.getByRole('heading', { level: 3, name, exact: true }) })
+      const repository = async () => {
+        await page.getByRole('button', { name: 'Search everything', exact: true }).click()
+        await page.getByPlaceholder('Search sessions, files, agents, commands, actions…').fill('Show repository')
+        await page.getByRole('option', { name: /^Show repository/ }).click()
+      }
+      const mergeFromRepository = async revision => {
+        await repository()
+        const repositoryPanel = page.locator('[data-fixed-tool-frame]')
+        const activity = page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Activity', exact: true })
+        await expect(activity).toHaveAttribute('aria-pressed', 'true')
+        await expect(repositoryPanel).toBeVisible()
+        await expect(repositoryPanel.getByRole('grid', { name: 'Commits', exact: true })).toBeVisible()
+        await expect(repositoryPanel).toContainText('commits')
+        await expect.poll(() => repositoryPanel.evaluate(node => node.getBoundingClientRect().width)).toBe(FRAME.rightPanel.width)
+        await expect(repositoryPanel.getByRole('button', { name: 'Give this panel the whole area', exact: true })).toHaveCount(0)
+        // Fixed tools retire whole-area zoom. Resize through the real seam
+        // to FRAME's maximum width, where Git shows its branch rail.
+        const repositorySeam = page.getByRole('separator', { name: 'Resize the right panel', exact: true })
+        const seamBox = await repositorySeam.boundingBox()
+        assert.ok(seamBox, 'the Repository panel has a visible resize seam')
+        const panelWidth = await repositoryPanel.evaluate(node => node.getBoundingClientRect().width)
+        const seamX = seamBox.x + seamBox.width / 2
+        const seamY = seamBox.y + seamBox.height / 2
+        await page.mouse.move(seamX, seamY)
+        await page.mouse.down()
+        await page.mouse.move(seamX - (FRAME.rightPanel.max - panelWidth), seamY, { steps: 6 })
+        await page.mouse.up()
+        await expect.poll(() => repositoryPanel.evaluate(node => node.getBoundingClientRect().width)).toBe(FRAME.rightPanel.max)
+        const main = repositoryPanel.getByTitle('main — click to find it, double-click to check it out', { exact: true })
+        await main.dblclick()
+        await expect(main).toHaveAttribute('data-current', '')
+        if (!contest) await photograph('10-person-repository')
+        await page.getByTitle('Merge into the current branch…', { exact: true }).click()
+        const merge = page.getByRole('dialog', { name: 'Merge into main', exact: true })
+        await merge.getByRole('combobox', { name: 'What to merge', exact: true }).selectOption(revision)
+        if (!contest) await photograph('11-person-merge')
+        await merge.getByRole('button', { name: 'Merge', exact: true }).click()
+        await expect(merge).toHaveCount(0)
+      }
+      const returnToBoard = async () => {
+        const activity = page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Activity', exact: true })
+        await activity.click()
+        await expect(activity).toHaveAttribute('aria-pressed', 'false')
+        await expect(page.locator('[data-fixed-tool-frame]')).toBeHidden()
+        await tab('Board')
+      }
+      if (contest) {
+        await observe(cards => cards.filter(one => one.role === 'competitor' && one.state === 'claimed').length === 2, 'contest attempts seated')
+        rig.release('attempts')
+        if (checkMode === 'declared') {
+          await observe((cards, execution) => cards.filter(one => one.role === 'verify' && one.state === 'open').length === 2 && execution.operations.some(one => one.kind === 'check' && one.state === 'started'), 'declared contest checks started')
+          rig.release('checks')
+        }
+        const handoff = await observe(cards => cards.some(one => one.role === 'referee' && one.state === 'open'), 'contest person choice')
+        const facts = await rig.host.call('evidence/board', { room: run.goal })
+        const records = facts.cards.flatMap(one => one.facts.map(fact => fact.record))
+        const checks = records.filter(one => one.fact.kind === 'check')
+        const diffs = handoff.view.board.intents.filter(one => one.role === 'competitor').map(card => facts.cards.find(one => one.card === card.id).facts.find(one => one.record.fact.kind === 'diff').record)
+        assert.equal(checks.length, checkMode === 'skipped' ? 0 : 2)
+        assert.ok(checks.every(one => one.fact.run === 'pnpm test' && one.fact.exit === 0))
+        if (checks.length) assert.deepEqual(checks.map(one => one.fact.at).sort(), diffs.map(one => one.fact.to).sort(), 'declared checks ran on the committed attempts')
+        assert.deepEqual(handoff.execution.rounds.map(one => one.role), checkMode === 'skipped' ? ['competitor', 'referee'] : ['competitor', 'verify', 'referee'])
+        const branch = execFileSync('git', ['branch', '--show-current'], { cwd: diffs[0].checkout.cwd, encoding: 'utf8' }).trim()
+        await mergeFromRepository(branch)
+        await returnToBoard()
+        rig.git('merge-base', '--is-ancestor', diffs[0].fact.to, 'main')
+        const referee = handoff.view.board.intents.find(one => one.role === 'referee')
+        await page.getByRole('button', { name: `What to do with #${referee.id}`, exact: true }).click()
+        await page.getByRole('menuitem', { name: 'Answer merged', exact: true }).click()
+        await observe((cards, execution) => execution.state === 'settled' && cards.every(one => one.state === 'done'), 'contest completed')
+        await tab('Overview')
+        await expect(page.getByText('Done', { exact: true }).first()).toBeVisible({ timeout: 30000 })
+        await page.waitForFunction(goal => window.__hdStore.getSnapshot().goals.get(goal)?.activity !== 'working', run.goal)
+        await expect(page.getByRole('button', { name: `Room ${task}`, exact: true })).toHaveCount(0, { timeout: 30000 })
+        evidence.push({ template, checkMode, checks: checks.map(one => ({ command: one.fact.run, exitCode: one.fact.exit, at: one.fact.at })), rounds: handoff.execution.rounds.map(one => one.role), settledSidebar: true })
+        assert.deepEqual(rendererErrors, [], 'the contest renderer had no uncaught errors')
+        continue
+      }
       await observe(cards => cards.filter(one => one.role === (template === 'comparison' ? 'competitor' : 'fixer') && one.state === 'claimed').length === (template === 'comparison' ? 2 : 1), 'writers seated')
       await tab('Overview')
       await expect(page.getByText('Working', { exact: true }).first()).toBeVisible()
       await photograph('04-writing-overview')
       await tab('Run')
-      await page.getByRole('radio', { name: 'Timeline', exact: true }).click()
+      await runView('Timeline')
       await expect(page.getByText(task, { exact: true }).first()).toBeVisible()
       await photograph('05-writing-timeline')
-      await page.getByRole('radio', { name: 'Flow', exact: true }).click()
+      await runView('Flow')
       await expect(page.getByText('The path this Run took', { exact: true })).toBeVisible()
       await photograph('06-writing-flow')
       await tab('Board')
@@ -155,8 +284,11 @@ try {
         assert.notEqual(readFileSync(join(diffs[0].checkout.cwd, 'rig-attempt.txt'), 'utf8'), readFileSync(join(diffs[1].checkout.cwd, 'rig-attempt.txt'), 'utf8'), 'the shared path contains distinct attempts')
         await expect(boardTitle('Check the attempt')).toHaveCount(2)
         const checkCards = page.locator('[data-slot="board-card"]').filter({ has: boardTitle('Check the attempt') })
-        await expect(boardColumn('To do').getByRole('heading', { level: 4 })).toHaveCount(2)
+        await expect(boardColumn('Working').getByRole('heading', { level: 4, name: /^#\d+ Check the attempt$/ })).toHaveCount(1)
+        await expect(boardColumn('To do').getByRole('heading', { level: 4, name: /^#\d+ Check the attempt$/ })).toHaveCount(1)
         await expect(checkCards.filter({ hasText: 'verify running' })).toHaveCount(1)
+        await expect(boardColumn('Working').locator('[data-slot="board-card"]').filter({ hasText: 'verify running' })).toHaveCount(1)
+        await expect(boardColumn('To do').locator('[data-slot="board-card"]').filter({ hasText: 'verify running' })).toHaveCount(0)
         await photograph('08-checking-board')
         rig.release('checks')
         await observe(cards => cards.some(one => one.role === 'judge' && one.state === 'claimed'), 'judge seated')
@@ -175,7 +307,16 @@ try {
         await expect(boardTitle('Merge the picked change')).toBeVisible()
         await expect(boardColumn('Needs you').getByRole('heading', { level: 4, name: /^#\d+ Merge the picked change$/ })).toBeVisible()
         await photograph('10-referee-board')
-        await page.getByRole('button', { name: 'Side by side', exact: true }).click()
+        await chatView('Side by side')
+        // The View menu starts with every Team member. Compare the two
+        // attempts by taking the Judge off the grid through its tile menu.
+        const judgeTile = page.locator('[data-slot="side-by-side-tile"][aria-label="Judge"]')
+        await judgeTile.getByRole('button', { name: 'Judge actions', exact: true }).click()
+        await page.getByRole('menuitem', { name: 'Take off the grid', exact: true }).click()
+        await expect(judgeTile).toHaveCount(0)
+        await expect(page.locator('[data-slot="side-by-side-tile"]')).toHaveCount(2)
+        await expect(page.locator('[data-slot="side-by-side-tile"]').getByText('Picked', { exact: true })).toHaveCount(1)
+        await expect(page.locator('[data-slot="side-by-side-tile"]').getByText('Not kept', { exact: true })).toHaveCount(1)
         await expect(page.getByRole('button', { name: 'Merge A into main', exact: true })).toBeEnabled()
         await expect(page.getByText('The agent finished this turn without any output.', { exact: true })).toHaveCount(0)
         await photograph('11-picked-attempt')
@@ -205,29 +346,11 @@ try {
         await expect(boardColumn('Needs you').getByRole('heading', { level: 4, name: /^#\d+ Merge it — every reviewer approved$/ })).toBeVisible()
         await photograph('09-referee-board')
         const referee = reviewed.view.board.intents.find(one => one.role === 'referee')
-        const repository = async () => {
-          await page.getByRole('button', { name: 'Search everything', exact: true }).click()
-          await page.getByPlaceholder('Search sessions, files, agents, commands, actions…').fill('Show repository')
-          await page.getByRole('option', { name: /^Show repository/ }).click()
-        }
-        await repository()
-        await page.getByRole('button', { name: 'Give this panel the whole area', exact: true }).last().click()
-        const main = page.getByTitle('main — click to find it, double-click to check it out', { exact: true })
-        await main.dblclick()
-        await expect(main).toHaveAttribute('data-current', '')
-        await photograph('10-person-repository')
-        await page.getByTitle('Merge into the current branch…', { exact: true }).click()
-        const merge = page.getByRole('dialog', { name: 'Merge into main', exact: true })
-        await merge.getByRole('combobox', { name: 'What to merge', exact: true }).selectOption('rig-write-review-1')
-        await photograph('11-person-merge')
-        await merge.getByRole('button', { name: 'Merge', exact: true }).click()
-        await expect(merge).toHaveCount(0)
+        await mergeFromRepository(TEMPLATE_PUBLISH_BRANCH)
         const published = JSON.parse(readFileSync(join(directory, 'home', 'template-forge.json'), 'utf8')).pr
         rig.git('merge-base', '--is-ancestor', published.headRefOid, 'main')
         await photograph('12-person-merged')
-        await page.getByRole('button', { name: 'Back to the layout', exact: true }).click()
-        await repository()
-        await tab('Board')
+        await returnToBoard()
         await page.getByRole('button', { name: `What to do with #${referee.id}`, exact: true }).click()
         await page.getByRole('menuitem', { name: 'Answer merged', exact: true }).click()
         const records = (await rig.host.call('evidence/board', { room: run.goal })).cards.flatMap(one => one.facts.map(fact => fact.record))
@@ -260,7 +383,7 @@ try {
       evidence.at(-1).settledSidebar = true
       await photograph('13-finished-overview')
       await tab('Run')
-      await page.getByRole('radio', { name: 'Timeline', exact: true }).click()
+      await runView('Timeline')
       await photograph('14-finished-run')
       await tab('Board')
       const readyRail = page.getByRole('button', { name: /^Ready \d+ — Open column$/ })
@@ -269,13 +392,15 @@ try {
       await expect(boardColumn('In review').getByRole('heading', { level: 4 })).toHaveCount(0)
       await expect(boardColumn('Ready').getByRole('heading', { level: 4 })).toHaveCount(template === 'comparison' ? 6 : 3)
       await photograph('15-finished-board')
-      await tab('Chat')
+      await chatView('Thread')
+      await expect(page.locator('[data-slot="side-by-side-grid"]')).toHaveCount(0)
       await expect(page.getByText(/You (?:added|completed).*Check the attempt/)).toHaveCount(0)
       await expect(page.getByText(/The Flow .* added/).first()).toBeVisible()
       await expect(page.getByText(/\(Implementer\)/)).toHaveCount(0)
       await photograph('16-finished-chat')
       assert.deepEqual(rendererErrors, [], 'the shipped renderer had no uncaught errors')
     } catch (error) {
+      if (existsSync(rig.logFile)) writeFileSync(join(out, `${template}-local-host-diagnostic.ndjson`), readFileSync(rig.logFile))
       if (page) { writeFileSync(join(out, `${template}-local-diagnostic.txt`), await page.locator('body').innerText()); writeFileSync(join(out, `${template}-local-diagnostic.json`), JSON.stringify(await page.evaluate(COLLECT), null, 2)); await page.screenshot({ path: join(out, `${template}-local-diagnostic.png`) }) }
       throw error
     } finally { await page?.close(); await server?.close(); await rig.dispose() }

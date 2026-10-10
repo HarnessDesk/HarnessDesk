@@ -259,7 +259,7 @@ export interface HostContext {
   }
   libraryUsage(): LibraryUsageReader
   /** Read-only Insight reports plus the explicitly reviewed local seating action. */
-  readonly insight: Pick<InsightPlane, 'goal' | 'usage' | 'agent' | 'compare' | 'previewOrder' | 'applyOrder'>
+  readonly insight: Pick<InsightPlane, 'goal' | 'goals' | 'usage' | 'agent' | 'compare' | 'previewOrder' | 'applyOrder'>
   /**
    * Intake: a project's committed triggers as this machine stands on them,
    * and the person's own controls. The only way a handler reaches triggers;

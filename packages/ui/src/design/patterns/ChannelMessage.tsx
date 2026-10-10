@@ -472,18 +472,6 @@ export const ChannelMessage = ({
 }
 ChannelMessage.displayName = 'ChannelMessage'
 
-/**
- * A board event — claimed, completed, released. The spine the messages hang
- * off: one line, quiet, never a slab, because thirty of them is a normal
- * afternoon and they are read as a sequence rather than one at a time. The
- * transcript's light register, like a step inside a turn's work.
- *
- * The sentence is who did what to which card; `detail` is what they reported
- * with it — a verdict, a pull request, a list of checks — and it can run to
- * a page. Joined into the sentence it made every completion a slab of the same
- * grey as the line it explained. It sits under the sentence in the secondary
- * ink, at most two lines until the reader asks for the rest.
- */
 const SIGNAL_DETAIL_FOLD = 160
 
 const SignalDetail = ({ text }: { readonly text: string }) => {
@@ -501,6 +489,18 @@ const SignalDetail = ({ text }: { readonly text: string }) => {
   )
 }
 
+/**
+ * A board event — claimed, completed, released. The spine the messages hang
+ * off: one line, quiet, never a slab, because thirty of them is a normal
+ * afternoon and they are read as a sequence rather than one at a time. The
+ * transcript's light register, like a step inside a turn's work.
+ *
+ * The sentence is who did what to which card; `detail` is what they reported
+ * with it — a verdict, a pull request, a list of checks — and it can run to
+ * a page. Joined into the sentence it made every completion a slab of the same
+ * grey as the line it explained. It sits under the sentence in the secondary
+ * ink, at most two lines until the reader asks for the rest.
+ */
 export const ChannelSignal = ({
   by,
   said,

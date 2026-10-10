@@ -4,10 +4,12 @@ import { expect, type Page } from '@playwright/test'
 export async function mountFocusFixture(page: Page) {
   await page.route('**/src/preview/**', async route => {
     const response = await route.fetch()
-    // Synthetic fixtures use a demo checkout, including in hover titles.
+    // Synthetic fixtures use a demo checkout, including in hover titles. A
+    // module's own `/@fs/` imports keep the real path, or they would 404 in a
+    // checkout at one of these places and leave the page blank.
     const body = (await response.text())
-      .replace(/\/Users\/[^/]+\/code\/HarnessDesk/g, '/work/harnessdesk')
-      .replace(/\/\.(?:codex|claude|harnessdesk)\/worktrees/g, '/checkouts')
+      .replace(/(?<!\/@fs[^"'\s]*)\/Users\/[^/]+\/code\/HarnessDesk/g, '/work/harnessdesk')
+      .replace(/(?<!\/@fs[^"'\s]*)\/\.(?:codex|claude|harnessdesk)\/worktrees/g, '/checkouts')
     await route.fulfill({ response, body })
   })
   await page.route('**/src/preview/main.tsx*', async route => {

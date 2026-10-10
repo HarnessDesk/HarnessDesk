@@ -96,7 +96,7 @@ const PaneView = ({ pane }: { pane: PaneNode }) => {
             * is what "I dragged it here and now I can't close it" meant.
             */}
           {needsStrip(pane.view) && (
-            <DockPanelBar>
+            <DockPanelBar contentInset={pane.view.kind === 'activity' ? 'tool' : undefined}>
               <Text role="row" truncate className={styles.paneTitle}>{titleOf(pane.view)}</Text>
               <DockPanelActions>
                 <MainWorkActions />

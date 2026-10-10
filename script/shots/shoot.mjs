@@ -2115,7 +2115,9 @@ rules:
     return true
   }
   const openGitMenu = async () => {
-    if (!(await press({ selector: 'header button[aria-label*=" — "]' }))) throw new Error('no git control in the conversation header')
+    const shown = await cdp.json(`Boolean(document.querySelector('[data-slot="tool-body"] button[aria-label="Folder actions"]'))`)
+    if (!shown && !(await press({ selector: 'header [data-work-tool="details"]' }))) throw new Error('no Details control in the conversation header')
+    if (!(await press({ selector: '[data-slot="tool-body"] button[aria-label="Folder actions"]' }))) throw new Error('no Folder actions control in conversation Details')
   }
   /**
    * What the store holds once the item is chosen, checked beside the frame:
