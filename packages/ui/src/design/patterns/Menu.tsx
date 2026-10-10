@@ -329,7 +329,7 @@ export const MenuItem = ({
       {...(reason ? { 'aria-describedby': reasonId } : {})}
       className={className}
       data-layout={layout}
-      label={label ?? children}
+      label={layout === 'default' ? label ?? children : <span data-menu-rich-row="" className={styles.richRow}>{label ?? children}</span>}
       icon={icon}
       hint={reason ?? hint}
       hintId={reason ? reasonId : hintId}

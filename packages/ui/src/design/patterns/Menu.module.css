@@ -18,6 +18,14 @@
   padding: var(--hd-space-1-5) var(--hd-space-2);
 }
 
+/* Rich profile/account anatomy keeps one line inside the canonical label. */
+.richRow {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--hd-space-2);
+}
+
 .groupHead {
   display: flex;
   align-items: center;
