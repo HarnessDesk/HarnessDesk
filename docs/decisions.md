@@ -1280,6 +1280,18 @@ commit or peeling a tag does not move the capture clock. Frontier-only replay
 writes no checkpoint: the saved frontier and durable parent edges can repeat
 that work after a restart without losing an observation.
 
+A peeled tag target follows the same walk bookkeeping as a branch tip: its
+observation alone does not mean its ancestry was visited under the current
+floor. Widening the window therefore revisits tag-only ancestry too, including
+when a legacy checkpoint first acquires a floor.
+
+A failed object-clock batch falls back to individual reads. An already
+journalled commit whose object cannot be read still supplies its durable parent
+edges; an unavailable clock never proves that it is outside the window. Object
+failures remain visible as a history gap. Admission and storage failures still
+refuse progress, and an unreadable commit without durable edges ends the scan
+with that gap rather than starting a retry loop.
+
 ## A Goal is finite; Seats and receipts are the authority
 
 Rooms accumulated three competing truths: a member array, the conversations
