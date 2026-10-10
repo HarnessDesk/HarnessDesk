@@ -1,79 +1,35 @@
 import { expect, test } from '@playwright/test'
 
-test('a narrow right-panel overlay hides the covered conversation and returns focus', async ({ page }) => {
+test('a floating right tool leaves main usable and scopes Escape to the focused tool', async ({ page }) => {
+  await page.setViewportSize({ width: 720, height: 900 })
   await page.goto('/narrow-overlay.html')
   const main = page.locator('[data-slot="workbench-main"]')
-  const tab = page.getByPlaceholder('Filter steps')
-  await expect(tab).toBeVisible()
-  await expect(page.getByRole('button', { name: /^Context window/ })).toBeVisible()
-
-  for (const width of [510, 710, 840]) {
-    await page.setViewportSize({ width, height: 900 })
-    await expect(main).toHaveAttribute('data-right-panel-overlay', '')
-    await expect(main).toHaveAttribute('inert', '')
-    await expect.poll(() => main.evaluate((node) => getComputedStyle(node).visibility)).toBe('hidden')
-    const tabIsClear = await tab.evaluate((node) => {
-      const rect = node.getBoundingClientRect()
-      const hits = document.elementsFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2)
-      return hits.every((hit) => !hit.closest('[data-slot="workbench-main"]'))
-    })
-    expect(tabIsClear, `covered conversation should not hit-test beneath the panel control at ${width}px`).toBe(true)
-
-    await tab.focus()
-    for (let step = 0; step < 16; step += 1) {
-      await page.keyboard.press('Tab')
-      expect(await main.evaluate((node) => node.contains(document.activeElement))).toBe(false)
-    }
-  }
-
-  // With a 460px right panel, 880px leaves 419px for the reading column (the divider is the 1px).
-  await page.setViewportSize({ width: 880, height: 900 })
-  await page.getByRole('button', { name: 'Show sidebar' }).click()
-  await expect(main).not.toHaveAttribute('data-right-panel-overlay', '')
-  await expect(main).not.toHaveAttribute('inert', '')
-  await expect.poll(() => main.evaluate((node) => getComputedStyle(node).visibility)).toBe('visible')
-  await expect.poll(() => main.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThanOrEqual(400)
-  await expect(page.getByRole('dialog', { name: 'Sidebar' })).toBeVisible()
-
-  await page.setViewportSize({ width: 1000, height: 900 })
-  await expect(main).not.toHaveAttribute('data-right-panel-overlay', '')
-  await expect(page.getByRole('dialog', { name: 'Sidebar' })).toBeVisible()
-  await expect.poll(() => main.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThanOrEqual(400)
-
-  await page.setViewportSize({ width: 1200, height: 900 })
-  await expect(main).not.toHaveAttribute('data-right-panel-overlay', '')
-  await expect.poll(() => main.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThanOrEqual(400)
-  await page.setViewportSize({ width: 1440, height: 900 })
-  await page.getByRole('button', { name: 'Show sidebar' }).click()
-  await expect(main).not.toHaveAttribute('data-right-panel-overlay', '')
-  await expect(page.getByRole('dialog', { name: 'Sidebar' })).toHaveCount(0)
-  await expect.poll(() => main.evaluate((node) => node.getBoundingClientRect().width)).toBeGreaterThanOrEqual(400)
-  // All three columns stand: nothing is floating or laid over.
-  await expect(page.locator('[data-narrow]')).toHaveCount(0)
-
+  const panel = page.locator('[data-slot="work-tools"]')
   const composer = page.locator('textarea').first()
-  await composer.focus()
-  await expect(composer).toBeFocused()
-  await page.setViewportSize({ width: 710, height: 900 })
-  await expect(main).toHaveAttribute('inert', '')
-  const panelInput = page.getByPlaceholder('Filter steps')
-  await panelInput.focus()
-  const dockedFocus = await page.evaluate(() => {
-    const store = (window as Window & {
-      __narrowOverlayStore: { getSnapshot: () => { workbench: { focus: string | null } } }
-    }).__narrowOverlayStore
-    return store.getSnapshot().workbench.focus
-  })
-  expect(dockedFocus).not.toBeNull()
-  await page.getByRole('button', { name: 'Toggle right panel' }).click()
+  const activity = page.locator('[data-work-tool="activity"]')
+  await expect(panel).toBeVisible()
+  await expect(page.locator('[data-slot="fixed-shell"]')).toHaveAttribute('data-panel-floats', 'true')
   await expect(main).not.toHaveAttribute('inert', '')
+  expect(await main.evaluate(node => getComputedStyle(node).visibility)).toBe('visible')
+  await composer.click({ position: { x: 20, y: 10 } })
   await expect(composer).toBeFocused()
-  const logicalFocus = await page.evaluate(() => {
-    const store = (window as Window & {
-      __narrowOverlayStore: { getSnapshot: () => { workbench: { focus: string | null; main: { focused: string } } } }
-    }).__narrowOverlayStore
-    const snapshot = store.getSnapshot()
-    return { dock: snapshot.workbench.focus, main: snapshot.workbench.main.focused }
-  })
-  expect(logicalFocus).toEqual({ dock: null, main: await composer.evaluate((node) => node.closest<HTMLElement>('[data-pane-id]')?.dataset.paneId) })
+  await composer.press('Escape')
+  await expect(panel).toBeVisible()
+  await page.getByPlaceholder('Filter steps').focus()
+  await page.keyboard.press('Escape')
+  await expect(panel).toBeHidden()
+  await expect(activity).toBeFocused()
+  await activity.click()
+  await expect(panel).toBeVisible()
+  await expect(main).not.toHaveAttribute('inert', '')
+
+  const show = page.getByRole('button', { name: 'Show sidebar', exact: true })
+  await show.click()
+  await expect(page.getByRole('dialog', { name: 'Sidebar' })).toBeVisible()
+  expect(await main.evaluate(node => node.closest('[inert]') !== null)).toBe(true)
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: 'Sidebar' })).toHaveCount(0)
+  await expect(show).toBeFocused()
+  await expect(panel).toBeVisible()
+  expect(await main.evaluate(node => node.closest('[inert]') !== null)).toBe(false)
 })

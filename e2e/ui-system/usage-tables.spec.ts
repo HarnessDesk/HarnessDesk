@@ -108,8 +108,7 @@ for (const theme of ['light', 'dark'] as const) {
     const card = dashboard.locator('[data-slot="card"]').filter({ has: page.locator('[data-slot="usage-meter-row"]') }).first()
     await expect(card.locator('[data-slot="usage-meter-row"]')).toHaveCount(3)
     await alignedMeters(card.locator('[data-slot="usage-meter-row"]'))
-    await mountPlanMeters(page, true)
-    await page.getByRole('group', { name: 'Plan usage' }).locator('button').first().click()
+    await page.getByRole('dialog', { name: 'Dashboard', exact: true }).locator('[data-slot="status-bar"]').getByRole('group', { name: 'Plan usage' }).locator('button').first().click()
     await alignedMeters(page.getByRole('menu').locator('[data-slot="usage-meter-row"]'))
   })
 }
@@ -123,20 +122,14 @@ for (const theme of ['light', 'dark'] as const) {
     await page.getByText('Usage remaining', { exact: true }).click()
     const rows = page.locator('[data-usage-details] [data-slot="usage-meter-row"]')
     await expect(rows).toHaveCount(2)
-    const geometry = await rows.first().evaluate(node => {
-      const popup = node.closest('[data-slot="popover-popup"]')!
-      const details = node.closest('[data-usage-details]')!
-      const panelStyle = getComputedStyle(popup)
-      const detailsStyle = getComputedStyle(details)
-      return {
-        panelWidth: popup.getBoundingClientRect().width,
-        width: node.getBoundingClientRect().width,
-        inset: parseFloat(panelStyle.paddingLeft) + parseFloat(panelStyle.paddingRight)
-          + parseFloat(detailsStyle.marginLeft) + parseFloat(detailsStyle.marginRight),
-      }
+    // Phase A changed the wide menu token from 320 to FRAME.menu.max340.
+    // The same panel padding4 and caller margins32/8 still own this inset.
+    const accountWidth = await rows.first().evaluate(node => {
+      const panel = node.closest('[data-slot="popover-popup"]')!.getBoundingClientRect()
+      const row = node.getBoundingClientRect()
+      return { panel: panel.width, row: row.width, left: row.left - panel.left, right: panel.right - row.right }
     })
-    expect(geometry.panelWidth).toBe(FRAME.menu.max)
-    expect(geometry.width).toBe(FRAME.menu.max - geometry.inset)
+    expect(accountWidth).toEqual({ panel: FRAME.menu.max, row: FRAME.menu.max - 48, left: 36, right: 12 })
     await wholeMeterNames(rows)
   })
 
@@ -264,19 +257,23 @@ test('partial Project preview has available Team counts through the default load
 
 for (const theme of ['light', 'dark'] as const) {
   test(`blocked plan popover names the gate clock in ${theme}`, async ({ page }) => {
+    // The footer belongs to Dashboard's own store. Stage its real fixture
+    // before either store is constructed, rather than patching Conversation.
+    await page.route('**/src/preview/sidebar-fixture.ts*', async route => {
+      const response = await route.fetch()
+      await route.fulfill({ response, body: `${await response.text()}
+        {
+          window.__usageGate = Date.now() + 3 * 86400000;
+          for (const report of previewUsage) if (report.lanes.length) report.lanes = [
+            { id: 'session', label: 'Session', usedPercent: 50, windowMinutes: 300, resetsAt: Date.now() + 3600000 },
+            { id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: window.__usageGate },
+          ];
+        }` })
+    })
     await page.goto('/preview.html')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
-    await mountPlanMeters(page, true)
-    const gate = await page.evaluate(() => {
-      const store = (window as unknown as { __hdPlanMetersStore: import('../../packages/ui/src/state/store').AppStore & { patch(value: object): void } }).__hdPlanMetersStore
-      const until = Date.now() + 3 * 86400000
-      store.patch({ usage: store.getSnapshot().usage.map(report => ({ ...report, lanes: report.lanes.length ? [
-        { id: 'session', label: 'Session', usedPercent: 50, windowMinutes: 300, resetsAt: Date.now() + 3600000 },
-        { id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: until },
-      ] : [] })) })
-      return until
-    })
-    await page.getByRole('group', { name: 'Plan usage' }).locator('button').first().click()
+    const gate = await page.evaluate(() => (window as unknown as { __usageGate: number }).__usageGate)
+    await page.getByRole('dialog', { name: 'Dashboard', exact: true }).locator('[data-slot="status-bar"]').getByRole('group', { name: 'Plan usage' }).locator('button').first().click()
     const menu = page.getByRole('menu').filter({ has: page.getByText('blocked 3d', { exact: true }) })
     const row = menu.locator('[data-slot="usage-meter-row"]').filter({ hasText: 'Session' })
     await expect(row).toContainText('blocked 3d')

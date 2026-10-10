@@ -10,6 +10,10 @@ import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { Menu, MenuItem, Popover, useEscapeSurface } from '../design'
 import { Settings } from './Settings'
 import { Usage } from './Usage'
+import { AgentsWindow } from './AgentsWindow'
+import { previewStore } from '../preview/harness'
+import { TopBarProvider } from '../panels/top-bar'
+import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 
 /**
  * One Escape closes one thing, in the two app windows as well (#206).
@@ -199,6 +203,63 @@ for (const which of ['Settings', 'Dashboard'] as const) {
     expect(window_(which)).toBeNull()
   })
 }
+
+it('Agents spends footer menu Escape before its own close and returns focus to the opener', async () => {
+  const store = previewStore(), closed = vi.fn()
+  const Harness = () => {
+    const [open, setOpen] = useState(false)
+    return <TopBarProvider><ShellHostsProvider>
+      <button data-testid="open-agents" onClick={() => setOpen(true)}>Open Agents</button>
+      {open && <AgentsWindow focus={null} onFocus={() => {}} onClose={() => { closed(); setOpen(false) }} />}
+      <ShellOutlets activeOwner={open ? 'agents' : null} />
+    </ShellHostsProvider></TopBarProvider>
+  }
+  await act(async () => root.render(<StoreProvider store={store}><Harness /></StoreProvider>))
+  const opener = container.querySelector<HTMLButtonElement>('[data-testid="open-agents"]')!
+  act(() => { opener.focus(); opener.click() })
+  const frame = () => act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
+  await frame()
+  const agents = window_('Agents')!
+  expect(agents).not.toBeNull()
+  const trigger = agents.querySelector<HTMLButtonElement>('[data-slot="status-bar"] [data-slot="popover-trigger"]')!
+  expect(trigger).not.toBeNull()
+  act(() => { trigger.focus(); trigger.click() })
+  expect(menu()).not.toBeNull()
+  expect(await escape()).toBe(true)
+  expect(menu()).toBeNull()
+  expect(window_('Agents')).toBe(agents)
+  expect(closed).not.toHaveBeenCalled()
+  expect(document.activeElement).toBe(trigger)
+  expect(await escape()).toBe(true)
+  await frame()
+  expect(closed).toHaveBeenCalledOnce()
+  expect(window_('Agents')).toBeNull()
+  expect(document.activeElement).toBe(opener)
+})
+
+it('overlapping real Agents and Settings windows close the active window before the underlying owner', async () => {
+  const store = previewStore(), settingsClosed = vi.fn(), agentsClosed = vi.fn()
+  const Harness = () => {
+    const [settings, setSettings] = useState(true), [agents, setAgents] = useState(true)
+    return <TopBarProvider><ShellHostsProvider>
+      {settings && <Settings section="appearance" onSection={() => {}} onSignIn={() => {}}
+        onClose={() => { settingsClosed(); setSettings(false) }} />}
+      {agents && <AgentsWindow focus={null} onFocus={() => {}} onClose={() => { agentsClosed(); setAgents(false) }} />}
+      <ShellOutlets activeOwner={agents ? 'agents' : settings ? 'settings' : null} />
+    </ShellHostsProvider></TopBarProvider>
+  }
+  await act(async () => root.render(<StoreProvider store={store}><Harness /></StoreProvider>))
+  expect(window_('Settings')).not.toBeNull()
+  expect(window_('Agents')).not.toBeNull()
+  expect(await escape()).toBe(true)
+  expect(agentsClosed).toHaveBeenCalledOnce()
+  expect(settingsClosed).not.toHaveBeenCalled()
+  expect(window_('Agents')).toBeNull()
+  expect(window_('Settings')).not.toBeNull()
+  expect(await escape()).toBe(true)
+  expect(settingsClosed).toHaveBeenCalledOnce()
+  expect(window_('Settings')).toBeNull()
+})
 
 /**
  * The order the stack promises, which is what the surfaces under it rely on.

@@ -1,3 +1,4 @@
+import { usePageHeading } from './AppWindow/PageHeading'
 import { FaceBadge } from '../ui/icon-tile'
 import { Button } from '../ui/button'
 import { Children, createContext, createElement, isValidElement, useContext, useEffect, useId, useState, type ButtonHTMLAttributes, type ComponentProps, type CSSProperties, type FocusEventHandler, type HTMLAttributes, type KeyboardEventHandler, type ReactNode, type Ref } from 'react'
@@ -630,7 +631,13 @@ export const PageHead = ({
   title: ReactNode
   blurb?: ReactNode
   actions?: ReactNode
-}) => (
+}) => {
+  const inFrame = usePageHeading(title, actions)
+  if (inFrame) return blurb || actions ? <div className={styles.pageHeadContent} data-page-support>
+    {blurb && <div className={styles.pageHeadText}><p className={styles.pageBlurb}>{blurb}</p></div>}
+    {actions && <div className={styles.pageCtl}>{actions}</div>}
+  </div> : null
+  return (
     <div className={styles.pageHead} data-slot="page-head">
     <div className={styles.pageHeadContent}>
       <div className={styles.pageHeadText}>
@@ -640,7 +647,8 @@ export const PageHead = ({
       {actions ? <div className={styles.pageCtl}>{actions}</div> : null}
     </div>
   </div>
-)
+  )
+}
 
 export const SectionHead = ({
   name,
@@ -1228,7 +1236,16 @@ export const DetailHead = ({
   owner?: ReactNode
   blurb?: ReactNode
   actions?: ReactNode
-}) => (
+}) => {
+  const inFrame = usePageHeading(name, actions)
+  if (inFrame) return owner || blurb || actions ? <div className={styles.detailHeadContent} data-detail-support>
+    {(owner || blurb) && <div className={styles.detailText}>
+      {owner && <span className={styles.detailOwner} data-owner={typeof owner === 'string' ? 'text' : 'mark'}>{owner}</span>}
+      {blurb && <p className={styles.detailBlurb}>{blurb}</p>}
+    </div>}
+    {actions && <div className={styles.detailCtl}>{actions}</div>}
+  </div> : null
+  return (
   <div className={styles.detailHead}>
     <div className={styles.detailHeadContent}>
       {mark}
@@ -1246,7 +1263,8 @@ export const DetailHead = ({
       {actions ? <div className={styles.detailCtl}>{actions}</div> : null}
     </div>
   </div>
-)
+  )
+}
 
 /**
  * A person's face: the picture they chose, or the house mark when they have

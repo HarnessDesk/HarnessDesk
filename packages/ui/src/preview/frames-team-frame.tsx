@@ -1,3 +1,5 @@
+import { TopBarProvider } from '../panels/top-bar'
+import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 import { useEffect, useMemo, useRef } from 'react'
 import { Workbench } from '../panels/Workbench'
 import { ShellProvider } from '../panels/views'
@@ -33,7 +35,7 @@ export const TeamFrame = () => {
  }, [])
  return <StoreProvider store={store}><ShellProvider actions={{chooseProject:()=>{},signIn:()=>{},openUsage:()=>{},openRuntimes:()=>{},openAgents:()=>{},reviewImports:()=>{}}}>
   <div ref={box} data-frame-id="team-frame" className={`h-screen bg-background${controls ? ' max-w-180' : ''}`}>
-   <Workbench sidebar={<Sidebar onOpenSettings={()=>{}} onOpenPlugins={()=>{}} onOpenAgents={()=>{}} onOpenTeams={()=>{}} onOpenUsage={()=>{}} onBrowseFolders={()=>{}} onSignIn={()=>{}} onSearch={()=>{}} />} />
+   <TopBarProvider><ShellHostsProvider><Workbench sidebar={<Sidebar onOpenSettings={()=>{}} onOpenPlugins={()=>{}} onOpenAgents={()=>{}} onOpenTeams={()=>{}} onOpenUsage={()=>{}} onBrowseFolders={()=>{}} onSignIn={()=>{}} onSearch={()=>{}} />} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
   </div>
  </ShellProvider></StoreProvider>
 }

@@ -1,3 +1,5 @@
+import { TopBarProvider } from '../panels/top-bar'
+import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 import { TeamsWindow } from '../components/TeamsWindow'
 import { useCallback, useEffect, useState } from 'react'
 
@@ -358,6 +360,7 @@ export const App = () => {
     return () => document.removeEventListener('keydown', onKeyDown)
   }, [run])
 
+  const frameOwner = reviewOpen ? 'changes-review' : agentsOpen ? 'agents' : teamsOpen ? 'teams' : usageOpen ? 'dashboard' : settingsOpen ? 'settings' : null
   return (
     /* One shell, one set of actions — including the app windows mounted
        beside the workbench. A project page lives in Settings, and its Agent
@@ -376,9 +379,9 @@ export const App = () => {
         },
       }}
     >
-    <div className="hd-shell">
+    <TopBarProvider><ShellHostsProvider><div className="hd-shell">
       <div className="hd-shellBody">
-          <Workbench
+          <Workbench suspended={frameOwner !== null}
             sidebar={
               <Sidebar
                 onOpenSettings={(section) => openSettingsAt(section ?? 'runtimes', null)}
@@ -500,7 +503,8 @@ export const App = () => {
           onClose={() => setSignInOpen(false)}
         />
       )}
-    </div>
+      <ShellOutlets activeOwner={frameOwner} />
+    </div></ShellHostsProvider></TopBarProvider>
     </ShellProvider>
   )
 }

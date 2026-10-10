@@ -1,0 +1,35 @@
+import { forwardRef, type ReactNode, type HTMLAttributes, type CSSProperties } from 'react'
+import { WorkbenchCanvas, WorkbenchRail, DockPanel } from './DockPanel'
+import styles from './FixedShell.module.css'
+import { FRAME } from '../frame'
+
+export interface FixedShellProps extends Omit<HTMLAttributes<HTMLDivElement>, 'children'> {
+  readonly viewportWidth: number
+  readonly left: ReactNode
+  readonly top: ReactNode
+  readonly main: ReactNode
+  readonly right: ReactNode
+  readonly bottom: ReactNode
+  readonly status: ReactNode
+  readonly leftFloating: boolean
+  readonly panelFloating: boolean
+  readonly leftOpen: boolean
+  readonly rightOpen: boolean
+  readonly bottomOpen: boolean
+  readonly children?: ReactNode
+}
+/** Six stable regions: folding and closing affect geometry, never body identity. */
+export const FixedShell = forwardRef<HTMLDivElement, FixedShellProps>(({ viewportWidth, left, top, main, right, bottom, status,
+  leftFloating, panelFloating, leftOpen, rightOpen, bottomOpen, children, className, style, ...props }, ref) => <WorkbenchCanvas {...props} ref={ref}
+    style={{ '--frame-window-width': `${viewportWidth}px`, '--frame-main-min': `${FRAME.main.min}px`, '--frame-right-max': `${FRAME.rightPanel.max}px`, ...style } as CSSProperties}
+    data-slot="fixed-shell" data-left-floats={leftFloating} data-panel-floats={panelFloating}
+    data-left-open={leftOpen} data-right-open={rightOpen} data-bottom-open={bottomOpen} className={`${styles.shell} ${className ?? ''}`}>
+  {children}
+  <WorkbenchRail data-frame-region="left" className={styles.left} inert={!leftOpen}>{left}</WorkbenchRail>
+  <div data-frame-region="top" className={styles.top}>{top}</div>
+  <div data-frame-region="main" className={styles.main}>{main}</div>
+  <DockPanel data-slot="frame-panel" data-frame-region="right" edge="left" paintedRule className={styles.right} inert={!rightOpen}>{right}</DockPanel>
+  <DockPanel data-slot="frame-panel" data-frame-region="bottom" edge="top" paintedRule className={styles.bottom} inert={!bottomOpen}>{bottom}</DockPanel>
+  <div data-frame-region="status" className={styles.status}>{status}</div>
+</WorkbenchCanvas>)
+FixedShell.displayName = 'FixedShell'

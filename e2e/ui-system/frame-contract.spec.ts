@@ -29,6 +29,218 @@ const resolvedPx = (page: Page, token: string) => page.evaluate((name) => {
   return px
 }, token)
 
+for (const theme of WALL_THEMES) for (const destination of ['settings', 'agents', 'teams', 'dashboard']) {
+  test(`B10 ${destination} has one shell bar and a modal footer in ${theme}`, async ({ page }) => {
+    await openFrame(page, `frame-wall=${destination}`, theme, 720)
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    const bar = dialog.locator('[data-slot="top-bar"]')
+    const footer = dialog.locator('[data-slot="status-bar"]')
+    await expect(bar).toHaveCount(1)
+    await expect(footer).toHaveCount(1)
+    await expect(page.locator('[data-slot="top-bar"]:visible')).toHaveCount(1)
+    await expect(page.locator('[data-slot="status-bar"]:visible')).toHaveCount(1)
+    await expect(bar.locator('[data-work-tool]')).toHaveCount(0)
+    const top = (await bar.locator('..').boundingBox())!, foot = (await footer.boundingBox())!
+    expect(top.height).toBe(FRAME.bar.height)
+    expect(foot.height).toBe(FRAME.statusBar.height)
+    expect(foot.x).toBe(0)
+    expect(foot.width).toBe(720)
+    expect(foot.y + foot.height).toBe(900)
+    const terminal = footer.getByRole('button', { name: 'Open terminal', exact: true })
+    await terminal.focus()
+    await expect(terminal).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(page.locator('[data-slot="top-bar"]:visible')).toHaveCount(1)
+    await expect(page.locator('[data-slot="status-bar"]:visible')).toHaveCount(1)
+  })
+}
+
+for (const theme of WALL_THEMES) {
+  test(`B10 modal footer usage menu returns to its next real Tab stop in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=settings', theme, 720)
+    const dialog = page.getByRole('dialog')
+    const trigger = dialog.locator('[data-slot="status-bar"]').getByRole('button', { name: /other agents/ })
+    await trigger.focus()
+    await page.keyboard.press('Tab')
+    expect(await page.evaluate(() => {
+      const next = document.activeElement
+      if (!(next instanceof HTMLElement) || next === document.body) return false
+      next.dataset.b10NextStop = ''
+      return true
+    })).toBe(true)
+    const next = page.locator('[data-b10-next-stop]')
+    await trigger.focus()
+    await page.keyboard.press('Enter')
+    const menu = page.getByRole('menu')
+    await expect(menu).toBeVisible()
+    const buttons = menu.getByRole('button')
+    const count = await buttons.count()
+    expect(count).toBeGreaterThan(1)
+    for (let index = 0; index < count; index++) {
+      await expect(buttons.nth(index)).toBeFocused()
+      await page.keyboard.press('Tab')
+    }
+    await expect(menu).toHaveCount(0)
+    await expect(next).toBeFocused()
+    await expect(dialog).toBeVisible()
+    expect(await next.evaluate(node => Boolean(node.closest('[role="dialog"]')))).toBe(true)
+  })
+  test(`B10 modal tools record work intent and preserve File and terminal nodes in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&frame-tool=file&frame-tool-path=%2Frepo%2FREADME.md&frame-terminal=1&frame-status=tasks', theme)
+    const editor = page.locator('[data-slot="work-tools"] .cm-content')
+    await expect(editor).toContainText('Storefront')
+    await page.locator('[data-slot="work-tools"]').getByRole('button', { name: 'Edit', exact: true }).click()
+    await expect(editor).toHaveAttribute('contenteditable', 'true')
+    await editor.fill('Keep this dirty checkout note')
+    await editor.evaluate(node => { node.dataset.b10Retained = 'file' })
+    const terminal = page.locator('[data-terminal-id]')
+    await expect(terminal).toBeVisible()
+    const terminalId = await terminal.getAttribute('data-terminal-id')
+    await terminal.evaluate(node => { node.dataset.b10Retained = 'terminal' })
+    await page.locator('[data-frame-region="left"]').getByRole('button', { name: 'Agents', exact: true }).click()
+    const dialog = page.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+    await expect(editor).toBeHidden()
+    await expect(terminal).toBeHidden()
+    await expect(dialog.locator('[data-slot="top-bar"] [data-work-tool]')).toHaveCount(0)
+    await dialog.locator('[data-slot="status-bar"]').getByRole('button', { name: '1 background task', exact: true }).click()
+    await expect(dialog).toBeVisible()
+    await expect(page.locator('[data-slot="work-tools"]')).toBeHidden()
+    const more = dialog.getByRole('button', { name: 'More', exact: true })
+    await more.focus()
+    await page.keyboard.press('Enter')
+    await expect(page.getByRole('menu')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('menu')).toHaveCount(0)
+    await expect(dialog).toBeVisible()
+    await expect(more).toBeFocused()
+    await page.keyboard.press('Escape')
+    await expect(dialog).toHaveCount(0)
+    await expect(page.locator('[data-slot="work-tools"]')).toBeVisible()
+    await expect(page.locator('[data-b10-retained="file"]')).toHaveCount(1)
+    await expect(editor).toContainText('Keep this dirty checkout note')
+    await expect(terminal).toHaveAttribute('data-terminal-id', terminalId!)
+    await expect(terminal).toHaveAttribute('data-b10-retained', 'terminal')
+    await expect(terminal).toBeVisible()
+  })
+}
+
+for (const theme of WALL_THEMES) {
+  for (const width of [1440, 720]) {
+    test(`B9 app foot spans the window and retains its terminal across views at ${width} in ${theme}`, async ({ page }) => {
+      await openFrame(page, 'frame-wall=team&frame-terminal=1', theme, width)
+      const footer = page.locator('[data-slot="status-bar"]')
+      await expect(footer).toHaveCount(1)
+      const bounds = (await footer.boundingBox())!
+      expect(bounds.x).toBe(0)
+      expect(bounds.width).toBe(width)
+      expect(bounds.height).toBe(FRAME.statusBar.height)
+      expect(bounds.y + bounds.height).toBe(900)
+      expect(await resolvedPx(page, '--hd-statusbar-h')).toBe(FRAME.statusBar.height)
+      await expect(page.locator('[data-slot="top-bar"] [data-slot="plan-meter"]')).toHaveCount(0)
+      await expect(footer.getByRole('button', { name: 'Close terminal', exact: true })).toHaveCount(1)
+      await expect(page.locator('button[aria-label="Close terminal"][aria-pressed="true"]')).toHaveCount(1)
+      const terminal = page.locator('[data-terminal-id]')
+      const id = await terminal.getAttribute('data-terminal-id')
+      await selectFrameTab(page, 'findings')
+      await expect(terminal).toHaveAttribute('data-terminal-id', id!)
+      await expect(terminal).toBeVisible()
+      const controls = await footer.locator('button').evaluateAll(nodes => nodes.map(node => {
+        const rect = node.getBoundingClientRect()
+        return { label: node.getAttribute('aria-label') ?? node.textContent, left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
+      }))
+      for (const control of controls) {
+        expect(control.left, `${control.label}: left`).toBeGreaterThanOrEqual(0)
+        expect(control.right, `${control.label}: right`).toBeLessThanOrEqual(width)
+        expect(control.top, `${control.label}: top`).toBeGreaterThanOrEqual(bounds.y)
+        expect(control.bottom, `${control.label}: bottom`).toBeLessThanOrEqual(900)
+      }
+      for (let index = 1; index < controls.length; index++) expect(controls[index].left).toBeGreaterThanOrEqual(controls[index - 1].right)
+    })
+  }
+  test(`B9 app foot projects real tasks and the host connection in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&frame-status=tasks', theme)
+    const footer = page.locator('[data-slot="status-bar"]')
+    await expect(footer.getByRole('button', { name: '1 background task', exact: true })).toBeEnabled()
+    await footer.getByRole('button', { name: '1 background task', exact: true }).click()
+    await expect(page.locator('[data-slot="work-tools"]')).toBeVisible()
+    await openFrame(page, 'frame-wall=team&frame-status=reconnecting', theme, 720)
+    await expect(page.locator('[data-slot="status-bar"]').getByText('Reconnecting', { exact: true })).toBeVisible()
+    await expect(page.locator('[data-slot="status-bar"]').getByText('Connected', { exact: true })).toHaveCount(0)
+  })
+}
+
+for (const theme of WALL_THEMES) {
+  test(`B8 Agents layout measures allocated rows and keeps names inside their column in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=team', theme)
+    await page.locator('[data-work-tool="details"]').click()
+    const overview = page.locator('[data-slot="team-overview"]')
+    const seats = overview.locator('[aria-label="Seats"]')
+    const allocated = (await seats.boundingBox())!.width
+    expect(allocated).toBeLessThan(800)
+    await expect(overview).toHaveAttribute('data-layout', 'narrow')
+    // Keep the existing 800 breakpoint, and exercise both sides on the real
+    // row allocation after the canonical reading inset.
+    const atThreshold = 1440 + 800 - allocated
+    await page.setViewportSize({ width: atThreshold - 1, height: 900 })
+    await expect.poll(async () => (await seats.boundingBox())!.width).toBe(799)
+    await expect(overview).toHaveAttribute('data-layout', 'narrow')
+    await page.setViewportSize({ width: atThreshold, height: 900 })
+    await expect.poll(async () => (await seats.boundingBox())!.width).toBe(800)
+    await expect(overview).toHaveAttribute('data-layout', 'table')
+    for (const name of ['Alpha', 'Beta']) {
+      const action = seats.getByRole('button', { name: `Open ${name}`, exact: true })
+      await expect(action).toBeVisible()
+      const cell = action.locator('xpath=ancestor::td')
+      const bounds = (await cell.boundingBox())!, label = (await action.boundingBox())!
+      expect(label.x).toBeGreaterThanOrEqual(bounds.x)
+      expect(label.x + label.width).toBeLessThanOrEqual(bounds.x + bounds.width)
+    }
+  })
+  for (const width of [1280, 1279, 1000, 999, 720]) {
+    test(`B8 fixed folds at ${width} in ${theme}`, async ({ page }) => {
+      await openFrame(page, 'frame-wall=conversation', theme, width)
+      await page.locator('[data-work-tool="details"]').click()
+      const shell = page.locator('[data-slot="fixed-shell"]')
+      await expect(shell).toHaveAttribute('data-panel-floats', String(width < FRAME.fold.panelFloats))
+      await expect(shell).toHaveAttribute('data-left-floats', String(width < FRAME.fold.sidebarFloats))
+      const main = page.locator('[data-frame-region="main"]')
+      expect(await main.evaluate(node => node.closest('[inert]') !== null)).toBe(false)
+      await expect(page.locator('[data-slot="workbench-main"]')).not.toHaveAttribute('inert', '')
+      if (width >= FRAME.fold.panelFloats) expect((await main.boundingBox())!.width).toBeGreaterThanOrEqual(FRAME.main.min)
+      await expect(page.locator('[data-region="sidebar"] [data-slot="dock-panel"]')).toHaveCount(0)
+      const bar = (await page.locator('[data-frame-region="top"]').boundingBox())!
+      const panel = (await page.locator('[data-frame-region="right"]').boundingBox())!
+      expect(Math.abs(panel.y - bar.y - FRAME.bar.height)).toBeLessThanOrEqual(1)
+      expect(panel.x).toBeGreaterThanOrEqual(0)
+      expect(panel.x + panel.width).toBeLessThanOrEqual(width)
+      if (width < FRAME.fold.panelFloats) expect(panel.width).toBe(FRAME.rightPanel.width)
+    })
+  }
+  test(`B8 terminal height and seam default are measured in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&frame-terminal=1', theme)
+    const terminal = page.locator('[data-terminal-id]')
+    const id = await terminal.getAttribute('data-terminal-id')
+    const seam = page.getByRole('separator', { name: 'Resize the bottom panel' })
+    await seam.focus()
+    for (let i = 0; i < 40; i++) await seam.press('ArrowUp')
+    expect((await page.locator('[data-frame-region="bottom"]').boundingBox())!.height).toBeLessThanOrEqual(450)
+    await seam.dblclick()
+    expect(Math.round((await page.locator('[data-frame-region="bottom"]').boundingBox())!.height)).toBe(FRAME.bottomPanel.height)
+    await page.setViewportSize({ width: 1440, height: 240 })
+    await expect.poll(async () => (await page.locator('[data-frame-region="bottom"]').boundingBox())!.height).toBe(FRAME.bottomPanel.min)
+    await page.setViewportSize({ width: 1440, height: 239 })
+    await expect(terminal).toBeHidden()
+    await expect(terminal).toHaveAttribute('data-terminal-id', id!)
+    await page.setViewportSize({ width: 1440, height: 900 })
+    await expect(terminal).toBeVisible()
+    await expect(terminal).toHaveAttribute('data-terminal-id', id!)
+    await expect.poll(async () => (await page.locator('[data-frame-region="bottom"]').boundingBox())!.height).toBe(FRAME.bottomPanel.height)
+  })
+}
+
 for (const theme of WALL_THEMES) for (const tool of ['details', 'changes', 'activity', 'browser']) {
   test(`B7a ${tool} is a flat body without furniture in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation', theme)
@@ -481,9 +693,51 @@ for (const theme of WALL_THEMES) {
   })
 }
 
-// Task 10 extends this same window contract to the four transitional
+// Task 10 extends this same window contract to the transitional
 // AppWindow hosts. The pattern probe deliberately has no application lead.
-const B6_WORK_DESTINATIONS = WALL_DESTINATIONS.filter(destination => destination.surface !== 'pattern' && !['teams', 'agents', 'dashboard', 'settings'].includes(destination.id))
+const B10_NONWORK = /frame-wall=(?:teams|agents|agent|dashboard|settings(?:-general|-runtimes)?|library|plugins|changes-review)(?:&|$)/
+const B6_WORK_DESTINATIONS = WALL_DESTINATIONS.filter(destination => destination.surface !== 'pattern' && !B10_NONWORK.test(destination.query))
+const B10_NONWORK_DESTINATIONS = WALL_DESTINATIONS.filter(destination => B10_NONWORK.test(destination.query))
+for (const theme of WALL_THEMES) for (const width of [720, 1440]) {
+  test(`B10 nonwork place hierarchy and lead follow window state at ${width} in ${theme}`, async ({ page }) => {
+    const hidden = width === 1440 ? '&frame-sidebar-hidden=1' : ''
+    await openFrame(page, `frame-wall=conversation${hidden}`, theme, width)
+    const referenceX = (await page.locator('[data-slot="top-bar"] [data-topbar="place"]').boundingBox())!.x
+    const measured: { destination: string; origin: number; childX: number; titleWidth: number }[] = []
+    for (const destination of B10_NONWORK_DESTINATIONS) {
+      await openFrame(page, `${destination.query}${hidden}`, theme, width)
+      const bar = page.locator('[data-slot="top-bar"]:visible')
+      if (destination.id === 'agent') await expect(bar.locator('[data-topbar-title]')).toContainText('Implementer')
+      await expect(bar.locator('[data-topbar="lead"]').getByRole('button')).toHaveCount(width === 720 ? 1 : 3)
+      await expect(bar.locator('[data-topbar="lead"]').getByRole('button', { name: 'Show sidebar', exact: true })).toBeVisible()
+      await expect(bar.locator('[data-work-tool]')).toHaveCount(0)
+      await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0,
+        { message: `${destination.id} child title floor` }).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+      const title = (await bar.locator('[data-topbar-title]').boundingBox())!
+      const origin = (await bar.locator('[data-topbar="place"]').boundingBox())!.x
+      // Bars slot 2 and the approved Agent/Settings drawing put the parent
+      // before the child. Pin that entire place origin, and separately keep
+      // the child title's unchanged 180px floor; work title-x stays in B6.
+      expect(Math.abs(origin - referenceX), `${destination.id} place origin`).toBeLessThanOrEqual(1)
+      measured.push({ destination: destination.id, origin, childX: title.x, titleWidth: title.width })
+    }
+    await test.info().attach('nonwork-place-measurements', { body: JSON.stringify(measured, null, 2), contentType: 'application/json' })
+  })
+}
+for (const theme of WALL_THEMES) {
+  test(`B10 standing-column place origin stays common in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme)
+    const referenceX = (await page.locator('[data-slot="top-bar"] [data-topbar="place"]').boundingBox())!.x
+    for (const destination of B10_NONWORK_DESTINATIONS) {
+      await openFrame(page, destination.query, theme)
+      const bar = page.locator('[data-slot="top-bar"]:visible')
+      if (destination.id === 'agent') await expect(bar.locator('[data-topbar-title]')).toContainText('Implementer')
+      await expect(bar.locator('[data-topbar="lead"]').getByRole('button')).toHaveCount(0)
+      const origin = (await bar.locator('[data-topbar="place"]').boundingBox())!.x
+      expect(Math.abs(origin - referenceX), `${destination.id}: origin ${origin}, work ${referenceX}`).toBeLessThanOrEqual(1)
+    }
+  })
+}
 for (const theme of WALL_THEMES) {
   for (const width of [720, 1440]) for (let group = 0; group < Math.ceil(B6_WORK_DESTINATIONS.length / 9); group++) {
     test(`B6 lead follows window state on work destinations group ${group + 1} at ${width} in ${theme}`, async ({ page }) => {

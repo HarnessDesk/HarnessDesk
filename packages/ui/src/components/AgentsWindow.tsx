@@ -6,7 +6,7 @@ import { agentName, bySection, firstReason, originWords, projectName, seatTaken 
 import { useSnapshot, useStore } from '../state/context'
 import { AppWindow, WindowGroup, WindowNav, WindowNavItem, WindowNavStateMark, WindowPage } from './AppWindow'
 import { AgentIcon } from './Icons'
-import { Dot } from '../design'
+import { Dot, useEscapeSurface } from '../design'
 import { AgentsRosterSection } from './AgentRoster'
 
 /**
@@ -33,6 +33,7 @@ export const AgentsWindow = ({
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  useEscapeSurface(true, onClose)
 
   // Read once, here, for every page this window ever shows: the overview and
   // (from Task 15) a selected Agent's own page both read the same copy
@@ -46,7 +47,7 @@ export const AgentsWindow = ({
   const sections = bySection(agents)
 
   return (
-    <AppWindow label="Agents">
+    <AppWindow owner="agents" onClose={onClose} onBack={() => onFocus(null)} label="Agents">
       <WindowNav onBack={onClose}>
         <WindowNavItem
           icon={<AgentIcon size={14} />}

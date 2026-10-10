@@ -97,7 +97,7 @@ export const TeamsWindow = ({onClose, initialFilter='active'}: {onClose:()=>void
   </Fragment>)}</TableBody>
  </Table>
  }
- return <AppWindow label="Teams" responsive>
+ return <AppWindow owner="teams" onClose={onClose} label="Teams" responsive>
   <WindowNav onBack={onClose}>{(['active','needs-you','settled'] as const).map(value=><WindowNavItem key={value} icon={undefined} label={labels[value]} count={list.counts[value]} selected={filter===value} onClick={()=>setFilter(value)}/>)}</WindowNav>
   <WindowPage><div ref={pageBox} data-slot="teams-page" data-layout={narrow===null?"unmeasured":narrow?"narrow":"table"} className="min-w-0 flex flex-col gap-4">
    <PageHead title="Teams"/>

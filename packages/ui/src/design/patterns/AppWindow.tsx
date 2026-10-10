@@ -1,27 +1,36 @@
-import { forwardRef, type ComponentProps } from 'react'
+import { forwardRef, type ComponentProps, type CSSProperties } from 'react'
 
 import { cn } from '@/lib/utils'
 
 import { DialogPopup } from '../ui/dialog'
 import { RailSection } from './DockPanel'
+import { FRAME } from '../frame'
 
 /**
  * The full-window destination shell shared by Settings and Dashboard.
  * Base UI still owns focus and modality; this pattern owns the window ground
  * and the two plates that meet inside it.
  */
-export const AppWindowSurface = forwardRef<HTMLDivElement, ComponentProps<typeof DialogPopup> & { modal?: boolean }>(
-  ({ className, modal, ...props }, ref) => (
+export const AppWindowSurface = forwardRef<HTMLDivElement, ComponentProps<typeof DialogPopup> & { modal?: boolean; nativeCorner?: boolean }>(
+  ({ className, modal, nativeCorner = false, style, ...props }, ref) => (
     <DialogPopup
       ref={ref}
       data-slot="app-window"
       aria-modal={modal || undefined}
       className={cn('bg-(--hd-card) outline-none', className)}
       {...props}
+      style={{ ...style, '--titlebar-inset': nativeCorner ? 'var(--hd-titlebar-lights)' : '0px', display: 'grid',
+        gridTemplateColumns: 'minmax(0, 1fr)',
+        gridTemplateRows: `${FRAME.bar.height}px minmax(0, 1fr) ${FRAME.statusBar.height}px` } as CSSProperties}
     />
   ),
 )
 AppWindowSurface.displayName = 'AppWindowSurface'
+
+/** Work and window destinations share the standing sidebar's top-row origin. */
+export const AppWindowTopHost = ({ columnWidth, style, ...props }: ComponentProps<'div'> & { columnWidth: number }) => (
+  <div {...props} style={{ ...style, marginInlineStart: columnWidth }} />
+)
 
 export const AppWindowRail = ({ className, ...props }: ComponentProps<'nav'>) => (
   <nav
@@ -33,7 +42,7 @@ export const AppWindowRail = ({ className, ...props }: ComponentProps<'nav'>) =>
 
 /** The window rail's head, under the window buttons: the system's rail section. */
 export const AppWindowRailTop = (props: ComponentProps<'div'>) => (
-  <RailSection stretch="head" density="comfortable" corner {...props} />
+  <RailSection stretch="head" density="comfortable" {...props} />
 )
 
 /** The window rail's scrolling list: the system's rail section. */

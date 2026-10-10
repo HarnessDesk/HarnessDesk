@@ -12,6 +12,8 @@ export interface WallDestination extends FrameActions, WallActions { readonly id
 export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'topbar-probe', surface: 'pattern', query: 'frame-wall=topbar' },
   { id: 'conversation', query: 'frame-wall=conversation' },
+  { id: 'conversation-status-tasks', query: 'frame-wall=conversation&frame-status=tasks' },
+  { id: 'team-status-reconnecting', query: 'frame-wall=team&frame-status=reconnecting' },
   { id: 'conversation-tasks', query: 'frame-wall=conversation&frame-tool=tasks' },
   { id: 'conversation-changes', query: 'frame-wall=conversation', tool: 'changes' },
   { id: 'conversation-activity', query: 'frame-wall=conversation', tool: 'activity' },
@@ -48,6 +50,7 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'team-findings', query: 'frame-wall=team', tab: 'findings' },
   { id: 'teams', query: 'frame-wall=teams' },
   { id: 'agents', query: 'frame-wall=agents' },
+  { id: 'agent', query: 'frame-wall=agent' },
   { id: 'dashboard', query: 'frame-wall=dashboard' },
   { id: 'settings', query: 'frame-wall=settings' },
   { id: 'left-column-probe', surface: 'pattern', query: 'frame-wall=left-column' },
@@ -66,6 +69,11 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'popup-menu-icons', query: 'frame-wall=conversation&popup=menu-icons', popup: 'Frame menu' },
   { id: 'popup-menu-none', query: 'frame-wall=conversation&popup=menu-none', popup: 'Frame menu' },
   { id: 'popup-composer-add', query: 'frame-wall=conversation', composerAdd: true },
+  { id: 'settings-general', query: 'frame-wall=settings-general' },
+  { id: 'settings-runtimes', query: 'frame-wall=settings-runtimes' },
+  { id: 'library', query: 'frame-wall=library' },
+  { id: 'plugins', query: 'frame-wall=plugins' },
+  { id: 'changes-review', query: 'frame-wall=changes-review' },
 ] as const
 
 /** Wide (every region stands), between the folds, and the narrowest window. */

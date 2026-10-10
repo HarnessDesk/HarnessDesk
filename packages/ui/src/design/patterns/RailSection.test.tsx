@@ -18,9 +18,10 @@ it('holds a compact rail on the bars’ gutter with a short head step and a long
   expect(list).toContain('pb-3')
 })
 
-it('gives the window rail its wider gutter and longer steps, and clears the window buttons', () => {
+it('gives the window rail its wider gutter and longer steps below the shared top bar', () => {
   const top = classOf(renderToStaticMarkup(<AppWindowRailTop>back</AppWindowRailTop>))
-  expect(top).toEqual(expect.arrayContaining(['px-3', 'pt-(--hd-titlebar-height)', 'pb-2']))
+  expect(top).toEqual(expect.arrayContaining(['px-3', 'pb-2']))
+  expect(top).not.toContain('pt-(--hd-titlebar-height)')
 
   const scroll = classOf(renderToStaticMarkup(<AppWindowRailScroll>pages</AppWindowRailScroll>))
   expect(scroll).toEqual(expect.arrayContaining(['px-3', 'pt-1.5', 'pb-3']))

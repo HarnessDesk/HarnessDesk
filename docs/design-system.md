@@ -247,6 +247,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-row-h` | `calc(20px + 4px * 2 + 2px)` |
 | `--hd-icon-target` | `24px` |
 | `--hd-icon-target-sm` | `20px` |
+| `--hd-statusbar-h` | `28px` |
 | `--hd-bar-h` | `40px` |
 | `--hd-bar-divider-h` | `14px` |
 | `--hd-bar-title-min` | `180px` |
@@ -1055,6 +1056,12 @@ The full-window destination shell shared by Settings and Dashboard.
 Base UI still owns focus and modality; this pattern owns the window ground
 and the two plates that meet inside it.
 
+### `AppWindowTopHost`
+
+`packages/ui/src/design/patterns/AppWindow.tsx`
+
+Work and window destinations share the standing sidebar's top-row origin.
+
 ### `AppWindowRailTop`
 
 `packages/ui/src/design/patterns/AppWindow.tsx`
@@ -1456,6 +1463,12 @@ The retained frame's containing block, shared by standing and floating modes.
 `packages/ui/src/design/patterns/DockPanel.tsx`
 
 Plugin sections join Details' flow; hidden native layers keep their existing boxes.
+
+### `FixedShell`
+
+`packages/ui/src/design/patterns/FixedShell.tsx`
+
+Six stable regions: folding and closing affect geometry, never body identity.
 
 ### `FlowCanvas`
 
@@ -2185,6 +2198,12 @@ A Settings record's actions: its name and distinguishing location, with destruct
 `packages/ui/src/design/patterns/SidebarMenuState.tsx`
 
 A quiet conversation or room state ends on the inset rail and folds to a dot for its own row's actions.
+
+### `StatusBar`
+
+`packages/ui/src/design/patterns/StatusBar.tsx`
+
+The app's readings share one window-wide foot, below every retained region.
 
 ### `UsageMeterRow`
 

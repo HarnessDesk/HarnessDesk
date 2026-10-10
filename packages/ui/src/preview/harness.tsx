@@ -1,3 +1,4 @@
+import { FRAME } from '../design/frame'
 import { DOCUMENT_DIFF } from './run-shapes-fixture'
 import { panes, type TeamChatLayout, type TeamFramePage } from '../state/layout'
 import { replaceTeamPayload } from '../state/workbench'
@@ -1224,9 +1225,10 @@ class PreviewStore {
 
   /* The window's width, as the app's store takes it (`setWindowWidth`): a frame
      that stands for a narrow window states the width rather than a flag. */
-  setWindowWidth(width: number): void {
-    if (width === this.#snapshot.windowWidth) return
-    this.patch({ windowWidth: width })
+  setWindowWidth(width: number): void { this.setWindowSize(width, this.#snapshot.windowHeight) }
+  setWindowSize(width: number, height: number): void {
+    if (width === this.#snapshot.windowWidth && height === this.#snapshot.windowHeight) return
+    this.patch({ windowWidth: width, windowHeight: height })
   }
 
   /* Closing a turn-files card, with the function the app's store runs. */
@@ -1368,7 +1370,11 @@ class PreviewStore {
   openFile(path: string): void { if (this.#snapshot.activeRuntime) this.showViewIn('right', { kind: 'file', path, runtime: this.#snapshot.activeRuntime }) }
   openPreview(path: string): void { if (this.#snapshot.activeRuntime) this.showViewIn('right', { kind: 'preview', path, runtime: this.#snapshot.activeRuntime }) }
   async openTerminal(): Promise<void> {
-    if (!this.#snapshot.activeRuntime || window.innerHeight < 240) return
+    if (this.#snapshot.windowHeight < FRAME.bottomPanel.min * 2) {
+      this.resultNotice('warning', 'The terminal needs a window at least 240px tall.')
+      return
+    }
+    if (!this.#snapshot.activeRuntime) return
     this.showViewIn('bottom', { kind: 'terminal', terminalId: 'frame-pty', runtime: this.#snapshot.activeRuntime, cwd: PREVIEW_ROOT })
   }
   closeTerminalDock(): void {
@@ -1437,7 +1443,7 @@ class PreviewStore {
     this.#workbench(undock(this.#snapshot.workbench, id))
   }
   resizePanel(area: DockId, size: number): void {
-    this.#workbench(resizeDock(this.#snapshot.workbench, area, size))
+    this.#workbench(resizeDock(this.#snapshot.workbench, area, size, this.#snapshot.windowHeight))
   }
   splitPanel(id: MountedId, direction: 'row' | 'column', place: 'before' | 'after' = 'after'): void {
     this.#workbench(splitDock(this.#snapshot.workbench, id, direction, place))
@@ -1480,6 +1486,7 @@ class PreviewStore {
     this.#snapshot = {
       ...this.#snapshot,
       windowWidth: width,
+      windowHeight: window.innerHeight,
       narrowWindow: sidebarCannotHaveColumn(this.#snapshot.workbench, width),
     }
     let frame: number | null = null
@@ -1487,7 +1494,7 @@ class PreviewStore {
       if (frame !== null) return
       frame = window.requestAnimationFrame(() => {
         frame = null
-        this.patch({ windowWidth: window.innerWidth })
+        this.setWindowSize(window.innerWidth, window.innerHeight)
       })
     })
   }

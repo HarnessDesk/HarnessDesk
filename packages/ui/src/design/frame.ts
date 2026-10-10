@@ -26,6 +26,7 @@ export const FRAME = {
 
 /** Every token the frame names, and the pixels it must resolve to. */
 export const FRAME_TOKENS: Readonly<Record<string, number>> = {
+  '--hd-statusbar-h': FRAME.statusBar.height,
   '--hd-bar-h': FRAME.bar.height,
   '--hd-bar-divider-h': FRAME.bar.dividerHeight,
   '--hd-bar-title-min': FRAME.bar.titleMin,

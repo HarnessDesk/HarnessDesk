@@ -1,3 +1,5 @@
+import { TopBarProvider } from '../panels/top-bar'
+import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 import { useEffect, useMemo, useRef } from 'react'
 import { reduceSession, type AgentEvent } from '@harnessdesk/protocol'
 import { AppStore, type AppSnapshot } from '../state/store'
@@ -80,7 +82,7 @@ export const NoticesFrame = () => {
   return <StoreProvider store={store}>
     <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
       <div data-frame-id={`notices-${scene}`} className="h-screen bg-background">
-        {scene === 'settings' ? <div className="min-h-full overflow-y-auto"><PaneColumn inset="reading"><NotificationsSection /></PaneColumn></div> : <Workbench sidebar={<Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />} />}
+        {scene === 'settings' ? <div className="min-h-full overflow-y-auto"><PaneColumn inset="reading"><NotificationsSection /></PaneColumn></div> : <TopBarProvider><ShellHostsProvider><Workbench sidebar={<Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>}
         <Notices />
         <Toaster />
       </div>

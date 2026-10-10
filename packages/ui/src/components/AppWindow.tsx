@@ -4,6 +4,7 @@ import {
   AppWindowRailScroll,
   AppWindowRailTop,
   AppWindowSurface,
+  AppWindowTopHost,
   Button,
   DialogPortal,
   DialogRoot,
@@ -16,12 +17,21 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   Text,
+  PageHeadingProvider,
+  MenuItem,
+  type PageHeadingData,
 } from '../design'
 import { createContext, useContext, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { Clipped } from '../design'
 
 import { ArrowLeftIcon } from './Icons'
 import styles from './AppWindow.module.css'
+import { TopBarProvider, useTopBar } from '../panels/top-bar'
+import { ShellHostsProvider, ShellOutlets, useShellHosts } from '../panels/shell-hosts'
+import { useSnapshot } from '../state/context'
+import { sidebarPlacement } from '../state/workbench'
+import { WindowControls } from './WindowControls'
+import { hasTrafficLights } from '../lib/desktop'
 
 /**
  * The app's second surface: a full window with a nav rail down its left side.
@@ -63,8 +73,26 @@ export const moveWindowRailFocus = (event: ReactKeyboardEvent<HTMLElement>) => {
   rows[next]?.focus()
 }
 
-export const AppWindow = ({ label, children, responsive = false }: { label: string; children: ReactNode; responsive?: boolean }) => {
+type AppWindowProps = { owner: string; label: string; children: ReactNode; responsive?: boolean; onBack?: () => void; onClose: () => void }
+export const AppWindow = (props: AppWindowProps) => {
   const embedded = useContext(AppWindowMode) === 'embedded'
+  return embedded ? <TopBarProvider><ShellHostsProvider><AppWindowFrame {...props} />
+    <ShellOutlets activeOwner={props.owner} /></ShellHostsProvider></TopBarProvider> : <AppWindowFrame {...props} />
+}
+const AppWindowFrame = ({ owner, label, children, responsive = false, onBack, onClose }: AppWindowProps) => {
+  const embedded = useContext(AppWindowMode) === 'embedded'
+  const snapshot = useSnapshot()
+  const columnWidth = sidebarPlacement(snapshot) === 'column' ? snapshot.workbench.sidebar.size : 0
+  const { topRef, footRef } = useShellHosts(owner)
+  const [heading, setHeading] = useState<PageHeadingData | null>(null)
+  useTopBar(owner, {
+    place: heading?.place ?? label,
+    parent: heading && heading.place !== label && onBack ? { label, run: onBack } : undefined,
+    lead: sidebarPlacement(snapshot) !== 'column' ? <WindowControls /> : undefined,
+    corner: columnWidth === 0,
+    more: close => <MenuItem label="Back to app" onSelect={() => { onClose(); close() }} />,
+  })
+  const receiveHeading = (next: PageHeadingData | null) => setHeading(current => current?.place === next?.place ? current : next)
   const [host, setHost] = useState<HTMLDivElement | null>(null)
   const surface = useRef<HTMLDivElement>(null)
   return (
@@ -90,11 +118,14 @@ export const AppWindow = ({ label, children, responsive = false }: { label: stri
               className={`${styles.win} ${responsive ? styles.responsive : ''}`}
               aria-label={label}
               modal={!embedded}
+              nativeCorner={columnWidth === 0 && hasTrafficLights()}
               aria-describedby={undefined}
               initialFocus={embedded ? false : surface}
               finalFocus={!embedded}
             >
-              <div className={styles.winBody}>{children}</div>
+              <AppWindowTopHost columnWidth={columnWidth} ref={topRef} data-shell-host="top" />
+              <div className={styles.winBody}><PageHeadingProvider onHeading={receiveHeading}>{children}</PageHeadingProvider></div>
+              <div ref={footRef} data-shell-host="status" />
             </AppWindowSurface>
           </DialogPortal>
         )}

@@ -1,3 +1,5 @@
+import { TopBarProvider } from '../../panels/top-bar'
+import { ShellHostsProvider, ShellOutlets } from '../../panels/shell-hosts'
 import { TeamViewFrame } from '../../preview/TeamViewFrame'
 import { TeamFramePreview } from '../../preview/TeamFramePreview'
 import { ConversationFrame } from '../../preview/ConversationFrame'
@@ -942,7 +944,7 @@ const panelsStore = previewStore({
 export const PanelsSurface = () => (
   <Mount with={panelsStore}>
     <Frame height="page">
-      <Workbench
+      <TopBarProvider><ShellHostsProvider><Workbench
         sidebar={
           <Sidebar
             onOpenSettings={() => {}}
@@ -954,7 +956,7 @@ export const PanelsSurface = () => (
             onSearch={() => {}}
           />
         }
-      />
+      /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
     </Frame>
   </Mount>
 )

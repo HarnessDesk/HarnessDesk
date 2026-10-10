@@ -36,6 +36,21 @@ test('focused owner wins, view changes cannot replace the subject, cleanup clear
   }
 })
 
+test('a nonwork registration has no tools and returning restores the work slots', () => {
+  const work = { place: 'Checkout retry', tools: <button>Details</button>, more: emptyMore }
+  const page = { place: 'Appearance', parent: { label: 'Settings', run: () => {} }, more: emptyMore }
+  const App = ({ settings }: { settings: boolean }) => <TopBarProvider>
+    <PublishedBase owner="main" slots={work} />{settings && <PublishedBase owner="settings" slots={page} />}
+    <TopBarOutlet owner={settings ? 'settings' : 'main'} fallback={{ place: 'New session', more: emptyMore }} />
+  </TopBarProvider>
+  mounted((root, container) => {
+    act(() => root.render(<App settings />))
+    expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Details')).toBe(false)
+    act(() => root.render(<App settings={false} />))
+    expect([...container.querySelectorAll('button')].some(one => one.textContent === 'Details')).toBe(true)
+  })
+})
+
 const PublishedBase = ({ owner, slots }: { owner: string; slots: TopBarProps }) => {
   useTopBar(owner, slots)
   return null
@@ -92,6 +107,22 @@ test('cleanup of a replaced publisher preserves the replacement until its own cl
     act(() => root.render(<App old={false} current={false} />))
     expect(container.querySelector('button[aria-label="Review changes"]')).toBeNull()
     expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Checkout retry')
+  })
+})
+
+test('an older same-owner producer cannot republish over the current registration', () => {
+  const replacement = { place: 'Current settings', more: emptyMore }
+  const Old = () => {
+    const [place, setPlace] = useState('Previous settings')
+    useTopBar('settings', { place, more: emptyMore })
+    return <button onClick={() => setPlace('Late previous settings')}>Update previous</button>
+  }
+  mounted((root, container) => {
+    act(() => root.render(<TopBarProvider><Old /><PublishedBase owner="settings" slots={replacement} />
+      <TopBarOutlet owner="settings" fallback={{ place: 'Fallback', more: emptyMore }} /></TopBarProvider>))
+    expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Current settings')
+    act(() => container.querySelector<HTMLButtonElement>('button')!.click())
+    expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Current settings')
   })
 })
 

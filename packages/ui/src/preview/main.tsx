@@ -1,12 +1,11 @@
+import { NativeServersPreview } from './native-servers'
 import { TeamViewFrame } from './TeamViewFrame'
 import { ConversationFrame } from './ConversationFrame'
 import { SettingsNavigationProbe } from './frames-left-column'
 import { LeftColumnWorkProbe } from './frames-left-column'
 import { LeftColumnProbe } from './frames-left-column'
 import { TeamStartFrames } from './frames-team-start'
-import { AgentPage } from '../components/AgentPage'
 import { ReleaseStills } from './release-stills'
-import { PREVIEW_AGENTS } from './harness'
 import { TeamFrame } from './frames-team-frame'
 import { FrameWall } from './frames-frame-wall'
 import { RunDockFrame } from './frames-run-dock'
@@ -499,12 +498,6 @@ const RuntimesPreview = () => {
   )
 }
 
-const NativeServersPreview = () => {
-  useTheme()
-  const entry = { ...PREVIEW_AGENTS[0]!, definition: { ...PREVIEW_AGENTS[0]!.definition!, runtimeServers: [] } }
-  const own = useMemo(() => previewStore({ agents: [entry] }), [])
-  return <StoreProvider store={own}><div className="min-h-screen bg-background px-8 py-10 text-foreground"><div className="mx-auto max-w-[760px]"><AgentPage entry={entry} onBack={() => {}} onLeave={() => {}} /></div></div></StoreProvider>
-}
 
 const RuntimeCostPreview = () => {
   useTheme()

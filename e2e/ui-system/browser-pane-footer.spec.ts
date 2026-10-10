@@ -1,5 +1,7 @@
 import { expect, test } from '@playwright/test'
 
+const toolWall = process.env.FRAME_TOOL_WALL_DIR ?? 'output/frame-wall/tool-bodies'
+
 /** The shell's quiet facts footer retains the complete state and profile
  * sentence at each supported panel width. Drive state comes from a real
  * host-shaped in-flight tool item in the isolated frame fixture. */
@@ -35,7 +37,16 @@ for (const theme of ['light', 'dark'] as const) for (const state of ['idle', 'dr
       expect(held.sideways, `${state}: footer fits at ${width}`).toBe(false)
       expect(held.spills, `${state}: whole facts fit the natural footer at ${width}`).toBe(0)
       expect(held.ellipsis).toBe(false)
-      await page.screenshot({ path: `output/frame-wall/B7a-tools/browser-${state}-${width}-${theme}.png` })
+      // The composer measures its compact controls after a live seam resize.
+      // Wait for the real controls, not merely the panel's synchronous box.
+      await expect.poll(async () => page.locator('[data-slot="workbench-main"]').evaluate(main => {
+        const edge = main.getBoundingClientRect()
+        return [...main.querySelectorAll('[data-slot="composer-tools"] button')].every(button => {
+          const box = button.getBoundingClientRect()
+          return box.width === 0 || box.left >= edge.left - 0.5 && box.right <= edge.right + 0.5
+        })
+      }), `${state}: composer controls stay inside main at ${width}`).toBe(true)
+      await page.screenshot({ path: `${toolWall}/browser-${state}-${width}-${theme}.png` })
     }
   })
 }

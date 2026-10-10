@@ -99,6 +99,7 @@ export {
   DialogOverlay,
   DialogPopup,
   DialogPortal,
+  renderShellSlot,
   DialogTitle,
   DialogTrigger,
   DialogViewport,
@@ -134,6 +135,7 @@ export {
   AppWindowRailScroll,
   AppWindowRailTop,
   AppWindowSurface,
+  AppWindowTopHost,
 } from './patterns/AppWindow'
 export * from './patterns/InspectorPanel'
 export { Page, type PageWidth } from './patterns/Page'
@@ -232,3 +234,9 @@ export type { LeftColumnMenu } from './patterns/LeftColumn'
 export { LeftColumnList, LeftColumnRename, LeftColumnNavigation, LeftColumnProjectsHead, LeftColumnListOptions, LeftColumnEmpty } from './patterns/LeftColumn'
 import './ui/popup.css'
 export { MenuPresentation, MenuRowContent, menuRowAttributes, useMenuPresentation, type MenuRowData, type MenuIcons } from './ui/menu-row'
+
+export { FixedShell, type FixedShellProps } from './patterns/FixedShell'
+
+export { StatusBar, type StatusFact } from './patterns/StatusBar'
+
+export { PageHeadingProvider, usePageHeading, type PageHeadingData } from './patterns/AppWindow/PageHeading'

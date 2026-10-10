@@ -1,4 +1,4 @@
-import { useHeaderStatusGroup, HeaderStatusReading, Button, Progress, UsageMeterRow, Separator, Text, type Tone } from '../design'
+import { Button, Progress, UsageMeterRow, Separator, Text, type Tone } from '../design'
 import { useEffect, useMemo, useState } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
@@ -12,7 +12,7 @@ import { Menu, MenuLabel, MenuNote, Popover } from '../design'
 import styles from './PlanMeters.module.css'
 
 /**
- * The strip in the header: this conversation's agent, and one token for the
+ * The strip at the app foot: this conversation's agent, and one token for the
  * rest of the roster.
  *
  * The screen answers "where do I stand" when you go and ask it. This answers
@@ -36,7 +36,6 @@ export const PlanMeters = ({
   /** The one thing that stops a session from starting at all, offered here. */
   onSignIn: (runtime: RuntimeId) => void
 }) => {
-  const grouped = useHeaderStatusGroup()
   const snapshot = useSnapshot()
   const session = useActiveSession()
   const [now, setNow] = useState(() => Date.now())
@@ -86,23 +85,20 @@ export const PlanMeters = ({
         <Meter view={anchor.meter} now={now} onOpen={() => onOpen(anchor.meter.runtime)} />
       )}
       {anchor?.kind === 'signIn' && (
-        <HeaderStatusReading label="Account" detail={`${anchor.info.presentation.name} needs sign-in`}>
           <Button
             type="button"
             variant="primary" size="chip" className={`${styles.signInChip} truncate`}
             onClick={() => onSignIn(anchor.info.id)}
             aria-label={`Sign in to ${anchor.info.presentation.name}`}
-            title={grouped ? undefined : `${anchor.info.presentation.name} has no account here — sign in to use it`}
+            title={`${anchor.info.presentation.name} has no account here — sign in to use it`}
           >
             <SignInIcon size={12} />
             {anchor.info.presentation.name}
           </Button>
-        </HeaderStatusReading>
       )}
       {/* An agent that is out and is not this conversation's is the one piece
           of roster news worth its own space: the token can say how many are
-          out, but not which. Dropped first when the header narrows, because
-          the token beside it already carries the count. */}
+          out, but not which. The token beside it carries the roster count. */}
       {promoted.map((meter) => (
         <Meter
           key={`${meter.runtime}:${meter.report.account ?? ''}`}
@@ -131,15 +127,9 @@ const Meter = ({
   promoted?: boolean
   onOpen: () => void
 }) => (
-  <HeaderStatusReading
-    label={promoted ? "Other agent limit" : "Plan usage"}
-    detail={meterTitle(view)}
-    value={`${view.lane.title}, ${view.lane.remainingPercent}% left${view.lane.remainingPercent === 0 ? ' · out of quota' : ''}${view.lane.shortCountdown ? ` · resets in ${view.lane.shortCountdown}` : ''}`}
-    note={view.account ? `${view.name} · ${view.account}` : view.name}
-    notePath
-  >
     <Popover
       title={meterTitle(view)}
+      aria-label={meterTitle(view)}
       drop="down"
       align="right"
       label={
@@ -166,7 +156,7 @@ const Meter = ({
           {promoted ? (
             <Text role="meta" numeric>{view.figure}</Text>
           ) : (
-            <Text className={styles.figure} role="meta" tone={toneOf(view.tone)} numeric>{view.figure}</Text>
+            <Text role="meta" tone={toneOf(view.tone)} numeric>{view.figure}</Text>
           )}
         </span>
       }
@@ -217,7 +207,6 @@ const Meter = ({
         </Menu>
       )}
     </Popover>
-  </HeaderStatusReading>
 )
 
 /**
@@ -237,7 +226,6 @@ const Rest = ({
   now: number
   onOpen: (runtime: RuntimeId) => void
 }) => (
-  <HeaderStatusReading label="Other agents" detail={rest.title}>
     <Popover
       title={rest.title}
       drop="down"
@@ -246,7 +234,7 @@ const Rest = ({
       label={
         <span data-slot="plan-meter" className={styles.rest} data-tone="neutral" aria-label={rest.title}>
           <Text role="meta" tone="neutral"><RosterIcon size={13} /></Text>
-          <Text role="meta" tone="neutral" numeric className={styles.figure}>{rest.figure}</Text>
+          <Text role="meta" tone="neutral" numeric>{rest.figure}</Text>
         </span>
       }
     >
@@ -307,7 +295,6 @@ const Rest = ({
         </Menu>
       )}
     </Popover>
-  </HeaderStatusReading>
 )
 
 /** The stalest reading behind the token, which is what its age is worth. */

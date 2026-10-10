@@ -1,3 +1,4 @@
+import { FRAME } from '../design/frame'
 import { type TeamChatLayout, type TeamFramePage } from './layout'
 import { replaceTeamPayload } from './workbench'
 import { fixedToolRefusal, forgetFrameSubject, supportsFixedTool, admitFixedTool, chooseTool, toolOf, revealFixedTool, type WorkTool } from './frame-tools'
@@ -3743,6 +3744,10 @@ export class AppStore {
       readonly size?: TerminalSize
     } = {},
   ): Promise<void> {
+    if (this.#snapshot.windowHeight < FRAME.bottomPanel.min * 2) {
+      this.resultNotice('warning', 'The terminal needs a window at least 240px tall.')
+      return
+    }
     const runtime = this.#snapshot.activeRuntime
     const sessionKeyNow = this.#snapshot.activeSessionKey
     const session = sessionKeyNow ? this.#snapshot.sessions.get(sessionKeyNow) : undefined
@@ -3980,7 +3985,7 @@ export class AppStore {
   /** Brings back the panels saved for this workspace, or starts with one empty pane. */
   #restoreLayout(workspace: string | null): void {
     const raw = workspace ? this.#layouts?.[workspace] : null
-    const saved = readWorkbench(raw)
+    const saved = readWorkbench(raw, this.#snapshot.windowHeight)
     // Pages belong to the project they were opened for: a browser closed in
     // one workspace must not reappear in the next one.
     this.#closedBrowsers.clear()
@@ -4230,7 +4235,7 @@ export class AppStore {
   }
 
   resizePanel(area: DockId, size: number): void {
-    this.#setWorkbench(resizeDockIn(this.#snapshot.workbench, area, size))
+    this.#setWorkbench(resizeDockIn(this.#snapshot.workbench, area, size, this.#snapshot.windowHeight))
   }
 
   /**
@@ -6828,9 +6833,10 @@ export class AppStore {
    * narrowing a window is not a request to cover the conversation, and
    * widening one gives back the column as it was left.
    */
-  setWindowWidth(width: number): void {
-    if (width === this.#snapshot.windowWidth) return
-    this.#patch({ windowWidth: width })
+  setWindowWidth(width: number): void { this.setWindowSize(width, this.#snapshot.windowHeight) }
+  setWindowSize(width: number, height: number): void {
+    if (width === this.#snapshot.windowWidth && height === this.#snapshot.windowHeight) return
+    this.#patch({ windowWidth: width, windowHeight: height })
   }
   /**
    * The window's width, known before the first frame. Learned after the first
@@ -6846,13 +6852,13 @@ export class AppStore {
     if (typeof window === 'undefined') return
     const width = window.innerWidth
     const narrowWindow = sidebarCannotHaveColumn(this.#snapshot.workbench, width)
-    this.#snapshot = { ...this.#snapshot, windowWidth: width, narrowWindow }
+    this.#snapshot = { ...this.#snapshot, windowWidth: width, windowHeight: window.innerHeight, narrowWindow }
     let frame: number | null = null
     window.addEventListener('resize', () => {
       if (frame !== null) return
       frame = window.requestAnimationFrame(() => {
         frame = null
-        this.#patch({ windowWidth: window.innerWidth })
+        this.setWindowSize(window.innerWidth, window.innerHeight)
       })
     })
   }

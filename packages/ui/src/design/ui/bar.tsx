@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
  *
  * The window is read along a few horizontal lines — the row under the traffic
  * lights, the row that names a column, a filter row over a list, a facts line
- * under it — and each of them is `--hd-bar-h` tall, its controls centred, its
+ * under it — and the ordinary bars are `--hd-bar-h` tall, its controls centred, its
  * sides on the bar's own padding. Screens used to spell that row for
  * themselves (a height here, a padding there, an inline style for the corner),
  * which is how one of them ends up a step off the line the eye follows across.
@@ -31,6 +31,9 @@ import { cn } from '@/lib/utils'
  *           not truncate (a member's name) wrap, and the bar grows to hold
  *           them rather than letting them spill into what it heads.
  *
+ * `height="status"` is the app-wide 28px facts foot; its token is independent
+ * of ordinary 40px bars. `as="footer"` exposes that region semantically.
+ *
  * `as="header"` is for a bar that names what is under it — a page's own top
  * row, a column's head — so a screen reader can find it as that region's
  * header rather than as one more box.
@@ -41,31 +44,40 @@ const Bar = ({
   inset = 'box',
   corner = false,
   rule,
+  paintedRule = false,
   active = false,
   grow = false,
+  height = 'bar',
   ...props
 }: React.ComponentProps<'div'> & {
-  as?: 'div' | 'header'
+  as?: 'div' | 'header' | 'footer'
   inset?: 'box' | 'ink'
   corner?: boolean
   rule?: 'top' | 'bottom'
+  /** Paint a seam without consuming a pixel of the controls' region. */
+  paintedRule?: boolean
   active?: boolean
   grow?: boolean
+  /** App-wide status facts use the footer's own token; ordinary bars stay 40px. */
+  height?: 'bar' | 'status'
 }) => (
   <Element
     data-slot="bar"
     data-inset={inset}
+    {...(height === 'status' ? { 'data-height': height } : {})}
     {...(corner ? { 'data-corner': '' } : {})}
     {...(rule ? { 'data-rule': rule } : {})}
     {...(active ? { 'data-active': '' } : {})}
     className={cn(
-      'flex h-(--hd-bar-h) shrink-0 items-center gap-(--hd-bar-gap) pr-(--hd-bar-pad)',
-      grow && 'h-auto min-h-(--hd-bar-h) py-(--hd-space-1)',
+      'flex shrink-0 items-center gap-(--hd-bar-gap) pr-(--hd-bar-pad)',
+      height === 'status' ? 'h-(--hd-statusbar-h)' : 'h-(--hd-bar-h)',
+      grow && ['h-auto py-(--hd-space-1)', height === 'status' ? 'min-h-(--hd-statusbar-h)' : 'min-h-(--hd-bar-h)'],
       inset === 'box' && (corner ? 'pl-[max(var(--hd-bar-pad),var(--titlebar-inset,0px))]' : 'pl-(--hd-bar-pad)'),
       inset === 'ink' && (corner ? 'pl-[max(var(--hd-bar-ink),var(--titlebar-inset,0px))]' : 'pl-(--hd-bar-ink)'),
-      rule === 'bottom' && 'border-b border-(--hd-border)',
-      rule === 'top' && 'border-t border-(--hd-border)',
-      active && rule && 'border-(--hd-ring)',
+      rule === 'bottom' && !paintedRule && 'border-b border-(--hd-border)',
+      rule === 'top' && !paintedRule && 'border-t border-(--hd-border)',
+      paintedRule && rule && ['relative after:absolute after:pointer-events-none after:inset-x-0 after:h-(--hd-border-width) after:bg-(--hd-border)', rule === 'top' ? 'after:top-0' : 'after:bottom-0'],
+      active && rule && (paintedRule ? 'after:bg-(--hd-ring)' : 'border-(--hd-ring)'),
       className,
     )}
     {...props}

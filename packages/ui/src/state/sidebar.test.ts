@@ -229,23 +229,25 @@ describe('the store', () => {
 })
 
 describe('the line', () => {
-  it('is the desktop window’s own minimum width', () => {
-    /* The whole case for 720 is that the desktop app, at its ordinary zoom, can
-       never be narrower. Lower that minimum and the app would float its
-       sidebar at an ordinary width, with nothing here going red. */
-    expect(electronMain).toMatch(new RegExp(`minWidth:\\s*${NARROW_WINDOW}\\b`))
+  it('keeps native minimum720 separate from the FRAME sidebar fold1000', () => {
+    expect(electronMain).toMatch(/minWidth:\s*720\b/)
+    expect(electronMain).toMatch(/minHeight:\s*520\b/)
+    expect(NARROW_WINDOW).toBe(1000)
   })
 })
 
 describe('the width, from the first frame', () => {
   const originalWidth = window.innerWidth
+  const originalHeight = window.innerHeight
   afterEach(() => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: originalHeight })
     vi.restoreAllMocks()
   })
 
   it('samples width before first paint and coalesces resize work to animation frames', () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 700 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 900 })
     const callbacks: FrameRequestCallback[] = []
     const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
       callbacks.push(callback)
@@ -254,9 +256,11 @@ describe('the width, from the first frame', () => {
 
     const store = new AppStore('ws://localhost:0/')
     expect(store.getSnapshot().windowWidth).toBe(700)
+    expect(store.getSnapshot().windowHeight).toBe(900)
     expect(store.getSnapshot().narrowWindow).toBe(true)
 
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1440 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 600 })
     window.dispatchEvent(new Event('resize'))
     const scheduled = frame.mock.calls.length
     window.dispatchEvent(new Event('resize'))
@@ -264,6 +268,7 @@ describe('the width, from the first frame', () => {
     expect(frame).toHaveBeenCalledTimes(scheduled)
     for (const callback of callbacks) callback(0)
     expect(store.getSnapshot().windowWidth).toBe(1440)
+    expect(store.getSnapshot().windowHeight).toBe(600)
     expect(store.getSnapshot().narrowWindow).toBe(false)
   })
 })

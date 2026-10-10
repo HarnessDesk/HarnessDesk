@@ -69,7 +69,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   defaultExpanded?: boolean
   runNeedsYou?: boolean
 }) => {
-  const { ref: box, narrow } = useNarrowLayout<HTMLDivElement>(800)
+  const { ref: box, narrow } = useNarrowLayout<HTMLElement>(800)
   const [expanded, setExpanded] = useState(defaultExpanded)
   const [now, setNow] = useState(Date.now)
   const held = useRef(new Map<string, DoingLine>())
@@ -113,7 +113,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   const publicationWait = Boolean(publication?.needsYou && onFindings)
   const reasonInWait = findingsWait || (publicationWait && reason === publicationReason)
   return (
-    <div ref={box} data-slot="team-overview" data-layout={narrow === null ? 'unmeasured' : narrow ? 'narrow' : 'table'} className="min-w-0 overflow-y-auto">
+    <div data-slot="team-overview" data-layout={narrow === null ? 'unmeasured' : narrow ? 'narrow' : 'table'} className="min-w-0 overflow-y-auto">
       <PaneColumn inset="reading" className="flex flex-col gap-4">
         {onWrap && <div data-slot="overview-header" className="flex justify-end"><Button variant="outline" onClick={onWrap}>Wrap</Button></div>}
         {run && (
@@ -161,7 +161,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
             </ListRows>
           </Section>
         )}
-        <Section title={`Agents · ${model.seats.length}`} aria-label="Seats" inset="row" className="mt-0"
+        <Section ref={box} title={`Agents · ${model.seats.length}`} aria-label="Seats" inset="row" className="mt-0"
           action={done.length > 0 && <Button variant="outline" size="sm" aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>
             <DisclosureChevron open={expanded} />{done.length} done
           </Button>}>

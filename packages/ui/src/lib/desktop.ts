@@ -36,7 +36,12 @@ export interface TraySummary {
   readonly agents: readonly TrayAgent[]
 }
 
+export interface AppUpdateFact { readonly label: string; readonly enabled: boolean }
+
 export interface DesktopBridge {
+  readAppUpdate?(): Promise<AppUpdateFact | null>
+  onAppUpdate?(handler: (fact: AppUpdateFact | null) => void): () => void
+  appUpdateAction?(): void
   readonly platform: string
   openExternal(url: string): void
   setTitle(title: string): void

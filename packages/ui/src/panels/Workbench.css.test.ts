@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import css from './Workbench.module.css?raw'
+import shellCss from '../design/patterns/FixedShell.module.css?raw'
 
 /**
  * The dim over a narrow window, read as text.
@@ -52,7 +53,7 @@ describe('the dim over a narrow window', () => {
 
   it('slides the sidebar out of the way in a narrow window, and draws it in full while it floats', () => {
     const narrow = blockAfter('.shell[data-narrow] .sidebar {')
-    expect(narrow).toMatch(/position:\s*absolute/)
+    expect(shellCss).toMatch(/\.shell\[data-left-floats='true'\] \.left\s*\{[^}]*position:\s*absolute/)
     expect(narrow).toMatch(/transform:\s*translateX\(-100%\)/)
     expect(narrow).toMatch(/visibility:\s*hidden/)
     const floating = blockAfter('.shell[data-narrow] .sidebar[data-floating] {')
@@ -60,13 +61,13 @@ describe('the dim over a narrow window', () => {
     expect(floating).toMatch(/visibility:\s*visible/)
   })
 
-  it('lays a right panel over the conversation in a narrow window', () => {
-    expect(blockAfter('.shell[data-right-overlay] .right {')).toMatch(/position:\s*absolute;[^}]*inset:\s*0/)
+  it('the fixed right float begins below the top bar and ends above bottom/status', () => {
+    expect(shellCss).toMatch(/\.shell\[data-panel-floats='true'\] \.right\s*\{[^}]*top:\s*var\(--hd-bar-h\)/)
+    expect(shellCss).toContain('bottom: calc(var(--frame-bottom) + var(--frame-status))')
   })
-
-  it('hides the covered main surface and drops its draggable title-bar region', () => {
-    expect(blockAfter('.main[data-right-panel-overlay] {')).toMatch(/visibility:\s*hidden/)
-    expect(blockAfter(".main[data-right-panel-overlay] [data-slot='bar'] {")).toMatch(/-webkit-app-region:\s*no-drag/)
+  it('does not hide main or disable its bar dragging for a nonmodal right float', () => {
+    expect(css).not.toContain('data-right-panel-overlay')
+    expect(css).not.toContain('-webkit-app-region: no-drag')
   })
 
   it('has no fade or slide to wait out when motion is reduced', () => {

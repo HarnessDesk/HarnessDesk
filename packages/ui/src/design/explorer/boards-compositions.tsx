@@ -1,5 +1,5 @@
 import { PlanMetersSpecimen, TerminalToggleSpecimen, MainWorkActionsSpecimen } from '../../preview/frames-supported-controls'
-import { SeatList, ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolProse, ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet, SummaryList, SummaryItem, Checklist, ChecklistItem } from '../index'
+import { FRAME, StatusBar, FixedShell, SeatList, ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolProse, ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet, SummaryList, SummaryItem, Checklist, ChecklistItem } from '../index'
 import { Timeline, TimelineItem, type TimelineState } from '../ui/timeline'
 import { TimelineCard, TimelineCardRow, TimelineCards, TimelineCardWords, TimelineDocument } from '../ui/timeline-cards'
 import { LibrarySection } from '../../components/Library'
@@ -28,7 +28,7 @@ const PAGE_CATALOG_STATES = ['default'] as const
 const VIEWBAR_CATALOG_VARIANTS = ['light', 'dark'] as const
 const VIEWBAR_CATALOG_SIZES = ['default'] as const
 const VIEWBAR_CATALOG_STATES = ['default'] as const
-import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
+import { useMemo, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react'
 
 import {
   NO_CAPABILITIES,
@@ -3042,6 +3042,23 @@ export const TopBarBoard = () => {
   </section>)}</div>
 }
 
+const FIXEDSHELL_CATALOG_VARIANTS = ['light', 'dark'] as const
+const FIXEDSHELL_CATALOG_SIZES = ['default'] as const
+const FIXEDSHELL_CATALOG_STATES = ['default', 'open', 'closed', 'folded-state'] as const
+export const FixedShellBoard = () => <div data-catalog-variants={FIXEDSHELL_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={FIXEDSHELL_CATALOG_SIZES.join(' ')} data-catalog-states={FIXEDSHELL_CATALOG_STATES.join(' ')}>
+  {[FRAME.fold.panelFloats, 720].map(width => <section key={width} style={{ width, maxWidth: '100%', height: 900 }}>
+    <FixedShell viewportWidth={width} leftFloating={width < FRAME.fold.sidebarFloats} panelFloating={width < FRAME.fold.panelFloats}
+      leftOpen rightOpen bottomOpen={false}
+      style={{ '--frame-left': width < FRAME.fold.sidebarFloats ? '0px' : `${FRAME.sidebar.width}px`,
+        '--frame-left-open': `${FRAME.sidebar.width}px`, '--frame-right': `${FRAME.rightPanel.width}px`,
+        '--frame-right-open': `${FRAME.rightPanel.width}px`, '--frame-right-retained': `${FRAME.rightPanel.width}px`,
+        '--frame-bottom': '0px', '--frame-bottom-retained': `${FRAME.bottomPanel.height}px`, '--frame-status': `${FRAME.statusBar.height}px` } as CSSProperties}
+      left={<Text role="row">Sessions</Text>} top={<TopBar place="Checkout retry · 長いタイトル" more={() => null} />}
+      main={<Text role="prose">The current work stays mounted.</Text>} right={<ToolBody><ToolSection label="Run"><ToolProse>No Run recorded.</ToolProse></ToolSection></ToolBody>}
+      bottom={null} status={<Text role="meta">App facts</Text>} />
+  </section>)}
+</div>
+
 const TOOLBODY_CATALOG_VARIANTS = ['light', 'dark'] as const
 const TOOLBODY_CATALOG_SIZES = ['default'] as const
 const TOOLBODY_CATALOG_STATES = ['default', 'empty', 'populated', 'editing'] as const
@@ -3075,8 +3092,21 @@ export const SeatListBoard = () => {
   </div>
 }
 
+const STATUSBAR_CATALOG_VARIANTS = ['light', 'dark'] as const
+const STATUSBAR_CATALOG_SIZES = ['default'] as const
+const STATUSBAR_CATALOG_STATES = ['default', 'loading', 'disabled', 'populated'] as const
+export const StatusBarBoard = () => <div data-catalog-variants={STATUSBAR_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={STATUSBAR_CATALOG_SIZES.join(' ')} data-catalog-states={STATUSBAR_CATALOG_STATES.join(' ')}>
+  <StatusBar usage={<Text role="meta">Plan usage unavailable</Text>}
+    facts={[{ id: 'tasks', label: '3 background tasks', detail: 'Work across three conversations' },
+      { id: 'sync', label: 'Reconnecting', detail: 'Waiting for the host connection' },
+      { id: 'updates', label: 'Downloading Update…', run: () => {}, disabled: true }]}
+    terminal={<Button variant="ghost" size="icon-sm" aria-label="Open terminal"><TerminalIcon /></Button>} />
+</div>
+
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  { id: 'status-bar', title: 'StatusBar', about: 'Real-length content in both themes.', render: StatusBarBoard },
   { id: 'seat-list', title: 'SeatList', about: 'Real-length content in both themes.', render: SeatListBoard },
+  { id: 'fixed-shell', title: 'FixedShell', about: 'Real-length content in both themes.', render: FixedShellBoard },
   { id: 'tool-body', title: 'ToolBody', about: 'Real-length content in both themes.', render: ToolBodyBoard },
   { id: 'tool-footer', title: 'ToolFooter', about: 'Real-length content in both themes.', render: ToolFooterBoard },
   { id: 'top-bar', title: 'The top bar', about: 'Nine slots in both fold stages, with long names and CJK.', render: TopBarBoard },

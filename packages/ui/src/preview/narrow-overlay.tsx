@@ -1,10 +1,12 @@
+import { TopBarProvider } from '../panels/top-bar'
+import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { Workbench } from '../panels/Workbench'
 import '../panels/builtins'
 import { StoreProvider } from '../state/context'
-import { dock, dockViews, emptyWorkbench, normalizeFixedWorkbench } from '../state/workbench'
+import { dockViews, emptyWorkbench } from '../state/workbench'
 import { BLANK } from '../state/layout'
 import { runtimeId } from '@harnessdesk/protocol'
 import { AppWindowMode } from '../components/AppWindow'
@@ -34,8 +36,7 @@ const views = {
   tasks: { kind: 'tasks' },
 } as const
 const panelView = views[requestedView as keyof typeof views] ?? views.trajectory
-const legacy = { ...dock(emptyWorkbench(), 'right', panelView as never), main }
-const workbench = normalizeFixedWorkbench({ ...legacy, right: { ...legacy.right, size: 460 } }).workbench
+const workbench = { ...emptyWorkbench(), main }
 const usage = previewStore().getSnapshot().usage.map((report) =>
   report.source.kind === 'file'
     ? {
@@ -60,6 +61,8 @@ Object.assign(store, { closeTerminal: (terminalId: string) => {
   if (entry) store.closeView(entry.id)
 } })
 
+store.showViewIn(panelView.kind === 'terminal' ? 'bottom' : 'right', panelView as never)
+
 ;(window as Window & { __narrowOverlayStore?: typeof store }).__narrowOverlayStore = store
 
 const root = document.getElementById('root')
@@ -69,7 +72,7 @@ createRoot(root).render(
   <StrictMode>
     <StoreProvider store={store}>
       <AppWindowMode.Provider value="embedded">
-        <Workbench sidebar={<div />} />
+        <TopBarProvider><ShellHostsProvider><Workbench sidebar={<div />} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
       </AppWindowMode.Provider>
     </StoreProvider>
   </StrictMode>,
