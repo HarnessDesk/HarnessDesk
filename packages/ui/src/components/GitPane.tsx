@@ -65,7 +65,7 @@ import {
   UnlockIcon,
   WorktreeIcon,
 } from './Icons'
-import { ContextMenu, MenuItem, MenuLabel, MenuSeparator, useContextMenu } from '../design'
+import { ContextMenu, MenuItem, MenuLabel, MenuSeparator, MiddleTruncate, useContextMenu } from '../design'
 import { FrontDoor } from './FrontDoor'
 import { ltr } from '../lib/projects'
 import { ToolBodyControls, ToolSection, SummaryList, SummaryItem } from '../design'
@@ -1181,7 +1181,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
         )}
       </ContextMenu>
 
-      <ContextMenu at={railTarget ? railMenu.at : null} label="Ref actions" onClose={railMenu.close} icons="none">
+      <ContextMenu at={railTarget ? railMenu.at : null} label="Ref actions" onClose={railMenu.close} wide icons="all">
         {railTarget?.kind === 'branch' && (
           <BranchMenu
             branch={railTarget.branch}
@@ -1203,19 +1203,19 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
           <>
             <MenuLabel>{`${railTarget.remote}/${railTarget.name}`}</MenuLabel>
             <MenuItem
-              icon={<BranchIcon size={14} />}
+              icon={<BranchIcon size={16} />}
               label={`Check out ${railTarget.name}`}
               hint="As a local branch tracking it."
               onSelect={() => void checkout(railTarget.name)}
             />
             <MenuItem
-              icon={<MergeIcon size={14} />}
+              icon={<MergeIcon size={16} />}
               label={branchName ? `Merge into ${branchName}` : 'Merge into the current branch'}
               disabled={branchName ? false : 'HEAD is detached.'}
               onSelect={() => doMergeRef(`${railTarget.remote}/${railTarget.name}`)}
             />
             <MenuItem
-              icon={<BranchIcon size={14} />}
+              icon={<BranchIcon size={16} />}
               label={`Rebase ${branchName ?? 'the current branch'} onto ${railTarget.remote}/${railTarget.name}…`}
               disabled={branchName ? false : 'HEAD is detached.'}
               onSelect={() =>
@@ -1226,13 +1226,13 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
               }
             />
             <MenuItem
-              icon={<DiffIcon size={14} />}
+              icon={<DiffIcon size={16} />}
               label="Diff against current"
               onSelect={() => doDiffAgainst(`${railTarget.remote}/${railTarget.name}`)}
             />
             <MenuSeparator />
             <MenuItem
-              icon={<CopyIcon size={14} />}
+              icon={<CopyIcon size={16} />}
               label="Copy branch name"
               onSelect={() =>
                 doCopy(
@@ -1247,24 +1247,24 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
           <>
             <MenuLabel>{railTarget.tag.name}</MenuLabel>
             <MenuItem
-              icon={<BranchIcon size={14} />}
+              icon={<BranchIcon size={16} />}
               label="Check out this tag…"
               hint="Detaches HEAD."
               onSelect={() => doDetachAt(railTarget.tag.sha, railTarget.tag.name)}
             />
             <MenuItem
-              icon={<BranchIcon size={14} />}
+              icon={<BranchIcon size={16} />}
               label="Create branch here…"
               onSelect={() => setBranchAt(railTarget.tag.sha)}
             />
             <MenuItem
-              icon={<DiffIcon size={14} />}
+              icon={<DiffIcon size={16} />}
               label="Diff against current"
               onSelect={() => doDiffAgainst(railTarget.tag.name)}
             />
             <MenuSeparator />
             <MenuItem
-              icon={<TrashIcon size={14} />}
+              icon={<TrashIcon size={16} />}
               label="Delete tag…"
               danger
               onSelect={() =>
@@ -1284,7 +1284,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             />
             <MenuSeparator />
             <MenuItem
-              icon={<CopyIcon size={14} />}
+              icon={<CopyIcon size={16} />}
               label="Copy tag name"
               onSelect={() => doCopy(railTarget.tag.name, `Copied “${railTarget.tag.name}”.`)}
             />
@@ -1294,7 +1294,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
           <>
             <MenuLabel>{railTarget.worktree.path.split('/').filter(Boolean).at(-1) ?? ''}</MenuLabel>
             <MenuItem
-              icon={<FolderIcon size={14} />}
+              icon={<FolderIcon size={16} />}
               label="Open as the workspace"
               hint="Switches this window to that checkout."
               disabled={
@@ -1307,7 +1307,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
               onSelect={() => void store.openWorkspace(railTarget.worktree.path)}
             />
             <MenuItem
-              icon={<FileIcon size={14} />}
+              icon={<FileIcon size={16} />}
               label="Reveal in Finder"
               disabled={railTarget.worktree.prunable ? 'Its folder is gone.' : false}
               onSelect={() => void store.revealWorkspace(railTarget.worktree.path)}
@@ -1315,21 +1315,21 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             <MenuSeparator />
             {railTarget.worktree.locked ? (
               <MenuItem
-                icon={<UnlockIcon size={14} />}
+                icon={<UnlockIcon size={16} />}
                 label="Unlock"
                 hint={railTarget.worktree.locked.reason || undefined}
                 onSelect={() => doWorktreeLock(railTarget.worktree, false)}
               />
             ) : (
               <MenuItem
-                icon={<LockIcon size={14} />}
+                icon={<LockIcon size={16} />}
                 label="Lock against pruning"
                 disabled={railTarget.worktree.isMain ? 'The main checkout is never pruned.' : false}
                 onSelect={() => doWorktreeLock(railTarget.worktree, true)}
               />
             )}
             <MenuItem
-              icon={<MoveFolderIcon size={14} />}
+              icon={<MoveFolderIcon size={16} />}
               label="Move…"
               disabled={railTarget.worktree.isMain ? 'The main checkout does not move.' : false}
               onSelect={() =>
@@ -1337,7 +1337,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
               }
             />
             <MenuItem
-              icon={<TrashIcon size={14} />}
+              icon={<TrashIcon size={16} />}
               label="Remove…"
               danger
               disabled={railTarget.worktree.isMain ? 'The main checkout cannot be removed.' : false}
@@ -1347,12 +1347,12 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             />
             <MenuSeparator />
             <MenuItem
-              icon={<CopyIcon size={14} />}
+              icon={<CopyIcon size={16} />}
               label="Copy path"
               onSelect={() => doCopy(railTarget.worktree.path, 'Copied the path.')}
             />
             <MenuItem
-              icon={<WorktreeIcon size={14} />}
+              icon={<WorktreeIcon size={16} />}
               label="Manage worktrees…"
               onSelect={() => setDialog({ kind: 'worktrees' })}
             />
@@ -1362,7 +1362,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
           <>
             <MenuLabel>{railTarget.stash.message || railTarget.stash.ref}</MenuLabel>
             <MenuItem
-              icon={<StashIcon size={14} />}
+              icon={<StashIcon size={16} />}
               label="Apply"
               hint="Puts the work back; the stash stays."
               onSelect={() =>
@@ -1375,7 +1375,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
               }
             />
             <MenuItem
-              icon={<StashIcon size={14} />}
+              icon={<StashIcon size={16} />}
               label="Apply and drop"
               hint="Kept anyway if the apply conflicts."
               onSelect={() =>
@@ -1389,7 +1389,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
             />
             <MenuSeparator />
             <MenuItem
-              icon={<TrashIcon size={14} />}
+              icon={<TrashIcon size={16} />}
               label="Drop…"
               danger
               onSelect={() =>
@@ -1673,67 +1673,67 @@ const BranchMenu = ({
   const itself = branch.current
   return (
     <>
-      <MenuLabel>{branch.name}</MenuLabel>
+      <MenuLabel><MiddleTruncate>{branch.name}</MiddleTruncate></MenuLabel>
       <MenuItem
-        icon={<BranchIcon size={14} />}
-        label={`Check out ${branch.name}`}
+        icon={<BranchIcon size={16} />}
+        label={<MiddleTruncate>{`Check out ${branch.name}`}</MiddleTruncate>}
         disabled={itself ? 'This branch is checked out.' : false}
         onSelect={onCheckout}
       />
       <MenuItem
-        icon={<MergeIcon size={14} />}
-        label={`Merge ${branch.name} into ${current ?? 'the current branch'}`}
+        icon={<MergeIcon size={16} />}
+        label={<MiddleTruncate>{`Merge ${branch.name} into ${current ?? 'the current branch'}`}</MiddleTruncate>}
         disabled={itself ? 'A branch does not merge into itself.' : current ? false : 'HEAD is detached.'}
         onSelect={onMerge}
       />
       <MenuItem
-        icon={<BranchIcon size={14} />}
-        label={`Rebase ${current ?? 'the current branch'} onto ${branch.name}…`}
+        icon={<BranchIcon size={16} />}
+        label={<MiddleTruncate>{`Rebase ${current ?? 'the current branch'} onto ${branch.name}…`}</MiddleTruncate>}
         disabled={itself ? 'The branch is already here.' : current ? false : 'HEAD is detached.'}
         onSelect={onRebase}
       />
       <MenuSeparator />
       <MenuItem
-        icon={<PullIcon size={14} />}
+        icon={<PullIcon size={16} />}
         label={branch.upstream ? `Pull ${branch.upstream}` : 'Pull'}
         disabled={!itself ? 'Check it out first.' : pullRefusal(branch)}
         onSelect={onPull}
       />
       <MenuItem
-        icon={<PushIcon size={14} />}
+        icon={<PushIcon size={16} />}
         label={branch.upstream ? `Push to ${branch.upstream}` : 'Push'}
         disabled={!itself ? 'Check it out first.' : false}
         onSelect={onPush}
       />
       <MenuSeparator />
       <MenuItem
-        icon={<DiffIcon size={14} />}
+        icon={<DiffIcon size={16} />}
         label="Diff against current"
         disabled={itself ? 'This is the current branch.' : false}
         onSelect={onDiff}
       />
       <MenuSeparator />
-      <MenuItem icon={<PencilIcon size={14} />} label="Rename…" onSelect={onRename} />
+      <MenuItem icon={<PencilIcon size={16} />} label="Rename…" onSelect={onRename} />
       <MenuItem
-        icon={<TrashIcon size={14} />}
-        label={`Delete ${branch.name}…`}
+        icon={<TrashIcon size={16} />}
+        label={<MiddleTruncate>{`Delete ${branch.name}…`}</MiddleTruncate>}
         danger
         disabled={itself ? 'This branch is checked out.' : false}
         onSelect={onDelete}
       />
       <MenuSeparator />
-      <MenuItem icon={<CopyIcon size={14} />} label="Copy branch name" onSelect={onCopy} />
+      <MenuItem icon={<CopyIcon size={16} />} label="Copy branch name" onSelect={onCopy} />
       <MenuItem
-        icon={<PullRequestIcon size={14} />}
+        icon={<PullRequestIcon size={16} />}
         label="Create pull request…"
-        hint="On the branch's forge, in the browser."
+        title="On the branch's forge, in the browser."
         onSelect={onPullRequest}
       />
       <MenuSeparator />
       <MenuItem
-        icon={<TeamIcon size={14} />}
+        icon={<TeamIcon size={16} />}
         label="Review…"
-        hint="Choose a shape and start a team on this branch."
+        title="Choose a shape and start a team on this branch."
         onSelect={onReview}
       />
     </>
@@ -1902,6 +1902,7 @@ const RefsRail = ({
       onDoubleClick={() => {
         if (!branch.current) onCheckout(branch.name)
       }}
+      data-git-ref={branch.name}
       onContextMenu={(event) => onMenu({ kind: 'branch', branch }, event)}
     >
       <BranchIcon size={12} />

@@ -15,7 +15,7 @@ import {
 import { agentName, ceilingMeaning, ceilingWords, wordList } from '../lib/agents'
 import {
   Banner, BoardMenuButton, Button, Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
-  DropdownMenuTrigger, Field, Input, Note, Row, RowChoice, Rows, SectionHead, Text, Textarea,
+  DropdownMenuTrigger, Field, Input, MenuNote, MenuSearch, Note, Row, RowChoice, Rows, SectionHead, Text, Textarea,
 } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { MoveDownIcon, MoveUpIcon, PlusIcon, TrashIcon } from './Icons'
@@ -357,6 +357,8 @@ export const PreferFieldDialog = ({
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const [seatQuery, setSeatQuery] = useState('')
+  const shownSeats = snapshot.runtimes.filter(one => one.presentation.name.toLocaleLowerCase().includes(seatQuery.trim().toLocaleLowerCase()))
   const [seats, setSeats] = useState<readonly FlowSeat[]>(initial)
   const [expected, setExpected] = useState(digest)
   const [preview, setPreview] = useState<AuthoringSavePreview | null>(null)
@@ -483,9 +485,9 @@ export const PreferFieldDialog = ({
           )}
         />
         <DropdownMenuContent align="start">
-          {snapshot.runtimes.map((one) => (
-            <DropdownMenuItem key={one.id} onClick={() => addSeat(one.id)} label={one.presentation.name} />
-          ))}
+          {snapshot.runtimes.length >= 6 && <MenuSearch label="Search Agents" value={seatQuery} onChange={setSeatQuery} autoFocus />}
+          {shownSeats.map(one => <DropdownMenuItem key={one.id} label={one.presentation.name} onClick={() => addSeat(one.id)} />)}
+          {shownSeats.length === 0 && <MenuNote>No Agents match.</MenuNote>}
         </DropdownMenuContent>
       </DropdownMenu>
       <Note>

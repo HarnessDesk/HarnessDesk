@@ -1,4 +1,4 @@
-import { act } from 'react'
+import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -18,6 +18,7 @@ import {
 import { PaneProvider, StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { GitControl } from './Conversation'
+import { BranchCreateDialog } from './BranchCreateDialog'
 import { ConversationDetails } from '../panels/work-details'
 import { Menu, Popover } from '../design'
 
@@ -60,7 +61,7 @@ it.each([false, true])('a successful branch switch closes only its canonical men
   } as unknown as AppStore
   await act(async () => root.render(<StoreProvider store={store}>
     {embedded
-      ? <Popover title="Member actions" label="Member actions">{close => <Menu close={close}><GitControl menu menuClose={close} onRemoveWorktree={() => {}} onBringHome={() => {}} /></Menu>}</Popover>
+      ? <Popover title="Member actions" label="Member actions">{close => <Menu close={close}><GitControl menu menuClose={close} onCreateBranch={() => {}} onRemoveWorktree={() => {}} onBringHome={() => {}} /></Menu>}</Popover>
       : <GitControl onRemoveWorktree={() => {}} onBringHome={() => {}} />}
   </StoreProvider>))
   await act(async () => document.querySelector<HTMLButtonElement>(`button[title="${embedded ? 'Member actions' : 'Folder actions'}"]`)!.click())
@@ -341,4 +342,48 @@ describe('in a wrapped Team', () => {
     })
     expect(review).toHaveBeenCalledWith({ type: 'uncommitted', delivery: 'detached' }, loose)
   })
+})
+
+
+it.each([false, true])('requests creation from the persistent owner after closing (embedded=%s)', async embedded => {
+  const snapshot = { ...emptySnapshot(), workspace: MAIN, workspaces: [MAIN], status: 'open' } as AppSnapshot
+  const onCreateBranch = vi.fn()
+  const checkoutBranch = vi.fn(async () => true)
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot,
+    listBranches: async () => [{ name: 'main', current: true, committedAt: 1 }], checkoutBranch,
+  } as unknown as AppStore
+  const Host = () => {
+    const [creatingRoot, setCreatingRoot] = useState<string | null>(null)
+    const create = (root: string) => { onCreateBranch(root); setCreatingRoot(root) }
+    return <>
+      {embedded
+        ? <Popover title="Member actions" label="Member actions">{close => <Menu close={close}><GitControl menu menuClose={close} onCreateBranch={create} onRemoveWorktree={() => {}} onBringHome={() => {}} /></Menu>}</Popover>
+        : <GitControl onCreateBranch={create} onRemoveWorktree={() => {}} onBringHome={() => {}} />}
+      {creatingRoot && <BranchCreateDialog root={creatingRoot} onDone={() => {}} onClose={() => setCreatingRoot(null)} />}
+    </>
+  }
+  await act(async () => root.render(<StoreProvider store={store}><Host /></StoreProvider>))
+  await act(async () => document.querySelector<HTMLButtonElement>(`button[title="${embedded ? 'Member actions' : 'Folder actions'}"]`)!.click())
+  const row = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('[role^="menuitem"]')].find(one => one.textContent === label)!
+  if (embedded) await act(async () => row('Folder actions').click())
+  await act(async () => row('main').click())
+  await act(async () => row('Create and checkout new branch…').click())
+  expect(onCreateBranch).toHaveBeenCalledWith(ROOT)
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+  expect(checkoutBranch).not.toHaveBeenCalled()
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('Create and checkout new branch')
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Keep current branch')!.click())
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+})
+
+
+it('standalone Folder actions retains its Create dialog after its popup unmounts', async () => {
+  const snapshot = { ...emptySnapshot(), workspace: MAIN, workspaces: [MAIN], status: 'open' } as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, listBranches: async () => [], checkoutBranch: vi.fn(async () => true) } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}><GitControl onRemoveWorktree={() => {}} onBringHome={() => {}} /></StoreProvider>))
+  await act(async () => document.querySelector<HTMLButtonElement>('button[title="Folder actions"]')!.click())
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(one => one.textContent === 'main')!.click())
+  await act(async () => [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(one => one.textContent === 'Create and checkout new branch…')!.click())
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull()
 })

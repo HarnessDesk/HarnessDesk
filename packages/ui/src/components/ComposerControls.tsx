@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { ConfigOption, OptionChoice, RuntimeId, RuntimeInfo, SeatAttachmentsRecord, SelectOption } from '@harnessdesk/protocol'
 
-import { Button, Chip, CodeText, Dialog, RowChoice, Search, Text } from '../design'
+import { Button, Chip, CodeText, Dialog, RowChoice, Text } from '../design'
 import { Badge } from '../design'
 import { runtimeLabel } from '../lib/accounts'
 import { CARRY_OPTIONS, type Carry } from '../lib/handoff'
@@ -42,7 +42,7 @@ import {
   ZapIcon,
 } from './Icons'
 import { ModelMark, RuntimeMark } from './BrandIcons'
-import { Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, RefusedAction, Submenu } from '../design'
+import { Menu, MenuItem, MenuLabel, MenuNote, MenuSearch, MenuSeparator, MenuToggle, RefusedAction, Submenu } from '../design'
 import { useOptionConfirm } from './OptionConfirm'
 import { Popover } from '../design'
 import sheet from './ComposerControls.module.css'
@@ -412,7 +412,7 @@ const FilterableChoices = ({ option, close }: { option: SelectOption; close: () 
   const store = useStore()
   const key = useSessionKey()
   const [query, setQuery] = useState('')
-  if (option.choices.length <= 8) return <ChoiceRows option={option} />
+  if (option.choices.length < 6) return <ChoiceRows option={option} />
   const needle = query.trim().toLowerCase()
   const filtered = needle
     ? option.choices.filter(
@@ -422,16 +422,9 @@ const FilterableChoices = ({ option, close }: { option: SelectOption; close: () 
     : option.choices
   return (
     <>
-      {/* The list's filter is the one every list draws: the compact field, a
-          line among the menu's borderless rows rather than a form to fill in.
-          The margin sets it on the rows' own inset. */}
-      <Search
-        size="compact"
-        icon="filter"
-        className="mx-1 mt-1 mb-0.5"
-        // eslint-disable-next-line jsx-a11y/no-autofocus
+      <MenuSearch
         autoFocus
-        placeholder={`Type to filter ${option.choices.length} choices…`}
+        label={`Type to filter ${option.choices.length} choices…`}
         value={query}
         onChange={setQuery}
         onKeyDown={(event) => {

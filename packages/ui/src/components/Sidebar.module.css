@@ -5,8 +5,7 @@
 }
 
 
-.accountRow,
-.youName {
+.accountRow {
   display: flex;
   align-items: center;
 }
@@ -22,25 +21,18 @@
   gap: var(--hd-space-2);
 }
 
-.accountName,
-.youText {
+.accountName {
   flex: 1;
   min-width: 0;
   display: flex;
 }
 
-.accountName,
-.youName {
+.accountName {
   gap: var(--hd-space-1-5);
 }
 
 
-.youText {
-  flex-direction: column;
-}
-
-.accountLabel,
-.youLabel {
+.accountLabel {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -49,32 +41,4 @@
 .seatTrigger {
   flex: none;
   display: flex;
-}
-
-.accountMenuCaret {
-  margin-left: var(--hd-space-1-5);
-}
-
-.accountMenuMeta {
-  flex: none;
-}
-
-.usageDetails {
-  margin: 0 var(--hd-space-2) var(--hd-space-1-5) var(--hd-space-8);
-}
-
-/* The lanes stand a row's pitch apart the way the dashboard's own lanes are
-   spaced — by the gap between them, not a height each row claims. */
-.usageLanes {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hd-space-2);
-  margin-block: var(--hd-space-1);
-}
-
-
-.accountMenuConfirmActions {
-  display: flex;
-  gap: var(--hd-space-1-5);
-  justify-content: flex-end;
 }

@@ -62,6 +62,8 @@ for (const destination of WALL_DESTINATIONS) {
         await applyLeftColumnActions(page, destination)
         await applySettingsNavigationActions(page, destination)
         if ('composerModel' in destination || 'topbarPopup' in destination) await openWallDestination(page, destination)
+        if ('git' in destination) await openWallDestination(page, destination)
+        if ('account' in destination) await openWallDestination(page, destination)
         if ('undo' in destination) await openWallDestination(page, destination)
         if ('composerAdd' in destination) await openWallDestination(page, destination)
         if ('hover' in destination || 'focus' in destination) await openWallDestination(page, destination)
