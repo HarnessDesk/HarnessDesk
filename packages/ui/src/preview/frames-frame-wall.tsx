@@ -87,7 +87,17 @@ export const FrameWall = () => {
   useTheme()
   const requested = new URLSearchParams(location.search).get('frame-wall')
   const destination: Destination = FRAME_WALL_DESTINATIONS.find((one) => one === requested) ?? 'conversation'
-  const store = useMemo(() => storeFor(destination), [destination])
+  const query = new URLSearchParams(location.search)
+  const store = useMemo(() => {
+    const next = storeFor(destination)
+    const tool = query.get('frame-tool'), path = query.get('frame-tool-path')
+    if (tool === 'file' && path) next.openFile(path)
+    else if (tool === 'preview' && path) next.openPreview(path)
+    else if (tool === 'git') next.openGitHistory()
+    else if (tool === 'tasks' || tool === 'trajectory' || tool === 'agents' || tool === 'activity' || tool === 'changes') next.openDetailsTab(tool)
+    if (query.get('frame-terminal') === '1') void next.openTerminal()
+    return next
+  }, [destination, location.search])
   if (requested === 'topbar') return <TopBarProbe />
   return <StoreProvider store={store}>
     <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>

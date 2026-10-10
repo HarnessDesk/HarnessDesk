@@ -253,7 +253,14 @@ export type DraftPlace =
   | { readonly kind: 'worktree'; readonly root: string; readonly name: string; readonly base?: string }
   | { readonly kind: 'existing'; readonly path: string; readonly branch: string | null }
 
+export interface TeamFrameRequest {
+  readonly serial: number
+  readonly page: 'board' | 'run'
+  readonly runView?: 'timeline' | 'flow'
+}
+
 export interface AppSnapshot {
+  readonly teamFrameRequests: Readonly<Record<string, TeamFrameRequest>>
   /** Per-project state of local, opt-in commit-to-Seat capture. */
   readonly captureHealth: ReadonlyMap<string, import('@harnessdesk/protocol').CaptureHealth>
   /** Latest host revision accepted for each capture-health entry. */
@@ -822,6 +829,7 @@ export const withClosedTurnFiles = (closed: ReadonlySet<string>, session: string
   new Set(closed).add(closedTurnFilesKey(session, turn))
 
 const EMPTY: AppSnapshot = {
+  teamFrameRequests: {},
   captureHealth: new Map(),
   provenanceRevision: new Map(),
   triggerRevisions: {},
@@ -950,6 +958,7 @@ const EMPTY: AppSnapshot = {
 /** A blank snapshot, for tests that render a component against a made-up state. */
 export const emptySnapshot = (): AppSnapshot => ({
   ...EMPTY,
+  teamFrameRequests: {},
   captureHealth: new Map(),
   provenanceRevision: new Map(),
   triggerRevisions: {},

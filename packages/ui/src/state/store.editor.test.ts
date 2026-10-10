@@ -241,13 +241,12 @@ describe('where a file and a preview open', () => {
     ])
   })
 
-  it('but an explicit split still means the middle, because a person said so', () => {
-    // `/open --split` is the one caller that asks for a pane, and the escape
-    // hatch is the reason the registry's default is not a prohibition.
+  it('an explicit split normalizes to the fixed panel while retaining the file', () => {
+    // P5 keeps the command payload but retires split placement.
     selectCodex()
     store.openFile('/w/a.ts', { split: 'row' })
-    expect(dockedKinds()).toEqual([])
-    expect(panes(store.getSnapshot().layout.root).map((pane) => pane.view.kind)).toContain('file')
+    expect(dockedKinds()).toEqual(['file'])
+    expect(panes(store.getSnapshot().layout.root).map((pane) => pane.view.kind)).toEqual(['conversation'])
   })
 
   it('opening the same file twice brings the one that is open forward', () => {
@@ -258,4 +257,29 @@ describe('where a file and a preview open', () => {
     // Two files, not three, and no duplicate of the first.
     expect(dockedKinds()).toEqual(['file', 'file'])
   })
+})
+
+// Fixed tools retain the draft while compatibility placement arguments normalize.
+it('routes a sidebar tool and split file to the fixed right panel', () => {
+  store.showViewIn('sidebar', { kind: 'tasks' })
+  expect(dockViews(store.getSnapshot().workbench.sidebar)).toEqual([])
+  expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]).toEqual({ tool: 'activity', mode: 'tasks', open: true })
+  selectCodex()
+  store.openFile('/repo/README.md', { split: 'row' })
+  expect(store.getSnapshot().layout.root.kind).toBe('pane')
+  expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]?.tool).toBe('changes')
+})
+
+it('revealing an old file restores its draft rather than borrowing the focused Team', () => {
+  selectCodex()
+  store.openFile('/repo/README.md')
+  const first = dockViews(store.getSnapshot().workbench.right)[0]!
+  const owner = store.workSubject()
+  store.openTeamRoom('fixture-team')
+  store.openFile('/repo/README.md')
+  expect(dockViews(store.getSnapshot().workbench.right)).toHaveLength(2)
+  store.revealView(first.id)
+  expect(store.workSubject()).toBe(owner)
+  expect(store.getSnapshot().workbench.toolOwners[first.id]).toBe(owner)
+  expect(store.getSnapshot().workbench.frameTools[owner!]).toEqual({ tool: 'changes', mode: 'file', open: true })
 })

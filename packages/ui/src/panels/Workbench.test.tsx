@@ -6,7 +6,7 @@ import type { CapabilityContribution } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { useSessionKey } from '../state/context'
-import { Slot } from '../slots/registry'
+import { Slot, publishComponent } from '../slots/registry'
 import { PanelActions, splitRefusal } from './PanelActions'
 import { MountProvider } from './mount'
 import { installPanelComponent } from '../slots/PanelBlocks'
@@ -19,6 +19,8 @@ import {
   MAX_RATIO,
   MIN_RATIO,
   moveView,
+  normalizeFixedWorkbench,
+  readWorkbench,
   resizeDock,
   resizeDockSplit,
   splitDock,
@@ -652,7 +654,7 @@ it('a plugin panel cannot ask for the main area', () => {
   expect(views.get('plugin')?.mounts).not.toContain('main')
 })
 
-it('a docked conversation is about its own session, and every other panel is not', () => {
+it('a retained docked conversation does not draw a second subject, and Changes reads the current subject', () => {
   const docked = 'codex\u0000docked'
   const inFront = 'codex\u0000in-front'
   const { store } = rig(
@@ -662,11 +664,11 @@ it('a docked conversation is about its own session, and every other panel is not
   render(store)
 
   const scopes = [...container.querySelectorAll('[data-testid="scope"]')].map((s) => s.textContent)
-  // The transcript is about *itself*; Changes is about whatever conversation
-  // is in front. Scoping both would pin Changes to a session nobody is
-  // reading; scoping neither would make the docked transcript show the wrong
-  // one. The two entries have to differ, and this is why.
-  expect(scopes).toEqual([docked, inFront])
+  // The old transcript remains available for lifecycle operations, without
+  // drawing another work subject. Changes still reads the current conversation.
+  expect(scopes).toEqual([inFront])
+  expect(dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'conversation')?.view)
+    .toEqual({ kind: 'conversation', session: docked })
 })
 
 it('a tool dropped into the main area keeps its verbs', () => {
@@ -1274,4 +1276,50 @@ it('a second pointer on an area seam leaves no suppression behind (#252)', () =>
   pointFrom(seam, 'pointerup', 2, 0, 420)
   pointFrom(seam, 'pointerup', 1, 0, 400)
   expect(windowResizing()).toBeNull()
+})
+
+
+it.each([
+  ['sidebar-only', 'sidebar', ['sidebar']],
+  ['bottom-only', 'bottom', ['bottom']],
+  ['main-only', 'right', ['main']],
+  ['empty', 'right', []],
+  ['invalid-only', 'right', ['unknown']],
+  ['missing', 'right', undefined],
+] as const)('retains a restored %s plugin without instantiating its published component', (_label, area, mounts) => {
+  const component = vi.fn(() => <div>Undeclared plugin body</div>)
+  publishComponent('fixture.hidden-plugin', component)
+  const view = { kind: 'plugin' as const, contribution: 'fixture-hidden', label: 'Legacy panel', ...(mounts === undefined ? {} : { mounts }) }
+  const contribution = { kind: 'ui', id: view.contribution, owner: 'fixture', slot: 'session.header',
+    label: view.label, component: 'fixture.hidden-plugin', mounts: [area] } as unknown as CapabilityContribution
+  const { store } = rig(start => {
+    const saved = dock(dock(start, area, view as unknown as import('../state/layout').PaneView), 'right', { kind: 'changes' })
+    const subject = `draft:${saved.main.focused}`
+    return normalizeFixedWorkbench(readWorkbench(JSON.parse(JSON.stringify({ ...saved,
+      frameTools: { [subject]: { tool: 'details', mode: 'plugin', open: true } },
+    })))!).workbench
+  }, { contributions: [contribution] })
+  const retained = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'plugin')!
+  render(store)
+  expect(component).not.toHaveBeenCalled()
+  expect(container.textContent).not.toContain('Undeclared plugin body')
+  expect(dockViews(store.getSnapshot().workbench.right).find(one => one.id === retained.id)).toEqual(retained)
+  expect(container.querySelector('[data-testid="view-changes"]')).not.toBeNull()
+})
+
+
+it.each([[['sidebar']], [['bottom']], [undefined]] as const)('never instantiates a saved right panel after its current manifest becomes %s', mounts => {
+  const component = vi.fn(() => <div>Revised unsupported body</div>)
+  publishComponent('fixture.revision-plugin', component)
+  const view = { kind: 'plugin' as const, contribution: 'fixture-revision', label: 'Saved panel', mounts: ['right'] as const }
+  const contribution = { kind: 'ui', id: view.contribution, owner: 'fixture', slot: 'session.header',
+    label: view.label, component: 'fixture.revision-plugin', ...(mounts === undefined ? {} : { mounts }) } as unknown as CapabilityContribution
+  const { store } = rig(start => normalizeFixedWorkbench(readWorkbench(JSON.parse(JSON.stringify(
+    dock(dock(start, 'right', view), 'right', { kind: 'changes' }),
+  )))!).workbench, { contributions: [contribution] })
+  const retained = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'plugin')!
+  render(store)
+  expect(component).not.toHaveBeenCalled()
+  expect(container.querySelector('[data-testid="view-changes"]')).not.toBeNull()
+  expect(dockViews(store.getSnapshot().workbench.right)).toContainEqual(retained)
 })

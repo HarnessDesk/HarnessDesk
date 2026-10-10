@@ -8,7 +8,8 @@ import type { DesktopBridge } from '../lib/desktop'
 import { StoreProvider } from '../state/context'
 import { MountProvider } from '../panels/mount'
 import { addBrowserTab, browserView, patchBrowserTab, type BrowserView, type PaneId } from '../state/layout'
-import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { emptySnapshot, type AppSnapshot, AppStore } from '../state/store'
+import { dockViews } from '../state/workbench'
 import { BrowserPane, normaliseUrl, stepZoom, tabName, zoomPercent } from './BrowserPane'
 
 describe('normaliseUrl', () => {
@@ -1099,4 +1100,45 @@ describe('BrowserPane find', () => {
     mount({ ...view, active: view.tabs[0]!.id }, harness)
     expect(findField()).toBeNull()
   })
+})
+
+it('reopening the default browser across Teams mounts one bridge subscriber and opens one target tab', () => {
+  const store = new AppStore('ws://localhost:0/')
+  store.openTeamRoom('fixture-a')
+  store.openBrowser()
+  store.openTeamRoom('fixture-b')
+  store.openBrowser()
+  const named: { profile: string | null; webContentsId: number }[] = []
+  window.harnessdesk!.browserReady = request => { named.push(request) }
+  const handlers = new Set<(request: { url: string; profile: string | null }) => void>()
+  window.harnessdesk!.onBrowserOpenTab = handler => {
+    handlers.add(handler)
+    return () => { handlers.delete(handler) }
+  }
+  const browsers = dockViews(store.getSnapshot().workbench.right).filter(one => one.view.kind === 'browser')
+  act(() => root.render(
+    <StoreProvider store={store}>
+      {browsers.map(one => <MountProvider key={one.id} scope={{ area: 'right', id: one.id, view: one.view }}>
+        <BrowserPane />
+      </MountProvider>)}
+    </StoreProvider>,
+  ))
+  expect(handlers.size).toBe(1)
+  expect(webviews()).toHaveLength(1)
+  Object.assign(webviews()[0]!, { getWebContentsId: () => 71 })
+  act(() => { webviews()[0]!.dispatchEvent(new Event('dom-ready')) })
+  expect(named).toEqual([{ profile: null, webContentsId: 71 }])
+  act(() => store.focusDrivenBrowserTab())
+  expect(store.getSnapshot().workbench.focus).toBe(browsers[0]!.id)
+  expect(named).toEqual([{ profile: null, webContentsId: 71 }])
+  act(() => {
+    for (const handler of handlers) handler({ profile: null, url: 'https://example.com/target' })
+  })
+  const workbench = store.getSnapshot().workbench
+  const after = dockViews(workbench.right).filter(one => one.view.kind === 'browser')
+  expect(after).toHaveLength(1)
+  expect(after.flatMap(one => one.view.kind === 'browser' ? one.view.tabs : [])
+    .filter(tab => tab.url === 'https://example.com/target')).toHaveLength(1)
+  expect(workbench.toolOwners[after[0]!.id]).toBe('team:fixture-a')
+  expect(store.workSubject()).toBe('team:fixture-a')
 })

@@ -154,3 +154,13 @@ for (const theme of WALL_THEMES) {
     await page.screenshot({ path: `output/frame-wall/B1-catalogue-${theme}.png`, fullPage: true })
   })
 }
+
+for (const theme of WALL_THEMES) {
+  test(`B2 legacy tools open on the right without changing work in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&frame-tool=tasks', theme)
+    const main = page.locator('[data-slot="workbench-main"]')
+    await expect(main).toBeVisible()
+    await expect(page.locator('[data-slot="inspector-panel"]')).toBeVisible()
+    expect((await main.boundingBox())!.width).toBeGreaterThanOrEqual(FRAME.main.min)
+  })
+}

@@ -146,33 +146,25 @@ it('means the room the conversation you are reading is in', async () => {
   expect(roomsOf('room')).toEqual([ROOM])
 })
 
-it('the board does the same, on the edge it declares', async () => {
+it('the board routes to its Team frame with a page request', async () => {
   await inAWorktree()
   await knownRoom([KEY])
   store.openTeamBoard()
-  expect(dockedRooms('board')).toEqual([ROOM])
-  // And not in the middle, which holds a conversation or a room and nothing
-  // else — a board put there is dropped when the layout is read back.
+  expect(roomsOf('room')).toEqual([ROOM])
+  expect(dockedRooms('board')).toEqual([])
   expect(roomsOf('board')).toEqual([])
+  expect(store.getSnapshot().teamFrameRequests[ROOM]).toMatchObject({ page: 'board' })
 })
 
-it('a board already on screen is the room a bare "show me" means', async () => {
-  /*
-   * The board moved to a dock in this same change, and `#roomToShow` was
-   * reading `panes(layout.root)` only — so the one surface that names a room
-   * became invisible to the question "which room do you mean". A person with
-   * that board open, in a conversation that belongs to no room, asked for the
-   * room and got silence with the answer on screen beside them.
-   *
-   * `#closeViewsOf` two methods away already reads both places. This is the
-   * same read, and the membership fallback below it is unchanged.
-   */
+it('a routed board names the room a bare "show me" means', async () => {
   await inAWorktree()
-  await knownRoom([])           // a room this conversation is NOT a member of
-  store.openTeamBoard(ROOM)     // opened explicitly, so it docks
-  expect(dockedRooms('board')).toEqual([ROOM])
+  await knownRoom([]) // Explicit routing still wins without membership.
+  store.openTeamBoard(ROOM)
+  expect(roomsOf('room')).toEqual([ROOM])
+  expect(dockedRooms('board')).toEqual([])
+  expect(store.getSnapshot().teamFrameRequests[ROOM]).toMatchObject({ page: 'board' })
 
-  store.openTeamRoom()          // and now asked with no argument
+  store.openTeamRoom()
   expect(roomsOf('room')).toEqual([ROOM])
 })
 
@@ -326,4 +318,26 @@ it('keeps seat/activity as fallback data without replacing Teams or local sessio
   expect(before.seatActivities.size).toBe(0)
   expect(after.teams).toBe(before.teams)
   expect(after.sessions).toBe(before.sessions)
+})
+
+
+it('consumes matching Team requests once and a stale acknowledgement leaves the newer serial and other room intact', () => {
+  store.requestTeamFrame(ROOM, 'board')
+  const first = store.getSnapshot().teamFrameRequests[ROOM]!
+  store.requestTeamFrame('another-room', 'run', 'flow')
+  store.requestTeamFrame(ROOM, 'run')
+  const newer = store.getSnapshot().teamFrameRequests[ROOM]!
+  expect(newer.serial).toBeGreaterThan(first.serial)
+  expect(store.consumeTeamFrame(ROOM, first.serial)).toBe(false)
+  expect(store.getSnapshot().teamFrameRequests[ROOM]).toEqual(newer)
+  expect(store.consumeTeamFrame(ROOM, newer.serial)).toBe(true)
+  expect(store.getSnapshot().teamFrameRequests[ROOM]).toBeUndefined()
+  expect(store.getSnapshot().teamFrameRequests['another-room']?.runView).toBe('flow')
+  expect(store.consumeTeamFrame(ROOM, newer.serial)).toBe(false)
+  store.openTeamBoard(ROOM)
+  const repeated = store.getSnapshot().teamFrameRequests[ROOM]!
+  expect(repeated.page).toBe('board')
+  expect(repeated.serial).toBeGreaterThan(newer.serial)
+  expect(store.consumeTeamFrame(ROOM, newer.serial)).toBe(false)
+  expect(store.getSnapshot().teamFrameRequests[ROOM]).toEqual(repeated)
 })

@@ -1,3 +1,4 @@
+import { supportsFixedTool, toolOf, chooseTool, readToolIntents, type ToolIntent } from './frame-tools'
 import type { UiArea } from '@harnessdesk/protocol'
 
 import {
@@ -255,6 +256,9 @@ export interface Zoom {
  */
 
 export interface Workbench {
+  readonly frameTools: Readonly<Record<string, ToolIntent>>
+  readonly toolOwners: Readonly<Record<MountedId, string>>
+  readonly frameSubjects: Readonly<Record<string, { paneId: PaneId; view: PaneView }>>
   /** The stack below the session tree: extra sections, and plugin views. */
   readonly sidebar: Dock
   /** The split tree. Unchanged from `layout.ts`; this is the editor grid. */
@@ -290,6 +294,7 @@ export const emptyDock = (area: DockId): Dock => ({
 })
 
 export const emptyWorkbench = (): Workbench => ({
+  frameTools: {}, toolOwners: {}, frameSubjects: {},
   sidebar: emptyDock('sidebar'),
   main: emptyLayout(),
   right: emptyDock('right'),
@@ -309,6 +314,51 @@ export const stacks = (node: DockNode): readonly DockStack[] =>
 /** Every view a dock holds, in reading order. */
 export const dockViews = (dock: Dock): readonly Mounted[] =>
   stacks(dock.root).flatMap((stack) => stack.views)
+
+export const fixedSubject = (main: Layout): string | null => {
+  const pane = findPane(main, main.focused)
+  const view = pane?.view
+  return view?.kind === 'room' ? `team:${view.room}` : view?.kind === 'conversation'
+    ? view.session === null ? `draft:${pane!.id}` : `session:${view.session}` : null
+}
+export const normalizeFixedWorkbench = (before: Workbench, retireRunSteps = false): {
+  workbench: Workbench; legacyRoutes: readonly PaneView[]
+} => {
+  const subject = fixedSubject(before.main)
+  const seen = new Set<string>()
+  const mounted = [before.right, before.bottom, before.sidebar].flatMap(dockViews).filter(one => {
+    if (seen.has(one.id)) return false
+    seen.add(one.id); return true
+  })
+  // Old docked transcripts remain retained compatibility payloads; migration never closes a session.
+  const tools = mounted.filter(one => toolOf(one.view.kind) !== null || one.view.kind === 'conversation' || (!retireRunSteps && one.view.kind === 'run-steps'))
+  const terminal = mounted.filter(one => one.view.kind === 'terminal')
+  const legacyRoutes = mounted.filter(one => one.view.kind === 'board' || (retireRunSteps && one.view.kind === 'run-steps')).map(one => one.view)
+  const makeStack = (previous: Dock, entries: readonly Mounted[]): Dock => {
+    const old = stacks(previous.root).find(one => one.views.length > 0)
+    const active = entries.find(one => one.id === old?.active)?.id ?? entries.at(-1)?.id ?? null
+    return { ...previous, root: { kind: 'stack', id: old?.id ?? emptyStack().id, views: entries, active } }
+  }
+  const owners = { ...before.toolOwners }
+  if (subject) for (const one of tools) if (owners[one.id] === undefined) owners[one.id] = subject
+  const frameTools = { ...before.frameTools }
+  if (subject && frameTools[subject] === undefined) {
+    const shown = (['right', 'bottom', 'sidebar'] as const).flatMap(area =>
+      visibleViews(before[area]).map(active => ({ area, active })))
+      .find(({ active }) => supportsFixedTool(active.view) && owners[active.id] === subject)
+    const activeArea = shown?.area
+    const active = shown?.active
+    const tool = active && toolOf(active.view.kind)
+    if (tool && active) frameTools[subject] = {
+      ...chooseTool(undefined, tool, active.view.kind), open: activeArea !== undefined && !before[activeArea].collapsed,
+    }
+  }
+  return { legacyRoutes, workbench: {
+    ...before, sidebar: { ...before.sidebar, root: emptyStack() },
+    right: makeStack(before.right, tools), bottom: makeStack(before.bottom, terminal),
+    zoom: before.zoom?.area === 'main' ? before.zoom : null, focus: null, frameTools, toolOwners: owners, frameSubjects: subject ? { ...before.frameSubjects, [subject]: { paneId: before.main.focused, view: findPane(before.main, before.main.focused)!.view } } : before.frameSubjects,
+  } }
+}
 
 /**
  * The view a stack is showing, falling back to the first so a stale id cannot
@@ -372,9 +422,11 @@ export const mountedView = (workbench: Workbench, id: MountedId): Mounted | null
 export const findView = (
   workbench: Workbench,
   view: PaneView,
+  owner?: string,
 ): { readonly area: DockId; readonly mounted: Mounted } | { readonly area: 'main'; readonly pane: PaneId } | null => {
   for (const area of DOCKS) {
-    const found = dockViews(workbench[area]).find((entry) => sameView(entry.view, view))
+    const found = dockViews(workbench[area]).find((entry) => sameView(entry.view, view)
+      && (owner === undefined || workbench.toolOwners[entry.id] === owner))
     if (found) return { area, mounted: found }
   }
   const pane = panes(workbench.main.root).find((entry) => sameView(entry.view, view))
@@ -442,8 +494,8 @@ const reveal = (workbench: Workbench, area: AreaId): Workbench =>
  * scroll position, draft and focus, and the second would lose every time; the
  * rule `layout.ts` already holds for panes holds across the whole workbench.
  */
-export const dock = (workbench: Workbench, area: DockId, view: PaneView): Workbench => {
-  const existing = findView(workbench, view)
+export const dock = (workbench: Workbench, area: DockId, view: PaneView, owner?: string): Workbench => {
+  const existing = findView(workbench, view, owner)
   /*
    * Already docked in this area: bring it forward *where it is*.
    *
@@ -1216,14 +1268,33 @@ export const readWorkbench = (raw: unknown): Workbench | null => {
      from one that vanished and only one of those is a bug they would report. */
   const main = onlyMainViews(read)
 
-  return settle({
+  const toolOwners: Record<string, string> = typeof record.toolOwners === 'object' && record.toolOwners !== null && !Array.isArray(record.toolOwners)
+    ? Object.fromEntries(Object.entries(record.toolOwners).filter((entry): entry is [string, string] => typeof entry[1] === 'string')) : {}
+
+  const frameSubjects: Record<string, { paneId: PaneId; view: PaneView }> = {}
+  if (typeof record.frameSubjects === 'object' && record.frameSubjects !== null && !Array.isArray(record.frameSubjects)) {
+    for (const [key, raw] of Object.entries(record.frameSubjects)) {
+      if (typeof raw !== 'object' || raw === null) continue
+      const one = raw as Record<string, unknown>
+      if (typeof one.view !== 'object' || one.view === null) continue
+      const rawView = one.view as Record<string, unknown>
+      if (rawView.kind !== 'conversation' && rawView.kind !== 'room') continue
+      const view = readView(rawView)
+      if (typeof one.paneId !== 'string' || !view || view.kind !== rawView.kind) continue
+      const scope = { root: { kind: 'pane' as const, id: one.paneId, view }, focused: one.paneId, expanded: null }
+      if (fixedSubject(scope) === key) frameSubjects[key] = { paneId: one.paneId, view }
+    }
+  }
+
+  return {
+    frameTools: readToolIntents(record.frameTools), toolOwners, frameSubjects,
     sidebar: readDock('sidebar', record['sidebar']),
     main,
     right: readDock('right', record['right']),
     bottom: readDock('bottom', record['bottom']),
     zoom: readZoom(record['zoom']),
     focus: typeof record['focus'] === 'string' ? record['focus'] : null,
-  })
+  }
 }
 
 /**

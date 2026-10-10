@@ -680,3 +680,17 @@ describe('only', () => {
     expect(next.focused).toBe(next.root.id)
   })
 })
+
+
+test.each([
+  ['empty', [], []],
+  ['legacy main-only', ['main'], []],
+  ['invalid-only', ['unknown'], []],
+  ['missing', undefined, []],
+  ['malformed', 'right', []],
+  ['declared', ['sidebar', 'right', 'bottom'], ['sidebar', 'right', 'bottom']],
+] as const)('decoding a %s plugin manifest never invents a docking capability', (_label, raw, expected) => {
+  expect(readView({ kind: 'plugin', contribution: 'fixture-panel', label: 'Legacy panel',
+    ...(raw === undefined ? {} : { mounts: raw }),
+  })).toEqual({ kind: 'plugin', contribution: 'fixture-panel', label: 'Legacy panel', mounts: expected })
+})

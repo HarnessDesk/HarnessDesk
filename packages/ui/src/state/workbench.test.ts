@@ -25,6 +25,7 @@ import {
   noticeArea,
   SEAM,
   readWorkbench,
+  normalizeFixedWorkbench,
   rightPanelOverlays,
   removeAt,
   replaceView,
@@ -790,14 +791,15 @@ describe('the window buttons', () => {
     /*
      * The path that could have got round all of it: a zoom is persisted, and
      * the panel it named is empty by the time the project is opened again.
-     * `readWorkbench` settles too, so what restores has no zoom and the middle
-     * is back — which is what makes "every zoom has passed `settle`" true of a
-     * restored document and not only of a live one.
+     * Restore now decodes, normalizes fixed placement, then settles. The
+     * decoder preserves the raw zoom until normalization has seen the state.
      */
     const save = (workbench: Workbench): unknown => JSON.parse(JSON.stringify(workbench))
     const emptied = readWorkbench(save({ ...emptyWorkbench(), zoom: { area: 'right', scope: 'window' } }))!
-    expect(emptied.zoom).toBeNull()
-    expect(cornerArea(emptied, false, 1440)).toBe('main')
+    expect(emptied.zoom).toEqual({ area: 'right', scope: 'window' })
+    const restored = settle(normalizeFixedWorkbench(emptied).workbench)
+    expect(restored.zoom).toBeNull()
+    expect(cornerArea(restored, false, 1440)).toBe('main')
 
     // And the same document with the panel still occupied, so the assertion
     // above is `settle` dropping a zoom rather than the reader never seeing one.

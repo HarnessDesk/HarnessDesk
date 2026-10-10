@@ -1,3 +1,6 @@
+import { fixedToolRefusal, supportsFixedTool, admitFixedTool, chooseTool, toolOf, revealFixedTool, type WorkTool } from '../state/frame-tools'
+import { fixedSubject, dockViews } from '../state/workbench'
+import { browserView, drivenBrowserTab, findPane, show as showPane, type PaneView } from '../state/layout'
 import { BrowserTileRegistry, type BrowserTileMount } from '../lib/browser-tiles'
 import { addBrowserTab, patchBrowserTab, type BrowserView } from '../state/layout'
 import { replaceView, viewAt } from '../state/workbench'
@@ -62,6 +65,7 @@ import {
   activate,
   dock,
   areaVisible,
+  areaOfMount,
   sidebarCannotHaveColumn,
   focusView,
   moveView,
@@ -903,6 +907,7 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
 /** The smallest store the mounted screens call. */
 class PreviewStore {
   #snapshot: AppSnapshot
+  #teamFrameSerial = 0
   #listeners = new Set<() => void>()
 
   constructor(seed: Partial<AppSnapshot> = {}) {
@@ -1261,13 +1266,113 @@ class PreviewStore {
     this.#browser(id, view => addBrowserTab(view, url))
   }
 
-  #workbench(next: AppSnapshot['workbench']): void {
-    this.patch({ workbench: next })
+  #workbench(next: AppSnapshot['workbench']): void { this.patch({ workbench: next, layout: next.main }) }
+  workSubject(): string | null { return fixedSubject(this.#snapshot.workbench.main) }
+  chooseWorkTool(tool: WorkTool, mode: string = tool, toggle = false): void {
+    const subject = this.workSubject()
+    if (!subject) { this.resultNotice('warning', 'Open a conversation or Team before opening this tool.'); return }
+    const before = this.#snapshot.workbench, intent = chooseTool(before.frameTools[subject], tool, mode, toggle)
+    if (intent.open && mode === tool && (tool === 'changes' || tool === 'activity')
+      && !dockViews(before.right).some(one => before.toolOwners[one.id] === subject && one.view.kind === tool)) {
+      this.showViewIn('right', { kind: tool }); return
+    }
+    const pane = findPane(before.main, before.main.focused)!
+    const candidates = dockViews(before.right).filter(one => before.toolOwners[one.id] === subject && one.view.kind === mode)
+    const cached = candidates.find(one => supportsFixedTool(one.view, this.#snapshot.contributions)) ?? candidates[0]
+    const refusal = cached && fixedToolRefusal(before, cached.id, this.#snapshot.contributions)
+    if (refusal) { this.resultNotice('warning', refusal); return }
+    const selected = cached && intent.open ? activate(before, 'right', cached.id) : before
+    this.#workbench({ ...selected, right: { ...selected.right, collapsed: !intent.open },
+      frameTools: { ...before.frameTools, [subject]: intent },
+      frameSubjects: { ...before.frameSubjects, [subject]: { paneId: pane.id, view: pane.view } } })
   }
-  showViewIn(area: AreaId, view: import('../state/layout').PaneView): void {
-    if (area === 'main' || !permits(view, area)) return
-    this.#workbench(dock(this.#snapshot.workbench, area, view))
+  toggleWorkPanel(): void {
+    const subject = this.workSubject()
+    if (!subject) return
+    const current = this.#snapshot.workbench.frameTools[subject] ?? { tool: 'details', mode: 'details', open: false }
+    this.chooseWorkTool(current.tool, current.mode, true)
   }
+  showViewIn(area: AreaId, view: PaneView): void {
+    if (view.kind === 'plugin' && !supportsFixedTool(view, this.#snapshot.contributions)) {
+      this.resultNotice('warning', 'This plugin panel does not support the fixed right panel.'); return
+    }
+    const routed = admitFixedTool(this.#snapshot.workbench, view)
+    if (routed) { this.#workbench(routed); return }
+    if (view.kind === 'terminal') this.#workbench(dock(this.#snapshot.workbench, 'bottom', view))
+    else if (view.kind === 'board') this.requestTeamFrame(view.room, 'board')
+    else if (view.kind === 'run-steps') this.#workbench(dock(this.#snapshot.workbench, 'right', view))
+    else if (area === 'main') { const before = this.#snapshot.workbench; this.#workbench({ ...before, main: showPane(before.main, before.main.focused, view) }) }
+  }
+  setDetailsTab(kind: 'changes' | 'activity' | 'trajectory' | 'agents' | 'tasks' | null): void {
+    if (kind === null) { const subject = this.workSubject(); if (subject && this.#snapshot.workbench.frameTools[subject]?.open) this.toggleWorkPanel(); return }
+    const next = admitFixedTool(this.#snapshot.workbench, { kind }, true)
+    if (next) this.#workbench(next)
+  }
+  openDetailsTab(kind: 'changes' | 'activity' | 'trajectory' | 'agents' | 'tasks'): void { this.showViewIn('right', { kind }) }
+  showView(kind: PaneView['kind']): void {
+    if (kind === 'changes' || kind === 'activity' || kind === 'trajectory' || kind === 'agents' || kind === 'tasks') this.setDetailsTab(kind)
+    else if (kind === 'browser') this.openBrowser()
+    else if (kind === 'terminal') void this.openTerminal()
+    else if (kind === 'git') this.openGitHistory()
+    else if (kind === 'run-steps') this.showViewIn('right', { kind })
+    else if (kind === 'board') this.openTeamBoard()
+  }
+  openBrowser(url?: string, options: { readonly split?: 'row' | 'column' | null; profile?: string | null } = {}): void {
+    const profile = options.profile ?? null
+    if (profile !== null && (!/^lane-[A-Za-z0-9-]{1,100}$/.test(profile) || profile.endsWith('\n'))) throw new Error('Invalid browser profile.')
+    const before = this.#snapshot.workbench
+    const browsers = dockViews(before.right).filter(one => one.view.kind === 'browser' && (one.view.profile ?? null) === profile)
+    const held = browsers[0]
+    if (held?.view.kind === 'browser') {
+      const tab = drivenBrowserTab(held.view)
+      const updated = url ? replaceView(before, held.id, { ...patchBrowserTab(held.view, tab.id, { url }), active: tab.id }) : before
+      this.#workbench(updated)
+      this.revealView(held.id)
+      return
+    }
+    this.showViewIn('right', browserView(url ?? 'about:blank', profile))
+  }
+  openGitHistory(): void { this.showViewIn('right', { kind: 'git', root: PREVIEW_ROOT }) }
+  openFile(path: string): void { if (this.#snapshot.activeRuntime) this.showViewIn('right', { kind: 'file', path, runtime: this.#snapshot.activeRuntime }) }
+  openPreview(path: string): void { if (this.#snapshot.activeRuntime) this.showViewIn('right', { kind: 'preview', path, runtime: this.#snapshot.activeRuntime }) }
+  async openTerminal(): Promise<void> {
+    if (!this.#snapshot.activeRuntime || window.innerHeight < 240) return
+    this.showViewIn('bottom', { kind: 'terminal', terminalId: 'frame-pty', runtime: this.#snapshot.activeRuntime, cwd: PREVIEW_ROOT })
+  }
+  requestTeamFrame(room: string, page: 'board' | 'run', runView?: 'timeline' | 'flow'): void {
+    const before = this.#snapshot.workbench, pane = findPane(before.main, before.main.focused)!
+    this.#workbench({ ...before, main: showPane(before.main, pane.id, { kind: 'room', room }) })
+    this.#teamFrameSerial = Math.max(this.#teamFrameSerial, ...Object.values(this.#snapshot.teamFrameRequests).map(one => one.serial)) + 1
+    this.patch({ teamFrameRequests: { ...this.#snapshot.teamFrameRequests,
+      [room]: { serial: this.#teamFrameSerial, page, ...(runView ? { runView } : {}) } } })
+  }
+  consumeTeamFrame(room: string, serial: number): boolean {
+    if (this.#snapshot.teamFrameRequests[room]?.serial !== serial) return false
+    const { [room]: _request, ...teamFrameRequests } = this.#snapshot.teamFrameRequests
+    this.patch({ teamFrameRequests })
+    return true
+  }
+  revealView(id: string): void {
+    const before = this.#snapshot.workbench
+    const refusal = fixedToolRefusal(before, id, this.#snapshot.contributions)
+    if (refusal) { this.resultNotice('warning', refusal); return }
+    const fixed = revealFixedTool(before, id)
+    if (fixed) { this.#workbench(fixed); return }
+    const area = areaOfMount(before, id)
+    if (area === 'main') { this.focusPane(id); return }
+    this.#workbench(focusView(activate(before, area, id), id))
+  }
+  resultNotice(level: 'warning' | 'error' | 'info', message: string): void {
+    const at = Date.now()
+    this.patch({ notices: [...this.#snapshot.notices.slice(-4), { id: `frame-${at}`, level, message, at }] })
+  }
+  openTeamBoard(room?: string): void {
+    const pane = findPane(this.#snapshot.layout, this.#snapshot.layout.focused)
+    const base = room ?? (pane?.view.kind === 'room' ? pane.view.room : undefined)
+    if (base) this.requestTeamFrame(base, 'board')
+  }
+  openTeamRoom(room: string): void { this.showViewIn('main', { kind: 'room', room }) }
+
   togglePanel(area: DockId): void {
     this.#workbench(toggleDock(this.#snapshot.workbench, area))
   }

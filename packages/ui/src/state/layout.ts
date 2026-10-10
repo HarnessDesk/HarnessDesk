@@ -942,18 +942,13 @@ export const readView = (raw: unknown): PaneView => {
     case 'plugin': {
       const contribution = str('contribution')
       const label = str('label')
-      /* `main` was a legal mount before the middle became a two-valued slot,
-         so a layout saved then can still name it. It is filtered out rather
-         than rejected, and a panel left with nothing is re-homed to the right
-         edge rather than dropped: a person cannot tell a panel that migrated
-         silently from one that vanished, and only one of those is a bug they
-         would think to report. */
+      /* Keep legacy payloads, but never turn an absent or incompatible
+         declaration into a capability. Empty mounts remain hidden caches. */
       const mounts = (Array.isArray(record['mounts']) ? record['mounts'] : []).filter(
         (entry): entry is UiDock =>
           entry === 'sidebar' || entry === 'right' || entry === 'bottom',
       )
-      const homed = mounts.length > 0 ? mounts : (['right'] as const)
-      return contribution && label ? { kind: 'plugin', contribution, label, mounts: homed } : EMPTY
+      return contribution && label ? { kind: 'plugin', contribution, label, mounts } : EMPTY
     }
     default: {
       const session = str('session')

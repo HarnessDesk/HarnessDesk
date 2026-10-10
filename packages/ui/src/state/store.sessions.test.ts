@@ -1,3 +1,4 @@
+import { dockViews } from './workbench'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -719,8 +720,8 @@ describe('turns dropped under the window', () => {
  */
 describe('a conversation the host removed', () => {
   const handlers = () => (store.transport as unknown as { handlers: TransportEvents }).handlers
-  const removed = (id = ID) =>
-    handlers().onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: id, deleted: true } })
+  const removed = (id = ID, deleted = true) =>
+    handlers().onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: id, deleted } })
   const asked = (method: HostMethodName) =>
     vi.mocked(store.transport.request).mock.calls.filter(([called]) => called === method)
 
@@ -791,7 +792,7 @@ describe('a conversation the host removed', () => {
     expect(store.getSnapshot()).toBe(before)
   })
 
-  /** The conversation open, and a file beside it in the same split. */
+  /** The conversation stays in main; a legacy split request retains its file on the right. */
   const split = async () => {
     await store.selectRuntime(RUNTIME)
     answers['session/read'] = session({ title: 'Code reviewer' })
@@ -800,11 +801,10 @@ describe('a conversation the host removed', () => {
     store.openFile('/w/a.ts', { split: 'row' })
     expect(panesOf().map((pane) => [pane.view.kind, sessionOf(pane)])).toEqual([
       ['conversation', KEY],
-      ['file', null],
     ])
   }
 
-  it('closes the pane it was in, in the window that deleted it: a split collapses, and no empty pane is left', async () => {
+  it('clears the deleted conversation while its fixed file payload is retained', async () => {
     await split()
     // As the host answers a delete: every window is told first, the one that asked included.
     vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => {
@@ -815,20 +815,37 @@ describe('a conversation the host removed', () => {
 
     await store.deleteSession(ID, RUNTIME)
 
-    // What was beside it has the room, rather than sharing it with an empty pane where the conversation was.
-    expect(panesOf().map((pane) => pane.view.kind)).toEqual(['file'])
+    // Deletion clears main without releasing its retained file payload.
+    expect(panesOf().map((pane) => [pane.view.kind, sessionOf(pane)])).toEqual([['conversation', null]])
+    expect(dockViews(store.getSnapshot().workbench.right).map(one => one.view.kind)).toEqual(['file'])
+    const file = dockViews(store.getSnapshot().workbench.right)[0]!
+    store.revealView(file.id)
+    expect(store.getSnapshot().activeSessionKey).toBeNull()
+    expect(panesOf().map(sessionOf)).toEqual([null])
+    expect(store.getSnapshot().workbench.toolOwners[file.id]).toBe(`session:${KEY}`)
+    expect(store.getSnapshot().notices.at(-1)?.message).toContain('no longer available')
     expect(asked('session/close')).toHaveLength(0)
   })
 
-  it('empties the pane in any other window, and leaves what goes there to the person', async () => {
+  it.each([true, false])('empties the pane in any other window and retained tools never restore it (deleted=%s)', async (deleted) => {
     await split()
 
-    // Deleted from another window: the notification is all this one hears.
-    removed()
+    store.openBrowser('https://example.com/retained', { profile: 'lane-removed' })
+    const browser = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser')!
+    const file = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'file')!
+    // Removed in another window: the notification is all this one hears.
+    removed(ID, deleted)
 
     expect(panesOf().map((pane) => [pane.view.kind, sessionOf(pane)])).toEqual([
       ['conversation', null],
-      ['file', null],
     ])
+    expect(dockViews(store.getSnapshot().workbench.right).map(one => one.view.kind)).toEqual(['file', 'browser'])
+    store.revealView(file.id)
+    store.focusDrivenBrowserTab('lane-removed')
+    expect(store.getSnapshot().activeSessionKey).toBeNull()
+    expect(panesOf().map(sessionOf)).toEqual([null])
+    expect(store.getSnapshot().workbench.toolOwners[browser.id]).toBe(`session:${KEY}`)
+    expect(dockViews(store.getSnapshot().workbench.right)).toContainEqual(browser)
+    expect(asked('session/close')).toHaveLength(0)
   })
 })

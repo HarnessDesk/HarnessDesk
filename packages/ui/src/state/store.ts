@@ -1,3 +1,5 @@
+import { fixedToolRefusal, forgetFrameSubject, supportsFixedTool, admitFixedTool, chooseTool, toolOf, revealFixedTool, type WorkTool } from './frame-tools'
+import { fixedSubject, normalizeFixedWorkbench } from './workbench'
 import { readTeamsPrefs, teamListRow } from '../lib/teams-list'
 import { teamsInput } from '../lib/teams-snapshot'
 import {
@@ -552,6 +554,8 @@ export class AppStore {
   }
 
   #snapshot: AppSnapshot = emptySnapshot()
+  #teamFrameSerial = 0
+  readonly #sessionRemovalRevisions = new Map<SessionKey, number>()
   #listeners = new Set<() => void>()
   readonly #storageListeners = new Set<(usage: import('@harnessdesk/protocol').StorageUsage) => void>()
   subscribeStorageUsage(listener: (usage: import('@harnessdesk/protocol').StorageUsage) => void): () => void {
@@ -2420,6 +2424,8 @@ export class AppStore {
   ): Promise<void> {
     const { runtime } = options
     const key = sessionKey(runtime, id)
+    const removalRevision = this.#sessionRemovalRevisions.get(key) ?? 0
+    const stillHeld = () => (this.#sessionRemovalRevisions.get(key) ?? 0) === removalRevision
     if (options.preview || options.restoring) this.#markPreview(key)
     // Reading the conversation a draft is carrying — the chip's own link —
     // is not abandoning the hand-off. It waits for the next empty draft.
@@ -2433,10 +2439,12 @@ export class AppStore {
     let readSucceeded = false
     try {
       const session = await this.transport.request('session/read', { runtime, sessionId: id })
+      if (!stillHeld()) return
       this.#setSession(session)
       readSucceeded = true
       if (!options.preview && !options.restoring) this.#ensureHistorySummary(session)
       const live = await this.transport.request('session/resume', { runtime, sessionId: id })
+      if (!stillHeld()) return
       this.#setSession(live)
       // A conversation that reopened is the only evidence its refusal — gone
       // folder or not — no longer holds.
@@ -2447,6 +2455,7 @@ export class AppStore {
         this.#patch({ foldersGone: left })
       }
     } catch (error) {
+      if (!stillHeld()) return
       // A conversation another writer holds is a special kind of failure: the
       // read above already succeeded, so the transcript is on screen and whole
       // — what is missing is only the ability to add to it. The pane keeps
@@ -3121,6 +3130,8 @@ export class AppStore {
    * again for a conversation it never showed.
    */
   #dropRemoved(key: SessionKey, deleted: boolean): void {
+    // Reads already in flight cannot recreate what the host has confirmed gone.
+    this.#sessionRemovalRevisions.set(key, (this.#sessionRemovalRevisions.get(key) ?? 0) + 1)
     const { runtime, id } = splitSessionKey(key)
     this.#historyPageChanges?.set(key, null)
     this.#historyExcluded.add(key)
@@ -3136,6 +3147,8 @@ export class AppStore {
     const waiting = approvals.some((entry) => entry.key === key)
     const held = sessions.has(key) || queues.has(key) || tasks.has(key) || listed || known || waiting ||
       shown.length > 0 || docked.length > 0 ||
+      this.#snapshot.workbench.frameSubjects[`session:${key}`] !== undefined ||
+      this.#snapshot.workbench.frameTools[`session:${key}`] !== undefined ||
       (deleted && (this.drafts.live(key) !== null || this.drafts.recoverable(key).length > 0))
     if (!held) return
     // Where it was on screen first, so the focus moves with the panes rather
@@ -3146,6 +3159,8 @@ export class AppStore {
       this.#setLayout(closing ? closePaneIn(layout, pane.id) : showIn(layout, pane.id, emptyView()))
     }
     for (const entry of docked) this.#setWorkbench(undockIn(this.#snapshot.workbench, entry.mounted.id))
+    const retained = forgetFrameSubject(this.#snapshot.workbench, `session:${key}`)
+    if (retained !== this.#snapshot.workbench) this.#setWorkbench(retained)
     const nextSessions = new Map(sessions)
     const nextQueues = new Map(queues)
     const nextTasks = new Map(tasks)
@@ -3240,15 +3255,13 @@ export class AppStore {
    * file opened into the middle came back on the next launch as a tab in the
    * right panel, having moved itself overnight with nobody's hand on it.
    *
-   * `split` is still honoured, because `/open --split` and the pane menu are
-   * a person saying "the middle" out loud, and a person may.
+   * `split` remains accepted for command compatibility; files use the fixed right panel.
    */
   openFile(path: string, options: { readonly split?: Split['direction'] | null } = {}): void {
     const runtime = this.#snapshot.activeRuntime
     if (!runtime) return
     const view: PaneView = { kind: 'file', path, runtime }
-    if (options.split) this.#showView(view, options.split)
-    else this.openDefaultView(view)
+    this.openDefaultView(view)
   }
 
   /**
@@ -3319,8 +3332,7 @@ export class AppStore {
     const runtime = this.#snapshot.activeRuntime
     if (!runtime) return
     const view: PaneView = { kind: 'preview', path, runtime }
-    if (options.split) this.#showView(view, options.split)
-    else this.openDefaultView(view)
+    this.openDefaultView(view)
   }
 
   /**
@@ -3340,13 +3352,22 @@ export class AppStore {
    * pushes, so unlike `openGitHistory` there is nothing to resolve and no race
    * to guard.
    */
+  requestTeamFrame(room: string, page: 'board' | 'run', runView?: 'timeline' | 'flow'): void {
+    this.openTeamRoom(room)
+    this.#teamFrameSerial = Math.max(this.#teamFrameSerial, ...Object.values(this.#snapshot.teamFrameRequests).map(one => one.serial)) + 1
+    this.#patch({ teamFrameRequests: { ...this.#snapshot.teamFrameRequests,
+      [room]: { serial: this.#teamFrameSerial, page, ...(runView ? { runView } : {}) } } })
+  }
+  /** Synchronous compare-and-consume: an old component cannot acknowledge a newer opener. */
+  consumeTeamFrame(room: string, serial: number): boolean {
+    if (this.#snapshot.teamFrameRequests[room]?.serial !== serial) return false
+    const { [room]: _request, ...teamFrameRequests } = this.#snapshot.teamFrameRequests
+    this.#patch({ teamFrameRequests })
+    return true
+  }
   openTeamBoard(room?: string): void {
     const base = this.#roomToShow(room)
-    if (!base) return
-    /* The board declares the edges and not the middle, and the middle enforces
-       that on the way back in — so opening it as a pane put a board beside the
-       room it belongs to and then dropped it at the next launch. */
-    this.openDefaultView({ kind: 'board', room: base })
+    if (base) this.requestTeamFrame(base, 'board')
   }
 
   /**
@@ -3535,14 +3556,7 @@ export class AppStore {
     const restored = this.#closedBrowsers.get(profile ?? 'default')
     this.#closedBrowsers.delete(profile ?? 'default')
     const view = sendDriven(restored ?? browserView(BLANK, profile))
-    // An explicit split is still a split — `/browser --split` and the pane
-    // menu both mean the middle. Otherwise it goes where its definition says,
-    // which is the right-hand edge: a page you are working *from* belongs
-    // beside the conversation, not in place of it.
-    if (options.split) {
-      this.#showView(view, options.split)
-      return
-    }
+    // Legacy split arguments normalize to the fixed right panel.
     this.openDefaultView(view)
     this.#frontBrowserTile(profile)
   }
@@ -3555,6 +3569,8 @@ export class AppStore {
    * open something.
    */
   openDefaultView(view: PaneView): void {
+    if (toolOf(view.kind) || view.kind === 'board' || view.kind === 'run-steps') { this.showViewIn('right', view); return }
+    if (view.kind === 'terminal') { this.showViewIn('bottom', view); return }
     const area = defaultArea(view)
     if (area) {
       this.showViewIn(area, view)
@@ -3978,22 +3994,17 @@ export class AppStore {
           strayTerminals(raw).reduce((acc, view) => dockIn(acc, 'bottom', view), saved),
         )
       : null
-    const restored = rehomed
-      ? DOCKS.reduce((current, area) => {
-          const entries = dockViews(current[area])
-          const runOnly = entries.length > 0 && entries.every(one => one.view.kind === 'run-details' || one.view.kind === 'run-steps')
-          if (runOnly) return collapseDockIn(current, area, true)
-          return entries.filter(one => one.view.kind === 'run-details' || one.view.kind === 'run-steps')
-            .reduce((next, one) => undockIn(next, one.id), current)
-        }, rehomed)
-      : null
-    const workbench = restored ?? emptyWorkbench()
+    const migration = rehomed ? normalizeFixedWorkbench(rehomed) : null
+    const workbench = migration ? settleWorkbench(migration.workbench) : emptyWorkbench()
     // Persisting what was just read back would be a no-op write; set directly.
     this.#patch({
       workbench,
       layout: workbench.main,
       detailsTab: visibleInspector(workbench),
     })
+    for (const view of migration?.legacyRoutes ?? []) {
+      if (view.kind === 'board') this.openTeamBoard(view.room)
+    }
     // Unless the patch settled on something else: a panel saved expanded in a
     // sidebar that opens put away comes back put away, and the document
     // should say so rather than drop the zoom again on every open.
@@ -4012,8 +4023,57 @@ export class AppStore {
    * only says which of them a click meant.
    */
 
+  workSubject(): string | null {
+    const pane = findPane(this.#snapshot.layout, this.#snapshot.layout.focused)
+    const view = pane?.view
+    if (view?.kind === 'room') return `team:${view.room}`
+    if (view?.kind === 'conversation') return view.session === null ? `draft:${pane!.id}` : `session:${view.session}`
+    return null
+  }
+  chooseWorkTool(tool: WorkTool, mode: string = tool, toggle = false): void {
+    const subject = this.workSubject()
+    if (!subject) return
+    const before = this.#snapshot.workbench
+    const intent = chooseTool(before.frameTools[subject], tool, mode, toggle)
+    if (intent.open && mode === tool && (tool === 'changes' || tool === 'activity')
+      && !dockViews(before.right).some(one => before.toolOwners[one.id] === subject && one.view.kind === tool)) {
+      this.showViewIn('right', { kind: tool })
+      return
+    }
+    const pane = findPane(before.main, before.main.focused)!
+    const candidates = dockViews(before.right).filter(one => before.toolOwners[one.id] === subject && one.view.kind === mode)
+    const cached = candidates.find(one => supportsFixedTool(one.view, this.#snapshot.contributions)) ?? candidates[0]
+    const refusal = cached && fixedToolRefusal(before, cached.id, this.#snapshot.contributions)
+    if (refusal) { this.resultNotice('warning', refusal); return }
+    const selected = cached && intent.open ? activateIn(before, 'right', cached.id) : before
+    this.#setWorkbench({ ...selected, right: { ...selected.right, collapsed: !intent.open },
+      frameTools: { ...before.frameTools, [subject]: intent },
+      frameSubjects: { ...before.frameSubjects, [subject]: { paneId: pane.id, view: pane.view } } })
+  }
+  toggleWorkPanel(): void {
+    const subject = this.workSubject()
+    if (!subject) return
+    const before = this.#snapshot.workbench
+    const current = before.frameTools[subject] ?? { tool: 'details', mode: 'details', open: false } as const
+    this.chooseWorkTool(current.tool, current.mode, true)
+  }
+
   /** Mounts a view in an area, bringing it forward if it is already somewhere. */
   showViewIn(area: AreaId, view: PaneView): void {
+    if (view.kind === 'board') { this.openTeamBoard(view.room); return }
+    if (toolOf(view.kind)) {
+      if (view.kind === 'plugin' && !supportsFixedTool(view, this.#snapshot.contributions)) {
+        this.resultNotice('warning', 'This plugin panel does not support the fixed right panel.')
+        return
+      }
+      const next = admitFixedTool(this.#snapshot.workbench, view)
+      if (!next) { this.resultNotice('warning', 'Open a conversation or Team before opening this tool.'); return }
+      this.#setWorkbench(next)
+      return
+    }
+    if (view.kind === 'terminal') area = 'bottom'
+    if (view.kind === 'run-steps') area = 'right'
+
     if (!permits(view, area)) return
     if (area === 'main') {
       // Main is a slot: whatever was there is replaced, never split beside.
@@ -4074,6 +4134,24 @@ export class AppStore {
    * nothing at least once.
    */
   revealView(id: string): void {
+    const refusal = fixedToolRefusal(this.#snapshot.workbench, id, this.#snapshot.contributions)
+    if (refusal) { this.resultNotice('warning', refusal); return }
+    const fixed = revealFixedTool(this.#snapshot.workbench, id)
+    if (fixed) {
+      this.#setWorkbench(fixed)
+      // Hidden subject scopes can survive a cold restore without a loaded
+      // conversation. Restore its body in place, without displacing the tool.
+      const owner = fixed.toolOwners[id]
+      const scope = owner ? fixed.frameSubjects[owner]?.view : undefined
+      const key = scope?.kind === 'conversation' ? scope.session : null
+      const known = key ? this.#snapshot.sessions.get(key) : undefined
+      if (key && !this.#snapshot.loadingSessions.has(key)
+        && !(known?.itemsLoaded && (known.status.type === 'active' || known.status.type === 'idle'))) {
+        const { runtime, id: sessionId } = splitSessionKey(key)
+        void this.openSession(sessionId, { runtime, reveal: false, restoring: true })
+      }
+      return
+    }
     const area = areaOfMount(this.#snapshot.workbench, id)
     if (area === 'main') {
       this.focusPane(id)
@@ -6669,17 +6747,13 @@ export class AppStore {
    * sites has always meant.
    */
   setDetailsTab(tab: AppSnapshot['detailsTab']): void {
-    const showing = tab === null ? this.#snapshot.detailsTab : tab
-    if (tab === null || this.#snapshot.detailsTab === tab) {
-      // Put away the area that is actually holding it. Collapsing `right`
-      // unconditionally meant that with Changes dragged to the bottom, its
-      // own toggle folded away an unrelated panel and left Changes on screen.
-      const where = showing ? findViewIn(this.#snapshot.workbench, { kind: showing }) : null
-      const area = where && where.area !== 'main' ? where.area : 'right'
-      this.#setWorkbench(collapseDockIn(this.#snapshot.workbench, area, true))
+    if (tab === null) {
+      const subject = this.workSubject()
+      if (subject && this.#snapshot.workbench.frameTools[subject]?.open) this.toggleWorkPanel()
       return
     }
-    this.openDetailsTab(tab)
+    const next = admitFixedTool(this.#snapshot.workbench, { kind: tab }, true)
+    if (next) this.#setWorkbench(next)
   }
 
   /**
@@ -7197,7 +7271,7 @@ export class AppStore {
     this.resultNotice(level, message, action)
   }
 
-  private resultNotice(level: NoticeLevel, message: string, action?: NoticeAction): void {
+  resultNotice(level: NoticeLevel, message: string, action?: NoticeAction): void {
     // The same failure often reaches us twice — once as the turn's error and
     // once as the runtime's error notification. One toast is information;
     // two identical toasts is a bug report about the toasts. A toast that

@@ -10,6 +10,7 @@ export interface WallDestination extends FrameActions { readonly id: string; rea
 export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'topbar-probe', query: 'frame-wall=topbar' },
   { id: 'conversation', query: 'frame-wall=conversation' },
+  { id: 'conversation-tasks', query: 'frame-wall=conversation&frame-tool=tasks' },
   { id: 'draft', query: 'frame-wall=draft' },
   { id: 'team-overview', query: 'frame-wall=team', tab: 'overview' },
   { id: 'team-run', query: 'frame-wall=team', tab: 'run' },

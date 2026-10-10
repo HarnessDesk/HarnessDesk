@@ -497,6 +497,14 @@ export const TeamRoomPane = ({
     setOpen(next as SessionKey)
   }
 
+  useEffect(() => {
+    const request = snapshot.teamFrameRequests[room]
+    if (!request || !store.consumeTeamFrame(room, request.serial)) return
+    destination.current.chosen = true
+    selectedPage.current = request.page
+    setOpen(request.page)
+  }, [room, snapshot.teamFrameRequests, store])
+
   const watch = (key: SessionKey): void => {
     /* Every other tile pinned (or holding the keys): the grid has no place
        to give, and opening it unchanged would read as the member having

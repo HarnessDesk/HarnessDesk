@@ -166,7 +166,7 @@ describe('the store', () => {
     }
   })
 
-  it('takes back a panel it had expanded when it is put away, rather than leave a window with nothing on it', () => {
+  it('fixed tool routing leaves main usable when the sidebar is put away', () => {
     /* A panel docked in the sidebar and expanded is the only area drawn; put
        the sidebar away with it — the dim, ⌘B — and nothing was left on screen,
        and no control. Found in review, and seen in a real engine: no button
@@ -178,8 +178,10 @@ describe('the store', () => {
       desk.showViewIn('sidebar', { kind: 'tasks' })
       if (narrow) desk.toggleSidebar()
       desk.zoomPanel('sidebar', 'content')
-      expect(desk.getSnapshot().workbench.zoom).toEqual({ area: 'sidebar', scope: 'content' })
-      expect(areaVisible(desk.getSnapshot().workbench, 'main')).toBe(false)
+      expect(desk.getSnapshot().workbench.zoom).toBeNull()
+      expect(desk.getSnapshot().workbench.sidebar.root).toMatchObject({ kind: 'stack', views: [] })
+      expect(desk.getSnapshot().workbench.frameTools[desk.workSubject()!]).toEqual({ tool: 'activity', mode: 'tasks', open: true })
+      expect(areaVisible(desk.getSnapshot().workbench, 'main')).toBe(true)
 
       // The dim in a narrow window, ⌘B on the column in a wide one.
       if (narrow) desk.closeFloatingSidebar()
@@ -191,7 +193,7 @@ describe('the store', () => {
     }
   })
 
-  it('re-derives whether the sidebar has a column once putting it away has unzoomed it', () => {
+  it('a fixed right tool keeps the narrow sidebar floating without a sidebar zoom', () => {
     /* A zoom answers "no right panel to fit" — the predicate leaves zoomed
        layouts alone — so `narrowWindow` was false while the sidebar was
        expanded at 900px beside a drawn 280px panel. Putting the sidebar away
@@ -204,9 +206,10 @@ describe('the store', () => {
     desk.resizePanel('right', 280)
     desk.showViewIn('sidebar', { kind: 'tasks' })
     desk.zoomPanel('sidebar', 'content')
-    expect(desk.getSnapshot().narrowWindow).toBe(false)
-
+    expect(desk.getSnapshot().narrowWindow).toBe(true)
     desk.toggleSidebar()
+    expect(sidebarPlacement(desk.getSnapshot())).toBe('floating')
+    desk.closeFloatingSidebar()
 
     expect(desk.getSnapshot().workbench.zoom).toBeNull()
     expect(desk.getSnapshot().narrowWindow).toBe(true)

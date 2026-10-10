@@ -1,3 +1,4 @@
+import { previewStore } from '../preview/harness'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -4631,4 +4632,32 @@ it('reads publication actions when the selected card holds a completed recorded 
   await act(async () => (container.querySelector('[data-row="card-1-1"]') as HTMLButtonElement).click())
   expect(container.querySelector('[data-row="card-1-1"][aria-current="true"]')).not.toBeNull()
   expect(store.readFindingPublications).toHaveBeenCalledWith(ROOM, execution.id)
+})
+
+
+it('consumes Board beyond the Team component lifetime, accepts another room and a fresh explicit open', async () => {
+  const { store: dependencies } = rig()
+  const actual = previewStore(dependencies.getSnapshot())
+  const store = { ...dependencies, subscribe: actual.subscribe, getSnapshot: actual.getSnapshot,
+    consumeTeamFrame: (room: string, serial: number) => actual.consumeTeamFrame(room, serial),
+  } as unknown as AppStore
+  actual.openTeamBoard(ROOM)
+  await render(store)
+  expect(row('Board').getAttribute('aria-selected')).toBe('true')
+  expect(actual.getSnapshot().teamFrameRequests[ROOM]).toBeUndefined()
+  act(() => row('Chat').click())
+  expect(row('Chat').getAttribute('aria-selected')).toBe('true')
+  act(() => root.render(<div>Conversation</div>))
+  await render(store)
+  expect(row('Board').getAttribute('aria-selected')).toBe('false')
+  act(() => actual.requestTeamFrame('another-room', 'board'))
+  await render(store, 'another-room')
+  expect(row('Board').getAttribute('aria-selected')).toBe('true')
+  expect(actual.getSnapshot().teamFrameRequests['another-room']).toBeUndefined()
+  await render(store)
+  expect(row('Board').getAttribute('aria-selected')).toBe('false')
+  act(() => actual.openTeamBoard(ROOM))
+  await act(async () => {})
+  expect(row('Board').getAttribute('aria-selected')).toBe('true')
+  expect(actual.getSnapshot().teamFrameRequests[ROOM]).toBeUndefined()
 })

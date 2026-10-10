@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import { BLANK, activeBrowserTab, browserView, drivenBrowserTab, type BrowserView } from './layout'
 import { AppStore } from './store'
-import { findView, viewAt } from './workbench'
+import { findView, viewAt, dockViews } from './workbench'
 // The built-in views, so the browser opens where it does in the app — the
 // right-hand dock — rather than in the split tree these tests once assumed.
 // Two verbs (closing the panel, remembering a closed tab) only ever looked
@@ -272,4 +272,42 @@ describe('the browser pane', () => {
       keepExternalProfile: true,
     })
   })
+})
+
+it('an explicit browser reveal returns to its recorded Team and keeps its driven tabs', () => {
+  store.openTeamRoom('fixture-a')
+  store.openBrowser('https://example.com/first', { profile: 'lane-fixture' })
+  const first = findView(store.getSnapshot().workbench, browserView(BLANK, 'lane-fixture'))!
+  if (first.area === 'main') throw new Error('browser belongs to the fixed panel')
+  const id = first.mounted.id
+  store.newBrowserTab(id, 'https://example.com/notes')
+  const before = viewAt(store.getSnapshot().workbench, id) as BrowserView
+  store.openTeamRoom('fixture-b')
+  store.focusDrivenBrowserTab('lane-fixture')
+  expect(store.workSubject()).toBe('team:fixture-a')
+  expect(store.getSnapshot().workbench.toolOwners[id]).toBe('team:fixture-a')
+  const after = viewAt(store.getSnapshot().workbench, id) as BrowserView
+  expect(after.tabs).toEqual(before.tabs)
+  expect(after.driven).toBe(before.driven)
+  expect(after.active).toBe(before.driven)
+})
+
+it('opening the default browser from another Team reuses its resource and reveals its recorded owner', () => {
+  store.openTeamRoom('fixture-a')
+  store.openBrowser()
+  const first = browser()
+  store.newBrowserTab(first.id, 'https://example.com/notes')
+  const before = browser().view
+  store.openTeamRoom('fixture-b')
+  store.openDetailsTab('activity')
+  const otherIntent = store.getSnapshot().workbench.frameTools['team:fixture-b']
+  store.openBrowser()
+  const workbench = store.getSnapshot().workbench
+  expect(dockViews(workbench.right).filter(one => one.view.kind === 'browser')).toEqual([{ id: first.id, view: before }])
+  expect(store.workSubject()).toBe('team:fixture-a')
+  expect(workbench.toolOwners[first.id]).toBe('team:fixture-a')
+  expect(workbench.frameTools['team:fixture-b']).toEqual(otherIntent)
+  store.focusDrivenBrowserTab()
+  expect(browser().view.tabs).toEqual(before.tabs)
+  expect(browser().view.active).toBe(before.driven)
 })

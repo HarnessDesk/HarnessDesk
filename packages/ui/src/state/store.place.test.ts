@@ -10,7 +10,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { panes, sessionOf } from './layout'
-import { mountedViews } from './workbench'
+import { mountedViews, dockViews } from './workbench'
 import { AppStore } from './store'
 import type { TransportEvents } from '../lib/transport'
 
@@ -547,12 +547,12 @@ describe('a place chosen beside another pane', () => {
     // takes it, and then there is no draft left to keep a hand-off on.
     store.openFile(`${REPO.path}/README.md`, { split: 'row' })
     const kinds = panes(store.getSnapshot().layout.root).map((pane) => pane.view.kind)
-    expect(kinds).toContain('file')
+    expect(kinds).toEqual(['conversation'])
     expect(panes(store.getSnapshot().layout.root).filter((pane) => pane.view.kind === 'conversation').map(sessionOf)).toEqual([null])
-    const file = panes(store.getSnapshot().layout.root).find((pane) => pane.view.kind === 'file')
+    const file = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'file')
     expect(file).toBeDefined()
-    store.focusPane(file!.id)
-    expect(store.getSnapshot().layout.focused).toBe(file!.id)
+    store.focusView(file!.id)
+    expect(store.getSnapshot().workbench.focus).toBe(file!.id)
 
     store.startDraftIn({ kind: 'existing', path: TREE, branch: 'harnessdesk/parser-fix' })
 
@@ -590,4 +590,179 @@ describe('a bring-back into a main checkout whose saved layout shows a room', ()
     expect(draft).toBeDefined()
     expect(store.getSnapshot().draftHandoff).toMatchObject({ runtime: AGENT, sessionId: 's-1' })
   })
+})
+
+it('persisted tool migration retains terminal and browser ids without closing resources', async () => {
+  answers['app/state/get'] = { layouts: { [REPO.path]: {
+    main: { root: { kind: 'pane', id: 'fixture-main', view: { kind: 'room', room: 'fixture-team' } }, focused: 'fixture-main' },
+    sidebar: { views: [{ id: 'fixture-browser', view: { kind: 'browser', profile: 'lane-fixture', tabs: [{ id: 'fixture-tab', url: 'about:blank' }], active: 'fixture-tab', driven: 'fixture-tab' } }], active: 'fixture-browser' },
+    right: { views: [{ id: 'fixture-terminal', view: { kind: 'terminal', terminalId: 'fixture-pty', runtime: AGENT, cwd: '/repo' } }], active: 'fixture-terminal' },
+  } } }
+  await store.loadPreferences()
+  const { workbench } = store.getSnapshot()
+  expect(dockViews(workbench.right).map(one => one.id)).toEqual(['fixture-browser'])
+  expect(dockViews(workbench.bottom).map(one => one.id)).toEqual(['fixture-terminal'])
+  expect(workbench.toolOwners['fixture-browser']).toBe('team:fixture-team')
+  expect(calls('terminal/close')).toEqual([])
+  expect(calls('session/close')).toEqual([])
+})
+
+
+it.each(['sidebar', 'bottom'] as const)('refuses all explicit routes to a restored %s-only plugin while retaining it', async (area) => {
+  const view = { kind: 'plugin' as const, contribution: 'fixture-hidden', label: 'Legacy panel', mounts: [area] }
+  answers['app/state/get'] = { layouts: { [REPO.path]: {
+    main: { root: { kind: 'pane', id: 'plugin-draft', view: { kind: 'conversation', session: null } }, focused: 'plugin-draft' },
+    [area]: { views: [{ id: 'hidden-plugin', view }], active: 'hidden-plugin', size: 240 },
+  } } }
+  await store.loadPreferences()
+  const restored = store.getSnapshot().workbench
+  expect(dockViews(restored.right).find(one => one.id === 'hidden-plugin')?.view).toEqual(view)
+  expect(restored.frameTools['draft:plugin-draft']?.mode).not.toBe('plugin')
+  for (const reveal of [() => store.showViewIn('right', view), () => store.revealView('hidden-plugin'),
+    () => store.chooseWorkTool('details', 'plugin')]) {
+    const before = store.getSnapshot().workbench
+    reveal()
+    expect(store.getSnapshot().workbench).toBe(before)
+    expect(store.getSnapshot().notices.at(-1)?.message).toContain('does not support the fixed right panel')
+  }
+  expect(calls('session/close')).toEqual([])
+})
+
+
+it('a confirmed removal invalidates a cold hidden subject without relabelling its file cache', async () => {
+  const key = sessionKey(AGENT, sessionId('cold-owner'))
+  const owner = `session:${key}`
+  const file = { kind: 'file' as const, path: '/repo/README.md', runtime: AGENT }
+  answers['app/state/get'] = { layouts: { [REPO.path]: {
+    main: { root: { kind: 'pane', id: 'current-draft', view: { kind: 'conversation', session: null } }, focused: 'current-draft' },
+    right: { views: [{ id: 'cold-file', view: file }], active: 'cold-file', size: 400 },
+    toolOwners: { 'cold-file': owner },
+    frameSubjects: { [owner]: { paneId: 'cold-main', view: { kind: 'conversation', session: key } } },
+    frameTools: { [owner]: { tool: 'changes', mode: 'file', open: true } },
+  } } }
+  await store.loadPreferences()
+  expect(store.getSnapshot().sessions.has(key)).toBe(false)
+  expect(store.getSnapshot().workbench.frameSubjects[owner]).toBeDefined()
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  handlers.onNotification({ method: 'session/removed', params: { runtime: AGENT, sessionId: sessionId('cold-owner'), deleted: false } })
+  const removed = store.getSnapshot().workbench
+  expect(removed.frameSubjects[owner]).toBeUndefined()
+  expect(removed.frameTools[owner]).toBeUndefined()
+  store.revealView('cold-file')
+  expect(store.getSnapshot().workbench).toBe(removed)
+  expect(panes(store.getSnapshot().workbench.main.root).map(sessionOf)).toEqual([null])
+  expect(store.getSnapshot().workbench.toolOwners['cold-file']).toBe(owner)
+  expect(dockViews(store.getSnapshot().workbench.right).find(one => one.id === 'cold-file')?.view).toEqual(file)
+  expect(calls('session/close')).toEqual([])
+})
+
+
+describe('explicit reveal of a cold restored resource owner', () => {
+  const id = sessionId('cold-resource-owner')
+  const key = sessionKey(AGENT, id)
+  const owner = `session:${key}`
+  const restore = async () => {
+    answers['app/state/get'] = { layouts: { [REPO.path]: {
+      main: { root: { kind: 'pane', id: 'other-draft', view: { kind: 'conversation', session: null } }, focused: 'other-draft' },
+      right: { views: [{ id: 'cold-resource', view: { kind: 'file', path: '/repo/a.ts', runtime: AGENT } }], active: 'cold-resource', size: 400 },
+      toolOwners: { 'cold-resource': owner },
+      frameSubjects: { [owner]: { paneId: 'owner-pane', view: { kind: 'conversation', session: key } } },
+      frameTools: { [owner]: { tool: 'changes', mode: 'file', open: true } },
+    } } }
+    await store.loadPreferences()
+    expect(store.getSnapshot().sessions.has(key)).toBe(false)
+    expect(calls('session/read')).toEqual([])
+    expect(calls('session/resume')).toEqual([])
+  }
+  it('reads and resumes its conversation once while preserving the revealed file and pane', async () => {
+    await restore()
+    let finish!: (session: Session) => void
+    answers['session/read'] = () => new Promise<Session>(resolve => { finish = resolve })
+    answers['session/resume'] = conversation(id, REPO.path)
+    const file = dockViews(store.getSnapshot().workbench.right)[0]!
+    store.revealView(file.id)
+    store.revealView(file.id)
+    expect(calls('session/read')).toEqual([{ runtime: AGENT, sessionId: id }])
+    expect(store.getSnapshot().loadingSessions.has(key)).toBe(true)
+    expect(store.getSnapshot().layout.focused).toBe('owner-pane')
+    finish(conversation(id, REPO.path))
+    await vi.waitFor(() => expect(store.getSnapshot().loadingSessions.has(key)).toBe(false))
+    expect(calls('session/resume')).toEqual([{ runtime: AGENT, sessionId: id }])
+    expect(store.getSnapshot().sessions.get(key)?.itemsLoaded).toBe(true)
+    expect(store.getSnapshot().activeSessionKey).toBe(key)
+    expect(dockViews(store.getSnapshot().workbench.right)[0]).toEqual(file)
+    expect(store.getSnapshot().workbench.focus).toBe(file.id)
+    expect(store.getSnapshot().workbench.frameTools[owner]).toEqual({ tool: 'changes', mode: 'file', open: true })
+    store.revealView(file.id)
+    expect(calls('session/read')).toHaveLength(1)
+    expect(calls('session/resume')).toHaveLength(1)
+    expect(calls('session/close')).toEqual([])
+  })
+  it.each(['read', 'resume'] as const)('a confirmed removal during %s prevents its delayed answer restoring the conversation', async stage => {
+    await restore()
+    let finish!: (session: Session) => void
+    const loaded = conversation(id, REPO.path)
+    answers['session/read'] = loaded
+    answers['session/resume'] = loaded
+    answers[`session/${stage}`] = () => new Promise<Session>(resolve => { finish = resolve })
+    store.revealView('cold-resource')
+    await vi.waitFor(() => expect(calls(`session/${stage}`)).toHaveLength(1))
+    const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+    handlers.onNotification({ method: 'session/removed', params: { runtime: AGENT, sessionId: id, deleted: true } })
+    finish(loaded)
+    await vi.waitFor(() => expect(store.getSnapshot().loadingSessions.has(key)).toBe(false))
+    expect(store.getSnapshot().sessions.has(key)).toBe(false)
+    expect(store.getSnapshot().activeSessionKey).toBeNull()
+    expect(store.getSnapshot().workbench.frameSubjects[owner]).toBeUndefined()
+    expect(store.getSnapshot().workbench.toolOwners['cold-resource']).toBe(owner)
+    expect(dockViews(store.getSnapshot().workbench.right).map(one => one.id)).toEqual(['cold-resource'])
+    if (stage === 'read') expect(calls('session/resume')).toEqual([])
+    store.revealView('cold-resource')
+    expect(store.getSnapshot().activeSessionKey).toBeNull()
+    expect(calls('session/close')).toEqual([])
+  })
+})
+
+
+it('an explicit compatible plugin revision updates the retained manifest while preserving its cache id and owner', async () => {
+  const legacy = { kind: 'plugin' as const, contribution: 'fixture-revised', label: 'Legacy panel', mounts: ['sidebar'] as const }
+  answers['app/state/get'] = { layouts: { [REPO.path]: {
+    main: { root: { kind: 'pane', id: 'plugin-owner', view: { kind: 'conversation', session: null } }, focused: 'plugin-owner' },
+    sidebar: { views: [{ id: 'revised-cache', view: legacy }], active: 'revised-cache', size: 240 },
+  } } }
+  await store.loadPreferences()
+  const previous = store.getSnapshot().workbench.toolOwners['revised-cache']
+  const compatible = { ...legacy, label: 'Revised panel', mounts: ['right'] as const }
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  handlers.onNotification({ method: 'extension', params: { event: { type: 'contributions/changed', owner: 'fixture' as never, revision: 2, contributions: [{
+    kind: 'ui', id: compatible.contribution, owner: 'fixture', slot: 'session.header', label: compatible.label,
+    component: 'hd.panel', mounts: ['right'],
+  }] as never } } })
+  store.showViewIn('right', compatible)
+  const current = store.getSnapshot().workbench
+  expect(dockViews(current.right)).toEqual([{ id: 'revised-cache', view: compatible }])
+  expect(current.toolOwners['revised-cache']).toBe(previous)
+  expect(current.frameTools[previous!]).toEqual({ tool: 'details', mode: 'plugin', open: true })
+  expect(calls('session/close')).toEqual([])
+})
+
+
+it('a current manifest revision refuses the saved right plugin at admission, reveal and mode selection', async () => {
+  const view = { kind: 'plugin' as const, contribution: 'fixture-manifest', label: 'Saved panel', mounts: ['right'] as const }
+  store.showViewIn('right', view)
+  const before = store.getSnapshot().workbench
+  const held = dockViews(before.right)[0]!
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  handlers.onNotification({ method: 'extension', params: { event: { type: 'contributions/changed', owner: 'fixture' as never, revision: 2, contributions: [{
+    kind: 'ui', id: view.contribution, owner: 'fixture', slot: 'session.header', label: view.label,
+    component: 'hd.panel', mounts: ['sidebar'],
+  }] as never } } })
+  expect(store.getSnapshot().contributions).toHaveLength(1)
+  for (const reveal of [() => store.showViewIn('right', view), () => store.revealView(held.id),
+    () => store.chooseWorkTool('details', 'plugin')]) {
+    reveal()
+    expect(store.getSnapshot().workbench).toBe(before)
+    expect(store.getSnapshot().notices.at(-1)?.message).toContain('does not support the fixed right panel')
+  }
+  expect(dockViews(store.getSnapshot().workbench.right)).toContainEqual(held)
 })
