@@ -4,7 +4,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import type { FindingView, GoalView } from '@harnessdesk/protocol'
 
-import { StoreProvider } from '../state/context'
+import { PaneProvider, StoreProvider } from '../state/context'
+import { TopBarOutlet, TopBarProvider } from '../panels/top-bar'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import type { FindingsListState } from '../lib/findings'
 import stylesSettings from '../design/patterns/Settings.module.css'
@@ -68,10 +69,34 @@ const rig = (findings: FindingsListState | undefined, overrides: Partial<AppSnap
   return { store }
 }
 
+const FindingsFrame = ({ store, goal = 'g1' }: { store: AppStore; goal?: string }) => <StoreProvider store={store}><TopBarProvider>
+  <PaneProvider scope={{ paneId: 'main', view: { kind: 'room', room: goal }, sessionKey: null }}>
+    <TopBarOutlet owner="main" fallback={{ place: 'Ship it', more: () => null }} />
+    <GoalFindings goal={goal} />
+  </PaneProvider>
+</TopBarProvider></StoreProvider>
+
 const render = async (store: AppStore): Promise<void> => {
-  act(() => { root.render(<StoreProvider store={store}><GoalFindings goal="g1" /></StoreProvider>) })
+  act(() => { root.render(<FindingsFrame store={store} />) })
   await act(async () => {})
 }
+
+it('B6 permanently registers the waiting Findings verb and puts host filters in View', async () => {
+  const { store } = rig(undefined)
+  await render(store)
+  const decide = container.querySelector<HTMLButtonElement>('[data-topbar="verb"] button')
+  expect(decide?.getAttribute('aria-label')).toBe('Decide this run')
+  expect(decide!.disabled).toBe(true)
+  expect(decide!.title).toBe('This Run has no decision waiting')
+  expect(container.querySelector('[data-slot="view-bar"]')).toBeNull()
+  expect(container.querySelector('[role="tab"]')).toBeNull()
+  const view = container.querySelector<HTMLButtonElement>('button[aria-label="View"]')!
+  await act(async () => view.click())
+  const filters = [...document.querySelectorAll<HTMLButtonElement>('[role="switch"]')]
+  expect(filters.map(one => one.textContent)).toEqual(['All', 'Open', 'Blocking'])
+  await act(async () => filters[1]!.click())
+  expect(store.loadFindings).toHaveBeenCalledWith('g1', 'open')
+})
 
 it('loads the Goal’s findings once on mount', async () => {
   const { store } = rig(undefined)
@@ -100,7 +125,7 @@ it('the open filter shows a plain open row and a repaired-unconfirmed claim, eac
   expect(container.textContent).not.toContain('Verified')
   // No confirmed/withdrawn row was in this filter’s answer, so none is drawn.
   expect(container.textContent).not.toContain('finding-withdrawn')
-  expect(container.textContent).toContain('1 blocking')
+  expect([...container.querySelectorAll('[aria-label="Findings summary"] [data-slot="summary-item"]')].map(one => [one.querySelector('dt')?.textContent, one.querySelector('[data-slot="summary-value"]')?.textContent])).toEqual([['Open', '2'], ['Blocking', '1'], ['All', '3']])
 
   // A plain "Open" finding is the normal, default state — never the amber a
   // person must act on now. A claimed repair genuinely is one.
@@ -139,20 +164,22 @@ it('a carried finding not yet admitted on its target agrees with the header: Adv
   }
   const { store } = rig(state)
   await render(store)
-  expect(container.textContent).toContain('0 blocking of 1')
+  const summary = container.querySelector('[aria-label="Findings summary"]')!
+  expect([...summary.querySelectorAll('[data-slot="summary-item"]')].map(one => [one.querySelector('dt')?.textContent, one.querySelector('[data-slot="summary-value"]')?.textContent])).toEqual([['Open', '1'], ['Blocking', '0'], ['All', '1']])
   expect(container.textContent).toContain('Advisory')
   expect(container.textContent).not.toContain('· Blocking')
 })
 
-it('pressing a filter tab asks the store for that filter, and Load more asks with the cursor', async () => {
+it('pressing a View filter asks the store for that filter, and Load more asks with the cursor', async () => {
   const state: FindingsListState = {
     filter: 'all', rows: [row('finding-a')], next: 'cursor-2', totals: { all: 5, open: 5, blocking: 0 }, problem: null,
     loading: false, loadingMore: false, error: null, stale: false,
   }
   const { store } = rig(state)
   await render(store)
-  const blocking = [...container.querySelectorAll('button, [role="tab"]')].find((one) => one.textContent === 'Blocking')!
-  act(() => { (blocking as HTMLElement).click() })
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="View"]')!.click())
+  const blocking = [...document.querySelectorAll<HTMLButtonElement>('[role="switch"]')].find(one => one.textContent === 'Blocking')!
+  await act(async () => blocking.click())
   expect(store.loadFindings).toHaveBeenCalledWith('g1', 'blocking')
   const more = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Load more')!
   act(() => more.click())
@@ -207,7 +234,7 @@ it('preview smoke: the real preview store answers every findings method, never t
   const warnings: unknown[][] = []
   const warn = vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => { warnings.push(args) })
   const store = previewStore()
-  act(() => { root.render(<StoreProvider store={store}><GoalFindings goal={PREVIEW_GOAL.goal.id} /></StoreProvider>) })
+  act(() => { root.render(<FindingsFrame store={store} goal={PREVIEW_GOAL.goal.id} />) })
   await act(async () => {})
   await store.readFinding(PREVIEW_GOAL.goal.id, 'finding-open-1')
   await store.setFindingPublication(PREVIEW_GOAL.goal.id, PREVIEW_GOAL.goal.revision, false)

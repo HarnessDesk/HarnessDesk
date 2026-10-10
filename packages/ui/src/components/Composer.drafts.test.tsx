@@ -9,6 +9,7 @@ import { draftsOf, UNSCOPED_RECOVERY_KEY } from '../state/drafts'
 import { panes, sessionOf } from '../state/layout'
 import { AppStore, emptySnapshot, type AppSnapshot } from '../state/store'
 import { Composer } from './Composer'
+import { RoomMessagesHeld } from './RoomMessaging'
 
 /**
  * A typed message is never lost.
@@ -95,14 +96,14 @@ afterEach(() => { strict = false })
 // One stable wrapper: a new component per draw would remount the composer on
 // every draw, and a switch would no longer be a switch.
 const Plain = ({ children }: { children: React.ReactNode }) => <>{children}</>
-const draw = (key: SessionKey | null): void => {
+const draw = (key: SessionKey | null, held = false): void => {
   const Wrap = strict ? StrictMode : Plain
   act(() => {
     root.render(
       <Wrap><StoreProvider store={store}>
         {key ? (
           <PaneProvider scope={{ paneId: 'p1', view: { kind: 'conversation', session: key }, sessionKey: key }}>
-            <Composer onChooseProject={() => {}} />
+            <RoomMessagesHeld.Provider value={held}><Composer onChooseProject={() => {}} /></RoomMessagesHeld.Provider>
           </PaneProvider>
         ) : null}
       </StoreProvider></Wrap>,
@@ -428,4 +429,19 @@ describe('a message whose send fails goes back to the conversation it was writte
     expect(textarea().value).toBe('')
     restoreMessage('try again')
   })
+})
+
+it('shows room Holding messages on the own composer and retains its individual draft when released', () => {
+  draw(one)
+  type('Review the retry budget')
+  draw(one, true)
+  const chip = container.querySelector('[data-slot="composer-chip"]')
+  expect(chip?.textContent).toBe('Holding messages')
+  expect(chip?.getAttribute('title')).toBe('Messages are held. Release them in Send to.')
+  expect(textarea().value).toBe('Review the retry budget')
+  expect(textarea().disabled).toBe(false)
+  expect(container.querySelector('[aria-label="Send to"]')).toBeNull()
+  draw(one)
+  expect(container.textContent).not.toContain('Holding messages')
+  expect(textarea().value).toBe('Review the retry budget')
 })

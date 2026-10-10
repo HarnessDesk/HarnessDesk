@@ -48,10 +48,9 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { action: 'open-folder', label: 'Open folder…', key: 'o', group: 'Sessions' },
   { action: 'close-pane', label: 'Close the focused pane', key: 'w', group: 'Sessions' },
   { action: 'toggle-sidebar', label: 'Show or hide the sidebar', key: 'b', group: 'Window' },
-  /* Back and forward through what the middle has shown. The header's arrows
-     are the other route and they fold away in a header under 520px, which a
-     wide window reaches as soon as a panel is docked beside the conversation
-     — so the pair needs a way in that no width can take. ⌘[ and ⌘] because
+  /* Back and forward through what the middle has shown. The lead's arrows
+     are the other route; narrow windows keep them in the floating sidebar.
+     The pair also needs a way in that no width can take. ⌘[ and ⌘] because
      that is what a browser binds them to, and because the browser pane
      already answers to them for its own page: its handler runs in the
      capture phase and stops the event, so a focused page still wins. */

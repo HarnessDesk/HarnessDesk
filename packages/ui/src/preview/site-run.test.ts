@@ -47,7 +47,6 @@ describe('the site Run', () => {
     try {
       await act(async () => root.render(createElement(StoreProvider, { store: run.store,
         children: createElement(TeamRoomPane, { room: 'overlay-team' }) })))
-      await act(async () => button('Write, review, land').click())
       await act(async () => button('Stop run…').click())
       await act(async () => button('Stop run').click())
       expect(document.querySelector('[role="alertdialog"]')?.textContent ?? '').toContain('Stopping is not available in this staged Run.')

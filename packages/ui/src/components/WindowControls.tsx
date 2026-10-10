@@ -1,6 +1,7 @@
 import { useSnapshot, useStore } from '../state/context'
 import { sidebarPlacement } from '../state/workbench'
 import { Button } from '../design'
+import { FRAME } from '../design/frame'
 import { ArrowLeftIcon, ArrowRightIcon, SidebarIcon } from './Icons'
 import styles from './WindowControls.module.css'
 
@@ -13,14 +14,15 @@ import styles from './WindowControls.module.css'
  * does not — put away, or floating over a narrow window — so the controls
  * never leave the row the eye expects them on.
  *
- * A narrow header keeps the toggle and folds the arrows (see the stylesheet):
- * the arrows are on the sidebar's own row as well, and the toggle is the one
- * press that reaches it.
+ * Below the frame's window threshold, main keeps the toggle alone. The
+ * floating sidebar's own row retains both arrows; wider hidden columns keep
+ * all three lead controls regardless of the destination's contents.
  */
-export const WindowControls = () => {
+export const WindowControls = ({ sidebarRow = false }: { sidebarRow?: boolean }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const shown = sidebarPlacement(snapshot) !== 'away'
+  const navigation = sidebarRow || snapshot.windowWidth >= FRAME.fold.sidebarFloats
   return (
     <span className={styles.group}>
       <Button
@@ -31,7 +33,7 @@ export const WindowControls = () => {
       >
         <SidebarIcon size={14} />
       </Button>
-      <span className={styles.nav}>
+      {navigation && <span>
         <Button
           variant="ghost" size="icon-sm" className={`${styles.button} hd-no-drag`}
           disabled={!snapshot.navCanBack}
@@ -41,8 +43,8 @@ export const WindowControls = () => {
         >
           <ArrowLeftIcon size={13} />
         </Button>
-      </span>
-      <span className={styles.nav}>
+      </span>}
+      {navigation && <span>
         <Button
           variant="ghost" size="icon-sm" className={`${styles.button} hd-no-drag`}
           disabled={!snapshot.navCanForward}
@@ -52,7 +54,7 @@ export const WindowControls = () => {
         >
           <ArrowRightIcon size={13} />
         </Button>
-      </span>
+      </span>}
     </span>
   )
 }

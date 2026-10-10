@@ -14,19 +14,20 @@ import {
   RowButton,
   Rows,
   Switch,
-  Tabs,
-  TabsList,
-  TabsTrigger,
+  Menu,
+  MenuToggle,
+  SummaryList,
+  SummaryItem,
   ToolPane,
   ToolPaneBody,
   ToolPaneEmptyState,
   ToolPaneMessage,
-  ViewBar,
 } from '../design'
 import { ReviewIcon } from './Icons'
 import { blockingWords, FILTER_LABEL, goalHasBoundPr, lifecycleTone, lifecycleWords, type FindingFilter } from '../lib/findings'
 import { goalRunLabel, goalRunOf, goalRunsOf } from '../lib/goal-run'
-import { useSnapshot, useStore } from '../state/context'
+import { usePane, useSnapshot, useStore } from '../state/context'
+import { useTopBarView } from '../panels/top-bar'
 import { FindingDecision } from './FindingDecision'
 import { FindingDetail } from './FindingDetail'
 import { FindingPublications } from './FindingPublications'
@@ -116,39 +117,26 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
       one.lifecycle.state === 'open' && !one.lifecycle.confirmed).length
     : 0
 
+  const owner = usePane()?.paneId ?? ''
+  const refusal = record ? RECORD_REASON : runView?.undecidable ?? (!runView || (runView.reason === null && runView.blocking === 0)
+    ? 'This Run has no decision waiting' : false)
+  useTopBarView(owner, {
+    verb: { label: 'Decide this run', disabled: refusal, run: () => setDeciding(true) },
+    view: { narrowed: filter !== 'all', content: close => <Menu close={close}>
+      {FILTERS.map(one => <MenuToggle key={one} label={FILTER_LABEL[one]} checked={filter === one}
+        onChange={() => { setFilter(one); close() }} />)}
+    </Menu> },
+  }, Boolean(owner))
+
   return (
     <ToolPane variant="integrated" aria-label="Findings">
-      {/* The tab above says "Findings"; this row says what they are. */}
-      <ViewBar
-        aria-label="Findings"
-        summary={state?.totals ? `${state.totals.open} open · ${state.totals.blocking} blocking of ${state.totals.all}` : undefined}
-        actions={
-          <>
-            {/* The view's own verb, at its own width, beside the view's filter —
-                not a bar across the page under the facts it acts on. */}
-            {runView && (runView.reason !== null || runView.blocking > 0) && (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={record || runView.undecidable !== null}
-                title={record ? RECORD_REASON : runView.undecidable ?? undefined}
-                onClick={() => setDeciding(true)}
-              >
-                Decide this run
-              </Button>
-            )}
-          <Tabs value={filter} onValueChange={(next) => setFilter(next as FindingFilter)}>
-            <TabsList aria-label="Filter findings">
-              {FILTERS.map((one) => (
-                <TabsTrigger key={one} value={one}>{FILTER_LABEL[one]}</TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-          </>
-        }
-      />
       <ToolPaneBody bleed>
         <Page width="reading">
+        <SummaryList aria-label="Findings summary">
+          <SummaryItem label="Open">{state?.totals?.open ?? 'Not recorded'}</SummaryItem>
+          <SummaryItem label="Blocking">{state?.totals?.blocking ?? 'Not recorded'}</SummaryItem>
+          <SummaryItem label="All">{state?.totals?.all ?? 'Not recorded'}</SummaryItem>
+        </SummaryList>
         {runs.length > 1 && run && (
           <NativeSelect aria-label="Run" value={run.id} onChange={(event) => setChosen(event.target.value)}>
             {runs.map((one, index) => (

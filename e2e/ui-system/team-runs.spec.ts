@@ -20,13 +20,9 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(runs).toContainText('2 of 3 answered')
       await expect(runs).toContainText('2 findings')
       await expect(runs).toContainText('$6.00 of $20.00 daily cap')
-      for (const button of await runs.locator('[data-slot="page-head"] button').all()) {
-        const height = await button.evaluate(el => ({
-          actual: el.getBoundingClientRect().height,
-          full: parseFloat(getComputedStyle(el).getPropertyValue('--hd-btn-h')),
-        }))
-        expect(height.actual).toBeGreaterThanOrEqual(height.full)
-      }
+      await expect(runs.locator('[data-slot="page-head"]')).toHaveCount(0)
+      await expect(runs.getByRole('searchbox', { name: 'Filter Runs' })).toHaveCount(0)
+      await expect(runs.getByRole('button', { name: 'Pause every trigger' })).toHaveCount(0)
       const facts=await teamDetails(frame)
       await expect(facts.locator('[data-slot="summary-item"]').filter({hasText:/^State/})).toContainText('running')
       await closeTeamDetails(frame)
@@ -46,20 +42,26 @@ for (const theme of ['light', 'dark'] as const) {
         await page.evaluate(async () => { await document.fonts.ready })
         await page.screenshot({ path: `${directory}/after-runs-${width}-${theme}.png` })
       }
-      await runs.getByRole('button', { name: 'Pause every trigger' }).click()
+      await teamBar(frame).getByRole('button', { name: 'More', exact: true }).click()
+      await page.getByRole('menuitem', { name: 'Pause every trigger', exact: true }).click()
       const paused=await teamDetails(frame)
       await expect(paused.locator('[data-slot="summary-item"]').filter({hasText:/^Trigger/})).toContainText('Paused')
       await expect(paused.locator('[data-slot="summary-item"]').filter({hasText:/^State/})).toContainText('running')
       await closeTeamDetails(frame)
-      await runs.getByRole('button', { name: 'Resume every trigger' }).click()
+      await teamBar(frame).getByRole('button', { name: 'More', exact: true }).click()
+      await page.getByRole('menuitem', { name: 'Resume every trigger', exact: true }).click()
       await expect((await teamDetails(frame)).locator('[data-slot="summary-item"]').filter({hasText:/^Trigger/})).toContainText('Armed')
       await closeTeamDetails(frame)
-      await runs.getByRole('searchbox', { name: 'Filter Runs' }).fill('Run 2')
+      await teamBar(frame).getByRole('button', { name: 'View', exact: true }).click()
+      await page.getByRole('searchbox', { name: 'Filter Runs' }).fill('Run 2')
+      await page.keyboard.press('Escape')
       await expect(runs.locator('[data-run]')).toHaveCount(1)
       await runs.getByRole('button', { name: 'Open Run 2: Retry checkout after a payment timeout' }).click()
       await expect(team.locator('[data-slot="run-view"]')).toBeVisible()
       await team.getByRole('button', { name: 'Back to Runs' }).click()
-      await expect(runs.getByRole('searchbox', { name: 'Filter Runs' })).toHaveValue('Run 2')
+      await teamBar(frame).getByRole('button', { name: 'View', exact: true }).click()
+      await expect(page.getByRole('searchbox', { name: 'Filter Runs' })).toHaveValue('Run 2')
+      await page.keyboard.press('Escape')
       await expect(runs.locator('[data-run]')).toHaveCount(1)
     })
   }

@@ -1,10 +1,23 @@
 import { readFileSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
+import { FRAME } from '../../packages/ui/src/design/frame'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
 
 test.use({ launchOptions: { ignoreDefaultArgs: ['--hide-scrollbars'] } })
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`B6 Board facts and canvas retain the existing content gap in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1440, height: 1000 })
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto('/preview.html?board-list')
+    const pane = page.locator('[data-frame-id="board-list-page"]')
+    const summary = pane.locator('[aria-label="Board summary"]')
+    const board = pane.locator('[data-slot="board"]')
+    await expect(summary).toBeVisible()
+    await expect(board).toBeVisible()
+    const gap = (await board.boundingBox())!.y - ((await summary.boundingBox())!.y + (await summary.boundingBox())!.height)
+    expect(gap).toBe(FRAME.page.canvasGutter)
+  })
   for (const width of [1440, 1000, 900, 760, 640, 560]) {
     test(`board rearranges in a ${width}px pane in ${theme}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 1000 })
@@ -93,19 +106,25 @@ for (const theme of ['light', 'dark'] as const) {
     await page.setViewportSize({ width: 1000, height: 1000 })
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html?board-list')
-    const board = page.getByRole('radio', { name: 'Board', exact: true })
-    const list = page.getByRole('radio', { name: 'List', exact: true })
-    await list.click()
+    const pane = page.locator('[data-frame-id="board-list-page"]')
+    const view = pane.locator('[data-slot="top-bar"]').getByRole('button', { name: 'View', exact: true })
+    await view.click()
+    await page.getByRole('menuitem', { name: 'List', exact: true }).click()
+    await expect(pane.locator('[data-slot="board-list"]')).toBeVisible()
     await page.setViewportSize({ width: 604, height: 1000 })
-    await expect(board).toBeDisabled()
+    await view.click()
+    const board = page.getByRole('menuitem').filter({ has: page.getByText('Board', { exact: true }) })
+    await expect(board).toHaveAttribute('aria-disabled', 'true')
     expect(await page.locator('[data-slot="tool-pane-body"]').evaluate(el => el.clientWidth)).toBe(596)
     if (process.env.HD_BOARD_REPAIR_FRAMES) await page.screenshot({ path: `${process.env.HD_BOARD_REPAIR_FRAMES}/compact-${theme}.png` })
     await expect(board).toHaveAttribute('title', 'Board needs at least 600px of content width')
+    await page.keyboard.press('Escape')
     await page.setViewportSize({ width: 1000, height: 1000 })
-    await expect(board).toBeEnabled()
-    await expect(list).toBeChecked()
+    await expect(pane.locator('[data-slot="board-list"]')).toBeVisible()
+    await view.click()
+    await expect(board).not.toHaveAttribute('aria-disabled', 'true')
     await board.click()
-    await expect(board).toBeChecked()
+    await expect(pane.locator('[data-slot="board"]')).toBeVisible()
   })
 
   test(`scrolling board keeps its gutters at fold thresholds in ${theme}`, async ({ page }) => {

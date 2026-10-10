@@ -3705,6 +3705,19 @@ it.each(['running', 'settled'] as const)('discovers an uncached %s Run when open
   expect(container.querySelector('[aria-label="Team Run facts"]')?.textContent).toContain('Triage')
 })
 
+const chooseRunsFilter = async (label: string): Promise<void> => {
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="view"] button')!.click())
+  const choice = [...document.querySelectorAll<HTMLButtonElement>('[role="switch"]')].find(one => one.textContent?.startsWith(label))!
+  expect(choice).toBeDefined()
+  await act(async () => choice.click())
+}
+const runsAction = async (label: string): Promise<HTMLButtonElement> => {
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
+  const choice = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(one => one.textContent?.startsWith(label))!
+  expect(choice).toBeDefined()
+  return choice
+}
+
 it('lists a trigger Team’s Runs newest first, filters them, and returns from a selected timeline', async () => {
   const old = { version: 2, id: 'old', goal: ROOM, state: 'settled', startedAt: 1, currentEndedAt: 60_001,
     reason: null, operations: [], rounds: [], legacyRun: null,
@@ -3716,8 +3729,7 @@ it('lists a trigger Team’s Runs newest first, filters them, and returns from a
   await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="runs"]')!.click())
   expect([...container.querySelectorAll('[data-run]')].map(one => one.getAttribute('data-run'))).toEqual(['fresh', 'old'])
   expect(container.querySelector('[data-run="old"]')!.textContent).toContain('Run 1 · pull request #7')
-  const settled = [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent?.startsWith('Settled'))!
-  await act(async () => settled.click())
+  await chooseRunsFilter('Settled')
   expect(container.querySelectorAll('[data-run]')).toHaveLength(1)
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Run 1: Retry checkout"]')!.click())
   expect(container.querySelector('[data-slot="run-view"]')).not.toBeNull()
@@ -3766,6 +3778,20 @@ it('loads reviewer details only for Runs in view and releases them when they lea
   }
 })
 
+it('B6 moves Runs controls into View and More while keeping content facts', async () => {
+  const { store } = triggerRig([])
+  await render(store)
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="runs"]')!.click())
+  const page = container.querySelector('[data-slot="team-runs"]')!
+  expect(page.querySelector('[data-slot="page-head"]')).toBeNull()
+  expect(page.querySelector('input')).toBeNull()
+  expect(page.querySelector('[aria-label="Runs summary"]')).not.toBeNull()
+  expect(container.querySelector('[data-topbar="verb"] button')).toBeNull()
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="View"]')!.click())
+  expect(document.querySelector('input[placeholder="Filter Runs"]')).not.toBeNull()
+  expect([...document.querySelectorAll('[role="switch"]')].map(one => one.textContent)).toEqual(['All0', 'Running0', 'Needs you0', 'Settled0', 'Stopped0'])
+})
+
 it('opens the empty Runs page and pauses using the recorded machine revision and cap', async () => {
   const { store } = triggerRig([])
   const prefs = triggerPreferences({ revision: 8, paused: false, dailyUsd: 25, chargedUsd: null })
@@ -3782,12 +3808,14 @@ it('opens the empty Runs page and pauses using the recorded machine revision and
   expect(container.textContent).toContain('No Runs yet')
   expect(container.textContent).toContain('Unknown spend of $25.00 daily cap')
   expect(container.querySelector('[data-slot="team-runs"]')!.textContent).toContain('interrupting its turns and checks')
-  expect([...container.querySelectorAll<HTMLButtonElement>('[data-slot="page-head"] button')].find(one => one.textContent === 'Pause every trigger')!.textContent).toBe('Pause every trigger')
-  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('[data-slot="page-head"] button')].find(one => one.textContent === 'Pause every trigger')!.click())
+  const pause = await runsAction('Pause every trigger')
+  expect(pause.textContent).toBe('Pause every trigger')
+  await act(async () => pause.click())
   expect(setTriggerPreferences).toHaveBeenCalledWith(8, true, 25)
   expect(container.textContent).toContain('The revision changed; read again.')
   expect(teamFact('Trigger')?.textContent).toContain('Armed')
-  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Edit the trigger')!.click())
+  const edit = await runsAction('Edit the trigger')
+  await act(async () => edit.click())
   expect(openFile).toHaveBeenCalledWith(`${GOAL.goal.root}/.harnessdesk/triggers.yml`)
 })
 
@@ -3847,7 +3875,7 @@ it.each([1, 2])('uses singular Run counts with %s recorded Runs, including a fil
   await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="runs"]')!.click())
   const page = container.querySelector('[data-slot="team-runs"]')!
   expect(page.textContent).toContain(`${count} ${count === 1 ? 'Run' : 'Runs'} ·`)
-  await act(async () => [...page.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent?.startsWith('Settled'))!.click())
+  await chooseRunsFilter('Settled')
   expect(page.querySelector('[data-slot="inspector-footer"]')!.textContent).toContain(count === 1 ? '1 Run' : '1 Run of 2')
   expect(page.textContent).not.toContain('1 Runs')
 })

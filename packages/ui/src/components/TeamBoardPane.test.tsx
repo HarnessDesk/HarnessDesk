@@ -13,7 +13,8 @@ import {
   type TeamState,
 } from '@harnessdesk/protocol'
 
-import { StoreProvider } from '../state/context'
+import { PaneProvider, StoreProvider } from '../state/context'
+import { TopBarOutlet, TopBarProvider } from '../panels/top-bar'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { dismissOverlays } from '../design'
 import { cardEvidence, checkView, ciView, factView, PREVIEW_UNSEEN, prView } from '../preview/evidence-fixture'
@@ -161,11 +162,42 @@ const render = async (store: AppStore): Promise<void> => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <TeamBoardPane room={ROOM} />
+        <TopBarProvider><PaneProvider scope={{ paneId: 'main', view: { kind: 'room', room: ROOM }, sessionKey: null }}>
+          <TopBarOutlet owner="main" fallback={{ place: 'Board Team', more: () => null }} />
+          <TeamBoardPane room={ROOM} />
+        </PaneProvider></TopBarProvider>
       </StoreProvider>,
     )
   })
   await act(async () => {})
+}
+
+it('B6 registers New job and Board/List in the shell with content facts', async () => {
+  const { store } = rig([intent({})])
+  await render(store)
+  expect(container.querySelector('[data-slot="view-bar"]')).toBeNull()
+  const add = container.querySelector<HTMLButtonElement>('[data-topbar="verb"] button[aria-label="New job"]')
+  expect(add).not.toBeNull()
+  expect(add!.textContent).toBe('New job')
+  expect(add!.querySelector('svg')).not.toBeNull()
+  expect(container.querySelector('[aria-label="Board summary"]')).not.toBeNull()
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="View"]')!.click())
+  expect([...document.querySelectorAll('[role="menuitem"]')].map(one => one.textContent)).toEqual(['Board', 'List'])
+})
+
+const chooseBoardView = async (label: 'Board' | 'List'): Promise<void> => {
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="view"] button')!.click())
+  const choice = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(one => one.textContent === label)!
+  expect(choice).toBeDefined()
+  await act(async () => choice.click())
+}
+const openBoardMore = async (): Promise<void> => {
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
+}
+const boardAction = (label: string): HTMLButtonElement => {
+  const choice = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(one => one.textContent?.startsWith(label))
+  expect(choice).toBeDefined()
+  return choice!
 }
 
 const button = (text: string): HTMLButtonElement => {
@@ -445,7 +477,8 @@ it('an empty Goal’s empty board also offers to start a team, reusing that Goal
   const { store } = rig([], {}, undefined, empty)
   await render(store)
 
-  act(() => button('Start with a team').click())
+  await openBoardMore()
+  await act(async () => boardAction('Start with a team').click())
   await act(async () => {})
 
   expect(store.openFrontDoor).toHaveBeenCalledWith({ kind: 'project', root: '/repo' }, { id: ROOM, revision: 3 })
@@ -454,7 +487,11 @@ it('an empty Goal’s empty board also offers to start a team, reusing that Goal
 it('an empty board with no Goal behind it offers no team action — there is no root or revision to reuse', async () => {
   const { store } = rig([])
   await render(store)
-  expect([...container.querySelectorAll('button')].every((one) => one.textContent?.trim() !== 'Start with a team')).toBe(true)
+  await openBoardMore()
+  expect(boardAction('Start with a team').getAttribute('aria-disabled')).toBe('true')
+  expect(boardAction('Start with a team').title).toBe('This Team already has work')
+  await act(async () => boardAction('Start with a team').click())
+  expect(store.openFrontDoor).not.toHaveBeenCalled()
 })
 
 it('a Goal that already has a Seat is not an empty Goal to reuse, so its board offers no team action', async () => {
@@ -463,7 +500,11 @@ it('a Goal that already has a Seat is not an empty Goal to reuse, so its board o
   const seated = { goal: { id: ROOM, root: '/repo', revision: 1, origin: { kind: 'person' } }, members: [{ session: { runtime: 'codex', sessionId: 'c1' }, closed: null }] } as unknown as GoalView
   const { store } = rig([], {}, undefined, seated)
   await render(store)
-  expect([...container.querySelectorAll('button')].every((one) => one.textContent?.trim() !== 'Start with a team')).toBe(true)
+  await openBoardMore()
+  expect(boardAction('Start with a team').getAttribute('aria-disabled')).toBe('true')
+  expect(boardAction('Start with a team').title).toBe('This Team already has work')
+  await act(async () => boardAction('Start with a team').click())
+  expect(store.openFrontDoor).not.toHaveBeenCalled()
 })
 
 /**
@@ -1628,7 +1669,7 @@ it('keeps an empty Board quiet with one add-work control in its toolbar',async()
  expect(empty?.querySelector('h3,svg,button')).toBeNull()
  expect(container.textContent?.split('Nothing on the board yet')).toHaveLength(2)
  expect(container.querySelectorAll('button[aria-label^="New job"]')).toHaveLength(1)
- expect(container.querySelector('[data-slot="view-bar"]')?.textContent).toContain('0 to do · 0 working · 0 need you')
+ expect(container.querySelector('[aria-label="Board summary"] [data-slot="summary-value"]')?.textContent).toBe('No work yet')
 })
 
 it('lists every job, including completed work awaiting evidence, with Needs you first', async () => {
@@ -1638,7 +1679,7 @@ it('lists every job, including completed work awaiting evidence, with Needs you 
     intent({ id: 3, title: 'Finished job', state: 'done', updatedAt: 50 }),
   ])
   await render(store)
-  act(() => button('List').click())
+  await chooseBoardView('List')
   const table = container.querySelector('table')!
   expect(table).not.toBeNull()
   expect([...table.querySelectorAll('tbody tr')].map(row => row.querySelector('td')?.textContent)).toEqual([
@@ -1652,7 +1693,7 @@ it('lists every job, including completed work awaiting evidence, with Needs you 
   act(() => button('Needs you 1').click())
   expect(table.querySelectorAll('tbody tr')).toHaveLength(1)
   expect(table.textContent).toContain('Blocked job')
-  act(() => button('Board').click())
+  await chooseBoardView('Board')
   expect(container.querySelector('[data-slot="board"]')).not.toBeNull()
 })
 
@@ -1661,7 +1702,7 @@ it('keeps list actions routed to the same host verbs and opens the exact assigne
     intent({ id: 1, title: 'Held job', state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } }),
   ], { nicknames: { 'codex\u0000c1': 'Implementer' } })
   await render(store)
-  act(() => button('List').click())
+  await chooseBoardView('List')
   act(() => button('Implementer').click())
   expect(store.openSession).toHaveBeenCalledWith('c1', { runtime: 'codex' })
   await pick(1, 'Mark done')
@@ -1677,7 +1718,7 @@ it('keeps stale checks qualified and separates pull requests and changes in the 
       factView({ kind: 'diff', files: 1, added: 38, removed: 12, from: 'a'.repeat(40), to: 'b'.repeat(40) })])],
   })
   await render(store)
-  act(() => button('List').click())
+  await chooseBoardView('List')
   const row = container.querySelector('tbody tr')!
   expect(row.textContent).toContain('#12')
   expect(row.textContent).toContain('Stale')
@@ -1694,14 +1735,14 @@ it('retains a completing assignee after the host clears the claim, ignoring refu
     ],
   }, { room: ROOM, stamp: 1, checks: [], refused: [], unreadable: null, cards: [] })
   await render(store)
-  act(() => button('List').click())
+  await chooseBoardView('List')
   expect(container.querySelector('tbody tr')?.textContent).toContain('Implementer')
   act(() => button('Implementer').click())
   expect(store.openSession).toHaveBeenCalledWith('c1', { runtime: 'codex' })
 })
 
 const listRow = (id = 1): HTMLTableRowElement => container.querySelector(`tbody tr[data-job="${id}"]`)!
-const showList = async (store: AppStore) => { await render(store); act(() => button('List').click()) }
+const showList = async (store: AppStore) => { await render(store); await chooseBoardView('List') }
 
 for (const state of ['done', 'abandoned', 'blocked'] as const) {
   it(`list repair: ${state} offers reopen without an empty menu or a one-click completion`, async () => {

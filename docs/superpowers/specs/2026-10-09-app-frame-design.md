@@ -237,8 +237,7 @@ button (28), one divider (1 × 14).
 **The top bar** runs across main and the right panel's column. Its slots,
 left to right, each optional except place and ⋯:
 
-1. **lead** — sidebar toggle, back, forward; only while the left column is not
-   standing beside main (the existing rule).
+1. **lead** — sidebar toggle, back, forward; only while the left column is not standing beside main (the existing rule). In a narrow window, where the column floats, the lead is the sidebar toggle alone, as drawn: back and forward are in the column's top row, and ⌘[ and ⌘] work everywhere.
 2. **place** — `Parent ›` in muted ink when the page is a child, then the
    title at 14/500. A crumb is a link to its parent.
 3. **state** — at most one chip (Needs you, Working, Idle, Built in).

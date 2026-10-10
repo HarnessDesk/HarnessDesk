@@ -1,8 +1,8 @@
 import { selectRunView } from './run-frame-actions'
 import { expect, test, type Page } from '@playwright/test'
 import { FRAME, FRAME_TOKENS } from '../../packages/ui/src/design/frame'
-import { WALL_THEMES } from './frame-wall-destinations'
-import { selectFrameTab } from './frame-actions'
+import { WALL_DESTINATIONS, WALL_THEMES } from './frame-wall-destinations'
+import { applyFrameActions, selectFrameTab } from './frame-actions'
 
 /**
  * The rendered check (spec, "How it is checked"): the app measured against
@@ -28,6 +28,25 @@ const resolvedPx = (page: Page, token: string) => page.evaluate((name) => {
 }, token)
 
 for (const theme of WALL_THEMES) {
+  test(`B6 Team view controls keep one View x and no second toolbar in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=team', theme)
+    const xs: number[] = []
+    for (const tab of ['overview', 'run', 'board', 'room', 'findings']) {
+      await selectFrameTab(page, tab)
+      const icon = page.locator('[data-topbar="view"]')
+      await expect(icon).toBeVisible()
+      xs.push((await icon.boundingBox())!.x)
+      await expect(page.locator('[data-slot="view-bar"]')).toHaveCount(0)
+      await expect(page.locator('[data-slot="run-header"]')).toHaveCount(0)
+    }
+    expect(Math.max(...xs) - Math.min(...xs)).toBeLessThanOrEqual(1)
+    await selectFrameTab(page, 'findings')
+    await page.getByRole('button', { name: 'View', exact: true }).click()
+    await page.getByRole('switch', { name: 'Open', exact: true }).click()
+    await expect(page.locator('[data-topbar="view"] [data-filtered="true"]')).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Decide this run', exact: true })).toBeVisible()
+  })
+
   test(`B5 equivalent completed rounds expand into their original records in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team-run-equivalent', theme)
     await selectFrameTab(page, 'run')
@@ -423,5 +442,59 @@ for (const theme of WALL_THEMES) {
     await page.getByRole('switch',{name:'Hold messages',exact:true}).click()
     await expect(shared.getByText('Holding messages',{exact:true})).toHaveCount(0)
     await expect(shared.locator('textarea')).toHaveValue('Check the retry budget')
+  })
+}
+
+// Task 10 extends this same window contract to the four transitional
+// AppWindow hosts. The pattern probe deliberately has no application lead.
+const B6_WORK_DESTINATIONS = WALL_DESTINATIONS.filter(destination => !['topbar-probe', 'teams', 'agents', 'dashboard', 'settings'].includes(destination.id))
+for (const theme of WALL_THEMES) {
+  for (const width of [720, 1440]) {
+    test(`B6 lead follows window state on every work destination at ${width} in ${theme}`, async ({ page }) => {
+      const titleXs: number[] = []
+      for (const destination of B6_WORK_DESTINATIONS) {
+        await openFrame(page, destination.query, theme, width)
+        if (width === 1440) await page.getByRole('button', { name: 'Hide sidebar', exact: true }).click()
+        await applyFrameActions(page, destination)
+        const bar = page.locator('[data-slot="top-bar"]:visible').first()
+        const lead = bar.locator('[data-topbar="lead"]')
+        await expect(lead.getByRole('button')).toHaveCount(width === 720 ? 1 : 3)
+        await expect(lead.getByRole('button', { name: 'Show sidebar', exact: true })).toBeVisible()
+        await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0,
+          { message: `${destination.id} title floor` }).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+        titleXs.push((await bar.locator('[data-topbar-title]').boundingBox())!.x)
+      }
+      expect(Math.max(...titleXs) - Math.min(...titleXs)).toBeLessThanOrEqual(1)
+    })
+  }
+  test(`B6 one visible tile keeps its own draft and the room Holding chip in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=team', theme)
+    await selectFrameTab(page, 'room')
+    await page.getByRole('button', { name: 'Send to', exact: true }).click()
+    await page.getByRole('switch', { name: 'Hold messages', exact: true }).click()
+    const roomChip = page.locator('[data-slot="room-body"] [data-slot="composer-chip"]').filter({ hasText: 'Holding messages' })
+    const title = await roomChip.getAttribute('title')
+    await page.getByRole('button', { name: 'View', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: 'Side by side', exact: true }).click()
+    await page.locator('[data-slot="side-by-side-tile"]:visible').first().getByRole('button', { name: / actions$/ }).click()
+    await page.getByRole('menuitem', { name: /^Expand / }).click()
+    await expect(page.locator('[data-slot="side-by-side-tile"]:visible')).toHaveCount(1)
+    await expect(page.locator('[data-shared-composer]:visible')).toHaveCount(0)
+    const own = page.locator('[data-slot="side-by-side-tile"]:visible [data-slot="composer"]')
+    const chip = own.locator('[data-slot="composer-chip"]').filter({ hasText: 'Holding messages' })
+    await expect(chip).toBeVisible()
+    await expect(chip).toHaveAttribute('title', title!)
+    await own.locator('textarea').fill('Keep this member draft')
+    await expect(own.locator('textarea')).toBeEnabled()
+    await expect(own.getByRole('button', { name: 'Send to', exact: true })).toHaveCount(0)
+    await page.getByRole('button', { name: 'View', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: 'Thread', exact: true }).click()
+    await page.getByRole('button', { name: 'Send to', exact: true }).click()
+    await expect(page.getByRole('switch', { name: 'Hold messages', exact: true })).toHaveAttribute('aria-checked', 'true')
+    await page.getByRole('switch', { name: 'Hold messages', exact: true }).click()
+    await page.getByRole('button', { name: 'View', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: 'Side by side', exact: true }).click()
+    await expect(own.locator('textarea')).toHaveValue('Keep this member draft')
+    await expect(chip).toHaveCount(0)
   })
 }

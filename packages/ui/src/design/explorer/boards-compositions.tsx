@@ -19,7 +19,7 @@ import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
 import { TeamOverviewBoard } from '../../preview/frames-team-overview'
 import { TeamBarBoard } from '../../preview/frames-team-frame'
-import { Page, ViewBar, TopBar } from '..'
+import { Page, TopBar } from '..'
 import { DiffIcon, HistoryIcon, GlobeIcon, PanelIcon } from '../../components/Icons'
 
 const PAGE_CATALOG_VARIANTS = ['light', 'dark'] as const
@@ -3310,10 +3310,9 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   },
   {
     id: 'app-frame',
-    title: 'The page and its view bar',
+    title: 'The page measures',
     about: 'Reading, wide and canvas pages share one gutter and keep long content inside their measure.',
     render: () => <>{(['reading', 'wide', 'canvas'] as const).map((width) => <div key={width}>
-      <ViewBar summary="12 open · 8 blocking" actions={<Button variant="outline">Decide this run</Button>} />
       <Page width={width}><Text role="prose">Checkout review · a long project name · チェックアウトのレビュー</Text></Page>
     </div>)}</>,
   },

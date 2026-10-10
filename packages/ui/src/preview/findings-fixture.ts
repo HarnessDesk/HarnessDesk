@@ -94,8 +94,8 @@ export const PREVIEW_FINDINGS: readonly FindingView[] = [
   }),
 ]
 
-const isOpen = (view: FindingView): boolean => !view.lifecycle.confirmed
-const isBlocking = (view: FindingView): boolean => (view.activeBlocking ?? view.blocking) && !view.lifecycle.confirmed
+export const isOpen = (view: FindingView): boolean => !view.lifecycle.confirmed
+export const isBlocking = (view: FindingView): boolean => (view.activeBlocking ?? view.blocking) && !view.lifecycle.confirmed
 
 export const findingPage = (filter: 'all' | 'open' | 'blocking'): FindingPage => {
   const rows = filter === 'blocking' ? PREVIEW_FINDINGS.filter(isBlocking)

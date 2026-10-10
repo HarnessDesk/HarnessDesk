@@ -1,3 +1,4 @@
+import { TeamViewFrame } from '../../preview/TeamViewFrame'
 import { ConversationFrame } from '../../preview/ConversationFrame'
 import { TeamStartCases } from '../../preview/frames-team-start'
 import { GIT_PREVIEW_ROOT } from '../../preview/git-fixture'
@@ -107,7 +108,7 @@ const personReviewBoardStore = new Proxy(previewStore({
 /** The synthetic board state used in the preview and the design catalogue. */
 export const PersonReviewBoard = () => (
   <Mount with={personReviewBoardStore}>
-    <TeamBoardPane room={PERSON_REVIEW_ROOM} />
+    <TeamViewFrame room={PERSON_REVIEW_ROOM} page="board"><TeamBoardPane room={PERSON_REVIEW_ROOM} /></TeamViewFrame>
   </Mount>
 )
 
@@ -776,7 +777,7 @@ export const GroupSurface = () => (
     <Mount>
       <div className={styles.pair}>
         <Frame>
-          <TeamBoardPane room={PREVIEW_ROOM} />
+          <TeamViewFrame room={PREVIEW_ROOM} page="board"><TeamBoardPane room={PREVIEW_ROOM} /></TeamViewFrame>
         </Frame>
         <Frame>
           <TeamRoomPane room={PREVIEW_ROOM} />
@@ -795,7 +796,7 @@ export const GroupSurface = () => (
         <Mount with={QUESTION_STOP_STORE}>
           <div className={styles.pair}>
             <Frame>
-              <TeamBoardPane room={PREVIEW_FLOW_GOAL.goal.id} />
+              <TeamViewFrame room={PREVIEW_FLOW_GOAL.goal.id} page="board"><TeamBoardPane room={PREVIEW_FLOW_GOAL.goal.id} /></TeamViewFrame>
             </Frame>
             <Frame>
               <TeamRoomPane room={PREVIEW_FLOW_GOAL.goal.id} />

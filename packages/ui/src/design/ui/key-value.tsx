@@ -225,6 +225,8 @@ const KeyValueRow = ({
  * settings card — the `Rows` ground, edge, corner and hairline, read from the
  * same `--hd-card-*` tokens — for a page that has five facts about one object
  * and used to spend five labelled one-row cards on them.
+ * The edge is painted inside the card, so its row inset remains the content
+ * edge without a border width changing the shared reading alignment.
  *
  * Each `SummaryItem` is a row of three columns shared by the whole card: the
  * key, muted, in a column as wide as the widest key; the value, left-aligned
@@ -252,7 +254,7 @@ const SummaryList = ({ className, children, surface = 'card', style, ...props }:
       className={cn('group/summary m-0 grid min-w-0 overflow-hidden text-(length:--hd-text-sm) leading-(--hd-line-sm)',
         surface === 'panel'
           ? 'grid-cols-[var(--summary-key)_minmax(0,1fr)_auto] gap-x-(--hd-bar-gap) px-(--hd-inset-row) border-0 bg-transparent'
-          : 'grid-cols-[auto_minmax(0,1fr)_auto] rounded-[var(--hd-card-radius,var(--hd-radius-lg))] border-(length:--hd-border-width) border-[color:var(--hd-card-border,var(--hd-border))] bg-[var(--hd-card-fill,var(--hd-card))] @max-md/summary:grid-cols-[minmax(0,1fr)_auto]')}
+          : 'grid-cols-[auto_minmax(0,1fr)_auto] rounded-[var(--hd-card-radius,var(--hd-radius-lg))] border-0 shadow-[inset_0_0_0_var(--hd-border-width)_var(--hd-card-border,var(--hd-border))] bg-[var(--hd-card-fill,var(--hd-card))] @max-md/summary:grid-cols-[minmax(0,1fr)_auto]')}
       {...props}>{children}</dl>
   </div>
 </SummarySurface.Provider>

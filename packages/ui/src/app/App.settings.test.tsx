@@ -120,3 +120,19 @@ it('lets a project page in Settings open that Agent in the app shell', async () 
   expect(container.querySelector('[data-testid="agent-focus"]')?.textContent).toBe('room-reviewer')
   expect(container.querySelector('[data-testid="settings-focus"]')).toBeNull()
 })
+
+it('answers both navigation chords at 720 while the sidebar floats', async () => {
+  const store = routedStore('')
+  Object.assign(store.getSnapshot(), { windowWidth: 720, narrowWindow: true })
+  const back = vi.fn(async () => {})
+  const forward = vi.fn(async () => {})
+  Object.assign(store, { navigateBack: back, navigateForward: forward })
+  await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
+  for (const key of ['[', ']']) {
+    const event = new KeyboardEvent('keydown', { key, metaKey: true, bubbles: true, cancelable: true })
+    act(() => document.dispatchEvent(event))
+    expect(event.defaultPrevented).toBe(true)
+  }
+  expect(back).toHaveBeenCalledOnce()
+  expect(forward).toHaveBeenCalledOnce()
+})

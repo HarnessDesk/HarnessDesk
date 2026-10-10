@@ -16,7 +16,7 @@ export const selectTeamDestination = async (frame: Locator, value: string): Prom
   if (await bar.locator('button[title="Destination views"][aria-expanded="true"]').count()) {
     await tab.or(item).first().click()
   }
-  const label = ({ overview: 'Overview', run: 'Run', board: 'Board', room: 'Chat', findings: 'Findings', runs: 'Runs' } as Record<string, string>)[value]
+  const label = ({ overview: 'Overview', run: 'Run', board: 'Board', room: 'Chat', findings: 'Findings', runs: 'Runs', receipt: 'Receipt' } as Record<string, string>)[value]
   if (!label) throw new Error(`Unknown Team destination: ${value}`)
   await expect(bar.locator(`[data-team-page="${value}"][aria-selected="true"]:visible`)
     .or(folded.filter({ hasText: new RegExp(`^${label}(?:\\s*\\d+)?$`) }))).toHaveCount(1)

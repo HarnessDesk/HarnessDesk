@@ -29,7 +29,8 @@ const mount = async (page: Page) => {
       body: `${source}
         import edgeReact from ${JSON.stringify(reactUrl)};
         import { Section, SectionBody } from '/src/design/ui/section.tsx';
-        import { Rows, Row, RowValue } from '/src/design/patterns/Settings.tsx';
+        import { SummaryList, SummaryItem } from '/src/design/ui/key-value.tsx';
+        import { Rows, Row, RowValue, SectionHead } from '/src/design/patterns/Settings.tsx';
         import { Checklist, ChecklistItem } from '/src/design/patterns/Checklist.tsx';
         import { Switch } from '/src/design/ui/switch.tsx';
         import { Banner } from '/src/design/primitives/Banner.tsx';
@@ -44,6 +45,12 @@ const mount = async (page: Page) => {
             h(Rows, { 'data-testid': 'rows-fixture' },
               h(Row, { title: 'Back up this Mac', desc: 'Everything lives in a single file.', control: h(Button, { size: 'sm', variant: 'outline' }, 'Export…') }),
               h(Row, { title: 'One line', control: h(Switch, { checked: true }) }),
+            ),
+          ),
+          h('div', { 'data-testid': 'summary-section-fixture' },
+            h(SectionHead, { name: 'Review facts' }),
+            h(SummaryList, { 'data-testid': 'summary-facts-fixture' },
+              h(SummaryItem, { label: 'Flow' }, 'Checkout review'),
             ),
           ),
           h('div', { 'data-testid': 'banner-fixture' },
@@ -93,6 +100,19 @@ test.describe('the layout system holds its own claims', () => {
     })
     expect(Math.abs(lefts.label - lefts.row), `label ${lefts.label} vs row ${lefts.row}`).toBeLessThanOrEqual(1)
   })
+
+  for (const theme of ['light', 'dark'] as const) {
+    test(`a SectionHead and its summary keys retain one text edge in ${theme}`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: theme })
+      const edges = await page.evaluate(() => {
+        const section = document.querySelector('[data-testid="summary-section-fixture"]')!
+        const label = section.querySelector('h2')!
+        const key = section.querySelector('[data-slot="summary-item"] dt')!
+        return { label: label.getBoundingClientRect().left, key: key.getBoundingClientRect().left }
+      })
+      expect(Math.abs(edges.label - edges.key)).toBeLessThan(1)
+    })
+  }
 
   test('a section action ends on the same column a row\'s own control does', async ({ page }) => {
     const rights = await page.evaluate(() => {

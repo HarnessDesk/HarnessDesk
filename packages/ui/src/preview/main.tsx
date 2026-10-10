@@ -1,3 +1,4 @@
+import { TeamViewFrame } from './TeamViewFrame'
 import { ConversationFrame } from './ConversationFrame'
 import { TeamStartFrames } from './frames-team-start'
 import { AgentPage } from '../components/AgentPage'
@@ -713,7 +714,7 @@ const Preview = () => {
           hunted for anywhere else. */}
       <Frame id="board-populated" title="Board — the pane, with work on it">
         <div className="h-[560px]">
-          <TeamBoardPane room={PREVIEW_ROOM} />
+          <TeamViewFrame room={PREVIEW_ROOM} page="board"><TeamBoardPane room={PREVIEW_ROOM} /></TeamViewFrame>
         </div>
       </Frame>
 
@@ -739,12 +740,12 @@ const Preview = () => {
       </Frame>
       <Frame id="board-observed" title="Board — what the desk observed">
         <div className="h-[640px]">
-          <TeamBoardPane room={EVIDENCE_ROOM} />
+          <TeamViewFrame room={EVIDENCE_ROOM} page="board"><TeamBoardPane room={EVIDENCE_ROOM} /></TeamViewFrame>
         </div>
       </Frame>
       <Frame id="board-empty" title="Board — the empty state">
         <div className="h-[420px]">
-          <TeamBoardPane room={EMPTY_ROOM} />
+          <TeamViewFrame room={EMPTY_ROOM} page="board"><TeamBoardPane room={EMPTY_ROOM} /></TeamViewFrame>
         </div>
       </Frame>
       {/* Narrow on purpose: the room gives its board whatever the rail left
@@ -752,7 +753,7 @@ const Preview = () => {
           at a width the card cannot have all of. */}
       <Frame id="board-edges" title="Board — the edges, at the width the room leaves it">
         <div className="h-[560px] w-[760px]">
-          <TeamBoardPane room={EDGE_ROOM} />
+          <TeamViewFrame room={EDGE_ROOM} page="board"><TeamBoardPane room={EDGE_ROOM} /></TeamViewFrame>
         </div>
       </Frame>
       {/* Settings is a fixed-position sheet, so it would paint over the whole

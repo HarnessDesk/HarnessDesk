@@ -1,6 +1,7 @@
 import { isRecordConversation, RECORD_REASON } from '../lib/team-record'
 import {
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -40,6 +41,7 @@ import {
   Text,
 } from '../design'
 import { ComposerNotices, NoticeStripOutlet } from './Notices'
+import { HoldingMessagesChip, RoomMessagesHeld } from './RoomMessaging'
 import { ComposerNoticeStack } from '../design'
 import { mainNoticeHost } from '../state/workbench'
 import { availableCommands, matchCommands, type CommandDefinition } from '../state/commands'
@@ -188,6 +190,7 @@ type Trigger =
 
 export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) => {
   const store = useStore()
+  const messagesHeld = useContext(RoomMessagesHeld)
   const snapshot = useSnapshot()
   const session = useActiveSession()
   const key = useSessionKey()
@@ -1205,6 +1208,8 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
             ))}
           </ComposerChips>
         )}
+
+        {messagesHeld && <ComposerChips><HoldingMessagesChip /></ComposerChips>}
 
         <ComposerText
           ref={textarea}

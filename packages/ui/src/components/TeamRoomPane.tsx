@@ -87,6 +87,7 @@ import { comparisonVerdictOf } from '../lib/comparison-verdict'
 import { ChannelStream, readChannel } from './Channel'
 import { EMPTY_ROOM_DRAFT, RoomComposer, type RoomComposerDraft, type RoomComposerDraftState, type RoomComposerHandle } from './RoomComposer'
 import { TeamBoardPane } from './TeamBoardPane'
+import { RoomMessagesHeld } from './RoomMessaging'
 import { formatDuration } from './TurnTail'
 import { GoalFindings } from './GoalFindings'
 import { GoalHeader } from './GoalHeader'
@@ -1255,7 +1256,7 @@ export const TeamRoomPane = ({
               judge={comparison?.kind === 'picked' && comparison.reason ? <Text role="prose">“{sanitizeText(comparison.reason)}”</Text> : <Text role="meta">Reason not recorded</Text>}
               onShowAttempts={() => setAttemptsShown(mergeReceipt.run)}
               onRaceAgain={flowExecution && goal?.goal.state === 'open' ? () => setAgain(flowExecution) : undefined}
-            /> : <SideBySide
+            /> : <RoomMessagesHeld.Provider value={!messaging}><SideBySide
               state={grid}
               onChange={setGrid}
               paneId={mount?.id ?? 'team-room'}
@@ -1323,7 +1324,7 @@ export const TeamRoomPane = ({
                   {who}
                 </MemberCard>
               )}
-            />
+            /></RoomMessagesHeld.Provider>
           ) : singleMember ? (
             (() => {
               const key = singleMember

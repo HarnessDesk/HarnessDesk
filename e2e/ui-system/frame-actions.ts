@@ -26,9 +26,12 @@ export const applyFrameActions = async (page: Page, actions: FrameActions): Prom
     await page.getByRole('button', { name: 'View', exact: true }).click()
     const choice = page.getByRole('menuitem', { name: actions.viewChoice, exact: true })
       .or(page.getByRole('menuitemradio', { name: actions.viewChoice, exact: true }))
-      .or(page.getByRole('switch', { name: actions.viewChoice, exact: true }))
+      .or(page.getByRole('switch').filter({ has: page.getByText(actions.viewChoice, { exact: true }) }))
     await expect(choice).toHaveCount(1)
     await choice.click()
+    // Every view choice closes its menu. Capture the chosen view after that
+    // transition; supplemental frames capture the menu as a separate state.
+    await expect(page.getByRole('menu')).toHaveCount(0)
   }
   if (actions.inspectFirst) await page.locator('[data-slot="workbench-main"] [data-row][data-kind="card"]').first().click()
   if (actions.tool) await page.locator(`[data-work-tool="${actions.tool}"]`).click()

@@ -46,6 +46,7 @@ import { ComposerNotices, NoticeStripOutlet } from './Notices'
 import { mainNoticeHost } from '../state/workbench'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
 import { RoomComposerOptions } from './RoomComposerOptions'
+import { HoldingMessagesChip } from './RoomMessaging'
 
 /**
  * What the composer needs to know about one member.
@@ -670,7 +671,7 @@ export const RoomComposer = ({
               )}
             </ComposerChip>
           ))}
-          {!messaging && <ComposerChip>Holding messages</ComposerChip>}
+          {!messaging && <HoldingMessagesChip />}
         </ComposerChips>
       )}
 

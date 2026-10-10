@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { selectTeamPage, teamBar } from './team-frame-actions'
 
 /**
  * The findings ledger, in the Goal Team page.
@@ -14,19 +15,15 @@ test('keyboard reaches the findings filters, a row’s detail, and back', async 
   await page.goto('/preview.html')
 
   const goal = page.locator('[data-frame-id="goal-roster"]')
-  const findingsRow = goal.getByRole('tab', { name: /^Findings/ })
-  await findingsRow.click()
-
-  const openTab = page.getByRole('tab', { name: 'Open' })
-  await expect(openTab).toBeVisible()
-  await openTab.click()
-  await expect(openTab).toHaveAttribute('data-selected', 'true').catch(async () => {
-    // Base UI tabs mark the active tab with data-active on the trigger.
-    await expect(openTab).toHaveAttribute('data-active', '')
-  })
-
-  const allTab = page.getByRole('tab', { name: 'All' })
-  await allTab.click()
+  await selectTeamPage(goal, 'findings')
+  await teamBar(goal).getByRole('button', { name: 'View', exact: true }).click()
+  const openFilter = page.getByRole('switch', { name: 'Open', exact: true })
+  await openFilter.focus()
+  await page.keyboard.press('Space')
+  await expect(teamBar(goal).locator('[data-topbar="view"] [data-filtered="true"]')).toBeVisible()
+  await teamBar(goal).getByRole('button', { name: 'View', exact: true }).click()
+  await expect(openFilter).toHaveAttribute('aria-checked', 'true')
+  await page.getByRole('switch', { name: 'All', exact: true }).click()
 
   const openRow = goal.getByRole('button', { name: /finding-open-1/ })
   await expect(openRow).toBeVisible()
@@ -53,8 +50,7 @@ test('desktop and narrow layouts keep every sentence inside the pane', async ({ 
       await page.goto('/preview.html')
 
       const goal = page.locator('[data-frame-id="goal-roster"]')
-      const findingsRow = goal.getByRole('tab', { name: /^Findings/ })
-      await findingsRow.click()
+      await selectTeamPage(goal, 'findings')
 
       // The counted icon tab also has this accessible name. Measure the
       // content pane, not the tab's hidden intrinsic-width label.
@@ -92,7 +88,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.setViewportSize({ width: 720, height: 1000 })
     await page.goto(`/preview.html?theme=${theme}`)
     const goal = page.locator('[data-frame-id="goal-roster"]')
-    await goal.getByRole('tab', { name: /^Findings/ }).click()
+    await selectTeamPage(goal, 'findings')
     for (const id of ['finding-claim-1', 'finding-confirmed-1']) {
       const row = goal.getByRole('button', { name: new RegExp(id) })
       const geometry = await row.evaluate(el => {

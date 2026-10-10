@@ -69,7 +69,6 @@ const ToolPaneHeader = ({
   corner = false,
   variant = 'default',
   hint,
-  size = 'default',
   contentInset,
   ...props
 }: Omit<React.ComponentProps<'header'>, 'title'> & {
@@ -84,8 +83,6 @@ const ToolPaneHeader = ({
   /** Leave room for the native window controls when this pane owns the corner. */
   corner?: boolean
   variant?: 'default' | 'window'
-  /** The larger single-row toolbar uses the scale's 48px step. */
-  size?: 'default' | 'lg'
   /** Align the title with board text, a reading page, receipt content, or a framed table. */
   contentInset?: 'board' | 'page' | 'reading' | 'reading-table'
   hint?: string
@@ -103,7 +100,7 @@ const ToolPaneHeader = ({
          one off the bar in the panel beside it, which was 47 by the same
          arithmetic. */
       'flex shrink-0 items-center gap-(--hd-bar-gap) border-b border-(--hd-border)',
-      size === 'lg' ? 'h-(--hd-space-12)' : 'h-(--hd-bar-h)',
+      'h-(--hd-bar-h)',
       variant === 'default' && 'px-(--hd-bar-pad)',
       variant === 'window' && 'pr-3 pl-4',
       corner && 'pl-[max(var(--hd-space-4),var(--titlebar-inset,0px))]',
@@ -157,14 +154,14 @@ const ToolPaneBody = ({
   ...props
 }: React.ComponentProps<'div'> & {
   bleed?: boolean
-  /** `page`: the page gutter on every side, for a body under a `ViewBar` whose blocks start on its edge. */
+  /** `page`: the page gutter on every side, keeping content blocks on one edge. */
   inset?: 'dense' | 'page' | 'tool'
 }) => (
   <div
     data-slot="tool-pane-body"
     {...(bleed ? { 'data-bleed': '' } : {})}
     data-inset={inset}
-    className={cn('min-h-0 flex-1 overflow-auto', bleed ? 'p-0' : inset === 'tool' ? 'flex flex-col gap-(--hd-space-8) py-(--hd-inset-row)' : inset === 'page' ? 'p-(--hd-page-gutter)' : 'p-(--hd-inset-dense)', className)}
+    className={cn('min-h-0 flex-1 overflow-auto has-[>[data-slot=summary-list]]:space-y-(--hd-space-2)', bleed ? 'p-0' : inset === 'tool' ? 'flex flex-col gap-(--hd-space-8) py-(--hd-inset-row)' : inset === 'page' ? 'p-(--hd-page-gutter)' : 'p-(--hd-inset-dense)', className)}
     {...props}
   />
 )

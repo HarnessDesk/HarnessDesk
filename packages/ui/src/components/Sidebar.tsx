@@ -141,7 +141,7 @@ export const Sidebar = ({
   return (
     <div className={styles.sidebar}>
       <div className={styles.header} data-region="sidebar-header">
-        <Bar corner className="hd-drag"><WindowControls /></Bar>
+        <Bar corner className="hd-drag"><WindowControls sidebarRow /></Bar>
         <Bar inset="ink" className="hd-drag">
           <Text role="subject" className={styles.brandMark} aria-hidden><HarnessMark size={14} /></Text>
           <Text role="wordmark" truncate className={styles.workspaceName} title={snapshot.workspace?.path ?? undefined}>HarnessDesk</Text>

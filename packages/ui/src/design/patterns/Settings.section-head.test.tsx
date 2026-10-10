@@ -76,7 +76,7 @@ it('earns its card inset only when a Rows card is the very next thing it names',
 })
 
 it('insets the label over the system’s summary card to its content edge', () => {
-  expect(css).toMatch(/\.sectionHead:has\(\+ \[data-slot='summary-list'\]\)\s*\{[^}]*padding-inline: calc\(var\(--hd-border-width\) \+ var\(--hd-inset-row\)\);/s)
+  expect(css).toMatch(/\.sectionHead:has\(\+ \[data-slot='summary-list'\]\)\s*\{[^}]*padding-inline: var\(--hd-inset-row\);/s)
 })
 
 it('insets a head over a table container to the table’s row content edge', () => {

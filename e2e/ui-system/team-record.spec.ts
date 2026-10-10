@@ -124,7 +124,8 @@ for (const theme of ['light','dark'] as const) {
   }
   await page.keyboard.press('Escape')
   await selectTeamPage(frame,'run')
-  await expect(frame.locator('[data-slot="run-view"]')).toContainText('Build and review')
+  await members(frame)
+  await expect(frame.locator('[data-slot="tool-body"]:visible [aria-label="Team Run facts"]')).toContainText('Build and review')
   await (await members(frame)).locator('[data-slot="list-row"]').filter({has:page.getByRole('button',{name:'Actions for Alpha',exact:true})}).click()
   await expect(frame.locator('textarea[data-slot="composer-text"]')).toBeDisabled()
   await expect(frame.locator('textarea[data-slot="composer-text"]')).toHaveAttribute('placeholder','This Team is wrapped')

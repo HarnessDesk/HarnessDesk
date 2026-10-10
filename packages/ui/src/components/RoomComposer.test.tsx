@@ -922,6 +922,7 @@ for (const layout of ['thread', 'side-by-side'] as const) {
     await act(async () => release())
     render(false)
     expect(chips()).toEqual(['Opus', 'Holding messages'])
+    expect([...container.querySelectorAll('[data-slot="composer-chip"]')].find(chip => chip.textContent === 'Holding messages')?.getAttribute('title')).toBe('Messages are held. Release them in Send to.')
     expect(box().value).toBe('Check the retry budget')
     expect(box().disabled).toBe(false)
     expect(send().disabled).toBe(false)

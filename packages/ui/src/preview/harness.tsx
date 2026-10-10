@@ -2035,7 +2035,7 @@ class PreviewStore {
    * which would leave `GoalFindings` reading "Reading findings…" forever.
    */
   loadFindings = async (goal: string, filter: FindingFilter = 'all'): Promise<void> => {
-    const state = goal === PREVIEW_GOAL.goal.id ? findingsListState(filter) : EMPTY_FINDINGS_STATE
+    const state = goal === PREVIEW_GOAL.goal.id ? findingsListState(filter) : { ...EMPTY_FINDINGS_STATE, filter }
     this.patch({ findings: new Map(this.#snapshot.findings).set(goal, state) })
   }
 

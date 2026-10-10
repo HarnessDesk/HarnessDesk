@@ -1,8 +1,8 @@
 import { act, StrictMode, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { expect, test } from 'vitest'
-import { type TopBarProps } from '../design'
-import { TopBarProvider, TopBarOutlet, useTopBar, useTopBarView, type ViewSlots } from './top-bar'
+import { Chip, MenuItem, type TopBarProps } from '../design'
+import { TopBarProvider, TopBarOutlet, useTopBar, useTopBarMore, useTopBarView, type ViewSlots } from './top-bar'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -123,4 +123,37 @@ test('registry publication rerenders the outlet without subscribing its producer
     // StrictMode renders the local state update twice; publication adds none.
     expect(viewRenders).toBe(before.view + 2)
   })
+})
+
+test('view actions preserve the parent subject slots and share one More Menu with conversation rows', async () => {
+  const ConversationRows = () => {
+    useTopBarMore('main', close => <MenuItem label="Conversation action" onSelect={close} />)
+    return null
+  }
+  const parent: TopBarProps = {
+    place: 'Checkout retry', state: <Chip tone="neutral">Working</Chip>,
+    tabs: [{ value: 'board', label: 'Board', count: 3, run: () => {} }], tab: 'board',
+    tools: <span data-testid="parent-tools">Four tools</span>,
+    more: close => <MenuItem label="Subject action" onSelect={close} />,
+  }
+  const view: ViewSlots = { verb: { label: 'New job', run: () => {} }, more: [{ label: 'Hand out', run: () => {} }] }
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  try {
+    act(() => root.render(<TopBarProvider><PublishedBase owner="main" slots={parent} />
+      <PublishedView owner="main" slots={view} /><ConversationRows />
+      <TopBarOutlet owner="main" fallback={{ place: 'Fallback', more: emptyMore }} />
+    </TopBarProvider>))
+    expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Checkout retry')
+    expect(container.querySelector('[data-topbar="state"]')?.textContent).toBe('Working')
+    expect(container.querySelector('[data-team-page="board"]')?.textContent).toBe('Board3')
+    expect(container.querySelector('[data-testid="parent-tools"]')?.textContent).toBe('Four tools')
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
+    expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1)
+    expect([...document.querySelectorAll('[role="menuitem"]')].map(one => one.textContent)).toEqual(['Subject action', 'Conversation action', 'Hand out'])
+  } finally {
+    act(() => root.unmount())
+    container.remove()
+  }
 })

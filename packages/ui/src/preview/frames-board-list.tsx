@@ -1,3 +1,4 @@
+import { TeamViewFrame } from './TeamViewFrame'
 import { useMemo } from 'react'
 import { runtimeId, type TeamState } from '@harnessdesk/protocol'
 import { TeamBoardPane } from '../components/TeamBoardPane'
@@ -30,5 +31,5 @@ export const BoardListFrames = () => {
     ] }
     return previewStore({ teams: new Map([[EVIDENCE_ROOM, board]]), boardEvidence: evidenceState ? new Map() : new Map([[EVIDENCE_ROOM, EVIDENCE_BOARD]]), boardEvidenceFailed: new Set(evidenceState === 'failed' ? [EVIDENCE_ROOM] : []) })
   }, [])
-  return <div data-frame-id="board-list-page" className="h-screen bg-background text-foreground"><StoreProvider store={store}><TeamBoardPane room={EVIDENCE_ROOM} /></StoreProvider></div>
+  return <div data-frame-id="board-list-page" className="h-screen bg-background text-foreground"><StoreProvider store={store}><TeamViewFrame room={EVIDENCE_ROOM} page="board"><TeamBoardPane room={EVIDENCE_ROOM} /></TeamViewFrame></StoreProvider></div>
 }
