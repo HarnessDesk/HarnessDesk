@@ -1,11 +1,35 @@
-import { ConversationFrame } from './ConversationFrame'
 import { useMemo } from 'react'
-import { turnId } from '@harnessdesk/protocol'
-import { Conversation } from '../components/Conversation'
-import { PaneProvider, StoreProvider } from '../state/context'
+import { isBusy, turnId } from '@harnessdesk/protocol'
+import { Bar, Chip, HeaderStatusGroup, HeaderStatusReading, Menu, MenuItem, Popover, Text } from '../design'
+import { BranchIcon } from '../components/Icons'
+import { PlanMeters } from '../components/PlanMeters'
+import { PaneProvider, StoreProvider, useActiveSession } from '../state/context'
 import { useTheme } from '../state/theme'
 import { Frame } from './main'
 import { PREVIEW_SESSION_KEY, previewStore, store } from './harness'
+
+/** The retained primitive, independently of Conversation's canonical TopBar.
+ * Real grouped Popovers and PlanMeters keep the hover/focus/menu contract live. */
+const HeaderStatusSpecimen = () => {
+  const session = useActiveSession()
+  const running = session !== null && isBusy(session)
+  return <div className="[container-name:hd-header] [container-type:inline-size]">
+    <Bar as="header" rule="bottom">
+      <Text role="subject" truncate className="min-w-0 flex-1">Status specimen</Text>
+      <HeaderStatusGroup>
+        <HeaderStatusReading label="Status" detail={running ? 'Working' : 'Idle'}>
+          <Chip variant="quiet" tone="neutral" dotTone="neutral" dotPulse={running} dotShape={running ? 'square' : 'round'} autoTitle={false} />
+        </HeaderStatusReading>
+        <HeaderStatusReading label="Branch" detail="feat/worktrees — /work/project" value="feat/worktrees" note="/work/project" notePath>
+          <Popover title="feat/worktrees — /work/project" label={<BranchIcon size={16} />}>
+            {close => <Menu close={close}><MenuItem label="Changes" onSelect={close} /></Menu>}
+          </Popover>
+        </HeaderStatusReading>
+        <PlanMeters onOpen={() => {}} onSignIn={() => {}} />
+      </HeaderStatusGroup>
+    </Bar>
+  </div>
+}
 
 const HeaderConversation = () => {
   useTheme()
@@ -13,7 +37,7 @@ const HeaderConversation = () => {
     <Frame id="header-status-conversation" title="Conversation status">
       <div className="h-[820px]">
         <PaneProvider scope={{ paneId: 'header-status-preview', view: { kind: 'conversation', session: PREVIEW_SESSION_KEY }, sessionKey: PREVIEW_SESSION_KEY }}>
-          <ConversationFrame><Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} /></ConversationFrame>
+          <HeaderStatusSpecimen />
         </PaneProvider>
       </div>
     </Frame>

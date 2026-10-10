@@ -4,7 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { Workbench } from '../panels/Workbench'
 import '../panels/builtins'
 import { StoreProvider } from '../state/context'
-import { dock, emptyWorkbench } from '../state/workbench'
+import { dock, dockViews, emptyWorkbench, normalizeFixedWorkbench } from '../state/workbench'
 import { BLANK } from '../state/layout'
 import { runtimeId } from '@harnessdesk/protocol'
 import { AppWindowMode } from '../components/AppWindow'
@@ -34,7 +34,8 @@ const views = {
   tasks: { kind: 'tasks' },
 } as const
 const panelView = views[requestedView as keyof typeof views] ?? views.trajectory
-const workbench = { ...dock(emptyWorkbench(), 'right', panelView as never), main }
+const legacy = { ...dock(emptyWorkbench(), 'right', panelView as never), main }
+const workbench = normalizeFixedWorkbench({ ...legacy, right: { ...legacy.right, size: 460 } }).workbench
 const usage = previewStore().getSnapshot().usage.map((report) =>
   report.source.kind === 'file'
     ? {
@@ -52,6 +53,12 @@ const store = previewStore({
   sidebarCollapsed: true,
   usage,
 })
+// The synthetic shell closes the actual mounted resource through the same
+// view lifecycle as the host-backed store's terminal-id convenience method.
+Object.assign(store, { closeTerminal: (terminalId: string) => {
+  const entry = dockViews(store.getSnapshot().workbench.bottom).find(one => one.view.kind === 'terminal' && one.view.terminalId === terminalId)
+  if (entry) store.closeView(entry.id)
+} })
 
 ;(window as Window & { __narrowOverlayStore?: typeof store }).__narrowOverlayStore = store
 

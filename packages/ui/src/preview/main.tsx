@@ -388,7 +388,12 @@ Object.assign(store as unknown as Record<string, unknown>, {
 const TeamStandaloneFrame = ({room}:{room:string}) => {
   const own=useMemo(()=> {
     const frame=previewStore(store.getSnapshot())
-    Object.assign(frame,{teamPeers:store.teamPeers.bind(store),triggerGoal:store.triggerGoal.bind(store),readGoalInsight:store.readGoalInsight.bind(store)})
+    Object.assign(frame,{teamPeers:store.teamPeers.bind(store),triggerGoal:store.triggerGoal.bind(store),readGoalInsight:store.readGoalInsight.bind(store),
+      respondToApproval: async (key: Parameters<AppStore['respondToApproval']>[0], id: Parameters<AppStore['respondToApproval']>[1]) => {
+        frame.patch({ approvals: frame.getSnapshot().approvals.filter(one => one.key !== key || one.approval.id !== id) })
+        return { ok: true as const }
+      },
+    })
     return frame
   },[])
   return <Mount with={own}><TeamFramePreview room={room} /></Mount>

@@ -25,7 +25,7 @@ import { ShellProvider } from '../panels/views'
 import { StoreProvider } from '../state/context'
 import type { AppStore } from '../state/store'
 import type { LayoutNode } from '../state/layout'
-import { emptyWorkbench } from '../state/workbench'
+import { dockViews, emptyWorkbench, fixedSubject } from '../state/workbench'
 import { Workbench } from '../panels/Workbench'
 
 const COLUMNS = libraryColumnsFor(LIBRARY.runtimes)
@@ -97,7 +97,7 @@ const noticeLayoutStore = (id: string, options: {
     kind: 'split' as const, id: `${id}-split`, direction: 'row' as const, ratio: 0.5,
         first: { kind: 'pane' as const, id: paneId, view }, second,
   } : { kind: 'pane' as const, id: paneId, view }
-  const workbench = {
+  const legacyWorkbench = {
     ...noticeWorkbench,
     main: { root, focused: second ? second.id : paneId, expanded: null },
     ...(options.zoom === 'sidebar' ? {
@@ -109,6 +109,16 @@ const noticeLayoutStore = (id: string, options: {
     ...(options.zoom === 'right' ? { zoom: { area: 'right' as const, scope: 'window' as const } } : {}),
     ...(options.zoom === 'sidebar' ? { zoom: { area: 'sidebar' as const, scope: 'window' as const } } : {}),
   }
+  // These windows retain zoom/sidebar compatibility coverage while their
+  // right-hand Activity body uses the current subject-owned frame contract.
+  const subject = fixedSubject(legacyWorkbench.main)
+  const focused = second ?? { kind: 'pane' as const, id: paneId, view }
+  const workbench = subject ? {
+    ...legacyWorkbench,
+    frameTools: { [subject]: { tool: 'activity' as const, mode: 'activity', open: true } },
+    toolOwners: Object.fromEntries(dockViews(legacyWorkbench.right).map(one => [one.id, subject])),
+    frameSubjects: { [subject]: { paneId: focused.id, view: focused.view } },
+  } : legacyWorkbench
   const active = noticeBase.sessions.get(PREVIEW_SESSION_KEY)!
   const approvalKey = noticeBase.teams.get(PREVIEW_ROOM)?.members[0] ?? PREVIEW_SESSION_KEY
   const result = previewStore({

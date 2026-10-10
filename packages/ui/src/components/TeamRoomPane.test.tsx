@@ -34,6 +34,7 @@ import { TopBarProvider, TopBarOutlet, useTopBarMore, WorkDetailsOutlet, useTopB
 import styles from './TeamRoomPane.module.css'
 import { triggerPreferences, triggerProjectView, triggerView } from '../preview/intake-fixture'
 import { PREVIEW_FINDINGS } from '../preview/findings-fixture'
+import { FRAME } from '../design/frame'
 import { emptyFindingsState } from '../lib/findings'
 
 /**
@@ -82,6 +83,15 @@ let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
+  // These probes exercise Team routing. Keep the title at its real floor;
+  // jsdom's unlaid-out zero width must not fold tabs on a timing-dependent RAF.
+  const computed = getComputedStyle
+  const bounds = HTMLElement.prototype.getBoundingClientRect
+  vi.spyOn(globalThis, 'getComputedStyle').mockImplementation((node, pseudo) =>
+    node.matches('[data-slot="top-bar"]') ? { getPropertyValue: () => `${FRAME.bar.titleMin}px` } as unknown as CSSStyleDeclaration : computed(node, pseudo))
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    return this.matches('[data-topbar-title]') ? { ...bounds.call(this), width: FRAME.bar.titleMin } as DOMRect : bounds.call(this)
+  })
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -90,6 +100,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  vi.restoreAllMocks()
 })
 
 const ROOM = 'room-1'
