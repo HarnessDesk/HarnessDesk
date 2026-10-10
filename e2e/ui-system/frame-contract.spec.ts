@@ -30,6 +30,51 @@ const resolvedPx = (page: Page, token: string) => page.evaluate((name) => {
 }, token)
 
 for (const theme of WALL_THEMES) {
+  for (const width of [1440, 720]) {
+    test(`B9 app foot spans the window and retains its terminal across views at ${width} in ${theme}`, async ({ page }) => {
+      await openFrame(page, 'frame-wall=team&frame-terminal=1', theme, width)
+      const footer = page.locator('[data-slot="status-bar"]')
+      await expect(footer).toHaveCount(1)
+      const bounds = (await footer.boundingBox())!
+      expect(bounds.x).toBe(0)
+      expect(bounds.width).toBe(width)
+      expect(bounds.height).toBe(FRAME.statusBar.height)
+      expect(bounds.y + bounds.height).toBe(900)
+      expect(await resolvedPx(page, '--hd-statusbar-h')).toBe(FRAME.statusBar.height)
+      await expect(page.locator('[data-slot="top-bar"] [data-slot="plan-meter"]')).toHaveCount(0)
+      await expect(footer.getByRole('button', { name: 'Close terminal', exact: true })).toHaveCount(1)
+      await expect(page.locator('button[aria-label="Close terminal"][aria-pressed="true"]')).toHaveCount(1)
+      const terminal = page.locator('[data-terminal-id]')
+      const id = await terminal.getAttribute('data-terminal-id')
+      await selectFrameTab(page, 'findings')
+      await expect(terminal).toHaveAttribute('data-terminal-id', id!)
+      await expect(terminal).toBeVisible()
+      const controls = await footer.locator('button').evaluateAll(nodes => nodes.map(node => {
+        const rect = node.getBoundingClientRect()
+        return { label: node.getAttribute('aria-label') ?? node.textContent, left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom }
+      }))
+      for (const control of controls) {
+        expect(control.left, `${control.label}: left`).toBeGreaterThanOrEqual(0)
+        expect(control.right, `${control.label}: right`).toBeLessThanOrEqual(width)
+        expect(control.top, `${control.label}: top`).toBeGreaterThanOrEqual(bounds.y)
+        expect(control.bottom, `${control.label}: bottom`).toBeLessThanOrEqual(900)
+      }
+      for (let index = 1; index < controls.length; index++) expect(controls[index].left).toBeGreaterThanOrEqual(controls[index - 1].right)
+    })
+  }
+  test(`B9 app foot projects real tasks and the host connection in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&frame-status=tasks', theme)
+    const footer = page.locator('[data-slot="status-bar"]')
+    await expect(footer.getByRole('button', { name: '1 background task', exact: true })).toBeEnabled()
+    await footer.getByRole('button', { name: '1 background task', exact: true }).click()
+    await expect(page.locator('[data-slot="work-tools"]')).toBeVisible()
+    await openFrame(page, 'frame-wall=team&frame-status=reconnecting', theme, 720)
+    await expect(page.locator('[data-slot="status-bar"]').getByText('Reconnecting', { exact: true })).toBeVisible()
+    await expect(page.locator('[data-slot="status-bar"]').getByText('Connected', { exact: true })).toHaveCount(0)
+  })
+}
+
+for (const theme of WALL_THEMES) {
   test(`B8 Agents layout measures allocated rows and keeps names inside their column in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team', theme)
     await page.locator('[data-work-tool="details"]').click()

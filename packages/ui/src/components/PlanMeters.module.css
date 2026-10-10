@@ -20,30 +20,7 @@
 }
 
 .stripProgress {
-  width: 50px; /* desk: 34px → 50px, the header meter keeps a legible reading between its mark and percentage */
-}
-
-@container hd-header (max-width: 760px) {
-  .strip > *:has([data-promoted]) {
-    display: none;
-  }
-}
-
-@container hd-header (max-width: 520px) {
-  .meter:not([data-low]) .figure {
-    display: none;
-  }
-}
-
-@container hd-header (max-width: 400px) {
-  .meter .figure,
-  .rest .figure {
-    display: none;
-  }
-
-  .strip[data-anchored] > *:first-child {
-    margin-right: 0;
-  }
+  width: 50px; /* desk: 34px → 50px, the plan meter keeps a legible reading between its mark and percentage */
 }
 
 .panel {

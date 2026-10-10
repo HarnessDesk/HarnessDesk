@@ -1,6 +1,7 @@
 import { tileBrowserWorkbench } from '../lib/browser-tiles'
 import { TopBarProvider, WorkDetailsOutlet, useRegisteredOwner } from './top-bar'
 import { WorkTopBar } from './WorkTopBar'
+import { WorkStatusBar } from './WorkStatusBar'
 import { RunDockProvider } from './run-dock'
 import {
   createContext,
@@ -227,7 +228,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
           const pane = paneId ? findPane(snapshot.layout, paneId) : undefined
           if (pane) mainFocus.current = { target: event.target, paneId: pane.id, view: pane.view }
         }}><NoticeStripFallback area="main" /><Panes /></div>}
-      right={<RightPanel />} bottom={<BottomPanel />} status={null}>
+      right={<RightPanel />} bottom={<BottomPanel />} status={<WorkStatusBar />}>
       {narrow && <WorkbenchScrim className={styles.scrim} {...(floating ? { 'data-open': '' } : {})} aria-hidden
         onMouseDown={event => event.preventDefault()} onClick={() => store.closeFloatingSidebar()} />}
     </FixedShell>

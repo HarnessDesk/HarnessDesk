@@ -1,5 +1,5 @@
 import { PlanMetersSpecimen, TerminalToggleSpecimen, MainWorkActionsSpecimen } from '../../preview/frames-supported-controls'
-import { FRAME, FixedShell, SeatList, ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolProse, ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet, SummaryList, SummaryItem, Checklist, ChecklistItem } from '../index'
+import { FRAME, StatusBar, FixedShell, SeatList, ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolProse, ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet, SummaryList, SummaryItem, Checklist, ChecklistItem } from '../index'
 import { Timeline, TimelineItem, type TimelineState } from '../ui/timeline'
 import { TimelineCard, TimelineCardRow, TimelineCards, TimelineCardWords, TimelineDocument } from '../ui/timeline-cards'
 import { LibrarySection } from '../../components/Library'
@@ -3092,7 +3092,19 @@ export const SeatListBoard = () => {
   </div>
 }
 
+const STATUSBAR_CATALOG_VARIANTS = ['light', 'dark'] as const
+const STATUSBAR_CATALOG_SIZES = ['default'] as const
+const STATUSBAR_CATALOG_STATES = ['default', 'loading', 'disabled', 'populated'] as const
+export const StatusBarBoard = () => <div data-catalog-variants={STATUSBAR_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={STATUSBAR_CATALOG_SIZES.join(' ')} data-catalog-states={STATUSBAR_CATALOG_STATES.join(' ')}>
+  <StatusBar usage={<Text role="meta">Plan usage unavailable</Text>}
+    facts={[{ id: 'tasks', label: '3 background tasks', detail: 'Work across three conversations' },
+      { id: 'sync', label: 'Reconnecting', detail: 'Waiting for the host connection' },
+      { id: 'updates', label: 'Downloading Update…', run: () => {}, disabled: true }]}
+    terminal={<Button variant="ghost" size="icon-sm" aria-label="Open terminal"><TerminalIcon /></Button>} />
+</div>
+
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  { id: 'status-bar', title: 'StatusBar', about: 'Real-length content in both themes.', render: StatusBarBoard },
   { id: 'seat-list', title: 'SeatList', about: 'Real-length content in both themes.', render: SeatListBoard },
   { id: 'fixed-shell', title: 'FixedShell', about: 'Real-length content in both themes.', render: FixedShellBoard },
   { id: 'tool-body', title: 'ToolBody', about: 'Real-length content in both themes.', render: ToolBodyBoard },

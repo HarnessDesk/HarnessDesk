@@ -11,6 +11,14 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('harnessdesk', {
   platform: process.platform,
+  readAppUpdate: () => ipcRenderer.invoke('harnessdesk:app-update-read'),
+  onAppUpdate: (handler) => {
+    if (typeof handler !== 'function') return () => {}
+    const receive = (_event, fact) => handler(fact)
+    ipcRenderer.on('harnessdesk:app-update', receive)
+    return () => ipcRenderer.removeListener('harnessdesk:app-update', receive)
+  },
+  appUpdateAction: () => ipcRenderer.send('harnessdesk:app-update-action'),
 
   openExternal: (url) => {
     // Re-validated in main. Checking here keeps obvious mistakes local.

@@ -13,7 +13,7 @@ import {
   useStore,
 } from '../state/context'
 import { findPane } from '../state/layout'
-import { shownView, sidebarPlacement, terminals } from '../state/workbench'
+import { shownView, sidebarPlacement } from '../state/workbench'
 import { summonable } from '../panels/views'
 import { useTopBar, useTopBarMore, useWorkDetails } from '../panels/top-bar'
 import { WorkTools } from '../panels/WorkTools'
@@ -35,7 +35,6 @@ import {
   FolderIcon,
   MoreIcon,
   ReviewIcon,
-  TerminalIcon,
   TrashIcon,
   NewWorktreeIcon,
 } from './Icons'
@@ -407,52 +406,6 @@ const ConversationMenu = ({ owner, folderActions }: { owner?: string; folderActi
   </>
 }
 
-/**
- * The dock's on/off switch. One press opens a terminal beside the
- * conversation; the next puts the dock away — including the press that lands
- * while the first shell is still opening, which is what the second half of a
- * double click is. A second shell is the dock's own + tab; this button never
- * means "one more terminal", so no press of it can leave one behind.
- *
- * `folds` lets a narrow header fold it into ⋯ › View. The header says so,
- * because only the header knows whether there is a ⋯ beside it to fold into.
- */
-export const TerminalToggle = ({ folds = false }: { folds?: boolean } = {}) => {
-  const store = useStore()
-  const snapshot = useSnapshot()
-  const [opening, setOpening] = useState(false)
-  // Asked-for counts as on. Otherwise the press that arrives before the
-  // runtime has answered reads the dock as empty and opens a second shell.
-  const on = terminals(snapshot.workbench).length > 0 || opening
-  return (
-    <span className={styles.headerButtonWrap} {...(folds ? { 'data-folds': '' } : {})}>
-      <Button
-      variant="ghost" size="icon-sm" className={`${styles.headerButton} hd-no-drag`}
-      {...(folds ? { 'data-folds': '' } : {})}
-      {...(on ? { 'data-active': '' } : {})}
-      onClick={() => {
-        if (on) {
-          // Cancels a still-opening shell too: the store bumps the dock epoch,
-          // and the terminal it was waiting on is closed as it arrives.
-          setOpening(false)
-          store.closeTerminalDock()
-          return
-        }
-        setOpening(true)
-        void store.openTerminal().finally(() => setOpening(false))
-      }}
-      title={
-        on
-          ? 'Close the terminal'
-          : 'Open a terminal beside this conversation, in its directory and under its permissions'
-      }
-      aria-label={on ? 'Close terminal' : 'Open terminal'}
-      >
-      <TerminalIcon size={14} />
-      </Button>
-    </span>
-  )
-}
 
 export const Conversation = ({
   onChooseProject,

@@ -226,3 +226,5 @@ export { ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOut
 export { SeatList, type SeatListRow } from './patterns/SeatList'
 
 export { FixedShell, type FixedShellProps } from './patterns/FixedShell'
+
+export { StatusBar, type StatusFact } from './patterns/StatusBar'

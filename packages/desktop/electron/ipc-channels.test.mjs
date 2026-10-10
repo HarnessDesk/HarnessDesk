@@ -22,6 +22,7 @@ const read = (name) => readFileSync(join(here, name), 'utf8')
 
 const main = [
   read('main.mjs'),
+  read('app-updates.mjs'),
   read('browser-engine.mjs'),
   read('browser-scopes.mjs').replaceAll('ipc.on(', 'ipcMain.on('),
 ].join('\n')
@@ -117,7 +118,9 @@ test('floating panels opt out of the window-drag region', () => {
 })
 
 test('the browser pane puts its tab strip in a no-drag box', () => {
-  // The strip sits where a pane title would, inside the drag region.
-  const header = readFileSync(join(ui, 'components/ToolPaneHeader.tsx'), 'utf8')
-  assert.match(header, /lead \?[\s\S]{0,120}hd-no-drag/, 'a header lead must be wrapped in hd-no-drag')
+  // Its native controls now live below the shell's one bar, in the canonical controls role.
+  const browser = readFileSync(join(ui, 'components/BrowserPane.tsx'), 'utf8')
+  const controls = readFileSync(join(ui, 'design/patterns/ToolBody.tsx'), 'utf8')
+  assert.match(browser, /<ToolBodyControls>[\s\S]*?<ToolPaneTabViewport/)
+  assert.match(controls, /data-slot="tool-controls"[\s\S]{0,100}hd-no-drag/, 'the native control box must be no-drag')
 })

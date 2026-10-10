@@ -167,6 +167,8 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
     : undefined
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
+  StatusBar: ['light', 'dark'],
+
   TopBar: ['light', 'dark'],
   SeatList: ['light', 'dark'],
   FixedShell: ['light', 'dark'],
@@ -274,6 +276,8 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
+  StatusBar: ['default', 'loading', 'disabled', 'populated'],
+
   SeatList: ['default', 'populated', 'disabled', 'long-title'],
   FixedShell: ['default', 'open', 'closed', 'folded-state'],
   ToolBody: ['default', 'empty', 'populated', 'editing'],
@@ -407,6 +411,8 @@ Object.assign(SIZES, {
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
+  StatusBar: 'packages/ui/src/panels/WorkStatusBar.tsx',
+
   SeatList: 'packages/ui/src/components/TeamRoomPane.tsx',
   FixedShell: 'packages/ui/src/panels/Workbench.tsx',
   ToolBody: 'packages/ui/src/panels/work-details.tsx',
@@ -417,7 +423,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   ComparisonNotice: 'packages/ui/src/components/ComparisonVerdict.tsx',
   ComparisonDecision: 'packages/ui/src/components/ComparisonActions.tsx',
   ComparisonSummary: 'packages/ui/src/components/TeamRoomPane.tsx',
-  HeaderStatusGroup: 'packages/ui/src/components/Conversation.tsx',
+  HeaderStatusGroup: 'packages/ui/src/design/patterns/Popover.tsx',
   Settings: 'packages/ui/src/components/Settings.tsx',
   ModalDialog: 'packages/ui/src/components/Settings.tsx',
   DialogForm: 'packages/ui/src/components/SaveAsAgent.tsx',
@@ -452,6 +458,8 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
 }
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  StatusBar: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+
   SeatList: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   FixedShell: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   ToolBody: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -605,6 +613,7 @@ export const CANONICAL_UI_MODULES = [
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
+  ['StatusBar', 'status-bar', 'StatusBar presentation owned by the fixed shell'],
   ['SeatList', 'seat-list', 'SeatList presentation owned by the fixed shell'],
   ['FixedShell', 'fixed-shell', 'FixedShell presentation owned by the fixed shell'],
   ['ToolBody', 'tool-body', 'ToolBody presentation owned by the fixed shell'],

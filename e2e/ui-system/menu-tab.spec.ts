@@ -108,16 +108,16 @@ test.describe('a Popover’s menu', () => {
         import { PlanMeters as MenuMeters } from '/src/components/PlanMeters.tsx';
         import { StoreProvider as MeterStoreProvider } from '/src/state/context.tsx';
         import { store as meterStore } from '/src/preview/harness.tsx';
-        import { HeaderStatusGroup as MeterGroup, Button as MeterButton } from '/src/design/index.ts';
-        const meterHost = document.createElement('section'); document.body.append(meterHost);
+        import { StatusBar as MeterStatus, Button as MeterButton } from '/src/design/index.ts';
+        const meterHost = document.createElement('section'); meterHost.dataset.frameId = 'menu-plan-meters'; document.body.append(meterHost);
         createRoot(meterHost).render(meterReact.createElement(MeterStoreProvider, { store: meterStore },
           meterReact.createElement(meterReact.Fragment, null,
-            meterReact.createElement(MeterGroup, null, meterReact.createElement(MenuMeters, { onOpen: () => {}, onSignIn: () => {} })),
+            meterReact.createElement(MeterStatus, { usage: meterReact.createElement(MenuMeters, { onOpen: () => {}, onSignIn: () => {} }), facts: [], terminal: null }),
             meterReact.createElement(MeterButton, null, 'Following control'))));
       ` })
     })
     await page.reload()
-    const trigger = page.locator('[data-slot="popover-trigger"][aria-label*="other agents"]')
+    const trigger = page.locator('[data-frame-id="menu-plan-meters"]').getByRole('button', { name: /other agents/ })
     await trigger.scrollIntoViewIfNeeded()
     const next = await stopAfter(page, trigger)
     await trigger.focus()

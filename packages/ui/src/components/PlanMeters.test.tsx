@@ -13,7 +13,6 @@ import {
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { HeaderStatusGroup } from '../design'
 import { PlanMeters } from './PlanMeters'
 import { formatReset } from '../lib/limits'
 
@@ -322,22 +321,20 @@ it('names a spent allowance honestly when its reset time is unknown', () => {
   const snapshot: AppSnapshot = { ...emptySnapshot(), runtimes: [runtime('a', 'Agent A')], usage: [at('a', 0)], ...conversationWith('a') }
   act(() => root.render(
     <StoreProvider store={storeOf(snapshot)}>
-      <HeaderStatusGroup open><PlanMeters onOpen={() => {}} onSignIn={() => {}} /></HeaderStatusGroup>
+      <PlanMeters onOpen={() => {}} onSignIn={() => {}} />
     </StoreProvider>,
   ))
-  const card = document.querySelector('[data-slot="hover-card-content"]')!
-  expect(card.textContent).toContain('out of quota')
-  expect(card.textContent).not.toContain('available in out')
+  const reading = container.querySelector('[data-slot="plan-meter"]')!.closest('button')!
+  expect(reading.getAttribute('aria-label')).toContain('out of quota')
+  expect(reading.getAttribute('aria-label')).not.toContain('available in out')
 })
 
-it('includes a promoted chip countdown in its grouped accessible name', () => {
+it('includes a promoted chip countdown and agent in its direct accessible name', () => {
   const snapshot: AppSnapshot = { ...emptySnapshot(), runtimes: [runtime('a', 'Agent A'), runtime('b', 'Agent B')], usage: [at('a', 78), spent('b', 6 * HOUR)], ...conversationWith('a') }
-  act(() => root.render(<StoreProvider store={storeOf(snapshot)}><HeaderStatusGroup open><PlanMeters onOpen={() => {}} onSignIn={() => {}} /></HeaderStatusGroup></StoreProvider>))
+  act(() => root.render(<StoreProvider store={storeOf(snapshot)}><PlanMeters onOpen={() => {}} onSignIn={() => {}} /></StoreProvider>))
   const promoted = container.querySelector('[data-promoted]')!
   const name = promoted.closest('button')!.getAttribute('aria-label')!
   expect(name).toContain(`resets in ${promoted.textContent}`)
-  // The card says the same reading, as a phrase with the agent on the line under it.
-  const card = document.querySelector('[data-slot="hover-card-content"]')!.textContent!
-  expect(card).toContain(name.split(' — ')[1]!)
-  expect(card).toContain('Agent B')
+  expect(name).toContain('Agent B')
+  expect(name).toContain('out of quota')
 })

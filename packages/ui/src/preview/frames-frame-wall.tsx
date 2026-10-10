@@ -1,6 +1,6 @@
 import { runTeamStore, equivalentRunFixture, type RunScene } from './run-view-fixture'
 import { useMemo, useState } from 'react'
-import { contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, turnId, type UiContribution } from '@harnessdesk/protocol'
+import { contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, turnId, type UiContribution, type BackgroundTask } from '@harnessdesk/protocol'
 import { installPanelComponent } from '../slots/PanelBlocks'
 
 installPanelComponent()
@@ -136,6 +136,12 @@ export const FrameWall = () => {
     // Additional Details states for the same real frame; all data is synthetic.
     const detailsCase = query.get('frame-details-case')
     const snapshot = next.getSnapshot()
+    if (query.get('frame-status') === 'tasks') {
+      const task: BackgroundTask = { id: 'frame-task', label: 'Review the checkout', kind: 'command', state: 'running',
+        command: 'node review.mjs', cwd: '/work/storefront', stoppable: false }
+      Object.assign(snapshot, { tasks: new Map([[PREVIEW_SESSION_KEY, [task]]]) })
+    }
+    if (query.get('frame-status') === 'reconnecting') Object.assign(snapshot, { status: 'reconnecting' })
     if (destination === 'team' && query.get('frame-member-actions') === '1') {
       Object.assign(snapshot, { runtimes: snapshot.runtimes.map(runtime => ({
         ...runtime, capabilities: { ...runtime.capabilities, compaction: true, undo: true },

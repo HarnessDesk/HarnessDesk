@@ -258,3 +258,29 @@ export const attachAppUpdates = ({
     },
   }
 }
+
+
+/** Project the current native menu; the renderer receives facts, never updater authority. */
+export const attachAppUpdateBridge = ({ ipcMain, currentWindow, currentMenu }) => {
+  const fact = () => {
+    const item = currentMenu()
+    return item === null ? null : { label: item.label, enabled: item.enabled }
+  }
+  const owns = (event) => {
+    const window = currentWindow()
+    return window !== null && !window.isDestroyed() && event.sender === window.webContents
+  }
+  ipcMain.handle('harnessdesk:app-update-read', (event) => {
+    if (!owns(event)) throw new Error('Only the app window can read updates')
+    return fact()
+  })
+  ipcMain.on('harnessdesk:app-update-action', (event) => {
+    if (!owns(event)) return
+    const item = currentMenu()
+    if (item?.enabled) item.click()
+  })
+  return { publish: () => {
+    const window = currentWindow()
+    if (window && !window.isDestroyed()) window.webContents.send('harnessdesk:app-update', fact())
+  } }
+}

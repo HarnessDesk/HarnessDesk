@@ -19,4 +19,4 @@ export const ToolSection = ({ label, children, action }: { label: string; childr
 export const ToolProse = ({ children }: { children: ReactNode }) => <SectionBody data-slot="tool-prose" spacing="tool-prose"><Text role="prose" ink="secondary">{children}</Text></SectionBody>
 
 export const ToolBodyControls = ({ children, ...props }: { children: ReactNode } & Omit<HTMLAttributes<HTMLDivElement>, 'className' | 'style'>) => <div {...props} data-slot="tool-controls"
-  className="flex min-w-0 shrink-0 flex-wrap items-center gap-(--hd-space-2) px-(--hd-inset-row) py-(--hd-space-2)">{children}</div>
+  className="hd-no-drag flex min-w-0 shrink-0 flex-wrap items-center gap-(--hd-space-2) px-(--hd-inset-row) py-(--hd-space-2)">{children}</div>

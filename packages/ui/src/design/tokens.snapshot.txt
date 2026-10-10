@@ -281,6 +281,7 @@
 --hd-space-6 = 24px
 --hd-space-8 = 32px
 --hd-space-px = 1px
+--hd-statusbar-h = 28px
 --hd-success = rgb(65, 189, 111)
 --hd-success-dim = rgba(65, 189, 111, 0.14)
 --hd-success-foreground = rgb(17, 17, 17)
@@ -822,6 +823,7 @@
 --hd-space-6 = 24px
 --hd-space-8 = 32px
 --hd-space-px = 1px
+--hd-statusbar-h = 28px
 --hd-success = rgb(65, 189, 111)
 --hd-success-dim = rgba(65, 189, 111, 0.14)
 --hd-success-foreground = rgb(17, 17, 17)
@@ -1372,6 +1374,7 @@
 --hd-space-6 = 24px
 --hd-space-8 = 32px
 --hd-space-px = 1px
+--hd-statusbar-h = 28px
 --hd-success = rgb(65, 189, 111)
 --hd-success-dim = rgba(65, 189, 111, 0.14)
 --hd-success-foreground = rgb(17, 17, 17)
@@ -1922,6 +1925,7 @@
 --hd-space-6 = 24px
 --hd-space-8 = 32px
 --hd-space-px = 1px
+--hd-statusbar-h = 28px
 --hd-success = rgb(65, 189, 111)
 --hd-success-dim = rgba(65, 189, 111, 0.14)
 --hd-success-foreground = rgb(17, 17, 17)

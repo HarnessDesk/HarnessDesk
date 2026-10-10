@@ -247,6 +247,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-row-h` | `calc(20px + 4px * 2 + 2px)` |
 | `--hd-icon-target` | `24px` |
 | `--hd-icon-target-sm` | `20px` |
+| `--hd-statusbar-h` | `28px` |
 | `--hd-bar-h` | `40px` |
 | `--hd-bar-divider-h` | `14px` |
 | `--hd-bar-title-min` | `180px` |
@@ -2178,6 +2179,12 @@ A Settings record's actions: its name and distinguishing location, with destruct
 
 A quiet conversation or room state ends on the inset rail and folds to a dot for its own row's actions.
 
+### `StatusBar`
+
+`packages/ui/src/design/patterns/StatusBar.tsx`
+
+The app's readings share one window-wide foot, below every retained region.
+
 ### `UsageMeterRow`
 
 `packages/ui/src/design/patterns/UsageMeterRow.tsx`
@@ -2225,5 +2232,5 @@ list only goes down, except when the audit learns to see something it was blind 
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 84 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 21 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2996 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `screenLayout` | 2992 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 
