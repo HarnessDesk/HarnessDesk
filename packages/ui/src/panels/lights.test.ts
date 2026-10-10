@@ -16,6 +16,8 @@ import barSystem from '../design/ui/bar.tsx?raw'
 import workbenchCss from './Workbench.module.css?raw'
 import dockPanel from '../design/patterns/DockPanel.tsx?raw'
 import appCss from '../styles/app.css?raw'
+import appWindowSource from '../components/AppWindow.tsx?raw'
+import appWindowSystem from '../design/patterns/AppWindow.tsx?raw'
 
 /**
  * Room for the macOS window buttons, held to one mechanism.
@@ -98,7 +100,7 @@ describe('the row under the macOS window buttons', () => {
   })
 
   it('and only the area holding the corner is given it', () => {
-    for (const area of ['sidebar', 'main', 'right', 'bottom']) {
+    for (const area of ['sidebar', 'main']) {
       expect(workbenchCss).toContain(`.shell[data-lights='${area}']`)
     }
     expect(workbenchCss).toMatch(/--titlebar-inset:\s*var\(--hd-titlebar-lights\)/)
@@ -110,8 +112,10 @@ describe('the row under the macOS window buttons', () => {
     // indent a header that has nothing above it to clear.
     expect(panesCss).toMatch(/\.child\[data-side='second'\]\s*{\s*--titlebar-inset:\s*0px/)
     expect(panesCss).toMatch(/\.pane\[data-strip\][^{]*{\s*--titlebar-inset:\s*0px/)
-    expect(workbenchCss).toMatch(/\.half\[data-side='second'\][^{]*{\s*--titlebar-inset:\s*0px/)
-    expect(workbenchCss).toMatch(/\.layers\[data-under-bar\]\s*{\s*--titlebar-inset:\s*0px/)
+    // Fixed tools have no split halves or tab strips that can own the corner.
+    expect(workbenchCss).not.toContain('.half')
+    expect(workbenchCss).not.toContain(".shell[data-lights='right']")
+    expect(workbenchCss).not.toContain(".shell[data-lights='bottom']")
   })
 
   it('unless an expansion has left the second half holding the window', () => {
@@ -131,14 +135,16 @@ describe('nothing decides this for itself', () => {
     eager: true,
   })
 
-  it('only the shell asks whether there are window buttons at all', () => {
+  it('only the work and nonwork shell hosts ask whether there are window buttons at all', () => {
     const asking = Object.entries(sources)
       .filter(([path]) => !/\.test\.tsx?$/.test(path) && !/\/lib\/desktop\.ts$/.test(path))
       .filter(([, text]) => /hasTrafficLights\(\)/.test(text))
       .map(([path]) => path)
     // `Workbench` names the area in `data-lights`; every other component is
     // told by the cascade, which is the whole point of doing it in one place.
-    expect(asking).toEqual(['./Workbench.tsx'])
+    expect(asking).toEqual(['../components/AppWindow.tsx', './Workbench.tsx'])
+    expect(appWindowSource).toContain('nativeCorner={columnWidth === 0 && hasTrafficLights()}')
+    expect(appWindowSystem).toContain("nativeCorner ? 'var(--hd-titlebar-lights)' : '0px'")
   })
 
   it('and no stylesheet writes the width of the buttons out by hand', () => {

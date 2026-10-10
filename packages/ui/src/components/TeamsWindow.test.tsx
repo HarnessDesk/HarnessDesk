@@ -1,4 +1,4 @@
-import { Profiler, act } from 'react'
+import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { StoreProvider } from '../state/context'
@@ -11,10 +11,21 @@ import { teamsInput } from '../lib/teams-snapshot'
 import { teamsList } from '../lib/teams-list'
 import type { AppStore } from '../state/store'
 
-const drawn=vi.hoisted(()=>({marks:0}))
+const drawn=vi.hoisted(()=>({marks:0,pageCommits:0,context:null as import('react').Context<boolean>|null}))
 vi.mock('./BrandIcons',async original=>{
  const actual=await original<typeof import('./BrandIcons')>()
- return {...actual,RuntimeMark:(props:Parameters<typeof actual.RuntimeMark>[0])=>{drawn.marks+=1;return actual.RuntimeMark(props)}}
+ const React=await import('react')
+ drawn.context??=React.createContext(false)
+ return {...actual,RuntimeMark:(props:Parameters<typeof actual.RuntimeMark>[0])=>{if(React.useContext(drawn.context!))drawn.marks+=1;return actual.RuntimeMark(props)}}
+})
+// The shell now owns separate clocks and publications. Measure the actual
+// page subtree so the one-update and time-cell-only contracts keep their scope.
+vi.mock('./AppWindow',async original=>{
+ const actual=await original<typeof import('./AppWindow')>()
+ const React=await import('react')
+ drawn.context??=React.createContext(false)
+ return {...actual,WindowPage:(props:Parameters<typeof actual.WindowPage>[0])=>React.createElement(drawn.context!.Provider,{value:true},
+  React.createElement(React.Profiler,{id:'teams-page',onRender:()=>{drawn.pageCommits+=1}},React.createElement(actual.WindowPage,props)))}
 })
 ;(globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true
 const container=document.createElement('div'); document.body.append(container)
@@ -240,14 +251,13 @@ const tab=(label:string)=>[...container.querySelectorAll<HTMLButtonElement>('nav
 
 it('reads usage only for the rows the open tab shows, in one request and one update',async()=>{
  const {store,base,insights,answers}=await recorded()
- const commits=vi.fn()
- await act(async()=>root.render(<Profiler id="teams" onRender={commits}><StoreProvider store={store}><AppWindowMode.Provider value="embedded"><TeamsWindow onClose={()=>{}}/></AppWindowMode.Provider></StoreProvider></Profiler>))
+ await act(async()=>root.render(<StoreProvider store={store}><AppWindowMode.Provider value="embedded"><TeamsWindow onClose={()=>{}}/></AppWindowMode.Provider></StoreProvider>))
  expect(insights).toHaveBeenCalledOnce()
  expect(insights.mock.calls[0]![0]).toEqual(['team-0','team-1','team-2'])
  const reports=await Promise.all(['team-0','team-1','team-2'].map(id=>base.readGoalInsight(id)))
- commits.mockClear()
+ const commits=drawn.pageCommits
  await act(async()=>answers[0]!({reports,failed:[]}))
- expect(commits).toHaveBeenCalledOnce()
+ expect(drawn.pageCommits-commits).toBe(1)
  expect(container.querySelector('[data-team-row="team-2"]')?.textContent).toContain('137')
  // Settled Teams are read when they are shown: unfolded, or on their own tab.
  await act(async()=>button('Ready to wrap').click())

@@ -1,5 +1,6 @@
 import { LeftColumn, LeftColumnBody, LeftColumnNavigation, LeftColumnProjectsHead, LeftColumnTop, LeftColumnRow, LeftColumnSeat, LeftColumnGroup } from '../design'
 import { LibraryIcon } from './Icons'
+import { Slot } from '../slots/registry'
 import { sidebarPlacement } from '../state/workbench'
 import { useCallback, useEffect, useRef, useState } from 'react'
 

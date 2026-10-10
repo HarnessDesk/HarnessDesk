@@ -34,10 +34,6 @@
   gap: var(--hd-space-1-5);
 }
 
-.accountName {
-  flex: 1;
-  min-width: 0;
-}
 
 .youText {
   flex-direction: column;

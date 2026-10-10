@@ -52,7 +52,7 @@ import {
   ListRow,
   ListRows,
   Note,
-  RailSection,
+  AppWindowRailScroll,
   Row as SettingsRow,
   RowButton,
   Rows,
@@ -260,7 +260,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
           {/* The rail is the window rail — the plate Settings and the
               dashboard stand their rosters on — under the dialog's own head. */}
           <AppWindowRail aria-label="Agents" className={own.rail}>
-            <RailSection stretch="list" density="comfortable" className={own.railList}>
+            <AppWindowRailScroll className={own.railList}>
               {groups.map((group) => (
                 <div key={group.name} role="group" aria-label={group.name} className={own.group}>
                   <SectionHead
@@ -334,7 +334,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
                   <Text as="div" role="meta" className={own.railNote}>{registry.unavailable}</Text>
                 </div>
               )}
-            </RailSection>
+            </AppWindowRailScroll>
 
             <SectionFooter>
               <Text as="div" role="muted">
