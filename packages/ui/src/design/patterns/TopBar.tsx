@@ -1,5 +1,4 @@
 import { useId, useLayoutEffect, useRef, useState, type ReactNode, type CSSProperties } from 'react'
-import { Separator } from '../ui/separator'
 import { Bar } from '../ui/bar'
 import { Button } from '../ui/button'
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
@@ -7,7 +6,7 @@ import { Text } from './Settings'
 import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip'
 import { Menu, MenuItem } from './Menu'
 import { Popover } from './Popover'
-import { MoreIcon, CaretIcon, FilterIcon } from '../../components/Icons'
+import { MoreIcon, CaretIcon, SlidersIcon } from '../../components/Icons'
 import styles from './TopBar.module.css'
 
 export interface TopBarAction {
@@ -45,8 +44,7 @@ const DestinationTab = ({ tab }: { tab: TopBarTab }) => {
   const trigger = <TabsTrigger value={tab.value} data-team-page={tab.value}
     disabled={Boolean(tab.disabled)} title={tab.disabled || undefined} aria-describedby={tab.disabled ? reasonId : undefined}
     className={tab.disabled ? 'aria-disabled:pointer-events-auto' : undefined}
-    onClick={() => { if (!tab.disabled) tab.run() }}>{tab.label}
-    {tab.count !== undefined && <Text role="meta" numeric>{tab.count}</Text>}</TabsTrigger>
+    count={tab.count} onClick={() => { if (!tab.disabled) tab.run() }}>{tab.label}</TabsTrigger>
   return tab.disabled ? <><Tooltip><TooltipTrigger render={trigger} /><TooltipContent>{tab.label} — {tab.disabled}</TooltipContent></Tooltip>
     <span id={reasonId} className="sr-only">{tab.disabled}</span></> : trigger
 }
@@ -73,7 +71,11 @@ export const TopBar = (props: TopBarProps) => {
       measuredFold.current = 0
       setFold(0)
       const pass = () => {
-        const width = place.current?.getBoundingClientRect().width ?? 0
+        const title = place.current
+        const parent = title?.parentElement
+        const crumb = parent?.querySelector('button')
+        const gap = Number.parseFloat(getComputedStyle(node).getPropertyValue('--hd-bar-gap')) || 0
+        const width = title ? Math.min(title.getBoundingClientRect().width, (parent?.getBoundingClientRect().width ?? title.getBoundingClientRect().width) - (crumb ? crumb.getBoundingClientRect().width + gap : 0)) : 0
         const titleMin = Number.parseFloat(getComputedStyle(node).getPropertyValue('--hd-bar-title-min'))
         if (width >= titleMin || measuredFold.current === 2) return
         if (measuredFold.current === 1) restoreTabFocus.current = root.current?.contains(document.activeElement) === true
@@ -108,7 +110,7 @@ export const TopBar = (props: TopBarProps) => {
       </div>
       {fold === 0 && <div data-topbar="state" className={styles.fixed}>{props.state}</div>}
       {props.tabs && <div data-topbar="tabs" className={styles.fixed}>{(fold < 2 ? <Tabs value={props.tab ?? null}>
-        <TabsList aria-label="Destination views" variant="line" className={styles.tabs}>
+        <TabsList aria-label="Destination views" className={styles.tabs}>
           {props.tabs.map(one => <DestinationTab key={one.value} tab={one} />)}
         </TabsList>
       </Tabs> : <Popover title="Destination views" triggerRef={foldedTab} label={<>{current?.label ?? 'Views'}{current?.count !== undefined && <Text role="meta" numeric>{current.count}</Text>}<CaretIcon /></>}>
@@ -121,16 +123,16 @@ export const TopBar = (props: TopBarProps) => {
         {props.verb.icon}{(fold === 0 || !props.verb.icon) && props.verb.label}
       </Button>}</div>
       <div data-topbar="view" className={styles.fixed}>{props.view && <Popover title="View" narrowed={props.view.narrowed} reason={props.view.disabled || undefined} disabled={Boolean(props.view.disabled)}
-        triggerVariant={{ variant: 'ghost', size: 'icon-sm' }} label={<FilterIcon />}>
+        triggerVariant={{ variant: 'ghost', size: 'icon-sm' }} label={<SlidersIcon />}>
         {close => props.view?.content(close)}
       </Popover>}</div>
       <div ref={tools} data-topbar="tools" className={styles.fixed} data-standing={props.rightColumnWidth ? '' : undefined}
-        style={props.rightColumnWidth ? { '--topbar-right-column': typeof props.rightColumnWidth === 'number' ? `${props.rightColumnWidth}px` : props.rightColumnWidth } as CSSProperties : undefined}>{props.tools && <><Separator decorative orientation="vertical" length="bar" data-slot="bar-divider" />{props.tools}</>}</div>
+        style={props.rightColumnWidth ? { '--topbar-right-column': typeof props.rightColumnWidth === 'number' ? `${props.rightColumnWidth}px` : props.rightColumnWidth } as CSSProperties : undefined}>{props.tools}
       <div data-topbar="more" className={styles.fixed}><Popover title="More" label={<MoreIcon />}
         triggerVariant={{ variant: 'ghost', size: 'icon-sm' }}>
         {close => <Menu close={close}>{props.more(close)}{props.extraMore?.map(one => <MenuItem
           key={one.label} label={one.label} disabled={one.disabled} onSelect={() => { one.run(); close() }} />)}</Menu>}
-      </Popover></div>
+      </Popover></div></div>
     </div>
   </Bar>
 }

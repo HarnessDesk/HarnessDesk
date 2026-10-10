@@ -1,5 +1,5 @@
 import { installFramePreviewFixture } from './frame-preview-fixture'
-import { applyFrameActions } from './frame-actions'
+import { applyFrameActions, settleFrameBar } from './frame-actions'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
@@ -60,9 +60,13 @@ for (const destination of WALL_DESTINATIONS) {
         await page.evaluate(async () => { await document.fonts.ready })
         // TopBar measures its two folds over animation frames. Capture the
         // measured contract, rather than its initial unmeasured tab row.
-        for (const title of await page.locator('[data-slot="top-bar"]:visible [data-topbar-title]').all()) {
+        for (const bar of await page.locator('[data-slot="top-bar"]:visible').all()) {
+          await settleFrameBar(bar)
+          const title = bar.locator('[data-topbar-title]')
           await expect.poll(async () => (await title.boundingBox())?.width ?? 0)
             .toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+          const ink = (await title.boundingBox())!, place = (await bar.locator('[data-topbar="place"]').boundingBox())!
+          expect(ink.x + ink.width).toBeLessThanOrEqual(place.x + place.width)
         }
         const name = `${destination.id}-${width}-${theme}.png`
         if (DIRECTORY) {

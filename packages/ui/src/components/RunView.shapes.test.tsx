@@ -15,47 +15,46 @@ it('lays out competitors and per-attempt checks, keeps the pick visible, and sel
   const input = shapeFixture('comparison'); const onSelect = vi.fn()
   const view = mount(<RunView number={1} model={runTimeline(input)} stepsInput={input} execution={input.execution} selectedRow={null} onSelect={onSelect} />)
   try {
-    expect(view.container.querySelectorAll('[data-slot="timeline-card-grid"][data-count="2"]')).toHaveLength(2)
-    expect(view.container.textContent).toContain('on Attempt A')
-    expect(view.container.textContent).toContain('on Attempt B')
-    expect(view.container.querySelector('[data-row="card-1-1"]')?.getAttribute('data-keep')).toBe('kept')
-    expect(view.container.querySelector('[data-row="card-1-2"]')?.getAttribute('data-keep')).toBe('not-kept')
+    expect(view.container.querySelectorAll('[data-slot="timeline-card-grid"]')).toHaveLength(0)
+    expect(view.container.querySelectorAll('[data-step-row][data-flow-state]:not([data-flow-state="future"])')).toHaveLength(4)
+    expect(view.container.querySelector('[data-row="card-1-1"]')?.textContent).toContain('Competitor')
     expect(view.container.querySelector('[data-row="card-3-5"]')?.textContent).toContain('Picked')
     act(() => (view.container.querySelector('[data-row="card-1-1"] button') as HTMLButtonElement).click())
     expect(onSelect).toHaveBeenCalledWith('card-1-1')
   } finally { view.close() }
 })
-it('shows the checkout-qualified attempt beside each result when revisions agree', () => {
+it('keeps checkout-qualified results in Details when the Timeline folds a check step', () => {
   const input = shapeFixture('comparison')
   input.evidence = { ...input.evidence!, cards: input.evidence!.cards.map(card => ({ ...card, facts: card.facts.map(view => ({
     ...view, record: { ...view.record, fact: view.record.fact.kind === 'diff' ? { ...view.record.fact, to: 'a'.repeat(40) }
       : view.record.fact.kind === 'check' ? { ...view.record.fact, at: 'a'.repeat(40) } : view.record.fact },
   })) })) }
-  const view = mount(<RunView number={1} model={runTimeline(input)} stepsInput={input} execution={input.execution} selectedRow={null} onSelect={() => {}} />)
+  const views = ['check-2-3', 'check-2-4'].map(selectedRow => mount(<RunInspector input={input} seats={[]} selectedRow={selectedRow} />))
   try {
-    expect(view.container.querySelector('[data-row="check-2-3"]')?.textContent).toContain('on Attempt A')
-    expect(view.container.querySelector('[data-row="check-2-3"]')?.textContent).toContain('Passed')
-    expect(view.container.querySelector('[data-row="check-2-4"]')?.textContent).toContain('on Attempt B')
-    expect(view.container.querySelector('[data-row="check-2-4"]')?.textContent).toContain('Failed')
-  } finally { view.close() }
+    expect(views[0]!.container.textContent).toContain('/repo/attempt-0')
+    expect(views[0]!.container.textContent).toContain('Passed')
+    expect(views[1]!.container.textContent).toContain('/repo/attempt-1')
+    expect(views[1]!.container.textContent).toContain('Failed')
+  } finally { views.forEach(view => view.close()) }
 })
-it('puts answered progress in the title and the blind explanation once under the cards', () => {
+it('keeps answered progress and the blind explanation on the flat step’s second line', () => {
   const input = shapeFixture('independent-review')
   const view = mount(<RunView number={1} model={runTimeline(input)} stepsInput={input} selectedRow={null} onSelect={() => {}} />)
   try {
-    expect(view.container.querySelector('[data-slot="timeline-item"]:has([data-row="round-2"]) [role="progressbar"]')?.getAttribute('aria-valuenow')).toBe('1')
+    expect(view.container.querySelectorAll('[data-slot="timeline-card"]')).toHaveLength(0)
+    expect(view.container.querySelectorAll('[data-step-row][data-flow-state]:not([data-flow-state="future"])')).toHaveLength(2)
+    expect(view.container.textContent).toContain('1 of 3 answered')
     expect(view.container.textContent?.match(/Blind until the round closes/g)).toHaveLength(1)
-    expect(view.container.querySelector('[data-row="round-2"]')?.closest('li')?.textContent).toContain('1 of 3 answered')
   } finally { view.close() }
 })
 it('keeps a person card in the story and later rounds pending', () => {
   const input = shapeFixture('alignment')
   const view = mount(<RunView number={1} model={runTimeline(input)} stepsInput={input} selectedRow={null} onSelect={() => {}} />)
   try {
-    expect(view.container.querySelector('[data-kind="person"][data-slot="timeline-card"]')?.textContent).toContain('You')
+    expect(view.container.querySelector('[data-kind="person"][data-step-row]')?.textContent).toContain('Person')
     expect(view.container.querySelector('[data-kind="ahead"]')).toBeNull()
     expect(view.container.textContent).toContain('Not reached')
-    expect(view.container.querySelector('[data-slot="run-steps"] [data-step-row][data-state="future"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-slot="run-steps"] [data-step-row][data-flow-state="future"]')).not.toBeNull()
     expect(view.container.querySelector('[data-slot="run-need"]')).not.toBeNull()
   } finally { view.close() }
 })

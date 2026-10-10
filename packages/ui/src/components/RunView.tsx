@@ -188,15 +188,13 @@ export const RunView = ({ home, model, execution, stepsInput, attemptsRead, face
         {showing === 'flow' ? flow : <div data-slot="run-reading" className={styles.reading}><div data-slot="run-steps">
         {pending && <Text role="meta" as="div">Reading checks and findings…</Text>}
         {problem && <Banner tone="warning" title="Some Run details could not be read">{words(problem)}{onRetry && <Button variant="link" size="inline-link" onClick={onRetry}>Try again</Button>}</Banner>}
+        {stepsInput && header.end && !needsYou && <div data-slot="run-ending"><Banner title={words(ending?.title ?? 'Run ended')} actions={endActions()}>
+          {[ending?.detail ? words(runReasonWords(ending.detail, execution?.document.flow.rules)) : null, header.end.kind === 'stopped' ? header.end.by === 'person' ? 'By you' : 'By the desk' : null].filter(Boolean).join(' · ')}
+        </Banner></div>}
         <Timeline aria-label="Run timeline">
           {stepsInput ? <>
-            {steps.filter(one => !['round', 'end', 'ahead'].includes(one.row.kind)).map(renderTimelineStep)}
             <RunSteps input={stepsInput} selectedRow={selectedRow} selectedStep={selectedRow?.startsWith('step:') ? selectedRow.slice(5) : undefined} faces={faces} faceTints={faceTints} attemptsRead={attemptsRead} onSelect={onSelect}
-              onSelectStep={id => onSelect(`step:${id}`)} renderRound={n => {
-                const one = steps.find(one => one.row.kind === 'round' && one.row.round === n)
-                return one ? renderTimelineStep(one) : null
-              }} />
-            {steps.filter(one => one.row.kind === 'end').map(renderTimelineStep)}
+              onSelectStep={id => onSelect(`step:${id}`)} timeline seatNames={seatNames} />
           </> : steps.map(renderTimelineStep)}
         </Timeline></div>
         {!model.rows.some(row => row.kind === 'round') && <EmptyState title="No rounds have opened yet" />}

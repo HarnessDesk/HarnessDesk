@@ -143,3 +143,9 @@
     animation: none;
   }
 }
+
+/* desk: 12 → 20, the drawing's flat Run state dot; other timelines retain their register. */
+.flat > .indicator { width: var(--hd-space-5); height: var(--hd-space-5); inset-inline-start: calc(var(--hd-space-5) / 2); }
+.flat > .rail { inset-inline-start: calc((var(--hd-space-5) - var(--hd-border-width)) / 2); background: var(--hd-border); }
+.flat[data-state="done"] > .indicator { background: var(--hd-secondary-foreground); border-color: var(--hd-secondary-foreground); }
+.flat { padding-block-end: var(--hd-space-4); }

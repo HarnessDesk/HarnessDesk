@@ -180,7 +180,7 @@ it('B6 registers New job and Board/List in the shell with content facts', async 
   expect(add).not.toBeNull()
   expect(add!.textContent).toBe('New job')
   expect(add!.querySelector('svg')).not.toBeNull()
-  expect(container.querySelector('[aria-label="Board summary"]')).not.toBeNull()
+  expect(container.querySelector('[aria-label="Board summary"]')).toBeNull()
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="View"]')!.click())
   expect([...document.querySelectorAll('[role="menuitem"]')].map(one => one.textContent)).toEqual(['Board', 'List'])
 })
@@ -973,12 +973,14 @@ it('a card of a run stopped for its person needs you, and is working again once 
   await render(withRun('stalled'))
   expect(column('Needs you').textContent).toContain('Fix the retry')
   expect(card('Fix the retry').textContent).toContain('run stopped')
-  expect(container.textContent).toContain('0 working · 1 need you')
+  expect(column('Working').textContent).toContain('Working0')
+  expect(column('Needs you').textContent).toContain('Needs you1')
 
   await render(withRun('running'))
   expect(column('Working').textContent).toContain('Fix the retry')
   expect(card('Fix the retry').textContent).not.toContain('run stopped')
-  expect(container.textContent).toContain('1 working · 0 need you')
+  expect(column('Working').textContent).toContain('Working1')
+  expect(column('Needs you').textContent).toContain('Needs you0')
 })
 
 const observed = (checks: readonly string[], cards: BoardEvidence['cards']): BoardEvidence => ({
@@ -1100,7 +1102,8 @@ it('a run stalled by one card leaves a sibling that already finished alone', asy
   expect(column('Needs you').textContent).toContain('Card #3')
   expect(column('Ready').textContent).not.toContain('Card #2')
   expect(column('Ready').textContent).not.toContain('Card #3')
-  expect(container.textContent).toContain('0 working · 2 need you')
+  expect(column('Working').textContent).toContain('Working0')
+  expect(column('Needs you').textContent).toContain('Needs you2')
 })
 
 const chipsOf = (id: number): HTMLButtonElement | null =>
@@ -1669,7 +1672,7 @@ it('keeps an empty Board quiet with one add-work control in its toolbar',async()
  expect(empty?.querySelector('h3,svg,button')).toBeNull()
  expect(container.textContent?.split('Nothing on the board yet')).toHaveLength(2)
  expect(container.querySelectorAll('button[aria-label^="New job"]')).toHaveLength(1)
- expect(container.querySelector('[aria-label="Board summary"] [data-slot="summary-value"]')?.textContent).toBe('No work yet')
+ expect(container.querySelector('[aria-label="Board summary"]')).toBeNull()
 })
 
 it('lists every job, including completed work awaiting evidence, with Needs you first', async () => {
@@ -1689,7 +1692,7 @@ it('lists every job, including completed work awaiting evidence, with Needs you 
   ])
   expect(table.textContent).toContain('Checking evidence')
   expect(table.textContent).toContain('Unassigned')
-  expect([...container.querySelectorAll('button')].find(one => one.textContent === 'All 3')?.getAttribute('aria-pressed')).toBe('true')
+  expect([...container.querySelectorAll('button')].find(one => one.textContent === 'All 3')?.getAttribute('aria-selected')).toBe('true')
   act(() => button('Needs you 1').click())
   expect(table.querySelectorAll('tbody tr')).toHaveLength(1)
   expect(table.textContent).toContain('Blocked job')

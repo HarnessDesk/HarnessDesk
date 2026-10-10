@@ -7,6 +7,8 @@ import { groupRunSteps } from '../lib/run-step-groups'
 import { wordOf } from '../lib/agents'
 
 export interface RunStepsProps {
+  timeline?: boolean
+  seatNames?: ReadonlyMap<string, { name: string }>
   input: RunTimelineInput
   selectedRow: string | null
   selectedStep?: string | null
@@ -19,7 +21,7 @@ export interface RunStepsProps {
   renderRound?: (round: number) => ReactNode
 }
 
-export const RunSteps = ({ input, selectedRow, selectedStep, faces, faceTints, attemptsRead, onSelect, onSelectStep, renderRound }: RunStepsProps) => {
+export const RunSteps = ({ input, selectedRow, selectedStep, faces, faceTints, attemptsRead, onSelect, onSelectStep, renderRound, timeline = false, seatNames }: RunStepsProps) => {
   const { execution } = input
   const model = flowModel(execution.document.flow), rows = runTimeline(input).rows
   const rounds = [...execution.rounds].sort((a, b) => a.n - b.n)
@@ -65,14 +67,27 @@ export const RunSteps = ({ input, selectedRow, selectedStep, faces, faceTints, a
       results: results.map(one => one?.record.fact.kind === 'check' ? { exit: one.record.fact.exit, timedOut: one.record.fact.timedOut,
         dirty: one.record.fact.dirty, at: one.record.fact.at, tail: one.record.fact.tail, checkout: one.record.checkout ?? null } : null),
     })
-    return { round, run, step: round.role, state: round.state === 'closed' && !unsafe && records.length > 0
+    const record = records.find(one => ['card', 'check', 'person'].includes(one.kind))
+    const fallback = { state: record?.status === 'Stopping' ? 'stopping' as const : record?.status === 'Stopped' ? 'stopped' as const : record?.working ? 'working' as const : record?.attention ? 'blocked' as const : round.state === 'closed' ? 'done' as const : 'blocked' as const,
+      runs: 1, durationMs: record?.durationMs ?? null, since: record?.since ?? null, line: record?.status ?? null, seats: round.seats }
+    return { round, run: run ?? fallback, step: round.role, state: round.state === 'closed' && !unsafe && records.length > 0
       && rows.find(one => one.kind === 'round' && one.round === round.n)?.complete === true && run?.state === 'done' ? 'done' : 'blocked', signature }
   })
-  const renderOne = (one: typeof normalized[number]) => renderRound ? renderRound(one.round.n) : <FlowStepRow
+  const primary = (one: typeof normalized[number]) => rows.find(row => row.round === one.round.n && ['card', 'check', 'person'].includes(row.kind))
+  const runOf = (one: typeof normalized[number]) => {
+    const row = primary(one)
+    return row?.pick ? { ...one.run, line: 'Picked' } : row?.publication ? { ...one.run, line: row.publication.label } : one.run
+  }
+  const select = (one: typeof normalized[number]) => timeline ? primary(one)?.id ?? `round-${one.round.n}` : `round-${one.round.n}`
+  const roundFacts = (n: number) => {
+    const row = rows.find(one => one.kind === 'round' && one.round === n)
+    return [row?.asked != null && row.asked > 1 ? row.detail : null, row?.blind ? 'Blind until the round closes' : null].filter(Boolean).join(' · ')
+  }
+  const renderOne = (one: typeof normalized[number]) => renderRound ? renderRound(one.round.n) : <FlowStepRow timeline={timeline} seatNames={seatNames} rowId={primary(one)?.id} rowKind={primary(one)?.kind}
     step={model.steps.find(step => step.id === one.step)
       ?? { id: one.step, kind: 'agent', name: wordOf(one.step), line: '', count: 1, agents: [] }}
-    run={one.run} faces={faces} faceTints={faceTints} now={now} subtitle={`Round ${one.round.n}`}
-    selected={chosen === one.round.n} onSelect={() => onSelect(`round-${one.round.n}`)} />
+    run={runOf(one)} faces={faces} faceTints={faceTints} now={now} subtitle={`Round ${one.round.n}${timeline && roundFacts(one.round.n) ? ` · ${roundFacts(one.round.n)}` : ''}`}
+    selected={chosen === one.round.n} onSelect={() => onSelect(select(one))} />
   const taken = groupRunSteps(normalized).map(group => {
     const first = group[0]!
     if (group.length === 1) return <Fragment key={first.round.n}>{renderOne(first)}</Fragment>
@@ -82,10 +97,11 @@ export const RunSteps = ({ input, selectedRow, selectedStep, faces, faceTints, a
       if (next.has(first.round.n)) next.delete(first.round.n); else next.add(first.round.n)
       return next
     })
-    const row = <FlowStepRow step={model.steps.find(one => one.id === first.step)
+    const row = <FlowStepRow timeline={timeline} seatNames={seatNames} repeated rowId={primary(group.at(-1)!)?.id} rowKind={primary(group.at(-1)!)?.kind} roundGroup={timeline ? first.round.n : undefined} step={model.steps.find(one => one.id === first.step)
       ?? { id: first.step, kind: 'agent', name: wordOf(first.step), line: '', count: 1, agents: [] }}
-      run={first.run ? { ...first.run, runs: group.length } : undefined} now={now} faces={faces} faceTints={faceTints}
-      subtitle={`Rounds ${first.round.n}–${group.at(-1)!.round.n}`} onSelect={toggle} />
+      run={{ ...runOf(first), runs: group.length }} now={now} faces={faces} faceTints={faceTints}
+      subtitle={`Rounds ${first.round.n}–${group.at(-1)!.round.n}`} selected={group.some(one => one.round.n === chosen)} onSelect={timeline ? () => onSelect(select(group.at(-1)!)) : toggle} />
+    if (timeline) return <Fragment key={first.round.n}>{row}</Fragment>
     return renderRound ? <Fragment key={first.round.n}>
       <TimelineItem section state="done" title={null} data-round-group={first.round.n} data-expanded={open}>{row}</TimelineItem>
       {open && group.map(one => <Fragment key={one.round.n}>{renderOne(one)}</Fragment>)}
@@ -94,10 +110,14 @@ export const RunSteps = ({ input, selectedRow, selectedStep, faces, faceTints, a
     </div>
   })
   const unreached = future.map(one => {
-    const row = <FlowStepRow step={one} run={{ state: 'future', runs: 0, durationMs: null, since: null, line: null, seats: [] }}
+    const row = <FlowStepRow timeline={timeline} seatNames={seatNames} step={one} run={{ state: 'future', runs: 0, durationMs: null, since: null, line: null, seats: [] }}
       selected={step === one.id} onSelect={onSelectStep} />
     return <Fragment key={one.id}>{row}</Fragment>
   })
+  if (timeline) return <>
+    <TimelineItem section state="pending" title={`Taken ${rounds.length}`} />{taken}
+    {future.length > 0 && <><TimelineItem section state="pending" title={`Not reached ${future.length}`} />{unreached}</>}
+  </>
   return renderRound ? <>
     <TimelineItem section state="pending" title={`Taken ${rounds.length}`} />{taken}
     {future.length > 0 && <TimelineItem section state="pending" title={`Not reached ${future.length}`}>{unreached}</TimelineItem>}

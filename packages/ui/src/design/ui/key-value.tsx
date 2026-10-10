@@ -83,10 +83,12 @@ const MiddleTruncate = ({ children, className, ...props }: MiddleTruncateProps) 
           head left to give — and the head keeps enough of itself (`~/…`) to
           show that something was cut. A name wider than all of that is the
           one case where the tail ellipsises too. */}
+      {/* Flex text trims edge spaces. Keep a name's word boundary visible;
+          accessible text and copying still use the original string. */}
       {head !== '' && (
-        <span aria-hidden="true" data-part="head" className={cn('truncate', long ? 'min-w-6' : 'min-w-0')}>{head}</span>
+        <span aria-hidden="true" data-part="head" className={cn('truncate', long ? 'min-w-6' : 'min-w-0')}>{head.replace(/ +$/, spaces => '\u00a0'.repeat(spaces.length))}</span>
       )}
-      <span aria-hidden="true" data-part="tail" className={cn('shrink-0 truncate', long ? 'max-w-[calc(100%-1.5rem)]' : 'max-w-full')}>{tail}</span>
+      <span aria-hidden="true" data-part="tail" className={cn('shrink-0 truncate', long ? 'max-w-[calc(100%-1.5rem)]' : 'max-w-full')}>{tail.replace(/^ +/, spaces => '\u00a0'.repeat(spaces.length))}</span>
     </span>
   )
 }
@@ -272,12 +274,12 @@ const SummaryItem = ({ className, label, children, note, action, numeric = false
   return <div data-slot="summary-item" {...(numeric ? { 'data-numeric': '' } : {})}
     {...(kind === 'path' ? { 'data-kind': 'path' } : {})}
     className={cn('col-span-full grid grid-cols-subgrid gap-y-(--hd-space-0-5)',
-      panel ? 'py-(--hd-inset-row)' : 'p-(--hd-inset-row) gap-x-(--hd-space-6) border-b-(length:--hd-border-width) border-[color:var(--hd-card-divider,var(--hd-border))] last:border-b-0', className)} {...props}>
-    <dt className={cn(KEY_CLASS, !panel && 'min-w-20 @max-md/summary:col-span-full @max-md/summary:pb-0!', ON_ACTION_LINE)}>{label}</dt>
+      panel ? 'py-(--hd-space-2) border-b-(length:--hd-border-width) border-(--hd-border) last:border-b-0' : 'p-(--hd-inset-row) gap-x-(--hd-space-6) border-b-(length:--hd-border-width) border-[color:var(--hd-card-divider,var(--hd-border))] last:border-b-0', className)} {...props}>
+    <dt className={cn(KEY_CLASS, !panel && 'min-w-20 @max-md/summary:col-span-full @max-md/summary:pb-0!', !panel && ON_ACTION_LINE)}>{label}</dt>
     <dd className="col-span-2 m-0 grid min-w-0 grid-cols-subgrid">
       <div data-slot="summary-value" className={cn('min-w-0 break-words text-(--hd-foreground)',
         numeric ? panel ? 'text-left tabular-nums' : `text-right tabular-nums ${MIXED_SUMMARY}` : 'text-left',
-        action == null && 'col-span-2', ON_ACTION_LINE)}>
+        action == null && 'col-span-2', !panel && ON_ACTION_LINE)}>
         {valueOf(children, kind)}
         {note != null && <p data-slot="summary-note" className="m-0 mt-(--hd-space-0-5) text-left text-(--hd-secondary-foreground)">{note}</p>}
       </div>

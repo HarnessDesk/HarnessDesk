@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { Segmented } from './Settings'
-import css from './Settings.module.css?raw'
+import css from '../ui/switcher.module.css?raw'
 
 /**
  * `Segmented` documents its own look as "a filled track with the chosen
@@ -62,14 +62,14 @@ it('marks only the chosen segment with the attribute the CSS relies on', () => {
   expect(unchosen.hasAttribute('data-pressed')).toBe(false)
 })
 
-it('lifts the chosen segment on the card, its own shadow, and primary ink — never the hover wash', () => {
+it('lifts the chosen segment on the page, its strong ring, and primary ink — never the hover wash', () => {
   const { chosen } = draw()
   // Pinned against `design/ui/toggle-group.tsx`'s `toggleVariants`: a
   // re-vendoring that brings back `bg-accent`/`text-accent-foreground` fails
   // here rather than only being visible in a screenshot.
-  expect(chosen.className).toContain('data-pressed:bg-(--hd-card)')
+  expect(chosen.className).toContain('data-pressed:bg-(--hd-background)')
   expect(chosen.className).toContain('data-pressed:text-(--hd-foreground)')
-  expect(chosen.className).toContain('data-pressed:shadow-(--hd-shadow-sm)')
+  expect(css).toContain('var(--hd-border-strong)')
   expect(chosen.className).not.toContain('data-pressed:bg-accent')
   expect(chosen.className).not.toContain('data-pressed:text-accent-foreground')
 })
@@ -87,18 +87,18 @@ it('carries the pattern\'s own hover class so an unchosen answer never dims on h
 })
 
 it('keeps an unchosen answer at secondary ink — explanation, not a count', () => {
-  expect(css).toMatch(/\.segItem\s*\{[^}]*color:\s*var\(--hd-secondary-foreground\)/s)
-  expect(css).not.toMatch(/\.segItem\s*\{[^}]*color:\s*var\(--hd-muted-foreground\)/s)
+  expect(css).toMatch(/\.track \.item.item\s*\{[^}]*color:\s*var\(--hd-secondary-foreground\)/s)
+  expect(css).not.toMatch(/\.track \.item.item\s*\{[^}]*color:\s*var\(--hd-muted-foreground\)/s)
 })
 
 it('agrees with the Tailwind utilities on the same three tokens, so load order cannot put them out of sync', () => {
-  const block = css.match(/\.segItem\[data-pressed\]\s*\{([^}]*)\}/s)?.[1] ?? ''
+  const block = css.match(/\.track \.item:is\(\[data-active\], \[data-pressed\]\)\s*\{([^}]*)\}/s)?.[1] ?? ''
   // Three independent assertions, not one ordered regex: each token stands
   // on its own, so reordering the declarations inside the rule can't fail
   // this test for a reason that has nothing to do with the values.
-  expect(block).toMatch(/background:\s*var\(--hd-card\)/)
+  expect(block).toMatch(/background:\s*var\(--hd-background\)/)
   expect(block).toMatch(/color:\s*var\(--hd-foreground\)/)
-  expect(block).toMatch(/box-shadow:\s*var\(--hd-shadow-sm\)/)
+  expect(block).toMatch(/box-shadow:[^;]*var\(--hd-border-strong\)/)
 })
 
 it('refuses a disabled choice and explains the reason on hover', () => {

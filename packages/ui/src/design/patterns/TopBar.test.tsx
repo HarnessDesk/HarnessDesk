@@ -60,7 +60,7 @@ beforeEach(() => {
     return result
   })
   vi.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(function (this: Element) {
-    const width = this.matches('[data-topbar-title]') ? titleWidth(this.closest('[data-slot="top-bar"]')!)
+    const width = this.matches('[data-topbar-title], [data-topbar="place"]') ? titleWidth(this.closest('[data-slot="top-bar"]')!)
       : this.matches('[data-slot="top-bar"]') ? 720 : 0
     return new DOMRect(0, 0, width, 40)
   })

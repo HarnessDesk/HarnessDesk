@@ -295,27 +295,22 @@ for (const theme of WALL_THEMES) {
     await expect(page.getByRole('button', { name: 'Decide this run', exact: true })).toBeVisible()
   })
 
-  test(`B5 equivalent completed rounds expand into their original records in ${theme}`, async ({ page }) => {
+  test(`B5 equivalent completed rounds stay folded and select their latest record in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team-run-equivalent', theme)
     await selectFrameTab(page, 'run')
     const main = page.locator('[data-slot="workbench-main"]')
     const group = main.locator('[data-round-group]')
     await expect(group).toHaveCount(1)
-    await expect(group).toHaveAttribute('data-expanded', 'false')
     await expect(group).toContainText('Rounds 1–2')
-    await expect(main.locator('[data-row="round-1"]')).toHaveCount(0)
-    await expect(main.locator('[data-row="round-2"]')).toHaveCount(0)
-    await group.locator('[data-step-row]').click()
-    await expect(group).toHaveAttribute('data-expanded', 'true')
-    await expect(main.locator('[data-row="round-1"]')).toHaveCount(1)
-    await expect(main.locator('[data-row="round-2"]')).toHaveCount(1)
-    await main.locator('[data-row="card-2-2"]').click()
+    await expect(group).toContainText('2 runs')
+    await expect(main.locator('[data-slot="timeline-records"]')).toHaveCount(0)
+    await group.click()
     await expect(main.locator('[data-row="card-2-2"]')).toHaveAttribute('aria-current', 'true')
     await expect(page.locator('[data-slot="tool-body"]:visible [data-slot="run-inspector"]')).toContainText('#2')
     await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Toggle right panel', exact: true }).click()
     await selectRunView(page.locator('[data-frame-id="frame-wall"]'), 'Flow')
     await selectRunView(page.locator('[data-frame-id="frame-wall"]'), 'Timeline')
-    await expect(group).toHaveAttribute('data-expanded', 'true')
+    await expect(group).toHaveCount(1)
     await expect(main.locator('[data-row="card-2-2"]')).toHaveAttribute('aria-current', 'true')
     await expect(page.locator('[data-slot="tool-body"]:visible')).toHaveCount(0)
   })
@@ -384,7 +379,9 @@ for (const theme of WALL_THEMES) {
     await expect(main.locator('[data-slot="flow-list"] section[aria-label="Rules"]')).toHaveCount(1)
     await selectRunView(page.locator('#run-dock-frame'), 'Timeline')
     await expect(main.locator('[data-slot="run-steps"]')).toBeVisible()
-    for (const round of [1,2,3,4]) await expect(main.locator(`[data-row="round-${round}"]`)).toBeVisible()
+    await expect(main.locator('[data-step-row]')).toHaveCount(5)
+    await expect(main).toContainText('Taken 4')
+    await expect(main).toContainText('Not reached 1')
     // The canonical toggle restores remembered Details on one press; Flow
     // retains its native Rules alternative and Timeline Steps without a Steps tool.
     await page.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
@@ -479,9 +476,7 @@ for (const theme of WALL_THEMES) {
     for (const box of await rows.evaluateAll(nodes => nodes.map(node => node.closest('header')!.getBoundingClientRect().height))) {
       expect(Math.round(box)).toBe(FRAME.bar.height)
     }
-    const divider = rows.first().locator('[data-slot="bar-divider"]')
-    expect((await divider.boundingBox())!.height).toBe(FRAME.bar.dividerHeight)
-    expect((await divider.boundingBox())!.width).toBe(await divider.evaluate(node => Number.parseFloat(getComputedStyle(node).getPropertyValue('--hd-border-width'))))
+    await expect(rows.first().locator('[data-slot="bar-divider"]')).toHaveCount(0)
     await expect(rows.first().locator('[data-topbar="more"]')).toBeVisible()
     await expect(rows.first().locator('[data-team-page="findings"]')).toBeVisible()
   })
@@ -575,9 +570,7 @@ for (const theme of WALL_THEMES) {
       const top = page.locator('[data-slot="top-bar"]')
       await expect(top).toHaveCount(1)
       expect(Math.round((await top.locator('..').boundingBox())!.height)).toBe(FRAME.bar.height)
-      const divider = (await top.locator('[data-slot="bar-divider"]').boundingBox())!
-      expect(Math.round(divider.width)).toBe(1)
-      expect(Math.round(divider.height)).toBe(FRAME.bar.dividerHeight)
+      await expect(top.locator('[data-slot="bar-divider"]')).toHaveCount(0)
       await expect(page.locator('[data-slot="workbench-main"] header[data-slot="bar"]')).toHaveCount(0)
       expect(await top.locator('[data-work-tool]').evaluateAll(nodes => nodes.map(node => (node as HTMLElement).dataset.workTool)))
         .toEqual(['details', 'changes', 'activity', 'browser'])
@@ -591,7 +584,7 @@ for (const theme of WALL_THEMES) {
       await expect(details.locator('[data-slot="summary-card"]').first()).toHaveAttribute('data-surface', 'panel')
       const firstTool = (await top.locator('[data-work-tool="details"]').boundingBox())!
       const panel = (await details.boundingBox())!
-      expect(firstTool.x - panel.x).toBe(FRAME.bar.pad)
+      expect(firstTool.x - panel.x).toBe(FRAME.bar.pad + 1)
       const more = (await top.getByRole('button', { name: 'More', exact: true }).boundingBox())!
       expect(more.x + more.width + FRAME.bar.pad).toBe(1440)
       const keys = details.locator('[data-slot="summary-item"] dt')
@@ -618,10 +611,10 @@ for (const theme of WALL_THEMES) {
     await page.mouse.move(start - 40, 400, { steps: 6 })
     await expect.poll(async () => Math.round((await details.boundingBox())!.width)).toBe(Math.round(panelBefore.width) + 40)
     const painted = (await details.boundingBox())!
-    expect((await first.boundingBox())!.x - painted.x).toBe(FRAME.bar.pad)
+    expect((await first.boundingBox())!.x - painted.x).toBe(FRAME.bar.pad + 1)
     expect((await more.boundingBox())!.x).toBe(moreBefore.x)
     await page.mouse.up()
-    expect((await first.boundingBox())!.x - (await details.boundingBox())!.x).toBe(FRAME.bar.pad)
+    expect((await first.boundingBox())!.x - (await details.boundingBox())!.x).toBe(FRAME.bar.pad + 1)
   })
 }
 
@@ -789,5 +782,60 @@ for (const theme of WALL_THEMES) {
     await page.getByRole('menuitemradio', { name: 'Side by side', exact: true }).click()
     await expect(own.locator('textarea')).toHaveValue('Keep this member draft')
     await expect(chip).toHaveCount(0)
+  })
+}
+
+for (const theme of WALL_THEMES) {
+  test(`B11a bar order, switcher, pressed tools and continuous standing seam in ${theme}`, async ({ page }) => {
+    for (const width of [1440, 1100, 720]) {
+      await openFrame(page, 'frame-wall=team', theme, width)
+      const bar = page.locator('[data-slot="top-bar"]:visible')
+      await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+      const order = await bar.evaluate(node => [...node.children].map(one => one.getAttribute('data-topbar')))
+      if (order.includes('state')) {
+        expect(order.indexOf('place')).toBeLessThan(order.indexOf('state'))
+        expect(order.indexOf('state')).toBeLessThan(order.indexOf('tabs'))
+      }
+      expect(order.indexOf('place')).toBeLessThan(order.indexOf('tabs'))
+      expect(order.indexOf('tabs')).toBeLessThan(order.indexOf('spacer'))
+      const track = bar.locator('[data-slot="tabs-list"]')
+      if (await track.isVisible()) {
+        expect(await track.evaluate(node => { const style = getComputedStyle(node); return [style.paddingTop, style.gap, style.borderRadius] })).toEqual(['2px', '1px', '8px'])
+        expect(await track.locator('[role="tab"]').first().evaluate(node => { const style = getComputedStyle(node); return [node.getBoundingClientRect().height, style.paddingLeft, style.borderRadius, style.fontSize] })).toEqual([24, '9px', '6px', '13px'])
+        expect(await track.locator('[aria-selected="true"]').evaluate(node => getComputedStyle(node).boxShadow)).not.toBe('none')
+      }
+      await bar.getByRole('button', { name: 'Details', exact: true }).click()
+      const tools = bar.locator('[data-topbar="tools"]')
+      const panel = page.locator('[data-slot="work-tools"]:visible')
+      await expect(panel).toBeVisible()
+      const pressed = bar.locator('[data-work-tool="details"]')
+      await expect(pressed).toHaveAttribute('aria-pressed', 'true')
+      expect(await pressed.evaluate(node => getComputedStyle(node).boxShadow)).toContain('inset')
+      expect(await tools.evaluate(node => getComputedStyle(node).borderLeftWidth)).toBe(width >= FRAME.fold.panelFloats ? '1px' : '0px')
+      if (width >= FRAME.fold.panel) {
+        const top = (await tools.boundingBox())!, body = (await panel.boundingBox())!
+        expect(top.x).toBe(body.x)
+        expect(top.width).toBe(body.width)
+        expect(top.y).toBe(0)
+      }
+      await bar.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
+      expect(await tools.evaluate(node => getComputedStyle(node).borderLeftWidth)).toBe('0px')
+    }
+  })
+
+  test(`B11a panel facts have one-line row density and Findings agrees with its tab in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=team', theme)
+    const bar = page.locator('[data-slot="top-bar"]:visible')
+    await bar.getByRole('button', { name: 'Details', exact: true }).click()
+    const panel = page.locator('[data-slot="tool-body"]:visible')
+    const facts = panel.locator('[data-slot="summary-item"]:not(:has([data-slot="summary-action"]))')
+    const rows = await facts.evaluateAll(nodes => nodes.filter(node => !node.querySelector('[data-slot="summary-note"]')).map(node => node.getBoundingClientRect().height))
+    expect(rows.length).toBeGreaterThan(2)
+    expect(rows.every(height => height >= 36 && height <= 38)).toBe(true)
+    await bar.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
+    await selectFrameTab(page, 'findings')
+    await expect(bar.locator('[data-team-page="findings"]')).toContainText('3')
+    expect(await page.locator('[aria-label="Findings summary"] [data-slot="summary-item"]').evaluateAll(nodes => nodes.map(node => [node.querySelector('dt')?.textContent, node.querySelector('[data-slot="summary-value"]')?.textContent]))).toEqual([['Open', '3'], ['Blocking', '3'], ['All', '3']])
+    await expect(page.locator('[data-slot="workbench-main"]')).not.toContainText('No findings recorded')
   })
 }

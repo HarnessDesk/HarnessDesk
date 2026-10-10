@@ -563,9 +563,6 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   </> : null
 
   const owner = usePane()?.paneId ?? ''
-  const boardSummary = intents.length === 0 ? 'No work yet'
-    : `${byColumn.get('todo')?.length ?? 0} to do · ${byColumn.get('working')?.length ?? 0} working · ${byColumn.get('needs')?.length ?? 0} need you`
-  const summary = <SummaryList aria-label="Board summary"><SummaryItem label="Work">{boardSummary}</SummaryItem></SummaryList>
   useTopBarView(owner, {
     verb: { label: 'New job', icon: <PlusIcon />, disabled: record ? RECORD_REASON : false, run: openAdd },
     view: { content: close => <Menu close={close}>
@@ -583,7 +580,6 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
        width, so a narrow Board can retain its compact list geometry. */
     <ToolPane ref={paneRef} variant="integrated" className="@container/board">
       <ToolPaneBody ref={bodyRef} bleed={view === 'list'} inset="dense" className="[scrollbar-gutter:stable]">
-        {view === 'list' ? <PaneColumn inset="reading">{summary}</PaneColumn> : summary}
         {notices && (view === 'list' ? <PaneColumn inset="reading" className="flex flex-col gap-2">{notices}</PaneColumn> : notices)}
         {/* The goals on this board, above the work. A Room is permanent and a
             goal is not, so this is the only line that can ever say "finished" —

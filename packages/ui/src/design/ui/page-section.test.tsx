@@ -221,7 +221,8 @@ it('panel facts keep a fixed key column without a card or narrow stacked keys', 
   expect(list.className).not.toContain('@max-md')
   const item = wrap.querySelector('[data-slot="summary-item"]')!
   expect(item.className).toContain('grid-cols-subgrid')
-  expect(item.className).toContain('py-(--hd-inset-row)')
+  expect(item.className).toContain('py-(--hd-space-2)')
+  expect(item.className).toContain('border-b-(length:--hd-border-width)')
   expect(item.className).not.toContain('p-(--hd-inset-row)')
   expect(item.className).not.toContain('gap-x-')
   expect(wrap.querySelector('dt')?.className).not.toContain('col-span-full')

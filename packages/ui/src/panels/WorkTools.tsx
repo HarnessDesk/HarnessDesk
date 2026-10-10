@@ -1,10 +1,10 @@
 import { Button } from '../design'
-import { DiffIcon, HistoryIcon, GlobeIcon, PlanIcon, PanelIcon } from '../components/Icons'
+import { FilePlusIcon, HistoryIcon, GlobeIcon, SquareMenuIcon, PanelRightIcon } from '../components/Icons'
 import { useSnapshot, useStore } from '../state/context'
 import { fixedSubject } from '../state/workbench'
 const tools = [
-  { value: 'details', label: 'Details', Icon: PlanIcon },
-  { value: 'changes', label: 'Changes', Icon: DiffIcon },
+  { value: 'details', label: 'Details', Icon: SquareMenuIcon },
+  { value: 'changes', label: 'Changes', Icon: FilePlusIcon },
   { value: 'activity', label: 'Activity', Icon: HistoryIcon },
   { value: 'browser', label: 'Browser', Icon: GlobeIcon },
 ] as const
@@ -14,7 +14,7 @@ export const WorkPanelToggle = ({ onToggle }: { onToggle?: (open: boolean) => vo
   const subject = fixedSubject(snapshot.workbench.main)
   const open = subject !== null && snapshot.workbench.frameTools[subject]?.open === true
   return <Button data-work-panel-toggle variant="ghost" size="icon-sm" aria-label="Toggle right panel" title="Toggle right panel"
-    aria-expanded={open} aria-pressed={open} onClick={() => onToggle ? onToggle(open) : store.toggleWorkPanel()}><PanelIcon /></Button>
+    aria-expanded={open} aria-pressed={open} onClick={() => onToggle ? onToggle(open) : store.toggleWorkPanel()}><PanelRightIcon /></Button>
 }
 export const WorkTools = ({ draft = false, changesRefusal }: { draft?: boolean; changesRefusal?: string }) => {
   const store = useStore()
