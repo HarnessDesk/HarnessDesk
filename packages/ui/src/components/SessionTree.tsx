@@ -5,7 +5,6 @@ import {
   Button,
   Chip,
   ContextMenu,
-  DisclosureChevron,
   Dot,
   FRAME,
   LeftColumnList,
@@ -465,7 +464,7 @@ const GroupHead = ({
       onDragEnd={drag.onEnd}
       onContextMenu={menu.open}
     >
-      <LeftColumnRow project current={holdsOpen} dragging={drag.dragging === group.root} insertion={edge ?? undefined} label={group.name} icon={<DisclosureChevron open={open} size="xs" />}
+      <LeftColumnRow project current={holdsOpen} dragging={drag.dragging === group.root} insertion={edge ?? undefined} label={group.name}
         expanded={open} title={`${holdsOpen ? (current ? 'The folder this app is working in.\n' : 'Holds the folder this app is working in.\n') : ''}${actualRoot}\n⌥-click to ${open ? 'collapse' : 'expand'} every project.${stopped ? `\n${stopped.reason} ${stopped.nextStep}` : ''}`}
         onClick={event => event.altKey ? onToggleAll() : onToggle()}
         trailing={stopped ? { kind: 'mark', icon: <Dot variant="navigation" />, label: `${stopped.reason} ${stopped.nextStep}` }
@@ -1452,7 +1451,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
     )
     return (
       <div key={group.root} data-navigation-root={group.root} data-project-root={folderless ? undefined : group.root} data-no-folder={folderless ? '' : undefined}>
-        {folderless ? <LeftColumnRow label="No folder" icon={<DisclosureChevron open={open} size="xs" />}
+        {folderless ? <LeftColumnRow label="No folder"
           expanded={open} onClick={() => setNoFolderOpen(value => !value)} /> : <GroupHead
           group={group}
           open={open}
@@ -1519,7 +1518,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
       {nearContent}
       {far.length > 0 && (
         <div>
-          <LeftColumnRow label="Other projects" icon={<DisclosureChevron open={othersOpen} size="xs" />} expanded={othersOpen}
+          <LeftColumnRow label="Other projects" expanded={othersOpen}
             onClick={() => setOthersOpen(!othersOpen)} title={dragging ? 'Drop here to let this project sort itself again' : 'Other projects'}
             insertion={dragging && !far.some(group => group.root === dragging) ? 'into' : undefined}
             trailing={{ kind: 'count', value: far.length, label: `${far.length} other projects` }}

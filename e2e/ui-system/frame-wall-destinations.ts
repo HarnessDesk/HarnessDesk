@@ -98,3 +98,10 @@ export const WALL_TIME = new Date('2026-09-30T10:00:00-07:00')
   { id: 'settings-left-200', query: 'frame-wall=settings-navigation', leftOpen: true, leftWidth: 200 },
   { id: 'settings-left-360', query: 'frame-wall=settings-navigation', leftOpen: true, leftWidth: 360 },
 )
+
+// D7a: both heading states at every wall width and theme, including the float.
+export interface WallDestination { readonly leftHeading?: 'hover-open' | 'folded' }
+;(WALL_DESTINATIONS as WallDestination[]).push(
+  { id: 'left-project-hover', query: 'frame-wall=left-work', leftOpen: true, leftHeading: 'hover-open' },
+  { id: 'left-project-folded', query: 'frame-wall=left-work', leftOpen: true, leftHeading: 'folded' },
+)

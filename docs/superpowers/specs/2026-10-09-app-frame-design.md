@@ -218,6 +218,9 @@ One container, whatever main shows.
   bar, and its seats are in its Overview and the Details tool, not rows under
   it. Opening the Team returns to the view it was last on.
 - **Group label:** 13px/500, secondary ink, in both modes; it starts at the icons' x, not the text's, with 16px above a group that follows another (the owner's choice, 2026-10-10).
+  - Project headings keep the 16px gutter; the muted disclosure follows the visible name by the 6px spacing token, including when truncated, with room for the right-end +.
+    Open headings reveal the down arrow and + on hover or keyboard focus; folded headings keep the right arrow visible. Name and arrow toggle `aria-expanded`; right-click keeps the menu.
+    Every foldable left-column heading follows this rule in both modes, standing or floating (owner, 2026-10-10).
 - **Seat row (40):** you, at the bottom, then the notifications bell beside the
   gear that opens Settings; the gear stays last (owner, 2026-10-10).
   The gear reads as pressed while Settings is open.

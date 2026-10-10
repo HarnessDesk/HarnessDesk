@@ -550,6 +550,46 @@ const treeWith = (
   }
 }
 
+it('project name and trailing disclosure share the fold, aria-expanded and unchanged right-click menu', () => {
+  const view = treeWith([], [summary({ id: 'one', runtime: runtimeId('agent') })])
+  const toggle = vi.fn(() => {
+    const snapshot = view.store.getSnapshot()
+    view.update({ listPrefs: { ...snapshot.listPrefs, collapsed: snapshot.listPrefs.collapsed.length ? [] : ['/repo'] } })
+  })
+  Object.assign(view.store, { toggleCollapsed: toggle })
+  const heading = container.querySelector<HTMLButtonElement>('[data-project-root="/repo"] button[data-draggable]')!
+  const name = heading.querySelector<HTMLElement>('[data-left-fold-name]') ?? heading.querySelector<HTMLElement>('[data-slot="sidebar-menu-label-content"]')!
+  const arrow = heading.querySelector<SVGElement>('[data-slot="disclosure-chevron"]')!
+  expect(arrow).not.toBeNull()
+  expect(name.nextElementSibling).toBe(arrow)
+  expect(heading.getAttribute('aria-expanded')).toBe('true')
+  act(() => name.click())
+  expect(heading.getAttribute('aria-expanded')).toBe('false')
+  expect(arrow.hasAttribute('data-open')).toBe(false)
+  act(() => arrow.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+  expect(heading.getAttribute('aria-expanded')).toBe('true')
+  expect(arrow.hasAttribute('data-open')).toBe(true)
+  expect(toggle).toHaveBeenCalledTimes(2)
+  act(() => heading.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 20, clientY: 20 })))
+  expect(document.querySelector('[role="menu"]')).not.toBeNull()
+  expect([...document.querySelectorAll('[role="menuitem"]')].some(item => item.textContent === 'Pin')).toBe(true)
+  expect(toggle).toHaveBeenCalledTimes(2)
+})
+
+it('No folder and Other projects follow the same name-then-disclosure rule', () => {
+  treeWith([], [summary({ id: 'unknown', runtime: runtimeId('agent'), cwd: '' }),
+    summary({ id: 'one', runtime: runtimeId('agent'), cwd: '/one' }),
+    summary({ id: 'two', runtime: runtimeId('agent'), cwd: '/two' })])
+  for (const label of ['No folder', 'Other projects']) {
+    const heading = container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`)!
+    expect(heading).not.toBeNull()
+    const name = heading.querySelector('[data-left-fold-name]') ?? heading.querySelector('[data-slot="sidebar-menu-label-content"]')!
+    expect(name.nextElementSibling?.getAttribute('data-slot')).toBe('disclosure-chevron')
+    expect(heading.querySelector('[data-slot="sidebar-menu-icon"]')).toBeNull()
+    expect(heading.getAttribute('aria-expanded')).toBe('false')
+  }
+})
+
 it.each(['project', 'Other projects', 'Team'])('does not report matches hidden by a %s fold as an empty search', (fold) => {
   const match = summary({ id: 'needle', cwd: fold === 'Other projects' ? '/elsewhere' : '/repo' })
   const rooms = fold === 'Team' ? [room({ id: 'team', name: 'Matching Team', members: [String(sessionKey(match.runtime, match.id))] })] : []
@@ -696,7 +736,7 @@ it('opens Other projects when the active session belongs to a far project', () =
 
   expect(store.setOthersOpen).toHaveBeenCalledWith(true)
   const fold = [...container.querySelectorAll<HTMLButtonElement>('button')].find((button) => button.textContent?.startsWith('Other projects'))
-  expect(fold?.querySelector('[data-slot="sidebar-menu-icon"]')).not.toBeNull()
+  expect(fold?.querySelector('[data-left-fold-name]')?.nextElementSibling?.getAttribute('data-slot')).toBe('disclosure-chevron')
   expect(fold?.closest('[data-sidebar="group"]')).toBeNull()
   expect(fold?.parentElement?.querySelector('[data-left-mark]')?.textContent).toBe('4')
 })
@@ -2153,12 +2193,12 @@ it('keeps a Seat with another checkout out of that project’s loose rows', () =
   expect(rowTitles(view.container).filter(one => one === 'session-cross-checkout')).toHaveLength(0)
 })
 
-it('uses a leading disclosure and one action on every project header', () => {
+it('uses a disclosure after the name and one action on every project header', () => {
   const view = treeWith([], [summary({ id: 'session-near' }), summary({ id: 'session-far', cwd: '/other' })], [], { othersOpen: true })
   const headers = view.container.querySelectorAll('[data-draggable]')
   expect(headers).toHaveLength(2)
   for (const header of headers) {
-    expect(header.querySelector('[data-slot="sidebar-menu-icon"] [data-slot="disclosure-chevron"]')).not.toBeNull()
+    expect(header.querySelector('[data-left-fold-name]')?.nextElementSibling?.getAttribute('data-slot')).toBe('disclosure-chevron')
     expect(header.querySelector('[data-slot="sidebar-menu-label-content"]')).not.toBeNull()
     expect(header.closest('[data-left-row]')?.querySelectorAll('[data-slot="sidebar-menu-action"]')).toHaveLength(1)
   }

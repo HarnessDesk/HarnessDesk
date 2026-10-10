@@ -1487,3 +1487,132 @@ for (const theme of WALL_THEMES) {
     await expect(modal).toHaveCount(0)
   })
 }
+
+// D7a is additive. Measure painted list content, rather than the containing
+// backgrounds and hit targets, whose inset deliberately precedes their ink.
+const d7a = test.extend({})
+d7a.use({ screenshot: 'off', trace: 'off' })
+d7a.describe('D7a heading disclosure', () => {
+  for (const theme of WALL_THEMES) for (const width of WALL_WIDTHS) {
+    for (const mode of ['left-work', 'settings-navigation'] as const) {
+      d7a(`D7a ${mode} list ink respects the gutter and disclosures follow names at ${width} in ${theme}`, async ({ page }) => {
+        await openFrame(page, `frame-wall=${mode}`, theme, width)
+        await applyLeftColumnActions(page, { leftOpen: true })
+        const column = page.locator('[data-left-column]:visible')
+        // Include the default and both clamp endpoints in standing and floating modes.
+        for (const leftWidth of [256, 200, 360]) {
+          await applyLeftColumnActions(page, { leftOpen: true, leftWidth })
+          await column.evaluate(node => { if (node.contains(document.activeElement)) (document.activeElement as HTMLElement).blur() })
+          await page.mouse.move(width - 1, 899)
+          const gutter = await column.evaluate(node => node.getBoundingClientRect().left) + 16
+          const escaped = await column.evaluate((column, gutter) => {
+            const visible = (node: Element) => {
+              for (let ancestor: Element | null = node; ancestor; ancestor = ancestor.parentElement) {
+                const css = getComputedStyle(ancestor)
+                if (css.display === 'none' || css.visibility !== 'visible' || css.opacity === '0') return false
+              }
+              return node.getBoundingClientRect().width > 0
+            }
+            const failures: { text: string; x: number }[] = []
+            for (const root of column.querySelectorAll('[data-region="sidebar-content"], nav[aria-label="Workspace actions"], [data-left-head]')) {
+              for (const node of root.querySelectorAll('svg, img')) {
+                if (visible(node) && node.getBoundingClientRect().left < gutter) failures.push({ text: node.getAttribute('data-slot') ?? node.tagName, x: node.getBoundingClientRect().left })
+              }
+              const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+              while (walker.nextNode()) {
+                const text = walker.currentNode
+                if (!text.textContent?.trim() || !text.parentElement || !visible(text.parentElement) || text.parentElement.closest('svg')) continue
+                const range = document.createRange(); range.selectNodeContents(text)
+                const box = range.getBoundingClientRect()
+                if (box.width && box.left < gutter) failures.push({ text: text.textContent, x: box.left })
+              }
+            }
+            return failures
+          }, gutter)
+          expect(escaped, `${mode}/${leftWidth}: every visible list glyph and text starts at the gutter or later`).toEqual([])
+          if (mode === 'settings-navigation') continue
+          const headings = column.locator('[data-slot="sidebar-menu-button"][aria-expanded]')
+          expect(await headings.count()).toBeGreaterThan(2)
+          for (const heading of await headings.all()) {
+            const arrow = heading.locator('[data-slot="disclosure-chevron"]')
+            const name = heading.locator('[data-left-fold-name]')
+            const row = heading.locator('..')
+            const action = row.locator('[data-slot="sidebar-menu-action"]')
+            const open = await heading.getAttribute('aria-expanded') === 'true'
+            if (open) await expect(arrow).toBeHidden()
+            else await expect(arrow).toBeVisible()
+            await row.hover()
+            await expect(arrow).toBeVisible()
+            if (await action.count()) await expect(action).toBeVisible()
+            const measured = await heading.evaluate(heading => {
+              const name = heading.querySelector('[data-left-fold-name]')!
+              const range = document.createRange(); range.selectNodeContents(name)
+              const arrow = heading.querySelector('[data-slot="disclosure-chevron"]')!.getBoundingClientRect()
+              const box = name.getBoundingClientRect()
+              return { name: box.left, arrow: arrow.left, end: Math.min(range.getBoundingClientRect().right, box.right), right: arrow.right }
+            })
+            expect(measured.name).toBe(gutter)
+            expect(measured.arrow - measured.end).toBeGreaterThanOrEqual(0)
+            expect(measured.arrow - measured.end).toBeLessThanOrEqual(10)
+            if (await action.count()) expect(measured.right).toBeLessThanOrEqual((await action.boundingBox())!.x)
+            if (leftWidth === 256) console.log(`D7a ${width}/${theme} ${await name.textContent()}: gutter=${gutter}, name=${measured.name}, arrow=${measured.arrow}`)
+            // Traverse the real tree with arrow keys to return keyboard focus
+            // to this heading, including headings outside the sole Tab stop.
+            await page.mouse.move(width - 1, 899)
+            await heading.focus()
+            await page.keyboard.press('ArrowUp')
+            await page.keyboard.press('ArrowDown')
+            await expect(heading).toBeFocused()
+            expect(await heading.evaluate(node => node.matches(':focus-visible'))).toBe(true)
+            await expect(arrow).toBeVisible()
+            if (await action.count()) await expect(action).toBeVisible()
+            // End keyboard focus before testing a fresh pointer focus. A click
+            // on the already keyboard-focused button retains focus-visible.
+            await heading.evaluate(node => (node as HTMLElement).blur())
+            await name.click()
+            await expect(heading).toHaveAttribute('aria-expanded', String(!open))
+            await arrow.click()
+            await expect(heading).toHaveAttribute('aria-expanded', String(open))
+            await page.mouse.move(width - 1, 899)
+            if (open) await expect(arrow).toBeHidden()
+            else await expect(arrow).toBeVisible()
+            if (await action.count()) await expect(action).toBeHidden()
+            await heading.evaluate(node => (node as HTMLElement).blur())
+          }
+          // Truncate an actual project label in-place without changing its action or semantics.
+          const project = column.locator('[data-project-root] button[data-draggable]').first()
+          const name = project.locator('[data-left-fold-name]')
+          const original = await name.textContent()
+          await name.evaluate(node => { node.textContent = 'A deliberately long project name · 長い名前'.repeat(4) })
+          await project.hover()
+          await expect(project.locator('[data-slot="disclosure-chevron"]')).toBeVisible()
+          const long = await project.evaluate(node => {
+            const name = node.querySelector<HTMLElement>('[data-left-fold-name]')!
+            const arrow = node.querySelector('[data-slot="disclosure-chevron"]')!.getBoundingClientRect()
+            const action = node.parentElement!.querySelector('[data-slot="sidebar-menu-action"]')!.getBoundingClientRect()
+            return { truncated: name.scrollWidth > name.clientWidth, end: name.getBoundingClientRect().right, arrow: arrow.left, right: arrow.right, action: action.left }
+          })
+          expect(long.truncated).toBe(true)
+          expect(long.arrow - long.end).toBeGreaterThanOrEqual(0)
+          expect(long.arrow - long.end).toBeLessThanOrEqual(10)
+          expect(long.right).toBeLessThanOrEqual(long.action)
+          await name.evaluate((node, value) => { node.textContent = value }, original!)
+          await project.click({ button: 'right' })
+          await expect(page.getByRole('menu')).toBeVisible()
+          await expect(page.getByRole('menuitem', { name: /^(Pin|Unpin)$/ })).toBeVisible()
+          await page.keyboard.press('Escape')
+        }
+        if (mode === 'left-work') {
+          const project = column.locator('[data-project-root] button[data-draggable]').first()
+          const action = project.locator('..').locator('[data-slot="sidebar-menu-action"]')
+          await applyLeftColumnActions(page, { leftOpen: true, leftWidth: 256, leftHeading: 'hover-open' })
+          await expect(action).toBeVisible()
+          await applyLeftColumnActions(page, { leftOpen: true, leftHeading: 'folded' })
+          await expect(action).toBeHidden()
+        }
+      })
+    }
+  }
+})
+
+import { applyLeftColumnActions } from './left-column-actions'

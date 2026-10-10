@@ -5,6 +5,7 @@ import { Bar } from '../ui/bar'
 import { Button } from '../ui/button'
 import { SidebarMenuButton } from '../ui/sidebar'
 import { GroupLabel } from '../ui/group-label'
+import { DisclosureChevron } from '../ui/disclosure-chevron'
 import { Text, Search, Chip, NavigationGroupHeader } from './Settings'
 import { ArrowLeftIcon, ArrowRightIcon, MoreIcon, CrossIcon, PlusIcon, SettingsIcon, SidebarIcon } from '../../components/Icons'
 import styles from './LeftColumn.module.css'
@@ -44,8 +45,9 @@ export interface LeftColumnRowProps {
 }
 export const LeftColumnRow = forwardRef<HTMLButtonElement, LeftColumnRowProps>((props, ref) =>
   <div data-left-row data-left-project={props.project ? '' : undefined} data-insert={props.insertion} data-current={props.current ? '' : undefined} data-dragging={props.dragging ? '' : undefined} className={styles.row} onContextMenu={props.onContextMenu}>
-    <SidebarMenuButton data-draggable={props.project ? '' : undefined} ref={ref} className={styles.button} label={props.label}
-      icon={props.icon ?? <span aria-hidden="true" />} isActive={props.selected}
+    <SidebarMenuButton data-draggable={props.project ? '' : undefined} ref={ref} className={styles.button}
+      label={props.expanded === undefined ? props.label : <><span data-left-fold-name className={styles.foldName}>{props.label}</span><DisclosureChevron open={props.expanded} size="xs" className={styles.disclosure} /></>}
+      icon={props.expanded === undefined ? props.icon ?? <span aria-hidden="true" /> : undefined} isActive={props.selected}
       title={props.title ?? props.label} disabled={props.disabled}
       aria-current={props.selected ? 'page' : undefined} aria-expanded={props.expanded}
       aria-label={props.label} onClick={props.onClick} {...props.buttonProps} />

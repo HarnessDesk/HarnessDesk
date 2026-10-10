@@ -5,6 +5,7 @@ export const applyLeftColumnActions = async (page: Page, actions: {
   readonly leftWidth?: number
   readonly leftOpen?: boolean
   readonly leftPopup?: string
+  readonly leftHeading?: 'hover-open' | 'folded'
 }) => {
   if (!actions.leftOpen && actions.leftWidth === undefined) return
   const column = page.locator('[data-left-column]:visible')
@@ -33,6 +34,18 @@ export const applyLeftColumnActions = async (page: Page, actions: {
     await expect(page.locator('[data-slot="hover-card-content"]:visible')).toBeVisible()
   }
   if (actions.leftPopup && ['inbox', 'account', 'start'].includes(actions.leftPopup)) await expect(page.locator('[data-slot="popover-popup"]:visible')).toBeVisible()
+  if (actions.leftHeading) {
+    const heading = column.locator('[data-project-root] button[data-draggable]').first()
+    const expanded = actions.leftHeading === 'hover-open'
+    if ((await heading.getAttribute('aria-expanded') === 'true') !== expanded) await heading.click()
+    await expect(heading).toHaveAttribute('aria-expanded', String(expanded))
+    if (expanded) await heading.hover()
+    else {
+      await heading.evaluate(node => (node as HTMLElement).blur())
+      await page.mouse.move(page.viewportSize()!.width - 1, 899)
+    }
+    await expect(heading.locator('[data-slot="disclosure-chevron"]')).toBeVisible()
+  }
 }
 
 /** Exercise the actual controlled Settings search in its visual wall. */
