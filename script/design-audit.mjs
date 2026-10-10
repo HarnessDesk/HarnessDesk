@@ -3095,9 +3095,8 @@ export const screenUnmappedUtilityOf = (file, source, ast) => {
 /**
  * Tailwind utilities that place or size a box — display, flex and grid,
  * gaps, alignment, widths, offsets, margins, overflow. `screenUtilityDeclarationOf`
- * is taught the appearance utilities and returns null for these, so the
- * layout side needs its own reading. Heights stay with the appearance rule,
- * which already judges them by value.
+ * classifies appearance and intrinsic height utilities through the same
+ * property boundary as CSS; only unmapped utilities need this fallback.
  */
 const LAYOUT_UTILITY = /^-?(?:flex|inline-flex|grid|inline-grid|block|inline-block|inline|hidden|contents|flow-root|grow|shrink|absolute|relative|fixed|sticky|static|isolate|(?:flex|grid|basis|grow|shrink|order|col|row|auto-cols|auto-rows|gap|gap-x|gap-y|space-x|space-y|justify|justify-items|justify-self|items|content|self|place-content|place-items|place-self|w|min-w|max-w|size|inset|inset-x|inset-y|top|right|bottom|left|start|end|z|m|mx|my|mt|mr|mb|ml|ms|me|overflow|overflow-x|overflow-y|float|clear|object|aspect|columns)-.+)$/
 
@@ -3120,7 +3119,12 @@ export const screenLayoutOf = (file, source, ast) => {
   const findings = []
   for (const { text: rawToken, file: originFile } of classSiteEntries(tree, file, new Set())) {
     const token = withoutImportantMarker(utilityBase(rawToken))
-    if (token && LAYOUT_UTILITY.test(token)) findings.push(`${screenAppearanceName(originFile)}: ${rawToken}`)
+    if (!token) continue
+    const declaration = screenUtilityDeclarationOf(token)
+    const layout = declaration
+      ? screenPropertySideOf(declaration.property, declaration.value) === 'layout'
+      : LAYOUT_UTILITY.test(token)
+    if (layout) findings.push(`${screenAppearanceName(originFile)}: ${rawToken}`)
   }
   return findings
 }
@@ -3679,12 +3683,34 @@ export const RETIRED_COMPONENTS = [
   'ToolPaneHeader', 'DockPanelBar', 'DockPanelTabs', 'PanelTools', 'PanelPill', 'PanelActions',
   'PopoverOption', 'Segmented',
 ]
-const RETIRED_JSX = new RegExp(`<(${RETIRED_COMPONENTS.join('|')})(?=[\\s/>])`, 'g')
+const RETIRED_NAMES = new Set(RETIRED_COMPONENTS)
 
 export const retiredComponentsOf = (file, source) => {
   if (!file.endsWith('.tsx') || !isScreenSheet(file)) return []
-  const code = withoutComments(source, file, { strict: true })
-  return [...code.matchAll(RETIRED_JSX)].map((match) => `${label(file)}: <${match[1]}>`)
+  const ast = parseScreenSource(file, source)
+  const identities = new Map()
+  for (const { spec, bindings } of importsIn(withoutComments(source, file, { strict: true }))) {
+    const target = moduleFileFor(spec, path.dirname(file))
+    const exported = target ? exportedNamesOf(target) : new Map()
+    for (const binding of bindings) {
+      if (binding.kind === 'namespace') {
+        for (const [name, ref] of exported) identities.set(`${binding.localBinding}.${name}`, ref.localName)
+      } else {
+        identities.set(binding.localBinding, exported.get(binding.name)?.localName ?? binding.name)
+      }
+    }
+  }
+  const found = []
+  const visit = (node) => {
+    if (ts.isJsxOpeningElement(node) || ts.isJsxSelfClosingElement(node)) {
+      const tag = node.tagName.getText(ast)
+      const name = identities.get(tag) ?? tag
+      if (RETIRED_NAMES.has(name)) found.push(`${label(file)}: <${name}>`)
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(ast)
+  return found
 }
 
 /**
@@ -3702,10 +3728,6 @@ export const pageMeasuresOf = (file, source) => {
   return found
 }
 
-for (const file of [...cssFiles(), ...tsxFiles()]) {
-  findings.retiredComponent.push(...retiredComponentsOf(file, read(file)))
-  findings.pageMeasureInScreen.push(...pageMeasuresOf(file, read(file)))
-}
 
 /**
  * A relative or `@/`-aliased import specifier → the concrete `.ts`/`.tsx`
@@ -3872,6 +3894,11 @@ export const designImportsOf = (file) => {
     }
   }
   return found
+}
+
+for (const file of [...cssFiles(), ...tsxFiles()]) {
+  findings.retiredComponent.push(...retiredComponentsOf(file, read(file)))
+  findings.pageMeasureInScreen.push(...pageMeasuresOf(file, read(file)))
 }
 
 /**

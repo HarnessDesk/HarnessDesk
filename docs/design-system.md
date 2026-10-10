@@ -1115,6 +1115,21 @@ the room's composer rather than covering the conversation everyone else in
 it is reading. It has exactly one filled act, the plain approve, like any
 footer in the app; every other answer is quiet, and its number still works.
 
+### `ChannelSignal`
+
+`packages/ui/src/design/patterns/ChannelMessage.tsx`
+
+A board event — claimed, completed, released. The spine the messages hang
+off: one line, quiet, never a slab, because thirty of them is a normal
+afternoon and they are read as a sequence rather than one at a time. The
+transcript's light register, like a step inside a turn's work.
+
+The sentence is who did what to which card; `detail` is what they reported
+with it — a verdict, a pull request, a list of checks — and it can run to
+a page. Joined into the sentence it made every completion a slab of the same
+grey as the line it explained. It sits under the sentence in the secondary
+ink, at most two lines until the reader asks for the rest.
+
 ### `ChannelNotice`
 
 `packages/ui/src/design/patterns/ChannelMessage.tsx`
@@ -1702,13 +1717,11 @@ A screen says what kind of page it is and passes its blocks; it does not
 write a max-width, a padding or an outer margin of its own. `reading` is the
 app's reading measure (`--hd-column`), centred: a conversation, a setting, a
 round's findings. `wide` is for tables and card grids (`--hd-page-wide`),
-centred. `canvas` has no measure, for a board that fills the width. Every
-kind keeps one gutter (`--hd-page-gutter`) on every side, so a page's blocks
-start on the same edge as its view bar and the window bar's title; a surface
-that brings its own geometry — a terminal, a diff, a graph — bleeds instead
-of taking a page. The gutter is `PaneColumn`'s reading inset on all four
-edges — the same edge every reading column in the app keeps — so the page
-adds only its measure.
+centred. `canvas` has no measure, for a board that fills the width, and
+keeps `PaneColumn`'s dense canvas inset (`--hd-space-2`) on all four edges.
+Reading and wide pages keep the reading inset (`--hd-page-gutter`) on all
+four edges. A surface that brings its own geometry — a terminal, a diff,
+a graph — bleeds instead of taking a page.
 
 Blocks inside sit one dense step apart, the gap between a label and the card
 it names; a `Section` brings its own larger step. A Team's Findings drew its
@@ -2214,7 +2227,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawDuration` | 0 | Will not follow a change to how fast the app moves — every other surface speeds up and this one keeps its own clock. |
 | `rawColour` | 0 | Will not follow a palette or theme change. |
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
-| `retiredComponent` | 115 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
+| `retiredComponent` | 118 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 22 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 3273 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `screenLayout` | 3356 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 

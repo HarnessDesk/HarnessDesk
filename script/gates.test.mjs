@@ -4556,3 +4556,25 @@ test('screenLayout counts layout declarations and layout utilities in a screen',
   assert.equal(screenLayoutOf(tsx, 'export const A = () => <div className="flex min-w-0 gap-2 text-sm" />\n').length, 3)
   assert.equal(screenLayoutOf(tsx, 'export const A = () => <div className="text-sm" />\n').length, 0)
 })
+
+
+test('screenLayout classifies intrinsic heights and arbitrary properties before the utility fallback', () => {
+  const file = path.join(repoRoot, 'packages/ui/src/components/Example.tsx')
+  const layout = ['h-full', 'min-h-0', 'max-h-screen', 'h-auto', 'h-min', 'h-max', 'h-fit', 'h-1/2', 'md:h-[100dvh]!', '[display:flex]', 'hover:[grid-template-columns:1fr_1fr]', 'text-left', 'text-nowrap']
+  const appearance = ['h-8', 'min-h-[24px]', 'size-6', '[color:red]', 'text-sm', 'px-4']
+  for (const token of layout) assert.equal(screenLayoutOf(file, `export const A = () => <div className="${token}" />`).length, 1, token)
+  for (const token of appearance) assert.equal(screenLayoutOf(file, `export const A = () => <div className="${token}" />`).length, 0, token)
+})
+
+test('retiredComponent follows named aliases and namespace JSX imports', () => {
+  const file = path.join(repoRoot, 'packages/ui/src/components/Example.tsx')
+  const cases = [
+    ['import { PageHead as Heading } from "../design"; export const A = () => <Heading title="Teams" />', 1],
+    ['import * as D from "../design"; export const A = () => <D.PageHead title="Teams" />', 1],
+    ['import { WindowPage as Page } from "../design"; export const A = () => <Page><span /></Page>', 1],
+    ['import { PageHead as Heading } from "../design"; export const A = () => <span title="<Heading />" />', 0],
+    ['import * as D from "../design"; export const A = () => <D.Page width="reading">content</D.Page>', 0],
+    ['import { PageHead as Heading } from "../design"; export const A = () => <><Heading title="One" /><Heading title="Two" /></>', 2],
+  ]
+  for (const [source, count] of cases) assert.equal(retiredComponentsOf(file, source).length, count, source)
+})

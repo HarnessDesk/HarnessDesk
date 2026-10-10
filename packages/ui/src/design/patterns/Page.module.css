@@ -1,5 +1,5 @@
 /* A page's column. The measure is the page's kind, never the screen's choice;
-   the gutter is PaneColumn's reading inset, which equals --hd-page-gutter. */
+   PaneColumn owns the reading and wide gutter, and the dense canvas inset. */
 
 .page {
   box-sizing: border-box;
