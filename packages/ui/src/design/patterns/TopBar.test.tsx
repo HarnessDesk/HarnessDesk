@@ -99,6 +99,13 @@ const render = (changes: Partial<TopBarProps>): number[] => {
   expect(row.getBoundingClientRect().width).toBe(720)
   return measuredStages
 }
+
+test('the shared top bar has no bottom hairline', () => {
+  render({})
+  const header = container.querySelector('header')!
+  expect(header.hasAttribute('data-rule')).toBe(false)
+  expect(header.classList.contains('border-b')).toBe(false)
+})
 const expectFloor = (stage: number): void => {
   const row = container.querySelector('[data-slot="top-bar"]')!
   expect(Number(row.getAttribute('data-fold'))).toBe(stage)

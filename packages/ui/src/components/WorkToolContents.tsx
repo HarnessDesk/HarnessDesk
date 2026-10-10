@@ -50,11 +50,15 @@ export const WorkActivityView = () => {
     ? teamSeats(snapshot.goals.get(room), snapshot.teams.get(room), goalRunOf(room, snapshot.goals.get(room), snapshot.flowExecutions))
       .filter(hasConversation).map(one => one.key)
     : pane?.sessionKey ? [pane.sessionKey] : []
+  const runningKeys = [...snapshot.tasks].filter(([, tasks]) => tasks.some(task => task.state === 'running')).map(([key]) => key)
+  const taskKeys = [...new Set([...runningKeys, ...keys.filter(key => (snapshot.tasks.get(key)?.length ?? 0) > 0)])]
   return <ToolBody><ToolBodySections><ToolFooterSuppressed>
+    {taskKeys.map(key => <PaneProvider key={key} scope={{ ...pane, paneId: pane?.paneId ?? '', view: { kind: 'conversation', session: key }, sessionKey: key }}>
+      <ToolSection label="Background work"><BackgroundTasksView /></ToolSection>
+    </PaneProvider>)}
     <ToolSection label="Events"><Activity query="" sessionKeys={keys} onFoot={ignoreFoot} /></ToolSection>
     {keys.map(key => <PaneProvider key={key} scope={{ ...pane, paneId: pane?.paneId ?? '', view: { kind: 'conversation', session: key }, sessionKey: key }}>
       <ToolSection label="Trajectory"><TrajectoryView /></ToolSection>
-      <ToolSection label="Background work"><BackgroundTasksView /></ToolSection>
     </PaneProvider>)}
   </ToolFooterSuppressed></ToolBodySections></ToolBody>
 }

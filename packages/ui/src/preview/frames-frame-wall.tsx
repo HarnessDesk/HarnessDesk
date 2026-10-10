@@ -1,6 +1,8 @@
+import { shortcutFor } from '../lib/shortcuts'
+import { toggleTerminal } from '../components/TerminalToggle'
 import { runTeamStore, equivalentRunFixture, type RunScene } from './run-view-fixture'
 import { sidebarStructureFixture } from './sidebar-structure-fixture'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, turnId, type UiContribution, type BackgroundTask, type RuntimeId } from '@harnessdesk/protocol'
 import { installPanelComponent } from '../slots/PanelBlocks'
 
@@ -185,7 +187,7 @@ export const FrameWall = () => {
         command: 'node review.mjs', cwd: '/work/storefront', stoppable: false }
       Object.assign(snapshot, { tasks: new Map([[PREVIEW_SESSION_KEY, [task]]]) })
     }
-    if (query.get('frame-status') === 'reconnecting') Object.assign(snapshot, { status: 'reconnecting' })
+    if (['connecting', 'reconnecting', 'closed'].includes(query.get('frame-status') ?? '')) Object.assign(snapshot, { status: query.get('frame-status') })
     if (destination === 'team' && query.get('frame-member-actions') === '1') {
       Object.assign(snapshot, { runtimes: snapshot.runtimes.map(runtime => ({
         ...runtime, capabilities: { ...runtime.capabilities, compaction: true, undo: true },
@@ -249,6 +251,19 @@ export const FrameWall = () => {
     if (query.get('frame-terminal') === '1') void next.openTerminal()
     return next
   }, [destination, location.search])
+  useEffect(() => {
+    const onConnection = (event: Event) => {
+      const status: unknown = (event as CustomEvent).detail
+      if (status === 'open' || status === 'connecting' || status === 'reconnecting' || status === 'closed') (store as ReturnType<typeof previewStore>).patch({ status })
+    }
+    const onKey = (event: KeyboardEvent) => {
+      if (shortcutFor(event)?.action !== 'toggle-terminal') return
+      event.preventDefault(); toggleTerminal(store)
+    }
+    window.addEventListener('harnessdesk:preview-connection', onConnection)
+    document.addEventListener('keydown', onKey)
+    return () => { window.removeEventListener('harnessdesk:preview-connection', onConnection); document.removeEventListener('keydown', onKey) }
+  }, [store])
   if (requested === 'topbar') return <TopBarProbe />
   return <StoreProvider store={store}>
     <FrameDestination destination={destination} />

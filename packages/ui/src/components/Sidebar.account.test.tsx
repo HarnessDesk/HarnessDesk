@@ -253,8 +253,8 @@ it('expands Usage remaining inline and lists the current account windows', () =>
   expect(mark()?.hasAttribute('data-open')).toBe(true)
   expect(document.querySelector('[data-usage-details]')?.textContent).toContain('Session')
   expect(document.querySelector('[data-usage-details]')?.textContent).toContain('Weekly')
-  // The fold is the windows only; Dashboard is the sidebar nav's.
-  expect(document.querySelector('[data-usage-details] [role="menuitem"]')).toBeNull()
+  // The fold keeps the windows and their scoped action; Dashboard stays in nav.
+  expect(document.querySelector('[data-usage-details] [role="menuitem"]')?.textContent).toContain('Open usage')
   expect(document.querySelector('[data-usage-details] [data-slot="usage-meter-row"] > :last-child')?.getAttribute('title')).toMatch(/^resets /)
 })
 
@@ -666,7 +666,8 @@ it('leaves an agent waiting for a sign-in to Add an account…, unless it is the
   const menu = document.querySelector('[role="menu"]')
   // The picker is open — the other signed-in agent is there — and Gemini is not.
   expect(seatNamed('shane@example.com')).toBeDefined()
-  expect(menu?.textContent).not.toContain('Gemini CLI')
+  expect(seatNamed('Gemini CLI')).toBeUndefined()
+  expect(menu?.textContent).toContain('Sign in to Gemini CLI')
   expect(menu?.textContent).toContain('Add an account…')
 
   // The default is the chair you are in, and it says what is wrong with it.

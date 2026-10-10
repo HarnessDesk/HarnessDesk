@@ -672,11 +672,11 @@ it('default Changes and Activity provide actual subject bodies through canonical
 })
 
 
-it('the six region nodes and the Browser body survive closing and both exact folds', async () => {
+it('the five region nodes and the Browser body survive closing and both exact folds', async () => {
   const store = mountWork(true)
   await act(async () => { await store.openBrowser() })
   const regions = [...container.querySelectorAll('[data-frame-region]')]
-  expect(regions.map(node => node.getAttribute('data-frame-region'))).toEqual(['left', 'top', 'main', 'right', 'bottom', 'status'])
+  expect(regions.map(node => node.getAttribute('data-frame-region'))).toEqual(['left', 'top', 'main', 'right', 'bottom'])
   const browser = container.querySelector('[data-slot="tool-pane"]')!
   const resource = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser')!
   for (const width of [1280, 1279, 1000, 999, 720, 1440]) {

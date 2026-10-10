@@ -1,3 +1,5 @@
+import { describeStrip, type StripMeter } from '../lib/plan-strip'
+import { SidebarUpdate } from './SidebarUpdate'
 import { LeftColumn, LeftColumnBody, LeftColumnNavigation, LeftColumnProjectsHead, LeftColumnTop, LeftColumnRow, LeftColumnSeat, LeftColumnGroup } from '../design'
 import { LibraryIcon } from './Icons'
 import { Slot } from '../slots/registry'
@@ -6,8 +8,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { SidebarNotices, useInboxMessages } from './Notices'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
-import { useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
-import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
+import { useActiveSession, useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
+import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignInIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
 import { FrontDoor } from './FrontDoor'
 import { SessionListControls, SessionTree } from './SessionTree'
 import {
@@ -42,7 +44,7 @@ import { RuntimeMark } from './BrandIcons'
 import { ProfileFace } from './ProfileFace'
 import { Clipped, DisclosureChevron, EmptyState } from '../design'
 import type { Section } from './Settings'
-import { bindingLane, describeReport, isBlocked } from '../lib/usage'
+import { bindingLane, describeReport, describeLane, formatAge, formatMoney, isBlocked } from '../lib/usage'
 import { usageReadingTone } from '../lib/limits'
 import { usageAccount } from '../lib/usage-alerts'
 import styles from './Sidebar.module.css'
@@ -190,7 +192,7 @@ export const Sidebar = ({
     </LeftColumnBody>
   )
   return <LeftColumn top={top} head={sessionsHead} body={sessionsBody}
-    footer={<><Slot name="sidebar.panel" /><SidebarNotices /><AccountFooter onOpenSettings={onOpenSettings}
+    footer={<><Slot name="sidebar.panel" /><SidebarNotices /><SidebarUpdate /><AccountFooter onOpenSettings={onOpenSettings}
       onOpenUsage={onOpenUsage} onSignIn={onSignIn} /></>} />
 }
 
@@ -350,13 +352,11 @@ export const AccountFooter = ({
   const runtime = useRuntime()
   const [open, setOpen] = useState(false)
   const [accountsOpen, setAccountsOpen] = useState(false)
-  const [usageOpen, setUsageOpen] = useState(false)
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
   const [busy, setBusy] = useState(false)
   const accountRef = useRef<HTMLDivElement>(null)
   const resetMenu = (): void => {
     setAccountsOpen(false)
-    setUsageOpen(false)
     setConfirmingSignOut(false)
   }
 
@@ -437,10 +437,6 @@ export const AccountFooter = ({
   const nextAs = here?.account ? `${agentName} · ${here.name}` : agentName
   // You: the profile's name, which is HarnessDesk until you choose one.
   const yourName = profileName(snapshot.profile)
-  const usageView = here?.report
-    ? describeReport(here.report, { now: Date.now(), maxLanes: 8, preference: here.preference })
-    : null
-  const hasUsage = usageView !== null && usageView.all.length > 0
   // The chairs you can sit in. An agent that is waiting for a sign-in is not
   // one — choosing it would start nothing — so it waits behind "Add an
   // account…", whose chooser is where signing in happens. The default stays
@@ -680,7 +676,6 @@ export const AccountFooter = ({
                     onSelect={() => {
                       if (seat.current && chairs.length > 1) {
                         setAccountsOpen((value) => !value)
-                        setUsageOpen(false)
                         return
                       }
                       void store.selectRuntime(seat.info.id)
@@ -723,49 +718,7 @@ export const AccountFooter = ({
             />
 
           <MenuSeparator />
-            {/* Only where something is metered: a row whose whole answer is
-                "—" took a line to say there was nothing to say. */}
-            {hasUsage && (
-            <MenuItem
-              expanded={usageOpen}
-              keepOpen
-              onSelect={() => {
-                setUsageOpen((value) => !value)
-              }}
-              /* The menu's own icon column and value slot, so the gauge and its
-                 words line up with Settings below. Dashboard is not in this
-                 menu: it is in the sidebar's own nav, always, with this gauge,
-                 and a second door here wore the same mark for another verb. */
-              icon={<UsageIcon size={13} />}
-              label="Usage remaining"
-              value={
-              <Text role="muted" tone={usageReadingTone(here?.tone)} numeric className={styles.accountMenuMeta}>
-                {here?.figure ?? '—'}
-                {/* The fold wears the figure's trouble, as the figure beside it does.
-                    A fold has one trouble tone, so a spent window's red figure
-                    folds under the warning mark. */}
-                <DisclosureChevron
-                  open={usageOpen}
-                  placement="trailing"
-                  tone={usageReadingTone(here?.tone) ? 'warning' : 'neutral'}
-                  className={styles.accountMenuCaret}
-                />
-              </Text>
-              }
-            />
-            )}
-            {usageOpen && usageView && (
-              <div className={styles.usageDetails} data-usage-details>
-                <div className={styles.usageLanes}>
-                  {usageView.all.map((lane) => (
-                    <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.resetCountdown} countdownTitle={lane.resetClock ? `resets ${lane.resetClock}` : undefined} tone={lane.tone === 'bad' ? 'danger' : lane.tone === 'warn' ? 'warning' : 'neutral'} standalone barless />
-                  ))}
-                </div>
-                {/* No link to the dashboard here: Dashboard is in the
-                    sidebar's nav, and a second door to it, indented under
-                    the fold, was one row and one ragged edge for nothing. */}
-              </div>
-            )}
+            <SeatPlanUsage onOpen={onOpenUsage} onSignIn={onSignIn} />
             <MenuItem
               icon={<SettingsIcon size={13} />}
               label="Settings"
@@ -814,3 +767,44 @@ export const AccountFooter = ({
     </div>} />
   )
 }
+
+/** The same plan facts as PlanMeters, in the seat's existing menu rows. */
+const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime: RuntimeId) => void; onSignIn: (runtime: RuntimeId) => void }) => {
+  const snapshot = useSnapshot(), session = useActiveSession()
+  const [now, setNow] = useState(Date.now), [expanded, setExpanded] = useState<string | null>(null)
+  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 60_000); return () => window.clearInterval(timer) }, [])
+  const view = describeStrip({ runtimes: snapshot.runtimes, usage: snapshot.usage, accountsByRuntime: snapshot.accountsByRuntime,
+    accountPrefs: snapshot.accountPrefs, health: snapshot.health, activeRuntime: snapshot.activeRuntime, sessionRuntime: session?.runtime ?? null, now })
+  const meters: readonly StripMeter[] = [...(view.anchor?.kind === 'meter' ? [view.anchor.meter] : []), ...(view.rest?.meters ?? [])]
+  return <>
+    {view.anchor?.kind === 'signIn' && <MenuItem icon={<SignInIcon size={13} />} label={`Sign in to ${view.anchor.info.presentation.name}`}
+      onSelect={() => { if (view.anchor?.kind === 'signIn') onSignIn(view.anchor.info.id) }} />}
+    {meters.map((meter, index) => {
+      const key = `${meter.runtime}:${meter.report.account ?? ''}`, open = expanded === key
+      return <SeatUsageRows key={key} meter={meter} now={now} open={open}
+        label={index === 0 && view.anchor?.kind === 'meter' ? 'Usage remaining' : `${meter.name}${meter.account ? ` · ${meter.account}` : ''} usage`}
+        toggle={() => setExpanded(open ? null : key)} onOpen={() => onOpen(meter.runtime)} />
+    })}
+    {view.rest?.asides.map(aside => <MenuItem key={aside.runtime} icon={aside.detail === 'Needs sign-in' ? <SignInIcon size={13} /> : <UsageIcon size={13} />}
+      label={aside.detail === 'Needs sign-in' ? `Sign in to ${aside.info.presentation.name}` : `${aside.info.presentation.name} usage`}
+      hint={aside.detail === 'Needs sign-in' ? undefined : aside.detail}
+      onSelect={() => aside.detail === 'Needs sign-in' ? onSignIn(aside.runtime) : onOpen(aside.runtime)} />)}
+  </>
+}
+const SeatUsageRows = ({ meter, now, open, label, toggle, onOpen }: { meter: StripMeter; now: number; open: boolean; label: string; toggle: () => void; onOpen: () => void }) => <>
+  <MenuItem icon={<UsageIcon size={13} />} label={label} value={<Text role="muted" tone={usageReadingTone(meter.tone)} numeric className={styles.accountMenuMeta}>
+    {meter.figure}<DisclosureChevron open={open} placement="trailing" tone={usageReadingTone(meter.tone) ? 'warning' : 'neutral'} className={styles.accountMenuCaret} /></Text>} expanded={open} keepOpen onSelect={toggle} title={meter.title} />
+  {open && <div className={styles.usageDetails} data-usage-details>
+    {(meter.report.plan || meter.report.account) && <MenuNote>{[meter.report.plan, meter.report.account].filter(Boolean).join(' · ')}</MenuNote>}
+    <div className={styles.usageLanes}>{meter.report.lanes.map(raw => {
+      const lane = describeLane(raw, now, meter.report.lanes)
+      return <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent}
+        countdown={lane.gatedUntil === null ? lane.resetCountdown : `blocked ${lane.gatedFor ?? '—'}`}
+        countdownTitle={lane.gatedUntil !== null ? `blocked until ${lane.gatedClock}` : lane.resetClock ? `resets ${lane.resetClock}` : undefined}
+        tone={lane.tone === 'bad' ? 'danger' : lane.tone === 'warn' ? 'warning' : 'neutral'} standalone barless />
+    })}</div>
+    <MenuNote>{[meter.report.spend?.todayCost != null ? `${formatMoney(meter.report.spend.todayCost, meter.report.spend.currency)} today` : null,
+      meter.report.source.label, formatAge(meter.report.fetchedAt, now)].filter(Boolean).join(' · ')}</MenuNote>
+    <MenuItem icon={<UsageIcon size={13} />} label="Open usage" onSelect={onOpen} />
+  </div>}
+</>

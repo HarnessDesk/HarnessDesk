@@ -83,14 +83,13 @@ for(const theme of ['light','dark'] as const) {
     expect(await item.evaluate(e=>e.scrollWidth<=e.clientWidth+1)).toBe(true)
    }
    // Below the desktop's 720px minimum this embedded specimen keeps its
-   // body allocated; the unchanged footer controls remain keyboard reachable.
+   // body allocated; the More controls remain keyboard reachable.
    if(width===375){
-    const footer=frame.locator('[data-slot="status-bar"]')
-    expect((await footer.boundingBox())!.height).toBe(28)
-    const terminal=footer.getByRole('button',{name:'Open terminal',exact:true})
-    await terminal.focus()
-    expect(await terminal.evaluate(node=>{
-     const row=node.closest('[data-slot="status-bar"]')!.getBoundingClientRect(),button=node.getBoundingClientRect()
+    await expect(frame.locator('[data-slot="status-bar"]')).toHaveCount(0)
+    const more=frame.getByRole('button',{name:'More',exact:true})
+    await more.focus()
+    expect(await more.evaluate(node=>{
+     const row=node.closest('[data-slot="top-bar"]')!.getBoundingClientRect(),button=node.getBoundingClientRect()
      return document.activeElement===node&&button.left>=row.left-1&&button.right<=row.right+1
     })).toBe(true)
    }

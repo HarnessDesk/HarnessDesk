@@ -171,18 +171,6 @@ const useStanding = (): Standing | null => {
     snapshot.runtimes.find((entry) => entry.id === id)?.presentation.name ?? String(id)
 
   const notice = ((): Notice | null => {
-    if (snapshot.status === 'reconnecting' || snapshot.status === 'closed') {
-      return {
-        // Never written down, on purpose: a dropped link is news every time
-        // it drops, and it clears itself the moment it is fixed.
-        key: `link:${snapshot.status}`,
-        kind: 'link',
-        lifetime: 'session',
-        tone: 'warning',
-        title: 'Reconnecting to HarnessDesk.',
-        body: 'Sessions keep running; this window will catch up.',
-      }
-    }
     if (health?.state === 'unavailable') {
       return {
         key: `health:${runtime.id}:${health.message}`,

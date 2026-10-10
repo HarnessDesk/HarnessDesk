@@ -1,3 +1,5 @@
+import { StoreProvider } from '../state/context'
+import { previewStore } from '../preview/harness'
 import { act, StrictMode, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { expect, test } from 'vitest'
@@ -175,10 +177,10 @@ test('view actions preserve the parent subject slots and share one More Menu wit
   document.body.append(container)
   const root = createRoot(container)
   try {
-    act(() => root.render(<TopBarProvider><PublishedBase owner="main" slots={parent} />
+    act(() => root.render(<StoreProvider store={previewStore()}><TopBarProvider><PublishedBase owner="main" slots={parent} />
       <PublishedView owner="main" slots={view} /><ConversationRows />
       <TopBarOutlet owner="main" fallback={{ place: 'Fallback', more: emptyMore }} />
-    </TopBarProvider>))
+    </TopBarProvider></StoreProvider>))
     expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Checkout retry')
     expect(container.querySelector('[data-topbar="state"]')?.textContent).toBe('Working')
     expect(container.querySelector('[data-team-page="board"]')?.textContent).toBe('Board3')

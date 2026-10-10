@@ -168,7 +168,6 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
     : undefined
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
-  StatusBar: ['light', 'dark'],
 
   TopBar: ['light', 'dark'],
   SeatList: ['light', 'dark'],
@@ -279,7 +278,6 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
-  StatusBar: ['default', 'loading', 'disabled', 'populated'],
 
   SeatList: ['default', 'populated', 'disabled', 'long-title'],
   FixedShell: ['default', 'open', 'closed', 'folded-state'],
@@ -417,7 +415,6 @@ Object.assign(SIZES, {
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
-  StatusBar: 'packages/ui/src/panels/WorkStatusBar.tsx',
 
   SeatList: 'packages/ui/src/components/TeamRoomPane.tsx',
   FixedShell: 'packages/ui/src/panels/Workbench.tsx',
@@ -468,7 +465,6 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
 Object.assign(PATTERN_CONSUMER, { LeftColumn: 'packages/ui/src/components/Sidebar.tsx' })
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
-  StatusBar: 'packages/ui/src/design/explorer/boards-compositions.tsx',
 
   SeatList: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   FixedShell: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -625,7 +621,6 @@ export const CANONICAL_UI_MODULES = [
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
-  ['StatusBar', 'status-bar', 'StatusBar presentation owned by the fixed shell'],
   ['SeatList', 'seat-list', 'SeatList presentation owned by the fixed shell'],
   ['FixedShell', 'fixed-shell', 'FixedShell presentation owned by the fixed shell'],
   ['ToolBody', 'tool-body', 'ToolBody presentation owned by the fixed shell'],

@@ -108,7 +108,11 @@ for (const theme of ['light', 'dark'] as const) {
     const card = dashboard.locator('[data-slot="card"]').filter({ has: page.locator('[data-slot="usage-meter-row"]') }).first()
     await expect(card.locator('[data-slot="usage-meter-row"]')).toHaveCount(3)
     await alignedMeters(card.locator('[data-slot="usage-meter-row"]'))
-    await page.getByRole('dialog', { name: 'Dashboard', exact: true }).locator('[data-slot="status-bar"]').getByRole('group', { name: 'Plan usage' }).locator('button').first().click()
+    await page.evaluate(async () => {
+      const { mountPlanMetersSpecimen } = await import('/src/preview/frames-supported-controls.tsx' as string)
+      const host = document.createElement('section'); document.querySelector('[role="dialog"][aria-label="Dashboard"]')!.append(host); mountPlanMetersSpecimen(host, true)
+    })
+    await page.locator('[data-frame-id="supported-plan-meters"]').getByRole('group', { name: 'Plan usage' }).locator('button').first().click()
     await alignedMeters(page.getByRole('menu').locator('[data-slot="usage-meter-row"]'))
   })
 }
@@ -273,7 +277,11 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto('/preview.html')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     const gate = await page.evaluate(() => (window as unknown as { __usageGate: number }).__usageGate)
-    await page.getByRole('dialog', { name: 'Dashboard', exact: true }).locator('[data-slot="status-bar"]').getByRole('group', { name: 'Plan usage' }).locator('button').first().click()
+    await page.evaluate(async () => {
+      const { mountPlanMetersSpecimen } = await import('/src/preview/frames-supported-controls.tsx' as string)
+      const host = document.createElement('section'); document.querySelector('[role="dialog"][aria-label="Dashboard"]')!.append(host); mountPlanMetersSpecimen(host, true)
+    })
+    await page.locator('[data-frame-id="supported-plan-meters"]').getByRole('group', { name: 'Plan usage' }).locator('button').first().click()
     const menu = page.getByRole('menu').filter({ has: page.getByText('blocked 3d', { exact: true }) })
     const row = menu.locator('[data-slot="usage-meter-row"]').filter({ hasText: 'Session' })
     await expect(row).toContainText('blocked 3d')

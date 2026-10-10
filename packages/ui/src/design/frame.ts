@@ -14,7 +14,6 @@ export const FRAME = {
   sidebar: { width: 240, min: 200, max: 360 },
   rightPanel: { width: 400, min: 320, max: 640 },
   bottomPanel: { height: 240, min: 120 },
-  statusBar: { height: 28 },
   main: { min: 480 },
   fold: { panelFloats: 1280, sidebarFloats: 1000 },
   page: { reading: 736, wide: 1320, gutter: 24, canvasGutter: 8 },
@@ -26,7 +25,6 @@ export const FRAME = {
 
 /** Every token the frame names, and the pixels it must resolve to. */
 export const FRAME_TOKENS: Readonly<Record<string, number>> = {
-  '--hd-statusbar-h': FRAME.statusBar.height,
   '--hd-bar-h': FRAME.bar.height,
   '--hd-bar-divider-h': FRAME.bar.dividerHeight,
   '--hd-bar-title-min': FRAME.bar.titleMin,
