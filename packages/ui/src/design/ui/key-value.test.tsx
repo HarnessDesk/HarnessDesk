@@ -60,6 +60,7 @@ it('right-aligns a value on tabular figures only when the row says numeric', () 
   )
   const [money, words] = [...list.querySelectorAll('dd')]
   expect(money?.className).toContain('text-right')
+  expect(money?.className).not.toContain('/kv:text-left')
   expect(money?.className).toContain('tabular-nums')
   expect(money?.className).toContain('font-semibold')
   expect(words?.className).not.toContain('text-right')

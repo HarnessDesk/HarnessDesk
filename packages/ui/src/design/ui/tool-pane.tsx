@@ -154,7 +154,7 @@ const ToolPaneBody = ({
   ...props
 }: React.ComponentProps<'div'> & {
   bleed?: boolean
-  /** `page`: the page gutter on every side, keeping content blocks on one edge. */
+  /** `dense`: the canvas gutter; `page`: the reading gutter; `tool`: flat panel sections. */
   inset?: 'dense' | 'page' | 'tool'
 }) => (
   <div
