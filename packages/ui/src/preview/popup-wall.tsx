@@ -21,3 +21,11 @@ export const PopupWall = () => {
   const one = new URLSearchParams(location.search).get('popup')
   if (one === 'dropdown-none' || one === 'dropdown-icons') return <div className="fixed left-(--hd-sidebar-width) top-(--hd-bar-h)"><DropdownExample icons={one === 'dropdown-icons' ? 'all' : 'none'} /></div>
   return <div className="fixed left-(--hd-sidebar-width) top-(--hd-bar-h)">{one === 'menu-icons' ? <MenuExample /> : one === 'menu-none' ? <MenuExample icons="none" /> : one === 'wide' ? <WideMenuExample /> : one === 'metered' ? <MeteredMenuExample /> : one === 'publication-info' ? <PublicationFactsProbe /> : one === 'subject-actions' ? <SubjectActionsProbe /> : one === 'member-info' ? <MemberFactsProbe /> : one === 'budget-info' ? <BudgetFactsProbe /> : one === 'info' ? <InfoCardExample /> : one === 'info-and-menu' ? <><InfoCardExample /><MenuExample /></> : one === 'suggestions' ? <SuggestionsExample /> : one === 'select' ? <SelectExample /> : null}</div>
+}
+
+const PublicationFactsProbe = () => <Publication root="workspace/storefront" item={{ id: itemId('frame-publication'), type: 'publication', reference: {
+  kind: 'pullRequest', action: 'opened', repo: 'acme/storefront', number: 12, url: 'https://forge.example/acme/storefront/pull/12',
+  title: 'Storefront catalogue and checkout boundary review before publication', state: 'open', author: 'Jane Doe', files: 9, additions: 128, deletions: 42,
+  excerpt: '发布前检查。The checkout route keeps its retry policy and publication evidence together.', via: 'gh', signature: null,
+} }} />
+const SubjectActionsProbe = () => <SubjectActionsMenu label="Scout" actions={[{ label: 'Open', onSelect: () => {} }, { label: 'Message', onSelect: () => {} }, { label: 'Remove', disabled: 'This record cannot be changed.', onSelect: () => {} }]} choice={{ label: 'Messages', value: 'hold', options: [{ value: 'accept', label: 'Accept' }, { value: 'hold', label: 'Hold' }, { value: 'refuse', label: 'Refuse' }], onChange: () => {} }} />

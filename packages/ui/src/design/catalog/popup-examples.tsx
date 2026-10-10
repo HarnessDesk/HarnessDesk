@@ -1,4 +1,4 @@
-import { Button, InfoCard, Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MiddleTruncate, Popover, Input, Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../index'
+import { Button, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, InfoCard, Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MiddleTruncate, Popover, Input, Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../index'
 import { CopyIcon, FolderOpenIcon, UndoIcon } from '../../components/Icons'
 export const MenuExample = ({ icons = 'all' }: { icons?: 'all' | 'none' }) => <Popover title="Frame menu" label="Frame menu" icons={icons}>
   {close => <Menu close={close}>
@@ -49,3 +49,11 @@ const SELECT_EXAMPLE_ITEMS = [
 export const SelectExample = () => <Select defaultValue="scout" items={SELECT_EXAMPLE_ITEMS}><SelectTrigger aria-label="Frame Select"><SelectValue /></SelectTrigger><SelectContent>
   {SELECT_EXAMPLE_ITEMS.map(item => <SelectItem key={item.value} value={item.value} label={item.label} />)}
 </SelectContent></Select>
+
+export const DropdownExample = ({ icons = 'none' }: { icons?: 'all' | 'none' }) => <DropdownMenu icons={icons}>
+  <DropdownMenuTrigger render={<Button variant="outline">Frame dropdown</Button>} />
+  <DropdownMenuContent>
+    <DropdownMenuItem label="Copy branch name" icon={<CopyIcon size={16} />} onClick={() => {}} />
+    <DropdownMenuItem label="Delete branch…" icon={<CopyIcon size={16} />} hint="The branch is checked out in another worktree." disabled onClick={() => {}} />
+  </DropdownMenuContent>
+</DropdownMenu>

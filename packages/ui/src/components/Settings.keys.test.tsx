@@ -164,7 +164,8 @@ it('forgetting a key confirms first, says what breaks, and drops the row', async
   const remove = await removeOn('Proxy key')
   expect(remove).toBeTruthy()
   expect(remove?.getAttribute('data-variant')).toBe('destructive')
-  expect(remove?.querySelector('svg')).toBeTruthy()
+  expect(remove?.closest('[data-popup-kind]')?.getAttribute('data-menu-icons')).toBe('none')
+  expect(remove?.querySelector('svg')).toBeNull()
   act(() => remove?.click())
   /* The consequence differs by whether anything still names it, and this key
      is named: an endpoint is about to stop working. */

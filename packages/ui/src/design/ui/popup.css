@@ -103,3 +103,9 @@
 [data-info-pair-note] { grid-column: 1 / -1; color: var(--hd-secondary-foreground); font-size: var(--hd-text-xs); line-height: var(--hd-line-xs); white-space: normal; }
 [data-info-meter], [data-info-composition] { margin-top: var(--hd-space-2); }
 [data-info-composition] [data-slot='progress-stack'] > div { margin-inline: 0; padding-inline: 0; }
+
+/* A refused control greys its complete row, including its earned reason. */
+[data-menu-row]:is([data-disabled], [aria-disabled='true'], :disabled) :is([data-menu-icon], [data-menu-label], [data-menu-hint]) {
+  color: inherit; /* desk: secondary → muted, refused icon and reason share the row's ink */
+}
+[data-menu-group][data-inset='false'] { padding: 0; }

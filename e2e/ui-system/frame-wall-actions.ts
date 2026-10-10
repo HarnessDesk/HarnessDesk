@@ -88,3 +88,5 @@ export interface WallActions { readonly account?: boolean; readonly signOut?: bo
 
 export interface WallActions { readonly git?: boolean; readonly branch?: boolean; readonly gitRef?: boolean; readonly createBranch?: boolean }
 export interface WallActions { readonly select?: boolean }
+
+export interface WallActions { readonly composerModel?: boolean; readonly topbarPopup?: 'view' | 'tabs' }

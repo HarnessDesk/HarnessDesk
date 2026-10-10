@@ -1318,9 +1318,6 @@ for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
   })
 }
 
-  })
-}
-
 for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
   test(`C4 wide menu search and footer at ${width} in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation&popup=wide', theme, width)
@@ -1370,6 +1367,7 @@ for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
 
 const expectInfoGeometry = async (card: Locator) => {
   await expect(card).toBeVisible()
+  await expect.poll(async () => (await card.boundingBox())?.width).toBe(FRAME.infoCard.width)
   const m = await menuMetrics(card)
   expect(m.width).toBe(FRAME.infoCard.width)
   expect(m.pad).toEqual(Array(4).fill(`${FRAME.infoCard.padding}px`))
@@ -1407,12 +1405,14 @@ for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
     await expect(page.locator('[data-popup-kind="menu"]:visible')).toBeVisible()
     await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(0)
     await page.keyboard.press('Escape')
+    await expect(page.locator('[data-popup-kind="menu"]')).toHaveCount(0)
     const facts = page.getByRole('button', { name: 'Storefront catalogue review', exact: true })
     await facts.focus()
     await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(1)
     await page.getByRole('button', { name: 'Frame menu', exact: true }).click()
     await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(0)
     await page.keyboard.press('Escape')
+    await expect(page.locator('[data-popup-kind="menu"]')).toHaveCount(0)
     await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(0)
     await facts.focus()
     await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(1)
@@ -1495,5 +1495,56 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 1100,
     await expect(trigger).toContainText('Scout — Storefront compatibility review')
     await expect(plate).toBeHidden()
     await expect(trigger).toBeFocused()
+  })
+}
+
+for (const theme of WALL_THEMES) for (const width of [1440, 720]) {
+  test(`C3 refused rows retain icons and mute every text track at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme, width)
+    await applyLeftColumnActions(page, { leftOpen: true, leftPopup: 'start' })
+    const worktree = page.getByRole('menuitem', { name: /^New worktree/ })
+    await expect(worktree).toHaveAttribute('aria-disabled', 'true')
+    await expectRefusedMenuRow(worktree)
+    await page.keyboard.press('Escape')
+    if (width === 720) await page.getByRole('dialog', { name: 'Sidebar', exact: true }).getByRole('button', { name: 'Hide sidebar', exact: true }).click()
+    await page.getByRole('button', { name: 'Add', exact: true }).first().click()
+    const images = page.getByRole('menuitem', { name: /^Attach images/ })
+    await expect(images).toHaveAttribute('aria-disabled', 'true')
+    await expectRefusedMenuRow(images)
+  })
+}
+const expectRefusedMenuRow = async (row: Locator) => {
+  const colors = await row.evaluate(el => {
+    const resolve = document.createElement('span'); resolve.style.color = 'var(--hd-muted-foreground)'; el.append(resolve)
+    const muted = getComputedStyle(resolve).color; resolve.remove()
+    return { muted, tracks: [el, ...el.querySelectorAll('[data-menu-icon],[data-menu-label],[data-menu-hint]')].map(node => getComputedStyle(node).color) }
+  })
+  expect(colors.tracks.length).toBe(4)
+  for (const color of colors.tracks) expect(color).toBe(colors.muted)
+  const icon = row.locator('[data-menu-icon] svg')
+  await expect(icon).toHaveCount(1)
+  const box = (await icon.boundingBox())!
+  expect([box.width, box.height]).toEqual([16, 16])
+  const hint = row.locator('[data-menu-hint]')
+  expect(await hint.evaluate(el => [getComputedStyle(el).fontSize, getComputedStyle(el).lineHeight])).toEqual(['12px', '16px'])
+}
+
+for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) for (const mode of ['none', 'icons']) {
+  test(`C3 dropdown ${mode} at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, `frame-wall=conversation&popup=dropdown-${mode}`, theme, width)
+    await page.getByRole('button', { name: 'Frame dropdown', exact: true }).click()
+    await expectMenuGeometry(page.locator('[data-popup-kind="menu"]:visible').last())
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('button', { name: 'Frame dropdown', exact: true })).toBeFocused()
+  })
+}
+for (const theme of WALL_THEMES) {
+  test(`C3 actual dynamic model level never mixes icons in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme)
+    const trigger = page.getByTitle(/Model and reasoning/).first()
+    await trigger.click()
+    const surface = page.locator('[data-popup-kind="wide-menu"]:visible').last()
+    await expectMenuGeometry(surface)
+    expect(await surface.locator('[data-menu-icon]').count()).toBe(0)
   })
 }
