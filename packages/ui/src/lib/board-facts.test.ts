@@ -69,6 +69,37 @@ describe('work that is not finished', () => {
   })
 })
 
+describe('a check card while its check runs', () => {
+  const execution = (cards: readonly number[], state: FlowExecution['state'] = 'running'): FlowExecution =>
+    ({
+      id: 'flow-check', goal: 'goal-1', state, reason: null, operations: [], legacyRun: null, version: 2,
+      document: { format: 'agents', flow: { roles: [{ id: 'verify', kind: 'check' }] } },
+      rounds: [{ n: 1, role: 'verify', cards, seats: [], evidence: [], state: 'running', cause: 'after:1:to-verify' }],
+    }) as unknown as FlowExecution
+
+  it('stays To do until its automatic check runs, then becomes Working', () => {
+    const card = intent({ id: 7, state: 'open', role: 'verify' })
+    const flowStep = flowStepOf(card, undefined, [execution([card.id])])
+
+    expect(flowStep?.kind).toBe('check')
+    expect(place({ intent: card, flowStep, evidence: cardEvidence(card.id, []) }))
+      .toEqual({ column: 'todo', why: null })
+    expect(place({ intent: card, flowStep, evidence: cardEvidence(card.id, [], [{ name: 'verify', since: 1 }]) }))
+      .toEqual({ column: 'working', why: null })
+  })
+
+  it('uses the check result after its card answers', () => {
+    const card = intent({ id: 7, state: 'done', role: 'verify' })
+    const flowStep = flowStepOf(card, undefined, [execution([card.id])])
+
+    expect(flowStep?.fulfilled).toBe(true)
+    expect(place({ intent: card, flowStep, evidence: cardEvidence(card.id, [checkView()]) }))
+      .toEqual({ column: 'ready', why: null })
+    expect(place({ intent: card, flowStep, evidence: cardEvidence(card.id, [checkView({ exit: 1 })]) }))
+      .toEqual({ column: 'needs', why: 'verify failed' })
+  })
+})
+
 describe('finished work, on its facts', () => {
   it('is Ready on a current fact that says it is good: a fresh passing check, fresh passing CI, a merged pull request', () => {
     expect(place({ evidence: cardEvidence(1, [checkView()]) })).toEqual({ column: 'ready', why: null })
