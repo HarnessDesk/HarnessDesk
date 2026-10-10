@@ -51,6 +51,15 @@
    popup plate; the plate's scroll clipping must not contain its flyouts. */
 .panel { position: static; }
 
+/* An inline typing picker floats above its composer's containing block. */
+.panel[data-limit='trigger']:not([data-width='trigger']) {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + var(--hd-space-1-5));
+  left: 0;
+  z-index: var(--hd-z-popover);
+}
+
 /* Risk tone. The permission control is the one place in the composer where a
    neutral colour would be a disservice. */
 .trigger[data-tone='warn'] {

@@ -1466,3 +1466,34 @@ for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
   })
 
 }
+for (const theme of ['light', 'dark'] as const) for (const width of [1440, 1100, 720]) {
+  test(`C9 suggestion listbox uses the only row at ${width} ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&popup=suggestions', theme, width)
+    const list = page.getByRole('listbox')
+    await expect(list).toBeVisible()
+    await expect(list).toHaveAttribute('data-popup-kind', 'wide-menu')
+    await expectMenuGeometry(list)
+    await expect(list.getByRole('option')).toHaveCount(3)
+    await expect(list.getByRole('option').last()).toHaveAttribute('aria-disabled', 'true')
+    await page.getByRole('textbox', { name: 'Frame suggestion anchor' }).focus()
+    await expect(page.getByRole('textbox', { name: 'Frame suggestion anchor' })).toBeFocused()
+  })
+  test(`C9 Select preserves selection with canonical geometry at ${width} ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&popup=select', theme, width)
+    await page.getByRole('combobox', { name: 'Frame Select' }).click()
+    const plate = page.locator('[data-slot="select-content"]')
+    await expectMenuGeometry(plate)
+    await page.getByRole('option', { name: 'Catalogue diagnostics and checkout retry policy' }).click()
+    await expect(page.getByRole('combobox', { name: 'Frame Select' })).toContainText('Catalogue diagnostics and checkout retry policy')
+    await expect(plate).toBeHidden()
+    const trigger = page.getByRole('combobox', { name: 'Frame Select' })
+    await trigger.focus()
+    await page.keyboard.press('Enter')
+    await expect(plate).toBeVisible()
+    await page.keyboard.press('Home')
+    await page.keyboard.press('Enter')
+    await expect(trigger).toContainText('Scout — Storefront compatibility review')
+    await expect(plate).toBeHidden()
+    await expect(trigger).toBeFocused()
+  })
+}

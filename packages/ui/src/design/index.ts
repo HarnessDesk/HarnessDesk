@@ -228,7 +228,7 @@ export type { LeftColumnMenu } from './patterns/LeftColumn'
 
 export { LeftColumnList, LeftColumnRename, LeftColumnNavigation, LeftColumnProjectsHead, LeftColumnListOptions, LeftColumnEmpty } from './patterns/LeftColumn'
 import './ui/popup.css'
-export { MenuPresentation, MenuRowContent, menuRowAttributes, useMenuPresentation, type MenuRowData, type MenuIcons } from './ui/menu-row'
+export { MenuPresentation, MenuRowContent, MenuListboxOption, menuRowAttributes, useMenuPresentation, type MenuRowData, type MenuIcons } from './ui/menu-row'
 
 export { FixedShell, type FixedShellProps } from './patterns/FixedShell'
 

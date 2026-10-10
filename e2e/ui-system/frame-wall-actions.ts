@@ -50,6 +50,7 @@ export const openWallDestination = async (page: Page, destination: WallActions):
     if (destination.signOut) await page.getByRole('menuitem', { name: /^Sign out of/ }).click()
   }
   if (destination.plan) await page.locator(`[data-plan-popup="${destination.plan}"]`).locator('xpath=ancestor::button[1]').click()
+  if (destination.select) await page.getByRole('combobox', { name: 'Frame Select', exact: true }).click()
   if (destination.composerAdd) await page.getByRole('button', { name: 'Add', exact: true }).first().click()
   if (destination.undo) {
     await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
@@ -86,3 +87,4 @@ export interface WallActions { readonly infoTarget?: string; readonly infoFocus?
 export interface WallActions { readonly account?: boolean; readonly signOut?: boolean }
 
 export interface WallActions { readonly git?: boolean; readonly branch?: boolean; readonly gitRef?: boolean; readonly createBranch?: boolean }
+export interface WallActions { readonly select?: boolean }

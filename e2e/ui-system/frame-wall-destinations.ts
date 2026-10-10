@@ -106,6 +106,8 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'popup-publication-actions', query: 'frame-wall=conversation&popup=publication-info', popup: 'acme/storefront #12 actions' },
   { id: 'popup-subject-actions', query: 'frame-wall=conversation&popup=subject-actions', popup: 'Scout actions' },
   { id: 'popup-origin-details', query: 'frame-wall=team-trigger&popup=origin-details', tool: 'details' },
+  { id: 'popup-suggestions', query: 'frame-wall=conversation&popup=suggestions' },
+  { id: 'popup-select', query: 'frame-wall=conversation&popup=select', select: true },
 ] as const
 
 /** Wide (every region stands), between the folds, and the narrowest window. */
