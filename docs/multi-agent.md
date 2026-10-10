@@ -336,9 +336,9 @@ put. A card sits where its state and what the desk observed on it put it
 | Column | Contents |
 | --- | --- |
 | To do | Work nobody has started: open, or waiting on unfinished dependencies — it starts itself when they land. |
-| Working | Work its holder is on. |
+| Working | Work its holder is on, or an open check card whose automatic check is running. |
 | Needs you | Work that cannot move without a person: stopped by hand, a stranded claim, a holder waiting on your answer, a flow step addressed to you — or finished work whose facts are not good: a check or CI that failed, CI that was cancelled, a closed pull request, a fact gone stale or one nobody can place, or nothing checked at all. The card says which — *verify out of date*, *CI unknown*, *PR #12 out of date*. |
-| In review | Finished work whose evidence is still arriving: a check running, CI running, a pull request open. |
+| In review | Finished work whose evidence is still arriving: a check running on that work, CI running, a pull request open. |
 | Ready | Finished work a current fact says is good: a fresh passing check, fresh passing CI, or a merged pull request — fresh, or final once its branch is gone after the merge. Nothing else: not a pass gone stale, not a fact restored from a backup. |
 | Set aside | Work a person abandoned. Settled, never good news, and never *Ready* whatever was observed on it; the column is drawn only while it holds something. |
 
@@ -395,6 +395,9 @@ offered must be requested again before a verdict can be recorded.
 The final branch is kept with the card's stopping commit: switching that
 checkout again after completion refuses review candidates until it returns,
 rather than substituting work on another branch.
+A stopped diff keeps that commit and branch on every later look. A new
+observation of the same fact on another branch is kept too; an unchanged
+payload does not preserve its earlier branch label.
 
 A project names its checks in `checks.yml` in its `.harnessdesk` folder —
 `verify: { run: pnpm verify, timeout: 1200 }` — and every card offers *Run

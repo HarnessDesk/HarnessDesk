@@ -453,8 +453,8 @@ export interface HostOptions {
    * else, where the desk's own `gh` adapter is composed.
    */
   readonly findingForge?: FindingForgePort
-  /** How the evidence plane reads a branch's pull request with `gh`. Tests answer as the forge would. */
-  readonly evidence?: { readonly gh?: GhInCheckout }
+  /** The evidence plane's forge and clock. Tests answer as the forge would and control refresh time. */
+  readonly evidence?: { readonly gh?: GhInCheckout; readonly now?: () => number }
   readonly logger: Logger
   /**
    * How stored credentials are protected at rest. The desktop shell passes a
@@ -1032,6 +1032,7 @@ export class Host {
         dir: join(this.#state.directory, 'evidence'),
         seenFile: join(this.#state.directory, SEEN_FILE),
         ...(options.evidence?.gh ? { gh: options.evidence.gh } : {}),
+        ...(options.evidence?.now ? { now: options.evidence.now } : {}),
         cipher: options.credentialCipher ?? plainCipher,
       },
       {

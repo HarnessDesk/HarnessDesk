@@ -14,7 +14,7 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../..')
 export const FLOW_SOURCE = readFileSync(new URL('./flow.yml', import.meta.url), 'utf8')
 
 /** Own one synthetic desk. No install discovery, vendor accounts or forge. */
-export async function createFlowRig({ home, work, delayMs = 0, scriptedTurns = true, gates }) {
+export async function createFlowRig({ home, work, delayMs = 0, scriptedTurns = true, gates, evidenceNow }) {
   execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
     env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '1' }, stdio: 'pipe',
   })
@@ -32,7 +32,7 @@ export async function createFlowRig({ home, work, delayMs = 0, scriptedTurns = t
   const extensions = new ExtensionKernel()
   const host = new Host({
     logger, state: new StateStore(join(home, 'state.json')), extensions, catalogRefreshMs: 0, libraryHome: join(home, 'person'),
-    evidence: { gh: async () => ({ stdout: '', stderr: 'This rig has no forge.', exitCode: 1 }) },
+    evidence: { gh: async () => ({ stdout: '', stderr: 'This rig has no forge.', exitCode: 1 }), ...(evidenceNow ? { now: evidenceNow } : {}) },
   })
   setTeamEngine(host.teamPlane)
   const codex = new CodexRuntime({

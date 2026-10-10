@@ -11,7 +11,7 @@ import { createFlowRig } from './shots/flow-rig.mjs'
 // Optional photography uses exactly the Host state this regression produced.
 // Ordinary test runs need neither a renderer build nor a browser.
 const photograph = async (rig, goal, directory, mode) => {
-  if (!process.env.HD_EVIDENCE_FRAMES || !['same', 'switch'].includes(mode)) return
+  if (!process.env.HD_EVIDENCE_FRAMES || !['same', 'switch', 'switch-after'].includes(mode)) return
   const { chromium } = await import('@playwright/test')
   const { serve } = await import('../packages/server/dist/src/index.js')
   const { COLLECT, TILDIFY, USER, textReasons } = await import('./shots/audit.mjs')
@@ -28,6 +28,12 @@ const photograph = async (rig, goal, directory, mode) => {
     await page.getByRole('tab', { name: /^Board\b/ }).click()
     await page.getByText('Build the retry change', { exact: false }).first().waitFor()
     if (mode === 'switch' && !process.env.HD_EVIDENCE_BEFORE) await page.getByText(SWITCH_NOTE, { exact: false }).first().waitFor()
+    if (mode === 'switch-after') {
+      await page.getByRole('button', { name: /^What the desk observed on #1:/ }).click()
+      const dialog = page.getByRole('dialog', { name: 'What the desk observed on #1' })
+      await dialog.waitFor()
+      await dialog.getByText(/on (original|after)$/, { exact: false }).waitFor()
+    }
     for (const theme of ['light', 'dark']) {
       await page.evaluate(value => window.__hdStore.setTheme(value), theme)
       await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
@@ -79,7 +85,8 @@ for (const mode of ['same', 'switch', 'switch-back', 'isolated', 'switch-after']
     const directory = realpathSync(mkdtempSync(join(tmpdir(), 'hd-evidence-branch-')))
     const gates = join(directory, 'gates')
     mkdirSync(gates)
-    const rig = await createFlowRig({ home: join(directory, 'home'), work: join(directory, 'work'), gates })
+    let evidenceNow = Date.now()
+    const rig = await createFlowRig({ home: join(directory, 'home'), work: join(directory, 'work'), gates, evidenceNow: () => evidenceNow })
     t.after(async () => { await rig.dispose(); rmSync(directory, { recursive: true, force: true }) })
     const git = (...args) => execFileSync('git', args, { cwd: rig.repo, encoding: 'utf8', stdio: 'pipe' }).trim()
     git('switch', '-c', 'original')
@@ -103,7 +110,7 @@ for (const mode of ['same', 'switch', 'switch-back', 'isolated', 'switch-after']
     assert.equal(candidates.length, 1)
     // Capture the same completed writer before the assertions, so a frozen-
     // branch mutation can leave its failing reproduction's before frames.
-    await photograph(rig, run.goal, directory, mode)
+    if (mode !== 'switch-after') await photograph(rig, run.goal, directory, mode)
     const expected = mode === 'switch' ? 'changed' : mode === 'isolated' ? writerBranch : 'original'
     if (mode === 'isolated') assert.match(expected, /^harnessdesk\//)
     assert.equal(candidates[0].branch, expected, 'the candidate must name the writer checkout now, not its Seat opening branch')
@@ -111,6 +118,19 @@ for (const mode of ['same', 'switch', 'switch-back', 'isolated', 'switch-after']
       git('switch', '-c', 'after')
       await assert.rejects(() => rig.host.teamPlane.recordReview({ intent: reviewer.id, candidate: candidates[0].id, verdict: 'request-changes' }, reviewer.claim), /moved on/)
       await assert.rejects(() => rig.host.teamPlane.reviewCandidates(reviewer.id, reviewer.claim), /switched branches after this card finished/)
+      writeFileSync(join(rig.repo, 'later.txt'), 'Later card work.\n')
+      evidenceNow += 5 * 60 * 1000 + 1
+      const refreshed = await until(async () => {
+        const board = await rig.host.call('evidence/board', { room: run.goal })
+        const diff = board.cards.find(one => one.card === writer.id)?.facts.find(one => one.record.fact.kind === 'diff')?.record
+        return diff?.fact.dirty ? diff : null
+      }, 'the stopped diff refresh on a later branch')
+      // Photograph the real refreshed record before asserting so a mutation
+      // retains its failing branch label for the review's before frames.
+      await photograph(rig, run.goal, directory, mode)
+      assert.equal(refreshed.checkout.branch, expected, 'a refreshed stopped diff keeps the completion branch')
+      assert.equal(refreshed.fact.to, candidates[0].at)
+      rmSync(join(rig.repo, 'later.txt'))
       git('switch', 'original')
     }
     writeFileSync(join(gates, 'RIG_FLOW_REVIEW'), '')
