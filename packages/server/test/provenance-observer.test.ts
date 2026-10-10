@@ -12,10 +12,10 @@ import type { SeatRecord } from '@harnessdesk/protocol'
 import type { EvidencePlane } from '../src/evidence/plane.js'
 import { EvidenceStore } from '../src/evidence/store.js'
 import { admitProject, gitReader, type GitReader } from '../src/provenance/git.js'
-import { ProvenanceJournal, readCheckpoint, type JournalEntry } from '../src/provenance/journal.js'
+import { ProvenanceJournal, readCheckpoint, writeCheckpoint, type JournalEntry } from '../src/provenance/journal.js'
 import { Coalesced, RefObserver, type WorkerCheckpoint } from '../src/provenance/observer.js'
 import { ProvenancePlane } from '../src/provenance/plane.js'
-import { makeRepo } from './fixtures/provenance-repo.js'
+import { makeRepo, scriptedGit } from './fixtures/provenance-repo.js'
 import type { Repo } from './fixtures/provenance-repo.js'
 
 const noWatch = (() => { const watcher = { on: () => watcher, close: () => {} }; return watcher }) as unknown as typeof watch
@@ -31,6 +31,138 @@ const deferred = () => {
   const promise = new Promise<void>((done) => { resolve = done })
   return { promise, resolve }
 }
+
+for (const restart of [false, true]) test(`an unreadable journalled commit cannot stall the next ancestry batch${restart ? ' after restart' : ''}`, async (t) => {
+  t.mock.method(performance, 'now', () => 0)
+  const repo = await makeRepo()
+  const handle = await admitProject(repo.dir, repo.stateDir, [repo.dir])
+  t.after(() => gitReader(handle).close())
+  const sha = (n: number) => n.toString(16).padStart(40, '0')
+  const journal = new ProvenanceJournal(join(repo.stateDir, 'provenance.ndjson'))
+  // Another capture already retained this parent edge. Its object is no
+  // longer readable here; observing it is not proof its ancestry was walked.
+  await journal.append('commit', {
+    id: `commit-${sha(201)}`, sha: sha(201), tree: sha(201), parents: [sha(202)], firstSeenAt: 20,
+    fingerprintVersion: 1, discoveredBy: [], checkoutHints: [], window: { from: null, to: 20 },
+    patch: { stable: '', exact: '', files: [] }, files: [], why: null,
+  })
+  let scans = 0
+  const problems: string[] = []
+  const batches: number[] = []
+  const git: GitReader = {
+    snapshot: async () => {
+      assert.ok(++scans <= 4, 'bounded catch-up must settle')
+      return { refs: new Map([['refs/heads/main', sha(1)]]), heads: new Map(), takenAt: 30 }
+    },
+    reflogs: async () => ({ moves: [], cursors: new Map(), gaps: [], more: false }),
+    commitTimes: async (ids) => {
+      if (ids.includes(sha(201))) throw new Error('git-failed')
+      return new Map(ids.map((id) => [id, 20]))
+    },
+    commit: async (id) => {
+      if (id === sha(201)) throw new Error('git-failed')
+      return { sha: id, tree: id, parents: id === sha(450) ? [] : [sha(Number.parseInt(id, 16) + 1)], committedAt: 20 }
+    },
+    patch: async () => ({ stable: '', exact: '', files: [] }), files: async () => [],
+    kinds: async () => new Map(), ancestors: async () => [], batch: (_signal, work) => work(git), close: async () => {},
+  }
+  let observer: RefObserver
+  let captured = 1
+  const options = { git, journal, watch: noWatch, pollMs: 0, now: () => 30, historyFloor: () => 10,
+    problem: (_kind: string, reason: string) => problems.push(reason),
+    changed: () => { batches.push(observer.checkpoint!.frontier.length) },
+  }
+  if (restart) {
+    // The durable state left by the first 200 visits, including its known tip.
+    for (let n = 1; n <= 200; n += 1) await journal.append('commit', {
+      id: `commit-${sha(n)}`, sha: sha(n), tree: sha(n), parents: [sha(n + 1)], firstSeenAt: 30,
+      fingerprintVersion: 1, discoveredBy: [], checkoutHints: [], window: { from: null, to: 30 },
+      patch: { stable: '', exact: '', files: [] }, files: [], why: null,
+    })
+    await writeCheckpoint(journal, { generation: 1, refs: [['refs/heads/main', sha(1)]], heads: [], logs: [],
+      frontier: [sha(201)], capturedThrough: 30, scanStartedAt: 30, openedAt: 30, historyFloor: 10,
+      baseline: [sha(1)], rangeKeys: [], rangePending: [] } satisfies WorkerCheckpoint)
+    captured = 201
+  }
+  observer = new RefObserver(options)
+  t.after(() => observer.close())
+  await observer.start(handle, readCheckpoint((await journal.read()).entries) as WorkerCheckpoint | null)
+  await observer.idle()
+  const entries = (await journal.read()).entries
+  assert.equal(entries.filter((entry) => entry.kind === 'commit').length, 450, `catch-up stopped with ${captured} prior observations`)
+  assert.deepEqual(observer.checkpoint!.frontier, [])
+  assert.equal(batches.length, restart ? 2 : 3, 'every bounded batch continues without an external wake')
+  assert.ok(problems.includes('history-gap'), 'the unavailable object remains visible')
+})
+
+test('status explains a frontier blocked after one batch by an unreadable unobserved object', async (t) => {
+  t.mock.method(performance, 'now', () => 0)
+  const repo = await makeRepo()
+  const sha = (n: number) => n.toString(16).padStart(40, '0')
+  await writeFile(join(repo.dir, '.git/refs/heads/main'), `${sha(900)}\n`)
+  const store = new EvidenceStore(repo.stateDir)
+  const journal = new ProvenanceJournal(join(store.folderOf(repo.dir), 'provenance.ndjson'))
+  const frontier = Array.from({ length: 450 }, (_, n) => sha(n + 1))
+  await writeCheckpoint(journal, { generation: 1, refs: [['refs/heads/main', sha(900)]], heads: [[repo.dir, sha(900)]], logs: [],
+    frontier, capturedThrough: 20, scanStartedAt: 20, openedAt: 30, historyFloor: 0,
+    baseline: [], rangeKeys: [], rangePending: [] } satisfies WorkerCheckpoint)
+  const script = scriptedGit()
+  const run: typeof script.run = async (executable, args, options) => {
+    if (args.includes('log')) return Buffer.from(options.input!.toString('utf8').trim().split('\n')
+      .map((id) => `${id} 20\n`).join(''))
+    const at = args.indexOf('cat-file')
+    if (at >= 0 && args[at + 1] === 'commit') {
+      const id = args[at + 2]!
+      if (id === sha(201)) throw new Error('git-failed')
+      return Buffer.from(`tree ${id}\ncommitter Jane Doe <dev@example.com> 20 +0000\n\nfixture\n`)
+    }
+    return script.run(executable, args, options)
+  }
+  const plane = new ProvenancePlane({ evidence: { store } as EvidencePlane, stateDir: repo.stateDir,
+    projects: () => [repo.dir], reader: { run }, now: () => 30, log: () => {}, push: () => {} })
+  t.after(() => plane.close())
+  await plane.start()
+  await waitUntil(async () => (await plane.status())[0]?.reason === 'Some history was unavailable when capture resumed.', 'blocked capture status')
+  const status = (await plane.status(repo.dir))[0]!
+  assert.equal(status.state, 'degraded')
+  assert.ok(status.pending > 0, 'the frontier stays available for a later retry')
+  assert.ok(status.nextStep.includes('Retry'))
+  const entries = (await new ProvenanceJournal(join(store.folderOf(repo.dir), 'provenance.ndjson')).read()).entries
+  assert.equal(entries.filter((entry) => entry.kind === 'commit').length, 200, 'the first batch completed before the blocked read')
+  assert.ok((readCheckpoint(entries) as WorkerCheckpoint).frontier.includes(sha(201)))
+})
+
+for (const probe of [true, false]) test(`a metadata refusal during ${probe ? 'clock probing' : 'a journalled object read'} cannot advance capture`, async (t) => {
+  const repo = await makeRepo()
+  const handle = await admitProject(repo.dir, repo.stateDir, [repo.dir])
+  t.after(() => gitReader(handle).close())
+  const tip = 'a'.repeat(40)
+  const journal = new ProvenanceJournal(join(repo.stateDir, 'provenance.ndjson'))
+  await journal.append('commit', { id: 'known', sha: tip, tree: tip, parents: [], firstSeenAt: 20,
+    fingerprintVersion: 1, discoveredBy: [], checkoutHints: [], window: { from: null, to: 20 }, patch: null, files: [], why: null })
+  const saved: WorkerCheckpoint = { generation: 1, refs: [['refs/heads/main', tip]], heads: [], logs: [], frontier: [tip],
+    capturedThrough: 20, scanStartedAt: 20, openedAt: 30, historyFloor: 10, baseline: [], rangeKeys: [], rangePending: [] }
+  await writeCheckpoint(journal, saved)
+  const git: GitReader = {
+    snapshot: async () => ({ refs: new Map(saved.refs), heads: new Map(), takenAt: 30 }),
+    reflogs: async () => ({ moves: [], cursors: new Map(), gaps: [], more: false }),
+    commitTimes: probe ? async () => { throw new Error('metadata-changed') } : undefined,
+    commit: async () => { throw new Error('metadata-changed') },
+    kinds: async () => new Map(), patch: async () => { assert.fail('metadata refusal must stop object work') },
+    files: async () => [], ancestors: async () => [], batch: (_signal, work) => work(git), close: async () => {},
+  }
+  let changed = 0
+  const problems: string[] = []
+  const observer = new RefObserver({ git, journal, watch: noWatch, pollMs: 0, now: () => 30, historyFloor: () => 10,
+    changed: () => { changed += 1 }, problem: (_kind, reason) => problems.push(reason) })
+  t.after(() => observer.close())
+  await observer.start(handle, saved)
+  await observer.idle()
+  assert.equal(changed, 0)
+  assert.deepEqual(observer.checkpoint, saved)
+  assert.deepEqual(readCheckpoint((await journal.read()).entries), saved)
+  assert.deepEqual(problems, ['history-gap'])
+})
 
 for (const cost of [0, 100]) test(`an in-window frontier captures a bounded batch before checkpointing with ${cost}ms fake reads`, async (t) => {
   const repo = await makeRepo()

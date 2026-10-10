@@ -1,7 +1,7 @@
 import { WAITING_LEDGER, approvalId, itemId, runtimeId, sessionId, sessionKey, turnId, type FlowExecution, type GoalView, type InsightAmounts, type InsightMetric, type InsightReport, type Intent, type SeatRecord, type Session } from '@harnessdesk/protocol'
 import { teamOverview, type TeamOverviewInput } from '../lib/team-overview'
 import { PREVIEW_GOAL } from './goal-fixture'
-import { previewStore } from './harness'
+import { goalInsightsFrom, previewStore } from './harness'
 
 export const OVERVIEW_STATES = ['running','needs-you','unread','idle','stalled','no-run','no-seats','done','done-open','comparison','narrow'] as const
 export type OverviewScene = typeof OVERVIEW_STATES[number]
@@ -46,5 +46,5 @@ export const overviewTeamStore = (scene: 'done' | 'running' | 'needs-you' | 'sta
  const approvals=scene==='needs-you'?input.seats.flatMap(one=>one.approvals.map(approval=>({key:sessionKey(one.record.session.runtime,one.record.session.sessionId),approval}))):[]
  const findingRun:import('@harnessdesk/protocol').FindingRunView={run:run.id,goal:board.id,round:2,finished:1,total:1,embargoed:false,open:3,blocking:3,reason:'This review is waiting to be posted.',ceilingStop:false,stamp:'preview-posting',publication:'local',rounds:[{round:2,state:'local',reason:'This review is waiting to be posted.',pr:7,cards:[2]}],reviewersFinished:1,reviewersTotal:1,pendingExceptions:[],repair:null,boundPr:{repo:'acme/storefront',pr:7},unbound:null,undecidable:null}
  const base=previewStore({teams:new Map([[board.id,board]]),goals:new Map([[board.id,goal]]),flowExecutions:scene==='no-run'?new Map():new Map([[run.id,run]]),findingRuns:scene==='findings-and-posting'?new Map([[run.id,findingRun]]):new Map(),sessions,history:[...sessions.values()],inbox:[],approvals,workspace:{path:board.root,name:'Storefront',lastOpenedAt:at},workspaces:[{path:board.root,name:'Storefront',lastOpenedAt:at}],listPrefs:{...previewStore().getSnapshot().listPrefs,collapsed:[],pinned:[]}})
- return new Proxy(base,{get(target,key){if(key==='teamPeers')return async()=>[];if(key==='readGoalInsight')return async()=>overviewReport();return Reflect.get(target,key)}})
+ return new Proxy(base,{get(target,key){if(key==='teamPeers')return async()=>[];if(key==='readGoalInsight')return async()=>overviewReport();if(key==='readGoalInsights')return goalInsightsFrom(async()=>overviewReport());return Reflect.get(target,key)}})
 }

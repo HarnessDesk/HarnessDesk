@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest'
 import type { FlowEntry, FlowPolicy } from '@harnessdesk/protocol'
 import { TEAM_START_POLICIES } from '../preview/team-start-fixture'
+import { CONTEST_START_POLICY } from './contest-start-fixture'
 import { pickerSections, shapeSummary, withAttemptCheck } from './team-start'
 
 const entry = (id: string, over: Partial<FlowEntry> = {}): FlowEntry => ({
@@ -9,8 +10,8 @@ const entry = (id: string, over: Partial<FlowEntry> = {}): FlowEntry => ({
 })
 const shapes = ['review', 'investigation', 'comparison', 'alignment', 'independent-review', 'fix-and-review'].map(id => entry(id))
 
-it('preserves separating spaces as the controlled project check is typed', () => {
-  const template = TEAM_START_POLICIES.comparison
+it.each(['comparison', 'mechanical-contest'] as const)('preserves separating spaces as %s’s project check is typed', id => {
+  const template = id === 'mechanical-contest' ? CONTEST_START_POLICY : TEAM_START_POLICIES.comparison
   let flow: FlowPolicy = template
   let value = ''
   for (const character of 'node check.mjs') {
@@ -19,6 +20,18 @@ it('preserves separating spaces as the controlled project check is typed', () =>
     value = check?.kind === 'check' ? check.check.run : ''
   }
   expect(value).toBe('node check.mjs')
+})
+
+it('adds, skips and restores per-attempt checks before a contest’s person choice', () => {
+  const template = CONTEST_START_POLICY
+  const checked = withAttemptCheck(template, template, 'npm test')
+  expect(checked.roles.find(role => role.id === 'verify')).toMatchObject({ kind: 'check', check: { run: 'npm test', onRequest: true, exits: { '0': 'pass' }, otherwise: 'fail' } })
+  expect(checked.rules).toEqual([
+    { id: 'to-verify', on: 'competitor', then: { role: 'verify', title: 'Check the attempt' } },
+    { id: 'to-person', on: 'verify', when: { any: ['pass'] }, then: { role: 'referee', title: 'Choose and merge an attempt' } },
+  ])
+  expect(withAttemptCheck(checked, template, '   ')).toEqual(template)
+  expect(withAttemptCheck(withAttemptCheck(checked, template, ''), template, 'npm test')).toEqual(checked)
 })
 
 const customComparison = (): FlowPolicy => {

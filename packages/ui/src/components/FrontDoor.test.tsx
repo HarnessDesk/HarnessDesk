@@ -7,6 +7,7 @@ import type { FlowEntry, FlowExecution, FlowPreview, FrontDoorPreview, HostMetho
 import { StoreProvider } from '../state/context'
 import { AppStore } from '../state/store'
 import { FrontDoor } from './FrontDoor'
+import { CONTEST_START_POLICY } from '../lib/contest-start-fixture'
 
 /**
  * The front door: choose a file-based shape, read its populated dry run,
@@ -154,16 +155,16 @@ it('Change keeps the task and Done when is the sentence sent to start', async ()
 
 const neverFlow = (): never => { throw new Error('expected current format') }
 
-it('prefills the project check, previews an edited command, and keeps an empty check after Change', async () => {
+it.each([['comparison', 'Side by side', 'judge', 'to-judge'], ['mechanical-contest', 'Mechanical contest', 'referee', 'to-person']])('prefills %s’s project check, previews edits, and keeps an empty check after Change', async (id, name, destination, route) => {
   const { TEAM_START_POLICIES } = await import('../preview/team-start-fixture')
-  const original: import('@harnessdesk/protocol').FlowPolicy = TEAM_START_POLICIES.comparison
+  const original: import('@harnessdesk/protocol').FlowPolicy = id === 'mechanical-contest' ? CONTEST_START_POLICY : TEAM_START_POLICIES.comparison
   const policy = { ...original, inputs: [{ id: 'task', label: 'Task', default: 'Fix the cart' }], roles: original.roles.filter(role => role.kind !== 'check'), rules: [
-    { id: 'to-judge', on: 'competitor', then: { role: 'judge', title: 'Pick the best attempt' } },
+    { id: route, on: 'competitor', then: { role: destination, title: 'Choose an attempt' } },
     ...original.rules.filter(rule => rule.on === 'judge'),
   ] }
   const store = new AppStore('ws://localhost:0/')
   const spy = requestSpy(store, {
-    'flow/catalog': () => [ENTRY('comparison', 'Side by side')], 'agent/list': () => [], 'flow/source': () => JSON.stringify(policy),
+    'flow/catalog': () => [ENTRY(id, name)], 'agent/list': () => [], 'flow/source': () => JSON.stringify(policy),
     'authoring/shape/render': params => ({ source: JSON.stringify((params as { policy: unknown }).policy), issues: [] }),
     'authoring/start/preview': params => {
       const input = params as { source: string; vars: Record<string, string> }
@@ -174,7 +175,7 @@ it('prefills the project check, previews an edited command, and keeps an empty c
   })
   render(store)
   await settle()
-  act(() => rowFor('Side by side').click())
+  act(() => rowFor(name).click())
   await settle()
   const check = (): HTMLInputElement => {
     const label = [...document.querySelectorAll('label')].find(one => one.textContent?.includes('Check each attempt with'))
@@ -193,14 +194,14 @@ it('prefills the project check, previews an edited command, and keeps an empty c
   expect(edited.flow.compiled.document.flow.roles.find(role => role.id === 'verify')).toMatchObject({ check: { run: 'node check.mjs' } })
   await type('')
   act(() => button('Change').click())
-  act(() => rowFor('Side by side').click())
+  act(() => rowFor(name).click())
   await settle()
   expect(check().value).toBe('')
   act(() => button('Start').click())
   await settle()
   const started = spy.mock.calls.find(call => call[0] === 'flow/start-goal')?.[1] as { source: string }
   expect(JSON.parse(started.source).roles.some((role: { kind: string }) => role.kind === 'check')).toBe(false)
-  expect(JSON.parse(started.source).rules.find((rule: { id: string }) => rule.id === 'to-judge').on).toBe('competitor')
+  expect(JSON.parse(started.source).rules.find((rule: { id: string }) => rule.id === route).on).toBe('competitor')
 })
 
 it.each(['render', 'preview'])('holds Change and Details inputs until a policy %s settles, then keeps the edit', async phase => {

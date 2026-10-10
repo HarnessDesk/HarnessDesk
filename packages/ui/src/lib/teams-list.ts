@@ -80,10 +80,12 @@ export const teamListRow = ({team,goal,execution,overview,total}: TeamListInput,
  const detail = rawDetail
  // Usage refreshes and clock ticks do not unhide work. Identity, lifecycle and
  // observed attention do; these marks contain no transcript or command text.
+ // A wrapped Team's review is left out: nothing on its row follows one, so the
+ // list never reads it, and the copy its room loads would mark it unread again.
  const change = JSON.stringify([team.updatedAt,goal?.goal.updatedAt ?? null,goal?.goal.state ?? null,goal?.activity ?? null,
   execution?.id ?? null,execution?.state ?? null,execution?.endedAt ?? null,execution?.reason ?? null,execution?.pendingReleaseNote ?? null,
   execution?.rounds.map(one => [one.n,one.state,one.cards,one.seats]) ?? [],
-  [overview.run?.findingRun?.publication ?? null,overview.run?.publicationOn ?? null,overview.run?.findingRun?.reason ?? null],
+  wrapped ? null : [overview.run?.findingRun?.publication ?? null,overview.run?.publicationOn ?? null,overview.run?.findingRun?.reason ?? null],
   seats.map(one => [one.seat,one.state,one.since,one.card?.id ?? null]),
   overview.needsYou.map(one => [one.kind,one.seat,one.card,one.since])])
  return {id:team.id,project:team.root,sentence:goal ? goalName(goal.goal) : team.name,seats,state,since,detail,

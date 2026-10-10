@@ -154,6 +154,13 @@ files, durable transcript metadata, Seats and immutable Goal documents. It has
 no evidence or receipt writer port. Its wire methods return source and
 coverage-qualified observations; a local seating apply accepts only a
 host-minted reviewed stamp and checks the seating file in its write queue.
+A read for many Teams (`insight/goals`) makes one pass over the usage sources
+for all of their projects (`Ledger.readInsights`: roots over the same range
+share a pass, which carries each read's byte budget and files its samples by
+folder once), attributes each
+sample to its Seat once per project, then draws every Team's report from
+that; one read shares its folder identities rather than resolving a path per
+sample.
 
 `packages/server` owns everything that must not live in a browser:
 

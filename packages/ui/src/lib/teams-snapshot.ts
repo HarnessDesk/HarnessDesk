@@ -7,10 +7,13 @@ import { teamOverview, teamOverviewInputOf, teamTotals } from '@harnessdesk/clie
 import { clientSnapshot } from './client-snapshot'
 import type { TeamListInput } from './teams-list'
 
-export const teamsInput = (snapshot: AppSnapshot, reports: ReadonlyMap<string,InsightReport> = new Map()): TeamListInput[] => [...snapshot.teams.values()].map(team => {
+export const teamsInput = (snapshot: AppSnapshot, reports: ReadonlyMap<string,InsightReport> = new Map()): TeamListInput[] => {
+ // One copy of the held facts for every Team: built per Team, it made the list quadratic.
+ const held=clientSnapshot(snapshot)
+ return [...snapshot.teams.values()].map(team => {
  const goal=snapshot.goals.get(team.id) ?? null
  const execution=goalRunOf(team.id,goal,snapshot.flowExecutions)
- const input = teamOverviewInputOf(clientSnapshot(snapshot), team.id, {
+ const input = teamOverviewInputOf(held, team.id, {
   runtimes: snapshot.runtimes.map(one => ({ id: one.id, name: one.presentation.name, metered: one.capabilities.metered })),
   seats:teamSeats(goal,team,execution).filter(hasConversation).map(seat=>({record:seat.record,name:seat.name,
    runtime:snapshot.runtimes.find(one=>one.id===seat.record.session.runtime) ?? null,
@@ -23,4 +26,5 @@ export const teamsInput = (snapshot: AppSnapshot, reports: ReadonlyMap<string,In
   report:reports.get(team.id) ?? null,
  })
  return {team,goal,execution,overview:teamOverview(input),total:teamTotals(input)}
-})
+ })
+}
