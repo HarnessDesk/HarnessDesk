@@ -15,6 +15,7 @@ import {
 import { findPane } from '../state/layout'
 import { shownView, sidebarPlacement } from '../state/workbench'
 import { summonable } from '../panels/views'
+import { toolOf } from '../state/frame-tools'
 import { useTopBar, useTopBarMore, useWorkDetails } from '../panels/top-bar'
 import { WorkTools } from '../panels/WorkTools'
 import { ConversationDetails } from '../panels/work-details'
@@ -23,6 +24,8 @@ import { dismissOverlays } from '../lib/overlays'
 import { Composer } from './Composer'
 import {
   BranchIcon,
+  BrainIcon,
+  UndoIcon,
   AgentIcon,
   CheckIcon,
   CommitIcon,
@@ -51,15 +54,9 @@ import {
   Menu,
   MenuItem,
   MenuLabel,
+  MenuToggle,
   PaneColumn,
   Popover,
-  PopoverGroupLabel,
-  PopoverOption,
-  PopoverOptionBody,
-  PopoverOptionHint,
-  PopoverOptionLabel,
-  PopoverOptionLive,
-  PopoverOptionMark,
   Separator,
   Spinner,
   Submenu,
@@ -283,122 +280,31 @@ const ConversationMenu = ({ owner, folderActions }: { owner?: string; folderActi
   const pane = usePane()
   const memoryOn = session?.memory === true
   const several = snapshot.layout.root.kind === 'split'
-  const menuBody = (close: () => void) => (
-          <>
-          {capabilities.memory && (
-            <PopoverOption
-              role="menuitemcheckbox"
-              aria-checked={memoryOn}
-              onClick={() => {
-                void store.setMemoryMode(!memoryOn)
-                close()
-              }}
-            >
-              <PopoverOptionMark checked>{memoryOn && <CheckIcon size={13} />}</PopoverOptionMark>
-              <PopoverOptionBody>
-                <PopoverOptionLabel>Remember this conversation</PopoverOptionLabel>
-                <PopoverOptionHint>
-                  Let {runtime.presentation.name} carry what it learns here into new ones.
-                </PopoverOptionHint>
-              </PopoverOptionBody>
-            </PopoverOption>
-          )}
-          {capabilities.compaction && (
-            <PopoverOption
-              disabled={record}
-              title={record ? RECORD_REASON : 'Summarise older turns to free up context.'}
-              onClick={() => {
-                void store.compact(key)
-                close()
-              }}
-            >
-              <PopoverOptionMark>
-                <CompactIcon size={13} />
-              </PopoverOptionMark>
-              <PopoverOptionBody>
-                <PopoverOptionLabel>Compact now</PopoverOptionLabel>
-                {record && <PopoverOptionHint>{RECORD_REASON}</PopoverOptionHint>}
-              </PopoverOptionBody>
-            </PopoverOption>
-          )}
-          {capabilities.undo && <MenuItem label="Undo the last turn" hint="History only — files are left as they are."
-            onSelect={() => { setConfirmUndo(true); close() }} />}
-            <PopoverOption
-              title="This seat, a brief and a ceiling, under a name to start again."
-              onClick={() => {
-                setSaving(true)
-                close()
-              }}
-            >
-              <PopoverOptionMark>
-                <AgentIcon size={13} />
-              </PopoverOptionMark>
-              <PopoverOptionBody>
-                <PopoverOptionLabel>Save as an Agent…</PopoverOptionLabel>
-              </PopoverOptionBody>
-            </PopoverOption>
-            {folderActions?.(close)}
-            {/* Non-tool aliases stay in overflow; fixed tool doors live in TopBar. */}
-          <PopoverGroupLabel>View</PopoverGroupLabel>
-          {summonable()
-            .filter((definition) => definition.menu === true && definition.kind !== 'changes' && (!['agents', 'activity', 'trajectory', 'tasks', 'run-details', 'run-steps', 'browser'].includes(definition.kind)))
-            .map((definition) => {
-              const Glyph = definition.icon
-              const open = shownView(snapshot.workbench, definition.kind)
-              return (
-                <PopoverOption
-                  key={definition.kind}
-                  role="menuitemcheckbox"
-                  aria-checked={open}
-                  /* The description the comment above promises. It rode on a
-                     `hint` in `Details`'s own table until this menu was
-                     rebuilt from the registry, and then on nothing at all —
-                     the sentence stayed in a file neither door read any
-                     more. It is the view's own now. */
-                  title={definition.hint}
-                  onClick={() => {
-                    store.showView(definition.kind)
-                    close()
-                  }}
-                >
-                  <PopoverOptionMark checked={open}>
-                    {open ? <CheckIcon size={13} /> : <Glyph size={13} />}
-                  </PopoverOptionMark>
-                  <PopoverOptionBody>
-                    <PopoverOptionLabel>
-                      {definition.label}
-                      {/* The view has something still going — a task in the
-                          background. A dot on its door, so the menu says
-                          there is something to look at before it is opened. */}
-                      {definition.live?.(snapshot) === true && (
-                        <PopoverOptionLive />
-                      )}
-                    </PopoverOptionLabel>
-                  </PopoverOptionBody>
-                </PopoverOption>
-              )
-            })}
-          {pane && several && (
-            <PopoverOption
-              title="⌘W. The conversation stays in the sidebar."
-              onClick={() => {
-                store.closePane(pane.paneId)
-                close()
-              }}
-            >
-              <PopoverOptionMark>
-                <CrossIcon size={13} />
-              </PopoverOptionMark>
-              <PopoverOptionBody>
-                <PopoverOptionLabel>Close this pane</PopoverOptionLabel>
-              </PopoverOptionBody>
-            </PopoverOption>
-          )}
-          </>
-  )
+  const menuBody = (close: () => void) => <>
+    {capabilities.memory && <MenuToggle icon={<BrainIcon size={16} />} label="Remember this conversation"
+      title={`Let ${runtime.presentation.name} carry what it learns here into new ones.`} checked={memoryOn}
+      onChange={() => { void store.setMemoryMode(!memoryOn); close() }} />}
+    {capabilities.compaction && <MenuItem icon={<CompactIcon size={16} />} label="Compact now"
+      title="Summarise older turns to free up context." disabled={record ? RECORD_REASON : false}
+      onSelect={() => void store.compact(key)} />}
+    {capabilities.undo && <MenuItem icon={<UndoIcon size={16} />} label="Undo the last turn"
+      hint="Files are left as they are." onSelect={() => setConfirmUndo(true)} />}
+    <MenuItem icon={<AgentIcon size={16} />} label="Save as an Agent…"
+      title="This seat, a brief and a ceiling, under a name to start again." onSelect={() => setSaving(true)} />
+    {folderActions?.(close)}
+    <MenuLabel>View</MenuLabel>
+    {summonable().filter(definition => definition.menu === true && toolOf(definition.kind) === null && definition.kind !== 'run-steps').map(definition => {
+      const Glyph = definition.icon
+      return <MenuItem key={definition.kind} icon={<Glyph size={16} />} label={definition.label} title={definition.hint}
+        selected={shownView(snapshot.workbench, definition.kind)} badge={definition.live?.(snapshot) === true ? 'Live' : undefined}
+        onSelect={() => store.showView(definition.kind)} />
+    })}
+    {pane && several && <MenuItem icon={<CrossIcon size={16} />} label="Close this pane" shortcut="⌘W"
+      hint="The conversation stays in the sidebar." onSelect={() => store.closePane(pane.paneId)} />}
+  </>
   useTopBarMore(owner ?? pane?.paneId ?? '', menuBody, Boolean(session && pane))
   return <>
-    {confirmUndo && <ConfirmDialog title="Undo the last turn?" confirmLabel="Undo turn" onCancel={() => setConfirmUndo(false)}
+    {confirmUndo && <ConfirmDialog title="Undo the last turn?" confirmLabel="Undo turn" cancelLabel="Keep" onCancel={() => setConfirmUndo(false)}
       onConfirm={() => { void store.rollback(1); setConfirmUndo(false) }}>
       Drops it from history. Files it changed on disk are not reverted.
     </ConfirmDialog>}

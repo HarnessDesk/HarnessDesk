@@ -179,6 +179,11 @@ export const FrameWall = () => {
     // Additional Details states for the same real frame; all data is synthetic.
     const detailsCase = query.get('frame-details-case')
     const snapshot = next.getSnapshot()
+    if (query.get('frame-conversation-actions') === '1') {
+      Object.assign(snapshot, { runtimes: snapshot.runtimes.map(runtime => ({
+        ...runtime, capabilities: { ...runtime.capabilities, memory: true, compaction: true, undo: true },
+      })) })
+    }
     if (query.get('frame-sidebar-hidden') === '1') Object.assign(snapshot, { sidebarCollapsed: true, sidebarFloating: false })
     if (query.get('frame-status') === 'tasks') {
       const task: BackgroundTask = { id: 'frame-task', label: 'Review the checkout', kind: 'command', state: 'running',

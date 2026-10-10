@@ -61,6 +61,7 @@ for (const destination of WALL_DESTINATIONS) {
         }
         await applyLeftColumnActions(page, destination)
         await applySettingsNavigationActions(page, destination)
+        if ('undo' in destination) await openWallDestination(page, destination)
         if ('composerAdd' in destination) await openWallDestination(page, destination)
         if ('popup' in destination) await openWallDestination(page, destination)
         await page.evaluate(async () => { await document.fonts.ready })

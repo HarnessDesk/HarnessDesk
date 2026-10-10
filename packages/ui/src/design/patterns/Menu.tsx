@@ -430,6 +430,7 @@ export const MenuToggle = ({
   icon,
   label,
   hint,
+  title,
   value,
   checked,
   disabled,
@@ -438,6 +439,7 @@ export const MenuToggle = ({
   icon?: ReactNode
   label: ReactNode
   hint?: ReactNode
+  title?: string
   value?: ReactNode
   checked: boolean
   disabled?: string | boolean
@@ -454,7 +456,7 @@ export const MenuToggle = ({
       role="switch"
       checked={checked}
       disabled={Boolean(disabled)}
-      title={reason}
+      title={reason ?? title}
       closeOnClick={false}
       onCheckedChange={(next) => onChange(next)}
     >

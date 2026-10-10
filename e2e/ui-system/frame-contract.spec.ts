@@ -1,3 +1,4 @@
+import { openWallDestination } from './frame-wall-actions'
 import { installFramePreviewFixture } from './frame-preview-fixture'
 import { selectRunView } from './run-frame-actions'
 import { expect, test, type Page } from '@playwright/test'
@@ -543,8 +544,8 @@ for (const theme of WALL_THEMES) {
     expect(await bar.locator('[data-work-tool]').evaluateAll(nodes => nodes.map(node => (node as HTMLElement).dataset.workTool))).toEqual(['details', 'changes', 'activity', 'browser'])
     await expect(bar.locator('[data-topbar-title]')).toContainText('Retry the checkout call')
     await bar.getByRole('button', { name: 'More', exact: true }).click()
-    await expect(page.getByRole('button', { name: 'Compact now', exact: true })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Save as an Agent…', exact: true })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: 'Compact now', exact: true })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: 'Save as an Agent…', exact: true })).toBeVisible()
     await expect(page.getByRole('menuitemcheckbox', { name: 'Browser', exact: true })).toHaveCount(0)
     await page.getByRole('menuitem', { name: 'Folder actions', exact: true }).click()
     await page.getByRole('menuitem', { name: 'Commit the changes', exact: true }).click()
@@ -1289,5 +1290,16 @@ for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
     await expect(surface.getByRole('menuitem', { name: 'Add a file @', exact: true })).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(page.getByRole('button', { name: 'Add', exact: true }).first()).toBeFocused()
+  })
+}
+
+for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
+  test(`C2 Undo is outside More at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&frame-conversation-actions=1', theme, width)
+    await openWallDestination(page, { undo: true })
+    await expect(page.getByRole('alertdialog', { name: 'Undo the last turn?' })).toBeVisible()
+    await expect(page.locator('[data-popup-kind="menu"]:visible')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Keep', exact: true }).click()
+    await expect(page.getByRole('alertdialog')).toBeHidden()
   })
 }

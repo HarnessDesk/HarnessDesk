@@ -74,6 +74,8 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'library', query: 'frame-wall=library' },
   { id: 'plugins', query: 'frame-wall=plugins' },
   { id: 'changes-review', query: 'frame-wall=changes-review' },
+  { id: 'popup-conversation-more', query: 'frame-wall=conversation&frame-conversation-actions=1', popup: 'More' },
+  { id: 'popup-undo-confirmation', query: 'frame-wall=conversation&frame-conversation-actions=1', undo: true },
 ] as const
 
 /** Wide (every region stands), between the folds, and the narrowest window. */
