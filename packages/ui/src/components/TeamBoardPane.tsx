@@ -628,7 +628,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
           </div>
         }
       />
-      <ToolPaneBody ref={bodyRef} bleed={view === 'list'} inset="page" className="[scrollbar-gutter:stable]">
+      <ToolPaneBody ref={bodyRef} bleed={view === 'list'} inset="dense" className="[scrollbar-gutter:stable]">
         {notices && (view === 'list' ? <PaneColumn inset="reading" className="flex flex-col gap-2">{notices}</PaneColumn> : notices)}
         {/* The goals on this board, above the work. A Room is permanent and a
             goal is not, so this is the only line that can ever say "finished" —
