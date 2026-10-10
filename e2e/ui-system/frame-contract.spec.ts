@@ -1352,3 +1352,17 @@ for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
     })
   }
 }
+
+for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
+  test(`C6 account menu and separate consent at ${width} in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme, width)
+    await openWallDestination(page, { account: true })
+    await expectMenuGeometry(page.locator('[data-popup-kind="wide-menu"]:visible').last())
+    await expect(page.locator('[data-popup-kind="info-card"]:visible')).toHaveCount(0)
+    await page.getByRole('menuitem', { name: /^Sign out of/ }).click()
+    await expect(page.getByRole('alertdialog')).toBeVisible()
+    await expect(page.locator('[data-popup-kind="wide-menu"]:visible')).toHaveCount(0)
+    await page.getByRole('button', { name: 'Keep signed in', exact: true }).click()
+    await expect(page.getByRole('alertdialog')).toBeHidden()
+  })
+}

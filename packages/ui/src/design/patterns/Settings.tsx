@@ -1512,7 +1512,7 @@ export const AccountMark = ({
 }: Omit<HTMLAttributes<HTMLElement>, 'data-tint'> & {
   as?: 'span' | 'button'
   /** `dot` is the account's colour alone, for a line whose owner is already drawn. */
-  size?: 'sm' | 'lg' | 'dot' | 'row'
+  size?: 'sm' | 'lg' | 'dot' | 'row' | 'menu'
   /** One of the accounts' own tints — never a design-system tint at large: #991 once shipped teal and orange, neither of which is a tint an account can wear. */
   'data-tint'?: AccountTint
   badge?: ReactNode
@@ -1523,7 +1523,7 @@ export const AccountMark = ({
   // the two apart on a screen that draws both.
   'data-shape': 'round',
   ...(as === 'button' ? { type: 'button' } : {}),
-  className: cx(styles.avatar, badge != null && 'relative overflow-visible', as === 'button' && styles.avatarButton, size === 'sm' && styles.avatarSm, size === 'lg' && styles.avatarLg, size === 'dot' && styles.avatarDot, size === 'row' && styles.avatarRow, className),
+  className: cx(styles.avatar, badge != null && 'relative overflow-visible', as === 'button' && styles.avatarButton, size === 'sm' && styles.avatarSm, size === 'lg' && styles.avatarLg, size === 'dot' && styles.avatarDot, size === 'row' && styles.avatarRow, size === 'menu' && styles.avatarMenu, className),
 }, children, badge != null && <FaceBadge>{badge}</FaceBadge>)
 
 export const FileButton = ({

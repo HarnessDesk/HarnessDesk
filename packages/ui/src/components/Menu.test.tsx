@@ -365,7 +365,7 @@ describe('Submenu', () => {
       root.render(
         <Menu close={() => {}}>
           <Submenu label="Effort">
-            <MenuItem label="Gone" className="gone" selected={false} onSelect={() => {}} />
+            <MenuItem label="Gone" ref={node => { if (node) node.classList.add('gone') }} selected={false} onSelect={() => {}} />
             <MenuItem label="Low" selected={false} onSelect={() => {}} />
           </Submenu>
         </Menu>,

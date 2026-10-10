@@ -213,24 +213,9 @@ export const Menu = ({ close, onEscape, children }: { close: () => void; onEscap
 export const MenuNote = ({ children }: { children: ReactNode }) => <div data-menu-note="">{children}</div>
 export const MenuLabel = ({ children, size = 'default' }: { children: ReactNode; size?: 'default' | 'compact' }) => <div data-menu-group="" data-size={size}>{children}</div>
 
-/**
- * Several accounts of one agent, under one heading. `heading={false}` keeps
- * the group — so a row does not change parent, and lose focus, when the
- * heading comes and goes — but draws no heading and steps nothing in: one
- * account of the agent on show, as one row wearing its own mark.
- *
- * The heading wears the agent's mark once and names it; it is not a choice,
- * so it takes no hover and no press, and it is the group's accessible name —
- * `aria-labelledby`, the wiring the vendored group label would give. Plain
- * elements rather than `DropdownMenuGroup`/`DropdownMenuLabel`: one screen
- * composes this, and the audit's single-area primitive ceiling may only
- * fall. The `account` rows under a heading step in so that, after an
- * `AccountMark size="dot"` (the account's colour), their names start on the
- * heading's name column; the heading already drew whose they are.
- */
+/** A stable account group whose heading shares the level's text edge. */
 export const MenuAccountGroup = ({
   label,
-  mark,
   heading = true,
   children,
 }: {
@@ -241,16 +226,8 @@ export const MenuAccountGroup = ({
 }) => {
   const id = useId()
   return (
-    <div
-      className={styles.group}
-      {...(heading ? { role: 'group', 'aria-labelledby': id, 'data-heading': '' } : {})}
-    >
-      {heading && (
-        <div className={styles.groupHead} id={id}>
-          <span aria-hidden="true" className={styles.groupMark}>{mark}</span>
-          <Text role="muted" truncate className={styles.groupLabel}>{label}</Text>
-        </div>
-      )}
+    <div {...(heading ? { role: 'group', 'aria-labelledby': id } : {})}>
+      {heading && <div data-menu-group="" id={id}>{label}</div>}
       {children}
     </div>
   )
@@ -258,9 +235,34 @@ export const MenuAccountGroup = ({
 
 export const MenuSeparator = () => <div data-menu-separator="" role="separator" />
 
+export interface MenuItemProps {
+  readonly ref?: Ref<HTMLButtonElement>
+  readonly icon?: ReactNode
+  readonly label: ReactNode
+  readonly hint?: ReactNode
+  readonly shortcut?: string
+  readonly value?: ReactNode
+  readonly title?: string
+  readonly badge?: ReactNode
+  readonly trailing?: ReactNode
+  readonly meter?: ReactNode
+  readonly hintId?: string
+  readonly selected?: boolean
+  readonly teamPage?: string
+  /** Marks the app's current account/session independently of checked semantics. */
+  readonly current?: boolean
+  /** Exposes a row-owned disclosure without surrendering menu keyboard behavior. */
+  readonly expanded?: boolean
+  readonly danger?: boolean
+  readonly disabled?: string | boolean
+  readonly keepOpen?: boolean
+  readonly onSelect: () => void
+  /** Pointer or keyboard intent, before the row is chosen. */
+  readonly onHighlight?: () => void
+}
+
 export const MenuItem = ({
   ref,
-  children,
   icon,
   label,
   hint,
@@ -278,40 +280,9 @@ export const MenuItem = ({
   danger,
   disabled,
   keepOpen,
-  layout = 'default',
-  className,
   onSelect,
   onHighlight,
-}: {
-  ref?: Ref<HTMLButtonElement>
-  /** Rich row anatomy still uses the canonical Base UI menu item behavior. */
-  children?: ReactNode
-  icon?: ReactNode
-  label?: ReactNode
-  hint?: ReactNode
-  shortcut?: string
-  value?: ReactNode
-  title?: string
-  badge?: ReactNode
-  trailing?: ReactNode
-  meter?: ReactNode
-  hintId?: string
-  selected?: boolean
-  teamPage?: string
-  /** Marks the app's current account/session independently of checked semantics. */
-  current?: boolean
-  /** Exposes a row-owned disclosure without surrendering menu keyboard behavior. */
-  expanded?: boolean
-  danger?: boolean
-  disabled?: string | boolean
-  keepOpen?: boolean
-  /** A taller row anatomy whose contents earn more than one line. */
-  layout?: 'default' | 'profile' | 'account'
-  className?: string
-  onSelect: () => void
-  /** Pointer or keyboard intent, before the row is chosen. */
-  onHighlight?: () => void
-}) => {
+}: MenuItemProps) => {
   const scope = useScope()
   const reason = typeof disabled === 'string' ? disabled : undefined
   const reasonId = useId()
@@ -327,9 +298,7 @@ export const MenuItem = ({
       {...(current ? { 'data-current': '', 'aria-current': true } : {})}
       {...(expanded === undefined ? {} : { 'aria-expanded': expanded })}
       {...(reason ? { 'aria-describedby': reasonId } : {})}
-      className={className}
-      data-layout={layout}
-      label={layout === 'default' ? label ?? children : <span data-menu-rich-row="" className={styles.richRow}>{label ?? children}</span>}
+      label={label}
       icon={icon}
       hint={reason ?? hint}
       hintId={reason ? reasonId : hintId}
@@ -362,31 +331,7 @@ export interface MenuAccountFigure {
   readonly tone?: Tone
 }
 
-/**
- * One account in the seat menu: a leading mark, the name and its identity,
- * the tag that only exists to tell two same-named rows apart, and the
- * trailing figure. `AccountFooter` (`components/Sidebar.tsx`) composes this
- * from the running app, and the catalogue's Foundation propagation page
- * composes the identical part from the same shape of props (#993) — the
- * layout no longer exists twice.
- *
- * `mark` is handed over already built — an `AccountMark` wrapped in its own
- * hover card, or a bare `size="dot"` mark under a heading — because the card
- * is the app's own account-specific chrome and has no business in a part
- * shared with the catalogue. `identity` is kept as `title` and
- * `data-identity` on the name's own block, not the row's, exactly as the
- * seat menu drew it before this moved.
- *
- * Every `MenuItem` prop a seat row still needs passes straight through:
- * `current`, `expanded`, `keepOpen`, `onSelect`, and — set by the caller as
- * ever, since it is a React reserved prop rather than one this component
- * reads — `key`.
- *
- * The layout is the row's own and is kept to layout properties only (flex,
- * gap, min/max-width, overflow, white-space): a pattern with one screen
- * consumer is charged for anything else it draws itself (docs/design.md).
- * Ink and type come from `Text`.
- */
+/** An account identity, badge and figure rendered by the canonical row. */
 export const MenuAccountRow = ({
   mark,
   name,
@@ -409,20 +354,8 @@ export const MenuAccountRow = ({
   keepOpen?: boolean
   onSelect: () => void
 }) => (
-  <MenuItem layout="account" current={current} expanded={expanded} keepOpen={keepOpen} onSelect={onSelect}>
-    {mark}
-    <span className={styles.accountText} title={identity} data-identity={identity}>
-      <Text role="navigation" truncate className={styles.accountName}>{name}</Text>
-      {tag ? <Text role="meta" truncate className={styles.accountTag}>{tag}</Text> : null}
-    </span>
-    {figure ? (
-      figure.kind === 'reading' ? (
-        <Text role="muted" tone={figure.tone} numeric className={styles.accountFigure}>{figure.text}</Text>
-      ) : (
-        <Text role="meta" tone={figure.tone} className={styles.accountFigure}>{figure.text}</Text>
-      )
-    ) : null}
-  </MenuItem>
+  <MenuItem icon={mark} label={<span data-menu-account-name="" data-identity={identity} title={identity}>{name}</span>} badge={tag}
+    value={figure ? <Text role={figure.kind === 'reading' ? 'muted' : 'meta'} tone={figure.tone} numeric={figure.kind === 'reading'}>{figure.text}</Text> : undefined} current={current} expanded={expanded} keepOpen={keepOpen} onSelect={onSelect} />
 )
 
 /** A switch stays open; Base UI supplies checkbox-menu keyboard semantics. */

@@ -177,6 +177,7 @@ export {
   useContextMenu,
   useMenuClose,
   type MenuAccountFigure,
+  type MenuItemProps,
   type MenuPoint,
 } from './patterns/Menu'
 export {

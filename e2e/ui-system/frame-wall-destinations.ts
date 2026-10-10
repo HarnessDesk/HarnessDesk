@@ -79,6 +79,8 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'popup-wide-menu', query: 'frame-wall=conversation&popup=wide', popup: 'Frame wide menu' },
   { id: 'popup-metered-menu', query: 'frame-wall=conversation&popup=metered', popup: 'Frame metered menu' },
   { id: 'popup-plan-usage', query: 'frame-wall=conversation&popup=plan-usage', plan: 'anchor' },
+  { id: 'popup-account-menu', query: 'frame-wall=conversation', account: true },
+  { id: 'popup-sign-out-confirmation', query: 'frame-wall=conversation', account: true, signOut: true },
   { id: 'popup-other-agents', query: 'frame-wall=conversation&popup=other-agents', plan: 'rest' },
 ] as const
 

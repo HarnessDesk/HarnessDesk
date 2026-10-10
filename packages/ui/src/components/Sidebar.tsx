@@ -12,7 +12,10 @@ import { FrontDoor } from './FrontDoor'
 import { SessionListControls, SessionTree } from './SessionTree'
 import {
   AccountMark,
-  UsageMeterRow,
+  MenuFacts,
+  ConfirmDialog,
+  ActionError,
+  useDismissOverlays,
   Button,
   Dot,
   Menu,
@@ -353,11 +356,12 @@ export const AccountFooter = ({
   const [usageOpen, setUsageOpen] = useState(false)
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [signOutError, setSignOutError] = useState<string | null>(null)
+  useDismissOverlays(confirmingSignOut, () => { setSignOutError(null); setConfirmingSignOut(false) })
   const accountRef = useRef<HTMLDivElement>(null)
   const resetMenu = (): void => {
     setAccountsOpen(false)
     setUsageOpen(false)
-    setConfirmingSignOut(false)
   }
 
   const seats: Seat[] = snapshot.runtimes.flatMap((info): Seat[] => {
@@ -496,10 +500,13 @@ export const AccountFooter = ({
   const signOut = async (close: () => void): Promise<void> => {
     if (!snapshot.activeRuntime) return
     setBusy(true)
+    setSignOutError(null)
     try {
       await store.signOutAgent(snapshot.activeRuntime)
       close()
       resetMenu()
+    } catch (error) {
+      setSignOutError(error instanceof Error ? error.message : String(error))
     } finally {
       setBusy(false)
     }
@@ -562,6 +569,7 @@ export const AccountFooter = ({
         sideOffset={6}
         fullWidth
         panelWidth="wide"
+        icons="all"
         triggerClassName={buttonVariants({ variant: 'navigation', size: 'navigation', className: styles.accountRow })}
         label={accountTrigger}
         onOpenChange={(next) => {
@@ -585,73 +593,15 @@ export const AccountFooter = ({
               such account yet, and a sign-in button for one would be a lie,
               so this is what is true today: your profile, kept on this Mac.
               Pressing it opens the page where it is set. */}
-          <MenuItem
-            layout="profile"
-            title="Your name and picture. Nothing syncs between machines."
-            onSelect={() => {
-              onOpenSettings('profile')
-            }}
-          >
-            <ProfileFace size={30} />
-            <span className={styles.youText}>
-              <span className={styles.youName}>
-                <Text role="row"><Clipped className={styles.youLabel}>{yourName}</Clipped></Text>
-              </span>
-            </span>
-          </MenuItem>
+          <MenuItem icon={<ProfileFace size={16} />} label={yourName} title="Your name and picture. Nothing syncs between machines." onSelect={() => onOpenSettings('profile')} />
 
           <MenuSeparator />
           <MenuLabel size="compact">Run new sessions as</MenuLabel>
             {groups.map((all) => {
               const group = accountsOpen || !here ? all : all.filter((seat) => seat.current)
               if (group.length === 0) return null
-              // The seat's own mark is the trigger, and — like every other one —
-              // it is out of the tab order. An earlier version of this comment
-              // claimed the card opened on keyboard focus here; review checked,
-              // and it does not. It could not: the trigger is `tabIndex={-1}`,
-              // and its parent is a `role="menuitem"` that owns the arrow keys.
-              // Making the span focusable would put a second stop inside a menu
-              // item, which is worse than the card being pointer-only. The
-              // seat's own press still does the thing the card's verb does.
-              //
-              // An account under its agent's heading wears no mark and no card
-              // — the heading carries the mark, and a card on the name would
-              // open at every rest on the list — only its colour, the ring it
-              // wears everywhere else, drawn small.
               const renderSeat = (seat: Seat, child: boolean) => {
-                const mark = child ? (
-                  <AccountMark
-                    size="dot"
-                    aria-hidden="true"
-                    {...(seat.account ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) } : {})}
-                  >
-                    {null}
-                  </AccountMark>
-                ) : (
-                  <AccountHoverCard
-                    info={seat.info}
-                    account={seat.account}
-                    side="right"
-                    align="start"
-                    className={styles.seatTrigger}
-                    /* The same verbs as the badge's card on the row below: two
-                       cards for one account that offered different things were
-                       the whole of the complaint. The sidebar's Dashboard opens
-                       the dashboard on everything; this opens it on this seat. */
-                    onOpenUsage={onOpenUsage}
-                  >
-                    <AccountMark
-                      size="sm"
-                      {...(seat.account
-                        ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) }
-                        : seat.state === 'signin'
-                          ? { 'data-off': '' }
-                          : {})}
-                    >
-                      <RuntimeMark runtime={seat.info} size={13} />
-                    </AccountMark>
-                  </AccountHoverCard>
-                )
+                const mark = child ? <AccountMark size="dot" aria-hidden="true" {...(seat.account ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) } : {})}>{null}</AccountMark> : <AccountMark size="menu" {...(seat.account ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) } : seat.state === 'signin' ? { 'data-off': '' } : {})}><RuntimeMark runtime={seat.info} size={16} /></AccountMark>
                 // What is left, where it is measured; otherwise the one word
                 // that is wrong. A ready seat with nothing metered says
                 // nothing, and neither does one that has not answered yet.
@@ -709,7 +659,7 @@ export const AccountFooter = ({
               )
             })}
             <MenuItem
-              icon={<PlusIcon size={13} />}
+              icon={<PlusIcon size={16} />}
               label="Add an account…"
               onSelect={() => {
                 // Opens the chooser rather than adding one here. "An account"
@@ -725,92 +675,27 @@ export const AccountFooter = ({
           <MenuSeparator />
             {/* Only where something is metered: a row whose whole answer is
                 "—" took a line to say there was nothing to say. */}
-            {hasUsage && (
+            {hasUsage && <MenuItem icon={<UsageIcon size={16} />} label="Usage remaining" expanded={usageOpen} keepOpen
+              trailing={<><Text role="muted" tone={usageReadingTone(here?.tone)} numeric>{here?.figure ?? '—'}</Text><DisclosureChevron open={usageOpen} placement="trailing" tone={usageReadingTone(here?.tone) ? 'warning' : 'neutral'} /></>}
+              onSelect={() => setUsageOpen(value => !value)} />}
+            {usageOpen && usageView && <MenuFacts usageDetails rows={usageView.all.map(lane => ({ id: lane.id, name: lane.title, percent: lane.remainingPercent, countdown: lane.resetCountdown, countdownTitle: lane.resetClock ? `resets ${lane.resetClock}` : undefined, tone: lane.tone === 'bad' ? 'danger' : lane.tone === 'warn' ? 'warning' : 'neutral', barless: true }))} />}
+            <MenuLabel>Usage by Agent</MenuLabel>
+            {groups.flat().map(seat => <MenuItem key={`usage:${seat.key}`} icon={<UsageIcon size={16} />} label={`Usage for ${seat.info.presentation.name}`} title={seat.sub || undefined} onSelect={() => onOpenUsage(seat.info.id)} />)}
             <MenuItem
-              expanded={usageOpen}
-              keepOpen
-              onSelect={() => {
-                setUsageOpen((value) => !value)
-              }}
-              /* The menu's own icon column and value slot, so the gauge and its
-                 words line up with Settings below. Dashboard is not in this
-                 menu: it is in the sidebar's own nav, always, with this gauge,
-                 and a second door here wore the same mark for another verb. */
-              icon={<UsageIcon size={13} />}
-              label="Usage remaining"
-              value={
-              <Text role="muted" tone={usageReadingTone(here?.tone)} numeric className={styles.accountMenuMeta}>
-                {here?.figure ?? '—'}
-                {/* The fold wears the figure's trouble, as the figure beside it does.
-                    A fold has one trouble tone, so a spent window's red figure
-                    folds under the warning mark. */}
-                <DisclosureChevron
-                  open={usageOpen}
-                  placement="trailing"
-                  tone={usageReadingTone(here?.tone) ? 'warning' : 'neutral'}
-                  className={styles.accountMenuCaret}
-                />
-              </Text>
-              }
-            />
-            )}
-            {usageOpen && usageView && (
-              <div className={styles.usageDetails} data-usage-details>
-                <div className={styles.usageLanes}>
-                  {usageView.all.map((lane) => (
-                    <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.resetCountdown} countdownTitle={lane.resetClock ? `resets ${lane.resetClock}` : undefined} tone={lane.tone === 'bad' ? 'danger' : lane.tone === 'warn' ? 'warning' : 'neutral'} standalone barless />
-                  ))}
-                </div>
-                {/* No link to the dashboard here: Dashboard is in the
-                    sidebar's nav, and a second door to it, indented under
-                    the fold, was one row and one ragged edge for nothing. */}
-              </div>
-            )}
-            <MenuItem
-              icon={<SettingsIcon size={13} />}
+              icon={<SettingsIcon size={16} />}
               label="Settings"
               shortcut="⌘,"
               onSelect={() => {
                 onOpenSettings()
               }}
             />
-            {signedIn && !confirmingSignOut && (
-              <MenuItem
-                icon={<SignOutIcon size={13} />}
-                label={`Sign out of ${agentName}…`}
-                danger
-                keepOpen
-                onSelect={() => setConfirmingSignOut(true)}
-              />
-            )}
-            {confirmingSignOut && (
-              <div>
-                <MenuNote>
-                  Sign out of {agentName}? You'll need to sign in again before the next turn.
-                </MenuNote>
-                <div className={styles.accountMenuConfirmActions}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => setConfirmingSignOut(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => void signOut(close)}
-                  >
-                    {busy ? 'Signing out…' : 'Sign out'}
-                  </Button>
-                </div>
-              </div>
-            )}
+            {signedIn && <MenuItem icon={<SignOutIcon size={16} />} label={`Sign out of ${agentName}…`} danger onSelect={() => { setSignOutError(null); setConfirmingSignOut(true) }} />}
           </Menu>
         )}
       </Popover>
+      {confirmingSignOut && <ConfirmDialog title={`Sign out of ${agentName}?`} confirmLabel="Sign out" cancelLabel="Keep signed in" tone="destructive" busy={busy} onCancel={() => { setSignOutError(null); setConfirmingSignOut(false) }} onConfirm={() => void signOut(() => setConfirmingSignOut(false))}>
+        <>You'll need to sign in again before the next turn.{signOutError && <ActionError>{signOutError}</ActionError>}</>
+      </ConfirmDialog>}
     </div>} />
   )
 }
