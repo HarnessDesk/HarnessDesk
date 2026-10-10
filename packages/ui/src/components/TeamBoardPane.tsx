@@ -571,8 +571,10 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
        work keeps its label to the last. */
     <ToolPane ref={paneRef} variant="integrated" className="@container/board">
       {/* The state of the work, not its name: the tab above already says
-          "Board". The row's edge is the page gutter the columns start on. */}
+          "Board". List summaries share the table text edge; columns keep
+          the canvas gutter below the view row. */}
       <ViewBar
+        contentInset={view === 'list' ? 'reading-table' : 'page'}
         aria-label="Board"
         summary={
           `${byColumn.get('todo')?.length ?? 0} to do · ${
