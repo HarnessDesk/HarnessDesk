@@ -102,3 +102,81 @@ for (const theme of WALL_THEMES) {
     })
   }
 }
+
+for (const theme of WALL_THEMES) {
+  for (const foundation of ['desk', 'studio'] as const) {
+  test(`D1 row anatomy in ${theme}/${foundation}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=left-column', theme)
+    await page.locator('body').evaluate((body, value) => { body.dataset.hdInterface = value }, foundation)
+    const rows = page.locator('[data-left-row]')
+    await expect(rows).toHaveCount(4)
+    const values = await rows.evaluateAll(nodes => nodes.map(node => {
+      const button = node.querySelector<HTMLElement>('[data-slot="sidebar-menu-button"]')!
+      const icon = button.querySelector<HTMLElement>('[data-slot="sidebar-menu-icon"]')!
+      const label = button.querySelector<HTMLElement>('[data-slot="sidebar-menu-label-content"]')!
+      const css = getComputedStyle(button)
+      return { h: button.getBoundingClientRect().height, inset: parseFloat(css.paddingLeft), gap: parseFloat(css.gap),
+        size: parseFloat(css.fontSize), weight: parseFloat(css.fontWeight), line: parseFloat(css.lineHeight), family: css.fontFamily, smoothing: css.getPropertyValue("-webkit-font-smoothing"), icon: icon.getBoundingClientRect().width,
+        iconX: icon.getBoundingClientRect().x, textX: label.getBoundingClientRect().x,
+        slots: node.querySelectorAll('[data-left-trailing]').length }
+    }))
+    for (const value of values) {
+      expect(value.h).toBe(FRAME.rail.rowHeight)
+      expect(value.inset).toBe(FRAME.rail.inset)
+      expect(value.gap).toBe(FRAME.rail.gap)
+      expect(value.icon).toBe(FRAME.rail.icon)
+      expect(value.size).toBe(FRAME.rail.label)
+      expect(value.weight).toBe(400)
+      expect(value.line).toBe(FRAME.rail.line)
+      expect(value.family).toContain('Geist')
+      expect(value.smoothing).not.toBe('antialiased')
+      expect(value.slots).toBe(1)
+    }
+    const group = await page.locator('[data-left-group-text]').evaluate(el => ({
+      x: el.getBoundingClientRect().x,
+      size: parseFloat(getComputedStyle(el).fontSize),
+      weight: parseFloat(getComputedStyle(el).fontWeight),
+    }))
+    expect(group.size).toBe(FRAME.rail.label)
+    expect(group.weight).toBe(FRAME.rail.groupWeight)
+    expect(Math.abs(group.x - values[0]!.textX)).toBeLessThanOrEqual(1)
+    const controls = await page.locator('[data-left-top] button').evaluateAll(nodes => nodes.map(el => ({
+      width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height,
+    })))
+    expect(controls).toHaveLength(5)
+    for (const control of controls) {
+      expect(control.width).toBe(FRAME.bar.iconButton)
+      expect(control.height).toBe(FRAME.bar.iconButton)
+    }
+    const selected = page.locator('[data-left-row] [data-active="true"]')
+    const fill = await selected.evaluate(el => {
+      const expected = document.createElement('div')
+      expected.style.background = 'var(--hd-selected)'
+      el.append(expected)
+      const result = [getComputedStyle(el).backgroundColor, getComputedStyle(expected).backgroundColor]
+      expected.remove()
+      return result
+    })
+    expect(fill[0]).toBe(fill[1])
+    expect((await page.locator('[data-left-top]').boundingBox())!.height).toBe(FRAME.bar.height)
+    expect((await page.locator('[data-left-seat]').locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
+    const seatTextX = await page.locator('[data-left-seat]').evaluate(seat => {
+      const walker = document.createTreeWalker(seat, NodeFilter.SHOW_TEXT)
+      let node: Node | null
+      while ((node = walker.nextNode())) {
+        if (node.textContent?.trim() === 'Jane Doe') {
+          const range = document.createRange()
+          range.selectNodeContents(node)
+          return range.getBoundingClientRect().x
+        }
+      }
+      throw new Error('Missing synthetic seat name')
+    })
+    expect(Math.abs(seatTextX - values[0]!.textX), 'seat and row ink share an edge').toBeLessThanOrEqual(1)
+    for (const field of ['iconX', 'textX'] as const) {
+      const xs = values.map(value => value[field])
+      expect(Math.max(...xs) - Math.min(...xs)).toBeLessThanOrEqual(1)
+    }
+  })
+  }
+}

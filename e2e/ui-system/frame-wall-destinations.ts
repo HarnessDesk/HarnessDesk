@@ -15,6 +15,7 @@ export const WALL_DESTINATIONS = [
   { id: 'agents', query: 'frame-wall=agents' },
   { id: 'dashboard', query: 'frame-wall=dashboard' },
   { id: 'settings', query: 'frame-wall=settings' },
+  { id: 'left-column-probe', query: 'frame-wall=left-column' },
 ] as const
 
 /** Wide (every region stands), between the folds, and the narrowest window. */

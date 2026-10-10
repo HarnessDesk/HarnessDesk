@@ -3322,4 +3322,31 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     about: 'The real dialog, in both states (#1083): a round-ceiling stop shows a 1-to-20 count next to "Authorise another round" that relabels the button and is the count the wire sends; every other stop keeps the plain single button, with no count field at all.',
     render: FindingDecisionBoard,
   },
+  { id: 'left-column', title: 'Left column', about: 'Aligned rows with one trailing slot and long titles.', render: LeftColumnBoard },
 ]
+
+import { LeftColumn, LeftColumnTop, LeftColumnBody, LeftColumnRow, LeftColumnGroup, LeftColumnSeat } from ".."
+import { BellIcon, UserIcon } from '../../components/Icons'
+
+export const LEFTCOLUMN_CATALOG_VARIANTS = ['light', 'dark'] as const
+export const LEFTCOLUMN_CATALOG_SIZES = ['default'] as const
+export const LEFTCOLUMN_CATALOG_STATES = ['default', 'selected', 'disabled', 'long-title'] as const
+
+export function LeftColumnBoard() { return <LeftColumn
+  top={<LeftColumnTop shown back={false} forward={false} toggle={() => {}} goBack={() => {}} goForward={() => {}}
+    notifications={<Button variant="ghost" size="icon-sm" aria-label="Inbox"><BellIcon size={16} /></Button>}
+    search={<Button variant="ghost" size="icon-sm" aria-label="Search everything"><SearchIcon size={16} /></Button>} />}
+  head={null} body={<LeftColumnBody>
+  <LeftColumnRow label="Teams" icon={<TeamIcon size={16} />} onClick={() => {}} />
+  <LeftColumnGroup label="Projects">
+    <LeftColumnRow label="Release notes for checkout retry · 長い会話名" icon={<FolderIcon size={16} />}
+      title={'Release notes for checkout retry\nThe folder is gone; the transcript remains readable.'}
+      selected trailing={{ kind: 'count', value: 12, label: '12 held messages' }}
+      action={{ label: 'Actions for Release notes', onClick: () => {} }} />
+    <LeftColumnRow label="Conversation with no leading mark" onClick={() => {}} />
+    <LeftColumnRow label="Unavailable conversation" disabled title="Conversation not kept" />
+  </LeftColumnGroup>
+</LeftColumnBody>}
+  footer={<LeftColumnSeat settingsOpen={false} onSettings={() => {}}
+    menu={<Button variant="ghost" size="pattern" className="inline-flex items-center gap-(--hd-space-2) px-(--hd-space-2) text-(length:--hd-text) font-(weight:--hd-weight-medium)" data-catalog-size="default"><UserIcon size={16} />Jane Doe</Button>} />} />
+}

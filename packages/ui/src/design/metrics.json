@@ -783,6 +783,14 @@
     "pad": "0 0 0 0",
     "radius": 0
   },
+  "left-column/button/size/default": {
+    "h": 20,
+    "text": 14,
+    "weight": "500",
+    "line": 20,
+    "pad": "0 8 0 8",
+    "radius": 0
+  },
   "list/avatar/size/default": {
     "h": 24,
     "text": 14,

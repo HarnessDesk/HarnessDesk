@@ -18,7 +18,7 @@ export const FRAME = {
   main: { min: 480 },
   fold: { panelFloats: 1280, sidebarFloats: 1000 },
   page: { reading: 736, wide: 1320, gutter: 24, canvasGutter: 8 },
-  rail: { rowHeight: 30, inset: 8 },
+  rail: { rowHeight: 30, inset: 8, icon: 16, gap: 8, label: 13, line: 20, groupWeight: 500 },
   menu: { min: 200, max: 340, padding: 4, radius: 10, rowHeight: 30, rowRadius: 6 },
   infoCard: { width: 288, padding: 12 },
   summaryKey: { page: 132, panel: 92, infoCard: 96 },
@@ -36,4 +36,6 @@ export const FRAME_TOKENS: Readonly<Record<string, number>> = {
   '--hd-menu-row-radius': FRAME.menu.rowRadius,
   '--hd-popover-width-wide': FRAME.menu.max,
   '--hd-info-card-width': FRAME.infoCard.width,
+  '--hd-left-row-h': FRAME.rail.rowHeight,
+  '--hd-frame-icon-button': FRAME.bar.iconButton,
 }

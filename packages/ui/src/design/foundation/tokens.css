@@ -1168,6 +1168,9 @@ body {
   --hd-nav-h: calc(var(--hd-line-sm) + var(--hd-space-1) * 2 + 2px); /* Solved from the row's box. */
   /* Every row in a navigation column stands the same. */
   --hd-nav-h-group: var(--hd-nav-h); /* One height for every row in the column. */
+  /* Frame left-column rows have one size in both interfaces. */
+  --hd-left-row-h: 30px;
+  --hd-frame-icon-button: 28px;
   --hd-nav-radius: var(--hd-radius); /* The row radius. */
   --hd-nav-gap: var(--hd-space-2);
   /* How far a row's text sits from its own edge. Named separately from the

@@ -420,6 +420,8 @@ One row in a navigation list — the sidebar's sessions, the settings sheet's pa
 | --- | --- |
 | `--hd-nav-h` | `calc(20px + 4px * 2 + 2px)` |
 | `--hd-nav-h-group` | `calc(20px + 4px * 2 + 2px)` |
+| `--hd-left-row-h` | `30px` |
+| `--hd-frame-icon-button` | `28px` |
 | `--hd-nav-radius` | `10px` |
 | `--hd-nav-gap` | `8px` |
 | `--hd-nav-inset` | `8px` |
