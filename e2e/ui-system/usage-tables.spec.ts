@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import path from 'node:path'
+import { FRAME } from '../../packages/ui/src/design/frame'
 import { COLLECT, textReasons, USER } from '../../script/shots/audit.mjs'
 
 const capture = async (page: Page, frame: Locator, name: string) => {
@@ -111,7 +112,20 @@ for (const theme of ['light', 'dark'] as const) {
     await page.getByText('Usage remaining', { exact: true }).click()
     const rows = page.locator('[data-usage-details] [data-slot="usage-meter-row"]')
     await expect(rows).toHaveCount(2)
-    expect(await rows.first().evaluate(node => node.getBoundingClientRect().width)).toBe(272)
+    const geometry = await rows.first().evaluate(node => {
+      const popup = node.closest('[data-slot="popover-popup"]')!
+      const details = node.closest('[data-usage-details]')!
+      const panelStyle = getComputedStyle(popup)
+      const detailsStyle = getComputedStyle(details)
+      return {
+        panelWidth: popup.getBoundingClientRect().width,
+        width: node.getBoundingClientRect().width,
+        inset: parseFloat(panelStyle.paddingLeft) + parseFloat(panelStyle.paddingRight)
+          + parseFloat(detailsStyle.marginLeft) + parseFloat(detailsStyle.marginRight),
+      }
+    })
+    expect(geometry.panelWidth).toBe(FRAME.menu.max)
+    expect(geometry.width).toBe(FRAME.menu.max - geometry.inset)
     await wholeMeterNames(rows)
   })
 

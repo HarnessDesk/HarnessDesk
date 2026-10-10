@@ -59,7 +59,7 @@
   /* Short menus size to their own words rather than holding a fixed slab
      open — Codex's list controls are about this wide. Anything with hints
      or long labels still grows past it. */
-  min-width: 180px;
+  min-width: var(--hd-menu-min); /* desk: 180 → 200, the app frame's menu minimum */
   /* Never wider than the window it opens in, less the margin the placement
      keeps at each side (`Popover.tsx`): on a phone-width window a menu with
      a long value otherwise ran to the glass. */
@@ -85,7 +85,7 @@
 }
 
 /* The row that opened it, unfolded: exactly the trigger's width, which Base
-   UI's positioner measures as `--anchor-width`. The panel's 180px floor
+   UI's positioner measures as `--anchor-width`. The panel's menu minimum
    still holds, so a sidebar dragged to its narrowest keeps a readable menu
    that overhangs the column rather than wrapping every label. */
 .panel[data-width='trigger'] {

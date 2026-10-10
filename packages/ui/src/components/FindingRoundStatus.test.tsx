@@ -58,3 +58,11 @@ it('omits the Run publication when no findings exist', () => {
   act(() => root.render(<FindingRoundStatus view={view({ total: 3, open: 0, blocking: 0, publication: 'local', rounds: [{ round: 1, state: 'none', reason: null, pr: null, cards: [1] }] })} />))
   expect(container.textContent).not.toContain('Publication')
 })
+
+
+it('keeps the open and blocking counts beside their key in the mixed facts card', () => {
+  act(() => root.render(<FindingRoundStatus view={view({ open: 12, blocking: 8 })} />))
+  const row = [...container.querySelectorAll('[data-slot="summary-item"]')].find(item => item.querySelector('dt')?.textContent === 'Open findings')!
+  expect(row.querySelector('[data-slot="summary-value"]')?.classList.contains('text-left')).toBe(true)
+  expect(row.textContent).toContain('12 · 8 blocking')
+})

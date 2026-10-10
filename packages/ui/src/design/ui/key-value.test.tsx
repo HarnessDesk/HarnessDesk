@@ -60,6 +60,7 @@ it('right-aligns a value on tabular figures only when the row says numeric', () 
   )
   const [money, words] = [...list.querySelectorAll('dd')]
   expect(money?.className).toContain('text-right')
+  expect(money?.className).not.toContain('/kv:text-left')
   expect(money?.className).toContain('tabular-nums')
   expect(money?.className).toContain('font-semibold')
   expect(words?.className).not.toContain('text-right')
@@ -110,7 +111,9 @@ it('keeps the panel variant compact and left-aligned', () => {
     </KeyValue>,
   )
   expect(list.className).toContain('text-sm')
-  expect(list.querySelector('dt')?.className).toContain('text-xs')
+  // A key is the size of its value, on one line (the app-frame design).
+  expect(list.querySelector('dt')?.className).toContain('text-sm')
+  expect(list.querySelector('dt')?.className).toContain('whitespace-nowrap')
   expect(list.querySelector('dt')?.className).not.toContain('min-w-20')
   expect(list.querySelector('dd')?.className).toContain('text-left')
 })

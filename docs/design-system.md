@@ -247,13 +247,18 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-row-h` | `calc(20px + 4px * 2 + 2px)` |
 | `--hd-icon-target` | `24px` |
 | `--hd-icon-target-sm` | `20px` |
-| `--hd-bar-h` | `46px` |
+| `--hd-bar-h` | `40px` |
 | `--hd-bar-gap` | `6px` |
 | `--hd-bar-pad` | `8px` |
 | `--hd-rail-inset` | `8px` |
 | `--hd-bar-ink` | `calc(8px + 8px + 1px)` |
 | `--hd-column` | `736px` |
-| `--hd-popover-width-wide` | `320px` |
+| `--hd-page-wide` | `1320px` |
+| `--hd-page-gutter` | `24px` |
+| `--hd-menu-min` | `200px` |
+| `--hd-popover-width-wide` | `340px` |
+| `--hd-menu-row-radius` | `calc(10px - 4px)` |
+| `--hd-info-card-width` | `288px` |
 | `--hd-fade-edge` | `16px` |
 | `--hd-fade` | `linear-gradient(to right, #000 calc(100% - 16px), transparent)` |
 | `--hd-composer-min` | `44px` |
@@ -404,7 +409,7 @@ A navigation column is its own small design system, and shadcn treats it as one:
 | `--hd-sidebar-muted-foreground` | `rgb(71, 71, 71)` |
 | `--hd-sidebar-border` | `rgba(9, 12, 17, 0.05)` |
 | `--hd-sidebar-hover` | `rgba(9, 12, 17, 0.05)` |
-| `--sidebar-width` | `` |
+| `--hd-sidebar-width` | `240px` |
 | `--hd-sidebar-width-icon` | `48px` |
 
 ### The nav row
@@ -491,8 +496,6 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-card-radius` | `` |
 | `--hd-composer-ring` | `` |
 | `--hd-control-h-lg` | `<cycle>` |
-| `--hd-page-row-h` | `` |
-| `--hd-page-row-padding` | `` |
 | `--hd-seg-trim` | `calc(2px * 2)` |
 | `--hd-page-group-gap` | `` |
 | `--hd-btn-shadow` | `none` |
@@ -1121,6 +1124,12 @@ off: one line, quiet, never a slab, because thirty of them is a normal
 afternoon and they are read as a sequence rather than one at a time. The
 transcript's light register, like a step inside a turn's work.
 
+The sentence is who did what to which card; `detail` is what they reported
+with it — a verdict, a pull request, a list of checks — and it can run to
+a page. Joined into the sentence it made every completion a slab of the same
+grey as the line it explained. It sits under the sentence in the secondary
+ink, at most two lines until the reader asks for the rest.
+
 ### `ChannelNotice`
 
 `packages/ui/src/design/patterns/ChannelMessage.tsx`
@@ -1698,6 +1707,27 @@ A result that takes a moment: one toast that says it is under way and then
 turns into how it ended, rather than a spinner somewhere and a second toast
 later. The promise's own value can name the ending.
 
+### `Page`
+
+`packages/ui/src/design/patterns/Page.tsx`
+
+A page's column — the one way a page sets its width and its margins.
+
+A screen says what kind of page it is and passes its blocks; it does not
+write a max-width, a padding or an outer margin of its own. `reading` is the
+app's reading measure (`--hd-column`), centred: a conversation, a setting, a
+round's findings. `wide` is for tables and card grids (`--hd-page-wide`),
+centred. `canvas` has no measure, for a board that fills the width, and
+keeps `PaneColumn`'s dense canvas inset (`--hd-space-2`) on all four edges.
+Reading and wide pages keep the reading inset (`--hd-page-gutter`) on all
+four edges. A surface that brings its own geometry — a terminal, a diff,
+a graph — bleeds instead of taking a page.
+
+Blocks inside sit one dense step apart, the gap between a label and the card
+it names; a `Section` brings its own larger step. A Team's Findings drew its
+facts against the sidebar, a button across the window and a switch in the
+middle of it because nothing told the page what width it was.
+
 ### `PaneColumn`
 
 `packages/ui/src/design/patterns/PaneColumn.tsx`
@@ -2143,6 +2173,28 @@ The same four readings in a plan card, a quota popover and an account menu.
 Fixed foundation tracks align the reading and reset columns across rows.
 The 4px meter and its row use phrasing content so they can sit in a button.
 
+A row with nothing to read — no usage reported, a sign-in needed — passes
+`note` instead of a reading: the sentence takes the meter's, the figure's
+and the reset's columns, so it starts where the bars do in the rows above
+rather than straight after its name, and the name column stays one width.
+
+### `ViewBar`
+
+`packages/ui/src/design/patterns/ViewBar.tsx`
+
+A view's own row, under the window bar: what the view shows, and what can
+be done to it.
+
+It never repeats the title. The window bar's selected tab already says
+which view this is, so the row opens with the view's summary — "12 open ·
+8 blocking", "0 to do · 1 working" — in the secondary ink, and ends with
+the view's verbs at their own width and its switch (All | Open, Board |
+List). Its edge is the page's gutter on both sides, the same edge the
+window bar's title and the page's blocks start on; a Findings or Board row
+that drew its own icon and name at the dense inset sat 16px off both, and
+said "Findings" under a tab that already said it. A table's summary uses
+`contentInset="reading-table"` to line up with its first cell's text.
+
 ## Known drift
 
 The app predates this system. These are the places it has not caught up, counted
@@ -2175,4 +2227,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawDuration` | 0 | Will not follow a change to how fast the app moves — every other surface speeds up and this one keeps its own clock. |
 | `rawColour` | 0 | Will not follow a palette or theme change. |
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
+| `retiredComponent` | 118 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
+| `pageMeasureInScreen` | 22 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
+| `screenLayout` | 3356 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 

@@ -495,7 +495,10 @@ body {
    */
   --hd-icon-target: 24px;
   --hd-icon-target-sm: 20px;
-  --hd-bar-h: 46px; /* The window's own bar. */
+  /* The one bar height (spec: one top bar, the left column's top row and its
+     seat row; a panel has no bar). The window's buttons are centred on it —
+     trafficLightPosition in packages/desktop/electron/main.mjs. */
+  --hd-bar-h: 40px; /* desk: 46 → 40, the app frame's one bar height */
   /* What a bar holds its controls at, and how far they stand from its ends.
      One pair for every bar in the window, so a control in the title row and a
      control in a pane's header sit on the same rhythm. */
@@ -512,10 +515,21 @@ body {
      the bar shares one x. */
   --hd-bar-ink: calc(var(--hd-bar-pad) + var(--hd-nav-inset) + var(--hd-border-width));
   --hd-column: 736px;
-  /* A menu that keeps its own readable width while the control that opens it
-     sits in a column the person can drag: the seat menu's account rows and
-     usage line each fit on one line at this width. */
-  --hd-popover-width-wide: 320px;
+  /* A page's two other measures (`Page` in design/patterns). Wide is for
+     tables and card grids that read better than a reading column allows;
+     every page keeps one gutter on both sides of whichever measure it takes. */
+  --hd-page-wide: 1320px;
+  --hd-page-gutter: var(--hd-space-6);
+  /* A menu's room: at least 200, and a wide menu (a submenu, a long list with
+     search, agents with meters) at most 340 — long names wrap rather than
+     widen it. The seat menu's account rows and usage line fit at 340. */
+  --hd-menu-min: 200px;
+  --hd-popover-width-wide: 340px; /* desk: 320 → 340, the app frame's wide menu */
+  /* A menu row's corner runs parallel to the menu's: the surface's radius
+     less the 4px it is padded by. */
+  --hd-menu-row-radius: calc(var(--hd-radius) - var(--hd-space-1));
+  /* The info card: facts only, opened by hover or focus on a fact. */
+  --hd-info-card-width: 288px;
 
   /* A row whose trailing action floats over its own label rather than taking
      room from it. The label fades out under the action instead of stopping at
@@ -1134,10 +1148,10 @@ body {
   --hd-sidebar-muted-foreground: var(--hd-tertiary-foreground);
   --hd-sidebar-border: var(--hd-border);
   --hd-sidebar-hover: var(--hdp-alias-interactive-bg-hover);
-  /* 256px is the reference's `--sidebar-width: 16rem`, and 48px its icon
-     rail. Named here rather than measured in a layout file, so the column and
-     everything that reserves room for it move together. */
-  --hd-sidebar-width: 275px;
+  /* The left column's default width (spec: 240, dragged 200–360). Named
+     here rather than measured in a layout file, so the column and everything
+     that reserves room for it move together. */
+  --hd-sidebar-width: 240px; /* desk: 275 → 240, the app frame's left column */
   --hd-sidebar-width-icon: 48px;
 
   /* --- the nav row ---------------------------------------------------------
@@ -1479,26 +1493,6 @@ body[data-hd-interface='studio'] {
      because there this token equals the ordinary one. */
   --hd-control-h-lg: 36px;
 
-  /*
-   * The settings and usage window's own column. Studio-only, with each Desk
-   * value spelled as the fallback at the call site, because this column and
-   * the sidebar are *not* the same row: the sidebar's is 31px with an 8px
-   * corner, and this one has never had a height at all — it is sized by
-   * `7px 9px` of padding, which comes out around 35. Giving both the same
-   * token took 9px off every row in this column, which is a redesign nobody
-   * asked for hiding inside a rename.
-   *
-   * These read `--hd-control-h-lg` and **not** `--hd-control-h`, and the
-   * difference is the whole trap this file warns about at the foot. A custom
-   * property is substituted where it is *declared*: these are declared on
-   * `body`, so `var(--hd-control-h)` would compute to 26px here and inherit
-   * that number frozen into the settings window — where the density scope has
-   * long since raised `--hd-control-h` to 36 and would be ignored. Written
-   * this way it is the literal 36px, which is what the scope resolves to
-   * anyway, and it cannot go stale.
-   */
-  --hd-page-row-h: var(--hd-control-h-lg);
-  --hd-page-row-padding: 0 var(--hd-space-2-5);
   /* Trim the segment by *both* of the track's edges rather than one, so a
      choice-of-three is exactly the control height instead of standing 2px
      over it. See Kit's `.segItem` for why Desk keeps the overhang. */

@@ -1044,7 +1044,13 @@ export const GitControl = ({
     : `${branch ?? folder}${linked ? ' · worktree' : ''} — ${cwd}`
 
   return (
-    <HeaderStatusReading label={branch ? "Branch" : "Folder"} detail={placeTitle}>
+    <HeaderStatusReading
+      label={branch ? "Branch" : "Folder"}
+      detail={placeTitle}
+      value={armed ? `${branch} · new worktree` : `${branch ?? folder}${linked ? ' · worktree' : ''}`}
+      note={cwd}
+      notePath
+    >
       <Popover
         /* What the chip says, then where it is. The words fold to the glyph in a
            narrow header, and hover is where they are still read — the path alone
@@ -1165,7 +1171,7 @@ export const GitControl = ({
   )
 }
 
-import { seatCeilingWords } from '../lib/agents'
+import { ceilingMeaning, seatCeilingWords } from '../lib/agents'
 import { ceilingTitle, seatCeilingOf } from '../lib/ceilings'
 
 /** The ceiling governing this conversation, or nothing on the plain path. */
@@ -1175,7 +1181,13 @@ const HeaderCeiling = ({ session }: { readonly session: Session }) => {
   const shown = seatCeilingOf(session.settings, runs, String(session.runtime), String(session.id))
   return shown ? (
     <span className={`${styles.ceilingWrap} hd-no-drag inline-flex flex-none`} data-slot="ceiling-wrap">
-      <HeaderStatusReading label="Ceiling" detail={ceilingTitle(shown.ceiling, shown.note)}>
+      <HeaderStatusReading
+        label="Ceiling"
+        detail={ceilingTitle(shown.ceiling, shown.note)}
+        value={seatCeilingWords(shown.ceiling)}
+        /* The runtime's own word for how it holds, when it gave one; else what the ceiling allows. */
+        note={shown.note ? `${shown.ceiling.hold === 'held' ? 'Held' : 'Asked, not held'}: ${shown.note}` : ceilingMeaning(shown.ceiling.level)}
+      >
         <Text role="meta" data-ceiling={shown.ceiling.level} data-hold={shown.ceiling.hold}>{seatCeilingWords(shown.ceiling)}</Text>
       </HeaderStatusReading>
     </span>

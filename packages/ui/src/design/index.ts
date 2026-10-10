@@ -136,6 +136,9 @@ export {
   AppWindowSurface,
 } from './patterns/AppWindow'
 export * from './patterns/InspectorPanel'
+export { Page, type PageWidth } from './patterns/Page'
+export { FRAME, FRAME_TOKENS } from './frame'
+export { ViewBar } from './patterns/ViewBar'
 export { ChangeStats, FileState, PatchHeader, type FileStateValue } from './patterns/Change'
 export { RefusedAction } from './patterns/RefusedAction'
 export { Lightbox, type LightboxImage } from './patterns/Lightbox'

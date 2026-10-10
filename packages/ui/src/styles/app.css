@@ -31,8 +31,8 @@
 body {
   /* macOS window chrome: the traffic lights sit in an inset title bar, so
      whichever row lands in the window's top-left reserves room for them. */
-  /* 44: room for a 20px title line with 12px above and below, the band the
-     macOS traffic lights sit in the middle of (see trafficLightPosition). */
+  /* The top bar's height: the band the macOS traffic lights are centred in
+     (see trafficLightPosition in packages/desktop/electron/main.mjs). */
   --hd-titlebar-height: var(--hd-bar-h);
 
   /* 78: three 12px buttons from x=14 with 8px between them, plus breathing
@@ -78,7 +78,9 @@ body {
   line-height: var(--hd-line);
   color: var(--hd-foreground);
   background: var(--hd-background);
-  -webkit-font-smoothing: antialiased;
+  /* No `-webkit-font-smoothing: antialiased`: on macOS it switches off the
+     stroke weight the system gives text by default, and Geist at 13–14px is
+     already a light face. The app is set in the system's own smoothing. */
   text-rendering: optimizeLegibility;
   overflow: hidden;
 }

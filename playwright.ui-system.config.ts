@@ -54,6 +54,9 @@ const workers =
 export default defineConfig({
   testDir: './e2e/ui-system',
   outputDir: './output/playwright/ui-system/results',
+  // The frame wall's approved frames (frame-wall.spec.ts): local only, under
+  // output/, never committed.
+  snapshotPathTemplate: './output/playwright/ui-system/approved/{arg}{ext}',
   // Every test starts from its own page, and none reads what another left
   // behind, so with several workers they are dealt out one by one rather than
   // a file at a time: a file of sixty tests then keeps all of them busy

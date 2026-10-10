@@ -6,7 +6,7 @@
 --hd-active = rgba(9, 12, 17, 0.09)
 --hd-background = rgb(255, 255, 255)
 --hd-bar-gap = 6px
---hd-bar-h = 46px
+--hd-bar-h = 40px
 --hd-bar-ink = calc(8px + 8px + 1px)
 --hd-bar-pad = 8px
 --hd-board-column-width = 280px
@@ -170,6 +170,7 @@
 --hd-icon-target = 24px
 --hd-icon-target-sm = 20px
 --hd-image-max-height = 280px
+--hd-info-card-width = 288px
 --hd-input = rgb(255, 255, 255)
 --hd-input-shadow = none
 --hd-inset-card = 16px
@@ -185,6 +186,8 @@
 --hd-line-title = 30px
 --hd-line-xs = 16px
 --hd-member-weight = 500
+--hd-menu-min = 200px
+--hd-menu-row-radius = calc(10px - 4px)
 --hd-motion-rise = 4px
 --hd-motion-scale = 0.97
 --hd-muted = rgb(245, 245, 245)
@@ -195,10 +198,12 @@
 --hd-nav-inset = 8px
 --hd-nav-padding = 0 8px
 --hd-nav-radius = 10px
+--hd-page-gutter = 24px
+--hd-page-wide = 1320px
 --hd-placeholder-foreground = rgb(71, 71, 71)
 --hd-popover = rgb(255, 255, 255)
 --hd-popover-foreground = rgb(27, 27, 27)
---hd-popover-width-wide = 320px
+--hd-popover-width-wide = 340px
 --hd-press = none
 --hd-primary = rgb(52, 88, 240)
 --hd-primary-foreground = rgb(255, 255, 255)
@@ -252,7 +257,7 @@
 --hd-sidebar-plate = rgb(249, 249, 249)
 --hd-sidebar-selected = color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)
 --hd-sidebar-start-inset = 8px
---hd-sidebar-width = 275px
+--hd-sidebar-width = 240px
 --hd-sidebar-width-icon = 48px
 --hd-skeleton = rgba(9, 12, 17, 0.05)
 --hd-solid = rgb(27, 27, 27)
@@ -335,7 +340,7 @@
 --hd-title-rule-mark-height = 2px
 --hd-title-rule-mark-width = 24px
 --hd-title-rule-width = 1px
---hd-titlebar-height = 46px
+--hd-titlebar-height = 40px
 --hd-titlebar-lights = 78px
 --hd-toggle-height-sm = 18px
 --hd-toggle-knob = rgb(255, 255, 255)
@@ -540,7 +545,7 @@
 --hd-active = rgba(255, 255, 255, 0.13)
 --hd-background = rgb(24, 24, 24)
 --hd-bar-gap = 6px
---hd-bar-h = 46px
+--hd-bar-h = 40px
 --hd-bar-ink = calc(8px + 8px + 1px)
 --hd-bar-pad = 8px
 --hd-board-column-width = 280px
@@ -704,6 +709,7 @@
 --hd-icon-target = 24px
 --hd-icon-target-sm = 20px
 --hd-image-max-height = 280px
+--hd-info-card-width = 288px
 --hd-input = rgb(33, 33, 33)
 --hd-input-shadow = none
 --hd-inset-card = 16px
@@ -719,6 +725,8 @@
 --hd-line-title = 30px
 --hd-line-xs = 16px
 --hd-member-weight = 500
+--hd-menu-min = 200px
+--hd-menu-row-radius = calc(10px - 4px)
 --hd-motion-rise = 4px
 --hd-motion-scale = 0.97
 --hd-muted = rgb(49, 49, 49)
@@ -729,10 +737,12 @@
 --hd-nav-inset = 8px
 --hd-nav-padding = 0 8px
 --hd-nav-radius = 10px
+--hd-page-gutter = 24px
+--hd-page-wide = 1320px
 --hd-placeholder-foreground = rgb(177, 177, 177)
 --hd-popover = rgb(33, 33, 33)
 --hd-popover-foreground = rgb(231, 231, 231)
---hd-popover-width-wide = 320px
+--hd-popover-width-wide = 340px
 --hd-press = none
 --hd-primary = rgb(112, 142, 250)
 --hd-primary-foreground = rgb(17, 17, 17)
@@ -786,7 +796,7 @@
 --hd-sidebar-plate = rgb(41, 41, 41)
 --hd-sidebar-selected = color-mix(in srgb, rgb(231, 231, 231) 12%, transparent)
 --hd-sidebar-start-inset = 8px
---hd-sidebar-width = 275px
+--hd-sidebar-width = 240px
 --hd-sidebar-width-icon = 48px
 --hd-skeleton = rgba(255, 255, 255, 0.07)
 --hd-solid = rgb(231, 231, 231)
@@ -869,7 +879,7 @@
 --hd-title-rule-mark-height = 2px
 --hd-title-rule-mark-width = 24px
 --hd-title-rule-width = 1px
---hd-titlebar-height = 46px
+--hd-titlebar-height = 40px
 --hd-titlebar-lights = 78px
 --hd-toggle-height-sm = 18px
 --hd-toggle-knob = rgb(255, 255, 255)
@@ -1074,7 +1084,7 @@
 --hd-active = rgba(9, 12, 17, 0.09)
 --hd-background = rgb(255, 255, 255)
 --hd-bar-gap = 6px
---hd-bar-h = 46px
+--hd-bar-h = 40px
 --hd-bar-ink = calc(8px + 10px + 1px)
 --hd-bar-pad = 8px
 --hd-board-column-width = 280px
@@ -1243,6 +1253,7 @@
 --hd-icon-target = 24px
 --hd-icon-target-sm = 20px
 --hd-image-max-height = 280px
+--hd-info-card-width = 288px
 --hd-input = rgb(255, 255, 255)
 --hd-input-shadow = 0 1px 2px rgba(0, 0, 0, 0.05)
 --hd-inset-card = 16px
@@ -1259,6 +1270,8 @@
 --hd-line-title = 30px
 --hd-line-xs = 16px
 --hd-member-weight = 500
+--hd-menu-min = 200px
+--hd-menu-row-radius = calc(10px - 4px)
 --hd-motion-rise = 4px
 --hd-motion-scale = 0.97
 --hd-muted = rgb(245, 245, 245)
@@ -1270,12 +1283,12 @@
 --hd-nav-padding = 0 10px
 --hd-nav-radius = 6px
 --hd-page-group-gap = 0px
---hd-page-row-h = 36px
---hd-page-row-padding = 0 10px
+--hd-page-gutter = 24px
+--hd-page-wide = 1320px
 --hd-placeholder-foreground = rgb(71, 71, 71)
 --hd-popover = rgb(255, 255, 255)
 --hd-popover-foreground = rgb(27, 27, 27)
---hd-popover-width-wide = 320px
+--hd-popover-width-wide = 340px
 --hd-press = translateY(1px)
 --hd-primary = rgb(52, 88, 240)
 --hd-primary-foreground = rgb(255, 255, 255)
@@ -1331,7 +1344,7 @@
 --hd-sidebar-selected-foreground = rgb(255, 255, 255)
 --hd-sidebar-selected-muted-foreground = color-mix( in srgb, rgb(255, 255, 255) 86%, transparent )
 --hd-sidebar-start-inset = 8px
---hd-sidebar-width = 275px
+--hd-sidebar-width = 240px
 --hd-sidebar-width-icon = 48px
 --hd-skeleton = rgba(9, 12, 17, 0.05)
 --hd-solid = rgb(27, 27, 27)
@@ -1414,7 +1427,7 @@
 --hd-title-rule-mark-height = 2px
 --hd-title-rule-mark-width = 24px
 --hd-title-rule-width = 1px
---hd-titlebar-height = 46px
+--hd-titlebar-height = 40px
 --hd-titlebar-lights = 78px
 --hd-toggle-height-sm = 18px
 --hd-toggle-knob = rgb(255, 255, 255)
@@ -1619,7 +1632,7 @@
 --hd-active = rgba(255, 255, 255, 0.13)
 --hd-background = rgb(24, 24, 24)
 --hd-bar-gap = 6px
---hd-bar-h = 46px
+--hd-bar-h = 40px
 --hd-bar-ink = calc(8px + 10px + 1px)
 --hd-bar-pad = 8px
 --hd-board-column-width = 280px
@@ -1788,6 +1801,7 @@
 --hd-icon-target = 24px
 --hd-icon-target-sm = 20px
 --hd-image-max-height = 280px
+--hd-info-card-width = 288px
 --hd-input = rgb(33, 33, 33)
 --hd-input-shadow = 0 0 0 1px rgba(255, 255, 255, 0.04)
 --hd-inset-card = 16px
@@ -1804,6 +1818,8 @@
 --hd-line-title = 30px
 --hd-line-xs = 16px
 --hd-member-weight = 500
+--hd-menu-min = 200px
+--hd-menu-row-radius = calc(10px - 4px)
 --hd-motion-rise = 4px
 --hd-motion-scale = 0.97
 --hd-muted = rgb(49, 49, 49)
@@ -1815,12 +1831,12 @@
 --hd-nav-padding = 0 10px
 --hd-nav-radius = 6px
 --hd-page-group-gap = 0px
---hd-page-row-h = 36px
---hd-page-row-padding = 0 10px
+--hd-page-gutter = 24px
+--hd-page-wide = 1320px
 --hd-placeholder-foreground = rgb(177, 177, 177)
 --hd-popover = rgb(33, 33, 33)
 --hd-popover-foreground = rgb(231, 231, 231)
---hd-popover-width-wide = 320px
+--hd-popover-width-wide = 340px
 --hd-press = translateY(1px)
 --hd-primary = rgb(112, 142, 250)
 --hd-primary-foreground = rgb(17, 17, 17)
@@ -1876,7 +1892,7 @@
 --hd-sidebar-selected-foreground = rgb(17, 17, 17)
 --hd-sidebar-selected-muted-foreground = color-mix( in srgb, rgb(17, 17, 17) 86%, transparent )
 --hd-sidebar-start-inset = 8px
---hd-sidebar-width = 275px
+--hd-sidebar-width = 240px
 --hd-sidebar-width-icon = 48px
 --hd-skeleton = rgba(255, 255, 255, 0.07)
 --hd-solid = rgb(231, 231, 231)
@@ -1959,7 +1975,7 @@
 --hd-title-rule-mark-height = 2px
 --hd-title-rule-mark-width = 24px
 --hd-title-rule-width = 1px
---hd-titlebar-height = 46px
+--hd-titlebar-height = 40px
 --hd-titlebar-lights = 78px
 --hd-toggle-height-sm = 18px
 --hd-toggle-knob = rgb(255, 255, 255)

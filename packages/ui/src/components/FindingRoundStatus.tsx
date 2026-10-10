@@ -1,6 +1,6 @@
 import type { FindingRunView } from '@harnessdesk/protocol'
 
-import { Banner, Chip, KeyValue, KeyValueRow, Text } from '../design'
+import { Banner, Chip, SummaryItem, SummaryList, Text } from '../design'
 
 /**
  * A run's findings, as a person reads its progress. Every word here is a
@@ -22,12 +22,17 @@ export const FindingRoundStatus = ({ view, publicationOn = true }: FindingRoundS
     : null
   return (
     <div className="flex flex-col gap-3">
-      <KeyValue>
-        <KeyValueRow label="Round">{`${view.finished} of ${view.total}`}</KeyValueRow>
-        <KeyValueRow label="Open findings" numeric>{view.open}</KeyValueRow>
-        <KeyValueRow label="Blocking" numeric>{view.blocking}</KeyValueRow>
-        {publication && <KeyValueRow label="Publication"><Chip tone={publication.tone}>{publication.label}</Chip></KeyValueRow>}
-      </KeyValue>
+      {/* One card of facts about the round: each value beside its key. The
+          blocking count is read with the open count it is part of, not on a
+          row of its own at the far edge. */}
+      <SummaryList aria-label="This round">
+        <SummaryItem label="Round">{`${view.finished} of ${view.total}`}</SummaryItem>
+        <SummaryItem label="Open findings">
+          {view.open}
+          {view.blocking > 0 && <Text role="muted" tone="warning">{` · ${view.blocking} blocking`}</Text>}
+        </SummaryItem>
+        {publication && <SummaryItem label="Publication"><Chip tone={publication.tone}>{publication.label}</Chip></SummaryItem>}
+      </SummaryList>
       {blindWords && (
         <Banner tone="neutral" title="This round is still blind">
           {blindWords}

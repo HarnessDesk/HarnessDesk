@@ -156,4 +156,22 @@ export const SECTIONS = [
     'Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them.',
     'Use a --hd-text-*, --hd-radius-* or --hd-space-* token. Genuine data geometry belongs behind the audit\'s explicit specialized boundary; the saved baseline stays zero.',
   ],
+  [
+    'retiredComponent',
+    'Frame parts a screen still draws',
+    'The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame.',
+    'Move the screen onto the shell: register its bar slots with useTopBar, render its body in Page, and let the panel draw its tools (docs/superpowers/specs/2026-10-09-app-frame-design.md). This category is a burn-down: its ceiling may only fall.',
+  ],
+  [
+    'pageMeasureInScreen',
+    'Page measures set in a screen',
+    'A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page.',
+    'Render the screen in <Page width="reading" | "wide" | "canvas"> and remove its own measure. This category is a burn-down: its ceiling may only fall.',
+  ],
+  [
+    'screenLayout',
+    'Layout written in a screen',
+    'Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach.',
+    'Compose blocks inside Page and pass content as data; where a block lacks a case, add it to the block. This category is a burn-down: its ceiling may only fall.',
+  ],
 ]

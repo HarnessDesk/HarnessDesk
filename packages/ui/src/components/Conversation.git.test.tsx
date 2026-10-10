@@ -88,9 +88,12 @@ const rig = (over: Partial<AppSnapshot>, grouped = false): void => {
 it('names an armed draft in the card as a new worktree off its source folder', () => {
   rig({ draftPlace: { kind: 'worktree', root: ROOT, name: 'checkout retry' }, worktrees: worktrees(true) }, true)
   const trigger = container.querySelector('[data-slot="popover-trigger"]')!
+  // The card says it as a phrase with the folder on the line under it; the
+  // accessible name says the same place as one sentence.
   const detail = document.querySelector('[data-slot="hover-card-content"] dd')!
-  expect(detail.textContent).toBe(`harnessdesk/checkout-retry · new worktree off ${ROOT}`)
-  expect(trigger.getAttribute('aria-label')).toBe(detail.textContent)
+  expect(detail.textContent).toBe('harnessdesk/checkout-retry · new worktree')
+  expect(document.querySelector('[data-slot="hover-card-content"] [data-slot="key-value-note"]')?.textContent).toContain(ROOT)
+  expect(trigger.getAttribute('aria-label')).toBe(`harnessdesk/checkout-retry · new worktree off ${ROOT}`)
 })
 
 const chip = (): HTMLButtonElement | null =>

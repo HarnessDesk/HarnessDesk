@@ -75,6 +75,7 @@ import {
   ConfirmDialog,
   DetailHead,
   Face,
+  FRAME,
   Field,
   Fieldset,
   FileState,
@@ -295,7 +296,7 @@ const SidebarBoard = () => (
       <Text role="navigation">The seat menu at a narrow column width</Text>
       <div
         data-catalog-case="seat-menu-width"
-        className="w-[calc(var(--sidebar-width)-var(--hd-space-16)-var(--hd-space-4))]"
+        style={{ width: FRAME.sidebar.min }}
       >
         <Mount>
           <AccountFooter onOpenSettings={() => {}} onOpenUsage={() => {}} onSignIn={() => {}} />
@@ -306,7 +307,8 @@ const SidebarBoard = () => (
       <Text role="navigation">Real sidebar menus at a narrow column width</Text>
       <div
         data-catalog-case="sidebar-menu-widths"
-        className="h-[calc(var(--sidebar-width)*2)] w-[calc(var(--sidebar-width)-var(--hd-space-16)-var(--hd-space-4))] overflow-hidden rounded-(--hd-radius) border border-sidebar-border bg-sidebar text-sidebar-foreground"
+        style={{ width: FRAME.sidebar.min }}
+        className="h-[calc(var(--sidebar-width)*2)] overflow-hidden rounded-(--hd-radius) border border-sidebar-border bg-sidebar text-sidebar-foreground"
       >
         <Mount>
           <ProductSidebar

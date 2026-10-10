@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import fs from 'node:fs'
 import test from 'node:test'
 import { groupDeclarations, leadComment, tableDensityRows } from './design-doc.mjs'
 
@@ -83,4 +84,11 @@ test('the table density reference reports comfortable and compact values separat
   assert.equal(rows.find(([name]) => name === '--hd-table-log-head-h'), undefined)
   assert.deepEqual(rows.find(([name]) => name === '--hd-table-head-h'), ['--hd-table-head-h', '40px', '32px'])
   assert.deepEqual(rows.find(([name]) => name === '--hd-table-face'), ['--hd-table-face', '32px', '24px'])
+})
+
+
+test('the generated design reference documents the public ChannelSignal pattern', () => {
+  const reference = fs.readFileSync(new URL('../docs/design-system.md', import.meta.url), 'utf8')
+  assert.ok(reference.includes('### `ChannelSignal`\n'), 'ChannelSignal has a generated heading')
+  assert.ok(reference.includes('A board event — claimed, completed, released'), 'ChannelSignal retains its public description')
 })

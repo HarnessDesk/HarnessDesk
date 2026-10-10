@@ -22,7 +22,7 @@
 
   /* Narrow enough that a short menu — density, agent, sort — sizes to its
      own words the way Codex's does, instead of holding a fixed slab open. */
-  min-width: 200px;
+  min-width: var(--hd-menu-min);
   max-width: 380px;
   max-height: calc(100vh - 16px);
   overflow-y: auto;
@@ -39,7 +39,7 @@
 }
 
 .flyout {
-  min-width: 200px;
+  min-width: var(--hd-menu-min);
 }
 
 .submenu {
@@ -55,9 +55,9 @@
   gap: 10px;
   width: 100%;
   min-height: var(--hd-row-h);
-  padding: var(--hd-space-1) 10px;
+  padding: var(--hd-space-1) var(--hd-nav-inset); /* desk: 10 → 8 inline, every part of a menu starts its words on one edge: a row button's */
   border: none;
-  border-radius: var(--hd-nav-radius); /* desk: var(--hd-radius-sm) → var(--hd-nav-radius), menus and rails use one row shape */
+  border-radius: var(--hd-menu-row-radius); /* desk: 10 → 6, parallel to the menu's corner: its radius less its padding */
   background: none;
   color: var(--hd-foreground);
   cursor: pointer;
@@ -263,7 +263,7 @@
    letter-spacing all shouted over the rows, which are the text that matters. */
 .label {
   font-weight: var(--hd-weight-medium);
-  padding: 8px 10px var(--hd-space-1);
+  padding: 8px var(--hd-nav-inset) var(--hd-space-1); /* desk: 10 → 8 inline, on the rows' edge */
   font-size: var(--hd-text-sm);
   color: var(--hd-secondary-foreground);
 }
@@ -284,7 +284,7 @@
    give the menu. */
 .note {
   contain: inline-size;
-  padding: 6px 10px 8px;
+  padding: 6px var(--hd-nav-inset) 8px; /* desk: 10 → 8 inline, on the rows' edge */
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm); /* desk: 17 → 18, the line the 13px step is set on */
   color: var(--hd-muted-foreground);

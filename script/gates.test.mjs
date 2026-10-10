@@ -52,6 +52,9 @@ import {
   squaresOf,
   STYLESHEET_OWNERS,
   uppercaseLabelsOf,
+  retiredComponentsOf,
+  pageMeasuresOf,
+  screenLayoutOf,
   visualKindUnionsOf,
 } from './design-audit.mjs'
 import { SECTIONS } from './design-sections.mjs'
@@ -4513,4 +4516,65 @@ test('round-card geometry exemption names only its recorded-data slots in the ro
   const entry = SINGLE_AREA_PRIMITIVE_EXEMPTIONS.find(one => one.module === 'design/ui/timeline-cards.tsx')
   assert.equal(staleSingleAreaPrimitiveExemptions([entry], () => 'settings').length, 5)
   assert.equal(staleSingleAreaPrimitiveExemptions([entry], () => undefined).length, 5)
+})
+/**
+ * The frame work's burn-downs (docs/superpowers/specs/2026-10-09-app-frame-design.md):
+ * frame parts a screen still draws, page measures a screen sets itself, and
+ * layout written in a screen. Each only falls.
+ */
+test('retiredComponent counts a screen drawing a frame part the shell will own', () => {
+  const screen = path.join(repoRoot, 'packages/ui/src/components/Example.tsx')
+  const pattern = path.join(repoRoot, 'packages/ui/src/design/patterns/Example.tsx')
+  const cases = [
+    [screen, 'export const A = () => <PageHead title="Teams" />\n', 1],
+    [screen, 'export const A = () => <><AppWindow label="x"><WindowPage /></AppWindow></>\n', 2],
+    [screen, 'export const A = () => <ToolPaneHeaderDivider />\n', 0],
+    [screen, 'export const A = () => <PopoverOptionMark />\n', 0],
+    [screen, '// <PageHead /> once lived here\nexport const A = () => null\n', 0],
+    [pattern, 'export const A = () => <PageHead title="x" />\n', 0],
+  ]
+  for (const [file, source, count] of cases) assert.equal(retiredComponentsOf(file, source).length, count, source)
+})
+
+test('pageMeasureInScreen counts a screen setting a page measure instead of using Page', () => {
+  const tsx = path.join(repoRoot, 'packages/ui/src/components/Example.tsx')
+  const css = path.join(repoRoot, 'packages/ui/src/components/Example.module.css')
+  const cases = [
+    [css, '.page { max-width: var(--hd-column); }', 1],
+    [css, '.page { max-width: var(--hd-page-wide); padding: var(--hd-page-gutter); }', 2],
+    [tsx, 'export const A = () => <PaneColumn inset="reading" page>x</PaneColumn>\n', 1],
+    [tsx, 'export const A = () => <PaneColumn inset="reading">x</PaneColumn>\n', 0],
+    [tsx, 'export const A = () => <Page width="reading">x</Page>\n', 0],
+  ]
+  for (const [file, source, count] of cases) assert.equal(pageMeasuresOf(file, source).length, count, source)
+})
+
+test('screenLayout counts layout declarations and layout utilities in a screen', () => {
+  const tsx = path.join(repoRoot, 'packages/ui/src/components/Example.tsx')
+  const css = path.join(repoRoot, 'packages/ui/src/components/Example.module.css')
+  assert.equal(screenLayoutOf(css, '.row { display: flex; gap: var(--hd-space-2); color: red; }').length, 2)
+  assert.equal(screenLayoutOf(tsx, 'export const A = () => <div className="flex min-w-0 gap-2 text-sm" />\n').length, 3)
+  assert.equal(screenLayoutOf(tsx, 'export const A = () => <div className="text-sm" />\n').length, 0)
+})
+
+
+test('screenLayout classifies intrinsic heights and arbitrary properties before the utility fallback', () => {
+  const file = path.join(repoRoot, 'packages/ui/src/components/Example.tsx')
+  const layout = ['h-full', 'min-h-0', 'max-h-screen', 'h-auto', 'h-min', 'h-max', 'h-fit', 'h-1/2', 'md:h-[100dvh]!', '[display:flex]', 'hover:[grid-template-columns:1fr_1fr]', 'text-left', 'text-nowrap']
+  const appearance = ['h-8', 'min-h-[24px]', 'size-6', '[color:red]', 'text-sm', 'px-4']
+  for (const token of layout) assert.equal(screenLayoutOf(file, `export const A = () => <div className="${token}" />`).length, 1, token)
+  for (const token of appearance) assert.equal(screenLayoutOf(file, `export const A = () => <div className="${token}" />`).length, 0, token)
+})
+
+test('retiredComponent follows named aliases and namespace JSX imports', () => {
+  const file = path.join(repoRoot, 'packages/ui/src/components/Example.tsx')
+  const cases = [
+    ['import { PageHead as Heading } from "../design"; export const A = () => <Heading title="Teams" />', 1],
+    ['import * as D from "../design"; export const A = () => <D.PageHead title="Teams" />', 1],
+    ['import { WindowPage as Page } from "../design"; export const A = () => <Page><span /></Page>', 1],
+    ['import { PageHead as Heading } from "../design"; export const A = () => <span title="<Heading />" />', 0],
+    ['import * as D from "../design"; export const A = () => <D.Page width="reading">content</D.Page>', 0],
+    ['import { PageHead as Heading } from "../design"; export const A = () => <><Heading title="One" /><Heading title="Two" /></>', 2],
+  ]
+  for (const [source, count] of cases) assert.equal(retiredComponentsOf(file, source).length, count, source)
 })

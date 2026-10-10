@@ -8,7 +8,7 @@ import { describeLane, formatAge, formatMoney } from '../lib/usage'
 import { useActiveSession, useSnapshot } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { RosterIcon, SignInIcon, UsageIcon } from './Icons'
-import { Menu, Popover } from '../design'
+import { Menu, MenuLabel, MenuNote, Popover } from '../design'
 import styles from './PlanMeters.module.css'
 
 /**
@@ -131,7 +131,13 @@ const Meter = ({
   promoted?: boolean
   onOpen: () => void
 }) => (
-  <HeaderStatusReading label={promoted ? "Other agent limit" : "Plan usage"} detail={meterTitle(view)}>
+  <HeaderStatusReading
+    label={promoted ? "Other agent limit" : "Plan usage"}
+    detail={meterTitle(view)}
+    value={`${view.lane.title}, ${view.lane.remainingPercent}% left${view.lane.remainingPercent === 0 ? ' · out of quota' : ''}${view.lane.shortCountdown ? ` · resets in ${view.lane.shortCountdown}` : ''}`}
+    note={view.account ? `${view.name} · ${view.account}` : view.name}
+    notePath
+  >
     <Popover
       title={meterTitle(view)}
       drop="down"
@@ -181,9 +187,9 @@ const Meter = ({
               <Text role="subject" tone="brand">Open</Text>
             </Button>
             {(view.report.plan || view.report.account) && (
-              <Text as="p" role="muted" className={styles.identity}>
+              <MenuNote>
                 {[view.report.plan, view.report.account].filter(Boolean).join(' · ')}
-              </Text>
+              </MenuNote>
             )}
             <div className={styles.lanes}>
               {view.report.lanes.map((raw) => {
@@ -194,7 +200,8 @@ const Meter = ({
               })}
             </div>
             <Separator />
-            <Text as="p" role="meta" className={styles.foot}>
+            <MenuNote>
+              <span className={styles.foot}>
               {view.report.spend?.todayCost !== undefined && view.report.spend?.todayCost !== null && (
                 <>
                   <span>{formatMoney(view.report.spend.todayCost, view.report.spend.currency)} today</span>
@@ -204,7 +211,8 @@ const Meter = ({
               <span>{view.report.source.label}</span>
               <span>·</span>
               <span>{formatAge(view.report.fetchedAt, now)}</span>
-            </Text>
+              </span>
+            </MenuNote>
           </div>
         </Menu>
       )}
@@ -245,7 +253,7 @@ const Rest = ({
       {(close) => (
         <Menu close={close}>
           <div className={styles.panel}>
-            <Text as="p" role="muted">{rest.title}</Text>
+            <MenuLabel>{rest.title}</MenuLabel>
             <div className={styles.roster}>
               {rest.meters.map((meter) => (
                 <Button
@@ -267,26 +275,34 @@ const Rest = ({
                 <Button
                   key={aside.runtime}
                   type="button"
-                  variant="row" size="row" className={styles.rosterRow}
+                  variant="row" size="row" className="w-full"
                   data-quiet=""
                   onClick={() => {
                     close()
                     onOpen(aside.runtime)
                   }}
                 >
-                  <RuntimeMark runtime={aside.info} size={14} />
-                  <Text role="muted" truncate className={styles.rosterName}>{aside.info.presentation.name}</Text>
-                  <Text role="muted" truncate className={styles.rosterDetail}>{aside.detail}</Text>
+                  {/* The same row as an agent with a reading, its reason in the
+                      reading's columns, so every name and every bar line up. */}
+                  <UsageMeterRow
+                    name={<span className="flex min-w-0 items-center gap-(--hd-space-1-5)"><RuntimeMark runtime={aside.info} size={14} /><span className="truncate">{aside.info.presentation.name}</span></span>}
+                    label={`${aside.info.presentation.name} — ${aside.detail}`}
+                    percent={null}
+                    countdown=""
+                    note={aside.detail}
+                  />
                 </Button>
               ))}
             </div>
             <Separator />
-            <Text as="p" role="meta" className={styles.foot}>
-              <UsageIcon size={12} />
-              <span>Every plan, and what it cost — ⌘U</span>
-              <span>·</span>
-              <span>{formatAge(oldest(rest, now), now)}</span>
-            </Text>
+            <MenuNote>
+              <span className={styles.foot}>
+                <UsageIcon size={12} />
+                <span>Every plan, and what it cost — ⌘U</span>
+                <span>·</span>
+                <span>{formatAge(oldest(rest, now), now)}</span>
+              </span>
+            </MenuNote>
           </div>
         </Menu>
       )}

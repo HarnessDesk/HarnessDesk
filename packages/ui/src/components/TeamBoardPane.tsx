@@ -40,7 +40,6 @@ import {
   ClockIcon,
   HandoffIcon,
   MoreIcon,
-  PlanIcon,
   PlusIcon,
   TeamIcon,
 } from './Icons'
@@ -62,7 +61,7 @@ import {
   Popover,
   ToolPane,
   ToolPaneBody,
-  ToolPaneHeader,
+  ViewBar,
   type Tint,
 } from '../design'
 
@@ -571,22 +570,17 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
        thing to go — the columns are counted anyway — and the button that adds
        work keeps its label to the last. */
     <ToolPane ref={paneRef} variant="integrated" className="@container/board">
-      <ToolPaneHeader
-        contentInset={view === 'list' ? 'reading-table' : 'board'}
-        icon={view === 'board' ? <PlanIcon /> : undefined}
-        title="Board"
-        /* The state of the work, not the path. The room's rail already says
-           which project this is, and in a pane of its own the tab does — a
-           subtitle spent on a repeated string is a line that could have been
-           telling the reader something. */
-        subtitle={
-          intents.length === 0
-            ? undefined
-            : `${byColumn.get('todo')?.length ?? 0} to do · ${
-                byColumn.get('working')?.length ?? 0
-              } working · ${byColumn.get('needs')?.length ?? 0} need you`
+      {/* The state of the work, not its name: the tab above already says
+          "Board". List summaries share the table text edge; columns keep
+          the canvas gutter below the view row. */}
+      <ViewBar
+        contentInset={view === 'list' ? 'reading-table' : 'page'}
+        aria-label="Board"
+        summary={
+          `${byColumn.get('todo')?.length ?? 0} to do · ${
+            byColumn.get('working')?.length ?? 0
+          } working · ${byColumn.get('needs')?.length ?? 0} need you`
         }
-        subtitleFace="text"
         actions={
           /* Top-bar actions stay outlined: a filled button belongs with the
              work itself. The Ready column keeps its contextual title-and-
@@ -636,7 +630,7 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
           </div>
         }
       />
-      <ToolPaneBody ref={bodyRef} bleed={view === 'list'} className="[scrollbar-gutter:stable]">
+      <ToolPaneBody ref={bodyRef} bleed={view === 'list'} inset="dense" className="[scrollbar-gutter:stable]">
         {notices && (view === 'list' ? <PaneColumn inset="reading" className="flex flex-col gap-2">{notices}</PaneColumn> : notices)}
         {/* The goals on this board, above the work. A Room is permanent and a
             goal is not, so this is the only line that can ever say "finished" —

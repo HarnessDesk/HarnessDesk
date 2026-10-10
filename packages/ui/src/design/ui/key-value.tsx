@@ -109,9 +109,9 @@ const valueOf = (children: React.ReactNode, kind: 'text' | 'path'): React.ReactN
  * and read as sentences: they wrap inside their column and never push it past
  * the container. A path is given as `kind="path"` and gives up its middle,
  * with the whole path in its title while it is cut. Numbers — a count, a
- * total, money — are right-aligned on tabular figures, and only when the row
- * says `numeric`: a right-aligned sentence has a ragged left edge that no
- * reader can scan.
+ * total, money — are right-aligned on tabular figures when the row says
+ * `numeric`, including beside words and paths. The page's measure keeps a
+ * fact near its key; alignment preserves the numeric column's reading rule.
  *
  * `emphasis` on the last pair is the totals-line rule: the figure everything
  * above was building toward gets weight, and it gets it from a prop rather
@@ -129,7 +129,7 @@ const KeyValue = ({
     data-slot="key-value"
     data-variant={variant}
     className={cn(
-      'grid min-w-0',
+      'group/kv grid min-w-0',
       variant === 'default' && 'gap-x-6 gap-y-2 text-base',
       variant === 'panel' && 'gap-x-2.5 gap-y-0.5 text-sm',
       /* `minmax(0, 1fr)` says outright that the value column may be narrower
@@ -185,7 +185,9 @@ const KeyValueRow = ({
       className={cn(
         KEY_CLASS,
         variant === 'default' && 'min-w-20',
-        variant === 'panel' && 'text-xs',
+        /* A key is the size of its value, one line: a smaller, wrapping key on
+           a taller value is what made a card's facts unreadable as pairs. */
+        variant === 'panel' && 'text-sm whitespace-nowrap',
         emphasis && 'font-medium text-(--hd-foreground)',
       )}
     >
@@ -217,7 +219,7 @@ const KeyValueRow = ({
  * Each `SummaryItem` is a row of three columns shared by the whole card: the
  * key, muted, in a column as wide as the widest key; the value, left-aligned
  * and wrapping as a sentence (`kind="path"` gives up the middle, `numeric`
- * right-aligns tabular figures — the `KeyValueRow` rules, unchanged); and an
+ * right-aligns tabular figures — the `KeyValueRow` rules); and an
  * optional trailing `action`, a small button or a ⋯ menu, at the row's end.
  * A `note` is one line of explanation under the value, in the secondary ink,
  * and wraps rather than ellipsises: it is a sentence.

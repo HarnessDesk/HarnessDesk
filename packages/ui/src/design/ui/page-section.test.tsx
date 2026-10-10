@@ -133,6 +133,7 @@ it('SummaryList is one card whose items share a key, a value and an action colum
   expect(file?.getAttribute('data-kind')).toBe('path')
   expect(seats?.hasAttribute('data-numeric')).toBe(true)
   expect(seats?.querySelector('[data-slot="summary-value"]')?.className).toContain('text-right')
+  expect(seats?.querySelector('[data-slot="summary-value"]')?.className).not.toContain('/summary:text-left')
   expect(seats?.querySelector('[data-slot="summary-value"]')?.className).toContain('tabular-nums')
   expect(file?.querySelector('[data-slot="summary-value"]')?.className).toContain('text-left')
   expect(seats?.querySelector('[data-slot="summary-action"]')).toBeNull()

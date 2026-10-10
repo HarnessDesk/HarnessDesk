@@ -9,6 +9,8 @@ import {
   MetaList,
   NativeSelect,
   Note,
+  Page,
+  Row,
   RowButton,
   Rows,
   Switch,
@@ -18,8 +20,8 @@ import {
   ToolPane,
   ToolPaneBody,
   ToolPaneEmptyState,
-  ToolPaneHeader,
   ToolPaneMessage,
+  ViewBar,
 } from '../design'
 import { ReviewIcon } from './Icons'
 import { blockingWords, FILTER_LABEL, goalHasBoundPr, lifecycleTone, lifecycleWords, type FindingFilter } from '../lib/findings'
@@ -116,33 +118,15 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
 
   return (
     <ToolPane variant="integrated" aria-label="Findings">
-      <ToolPaneHeader
-        icon={<ReviewIcon />}
-        title="Findings"
-        subtitle={state?.totals ? `${state.totals.open} open · ${state.totals.blocking} blocking of ${state.totals.all}` : undefined}
-        subtitleFace="text"
+      {/* The tab above says "Findings"; this row says what they are. */}
+      <ViewBar
+        aria-label="Findings"
+        summary={state?.totals ? `${state.totals.open} open · ${state.totals.blocking} blocking of ${state.totals.all}` : undefined}
         actions={
-          <Tabs value={filter} onValueChange={(next) => setFilter(next as FindingFilter)}>
-            <TabsList aria-label="Filter findings">
-              {FILTERS.map((one) => (
-                <TabsTrigger key={one} value={one}>{FILTER_LABEL[one]}</TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-        }
-      />
-      <ToolPaneBody className="flex flex-col gap-3">
-        {runs.length > 1 && run && (
-          <NativeSelect aria-label="Run" value={run.id} onChange={(event) => setChosen(event.target.value)}>
-            {runs.map((one, index) => (
-              <option key={one.id} value={one.id}>{goalRunLabel(one, index, runs.length)}</option>
-            ))}
-          </NativeSelect>
-        )}
-        {runView && (
           <>
-            <FindingRoundStatus view={runView} publicationOn={confirmedPublication} />
-            {(runView.reason !== null || runView.blocking > 0) && (
+            {/* The view's own verb, at its own width, beside the view's filter —
+                not a bar across the page under the facts it acts on. */}
+            {runView && (runView.reason !== null || runView.blocking > 0) && (
               <Button
                 variant="outline"
                 size="sm"
@@ -153,23 +137,48 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
                 Decide this run
               </Button>
             )}
+          <Tabs value={filter} onValueChange={(next) => setFilter(next as FindingFilter)}>
+            <TabsList aria-label="Filter findings">
+              {FILTERS.map((one) => (
+                <TabsTrigger key={one} value={one}>{FILTER_LABEL[one]}</TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+          </>
+        }
+      />
+      <ToolPaneBody bleed>
+        <Page width="reading">
+        {runs.length > 1 && run && (
+          <NativeSelect aria-label="Run" value={run.id} onChange={(event) => setChosen(event.target.value)}>
+            {runs.map((one, index) => (
+              <option key={one.id} value={one.id}>{goalRunLabel(one, index, runs.length)}</option>
+            ))}
+          </NativeSelect>
+        )}
+        {runView && (
+          <>
+            <FindingRoundStatus view={runView} publicationOn={confirmedPublication} />
             {runView.undecidable && <Note>{runView.undecidable}</Note>}
             {!runView.undecidable && <FindingPublications goal={goal} run={runView.run} stamp={runView.stamp} />}
           </>
         )}
         {boundPr ? (
-          <Note>
-            <span className="flex items-center justify-between gap-3">
-              <span>Post closed rounds to the pull request</span>
-              <Switch
-                checked={publicationOn}
-                disabled={record || publicationPending !== null || !goalView}
-                title={record ? RECORD_REASON : undefined}
-                aria-label="Post closed rounds to the pull request"
-                onCheckedChange={(checked: boolean) => void setPublication(checked)}
-              />
-            </span>
-          </Note>
+          /* A setting is a settings row: its switch keeps the row's end. */
+          <Rows>
+            <Row
+              title="Post closed rounds to the pull request"
+              control={
+                <Switch
+                  checked={publicationOn}
+                  disabled={record || publicationPending !== null || !goalView}
+                  title={record ? RECORD_REASON : undefined}
+                  aria-label="Post closed rounds to the pull request"
+                  onCheckedChange={(checked: boolean) => void setPublication(checked)}
+                />
+              }
+            />
+          </Rows>
         ) : (
           <Note>Local findings — no pull request is bound to this Team yet.</Note>
         )}
@@ -219,6 +228,7 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
             {state.loadingMore ? 'Loading…' : 'Load more'}
           </Button>
         )}
+        </Page>
       </ToolPaneBody>
       {opened && (
         <FindingDetail
