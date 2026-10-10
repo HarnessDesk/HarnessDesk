@@ -1,3 +1,5 @@
+import { selectRunView } from './run-frame-actions'
+import { selectTeamDestination, selectTeamPage } from './team-frame-actions'
 import { expect, test, type Page, type Locator } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
@@ -6,8 +8,8 @@ import { minimapOverlaps, zoomOf } from './canvas-minimap'
 const run = async (page: Page, theme: string) => {
   await page.goto(`/preview.html?flow-overlay&theme=${theme}`)
   const pane = page.locator('#flow-overlay-live')
-  await pane.getByRole('tab', { name: /^Run/ }).first().click()
-  await pane.getByRole('radio', { name: 'Flow', exact: true }).click()
+  await selectTeamDestination(pane, 'run')
+  await selectRunView(pane, 'Flow')
   await expect(pane.locator('.react-flow__node')).toHaveCount(6)
   await expect.poll(() => page.locator('body').evaluate(el => el.hasAttribute('data-hd-dark-theme'))).toBe(theme === 'dark')
   return pane
@@ -127,7 +129,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.mouse.wheel(0, 1600)
       await expect.poll(() => scroll.evaluate(el => el.scrollTop + el.clientHeight >= el.scrollHeight - 1)).toBe(true)
       await expect(graph.locator('section[aria-label="Rules"]')).toBeInViewport()
-      // The Run header leaves a short scroll area, so the Rules can fill it at the end: the last Step is reached by wheeling back up.
+      // Rules can fill the scroll area at the end; wheel back to reach the last Step.
       const above = await row.evaluate(el => el.closest('[data-slot="run-scroll"]')!.getBoundingClientRect().top - el.getBoundingClientRect().top)
       if (above > 0) await page.mouse.wheel(0, -(above + 16))
       await expect(row).toBeInViewport()
@@ -138,7 +140,13 @@ for (const theme of ['light', 'dark'] as const) {
       expect(await row.evaluate(el => (el as HTMLButtonElement).tabIndex)).toBe(0)
       await row.click()
       await expect(row).toHaveAttribute('aria-current', 'true')
-      await expect.poll(() => graph.locator('[data-slot="flow-drawing"]').evaluate(el => el.getBoundingClientRect().height)).toBeLessThan(260)
+      await expect(graph.locator('[data-slot="flow-list"]')).toHaveAttribute('data-placement', 'below')
+      // The native drawing reserves its model extent plus the real controls.
+      // Selecting inspection must retain that minimum and every contained node.
+      await expect.poll(() => graph.locator('[data-slot="flow-drawing"]').evaluate(el =>
+        el.getBoundingClientRect().height >= Number.parseFloat(getComputedStyle(el).minHeight),
+      )).toBe(true)
+      await nodesInCanvas(pane)
       await page.setViewportSize({ width: 1440, height: 900 })
       await expect.poll(() => row.evaluate(el => (el as HTMLButtonElement).tabIndex)).toBe(-1)
     })
@@ -234,8 +242,9 @@ for (const theme of ['light', 'dark'] as const) {
         await page.setViewportSize({ width, height: 900 })
         await page.goto(`/preview.html?run-view&theme=${theme}`)
         const rig = page.locator('#run-view-team')
-        await rig.getByRole('tab', { name: 'Run · 1', exact: true }).click()
-        await rig.getByRole('radio', { name: 'Flow', exact: true }).click()
+        if (width === 390) await selectTeamDestination(rig, 'run')
+        else await selectTeamPage(rig, 'run')
+        await selectRunView(rig, 'Flow')
         const need = rig.locator('[data-slot="run-need"]')
         const canvas = rig.locator('[data-slot="flow-canvas"]')
         await expect(canvas.locator('.react-flow__node').first()).toBeVisible()

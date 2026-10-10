@@ -4,18 +4,28 @@ import { FRAME } from '../../packages/ui/src/design/frame'
 /** Canonical Team slots, scoped to one synthetic fixture's shell. */
 export const teamBar = (frame: Locator): Locator => frame.locator('[data-slot="top-bar"]:visible').first()
 
+/** Select the real destination without prescribing a content fixture's width. */
+export const selectTeamDestination = async (frame: Locator, value: string): Promise<void> => {
+  const bar = teamBar(frame)
+  const tab = bar.locator(`[data-team-page="${value}"]:visible`)
+  const folded = bar.getByTitle('Destination views', { exact: true })
+  // The click resolves either live representation. Only an actually opened
+  // menu needs a second click; a direct selection may immediately refold.
+  await tab.or(folded).first().click()
+  const item = frame.page().locator(`[role="menu"] [data-team-page="${value}"]:visible`)
+  if (await bar.locator('button[title="Destination views"][aria-expanded="true"]').count()) {
+    await tab.or(item).first().click()
+  }
+  const label = ({ overview: 'Overview', run: 'Run', board: 'Board', room: 'Chat', findings: 'Findings', runs: 'Runs' } as Record<string, string>)[value]
+  if (!label) throw new Error(`Unknown Team destination: ${value}`)
+  await expect(bar.locator(`[data-team-page="${value}"][aria-selected="true"]:visible`)
+    .or(folded.filter({ hasText: new RegExp(`^${label}(?:\\s*\\d+)?$`) }))).toHaveCount(1)
+}
+
 export const selectTeamPage = async (frame: Locator, value: string): Promise<void> => {
   const bar = teamBar(frame)
   await expect.poll(async()=>(await bar.locator('[data-topbar-title]').boundingBox())?.width??0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
-  const tab = bar.locator(`[data-team-page="${value}"]:visible`)
-  if (await tab.count()) {
-    await tab.click()
-    return
-  }
-  await bar.getByTitle('Destination views', { exact: true }).click()
-  const item = frame.page().locator(`[role="menu"] [data-team-page="${value}"]:visible`)
-  await expect(item).toHaveCount(1)
-  await item.click()
+  await selectTeamDestination(frame, value)
 }
 
 export const teamDetails = async (frame: Locator): Promise<Locator> => {

@@ -1322,7 +1322,11 @@ class PreviewStore {
     if (routed) { this.#workbench(routed); return }
     if (view.kind === 'terminal') this.#workbench(dock(this.#snapshot.workbench, 'bottom', view))
     else if (view.kind === 'board') this.requestTeamFrame(view.room, 'board')
-    else if (view.kind === 'run-steps') this.#workbench(dock(this.#snapshot.workbench, 'right', view))
+    else if (view.kind === 'run-steps') {
+      const pane = findPane(this.#snapshot.workbench.main, this.#snapshot.workbench.main.focused)
+      if (pane?.view.kind === 'room') this.requestTeamFrame(pane.view.room, 'run', 'timeline')
+      else this.resultNotice('warning', 'Open a Team to view its Run Timeline.')
+    }
     else if (area === 'main') { const before = this.#snapshot.workbench; this.#workbench({ ...before, main: showPane(before.main, before.main.focused, view) }) }
   }
   setDetailsTab(kind: 'changes' | 'activity' | 'trajectory' | 'agents' | 'tasks' | null): void {
@@ -1360,6 +1364,13 @@ class PreviewStore {
   async openTerminal(): Promise<void> {
     if (!this.#snapshot.activeRuntime || window.innerHeight < 240) return
     this.showViewIn('bottom', { kind: 'terminal', terminalId: 'frame-pty', runtime: this.#snapshot.activeRuntime, cwd: PREVIEW_ROOT })
+  }
+  closeTerminalDock(): void {
+    let workbench = this.#snapshot.workbench
+    for (const area of ['bottom', 'right'] as const) {
+      for (const one of dockViews(workbench[area])) if (one.view.kind === 'terminal') workbench = undock(workbench, one.id)
+    }
+    this.#workbench(workbench)
   }
   requestTeamFrame(room: string, page: 'board' | 'run', runView?: 'timeline' | 'flow'): void {
     const before = this.#snapshot.workbench, pane = findPane(before.main, before.main.focused)!

@@ -4002,7 +4002,7 @@ export class AppStore {
           strayTerminals(raw).reduce((acc, view) => dockIn(acc, 'bottom', view), saved),
         )
       : null
-    const migration = rehomed ? normalizeFixedWorkbench(rehomed) : null
+    const migration = rehomed ? normalizeFixedWorkbench(rehomed, true) : null
     const workbench = migration ? settleWorkbench(migration.workbench) : emptyWorkbench()
     // Persisting what was just read back would be a no-op write; set directly.
     this.#patch({
@@ -4069,6 +4069,12 @@ export class AppStore {
   /** Mounts a view in an area, bringing it forward if it is already somewhere. */
   showViewIn(area: AreaId, view: PaneView): void {
     if (view.kind === 'board') { this.openTeamBoard(view.room); return }
+    if (view.kind === 'run-steps') {
+      const room = this.#roomToShow()
+      if (room) this.requestTeamFrame(room, 'run', 'timeline')
+      else this.resultNotice('warning', 'Open a Team to view its Run Timeline.')
+      return
+    }
     if (toolOf(view.kind)) {
       if (view.kind === 'plugin' && !supportsFixedTool(view, this.#snapshot.contributions)) {
         this.resultNotice('warning', 'This plugin panel does not support the fixed right panel.')
@@ -4080,7 +4086,6 @@ export class AppStore {
       return
     }
     if (view.kind === 'terminal') area = 'bottom'
-    if (view.kind === 'run-steps') area = 'right'
 
     if (!permits(view, area)) return
     if (area === 'main') {
@@ -4178,6 +4183,9 @@ export class AppStore {
    */
   showView(kind: PaneView['kind']): void {
     switch (kind) {
+      case 'run-steps':
+        this.showViewIn('right', { kind: 'run-steps' })
+        return
       case 'git':
         this.openGitHistory()
         return

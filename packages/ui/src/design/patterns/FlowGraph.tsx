@@ -3,17 +3,18 @@ import { useMemo, type ReactNode } from 'react'
 
 import {
   FLOW_FAN_INSET, FLOW_FAN_RISE, FLOW_CARD_W, FLOW_CARD_H, FLOW_GAP, FLOW_ROW_GAP, FLOW_MARGIN, flowLayout,
-  type FlowNode,
 } from '../../lib/flow-layout'
 import { stepName, type FlowModel, type FlowStep } from '../../lib/flow-model'
 import { ROLE_KIND_WORDS } from '../../lib/shapes'
 import { useNarrowLayout } from '../../lib/use-narrow-layout'
 import { Card } from '../ui/card'
-import { FlowStepSurface, FlowFaces, FlowDoingLine } from '../ui/flow-step'
+import { FlowStepSurface, FlowDoingLine } from '../ui/flow-step'
 import { type FlowOverlay, type FlowStepRun } from '../../lib/flow-overlay'
 import { sanitizeText } from '../../lib/sanitize'
 
 import { formatDuration } from '../../components/TurnTail'
+import { AgentIcon } from '../../components/Icons'
+import { AvatarStack } from '../ui/avatar-stack'
 import { IconTile } from '../ui/icon-tile'
 import type { Tint } from '../ui/tone'
 import { EmptyState } from '../ui/empty-state'
@@ -49,42 +50,6 @@ const lineOf = (step: FlowStep, run: FlowStepRun | undefined, object: string): s
 const titleOf = (step: FlowStep, run: FlowStepRun | undefined, object: string): string =>
   step.kind === 'agent' && run?.state === 'working' ? lineOf(step, run, object) : sanitizeText(step.title ?? lineOf(step, run, object))
 
-const StepCard = ({ node, step, run, selected, faces, faceTints, activity, now }: {
-  node: FlowNode; step: FlowStep; run?: FlowStepRun; selected: boolean; faces?: ReadonlyMap<string, ReactNode>
-  faceTints?: ReadonlyMap<string, Tint>; activity: { text: string; object: string }; now: number
-}) => {
-  const { tint, Mark } = FLOW_STEP_KINDS[step.kind]
-  return (
-    <div
-      data-slot="flow-step"
-      data-step={step.id}
-      data-kind={step.kind}
-      data-state={run?.state}
-      data-selected={selected || undefined}
-      className="relative h-full w-full"
-    >
-      {/* The cards behind the front one, farthest first, so a count reads without a number. */}
-      {Array.from({ length: node.fan }, (_, index) => node.fan - index).map((depth) => (
-        <Card
-          key={depth}
-          spacing="flush"
-          aria-hidden="true"
-          data-behind=""
-          className="absolute"
-          style={{ left: depth * FLOW_FAN_INSET, right: depth * FLOW_FAN_INSET, top: -depth * FLOW_FAN_RISE, height: node.box.h }}
-        />
-      ))}
-      <FlowStepSurface state={run?.state} selected={selected} duration={durationOf(run, now)} runs={run?.runs}>
-        <FlowFaces seats={step.kind === 'agent' ? run?.seats : undefined} faces={faces} tints={faceTints} fallback={<IconTile tint={tint}><Mark /></IconTile>} />
-        <Text role="row" ink={run?.state === 'future' ? 'secondary' : undefined} truncate title={step.name}>{step.name}</Text>
-        <Text role="meta" className="col-start-2" ink={run?.state === 'future' ? 'muted' : undefined} truncate={step.kind !== 'agent' || run?.state === 'working'} title={titleOf(step, run, activity.object)}>{lineOf(step, run, activity.object)}</Text>
-      </FlowStepSurface>
-      {activity.text &&
-        <span data-slot="flow-doing" className="absolute bottom-4 left-3 right-3 whitespace-nowrap text-center pointer-events-none"><FlowDoingLine text={activity.text} /></span>}
-
-    </div>
-  )
-}
 
 export interface FlowGraphProps {
   readonly model: FlowModel
@@ -125,13 +90,46 @@ export const FlowGraph = ({ model, overlay, selectedStep, onSelectStep, faces, f
   const readingHeight = controlsSpace ? `calc(${extent}px${controlsSpace})` : extent
   const nodes = layout.nodes.map(node => {
     const step = stepsById.get(node.id)!
+    const run = overlay?.steps.get(node.id), selected = selectedStep === node.id, activity = activities.get(node.id)!
+    const { tint, Mark } = FLOW_STEP_KINDS[step.kind]
+    const seats = step.kind === 'agent' ? run?.seats : undefined
     return {
       id: node.id, position: { x: node.box.x * xScale, y: node.box.y * yScale },
       size: { width: FLOW_CANVAS_CARD_WIDTH, height: FLOW_CANVAS_RUN_CARD_HEIGHT },
       data: { name: step.name, kind: step.kind }, state: overlay?.steps.get(node.id)?.state,
       selected: selectedStep === node.id,
-      stateSlot: <StepCard node={node} step={step} run={overlay?.steps.get(node.id)} selected={selectedStep === node.id}
-        faces={faces} faceTints={faceTints} activity={activities.get(node.id)!} now={now} />,
+      stateSlot: <div
+      data-slot="flow-step"
+      data-step={step.id}
+      data-kind={step.kind}
+      data-state={run?.state}
+      data-selected={selected || undefined}
+      className="relative h-full w-full"
+    >
+      {/* The cards behind the front one, farthest first, so a count reads without a number. */}
+      {Array.from({ length: node.fan }, (_, index) => node.fan - index).map((depth) => (
+        <Card
+          key={depth}
+          spacing="flush"
+          aria-hidden="true"
+          data-behind=""
+          className="absolute"
+          style={{ left: depth * FLOW_FAN_INSET, right: depth * FLOW_FAN_INSET, top: -depth * FLOW_FAN_RISE, height: node.box.h }}
+        />
+      ))}
+      <FlowStepSurface state={run?.state} selected={selected} duration={durationOf(run, now)} runs={run?.runs}>
+        {seats?.length ? seats.length > 1
+          ? <span data-slot="flow-faces"><AvatarStack size="stack" aria-label={`${seats.length} seats`} max={seats.length}
+            members={seats.map(id => ({ id, tint: faceTints?.get(id) ?? 'violet', mark: faces?.get(id) ?? <AgentIcon /> }))} /></span>
+          : <span data-slot="flow-faces"><IconTile shape="face" size="default" tint={faceTints?.get(seats[0]!) ?? 'violet'}>{faces?.get(seats[0]!) ?? <AgentIcon />}</IconTile></span>
+          : <IconTile tint={tint}><Mark /></IconTile>}
+        <Text role="row" ink={run?.state === 'future' ? 'secondary' : undefined} truncate title={step.name}>{step.name}</Text>
+        <Text role="meta" className="col-start-2" ink={run?.state === 'future' ? 'muted' : undefined} truncate={step.kind !== 'agent' || run?.state === 'working'} title={titleOf(step, run, activity.object)}>{lineOf(step, run, activity.object)}</Text>
+      </FlowStepSurface>
+      {activity.text &&
+        <span data-slot="flow-doing" className="absolute bottom-4 left-3 right-3 whitespace-nowrap text-center pointer-events-none"><FlowDoingLine text={activity.text} /></span>}
+
+    </div>,
     }
   })
   const edges = layout.edges.map(edge => {

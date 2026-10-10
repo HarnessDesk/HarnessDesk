@@ -91,15 +91,15 @@ it('two tiles borrow separate live profiles, route browser keys and agent focus,
     // The selected tile stays selected while a different mount has the keys.
     // None of its browser shortcuts may take those keys or change its tabs.
     act(() => store.showViewIn('bottom', { kind: 'tasks' }))
-    const bottom = findView(store.getSnapshot().workbench, { kind: 'tasks' })!
-    expect(bottom.area).toBe('bottom')
-    const bottomId = bottom.area === 'main' ? bottom.pane : bottom.mounted.id
-    expect(bottomId).not.toBe(paneId)
+    const tool = findView(store.getSnapshot().workbench, { kind: 'tasks' })!
+    expect(tool.area).toBe('right')
+    const toolId = tool.area === 'main' ? tool.pane : tool.mounted.id
+    expect(toolId).not.toBe(paneId)
     await act(async () => {
-      store.focusView(bottomId)
+      store.focusView(toolId)
       await new Promise(requestAnimationFrame)
     })
-    expect(focusedMount(store.getSnapshot().workbench)).toBe(bottomId)
+    expect(focusedMount(store.getSnapshot().workbench)).toBe(toolId)
     const before = lanes.map(lane => browserMount(store.getSnapshot(), lane.browserProfile!)!.view)
     const activeElement = document.activeElement
     const forwarded = vi.fn()

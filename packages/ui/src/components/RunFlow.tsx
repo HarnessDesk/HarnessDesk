@@ -8,9 +8,7 @@ import { doingLine, type DoingLine } from '../lib/team-overview'
 import type { Intent } from '@harnessdesk/protocol'
 import { ceilingsOfRun, flowModel } from '../lib/flow-model'
 import { FileIcon } from './Icons'
-import { useRunDock } from '../panels/run-dock'
-import { usePane, useSnapshot, useSnapshotSelector, useStore } from '../state/context'
-import { drawnInDock } from '../state/workbench'
+import { useSnapshot, useStore } from '../state/context'
 
 const PLACE: Readonly<Record<FlowOrigin, string>> = {
   project: 'In the project',
@@ -27,8 +25,8 @@ const entriesNamed = (entries: readonly FlowEntry[], name: string): readonly Flo
   entries.filter((one) => one.name === name && one.problem === null && one.format !== null)
 
 /**
- * The Flow half of a Run's header switch: the Flow the Run started with,
- * drawn, and the way to read its file.
+ * The Flow layout chosen in the canonical View menu: the Flow the Run started with,
+ * drawn with its native responsive list. Details owns reading its file.
  *
  * A Run holds its Flow frozen, so what is drawn here cannot change under it;
  * the file is whatever the catalogue holds now, and may have moved on. That
@@ -51,15 +49,9 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
   doing?: ReadonlyMap<string, string | null>
 }) => {
   const { home } = useSnapshot()
-  // The Team's Steps dock lists the Steps beside the pane at every width, but only while it is drawing them for this Run.
-  // Put away, showing something else, off the screen or following another pane, a Run lists them itself at every width.
-  const dock = useRunDock()
-  const owner = usePane()?.paneId ?? ''
-  const stepsDocked = useSnapshotSelector(snapshot => dock !== null && (!owner || snapshot.workbench.main.focused === owner) && drawnInDock(snapshot, 'run-steps'))
   const flow = execution.document.flow
   const model = useMemo(() => flowModel(flow, { home, ceilings: ceilingsOfRun(execution.rounds, seats) }), [flow, execution.rounds, seats, home])
   const overlay = useMemo(() => execution.state === undefined ? undefined : flowOverlay({ execution: { ...execution, state: execution.state, operations: execution.operations ?? [] }, model, cards, attempts, sessions }), [execution, model, cards, attempts, sessions])
-  const [problem, setProblem] = useState<string | null>(null)
   const [now, setNow] = useState(Date.now)
   const held = useRef(new Map<string, DoingLine>())
   useEffect(() => {
@@ -80,13 +72,12 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
           <Text role="meta">{execution.revision ? `revision ${execution.revision} · ` : ''}frozen when this Run started</Text>
         </span>
       </div>
-      {problem && <ActionError>{problem}</ActionError>}
-      <FlowGraph title="The path this Run took" listPlacement={stepsDocked ? 'dock' : 'below'} actions={<RunFlowFile root={root} name={flow.name} icon onProblem={setProblem} />} model={model} overlay={overlay} now={now} selectedStep={selectedStep} onSelectStep={onSelectStep} faces={faces} faceTints={faceTints} doing={stableDoing} />
+      <FlowGraph title="The path this Run took" listPlacement="responsive" model={model} overlay={overlay} now={now} selectedStep={selectedStep} onSelectStep={onSelectStep} faces={faces} faceTints={faceTints} doing={stableDoing} />
     </div>
   )
 }
 
-/** The same catalogue read from the graph and the Run's inspector. Never guesses between copies. */
+/** The catalogue read in Run Details. Never guesses between copies. */
 export const RunFlowFile = ({ root, name, compact = false, icon = false, onProblem }: { root: string | null; name: string; compact?: boolean; icon?: boolean; onProblem?: (problem: string | null) => void }) => {
   const store = useStore()
   const [reading, setReading] = useState(false)

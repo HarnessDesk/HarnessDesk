@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { Banner, Button, Chip, CodeText, EmptyState, IconTile, ListRow, PaneColumn, Progress, Segmented, Separator, Text, Timeline, TimelineItem, type TimelineState } from '../design'
+import { Banner, Button, Chip, EmptyState, IconTile, ListRow, PaneColumn, Progress, Text, Timeline, TimelineItem, type Tint, type TimelineState } from '../design'
 import { commandShown } from '../lib/projects'
-import { openExternal } from '../lib/desktop'
 import { commitDate } from '../lib/git-refs'
-import { currentRunEnd, type RunTimelineInput, type RunTimelineRow, type runTimeline } from '../lib/run-timeline'
+import { type RunTimelineInput, type RunTimelineRow, type runTimeline } from '../lib/run-timeline'
 import { runReasonWords } from '../lib/run-reason'
 import { sanitizeHtml, sanitizeText } from '../lib/sanitize'
 import { doingLine, type DoingLine } from '../lib/team-overview'
@@ -12,6 +11,7 @@ import { RetryCheck } from './RetryCheck'
 import { RunRoundCards, type SeatName } from './RunRoundCards'
 import { mayBeDocument } from '../state/committed-document'
 import { formatDuration } from './TurnTail'
+import { RunSteps } from './RunSteps'
 import styles from './RunView.module.css'
 
 const words = (value: string): string => {
@@ -19,15 +19,16 @@ const words = (value: string): string => {
   box.innerHTML = sanitizeHtml(value)
   return box.content.textContent ?? ''
 }
-const states = { running: 'Running', settled: 'Settled', stopped: 'Stopped', stalled: 'Stalled' } as const
 
 /** The two halves of a Run: what happened, and the Flow it was started from. */
 export type RunViewTab = 'timeline' | 'flow'
-const TABS = [{ value: 'timeline', label: 'Timeline' }, { value: 'flow', label: 'Flow' }] as const
 
 /** Read-only story. Selection belongs to the caller for the later inspector. */
-export const RunView = ({ home, model, execution, cost, timelineDetail, number, selectedRow, selectedRows, onSelect, faces, seatNames, doing, pullRequest, pending = false, problem, onRetry, flow, view, onView, onStop, onRunAgain, onWrap, onBoard, onReviewCheck, runChooser, continuesNumber, onDetails }: {
+export const RunView = ({ home, model, execution, stepsInput, attemptsRead, faceTints, timelineDetail, selectedRow, selectedRows, onSelect, faces, seatNames, doing, pending = false, problem, onRetry, flow, view, onRunAgain, onWrap, onBoard, onReviewCheck, onDetails }: {
   home?: string | null
+  stepsInput?: RunTimelineInput
+  attemptsRead?: 'reading' | 'failed'
+  faceTints?: ReadonlyMap<string, Tint>
   model: ReturnType<typeof runTimeline>
   execution?: RunTimelineInput['execution']
   /** Recorded Seat costs, qualified by the workspace when any Seat is missing. */
@@ -52,6 +53,8 @@ export const RunView = ({ home, model, execution, cost, timelineDetail, number, 
   view?: RunViewTab
   onView?: (view: RunViewTab) => void
   onStop?: (() => void) | undefined
+  /** The parent permission boundary supplies its truthful refusal. */
+  stopRefusal?: string | null
   onRunAgain?: () => void
   onWrap?: () => void
   onBoard?: () => void
@@ -61,11 +64,10 @@ export const RunView = ({ home, model, execution, cost, timelineDetail, number, 
   onDetails?: () => void
   continuesNumber?: number
 }) => {
-  const [kept, keep] = useState<RunViewTab>('timeline')
   // Consent belongs to the Run view: an ending removes the row's retry control.
   const [retry, setRetry] = useState<{ run: string; card: number } | null>(null)
   useEffect(() => setRetry(null), [model.header.run])
-  const showing: RunViewTab = flow ? view ?? kept : 'timeline'
+  const showing: RunViewTab = flow ? view ?? 'timeline' : 'timeline'
   const [now, setNow] = useState(Date.now)
   const held = useRef(new Map<string, DoingLine>())
   useEffect(() => {
@@ -73,7 +75,6 @@ export const RunView = ({ home, model, execution, cost, timelineDetail, number, 
     return () => window.clearInterval(timer)
   }, [])
   const header = model.header
-  const showView = (next: RunViewTab) => { if (view === undefined) keep(next); onView?.(next) }
   const ending = model.rows.find(row => row.kind === 'end')
   const waiting = !header.end ? model.rows.find(row => row.kind === 'person' && row.attention) : undefined
   const needsYou = header.needsYou || Boolean(waiting)
@@ -86,11 +87,6 @@ export const RunView = ({ home, model, execution, cost, timelineDetail, number, 
   </> : null
   const needActions = header.end ? endActions(true) : waiting ? <Button onClick={() => onSelect(waiting.id)}>Answer…</Button>
     : onDetails ? <Button onClick={onDetails}>Review details</Button> : null
-  const started = execution?.startedAt ?? model.rows.find(row => row.kind === 'start')?.since ?? null
-  const until = header.state === 'running' ? now : execution ? currentRunEnd(execution) : ending?.since ?? null
-  const budget = execution?.findings?.budget
-  const extra = execution?.findings?.extraRound
-  const limit = budget ? Math.max(budget.rounds, extra ? extra.after + (extra.count ?? 1) : 0) : null
   const round = Math.max(0, ...model.rows.flatMap(row => row.kind === 'round' && row.round !== null ? [row.round] : []))
   const steps: { row: typeof model.rows[number]; records: typeof model.rows }[] = []
   for (const row of model.rows) {
@@ -122,49 +118,7 @@ export const RunView = ({ home, model, execution, cost, timelineDetail, number, 
     const facts = [row.since === null ? null : commitDate(row.since, now), duration === null ? null : `${formatDuration(duration)}${row.working ? ' so far' : ''}`].filter(Boolean)
     return facts.length ? facts.join(' · ') : undefined
   }
-  return <div data-slot="run-view" className="flex min-h-0 min-w-0 flex-1 flex-col">
-    <PaneColumn inset="reading" page data-slot="run-header" className="flex flex-wrap items-start justify-between gap-3">
-      <div className="min-w-0 flex-1">
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-      <Text role="subject">Run {number}</Text>
-      {runChooser}
-      <Chip tone={needsYou ? 'warning' : 'neutral'}>{states[header.state]}</Chip>
-      {header.answer && !pullRequest && <Text role="meta">Answer committed at <CodeText>{header.answer.revision.slice(0, 7)}</CodeText></Text>}
-          {header.publication && <Chip tone={header.publication.tone}>{header.publication.label}</Chip>}
-      </div>
-      <div data-slot="run-facts" className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
-        <Text role="meta" numeric>{started === null ? 'Start not recorded' : `Started ${commitDate(started, now)}`}</Text>
-        <Text role="meta" numeric>{started === null || until === null ? 'Elapsed not recorded' : `Elapsed ${formatDuration(Math.max(0, until - started))}`}</Text>
-        {round > 0 && <Text role="meta" numeric>Round {round}{limit !== null ? ` of ${limit}` : ''}</Text>}
-        <Text role="meta" numeric>{cost ?? 'Cost not recorded'}</Text>
-      </div>
-      <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
-      {flow ? <Button data-slot="run-revision" variant="link" size="inline-link" className="min-w-0 whitespace-normal break-words" onClick={() => showView('flow')}>{words(header.flow)}{header.revision ? ` · ${header.revision}` : ''}</Button>
-        : <Text role="meta" className="min-w-0 break-words">{words(header.flow)}{header.revision ? ` · ${header.revision}` : ''}</Text>}
-      {header.continues && <Text role="meta">Continues {continuesNumber ? `Run ${continuesNumber}` : 'an earlier Run'}</Text>}
-      {pullRequest && <Button variant="link" size="inline-link" onClick={() => openExternal(pullRequest.url)}>Open pull request #{pullRequest.number}</Button>}
-      {onDetails && <Button variant="link" size="inline-link" onClick={onDetails}>Run details</Button>}
-      </div></div>
-      <div data-slot="run-actions" className="flex flex-wrap items-center gap-3">
-        {header.state === 'running' && onStop && <Button variant="outline" onClick={onStop}>Stop run…</Button>}
-        {flow && <Segmented label="Show the Run as" value={showing} options={TABS} onChange={showView} />}
-      </div>
-    </PaneColumn>
-    <Separator />
-    <div className="flex min-h-0 min-w-0 flex-1">
-    <div data-slot="run-scroll" className="min-h-0 min-w-0 flex-1 overflow-y-auto">
-      <PaneColumn inset="reading">
-        {needsYou && <div data-slot="run-need" className={styles.need}>
-          <Banner tone="warning" title={words(waiting ? waiting.title : need?.title && need.title !== 'Needs you' ? need.title : 'This Run needs your attention')}
-            actions={needActions}>
-            {words(runReasonWords(need?.detail ?? execution?.reason ?? (waiting ? 'Waiting for your answer' : 'Review the recorded details to continue.'), execution?.document.flow.rules))}
-          </Banner>
-        </div>}
-        {showing === 'flow' ? flow : <div data-slot="run-reading" className={styles.reading}>
-        {pending && <Text role="meta" as="div">Reading checks and findings…</Text>}
-        {problem && <Banner tone="warning" title="Some Run details could not be read">{words(problem)}{onRetry && <Button variant="link" size="inline-link" onClick={onRetry}>Try again</Button>}</Banner>}
-        <Timeline aria-label="Run timeline">
-          {steps.map(({ row, records }) => {
+  const renderTimelineStep = ({ row, records }: (typeof steps)[number]): ReactNode => {
             const isEnd = row.kind === 'end'
             const cards = records.filter(one => ['card', 'check', 'person'].includes(one.kind))
             const asCards = cards.length > 1 || cards.some(one => one.kind === 'person' || one.pick || mayBeDocument(one.change))
@@ -219,8 +173,32 @@ export const RunView = ({ home, model, execution, cost, timelineDetail, number, 
                 return <div key={row.id} className="contents">{item}</div>
               }) : undefined}
             </TimelineItem>
-          })}
-        </Timeline>
+
+  }
+  return <div data-slot="run-view" className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <div className="flex min-h-0 min-w-0 flex-1">
+    <div data-slot="run-scroll" className="min-h-0 min-w-0 flex-1 overflow-y-auto">
+      <PaneColumn inset="reading">
+        {needsYou && <div data-slot="run-need" className={styles.need}>
+          <Banner tone="warning" title={words(waiting ? waiting.title : need?.title && need.title !== 'Needs you' ? need.title : 'This Run needs your attention')}
+            actions={needActions}>
+            {words(runReasonWords(need?.detail ?? execution?.reason ?? (waiting ? 'Waiting for your answer' : 'Review the recorded details to continue.'), execution?.document.flow.rules))}
+          </Banner>
+        </div>}
+        {showing === 'flow' ? flow : <div data-slot="run-reading" className={styles.reading}><div data-slot="run-steps">
+        {pending && <Text role="meta" as="div">Reading checks and findings…</Text>}
+        {problem && <Banner tone="warning" title="Some Run details could not be read">{words(problem)}{onRetry && <Button variant="link" size="inline-link" onClick={onRetry}>Try again</Button>}</Banner>}
+        <Timeline aria-label="Run timeline">
+          {stepsInput ? <>
+            {steps.filter(one => !['round', 'end', 'ahead'].includes(one.row.kind)).map(renderTimelineStep)}
+            <RunSteps input={stepsInput} selectedRow={selectedRow} selectedStep={selectedRow?.startsWith('step:') ? selectedRow.slice(5) : undefined} faces={faces} faceTints={faceTints} attemptsRead={attemptsRead} onSelect={onSelect}
+              onSelectStep={id => onSelect(`step:${id}`)} renderRound={n => {
+                const one = steps.find(one => one.row.kind === 'round' && one.row.round === n)
+                return one ? renderTimelineStep(one) : null
+              }} />
+            {steps.filter(one => one.row.kind === 'end').map(renderTimelineStep)}
+          </> : steps.map(renderTimelineStep)}
+        </Timeline></div>
         {!model.rows.some(row => row.kind === 'round') && <EmptyState title="No rounds have opened yet" />}
         </div>}
       </PaneColumn>

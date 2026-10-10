@@ -1,3 +1,5 @@
+import { teamDetails, selectTeamPage, closeTeamDetails } from './team-frame-actions'
+import { selectRunView } from './run-frame-actions'
 import { expect, test, type Page } from '@playwright/test'
 
 /**
@@ -44,6 +46,34 @@ const EXEMPT: Readonly<Record<string, string>> = {
 }
 
 for (const theme of ['light', 'dark'] as const) {
+  test(`supported catalogue controls keep their real state and actions in ${theme}`, async ({ page }) => {
+    const errors: string[] = []
+    page.on('pageerror', error => errors.push(error.message))
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/design.html?view=panel-controls&theme=${theme}`)
+    const terminal = page.locator('[data-frame-id="supported-terminal-toggle"]')
+    await terminal.getByRole('button', { name: 'Open terminal', exact: true }).click()
+    await expect(terminal).toContainText('1 terminal resources')
+    await terminal.getByRole('button', { name: 'Close terminal', exact: true }).click()
+    await expect(terminal).toContainText('0 terminal resources')
+    const panel = page.locator('[data-frame-id="supported-panel-menu"]')
+    await expect(panel.getByRole('menuitem', { name: 'To the main area', exact: true })).toHaveCount(0)
+    await expect(panel.getByRole('menuitem', { name: 'To the sidebar', exact: true })).toHaveCount(0)
+    await panel.getByRole('menuitem', { name: 'Give this panel the whole area', exact: true }).click()
+    await expect(panel).toContainText('Panel fills its area')
+    await panel.getByRole('menuitem', { name: 'Back to the layout', exact: true }).click()
+    await expect(panel).toContainText('Panel in its layout')
+    await page.goto(`/design.html?view=usage-meter-row&theme=${theme}`)
+    const plan = page.locator('[data-frame-id="supported-plan-meters"]')
+    await plan.getByRole('button').filter({ has: page.locator('[data-slot="plan-meter"]') }).click()
+    const menu = page.getByRole('menu')
+    await expect(menu).toContainText('Weekly')
+    await expect(menu).toContainText('79%')
+    await menu.getByRole('button').first().click()
+    await expect(plan).toContainText('Recorded plan opened')
+    expect(errors).toEqual([])
+  })
+
   test(`the comparison notice catalogue keeps its shelf in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/design.html?view=comparison-notice')
@@ -350,20 +380,33 @@ test.describe('preview coverage', () => {
 
     // A trigger Team mounts its history only after the Runs tab opens.
     await page.goto('/preview.html?team-frame=trigger-runs')
-    const triggerTeam = page.locator('[data-slot="team-room"]')
-    await triggerTeam.getByRole('tab', { name: /^Runs/ }).click()
+    const triggerFrame = page.locator('[data-frame-id="team-frame"]')
+    const triggerTeam = triggerFrame.locator('[data-slot="team-room"]')
+    await selectTeamPage(triggerFrame, 'runs')
     await expect(triggerTeam.locator('[data-slot="team-runs"]')).toBeVisible()
     const triggerCoverage = await collectCoverage(page)
     expect(triggerCoverage.covered).toContain('components/TeamRuns.tsx#TeamRuns')
     for (const component of triggerCoverage.covered) covered.add(component)
 
+    // Conversation facts and its real folder action now live in Details.
+    await page.goto('/preview.html?frame-wall=conversation&frame-details-case=active')
+    await page.locator('[data-slot="top-bar"]:visible [data-work-tool="details"]').click()
+    await expect(page.locator('[data-slot="tool-body"]:visible [aria-label="Conversation facts"]')).toBeVisible()
+    const conversationDetailsCoverage = await collectCoverage(page)
+    expect(conversationDetailsCoverage.covered).toContain('panels/work-details.tsx#ConversationDetails')
+    expect(conversationDetailsCoverage.covered).toContain('components/Conversation.tsx#GitControl')
+    for (const component of conversationDetailsCoverage.covered) covered.add(component)
+
     // The Run supplies its sibling inspectors only after its real Team view mounts.
     await page.goto('/preview.html?run-dock')
-    await page.locator('#run-dock-frame [data-team-page="run"]').click()
-    await expect(page.locator('#run-dock-frame [data-slot="run-inspector"]:visible')).toBeVisible()
+    const runFrame = page.locator('#run-dock-frame')
+    await selectTeamPage(runFrame, 'run')
+    await runFrame.locator('[data-row][data-kind="card"]').first().click()
+    await expect(runFrame.locator('[data-slot="tool-body"]:visible [data-slot="run-inspector"]')).toBeVisible()
     for (const component of (await collectCoverage(page)).covered) covered.add(component)
-    await page.locator('#run-dock-frame').getByRole('radio', { name: 'Flow', exact: true }).click()
-    await expect(page.locator('#run-dock-frame [data-slot="run-steps"]:visible')).toBeVisible()
+    await closeTeamDetails(runFrame)
+    await selectRunView(runFrame, 'Timeline')
+    await expect(runFrame.locator('[data-slot="workbench-main"] [data-slot="run-steps"]')).toBeVisible()
     for (const component of (await collectCoverage(page)).covered) covered.add(component)
 
     await page.goto('/preview.html?storage=page')

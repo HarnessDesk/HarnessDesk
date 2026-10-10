@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 import path from 'node:path'
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`Run inspector beside the timeline and pushed detail in ${theme}`, async ({ page }) => {
+  test(`Run inspector beside the retained timeline and selected detail in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?run-inspector&theme=${theme}`)
     if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
@@ -52,19 +52,24 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(narrow.locator('[data-slot="run-inspector"]')).toBeHidden()
     if (process.env.RUN_INSPECTOR_FRAMES_DIR) await narrow.screenshot({ path: path.join(process.env.RUN_INSPECTOR_FRAMES_DIR, `narrow-timeline-${theme}.png`) })
     await narrow.locator('[data-row="card-3-3"]').click()
-    await expect(narrow.locator('[data-slot="run-scroll"]')).toBeHidden()
+    await expect(narrow.locator('[data-slot="run-scroll"]')).toBeVisible()
     await expect(narrow.locator('[data-slot="run-inspector"]')).toBeVisible()
     await expect(narrow.locator('[data-slot="run-inspector"]')).toContainText('Cap the attempts.')
     if (process.env.RUN_INSPECTOR_FRAMES_DIR) await narrow.screenshot({ path: path.join(process.env.RUN_INSPECTOR_FRAMES_DIR, `narrow-detail-${theme}.png`) })
-    await narrow.getByRole('button', { name: 'Run timeline', exact: true }).click()
+    // The frame no longer pushes main away or mounts local return buttons.
+    await narrow.locator('[data-work-panel-toggle]').click()
+    await expect(narrow.locator('[data-preview-tool-placement]')).toHaveCount(0)
+    await narrow.locator('[data-row="start"]').click()
     await expect(narrow.locator('[data-slot="run-scroll"]')).toBeVisible()
-    await expect(narrow.locator('[data-slot="run-inspector"]')).toBeHidden()
-    await narrow.getByRole('button', { name: 'Run details', exact: true }).click()
     await expect(narrow.locator('[data-slot="run-inspector"]')).toContainText('Brief')
+    await expect(narrow.getByRole('button', { name: 'Run timeline', exact: true })).toHaveCount(0)
+    await expect(narrow.getByRole('button', { name: 'Run details', exact: true })).toHaveCount(0)
     const body = narrow.locator('[data-slot="inspector-body"]')
     expect(await body.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
     await page.setViewportSize({ width: 390, height: 900 })
-    await expect(frame.locator('[data-slot="run-inspector"]')).toBeHidden()
+    await expect(frame.locator('[data-slot="run-inspector"]')).toBeVisible()
+    await frame.locator('[data-work-panel-toggle]').click()
+    await expect(frame.locator('[data-preview-tool-placement]')).toHaveCount(0)
     await frame.locator('[data-row="check-2-2"]').click()
     await expect(inspector).toContainText('Latest result')
     expect(await inspector.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)

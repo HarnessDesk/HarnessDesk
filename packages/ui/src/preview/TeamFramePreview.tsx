@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { TeamRoomPane } from '../components/TeamRoomPane'
 import { ComposerMountsProvider } from '../components/Notices'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
-import { emptyWorkbench, fixedSubject } from '../state/workbench'
+import { fixedSubject } from '../state/workbench'
 import { findPane, type PaneView } from '../state/layout'
 import { MountProvider } from '../panels/mount'
 import { RunDockProvider } from '../panels/run-dock'
@@ -19,7 +19,7 @@ export const TeamFramePreview = ({ room, view }: { room: string; view?: Extract<
   useState(() => {
     const snapshot = store.getSnapshot()
     const main = { root: { kind: 'pane' as const, id: 'preview-team-main', view: view ?? { kind: 'room' as const, room } }, focused: 'preview-team-main', expanded: null }
-    Object.assign(snapshot, { layout: main, workbench: { ...emptyWorkbench(), main }, activeSessionKey: null, sidebarCollapsed: true, sidebarFloating: false })
+    Object.assign(snapshot, { layout: main, workbench: { ...snapshot.workbench, main }, activeSessionKey: null, sidebarCollapsed: true, sidebarFloating: false })
     return true
   })
   const snapshot = useSnapshot(), shell = useShell()
@@ -31,7 +31,7 @@ export const TeamFramePreview = ({ room, view }: { room: string; view?: Extract<
   const details = intent?.open && intent.tool === 'details' && ['details','run-details'].includes(intent.mode)
   return <TopBarProvider><RunDockProvider><ComposerMountsProvider>
     <PaneProvider scope={{paneId:pane.id,view:pane.view,sessionKey:null}}><MountProvider scope={{area:'main',id:pane.id,view:pane.view}}>
-      <div ref={measured.ref} className="h-full min-w-180 flex flex-col overflow-hidden">
+      <div ref={measured.ref} className="h-full min-w-0 flex flex-col overflow-hidden">
         <TopBarOutlet owner={pane.id} rightColumnWidth={details && standing ? FRAME.rightPanel.width : undefined} fallback={{place:'Team',more:()=>null}} />
         <div className="relative min-h-0 flex-1 flex overflow-hidden">
           <div data-slot="workbench-main" className="min-w-0 min-h-0 flex-1">

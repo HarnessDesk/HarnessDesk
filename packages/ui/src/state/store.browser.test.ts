@@ -53,7 +53,7 @@ it('legacy right-panel collapse keeps canonical intent visibility coherent witho
   expect(browser().view).toBe(resource.view)
 })
 
-it('explicit panel collapse preserves the selected cache when raw and intent visibility differ', () => {
+it('Steps alias preserves the closed Browser cache, and explicit reopening retains its resource', () => {
   store.openTeamRoom('fixture-a')
   store.openBrowser('https://example.com/')
   const resource = browser()
@@ -61,16 +61,17 @@ it('explicit panel collapse preserves the selected cache when raw and intent vis
   store.togglePanel('right')
   store.showViewIn('right', { kind: 'run-steps' })
   const before = store.getSnapshot().workbench
-  const steps = activeView(before.right)!
-  expect(steps.view.kind).toBe('run-steps')
-  expect(before.right.collapsed).toBe(false)
+  const selected = activeView(before.right)!
+  expect(selected.view.kind).toBe('browser')
+  expect(before.right.collapsed).toBe(true)
+  expect(store.getSnapshot().teamFrameRequests['fixture-a']).toMatchObject({ page: 'run', runView: 'timeline' })
   expect(before.frameTools[subject]).toMatchObject({ tool: 'browser', mode: 'browser', open: false })
   store.collapsePanel('right', false)
   const after = store.getSnapshot().workbench
   expect(after.frameTools[subject]).toMatchObject({ tool: 'browser', mode: 'browser', open: true })
-  expect(activeView(after.right)?.id).toBe(steps.id)
+  expect(activeView(after.right)?.id).toBe(selected.id)
   expect(dockViews(after.right)).toEqual(dockViews(before.right))
-  expect(activeView(after.right)?.view).toBe(steps.view)
+  expect(activeView(after.right)?.view).toBe(selected.view)
   expect(browser().view).toBe(resource.view)
   store.togglePanel('right')
   expect(store.getSnapshot().workbench.right.collapsed).toBe(true)

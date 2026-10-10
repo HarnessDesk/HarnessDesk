@@ -1,3 +1,5 @@
+import type { ComponentProps } from 'react'
+import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
 /** Public, frozen camera fixtures; every visible control is the production component. */
 import { useEffect, useMemo, useState } from 'react'
 import type { FlowPreview, LedgerReport } from '@harnessdesk/protocol'
@@ -26,6 +28,11 @@ import { teamsPageStore } from './teams-page-fixture'
 import { usagePreviewStore } from './usage-fixture'
 import { STILL_HOURS, STILL_LIBRARY, STILL_PLUGINS, STILL_RUNTIMES } from './release-stills-data'
 import { SITE_SCENES, SiteStills, siteStillStore } from './site-stills'
+
+const CatalogueTeamRunView = (props: ComponentProps<typeof TeamRunView>) => <TopBarProvider>
+  <TopBarOutlet owner="" fallback={{ place: 'Recorded Run', more: () => null }} />
+  <TeamRunView {...props} />
+</TopBarProvider>
 
 const capabilityStore = () => {
   const base = previewStore().getSnapshot()
@@ -117,7 +124,7 @@ const RunStill = ({ flow }: { flow: boolean }) => {
   const model = runTimeline({ execution: input.execution, cards: input.cards, evidence, attempts,
     findings: snapshot.findings.get(input.execution.goal)?.rows ?? [] })
   useEffect(() => () => run.dispose(), [run])
-  return <StoreProvider store={run.store}><TeamRunView execution={input.execution} origin="Started by you" model={model} number={1}
+  return <StoreProvider store={run.store}><CatalogueTeamRunView execution={input.execution} origin="Started by you" model={model} number={1}
     onOpenSeat={() => {}} selectedRow={selected} onSelect={setSelected} drawFlow view={view} onView={setView} attempts={attempts} /></StoreProvider>
 }
 
@@ -128,7 +135,7 @@ const PickedRun = () => {
   const execution = [...seed.flowExecutions.values()][0]!
   const model = runTimeline({ ...input, execution, cards: seed.teams.get(PREVIEW_ROOM)!.intents, evidence: seed.boardEvidence.get(PREVIEW_ROOM) })
   const [selected, setSelected] = useState<string | null>(null)
-  return <StoreProvider store={own}><TeamRunView execution={execution} origin="Started by you" model={model} number={1}
+  return <StoreProvider store={own}><CatalogueTeamRunView execution={execution} origin="Started by you" model={model} number={1}
     onOpenSeat={() => {}} selectedRow={selected} onSelect={setSelected} /></StoreProvider>
 }
 

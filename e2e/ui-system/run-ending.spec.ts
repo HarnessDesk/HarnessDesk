@@ -1,3 +1,5 @@
+import { teamDetails, selectTeamPage } from './team-frame-actions'
+import { selectRunView } from './run-frame-actions'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import { goalRig } from '../../packages/server/dist/test/fixtures/flow-goal-rig.js'
@@ -95,7 +97,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?run-view&theme=${theme}`)
     const team = page.locator('#run-view-team')
-    await team.getByRole('tab', { name: 'Run · 1', exact: true }).click()
+    await selectTeamPage(team, 'run')
     await team.locator('[data-slot="run-ending"]').scrollIntoViewIfNeeded()
     await team.getByRole('button', { name: 'Run again…', exact: true }).click()
     const dialog = page.getByRole('dialog', { name: 'Run again', exact: true })
@@ -107,12 +109,13 @@ for (const theme of ['light', 'dark'] as const) {
     if (process.env.RUN_ENDING_FRAMES_DIR) await dialog.screenshot({ path: path.join(process.env.RUN_ENDING_FRAMES_DIR, `run-again-${theme}.png`) })
     await dialog.getByRole('button', { name: 'Start', exact: true }).click()
     await expect(dialog).toHaveCount(0)
-    await team.getByRole('tab', { name: 'Run · 2', exact: true }).click()
+    await selectTeamPage(team, 'run')
+    const details = await teamDetails(team)
     const chooser = team.locator('[aria-label="Choose a Run"]')
     await expect(chooser.getByRole('button', { name: 'Run 1', exact: true })).toBeVisible()
     await expect(chooser.getByRole('button', { name: 'Run 2', exact: true })).toBeVisible()
-    await expect(team.locator('[data-slot="run-header"]')).toContainText('Continues Run 1')
-    await team.locator('[data-slot="run-revision"]').click()
+    await expect(details.locator('[data-slot="summary-item"]').filter({hasText:/^Continues/})).toContainText('Run 1')
+    await selectRunView(team, 'Flow')
     await expect(team.locator('[aria-label="Run timeline"]')).toHaveCount(0)
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.RUN_ENDING_FRAMES_DIR) await team.screenshot({ path: path.join(process.env.RUN_ENDING_FRAMES_DIR, `lineage-${theme}.png`) })

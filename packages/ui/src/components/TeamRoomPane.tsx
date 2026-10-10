@@ -446,6 +446,7 @@ export const TeamRoomPane = ({
     setOpen(next)
   }
 
+  const [runFrameView, setRunFrameView] = useState<'timeline' | 'flow'>('timeline')
   useEffect(() => {
     const request = snapshot.teamFrameRequests[room]
     if (!request || !store.consumeTeamFrame(room, request.serial)) return
@@ -453,6 +454,7 @@ export const TeamRoomPane = ({
     selectedPage.current = request.page
     store.setTeamFramePage(room, request.page)
     setOpen(request.page)
+    if (request.runView) setRunFrameView(request.runView)
   }, [room, snapshot.teamFrameRequests, store])
 
   const watch = (key: SessionKey): void => {
@@ -1078,6 +1080,7 @@ export const TeamRoomPane = ({
     <ToolSection label="Run">
       <TeamRunFacts input={detailsInput} number={detailsRun ? runs.findIndex(one => one.id === detailsRun.id) + 1 : 0}
         chooser={runChooser} at={detailsAt}
+        continuesNumber={detailsRun?.continues ? runs.findIndex(one => one.id === detailsRun.continues) + 1 || undefined : undefined}
         flowFile={detailsRun && <RunFlowFile root={goal?.goal.root ?? null} name={detailsRun.document.flow.name} compact />}
         pullRequest={detailsPullRequest} cost={detailsCosts} trigger={triggerKind ? <>{teamTriggerLabel(originStatus, triggerControl.view)}{originStatus && <Text as="span" role="meta" ink="secondary"> · {originHoverWords(originStatus, triggerSourceTitle ?? 'Trigger')}</Text>}{triggerControl.view && <Text as="span" role="meta" title={triggerControl.view.reason ?? undefined}> · {triggerControl.view.armed && triggerControl.prefs?.paused ? 'Paused' : ({ armed: 'Armed', off: 'Off', changed: 'Changed', refused: 'Refused', paused: 'Paused' } as const)[triggerControl.view.state]}</Text>}{triggerControl.view?.reason && <Text as="span" role="meta"> · {triggerControl.view.reason}</Text>}{originStatus?.url && <Button variant="link" size="inline-link" onClick={() => void openExternal(originStatus.url!)}>Open</Button>}</> : undefined} />
       <RunDetailsView inspectionOnly />
@@ -1185,7 +1188,8 @@ export const TeamRoomPane = ({
           ) : open === 'runs' ? null : open === 'run' && timelineRun ? (
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               {triggerKind && <PaneColumn inset="reading" page><Button variant="link" size="inline" aria-label="Back to Runs" onClick={() => show('runs')}>Back to Runs</Button></PaneColumn>}
-              <TeamRunView key={timelineRun.id} execution={timelineRun}
+              <TeamRunView key={timelineRun.id} execution={timelineRun} view={runFrameView} onView={setRunFrameView}
+                stopRefusal={record ? RECORD_REASON : undefined}
                 onStop={!record ? () => setStoppingRun(timelineRun.id) : undefined}
                 continuesNumber={timelineRun.continues ? runs.findIndex(one => one.id === timelineRun.continues) + 1 || undefined : undefined}
                 onRunAgain={goal?.goal.state === 'open' ? () => setAgain(timelineRun) : undefined}

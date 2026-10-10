@@ -1,3 +1,4 @@
+import { runBar } from './run-frame-actions'
 import { test, expect } from '@playwright/test'
 import path from 'node:path'
 import { mkdir } from 'node:fs/promises'
@@ -10,7 +11,8 @@ for (const theme of ['light', 'dark'] as const) {
     for (const scene of scenes) {
       await page.goto(`/preview.html?run-shapes=${scene}&theme=${theme}`)
       const frame = page.locator('#run-shapes-frame')
-      await expect(frame.locator('[data-slot="run-header"]')).toBeVisible()
+      await expect(runBar(frame)).toBeVisible()
+      await expect(frame.locator('[data-slot="run-header"]')).toHaveCount(0)
       await page.evaluate(async () => { await document.fonts.ready })
       if (process.env.SHAPES_PHASE !== 'before') {
         if (scene === 'comparison') {
@@ -23,9 +25,13 @@ for (const theme of ['light', 'dark'] as const) {
           await a.getByRole('button', { name: 'Attempt A', exact: true }).click()
           await expect(a).toHaveAttribute('data-selected', 'true')
           await expect(frame.locator('[data-slot="run-inspector"]')).toContainText('Recorded the result')
-          // Return the inspector to Run details for the frame.
-          await frame.getByRole('button', { name: 'Run details', exact: true }).click()
-          await expect(frame.locator('[data-slot="run-inspector"]')).toContainText('Not kept')
+          // Start keeps parent facts and the original comparison decisions; it has no selected inspection.
+          await frame.locator('[data-row="start"]').click()
+          await expect(frame.locator('[data-slot="run-inspector"]')).toHaveCount(0)
+          await expect(frame.locator('[aria-label="Team Run facts"]')).toBeVisible()
+          await expect(a.getByText('Picked', { exact: true })).toBeVisible()
+          await expect(b).toHaveAttribute('data-keep', 'not-kept')
+          await expect(b.getByText('Not kept', { exact: true })).toBeVisible()
         }
         if (scene === 'independent-review' || scene === 'shapes') {
           const cards = frame.locator('[data-slot="timeline-card-grid"][data-count="3"] [data-slot="timeline-card"]')
@@ -35,12 +41,12 @@ for (const theme of ['light', 'dark'] as const) {
         }
         if (scene === 'alignment') {
           await expect(frame.locator('[data-kind="person"][data-slot="timeline-card"]')).toContainText('You')
-          await expect(frame.locator('[data-slot="timeline-item"]:has([data-kind="ahead"])').first()).toHaveAttribute('data-state', 'pending')
+          await expect(frame.locator('[data-slot="run-steps"] [data-step-row][data-state="future"]').first()).toBeVisible()
         }
         if (scene === 'investigation') {
           await expect(frame.locator('[data-slot="timeline-document"]')).toContainText('docs/answer.md')
           await expect(frame.locator('[data-slot="timeline-document-body"]')).toContainText('Investigation answer')
-          await expect(frame.locator('[data-slot="run-header"]')).toContainText('Answer committed at')
+          await expect(frame.locator('[aria-label="Team Run facts"] [data-slot="summary-item"]').filter({hasText:/^Answer at/})).toContainText('aaaaaaa')
           await expect(frame.getByRole('button', { name: /Pull request/ })).toHaveCount(0)
         }
         expect(await frame.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
@@ -85,7 +91,8 @@ for (const theme of ['light', 'dark'] as const) {
     })
     await page.goto(`/preview.html?run-shapes=comparison&theme=${theme}`)
     const frame = page.locator('#run-shapes-frame')
-    await expect(frame.locator('[data-slot="run-header"]')).toBeVisible()
+    await expect(runBar(frame)).toBeVisible()
+      await expect(frame.locator('[data-slot="run-header"]')).toHaveCount(0)
     await page.evaluate(async () => { await document.fonts.ready })
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.CHECK_LABEL_FRAMES_DIR) {

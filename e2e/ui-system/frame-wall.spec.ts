@@ -31,6 +31,11 @@ for (const destination of WALL_DESTINATIONS) {
         await expect(page.locator('[data-frame-id="frame-wall"]')).toBeVisible()
         if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
         await applyFrameActions(page, destination)
+        if (destination.viewChoice === 'Flow') {
+          // The native Flow engine is lazy. Its outer Run is visible while
+          // Suspense still shows loading text; capture the recorded drawing.
+          await expect(page.locator('[data-slot="workbench-main"] [data-slot="flow-canvas"] .react-flow__node')).toHaveCount(4)
+        }
         await page.evaluate(async () => { await document.fonts.ready })
         // TopBar measures its two folds over animation frames. Capture the
         // measured contract, rather than its initial unmeasured tab row.

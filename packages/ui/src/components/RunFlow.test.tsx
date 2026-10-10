@@ -9,7 +9,8 @@ import { flowGraphDocument } from '../preview/flow-graph-fixture'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
 import { collapseDock, dock, dockViews, emptyWorkbench, fixedSubject, zoomArea, type Workbench } from '../state/workbench'
-import { RunFlow } from './RunFlow'
+import { RunFlow, RunFlowFile } from './RunFlow'
+import { ToolBody, ToolSection } from '../design'
 import { canvasDOM } from '../test/flow-canvas-dom'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -58,6 +59,7 @@ const render = async (store: AppStore, props: Partial<Parameters<typeof RunFlow>
     root.render(
       <StoreProvider store={store}>
         <RunFlow execution={run()} root="/repo" seats={[]} {...props} />
+        <ToolBody><ToolSection label="Run"><RunFlowFile root={props.root === undefined ? "/repo" : props.root} name={(props.execution ?? run()).document.flow.name} compact /></ToolSection></ToolBody>
       </StoreProvider>,
     )
   })
@@ -65,7 +67,7 @@ const render = async (store: AppStore, props: Partial<Parameters<typeof RunFlow>
 }
 
 const openFile = (): HTMLButtonElement => {
-  const button = [...container.querySelectorAll('button')].find((one) => one.getAttribute('aria-label') === 'Open the file')
+  const button = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Flow file')
   if (!button) throw new Error('no Open the file button')
   return button
 }
@@ -308,9 +310,10 @@ it('lists the Steps itself when the dock is following another pane’s Run', asy
   expect(container.querySelectorAll('[data-step-row]')).toHaveLength(6)
 })
 
-it('keeps the main Steps readable above the responsive breakpoint when canonical Team facts hide the cache', async () => {
-  expect((await listInNarrowPane(true, stepsDocked, 'flow-team', 800)).dataset.placement).toBe('below')
-  expect(container.querySelector('[data-slot="flow-list"]')?.classList.contains('sr-only')).toBe(false)
+it('keeps the native text alternative without invisible keyboard stops above the responsive breakpoint', async () => {
+  expect((await listInNarrowPane(true, stepsDocked, 'flow-team', 800)).dataset.placement).toBe('dock')
+  expect(container.querySelector('[data-slot="flow-list"]')?.classList.contains('sr-only')).toBe(true)
+  expect(container.querySelectorAll('[data-slot="flow-list"] button:not([tabindex="-1"])')).toHaveLength(0)
   expect(container.querySelectorAll('[data-step-row]')).toHaveLength(6)
   expect(container.querySelector('section[aria-label="Rules"]')?.textContent).toContain('Review → Fix')
 })

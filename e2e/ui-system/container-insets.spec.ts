@@ -1,3 +1,4 @@
+import { runBar } from './run-frame-actions'
 import { expect, test } from '@playwright/test'
 import { framedTableFixture } from './git-table-fixture'
 
@@ -292,7 +293,6 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
     await page.setViewportSize({ width, height: 900 })
     await page.goto(`/preview.html?run-inspector&team-overview&theme=${theme}`)
     const frame = page.locator('#run-inspector-run')
-    if (width === 720) await frame.getByRole('button', { name: 'Run details', exact: true }).click()
     const inspector = frame.locator('[data-slot="run-inspector"]')
     await expect(inspector).toBeVisible()
     const edges = await inspector.evaluate(element => {
@@ -302,8 +302,9 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
       return [title, prose].map(node => node.getBoundingClientRect().left - element.getBoundingClientRect().left)
     })
     expect(edges[0]).toBe(edges[1])
-    if (width === 720) await frame.getByRole('button', { name: 'Run timeline', exact: true }).click()
-    await expect(frame.locator('[data-slot="run-header"]').getByRole('button', { name: 'Run details', exact: true })).toBeVisible()
+    await expect(runBar(frame)).toBeVisible()
+    await expect(frame.locator('[data-slot="run-header"]')).toHaveCount(0)
+    await expect(frame.locator('[data-slot="run-scroll"]')).toBeVisible()
     const overview = page.locator('#team-overview-answer-approval [data-slot="team-overview"]')
     await expect(overview).toBeVisible()
     const layout = await overview.evaluate(element => {

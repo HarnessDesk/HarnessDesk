@@ -1,7 +1,7 @@
 import { previewStore } from './harness'
 import { runtimeId, type BoardEvidence, type FindingView, type FlowCheckAttempt, type FlowEntry, type FlowExecution, type FlowPreview, type FlowRunOptions, type Intent, type TeamSignal } from '@harnessdesk/protocol'
 import { overviewRun, overviewTeamStore } from './team-overview-fixture'
-import { runTimeline } from '../lib/run-timeline'
+import { runTimeline, type RunTimelineInput } from '../lib/run-timeline'
 
 export const RUN_VIEW_STATES = ['running', 'attempts', 'settled', 'complete', 'stopped', 'desk-stopped', 'budget-rounds', 'budget-progress', 'stalled', 'findings', 'damaged-findings', 'many', 'narrow', 'empty', 'pending', 'failed', 'failed-check', 'person'] as const
 export type RunScene = typeof RUN_VIEW_STATES[number] | 'live-polish'
@@ -137,6 +137,7 @@ export const runTeamStore = (scene: RunScene = 'complete') => {
     boardEvidence: new Map([[board.id, fixture.evidence]]) }
   const store = previewStore(next)
   return new Proxy(store, { get(target, key) {
+    if (key === 'readGoalInsight' || key === 'teamPeers') return Reflect.get(base, key)
     if (key === 'loadFindings' || key === 'loadBoardEvidence' || key === 'loadTeamRuns') return async () => {}
     if (key === 'flowExecutionSource') return async () => ({ source: RUN_FLOW_SOURCE, vars: { task: 'Retry the checkout call', brief: fixture.execution.brief ?? '' } })
     if (key === 'previewFlow') return async (_root: string, _source: string, _vars: unknown, options?: FlowRunOptions): Promise<FlowPreview> => ({
@@ -155,4 +156,13 @@ export const runTeamStore = (scene: RunScene = 'complete') => {
     if (key === 'flowSource') return async () => RUN_FLOW_SOURCE
     return Reflect.get(target, key)
   } })
+}
+
+/** Equal neighboring visits for grouping proof; the alternating many scene stays intact. */
+export const equivalentRunFixture = (): RunTimelineInput => {
+  const source = runFixture('complete')
+  return { ...source, findings: [], evidence: null, execution: { ...source.execution,
+    rounds: [1, 2].map(n => ({ n, role: 'writer', cards: [n], seats: ['seat-0'], evidence: [], cause: n === 1 ? 'seed' : 'written', state: 'closed' })),
+    operations: [],
+  }, cards: [1, 2].map(id => ({ ...source.cards[0]!, id, title: 'Write the answer', outcome: 'published', note: 'Published 12 checks', updatedAt: id * 1000 })) }
 }

@@ -1,3 +1,4 @@
+import { runTeamStore, equivalentRunFixture, type RunScene } from './run-view-fixture'
 import { useMemo, useState } from 'react'
 import { itemId, turnId } from '@harnessdesk/protocol'
 import { TopBar, Chip, Button, Menu, MenuItem } from '../design'
@@ -28,7 +29,7 @@ import { usagePreviewStore } from './usage-fixture'
  * drawn here the same way, so the wall shows the app as it is.
  * Placeholder fixtures only.
  */
-export const FRAME_WALL_DESTINATIONS = ['conversation', 'draft', 'team', 'team-trigger', 'team-receipt', 'teams', 'agents', 'dashboard', 'settings'] as const
+export const FRAME_WALL_DESTINATIONS = ['conversation', 'draft', 'team', 'team-trigger', 'team-receipt', 'team-run-recorded', 'team-run-not-reached', 'team-run-repeated', 'team-run-equivalent', 'teams', 'agents', 'dashboard', 'settings'] as const
 type Destination = (typeof FRAME_WALL_DESTINATIONS)[number]
 
 const mainShowing = (view: PaneView) =>
@@ -55,10 +56,36 @@ export const triggerTeamStore = (): AppStore => {
   }) })
 }
 
+const frameRunStore = (scene: RunScene) => {
+  const source = runTeamStore(scene)
+  const own = previewStore(source.getSnapshot())
+  return new Proxy(own, { get(target, key) {
+    if (key === 'flowCatalog' || key === 'flowSource' || key === 'flowExecutionSource' || key === 'readGoalInsight' || key === 'teamPeers') return Reflect.get(source, key)
+    return Reflect.get(target, key)
+  } })
+}
+
+const frameEquivalentRunStore = () => {
+  const store = frameRunStore('complete')
+  const fixture = equivalentRunFixture()
+  const snapshot = store.getSnapshot()
+  const team = snapshot.teams.get('overview-team')!
+  const goal = snapshot.goals.get(team.id)!
+  const board = { ...team, intents: fixture.cards, channel: fixture.signals ?? [] }
+  Object.assign(snapshot, { teams: new Map(snapshot.teams).set(team.id, board),
+    goals: new Map(snapshot.goals).set(team.id, { ...goal, board }),
+    flowExecutions: new Map([[fixture.execution.id, fixture.execution]]), boardEvidence: new Map() })
+  return store
+}
+
 const storeFor = (destination: Destination): AppStore => {
   switch (destination) {
     case 'conversation': return showing(previewStore(), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY)
     case 'draft': return showing(previewStore(), { kind: 'conversation', session: null }, null)
+    case 'team-run-recorded': return showing(frameRunStore('running'), { kind: 'room', room: 'overview-team' }, null)
+    case 'team-run-not-reached': return showing(frameRunStore('empty'), { kind: 'room', room: 'overview-team' }, null)
+    case 'team-run-equivalent': return showing(frameEquivalentRunStore(), { kind: 'room', room: 'overview-team' }, null)
+    case 'team-run-repeated': return showing(frameRunStore('many'), { kind: 'room', room: 'overview-team' }, null)
     case 'team': return showing(overviewTeamStore('running'), { kind: 'room', room: 'overview-team' }, null)
     case 'team-trigger': return showing(triggerTeamStore(), { kind: 'room', room: 'overview-team' }, null)
     case 'team-receipt': return showing(teamRecordStore('wrapped'), { kind: 'room', room: 'overview-team' }, null)

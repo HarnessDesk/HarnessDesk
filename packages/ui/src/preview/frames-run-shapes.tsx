@@ -1,3 +1,5 @@
+import type { ComponentProps } from 'react'
+import { RunFramePreview } from './RunFramePreview'
 import { useMemo, useState } from 'react'
 import { RunView } from '../components/RunView'
 import { RunFlow } from '../components/RunFlow'
@@ -8,6 +10,8 @@ import { runTeamStore } from './run-view-fixture'
 import { DOCUMENT_DIFF, shapeFixture, type ShapeScene } from './run-shapes-fixture'
 import { IconTile, Text } from '../design'
 import { AgentIcon } from '../components/Icons'
+
+const CatalogueRunWorkspace = (props: ComponentProps<typeof RunWorkspace>) => <RunFramePreview {...props} facts />
 
 /** Uses the real Run workspace with only synthetic records and document reads. */
 export const RunShapesFrame = ({ scene, count = 3, standalone = false }: { scene: ShapeScene; count?: number; standalone?: boolean }) => {
@@ -29,7 +33,7 @@ export const RunShapesFrame = ({ scene, count = 3, standalone = false }: { scene
   const props = { model: runTimeline(input), execution: input.execution, number: 1, selectedRow: selected, onSelect: select, seatNames }
   return <StoreProvider store={store}><section id="run-shapes-frame" data-scene={scene} className={scene === 'comparison' ? 'flex h-320 min-w-0 flex-col' : 'flex h-224 min-w-0 flex-col'}>
     <div className="flex items-center gap-2 px-4 py-3"><IconTile size="sm"><AgentIcon /></IconTile><Text role="section">Session store · {scene}</Text></div>
-    {standalone ? <RunView {...props} /> : <RunWorkspace {...props} flow={<RunFlow execution={input.execution} root="/repo" seats={[]} cards={input.cards} />}
+    {standalone ? <RunView {...props} /> : <CatalogueRunWorkspace {...props} flow={<RunFlow execution={input.execution} root="/repo" seats={[]} cards={input.cards} />}
       inspector={{ input, seats }} />}
   </section></StoreProvider>
 }

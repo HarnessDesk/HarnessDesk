@@ -635,7 +635,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['Checklist', 'checklist', 'An agent plan: steps to do, under way and done'],
   ['FlowCanvas', 'flow-canvas', 'A lazy, controlled plan canvas: pan, zoom, selection, edits and read-only Run state slots'],
   ['FlowGraph', 'flow-graph', 'A Flow’s steps and rules drawn read-only, with the list that says the same'],
-  ['FlowStepRow', 'flow-graph', 'Shared Flow and Run dock step rows with kind, recorded state, time and run count'],
+  ['FlowStepRow', 'flow-graph', 'Shared Flow and main Run Timeline step rows with kind, recorded state, time and run count'],
   ['Page', 'app-frame', 'The page template at its reading, wide and canvas measures'],
   ['ViewBar', 'app-frame', 'A view summary and its actions at the page gutter'],
   ['PaneColumn', 'conversation', 'The reading column\'s inset, shared by the transcript and the room stream, plus the bars strip, the jobs strip and the rail'],
@@ -707,7 +707,7 @@ export const CATALOG_ENTRIES: readonly CatalogEntry[] = [
     states: ['default', 'selected', 'populated', 'empty', 'loading', 'error', 'disabled'],
     examples: ['packages/ui/src/preview/frames-run-inspector.tsx', 'packages/ui/src/preview/frames-review-publication.tsx'],
     consumers: ['packages/ui/src/components/RunWorkspace.tsx'],
-    coverageExemption: 'RunInspector has no CVA contract; recorded content and pushed detail geometry are checked in run-inspector.spec.ts, and a check\'s attempts and refused Run again… in run-check-again.spec.ts.',
+    coverageExemption: 'RunInspector has no CVA contract; recorded content and standalone detail geometry are checked in run-inspector.spec.ts, and a check\'s attempts and refused Run again… in run-check-again.spec.ts.',
     visual: true,
   },
   {

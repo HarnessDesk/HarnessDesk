@@ -5,23 +5,6 @@
   min-width: 0;
   min-height: 0;
 }
-.detail {
-  display: flex;
-  flex-direction: column;
-  width: 40%;
-  min-width: 0;
-  min-height: 0;
-}
-.back {
-  display: none;
-}
-@container (width < 48rem) {
-  .detail { display: none; width: 100%; }
-  .workspace[data-detail] [data-slot="run-scroll"] { display: none; }
-  .workspace[data-detail] .detail { display: flex; }
-  .back { display: block; }
-}
-
 .workspace[data-view="flow"] [data-slot="run-scroll"] {
   display: flex;
   flex: 1;

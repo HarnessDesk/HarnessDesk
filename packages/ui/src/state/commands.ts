@@ -89,6 +89,7 @@ export const optionCommands = (snapshot: AppSnapshot): CommandDefinition[] =>
   )
 
 export const BUILTIN_COMMANDS: readonly CommandDefinition[] = [
+  { name: 'run-steps', description: 'Run Timeline', kind: { type: 'action', run: store => store.showView('run-steps') } },
   {
     name: 'new',
     description: 'Start a new session in this workspace',

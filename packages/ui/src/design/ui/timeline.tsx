@@ -3,6 +3,7 @@ import { cn } from '../../lib/utils'
 import { Button } from './button'
 import { Text } from '../patterns/Settings'
 import styles from './timeline.module.css'
+import { GroupLine } from '../patterns/InspectorPanel'
 
 /** Recorded progress on a continuous rail; pending never claims completion. */
 export type TimelineState = 'done' | 'active' | 'pending' | 'warning' | 'danger'
@@ -16,15 +17,17 @@ export const Timeline = ({ children, className, ...props }: HTMLAttributes<HTMLO
 /** Meta, title and detail share one content edge. The ring centres on the
  * title's first line even when its words wrap. Actions are separate controls;
  * child records stay in the content column and never interrupt the rail. */
-export const TimelineItem = ({ state, meta, title, detail, actions, children, selected, onSelect, className, ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'title' | 'onSelect'> & {
+export const TimelineItem = ({ state, meta, title, detail, actions, children, selected, onSelect, section, className, ...props }: Omit<HTMLAttributes<HTMLElement>, 'title' | 'onSelect'> & {
   state: TimelineState
+  /** A list heading preserves semantic siblings and the continuous incoming rail. */
+  section?: boolean
   meta?: ReactNode
   title: ReactNode
   detail?: ReactNode
   actions?: ReactNode
   selected?: boolean
   onSelect?: () => void
-}) => <li data-slot="timeline-item" data-state={state} data-has-meta={meta != null || undefined} className={styles.item}>
+}) => section ? <li data-slot="timeline-section" role="presentation" className={styles.section} {...props}><span data-slot="timeline-rail" className={styles.rail} aria-hidden="true" />{title != null && <GroupLine left={title} />}{children}</li> : <li data-slot="timeline-item" data-state={state} data-has-meta={meta != null || undefined} className={styles.item}>
   <span data-slot="timeline-rail" className={styles.rail} aria-hidden="true" />
   <span data-slot="timeline-indicator" className={styles.indicator} role="img" aria-label={LABEL[state]} />
   <div className={styles.content}>

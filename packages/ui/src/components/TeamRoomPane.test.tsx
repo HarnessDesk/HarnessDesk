@@ -29,6 +29,7 @@ import { toStored, type SideBySideState, type StoredSideBySide } from '../lib/si
 import { StoreProvider, PaneProvider, usePane } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { TeamRoomPane } from './TeamRoomPane'
+import { RunDockProvider } from '../panels/run-dock'
 import { TopBarProvider, TopBarOutlet, useTopBarMore, WorkDetailsOutlet, useTopBar } from '../panels/top-bar'
 import styles from './TeamRoomPane.module.css'
 import { triggerPreferences, triggerProjectView, triggerView } from '../preview/intake-fixture'
@@ -70,11 +71,11 @@ vi.mock('./Conversation', () => ({
 const TeamTest = (props: ComponentProps<typeof TeamRoomPane>) => {
   const inherited = useMount()
   const scope: MountScope = inherited ?? { area: 'main', id: 'pane-1', view: { kind: 'room', room: props.room } }
-  return <TopBarProvider><MountProvider scope={scope}><PaneProvider scope={{ paneId: scope.id, view: scope.view, sessionKey: null }}>
+  return <TopBarProvider><RunDockProvider><MountProvider scope={scope}><PaneProvider scope={{ paneId: scope.id, view: scope.view, sessionKey: null }}>
     <TopBarOutlet owner={scope.id} fallback={{ place: '', more: () => null }} />
     <TeamRoomPane {...props} />
     <WorkDetailsOutlet owner={scope.id} />
-  </PaneProvider></MountProvider></TopBarProvider>
+  </PaneProvider></MountProvider></RunDockProvider></TopBarProvider>
 }
 
 let container: HTMLDivElement
@@ -652,7 +653,7 @@ it.each(['Overview', 'Run'])('stops the %s Run with only its open Seats, from ca
   store.stopFlowExecution = stopping
   await render(store)
   if (door === 'Run') { act(() => row('Run').click()); await act(async () => {}) }
-  const frame = container.querySelector(door === 'Run' ? '[data-slot="run-header"]' : '[aria-label="Run"]')!
+  const frame = container.querySelector(door === 'Run' ? '[data-slot="top-bar"]' : '[aria-label="Run"]')!
   act(() => [...frame.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Stop run…')!.click())
   const question = document.body.querySelector('[role="alertdialog"]')!
   expect([...question.querySelectorAll('[data-stop-seat]')].map(one => one.textContent)).toEqual([
@@ -661,8 +662,12 @@ it.each(['Overview', 'Run'])('stops the %s Run with only its open Seats, from ca
   await act(async () => [...question.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Stop run')!.click())
   expect(stopping).toHaveBeenCalledWith('stop-me', 'You stopped this Run. No further step starts.')
   expect(document.body.querySelector('[role="alertdialog"]')).toBeNull()
-  expect(container.textContent).not.toContain('Stop run…')
-  if (door === 'Run') expect(container.textContent).toContain('By you')
+  if (door === 'Run') {
+    const stop = [...container.querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === 'Stop run…')!
+    expect(stop.disabled).toBe(true)
+    expect(stop.title).toBe('This Run is not running')
+    expect(container.textContent).toContain('By you')
+  } else expect(container.textContent).not.toContain('Stop run…')
 })
 
 it.each(['Close', 'Escape'])('keeps cleanup retry after a stopped push, late rejection and %s dismissal, even after reopening the pane', async dismissal => {
@@ -2107,7 +2112,7 @@ it('reads a retained claim as Stopping in Overview, the timeline and inspector a
   expect(card.textContent).toContain('Stopping')
   expect(card.textContent).not.toMatch(/Working|so far/)
   await act(async () => card.click())
-  expect(container.querySelector('[data-slot="run-inspector"] [data-slot="inspector-tools"]')?.textContent).toContain('Stopping')
+  expect(container.querySelector('[data-slot="run-inspector"]')?.textContent).toContain('Stopping')
 })
 
 /**
@@ -3497,7 +3502,7 @@ it('lists Flow Seats from the Goal when the older roster is empty, and defaults 
   { id:'writer-seat', session:{runtime:'codex',sessionId:'c1'}, role:'writer', openedAt:1, closed:null, agent:{name:'Writer'} },
   { id:'reviewer-seat', session:{runtime:'claude',sessionId:'k1'}, role:'reviewer', openedAt:1, closed:null, agent:{name:'Reviewer'} },
  ] } as unknown as GoalView
- const execution = {version:2,id:'overview-run',goal:ROOM,state:'settled',reason:null,legacyRun:null,operations:[],rounds:[],document:{format:'agents',flow:{name:'Build and review',roles:[],rules:[]}}} as unknown as FlowExecution
+ const execution = {version:2,id:'overview-run',goal:ROOM,state:'settled',reason:null,legacyRun:null,operations:[],rounds:[],document:{format:'agents',flow:{...FLOW_DOCUMENT.flow,name:'Build and review',roles:[],rules:[]}}} as unknown as FlowExecution
  const {store}=rig([],undefined,{members:[],intents:[]},view,new Map([[execution.id,execution]]))
  await render(store)
  expect(container.querySelector('[data-slot="team-overview"]')).not.toBeNull()
@@ -3514,7 +3519,7 @@ it('opens Overview when the cached Run arrives, and preserves a later choice of 
   const execution = {
     version: 2, id: 'later-run', goal: ROOM, state: 'settled', reason: null,
     legacyRun: null, operations: [], rounds: [],
-    document: { format: 'agents', flow: { name: 'Build and review', roles: [], rules: [] } },
+    document: { format: 'agents', flow: { ...FLOW_DOCUMENT.flow, name: 'Build and review', roles: [], rules: [] } },
   } as unknown as FlowExecution
   runs.set(execution.id, execution)
   await pushes({ updatedAt: 2 })
@@ -3546,7 +3551,7 @@ it('includes recorded spend from earlier Seats using the runtime capabilities al
   const execution = {
     version: 2, id: 'spend-run', goal: ROOM, state: 'settled', reason: null,
     legacyRun: null, operations: [], rounds: [],
-    document: { format: 'agents', flow: { name: 'Build and review', roles: [], rules: [] } },
+    document: { format: 'agents', flow: { ...FLOW_DOCUMENT.flow, name: 'Build and review', roles: [], rules: [] } },
   } as unknown as FlowExecution
   const metric = (value: number) => ({ value, quality: 'exact', coverage: 'complete', basis: 'vendorMetered' })
   const usage = {
@@ -3580,7 +3585,7 @@ it('reads usage only while Overview is selected and stops polling when it is lef
  await pick('Chat')
  await pushes({intents:state.intents.map(one=>({...one,state:'done',claim:null})) as Intent[]})
  expect(readGoalInsight).toHaveBeenCalledTimes(1)
- runs.set('usage-run',{version:2,id:'usage-run',goal:ROOM,state:'running',reason:null,legacyRun:null,operations:[],rounds:[],document:{format:'agents',flow:{name:'Build',roles:[],rules:[]}}} as unknown as FlowExecution)
+ runs.set('usage-run',{version:2,id:'usage-run',goal:ROOM,state:'running',reason:null,legacyRun:null,operations:[],rounds:[],document:{format:'agents',flow:{...FLOW_DOCUMENT.flow,name:'Build',roles:[],rules:[]}}} as unknown as FlowExecution)
  await pushes({updatedAt:3})
  expect(readGoalInsight).toHaveBeenCalledTimes(1)
  vi.useFakeTimers()
@@ -3596,7 +3601,7 @@ it('reads usage only while Overview is selected and stops polling when it is lef
 })
 
 it('opens a read-only Run from the rail and Overview, and keeps selection in the pane', async () => {
-  const execution = { version: 2, id: 'timeline-run', goal: ROOM, state: 'running', brief: 'Retry the request', startedAt: 1, reason: null, legacyRun: null, operations: [], rounds: [{ n: 1, role: 'writer', cards: [1], seats: [], evidence: [], state: 'running', cause: 'seed' }], document: { format: 'agents', flow: { name: 'Build and review', roles: [], rules: [] } } } as unknown as FlowExecution
+  const execution = { version: 2, id: 'timeline-run', goal: ROOM, state: 'running', brief: 'Retry the request', startedAt: 1, reason: null, legacyRun: null, operations: [], rounds: [{ n: 1, role: 'writer', cards: [1], seats: [], evidence: [], state: 'running', cause: 'seed' }], document: { format: 'agents', flow: { ...FLOW_DOCUMENT.flow, name: 'Build and review', roles: [], rules: [] } } } as unknown as FlowExecution
   const { store } = rig([], undefined, { members: [] }, GOAL, new Map([[execution.id, execution]]))
   Object.assign(store, { loadFindings: vi.fn().mockResolvedValue(undefined) })
   await render(store)
@@ -3618,7 +3623,7 @@ it('opens a read-only Run from the rail and Overview, and keeps selection in the
 })
 
 it('warns when a Run reads only part of the findings ledger', async () => {
-  const execution = { version: 2, id: 'partial-run', goal: ROOM, state: 'running', reason: null, operations: [], rounds: [], document: { format: 'agents', flow: { name: 'Build', roles: [], rules: [] } } } as unknown as FlowExecution
+  const execution = { version: 2, id: 'partial-run', goal: ROOM, state: 'running', reason: null, operations: [], rounds: [], document: { format: 'agents', flow: { ...FLOW_DOCUMENT.flow, name: 'Build', roles: [], rules: [] } } } as unknown as FlowExecution
   const { store } = rig([], undefined, { members: [] }, GOAL, new Map([[execution.id, execution]]))
   const snapshot = { ...store.getSnapshot(), findings: new Map([[ROOM, { rows: [], filter: 'all' as const, next: null, loading: false, error: null, problem: 'One finding could not be read.' }]]) }
   Object.assign(store, { getSnapshot: () => snapshot, loadFindings: vi.fn().mockResolvedValue(undefined) })
@@ -3629,7 +3634,7 @@ it('warns when a Run reads only part of the findings ledger', async () => {
 })
 
 it('an unrouted settled Run says Needs you once and keeps its Overview reason', async () => {
-  const execution = { version: 2, id: 'unrouted-run', goal: ROOM, state: 'settled', end: { kind: 'unrouted', card: 1, outcome: 'no-pr' }, reason: 'No rule follows no-pr.', operations: [], rounds: [], document: { format: 'agents', flow: { name: 'Build', roles: [], rules: [] } } } as unknown as FlowExecution
+  const execution = { version: 2, id: 'unrouted-run', goal: ROOM, state: 'settled', end: { kind: 'unrouted', card: 1, outcome: 'no-pr' }, reason: 'No rule follows no-pr.', operations: [], rounds: [], document: { format: 'agents', flow: { ...FLOW_DOCUMENT.flow, name: 'Build', roles: [], rules: [] } } } as unknown as FlowExecution
   const { store } = rig([], undefined, { members: [] }, GOAL, new Map([[execution.id, execution]]))
   await render(store)
   expect(container.querySelector('[data-slot="room-head"]')?.textContent ?? container.textContent).toContain('Needs you')
@@ -3638,7 +3643,7 @@ it('an unrouted settled Run says Needs you once and keeps its Overview reason', 
 })
 
 it('does not carry a Run again dialog into another Team in the same pane', async () => {
-  const execution = { version: 2, id: 'stopped-run', goal: ROOM, state: 'stopped', end: { kind: 'stopped', by: 'person' }, reason: 'Stopped.', operations: [], rounds: [], document: { format: 'agents', flow: { name: 'Build', roles: [], rules: [] } } } as unknown as FlowExecution
+  const execution = { version: 2, id: 'stopped-run', goal: ROOM, state: 'stopped', end: { kind: 'stopped', by: 'person' }, reason: 'Stopped.', operations: [], rounds: [], document: { format: 'agents', flow: { ...FLOW_DOCUMENT.flow, name: 'Build', roles: [], rules: [] } } } as unknown as FlowExecution
   const { store } = rig([], undefined, { members: [] }, GOAL, new Map([[execution.id, execution]]))
   Object.assign(store, { flowExecutionSource: vi.fn(() => new Promise(() => {})) })
   await render(store)
@@ -3657,7 +3662,7 @@ it('does not carry a Run again dialog into another Team in the same pane', async
 })
 
 it('loads older Runs for the rail count and keeps each Run’s own selected row', async () => {
-  const execution = { version: 2, id: 'new-run', goal: ROOM, state: 'running', startedAt: 2, reason: null, operations: [], rounds: [{ n: 1, role: 'writer', cards: [1], seats: [], evidence: [], state: 'running', cause: 'seed' }], document: { format: 'agents', flow: { name: 'Build', roles: [], rules: [] } } } as unknown as FlowExecution
+  const execution = { version: 2, id: 'new-run', goal: ROOM, state: 'running', startedAt: 2, reason: null, operations: [], rounds: [{ n: 1, role: 'writer', cards: [1], seats: [], evidence: [], state: 'running', cause: 'seed' }], document: { format: 'agents', flow: { ...FLOW_DOCUMENT.flow, name: 'Build', roles: [], rules: [] } } } as unknown as FlowExecution
   const runs = new Map([[execution.id, execution]])
   const { store, pushes } = rig([], undefined, { members: [] }, GOAL, runs)
   const loadTeamRuns = vi.fn(async () => { runs.set('old-run', { ...execution, id: 'old-run', state: 'settled', startedAt: 1 }) })
@@ -3685,7 +3690,7 @@ it.each(['running', 'settled'] as const)('discovers an uncached %s Run when open
   const runs = new Map<string, FlowExecution>()
   const { store, pushes } = rig([], undefined, { members: [] }, goal, runs)
   const execution = { version: 2, id: 'trigger-run', goal: ROOM, state, startedAt: 1, reason: null,
-    operations: [], rounds: [], document: { format: 'agents', flow: { name: 'Triage', roles: [], rules: [] } } } as unknown as FlowExecution
+    operations: [], rounds: [], document: { format: 'agents', flow: { ...FLOW_DOCUMENT.flow, name: 'Triage', roles: [], rules: [] } } } as unknown as FlowExecution
   const loadTeamRuns = vi.fn(async () => { runs.set(execution.id, execution) })
   Object.assign(store, { loadTeamRuns, triggerGoal: vi.fn().mockResolvedValue(null), loadFindings: vi.fn().mockResolvedValue(undefined) })
   await render(store)
@@ -3697,14 +3702,14 @@ it.each(['running', 'settled'] as const)('discovers an uncached %s Run when open
   await act(async () => nav.click())
   expect(container.querySelector('table[aria-label="Runs"]')).not.toBeNull()
   await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="Open Run 1: Triage"]')!.click())
-  expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('Triage')
+  expect(container.querySelector('[aria-label="Team Run facts"]')?.textContent).toContain('Triage')
 })
 
 it('lists a trigger Team’s Runs newest first, filters them, and returns from a selected timeline', async () => {
   const old = { version: 2, id: 'old', goal: ROOM, state: 'settled', startedAt: 1, currentEndedAt: 60_001,
     reason: null, operations: [], rounds: [], legacyRun: null,
     target: { kind: 'pull-request', label: 'Retry checkout', pr: 7, head: null, base: null, dirty: false },
-    document: { format: 'agents', flow: { name: 'Review changes', roles: [], rules: [] } } } as unknown as FlowExecution
+    document: { format: 'agents', flow: { ...FLOW_DOCUMENT.flow, name: 'Review changes', roles: [], rules: [] } } } as unknown as FlowExecution
   const fresh = { ...old, id: 'fresh', startedAt: 100_000, currentEndedAt: null, state: 'running' as const }
   const { store } = triggerRig([], {}, [], new Map([[old.id, old], [fresh.id, fresh]]))
   await render(store)
@@ -3823,7 +3828,7 @@ it('opens the current trigger Run directly from Overview even after choosing ano
   const openOverviewRun = async () => {
     await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Run"] button')!.click())
     expect(container.querySelector('[data-slot="run-view"]')).not.toBeNull()
-    expect(container.querySelector('[data-slot="run-view"]')!.textContent).toContain('Run 2')
+    expect(container.querySelector('[aria-label="Team Run facts"]')!.textContent).toContain('Run 2')
   }
   await openOverviewRun()
   await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="runs"]')!.click())
@@ -3850,7 +3855,7 @@ it.each([1, 2])('uses singular Run counts with %s recorded Runs, including a fil
 it('attributes findings to the Run that raised them instead of repeating the Goal total on every Run', async () => {
   const old = { version: 2, id: 'review-old', goal: ROOM, state: 'settled', startedAt: 1,
     reason: null, operations: [], rounds: [], legacyRun: null,
-    document: { format: 'agents', flow: { name: 'Review', roles: [], rules: [] } } } as unknown as FlowExecution
+    document: { format: 'agents', flow: { ...FLOW_DOCUMENT.flow, name: 'Review', roles: [], rules: [] } } } as unknown as FlowExecution
   const fresh = { ...old, id: 'review-fresh', state: 'running' as const, startedAt: 2 }
   const { store } = triggerRig([], {}, [], new Map([[old.id, old], [fresh.id, fresh]]))
   const finding = { ...PREVIEW_FINDINGS[0]!, ownerGoal: ROOM,
@@ -3885,7 +3890,7 @@ it.each(['off', 'changed', 'refused'] as const)('keeps an unarmed trigger’s %s
 it('uses the recorded trigger subject when an unattended Run has no front-door target', async () => {
   const execution = { version: 2, id: 'subject-run', goal: ROOM, state: 'stopped', startedAt: Date.now() - 86_400_000,
     currentEndedAt: null, endedAt: Date.now() - 82_800_000, reason: null, operations: [], rounds: [], legacyRun: null,
-    document: { format: 'agents', flow: { name: 'Triage', roles: [], rules: [] } } } as unknown as FlowExecution
+    document: { format: 'agents', flow: { ...FLOW_DOCUMENT.flow, name: 'Triage', roles: [], rules: [] } } } as unknown as FlowExecution
   const { store } = triggerRig([], {}, [], new Map([[execution.id, execution]]))
   await render(store)
   await act(async () => container.querySelector<HTMLButtonElement>('[data-team-page="runs"]')!.click())
@@ -3926,7 +3931,7 @@ it('draws a check run more than once with each attempt under it, and asks the de
   const gate = { version: 2, id: 'gate-run', goal: ROOM, state: 'running', startedAt: 1, reason: null, legacyRun: null,
     operations: [{ key: 'check:1:0', kind: 'check', state: 'finished', card: 1, seat: null }],
     rounds: [{ n: 1, role: 'verify', cards: [1], seats: [], evidence: [], state: 'closed', cause: 'seed' }],
-    document: { format: 'agents', flow: { name: 'Gate', rules: [], roles: [{ id: 'verify', kind: 'check', check: { run: 'pnpm verify', timeout: 60, exits: { '0': 'pass' }, otherwise: 'fail' } }] } } } as unknown as FlowExecution
+    document: { format: 'agents', flow: { ...FLOW_DOCUMENT.flow, name: 'Gate', rules: [], roles: [{ id: 'verify', kind: 'check', check: { run: 'pnpm verify', timeout: 60, exits: { '0': 'pass' }, otherwise: 'fail' } }] } } } as unknown as FlowExecution
   const card = { id: 1, title: 'Verify', state: 'done', outcome: 'pass', files: [], dependsOn: [], createdAt: 1, updatedAt: 2 }
   const { store } = rig([], undefined, { members: [], intents: [card] } as never, GOAL, new Map([[gate.id, gate]]))
   const attempts = [
@@ -3951,7 +3956,7 @@ it('says a check’s attempts could not be read — in the Run’s warning and i
   const gate = { version: 2, id: 'gate-run', goal: ROOM, state: 'running', startedAt: 1, reason: null, legacyRun: null,
     operations: [{ key: 'check:1:0', kind: 'check', state: 'finished', card: 1, seat: null }],
     rounds: [{ n: 1, role: 'verify', cards: [1], seats: [], evidence: [], state: 'closed', cause: 'seed' }],
-    document: { format: 'agents', flow: { name: 'Gate', rules: [], roles: [{ id: 'verify', kind: 'check', check: { run: 'pnpm verify', timeout: 60, exits: { '0': 'pass' }, otherwise: 'fail' } }] } } } as unknown as FlowExecution
+    document: { format: 'agents', flow: { ...FLOW_DOCUMENT.flow, name: 'Gate', rules: [], roles: [{ id: 'verify', kind: 'check', check: { run: 'pnpm verify', timeout: 60, exits: { '0': 'pass' }, otherwise: 'fail' } }] } } } as unknown as FlowExecution
   const card = { id: 1, title: 'Verify', state: 'done', outcome: 'pass', files: [], dependsOn: [], createdAt: 1, updatedAt: 2 }
   const { store } = rig([], undefined, { members: [], intents: [card] } as never, GOAL, new Map([[gate.id, gate]]))
   let answer: (() => void) | null = null
@@ -3972,7 +3977,7 @@ it('a new attempt appears under the check when its result lands, and the earlier
   const gate = { version: 2, id: 'gate-run', goal: ROOM, state: 'running', startedAt: 1, reason: null, legacyRun: null,
     operations: [{ key: 'check:1:0', kind: 'check', state: 'finished', card: 1, seat: null }],
     rounds: [{ n: 1, role: 'verify', cards: [1], seats: [], evidence: [], state: 'closed', cause: 'seed' }],
-    document: { format: 'agents', flow: { name: 'Gate', rules: [], roles: [{ id: 'verify', kind: 'check', check: { run: 'pnpm verify', timeout: 60, exits: { '0': 'pass' }, otherwise: 'fail' } }] } } } as unknown as FlowExecution
+    document: { format: 'agents', flow: { ...FLOW_DOCUMENT.flow, name: 'Gate', rules: [], roles: [{ id: 'verify', kind: 'check', check: { run: 'pnpm verify', timeout: 60, exits: { '0': 'pass' }, otherwise: 'fail' } }] } } } as unknown as FlowExecution
   const card = { id: 1, title: 'Verify', state: 'done', outcome: 'pass', files: [], dependsOn: [], createdAt: 1, updatedAt: 2 }
   const { store } = rig([], undefined, { members: [], intents: [card] } as never, GOAL, new Map([[gate.id, gate]]))
   const attempt = (n: number) => ({ id: `attempt-${n}`, n, at: n * 1000, commit: `c0ffee${n}`, exit: n === 2 ? 0 : 1, timedOut: false, outcome: n === 2 ? 'pass' : 'fail', tail: `output ${n}` })
@@ -4140,7 +4145,7 @@ it('sends a review step to the board from the Run inspector', async () => {
 })
 
 it('a wrapped Team keeps receipt Seats and its Run readable while dispatching verbs are disabled', async () => {
- const execution = {version:2,id:'wrapped-run',goal:ROOM,state:'settled',reason:null,operations:[],rounds:[],document:{format:'agents',flow:{name:'Completed review',roles:[],rules:[]}}} as unknown as FlowExecution
+ const execution = {version:2,id:'wrapped-run',goal:ROOM,state:'settled',reason:null,operations:[],rounds:[],document:{format:'agents',flow:{...FLOW_DOCUMENT.flow,name:'Completed review',roles:[],rules:[]}}} as unknown as FlowExecution
  const goal: GoalView = {...GOAL,goal:{...GOAL.goal,state:'wrapped',origin:{kind:'flow',run:execution.id}},members:[],receipt:{version:1,id:'receipt',goal:ROOM,sentence:GOAL.goal.sentence,summary:'Reviewed.',wrappedAt:2,cards:[],seats:['kept','lost'],members:[{seat:'kept',agent:'Writer',seatLabel:'Alpha',session:{runtime:'codex',sessionId:'c1'}},{seat:'lost',agent:null,seatLabel:'Gamma'}],answers:[],evidence:[],lanes:[],revisions:[],citations:[],gaps:[]}}
  const {store}=rig([],undefined,{members:[]},goal,new Map([[execution.id,execution]]))
  await render(store)
@@ -4153,7 +4158,7 @@ it('a wrapped Team keeps receipt Seats and its Run readable while dispatching ve
  expect(hold.getAttribute('aria-disabled')).toBe('true');expect(hold.title).toBe('This Team is wrapped');expect(hold.textContent).toContain('This Team is wrapped')
  act(()=>audience().click())
  const pick=async(label:string)=>{const button=[...container.querySelectorAll<HTMLButtonElement>('[data-team-page]')].find(one=>(label==='Run'?one.textContent?.startsWith(label):one.textContent===label));expect(button).toBeTruthy();act(()=>button!.click());await act(async()=>{})}
- await pick('Run');expect(container.querySelector('[data-slot="run-view"]')?.textContent).toContain('Completed review')
+ await pick('Run');expect(container.querySelector('[aria-label="Team Run facts"]')?.textContent).toContain('Completed review')
  await pick('Receipt');expect(container.textContent).toContain('this page shows the Team as it was then')
  memberList();act(()=>row('Writer').click());await act(async()=>{})
  expect(container.querySelector('[data-testid="conversation"]')?.textContent).toContain(String(sessionKey('codex','c1')))
@@ -4383,7 +4388,7 @@ it('the persistent Seats section keeps its native Add action before any Agent is
 it('reads publication actions when the selected card holds a completed recorded review', async () => {
   const execution = { version: 2, id: 'review-run', goal: ROOM, state: 'running', reason: null, operations: [],
     rounds: [{ n: 1, role: 'reviewer', cards: [1], seats: [], evidence: [], state: 'closed', cause: 'seed' }],
-    document: { format: 'agents', flow: { name: 'Review', roles: [], rules: [] } } } as unknown as FlowExecution
+    document: { format: 'agents', flow: { ...FLOW_DOCUMENT.flow, name: 'Review', roles: [], rules: [] } } } as unknown as FlowExecution
   const card = { ...state.intents[0]!, state: 'done' as const, claim: null, handoff: 'The change is ready to review.' }
   const { store } = rig([], undefined, { members: [], intents: [card] }, GOAL, new Map([[execution.id, execution]]))
   const snapshot = store.getSnapshot()
@@ -4462,7 +4467,7 @@ it('keeps a Seat Message address while approval temporarily removes the Room com
 it('keeps selected older Run target and PR facts on Board and Chat without borrowing the latest target', async () => {
   const old = {version:2,id:'facts-old',goal:ROOM,state:'settled',startedAt:1,reason:null,operations:[],rounds:[{n:1,role:'writer',cards:[1],seats:[],evidence:[],state:'closed',cause:'seed'}],legacyRun:null,document:FLOW_DOCUMENT,
     target:{kind:'pull-request',label:'Old subject',pr:4,url:'https://example.com/pull/4',head:'old-head',base:null,dirty:false}} as unknown as FlowExecution
-  const current = {...old,id:'facts-new',startedAt:2,state:'running' as const,target:{...old.target!,label:'New subject',pr:9,url:'https://example.com/pull/9',head:'new-head'}}
+  const current = {...old,id:'facts-new',continues:old.id,startedAt:2,state:'running' as const,target:{...old.target!,label:'New subject',pr:9,url:'https://example.com/pull/9',head:'new-head'}}
   current.rounds=[{...old.rounds[0]!,cards:[2]}]
   const {store}=rig(undefined,undefined,{},GOAL,new Map([[old.id,old],[current.id,current]]))
   const base=store.getSnapshot()
@@ -4470,6 +4475,7 @@ it('keeps selected older Run target and PR facts on Board and Chat without borro
   const scoped={...base,boardEvidence:new Map([[ROOM,evidence]])}
   Object.assign(store,{getSnapshot:()=>scoped})
   await render(store)
+  expect(teamFact('Continues')?.textContent).toContain('Run 1')
   const choose=[...container.querySelectorAll<HTMLButtonElement>('button')].find(one=>one.textContent==='Run 1')!
   await act(async()=>choose.click())
   for(const page of ['Board','Chat']) {

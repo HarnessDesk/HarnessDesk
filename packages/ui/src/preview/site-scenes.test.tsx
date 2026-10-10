@@ -158,6 +158,12 @@ it.each([undefined, 'reduce'] as const)('stays interactive without auto-cycling,
   expect(host.querySelector('[data-scene-pointer]')).toBeNull()
 })
 
+it('keeps synthetic usage accounts in distinct placeholder domains', () => {
+  const accounts = dashboardData(NOW).store.getSnapshot().usage.slice(0, 2).map(report => report.account)
+  expect(accounts.every(account => account?.endsWith('@example.com') === true)).toBe(true)
+  expect(new Set(accounts).size === accounts.length).toBe(true)
+})
+
 it('supplies a busy, consistent year and six correctly classified demo accounts', () => {
   const data = dashboardData(NOW)
   const snapshot = data.store.getSnapshot()
@@ -165,12 +171,12 @@ it('supplies a busy, consistent year and six correctly classified demo accounts'
     'Claude Code', 'Cursor', 'Codex', 'Gemini CLI', 'Cline', 'OpenCode', 'Antigravity CLI', 'DeepSeek',
   ])
   expect(snapshot.usage.map(report => report.account)).toEqual([
-    'shane@harnessdesk.app', 'olivia@harnessdesk.app', 'review@example.com', 'studio@example.com', null, 'api@example.com',
+    'dev@example.com', 'assistant@example.com', 'review@example.com', 'studio@example.com', null, 'api@example.com',
   ])
   const rows = planRows(snapshot.usage, NOW)
   expect(rows.map(row => row.status)).toEqual(['low', 'ready', 'ready', 'ready', 'ready', 'ready'])
   expect(Object.fromEntries(rows.map(row => [row.report.account ?? 'signed-in', row.view.hero?.remainingPercent ?? null]))).toEqual({
-    'shane@harnessdesk.app': 22, 'olivia@harnessdesk.app': 64, 'review@example.com': 93,
+    'dev@example.com': 22, 'assistant@example.com': 64, 'review@example.com': 93,
     'studio@example.com': 88, 'signed-in': 100, 'api@example.com': null,
   })
   const ledger = data.ledger(30, 'runtime')

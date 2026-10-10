@@ -1,3 +1,4 @@
+import { selectRunView } from './run-frame-actions'
 import { expect, test, type Page } from '@playwright/test'
 import { FRAME, FRAME_TOKENS } from '../../packages/ui/src/design/frame'
 import { WALL_THEMES } from './frame-wall-destinations'
@@ -27,6 +28,69 @@ const resolvedPx = (page: Page, token: string) => page.evaluate((name) => {
 }, token)
 
 for (const theme of WALL_THEMES) {
+  test(`B5 equivalent completed rounds expand into their original records in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=team-run-equivalent', theme)
+    await selectFrameTab(page, 'run')
+    const main = page.locator('[data-slot="workbench-main"]')
+    const group = main.locator('[data-round-group]')
+    await expect(group).toHaveCount(1)
+    await expect(group).toHaveAttribute('data-expanded', 'false')
+    await expect(group).toContainText('Rounds 1–2')
+    await expect(main.locator('[data-row="round-1"]')).toHaveCount(0)
+    await expect(main.locator('[data-row="round-2"]')).toHaveCount(0)
+    await group.locator('[data-step-row]').click()
+    await expect(group).toHaveAttribute('data-expanded', 'true')
+    await expect(main.locator('[data-row="round-1"]')).toHaveCount(1)
+    await expect(main.locator('[data-row="round-2"]')).toHaveCount(1)
+    await main.locator('[data-row="card-2-2"]').click()
+    await expect(main.locator('[data-row="card-2-2"]')).toHaveAttribute('aria-current', 'true')
+    await expect(page.locator('[data-slot="tool-body"]:visible [data-slot="run-inspector"]')).toContainText('#2')
+    await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Toggle right panel', exact: true }).click()
+    await selectRunView(page.locator('[data-frame-id="frame-wall"]'), 'Flow')
+    await selectRunView(page.locator('[data-frame-id="frame-wall"]'), 'Timeline')
+    await expect(group).toHaveAttribute('data-expanded', 'true')
+    await expect(main.locator('[data-row="card-2-2"]')).toHaveAttribute('aria-current', 'true')
+    await expect(page.locator('[data-slot="tool-body"]:visible')).toHaveCount(0)
+  })
+
+  for (const width of [1440, 720]) {
+    test(`B5 Steps stay in main and Run View preserves the canonical bar at ${width} in ${theme}`, async ({ page }) => {
+      await openFrame(page, 'frame-wall=team-run-recorded', theme, width)
+      await selectFrameTab(page, 'run')
+      const bar = page.locator('[data-slot="top-bar"]:visible').first()
+      const main = page.locator('[data-slot="workbench-main"]')
+      await expect(page.locator('[data-slot="run-header"]')).toHaveCount(0)
+      await expect(main.locator('[data-slot="run-steps"]')).toBeVisible()
+      await expect(page.locator('[data-slot="work-tools"] [data-slot="run-steps"]')).toHaveCount(0)
+      await expect(page.locator('[data-slot="tool-body"]:visible')).toHaveCount(0)
+      await expect(bar.locator('[data-work-tool]')).toHaveCount(4)
+      const verb = bar.getByRole('button', { name: 'Stop run…', exact: true })
+      await expect(verb).toBeVisible()
+      await expect(verb.locator('svg')).toHaveCount(0)
+      await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+      const view = bar.locator('[data-topbar="view"]')
+      const before = (await view.boundingBox())!
+      await selectRunView(page.locator('[data-frame-id="frame-wall"]'), 'Flow')
+      await expect(main.locator('[data-slot="run-flow"]')).toBeVisible()
+      await expect(main.locator('[data-slot="flow-canvas"] .react-flow__node')).toHaveCount(4)
+      await expect.poll(async () => (await view.boundingBox())!.x).toBe(before.x)
+      await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+      await expect(page.locator('[data-slot="tool-body"]:visible')).toHaveCount(0)
+      await selectRunView(page.locator('[data-frame-id="frame-wall"]'), 'Timeline')
+      await expect(main.locator('[data-slot="run-steps"]')).toBeVisible()
+      await expect(page.locator('[data-slot="tool-body"]:visible')).toHaveCount(0)
+      const future = main.locator('[data-slot="run-steps"] [data-step-row="person"]')
+      await future.click()
+      await expect(future).toHaveAttribute('aria-current', 'true')
+      await bar.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
+      await selectRunView(page.locator('[data-frame-id="frame-wall"]'), 'Flow')
+      await expect(main.locator('[data-slot="flow-step"][data-step="person"]')).toHaveAttribute('data-selected', 'true')
+      await selectRunView(page.locator('[data-frame-id="frame-wall"]'), 'Timeline')
+      await expect(future).toHaveAttribute('aria-current', 'true')
+      await expect(page.locator('[data-slot="tool-body"]:visible')).toHaveCount(0)
+    })
+  }
+
   test(`B3 narrow Team Run retains its timeline after automatic panel collapse in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team', theme, 720)
     await selectFrameTab(page, 'run')
@@ -40,7 +104,7 @@ for (const theme of WALL_THEMES) {
     await expect(details.locator('[aria-label="Seats"]')).toBeVisible()
     await expect(details.locator('[data-slot="summary-card"][data-surface="card"]')).toHaveCount(0)
     // The canonical toggle stays above the covered main area and returns to
-    // the same timeline without reselecting or releasing the retained cache.
+    // the same timeline without reselecting or releasing the retained record.
     await page.locator('[data-slot="top-bar"]').getByRole('button', { name: 'Toggle right panel', exact: true }).click()
     await expect(main).toBeVisible()
     await expect(main).toContainText('Round 1')
@@ -48,13 +112,17 @@ for (const theme of WALL_THEMES) {
     // synthetic recorded-Flow rig for its narrow Steps visibility boundary.
     await openFrame(page, 'run-dock', theme, 720)
     await selectFrameTab(page, 'run')
-    await main.getByRole('radio', { name: 'Flow', exact: true }).click()
-    await expect(main.locator('[data-slot="flow-list"]')).toHaveAttribute('data-placement', 'below')
-    // The canonical toggle restores remembered Details on one press; retained
-    // legacy Steps stay hidden and Flow keeps its own Steps and Rules below.
+    await selectRunView(page.locator('#run-dock-frame'), 'Flow')
+    await expect(main.locator('[data-slot="flow-canvas"] .react-flow__node')).toHaveCount(4)
+    await expect(main.locator('[data-slot="flow-list"] section[aria-label="Rules"]')).toHaveCount(1)
+    await selectRunView(page.locator('#run-dock-frame'), 'Timeline')
+    await expect(main.locator('[data-slot="run-steps"]')).toBeVisible()
+    for (const round of [1,2,3,4]) await expect(main.locator(`[data-row="round-${round}"]`)).toBeVisible()
+    // The canonical toggle restores remembered Details on one press; Flow
+    // retains its native Rules alternative and Timeline Steps without a Steps tool.
     await page.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
     await expect(page.locator('[data-slot="tool-body"]:visible')).toContainText('Seats')
-    await expect(page.locator('[data-slot="run-steps"]:visible')).toHaveCount(0)
+    await expect(page.locator('[data-slot="tool-body"] [data-slot="run-steps"]')).toHaveCount(0)
     await page.locator('[data-slot="top-bar"]').getByRole('button', { name: 'Toggle right panel', exact: true }).click()
     await expect(main).toBeVisible()
   })

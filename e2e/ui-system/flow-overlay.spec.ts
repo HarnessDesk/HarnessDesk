@@ -1,3 +1,5 @@
+import { selectTeamPage } from './team-frame-actions'
+import { selectRunView } from './run-frame-actions'
 import { expect, test, type Page } from '@playwright/test'
 import { mkdir } from 'node:fs/promises'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
@@ -5,7 +7,7 @@ import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
 const advance = (page: Page, scene: string) => page.evaluate(scene => window.dispatchEvent(new CustomEvent('flow-overlay-scene', { detail: scene })), scene)
 const graph = (page: Page) => page.locator('#flow-overlay-live [data-slot="flow-graph"]')
 const state = (page: Page, step: string) => graph(page).locator(`[data-slot="flow-step"][data-step="${step}"]`)
-const tab = (page: Page, name: string) => page.locator('#flow-overlay-live').getByRole('radio', { name, exact: true })
+const choose = (page: Page, name: 'Timeline' | 'Flow') => selectRunView(page.locator('#flow-overlay-live'), name)
 const frame = async (page: Page, name: string, selector = '#flow-overlay-live [data-slot="flow-canvas"]') => {
   const folder = process.env.RUN_FLOW_OVERLAY_FRAMES_DIR
   if (!folder) return
@@ -20,8 +22,8 @@ for (const theme of ['light', 'dark']) {
       await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
       await page.goto(`/preview.html?flow-overlay&theme=${theme}`)
       const live = page.locator('#flow-overlay-live')
-      await live.getByRole('tab', { name: /^Run/ }).first().click()
-      await tab(page, 'Flow').click()
+      await selectTeamPage(live, 'run')
+      await choose(page, 'Flow')
     })
     test('live rounds and person answers redraw the open Flow without a reload or a tab switch', async ({ page }) => {
       await expect(state(page, 'fix')).toHaveAttribute('data-state', 'working', { timeout: 5000 })
@@ -47,7 +49,7 @@ for (const theme of ['light', 'dark']) {
       for (const [scene, step, expected] of [['check-again', 'check', 'working'], ['review', 'review', 'working'], ['you', 'you', 'waiting'], ['answered', 'you', 'done'], ['evidence-wait', 'you', 'blocked'], ['settled', 'you', 'done'], ['stopped', 'fix', 'stopped']]) {
         await advance(page, scene!)
         await expect(state(page, step!)).toHaveAttribute('data-state', expected!)
-        await expect(tab(page, 'Flow')).toBeChecked()
+        await expect(page.locator('#flow-overlay-live [data-slot="run-workspace"]')).toHaveAttribute('data-view', 'flow')
         if (scene === 'answered' || scene === 'evidence-wait') await expect(state(page, 'you')).not.toContainText('Needs you')
         if (scene === 'evidence-wait') await expect(state(page, 'you').locator('[data-slot="flow-state"]')).toHaveText('Waiting')
         if (scene === 'check-again') await expect(state(page, 'check')).toContainText('×2')
@@ -90,11 +92,11 @@ for (const theme of ['light', 'dark']) {
       await expect(state(page, 'fix').locator('[data-slot="flow-duration"]')).toHaveText('2m')
       await expect(graph(page).locator('[data-slot="flow-ring"], [data-slot="flow-baton"], [data-slot="flow-doing"]')).toHaveCount(0)
       await frame(page, `stopping-${theme}`)
-      await tab(page, 'Timeline').click()
+      await choose(page, 'Timeline')
       await expect(page.locator('#flow-overlay-live [data-row="card-4-40"]')).toContainText('Stopping')
       await advance(page, 'stopped')
       await expect(page.locator('#flow-overlay-live [data-row="card-4-40"]')).toContainText('Stopped')
-      await tab(page, 'Flow').click()
+      await choose(page, 'Flow')
       await expect(state(page, 'fix')).toHaveAttribute('data-state', 'stopped')
       await expect(state(page, 'fix').locator('[data-slot="flow-duration"]')).toHaveText('2m')
       await page.setViewportSize({ width: 390, height: 900 })
@@ -135,12 +137,12 @@ for (const theme of ['light', 'dark']) {
       await expect(state(page, 'check')).toHaveAttribute('data-state', 'done')
       await state(page, 'check').click()
       await expect(state(page, 'check')).toHaveAttribute('data-selected', 'true')
-      await tab(page, 'Timeline').click()
+      await choose(page, 'Timeline')
       const timeline = page.locator('#flow-overlay-live [aria-label="Run timeline"]')
       const selected = timeline.locator('[aria-current="true"]')
       await expect(selected).toHaveCount(6)
       await timeline.locator('[data-row="card-3-31"]').click()
-      await tab(page, 'Flow').click()
+      await choose(page, 'Flow')
       await expect(state(page, 'review')).toHaveAttribute('data-selected', 'true')
     })
 
@@ -204,7 +206,7 @@ for (const theme of ['light', 'dark']) {
       await expect(graph(page).locator('[data-step-row="you"]')).toContainText('Needs you')
       await graph(page).locator('[data-step-row="you"]').focus()
       await page.keyboard.press('Enter')
-      await tab(page, 'Timeline').click()
+      await choose(page, 'Timeline')
       await expect(page.locator('#flow-overlay-live [data-row="round-8"]')).toHaveAttribute('aria-current', 'true')
     })
   })

@@ -6,8 +6,9 @@ import { sanitizeText } from '../lib/sanitize'
 import { openExternal } from '../lib/desktop'
 import { formatDuration } from './TurnTail'
 import { commitDate } from '../lib/git-refs'
-export const TeamRunFacts = ({ input, number, chooser, at, flowFile, pullRequest, cost, trigger }: {
+export const TeamRunFacts = ({ input, number, chooser, at, flowFile, pullRequest, cost, trigger, continuesNumber }: {
   input: RunTimelineInput | null; number: number; chooser?: ReactNode; at: string | null
+  continuesNumber?: number
   trigger?: ReactNode; flowFile?: ReactNode; pullRequest?: { number: number; url: string | null } | null; cost?: string | null
 }) => {
   if (!input) return <><Text role="meta">No Run recorded.</Text><SummaryList surface="panel" aria-label="Team Run facts">
@@ -42,7 +43,7 @@ export const TeamRunFacts = ({ input, number, chooser, at, flowFile, pullRequest
       <SummaryItem label="Started">{execution.startedAt == null ? 'Not recorded' : commitDate(execution.startedAt, Date.now())}</SummaryItem>
       <SummaryItem label="Rounds">{execution.rounds.length}</SummaryItem>
       <SummaryItem label="Seat cost">{cost ?? 'Not recorded'}</SummaryItem>
-      {execution.continues && <SummaryItem label="Continues">{sanitizeText(execution.continues)}</SummaryItem>}
+      {execution.continues && <SummaryItem label="Continues">{continuesNumber ? `Run ${continuesNumber}` : 'an earlier Run'}</SummaryItem>}
       <SummaryItem label="Publication">{model.header.publication?.label ?? 'Not recorded'}</SummaryItem>
     </SummaryList>
     {facts.extra && <Text role="prose">{sanitizeText(facts.extra)}</Text>}

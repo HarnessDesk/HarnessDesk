@@ -187,6 +187,10 @@ for (const theme of ['light', 'dark'] as const) {
     await page.setViewportSize({ width: 390, height: 900 })
     await open(page, theme)
     const inspector = page.locator('#run-inspector-check-attempts [data-slot="run-inspector"]')
+    // This standalone specimen starts with the original check selected.
+    // Width changes no longer collapse inspection or discard that selection.
+    await expect(inspector).toBeVisible()
+    await page.locator('#run-inspector-check-attempts').getByRole('button', { name: 'Toggle right panel', exact: true }).click()
     await expect(inspector).toBeHidden()
     await page.locator('#run-inspector-check-attempts [data-row="check-2-2"]').click()
     await expect(inspector).toBeVisible()

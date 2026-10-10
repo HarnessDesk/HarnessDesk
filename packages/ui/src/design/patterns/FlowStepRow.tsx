@@ -6,7 +6,7 @@ import type { FlowStepRun } from '../../lib/flow-overlay'
 import type { FlowStep, StepKind } from '../../lib/flow-model'
 import { sanitizeHtml, sanitizeText } from '../../lib/sanitize'
 import { ROLE_KIND_WORDS } from '../../lib/shapes'
-import { FlowFaces } from '../ui/flow-step'
+import { AvatarStack } from '../ui/avatar-stack'
 import { IconTile } from '../ui/icon-tile'
 import { ListRow } from '../ui/list-row'
 import type { Tint, Tone } from '../ui/tone'
@@ -32,13 +32,13 @@ const toneOf = (label: string): Tone => {
     default: return 'neutral'
   }
 }
-/** A recorded step or Seat state, toned once for the Flow list and Run dock. Unknown outcomes stay neutral. */
+/** A recorded step or Seat state, toned once for the Flow list and main Run Timeline. Unknown outcomes stay neutral. */
 export const RunStateChip = ({ state }: { state: string }) => <Chip tone={toneOf(state)}>{sanitizeText(state)}</Chip>
 
 const stateOf = (run: FlowStepRun): string => run.state === 'done' && run.line ? wordOf(words(run.line))
   : ({ future: 'Not reached', done: 'Done', working: 'Working', waiting: 'Needs you', blocked: 'Waiting for evidence', stopping: 'Stopping', stopped: 'Stopped' })[run.state]
 
-/** A step in the Flow list or dock: kind and seated faces, a recorded state, and trailing time and run count. The caller owns its earned second line and selection. */
+/** A step in the Flow list or Timeline: kind and seated faces, a recorded state, and trailing time and run count. The caller owns its earned second line and selection. */
 export const FlowStepRow = ({ step, run, subtitle, selected, faces, faceTints, now = Date.now(), onSelect, tabIndex }: {
   step: FlowStep
   run?: FlowStepRun
@@ -51,14 +51,18 @@ export const FlowStepRow = ({ step, run, subtitle, selected, faces, faceTints, n
   onSelect?: (step: string) => void
 }) => {
   const { tint, Mark } = FLOW_STEP_KINDS[step.kind]
+  const seats = step.kind === 'agent' ? run?.seats : undefined
   const elapsed = run?.since != null && (run.state === 'working' || run.state === 'waiting') ? Math.max(0, now - run.since) : 0
   const duration = run?.durationMs == null ? null : formatDuration(run.durationMs + elapsed)
   return <ListRow data-step-row={step.id} data-state={run?.state} data-selected={selected || undefined}
     tabIndex={tabIndex}
     as={onSelect ? 'button' : 'div'} interactive={Boolean(onSelect)} selected={selected}
     onClick={onSelect ? () => onSelect(step.id) : undefined}
-    lead={<FlowFaces seats={step.kind === 'agent' ? run?.seats : undefined} faces={faces} tints={faceTints}
-      fallback={<IconTile shape={step.kind === 'check' ? 'square' : 'face'} tint={tint}><Mark /></IconTile>} />}
+    lead={seats?.length ? seats.length > 1
+      ? <span data-slot="flow-faces"><AvatarStack size="stack" aria-label={`${seats.length} seats`} max={seats.length}
+        members={seats.map(id => ({ id, tint: faceTints?.get(id) ?? 'violet', mark: faces?.get(id) ?? <AgentIcon /> }))} /></span>
+      : <span data-slot="flow-faces"><IconTile shape="face" size="default" tint={faceTints?.get(seats[0]!) ?? 'violet'}>{faces?.get(seats[0]!) ?? <AgentIcon />}</IconTile></span>
+      : <IconTile shape={step.kind === 'check' ? 'square' : 'face'} tint={tint}><Mark /></IconTile>}
     title={<span className="flex min-w-0 flex-wrap items-center gap-2"><span className="min-w-0 truncate" title={sanitizeText(step.name)}>{sanitizeText(step.name)}</span><Chip size="sm" tint={tint}>{ROLE_KIND_WORDS[step.kind]}</Chip></span>}
     subtitle={subtitle} wrapSubtitle
     trail={run ? <span className="flex flex-col items-end gap-1">

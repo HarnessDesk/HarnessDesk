@@ -1,3 +1,4 @@
+import { PlanMetersSpecimen, TerminalToggleSpecimen, LegacyPanelMenuSpecimen } from '../../preview/frames-supported-controls'
 import { SeatList, ToolBody, ToolSection, ToolProse, SummaryList, SummaryItem, Checklist, ChecklistItem } from '../index'
 import { Timeline, TimelineItem, type TimelineState } from '../ui/timeline'
 import { TimelineCard, TimelineCardRow, TimelineCards, TimelineCardWords, TimelineDocument } from '../ui/timeline-cards'
@@ -366,6 +367,7 @@ const PanelControlsBoard = () => {
           </Case>
         </div>
       </Specimen>
+      <TerminalToggleSpecimen /><LegacyPanelMenuSpecimen />
       <Rule>
         The header examples mount the shipped WindowControls against three right-dock snapshots. The split rows use the shipped splitRefusal result and MenuItem props from PanelActions; they are rendered directly because opening the panel menu needs a mounted workbench.
       </Rule>
@@ -2491,7 +2493,7 @@ const USAGEMETERROW_CATALOG_VARIANTS = ['default', 'barless'] as const
 const USAGEMETERROW_CATALOG_SIZES = ['default'] as const
 const USAGEMETERROW_CATALOG_STATES = ['default', 'warning', 'error', 'unknown'] as const
 const UsageMeterRowBoard = () => (
-  <Specimen measure="page" caption="Remaining usage, standing alone or inside a What is left list">
+  <><PlanMetersSpecimen /><Specimen measure="page" caption="Remaining usage, standing alone or inside a What is left list">
     {USAGEMETERROW_CATALOG_VARIANTS.map(variant => USAGEMETERROW_CATALOG_SIZES.map(size => (
       <div key={`${variant}:${size}`} className="grid gap-4" data-catalog-variant={variant} data-catalog-size={size}>
         {USAGEMETERROW_CATALOG_STATES.map(state => (
@@ -2506,7 +2508,7 @@ const UsageMeterRowBoard = () => (
         ))}
       </div>
     )))}
-  </Specimen>
+  </Specimen></>
 )
 
 /**
@@ -3217,6 +3219,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     about: 'One continuous rail with finished, active, pending, attention and failed rings. Known times precede the title; child records keep its content edge.',
     render: () => <div data-catalog-state="default" className="max-w-xl">
       <Timeline aria-label="Recorded progress">
+        <TimelineItem section state="pending" title="Taken" />
         {(['done', 'active', 'warning', 'danger', 'pending'] as const).map((state: TimelineState, index) =>
           <TimelineItem key={state} state={state} data-catalog-state={state === 'done' ? 'success' : state === 'pending' ? 'inactive' : state === 'danger' ? 'error' : state}
             meta={state === 'pending' ? undefined : `12:0${index} · 2m`} title={['Start', 'Build the change', 'Review the result', 'Check failed', 'End'][index]}

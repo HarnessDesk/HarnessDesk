@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { AgentIcon, CheckIcon } from '../../components/Icons'
+import { CheckIcon } from '../../components/Icons'
 import type { FlowStepState } from '../../lib/flow-overlay'
-import type { Tint } from './tone'
-import { IconTile } from './icon-tile'
-import { AvatarStack } from './avatar-stack'
 import { Card } from './card'
 import { Chip, Text } from '../patterns/Settings'
 import styles from './flow-step.module.css'
@@ -48,13 +45,6 @@ export const FlowBaton = ({ path }: { path: string }) => {
     <span className="absolute right-0 top-0 size-2 rounded-full bg-(--hd-accent) ring-4 ring-(--hd-accent)/20" />
   </span>
 }
-
-/** The marks of the actual Seats occupying a graph node, overlapping when the round fans out. */
-export const FlowFaces = ({ seats, faces, tints, size, fallback }: { seats?: readonly string[]; faces?: ReadonlyMap<string, ReactNode>; tints?: ReadonlyMap<string, Tint>; size?: 'sm'; fallback: ReactNode }) =>
-  seats?.length ? seats.length > 1
-    ? <span data-slot="flow-faces"><AvatarStack size="stack" aria-label={`${seats.length} ${seats.length === 1 ? 'seat' : 'seats'}`} max={seats.length} members={seats.map(id => ({id, tint: tints?.get(id) ?? 'violet', mark: faces?.get(id) ?? <AgentIcon />}))} /></span>
-    : <span data-slot="flow-faces"><IconTile shape="face" size={size ?? 'default'} tint={tints?.get(seats[0]!) ?? 'violet'}>{faces?.get(seats[0]!) ?? <AgentIcon />}</IconTile></span>
-    : fallback
 
 /** A travelled loop's count has an opaque ground, so the curve never crosses its words. */
 export const FlowRouteLabel = ({ travelled, children }: { travelled: boolean; children: ReactNode }) =>

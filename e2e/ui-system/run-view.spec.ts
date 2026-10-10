@@ -1,3 +1,4 @@
+import { runBar, selectRunView, stopRun } from './run-frame-actions'
 import { expect, test } from '@playwright/test'
 import { FRAME } from '../../packages/ui/src/design/frame'
 import { selectTeamPage, teamBar, teamSeats } from './team-frame-actions'
@@ -37,7 +38,8 @@ for (const theme of ['light', 'dark'] as const) {
     expect(leadDeltas.every(delta => delta < 1.5)).toBe(true)
     await expect(narrow.getByText('Editing src/checkout/retry.ts')).toBeVisible()
     await expect(page.locator('#run-view-settled')).toContainText('Ended without a next step')
-    await expect(page.locator('#run-view-stopped [data-slot="run-header"]')).toContainText('Stopped')
+    await expect(stopRun(page.locator('#run-view-stopped'))).toBeDisabled()
+    await expect(stopRun(page.locator('#run-view-stopped'))).toHaveAttribute('title', 'This Run is not running')
     await expect(page.locator('#run-view-stopped [data-slot="run-ending"]')).toContainText('By you')
     await expect(page.locator('#run-view-stalled')).toContainText('The desk stopped while the check ran')
     await expect(page.locator('#run-view-person [data-slot="run-need"]')).toContainText('Answer the review')
@@ -166,11 +168,11 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(stalled.locator('[data-slot="run-need"] button')).toHaveCount(1)
     await expect(stalled.locator('[data-slot="run-ending"]')).not.toContainText('The desk stopped')
     const workspace = page.locator('#run-view-flow')
-    await workspace.getByRole('radio', { name: 'Timeline', exact: true }).click()
-    const header = workspace.locator('[data-slot="run-header"]')
-    const actions = workspace.locator('[data-slot="run-actions"]')
+    await selectRunView(workspace, 'Timeline')
+    const header = runBar(workspace)
+    const actions = header.getByRole('button', { name: 'Stop run…', exact: true })
     const before = { header: await header.boundingBox(), actions: await actions.boundingBox() }
-    await workspace.getByRole('radio', { name: 'Flow', exact: true }).click()
+    await selectRunView(workspace, 'Flow')
     expect(await header.boundingBox()).toEqual(before.header)
     expect(await actions.boundingBox()).toEqual(before.actions)
     for (const width of [848, 768, 390]) {
@@ -205,7 +207,7 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(flow.locator(selector)).toContainText(shown)
       await expect(flow.locator(selector).locator('[title]').filter({ hasText: shown })).toHaveAttribute('title', raw)
     }
-    await flow.getByRole('radio', { name: 'Timeline', exact: true }).click()
+    await selectRunView(flow, 'Timeline')
     const check = flow.locator('[data-row="check-2-2"]')
     await expect(check).toContainText(shown)
     await expect(check.locator('[title]').filter({ hasText: shown })).toHaveAttribute('title', raw)
@@ -238,7 +240,11 @@ for (const theme of ['light', 'dark'] as const) {
   test(`Timeline rings align with the first title line and motion respects the person in ${theme}`, async ({ page }) => {
     await page.goto(`/preview.html?run-view&theme=${theme}`)
     const timeline = page.locator('#run-view-running [data-slot="timeline"]')
-    await expect(timeline.locator(':scope > li')).toHaveCount(6)
+    await expect(timeline.locator(':scope > [data-slot="timeline-item"]')).toHaveCount(6)
+    expect(await timeline.evaluate(el => [...el.children].every(child => child.tagName === 'LI'))).toBe(true)
+    for (const row of ['start', 'brief', 'round-1', 'round-2', 'round-3', 'round-4']) {
+      await expect(timeline.locator(`:scope > [data-slot="timeline-item"] [data-row="${row}"]`)).toHaveCount(1)
+    }
     const alignment = await timeline.locator('[data-slot="timeline-item"]').evaluateAll(items => items.map(item => {
       const ring = item.querySelector('[data-slot="timeline-indicator"]')!.getBoundingClientRect()
       const title = item.querySelector('[data-slot="timeline-heading"] button [data-slot="text"]')!
@@ -248,11 +254,21 @@ for (const theme of ['light', 'dark'] as const) {
       return Math.abs((ring.top + ring.bottom - first.top - first.bottom) / 2)
     }))
     expect(alignment.every(delta => delta < 2)).toBe(true)
-    const rails = await timeline.locator('[data-slot="timeline-item"]').evaluateAll(items => items.slice(0, -1).map((item, index) => {
-      const rail = item.querySelector('[data-slot="timeline-rail"]')!.getBoundingClientRect()
-      const next = items[index + 1]!.querySelector('[data-slot="timeline-indicator"]')!.getBoundingClientRect()
-      return Math.abs(rail.bottom - (next.top + next.bottom) / 2)
-    }))
+    const rails = await timeline.evaluate(el => {
+      const children = [...el.children]
+      const items = children.filter(child => child.getAttribute('data-slot') === 'timeline-item')
+      return items.slice(0, -1).flatMap((item, index) => {
+        const next = items[index + 1]!
+        const segments = children.slice(children.indexOf(item), children.indexOf(next))
+        return segments.map((segment, position) => {
+          const rail = segment.querySelector(':scope > [data-slot="timeline-rail"]')!.getBoundingClientRect()
+          const section = segments[position + 1]
+          const ring = next.querySelector('[data-slot="timeline-indicator"]')!.getBoundingClientRect()
+          const target = section ? section.getBoundingClientRect().top : (ring.top + ring.bottom) / 2
+          return Math.abs(rail.bottom - target)
+        })
+      })
+    })
     expect(rails.every(delta => delta < 1)).toBe(true)
     const active = timeline.locator('[data-state="active"] > [data-slot="timeline-indicator"]')
     await page.emulateMedia({ reducedMotion: 'no-preference' })

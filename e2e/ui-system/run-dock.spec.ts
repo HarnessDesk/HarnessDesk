@@ -1,9 +1,10 @@
+import { selectRunView } from './run-frame-actions'
 import { expect, test } from '@playwright/test'
 import path from 'node:path'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
 import { minimapOverlaps, zoomOf } from './canvas-minimap'
 import { FRAME } from '../../packages/ui/src/design/frame'
-import { closeTeamDetails, selectTeamPage, teamBar, teamDetails, teamSeats } from './team-frame-actions'
+import { closeTeamDetails, selectTeamDestination, selectTeamPage, teamBar, teamDetails, teamSeats } from './team-frame-actions'
 
 for (const theme of ['light', 'dark'] as const) {
   test(`the docked Run Flow fills its pane and contains every step in ${theme}`, async ({ page }) => {
@@ -11,7 +12,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto(`/preview.html?run-dock&theme=${theme}`)
     const frame = page.locator('#run-dock-frame')
     await selectTeamPage(frame,'run')
-    await frame.getByRole('radio', { name: 'Flow', exact: true }).click()
+    await selectRunView(frame, 'Flow')
     const canvas = frame.locator('[data-slot="workbench-main"] [data-slot="flow-canvas"]')
     await expect(canvas.locator('.react-flow__node')).toHaveCount(4)
     const capture = async () => {
@@ -34,27 +35,26 @@ for (const theme of ['light', 'dark'] as const) {
     }
   })
 
-  test(`a narrow Run keeps its Steps visible while canonical Details owns the panel in ${theme}`, async ({ page }) => {
+  test(`native narrow Run Flow keeps its Steps and geometry in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
-    // A 950 to 1100px window with the dock open leaves the Run pane 440 to 600px wide.
-    for (const width of [950, 1000, 1100]) {
+    // Native Flow content at the original 480–600px boundary keeps the same geometry floors.
+    for (const width of [480, 520, 560, 600]) {
       await page.setViewportSize({ width, height: 700 })
       await page.goto(`/preview.html?run-dock&theme=${theme}`)
       const frame = page.locator('#run-dock-frame')
-      await selectTeamPage(frame,'run')
-      await frame.getByRole('radio', { name: 'Flow', exact: true }).click()
+      await selectTeamDestination(frame,'run')
+      await selectRunView(frame, 'Flow')
       const main = frame.locator('[data-slot="workbench-main"]')
-        const canvas = main.locator('[data-slot="flow-canvas"]')
+      const canvas = main.locator('[data-slot="flow-canvas"]')
       const list = main.locator('[data-slot="flow-list"]')
       await expect(canvas.locator('.react-flow__node')).toHaveCount(4)
       await expect.poll(() => zoomOf(canvas)).toBeLessThan(0.6)
-      if (process.env.FLOW_DOCK_FRAMES_DIR && width !== 950) {
+      if (process.env.FLOW_DOCK_FRAMES_DIR) {
         await page.evaluate(async () => { await document.fonts.ready })
         expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
         await frame.screenshot({ path: path.join(process.env.FLOW_DOCK_FRAMES_DIR, `round5-run-dock-${width}-${theme}-${process.env.FLOW_DOCK_FRAME_PHASE ?? 'after'}.png`) })
       }
-      // Details now owns this tool body; a retained Steps cache is not a
-      // visible list, so Flow keeps its readable alternative in main.
+      // The responsive native list keeps its readable alternative in main.
       await expect.soft(list, `list at ${width}px`).toHaveAttribute('data-placement', 'below')
       expect.soft(await list.locator('[data-step-row]').count(), `step rows at ${width}px`).toBeGreaterThan(0)
       expect.soft((await list.locator('[data-step-row]').first().boundingBox())!.width, `step row at ${width}px`).toBeGreaterThan(200)
@@ -74,7 +74,7 @@ for (const theme of ['light', 'dark'] as const) {
     }
   })
 
-  test(`a docked Run lists its own Steps and Rules when the dock is put away in ${theme}`, async ({ page }) => {
+  test(`Timeline keeps every original round and unreached Step when Details is put away in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     // The sidebar is a modal overlay below 1000px. Exercise its dismissal,
     // then explicitly put away any dock admitted after the sidebar closes.
@@ -87,48 +87,52 @@ for (const theme of ['light', 'dark'] as const) {
       await frame.locator('[data-slot="workbench-scrim"]').click()
       await expect(frame.locator('[data-slot="workbench-scrim"]')).toBeHidden()
       await selectTeamPage(frame,'run')
-      await frame.getByRole('radio', { name: 'Flow', exact: true }).click()
+      await selectRunView(frame, 'Flow')
       await closeTeamDetails(frame)
       const main = frame.locator('[data-slot="workbench-main"]')
       const canvas = main.locator('[data-slot="flow-canvas"]')
       const scroll = main.locator('[data-slot="run-scroll"]')
-      const list = main.locator('[data-slot="flow-list"]')
+      const rules = main.locator('[data-slot="flow-list"] section[aria-label="Rules"]')
+      await expect(rules).toHaveCount(1)
       await expect(canvas.locator('.react-flow__node')).toHaveCount(4)
+      await selectRunView(frame, 'Timeline')
+      const list = main.locator('[data-slot="run-steps"]')
       await expect(frame.locator('[data-slot="dock-panel"][data-edge="left"]'), `dock at ${width}px`).toHaveCount(0)
       if (process.env.FLOW_DOCK_FRAMES_DIR) {
         await page.evaluate(async () => { await document.fonts.ready })
         expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
         await frame.screenshot({ path: path.join(process.env.FLOW_DOCK_FRAMES_DIR, `round6-run-put-away-${width}-${theme}-${process.env.FLOW_DOCK_FRAME_PHASE ?? 'after'}.png`) })
       }
-      // Nothing else lists the Steps, so the pane does: under the drawing, in rows as wide as the pane.
-      await expect.soft(list, `list at ${width}px`).toHaveAttribute('data-placement', 'below')
-      const rows = list.locator('[data-step-row]')
+      // Timeline owns original recorded rounds and the unreached Step, with the same readable row floor.
+      await expect(list, `Timeline at ${width}px`).toBeVisible()
+      const rows = list.locator('[data-row][data-kind="round"]')
+      await expect(rows).toHaveCount(4)
       expect.soft(await rows.count(), `step rows at ${width}px`).toBeGreaterThan(0)
       expect.soft(await rows.first().evaluate(el => el.getBoundingClientRect().width), `step row at ${width}px`).toBeGreaterThan(200)
-      // The pane scrolls to them, and on to the Rules, by wheel.
+      // The pane scrolls to the original rounds and unreached Step by wheel.
       const area = (await scroll.boundingBox())!
       await page.mouse.move(area.x + area.width / 2, area.y + area.height - 30)
       await page.mouse.wheel(0, 2000)
       await expect.poll(() => scroll.evaluate(el => el.scrollTop + el.clientHeight >= el.scrollHeight - 1), `end of the pane at ${width}px`).toBe(true)
-      await expect.soft(list.locator('section[aria-label="Rules"]'), `rules at ${width}px`).toBeInViewport()
+      await expect.soft(list.locator('[data-step-row="person"]'), `unreached Step at ${width}px`).toBeInViewport()
     }
   })
 
-  test(`a docked Run lists its own Steps while the dock shows something else in ${theme}`, async ({ page }) => {
+  test(`Timeline keeps its original Steps while Details or Activity occupies the panel in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
-    // A 1000px window leaves the Run 540px wide beside the open dock.
+    // Floating tools do not replace the main Timeline.
     await page.setViewportSize({ width: 1000, height: 800 })
     await page.goto(`/preview.html?run-dock&theme=${theme}`)
     const frame = page.locator('#run-dock-frame')
     await selectTeamPage(frame,'run')
-    await frame.getByRole('radio', { name: 'Flow', exact: true }).click()
-    const list = frame.locator('[data-slot="workbench-main"] [data-slot="flow-list"]')
+    await selectRunView(frame, 'Timeline')
+    const list = frame.locator('[data-slot="workbench-main"] [data-slot="run-steps"]')
     await teamDetails(frame)
-    await expect(list, 'canonical Run facts do not hide the Steps').toHaveAttribute('data-placement', 'below')
+    await expect(list, 'canonical Run facts do not hide the Steps').toBeVisible()
     await teamBar(frame).locator('[data-work-tool="activity"]').click()
-    await expect(list, 'Activity does not own a readable Steps list').toHaveAttribute('data-placement', 'below')
+    await expect(list, 'Activity does not own a readable Steps list').toBeVisible()
     await teamDetails(frame)
-    await expect(list, 'returning to Details keeps the Steps readable').toHaveAttribute('data-placement', 'below')
+    await expect(list, 'returning to Details keeps the Steps readable').toBeVisible()
   })
 
   test(`Team Details keeps Run facts, Seats and selected inspection in ${theme}`, async ({ page }) => {
@@ -159,38 +163,37 @@ for (const theme of ['light', 'dark'] as const) {
     await summary.getByRole('button', { name: 'Flow file', exact: true }).click()
     await expect(page.getByRole('dialog')).toContainText('This is the file as it is now.')
     await page.keyboard.press('Escape')
-    // Keep the open tool intent while Flow remembers its retained Steps cache.
-    await frame.getByRole('radio', { name: 'Flow', exact: true }).click()
+    // Four recorded round visits and the unreached person remain in Timeline; Flow shows four step identities.
+    // Switching representations neither admits a Steps tool nor discards selection.
+    await selectRunView(frame, 'Timeline')
+    const timelineSteps = main.locator('[data-slot="run-steps"]')
+    for (const round of [1, 2, 3, 4]) await expect(timelineSteps.locator(`[data-row="round-${round}"]`)).toHaveCount(1)
+    await expect(frame.locator('[data-slot="tool-body"] [data-slot="run-steps"]')).toHaveCount(0)
+    await expect(timelineSteps.locator('[aria-current="true"]')).toHaveCount(0)
+    await timelineSteps.locator('[data-row="round-4"] button').first().click()
+    await expect(timelineSteps.locator('[data-row="round-4"]')).toHaveAttribute('aria-current', 'true')
+    await selectRunView(frame, 'Flow')
     const steps = main.locator('[data-slot="flow-list"]')
-    // The retained legacy list keeps all five round-specific rows; Flow
-    // independently shows the four recorded step identities. Task 5 joins
-    // round-specific Steps to Timeline. Neither record is discarded.
-    await expect(frame.locator('[data-slot="run-steps"] [data-step-row]')).toHaveCount(5)
     await expect(steps.locator('[data-step-row]')).toHaveCount(4)
     await expect(steps.locator('[data-slot="chip"][data-tone="info"]')).toHaveText('Working')
     await expect(steps.locator('[data-slot="chip"][data-tone="warning"]')).toHaveText('Request changes')
-    const flowNode=main.locator('[data-step="reviewer"]')
-    const row=steps.locator('[data-step-row="reviewer"]')
-    const retainedReviewer=frame.locator('[data-slot="run-steps"] [data-step-row="reviewer"]')
-    await expect(retainedReviewer.locator('[data-slot="chip"][data-tint]')).toHaveText(await row.locator('[data-slot="chip"][data-tint]').innerText())
-    await expect(retainedReviewer.locator('[data-slot="icon-tile"]')).toHaveAttribute('data-tint',(await row.locator('[data-slot="icon-tile"]').getAttribute('data-tint'))!)
-    await expect(retainedReviewer.locator('[data-slot="list-row-subtitle"]')).toHaveText('Round 3')
+    const flowNode = main.locator('[data-step="reviewer"]')
+    const row = steps.locator('[data-step-row="reviewer"]')
     await expect(row.locator('[data-slot="list-row-subtitle"]')).toContainText('request-changes')
     await expect(row.locator('[data-slot="list-row-trail"]')).toContainText('1 run')
-    await expect(frame.locator('[data-slot="run-steps"] [data-selected]')).toContainText('Round 4')
-    await row.click()
-    await expect(main.locator('[data-step="reviewer"]')).toHaveAttribute('data-selected','true')
+    await flowNode.click()
+    await expect(flowNode).toHaveAttribute('data-selected', 'true')
     await expect((await teamDetails(frame)).locator('[data-slot="run-inspector"]')).toHaveCount(0)
-    await expect((await teamDetails(frame)).getByText('Seats',{exact:true})).toBeVisible()
-    await frame.getByRole('radio', { name: 'Timeline', exact: true }).click()
+    await expect((await teamDetails(frame)).getByText('Seats', {exact:true})).toBeVisible()
+    await selectRunView(frame, 'Timeline')
     await main.locator('[data-row="round-3"]').click()
-    await frame.getByRole('radio', { name: 'Flow', exact: true }).click()
-    await expect(flowNode).toHaveAttribute('data-selected','true')
-    await expect(frame.locator('[data-slot="run-steps"] [data-selected]')).toContainText('Round 3')
+    await expect(timelineSteps.locator('[data-row="round-3"]')).toHaveAttribute('aria-current', 'true')
+    await selectRunView(frame, 'Flow')
+    await expect(flowNode).toHaveAttribute('data-selected', 'true')
     await closeTeamDetails(frame)
-    await steps.getByRole('button').filter({hasText:'Not reached'}).click()
+    await main.locator('[data-step="person"]').click()
     await expect(main.locator('[data-step="person"]')).toHaveAttribute('data-selected','true')
-    expect(await steps.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true)
+    expect(await main.locator('[data-slot="run-flow"]').evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true)
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if(process.env.RUN_DOCK_FRAMES_DIR)await frame.screenshot({path:path.join(process.env.RUN_DOCK_FRAMES_DIR,`steps-after-${theme}.png`)})
     await closeTeamDetails(frame)
@@ -213,12 +216,12 @@ for (const theme of ['light', 'dark'] as const) {
     expect.soft(opensOnFirstVisit).toBe(false)
     if (opensOnFirstVisit) await frame.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
     await expect(main).toBeVisible()
-    await frame.getByRole('radio', { name: 'Flow', exact: true }).click()
+    await selectRunView(frame, 'Flow')
     const opensOnFlow = await details.count() > 0
     expect.soft(opensOnFlow).toBe(false)
     if (opensOnFlow) await frame.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
     await expect(main).toBeVisible()
-    await frame.getByRole('radio', { name: 'Timeline', exact: true }).click()
+    await selectRunView(frame, 'Timeline')
     await main.locator('[data-row="round-1"]').click()
     await expect(details).toBeVisible()
     await expect(details).toContainText('Seats')
@@ -237,13 +240,17 @@ for (const theme of ['light', 'dark'] as const) {
     // Leave while the dock is open, then return at a width where it overlays.
     await page.setViewportSize({ width: 1440, height: 900 })
     await selectTeamPage(frame,'overview')
-    await expect(details).toHaveCount(0)
+    await expect(details).toBeVisible()
+    await expect(details.locator('[data-slot="run-inspector"]')).toHaveCount(0)
+    await expect(details).toContainText('Seats')
     await page.setViewportSize({ width: 800, height: 900 })
     await selectTeamPage(frame,'run')
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.RUN_DOCK_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.RUN_DOCK_FRAMES_DIR, `return-800-after-${theme}.png`) })
+    await expect(details).toBeVisible()
+    await closeTeamDetails(frame)
     await expect(main).toBeVisible()
-    await expect(details).toHaveCount(0)
+    await expect(main.locator('[data-row="round-1"]')).toBeVisible()
   })
 
   test(`an older Run omits unrecorded facts and the narrow window uses the same dock in ${theme}`, async ({ page }) => {

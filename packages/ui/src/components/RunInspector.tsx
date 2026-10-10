@@ -1,4 +1,4 @@
-import { ToolSection } from '../design'
+import { ToolProse, ToolSection } from '../design'
 import { AgentIcon, PullRequestIcon } from './Icons'
 import { openExternal } from '../lib/desktop'
 import type { FindingRoundPublication, FlowCheckAttempt, GoalState } from '@harnessdesk/protocol'
@@ -44,7 +44,7 @@ export interface RunInspectorProps {
   attemptsRead?: 'reading' | 'failed'
 }
 
-import { Button, Card, CardHeader, CardTitle, CardAction, CardContent, Chip, CodeText, GroupLabel, IconTile, KeyValue, KeyValueRow, ChangeStats, PanelBody, SectionBody, PanelFooter, PanelFrame, PanelRow, PanelTools, Progress, RunStateChip, stateTone, Text, type Tint } from '../design'
+import { Button, Card, CardHeader, CardTitle, CardAction, CardContent, Chip, CodeText, IconTile, KeyValue, KeyValueRow, ChangeStats, PanelBody, SectionBody, PanelFooter, PanelFrame, PanelRow, PanelTools, Progress, RunStateChip, stateTone, Text, type Tint } from '../design'
 import { commandShown } from '../lib/projects'
 import { sanitizeText } from '../lib/sanitize'
 import { wordOf } from '../lib/agents'
@@ -59,9 +59,7 @@ import { stepDoor } from '../lib/needs-you'
 import { AbandonCard } from './AbandonCard'
 import { StepAnswer } from './StepAnswer'
 
-const Section = ({ title, children }: { title: string; children: ReactNode }) => <section className="flex min-w-0 flex-col gap-2">
-  <GroupLabel>{title}</GroupLabel>{children}
-</section>
+const Section = ({ title, children }: { title: string; children: ReactNode }) => <ToolSection label={title}>{children}</ToolSection>
 const Words = ({ children }: { children: string }) => <Text as="div" role="prose" className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{sanitizeText(children)}</Text>
 /**
  * One recorded result of a check: how it ended, when, and the commit it ran at. Its output is the command's own text, which
@@ -181,13 +179,11 @@ export const RunInspector = ({ inspectionOnly = false, home, teamState, input, s
     if (inspectionOnly) return null
     return <RunSummary input={input} selectedRow={null} seats={seats} faces={faces} faceTints={faceTints} pullRequest={pullRequest} flowFile={flowFile} />
   }
-  if (inspectionOnly) return <div data-slot="run-inspector"><ToolSection label={sanitizeText(title)}>{body}</ToolSection></div>
   return <div data-slot="run-inspector" className="min-h-0 min-w-0 flex-1">
-    <PanelFrame inset="reading"><PanelTools><Text role="section" className="min-w-0 break-words [overflow-wrap:anywhere]">{sanitizeText(title)}</Text>
-      {card && selected?.status && <Text role="meta">{sanitizeText(selected.status)}</Text>}
-    </PanelTools>
-      <PanelBody><div className="flex min-w-0 flex-col gap-4">{body}</div></PanelBody>
-    </PanelFrame>
+    <ToolSection label={sanitizeText(title)}>
+      {card && selected?.status && <ToolProse>{sanitizeText(selected.status)}</ToolProse>}
+      {body}
+    </ToolSection>
   </div>
 }
 
