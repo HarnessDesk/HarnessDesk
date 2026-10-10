@@ -117,6 +117,7 @@ import {
   type UserContent,
   type WireNotification,
   type InsightQuery,
+  type InsightGoalsReport,
   type InsightReport,
   type InsightCompareQuery,
   type InsightComparison,
@@ -2063,6 +2064,8 @@ export class AppStore {
 
   /** Insight is intentionally pull-only: hidden screens never trigger a corpus read. */
   readGoalInsight(goal: string): Promise<InsightReport> { return this.transport.request('insight/goal', { goal }) }
+  /** Several Teams at once, at most `INSIGHT_GOALS_LIMIT`: the host reads each project's ledger once for all of them. */
+  readGoalInsights(goals: readonly string[]): Promise<InsightGoalsReport> { return this.transport.request('insight/goals', { goals }) }
   readUsageInsight(query: InsightQuery): Promise<InsightReport> { return this.transport.request('insight/usage', query) }
   readAgentInsight(root: string | undefined, agent: string, origin: AgentOrigin): Promise<InsightReport> {
     return this.transport.request('insight/agent', { ...(root ? { root } : {}), agent, origin })
@@ -4961,6 +4964,28 @@ export class AppStore {
     flowExecutions.set(execution.id, execution)
     this.#patch({ flowExecutions })
     return execution
+  }
+
+  /**
+   * Several runs a list needs, eight requests at a time like a Team's
+   * history, kept in one state update when the last lands: one patch per
+   * answer re-renders the whole list as many times. A run that cannot be
+   * read is left out; one a push brought meanwhile is kept as it is.
+   */
+  async readFlowExecutions(runs: readonly string[]): Promise<void> {
+    const ids = [...new Set(runs)]
+    const read: PromiseSettledResult<FlowExecution>[] = []
+    for (let start = 0; start < ids.length; start += 8) {
+      read.push(...await Promise.allSettled(ids.slice(start, start + 8).map(run => this.transport.request('flow/execution', { run }))))
+    }
+    const flowExecutions = new Map(this.#snapshot.flowExecutions)
+    let changed = false
+    for (const result of read) {
+      if (result.status === 'rejected' || flowExecutions.has(result.value.id)) continue
+      flowExecutions.set(result.value.id, result.value)
+      changed = true
+    }
+    if (changed) this.#patch({ flowExecutions })
   }
 
   /** Stop one Run; the returned record also covers a stale view of a Run that already ended. */

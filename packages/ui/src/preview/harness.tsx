@@ -789,6 +789,19 @@ const applyAgentFieldEdit = (source: string, edit: AgentFieldEdit): string => {
  * page can show the loaded state directly, beside the loading one — the
  * store's own `readGoalInsight` returns the identical shape.
  */
+/**
+ * `insight/goals` answered from a fixture's own one-Team read, so a fixture
+ * that answers, delays or fails one Team does the same inside a batch.
+ */
+export const goalInsightsFrom = (read: (goal: string) => Promise<import('@harnessdesk/protocol').InsightReport>) =>
+  async (goals: readonly string[]): Promise<import('@harnessdesk/protocol').InsightGoalsReport> => {
+    const answers = await Promise.allSettled(goals.map(goal => read(goal)))
+    return {
+      reports: answers.flatMap((answer, index) => answer.status === 'fulfilled' ? [{ ...answer.value, goal: goals[index]! }] : []),
+      failed: goals.filter((_, index) => answers[index]!.status === 'rejected'),
+    }
+  }
+
 export const insightReportFor = (goal: string): import('@harnessdesk/protocol').InsightReport => {
   const metric = (value: number): import('@harnessdesk/protocol').InsightMetric => ({
     value, quality: 'exact', unit: 'usd', basis: 'vendorMetered', sourceIds: [0, 1, 2, 3].map(n => `src-preview-${n}`), coverage: 'complete', missing: [],
@@ -1431,6 +1444,7 @@ class PreviewStore {
     mode === 'update' ? PREVIEW_FLOW_UPDATE : PREVIEW_FLOW_CUSTOMIZE
   applyFlowUpdate = async (): Promise<FlowUpdateResult> => ({ state: 'applied', written: PREVIEW_FLOW_UPDATE.edits.map((edit) => edit.path), message: 'The flow update was applied.' })
   readFlowExecution = async (): Promise<FlowExecution> => { throw new Error('[preview] no live flow execution to read here') }
+  readFlowExecutions = async (): Promise<void> => {}
   /** `run-preview-ended` is a Run that has settled: the host refuses in its own sentence and mints no token. */
   previewFlowRetry = async (run?: string): Promise<FlowPreview> => run === 'run-preview-ended' ? {
     ...FIX_PREVIEW,
@@ -1918,6 +1932,7 @@ class PreviewStore {
    * One breakdown, one row, is enough to draw the real thing.
    */
   readGoalInsight = async (goal: string): Promise<import('@harnessdesk/protocol').InsightReport> => insightReportFor(goal)
+  readGoalInsights = goalInsightsFrom(async goal => insightReportFor(goal))
   readAgentInsight = async (): Promise<import('@harnessdesk/protocol').InsightReport> => insightReportFor('preview-agent')
 
   carryFindings = async (_input: CarryFindingsInput): Promise<readonly FindingView[]> => []
