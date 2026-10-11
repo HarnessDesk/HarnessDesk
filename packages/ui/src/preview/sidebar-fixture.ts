@@ -45,7 +45,7 @@ export const previewAccounts: Record<string, AccountStatus> = {
   [CODEX]: { signedIn: true, accounts: [account('shane@harnessdesk.app')] },
   // Keep the longest realistic account visible in the seat menu as a width
   // specimen; its usage row is the matching request-based fixture below.
-  [CURSOR]: { signedIn: true, accounts: [account('Shane-Cursor'), account('legacy-cursor@harnessdesk.app')] },
+  [CURSOR]: { signedIn: true, accounts: [account('reviewer@example.com'), account('legacy-account-with-a-long-label@example.com')] },
   [CLAUDE]: { signedIn: true, accounts: [account('shane@harnessdesk.app')] },
 } as unknown as Record<string, AccountStatus>
 
@@ -93,7 +93,7 @@ export const previewUsage: UsageReport[] = [
     credits: null,
     spend: null,
     reached: null,
-    source: { kind: 'file', label: "from Claude Code's own cache" },
+    source: { kind: 'file', label: "from the agent's own cache" },
     fetchedAt: Date.now() - 4 * 60_000,
     staleAfterMs: 600_000,
     error: null,
@@ -127,20 +127,20 @@ export const previewUsage: UsageReport[] = [
      * of them sorted first with its account named nowhere.
      */
     runtime: CLAUDE,
-    account: 'olivia@harnessdesk.app',
+    account: 'jane@example.com',
     plan: 'Pro',
     lanes: [lane('session', 'Session', 12, 300, 0.31), lane('weekly', 'Weekly', 44, 10_080, 0.55)],
     credits: null,
     spend: null,
     reached: null,
-    source: { kind: 'file', label: "from Claude Code's own cache" },
+    source: { kind: 'file', label: "from the agent's own cache" },
     fetchedAt: Date.now() - 2 * 60_000,
     staleAfterMs: 600_000,
     error: null,
   },
   {
     runtime: CURSOR,
-    account: 'Shane-Cursor',
+    account: 'reviewer@example.com',
     plan: 'Pro',
     // Near its plan limit so the real sidebar's Dashboard attention badge is
     // present beside the destination, not only on the Dashboard screen.
@@ -148,7 +148,7 @@ export const previewUsage: UsageReport[] = [
     credits: { remaining: 10.66, used: 39.34, unit: 'USD' },
     spend: null,
     reached: null,
-    source: { kind: 'api', label: 'from cursor.com' },
+    source: { kind: 'api', label: 'from its own API' },
     fetchedAt: Date.now() - 90_000,
     staleAfterMs: 600_000,
     error: null,
@@ -159,7 +159,7 @@ export const previewUsage: UsageReport[] = [
     // has no percent to give it at all, so its figure is the legacy requests
     // lane instead — see `packages/server/src/usage/cursor.ts`.
     runtime: CURSOR,
-    account: 'legacy-cursor@harnessdesk.app',
+    account: 'legacy-account-with-a-long-label@example.com',
     plan: 'Pro',
     lanes: [
       lane('requests', 'Requests', (313 / 500) * 100, 30 * 1_440, 0.4, {
@@ -178,7 +178,7 @@ export const previewUsage: UsageReport[] = [
     credits: null,
     spend: null,
     reached: null,
-    source: { kind: 'api', label: 'from cursor.com' },
+    source: { kind: 'api', label: 'from its own API' },
     fetchedAt: Date.now() - 90_000,
     staleAfterMs: 600_000,
     error: null,
@@ -200,7 +200,7 @@ export const previewUsage: UsageReport[] = [
     // runway bar (balance ÷ a recent daily draw, against 30 days) has
     // something to plot rather than reading as "no history yet".
     runtime: CODEX,
-    account: 'balance@harnessdesk.app',
+    account: 'balance@example.com',
     plan: null,
     lanes: [],
     credits: { remaining: 8.8, unit: 'USD' },
@@ -230,7 +230,7 @@ export const previewUsage: UsageReport[] = [
     // Key: a metered account with a person's own budget set — the bar reads
     // what is left of that budget, never a vendor limit.
     runtime: CLAUDE,
-    account: 'key@harnessdesk.app',
+    account: 'key@example.com',
     plan: null,
     lanes: [],
     credits: null,
@@ -258,7 +258,7 @@ export const previewUsage: UsageReport[] = [
     // Free: local, no window and no balance to run out of — tokens and turns
     // are the whole story, and the table draws no bar at all for it.
     runtime: CURSOR,
-    account: 'free-tier@harnessdesk.app',
+    account: 'free-tier@example.com',
     plan: 'Hobby',
     lanes: [],
     credits: null,
@@ -286,7 +286,7 @@ export const previewUsage: UsageReport[] = [
     // has never answered `runtime/account` (`silentAgentsOf`, which this
     // fixture's three registered runtimes are all past).
     runtime: CODEX,
-    account: 'unused@harnessdesk.app',
+    account: 'unused@example.com',
     plan: null,
     lanes: [],
     credits: null,
@@ -302,7 +302,7 @@ export const previewUsage: UsageReport[] = [
     // continue" rather than a reset — a balance does not come back on its
     // own the way a window does.
     runtime: CLAUDE,
-    account: 'spent-balance@harnessdesk.app',
+    account: 'spent-balance@example.com',
     plan: null,
     lanes: [],
     credits: { remaining: -2.15, unit: 'USD' },
@@ -318,7 +318,7 @@ export const previewUsage: UsageReport[] = [
     // Key, no budget set: "No limit" rather than a bar with nothing to
     // measure against — the vendor sets no cap on a metered key at all.
     runtime: CURSOR,
-    account: 'key-no-budget@harnessdesk.app',
+    account: 'key-no-budget@example.com',
     plan: null,
     lanes: [],
     credits: null,
