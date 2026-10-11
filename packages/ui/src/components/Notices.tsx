@@ -3,7 +3,7 @@ import { RuntimeMark } from './BrandIcons'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
 
-import { sessionKey, type SessionId } from '@harnessdesk/protocol'
+import { allItems, sessionKey, type SessionId } from '@harnessdesk/protocol'
 
 import {
   useIsFocusedPane,
@@ -32,7 +32,8 @@ import { conditionFor } from '../lib/usage-alerts'
 import { isSilenced, offersMute, surfaceFor, wasKept, type NoticeIdentity, type NoticePolicy, type NoticeSurface } from '../lib/notice-policy'
 import { useShell, type ShellActions } from '../panels/views'
 import { useMount } from '../panels/mount'
-import { areaVisible, focusedComposerVisible, noticeArea, visibleViews, type AreaId } from '../state/workbench'
+import { areaVisible, focusedComposerVisible, mainNoticeHost, noticeArea, visibleViews, type AreaId } from '../state/workbench'
+import { findPane } from '../state/layout'
 import { useImportOffer } from './ImportOffer'
 
 /**
@@ -459,7 +460,7 @@ const useRegisterStripHost = (host: boolean, area: AreaId | undefined, key: stri
 export const NoticeStripFallback = ({ area }: { readonly area: AreaId }) => {
   const registry = useContext(ComposerMountsContext)
   if (registry?.stripHosts.some((host) => host.area === area)) return null
-  return <div className="contents" data-slot="workbench-notice-fallback" data-area={area}><NoticeStripOutlet host /></div>
+  return <div className="contents" data-slot="workbench-notice-fallback" data-area={area}><NoticeStripOutlet host area={area} /></div>
 }
 
 /**
@@ -653,10 +654,34 @@ export const NoticeStripOutlet = ({
   const registry = useContext(ComposerMountsContext)
   const standing = useStanding()
   const offer = useImportOffer()
+  const pane = usePane()
+  const sessionKeyOfPane = useSessionKey()
+  const fallbackPaneId = !pane && area === 'main' ? mainNoticeHost(snapshot.workbench, snapshot.windowWidth) : null
+  const fallbackPane = fallbackPaneId ? findPane(snapshot.layout, fallbackPaneId) : undefined
+  const currentDestination = snapshot.workbench.navigation.current
+  const fallbackSessionKey = fallbackPane?.view.kind === 'conversation' && currentDestination.kind === 'work' &&
+    currentDestination.view.kind === 'conversation'
+    ? fallbackPane.view.session
+    : null
+  const conversationSessionKey = pane?.view.kind === 'conversation'
+    ? sessionKeyOfPane
+    : fallbackSessionKey
+  const session = conversationSessionKey
+    ? snapshot.sessions.get(conversationSessionKey)
+    : undefined
+  const sessionHealth = session
+    ? snapshot.healthByRuntime[session.runtime] ?? (session.runtime === snapshot.activeRuntime ? snapshot.health : null)
+    : null
+  const bodyShowsStandingHealth = Boolean(
+    standing?.identity.kind === 'agent:health' && conversationSessionKey && session &&
+    snapshot.runtimes.some(runtime => runtime.id === session.runtime) && allItems(session).length === 0 &&
+    sessionHealth?.state === 'unavailable' && standing.runtime === session.runtime &&
+    standing.message.title === sessionHealth.message,
+  )
   if (!host) return null
   const messages: NoticeMessage[] = []
   const dismissals = new Map<string, () => void>()
-  if (standing) {
+  if (standing && !bodyShowsStandingHealth) {
     if (standingOutlet(snapshot, standing, registry?.mounts ?? [], registry !== null) === 'strip') {
       messages.push(standing.message)
       dismissals.set(standing.message.id, standing.dismiss)

@@ -103,3 +103,12 @@ test('R12.5 Details uses the shared disclosure chevron', async ({ page }) => {
     await expect(dialog.locator('[data-flow-details]')).toBeVisible()
   }
 })
+
+test('R12.7 an unavailable conversation keeps the message in its body without repeating it in the strip', async ({ page }) => {
+  const message = 'A runtime was found at /work/fixture/bin/agent, but did not report its version.'
+  for (const theme of ['light', 'dark'] as const) for (const width of [1280, 720]) {
+    await openFrame(page, 'frame-wall=conversation&frame-fix6-runtime-unavailable=1', theme, width)
+    await expect(page.locator('[data-slot="conversation-empty-state"]')).toContainText(message)
+    await expect(page.locator('[data-slot="notice-strip"]')).toHaveCount(0)
+  }
+})

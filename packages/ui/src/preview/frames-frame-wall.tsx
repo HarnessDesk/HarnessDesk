@@ -180,10 +180,15 @@ const TopBarProbe = () => {
 }
 
 export const FrameWall = () => {
+  const themeStore = useStore()
   useTheme()
   const requested = new URLSearchParams(location.search).get('frame-wall')
   const destination: Destination = FRAME_WALL_DESTINATIONS.find((one) => one === requested) ?? 'conversation'
   const query = new URLSearchParams(location.search)
+  const requestedTheme = query.get('theme')
+  useEffect(() => {
+    if (requestedTheme === 'light' || requestedTheme === 'dark') themeStore.setTheme(requestedTheme)
+  }, [requestedTheme, themeStore])
   const store = useMemo(() => {
     const complete = previewStore()
     const ids = framePageIds(complete.getSnapshot())
@@ -455,6 +460,29 @@ export const FrameWall = () => {
         activeSessionKey: key,
       })
       showing(next, { kind: 'conversation', session: key }, key)
+    }
+    if (destination === 'conversation' && session && query.get('frame-fix6-runtime-unavailable') === '1') {
+      const message = 'A runtime was found at /work/fixture/bin/agent, but did not report its version.'
+      const unavailable = {
+        ...session,
+        title: 'Review the fixture changes',
+        createdAt: 1,
+        updatedAt: 2,
+        status: { type: 'idle' as const },
+        turns: [],
+        itemsLoaded: true,
+      }
+      Object.assign(snapshot, {
+        theme: query.get('theme') === 'dark' ? 'dark' : 'light',
+        activeRuntime: session.runtime,
+        activeSessionKey: PREVIEW_SESSION_KEY,
+        sessions: new Map(snapshot.sessions).set(PREVIEW_SESSION_KEY, unavailable),
+        healthByRuntime: {
+          ...snapshot.healthByRuntime,
+          [session.runtime]: { state: 'unavailable' as const, reason: 'unreadable' as const, message },
+        },
+      })
+      showing(next, { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY)
     }
     if (destination === 'conversation' && session && query.get('frame-overflow') === '1') {
       const longToken = 'x'.repeat(600)
