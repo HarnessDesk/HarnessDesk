@@ -22,8 +22,7 @@ import { RowChoice, Rows, SectionHead } from './Settings'
  * the modules last and the dev preview loads the utilities last, so any
  * property both say is drawn one way in one and the other way in the other:
  * `ConfirmDialog`'s `.content { padding: 0 }` against the primitive's `p-4`
- * gave every confirm in the preview a second 16px frame, and `ModalDialog`'s
- * 14px title lost to `text-base` there. So on every element of both dialogs,
+ * gave every confirm in the preview a second 16px frame. So on every element of both dialogs,
  * no utility may set a property the element's own module rule sets — the
  * pattern says it once, through `cn` (which drops the conflicting utility)
  * or through its sheet, never both.
@@ -135,7 +134,7 @@ it('a confirm owns its box: no utility on any of its parts ties with its sheet',
   ))
   const parts = ties(document.body)
   // The guard on the guard: every part the sheet draws was found and read.
-  expect(parts.map((one) => one.local).sort()).toEqual(expect.arrayContaining(['body', 'footer', 'header', 'icon', 'title']))
+  expect(parts.map((one) => one.local).sort()).toEqual(expect.arrayContaining(['body', 'footer', 'header', 'title', 'footerActions']))
   for (const part of parts) expect(part.ties, part.element).toEqual([])
 })
 
@@ -158,7 +157,7 @@ it('a dialog owns its box: no utility on any of its parts ties with its sheet', 
     <Dialog
       title="Save as an Agent"
       icon={<span>i</span>}
-      subhead="Where"
+      bodyPrelude="Where"
       onClose={() => {}}
       footer={<Button>Save</Button>}
       footerAside="⌘⏎"
@@ -180,7 +179,7 @@ it('a dialog owns its box: no utility on any of its parts ties with its sheet', 
   ))
   const parts = ties(document.body)
   expect(parts.map((one) => one.local)).toEqual(expect.arrayContaining([
-    'header', 'title', 'subhead', 'body', 'footer', 'stack',
+    'header', 'title', 'bodyPrelude', 'body', 'footer', 'footerActions', 'stack',
     'fieldset', 'fieldsetBody', 'legend', 'legendName', 'legendHint', 'choiceList', 'choice', 'radio', 'choiceTitle', 'choiceDesc',
   ]))
   for (const part of parts) expect(part.ties, part.element).toEqual([])

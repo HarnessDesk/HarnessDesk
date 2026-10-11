@@ -27,15 +27,12 @@ import {
   CodeText,
   DialogBody,
   DialogContent,
-  DialogDescription,
   DialogHead,
   DialogRoot,
-  DialogSubhead,
   EmptyState,
   IconTile,
   KeyValue,
   KeyValueRow,
-  Monogram,
   SectionFooter,
   Segmented,
   Separator,
@@ -45,7 +42,6 @@ import {
 import { installSource, type LibraryColumn, type LibraryFlow } from './LibraryActions'
 import { shortPath } from '../lib/paths'
 import { REACH_SENTENCE } from '../lib/reach-states'
-import { monogramFor } from './SkillRow'
 
 /**
  * One skill, opened.
@@ -421,26 +417,12 @@ export const SkillSheet = ({
       >
         {/* --- the head: what this is ---------------------------------- */}
         <DialogHead
-          icon={
-            <IconTile size="lg" aria-hidden>
-              <Monogram>{monogramFor(entry.name)}</Monogram>
-            </IconTile>
-          }
           title={entry.title ?? entry.name}
           aside={<Badge variant="secondary">{entry.kind === 'skill' ? 'Skill' : 'MCP server'}</Badge>}
         >
-          {/* The name as it is typed. Same reasoning as the card: the
-              on-disk identity and the invocation are two different
-              strings, and only showing the first leaves the second to
-              guesswork. It stays in the code face: it is what you type. */}
           <Text role="meta">
             <CodeText as="code">{entry.kind === 'skill' ? `/${entry.name}` : entry.name}</CodeText>
           </Text>
-          {entry.description && (
-            <DialogDescription className="m-0">
-              <Text role="muted">{entry.description}</Text>
-            </DialogDescription>
-          )}
         </DialogHead>
 
         {/* --- the body: the document, and the evidence ----------------- */}
@@ -458,29 +440,29 @@ export const SkillSheet = ({
           {/* The definition. The largest thing in the sheet, because it is
               the thing the sheet is about. */}
           <div className="flex min-w-0 flex-col md:min-h-0">
-            <DialogSubhead className="justify-between">
-              <Segmented
-                label="How to show the definition"
-                value={view}
-                options={[
-                  { value: 'rendered', label: 'Rendered' },
-                  { value: 'source', label: 'Source' },
-                ]}
-                onChange={setView}
-              />
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={definition === null}
-                onClick={copy}
-                title="Copy the definition exactly as it sits on disk"
-              >
-                <CopyIcon size={13} />
-                {copied ? 'Copied' : 'Copy'}
-              </Button>
-            </DialogSubhead>
-
             <DialogBody layout="reading">
+              <div className="mb-4 flex items-center justify-between gap-2">
+                <Segmented
+                  label="How to show the definition"
+                  value={view}
+                  options={[
+                    { value: 'rendered', label: 'Rendered' },
+                    { value: 'source', label: 'Source' },
+                  ]}
+                  onChange={setView}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={definition === null}
+                  onClick={copy}
+                  title="Copy the definition exactly as it sits on disk"
+                >
+                  <CopyIcon size={13} />
+                  {copied ? 'Copied' : 'Copy'}
+                </Button>
+              </div>
+              {entry.description && <Text as="p" role="muted" className="mb-4">{entry.description}</Text>}
               {reading ? (
                 <EmptyState variant="inline" title="Reading the definition…" />
               ) : definition === null ? (
@@ -569,7 +551,9 @@ export const SkillSheet = ({
                     <div key={reach.runtime} role="listitem" className="flex min-w-0 items-baseline gap-2">
                       <span className="flex flex-none translate-y-0.5 items-center gap-1.5">
                         {column?.info ? (
-                          <RuntimeMark runtime={column.info} size={12} />
+                          <IconTile aria-hidden="true" size="xs" shape="face">
+                            <RuntimeMark runtime={column.info} size={12} />
+                          </IconTile>
                         ) : (
                           <span className="inline-block w-3" />
                         )}

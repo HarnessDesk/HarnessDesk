@@ -15,9 +15,9 @@ import { DialogFooter } from './dialog'
  * one.
  *
  * Every footer in this app is `row-reverse`, so the button written first
- * paints rightmost: `Dialog.module.css`'s `.footer` behind the app's dialogs,
- * the `footer` prop on `Dialog` that says to write the confirming action
- * first, and `ConfirmDialog`, which had it the other way round until #200.
+ * paints rightmost: the pattern footer's `.footerActions`, the `footer` prop
+ * on `Dialog` that says to write the confirming action first, and
+ * `ConfirmDialog`, which had it the other way round until #200.
  * The shadcn layer's `DialogFooter` was still the stock `flex-row
  * justify-end`, which paints in written order — so the first surface to write
  * a footer the app's way would have painted its proceeding action on the
@@ -126,9 +126,8 @@ it('compiles from the utility source the app actually ships', () => {
 })
 
 it('agrees with the footer the app draws today', () => {
-  /* `Dialog.module.css`'s `.footer` is the live one — every dialog in the app
-     is the `Dialog` primitive, and `ConfirmDialog.test.tsx` computes this
-     same direction from the real sheet. Read as text here because the rule
-     being pinned is that the two idioms answer the question the same way. */
-  expect(dialogSheet).toMatch(/\.footer\s*\{[^}]*flex-direction:\s*row-reverse/)
+  /* `ModalDialog.module.css`'s `.footerActions` is the live pattern slot.
+     Read it as text because the rule being pinned is that the two idioms
+     answer the question the same way. */
+  expect(dialogSheet).toMatch(/\.footerActions\s*\{[^}]*flex-direction:\s*row-reverse/)
 })

@@ -1617,36 +1617,34 @@ A switch stays open; Base UI supplies checkbox-menu keyboard semantics.
 
 `packages/ui/src/design/patterns/ModalDialog.tsx`
 
-The head every dialog wears: its mark, its name, and the way out.
+The head every dialog wears: its name, context, short description, and way out.
 
 `Dialog` draws it, and so does a sheet that lays out its own body — the
 skill sheet — so a dialog's name is one step, one inset and one rule under
-it whichever of them is open. The name is the subject step (14/21, medium):
-a dialog names one question or one thing, and a page names a place.
+it whichever of them is open. The name is the title step (16/24, semibold).
 
-`aside` sits on the name's own line (a kind badge); `children` are the lines
+`aside` sits after the name on its line (a context chip); `children` are one
 under it — an identifier, the sentence saying what the thing is — and the
-head then aligns to its top, so the mark and the way out stay beside the
+head then aligns to its top, so the title and the way out stay beside the
 name rather than drifting to the middle of a paragraph.
-
-### `DialogSubhead`
-
-`packages/ui/src/design/patterns/ModalDialog.tsx`
-
-Under the head, above the body, and outside the scroll: a breadcrumb, or
-the view switch of a document, still there after the body has scrolled.
 
 ### `DialogBody`
 
 `packages/ui/src/design/patterns/ModalDialog.tsx`
 
-A dialog's body, which scrolls and is inset the dialog's step.
+A dialog's body, which scrolls and keeps 24px on every side in every layout.
 
-`form` (what `Dialog` draws unless it is `flush`) is the form stack: its
-children are 16px apart, a `SectionHead` in it is a legend, and a `Rows`
-radio group is a compact `ChoiceList`. `flush` is a list whose rows reach
-the edges. `reading` is inset like a form and is not one — a document, or
-the facts beside it — so its parts keep their own rhythm.
+Every body keeps the dialog inset on all four sides. `form` (what `Dialog`
+draws unless it is `flush`) is the form stack: its children are 16px apart,
+a `SectionHead` in it is a legend, and a `Rows` radio group is a compact
+`ChoiceList`. `flush` changes the child grammar for a list; it does not
+remove the body's inset. `reading` is an inset document or facts column.
+
+### `DialogFooter`
+
+`packages/ui/src/design/patterns/ModalDialog.tsx`
+
+One same-height footer band, with an optional quiet link at the left and actions at the right.
 
 ### `Dialog`
 
@@ -1659,8 +1657,8 @@ footer and measured sizes.
 The body is a form stack (`DialogForm`) unless it is `flush`: its children
 are 16px apart, a `SectionHead` in it is a legend on the group it names,
 and a `Rows` radio group of `RowChoice` rows is a compact `ChoiceList`.
-Nothing in the body needs spacing of its own. A `flush` body is a list and
-is not a form, so it keeps the page's parts.
+The body keeps its 24px inset in every layout. A `flush` body is a list and
+is not a form, so it keeps the page's parts inside that inset.
 
 ### `NoticeCard`
 
@@ -2247,5 +2245,5 @@ list only goes down, except when the audit learns to see something it was blind 
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 76 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 21 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2840 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `screenLayout` | 2827 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 

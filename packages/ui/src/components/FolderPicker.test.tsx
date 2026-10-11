@@ -83,6 +83,7 @@ it('draws a separator between crumbs as the item’s own sibling, not its child'
   await act(async () => {})
 
   expect(document.body.textContent).toContain('harness-desk')
+  expect(document.querySelector('[data-slot="dialog-description"]')?.textContent).toBe('Click a folder to enter it; open the one you are in.')
   const crumbs = [...document.querySelectorAll('[data-slot="breadcrumb-page"], [data-slot="breadcrumb-item"] button')]
   expect(crumbs.some((el) => el.textContent === 'harness-desk')).toBe(true)
 })

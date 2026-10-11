@@ -2,9 +2,9 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import type { AgentEntry, FlowEntry, FlowExecution, FlowPolicy, StartContext } from '@harnessdesk/protocol'
 
-import { ActionError, Banner, Button, Chip, Dialog, Field, IconTile, Input, Note, Row, SectionHead, Text, Textarea } from '../design'
+import { ActionError, Banner, Button, Chip, Dialog, Field, IconTile, Input, Note, Row, SectionHead, Search, Text, Textarea } from '../design'
 import { pickerSections, readShapeStarts, recordShapeStart, shapeSummary, supportsAttemptCheck, withAttemptCheck } from '../lib/team-start'
-import { ChevronIcon, FlowIcon, PencilIcon, PlusIcon, ReviewIcon, SearchIcon, SideBySideIcon, TeamIcon } from './Icons'
+import { ChevronIcon, FlowIcon, PencilIcon, PlusIcon, ReviewIcon, SearchIcon, SideBySideIcon, RouteIcon, TeamIcon } from './Icons'
 import { GoalCreate } from './GoalCreate'
 import styles from './FrontDoor.module.css'
 import { shortSha } from '../lib/evidence'
@@ -295,7 +295,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
 
   if (plainTeam) return <GoalCreate root={root} task={task} onTaskChange={value => { taskRef.current = value; setTask(value) }} done={sentence} onDoneChange={setSentence} onChangeShape={() => setPlainTeam(false)} onClose={onClose} />
 
-  const icon = (id: string) => id === 'comparison' ? <SideBySideIcon /> : id === 'fix-and-review' ? <PencilIcon /> : id.includes('review') ? <ReviewIcon /> : id === 'investigation' ? <SearchIcon /> : <FlowIcon />
+  const icon = (id: string) => id === 'comparison' ? <SideBySideIcon /> : id === 'fix-and-review' ? <PencilIcon /> : id === 'staged-relay' ? <RouteIcon /> : id.includes('review') ? <ReviewIcon /> : id === 'investigation' ? <SearchIcon /> : <FlowIcon />
   const project = root.split('/').filter(Boolean).at(-1) ?? root
   let cardIndex = 0
   const group = (name: string, list: readonly FlowEntry[], extra?: ReactNode) => (list.length > 0 || extra) && <section className={styles.section} aria-label={name}>
@@ -314,9 +314,10 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
   </section>
 
   return (
-    <Dialog title={chosen ? chosen.name : 'New Team'} icon={chosen ? <IconTile tint="blue">{icon(chosen.id)}</IconTile> : undefined}
-      titleAside={<><Chip tone="neutral">{project}</Chip>{chosen && <Button variant="quiet" disabled={starting || policyPending} onClick={changeShape}>Change</Button>}</>}
-      description={!chosen ? <Text role="muted">Pick how the agents work together. You fill in the task next.</Text> : undefined}
+    <Dialog title={chosen ? chosen.name : 'New Team'}
+      titleAside={<Chip tone="neutral">{project}</Chip>}
+      description={!chosen ? 'Choose how the agents work together.' : undefined}
+      bodyPrelude={chosen && <Button variant="quiet" disabled={starting || policyPending} onClick={changeShape}>Change</Button>}
       size={chosen ? 'xl' : 'wide'} onClose={onClose}
       footer={chosen ? <><Button variant="default" disabled={!startable || !sentenceValid || briefReading || policyPending || starting} onClick={() => void start()}>{starting ? 'Starting…' : 'Start'}</Button><Button variant="secondary" disabled={starting} onClick={onClose}>Cancel</Button></> : undefined}
       footerAside={chosen ? <Text role="meta">{chosen.id === 'comparison' ? 'You decide whether to merge the winner.' : `The Team opens under ${project} in the sidebar.`}</Text> : undefined}
@@ -332,7 +333,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
           event.preventDefault(); cardRefs.current[Math.min(activeCard, cardCount - 1)]?.click()
         }
       }} className={styles.picker}>
-        <Input autoFocus aria-label="Search shapes" placeholder="Search: review, compare, plan…" value={query} onChange={event => { setQuery(event.target.value); setActiveCard(0) }} />
+        <Search autoFocus label="Search shapes" placeholder="Search shapes…" value={query} onChange={value => { setQuery(value); setActiveCard(0) }} />
         {unlisted !== null && <Banner tone="danger" title="These shapes could not be read">{unlisted}</Banner>}
         {group('This project', sections.project)}
         {group('Most used', sections.most)}

@@ -117,6 +117,32 @@ it('focuses search, filters by summary, and picks with the keyboard', async () =
   expect(document.body.textContent).toContain('Done when · optional')
 })
 
+it('gives the shape search its search glyph and a plain Search placeholder', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, {
+    'flow/catalog': () => [ENTRY('review', 'Review')], 'agent/list': () => [], 'flow/source': () => 'source',
+  })
+  render(store)
+  await settle()
+
+  const search = document.querySelector<HTMLElement>('[data-slot="search"]')
+  expect(search?.querySelector('svg')).not.toBeNull()
+  expect(search?.querySelector<HTMLInputElement>('input[type="search"]')?.placeholder).toBe('Search shapes…')
+})
+
+it('uses a distinct icon for Fan-out review and Staged relay', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, {
+    'flow/catalog': () => [ENTRY('fan-out', 'Fan-out review'), ENTRY('staged-relay', 'Staged relay')],
+    'agent/list': () => [], 'flow/source': () => 'source',
+  })
+  render(store)
+  await settle()
+
+  const icon = (name: string): string | null => rowFor(name).querySelector('svg')?.getAttribute('class') ?? null
+  expect(icon('Fan-out review')).not.toBe(icon('Staged relay'))
+})
+
 it('Change keeps the task and Done when is the sentence sent to start', async () => {
   const store = new AppStore('ws://localhost:0/')
   const base = emptyFlow('token')
