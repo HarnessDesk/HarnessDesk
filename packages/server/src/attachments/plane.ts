@@ -12,6 +12,7 @@ import {
   type AttachmentLoadResult,
   type AttachmentSupport,
   type CeilingLevel,
+  type FlowPreviewSeat,
   type SeatAttachmentsRecord,
   type SeatId,
   type SeatRecord,
@@ -177,7 +178,11 @@ export async function receiptFrom(
 export class HeldBeyondFilterError extends Error {}
 
 /** Thrown by `prepare`/`reapply` when the runtime cannot be trusted not to auto-load unapproved repository content on its own. */
-export class UnsuppressedAutoLoadError extends Error {}
+export class UnsuppressedAutoLoadError extends Error {
+  constructor(message: string, readonly declarations: readonly AttachmentDeclaration[] = []) {
+    super(message)
+  }
+}
 
 /**
  * What a Seat froze at open, kept in machine state beside its receipts: the
@@ -385,6 +390,33 @@ export class AttachmentsPlane {
     return prepared
   }
 
+  /** The opening decision, without staging, pinning content or recording a Seat. */
+  async preflight(subject: AttachmentSubject): Promise<NonNullable<FlowPreviewSeat['attachments']>> {
+    const { declarations: found, resolved } = await this.port.resolve(subject)
+    const modes = {
+      skillsMode: found.some(one => one.kind === 'skill') ? 'allowlist' as const : 'runtime-defaults' as const,
+      mcpMode: found.some(one => one.kind === 'mcp') ? 'allowlist' as const : 'runtime-defaults' as const,
+    }
+    try {
+      const decided = await this.#decide(subject, found, null, async declaration => {
+        const read = resolved.find(one => one.identity.kind === declaration.kind && one.identity.name === declaration.name && one.identity.digest === declaration.identity?.digest)
+        if (!read) return { problem: 'This content was not read, so it cannot be loaded.' }
+        if (declaration.kind === 'skill') {
+          if (bundleDigest(read.files) !== declaration.identity!.digest) return { problem: 'The content read is not the content that was approved; review it again.' }
+          return { path: '' }
+        }
+        if (!read.server || mcpIdentityDigest(read.server) !== declaration.identity!.digest) {
+          return { problem: 'This server’s configuration is not the one that was approved; review it again.' }
+        }
+        return { endpoint: endpointOf(declaration.identity!), spec: read.server }
+      })
+      return { ...modes, declarations: decided.declarations, refusal: null }
+    } catch (error) {
+      if (!(error instanceof UnsuppressedAutoLoadError)) throw error
+      return { ...modes, declarations: error.declarations, refusal: error.message }
+    }
+  }
+
   /**
    * A reopen of a Seat that froze attachments — a resume, a reconnect after
    * its runtime restarted, a load: the frozen declarations, re-applied to a
@@ -516,6 +548,7 @@ export class AttachmentsPlane {
     if (anyUnapproved && !(await this.port.suppressUnapproved(subject))) {
       throw new UnsuppressedAutoLoadError(
         'This agent cannot be stopped from loading unapproved repository content on its own for this Seat.',
+        finalized,
       )
     }
 

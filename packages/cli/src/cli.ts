@@ -149,7 +149,7 @@ export const COMMANDS = [
   {
     name: 'flow preview', tier: 'read', methods: ['flow/source', 'flow/preview'], flags: ['target', 'project', 'title', 'briefFile', 'input', 'seat', 'unattended'], execute: previewFlow,
     usage: 'flow preview <flow> [--project PATH] [--title TEXT] [--brief-file PATH] [--input NAME=VALUE] [--seat ROLE=RUNTIME] [--unattended]',
-    description: "Says what a flow would do, without doing it or spending anything. It lists the seats the flow would open (with any override beside the file's own), the check commands it would run, and everything wrong with it. A preview opens no session, spends nothing and starts nothing, so it is free to repeat. Warnings stay visible and do not stop a start.",
+    description: "Says what a flow would do, without doing it or spending anything. It lists the seats the flow would open (with any override beside the file's own), which declared skills and servers would load and why any would not, the check commands it would run, and everything wrong with it. A seat that would be refused stops Start. A preview opens no session, spends nothing and starts nothing, so it is free to repeat. Warnings stay visible and do not stop a start.",
     arguments: [FLOW_ARGUMENT],
     options: FLOW_OPTIONS,
     json: "The preview exactly as the desk returns it: `token` (what a start redeems; `null` when the flow has an error a start could not get past), `attended`, `overrides`, `compiled`, `seats`, `commands`, `guards`, `messaging` and `problems`.",
@@ -623,13 +623,28 @@ async function flowRequest(args: Arguments, client: Client) {
   return { root, source, vars, ...options, preview }
 }
 
-function printPreview(preview: FlowPreview, stream: NodeJS.WritableStream = process.stdout): void {
+export function printPreview(preview: FlowPreview, stream: NodeJS.WritableStream = process.stdout): void {
   const write = (parts: readonly unknown[]) => stream.write(parts.filter(part => part !== undefined && part !== null).map(part => sanitizeHuman(String(part))).join('  ') + '\n')
   write([preview.compiled.document.flow.name, preview.attended === false ? 'unattended' : 'attended', 'preview spends nothing'])
   for (const [role, seats] of Object.entries(preview.overrides ?? {})) write([role, 'override', seats.run.map(seatSpec).join(', '), 'file:', seats.file.map(seatSpec).join(', ')])
   for (const seat of preview.seats) {
     const candidate = seat.plan.winner === null ? null : seat.plan.candidates[seat.plan.winner]
     write([`${seat.role}[${seat.index + 1}]`, candidate?.label ?? seat.agent ?? 'unavailable', seat.plan.ceiling?.hold ?? 'unavailable', seat.plan.blocked])
+    const attachments = seat.attachments
+    if (attachments && attachments.declarations.length > 0) {
+      const summary = (kind: 'skill' | 'mcp', mode: 'runtime-defaults' | 'allowlist'): string => {
+        if (mode === 'runtime-defaults') return 'runtime defaults'
+        const declarations = attachments.declarations.filter(one => one.kind === kind)
+        const loads = declarations.filter(one => one.problem === null).length
+        const review = declarations.filter(one => sanitizeHuman(one.problem ?? '').startsWith('Review ')).length
+        const other = declarations.length - loads - review
+        return [`${loads} load`, ...(review ? [`${review} needs review`] : []), ...(other ? [`${other} will not load`] : [])].join(' · ')
+      }
+      write([`${seat.role}[${seat.index + 1}]`, `skills ${summary('skill', attachments.skillsMode)}`, `servers ${summary('mcp', attachments.mcpMode)}`])
+      for (const declaration of attachments.declarations) {
+        if (declaration.problem !== null) write(['', declaration.kind === 'mcp' ? 'server' : 'skill', declaration.name, declaration.problem])
+      }
+    }
   }
   for (const check of preview.commands) write(['check', check.role, check.run, `cwd ${check.cwd}`, `timeout ${check.timeout}s`])
   for (const problem of preview.problems) write(['problem', problem.at, problem.text])
