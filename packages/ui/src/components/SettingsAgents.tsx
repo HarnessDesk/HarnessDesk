@@ -2076,8 +2076,6 @@ export const RuntimesSection = ({
   verb={{ label: 'Add a runtime', run: () => setView({ kind: 'add' }) }} />
 <PageExplanation>What your Agents run on: the agent programs HarnessDesk can start, and the accounts each is signed in as.</PageExplanation>
 
-      <RuntimeResources />
-
       {/* Two agents fit on a screen and need no help being found; the filters
           arrive with the third, which is where scrolling starts. */}
       {groups.length > 2 && (
@@ -2136,6 +2134,7 @@ export const RuntimesSection = ({
           </div>
         ))
       )}
+      <RuntimeResources />
     </>
   )
 }

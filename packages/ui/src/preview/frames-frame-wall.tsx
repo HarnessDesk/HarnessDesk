@@ -241,10 +241,12 @@ export const FrameWall = () => {
           name,
           version: versions[index],
           ceilings,
-          capabilities: { ...base.capabilities, listHistory: index < 6, extensionStore: index === 0 },
+          capabilities: { ...base.capabilities, account: index === 5 || base.capabilities.account, listHistory: index < 6, extensionStore: index === 0 },
           presentation: { ...base.presentation, name },
         }
       })
+      const healthByRuntime = { ...snapshot.healthByRuntime }
+      delete healthByRuntime[ids[5]!]
       Object.assign(snapshot, {
         runtimes,
         activeRuntime: ids[0],
@@ -257,8 +259,11 @@ export const FrameWall = () => {
           path: '~/.config/harnessdesk/skills/preview-skill',
           scope: 'user',
         }],
-        healthByRuntime: { ...snapshot.healthByRuntime,
-          windsurf: { state: 'unavailable', reason: 'notInstalled', message: 'Unavailable in this preview.' } },
+        healthByRuntime,
+        accountsByRuntime: { ...snapshot.accountsByRuntime, [ids[5]!]: {
+          accounts: [],
+          signInMethods: [{ id: 'browser', label: 'Sign in in your browser', flow: 'browser' }],
+        } },
       })
     }
     if (query.get('frame-short-title') === '1') {

@@ -22,7 +22,7 @@ export const frameDestinationStore = (fixture: AppStore): AppStore => {
     if (method === 'app/state/get') return {}
     if (method === 'app/state/set') return {}
     const query = params as { runtime: RuntimeId; root: string; project: string; account: string; plan?: string|null }
-    if (method === 'runtime/account') return seed.accountsByRuntime[query.runtime] ?? {accounts:[],signInMethods:[]}
+    if (method === 'runtime/account') return store.getSnapshot().accountsByRuntime[query.runtime] ?? seed.accountsByRuntime[query.runtime] ?? {accounts:[],signInMethods:[]}
     if (method === 'runtime/resources') return fixture.runtimeResources()
     if (method === 'runtime/health') return fixture.healthFor(query.runtime)
     if (method === 'runtime/limits') return fixture.limitsFor(query.runtime)
