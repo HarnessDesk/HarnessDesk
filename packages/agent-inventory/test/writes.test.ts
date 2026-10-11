@@ -1233,6 +1233,59 @@ test('an oversized target refuses its operation while other planning intents pro
   }
 })
 
+test('an oversized skill definition refuses removal while the next intent proceeds', async (t) => {
+  for (const flat of [true, false]) {
+    await t.test(flat ? 'flat file' : 'bundle definition', async () => {
+      await withHome(async (home, libraryDir) => {
+        const targetPath = join(home, flat ? '.claude/skills/commit.md' : '.claude/skills/commit')
+        const definitionPath = flat ? targetPath : join(targetPath, 'SKILL.md')
+        await mkdir(join(home, '.claude/skills'), { recursive: true })
+        if (!flat) await mkdir(targetPath)
+        await writeFile(definitionPath, BODY)
+        await truncate(definitionPath, 21 * 1024 * 1024)
+        const context = { home, libraryDir }
+        const plan = await planLibrary([agent('claudecode')], [
+          { kind: 'removeCopy', name: 'commit', path: targetPath },
+          { kind: 'authorSkill', name: 'next', content: BODY, targetRuntimes: [runtimeId('claudecode')] },
+        ], context)
+        assert.deepEqual(plan.ops.map((op) => op.action), ['refuse', 'create'])
+        assert.equal(plan.ops[0]?.targetPath, targetPath)
+        assert.match(plan.ops[0]?.reason ?? '', /more than 20 MB/i)
+        assert.equal(plan.ops[0]?.guardBundle, undefined)
+        assert.deepEqual((await applyLibrary(plan.ops, context)).map((op) => op.outcome), ['skipped', 'done'])
+        assert.equal((await lstat(definitionPath)).size, 21 * 1024 * 1024)
+        assert.equal((await readFile(definitionPath)).subarray(0, Buffer.byteLength(BODY)).toString(), BODY)
+        assert.equal(existsSync(join(libraryDir, 'backups')), false)
+        assert.equal(await readFile(join(home, '.claude/skills/next/SKILL.md'), 'utf8'), BODY)
+      })
+    })
+  }
+})
+
+test('an oversized flat definition cannot be removed by an operation claiming no definition', async () => {
+  await withHome(async (home, libraryDir) => {
+    const targetPath = join(home, '.claude/skills/commit.md')
+    await mkdir(join(home, '.claude/skills'), { recursive: true })
+    await writeFile(targetPath, BODY)
+    await truncate(targetPath, 21 * 1024 * 1024)
+    const context = { home, libraryDir }
+    const next = await planLibrary([agent('claudecode')], [
+      { kind: 'authorSkill', name: 'next', content: BODY, targetRuntimes: [runtimeId('claudecode')] },
+    ], context)
+    const results = await applyLibrary([
+      { id: 'unreadable-flat', kind: 'skill', name: 'commit', action: 'remove', targetPath,
+        guardDigest: null, guardBundle: null, backup: false },
+      ...next.ops,
+    ], context)
+    assert.deepEqual(results.map((op) => op.outcome), ['failed', 'done'])
+    assert.match(results[0]?.detail ?? '', /more than 20 MB/i)
+    assert.equal(results[0]?.backupPath, undefined)
+    assert.equal((await lstat(targetPath)).size, 21 * 1024 * 1024)
+    assert.equal((await readFile(targetPath)).subarray(0, Buffer.byteLength(BODY)).toString(), BODY)
+    assert.equal(existsSync(join(libraryDir, 'backups')), false)
+  })
+})
+
 test('a source file swapped for a FIFO at open fails alone without blocking apply', async () => {
   await withHome(async (home, libraryDir) => {
     const sourcePath = join(home, '.codex/skills/commit')

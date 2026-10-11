@@ -136,8 +136,10 @@ const readDefinition = (path: string): Definition | null => {
     if (stats.isFile()) {
       return { container: path, flat: true, text: readSkillFile(path, MAX_BUNDLE_BYTES).bytes.toString('utf8') }
     }
-  } catch {
-    return null
+  } catch (error) {
+    // A missing definition is hollow; a failed read does not make its bytes disposable.
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw new SkillBundleReadError(path, error)
   }
   return null
 }
