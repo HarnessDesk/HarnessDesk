@@ -42,3 +42,14 @@ test('FIX10 stopped Team agrees while its waiting turn finishes', async ({ page 
   await expect(page.locator('[data-seat="seat-1"] [data-slot="seat-state"]')).toHaveText('Stopped')
   }
 })
+
+
+test('FIX10 Activity figure labels use sentence case', async ({ page }) => {
+  for (const theme of ['light', 'dark'] as const) {
+    await openFrame(page, 'frame-wall=dashboard&frame-view=activity&frame-empty-usage=1', theme)
+    const activity = page.getByRole('region', { name: 'When it ran', exact: true })
+    await expect(activity.locator('[data-slot="stat-label"]')).toHaveText(['Last 12 months', 'Active days', 'Streak · best 0', 'Busiest day', 'Did the most'])
+    await page.getByRole('combobox', { name: 'Show by', exact: true }).selectOption('hour')
+    await expect(activity.locator('[data-slot="stat-label"]')).toHaveText(['Tokens, last 12 months', 'Busiest hour', 'Busiest day of the week'])
+  }
+})

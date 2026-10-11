@@ -176,7 +176,7 @@ export const UsageActivity = ({
 
   const inView = view === 'year' ? yearCells : recentCells
   // Year levels off the combined per-day totals; By agent has to level off
-  // each agent's own cells instead, or a lighter agent's busiest day almost
+  // each agent's own cells instead, or a lighter agent's Busiest day almost
   // never clears the heaviest agent's first quartile (review #990, item 4).
   const levelOf = useMemo(
     () => (view === 'year' ? yearLevels(yearCells, dayMetric) : agentLevels(agentRows, dayMetric)),
@@ -256,14 +256,14 @@ export const UsageActivity = ({
         <ChartCard>
           <DashboardStats facts={view === 'hour' ? [
             {id:'total',label:hourMetric === 'calls' ? 'Calls, last 12 months' : tokensWithoutHour > 0 ? 'Tokens with a recorded hour' : 'Tokens, last 12 months',value:!hourGrid.available ? '—' : hourMetric === 'calls' ? hourTotal.toLocaleString() : formatTokens(hourTotal)},
-            {id:'hour',label:'busiest hour',value:busiestHour ? `${WEEKDAY_NAMES[busiestHour.weekday]?.slice(0,3)} ${busiestHour.hour % 12 || 12} ${busiestHour.hour < 12 ? 'AM' : 'PM'}` : '—'},
-            {id:'weekday',label:'busiest day of the week',value:busiestHourWeekday === null ? '—' : WEEKDAY_NAMES[busiestHourWeekday]},
+            {id:'hour',label:'Busiest hour',value:busiestHour ? `${WEEKDAY_NAMES[busiestHour.weekday]?.slice(0,3)} ${busiestHour.hour % 12 || 12} ${busiestHour.hour < 12 ? 'AM' : 'PM'}` : '—'},
+            {id:'weekday',label:'Busiest day of the week',value:busiestHourWeekday === null ? '—' : WEEKDAY_NAMES[busiestHourWeekday]},
           ] : [
-            {id:'total',label:view === 'year' ? 'Last 12 months' : 'last 13 weeks',value:totalLabel,caption:somePartiallyUnpriced ? 'some unpriced' : undefined},
+            {id:'total',label:view === 'year' ? 'Last 12 months' : 'Last 13 weeks',value:totalLabel,caption:somePartiallyUnpriced ? 'some unpriced' : undefined},
             {id:'active',label:'Active days',value:activeCount,caption:`${scannedCount} days scanned`},
-            {id:'streak',label:`streak · best ${streaks.best}`,value:`${streaks.current} days`},
-            {id:'busiest',label:busiest ? dayLabelLong(busiest.day) : 'busiest day',value:busiest ? dayMetric === 'cost' && isUnpricedCost(busiest) ? 'unpriced' : format(dayMetric === 'tokens' ? busiest.tokens : busiest.cost) : '—'},
-            ...(view === 'year' ? [{id:'leader',label:'did the most',value:leader ? nameOf(leader) : '—'}] : []),
+            {id:'streak',label:`Streak · best ${streaks.best}`,value:`${streaks.current} days`},
+            {id:'busiest',label:busiest ? dayLabelLong(busiest.day) : 'Busiest day',value:busiest ? dayMetric === 'cost' && isUnpricedCost(busiest) ? 'unpriced' : format(dayMetric === 'tokens' ? busiest.tokens : busiest.cost) : '—'},
+            ...(view === 'year' ? [{id:'leader',label:'Did the most',value:leader ? nameOf(leader) : '—'}] : []),
           ]} />
         </ChartCard>
 

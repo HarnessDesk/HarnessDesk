@@ -372,3 +372,16 @@ it('names the hourly subset and states tokens without a recorded hour once', asy
   expect(container.textContent).toContain('200 tokens have no recorded hour.')
   expect(container.textContent?.match(/200 tokens have no recorded hour\./g)).toHaveLength(1)
 })
+
+
+it('uses sentence case for every calendar and hourly figure label', async () => {
+  const report = { ...ledgerReport(), daily: [], totalTokens: 0, totalCost: 0 }
+  await renderSuppliedReport(report)
+  const labels = () => [...container.querySelectorAll('[data-slot="stat-label"]')].map(label => label.textContent)
+  expect(labels()).toEqual(['Last 12 months', 'Active days', 'Streak · best 0', 'Busiest day', 'Did the most'])
+  const view = container.querySelector<HTMLSelectElement>('select[aria-label="Show by"]')!
+  await act(async () => { view.value = 'agent'; view.dispatchEvent(new Event('change', { bubbles: true })) })
+  expect(labels()[0]).toBe('Last 13 weeks')
+  await act(async () => { view.value = 'hour'; view.dispatchEvent(new Event('change', { bubbles: true })) })
+  expect(labels()).toEqual(['Tokens, last 12 months', 'Busiest hour', 'Busiest day of the week'])
+})
