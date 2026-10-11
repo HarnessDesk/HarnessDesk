@@ -2347,6 +2347,12 @@ Initials inside a row's neutral mark. They identify the thing without becoming i
 
 Compact facts whose dot separators belong to the role, not to each caller.
 
+### `InlineParts`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+Inline parts of one value, wrapped together with the shared chip gap.
+
 ### `PictureChoices`
 
 `packages/ui/src/design/patterns/SettingsChoices.tsx`

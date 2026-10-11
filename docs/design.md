@@ -882,6 +882,12 @@ opens a `<section>` wrapper, which used to lose its margin to `:first-child`
 and start 6px under the card before it — so a page half converted still reads
 as one page. A dialog keeps its tighter step.
 
+**Every Settings page uses this same section step.** Page-level `Section`s and
+`SectionHead`s sit 32px after the preceding block, including headings wrapped
+by a section container; a sub-group inside a section uses the smaller 24px
+step. The Settings frame contract checks every Settings page so a wrapper or a
+first-child reset cannot make one page drift from the rest.
+
 **The description is one sentence.** It says what the section is, muted,
 directly under the label. A paragraph of how it works is not a description:
 Project, Permissions and Triggers each opened every section with two or three

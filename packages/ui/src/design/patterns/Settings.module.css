@@ -806,8 +806,8 @@
    collapses through the wrapper and spaces the section itself. A dialog keeps
    the tighter step it had, and so does the Dashboard's sticky band, which is a
    page heading with its own padding rather than a label over a card. */
-[data-slot='app-window-page'] .sectionHead:not([data-sticky]) {
-  margin-top: var(--hd-space-8); /* desk: 20 (0 as a section's first child) → 32 on a page, the Section rhythm */
+[data-slot='page'] .sectionHead:not([data-sticky]) {
+  margin-top: calc(var(--hd-space-8) - var(--hd-card-gap)); /* desk: 32px head margin → 20px plus page gap = the 32px section step */
 }
 
 .sectionHead[data-sticky] {
@@ -1153,6 +1153,16 @@
 .rowFixed {
   font-size: var(--hd-text-sm);
   color: var(--hd-muted-foreground);
+}
+
+/* Parts that name one value: keep a version and its state chip together,
+   with a token-sized gap that wraps at the width the row leaves. */
+.inlineParts {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hd-space-2);
+  min-width: 0;
 }
 
 .rowMark {

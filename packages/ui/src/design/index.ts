@@ -71,6 +71,7 @@ export {
   CodeText,
   Monogram,
   MetaList,
+  InlineParts,
   DetailMark,
   RowInput,
   RowMark,

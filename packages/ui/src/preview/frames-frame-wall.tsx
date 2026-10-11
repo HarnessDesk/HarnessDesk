@@ -211,6 +211,48 @@ export const FrameWall = () => {
     // Additional Details states for the same real frame; all data is synthetic.
     const detailsCase = query.get('frame-details-case')
     const snapshot = next.getSnapshot()
+    if (query.get('frame-settings-round4') === '1') {
+      const base = snapshot.runtimes[0]!
+      const names = ['Codex', 'Claude', 'Cursor', 'Gemini', 'DeepSeek', 'Windsurf',
+        'Runtime 07', 'Runtime 08', 'Runtime 09', 'Runtime 10', 'Runtime 11', 'Runtime 12'] as const
+      const ids: readonly RuntimeId[] = ['codex', 'claude', 'cursor', 'gemini', 'deepseek', 'windsurf',
+        'round4-runtime-07', 'round4-runtime-08', 'round4-runtime-09', 'round4-runtime-10',
+        'round4-runtime-11', 'round4-runtime-12'] as RuntimeId[]
+      const versions = ['0.149.0', '1.0.0', null, null, null, '1.0.0', null, null, null, null, null, null] as const
+      const levels = ['read', 'edit', 'publish', 'merge'] as const
+      const runtimes = names.map((name, index) => {
+        const held = index === 0 ? new Set(['read', 'edit'])
+          : index === 1 ? new Set<string>()
+            : new Set(levels.filter((_, levelIndex) => (index + levelIndex) % 2 === 0))
+        const ceilings = Object.fromEntries(levels.filter(level => held.has(level)).map(level => [level, {
+          settings: [], how: 'Held by this preview runtime.',
+        }]))
+        return {
+          ...base,
+          id: ids[index]!,
+          name,
+          version: versions[index],
+          ceilings,
+          capabilities: { ...base.capabilities, listHistory: index < 6, extensionStore: index === 0 },
+          presentation: { ...base.presentation, name },
+        }
+      })
+      Object.assign(snapshot, {
+        runtimes,
+        activeRuntime: ids[0],
+        skills: [{
+          name: 'preview-skill',
+          displayName: 'Preview Skill',
+          description: 'A synthetic instruction bundle for the Settings preview.',
+          shortDescription: 'Synthetic preview entry.',
+          enabled: true,
+          path: '~/.config/harnessdesk/skills/preview-skill',
+          scope: 'user',
+        }],
+        healthByRuntime: { ...snapshot.healthByRuntime,
+          windsurf: { state: 'unavailable', reason: 'notInstalled', message: 'Unavailable in this preview.' } },
+      })
+    }
     if (query.get('frame-sidebar-notice') === '1') Object.assign(snapshot, { goalMigrationPending: true })
     if (query.get('frame-conversation-actions') === '1') {
       Object.assign(snapshot, { runtimes: snapshot.runtimes.map(runtime => ({

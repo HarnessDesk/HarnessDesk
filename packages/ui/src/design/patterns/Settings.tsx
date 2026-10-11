@@ -1393,6 +1393,11 @@ export const MetaList = ({ children, className, ink = 'secondary' }: { children:
   <span data-slot="meta-list" className={cx(styles.metaList, ink === 'muted' && styles.metaListMuted, className)}>{children}</span>
 )
 
+/** Inline parts of one value, wrapped together with the shared chip gap. */
+export const InlineParts = ({ children, className, ...props }: HTMLAttributes<HTMLSpanElement> & { children: ReactNode }) => (
+  <span {...props} className={cx(styles.inlineParts, className)} data-slot="inline-parts">{children}</span>
+)
+
 export const AccountMark = ({
   as = 'span',
   size,
