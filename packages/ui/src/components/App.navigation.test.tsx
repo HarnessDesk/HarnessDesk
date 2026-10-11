@@ -10,7 +10,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 let container: HTMLDivElement, root: ReturnType<typeof createRoot>
 beforeEach(() => { container=document.createElement('div'); document.body.append(container); root=createRoot(container) })
 afterEach(() => { act(() => root.unmount()); container.remove() })
-const escape = async () => { const event=new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}); await act(async () => { document.dispatchEvent(event) }); return event.defaultPrevented }
+const escape = async (target: Document | Window = document) => { const event=new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}); await act(async () => { target.dispatchEvent(event) }); return event.defaultPrevented }
 const menu = () => document.querySelector('[data-slot="popover-popup"]')
 it('the surface on top answers, and the pane below hears that the key is spent (#206)', async () => {
   const under = vi.fn()
@@ -34,7 +34,7 @@ it('the surface on top answers, and the pane below hears that the key is spent (
   const inThePane = (event: KeyboardEvent): void => void spent.push(event.defaultPrevented)
   window.addEventListener('keydown', inThePane)
 
-  expect(await escape()).toBe(true)
+  expect(await escape(window)).toBe(true)
   // The one opened last is the one being looked at.
   expect(over).toHaveBeenCalledTimes(1)
   expect(under).not.toHaveBeenCalled()
@@ -65,7 +65,8 @@ it('the main Settings column spends Escape on its menu and float while retaining
   expect(store.getSnapshot().sidebarFloating).toBe(true)
   expect(await escape()).toBe(true);await frame();expect(store.getSnapshot().sidebarFloating).toBe(false)
   expect(document.activeElement).toBe(show)
-  expect(await escape()).toBe(false)
   expect(store.getSnapshot().workbench.navigation.current.kind).toBe('settings')
+  expect(await escape()).toBe(true)
+  expect(store.getSnapshot().workbench.navigation.current.kind).toBe('work')
   expect(container.querySelector('[data-slot="app-window"]')).toBeNull()
 })

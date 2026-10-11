@@ -14,7 +14,7 @@ import {
   type RefObject,
 } from 'react'
 
-import { MainDestination, FRAME, FixedShell, ShellNoticeHost, FixedPanelFrame, FixedPanelBody, FixedToolLayer, TerminalShellTabs, ToolBody, ToolBodySections, ToolFooterProvider, ToolFooterScope, ToolFooterOutlet, WorkbenchRail, WorkbenchScrim } from '../design'
+import { MainDestination, FRAME, FixedShell, ShellNoticeHost, FixedPanelFrame, FixedPanelBody, FixedToolLayer, TerminalShellTabs, ToolBody, ToolBodySections, ToolFooterProvider, ToolFooterScope, ToolFooterOutlet, WorkbenchRail, WorkbenchScrim, useEscapeSurface } from '../design'
 import { DockPanelBody, PanelSeam } from '../design'
 import { dismissOverlays } from '../design'
 import { ComposerMountsProvider, NoticeStripFallback, NoticeStripOutlet } from '../components/Notices'
@@ -397,9 +397,8 @@ const BottomPanel = () => {
  * it is: focus goes into it, what it covers cannot be reached until it goes,
  * Escape puts it away, and focus comes back to where it was.
  *
- * Escape is heard on the window, in the bubble phase — after everything inside
- * the sidebar has had its turn. A menu, a filter field or a rename that spends
- * the key says so with `preventDefault`, and then the sidebar stays: one press
+ * Escape joins the shared surface stack. A menu, a filter field or a rename
+ * registered above it gets the key first and keeps the sidebar open: one press
  * closes one thing. A dialog opened from the sidebar never lets the key get
  * this far at all (see `Dialog`).
  */
@@ -409,6 +408,7 @@ const useFloatingSidebar = (
   content: RefObject<HTMLDivElement | null>,
 ): void => {
   const store = useStore()
+  useEscapeSurface(floating, () => store.closeFloatingSidebar())
   const opener = useRef<HTMLElement | null>(null)
   // So that putting it away is told apart from never having opened it.
   const floated = useRef(false)
@@ -451,14 +451,7 @@ const useFloatingSidebar = (
       // The surface, as a dialog does, rather than the first row in it: landing
       // on a row means a stray Return opens a conversation nobody chose.
       sidebar.current?.focus({ preventScroll: true })
-      const onKeyDown = (event: KeyboardEvent): void => {
-        if (event.key !== 'Escape' || event.defaultPrevented) return
-        event.preventDefault()
-        store.closeFloatingSidebar()
-      }
-      window.addEventListener('keydown', onKeyDown)
       return () => {
-        window.removeEventListener('keydown', onKeyDown)
         for (const element of covered) element.removeAttribute('inert')
       }
     }

@@ -89,7 +89,8 @@ it('the exact 1800-character hunk cap and acknowledged quote survive return to c
 })
 for (const scene of ['empty','not-repository'] as const) it(`preserves the existing ${scene} message`,async()=>{
   await mount(scene)
-  expect(container.textContent).toContain(scene==='empty'?'No uncommitted changes.':'This folder is not a git repository, so there is nothing to compare against.')
+  expect(container.textContent).toContain(scene==='empty'?'No changes yet':'This folder is not a git repository, so there is nothing to compare against.')
+  if (scene === 'empty') expect(container.querySelector('[aria-label="Filter files"]')).toBeNull()
 })
 it('the shared More menu offers only Terminal and opens the reviewed folder', async () => {
   const {store,review} = await mount('tree')

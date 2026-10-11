@@ -1,4 +1,4 @@
-import { measureDestination, expectPageJourney, expectDestinationTab } from './frame-page-contract'
+import { measureDestination, expectPageJourney, expectDestinationTab, expectSettingsChrome } from './frame-page-contract'
 import { applySettingsNavigationActions } from './left-column-actions'
 import { applyLeftColumnActions } from './left-column-actions'
 import { openWallDestination } from './frame-wall-actions'
@@ -1085,7 +1085,7 @@ test('E9 Changes review starts with a single filter field', async ({ page }) => 
 })
 
 test('E9 review is opened as a page with a clear label', async ({ page }) => {
-  await openFrame(page, 'frame-wall=conversation', 'light')
+  await openFrame(page, 'frame-wall=navigation&frame-review=1', 'light')
   await page.locator('[data-work-tool="changes"]:visible').click()
   const opener = page.getByRole('button', { name: 'Open review', exact: true })
   await expect(opener).toBeVisible()
@@ -1116,7 +1116,7 @@ test('R10 nav4 New Team keeps the empty Teams page behind the dialog', async ({ 
   await expect(teams).toHaveCount(1)
 })
 
-test('R10 nav4 Settings Back exits after page history while Meta bracket stays one step', async ({ page }) => {
+test('R10 nav4 Settings Back and Meta bracket leave in one step while Forward is ignored there', async ({ page }) => {
   await openFrame(page, 'frame-wall=navigation', 'light')
   const column = page.locator('[data-left-column]:visible')
   await column.locator('[data-left-seat]').getByRole('button', { name: 'Settings', exact: true }).click()
@@ -1126,12 +1126,18 @@ test('R10 nav4 Settings Back exits after page history while Meta bracket stays o
   await nav.getByRole('button', { name: 'General', exact: true }).click()
   await nav.getByRole('button', { name: 'Appearance', exact: true }).click()
   await nav.getByRole('button', { name: 'Runtimes', exact: true }).click()
-  await page.keyboard.press('Meta+[')
-  await expect(nav.getByRole('button', { name: 'Appearance', exact: true })).toHaveAttribute('aria-current', 'page')
   await page.keyboard.press('Meta+]')
   await expect(nav.getByRole('button', { name: 'Runtimes', exact: true })).toHaveAttribute('aria-current', 'page')
-  await nav.getByRole('button', { name: 'Back', exact: true }).click()
+  await page.keyboard.press('Meta+[')
   await expect(settings).toHaveCount(0)
+  await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
+  await column.locator('[data-left-seat]').getByRole('button', { name: 'Settings', exact: true }).click()
+  const reopened = page.getByRole('navigation', { name: 'Settings navigation' })
+  await reopened.getByRole('button', { name: 'General', exact: true }).click()
+  await reopened.getByRole('button', { name: 'Appearance', exact: true }).click()
+  await reopened.getByRole('button', { name: 'Runtimes', exact: true }).click()
+  await nav.getByRole('button', { name: 'Back', exact: true }).click()
+  await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(0)
   await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
 })
 
@@ -4092,7 +4098,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 1100,
     await expect(choices).toBeVisible()
     await expect(choices).toHaveAttribute('data-slot', 'picture-choices')
     expect(await choices.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
-    expect((await page.locator('[data-slot="top-bar"]:visible').locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
+    await expectSettingsChrome(page, width)
   })
 }
 
@@ -4134,24 +4140,24 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.locator('[data-page-destination="settings"]')).toBeVisible()
     await expect(work).toBeHidden()
     await expect(work).toHaveAttribute('inert', '')
+    await expect(terminal).toBeHidden()
     await expect(terminal).toHaveAttribute('data-terminal-id', terminalId!)
     await expect(terminal).toHaveAttribute('data-retention-witness', 'terminal')
-    const terminalInput=terminal.locator('.xterm-helper-textarea')
-    await terminalInput.focus();await expect(terminalInput).toBeFocused()
     await page.evaluate(()=>window.dispatchEvent(new CustomEvent('harnessdesk:preview-connection',{detail:'reconnecting'})))
     await expect(page.locator('[data-shell-host="main-notice"]')).toContainText('Reconnecting to HarnessDesk.')
     await expect(page.locator('[data-page-destination="settings"]')).toBeVisible()
     await page.evaluate(()=>window.dispatchEvent(new CustomEvent('harnessdesk:preview-connection',{detail:'open'})))
     await expect(page.locator('[data-shell-host="main-notice"] [role="status"]')).toHaveCount(0)
+    await page.keyboard.press('Meta+]')
+    await expect(page.locator('[data-page-destination="settings"]')).toBeVisible()
     await page.keyboard.press('Meta+[')
     await expect(work).toBeVisible()
     await expect(transcript).toHaveAttribute('data-retention-witness', 'transcript')
     expect(await transcript.evaluate(el => el.scrollTop)).toBe(scroll)
+    await expect(terminal).toBeVisible()
     await page.keyboard.press('Meta+]')
     await expect(page.locator('[data-page-destination="settings"]')).toBeVisible()
     await page.keyboard.press('Escape')
-    await expect(page.locator('[data-page-destination="settings"]')).toBeVisible()
-    await page.keyboard.press('Meta+w')
     await expect(work).toBeVisible()
     await expect(terminal).toHaveAttribute('data-retention-witness', 'terminal')
   })
@@ -4161,18 +4167,53 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440,
   for (const child of ['runtime', 'account', 'project', 'skill']) test(`E2 Settings child ${child} ${width} ${theme}`, async ({ page }) => {
     await measureDestination(page, `frame-wall=settings&frame-detail=${child}`, 'reading', theme, width, { more: 'absent' })
     const bar = page.locator('[data-slot="top-bar"]:visible')
-    const parents = bar.locator('[data-topbar="place"] button')
-    await expect(parents.last()).toBeVisible()
-    if (width >= 1440) await expect(bar.getByRole('button', { name: 'Settings ›', exact: true })).toBeVisible()
+    await expect(bar.locator('[data-topbar="place"] button')).toHaveCount(0)
+    const heading = child === 'runtime' || child === 'account' ? 'Runtimes' : child === 'project' ? 'Workspaces' : 'Skills'
+    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible()
   })
   test(`E2 Add runtime ${width} ${theme}`, async ({ page }) => {
     await measureDestination(page, 'frame-wall=settings&frame-section=runtimes&frame-focus=add', 'reading', theme, width, { more: 'absent' })
-    await expect(page.locator('[data-slot="top-bar"]:visible')).toContainText('Add a runtime')
+    await expect(page.locator('[data-page-destination="settings"]:visible')).toContainText('A runtime keeps its own account, configuration and history; adding it here only tells HarnessDesk how to start it.')
   })
 }
 
-for(const width of [1440,720]) test(`E2 Settings door preserves normal history and the retained work ${width}`, async ({ page }) => {
-  await expectPageJourney(page,'Settings','settings',width)
+for(const width of [1440,720]) test(`E2 Settings Back leaves in one step and retains work ${width}`, async ({ page }) => {
+  await openFrame(page, 'frame-wall=navigation', 'light', width)
+  if (width < FRAME.fold.sidebarFloats) await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
+  const column = page.locator('[data-left-column]:visible')
+  const work = page.locator('[data-slot="retained-work"]')
+  const revealSettings = async () => {
+    const settingsNav = page.getByRole('navigation', { name: 'Settings navigation' })
+    if (await settingsNav.isVisible()) return
+    const show = page.getByRole('button', { name: 'Show sidebar', exact: true })
+    await expect(show).toBeVisible()
+    await show.click()
+    await expect(page.getByRole('dialog', { name: 'Sidebar', exact: true })).toBeVisible()
+    await expect(settingsNav).toBeVisible()
+  }
+  await work.evaluate(node => { node.setAttribute('data-settings-door-witness', 'work') })
+  await column.locator('[data-left-seat]').getByRole('button', { name: 'Settings', exact: true }).click()
+  await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1)
+  const nav = page.getByRole('navigation', { name: 'Settings navigation' })
+  await revealSettings()
+  if (width < FRAME.fold.sidebarFloats) {
+    await nav.getByRole('button', { name: 'Back', exact: true }).click()
+    await expect(work).toBeVisible()
+    await expect(work).toHaveAttribute('data-settings-door-witness', 'work')
+    return
+  }
+  await nav.getByRole('button', { name: 'General', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'General', exact: true })).toBeVisible()
+  await revealSettings()
+  await nav.getByRole('button', { name: 'Appearance', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Appearance', exact: true })).toBeVisible()
+  await revealSettings()
+  await nav.getByRole('button', { name: 'Runtimes', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Runtimes', exact: true })).toBeVisible()
+  await revealSettings()
+  await nav.getByRole('button', { name: 'Back', exact: true }).click()
+  await expect(work).toBeVisible()
+  await expect(work).toHaveAttribute('data-settings-door-witness', 'work')
 })
 test('E2 Settings omits empty More with or without a folder', async ({ page }) => {
   await openFrame(page, 'frame-wall=settings&frame-section=general&frame-no-folder=1', 'light')
@@ -4294,7 +4335,7 @@ test('E4 Agents named history', async ({ page }) => {
   await page.locator('[aria-label="Main sections"]').getByRole('button', { name: 'Agents', exact: true }).click()
   const bar = page.locator('[data-slot="top-bar"]:visible')
   await expect(page.locator('[data-page-destination="agents"]:visible')).toHaveCount(1)
-  await page.getByRole('button', { name: /^Code reviewer/ }).first().click()
+  await page.getByRole('button', { name: /Code reviewer/ }).first().click()
   await expect(bar.getByRole('button', { name: 'Agents ›', exact: true })).toBeVisible()
   await page.keyboard.press('Meta+[')
   await expect(bar.getByRole('button', { name: 'New Agent…', exact: true })).toBeVisible()
@@ -4357,7 +4398,7 @@ for (const detail of [false, true]) test(`E4 Agents ${detail ? 'detail' : 'roste
     await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')).toHaveCount(0)
     return
   }
-  if (detail) await page.getByRole('button', { name: /^Code reviewer/ }).first().click()
+  if (detail) await page.getByRole('button', { name: /Code reviewer/ }).first().click()
   await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
   const items = page.locator('[role="menuitem"], [role="menuitemradio"]')
   await expect(items.filter({ hasText: 'Back to app' })).toHaveCount(0)
@@ -4372,8 +4413,8 @@ for (const detail of [false, true]) test(`E4 Agents ${detail ? 'detail' : 'roste
 for (const width of [1440,720]) test(`E5 Teams journey keeps the normal column and history ${width}`, async ({page}) => {
  await expectPageJourney(page,'Teams','teams',width)
  const column=page.locator('[data-left-column]:visible')
- const reveal=async()=>{if(width===720)await page.getByRole('button',{name:'Show sidebar',exact:true}).click()}
- const back=async()=>{await reveal();await column.locator('[data-left-top]').getByRole('button',{name:'Back',exact:true}).click();await expect(page.locator('[data-page-destination="teams"]:visible')).toHaveCount(1);await reveal()}
+ const reveal=async()=>{if(width===720){const sidebar=page.getByRole('dialog',{name:'Sidebar',exact:true});if(await sidebar.isVisible())return;const show=page.getByRole('button',{name:'Show sidebar',exact:true});await expect(show).toBeVisible();await show.click();await expect(sidebar).toBeVisible()}}
+ const back=async()=>{await reveal();const settingsNav=page.getByRole('navigation',{name:'Settings navigation'});if(await settingsNav.isVisible())await settingsNav.getByRole('button',{name:'Back',exact:true}).click();else await page.locator('[data-left-column]:visible [data-left-top]').getByRole('button',{name:'Back',exact:true}).click();await expect(page.locator('[data-page-destination="teams"]:visible')).toHaveCount(1);await reveal()}
  await column.getByRole('button',{name:'New session',exact:true}).click()
  await expect(page.locator('[data-slot="retained-work"]')).toBeVisible();await back()
  await column.locator('[data-region="session-row"] [data-slot="sidebar-menu-button"]').first().click()
@@ -4588,7 +4629,8 @@ test('E6 Library retains search and matrix under another destination', async ({ 
   await expect(page.getByRole('searchbox', { name: 'Search library', exact: true })).toHaveValue('design')
   await expect(page.locator('[data-slot="library-matrix"]')).toBeVisible()
   await page.keyboard.press('Escape')
-  await expect(page.locator('[data-page-destination="library"]')).toBeVisible()
+  await expect(page.locator('[data-page-destination="library"]')).toBeHidden()
+  await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
 })
 test('E6 Library sections record visits while retaining local choices', async ({ page }) => {
   await openFrame(page, 'frame-wall=settings&frame-section=library', 'light')
@@ -4764,7 +4806,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 1100,
         if (document.querySelector('[data-slot="retained-work"]')) window.dispatchEvent(new CustomEvent('harnessdesk:review'))
       }, 20)
     })
-    await measureDestination(page, 'frame-wall=navigation', 'canvas', theme, width, { expectedTopInset: 'page' })
+    await measureDestination(page, 'frame-wall=navigation&frame-review=1', 'canvas', theme, width, { expectedTopInset: 'page' })
     await expectDestinationTab(page, 'working')
     await expect(page.getByRole('searchbox', { name: 'Filter files', exact: true })).toBeVisible()
     await expect(page.locator('[data-slot="app-window"]')).toHaveCount(0)
@@ -4832,19 +4874,23 @@ test('E8 capped revision quote returns to the mounted originating work',async({p
 })
 for(const scene of ['empty','not-repository'] as const)test(`E8 review preserves the ${scene} message`,async({page})=>{
   await openFrame(page,`frame-wall=changes-review&frame-review-scene=${scene}`,'dark')
-  await expect(page.locator('[data-page-destination="changes-review"]:visible').getByText(scene==='empty'?'No uncommitted changes.':'This folder is not a git repository, so there is nothing to compare against.',{exact:true})).toBeVisible()
+  const review=page.locator('[data-page-destination="changes-review"]:visible')
+  await expect(review.getByText(scene==='empty'?'No changes yet':'This folder is not a git repository, so there is nothing to compare against.',{exact:true})).toBeVisible()
+  if(scene==='empty')await expect(review.getByRole('searchbox',{name:'Filter files',exact:true})).toHaveCount(0)
 })
 test('E8 bracket history crosses destinations and preserves the editor draft',async({page})=>{
   await openFrame(page,'frame-wall=navigation','dark')
   const composer=page.locator('[data-slot="composer-text"]:visible')
   await composer.fill('Keep this draft')
-  await page.keyboard.press('Meta+,');await page.keyboard.press('Meta+u');await page.keyboard.press('Meta+[')
+  await page.keyboard.press('Meta+,');await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1)
+  await page.keyboard.press('Meta+u');await expect(page.locator('[data-page-destination="dashboard"]:visible')).toHaveCount(1)
+  await page.keyboard.press('Meta+[')
   await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1)
   await page.keyboard.press('Meta+[')
   await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
   await expect(composer).toHaveValue('Keep this draft')
   await page.keyboard.press('Meta+]');await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1)
-  await page.keyboard.press('Meta+]');await expect(page.locator('[data-page-destination="dashboard"]:visible')).toHaveCount(1)
+  await page.keyboard.press('Meta+]');await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1)
 })
 
 // Composer fit follow-up: real toolbar values, including the 720px folded state.
