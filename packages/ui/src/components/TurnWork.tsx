@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react'
 
 import type { AgentItem, Turn } from '@harnessdesk/protocol'
 
+import { useSnapshot, useSessionKey } from '../state/context'
 import { groupItems, isSilentReasoning } from '../lib/group-items'
 import { planOf, turnPlan } from '../lib/todos'
 import { describeTurnWork, liveActivity } from '../lib/turn-view'
@@ -69,6 +70,10 @@ export const TurnWork = ({
   /** The item currently streaming text, if any, so its caret shows. */
   streamingItemId?: string | null
 }) => {
+  const snapshot = useSnapshot()
+  const key = useSessionKey()
+  const waiting = snapshot.approvals.some(({ key: owner, approval }) => owner === key && approval.type === 'command'
+    && (approval.turnId === turn.id || work.some(item => item.id === approval.itemId)))
   const running = turn.status === 'inProgress'
   const now = useNow(running)
   const [choice, setChoice] = useState<boolean | null>(null)
@@ -99,7 +104,7 @@ export const TurnWork = ({
   // the same turn to fold or describe.
   if (work.length === 0 && !running && !inlinePlan) return null
 
-  const activity = running ? liveActivity(work) : null
+  const activity = running ? waiting ? 'Waiting for approval' : liveActivity(work) : null
   // The live line already says "Thinking"; the quiet line under it would say
   // it twice. Once the turn ends the record keeps the thought.
   const shown =

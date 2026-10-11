@@ -53,3 +53,14 @@ test('FIX10 Activity figure labels use sentence case', async ({ page }) => {
     await expect(activity.locator('[data-slot="stat-label"]')).toHaveText(['Tokens, last 12 months', 'Busiest hour', 'Busiest day of the week'])
   }
 })
+
+
+test('FIX10 waiting command has no running description before Allow', async ({ page }) => {
+  for (const theme of ['light', 'dark'] as const) {
+    await openFrame(page, 'frame-wall=conversation&frame-fix9-command-waiting=1', theme)
+    const transcript = page.locator('[data-live-transcript]')
+    await expect(transcript).toContainText('Waiting for approval · List files in storefront')
+    await expect(transcript).not.toContainText('Listing files')
+    await expect(transcript.locator('[data-slot="turn-work-live"]')).toHaveText('Waiting for approval')
+  }
+})
