@@ -324,9 +324,8 @@ it('lets a wrapping button grow while preserving the default floor and padding',
   expect(CATALOG_ENTRIES.find(entry=>entry.id==='primitive.button')?.sizes).toContain('wrap')
 })
 
-it('keeps a stat action text on the figure edge with an inset hover plate', () => {
-  const classes = buttonVariants({ variant: 'ghost', size: 'stat-action' })
-  expect(classes).toContain('h-full w-full -mx-(--hd-space-2) px-(--hd-space-2)')
-  expect(classes).toContain('items-start justify-start text-left whitespace-normal')
-  expect(CATALOG_ENTRIES.find(entry => entry.id === 'primitive.button')?.sizes).toContain('stat-action')
+it('keeps a figure button text on its column edge with an inset hover plate', () => {
+  const markup = renderToStaticMarkup(<Button size="content" edgePlate variant="ghost" bordered={false}>Turns</Button>)
+  expect(markup).toContain('h-full w-full -mx-(--hd-space-2) px-(--hd-space-2)')
+  expect(markup).toContain('items-start justify-start text-left whitespace-normal')
 })

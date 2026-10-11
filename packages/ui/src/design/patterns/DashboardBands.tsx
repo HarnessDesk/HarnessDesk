@@ -68,7 +68,7 @@ export const DashboardOverviewStats = ({ paid, measures }: {
   readonly measures: readonly { readonly id: string; readonly label: string; readonly value: ReactNode; readonly caption?: ReactNode; readonly trend?: ReactNode; readonly title: string; readonly selected: boolean; readonly run: () => void }[]
 }) => <div aria-label="What it cost, in brief">
   <StatRow><Stat variant="plain" label={<span className={styles.figureLabel}>Paid</span>} value={paid.value} caption={paid.caption} />
-    {measures.map(item => <Button key={item.id} size="stat-action" variant="ghost" bordered={false} title={item.title} aria-pressed={item.selected} onClick={item.run}>
+    {measures.map(item => <Button key={item.id} size="content" edgePlate variant="ghost" bordered={false} title={item.title} aria-pressed={item.selected} onClick={item.run}>
       <Stat variant="plain" label={<span className={styles.figureLabel}>{item.label}{item.selected && <Chip size="sm" tone="neutral">Selected</Chip>}</span>} value={item.value} caption={item.caption} trend={item.trend} />
     </Button>)}
   </StatRow>

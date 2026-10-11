@@ -201,9 +201,6 @@ const boxedVariants = cva(
            amount back with a negative margin, the way any hit-slop trick
            does, so the sentence around it never reflows. */
         'inline-link': 'h-auto whitespace-normal px-0 py-(--hd-space-2) -my-(--hd-space-2)',
-        /* A clickable figure keeps its text on the column edge while the
-           hover plate reaches one spacing step past it on each side. */
-        'stat-action': 'h-full w-full -mx-(--hd-space-2) px-(--hd-space-2) items-start justify-start text-left whitespace-normal',
         /* A row of a hand-windowed table: fixed to the pitch the list's own
            arithmetic assumes (`--hd-table-row-h`), with only the right inset
            a table row keeps clear of its own scrollbar. Distinct from `row`
@@ -338,6 +335,8 @@ type ButtonProps = Omit<ButtonPrimitive.Props, 'className'> & {
   stretched?: boolean
   /** Whether this button paints its own hover fill. Set false when an interactive parent owns the hover surface. */
   hoverFill?: boolean
+  /** Fill a figure cell while keeping its text on the column edge and its hover plate inset. */
+  edgePlate?: boolean
   /**
    * A colour that is itself the choice — an accent to pick. The button is
    * filled with it and keeps it under the pointer; the ring that marks the one
@@ -360,6 +359,7 @@ const Button = ({
   quietHover = false,
   stretched = false,
   hoverFill = !stretched,
+  edgePlate = false,
   swatch,
   edge,
   edgeGlyph = 16,
@@ -382,6 +382,7 @@ const Button = ({
       stretched && "static min-w-(--hd-target-min) text-left active:translate-none after:absolute after:inset-0 after:pointer-events-none after:content-[''] in-[:root:not([data-focus-input=pointer])]:focus-visible:after:shadow-[inset_0_0_0_var(--hd-ring-width)_var(--hd-ring-muted)]",
       cursor === 'default' && 'cursor-default',
       !hoverFill && 'hover:bg-transparent',
+      edgePlate && 'h-full w-full -mx-(--hd-space-2) px-(--hd-space-2) items-start justify-start text-left whitespace-normal',
       quietHover && 'not-data-[trouble]:hover:text-(--hd-secondary-foreground)',
       swatch !== undefined && 'bg-(--swatch) bg-clip-border hover:bg-(--swatch)',
       edgeSize && (edge === 'end' ? 'me-(--edge-pull)' : 'ms-(--edge-pull)'),
