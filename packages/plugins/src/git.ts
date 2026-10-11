@@ -1453,7 +1453,7 @@ export const gitPlugin: HarnessPlugin = {
       ctx.context.register({
         label: 'Uncommitted changes',
         form: 'resource',
-        chip: { description: 'The working tree: status, unstaged and staged diffs.' },
+        chip: { description: 'The working tree: status, unstaged and staged diffs.', icon: 'diff' },
         resolve: async () => {
           const status = await git(['status', '--short', '--branch'])
           const unstaged = await git(['diff', '--no-color'])
@@ -1472,6 +1472,7 @@ export const gitPlugin: HarnessPlugin = {
         form: 'resource',
         chip: {
           description: 'Title, body and discussion of an issue or pull request, through gh.',
+          icon: 'issue',
           prompt: 'Issue or PR URL, or #123',
           /* The URL only, on purpose. `match` is what turns a *paste* into
              this chip, and a bare `#123` pasted on its own is as often a colour

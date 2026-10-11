@@ -49,13 +49,25 @@ const SHOT: CapabilityContribution = {
   scope: { kind: 'global' },
   label: 'Current page screenshot',
   form: 'resource',
-  chip: { description: 'What the browser shows right now, as an image.' },
+  chip: { description: 'What the browser shows right now, as an image.', icon: 'image' },
 }
 
 const NOTES: CapabilityContribution = {
   kind: 'context', id: contributionId('ctx-notes'), owner: pluginInstanceId('notes#1'), revision: 0,
   scope: { kind: 'global' }, label: 'Project notes', form: 'instructions',
   chip: { description: 'Instructions for this project.' },
+}
+
+const CHANGES: CapabilityContribution = {
+  kind: 'context', id: contributionId('ctx-changes'), owner: pluginInstanceId('git#1'), revision: 0,
+  scope: { kind: 'global' }, label: 'Uncommitted changes', form: 'resource',
+  chip: { description: 'The current working tree.', icon: 'diff' },
+}
+
+const ISSUE: CapabilityContribution = {
+  kind: 'context', id: contributionId('ctx-issue'), owner: pluginInstanceId('git#1'), revision: 0,
+  scope: { kind: 'global' }, label: 'Git issue', form: 'resource',
+  chip: { description: 'An issue reference.', icon: 'issue' },
 }
 
 const RESOLVED = {
@@ -131,16 +143,15 @@ const attachShot = (): void => {
   click(item)
 }
 
-it('uses distinct marks for resource and instruction context actions in Add', () => {
-  mount(true, undefined, [SHOT, NOTES])
+it('uses source-specific marks for context actions in Add', () => {
+  mount(true, undefined, [SHOT, CHANGES, ISSUE, NOTES])
   click(container.querySelector('button[title="Add"]'))
   const context = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
     .find(item => item.querySelector('[data-menu-label]')?.textContent?.includes(label))!
-  const resourceMark = context('Current page screenshot').querySelector('[data-menu-icon] svg')?.outerHTML
-  const instructionMark = context('Project notes').querySelector('[data-menu-icon] svg')?.outerHTML
-  expect(resourceMark).toBeDefined()
-  expect(instructionMark).toBeDefined()
-  expect(resourceMark).not.toBe(instructionMark)
+  const marks = ['Current page screenshot', 'Uncommitted changes', 'Git issue', 'Project notes']
+    .map(label => context(label).querySelector('[data-menu-icon] svg')?.outerHTML)
+  expect(marks.every(Boolean)).toBe(true)
+  expect(new Set(marks).size).toBe(marks.length)
 })
 
 const send = async (): Promise<void> => {

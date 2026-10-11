@@ -4,7 +4,7 @@ import { sidebarGeometryFixture } from './sidebar-geometry-fixture'
 import { runTeamStore, equivalentRunFixture, type RunScene } from './run-view-fixture'
 import { sidebarStructureFixture } from './sidebar-structure-fixture'
 import { useEffect, useMemo, useState } from 'react'
-import { contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, turnId, type UiContribution, type BackgroundTask, type RuntimeId } from '@harnessdesk/protocol'
+import { contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, turnId, type CapabilityContribution, type UiContribution, type BackgroundTask, type RuntimeId } from '@harnessdesk/protocol'
 import { installPanelComponent } from '../slots/PanelBlocks'
 
 installPanelComponent()
@@ -107,13 +107,23 @@ const frameEquivalentRunStore = () => {
 
 const popupContent = (store: AppStore): AppStore => {
   const snapshot = store.getSnapshot()
+  const contexts: readonly CapabilityContribution[] = [
+    { id: contributionId('frame.context.image'), owner: pluginInstanceId('frame-fixture'), revision: 1, scope: GLOBAL_SCOPE, kind: 'context', label: 'Current page preview', form: 'resource', chip: { description: 'A synthetic view of the page.', icon: 'image' } },
+    { id: contributionId('frame.context.diff'), owner: pluginInstanceId('frame-fixture'), revision: 1, scope: GLOBAL_SCOPE, kind: 'context', label: 'Working tree changes', form: 'resource', chip: { description: 'Synthetic changes for preview.', icon: 'diff' } },
+    { id: contributionId('frame.context.issue'), owner: pluginInstanceId('frame-fixture'), revision: 1, scope: GLOBAL_SCOPE, kind: 'context', label: 'Issue reference', form: 'resource', chip: { description: 'A synthetic issue reference.', icon: 'issue' } },
+    { id: contributionId('frame.context.check'), owner: pluginInstanceId('frame-fixture'), revision: 1, scope: GLOBAL_SCOPE, kind: 'context', label: 'Last test run', form: 'resource', chip: { description: 'A synthetic test result.', icon: 'check' } },
+    { id: contributionId('frame.context.notes'), owner: pluginInstanceId('frame-fixture'), revision: 1, scope: GLOBAL_SCOPE, kind: 'context', label: 'Project notes', form: 'instructions', chip: { description: 'Synthetic project guidance.' } },
+  ]
   store.listBranches = async () => ['main', 'feature/storefront-checkout-diagnostics-and-retry-policy', 'feature/catalogue', 'release/next', 'fix/search', 'feature/发布前检查'].map((name, at) => ({ name, current: at === 0, committedAt: Date.now() - (at + 1) * 60_000 }))
   if (new URLSearchParams(location.search).get('popup') === 'other-agents') {
     const missing = snapshot.runtimes.at(-1)!.id
     Object.assign(snapshot, { usage: snapshot.usage.filter(report => report.runtime !== missing) })
   }
   const names = ['Storefront catalogue review and checkout diagnostics', '发布前检查和目录兼容性说明', 'Warehouse inventory reconciliation and retry policy']
-  Object.assign(snapshot, { runtimes: snapshot.runtimes.map((runtime, at) => ({ ...runtime, presentation: { ...runtime.presentation, name: names[at] ?? runtime.presentation.name } })) })
+  Object.assign(snapshot, {
+    runtimes: snapshot.runtimes.map((runtime, at) => ({ ...runtime, presentation: { ...runtime.presentation, name: names[at] ?? runtime.presentation.name } })),
+    contributions: [...snapshot.contributions, ...contexts],
+  })
   return store
 }
 

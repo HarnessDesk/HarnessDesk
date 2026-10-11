@@ -278,6 +278,10 @@ removable, with its weight visible, that **resolves at send** into the
 resource block over ACP) — so what varies by agent is fidelity, never whether
 the chip works.
 
+The optional `chip.icon` picks a semantic mark in the composer's Add menu:
+`image`, `diff`, `issue`, `check`, `terminal`, or `team`. Omit it to use the
+form's default mark (`instructions` or generic reference material).
+
 Why chips rather than pasting text:
 
 - **Agent neutrality.** No vendor can read another's thread, tool calls or

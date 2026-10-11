@@ -2317,6 +2317,15 @@ const expectDestinationPopupContracts = async (page: Page, destination: typeof W
       await expectMenuAnatomy(popup, false)
     } else {
       await expectMenuGeometry(popup)
+      if (destination.id === 'popup-composer-add') {
+        const contextLabels = ['Current page preview', 'Working tree changes', 'Issue reference', 'Last test run', 'Project notes']
+        const marks = await popup.locator('[data-menu-row]').evaluateAll((rows, labels) => rows
+          .filter(row => labels.includes(row.querySelector('[data-menu-label]')?.textContent?.trim() ?? ''))
+          .map(row => row.querySelector('[data-menu-icon] svg')?.outerHTML), contextLabels)
+        expect(marks).toHaveLength(contextLabels.length)
+        expect(marks.every(Boolean)).toBe(true)
+        expect(new Set(marks).size).toBe(marks.length)
+      }
       if (destination.id === 'popup-seat-actions') {
         await expect(popup.locator('[data-menu-row]').filter({ hasText: 'Remove from Team' })).toHaveAttribute('data-danger', '')
       }

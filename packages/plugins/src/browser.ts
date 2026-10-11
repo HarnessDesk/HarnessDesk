@@ -81,7 +81,7 @@ export const browserPlugin: HarnessPlugin = {
       ctx.context.register({
         label: 'Current page screenshot',
         form: 'resource',
-        chip: { description: 'What the browser shows right now, as an image.' },
+        chip: { description: 'What the browser shows right now, as an image.', icon: 'image' },
         resolve: async () => {
           const shot = await ctx.browser.screenshot()
           const page = await ctx.browser.page()

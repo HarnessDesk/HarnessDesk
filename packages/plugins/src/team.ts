@@ -627,6 +627,7 @@ export const teamPlugin: HarnessPlugin = {
         label: 'Team board',
         chip: {
           description: 'The shared board: intents, claims, and who holds what.',
+          icon: 'team',
         },
         resolve: (scope) => ctx.team.board(scope),
       })

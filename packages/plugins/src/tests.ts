@@ -182,7 +182,7 @@ export const testsPlugin: HarnessPlugin = {
       ctx.context.register({
         label: 'Last test run',
         form: 'resource',
-        chip: { description: 'The most recent verdict and its failing file:lines.' },
+        chip: { description: 'The most recent verdict and its failing file:lines.', icon: 'check' },
         resolve: (scope: ScopeQuery) => {
           const lastRun = sessions.get(scope).last
           /* Nothing recorded for *this* conversation is not a failure: a draft
