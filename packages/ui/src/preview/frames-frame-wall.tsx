@@ -186,7 +186,7 @@ export const FrameWall = () => {
     if (destination === 'agent') { routeQuery.set('frame-wall','agents'); routeQuery.set('frame-detail','agent') }
     if (destination.startsWith('settings') && destination !== 'settings') { routeQuery.set('frame-wall','settings'); routeQuery.set('frame-section',sectionFor(destination)) }
     const initial = framePageRoute(routeQuery, {...ids,agent:'code-reviewer'})
-    const next = destination==='dashboard' && initial?.kind==='dashboard' ? dashboardDestinationStore({...initial,borrowed:query.get('frame-borrowed')==='1'})
+    const next = destination==='dashboard' && initial?.kind==='dashboard' ? dashboardDestinationStore({...initial,borrowed:query.get('frame-borrowed')==='1',emptyUsage:query.get('frame-empty-usage')==='1',unpricedPaid:query.get('frame-unpriced-paid')==='1'})
       : destination==='agents'||destination==='agent' ? agentsDestinationStore(routeQuery)
       : destination==='plugins' ? pluginsDestinationStore(routeQuery)
       : destination==='changes-review'||destination==='navigation' && query.get('frame-review')==='1'
