@@ -11,7 +11,7 @@ import { describeLimits, formatReset } from '../lib/limits'
 import { formatResetCountdown } from '../lib/usage'
 import { useActiveSession, useRuntime, useSnapshot } from '../state/context'
 import { useNarrowToolbar } from './ComposerControls'
-import { Button, ComposerTrack, InfoCard, ProgressRing, Text, type InfoFact, type Tone } from '../design'
+import { Button, ComposerTrack, InfoCard, ProgressRing, type InfoFact, type Tone } from '../design'
 
 /**
  * The ring beside the model: how full the context window is, for whichever
@@ -43,12 +43,12 @@ export const ContextUsage = () => {
 
   const usageTrigger = (fill: ContextFill | null, ringLabel: string) => <Button
     variant="ghost"
-    size={tight ? 'icon-xs' : 'icon-label'}
+    size="icon-xs"
     aria-label="Usage"
+    title="Usage"
     data-info-source="context"
   >
     <Ring fill={fill} size={folded ? 12 : 16} label={ringLabel} />
-    {!tight && <Text role="meta">Usage</Text>}
   </Button>
   if (!view) return <ComposerTrack name="context" folded={folded} tight={tight}>
     <span ref={ref} style={{ display: 'contents' }}>

@@ -28,12 +28,15 @@ const draw = (node: ReactNode): HTMLElement => {
   return track
 }
 
-it('lets a selected value keep its natural width and shrink with the row', () => {
-  const track = draw(<ComposerTrack name="mode" folded contentSized>Default</ComposerTrack>)
-  expect(track.dataset['folded']).toBe('true')
-  expect(track.textContent).toBe('Default')
-  expect(track.className).toContain('trackContentSized')
-  expect(css).toMatch(/\.trackContentSized,[\s\S]*?\{[^}]*width:\s*max-content[^}]*flex:\s*0 1 auto/s)
+it('keeps selected values fixed and lets only the folder track shrink', () => {
+  const selected = draw(<ComposerTrack name="mode" contentSized>Default</ComposerTrack>)
+  expect(selected.textContent).toBe('Default')
+  expect(selected.className).toContain('trackContentSized')
+  expect(css).toMatch(/\.trackContentSized,[\s\S]*?\{[^}]*width:\s*max-content[^}]*flex:\s*0 0 auto/s)
+
+  const folder = draw(<ComposerTrack name="work-in" contentSized shrinkable>storefront</ComposerTrack>)
+  expect(folder.className).toContain('trackShrinkable')
+  expect(css).toMatch(/\.trackShrinkable\s*\{\s*flex:\s*0 1 auto/s)
 })
 
 it('keeps the context track width tied to its wide, folded or tight token', () => {

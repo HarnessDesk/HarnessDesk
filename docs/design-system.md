@@ -565,8 +565,8 @@ These wide tracks name the selected values themselves. The earlier base tracks r
 | --- | --- |
 | `--hd-composer-track-permissions-wide` | `132px` |
 | `--hd-composer-track-mode-wide` | `68px` |
-| `--hd-composer-track-context-wide` | `60px` |
-| `--hd-composer-track-context-folded` | `56px` |
+| `--hd-composer-track-context-wide` | `24px` |
+| `--hd-composer-track-context-folded` | `24px` |
 | `--hd-composer-track-context-tight` | `24px` |
 
 ## When to use which

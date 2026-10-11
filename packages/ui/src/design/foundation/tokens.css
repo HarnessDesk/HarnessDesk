@@ -1652,11 +1652,11 @@ body[data-hd-interface='studio'] [data-hd-density='comfortable'] {
 }
 
 /* --- composer selected-value fit ------------------------------------------
-   The permission step reserves the selected value's natural width before
-   folding begins. Usage's ring, standard chip gap and word share one track. */
+   Permission and Mode keep their selected values whole before folding. The
+   Usage control reserves only the ring's width. */
 :root {
   --hd-composer-track-permissions-wide: 132px;
   --hd-composer-track-mode-wide: 68px;
-  --hd-composer-track-context-wide: 60px;
-  --hd-composer-track-context-folded: 56px;
+  --hd-composer-track-context-wide: var(--hd-target-min);
+  --hd-composer-track-context-folded: var(--hd-target-min);
 }

@@ -107,9 +107,9 @@
 --hd-composer-track-agent-folded = 48px
 --hd-composer-track-agent-tight = 24px
 --hd-composer-track-context = 32px
---hd-composer-track-context-folded = 56px
+--hd-composer-track-context-folded = 24px
 --hd-composer-track-context-tight = 24px
---hd-composer-track-context-wide = 60px
+--hd-composer-track-context-wide = 24px
 --hd-composer-track-extension = 32px
 --hd-composer-track-extension-empty = 0px
 --hd-composer-track-mode = 88px
@@ -658,9 +658,9 @@
 --hd-composer-track-agent-folded = 48px
 --hd-composer-track-agent-tight = 24px
 --hd-composer-track-context = 32px
---hd-composer-track-context-folded = 56px
+--hd-composer-track-context-folded = 24px
 --hd-composer-track-context-tight = 24px
---hd-composer-track-context-wide = 60px
+--hd-composer-track-context-wide = 24px
 --hd-composer-track-extension = 32px
 --hd-composer-track-extension-empty = 0px
 --hd-composer-track-mode = 88px
@@ -1214,9 +1214,9 @@
 --hd-composer-track-agent-folded = 48px
 --hd-composer-track-agent-tight = 24px
 --hd-composer-track-context = 32px
---hd-composer-track-context-folded = 56px
+--hd-composer-track-context-folded = 24px
 --hd-composer-track-context-tight = 24px
---hd-composer-track-context-wide = 60px
+--hd-composer-track-context-wide = 24px
 --hd-composer-track-extension = 32px
 --hd-composer-track-extension-empty = 0px
 --hd-composer-track-mode = 88px
@@ -1774,9 +1774,9 @@
 --hd-composer-track-agent-folded = 48px
 --hd-composer-track-agent-tight = 24px
 --hd-composer-track-context = 32px
---hd-composer-track-context-folded = 56px
+--hd-composer-track-context-folded = 24px
 --hd-composer-track-context-tight = 24px
---hd-composer-track-context-wide = 60px
+--hd-composer-track-context-wide = 24px
 --hd-composer-track-extension = 32px
 --hd-composer-track-extension-empty = 0px
 --hd-composer-track-mode = 88px

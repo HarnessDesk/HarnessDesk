@@ -13,9 +13,9 @@ import { ModeControl, ModelControl, PermissionControl } from './ComposerControls
 /**
  * The composer's controls as the toolbar narrows.
  *
- * Controls fold one at a time in a token-sized order. The fake observer gives
- * the toolbar its measured width; token values and the 6px toolbar gap model
- * the foundation styles that jsdom does not load.
+ * Controls fold one at a time in the shared order. The fake observer gives
+ * the toolbar its measured width; token values and the toolbar gap model the
+ * foundation styles that jsdom does not load.
  *
  * jsdom lays nothing out, so the toolbar is as wide as this file says.
  */
@@ -26,13 +26,15 @@ vi.mock('../design', async (importOriginal) => ({ ...(await importOriginal<typeo
 let width = 1000
 const watching = new Set<Measured>()
 const tokenValue = (name: string): number => {
-  const matches = [...foundationTokens.matchAll(new RegExp(`${name}:\\s*([\\d.]+)px`, 'g'))]
+  const matches = [...foundationTokens.matchAll(new RegExp(`${name}:\\s*([^;]+);`, 'g'))]
   const match = /-wide$|-folded$/.test(name) ? matches.at(-1) : matches[0]
   if (!match) throw new Error(`Missing token ${name}`)
-  return Number(match[1])
+  const value = match[1]!.trim()
+  const reference = value.match(/^var\((--[\w-]+)\)$/)
+  return reference ? tokenValue(reference[1]!) : Number.parseFloat(value)
 }
 const wideTracks = ['add', 'work-in', 'agent', 'permissions', 'mode', 'extension', 'more', 'context', 'model', 'send']
-const foldOrder = ['agent', 'work-in', 'more', 'context', 'mode', 'permissions', 'model']
+const foldOrder = ['agent', 'more', 'context', 'mode', 'permissions', 'model']
 const toolbarGap = tokenValue('--hd-space-1-5')
 const wideToken = (track: string): string =>
   `--hd-composer-track-${track}${['permissions', 'mode', 'context'].includes(track) ? '-wide' : ''}`
@@ -41,6 +43,7 @@ const foldThreshold = (target: string): number => {
     track,
     tokenValue(wideToken(track)),
   ]))
+  widths.set('extension', tokenValue('--hd-composer-track-extension-empty'))
   const gaps = wideTracks.length * toolbarGap
   for (const track of foldOrder) {
     const threshold = [...widths.values()].reduce((sum, one) => sum + one, gaps)
@@ -80,8 +83,9 @@ let testStore: AppStore
 
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', Measured)
-  for (const [, token, value] of foundationTokens.matchAll(/(--hd-composer-track-[\w-]+):\s*([\d.]+px)/g)) {
-    document.body.style.setProperty(token!, value!)
+  const trackTokens = new Set([...foundationTokens.matchAll(/(--hd-composer-track-[\w-]+):/g)].map(([, token]) => token!))
+  for (const token of trackTokens) {
+    document.body.style.setProperty(token, `${tokenValue(token)}px`)
   }
   container = document.createElement('div')
   document.body.appendChild(container)

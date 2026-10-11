@@ -4949,57 +4949,24 @@ for (const theme of WALL_THEMES) {
     expect(geometry.scroll, 'the Mode fact should fit in its track').toBeLessThanOrEqual(geometry.width)
     expect(geometry.rightOverflow, 'the full Mode fact should stay inside its track').toBeLessThanOrEqual(1)
     const usage = tools.locator('[data-composer-track="context"] button')
-    await expect(usage).toContainText('Usage')
+    await expect(usage).toHaveAccessibleName('Usage')
+    await expect(usage).toHaveAttribute('title', 'Usage')
+    await expect(usage.locator('[data-role="meta"]')).toHaveCount(0)
     const model = tools.locator('[data-composer-track="model"] button')
-    await expect(model).toHaveAttribute('title', /GPT-5\.5 · medium/)
+    await expect(model).toHaveAccessibleName(/GPT-5\.5.*medium/)
   })
 
-  test(`Composer fit: Usage label stays whole with the standard icon gap in ${theme}`, async ({ page }) => {
-    await openFrame(page, 'frame-wall=draft&frame-composer-values=1', theme, 1280)
-    const tools = page.locator('[data-slot="composer-tools"]:visible').last()
-    const usage = tools.locator('[data-composer-track="context"] button')
-    const geometry = await usage.evaluate(button => {
-      const bounds = (rect: DOMRect) => {
-        return { left: rect.left, right: rect.right, width: rect.width }
-      }
-      const ring = button.querySelector<HTMLElement>('[data-slot="progress-ring"]')!.getBoundingClientRect()
-      const label = button.querySelector<HTMLElement>('[data-role="meta"]')!
-      const track = button.closest('[data-composer-track]')!
-      const buttonStyle = getComputedStyle(button)
-      const trackStyle = getComputedStyle(track)
-      return {
-        text: label.textContent?.trim(), width: label.clientWidth, scroll: label.scrollWidth,
-        gap: label.getBoundingClientRect().left - ring.right,
-        rightOverflow: label.getBoundingClientRect().right - track.getBoundingClientRect().right,
-        button: bounds(button.getBoundingClientRect()), ring: bounds(ring), label: bounds(label.getBoundingClientRect()), track: bounds(track.getBoundingClientRect()),
-        buttonGap: buttonStyle.gap, buttonFlexShrink: buttonStyle.flexShrink, trackWidth: trackStyle.width,
-      }
-    })
-    expect(geometry.text).toBe('Usage')
-    expect(geometry.scroll, 'the Usage label should fit without clipping').toBeLessThanOrEqual(geometry.width)
-    expect(geometry.rightOverflow, `the complete label should stay inside its track: ${JSON.stringify(geometry)}`).toBeLessThanOrEqual(1)
-    expect(Math.abs(geometry.gap - await resolvedPx(page, '--hd-space-1-5'))).toBeLessThanOrEqual(1)
-
-    await openFrame(page, 'frame-wall=draft&frame-composer-values=1', theme, 720)
-    const narrowContext = page.locator('[data-slot="composer-tools"]:visible [data-composer-track="context"]')
-    const narrowUsage = narrowContext.locator('button')
-    const narrowGeometry = await narrowUsage.evaluate(button => {
-      const track = button.closest('[data-composer-track]')!.getBoundingClientRect()
-      const box = button.getBoundingClientRect()
-      const label = button.querySelector<HTMLElement>('[data-role="meta"]')
-      return {
-        buttonOverflow: box.right - track.right,
-        text: label?.textContent?.trim() ?? null,
-        width: label?.clientWidth ?? 0,
-        scroll: label?.scrollWidth ?? 0,
-        rightOverflow: label ? label.getBoundingClientRect().right - track.right : 0,
-      }
-    })
-    expect(narrowGeometry.buttonOverflow, 'the folded Usage control should fit its track').toBeLessThanOrEqual(1)
-    if (narrowGeometry.text !== null) {
-      expect(narrowGeometry.text).toBe('Usage')
-      expect(narrowGeometry.scroll).toBeLessThanOrEqual(narrowGeometry.width)
-      expect(narrowGeometry.rightOverflow).toBeLessThanOrEqual(1)
+  test(`Composer fit: Usage ring carries its name without repeating the word in ${theme}`, async ({ page }) => {
+    for (const width of [1280, 720]) {
+      await openFrame(page, 'frame-wall=draft&frame-composer-values=1', theme, width)
+      const tools = page.locator('[data-slot="composer-tools"]:visible').last()
+      const usage = tools.locator('[data-composer-track="context"] button')
+      await expect(usage).toHaveAccessibleName('Usage')
+      await expect(usage).toHaveAttribute('title', 'Usage')
+      await expect(usage.locator('[data-slot="progress-ring"]')).toBeVisible()
+      await expect(usage.locator('[data-role="meta"]')).toHaveCount(0)
+      const overflow = await usage.evaluate(button => button.getBoundingClientRect().right - button.closest('[data-composer-track]')!.getBoundingClientRect().right)
+      expect(overflow, `the ring should fit its track at ${width}px`).toBeLessThanOrEqual(1)
     }
   })
 

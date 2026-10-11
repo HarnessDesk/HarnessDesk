@@ -358,19 +358,28 @@ export const FrameWall = () => {
       ] })
     }
     if (['draft', 'conversation'].includes(destination) && query.get('frame-composer-values') === '1') {
+      const fullComposerRow = query.get('frame-fix6-folder') !== null
+      const solLow = query.get('frame-fix6-model') === 'sol-low'
+      const modelValue = solLow ? 'gpt-6.1-sol' : 'gpt-5.5'
+      const modelLabel = solLow ? 'GPT-6.1-Sol' : 'GPT-5.5'
+      const effortValue = solLow ? 'low' : 'medium'
+      const effortLabel = solLow ? 'Low' : 'medium'
       const composerValues: ConfigOption[] = [
         { id: 'sandbox', type: 'select', category: '_permissions', label: 'Sandbox', currentValue: 'workspace-write', choices: [
           { value: 'workspace-write', label: 'Workspace write' },
+          ...(fullComposerRow ? [{ value: 'read-only', label: 'Read only' }] : []),
         ] },
         { id: 'mode', type: 'select', category: 'mode', label: 'Mode', currentValue: 'default', choices: [
           { value: 'default', label: 'Default' },
+          ...(fullComposerRow ? [{ value: 'plan', label: 'Plan' }] : []),
         ] },
-        { id: 'model', type: 'select', category: 'model', label: 'Model', currentValue: 'gpt-5.5', choices: [
-          { value: 'gpt-5.5', label: 'GPT-5.5' },
+        { id: 'model', type: 'select', category: 'model', label: 'Model', currentValue: modelValue, choices: [
+          { value: modelValue, label: modelLabel },
         ] },
-        { id: 'reasoning_effort', type: 'select', category: 'thought_level', label: 'Reasoning effort', currentValue: 'medium', choices: [
-          { value: 'medium', label: 'medium' },
+        { id: 'reasoning_effort', type: 'select', category: 'thought_level', label: 'Reasoning effort', currentValue: effortValue, choices: [
+          { value: effortValue, label: effortLabel },
         ] },
+        ...(fullComposerRow ? [{ id: 'format', type: 'boolean' as const, category: 'other' as const, label: 'Summary format', currentValue: true }] : []),
       ]
       if (destination === 'draft') Object.assign(snapshot, { draftOptions: composerValues })
       else {
@@ -391,6 +400,11 @@ export const FrameWall = () => {
     if (query.get('frame-no-folder') === '1') Object.assign(snapshot, {workspace:null,activeSessionKey:null,sessions:new Map()})
     if (destination === 'draft' && query.get('frame-fix5-storefront') === '1') {
       const workspace = { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 }
+      Object.assign(snapshot, { workspace, workspaces: [workspace], activeSessionKey: null, sessions: new Map() })
+    }
+    const fix6Folder = query.get('frame-fix6-folder')
+    if (destination === 'draft' && (fix6Folder === 'storefront' || fix6Folder === 'pricing-service')) {
+      const workspace = { path: `/work/${fix6Folder}`, name: fix6Folder, lastOpenedAt: 1 }
       Object.assign(snapshot, { workspace, workspaces: [workspace], activeSessionKey: null, sessions: new Map() })
     }
     if (destination === 'draft' && query.get('frame-fix5-long-folder') === '1') {

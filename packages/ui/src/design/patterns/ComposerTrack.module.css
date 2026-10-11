@@ -39,6 +39,11 @@
 .trackPermissions:not([data-folded]):not([data-tight]),
 .trackMode:not([data-folded]):not([data-tight]) {
   width: max-content;
+  flex: 0 0 auto;
+}
+
+/* Only the folder name is allowed to yield its content-sized width. */
+.trackShrinkable {
   flex: 0 1 auto;
 }
 

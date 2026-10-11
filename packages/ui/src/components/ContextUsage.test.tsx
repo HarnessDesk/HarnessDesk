@@ -135,10 +135,13 @@ describe('ContextUsage', () => {
     mount(withSession(runtime('alpha', 'Assistant A', false), null))
     const trigger = container.querySelector<HTMLButtonElement>('button')
     expect(trigger?.getAttribute('aria-label')).toBe('Usage')
+    expect(trigger?.getAttribute('title')).toBe('Usage')
+    expect(trigger?.textContent).toBe('')
     expect(ring()?.getAttribute('aria-label')).toBe('No usage yet')
     mount({})
     expect(container.querySelector('button')).not.toBeNull()
     expect(container.querySelector<HTMLButtonElement>('button')?.getAttribute('aria-label')).toBe('Usage')
+    expect(container.querySelector<HTMLButtonElement>('button')?.getAttribute('title')).toBe('Usage')
   })
 
   it('opens the empty context popover to No usage yet', () => {

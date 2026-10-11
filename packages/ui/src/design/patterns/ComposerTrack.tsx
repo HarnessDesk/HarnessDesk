@@ -51,12 +51,14 @@ export const ComposerTrack = ({
   folded = false,
   tight = false,
   contentSized = false,
+  shrinkable = false,
   children,
 }: {
   name: ComposerTrackName
   folded?: boolean
   tight?: boolean
   contentSized?: boolean
+  shrinkable?: boolean
   children?: ReactNode
 }) => (
   <div
@@ -64,7 +66,7 @@ export const ComposerTrack = ({
     data-composer-track={name}
     data-folded={folded || undefined}
     data-tight={tight || undefined}
-    className={`${styles.track} ${wideTrackClass[name]} ${folded ? foldedTrackClass[name] ?? '' : ''} ${tight ? tightTrackClass[name] ?? '' : ''} ${contentSized ? styles.trackContentSized ?? '' : ''}`}
+    className={`${styles.track} ${wideTrackClass[name]} ${folded ? foldedTrackClass[name] ?? '' : ''} ${tight ? tightTrackClass[name] ?? '' : ''} ${contentSized ? styles.trackContentSized ?? '' : ''} ${shrinkable ? styles.trackShrinkable ?? '' : ''}`}
     style={name === 'context' ? { width: `var(--hd-composer-track-context-${tight ? 'tight' : folded ? 'folded' : 'wide'})` } : undefined}
   >
     {children}

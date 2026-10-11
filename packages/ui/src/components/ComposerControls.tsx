@@ -66,15 +66,20 @@ import sheet from './ComposerControls.module.css'
 
 const Chevron = () => <ChevronIcon size={11} style={{ transform: 'rotate(90deg)' }} />
 
-const FOLD_ORDER = ['agent', 'work-in', 'more', 'context', 'mode', 'permissions', 'model'] as const
+const FOLD_ORDER = ['agent', 'more', 'context', 'mode', 'permissions', 'model'] as const
 type FoldableTrack = (typeof FOLD_ORDER)[number]
+type ToolbarTrack = FoldableTrack | 'work-in'
 type ToolbarStep = { folded: number; tight: boolean }
 
 const WIDE_TRACKS_WITH_OWN_MEASURE = new Set(['permissions', 'mode', 'context'])
 const trackToken = (track: string, size: 'wide' | 'folded' | 'tight'): string =>
   `--hd-composer-track-${track}${size === 'wide' ? (WIDE_TRACKS_WITH_OWN_MEASURE.has(track) ? '-wide' : '') : `-${size}`}`
 
-const px = (value: string): number => Number.parseFloat(value) || 0
+const px = (value: string, style?: CSSStyleDeclaration): number => {
+  const resolved = value.replace(/var\((--[\w-]+)(?:,\s*([^)]+))?\)/g, (_match, name: string, fallback: string | undefined) =>
+    style?.getPropertyValue(name).trim() || fallback || '')
+  return Number.parseFloat(resolved) || 0
+}
 
 /** The fold thresholds describe the toolbar's content box, not its padding. */
 const contentBoxWidth = (toolbar: HTMLElement): number => {
@@ -87,25 +92,41 @@ const contentBoxWidth = (toolbar: HTMLElement): number => {
     - px(style.borderRightWidth)
 }
 
-/** Read the active foundation once and measure fold steps from its tracks and gaps. */
+const wideTrackMeasurements = new WeakMap<HTMLElement, Map<string, number>>()
+
+/** Read the active foundation and current selected values before choosing fold steps. */
 const toolbarStepper = (toolbar: HTMLElement): ((width: number) => ToolbarStep) => {
   const style = getComputedStyle(toolbar)
   const layout = toolbar.dataset.composerLayout
   const tracks = ['add', ...(layout === 'live' ? [] : ['work-in']), 'agent', 'permissions', 'mode', 'extension', 'more', 'context', 'model', 'send']
-  // Reserve the populated Extension width regardless of whether an action is
-  // present; its presence varies by agent, but the fold steps must not.
-  const wideWidths = new Map(tracks.map((track) => [
-    track,
-    px(style.getPropertyValue(trackToken(track, 'wide'))),
-  ]))
+  const measuredWidths = wideTrackMeasurements.get(toolbar) ?? new Map<string, number>()
+  for (const trackName of tracks) {
+    const track = toolbar.querySelector<HTMLElement>(`[data-composer-track="${trackName}"]`)
+    if (!track || track.hasAttribute('data-folded') || track.hasAttribute('data-tight')) continue
+    const previousShrink = track.style.flexShrink
+    if (trackName === 'work-in') track.style.flexShrink = '0'
+    const width = track.getBoundingClientRect().width
+    track.style.flexShrink = previousShrink
+    measuredWidths.set(trackName, width)
+  }
+  wideTrackMeasurements.set(toolbar, measuredWidths)
+  const extension = toolbar.querySelector<HTMLElement>('[data-composer-track="extension"]')
+  const wideWidths = new Map(tracks.map((trackName) => {
+    const tokenWidth = px(style.getPropertyValue(trackToken(trackName, 'wide')), style)
+    const measured = measuredWidths.get(trackName) ?? 0
+    const width = trackName === 'extension' && extension?.childElementCount === 0
+      ? px(style.getPropertyValue('--hd-composer-track-extension-empty'), style)
+      : Math.max(tokenWidth, measured)
+    return [trackName, width]
+  }))
   const gap = px(style.columnGap) || px(style.gap)
   // ComposerGap is itself a flex child between the tracks, so there is one
   // more flex gap than there are spaces between the named tracks.
   const gaps = tracks.length * gap
   const total = (widths: ReadonlyMap<string, number>): number =>
     [...widths.values()].reduce((sum, trackWidth) => sum + trackWidth, gaps)
-  const order = FOLD_ORDER.filter((track) => layout !== 'live' || track !== 'work-in')
-  const foldedWidths = new Map(order.map((track) => [track, px(style.getPropertyValue(trackToken(track, 'folded')))]))
+  const order = FOLD_ORDER
+  const foldedWidths = new Map(order.map((track) => [track, px(style.getPropertyValue(trackToken(track, 'folded')), style)]))
   return (width) => {
     const widths = new Map(wideWidths)
     let folded = 0
@@ -125,7 +146,7 @@ const toolbarStepper = (toolbar: HTMLElement): ((width: number) => ToolbarStep) 
  * nothing — its options arrive after the runtime does — and starts watching
  * only once it has drawn something.
  */
-export const useNarrowToolbar = (name: FoldableTrack): {
+export const useNarrowToolbar = (name: ToolbarTrack): {
   ref: (node: HTMLSpanElement | null) => void
   folded: boolean
   tight: boolean
@@ -157,6 +178,7 @@ export const useNarrowToolbar = (name: FoldableTrack): {
     const onViewportResize = () => update()
     window.addEventListener('resize', onViewportResize)
     mutationObserver?.observe(toolbar, { attributes: true })
+    mutationObserver?.observe(toolbar, { childList: true, subtree: true })
     if (document.documentElement) mutationObserver?.observe(document.documentElement, { attributes: true })
     if (document.body) mutationObserver?.observe(document.body, { attributes: true })
     return () => {
@@ -165,8 +187,9 @@ export const useNarrowToolbar = (name: FoldableTrack): {
       window.removeEventListener('resize', onViewportResize)
     }
   }, [toolbar, layout])
-  const order = FOLD_ORDER.filter((track) => toolbar?.dataset.composerLayout !== 'live' || track !== 'work-in')
-  return { ref, folded: step.folded >= order.indexOf(name) + 1, tight: step.tight }
+  const foldIndex = FOLD_ORDER.indexOf(name as FoldableTrack)
+  const foldable = foldIndex >= 0
+  return { ref, folded: foldable && step.folded >= foldIndex + 1, tight: foldable && step.tight }
 }
 
 /** A control's wrapper: no box of its own, just a way to reach the toolbar. */
@@ -1240,7 +1263,7 @@ export const PlaceControl = () => {
   const tagged = !armed && !chosenMain && (chosen !== null || linked)
 
   return (
-    <ComposerTrack name="work-in" contentSized>
+    <ComposerTrack name="work-in" contentSized shrinkable>
       <InToolbar refer={ref}>
         <Popover
           fullWidth

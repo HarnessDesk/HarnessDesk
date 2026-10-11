@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { FRAME } from '../../packages/ui/src/design/frame'
 import { installFramePreviewFixture } from './frame-preview-fixture'
 
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
@@ -11,31 +12,117 @@ const openFrame = async (page: Page, query: string, theme: 'light' | 'dark', wid
   await page.evaluate(async () => { await document.fonts.ready })
 }
 
-test('R12.1 composer labels keep their full text until the fold order takes over', async ({ page }) => {
-  for (const theme of ['light', 'dark'] as const) for (const width of [1280, 720]) {
-    await openFrame(page, 'frame-wall=draft&frame-composer-labels=1&frame-fix5-storefront=1', theme, width)
-    const toolbar = page.locator('[data-slot="composer-tools"]')
+test('R12.1 second pass: the composer preserves labels and folds controls across real values', async ({ page }) => {
+  const models = [
+    { model: 'gpt-5.5', modelName: 'GPT-5.5 medium' },
+    { model: 'sol-low', modelName: 'GPT-6.1-Sol Low' },
+  ] as const
+  const states = ['storefront', 'pricing-service'].flatMap(folder => models.map(model => ({ folder, ...model })))
+  for (const theme of ['light', 'dark'] as const) for (const state of states) for (const width of [1280, 1100, 720]) {
+    await openFrame(page, `frame-wall=draft&frame-composer-values=1&frame-fix6-folder=${state.folder}&frame-fix6-model=${state.model}`, theme, width)
+    const toolbar = page.locator('[data-slot="composer-tools"]:visible').last()
     await expect(toolbar).toBeVisible()
-    const state = await toolbar.evaluate(toolbar => {
-      const labels = [...toolbar.querySelectorAll<HTMLElement>('[data-composer-track] .truncate, [data-composer-track] [data-slot="text"][title]')]
-        .filter(label => label.getClientRects().length > 0)
-        .map(label => ({
-          track: label.closest<HTMLElement>('[data-composer-track]')?.dataset.composerTrack,
-          text: label.textContent?.trim(),
-          clipped: label.scrollWidth > label.clientWidth,
-        }))
-      const tracks = [...toolbar.querySelectorAll<HTMLElement>('[data-composer-track]')]
-        .map(track => ({ track: track.dataset.composerTrack, folded: track.hasAttribute('data-folded') }))
-      return { labels, tracks }
-    })
-    expect(state.labels.filter(label => label.clipped), `visible composer labels should fit at ${width}px in ${theme}`).toEqual([])
-    if (width === 1280) {
-      expect(state.labels.map(label => label.text)).toEqual(expect.arrayContaining(['storefront', 'Workspace', 'Default']))
+    if (width < FRAME.fold.sidebarFloats) {
+      await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
+      await expect(page.getByRole('dialog', { name: 'Sidebar', exact: true })).toBeVisible()
     } else {
-      const foldOrder = ['agent', 'work-in', 'more', 'context', 'mode', 'permissions', 'model']
-      const folded = new Set(state.tracks.filter(track => track.folded).map(track => track.track))
-      const foldedInOrder = foldOrder.filter(track => folded.has(track))
-      expect(foldedInOrder).toEqual(foldOrder.filter(track => track !== 'work-in').slice(0, foldedInOrder.length))
+      expect((await page.locator('[data-frame-region="left"]:visible').boundingBox())!.width).toBeGreaterThan(0)
+    }
+
+    const geometry = await toolbar.evaluate(toolbar => {
+      const visible = (node: HTMLElement) => {
+        const style = getComputedStyle(node)
+        const box = node.getBoundingClientRect()
+        return style.display !== 'none' && style.visibility !== 'hidden' && box.width > 1 && box.height > 0
+      }
+      const words = [...toolbar.querySelectorAll<HTMLElement>(
+        '[data-slot="text"][data-role="row"], [data-slot="chip-words"] > span:not(.sr-only)',
+      )].filter(visible)
+      const labels = words.map(node => {
+        const track = node.closest<HTMLElement>('[data-composer-track]')!
+        const range = document.createRange()
+        range.selectNodeContents(node)
+        const text = range.getBoundingClientRect()
+        const bounds = track.getBoundingClientRect()
+        return {
+          track: track.dataset.composerTrack,
+          text: node.textContent?.trim(),
+          clipped: node.scrollWidth > node.clientWidth || text.left < bounds.left - 1 || text.right > bounds.right + 1,
+          labelWidth: node.clientWidth,
+          labelScrollWidth: node.scrollWidth,
+          textWidth: text.width,
+          trackWidth: bounds.width,
+        }
+      })
+      const folded = [...toolbar.querySelectorAll<HTMLElement>('[data-composer-track][data-folded]')]
+        .map(track => ({
+          track: track.dataset.composerTrack,
+          hasVisibleWords: [...track.querySelectorAll<HTMLElement>(
+            '[data-slot="text"][data-role="row"], [data-slot="chip-words"] > span:not(.sr-only)',
+          )].some(visible),
+        }))
+      const row = toolbar.getBoundingClientRect()
+      const send = toolbar.querySelector<HTMLElement>('[data-composer-track="send"] button')!.getBoundingClientRect()
+      const style = getComputedStyle(toolbar)
+      return {
+        labels,
+        folded,
+        tracks: [...toolbar.querySelectorAll<HTMLElement>('[data-composer-track]')].map(track => ({
+          track: track.dataset.composerTrack,
+          width: track.getBoundingClientRect().width,
+          flexShrink: getComputedStyle(track).flexShrink,
+          folded: track.hasAttribute('data-folded'),
+        })),
+        toolbarWidth: toolbar.clientWidth,
+        toolbarScrollWidth: toolbar.scrollWidth,
+        gap: style.columnGap,
+        paddingLeft: style.paddingLeft,
+        paddingRight: style.paddingRight,
+        rowOverflow: toolbar.scrollWidth - toolbar.clientWidth,
+        sendOutside: send.left < row.left - 1 || send.right > row.right + 1,
+      }
+    })
+    expect(geometry.rowOverflow, `composer row should not overflow at ${width}px in ${theme}: ${JSON.stringify(geometry)}`).toBeLessThanOrEqual(0)
+    expect(geometry.sendOutside, `Send should stay inside the composer at ${width}px in ${theme}`).toBe(false)
+
+    const clipped = geometry.labels.filter(label => label.clipped)
+    if (width === 720) {
+      expect(clipped.every(label => label.track === 'work-in'), `only the folder name may truncate at ${width}px in ${theme}`).toBe(true)
+      expect(geometry.folded.filter(track => track.hasVisibleWords), `folded controls should be icon-only at ${width}px in ${theme}`).toEqual([])
+      for (const track of await toolbar.locator('[data-composer-track][data-folded]').all()) {
+        const name = await track.getAttribute('data-composer-track')
+        if (name === 'mode' && await track.locator('[data-slot="chip"]').count()) {
+          const chip = track.locator('[data-slot="chip"]')
+          await expect(chip.locator('.sr-only'), 'the folded mode fact should keep its value for assistive technology').toHaveText('Default')
+          await expect(chip).toHaveAttribute('title', 'Default')
+        } else {
+          await expect(track.locator('button').first(), `folded ${name} control should stay named`).toHaveAccessibleName(/\S/)
+        }
+      }
+    } else {
+      expect(clipped, `visible composer labels should fit at ${width}px in ${theme}: ${JSON.stringify(geometry)}`).toEqual([])
+    }
+
+    const usage = toolbar.locator('[data-composer-track="context"] button')
+    await expect(usage).toHaveAccessibleName('Usage')
+    await expect(usage).toHaveAttribute('title', 'Usage')
+    await expect(usage.locator('[data-slot="progress-ring"]')).toBeVisible()
+    await expect(usage.locator('[data-role="meta"]')).toHaveCount(0)
+
+    if (width === 1280) {
+      const folder = toolbar.locator('[data-composer-track="work-in"] [data-slot="text"][data-role="row"]')
+      await expect(folder).toHaveText(state.folder)
+      await expect(folder).toHaveAttribute('title', `/work/${state.folder}`)
+      await expect(toolbar.locator('[data-composer-track="permissions"] [data-slot="text"][data-role="row"]')).toHaveText('Workspace write')
+      const mode = toolbar.locator('[data-composer-track="mode"]')
+      if (await mode.getAttribute('data-folded') !== null) {
+        await expect(mode.locator('button')).toHaveAccessibleName(/Default/)
+      } else {
+        await expect(mode.locator('[data-slot="text"][data-role="row"]')).toHaveText('Default')
+      }
+      await expect(toolbar.locator('[data-composer-track="model"] button')).toHaveAccessibleName(state.modelName)
+      await expect(toolbar.locator('[data-composer-track="agent"] button').first()).toHaveAccessibleName(/\S/)
+      await expect(toolbar.locator('[data-composer-track="more"] button').first()).toHaveAccessibleName(/\S/)
     }
   }
 })
