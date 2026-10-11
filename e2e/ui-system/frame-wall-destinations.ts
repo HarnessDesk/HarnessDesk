@@ -3,11 +3,11 @@
  * "The visual check"). `tab` is a Team view's `data-team-page` value. A phase
  * that adds a destination adds it here, and the wall grows with it.
  */
-import type { FrameActions } from './frame-actions'
+import type { PageFrameActions } from './frame-page-actions'
 
 import type { WallActions } from './frame-wall-actions'
 
-export interface WallDestination extends FrameActions, WallActions { readonly id: string; readonly query: string; readonly leftWidth?: number; readonly leftOpen?: boolean; readonly leftPopup?: string; readonly settingsQuery?: string; readonly surface?: 'pattern' }
+export interface WallDestination extends PageFrameActions, WallActions { readonly id: string; readonly query: string; readonly leftWidth?: number; readonly leftOpen?: boolean; readonly leftPopup?: string; readonly settingsQuery?: string; readonly surface?: 'pattern'; readonly pageWidth?: 'reading' | 'wide' | 'canvas' }
 
 export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'popup-composer-model', query: 'frame-wall=conversation', composerModel: true },
@@ -151,3 +151,5 @@ export interface WallDestination { readonly leftHeading?: 'hover-open' | 'folded
   { id: 'left-project-folded', query: 'frame-wall=left-work', leftOpen: true, leftHeading: 'folded' },
 )
 export interface WallDestination { readonly plan?: 'anchor' | 'rest' }
+
+export const PAGE_WALL_DESTINATIONS: readonly WallDestination[] = []

@@ -19,3 +19,6 @@
 
 .toolButton { position: relative; }
 .dot { position: absolute; top: var(--hd-space-1); right: var(--hd-space-1); width: var(--hd-space-1); height: var(--hd-space-1); border-radius: var(--hd-radius-full); background: var(--hd-accent); }
+
+.place > button { flex: none; }
+.row :is(button, a, input, select, textarea, [role="tab"], [role="button"]) { -webkit-app-region: no-drag; }

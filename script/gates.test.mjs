@@ -1,3 +1,4 @@
+import { pageLayoutFindings } from './frame-page-layout.mjs'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
@@ -4577,4 +4578,15 @@ test('retiredComponent follows named aliases and namespace JSX imports', () => {
     ['import { PageHead as Heading } from "../design"; export const A = () => <><Heading title="One" /><Heading title="Two" /></>', 2],
   ]
   for (const [source, count] of cases) assert.equal(retiredComponentsOf(file, source).length, count, source)
+})
+
+test('page family scanner preserves the layout, measure and retired-head authorities', () => {
+  const clean = new Map([['Settings.tsx', 'export const Settings = () => <Page width="reading"><Rows /></Page>']])
+  assert.deepEqual(pageLayoutFindings('settings', clean), [])
+  const dirty = new Map([['Settings.tsx', 'export const Settings = () => <div className="flex p-6"><PageHead title="General" /><PaneColumn page /></div>']])
+  const findings = pageLayoutFindings('settings', dirty)
+  assert.ok(findings.some(value => value.endsWith(': flex')))
+  assert.ok(findings.some(value => value.includes('<PageHead>')))
+  assert.ok(findings.some(value => value.includes('<PaneColumn page>')))
+  assert.throws(() => pageLayoutFindings('unregistered'), /Unknown page family/)
 })

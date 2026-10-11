@@ -20,9 +20,12 @@ import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
 import { TeamOverviewBoard } from '../../preview/frames-team-overview'
 import { TeamBarBoard } from '../../preview/frames-team-frame'
-import { Page, TopBar } from '..'
+import { MainDestination, DestinationBody, Page, TopBar } from '..'
 import { DiffIcon, HistoryIcon, GlobeIcon, PanelIcon } from '../../components/Icons'
 
+const MAINDESTINATION_CATALOG_VARIANTS = ['light', 'dark'] as const
+const MAINDESTINATION_CATALOG_SIZES = ['default'] as const
+const MAINDESTINATION_CATALOG_STATES = ['default', 'open', 'closed'] as const
 const PAGE_CATALOG_VARIANTS = ['light', 'dark'] as const
 const PAGE_CATALOG_SIZES = ['default'] as const
 const PAGE_CATALOG_STATES = ['default'] as const
@@ -3029,6 +3032,14 @@ const ComparisonNoticeBoard = () => {
 const TOPBAR_CATALOG_VARIANTS = ['light', 'dark'] as const
 const TOPBAR_CATALOG_SIZES = ['default'] as const
 const TOPBAR_CATALOG_STATES = ['default', 'disabled', 'filtered', 'folded-state', 'long-title'] as const
+export const MainDestinationBoard = () => {
+  const [page, setPage] = useState(false)
+  return <><Button onClick={() => setPage(value => !value)}>Switch main destination</Button>
+    <MainDestination page={page} work={<Page width="reading"><Textarea aria-label="Retained draft" defaultValue="Review the checkout" /></Page>}
+      pages={<DestinationBody id="library" active={page}><Page width="reading"><Text role="prose">Library · a long reusable project name · チェックアウトのレビュー</Text><Input aria-label="Library search" /></Page></DestinationBody>} />
+  </>
+}
+
 export const TopBarBoard = () => {
   const [tab, setTab] = useState('findings')
   const tabs = ['Overview', 'Run', 'Board', 'Chat', 'Findings', 'Runs'].map(label => ({
@@ -3104,6 +3115,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   { id: 'fixed-shell', title: 'FixedShell', about: 'Real-length content in both themes.', render: FixedShellBoard },
   { id: 'tool-body', title: 'ToolBody', about: 'Real-length content in both themes.', render: ToolBodyBoard },
   { id: 'tool-footer', title: 'ToolFooter', about: 'Real-length content in both themes.', render: ToolFooterBoard },
+  { id: 'main-destination', title: 'Retained main destinations', about: 'Work and page inputs survive switching the active main region.', render: MainDestinationBoard },
   { id: 'top-bar', title: 'The top bar', about: 'Nine slots in both fold stages, with long names and CJK.', render: TopBarBoard },
   { id:'git-comparison-dialogs', title:'Git comparison questions', about:'Merge or compare recorded revisions through the shared Git dialogs.', render:GitComparisonDialogsBoard },
   { id: 'comparison-decision', title:'Comparison decision', about:'A recommendation and the person decision above the composer.', render:ComparisonDecisionBoard },

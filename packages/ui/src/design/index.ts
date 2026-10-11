@@ -247,3 +247,5 @@ export { AgentCardModeContext } from './patterns/AgentCard'
 export { SubjectActionRows, SubjectActionsMenu } from './patterns/SubjectActionsMenu'
 
 export { InboxMenu } from './patterns/InboxMenu'
+
+export { MainDestination, DestinationBody } from './patterns/MainDestination'

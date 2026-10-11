@@ -14,7 +14,7 @@ import {
   type RefObject,
 } from 'react'
 
-import { FRAME, FixedShell, ShellNoticeHost, FixedPanelFrame, FixedPanelBody, FixedToolLayer, Tabs, TabsList, TabsTrigger, ToolBody, ToolBodySections, ToolFooterProvider, ToolFooterScope, ToolFooterOutlet, WorkbenchRail, WorkbenchScrim } from '../design'
+import { MainDestination, FRAME, FixedShell, ShellNoticeHost, FixedPanelFrame, FixedPanelBody, FixedToolLayer, Tabs, TabsList, TabsTrigger, ToolBody, ToolBodySections, ToolFooterProvider, ToolFooterScope, ToolFooterOutlet, WorkbenchRail, WorkbenchScrim } from '../design'
 import { DockPanelBody, PanelSeam } from '../design'
 import { dismissOverlays } from '../design'
 import { ComposerMountsProvider, NoticeStripFallback, NoticeStripOutlet } from '../components/Notices'
@@ -106,8 +106,9 @@ const LIVE: Record<DockId, string> = {
 }
 
 const WorkActive = createContext(true)
+const RightWorkActive = createContext(true)
 
-export const Workbench = ({ sidebar, suspended = false }: { sidebar: ReactNode; suspended?: boolean }) => {
+export const Workbench = ({ sidebar, suspended = false, pages, pageActive = false }: { sidebar: ReactNode; suspended?: boolean; pages?: ReactNode; pageActive?: boolean }) => {
   const { topRef, mainRef } = useShellHosts('work')
   const store = useStore()
   const snapshot = useSnapshot()
@@ -137,7 +138,7 @@ export const Workbench = ({ sidebar, suspended = false }: { sidebar: ReactNode; 
   const rightPanelOverlay = rightPanelOverlays(workbench, snapshot.windowWidth)
 
   useLayoutEffect(() => {
-    if (suspended) return
+    if (suspended || pageActive) return
     const rightDrawn = rightPanelDrawn(workbench)
     const bottomDrawn = !workbench.bottom.collapsed && areaVisible(workbench, 'bottom') &&
       dockViews(workbench.bottom).some(one => one.view.kind === 'terminal')
@@ -187,7 +188,7 @@ export const Workbench = ({ sidebar, suspended = false }: { sidebar: ReactNode; 
     store.focusPane(focused.id)
     const back = target ?? firstFocusable ?? pane
     back?.focus({ preventScroll: true })
-  }, [snapshot.layout, store, workbench, suspended])
+  }, [snapshot.layout, store, workbench, suspended, pageActive])
 
   /*
    * Which area the macOS window buttons are sitting over, named on the shell
@@ -205,20 +206,20 @@ export const Workbench = ({ sidebar, suspended = false }: { sidebar: ReactNode; 
   const sidebarBox = useRef<HTMLDivElement>(null)
   useFloatingSidebar(floating && !suspended, sidebarBox, main)
   const standingSidebar = column ? workbench.sidebar.size : 0
-  const rightWidth = effectiveRightWidth(workbench, snapshot.windowWidth, standingSidebar)
+  const rightWidth = pageActive ? 0 : effectiveRightWidth(workbench, snapshot.windowWidth, standingSidebar)
   const bottomHeight = effectiveBottomHeight(workbench, snapshot.windowHeight)
   const retainedRight = Math.min(workbench.right.size, Math.max(0, snapshot.windowWidth - FRAME.page.canvasGutter))
   const frameStyle = {
     '--frame-left-size': `${standingSidebar}px`, '--frame-left': 'var(--frame-left-drag, var(--frame-left-size))',
     '--frame-left-open': `${workbench.sidebar.size}px`,
-    '--frame-right-size': rightPanelOverlay || !rightPanelDrawn(workbench) ? '0px' : `${workbench.right.size}px`, '--frame-right': 'var(--frame-right-effective)',
-    '--frame-right-open': `${rightWidth || retainedRight}px`, '--frame-right-retained': `${retainedRight}px`,
+    '--frame-right-size': pageActive || rightPanelOverlay || !rightPanelDrawn(workbench) ? '0px' : `${workbench.right.size}px`, '--frame-right': 'var(--frame-right-effective)',
+    '--frame-right-open': pageActive ? '0px' : `${rightWidth || retainedRight}px`, '--frame-right-retained': `${retainedRight}px`,
     '--frame-bottom-size': `${bottomHeight}px`, '--frame-bottom': 'var(--frame-bottom-drag, var(--frame-bottom-size))',
     '--frame-bottom-retained': `${Math.max(FRAME.bottomPanel.min, Math.min(workbench.bottom.size, Math.floor(snapshot.windowHeight / 2)))}px`,
   } as CSSProperties
   return <WorkActive.Provider value={!suspended}><KeyboardHereContext.Provider value={suspended ? false : null}><RunDockProvider><ComposerMountsProvider><ShellContext.Provider value={shell}>
     <FixedShell ref={shell} viewportWidth={snapshot.windowWidth} style={frameStyle} className={styles.shell}
-      leftFloating={narrow} panelFloating={rightPanelOverlay} leftOpen={showSidebar} rightOpen={!suspended && rightPanelDrawn(workbench)} bottomOpen={!suspended && bottomHeight > 0} inert={suspended}
+      leftFloating={narrow} panelFloating={!pageActive && rightPanelOverlay} leftOpen={showSidebar} rightOpen={!suspended && !pageActive && rightPanelDrawn(workbench)} bottomOpen={!suspended && bottomHeight > 0} inert={suspended}
       {...(corner ? { 'data-lights': corner } : {})} {...(narrow ? { 'data-narrow': '' } : {})}
       onFocusCapture={event => { rightPanelFocus.current = event.target instanceof HTMLElement && event.target.closest('[data-fixed-tool-frame]') ? event.target : null }}
       left={<><WorkbenchRail ref={sidebarBox} className={styles.sidebar}
@@ -233,8 +234,8 @@ export const Workbench = ({ sidebar, suspended = false }: { sidebar: ReactNode; 
           const paneId = event.target.closest<HTMLElement>('[data-pane-id]')?.dataset.paneId
           const pane = paneId ? findPane(snapshot.layout, paneId) : undefined
           if (pane) mainFocus.current = { target: event.target, paneId: pane.id, view: pane.view }
-        }}><ShellNoticeHost ref={mainRef} /><NoticeStripFallback area="main" /><Panes /></div>}
-      right={<RightPanel />} bottom={<BottomPanel />}>
+        }}><ShellNoticeHost ref={mainRef} /><NoticeStripFallback area="main" /><MainDestination page={pageActive} work={<KeyboardHereContext.Provider value={pageActive ? false : null}><Panes /></KeyboardHereContext.Provider>} pages={pages} /></div>}
+      right={<RightWorkActive.Provider value={!pageActive}><RightPanel /></RightWorkActive.Provider>} bottom={<BottomPanel />}>
       {narrow && <WorkbenchScrim className={styles.scrim} {...(floating ? { 'data-open': '' } : {})} aria-hidden
         onMouseDown={event => event.preventDefault()} onClick={() => store.closeFloatingSidebar()} />}
     </FixedShell>
@@ -317,7 +318,8 @@ const RightPanel = () => {
   const snapshot = useSnapshot()
   const workbench = tileBrowserWorkbench(snapshot)
   const workActive = useContext(WorkActive)
-  const drawn = workActive && rightPanelDrawn(workbench)
+  const rightActive = useContext(RightWorkActive)
+  const drawn = workActive && rightActive && rightPanelDrawn(workbench)
   const overlay = rightPanelOverlays(workbench, snapshot.windowWidth)
   const sized = !overlay
   const noticeHost = drawn && noticeArea(workbench, snapshot.windowWidth) === 'right'

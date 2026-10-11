@@ -10,7 +10,7 @@ import { installPanelComponent } from '../slots/PanelBlocks'
 installPanelComponent()
 import { gitWorktrees } from './git-fixture'
 import { TopBar, Chip, Button, Menu, MenuItem } from '../design'
-import { PlusIcon, PlanIcon, DiffIcon, HistoryIcon, GlobeIcon, PanelIcon } from '../components/Icons'
+import { AgentIcon, PlusIcon, PlanIcon, DiffIcon, HistoryIcon, GlobeIcon, PanelIcon } from '../components/Icons'
 import { PopupWall } from './popup-wall'
 import { triggerGoalStatus } from './intake-fixture'
 import { AgentsWindow } from '../components/AgentsWindow'
@@ -192,10 +192,14 @@ const FrameDestination = ({ destination }: { destination: Destination }) => {
 
 const TopBarProbe = () => {
   const [tab, setTab] = useState('findings')
-  return <div data-frame-id="frame-wall" className="h-screen bg-background">
-    <TopBar place="Checkout retry · 長いチーム名" tab={tab}
+  const [parentChoice, setParentChoice] = useState('')
+  const parents = new URLSearchParams(location.search).get('frame-parents') === '1'
+  return <div data-parent-choice={parentChoice} data-frame-id="frame-wall" className="h-screen bg-background">
+    <TopBar place={parents ? 'Jane Doe' : 'Checkout retry · 長いチーム名'} tab={tab}
+      parents={parents ? ['Settings', 'Runtimes', 'Alpha'].map(label => ({ label, run: () => setParentChoice(label) })) : undefined}
+      mark={parents ? <AgentIcon /> : undefined}
       state={<Chip tone="warning">Needs you</Chip>}
-      verb={{ label: 'New job', icon: <PlusIcon />, run: () => {} }}
+      verb={parents ? { label: 'Start a conversation with this account', run: () => {} } : { label: 'New job', icon: <PlusIcon />, run: () => {} }}
       view={{ content: close => <Menu close={close}><MenuItem label="All" onSelect={close} /><MenuItem label="Open" onSelect={close} /></Menu> }}
       tools={<><Button variant="ghost" size="icon-sm" title="Details"><PlanIcon /></Button><Button variant="ghost" size="icon-sm" title="Changes"><DiffIcon /></Button><Button variant="ghost" size="icon-sm" title="Activity"><HistoryIcon /></Button><Button variant="ghost" size="icon-sm" title="Browser"><GlobeIcon /></Button><Button variant="ghost" size="icon-sm" title="Toggle panel"><PanelIcon /></Button></>}
       tabs={['Overview', 'Run', 'Board', 'Chat', 'Findings', 'Runs'].map(label => ({

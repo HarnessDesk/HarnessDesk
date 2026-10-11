@@ -1580,6 +1580,18 @@ Base UI owns the modal lifecycle, focus containment and return, outside
 press, portal and topmost Escape policy; this owns the gallery's position
 and the picture's facts.
 
+### `MainDestination`
+
+`packages/ui/src/design/patterns/MainDestination.tsx`
+
+Keep work and visited pages mounted; only the active main layer is interactive.
+
+### `DestinationBody`
+
+`packages/ui/src/design/patterns/MainDestination.tsx`
+
+Each visited page owns one scroll element for the current project.
+
 ### `Menu`
 
 `packages/ui/src/design/patterns/Menu.tsx`

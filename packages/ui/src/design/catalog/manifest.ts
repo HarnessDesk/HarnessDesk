@@ -172,6 +172,7 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
     : undefined
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
+  MainDestination: ['light', 'dark'],
   InboxMenu: ['default'],
   SubjectActionsMenu: ['default'],
   InfoCard: ['default'],
@@ -286,6 +287,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
+  MainDestination: ['default', 'open', 'closed'],
   InboxMenu: ['default'],
   SubjectActionsMenu: ['default'],
   InfoCard: ['default'],
@@ -431,6 +433,7 @@ Object.assign(SIZES, {
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
+  MainDestination: 'packages/ui/src/panels/Workbench.tsx',
   InboxMenu: 'packages/ui/src/design/patterns/Notices.tsx',
   SubjectActionsMenu: 'packages/ui/src/components/TeamRoomPane.tsx',
   InfoCard: 'packages/ui/src/components/ContextUsage.tsx',
@@ -485,6 +488,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
 Object.assign(PATTERN_CONSUMER, { LeftColumn: 'packages/ui/src/components/Sidebar.tsx' })
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  MainDestination: 'packages/ui/src/design/explorer/boards-compositions.tsx',
 
   SeatList: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   FixedShell: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -642,6 +646,7 @@ export const CANONICAL_UI_MODULES = [
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
+  ['MainDestination', 'main-destination', 'Retained work and visited pages share one main region'],
   ['InboxMenu', 'popup-inbox', 'Kept messages and their actions through the wide-menu contract'],
   ['SubjectActionsMenu', 'subject-actions', 'Existing action callbacks and Messages choices outside facts'],
   ['InfoCard', 'info-card', 'Facts only on hover or focus, suppressed while any menu is open'],
