@@ -111,6 +111,18 @@ const draw = (key: SessionKey | null, held = false): void => {
   })
 }
 
+const drawNewSessionDraft = (): void => {
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <PaneProvider scope={{ paneId: 'p1', view: { kind: 'conversation', session: null }, sessionKey: null }}>
+          <Composer onChooseProject={() => {}} />
+        </PaneProvider>
+      </StoreProvider>,
+    )
+  })
+}
+
 const textarea = (): HTMLTextAreaElement => {
   const element = container.querySelector('textarea')
   if (!element) throw new Error('no textarea')
@@ -302,6 +314,14 @@ describe('a failed conversation read preserves typing in the fresh composer (#80
 })
 
 describe('a draft belongs to its conversation, not to the composer drawing it', () => {
+  it('keeps new-session text when another conversation replaces the draft', () => {
+    drawNewSessionDraft()
+    type('Keep this new-session text.')
+    draw(one)
+    drawNewSessionDraft()
+    expect(textarea().value).toBe('Keep this new-session text.')
+  })
+
   it('is waiting when the composer is taken away and drawn again', () => {
     draw(one)
     type('keep me')

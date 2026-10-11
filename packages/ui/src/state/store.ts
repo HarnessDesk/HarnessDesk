@@ -1282,7 +1282,7 @@ export class AppStore {
   #visitedForward: PaneView[] = []
   #navigating = false
 
-  /** Reopens the previously focused conversation, like a browser's back. */
+  /** Reopens the previous main destination, including an unsent new-session draft. */
   async navigateBack(): Promise<void> {
     const target = this.#visitedBack.pop()
     if (!target) return
@@ -1303,7 +1303,7 @@ export class AppStore {
   #mainView(): PaneView | null {
     const view = focusedPane(this.#snapshot.layout).view
     if (view.kind === 'room') return view
-    return view.kind === 'conversation' && view.session ? view : null
+    return view.kind === 'conversation' ? view : null
   }
 
   async #navigateTo(target: PaneView): Promise<void> {
@@ -1319,6 +1319,8 @@ export class AppStore {
       } else if (target.kind === 'conversation' && target.session) {
         const { runtime, id } = splitSessionKey(target.session)
         await this.openSession(id, { runtime })
+      } else if (target.kind === 'conversation') {
+        this.showViewIn('main', target)
       }
     } finally {
       this.#navigating = false
@@ -7723,7 +7725,10 @@ export class AppStore {
     const previousMain = this.#mainView()
     const nextMain =
       next.layout === this.#snapshot.layout ? previousMain : focusedPaneViewOf(next.layout)
-    if (previousMain && nextMain && !sameView(previousMain, nextMain) && !this.#navigating) {
+    const bothAreNewSessionDrafts =
+      previousMain?.kind === 'conversation' && previousMain.session === null &&
+      nextMain?.kind === 'conversation' && nextMain.session === null
+    if (previousMain && nextMain && !sameView(previousMain, nextMain) && !bothAreNewSessionDrafts && !this.#navigating) {
       this.#visitedBack.push(previousMain)
       if (this.#visitedBack.length > 50) this.#visitedBack.shift()
       this.#visitedForward = []
