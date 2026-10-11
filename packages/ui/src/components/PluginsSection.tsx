@@ -8,6 +8,7 @@ import {
   type PluginState,
 } from '@harnessdesk/protocol'
 
+import { DestinationBar, DestinationPageScope, useDestinationPage } from '../panels/destination-page'
 import { livePlugins, supersededPlugins } from '../lib/plugins'
 import { useRuntime, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
@@ -24,7 +25,6 @@ import {
   PaperclipIcon,
   PlanIcon,
   PluginIcon,
-  PlusIcon,
   ResourceIcon,
   ResponsiveIcon,
   RetryIcon,
@@ -36,34 +36,27 @@ import {
 } from './Icons'
 import { InstallPlugin } from './InstallPlugin'
 import {
-  BackLink,
   Button,
+  MenuItem,
+  PageExplanation,
+  PageOptions,
+  Section,
   Card,
   CardContent,
   Chip,
   CodeText,
-  DetailMark,
   EmptyState,
-  DetailHead,
-  PageHead,
   Row,
   RowValue,
   RowButton,
   Rows,
-  Search,
-  SectionHead,
-  NativeSelect,
-  Separator,
   Switch,
   Text,
-  Toolbar,
 } from '../design'
-import { Tabs, TabsList, TabsTrigger } from '../design'
 import { SchemaForm } from './SchemaForm'
-import styles from './Plugins.module.css'
 
 /**
- * Settings › Plugins: a list, and a page per plugin.
+ * Plugins: a list, and a destination per plugin.
  *
  * A row is a sentence about something a plugin lets an agent do. A tool's wire
  * name — `browser_open` — is what you need to write a permission rule and not
@@ -280,39 +273,33 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
 
   return (
     <>
-      <BackLink to="Plugins" onClick={onBack} />
-      <DetailHead
-        mark={
-          <DetailMark>{pluginGlyph(plugin, 22)}</DetailMark>
-        }
-        name={plugin.identity.name}
-        owner={`${originLabel(plugin)}${plugin.identity.version ? ` · ${plugin.identity.version}` : ''}`}
-        blurb={plugin.identity.description}
-        actions={<PluginToggle plugin={plugin} />}
-      />
+      <DestinationBar place={plugin.identity.name} mark={pluginGlyph(plugin, 16)}
+        parents={[{ label: 'Plugins', run: onBack }]}
+        more={close => <>
+          {plugin.identity.source.kind === 'local' && plugin.identity.source.path && <MenuItem
+            label="Update from source" icon={<RetryIcon size={16} />}
+            title={`Reinstall from ${plugin.identity.source.path}`}
+            onSelect={() => { void store.updatePluginFromSource(plugin); close() }} />}
+          {plugin.identity.source.kind !== 'builtin' && <MenuItem label="Uninstall" icon={<TrashIcon size={16} />} danger
+            onSelect={() => { void store.uninstallPlugin(plugin.identity.id); onBack(); close() }} />}
+        </>} />
+      {plugin.identity.description && <PageExplanation>{plugin.identity.description}</PageExplanation>}
+      <Rows><Row title={stateLabel(plugin.state)} control={<PluginToggle plugin={plugin} />} /></Rows>
+      <PageExplanation>{`${originLabel(plugin)}${plugin.identity.version ? ` · ${plugin.identity.version}` : ''}`}</PageExplanation>
 
       {plugin.state.type === 'failed' && (
-        <>
-          <SectionHead name="Why it did not load" />
+        <Section title="Why it did not load">
           <Rows>
             <Row title={stateLabel(plugin.state)} desc={plugin.state.message} />
           </Rows>
-        </>
+        </Section>
       )}
 
+      {byKind.some(([kind]) => kind === 'tool' || kind === 'command') && <Section title="Display">
+        <Rows><Row title="Tool names" control={<Switch aria-label="Show tool names" checked={wire} onCheckedChange={setWire} />} /></Rows>
+      </Section>}
       {byKind.map(([kind, entries]) => (
-        <div key={kind}>
-          <SectionHead
-            name={KIND_HEADING[kind]}
-            action={
-              kind === 'tool' || kind === 'command' ? (
-                <Text as="label" role="muted" ink="muted" className="inline-flex items-center gap-2">
-                  Tool names
-                  <Switch aria-label="Show tool names" checked={wire} onCheckedChange={setWire} />
-                </Text>
-              ) : undefined
-            }
-          />
+        <Section key={kind} title={KIND_HEADING[kind]}>
           <Rows>
             {entries.map((contribution) => (
               <Row
@@ -326,24 +313,24 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
               />
             ))}
           </Rows>
-        </div>
+        </Section>
       ))}
 
-      <SectionHead name="Access" />
-      <Rows>
-        {/* `describePermissions` never answers with nothing — a plugin holding
-            no grant gets the sentence saying so — so there is no empty case to
-            carry here. The key takes the index because two identical lines are
-            reachable: `secrets` is read off the manifest without deduplication,
-            and a manifest may list one twice. */}
-        {grants.map((grant, at) => (
-          <Row key={`${at}-${grant}`} title={grant} />
-        ))}
-      </Rows>
+      <Section title="Access">
+        <Rows>
+          {/* `describePermissions` never answers with nothing — a plugin holding
+              no grant gets the sentence saying so — so there is no empty case to
+              carry here. The key takes the index because two identical lines are
+              reachable: `secrets` is read off the manifest without deduplication,
+              and a manifest may list one twice. */}
+          {grants.map((grant, at) => (
+            <Row key={`${at}-${grant}`} title={grant} />
+          ))}
+        </Rows>
+      </Section>
 
       {plugin.configSchema && (
-        <>
-          <SectionHead name="Configuration" />
+        <Section title="Configuration">
           <Card radius="lg">
             <CardContent>
               <SchemaForm
@@ -353,51 +340,25 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
               />
             </CardContent>
           </Card>
-        </>
+        </Section>
       )}
 
-      <SectionHead name="About" />
-      <Rows>
-        <Row title="Identifier" control={<Text role="meta"><CodeText>{plugin.identity.id}</CodeText></Text>} />
-        <Row
-          title="Source"
-          control={
-            <RowValue>
-              {originLabel(plugin)}
-              {plugin.identity.source.kind === 'local' && plugin.identity.source.path
-                ? ` · ${plugin.identity.source.path}`
-                : ''}
-            </RowValue>
-          }
-        />
-      </Rows>
-
-      {plugin.identity.source.kind !== 'builtin' && (
-        <>
-          <Separator />
-          <Toolbar className={styles.pageActions}>
-            {plugin.identity.source.kind === 'local' && plugin.identity.source.path && (
-              <Button variant="secondary"
-                title={`Reinstall from ${plugin.identity.source.path}`}
-                onClick={() => void store.updatePluginFromSource(plugin)}
-              >
-                <RetryIcon size={14} />
-                Update from source
-              </Button>
-            )}
-            <Button
-              variant="destructive"
-              onClick={() => {
-                void store.uninstallPlugin(plugin.identity.id)
-                onBack()
-              }}
-            >
-              <TrashIcon size={14} />
-              Uninstall
-            </Button>
-          </Toolbar>
-        </>
-      )}
+      <Section title="About">
+        <Rows>
+          <Row title="Identifier" control={<Text role="meta"><CodeText>{plugin.identity.id}</CodeText></Text>} />
+          <Row
+            title="Source"
+            control={
+              <RowValue>
+                {originLabel(plugin)}
+                {plugin.identity.source.kind === 'local' && plugin.identity.source.path
+                  ? ` · ${plugin.identity.source.path}`
+                  : ''}
+              </RowValue>
+            }
+          />
+        </Rows>
+      </Section>
     </>
   )
 }
@@ -437,9 +398,30 @@ const scopeSentence = (scope: CapabilityContribution['scope']): string => {
 
 /* --- the page ------------------------------------------------------------ */
 
-export const PluginsSection = () => {
+export interface PluginsSectionProps {
+  readonly section: 'installed' | 'capabilities'
+  readonly id: string | null
+  readonly onSection: (section: 'installed' | 'capabilities') => void
+  readonly onPlugin: (id: string | null) => void
+}
+
+/** Temporary no-prop adapter for the shared legacy window; retired by Task 9. */
+const LegacyPluginsSection = () => {
+  const [section, onSection] = useState<PluginsSectionProps['section']>('installed')
+  const [id, onPlugin] = useState<string | null>(null)
+  return <DestinationPageScope owner="settings" active>
+    <PluginsBody section={section} id={id} onSection={onSection} onPlugin={onPlugin} />
+  </DestinationPageScope>
+}
+export const PluginsSection = (props: PluginsSectionProps | Record<string, never>) =>
+  'section' in props ? <PluginsBody {...props as PluginsSectionProps} /> : <LegacyPluginsSection />
+
+const PluginsBody = ({ section, id: openId, onSection, onPlugin: setOpenId }: PluginsSectionProps) => {
+  const { owner, active } = useDestinationPage()
+  const store = useStore()
+  const tab = section === 'installed' ? 'list' : 'capabilities'
+  const setTab = (next: 'list' | 'capabilities'): void => onSection(next === 'list' ? 'installed' : 'capabilities')
   const snapshot = useSnapshot()
-  const [tab, setTab] = useState<'list' | 'capabilities'>('list')
   const [query, setQuery] = useState('')
   const [capQuery, setCapQuery] = useState('')
   const [capKind, setCapKind] = useState<CapabilityContribution['kind'] | 'all'>('all')
@@ -456,7 +438,7 @@ export const PluginsSection = () => {
   const [capWhere, setCapWhere] = useState<'anywhere' | 'here'>('anywhere')
   const [capHere, setCapHere] = useState<readonly CapabilityContribution[] | null>(null)
   const [installing, setInstalling] = useState(false)
-  const [openId, setOpenId] = useState<string | null>(null)
+  useEffect(() => { if (!active) setInstalling(false) }, [active])
 
   // What the roster is, and what a built-in of the same id has taken over.
   // Both come from one place, so the count in the sidebar, the count in the
@@ -484,8 +466,10 @@ export const PluginsSection = () => {
   const open = openId ? (snapshot.plugins.find((plugin) => plugin.instanceId === openId) ?? null) : null
   // A plugin removed while its page is up goes back to the list.
   useEffect(() => {
-    if (openId && !open) setOpenId(null)
-  }, [openId, open])
+    if (!active || !openId || open) return
+    if (owner === 'destination:plugins') store.replaceDestination({ kind: 'plugins', section, id: null })
+    else setOpenId(null)
+  }, [active, owner, openId, open, section, store, setOpenId])
 
   const runtime = useRuntime()
   const pluginToolsReach = runtime.capabilities.pluginTools
@@ -494,7 +478,6 @@ export const PluginsSection = () => {
      `capability/list` takes one kind, so "all kinds" is a fan-out — these are
      local calls on a settings page, made when a filter moves rather than on
      every render, and one refusal must not leave the list looking empty. */
-  const store = useStore()
   const workspaceRoot = snapshot.workspace?.path
   const activeRuntime = snapshot.activeRuntime
   /* From the key, not from the session map. A conversation is the active one
@@ -506,6 +489,7 @@ export const PluginsSection = () => {
     ? splitSessionKey(snapshot.activeSessionKey).id
     : undefined
   useEffect(() => {
+    if (!active) return
     if (capWhere !== 'here') {
       setCapHere(null)
       return
@@ -523,7 +507,7 @@ export const PluginsSection = () => {
     return () => {
       live = false
     }
-  }, [store, capWhere, capKind, workspaceRoot, activeRuntime, activeSessionId])
+  }, [active, store, capWhere, capKind, workspaceRoot, activeRuntime, activeSessionId])
 
   const filteredContributions = useMemo(() => {
     /* `here` is the host's list, already scoped and already of the right
@@ -568,40 +552,26 @@ export const PluginsSection = () => {
 
   return (
     <>
-      <PageHead
-        title="Plugins"
-        blurb={
-          pluginToolsReach
-            ? 'Tools, guardrails, context and panels for every agent in this workspace.'
-            : `Tools, guardrails, context and panels. ${runtime.presentation.name} does not take them in the session request, so they reach it only through its own configuration.`
-        }
-        actions={
-          <Button variant="default" onClick={() => setInstalling(true)}>
-            <PlusIcon size={14} />
-            Add plugin
-          </Button>
-        }
-      />
+      <DestinationBar place="Plugins" tab={section}
+        tabs={[
+          { value: 'installed', label: 'Installed', count: livePlugins(snapshot.plugins).length, run: () => setTab('list') },
+          { value: 'capabilities', label: 'Capabilities', count: snapshot.contributions.length, run: () => setTab('capabilities') },
+        ]}
+        verb={tab === 'list' ? { label: 'Add plugin', run: () => setInstalling(true) } : undefined} />
+      {tab === 'list'
+        ? <PageOptions search={{ label: 'Search plugins', value: query, change: setQuery }} />
+        : <PageOptions search={{ label: 'Search capabilities', value: capQuery, change: setCapQuery }} choices={[
+            { id: 'kind', label: 'Filter by kind', value: capKind, items: [{ value: 'all', label: 'All kinds' }, ...CAP_KINDS],
+              change: value => setCapKind(value as CapabilityContribution['kind'] | 'all') },
+            { id: 'where', label: 'Where it applies', value: capWhere,
+              items: [{ value: 'anywhere', label: 'Anywhere' }, { value: 'here', label: 'Applies here' }],
+              change: value => setCapWhere(value as 'anywhere' | 'here') },
+          ]} />}
+      <PageExplanation>{pluginToolsReach
+        ? 'Tools, guardrails, context and panels for every agent in this workspace.'
+        : `Tools, guardrails, context and panels. ${runtime.presentation.name} does not take them in the session request, so they reach it only through its own configuration.`}</PageExplanation>
 
-      <div className={styles.listHead}>
-        {/* Tabs rather than `Segmented`: this switches which list renders, so
-            it is navigation, not a value. See the note in Extensions.tsx. */}
-        <Tabs value={tab} onValueChange={(next) => setTab(next as typeof tab)}>
-          <TabsList aria-label="What to list">
-            <TabsTrigger value="list">
-              Installed · {livePlugins(snapshot.plugins).length}
-            </TabsTrigger>
-            <TabsTrigger value="capabilities">
-              Capabilities · {snapshot.contributions.length}
-            </TabsTrigger>
-          </TabsList>
-        </Tabs>
-        {tab === 'list' && (
-          <Search className={styles.search} value={query} placeholder="Search plugins" onChange={setQuery} />
-        )}
-      </div>
-
-      {installing && <InstallPlugin onClose={() => setInstalling(false)} />}
+      {active && installing && <InstallPlugin onClose={() => setInstalling(false)} />}
 
       {tab === 'list' ? (
         <Rows>
@@ -611,6 +581,8 @@ export const PluginsSection = () => {
             plugins.map((plugin) => (
               <RowButton
                 key={plugin.instanceId}
+                data-plugin-id={plugin.instanceId}
+                data-plugin-name={plugin.identity.name}
                 mark={marked ? pluginGlyph(plugin, 16) : undefined}
                 onClick={() => setOpenId(plugin.instanceId)}
                 kind="record"
@@ -632,42 +604,7 @@ export const PluginsSection = () => {
         </Rows>
       ) : (
         <>
-          <Text as="p" role="muted" className={styles.crossNote}>
-            Everything plugins add right now.
-            {!pluginToolsReach && (
-              <>
-                {' '}
-                <strong>{runtime.presentation.name}</strong> does not take them in the session
-                request; they reach it only through its own configuration.
-              </>
-            )}
-          </Text>
-          <div className={styles.capFilters}>
-            <Search
-              className={styles.search}
-              value={capQuery}
-              placeholder="Search capabilities"
-              onChange={setCapQuery}
-            />
-            <NativeSelect
-              aria-label="Filter by kind"
-              value={capKind}
-              onChange={(event) => setCapKind(event.target.value as CapabilityContribution['kind'] | 'all')}
-            >
-              {[{ value: 'all', label: 'All kinds' }, ...CAP_KINDS].map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-            </NativeSelect>
-            {/* The second question this list can answer, and the one it could
-                not: a contribution's scope is evaluated by the host, so
-                "what applies here" is a request rather than a filter. */}
-            <NativeSelect
-              aria-label="Where it applies"
-              value={capWhere}
-              onChange={(event) => setCapWhere(event.target.value as 'anywhere' | 'here')}
-            >
-              <option value="anywhere">Anywhere</option>
-              <option value="here">Applies here</option>
-            </NativeSelect>
-          </div>
+          <PageExplanation>Everything plugins add right now.</PageExplanation>
           {byKind.length === 0 && (
             <Rows>
               <EmptyState variant="row"
@@ -684,8 +621,7 @@ export const PluginsSection = () => {
             </Rows>
           )}
           {byKind.map(([kind, entries]) => (
-            <div key={kind}>
-              <SectionHead name={kindLabel(kind, entries.length)} />
+            <Section key={kind} title={kindLabel(kind, entries.length)}>
               <Rows>
                 {entries.map((contribution) => (
                   <RowButton
@@ -721,7 +657,7 @@ export const PluginsSection = () => {
                   />
                 ))}
               </Rows>
-            </div>
+            </Section>
           ))}
         </>
       )}

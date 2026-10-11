@@ -153,6 +153,17 @@ export interface WallDestination { readonly leftHeading?: 'hover-open' | 'folded
 )
 export interface WallDestination { readonly plan?: 'anchor' | 'rest' }
 
+/** E7 route witnesses; common preview replacement and old ids retire in Task 9. */
+export const E7_PLUGIN_PAGE_DESTINATIONS: readonly WallDestination[] = [
+  { id: 'plugins-installed', query: 'frame-wall=plugins&frame-plugin-page=installed', pageWidth: 'wide' },
+  { id: 'plugins-capabilities', query: 'frame-wall=plugins&frame-plugin-page=capabilities', pageWidth: 'wide' },
+  { id: 'plugins-capabilities-here-pending', query: 'frame-wall=plugins&frame-plugin-page=capabilities&frame-plugin-pending=1', pageWidth: 'wide', bodyChoice: { label: 'Where it applies', value: 'here' } },
+  { id: 'plugins-detail', query: 'frame-wall=plugins&frame-plugin-page=detail', pageWidth: 'wide' },
+  { id: 'plugins-failed', query: 'frame-wall=plugins&frame-plugin-page=failed', pageWidth: 'wide' },
+  { id: 'plugins-install', query: 'frame-wall=plugins&frame-plugin-page=installed', pageWidth: 'wide', popup: 'Add plugin' },
+  { id: 'plugins-configuration', query: 'frame-wall=plugins&frame-plugin-page=detail', pageWidth: 'wide' },
+]
+
 export const PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'settings-general', query: 'frame-wall=settings&frame-section=general', pageWidth: 'reading' },
   { id: 'settings-appearance', query: 'frame-wall=settings&frame-section=appearance', pageWidth: 'reading' },
@@ -174,5 +185,6 @@ export const PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'settings-account', query: 'frame-wall=settings&frame-detail=account', pageWidth: 'reading' },
   { id: 'settings-project', query: 'frame-wall=settings&frame-detail=project', pageWidth: 'reading' },
   { id: 'settings-skill', query: 'frame-wall=settings&frame-detail=skill', pageWidth: 'reading' },
+  ...E7_PLUGIN_PAGE_DESTINATIONS,
 ]
 ;(WALL_DESTINATIONS as WallDestination[]).push(...PAGE_WALL_DESTINATIONS)

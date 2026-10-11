@@ -2,8 +2,7 @@ import { useCallback, useMemo, useState } from 'react'
 
 import type { JsonSchema } from '@harnessdesk/protocol'
 
-import { Button, CodeText, Input, Note, Row, Rows, Segmented, Switch, Text } from '../design'
-import styles from './SchemaForm.module.css'
+import { Button, FormStack, SectionFooter, CodeText, Input, Note, Row, Rows, NativeSelect, Switch, Text } from '../design'
 
 /**
  * A form from a JSON Schema.
@@ -104,7 +103,7 @@ export const SchemaForm = ({
   }
 
   return (
-    <>
+    <FormStack>
       {typeof schema?.description === 'string' && <Note>{schema.description}</Note>}
       <Rows>
         {properties.map((property) => (
@@ -125,17 +124,18 @@ export const SchemaForm = ({
                   onCheckedChange={(next) => set(property.key, next)}
                 />
               ) : property.type === 'enum' ? (
-                <Segmented
-                  label={property.title}
-                  value={String(draft[property.key] ?? '')}
-                  options={(property.options ?? []).map((option) => ({ value: option, label: option }))}
-                  onChange={(next) => set(property.key, next)}
-                />
+                <NativeSelect aria-label={property.title} value={String(draft[property.key] ?? '')}
+                  onChange={event => set(property.key, event.target.value)}>
+                  {!(property.options ?? []).includes(String(draft[property.key] ?? '')) && <option value={String(draft[property.key] ?? '')} disabled>
+                    {draft[property.key] === undefined ? 'Choose…' : String(draft[property.key])}
+                  </option>}
+                  {(property.options ?? []).map(option => <option key={option} value={option}>{option}</option>)}
+                </NativeSelect>
               ) : property.type === 'string' ? (
                 <Input
                   /* A template is longer than a name: a field whose default
                      would not fit the ordinary width is given room to read it. */
-                  variant="filled" className={(property.fallback?.length ?? 0) > 32 ? styles.textWide : styles.text}
+                  variant="filled" measure={(property.fallback?.length ?? 0) > 32 ? "path" : "name"}
                   aria-label={property.title}
                   {...(property.fallback !== undefined ? { placeholder: property.fallback } : {})}
                   value={String(draft[property.key] ?? '')}
@@ -143,7 +143,7 @@ export const SchemaForm = ({
                 />
               ) : property.type === 'number' ? (
                 <Input
-                  className={styles.number}
+                  measure="name"
                   aria-label={property.title}
                   type="number"
                   {...(property.fallback !== undefined ? { placeholder: property.fallback } : {})}
@@ -157,7 +157,7 @@ export const SchemaForm = ({
                 />
               ) : property.type === 'stringArray' ? (
                 <Input
-                  className={styles.text}
+                  measure="name"
                   aria-label={property.title}
                   placeholder="Comma separated"
                   value={(Array.isArray(draft[property.key])
@@ -181,11 +181,11 @@ export const SchemaForm = ({
           />
         ))}
       </Rows>
-      <div className={styles.foot}>
+      <SectionFooter>
         <Button variant="default" disabled={!dirty} onClick={() => onSubmit(draft)}>
           Apply and reload
         </Button>
-      </div>
-    </>
+      </SectionFooter>
+    </FormStack>
   )
 }
