@@ -143,24 +143,24 @@ const Section = (props: SectionProps) => {
         <div
           data-slot="section-head"
           /* This is page furniture. A body's card or row inset belongs to
-             that body and never moves the heading away from the page edge. */
-          className="flex min-w-0 flex-wrap items-end gap-(--hd-space-3)"
+             that body and never moves the heading away from the page edge.
+             The grid keeps its title and action on the same center line, with
+             the description on a separate row below the title. */
+          className="flex min-w-0 flex-wrap items-center gap-x-(--hd-space-3) gap-y-(--hd-space-0-5)"
         >
-          <div className="flex min-w-0 flex-[1_1_20ch] flex-col gap-(--hd-space-0-5)">
-            <GroupLabel as="h2" data-section-name="" className="min-w-0 truncate">{title}</GroupLabel>
-            {description != null && (
-              <p
-                data-slot="section-description"
-                className="m-0 max-w-[62ch] text-(length:--hd-text-sm) leading-(--hd-line-sm) text-(--hd-muted-foreground)"
-              >
-                {description}
-              </p>
-            )}
-          </div>
+          <GroupLabel as="h2" data-section-name="" className="min-w-0 flex-[1_1_20ch] truncate">{title}</GroupLabel>
           {action != null && (
             <div data-slot="section-action" className="flex max-w-full flex-none flex-wrap items-center gap-(--hd-space-2)">
               {action}
             </div>
+          )}
+          {description != null && (
+            <p
+              data-slot="section-description"
+              className="m-0 basis-full max-w-[62ch] text-(length:--hd-text-sm) leading-(--hd-line-sm) text-(--hd-muted-foreground)"
+            >
+              {description}
+            </p>
           )}
         </div>
         <InPageSection.Provider value>{children}</InPageSection.Provider>
