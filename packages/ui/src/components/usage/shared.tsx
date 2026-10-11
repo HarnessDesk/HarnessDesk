@@ -774,13 +774,13 @@ export const Spend = ({
             )}
           </ChartHead>
           <DashboardStats facts={periods.map(period => ({id:String(period.days),label:period.label,value:format(period.cost),
-            caption:period.partial ? 'so far' : undefined,
+            qualifier:period.partial ? 'so far' : undefined,
             trend:!period.partial && !turnsPartial && period.change !== null ? <Delta value={Math.round(period.change)} better="down" caption={`vs the ${period.days} days before`} tone={metric === 'cost' ? undefined : 'neutral'} /> : undefined,
           }))} />
         </ChartCard>
 
-        <ChartCard >
-          {series.peak > 0 || previous.total > 0 ? (
+        {series.peak > 0 || previous.total > 0 ? (
+          <ChartCard>
             <>
               <DayColumns
                 buckets={buckets}
@@ -806,20 +806,20 @@ export const Spend = ({
                 </ChartKeys>
               )}
             </>
-          ) : (
-            <EmptyState
-              tight
-              title={
-                scan?.running
-                  ? 'Reading transcripts'
-                  : metric === 'cost'
-                    ? 'No priced usage in this window yet'
-                    : `${words.empty} in this window`
-              }
-              description={scan?.running ? `${scan.filesDone} of ${scan.filesTotal} files` : undefined}
-            />
-          )}
-        </ChartCard>
+          </ChartCard>
+        ) : (
+          <EmptyState
+            tight
+            title={
+              scan?.running
+                ? 'Reading transcripts'
+                : metric === 'cost'
+                  ? 'No priced usage in this window yet'
+                  : `${words.empty} in this window`
+            }
+            description={scan?.running ? `${scan.filesDone} of ${scan.filesTotal} files` : undefined}
+          />
+        )}
 
         {showFooter && <ChartFoot>
           <Text role="meta">{coverageSentence(ledger, metric)}</Text>

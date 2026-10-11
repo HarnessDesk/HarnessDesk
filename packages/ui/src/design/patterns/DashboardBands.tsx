@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { Button } from '../ui/button'
-import { Rows, Row, Text } from './Settings'
+import { Rows, Row, Text, Chip } from './Settings'
 import { Section } from '../ui/section'
 import { Card, CardContent } from '../ui/card'
 import { SummaryList, SummaryItem } from '../ui/key-value'
@@ -53,8 +53,11 @@ export const DashboardPlanReading = ({ meter, value, estimate }: { readonly mete
   : <div className={styles.balance}>{value}{estimate}</div>
 export const DashboardAgentReading = ({ mark, name, value }: { readonly mark?: ReactNode; readonly name: ReactNode; readonly value: ReactNode }) => <span className={styles.agentReading}>{mark}<Text role="row">{name}</Text><Text role="meta">{value}</Text></span>
 /** Periods and heatmap facts compose the canonical numeric tiles. */
-export const DashboardStats = ({ facts }: { readonly facts: readonly { readonly id: string; readonly label: ReactNode; readonly value: ReactNode; readonly caption?: ReactNode; readonly trend?: ReactNode }[] }) =>
-  <StatRow>{facts.map(fact => <Stat key={fact.id} variant="plain" label={fact.label} value={<Text role="metric">{fact.value}</Text>} caption={fact.caption} trend={fact.trend} />)}</StatRow>
+export const DashboardStats = ({ facts }: { readonly facts: readonly { readonly id: string; readonly label: ReactNode; readonly value: ReactNode; readonly qualifier?: ReactNode; readonly caption?: ReactNode; readonly trend?: ReactNode }[] }) =>
+  <StatRow>{facts.map(fact => <Stat key={fact.id} variant="plain" label={fact.label} value={fact.qualifier == null
+    ? <Text role="metric">{fact.value}</Text>
+    : <span className={styles.inlineFigure}><Text role="metric">{fact.value}</Text><Text role="meta">{fact.qualifier}</Text></span>}
+    caption={fact.caption} trend={fact.trend} />)}</StatRow>
 export const DashboardBurn = ({ readings, plot }: { readonly readings: ReactNode; readonly plot: ReactNode }) => <div className={styles.burn}><div>{readings}</div><div>{plot}</div></div>
 /** A borrowed reading's activity summary belongs to that account, in one band. */
 export const DashboardAccountActivity = ({ label, readings }: { readonly label: ReactNode; readonly readings: readonly ReactNode[] }) => <Card variant="muted" data-slot="account-activity"><CardContent><Text role="meta">{label}</Text><div className={styles.money}>{readings}</div></CardContent></Card>
@@ -64,9 +67,9 @@ export const DashboardOverviewStats = ({ paid, measures }: {
   readonly paid: { readonly value: ReactNode; readonly caption?: ReactNode }
   readonly measures: readonly { readonly id: string; readonly label: string; readonly value: ReactNode; readonly caption?: ReactNode; readonly trend?: ReactNode; readonly title: string; readonly selected: boolean; readonly run: () => void }[]
 }) => <div aria-label="What it cost, in brief">
-  <StatRow><Stat label="Paid" value={paid.value} caption={paid.caption} />
-    {measures.map(item => <Button key={item.id} size="panel" variant="quiet" title={item.title} aria-pressed={item.selected} onClick={item.run}>
-      <Stat variant="plain" label={item.label} value={item.value} caption={item.caption} trend={item.trend} />
+  <StatRow><Stat variant="plain" label={<span className={styles.figureLabel}>Paid</span>} value={paid.value} caption={paid.caption} />
+    {measures.map(item => <Button key={item.id} className="h-full w-full items-start justify-start text-left" size="content" variant="ghost" title={item.title} aria-pressed={item.selected} onClick={item.run}>
+      <Stat variant="plain" label={<span className={styles.figureLabel}>{item.label}{item.selected && <Chip size="sm" tone="neutral" variant="quiet">Selected</Chip>}</span>} value={item.value} caption={item.caption} trend={item.trend} />
     </Button>)}
   </StatRow>
 </div>
