@@ -4035,6 +4035,16 @@ test('R10 built-in shadow status uses the Agent row chip column', async ({ page 
   expect(Math.abs(chipBox.x + chipBox.width - referenceBox.x - referenceBox.width)).toBeLessThanOrEqual(1)
 })
 
+test('R10 empty Teams keeps its action content-width and centred', async ({ page }) => {
+  await openFrame(page, 'frame-wall=teams&frame-empty=1', 'light', 1440)
+  const empty = page.locator('[data-page-destination="teams"]:visible [data-slot="page"] > [data-slot="empty-state"][data-variant="panel"]')
+  const action = empty.getByRole('button', { name: 'New Team', exact: true })
+  const panel = (await empty.boundingBox())!
+  const button = (await action.boundingBox())!
+  expect(button.width).toBeLessThan(panel.width - 32)
+  expect(button.x + button.width / 2).toBeCloseTo(panel.x + panel.width / 2, 1)
+})
+
 test('E5 Team row enters work and keeps room navigation separate from page history',async({page})=>{
 
  await openFrame(page,'frame-wall=teams','dark')

@@ -48,6 +48,13 @@ it('centres a page empty state in the height its filled Page leaves', () => {
   expect(panel.dataset['variant']).toBe('panel')
 })
 
+it('centres content-width actions while leaving choice rows full-width', () => {
+  const panel = draw(<EmptyState title="No active Teams"><button type="button">New Team</button></EmptyState>)
+  const actions = panel.querySelector('button')?.parentElement
+  expect(actions?.className).toContain('items-center')
+  expect(actions?.className).toContain('w-full')
+})
+
 it('draws inline as one muted line with no icon and no heading', () => {
   const line = draw(<EmptyState variant="inline" title="Nothing here." description="Cards land here when claimed." />)
   // A div, so the line can carry an element; one look for every list: centred, padded, muted.
