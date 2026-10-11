@@ -48,7 +48,7 @@ export const useResolvedDark = (): boolean => {
   return theme === 'system' ? system : theme === 'dark'
 }
 
-/* Theme faces are illustrations; the selected row follows the app's neutral token. */
+/* Each illustration keeps its own neutral palette, whichever theme the app wears. */
 const Mini = ({ dark, both }: { dark: boolean; both?: boolean }) => {
   const face = (isDark: boolean) =>
     isDark
@@ -61,8 +61,8 @@ const Mini = ({ dark, both }: { dark: boolean; both?: boolean }) => {
         <rect x="0" y="0" width="240" height="160" fill={c.page} />
         <rect x="0" y="0" width="64" height="160" fill={c.rail} />
         <rect x="10" y="14" width="44" height="6" rx="3" fill={c.bar} />
-        {/* The selected navigation row uses the same neutral token as the app. */}
-        <rect x="10" y="30" width="34" height="5" rx="2.5" fill="var(--hd-sidebar-selected)" />
+        {/* Selection uses this miniature's neutral ink so it stays visible on its rail. */}
+        <rect x="10" y="30" width="34" height="5" rx="2.5" fill={c.ink} />
         <rect x="10" y="42" width="40" height="5" rx="2.5" fill={c.text} />
         <rect x="10" y="54" width="30" height="5" rx="2.5" fill={c.text} />
         <rect x="84" y="20" width="60" height="7" rx="3.5" fill={c.bar} />

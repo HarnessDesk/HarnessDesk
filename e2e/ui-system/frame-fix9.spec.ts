@@ -157,7 +157,7 @@ test('FIX9 theme thumbnails use neutral selection across accents', async ({ page
     await expect(page.locator('body')).toHaveAttribute('data-hd-interface', 'studio')
     const rows = page.getByRole('radiogroup', { name: 'Theme', exact: true }).locator('svg rect[x="10"][y="30"]')
     await expect(rows).toHaveCount(4)
-    const neutral = await page.evaluate(() => { const probe = document.createElement('span'); probe.style.color = 'var(--hd-sidebar-selected)'; document.body.append(probe); const color = getComputedStyle(probe).color; probe.remove(); return color })
+    const neutral = await rows.evaluateAll(elements => elements.map(element => getComputedStyle(element.closest('g')!.querySelector('rect[x="186"][y="118"]')!).fill))
     await page.getByRole('radio', { name: 'Violet', exact: true }).click()
     await expect(page.locator('body')).toHaveAttribute('data-hd-accent', 'violet')
     const violet = await rows.evaluateAll(elements => elements.map(element => getComputedStyle(element).fill))
@@ -165,7 +165,7 @@ test('FIX9 theme thumbnails use neutral selection across accents', async ({ page
     await expect(page.locator('body')).toHaveAttribute('data-hd-accent', 'green')
     const green = await rows.evaluateAll(elements => elements.map(element => getComputedStyle(element).fill))
     expect(green).toEqual(violet)
-    expect(green).toEqual(Array(4).fill(neutral))
+    expect(green).toEqual(neutral)
   }
 })
 

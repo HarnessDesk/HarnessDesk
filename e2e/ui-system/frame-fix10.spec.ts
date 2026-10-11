@@ -64,3 +64,31 @@ test('FIX10 waiting command has no running description before Allow', async ({ p
     await expect(transcript.locator('[data-slot="turn-work-live"]')).toHaveText('Waiting for approval')
   }
 })
+
+
+test('FIX10 theme thumbnails keep their selected rows visible and neutral', async ({ page }) => {
+  for (const theme of ['light', 'dark'] as const) {
+    await openFrame(page, 'frame-wall=settings&frame-section=appearance', theme)
+    for (const face of ['studio', 'desk']) {
+      await page.getByRole('combobox', { name: 'Interface', exact: true }).selectOption(face)
+      for (const accent of ['Violet', 'Green']) {
+        await page.getByRole('radio', { name: accent, exact: true }).click()
+        const colors = await page.getByRole('radiogroup', { name: 'Theme', exact: true }).locator('svg g').evaluateAll(groups => groups.map(group => {
+          const fill = (selector: string) => getComputedStyle(group.querySelector(selector)!).fill
+          return { selected: fill('rect[x="10"][y="30"]'), rail: fill('rect[x="0"][width="64"]'), ink: fill('rect[x="186"][y="118"]') }
+        }))
+        expect(colors).toHaveLength(4)
+        const rgb = (color: string) => color.match(/[\d.]+/g)!.slice(0, 3).map(Number)
+        const luminance = (color: string) => rgb(color).map(channel => { const value = channel / 255; return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4 }).reduce((sum, channel, index) => sum + channel * [0.2126, 0.7152, 0.0722][index]!, 0)
+        for (const color of colors) {
+          const selected = luminance(color.selected), rail = luminance(color.rail)
+          expect((Math.max(selected, rail) + 0.05) / (Math.min(selected, rail) + 0.05)).toBeGreaterThanOrEqual(3)
+        }
+        for (const color of colors) {
+          expect(color.selected).toBe(color.ink)
+          expect(Math.max(...rgb(color.selected)) - Math.min(...rgb(color.selected))).toBeLessThanOrEqual(8)
+        }
+      }
+    }
+  }
+})
