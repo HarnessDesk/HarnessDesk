@@ -570,6 +570,19 @@ it('account More folds agents without usage into one note and exposes no empty u
   expect(onOpenUsage).not.toHaveBeenCalled()
   expect(document.querySelector('[data-popup-kind="info-card"]')).toBeNull()
 })
+
+it('separates usage facts from the closing Settings and sign-out actions', () => {
+  mount()
+  click(row())
+  click(document.querySelector('[role="menuitem"][data-current]')!)
+  const menu = document.querySelector('[role="menu"]')!
+  const note = [...menu.querySelectorAll<HTMLElement>('[data-menu-note]')]
+    .find(one => one.textContent?.includes('No usage reported'))!
+  expect(note.previousElementSibling?.matches('[data-menu-separator]')).toBe(true)
+  const after = note.nextElementSibling
+  expect(after?.matches('[data-menu-separator]')).toBe(true)
+  expect(after?.nextElementSibling?.querySelector('[data-menu-label]')?.textContent?.trim()).toBe('Settings')
+})
 it('is you once you have chosen: your name and your face, with the pen still beside them', () => {
   mount({ profile: { name: 'Jane', avatar: 'wizard' } })
   const seat = row()

@@ -693,7 +693,6 @@ export const AccountFooter = ({
               }}
             />
 
-          <MenuSeparator />
             <SeatPlanUsage onOpen={onOpenUsage} onSignIn={onSignIn} />
             <MenuItem
               icon={<SettingsIcon size={16} />}
@@ -739,7 +738,9 @@ const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime: RuntimeId) => v
     : noUsageNames.length === 1 ? `No usage reported: ${noUsageNames[0]}`
       : noUsageNames.length === 2 ? `No usage reported: ${noUsageNames[0]} and ${noUsageNames[1]}`
         : `No usage reported: ${noUsageNames[0]}, ${noUsageNames[1]} and ${noUsageNames.length - 2} more`
+  const hasUsageGroup = Boolean(view.anchor || meters.length || signIns.length || noUsageSummary)
   return <>
+    {hasUsageGroup && <MenuSeparator />}
     {view.anchor?.kind === 'signIn' && <MenuItem icon={markFor(view.anchor.info.id)} label={`Sign in to ${view.anchor.info.presentation.name}`}
       onSelect={() => { if (view.anchor?.kind === 'signIn') onSignIn(view.anchor.info.id) }} />}
     {meters.map((meter, index) => {
@@ -752,6 +753,7 @@ const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime: RuntimeId) => v
       label={`Sign in to ${info.presentation.name}`}
       onSelect={() => onSignIn(info.id)} />)}
     {noUsageSummary && <MenuNote>{noUsageSummary}</MenuNote>}
+    {hasUsageGroup && <MenuSeparator />}
   </>
 }
 const SeatUsageRows = ({ meter, now, open, icon, label, toggle, onOpen }: { meter: StripMeter; now: number; open: boolean; icon: ReactNode; label: string; toggle: () => void; onOpen: () => void }) => <>
