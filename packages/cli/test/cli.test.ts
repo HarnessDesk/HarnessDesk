@@ -294,6 +294,19 @@ const runCli = async (t: any, args: readonly string[]) => {
   return { code, stdout: stdout.join(''), stderr: stderr.join('') }
 }
 
+test('library show rejects --text with --json before connecting to a desk', async t => {
+  for (const args of [
+    ['library', 'show', 'demo-skill', '--text', '--json'],
+    ['--json', 'library', 'show', 'demo-skill', '--text'],
+  ]) {
+    assert.throws(() => parseArgs(args), /--text.*--json/)
+    const result = await runCli(t, args)
+    assert.equal(result.code, 2)
+    assert.equal(result.stdout, '')
+    assert.match(result.stderr, /--text.*--json/)
+  }
+})
+
 test('library list filters issue rows, reports reach and differing copies, and sends only a read request', async t => {
   const healthy = libraryEntry('skill', 'plain-skill', Array.from({ length: 4 }, (_, i) => ({ runtime: `runtime-${String.fromCharCode(97 + i)}`, state: 'reaches' })), [])
   const issue = libraryEntry('skill', 'split-skill', [
@@ -350,6 +363,7 @@ test('library show sanitizes descriptions and prints copies, agent reach, usage 
   assert.match(result.stdout, /Agent 1.*reaches.*asked/)
   assert.match(result.stdout, /Agent 2.*stale.*on disk.*Refresh after install/)
   assert.match(result.stdout, /2 stored conversations.*4 activations/)
+  assert.match(result.stdout, /last 2027-01-15T08:00:00\.000Z/)
   assert.match(result.stdout, /counted in conversations this desk stored/)
   assert.match(result.stdout, /examples\/demo\.md.*12 bytes/)
   assert.deepEqual(rig.calls.map(call => call.method), ['client/hello', 'library/read', 'library/definition', 'library/definition', 'library/usage'])
@@ -367,6 +381,47 @@ test('library show --text prints only the first readable definition, with human 
   assert.equal(result.code, 0, result.stderr)
   assert.equal(result.stdout, 'one\ntwo\n')
   assert.deepEqual(rig.calls.map(call => call.method), ['client/hello', 'library/read', 'library/definition', 'library/definition'])
+})
+
+test('library show --text refuses truncated definitions without printing partial text', async t => {
+  const entry = libraryEntry('skill', 'partial-skill', [], [
+    { path: '/home/jane/partial', scope: 'user', readBy: [], hollow: false, digest: 'a', readOnly: false },
+  ])
+  const definition = {
+    name: 'partial-skill', kind: 'skill', path: '/home/jane/partial', text: '# Partial\n', truncated: true, files: [], moreFiles: 0,
+  }
+  const rig = await libraryDesk(t, [entry], { '/home/jane/partial': definition })
+  const result = await runCli(t, ['library', 'show', 'partial-skill', '--text'])
+  assert.equal(result.code, 1)
+  assert.equal(result.stdout, '')
+  assert.match(result.stderr, /truncated/)
+  assert.deepEqual(rig.calls.map(call => call.method), ['client/hello', 'library/read', 'library/definition'])
+
+  const human = await runCli(t, ['library', 'show', 'partial-skill'])
+  assert.equal(human.code, 0, human.stderr)
+  assert.match(human.stdout, /Definition text is truncated/)
+  const json = await runCli(t, ['library', 'show', 'partial-skill', '--json'])
+  assert.equal(json.code, 0, json.stderr)
+  assert.deepEqual(JSON.parse(json.stdout).definition, definition)
+})
+
+test('library show distinguishes unknown activation times from unused skills', async t => {
+  await libraryDesk(t, [
+    libraryEntry('skill', 'untimed-skill', [], []),
+    libraryEntry('skill', 'unused-skill', [], []),
+    libraryEntry('skill', 'unrecorded-skill', [], []),
+  ], {}, {
+    'untimed-skill': { sessions: 2, activations: 4, lastAt: 0, byRuntime: {} },
+    'unused-skill': { sessions: 0, activations: 0, lastAt: 0, byRuntime: {} },
+  })
+  const unknown = await runCli(t, ['library', 'show', 'untimed-skill'])
+  assert.equal(unknown.code, 0, unknown.stderr)
+  assert.match(unknown.stdout, /2 stored conversations.*4 activations.*last unknown/)
+  for (const name of ['unused-skill', 'unrecorded-skill']) {
+    const unused = await runCli(t, ['library', 'show', name])
+    assert.equal(unused.code, 0, unused.stderr)
+    assert.match(unused.stdout, /0 stored conversations.*0 activations.*last never/)
+  }
 })
 
 test('library show reports missing names with exit 1 and ambiguous names with exit 2', async t => {

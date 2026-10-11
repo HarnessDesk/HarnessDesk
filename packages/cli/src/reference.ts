@@ -147,7 +147,7 @@ export const LIBRARY_ISSUES_OPTION: OptionDoc = {
 }
 export const LIBRARY_TEXT_OPTION: OptionDoc = {
   flag: '--text',
-  description: 'Print the first readable copy’s definition text by itself, for a pipe.',
+  description: 'Print the first readable copy’s definition text by itself, for a pipe. Cannot be combined with `--json`; an unreadable or truncated definition exits 1 without printing text.',
 }
 
 /** The flag that answers a confirmation, shared by every command that asks one. */

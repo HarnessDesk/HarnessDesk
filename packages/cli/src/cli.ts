@@ -225,14 +225,14 @@ export const COMMANDS = [
   {
     name: 'library show', tier: 'read', methods: ['library/read', 'library/definition', 'library/usage'], flags: ['target', 'project', 'kind', 'text'], execute: libraryShow,
     usage: 'library show <name> [--project PATH] [--kind skill|mcp] [--text]',
-    description: 'Shows one skill or MCP server, its copies, and which agents load it. Its first read of `library/usage` walks every stored conversation and can take a while.',
+    description: 'Shows one skill or MCP server, its copies, and which agents load it. Usage says "last unknown" when activations were counted without a recorded time. Its first read of `library/usage` walks every stored conversation and can take a while.',
     arguments: [{ name: 'name', description: 'A skill or MCP server name as `harnessdesk library list` prints it.' }],
     options: [...LIBRARY_OPTIONS, LIBRARY_TEXT_OPTION],
     json: 'A single object, `{ "home": "…", "runtimes": [...], "entry": {...}, "usage": {...}, "definition": {...} }`; `definition` is null when no copy can be read.',
     exits: {
       0: 'Shown.',
-      1: 'No skill or server has that name here.',
-      2: 'A skill and an MCP server share the name; give `--kind`.',
+      1: 'No skill or server has that name here, or `--text` has no readable, complete definition.',
+      2: 'A skill and an MCP server share the name; give `--kind`. Or `--text` was combined with `--json`.',
     },
   },
   {
@@ -337,6 +337,7 @@ export function parseArgs(argv: readonly string[]): Arguments {
   if (['team', 'run', 'project'].filter(key => result[key] !== undefined).length > 1) usage('Choose only one of --team, --run, --project')
   if ((command.flags as readonly string[]).includes('target') && !result['target']) usage(`${command.name} requires a target`)
   if (result['kind'] !== undefined && result['kind'] !== 'skill' && result['kind'] !== 'mcp') usage('--kind must be skill or mcp')
+  if (result['text'] && result['json']) usage('--text cannot be combined with --json')
   if (command.name.startsWith('card ') && (!result['team'] || !result['card'] || !/^\d+$/.test(String(result['card'])) || !Number.isSafeInteger(Number(result['card'])))) usage(`${command.name} requires a team and numeric card id`)
   if (command.name === 'card answer' && !result['outcome']) usage('card answer requires an outcome')
   if ((command.name === 'run stop' || command.name === 'card abandon') && (typeof result['reason'] !== 'string' || !result['reason'].trim())) usage(`${command.name} requires --reason TEXT`)
@@ -658,6 +659,10 @@ async function libraryShow(args: Arguments): Promise<number> {
         process.stderr.write(sanitizeHuman(`No readable definition for ${args.target} here.`) + '\n')
         return 1
       }
+      if (definition.truncated) {
+        process.stderr.write(sanitizeHuman(`Definition for ${args.target} is truncated; --text requires a complete definition.`) + '\n')
+        return 1
+      }
       process.stdout.write(definition.text.split('\n').map(sanitizeHuman).join('\n'))
       return 0
     }
@@ -685,7 +690,8 @@ async function libraryShow(args: Arguments): Promise<number> {
         line([agentName(reach.runtime), reach.state, reach.basis === 'reported' ? 'asked' : 'on disk', reach.note])
       }
       if (entry.kind === 'skill') {
-        line(['Usage', `${skillUsage?.sessions ?? 0} stored conversations`, `${skillUsage?.activations ?? 0} activations`, `last ${skillUsage?.lastAt ? new Date(skillUsage.lastAt).toISOString() : 'never'}`])
+        const last = skillUsage?.lastAt ? new Date(skillUsage.lastAt).toISOString() : skillUsage?.activations ? 'unknown' : 'never'
+        line(['Usage', `${skillUsage?.sessions ?? 0} stored conversations`, `${skillUsage?.activations ?? 0} activations`, `last ${last}`])
         line(['counted in conversations this desk stored'])
       } else {
         line(['Usage', 'not tracked for MCP servers'])

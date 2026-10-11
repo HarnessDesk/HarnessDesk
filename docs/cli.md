@@ -435,7 +435,7 @@ A single object, `{ "home": "…", "runtimes": [...], "entries": [...] }`, from 
 harnessdesk library show <name> [--project PATH] [--kind skill|mcp] [--text]
 ```
 
-Shows one skill or MCP server, its copies, and which agents load it. Its first read of `library/usage` walks every stored conversation and can take a while.
+Shows one skill or MCP server, its copies, and which agents load it. Usage says "last unknown" when activations were counted without a recorded time. Its first read of `library/usage` walks every stored conversation and can take a while.
 
 Needs the **read** tier.
 
@@ -447,7 +447,7 @@ Needs the **read** tier.
 
 - `--project PATH`: Include this project’s own skill and MCP folders. Symbolic links are followed. Defaults to the Git repository containing the current folder; outside a repository, only user scope is read.
 - `--kind skill|mcp`: Show only skills or only MCP servers.
-- `--text`: Print the first readable copy’s definition text by itself, for a pipe.
+- `--text`: Print the first readable copy’s definition text by itself, for a pipe. Cannot be combined with `--json`; an unreadable or truncated definition exits 1 without printing text.
 
 **With `--json`**
 
@@ -456,8 +456,8 @@ A single object, `{ "home": "…", "runtimes": [...], "entry": {...}, "usage": {
 **Exit codes**
 
 - `0`: Shown.
-- `1`: No skill or server has that name here.
-- `2`: A skill and an MCP server share the name; give `--kind`.
+- `1`: No skill or server has that name here, or `--text` has no readable, complete definition.
+- `2`: A skill and an MCP server share the name; give `--kind`. Or `--text` was combined with `--json`.
 
 ### `harnessdesk card show`
 
