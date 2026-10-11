@@ -196,8 +196,9 @@ one Team, and seven other destinations are drawn *over* the workbench by
 | Agents list · an Agent | Sessions | wide · reading | top bar; an Agent adds `Agents ›` | none |
 | Library | Sessions | wide | top bar, its views as tabs | none |
 | Plugins | Sessions | wide | top bar | none |
+| A plugin page | Sessions | reading (R10.21; owner, 2026-10-10) | top bar | none |
 | Dashboard | Sessions | wide | top bar, its views as tabs | none |
-| Changes review | Sessions | canvas | top bar | none |
+| Changes review | Sessions | wide (owner, 2026-10-10) | top bar | none |
 | Settings › a section | Settings nav | reading | top bar, `Settings ›` | none |
 
 A page is a destination like a conversation: it goes through ⌘[ and ⌘], it
@@ -379,9 +380,9 @@ A page picks one of three widths by what it holds:
 
 | Width | Measure | Margin | Used by |
 | --- | --- | --- | --- |
-| reading | `--hd-column` 736, centred | 24 | conversation, Settings, an Agent, Team Overview, Run timeline, Findings |
-| wide | `--hd-page-wide` 1320, centred | 24 | Teams list, Agents list, Library, Plugins, Dashboard |
-| canvas | none | 8 | Board, Flow, Changes review, terminal, diff |
+| reading | `--hd-column` 736, centred | 24 | conversation, Settings, an Agent, Team Overview, Run timeline, Findings, a plugin (R10.21; owner, 2026-10-10) |
+| wide | `--hd-page-wide` 1320, centred | 24 | Teams list, Agents list, Library, Plugins list, Dashboard, Changes review (owner, 2026-10-10) |
+| canvas | none | 8 | Board, Flow, terminal, diff |
 
 Below the bar, every page starts its content 24px down (8 on a canvas).
 Inside, the existing rhythm holds and is now the only rhythm: label → card 8,
