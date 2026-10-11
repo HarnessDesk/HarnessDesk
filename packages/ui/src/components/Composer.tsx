@@ -1050,7 +1050,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     if (waiting > 0) {
       return `Adds to the ${waiting} message${waiting === 1 ? '' : 's'} already waiting`
     }
-    return 'Describe a task — / for commands, @ for files'
+    return 'Type a reply — / for commands, @ for files'
   }, [record, busy, canSteer, canType, awaitingConversation, session, snapshot.workspace, waiting])
 
   // Whether pressing send delivers now or hands the message to the queue.
