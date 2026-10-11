@@ -326,11 +326,14 @@ export const TeamRoomPane = ({
      what the person came for, and the page tabs are the way around it. */
   const opensOnReceipt = record && Boolean(goal?.receipt)
   const [open, setOpen] = useState<TeamFramePage | 'side-by-side' | SessionKey>(
-    () => (mount?.view.kind === 'room' && mount.view.framePage ? mount.view.framePage === 'room' && (mount.view.chatLayout === 'side-by-side' || mount.view.chatLayout === undefined && grid.tiles.length > 0) ? 'side-by-side' : mount.view.framePage : opensOnReceipt ? 'receipt' : grid.tiles.length > 0 ? 'side-by-side' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room'),
+    () => mount?.view.kind === 'room' && mount.view.chatMember ? mount.view.chatMember
+      : mount?.view.kind === 'room' && mount.view.framePage ? mount.view.framePage === 'room' && (mount.view.chatLayout === 'side-by-side' || mount.view.chatLayout === undefined && grid.tiles.length > 0) ? 'side-by-side' : mount.view.framePage
+        : opensOnReceipt ? 'receipt' : grid.tiles.length > 0 ? 'side-by-side' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room',
   )
   const chatLayout = useRef(mount?.view.kind === 'room' && mount.view.chatLayout ? mount.view.chatLayout : grid.tiles.length > 0 ? 'side-by-side' : 'thread')
   const selectedPage = useRef<TeamFramePage>(mount?.view.kind === 'room' && mount.view.framePage ? mount.view.framePage : opensOnReceipt ? 'receipt' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room')
   const destination = useRef({ room, chosen: mount?.view.kind === 'room' && mount.view.framePage !== undefined })
+  const roomView = mount?.view.kind === 'room' ? mount.view : undefined
   useEffect(() => {
     if (destination.current.room !== room) {
       const restored = mount?.view.kind === 'room' ? mount.view.framePage : undefined
@@ -350,6 +353,28 @@ export const TeamRoomPane = ({
     selectedPage.current = next
     setOpen(next)
   }, [room, flowExecution?.id, record])
+  useEffect(() => {
+    if (!roomView || roomView.room !== room) return
+    chatLayout.current = roomView.chatLayout ?? (grid.tiles.length > 0 ? 'side-by-side' : 'thread')
+    if (roomView.chatMember) {
+      destination.current = { room, chosen: true }
+      selectedPage.current = 'room'
+      setOpen(roomView.chatMember)
+      return
+    }
+    if (roomView.framePage) {
+      destination.current = { room, chosen: true }
+      selectedPage.current = roomView.framePage
+      setOpen(roomView.framePage === 'room' && (roomView.chatLayout === 'side-by-side' || roomView.chatLayout === undefined && grid.tiles.length > 0)
+        ? 'side-by-side' : roomView.framePage)
+      return
+    }
+    destination.current = { room, chosen: false }
+    const next = opensOnReceipt ? 'receipt' : grid.tiles.length > 0 ? 'side-by-side' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room'
+    selectedPage.current = next === 'side-by-side' ? 'room' : next
+    setOpen(next)
+  }, [room, roomView?.room, roomView?.chatMember, roomView?.framePage, roomView?.chatLayout,
+    roomView?.framePage === 'room' ? grid.tiles.length : 0])
   const [chosenRun, setChosenRun] = useState<string | null>(null)
   const [again, setAgain] = useState<FlowExecution | null>(null)
   const [retryCheck, setRetryCheck] = useState<{ run: string; card: number } | null>(null)
@@ -440,7 +465,8 @@ export const TeamRoomPane = ({
     }
     selectedPage.current = 'room'
     if (next === 'side-by-side') chatLayout.current = 'side-by-side'
-    store.setTeamFramePage(room, 'room', next === 'side-by-side' ? 'side-by-side' : undefined)
+    if (next === 'side-by-side') store.setTeamFramePage(room, 'room', 'side-by-side')
+    else store.openTeamMemberChat(room, next)
     setOpen(next)
   }
 
@@ -683,6 +709,9 @@ export const TeamRoomPane = ({
      below and deliberately a different number. */
   const allSeats = useMemo(() => teamSeats(goal, team, flowExecution), [goal, team, flowExecution])
   const seats = useMemo(() => allSeats.filter(hasConversation), [allSeats])
+  const waitingSeats = useMemo(() => new Set(seats
+    .filter(seat => snapshot.approvals.some(approval => approval.key === seat.key))
+    .map(seat => seat.record.id)), [seats, snapshot.approvals])
   const unlinked = useMemo(() => allSeats.filter(one => !hasConversation(one)), [allSeats])
   const receiptFaces = useMemo(() => new Map<string, SeatFaceIdentity>(teamSeats(goal, team, flowExecution, 'seat').map(seat => {
     const runtime = seat.record.session?.runtime
@@ -755,11 +784,11 @@ export const TeamRoomPane = ({
     publicationOn: goal?.goal.findingPublication !== false,
     report: report?.goal === room ? report : null,
   }), [heldClient, room, intents, entries, seats, members, displayMembers, snapshot.runtimes, snapshot.sessions, snapshot.inbox, snapshot.approvals, flowExecution, report, snapshot.findingRuns, goal?.goal.findingPublication])
-  const overviewTimeline = useMemo(() => flowExecution ? runTimelineOf(heldClient, flowExecution, { sessions: snapshot.sessions }) : null,
-  [heldClient, flowExecution, snapshot.sessions])
+  const overviewTimeline = useMemo(() => flowExecution ? runTimelineOf(heldClient, flowExecution, { sessions: snapshot.sessions, waitingSeats }) : null,
+  [heldClient, flowExecution, snapshot.sessions, waitingSeats])
   const comparisonTimeline = useMemo(() => flowExecution ? runTimelineOf(heldClient, flowExecution, {
-    sessions: snapshot.sessions, evidence: snapshot.boardEvidence.get(room),
-  }) : null, [heldClient, flowExecution, snapshot.sessions, snapshot.boardEvidence, room])
+    sessions: snapshot.sessions, evidence: snapshot.boardEvidence.get(room), waitingSeats,
+  }) : null, [heldClient, flowExecution, snapshot.sessions, snapshot.boardEvidence, waitingSeats, room])
   const comparison = comparisonTimeline && flowExecution ? comparisonVerdictOf(comparisonTimeline, flowExecution, intents) : null
   const comparisonId = comparison?.id ?? null
   const [comparisonDismissal, setComparisonDismissal] = useState({ id: comparisonId, hidden: false })
@@ -1190,6 +1219,7 @@ export const TeamRoomPane = ({
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
               {triggerKind && <PaneColumn inset="reading" page><Button variant="link" size="inline" aria-label="Back to Runs" onClick={() => show('runs')}>Back to Runs</Button></PaneColumn>}
               <TeamRunView key={timelineRun.id} execution={timelineRun} view={runFrameView} onView={setRunFrameView}
+                waitingSeats={waitingSeats}
                 stopRefusal={record ? RECORD_REASON : undefined}
                 onStop={!record ? () => setStoppingRun(timelineRun.id) : undefined}
                 continuesNumber={timelineRun.continues ? runs.findIndex(one => one.id === timelineRun.continues) + 1 || undefined : undefined}
@@ -1199,7 +1229,7 @@ export const TeamRoomPane = ({
                 onReviewCheck={() => { const check = timelineRun.operations.find(one => one.kind === 'check' && one.state === 'uncertain'); if (check?.card != null) setRetryCheck({ run: timelineRun.id, card: check.card }) }}
                 origin={timelineRun.intake ? `From trigger ${timelineRun.intake.trigger}` : goal?.goal.origin.kind === 'person' ? 'Started by you' : null}
                 onOpenSeat={show} onOpenBoard={() => show('board')} number={runs.findIndex(one => one.id === timelineRun.id) + 1}
-                model={runTimelineOf(heldClient, timelineRun, { sessions: snapshot.sessions,
+                model={runTimelineOf(heldClient, timelineRun, { sessions: snapshot.sessions, waitingSeats,
                   evidence: snapshot.boardEvidence.get(room),
                   findingRun: snapshot.findingRuns.get(timelineRun.id),
                   publicationOn: goal?.goal.findingPublication !== false,

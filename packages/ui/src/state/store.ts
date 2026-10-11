@@ -3594,8 +3594,20 @@ export class AppStore {
    */
   setTeamFramePage(room: string, framePage: TeamFramePage, chatLayout?: TeamChatLayout): void {
     const pane = panes(this.#snapshot.workbench.main.root).find(one => one.view.kind === 'room' && one.view.room === room)
-    if (pane?.view.kind !== 'room' || pane.view.framePage === framePage && (chatLayout === undefined || pane.view.chatLayout === chatLayout)) return
-    this.#setWorkbench(replaceTeamPayload(this.#snapshot.workbench, pane.id, { ...pane.view, framePage, ...(chatLayout ? { chatLayout } : {}) }))
+    if (pane?.view.kind !== 'room') return
+    const { chatMember: _chatMember, ...current } = pane.view
+    if (pane.view.chatMember === undefined && current.framePage === framePage && (chatLayout === undefined || current.chatLayout === chatLayout)) return
+    this.#setWorkbench(replaceTeamPayload(this.#snapshot.workbench, pane.id, { ...current, framePage, ...(chatLayout ? { chatLayout } : {}) }))
+  }
+
+  /** Opens one Team member's Chat while keeping the Team tab in the one Back history. */
+  openTeamMemberChat(room: string, member: SessionKey): void {
+    const pane = panes(this.#snapshot.workbench.main.root).find(one => one.view.kind === 'room' && one.view.room === room)
+    if (pane?.view.kind !== 'room') return
+    const view = { ...pane.view, framePage: 'room' as const, chatLayout: 'thread' as const, chatMember: member }
+    const workbench = replaceTeamPayload(this.#snapshot.workbench, pane.id, view)
+    const navigation = visitDestination(this.#snapshot.workbench.navigation, destinationOf(view))
+    this.#setWorkbench({ ...workbench, navigation })
   }
 
   setRoomWatching(id: string, watching: readonly SessionKey[]): void {

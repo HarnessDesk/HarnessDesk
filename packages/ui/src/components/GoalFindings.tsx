@@ -111,6 +111,9 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
 
   const rows = state?.rows ?? []
   const loadingFirstPage = !state || (state.loading && rows.length === 0)
+  const noFindings = Boolean(state && !loadingFirstPage && !state.problem && !state.error && state.next === null
+    && state.totals?.all === 0 && rows.length === 0 && (runView?.open ?? 0) === 0 && (runView?.blocking ?? 0) === 0)
+  const hasCountedFindings = rows.length > 0 || (state?.totals?.all ?? 0) > 0
   // Other runs' open findings stay decidable, each against its own run.
   const fromEarlier = run
     ? rows.filter((one) => one.origin.goal === goal && one.origin.run !== run.id && runs.some((other) => other.id === one.origin.run) &&
@@ -132,11 +135,11 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
     <ToolPane variant="integrated" aria-label="Findings">
       <ToolPaneBody bleed>
         <Page width="reading">
-        <SummaryList aria-label="Findings summary">
+        {hasCountedFindings && <SummaryList aria-label="Findings summary">
           <SummaryItem label="Open">{state?.totals?.open ?? 'Not recorded'}</SummaryItem>
           <SummaryItem label="Blocking">{state?.totals?.blocking ?? 'Not recorded'}</SummaryItem>
           <SummaryItem label="All">{state?.totals?.all ?? 'Not recorded'}</SummaryItem>
-        </SummaryList>
+        </SummaryList>}
         {runs.length > 1 && run && (
           <NativeSelect aria-label="Run" value={run.id} onChange={(event) => setChosen(event.target.value)}>
             {runs.map((one, index) => (
@@ -144,7 +147,7 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
             ))}
           </NativeSelect>
         )}
-        {runView && (
+        {runView && !noFindings && (
           <>
             <FindingRoundStatus view={runView} publicationOn={confirmedPublication} />
             {runView.undecidable && <Note>{runView.undecidable}</Note>}
@@ -167,9 +170,9 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
               }
             />
           </Rows>
-        ) : (
+        ) : !noFindings ? (
           <Note>Local findings — no pull request is bound to this Team yet.</Note>
-        )}
+        ) : null}
         {publicationError && (
           <Banner tone="danger" title="This preference could not be saved">{publicationError}</Banner>
         )}

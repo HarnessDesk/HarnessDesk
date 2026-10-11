@@ -27,7 +27,7 @@ export const words = (value: string): string => {
 const toneOf = (label: string): Tone => {
   switch (label.toLowerCase()) {
     case 'working': return 'info'
-    case 'needs you': case 'request changes': return 'warning'
+    case 'needs you': case 'waiting for you': case 'request changes': return 'warning'
     case 'published': case 'pass': case 'passed': case 'done': case 'approve': case 'approved': return 'success'
     case 'fail': case 'failed': return 'danger'
     default: return 'neutral'
@@ -37,7 +37,7 @@ const toneOf = (label: string): Tone => {
 export const RunStateChip = ({ state }: { state: string }) => <Chip tone={toneOf(state)}>{sanitizeText(state)}</Chip>
 
 const stateOf = (run: FlowStepRun): string => run.state === 'done' && run.line ? wordOf(words(run.line))
-  : ({ future: 'Not reached', done: 'Done', working: 'Working', waiting: 'Needs you', blocked: 'Waiting for evidence', stopping: 'Stopping', stopped: 'Stopped' })[run.state]
+  : ({ future: 'Not reached', done: 'Done', working: 'Working', waiting: 'Waiting for you', blocked: 'Waiting for evidence', stopping: 'Stopping', stopped: 'Stopped' })[run.state]
 
 /** A step in the Flow list or Timeline: kind and seated faces, a recorded state, and trailing time and run count. The caller owns its earned second line and selection. */
 export const FlowStepRow = ({ step, run, subtitle, selected, faces, faceTints, now = Date.now(), onSelect, tabIndex, timeline = false, seatNames, repeated = false, roundGroup, rowId, rowKind }: {
@@ -63,7 +63,7 @@ export const FlowStepRow = ({ step, run, subtitle, selected, faces, faceTints, n
   const duration = run?.durationMs == null ? null : formatDuration(run.durationMs + elapsed)
   if (timeline) {
     const state = !run || run.state === 'future' ? 'pending' : run.state === 'done' ? 'done' : run.state === 'working' ? 'active' : run.state === 'waiting' || run.state === 'blocked' ? 'warning' : 'pending'
-    const meta = [run?.state === 'future' ? words(step.line ?? '') : subtitle, run?.seats.map(id => seatNames?.get(id)?.name ?? wordOf(id)).join(', '),
+    const meta = [run?.state === 'future' ? null : subtitle, run?.seats.map(id => seatNames?.get(id)?.name ?? wordOf(id)).join(', '),
       run?.state !== 'future' ? `${duration ?? 'Time not recorded'}${repeated && duration ? ' each' : ''}` : null,
       run?.state !== 'future' ? run?.runs == null ? 'Run count unavailable' : `${run.runs} ${run.runs === 1 ? 'run' : 'runs'}` : null].filter(Boolean)
     return <TimelineItem flat state={state} data-row={rowId} data-kind={rowKind} data-round-group={roundGroup} data-step-row={step.id} data-flow-state={run?.state} data-selected={selected || undefined}

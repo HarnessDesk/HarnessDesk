@@ -28,10 +28,11 @@ export interface FlowOverlayInput {
   readonly model: FlowModel
   readonly cards: readonly Intent[]
   readonly attempts?: ReadonlyMap<number, OverlayCheckHistory>
+  readonly waitingSeats?: ReadonlySet<string>
 }
 
 /** The Run's recorded journey, never a prediction from the current answers. */
-export const flowOverlay = ({ execution, model, cards, attempts, sessions }: FlowOverlayInput): FlowOverlay => {
+export const flowOverlay = ({ execution, model, cards, attempts, sessions, waitingSeats }: FlowOverlayInput): FlowOverlay => {
   const rounds = [...execution.rounds].sort((a, b) => a.n - b.n)
   const byCard = new Map(cards.map(card => [card.id, card]))
   const checkOperations = execution.operations.filter(one => one.kind === 'check')
@@ -60,9 +61,12 @@ export const flowOverlay = ({ execution, model, cards, attempts, sessions }: Flo
     const unfinished = current !== undefined && (stopped || timing.some(one => one.working) || (ended ? !answered : current.state !== 'closed' && !answered))
     const personWaiting = step.kind === 'person' && held.some(card => card && (card.state === 'open' || card.state === 'claimed'
       || (card.blockedBy === 'hand' && Boolean(card.blockedReason?.trim()))))
+    const approvalWaiting = step.kind === 'agent' && current?.state === 'running'
+      && (execution.state === 'running' || execution.state === 'stalled')
+      && current.seats.some(seat => waitingSeats?.has(seat) === true)
     const state: FlowStepState = !latest ? 'future' : stopped ? stopping ? 'stopping' : 'stopped' : ended ? unfinished ? 'stopped' : 'done'
       : current?.state === 'waiting-evidence' ? 'blocked' : !unfinished ? 'done'
-      : step.kind === 'person' ? personWaiting ? 'waiting' : 'blocked'
+      : approvalWaiting ? 'waiting' : step.kind === 'person' ? personWaiting ? 'waiting' : 'blocked'
       : execution.state === 'stalled' ? 'blocked' : 'working'
     const durations = visits.filter(round => round !== retry && (round.state === 'closed' || round === current && (answered || stopped || ended && unfinished))).map(round => {
       const held = round.cards.map(id => byCard.get(id))

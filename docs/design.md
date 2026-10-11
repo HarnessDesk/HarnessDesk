@@ -1870,6 +1870,13 @@ preview also mounts the production sidebar and an open Team that can be wrapped
 under a dialog, and an open Team whose Assign dialog sits beside a wrapped Team's
 kept conversation.
 
+### Board columns
+
+The Team Board keeps every state column at its full minimum width, including
+empty columns. When the columns do not fit, the board scrolls horizontally;
+empty columns do not fold into rails or move to another row. Below 600px of pane
+width, the Team Board switches to its compact list.
+
 ### Run controls
 
 A card that has not finished (open, claimed or blocked) offers **Abandon

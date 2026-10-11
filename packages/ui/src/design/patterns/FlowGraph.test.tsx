@@ -245,10 +245,10 @@ it('the list carries waiting, repeat counts and unknown duration; agent words ar
     ['you', { state: 'waiting', runs: 1, durationMs: null, since: null, line: 'merged · dropped', seats: [] }],
     ['write', { state: 'done', runs: 2, durationMs: null, since: null, line: '<script>bad()</script><b>published</b>', seats: [] }],
   ]) }} />))
-  expect(container.querySelector('[data-step="you"]')!.textContent).toContain('Needs you')
+  expect(container.querySelector('[data-step="you"]')!.textContent).toContain('Waiting for you')
   const list = container.querySelector('[data-slot="flow-list"]')!
-  expect(list.textContent).toContain('Needs you')
-  expect(list.querySelector('[data-step-row="you"] [data-slot="chip"][data-tone="warning"]')?.textContent).toBe('Needs you')
+  expect(list.textContent).toContain('Waiting for you')
+  expect(list.querySelector('[data-step-row="you"] [data-slot="chip"][data-tone="warning"]')?.textContent).toBe('Waiting for you')
   expect(list.querySelector('[data-step-row="write"] [title="Time not recorded"]')?.textContent).toBe('—')
   expect(list.textContent).toContain('2 runs')
   expect(list.querySelector('[data-step-row="write"] [data-slot="list-row-trail"]')?.textContent).toBe('Published— · 2 runs')
@@ -338,7 +338,7 @@ it('shows a person waiting for evidence as Waiting without asking for another an
   await act(async () => root.render(<FlowGraph model={flowModel(blueprint())} overlay={overlay} />))
   const you = container.querySelector('[data-step="you"]')!
   expect(you.querySelector('[data-slot="flow-state"]')?.textContent).toBe('Waiting')
-  expect(you.textContent).not.toContain('Needs you')
+  expect(you.textContent).not.toContain('Waiting for you')
   expect(you.querySelector('[data-slot="flow-complete"], [data-slot="flow-ring"]')).toBeNull()
 })
 

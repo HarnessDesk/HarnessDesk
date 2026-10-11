@@ -201,7 +201,26 @@ it('an unreadable ledger shows a banner, never an empty state', async () => {
   expect(container.textContent).not.toContain('No findings recorded')
 })
 
-it('an empty Goal reads "No findings recorded"', async () => {
+it('an empty Goal shows one state instead of several zero-count summaries', async () => {
+  const state: FindingsListState = {
+    filter: 'all', rows: [], next: null, totals: { all: 0, open: 0, blocking: 0 }, problem: null,
+    loading: false, loadingMore: false, error: null, stale: false,
+  }
+  const flowExecutions = new Map([['run-1', { id: 'run-1', goal: 'g1', state: 'running', findings: {} } as never]])
+  const findingRuns = new Map([['run-1', runView('run-1', '', null, 0, 0)]])
+  const { store } = rig(state, { flowExecutions, findingRuns })
+  await render(store)
+  expect(container.textContent).toContain('No findings recorded')
+  expect(container.querySelector('[aria-label="Findings summary"]')).toBeNull()
+  expect(container.querySelector('[aria-label="This round"]')).toBeNull()
+  expect(container.textContent).not.toContain('Local findings')
+  expect(container.textContent).not.toContain('Open 0')
+  expect(container.textContent).not.toContain('Blocking 0')
+  expect(container.textContent).not.toContain('All 0')
+  expect(container.textContent).not.toContain('Open findings 0')
+})
+
+it('shows the publication switch only for a Goal with a bound pull request, and keeps an empty state otherwise', async () => {
   const state: FindingsListState = {
     filter: 'all', rows: [], next: null, totals: { all: 0, open: 0, blocking: 0 }, problem: null,
     loading: false, loadingMore: false, error: null, stale: false,
@@ -209,16 +228,7 @@ it('an empty Goal reads "No findings recorded"', async () => {
   const { store } = rig(state)
   await render(store)
   expect(container.textContent).toContain('No findings recorded')
-})
-
-it('shows the publication switch only for a Goal with a bound pull request, and a local note otherwise', async () => {
-  const state: FindingsListState = {
-    filter: 'all', rows: [], next: null, totals: { all: 0, open: 0, blocking: 0 }, problem: null,
-    loading: false, loadingMore: false, error: null, stale: false,
-  }
-  const { store } = rig(state)
-  await render(store)
-  expect(container.textContent).toContain('Local findings')
+  expect(container.textContent).not.toContain('Local findings')
   expect(container.querySelector('[role="switch"]')).toBeNull()
 
   const evidence = new Map([['g1', {
@@ -312,8 +322,8 @@ it('a dropped run\'s refreshed view greys Decide this run with the drop\'s own r
   expect(container.textContent).toContain(undecidable)
 })
 
-const runView = (run: string, reason: string, undecidable: string | null = null) => ({
-  run, goal: 'g1', round: 1, finished: 1, total: 1, embargoed: false, open: 1, blocking: 1,
+const runView = (run: string, reason: string, undecidable: string | null = null, open = 1, blocking = 1) => ({
+  run, goal: 'g1', round: 1, finished: 1, total: 1, embargoed: false, open, blocking,
   reason, stamp: `stamp-${run}`, publication: 'local', rounds: [],
   reviewersFinished: null, reviewersTotal: null, pendingExceptions: [], repair: null,
   boundPr: null, unbound: null, undecidable, override: null,

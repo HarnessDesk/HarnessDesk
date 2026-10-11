@@ -7,7 +7,7 @@ import { Button, Text } from '../design'
 import { useTheme } from '../state/theme'
 import { StoreProvider } from '../state/context'
 import type { AppSnapshot, AppStore } from '../state/store'
-import { previewStore } from './harness'
+import { previewStore, runtime as previewRuntime } from './harness'
 import { usagePreviewStore } from './usage-fixture'
 import { TEAM_START_POLICIES, TEAM_START_SOURCES } from './team-start-fixture'
 
@@ -28,10 +28,11 @@ const entries: readonly FlowEntry[] = Object.entries(TEAM_START_SOURCES).map(([i
 })
 
 const teamStartStore = (): AppStore => {
-  const base = previewStore({ theme: 'system' })
+  const requestedTheme = new URLSearchParams(location.search).get('theme')
+  const base = previewStore({ theme: requestedTheme === 'light' || requestedTheme === 'dark' ? requestedTheme : 'system' })
   const mutable = base as unknown as { patch: (partial: Partial<AppSnapshot>) => void }
   const workspace = { ...base.getSnapshot().workspace!, path: TEAM_ROOT, checkoutRoot: TEAM_ROOT, name: 'storefront' }
-  mutable.patch({ workspace, workspaces: [workspace], sessions: new Map(), history: [], historyIdentity: [], teams: new Map(), goals: new Map(), lanes: [] })
+  mutable.patch({ workspace, workspaces: [workspace], runtimes: [previewRuntime('codex', 'Codex'), previewRuntime('claude-code', 'Claude'), previewRuntime('windsurf', 'Windsurf')], sessions: new Map(), history: [], historyIdentity: [], teams: new Map(), goals: new Map(), lanes: [] })
   return new Proxy(base, { get(target, key, receiver) {
     if (key === 'flowCatalog') return async () => entries
     if (key === 'flowSource') return async (_root: string, id: string) => TEAM_START_SOURCES[id] ?? ''
@@ -42,6 +43,16 @@ const teamStartStore = (): AppStore => {
         : TEAM_START_POLICIES[id as keyof typeof TEAM_START_POLICIES] ?? TEAM_START_POLICIES['fix-and-review']
       const seats: FlowPreview['seats'] = policy.roles.flatMap(role => role.kind !== 'agent' ? [] : Array.from({ length: role.count ?? Math.max(role.uses.length, role.seats.length, 1) }, (_, index) => {
         const agent = role.uses[index] ?? role.uses[0] ?? 'implementer'
+        if (id === 'fix-and-review' && (role.id === 'fixer' || role.id === 'reviewer')) {
+          const runtimeName = role.id === 'fixer' ? 'Claude' : 'Windsurf'
+          const runtime = role.id === 'fixer' ? 'claude-code' : 'windsurf'
+          const reason = role.id === 'fixer' ? { kind: 'notInstalled' as const, added: false } : { kind: 'signedOut' as const }
+          const fix = role.id === 'fixer' ? { kind: 'add' as const, runtime } : { kind: 'signIn' as const, runtime }
+          return { role: role.id, index, agent, isolate: role.isolate, reviews: role.grant === 'read', plan: {
+            id: agent, from: 'prefer' as const, winner: null, blocked: null, ceiling: null,
+            candidates: [{ seat: { runtime }, label: runtimeName, runtimeName, state: 'passed' as const, reason, fix }],
+          } }
+        }
         const runtime = target.getSnapshot().runtimes[role.id === policy.seed.role ? index : role.id === 'judge' ? 2 : 1]!
         const seat = role.seats[index] ?? role.seats[0] ?? { runtime: runtime.id, model: 'opus', effort: 'high' }
         const presentation = target.getSnapshot().runtimes.find(one => one.id === seat.runtime)?.presentation ?? runtime.presentation

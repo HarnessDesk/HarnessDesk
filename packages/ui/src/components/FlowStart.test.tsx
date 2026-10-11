@@ -90,6 +90,29 @@ it('gives the selected agent name a tooltip in the seat controls', async () => {
   expect(container.querySelector<HTMLSelectElement>('select[aria-label="Agent for Judge"]')?.title).toBe('Gamma')
 })
 
+it('shows what Automatic resolves to, or that no agent can run', async () => {
+  const resolved: FlowPreviewSeat = {
+    role: 'fixer', index: 0, agent: 'builder', isolate: false, reviews: false,
+    plan: { id: 'builder', from: 'prefer', winner: 0, blocked: null, ceiling: { level: 'edit', hold: 'held' }, candidates: [
+      candidate({ seat: { runtime: 'codex' }, label: 'Codex', runtimeName: 'Codex', state: 'taken', reason: null, fix: null }),
+    ] } as SeatPlan,
+  }
+  const unavailable: FlowPreviewSeat = {
+    role: 'reviewer', index: 0, agent: 'reviewer', isolate: false, reviews: true,
+    plan: { id: 'reviewer', from: 'prefer', winner: null, blocked: null, ceiling: null, candidates: [
+      candidate({ seat: { runtime: 'windsurf' }, label: 'Windsurf', runtimeName: 'Windsurf', state: 'passed', reason: { kind: 'signedOut' }, fix: { kind: 'signIn', runtime: 'windsurf' } }),
+    ] } as SeatPlan,
+  }
+  await renderTeam(TEAM_START_POLICIES['fix-and-review'], [resolved, unavailable], [{ id: 'codex', presentation: { name: 'Codex' } } as never])
+
+  const writes = container.querySelector<HTMLSelectElement>('select[aria-label="Agent for Writes"]')!
+  const reviews = container.querySelector<HTMLSelectElement>('select[aria-label="Agent for Reviews"]')!
+  expect(writes.value).toBe('')
+  expect(writes.selectedOptions[0]?.textContent).toBe('Automatic · Codex')
+  expect(reviews.value).toBe('')
+  expect(reviews.selectedOptions[0]?.textContent).toBe('Automatic · Nothing can run')
+})
+
 it('marks a reviewer that returns to the seed role as fresh each round', async () => {
   await renderTeam(TEAM_START_POLICIES['fix-and-review'], [seat('reviewer', true)])
   expect(container.textContent).toContain('Fresh each round')

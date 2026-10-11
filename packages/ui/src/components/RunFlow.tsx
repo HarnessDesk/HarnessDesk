@@ -33,7 +33,7 @@ const entriesNamed = (entries: readonly FlowEntry[], name: string): readonly Flo
  * is said where the file opens. Editing stays where it was, in the catalogue,
  * for the next Run.
  */
-export const RunFlow = ({ execution, root, seats, cards = [], attempts, selectedStep, onSelectStep, faces, faceTints, doing, sessions }: {
+export const RunFlow = ({ execution, root, seats, cards = [], attempts, waitingSeats, selectedStep, onSelectStep, faces, faceTints, doing, sessions }: {
   execution: Pick<FlowExecution, 'document' | 'revision' | 'rounds'> & Partial<Pick<FlowExecution, 'operations' | 'state' | 'currentEndedAt'>>
   /** The project the Run belongs to, where its Flow's file is looked for; null when it is not known. */
   root: string | null
@@ -42,6 +42,7 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
   sessions?: ReadonlyMap<SessionKey, Session>
   cards?: readonly Intent[]
   attempts?: ReadonlyMap<number, OverlayCheckHistory>
+  waitingSeats?: ReadonlySet<string>
   selectedStep?: string | null
   onSelectStep?: (step: string) => void
   faces?: ReadonlyMap<string, ReactNode>
@@ -51,7 +52,7 @@ export const RunFlow = ({ execution, root, seats, cards = [], attempts, selected
   const { home } = useSnapshot()
   const flow = execution.document.flow
   const model = useMemo(() => flowModel(flow, { home, ceilings: ceilingsOfRun(execution.rounds, seats) }), [flow, execution.rounds, seats, home])
-  const overlay = useMemo(() => execution.state === undefined ? undefined : flowOverlay({ execution: { ...execution, state: execution.state, operations: execution.operations ?? [] }, model, cards, attempts, sessions }), [execution, model, cards, attempts, sessions])
+  const overlay = useMemo(() => execution.state === undefined ? undefined : flowOverlay({ execution: { ...execution, state: execution.state, operations: execution.operations ?? [] }, model, cards, attempts, sessions, waitingSeats }), [execution, model, cards, attempts, sessions, waitingSeats])
   const [now, setNow] = useState(Date.now)
   const held = useRef(new Map<string, DoingLine>())
   useEffect(() => {

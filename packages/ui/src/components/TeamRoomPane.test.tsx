@@ -215,7 +215,7 @@ const rig = (
   } as unknown as Session
   let peers = roster
   let team = { ...state, members: roster.map(one => sessionKey(one.runtime, one.sessionId)), ...board }
-  let savedView: { readonly watching?: readonly SessionKey[]; readonly sideBySide?: StoredSideBySide; readonly chatLayout?: 'thread' | 'side-by-side'; readonly framePage?: TeamFramePage } = {}
+  let savedView: { readonly watching?: readonly SessionKey[]; readonly sideBySide?: StoredSideBySide; readonly chatLayout?: 'thread' | 'side-by-side'; readonly framePage?: TeamFramePage; readonly chatMember?: SessionKey } = {}
   const snapshotOf = (): AppSnapshot =>
     ({
       ...emptySnapshot(),
@@ -232,6 +232,7 @@ const rig = (
   const store = {
     subscribe: () => () => {},
     setTeamFramePage: vi.fn((_id: string, framePage: TeamFramePage, chatLayout?: 'thread' | 'side-by-side') => { savedView = { ...savedView, framePage, ...(chatLayout ? {chatLayout} : {}) } }),
+    openTeamMemberChat: vi.fn((_id: string, chatMember: SessionKey) => { savedView = { ...savedView, framePage: 'room', chatLayout: 'thread', chatMember } }),
     modelsFor: vi.fn().mockResolvedValue([]),
     loadLanePreferences: vi.fn().mockResolvedValue(undefined),
     mountBrowserTile: vi.fn(() => () => {}),
@@ -271,7 +272,7 @@ const rig = (
     lastView: () => savedView,
     releaseGoal: vi.fn().mockResolvedValue(undefined),
     setTeamInbound: vi.fn().mockResolvedValue(undefined),
-  } as unknown as AppStore & { lastView: () => { readonly chatLayout?: 'thread' | 'side-by-side'; readonly framePage?: import('../state/layout').TeamFramePage; readonly watching?: readonly SessionKey[]; readonly sideBySide?: StoredSideBySide } }
+  } as unknown as AppStore & { lastView: () => { readonly chatLayout?: 'thread' | 'side-by-side'; readonly framePage?: import('../state/layout').TeamFramePage; readonly watching?: readonly SessionKey[]; readonly sideBySide?: StoredSideBySide; readonly chatMember?: SessionKey } }
   /** Something new is said in the room, from outside this surface. */
   const says = async (text: string): Promise<void> => {
     team = {
