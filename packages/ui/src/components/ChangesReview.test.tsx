@@ -103,6 +103,22 @@ const flush = async (): Promise<void> => {
 }
 
 describe('the review workspace', () => {
+  it('replaces the filter, view tabs and file index when the tree has no changes', async () => {
+    request.mockImplementation(async (method: string) => method === 'git/status'
+      ? { ...STATUS, files: [] }
+      : { diff: '' })
+    try {
+      mount(() => true)
+      await flush()
+
+      expect(container.textContent).toContain('No changes yet')
+      expect(container.querySelector('[aria-label="Filter files"]')).toBeNull()
+      expect(container.querySelector('[role="tab"]')).toBeNull()
+      expect(container.querySelector('[data-slot="summary-list"]')).toBeNull()
+      expect(container.querySelector('[data-slot="review-index"]')).toBeNull()
+    } finally { request.mockImplementation(answer) }
+  })
+
   it('groups the tree by folder and counts each file', async () => {
     mount(() => true)
     await flush()

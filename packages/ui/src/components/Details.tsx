@@ -96,6 +96,7 @@ const InspectorFrame = ({
   onQuery,
   tools,
   foot,
+  showControls = true,
   children,
 }: {
   find: string
@@ -103,28 +104,29 @@ const InspectorFrame = ({
   onQuery: (next: string) => void
   tools?: ReactNode
   foot: readonly [string, string]
+  showControls?: boolean
   children: ReactNode
 }) => {
   const store = useStore()
   const session = useActiveSession()
   return (
     <PanelFrame>
-      <ToolBodyControls>
-        <PanelFilter value={query} placeholder={find} onChange={onQuery} />
-        {tools}
-        <Button variant="ghost" size="icon-sm" edge="end" edgeGlyph={14}
-          disabled={!session}
-          aria-label="Export this session as Markdown"
-          title="Export this session as Markdown"
-          onClick={() => {
-            if (!session) return
-            downloadMarkdown(exportFilename(session), sessionToMarkdown(session))
-            store.notice('info', 'Session exported as Markdown.')
-          }}
-        >
-          <FileIcon size={14} />
-        </Button>
-      </ToolBodyControls>
+      {showControls && <ToolBodyControls>
+          <PanelFilter value={query} placeholder={find} onChange={onQuery} />
+          {tools}
+          <Button variant="ghost" size="icon-sm" edge="end" edgeGlyph={14}
+            disabled={!session}
+            aria-label="Export this session as Markdown"
+            title="Export this session as Markdown"
+            onClick={() => {
+              if (!session) return
+              downloadMarkdown(exportFilename(session), sessionToMarkdown(session))
+              store.notice('info', 'Session exported as Markdown.')
+            }}
+          >
+            <FileIcon size={14} />
+          </Button>
+        </ToolBodyControls>}
 
       <PanelBody>{children}</PanelBody>
 
@@ -144,6 +146,7 @@ const useFoot = (): readonly [readonly [string, string], ReportFoot] => {
 
 export const ChangesView = () => {
   const [query, setQuery] = useState('')
+  const [empty, setEmpty] = useState(false)
   // Staged and unstaged answer different questions — "what have I decided to
   // commit" versus "what else is there" — so the panel shows one at a time
   // rather than a merged diff that hides which is which.
@@ -155,6 +158,7 @@ export const ChangesView = () => {
       query={query}
       onQuery={setQuery}
       foot={foot}
+      showControls={!empty}
       tools={
         <>
           <label className="inline-flex items-center gap-2"><Switch aria-label="Staged" checked={staged} onCheckedChange={setStaged} title="Show what is staged instead of what is not" />Staged</label>
@@ -172,7 +176,7 @@ export const ChangesView = () => {
         </>
       }
     >
-      <Changes query={query} staged={staged} onFoot={onFoot} />
+      <Changes query={query} staged={staged} onFoot={onFoot} onEmptyChange={setEmpty} />
     </InspectorFrame>
   )
 }
@@ -230,10 +234,12 @@ const Changes = ({
   query,
   staged,
   onFoot,
+  onEmptyChange,
 }: {
   query: string
   staged: boolean
   onFoot: ReportFoot
+  onEmptyChange: (empty: boolean) => void
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -346,6 +352,10 @@ const Changes = ({
     { added: 0, removed: 0 },
   )
 
+  const empty = git !== undefined && git !== null && git.files.length === 0 && turnFiles.length === 0
+
+  useEffect(() => { onEmptyChange(empty) }, [empty, onEmptyChange])
+
   useEffect(() => {
     onFoot(
       files.length > 0 ? `${files.length} file${files.length === 1 ? '' : 's'}` : '',
@@ -363,7 +373,7 @@ const Changes = ({
   }
   const absolute = (path: string): string => (path.startsWith('/') || !root ? path : `${root}/${path}`)
 
-  return (
+  return empty ? <PanelEmpty>No changes yet</PanelEmpty> : (
     <>
       {turnFiles.length > 0 && (
         <>

@@ -134,23 +134,25 @@ const ReviewBody = ({ root, returnTo }: ReviewProps) => {
   }
 
   const absolute = (path: string): string => (path.startsWith('/') || !root ? path : `${root}/${path}`)
+  const empty = git !== null && git.files.length === 0
 
   return (
     <>
-      <DestinationBar place="Changes" tab={staged ? 'staged' : 'working'} tabs={[
+      <DestinationBar place="Changes" {...(!empty ? { tab: staged ? 'staged' : 'working', tabs: [
         { value: 'working', label: 'Working tree', run: () => setStaged(false) },
         { value: 'staged', label: 'Staged', run: () => setStaged(true) },
-      ]} />
+      ] } : {})} />
       <Page width="canvas" measure="wide" topInset="page">
-        <ReviewFilter query={query} change={setQuery} />
-        <SummaryList><SummaryItem label={git?.branch ? <>on <MiddleTruncate>{git.branch}</MiddleTruncate></> : null}>
-          {files.length} file{files.length === 1 ? '' : 's'}
-          {total.added + total.removed > 0 ? ` · +${total.added} −${total.removed}` : ''}
-        </SummaryItem></SummaryList>
-        <ReviewIndex jump={jumpTo} groups={groups.map(group => ({
-          folder: group.folder, files: group.files.map(file => ({ path: file.path, name: basename(file.path),
-            ...countChanges(diffs.get(file.path) ?? '') })),
-        }))} />
+        {empty ? <EmptyState variant="inline" title="No changes yet" /> : <>
+          <ReviewFilter query={query} change={setQuery} />
+          <SummaryList><SummaryItem label={git?.branch ? <>on <MiddleTruncate>{git.branch}</MiddleTruncate></> : null}>
+            {files.length} file{files.length === 1 ? '' : 's'}
+            {total.added + total.removed > 0 ? ` · +${total.added} −${total.removed}` : ''}
+          </SummaryItem></SummaryList>
+          <ReviewIndex jump={jumpTo} groups={groups.map(group => ({
+            folder: group.folder, files: group.files.map(file => ({ path: file.path, name: basename(file.path),
+              ...countChanges(diffs.get(file.path) ?? '') })),
+          }))} />
 
         {groups.length === 0 && (
           <EmptyState
@@ -159,9 +161,10 @@ const ReviewBody = ({ root, returnTo }: ReviewProps) => {
               ? 'This folder is not a git repository, so there is nothing to compare against.'
               : staged
                 ? 'Nothing staged. Staging stays in git — stage there, review here.'
-                : 'No uncommitted changes.'}
+            : 'No uncommitted changes.'}
           />
         )}
+        </>}
 
         {groups.map((group) => (
           <Section key={group.folder || '.'} title={group.folder || 'in this folder'}>

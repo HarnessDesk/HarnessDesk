@@ -49,6 +49,24 @@ it('Staged is a switch that changes the same diff filter', () => {
   act(() => switchOf().click())
   expect(switchOf().getAttribute('aria-checked')).toBe('false')
 })
+it('replaces Changes controls with one empty state for a clean working tree', async () => {
+  const cleanSnapshot = { ...snapshot, workspace: { path: '/work/storefront', name: 'storefront' } }
+  const cleanStore = {
+    ...store,
+    getSnapshot: () => cleanSnapshot,
+    transport: { request: async (method: string) => method === 'git/status'
+      ? { root: '/work/storefront', branch: 'main', ahead: 0, behind: 0, files: [] }
+      : { diff: '' } },
+  } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={cleanStore}><ChangesView /></StoreProvider>))
+  await act(async () => { await Promise.resolve(); await Promise.resolve() })
+
+  expect(container.textContent).toContain('No changes yet')
+  expect(container.querySelector('[aria-label="Filter files"]')).toBeNull()
+  expect(container.querySelector('[role="switch"]')).toBeNull()
+  expect(container.querySelector('[aria-label="Open review"]')).toBeNull()
+  expect(container.querySelector('[aria-label="Export this session as Markdown"]')).toBeNull()
+})
 it('Timed is a mutually exclusive All/Timed choice preserving the filter', () => {
   act(() => root.render(<StoreProvider store={store}><TrajectoryView /></StoreProvider>))
   const choice = (label: string) => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(one => one.textContent === label)!
