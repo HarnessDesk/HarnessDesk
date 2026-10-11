@@ -1,6 +1,8 @@
 .scroll { max-width: 100%; min-width: 0; container-type: inline-size; }
-.table { min-width: max-content; }
-.name { position: sticky; inset-inline-start: 0; z-index: 1; background: var(--hd-card); min-width: calc(var(--hd-column) / 4); }
-.disclosure { display: flex; flex-direction: column; align-items: flex-start; max-width: var(--hd-column); min-width: 0; }
-.heading { display: inline-flex; align-items: center; gap: var(--hd-space-1-5); }
-.detail { position: sticky; inset-inline-start: 0; width: 100cqw; max-width: 100%; }
+.table { table-layout: fixed; }
+.name { position: sticky; inset-inline-start: 0; z-index: 1; background: var(--hd-card); width: 40%; }
+.disclosure { display: flex; flex-direction: column; align-items: flex-start; width: 100%; min-width: 0; }
+.heading { max-width: 100%; min-width: 0; display: inline-flex; align-items: center; gap: var(--hd-space-1-5); }
+.detail { position: sticky; inset-inline-start: 0; width: 100%; max-width: 100%; }
+
+.table tfoot th, .table tfoot td { white-space: normal; overflow-wrap: anywhere; }
