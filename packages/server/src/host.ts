@@ -6466,7 +6466,10 @@ export class Host {
   #preserveReadRecency(session: Session): Session {
     const key = String(sessionKey(session.runtime, session.id))
     const indexed = this.#indexPending.get(key) ?? this.#sessionIndex.get(session.runtime, session.id)
-    return indexed ? { ...session, createdAt: indexed.createdAt, updatedAt: indexed.updatedAt } : session
+    // A held body owns its timing; index rows can be sparse lifecycle metadata.
+    const held = this.registry.get(session.runtime, session.id)?.session
+    const timing = held?.itemsLoaded ? held : indexed
+    return timing ? { ...session, createdAt: session.createdAt, updatedAt: timing.updatedAt } : session
   }
 
   async #cacheRead(session: Session, source: SessionSource | null): Promise<Session> {
