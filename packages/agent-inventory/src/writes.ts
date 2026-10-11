@@ -203,6 +203,18 @@ interface SkillFile {
   readonly mode?: number
 }
 
+/** Updates retain unshipped extras; the resulting union must remain readable. */
+const updatedSkillBundleRefusal = (retained: readonly SkillFile[], incoming: readonly SkillFile[]): string | undefined => {
+  const extras = new Map([...retained, ...incoming].filter((file) => file.path !== 'SKILL.md').map((file) => [file.path, file.bytes]))
+  if (extras.size > MAX_BUNDLE_FILES) {
+    return `The bundle holds more than ${MAX_BUNDLE_FILES} files — too large to carry as a skill.`
+  }
+  let bytes = 0
+  for (const content of extras.values()) bytes += content.length
+  if (bytes > MAX_BUNDLE_BYTES) return 'The bundle holds more than 20 MB — too large to carry as a skill.'
+  return undefined
+}
+
 /** Snapshot the same bounded, link-skipping extras that an install carries. */
 const skillFiles = (text: string, sourcePath?: string): readonly SkillFile[] => {
   const files: SkillFile[] = [{ path: 'SKILL.md', bytes: Buffer.from(text) }]
@@ -275,20 +287,30 @@ interface PlanState {
 }
 
 const push = (state: PlanState, op: Omit<LibraryPlannedOp, 'id'>): void => {
-  state.counter += 1
   // A refusal writes nothing and must not retry the read that caused it.
   if (op.kind === 'skill' && op.action !== 'refuse') {
-    const guardBundle = insideRoots(op.targetPath, knownRoots('skill', state.home, state.cwd))
-      ? currentSkillBundleDigest(op.targetPath)
+    const currentFiles = insideRoots(op.targetPath, knownRoots('skill', state.home, state.cwd))
+      ? currentSkillFiles(op.targetPath)
       : null
+    const guardBundle = currentFiles === null ? null : bundleDigest(currentFiles)
     const source = op.flat === true ? undefined : op.sourcePath
+    const files = op.content === undefined ? undefined : skillFiles(op.content, source)
+    if (op.action === 'update' && op.flat !== true && files !== undefined) {
+      const reason = updatedSkillBundleRefusal(currentFiles ?? [], files)
+      if (reason !== undefined) {
+        refuse(state, 'skill', op.name, op.targetPath, reason, op.targetRuntime)
+        return
+      }
+    }
     const difference = op.content === undefined ? undefined : bundleDifference(op.targetPath, op.content, source)
+    state.counter += 1
     state.ops.push({
       id: `op-${state.counter}`, ...op, guardBundle,
-      ...(op.content !== undefined ? { sourceBundle: bundleDigest(skillFiles(op.content, source)) } : {}),
+      ...(files !== undefined ? { sourceBundle: bundleDigest(files) } : {}),
       ...(difference !== undefined ? { reason: [op.reason, difference].filter(Boolean).join(' ') } : {}),
     })
   } else {
+    state.counter += 1
     state.ops.push({ id: `op-${state.counter}`, ...op })
   }
 }
@@ -1167,7 +1189,8 @@ const applyOne = async (
 
   if (op.kind === 'skill') {
     if (op.guardBundle === undefined) throw new Error('Plan again.')
-    const currentBundle = currentSkillBundleDigest(op.targetPath)
+    const currentFiles = currentSkillFiles(op.targetPath)
+    const currentBundle = currentFiles === null ? null : bundleDigest(currentFiles)
     if (currentBundle !== op.guardBundle) {
       throw new Error('The target changed since the preview — plan again.')
     }
@@ -1211,8 +1234,17 @@ const applyOne = async (
     if ((op.sourceBundle !== undefined || op.sourcePath !== undefined || (op.extraFiles?.length ?? 0) > 0) && bundleDigest(files) !== op.sourceBundle) {
       throw new Error('The source changed since the preview — plan again.')
     }
+    const plannedExtras = new Set((op.extraFiles ?? []).filter(isSafeSkillRelativePath))
+    const sourceExtras = files.filter((file) => file.path !== 'SKILL.md' && isSafeSkillRelativePath(file.path))
+    if (sourceExtras.length !== plannedExtras.size || sourceExtras.some((file) => !plannedExtras.has(file.path))) {
+      throw new Error('The source changed since the preview — plan again.')
+    }
     const toWrite = files.filter((file) => file.path === 'SKILL.md' ||
       (op.extraFiles?.includes(file.path) && isSafeSkillRelativePath(file.path)))
+    if (op.action === 'update' && op.flat !== true) {
+      const reason = updatedSkillBundleRefusal(currentFiles ?? [], toWrite)
+      if (reason !== undefined) throw new Error(reason)
+    }
     const writeRoot = op.flat === true ? dirname(op.targetPath) : op.targetPath
     // Check every destination before the first write. A replacement removes
     // the old tree, so only its parent directory survives that operation.
