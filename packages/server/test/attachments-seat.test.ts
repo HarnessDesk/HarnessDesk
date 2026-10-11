@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -107,6 +107,81 @@ const portFor = (declarations: Record<string, readonly AttachmentDeclaration[]>,
 const permit = (port: PortFixture, s: AttachmentSubject, id: AttachmentIdentity): void => {
   port.permitted.add(`${s.agent}:${id.kind}:${id.name}:${id.digest}:${s.build}`)
 }
+
+const preflight = (plane: AttachmentsPlane, s = subject()) => plane.preflight(s)
+
+test('preflight makes the preparation decision without changing staging or pinning content', async () => {
+  const approved = identity({ name: 'approved' })
+  const pending = identity({ name: 'pending' })
+  const server = identity({ kind: 'mcp', name: 'docs' })
+  const port = portFor({ scout: [declaration(approved), declaration(pending), declaration(server)] })
+  permit(port, subject(), approved)
+  permit(port, subject(), server)
+  const folder = tempDir('hd-attach-preflight-')
+  const staging = join(folder, '.staged')
+  await mkdir(staging)
+  await writeFile(join(staging, 'sentinel'), 'unchanged')
+  const plane = new AttachmentsPlane(folder, port, { onStaging: () => assert.fail('preflight never stages') })
+  const dry = await preflight(plane)
+  assert.equal(dry.skillsMode, 'allowlist')
+  assert.equal(dry.mcpMode, 'allowlist')
+  assert.equal(dry.refusal, null)
+  assert.deepEqual(dry.declarations.map(one => one.problem), [null, 'Review this content before loading it.', null])
+  assert.deepEqual(await readdir(staging), ['sentinel'])
+  assert.equal(await readFile(join(staging, 'sentinel'), 'utf8'), 'unchanged')
+  assert.deepEqual(await readdir(folder), ['.staged'], 'no frozen filters or receipts were written')
+
+  const writable = new AttachmentsPlane(folder, port)
+  const prepared = await writable.prepare(subject())
+  assert.deepEqual(dry.declarations, prepared.declarations)
+  assert.equal(await plane.collectStaged(new Set()), 2, 'preflight pins neither the skill nor the server')
+})
+
+test('preflight reports an unsuppressed auto-load refusal with the individual decisions', async () => {
+  const pending = identity({ name: 'pending' })
+  const port = portFor({ scout: [declaration(pending)] }, { suppressUnapproved: async () => false })
+  const plane = new AttachmentsPlane(tempDir('hd-attach-preflight-refused-'), port)
+  const dry = await preflight(plane)
+  assert.match(dry.refusal!, /cannot be stopped from loading unapproved/)
+  assert.equal(dry.declarations[0]?.problem, 'Review this content before loading it.')
+  assert.equal(dry.mcpMode, 'runtime-defaults')
+  await assert.rejects(plane.prepare(subject()), UnsuppressedAutoLoadError)
+})
+
+test('preflight checks approval, ceiling, support and content in preparation order', async () => {
+  const skill = identity()
+  const server = identity({ kind: 'mcp' })
+  const found = [declaration(skill), declaration(server)]
+  const port = portFor({ scout: found }, { resolve: async () => ({ declarations: found, resolved: [] }) })
+  const plane = new AttachmentsPlane(tempDir('hd-attach-preflight-order-'), port)
+  assert.ok((await preflight(plane)).declarations.every(one => /Review/.test(one.problem!)))
+  permit(port, subject(), skill)
+  permit(port, subject(), server)
+  assert.ok((await preflight(plane)).declarations.every(one => /not read/.test(one.problem!)))
+  assert.match((await preflight(plane, subject({ ceiling: 'read' }))).declarations[1]!.problem!, /exceeds/)
+  const unsupported = new AttachmentsPlane(tempDir('hd-attach-preflight-support-'), {
+    ...port, support: () => ({ ...support, skills: 'unsupported', mcp: 'unsupported' }),
+  })
+  assert.ok((await preflight(unsupported)).declarations.every(one => /cannot load/.test(one.problem!)))
+})
+
+test('preflight refuses bytes and specs that differ from the approved identity', async () => {
+  const skill = identity()
+  const server = identity({ kind: 'mcp' })
+  const found = [declaration(skill), declaration(server)]
+  const port = portFor({ scout: found }, {
+    resolve: async () => ({ declarations: found, resolved: [
+      { identity: skill, files: skillFiles('demo', 'changed'), server: null },
+      { identity: server, files: [], server: serverSpec('demo', 'changed') },
+    ] }),
+  })
+  permit(port, subject(), skill)
+  permit(port, subject(), server)
+  const plane = new AttachmentsPlane(tempDir('hd-attach-preflight-content-'), port)
+  const dry = await preflight(plane)
+  assert.ok(dry.declarations.every(one => /not.*approved/.test(one.problem!)))
+  assert.deepEqual(dry.declarations, (await plane.prepare(subject())).declarations)
+})
 
 test("two Seats keep disjoint frozen inputs", async () => {
   const idA = identity({ name: 'skill-a', seed: 'a' })

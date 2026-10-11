@@ -175,7 +175,7 @@ import { resolveAttachmentDeclarations } from './attachments/catalog.js'
 import { ghInCheckout, type GhInCheckout } from './evidence/forge.js'
 import { checkoutMarkOf, projectOf, revisionOf, upstreamTipOf } from './evidence/revision.js'
 import type { SeatOpening } from './evidence/records.js'
-import { SEEN_FILE } from './evidence/seen.js'
+import { incarnationOf, SEEN_FILE } from './evidence/seen.js'
 import { Terminals } from './terminals.js'
 import { SeatHeldCards } from './seat-held-cards.js'
 import { SessionArchive } from './archive.js'
@@ -1673,6 +1673,16 @@ export class Host {
       // `this.#context` is assigned once the whole constructor has run; every
       // wire call this preview port answers happens long after that.
       previewAgent: (root, agent, seats, grant, options) => previewAgent(this.#context, root, agent, seats, grant, options),
+      preflightAttachments: async (root, entry, seat, ceiling) => this.#context.attachments!.preflight({
+        project: root,
+        incarnation: await incarnationOf(root),
+        agent: entry.id,
+        origin: entry.origin,
+        agentDigest: entry.digest!,
+        runtime: seat.runtime,
+        build: this.#runtimes.get(runtimeId(seat.runtime))?.info.version ?? '',
+        ceiling,
+      }),
       seatOptionsProblem: async (seat, cwd) => {
         // Independence can leave a later, untried candidate in the preview.
         // A bare Seat asks for no controls, so do not resolve its runtime just
@@ -4419,6 +4429,7 @@ export class Host {
       evidence: this.#evidence,
       attachments: {
         prepare: (subject) => this.#attachments.prepare(subject),
+        preflight: (subject) => this.#attachments.preflight(subject),
         record: (seat, prepared, receipt) => this.#attachments.record(seat, prepared, receipt),
         trust: {
           preview: (subject, entries, options) => this.#attachmentTrust.preview(subject, entries, options),

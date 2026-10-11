@@ -7,8 +7,44 @@ import test from 'node:test'
 import { WebSocketServer } from 'ws'
 import { CLIENT_METHODS, clientTierFor } from '@harnessdesk/protocol'
 import { WireCallError } from '@harnessdesk/client'
-import { COMMANDS, FLAG_KEYS, GLOBAL_FLAG_KEYS, errorText, main, sanitizeHuman, parseArgs, errorExit } from '../src/cli.js'
+import { COMMANDS, FLAG_KEYS, GLOBAL_FLAG_KEYS, errorText, main, printPreview, sanitizeHuman, parseArgs, errorExit } from '../src/cli.js'
 import { EXIT_CODES, GLOBAL_OPTIONS, type OptionDoc } from '../src/reference.js'
+import type { FlowPreview } from '@harnessdesk/protocol'
+import { Writable } from 'node:stream'
+
+test('preview prints attachment counts and indented refusal reasons with sanitized human text', () => {
+  const attachments: NonNullable<FlowPreview['seats'][number]['attachments']> = {
+    skillsMode: 'allowlist', mcpMode: 'runtime-defaults', refusal: null,
+    declarations: [
+      { kind: 'skill', name: 'approved-a', identity: null, problem: null },
+      { kind: 'skill', name: 'approved-b', identity: null, problem: null },
+      { kind: 'skill', name: '\x1b[31mpending\x1b[0m', identity: null, problem: 'Review this content before loading it.\n\x1b]52;c;secret\x07' },
+      { kind: 'skill', name: 'unsupported', identity: null, problem: 'This runtime cannot load this attachment for one Seat.' },
+    ],
+  }
+  const preview: FlowPreview = {
+    token: 'dry',
+    compiled: { document: { format: 'legacy', flow: { name: 'Demo', roles: [], rules: [], inputs: [], seed: { role: '', title: '' }, wait: 0 } }, bindings: [], problems: [] },
+    seats: [{ role: 'writer', index: 0, agent: 'writer', isolate: false, reviews: false,
+      plan: { id: 'writer', from: 'prefer', winner: null, candidates: [], ceiling: null, blocked: null }, attachments }],
+    commands: [], guards: [], messaging: 'board-only', problems: [],
+  }
+  const chunks: string[] = []
+  const stream = new Writable({ write(chunk, _encoding, done) { chunks.push(String(chunk)); done() } })
+  printPreview(preview, stream)
+  const output = chunks.join('')
+  assert.match(output, /writer\[1\]  skills 2 load · 1 needs review · 1 will not load  servers runtime defaults/)
+  assert.match(output, /^  skill  pending  Review this content before loading it\.$/m)
+  assert.match(output, /^  skill  unsupported  This runtime cannot load this attachment for one Seat\.$/m)
+  assert.doesNotMatch(output, /[\x00-\x09\x0b-\x1f\x7f-\x9f]/)
+
+  chunks.length = 0
+  const seats: FlowPreview['seats'] = [{ ...preview.seats[0]!, attachments: { ...attachments, skillsMode: 'runtime-defaults', mcpMode: 'allowlist', declarations: [
+    { kind: 'mcp', name: 'docs', identity: null, problem: 'This attachment exceeds the Seat ceiling.' },
+  ] } }]
+  printPreview({ ...preview, seats }, stream)
+  assert.match(chunks.join(''), /skills runtime defaults  servers 0 load · 1 will not load/)
+})
 
 test('the executable command table covers exactly the declared client surface', () => {
   assert.deepEqual(COMMANDS.map(command => command.name), ['desks', 'status', 'teams', 'runs', 'watch', 'open', 'flows', 'flow preview', 'flow start', 'run show', 'run stop', 'run wait', 'library list', 'library show', 'card show', 'card handoff', 'card answer', 'card abandon', 'waiting'])
