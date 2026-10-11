@@ -91,7 +91,7 @@ const AppWindowFrame = ({ owner, label, children, responsive = false, onBack, on
   const [heading, setHeading] = useState<PageHeadingData | null>(null)
   useTopBar(owner, {
     place: heading?.place ?? label,
-    parent: heading && heading.place !== label && onBack ? { label, run: onBack } : undefined,
+    parent: owner !== 'settings' && heading && heading.place !== label && onBack ? { label, run: onBack } : undefined,
     lead: sidebarPlacement(snapshot) !== 'column' ? <WindowControls /> : undefined,
     corner: columnWidth === 0,
     more: close => <MenuItem label="Back to app" onSelect={() => { onClose(); close() }} />,

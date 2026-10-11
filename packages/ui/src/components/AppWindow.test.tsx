@@ -9,7 +9,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
 import { AppWindow as AppWindowBody, AppWindowMode, WindowGroup, WindowNav, WindowNavIdentity, WindowNavItem } from './AppWindow'
-import { Menu, MenuItem, Popover, useEscapeSurface } from '../design'
+import { Menu, MenuItem, PageHead, Popover, useEscapeSurface } from '../design'
 
 /**
  * A settings nav is a list of equal rows.
@@ -63,6 +63,16 @@ it('uses the shared search field for a window rail filter', () => {
   expect(input?.closest('[data-slot="search"]')).not.toBeNull()
   expect(input?.closest('[data-slot="search"]')?.classList.contains('hd-no-drag')).toBe(true)
   expect(container.querySelector('[data-slot="app-window-nav"]')).not.toBeNull()
+})
+
+it('does not repeat Settings as the parent crumb on a Settings page', async () => {
+  render(<AppWindowBody owner="settings" label="Settings" onClose={() => {}} onBack={() => {}}>
+    <PageHead title="General" blurb="Preferences for this desk." />
+  </AppWindowBody>)
+  await frame()
+  const place = container.querySelector('[data-topbar="place"]')!
+  expect(place.querySelectorAll('button')).toHaveLength(0)
+  expect(place.querySelector('[data-topbar-title]')?.textContent).toContain('General')
 })
 
 it.each(['darwin', 'browser'])('the actual %s window supplies native corner room only when it has traffic lights', async platform => {
