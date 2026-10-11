@@ -160,11 +160,11 @@ describe('the canonical button', () => {
     expect(compact).toContain('text-(length:--hd-text-sm)')
   })
 
-  it('provides an edge-aligned navigation row without inset or border', () => {
+  it('provides an edge-aligned navigation plate with content inset and no border', () => {
     const edge = buttonVariants({ variant: 'row', size: 'navigation-edge' })
     expect(edge).toContain('min-h-(--hd-nav-h)')
     expect(edge).toContain('gap-(--hd-nav-gap)')
-    expect(edge).toContain('p-0')
+    expect(edge).toContain('px-(--hd-space-2-5)')
     expect(edge).toContain('border-0')
     expect(edge).toContain('text-(length:--hd-text-sm)')
   })

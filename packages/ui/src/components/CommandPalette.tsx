@@ -23,7 +23,7 @@ import type { FileMatch, SessionSummary, TranscriptHit } from '@harnessdesk/prot
 import { runtimeLabel } from '../lib/accounts'
 import { brandOf } from '../lib/identity'
 import { inForce, markFor, seatTaken } from '../lib/agents'
-import { extractHit } from '../lib/search-highlight'
+import { extractHit, highlightAll, type HighlightSpan } from '../lib/search-highlight'
 import { sessionLabel } from '../lib/sessions'
 import { availableCommands } from '../state/commands'
 import { useSnapshot, useStore } from '../state/context'
@@ -116,6 +116,9 @@ interface Entry {
   readonly group: 'Actions' | 'Agents' | 'Runtimes' | 'Sessions' | 'Recents' | 'Teams' | 'Files' | 'Commands'
   readonly filter?: EntryFilter
   readonly label: string
+  /** Query matches in the visible label, rather than a secondary transcript line. */
+  readonly labelMatches?: readonly HighlightSpan[]
+  readonly title?: string
   readonly hint?: string
   /** A line from the content where the query matched, for inline display. */
   readonly matchLine?: string
@@ -298,7 +301,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
         id: 'worktree',
         group: 'Actions',
         label: 'New worktree…',
-        hint: 'Its own checkout, on its own branch',
+        title: 'Its own checkout, on its own branch',
         icon: <BranchIcon size={14} />,
         run: () => {
           close()
@@ -317,7 +320,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
               id: 'start-team',
               group: 'Actions' as const,
               label: 'Start with a team',
-              hint: 'Choose a shape this project ships',
+              title: 'Choose a shape this project ships',
               icon: <TeamIcon size={14} />,
               run: () => {
                 close()
@@ -356,17 +359,11 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
           id: definition.kind,
           group: 'Actions',
           ...(definition.kind === 'room' ? { filter: 'Teams' as const } : {}),
-          label: definition.kind === 'room'
-            ? 'Teams'
-            : definition.kind === 'activity'
-              ? 'Activity'
-              : definition.kind === 'trajectory'
-                ? 'Trajectory'
-                : `Show ${definition.label.toLowerCase()}`,
+          label: `Show ${definition.kind === 'room' ? 'Teams' : definition.kind === 'trajectory' ? 'Details' : definition.label}`,
           hint: definition.kind === 'changes' ? '⇧⌘D' : undefined,
           /* The view's own sentence, so "tokens" still finds Trajectory. */
           keywords: definition.hint,
-          icon: <definition.icon size={14} />,
+          icon: definition.kind === 'agents' ? <AgentIcon size={14} /> : <definition.icon size={14} />,
           run: () => {
             close()
             if (definition.kind === 'room') host.openTeams?.()
@@ -530,19 +527,23 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
     const sessionEntryFrom = (summary: SessionSummary): Entry => {
       const agent = snapshot.runtimes.find((entry) => entry.id === summary.runtime)?.presentation.name ?? summary.runtime
       const folder = summary.cwd.split('/').filter(Boolean).at(-1) ?? summary.cwd
+      const label = sessionLabel(summary.title, summary.preview)
+      const labelMatches = needle ? highlightAll(needle, label) : []
       // The transcript store's own matching line wins over one re-derived
-      // from the title and preview: it is from the conversation's content.
+      // from the preview: it is from the conversation's content. A title hit
+      // is shown in the title itself, never repeated as a second line.
       const content = contentHits.get(`${summary.runtime}-${summary.id}`)
-      const hit = needle ? extractHit(needle, `${summary.title ?? ''}\n${summary.preview ?? ''}`) : null
+      const hit = needle && labelMatches.length === 0 ? extractHit(needle, summary.preview ?? '') : null
       return {
         id: `session-${summary.runtime}-${summary.id}`,
         group: 'Sessions',
         filter: 'Sessions',
-        label: sessionLabel(summary.title, summary.preview),
+        label,
+        ...(labelMatches.length > 0 ? { labelMatches } : {}),
         hint: `${brandOf(agent)} · ${folder}`,
         icon: <SessionIcon size={14} />,
         keywords: `${folder} ${agent} ${summary.preview ?? ''}`,
-        ...(content
+        ...(content && labelMatches.length === 0
           ? { matchLine: content.line, matchStart: content.start, matchEnd: content.end }
           : hit
             ? { matchLine: hit.line, matchStart: hit.spans[0]?.start, matchEnd: hit.spans[0]?.end }
@@ -621,7 +622,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
     const scored = candidates
       .map((entry) => ({
         entry,
-        score: score(needle, entry.label, `${entry.keywords ?? ''} ${entry.hint ?? ''}`)
+        score: score(needle, entry.label, `${entry.keywords ?? ''} ${entry.hint ?? ''} ${entry.title ?? ''}`)
           + (entry.matchLine ? 20 : 0),
       }))
       .filter((item) => item.score > 0)
@@ -768,7 +769,18 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
                   onMouseEnter={() => setActiveId(entry.id)}
                   onClick={() => run(index)}
                   icon={entry.icon}
-                  label={entry.label}
+                  title={entry.title}
+                  label={entry.labelMatches?.length ? (
+                    <>
+                      {entry.labelMatches.map((span, matchIndex) => (
+                        <span key={matchIndex}>
+                          {entry.label.slice(matchIndex === 0 ? 0 : entry.labelMatches![matchIndex - 1]!.end, span.start)}
+                          <Text as="b" role="meta" ink="primary" weight="semibold">{entry.label.slice(span.start, span.end)}</Text>
+                        </span>
+                      ))}
+                      {entry.label.slice(entry.labelMatches.at(-1)!.end)}
+                    </>
+                  ) : entry.label}
                   meta={entry.hint}
                   metaInk={session ? 'secondary' : 'muted'}
                   match={entry.matchLine && (
