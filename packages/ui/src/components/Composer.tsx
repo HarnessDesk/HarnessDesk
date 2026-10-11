@@ -67,7 +67,7 @@ import {
   AlertIcon,
   AtIcon,
   BriefIcon,
-  CheckIcon,
+  CameraIcon,
   CrossIcon,
   DiffIcon,
   FileIcon,
@@ -75,6 +75,7 @@ import {
   HandoffIcon,
   ImageIcon,
   IssueIcon,
+  HistoryIcon,
   NoteIcon,
   PaperclipIcon,
   PlusIcon,
@@ -94,10 +95,10 @@ import styles from './Composer.module.css'
 
 const contextChipIcon = (icon: ContextChipIcon | undefined, form: 'instructions' | 'resource' | undefined): ReactNode => {
   switch (icon) {
-    case 'image': return <ImageIcon size={16} />
+    case 'image': return <CameraIcon size={16} />
     case 'diff': return <DiffIcon size={16} />
     case 'issue': return <IssueIcon size={16} />
-    case 'check': return <CheckIcon size={16} />
+    case 'check': return <HistoryIcon size={16} />
     case 'terminal': return <TerminalIcon size={16} />
     case 'team': return <TeamIcon size={16} />
     default: return form === 'instructions' ? <BriefIcon size={16} /> : <ResourceIcon size={16} />

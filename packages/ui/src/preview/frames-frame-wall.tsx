@@ -232,6 +232,16 @@ export const FrameWall = () => {
     if (destination === 'draft' && detailsCase === 'armed') {
       Object.assign(snapshot, { draftPlace: { kind: 'worktree', root: snapshot.workspace?.path ?? '/work/storefront', name: 'checkout retry', base: 'main' } })
     }
+    if (destination === 'draft' && query.get('frame-work-in') === 'linked') {
+      const workspace = snapshot.workspace
+      const worktrees = gitWorktrees()
+      const main = worktrees.find(entry => entry.isMain)
+      if (workspace && main) Object.assign(snapshot, {
+        workspace: { ...workspace, path: `${main.path}/review`, name: 'Review worktree', repo: { root: main.path, worktree: true }, git: { branch: 'feature/preview-review' } },
+        worktrees,
+        draftPlace: { kind: 'existing', path: main.path, branch: main.branch ?? null },
+      })
+    }
     if (destination === 'draft' && query.get('frame-composer-labels') === '1') {
       Object.assign(snapshot, { draftOptions: [
         { id: 'sandbox', type: 'select', category: '_permissions', label: 'Sandbox', currentValue: 'workspace', choices: [

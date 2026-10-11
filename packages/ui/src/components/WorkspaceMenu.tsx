@@ -12,6 +12,7 @@ import {
   CopyIcon,
   FolderOpenIcon,
   HistoryIcon,
+  MoveFolderIcon,
   MoveDownIcon,
   MoveUpIcon,
   PinIcon,
@@ -315,7 +316,7 @@ const WorkspaceRows = ({
           } else store.togglePinned(group.root)
         }}
       />
-      <Submenu icons="all" icon={<ChevronIcon size={14} />} label="Move" wide>
+      <Submenu icons="all" icon={<MoveFolderIcon size={14} />} label="Move" wide>
         <MenuItem
           icon={<MoveUpIcon size={14} />}
           label="Move up"

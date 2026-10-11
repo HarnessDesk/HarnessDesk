@@ -80,9 +80,10 @@ type DropdownRowProps = Omit<React.ComponentProps<typeof DropdownMenuPrimitive.I
   inset?: boolean
   variant?: 'default' | 'destructive'
 }
-const DropdownMenuItem = ({ label, children, icon, hint, hintId, trailing, badge, meter, variant = 'default', inset: _inset, ...props }: DropdownRowProps) => {
-  const data = { label: label ?? children, icon, hint, hintId, trailing, badge, meter }
-  return <DropdownMenuPrimitive.Item {...props} data-slot="dropdown-menu-item" data-variant={variant} {...menuRowAttributes(data)}>
+const DropdownMenuItem = ({ label, children, icon, hint, hintId, trailing, badge, meter, variant = 'default', inset: _inset, title, ...props }: DropdownRowProps) => {
+  const refusal = props.disabled ? title : undefined
+  const data = { label: label ?? children, icon, hint: hint ?? refusal, hintId, trailing, badge, meter }
+  return <DropdownMenuPrimitive.Item {...props} title={title} data-slot="dropdown-menu-item" data-variant={variant} {...menuRowAttributes(data)}>
     <MenuRowContent {...data} />
   </DropdownMenuPrimitive.Item>
 }

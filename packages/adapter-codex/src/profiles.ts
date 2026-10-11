@@ -168,7 +168,7 @@ export const profileOption = (
   return {
     type: 'select',
     id: CODEX_PROFILE_OPTION_ID,
-    category: 'other',
+    category: '_profile',
     label: 'Profile',
     description: 'Applied only to new conversations. The context ring shows the window the agent reports.',
     currentValue: selected,

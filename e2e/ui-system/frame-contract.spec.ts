@@ -1951,6 +1951,86 @@ const expectMenuAnatomy = async (surface: Locator, icons: boolean) => {
   }
 }
 
+const expectMenuReasonAndDestructiveInk = async (surface: Locator) => {
+  const problems = await surface.evaluate(el => [...el.querySelectorAll<HTMLElement>('[data-menu-row]')]
+    .filter(row => row.closest('[data-popup-kind]') === el)
+    .flatMap(row => {
+      const disabled = row.matches(':is([data-disabled],[aria-disabled="true"],:disabled)')
+      const title = row.getAttribute('title')
+      const hint = row.querySelector<HTMLElement>('[data-menu-hint]')
+      const failures = disabled && title && (!hint || hint.textContent?.trim() !== title.trim())
+        ? [`${row.querySelector('[data-menu-label]')?.textContent?.trim()}: refusal title is not its visible hint`]
+        : []
+      const destructive = row.hasAttribute('data-danger') || row.getAttribute('data-variant') === 'destructive'
+      const icon = row.querySelector<HTMLElement>('[data-menu-icon]')
+      const label = row.querySelector<HTMLElement>('[data-menu-label]')
+      const trailing = row.querySelector<HTMLElement>('[data-menu-trailing]')
+      if (destructive && icon && getComputedStyle(icon).color !== getComputedStyle(row).color) {
+        failures.push(`${row.querySelector('[data-menu-label]')?.textContent?.trim()}: destructive icon ink differs from its row`)
+      }
+      if (disabled) {
+        const probe = document.createElement('span')
+        probe.style.color = 'var(--hd-disabled-foreground)'
+        row.append(probe)
+        const disabledInk = getComputedStyle(probe).color
+        probe.remove()
+        if (getComputedStyle(row).color !== disabledInk) failures.push(`${label?.textContent?.trim()}: refused row does not use disabled ink`)
+        for (const slot of [icon, label, trailing]) {
+          if (slot && getComputedStyle(slot).color !== disabledInk) failures.push(`${label?.textContent?.trim()}: refused slot does not use disabled ink`)
+        }
+      }
+      return failures
+    }))
+  expect(problems).toEqual([])
+}
+
+const expectTrailingChildGaps = async (page: Page, surface: Locator) => {
+  const gaps = await surface.evaluate(el => [...el.querySelectorAll<HTMLElement>('[data-menu-trailing]')]
+    .filter(slot => slot.closest('[data-popup-kind]') === el)
+    .flatMap(slot => {
+      const boxes = [...slot.childNodes].flatMap(node => {
+        if (node.nodeType === Node.TEXT_NODE) {
+          if (!node.textContent?.trim()) return []
+          const range = document.createRange()
+          range.selectNodeContents(node)
+          const rect = range.getBoundingClientRect()
+          return rect.width > 0 ? [{ left: rect.left, right: rect.right }] : []
+        }
+        if (!(node instanceof HTMLElement)) return []
+        const rect = node.getBoundingClientRect()
+        return rect.width > 0 ? [{ left: rect.left, right: rect.right }] : []
+      }).sort((a, b) => a.left - b.left)
+      return boxes.slice(1).map((box, index) => box.left - boxes[index]!.right)
+    }))
+  const minimum = await resolvedPx(page, '--hd-space-2')
+  expect(gaps.every(gap => gap >= minimum - 1), `trailing child gaps: ${gaps.join(', ')}`).toBe(true)
+}
+
+const expectProjectPathHalvesJoin = async (surface: Locator) => {
+  const copy = surface.locator('[data-menu-row]').filter({ hasText: 'Copy path' }).first()
+  if (await copy.count() === 0) return
+  const gap = await copy.evaluate(row => {
+    const head = row.querySelector<HTMLElement>('[data-menu-hint] [data-part="head"]')
+    const tail = row.querySelector<HTMLElement>('[data-menu-hint] [data-part="tail"]')
+    return head && tail ? tail.getBoundingClientRect().left - head.getBoundingClientRect().right : null
+  })
+  expect(gap, 'Copy path has both middle-truncate halves').not.toBeNull()
+  expect(gap, 'Copy path joins at the truncation without a space').toBeCloseTo(0, 1)
+}
+
+const expectSubmenuChevrons = async (page: Page, surface: Locator) => {
+  const arrows = surface.locator('[data-slot="dropdown-menu-sub-trigger"] [data-menu-trailing] svg')
+  const size = await resolvedPx(page, '--hd-space-4')
+  const colors = new Set<string>()
+  for (let index = 0; index < await arrows.count(); index += 1) {
+    const arrow = arrows.nth(index)
+    const box = (await arrow.boundingBox())!
+    expect([box.width, box.height]).toEqual([size, size])
+    colors.add(await arrow.evaluate(node => getComputedStyle(node).color))
+  }
+  expect(colors.size, 'submenu chevrons share one ink in a menu').toBeLessThanOrEqual(1)
+}
+
 test('S17 popup menus fit their rows and keep one inset and one label per row', async ({ page }) => {
   await openFrame(page, 'frame-wall=conversation&popup=menu-icons', 'light', 1100)
   await page.getByRole('button', { name: 'Frame menu', exact: true }).click()
@@ -2960,6 +3040,10 @@ const expectDestinationPopupContracts = async (page: Page, destination: typeof W
       await expectMenuAnatomy(popup, false)
     } else {
       await expectMenuGeometry(popup)
+      await expectMenuReasonAndDestructiveInk(popup)
+      await expectTrailingChildGaps(page, popup)
+      await expectProjectPathHalvesJoin(popup)
+      await expectSubmenuChevrons(page, popup)
       if (destination.id === 'popup-composer-add') {
         const contextLabels = ['Current page preview', 'Working tree changes', 'Issue reference', 'Last test run', 'Project notes']
         const marks = await popup.locator('[data-menu-row]').evaluateAll((rows, labels) => rows
@@ -2994,6 +3078,7 @@ const S17_ICON_POLICY: Readonly<Record<string, 'all' | 'none'>> = {
   'popup-disabled-rows': 'all',
   'popup-select-disabled': 'none',
   'popup-menu-none': 'none',
+  'popup-disabled-rows': 'all',
   'popup-composer-add': 'all',
   'popup-conversation-more': 'all',
   'popup-wide-menu': 'none',
@@ -3042,6 +3127,28 @@ for (const theme of WALL_THEMES) for (const width of WALL_WIDTHS) {
 
 // Frame fix: transcript, composer and right-panel owner findings.
 for (const theme of WALL_THEMES) {
+  test(`Frame fix 2 project view uses one submenu chevron size and ink in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=left-work', theme, 1280)
+    await page.getByRole('button', { name: 'How this list is shown', exact: true }).click()
+    const menu = page.locator('[role="menu"]:visible').last()
+    const submenus = menu.locator('[data-slot="dropdown-menu-sub-trigger"]')
+    await expect(submenus).toHaveCount(2)
+    await expect(submenus.nth(0)).toContainText('Recency')
+    await expect(submenus.nth(1)).toContainText('All agents')
+    await expectSubmenuChevrons(page, menu)
+  })
+
+  test(`Frame fix 2 Work in separates a selected value from its check in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=draft&frame-work-in=linked', theme, 1280)
+    const track = page.locator('[data-composer-track="work-in"]')
+    await track.getByRole('button').click()
+    const menu = page.locator('[data-popup-kind]:visible').last()
+    const main = menu.locator('[data-menu-row]').filter({ hasText: 'Main checkout' })
+    await expect(main.locator('[data-menu-trailing]')).toContainText('main')
+    await expect(main.locator('[data-menu-trailing] svg')).toBeVisible()
+    await expectTrailingChildGaps(page, menu)
+  })
+
   test(`Frame composer keeps short control values whole at 1280 in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=draft&frame-composer-labels=1', theme, 1280)
     const tools = page.locator('[data-slot="composer-tools"]:visible').last()

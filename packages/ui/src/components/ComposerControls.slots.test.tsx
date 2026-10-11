@@ -116,6 +116,21 @@ it('shows a single declared mode as a fact instead of opening a one-choice menu'
   expect(container.querySelector('[role="menu"]')).toBeNull()
 })
 
+it('keeps the ordinary Profile choice explanation in its title', () => {
+  const profile: ConfigOption = {
+    id: 'profile', label: 'Profile', category: '_profile', type: 'select', currentValue: '',
+    choices: [{ value: '', label: 'None', description: 'Use the ordinary configuration unchanged.' }],
+  } as unknown as ConfigOption
+  const state = { ...snapshot(), draftOptions: [profile] }
+  const store = { subscribe: () => () => {}, getSnapshot: () => state } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><MoreControl /></StoreProvider>))
+  act(() => container.querySelector<HTMLButtonElement>('button[title="More options"]')!.click())
+  const none = [...document.querySelectorAll<HTMLElement>('[role="menuitemradio"]')]
+    .find(item => item.querySelector('[data-menu-label]')?.textContent?.trim() === 'None')!
+  expect(none.querySelector('[data-menu-hint]')).toBeNull()
+  expect(none.getAttribute('title')).toBe('Use the ordinary configuration unchanged.')
+})
+
 it('keeps visible Permissions hints only on Full access and Never ask', () => {
   const permissions = {
     id: 'permissions', label: 'Permissions', category: '_permissions', type: 'select', currentValue: 'workspace',
