@@ -213,15 +213,17 @@ export const DockPanel = ({
   edge,
   collapsed,
   paintedRule = false,
+  floating = false,
   className,
   ...props
-}: React.ComponentProps<'section'> & { edge: PanelEdge; collapsed?: boolean; paintedRule?: boolean }) => (
+}: React.ComponentProps<'section'> & { edge: PanelEdge; collapsed?: boolean; paintedRule?: boolean; floating?: boolean }) => (
   <section
     data-slot="dock-panel"
     data-edge={edge}
     {...(collapsed ? { 'data-collapsed': '' } : {})}
     className={cn(
       'flex min-h-0 min-w-0 flex-col overflow-hidden bg-(--hd-card)',
+      floating && '[box-shadow:var(--hd-shadow-lg)]',
       paintedRule ? cn('relative after:absolute after:pointer-events-none after:bg-(--hd-border)', PAINTED_RULE[edge]) : RULE[edge],
       className,
     )}

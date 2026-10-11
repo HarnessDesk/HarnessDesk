@@ -134,3 +134,17 @@ test('FIX9 spend grouping uses sentence case', async ({ page }) => {
   await expect(options).toContainText('By model')
   await expect(options).toContainText('By project')
 })
+
+test('FIX9 floating Changes uses overlay elevation', async ({ page }) => {
+  for (const width of [1100, 720]) {
+    await openFrame(page, 'frame-wall=conversation', width)
+    await page.getByRole('button', { name: 'Changes', exact: true }).first().click()
+    const panel = page.locator('[data-frame-region="right"]:visible')
+    const shadows = await panel.evaluate(element => {
+      const probe = document.createElement('div'); probe.style.boxShadow = 'var(--hd-shadow-lg)'; element.append(probe)
+      const values = [getComputedStyle(element).boxShadow, getComputedStyle(probe).boxShadow]; probe.remove(); return values
+    })
+    expect(shadows[0]).not.toBe('none')
+    expect(shadows[0]).toBe(shadows[1])
+  }
+})
