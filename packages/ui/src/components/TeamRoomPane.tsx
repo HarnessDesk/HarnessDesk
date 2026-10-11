@@ -996,7 +996,7 @@ export const TeamRoomPane = ({
       : goal.goal.state === 'wrapped' || goal.goal.state === 'wrapping' || flowExecution?.state === 'settled'
         ? { label: 'Done', tone: 'success', pulse: false }
         : flowExecution?.state === 'stopped' || originStatus?.budget?.stop
-          ? { label: 'Stopped', tone: 'neutral', pulse: false }
+          ? { label: flowExecution?.state === 'stopped' && stoppingSessions.size ? 'Stopping' : 'Stopped', tone: 'neutral', pulse: false }
           : { label: 'Running', tone: 'info', pulse: false }
   /* Matched on everything a person might type: the room name, the harness, the
      model, the conversation's own title. A filter that only matched the
@@ -1602,6 +1602,9 @@ const RoomLiveLine = ({
        line under precisely the conditions that moved the header off "Stopped"
        — never a narrower or wider one — and the two surfaces cannot disagree
        about the same run. */
+    if (flowExecution?.state === 'stopped' && stoppingSessions?.size) {
+      return <TurnWorkLive settled data-slot="room-live-line" data-kind="stop">Stopping</TurnWorkLive>
+    }
     if (!waiting && stopText && !needsYou) {
       reasonOnLiveLine = stopText === runReason
       return (

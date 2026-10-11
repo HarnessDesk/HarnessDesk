@@ -45,6 +45,7 @@ import { panes } from '../state/layout'
 import { useSnapshot, useSnapshotSelector, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
 import {
+  StopIcon,
   ArchiveIcon,
   AgentIcon,
   BranchIcon,
@@ -536,11 +537,13 @@ const RoomRow = ({ room, state, suppressSelection = false, virtualKey, virtualIn
   const store = useStore(), snapshot = useSnapshot()
   const goal = snapshot.goals.get(room.id)
   const name = goal ? goalName(goal.goal) : room.name
-  const seats = teamSeats(goal, room, goalRunOf(room.id, goal, snapshot.flowExecutions))
-  const waiting = state === 'needs-you' || seats.some(({ key }) => key &&
+  const execution = goalRunOf(room.id, goal, snapshot.flowExecutions)
+  const seats = teamSeats(goal, room, execution)
+  const ended = execution?.state === 'stopped'
+  const waiting = !ended && (state === 'needs-you' || seats.some(({ key }) => key &&
     (snapshot.approvals.some(one => one.key === key) || snapshot.queues.get(key)?.status === 'paused'
-      || (snapshot.sessions.get(key) && traceOf(snapshot.sessions.get(key)!, false) === 'waiting')))
-  const running = !waiting && (state === 'working' || goal?.activity === 'working' || seats.some(({ key }) => {
+      || (snapshot.sessions.get(key) && traceOf(snapshot.sessions.get(key)!, false) === 'waiting'))))
+  const running = !ended && !waiting && (state === 'working' || goal?.activity === 'working' || seats.some(({ key }) => {
     const live = key ? snapshot.sessions.get(key) : undefined
     return live !== undefined && isBusy(live)
   }))
@@ -548,14 +551,16 @@ const RoomRow = ({ room, state, suppressSelection = false, virtualKey, virtualIn
   const unread = state === 'unread'
   const held = room.channel.filter(entry => entry.kind === 'message' && entry.state === 'held').length
   const selected = panes(snapshot.layout.root).some(pane => pane.view.kind === 'room' && pane.view.room === room.id)
-  const trailing: LeftColumnTrail | undefined = waiting
+  const trailing: LeftColumnTrail | undefined = state === 'stopping'
+    ? { kind: 'mark', icon: <StopIcon size={14} />, label: 'Stopping' }
+    : waiting
     ? { kind: 'mark', icon: <SidebarMenuState label="Needs you" tone="warning" state="limit" compact />, label: 'Needs you' }
     : unread ? { kind: 'mark', icon: <Dot state="signin" variant="navigation" />, label: 'Unread activity' }
       : running ? { kind: 'mark', icon: <Spinner size="sm" tone="neutral" />, label: 'Working' }
       : held > 0 ? { kind: 'count', value: held, label: `${held} held messages` } : undefined
   return <div data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount}>
     <LeftColumnRow label={name} icon={<TeamIcon size={16} />} selected={selected && !suppressSelection}
-      title={`${name}${waiting ? ' · Needs you' : ''}${unread ? ' · Unread activity' : ''}${running ? ' · Working' : ''}${held > 0 ? ` · ${held} held messages` : ''}${claimed > 0 ? ` · ${claimed} claimed jobs` : ''}`}
+      title={`${name}${state === 'stopping' ? ' · Stopping' : state === 'stopped' ? ' · Stopped' : ''}${waiting ? ' · Needs you' : ''}${unread ? ' · Unread activity' : ''}${running ? ' · Working' : ''}${held > 0 ? ` · ${held} held messages` : ''}${claimed > 0 ? ` · ${claimed} claimed jobs` : ''}`}
       buttonProps={{ 'aria-label': `Room ${name}` }} trailing={trailing}
       onClick={() => store.openTeamRoom(room.id)} />
   </div>

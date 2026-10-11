@@ -76,9 +76,9 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   const stoppedCards = new Map(timeline?.rows.filter(row => row.card !== null && (row.status === 'Stopping' || row.status === 'Stopped'))
     .map(row => [row.card, row]) ?? [])
   const cardState = (row: SeatRow) => row.card ? stoppedCards.get(row.card.id) : undefined
-  const seatState = (row: SeatRow) => model.run?.state === 'stopped' && row.round !== null
-    ? <span data-slot="seat-state"><Text role="meta">Stopped</Text></span> : cardState(row)
-    ? <span data-slot="seat-state"><Text role="meta">{cardState(row)!.status}</Text></span> : <SeatState row={row} />
+  const seatState = (row: SeatRow) => cardState(row)
+    ? <span data-slot="seat-state"><Text role="meta">{cardState(row)!.status}</Text></span> : model.run?.state === 'stopped' && row.round !== null
+    ? <span data-slot="seat-state"><Text role="meta">Stopped</Text></span> : <SeatState row={row} />
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
@@ -125,7 +125,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
                 <span>{onRun ? <Button variant="link" size="inline-link" onClick={onRun}><Text role="subject">{words(runName)}</Text></Button> : <Text role="subject">{words(runName)}</Text>}</span>
                 {!statusLine && (runNeedsYou || run.needsYou || run.state === 'stalled' || run.state === 'running'
                   ? <Chip tone={runNeedsYou || run.needsYou || run.state === 'stalled' ? 'warning' : evidenceWait ? 'neutral' : 'info'}>{runNeedsYou || run.needsYou ? 'Needs you' : evidenceWait ? 'Waiting' : runWords[run.state]}</Chip>
-                  : <Text role="meta">{runWords[run.state]}</Text>)}
+                  : <Text role="meta">{run.state === 'stopped' && [...stoppedCards.values()].some(row => row.status === 'Stopping') ? 'Stopping' : runWords[run.state]}</Text>)}
                 {statusLine && evidenceWait && !findingsWait && !runNeedsYou && !run.needsYou && <Chip tone="neutral">Waiting</Chip>}
                 {publication && <Chip tone={publication.tone}>{publication.label}</Chip>}
               </div>

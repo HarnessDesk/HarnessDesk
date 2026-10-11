@@ -3,7 +3,7 @@ import type { InsightReport } from '@harnessdesk/protocol'
 import type { AppSnapshot } from '../state/snapshot'
 import { goalRunOf } from './goal-run'
 import { teamSeats, hasConversation } from './team-seats'
-import { teamOverview, teamOverviewInputOf, teamTotals } from '@harnessdesk/client/views'
+import { teamOverview, teamOverviewInputOf, teamTotals, runTimelineOf } from '@harnessdesk/client/views'
 import { clientSnapshot } from './client-snapshot'
 import type { TeamListInput } from './teams-list'
 
@@ -25,6 +25,7 @@ export const teamsInput = (snapshot: AppSnapshot, reports: ReadonlyMap<string,In
   publicationOn:goal?.goal.findingPublication !== false,
   report:reports.get(team.id) ?? null,
  })
- return {team,goal,execution,overview:teamOverview(input),total:teamTotals(input)}
+ return {team,goal,execution,overview:teamOverview(input),total:teamTotals(input),
+  stopping: execution?.state === 'stopped' && runTimelineOf(held, execution, { sessions: snapshot.sessions }).rows.some(row => row.status === 'Stopping')}
  })
 }

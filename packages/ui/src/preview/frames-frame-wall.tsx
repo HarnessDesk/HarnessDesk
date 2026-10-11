@@ -140,7 +140,7 @@ const storeFor = (destination: Destination): AppStore => {
     case 'team-run-not-reached': return showing(frameRunStore('empty'), { kind: 'room', room: 'overview-team' }, null)
     case 'team-run-equivalent': return showing(frameEquivalentRunStore(), { kind: 'room', room: 'overview-team' }, null)
     case 'team-run-repeated': return showing(frameRunStore('many'), { kind: 'room', room: 'overview-team' }, null)
-    case 'team': return showing(overviewTeamStore((new URLSearchParams(location.search).has('frame-fix8-stop') || new URLSearchParams(location.search).has('frame-fix9-stop')) ? 'needs-you' : 'running'), { kind: 'room', room: 'overview-team' }, null)
+    case 'team': return showing(overviewTeamStore((new URLSearchParams(location.search).has('frame-fix8-stop') || new URLSearchParams(location.search).has('frame-fix9-stop') || new URLSearchParams(location.search).has('frame-fix10-stop')) ? 'needs-you' : 'running'), { kind: 'room', room: 'overview-team' }, null)
     case 'team-trigger': return showing(triggerTeamStore(), { kind: 'room', room: 'overview-team' }, null)
     case 'team-receipt': return showing(teamRecordStore('wrapped'), { kind: 'room', room: 'overview-team' }, null)
     case 'teams': {
@@ -264,15 +264,24 @@ export const FrameWall = () => {
       const request = next.transport.request.bind(next.transport)
       next.transport.request = (async (method, params) => method === 'finding/run' ? view : request(method, params as never)) as typeof next.transport.request
     }
-    if (destination === 'team' && (query.get('frame-fix8-stop') === '1' || query.get('frame-fix9-stop') === '1')) {
+    if (destination === 'team' && (query.get('frame-fix8-stop') === '1' || query.get('frame-fix9-stop') === '1' || query.get('frame-fix10-stop') === '1')) {
       Object.assign(snapshot, { approvals: snapshot.approvals.map(({ key, approval }) => ({ key, approval: {
-        id: approval.id, sessionId: approval.sessionId, requestedAt: approval.requestedAt, type: 'command', command: 'echo synthetic', cwd: '/work/storefront', actions: [],
+        id: approval.id, sessionId: approval.sessionId, requestedAt: approval.requestedAt, type: 'command', command: query.get('frame-fix10-stop') === '1' ? 'ls -la' : 'echo synthetic', cwd: '/work/storefront', actions: [],
         options: [{ id: 'allow', label: 'Allow', intent: 'approve' }, { id: 'deny', label: 'Deny', intent: 'deny' }],
       } })) })
-      if (query.get('frame-fix9-stop') === '1') {
+      if (query.get('frame-fix9-stop') === '1' || query.get('frame-fix10-stop') === '1') {
         const goal = snapshot.goals.get('overview-team')!
         const run = snapshot.flowExecutions.get('overview-run')!
         const member = { ...goal.members[1]!, agent: { ...goal.members[1]!.agent!, name: 'Researcher' }, role: 'researcher' }
+        if (query.get('frame-fix10-stop') === '1') {
+          const key = sessionKey(member.session.runtime, member.session.sessionId)
+          const session = snapshot.sessions.get(key)!
+          Object.assign(snapshot, { sessions: new Map(snapshot.sessions).set(key, { ...session, status: { type: 'active' },
+            turns: [{ id: turnId('pending-command'), status: 'inProgress', startedAt: Date.now() - 60_000, items: [{
+              id: itemId('pending-list'), type: 'command', origin: 'agent', command: 'ls -la', cwd: '/work/storefront', status: 'inProgress',
+              actions: [{ type: 'listFiles', command: 'ls -la', path: '/work/storefront' }],
+            }] }] }) })
+        }
         Object.assign(snapshot, { goals: new Map(snapshot.goals).set(goal.goal.id, { ...goal, members: [member] }),
           flowExecutions: new Map([[run.id, { ...run, rounds: [{ ...run.rounds[0]!, n: 1, role: 'researcher', seats: [member.id], cards: [2] }],
             findings: { version: 1, budget: { rounds: 3, withoutProgress: 2 }, closedRounds: [], idleRounds: 0, progress: [], series: [], stopped: null, extraRound: null, overrides: [], lastDecision: null } }]]) })
@@ -281,16 +290,16 @@ export const FrameWall = () => {
       next.transport.request = (async (method, params) => {
         if (method !== 'flow/execution/stop') return request(method, params as never)
         const run = snapshot.flowExecutions.get((params as { run: string }).run)!
-        const events = next.transport as unknown as { handlers: { onEvent(runtime: import('@harnessdesk/protocol').RuntimeId, event: import('@harnessdesk/protocol').AgentEvent): void } }
+        const events = next.transport as unknown as { handlers: { onEvent(runtime: import('@harnessdesk/protocol').RuntimeId, event: import('@harnessdesk/protocol').AgentEvent): void; onNotification(notification: import('@harnessdesk/protocol').WireNotification): void } }
         for (const { key, approval } of snapshot.approvals) events.handlers.onEvent(snapshot.sessions.get(key)!.runtime, { type: 'approval/resolved', sessionId: approval.sessionId,
           approvalId: approval.id, resolution: { outcome: 'abandoned', reason: 'Run stopped' } })
-        if (query.get('frame-fix9-stop') === '1') {
+        if (query.get('frame-fix9-stop') === '1' || query.get('frame-fix10-stop') === '1') {
           const goal = snapshot.goals.get(run.goal)!
           const pastMembers = goal.members.map(seat => ({ ...seat, closed: { at: Date.now(), why: 'released' as const } }))
-          Object.assign(snapshot, { goals: new Map(snapshot.goals).set(run.goal, { ...goal, members: [], pastMembers }),
-            teams: new Map(snapshot.teams).set(run.goal, { ...goal.board, members: [] }) })
+          events.handlers.onNotification({ method: 'goal/changed', params: { view: { ...goal, members: [], pastMembers } } })
+          events.handlers.onNotification({ method: 'team/changed', params: { state: { ...goal.board, members: [] } } })
         }
-        return { ...run, state: 'stopped', reason: 'The person stopped this run.', end: { kind: 'stopped', by: 'person' },
+        return { ...run, ...(query.get('frame-fix10-stop') === '1' ? { endedAt: Date.now(), currentEndedAt: Date.now() } : {}), state: 'stopped', reason: 'The person stopped this run.', end: { kind: 'stopped', by: 'person' },
           rounds: run.rounds.map(round => ({ ...round, state: 'closed' })) }
       }) as typeof next.transport.request
     }
@@ -817,7 +826,16 @@ export const FrameWall = () => {
     return next
   }, [destination, location.search])
   useEffect(() => {
-    const api={resizeLeft:(width:number)=>store.resizePanel('sidebar',width)}
+    const api={resizeLeft:(width:number)=>store.resizePanel('sidebar',width), finishStoppedTurn: () => {
+      const snapshot = store.getSnapshot(), goal = snapshot.goals.get('overview-team')
+      const member = goal?.pastMembers?.[0]
+      if (!member || new URLSearchParams(location.search).get('frame-fix10-stop') !== '1') return
+      const key = sessionKey(member.session.runtime, member.session.sessionId), session = snapshot.sessions.get(key)!
+      const events = store.transport as unknown as { handlers: { onEvent(runtime: RuntimeId, event: import('@harnessdesk/protocol').AgentEvent): void } }
+      events.handlers.onEvent(session.runtime, { type: 'turn/completed', sessionId: session.id,
+        turn: { ...session.turns.at(-1)!, status: 'interrupted', completedAt: Date.now() } })
+      events.handlers.onEvent(session.runtime, { type: 'session/status', sessionId: session.id, status: { type: 'idle' } })
+    }}
     Object.assign(window,{__hdFrameWall:api})
     return()=>{delete(window as Window & {__hdFrameWall?:typeof api}).__hdFrameWall}
   },[store])

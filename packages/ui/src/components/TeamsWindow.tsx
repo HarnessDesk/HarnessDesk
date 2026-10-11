@@ -81,7 +81,7 @@ const useReadOnce = (scope: string, read: (keys: readonly string[]) => Promise<r
 }
 const withCount = (label: string, count: number): string => `${label} · ${count}`
 const labels = {active:'Active','needs-you':'Needs you',settled:'Settled'} as const
-const stateLabels = {'needs-you':'Needs you',unread:'Unread',working:'Working',idle:'Idle',settled:'Settled',wrapped:'Wrapped',wrapping:'Wrapping',stopped:'Stopped'} as const
+const stateLabels = {'needs-you':'Needs you',unread:'Unread',working:'Working',idle:'Idle',settled:'Settled',wrapped:'Wrapped',wrapping:'Wrapping',stopped:'Stopped',stopping:'Stopping'} as const
 
 /** Every Team on the desk; no per-project or runtime-specific reader. */
 interface TeamsPageProps { readonly filter: TeamFilter; readonly onFilter: (filter: TeamFilter) => void; readonly onNew: () => void }

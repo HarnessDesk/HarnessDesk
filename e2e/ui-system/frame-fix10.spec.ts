@@ -21,3 +21,24 @@ test('FIX10 partly read spend agrees across ranges and keeps today unread', asyn
     await expect(cost.locator('[data-slot="stat"]').filter({ hasText: 'Today' })).toContainText('Not read yet')
   }
 })
+
+
+test('FIX10 stopped Team agrees while its waiting turn finishes', async ({ page }) => {
+  for (const theme of ['light', 'dark'] as const) {
+  await openFrame(page, 'frame-wall=team&frame-fix10-stop=1', theme)
+  await page.getByRole('tab', { name: 'Run 1', exact: true }).click()
+  await page.getByRole('button', { name: 'Stop run…', exact: true }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Stop run', exact: true }).click()
+  await page.getByRole('tab', { name: 'Overview', exact: true }).click()
+  const room = page.getByRole('button', { name: 'Room Retry the checkout call', exact: true })
+  await expect(room).toHaveAttribute('title', /Stopping/)
+  await expect(room).not.toHaveAttribute('title', /Working/)
+  await expect(page.locator('[data-slot="team-overview"] [aria-label="Run"]')).toContainText('Stopping')
+  await expect(page.locator('[data-seat="seat-1"] [data-slot="seat-state"]')).toHaveText('Stopping')
+  await page.evaluate(() => (window as Window & { __hdFrameWall: { finishStoppedTurn(): void } }).__hdFrameWall.finishStoppedTurn())
+  await expect(room).toHaveAttribute('title', /Stopped/)
+  await expect(room.locator('..').getByRole('img', { name: 'Working', exact: true })).toHaveCount(0)
+  await expect(page.locator('[data-slot="team-overview"] [aria-label="Run"]')).toContainText('Stopped')
+  await expect(page.locator('[data-seat="seat-1"] [data-slot="seat-state"]')).toHaveText('Stopped')
+  }
+})
