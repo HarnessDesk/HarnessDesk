@@ -27,6 +27,20 @@ it('separates page blocks by the shared stack gap', () => {
   expect(css).toMatch(/\.page\s*\{[^}]*gap:\s*var\(--hd-card-gap\)/s)
 })
 
+it('fills its destination body only when a page needs remaining-space alignment', () => {
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  try {
+    act(() => root.render(<Page width="wide" fill>content</Page>))
+    expect((container.firstElementChild as HTMLElement).dataset['fill']).toBe('')
+    expect(css).toMatch(/\.page\[data-fill\]\s*\{[^}]*min-height:\s*100%/s)
+  } finally {
+    act(() => root.unmount())
+    container.remove()
+  }
+})
+
 it('lets a window own its gutter while retaining the shared page stack', () => {
   const container = document.createElement('div')
   document.body.append(container)

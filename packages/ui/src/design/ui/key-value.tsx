@@ -50,19 +50,22 @@ type MiddleTruncateProps = Omit<React.ComponentProps<'span'>, 'children'> & {
   children: string
   /** A short visible label that shares the available line width with the path. */
   prefix?: React.ReactNode
+  /** Grow into the available width when the path sits between other inline note content. */
+  grow?: boolean
 }
 
-const MiddleTruncate = ({ children, className, prefix, ...props }: MiddleTruncateProps) => {
+const MiddleTruncate = ({ children, className, prefix, grow = false, title: suppliedTitle, ...props }: MiddleTruncateProps) => {
   const [head, tail] = splitPath(children)
   const long = graphemes(head).length > 3
   return (
     <span
       data-slot="middle-truncate"
-      className={cn('inline-flex min-w-0 max-w-full gap-0 overflow-hidden whitespace-nowrap align-bottom', className)}
+      className={cn('inline-flex min-w-0 max-w-full gap-0 overflow-hidden whitespace-nowrap align-bottom', grow && 'flex-1', className)}
       onMouseEnter={(event) => {
         const node = event.currentTarget
         const cut = [...node.querySelectorAll('[data-part]')].some((part) => part.scrollWidth > part.clientWidth)
-        if (cut) node.title = children
+        if (suppliedTitle !== undefined) node.title = suppliedTitle
+        else if (cut) node.title = children
         else node.removeAttribute('title')
       }}
       onCopy={(event) => {
@@ -78,6 +81,7 @@ const MiddleTruncate = ({ children, className, prefix, ...props }: MiddleTruncat
         event.preventDefault()
       }}
       {...props}
+      {...(suppliedTitle !== undefined ? { title: suppliedTitle } : {})}
     >
       {/* Out of the selection, so a copy that starts before the path does not
           take it twice. */}

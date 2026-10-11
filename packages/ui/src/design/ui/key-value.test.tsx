@@ -104,6 +104,25 @@ it('names the whole path in title while it is cut, and nothing once it fits', ()
   expect(line.hasAttribute('title')).toBe(false)
 })
 
+it('preserves an explicit full title when a shortened path is cut', () => {
+  const full = '/private/tmp/synthetic-parent/checkout/storefront/.harnessdesk/agents'
+  const line = draw(<MiddleTruncate title={full} prefix="…/">storefront/.harnessdesk/agents</MiddleTruncate>)
+  const head = line.querySelector('[data-part="head"]')!
+  const tail = line.querySelector('[data-part="tail"]')!
+  sized(head, 300, 120)
+  sized(tail, 100, 80)
+
+  act(() => { line.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) })
+
+  expect(line.getAttribute('title')).toBe(full)
+})
+
+it('grows when a middle-truncated path shares a line with surrounding words', () => {
+  const line = draw(<MiddleTruncate grow>storefront/.harnessdesk/agents</MiddleTruncate>)
+  expect(line.className).toContain('flex-1')
+  expect(line.className).toContain('min-w-0')
+})
+
 it('keeps the panel variant compact and left-aligned', () => {
   const list = draw(
     <KeyValue variant="panel">

@@ -1987,3 +1987,10 @@ fits. The Usage ring and its word use the chip gap
 (`--hd-space-1-5`), and both wide and folded tracks reserve enough room for the
 whole visible label. The `Composer fit:` frame contracts check these values at
 wide, narrow and folded widths in both themes.
+
+## Banner measure
+
+A Banner defaults to the reading column. When it sits in a page section whose
+other blocks use a wider measure, set `measure="container"`: the notice fills
+the section's width so a warning and its list share one edge. The banner frame
+and card both follow that measure; a screen should not size either one itself.

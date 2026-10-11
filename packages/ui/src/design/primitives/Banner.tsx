@@ -52,6 +52,7 @@ export const Banner = ({
   onDismiss,
   onMute,
   compact = false,
+  measure = 'column',
   role,
   children,
 }: {
@@ -69,6 +70,8 @@ export const Banner = ({
   onMute?: () => void
   /** The toast form: one line, no title, leaves on its own. */
   compact?: boolean
+  /** `container` fills its parent when the banner belongs to a wider page block. */
+  measure?: 'column' | 'container'
   role?: 'status' | 'alert'
   /** The detail under the title, or the whole message when there is no title. */
   children?: ReactNode
@@ -102,8 +105,8 @@ export const Banner = ({
   }, [title, children])
 
   return (
-    /* Keep the card within its reading column. */
-    <div className={styles.frame}>
+    /* Keep the card within its reading column unless its page block owns a wider measure. */
+    <div className={styles.frame} data-measure={measure}>
     <Alert
       tone="neutral"
       className={styles.banner}
