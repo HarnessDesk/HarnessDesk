@@ -30,7 +30,7 @@ test('focused owner wins, view changes cannot replace the subject, cleanup clear
   const root = createRoot(container)
   try {
     act(() => root.render(<App view />))
-    expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Checkout retry')
+    expect(container.querySelector('[data-topbar-title] [data-slot="text"]')?.textContent).toBe('Checkout retry')
     expect(container.querySelector('button[aria-label="New job"]')).not.toBeNull()
     act(() => root.render(<App view={false} />))
     expect(container.querySelector('button[aria-label="New job"]')).toBeNull()
@@ -181,7 +181,7 @@ test('view actions preserve the parent subject slots and share one More Menu wit
       <PublishedView owner="main" slots={view} /><ConversationRows />
       <TopBarOutlet owner="main" fallback={{ place: 'Fallback', more: emptyMore }} />
     </TopBarProvider></StoreProvider>))
-    expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Checkout retry')
+    expect(container.querySelector('[data-topbar-title] [data-slot="text"]')?.textContent).toBe('Checkout retry')
     expect(container.querySelector('[data-topbar="state"]')?.textContent).toBe('Working')
     expect(container.querySelector('[data-team-page="board"]')?.textContent).toBe('Board3')
     expect(container.querySelector('[data-testid="parent-tools"]')?.textContent).toBe('Four tools')

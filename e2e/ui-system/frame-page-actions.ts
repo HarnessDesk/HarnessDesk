@@ -8,6 +8,7 @@ export interface PageFrameActions extends FrameActions, WallActions {
   readonly bodySearch?: { readonly label: string; readonly value: string }
   readonly expandReady?: boolean
   readonly expandLibraryEntry?: boolean
+  readonly expectedTopInset?: 'page'
 }
 export const applyPageFrameActions = async (page: Page, actions: PageFrameActions): Promise<void> => {
   await applyFrameActions(page, actions)

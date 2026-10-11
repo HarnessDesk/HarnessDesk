@@ -1271,7 +1271,7 @@ it('a runtime destination bar keeps its 16px presentation mark', async () => {
   await mountList()
   await act(async () => line('Alpha').click())
   const title = container.querySelector('[data-topbar-title]')!
-  expect(title.textContent).toBe('Alpha')
+  expect(title.querySelector('[data-slot="text"]')?.textContent).toBe('Alpha')
   expect(title.closest('[data-topbar="place"]')?.querySelector('[data-topbar-mark] svg[width="16"]')).not.toBeNull()
 })
 

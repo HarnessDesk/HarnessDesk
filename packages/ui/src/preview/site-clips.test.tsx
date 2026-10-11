@@ -8,6 +8,15 @@ import { ReleaseStills } from './release-stills'
 
 installTopBarTestLayout()
 const settle = () => act(async()=>{await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()))})
+const selectLibraryMatrix = async (host: ParentNode): Promise<void> => {
+  const trigger = host.querySelector<HTMLButtonElement>('[data-slot="popover-trigger"][title="How to show the library"]')
+  expect(trigger).toBeTruthy()
+  await act(async () => trigger!.click())
+  const matrix = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')]
+    .find(node => node.textContent?.trim() === 'Matrix')
+  expect(matrix).toBeTruthy()
+  await act(async () => matrix!.click())
+}
 
 it('the clip rig answers real plugin switches and reads a public skill definition', async () => {
   const host = document.createElement('div')
@@ -29,8 +38,8 @@ it('the clip rig answers real plugin switches and reads a public skill definitio
     await act(async () => root.render(null))
     window.history.replaceState(null, '', '/?release-stills=library&site-clip')
     await act(async () => root.render(<ReleaseStills />))
-    const matrix = host.querySelector<HTMLSelectElement>('select[aria-label="How to show the library"]')!
-    await act(async()=>{matrix.value='matrix';matrix.dispatchEvent(new Event('change',{bubbles:true}))})
+    await selectLibraryMatrix(host)
+    expect(host.querySelector('[data-slot="library-matrix"]')).toBeTruthy()
     await act(async () => button('code-review').click())
     await act(async () => button('Read the definition').click())
     const dialog = document.querySelector('[role="dialog"]')!

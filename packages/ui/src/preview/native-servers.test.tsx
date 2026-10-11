@@ -28,7 +28,7 @@ it('the real native-server Agent preview retains its registered Start handler an
     await act(async () => button!.click())
     expect(start).toHaveBeenCalledWith(entry.id)
     expect(host.querySelectorAll('[data-slot="top-bar"]')).toHaveLength(1)
-    expect(host.querySelector('[data-topbar-title]')?.textContent).toBe(entry.definition!.name)
+    expect(host.querySelector('[data-topbar-title] [data-slot="text"]')?.textContent).toBe(entry.definition!.name)
     expect(host.querySelectorAll('[data-slot="detail-title"]')).toHaveLength(0)
   } finally {
     act(() => root.unmount()); host.remove(); start.mockRestore()

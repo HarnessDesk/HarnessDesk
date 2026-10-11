@@ -49,7 +49,10 @@ export const measureDestination = async (page: Page, query: string, widthKind: '
         .map(child => child.getBoundingClientRect().left - box.left - left) }
   })
   const gutter = widthKind === 'canvas' ? FRAME.page.canvasGutter : FRAME.page.gutter
-  expect([value.left, value.right, value.top]).toEqual([gutter, gutter, gutter])
+  const topInset = actions.expectedTopInset === 'page'
+    ? FRAME.page.gutter - FRAME.page.canvasGutter + 1
+    : gutter
+  expect([value.left, value.right, value.top]).toEqual([gutter, gutter, topInset])
   const expected = widthKind === 'canvas' ? value.available - 2 * gutter
     : Math.min(FRAME.page[widthKind], value.available - 2 * gutter)
   expect(value.width).toBeCloseTo(expected, 0)

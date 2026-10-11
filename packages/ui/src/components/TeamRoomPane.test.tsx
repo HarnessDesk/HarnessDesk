@@ -1959,7 +1959,7 @@ it('renders exactly one header, naming the Goal once, with the project’s short
   // The state, on the header's own line, as a chip.
   expect(bar.textContent).toContain('Running')
   // The project's short name is visible; its absolute path is not, anywhere.
-  expect(bar.querySelector('[data-topbar-title]')?.textContent).toBe('Checkout rewrite')
+  expect(bar.querySelector('[data-topbar-title] [data-slot="text"]')?.textContent).toBe('Checkout rewrite')
   expect(container.textContent).not.toContain('/work/widgets')
   const projectMark = bar
   expect(projectMark?.querySelectorAll('[data-work-tool]')).toHaveLength(4)
@@ -1973,7 +1973,7 @@ it('a trigger Goal is named by its subject, with source and URL in persistent De
   Object.assign(store, { triggerGoal })
   await render(store)
   const bar = container.querySelector('[data-slot="top-bar"]')!
-  expect(bar.querySelector('[data-topbar-title]')?.textContent).toBe('Issue #43')
+  expect(bar.querySelector('[data-topbar-title] [data-slot="text"]')?.textContent).toBe('Issue #43')
   expect(bar.textContent).not.toContain('triage-issue')
   expect(teamFact('Trigger')?.textContent).toContain('Issue #43')
   expect(teamFact('Trigger')?.querySelector('button')?.textContent).toBe('Open')
@@ -2935,7 +2935,7 @@ it('names the Goal\'s own working folder on the project fact\'s hover, when it d
 
   const bar = container.querySelector('header')!
   const projectMark = bar
-  expect(projectMark?.querySelector('[data-topbar-title]')?.textContent).toBe('Checkout rewrite')
+  expect(projectMark?.querySelector('[data-topbar-title] [data-slot="text"]')?.textContent).toBe('Checkout rewrite')
   expect(store.getSnapshot().goals.get(ROOM)?.goal.cwd).toBe('/repo/.harnessdesk/agents/reviewer/checkout')
 })
 
@@ -2945,7 +2945,7 @@ it('says nothing extra on the hover when the Goal works at its own root, unchang
 
   const bar = container.querySelector('header')!
   const projectMark = bar
-  expect(projectMark?.querySelector('[data-topbar-title]')?.textContent).toBe('Checkout rewrite')
+  expect(projectMark?.querySelector('[data-topbar-title] [data-slot="text"]')?.textContent).toBe('Checkout rewrite')
   expect(store.getSnapshot().goals.get(ROOM)?.goal.cwd).toBe('/repo')
 })
 

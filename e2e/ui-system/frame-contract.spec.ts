@@ -1013,8 +1013,15 @@ for (const kind of ['settings', 'dashboard', 'agents', 'teams', 'library', 'plug
     for (const chord of ['Meta+n', 'Meta+Shift+n']) {
       await open()
       await page.keyboard.press(chord)
-      await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(0)
-      await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
+      if (chord === 'Meta+Shift+n') {
+        await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
+        await expect(page.getByRole('dialog', { name: 'New Team', exact: true })).toBeVisible()
+        await page.keyboard.press('Escape')
+        await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
+      } else {
+        await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(0)
+        await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
+      }
     }
   })
   if (kind !== 'settings') test(`E9 owner page ${kind} every column door and work row navigates`, async ({ page }) => {
@@ -4573,7 +4580,8 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440,
 test('E6 Library retains search and matrix under another destination', async ({ page }) => {
   await openFrame(page, 'frame-wall=settings&frame-section=library', 'light')
   await page.getByRole('searchbox', { name: 'Search library', exact: true }).fill('design')
-  await page.getByRole('combobox', { name: 'How to show the library', exact: true }).selectOption('matrix')
+  await page.locator('[data-slot="page-options"] [data-slot="popover-trigger"][title="How to show the library"]').click()
+  await page.getByRole('menuitemradio', { name: 'Matrix', exact: true }).click()
   await page.keyboard.press('Meta+,')
   await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1)
   await page.keyboard.press('Meta+[')
@@ -4605,7 +4613,7 @@ for (const label of ['Teams', 'Agents', 'Plugins', 'Dashboard', 'Settings']) tes
 for (const theme of ['light', 'dark'] as const) for (const width of [1440, 1100, 720]) {
   test(`E6 Library expanded matrix stays inside its page ${width} ${theme}`, async ({ page }) => {
     await measureDestination(page, 'frame-wall=settings&frame-section=library', 'wide', theme, width,
-      {bodyChoice:{label:'How to show the library',value:'matrix'}})
+      {bodyChoice:{label:'How to show the library',value:'matrix',item:'Matrix'}})
     const disclosure = page.locator('[data-slot="library-matrix"] tbody tr').first().getByRole('button').first()
     await expect(disclosure).toHaveAttribute('aria-expanded', 'false')
     await disclosure.click()
@@ -4673,8 +4681,7 @@ test('E7 Plugins omits More when the page has no actions', async ({ page }) => {
 })
 for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440, 1100, 720]) {
   for (const child of ['installed', 'capabilities', 'detail']) test(`E7 Plugins ${child} ${width} ${theme}`, async ({ page }) => {
-
-    await measureDestination(page, `frame-wall=plugins&frame-plugin-page=${child}`, 'wide', theme, width, { more: 'absent' })
+    await measureDestination(page, `frame-wall=plugins&frame-plugin-page=${child}`, child === 'detail' ? 'reading' : 'wide', theme, width, { more: 'absent' })
     await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
     if (child === 'detail') {
       await expect(page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Plugins ›', exact: true })).toBeVisible()
@@ -4727,7 +4734,7 @@ test('E7 Plugins pending Here keeps the host answer distinct from Anywhere', asy
 })
 test('E7 Plugins failed detail keeps its reason and guarded source actions', async ({ page }) => {
 
-  await measureDestination(page, 'frame-wall=plugins&frame-plugin-page=failed', 'wide', 'light', 1100)
+  await measureDestination(page, 'frame-wall=plugins&frame-plugin-page=failed', 'reading', 'light', 1100)
   await expect(page.getByText('Synthetic manifest could not be loaded.', { exact: true })).toBeVisible()
   await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
   await expect(page.getByRole('menuitem', { name: 'Update from source', exact: true })).toHaveCount(1)
@@ -4757,7 +4764,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 1100,
         if (document.querySelector('[data-slot="retained-work"]')) window.dispatchEvent(new CustomEvent('harnessdesk:review'))
       }, 20)
     })
-    await measureDestination(page, 'frame-wall=navigation', 'canvas', theme, width)
+    await measureDestination(page, 'frame-wall=navigation', 'canvas', theme, width, { expectedTopInset: 'page' })
     await expectDestinationTab(page, 'working')
     await expect(page.getByRole('searchbox', { name: 'Filter files', exact: true })).toBeVisible()
     await expect(page.locator('[data-slot="app-window"]')).toHaveCount(0)

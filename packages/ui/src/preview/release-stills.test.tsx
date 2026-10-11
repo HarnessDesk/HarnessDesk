@@ -9,6 +9,15 @@ import { RUN_FLOW_SOURCE } from './run-view-fixture'
 
 installTopBarTestLayout()
 const settle = () => act(async()=>{await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()))})
+const selectLibraryMatrix = async (host: ParentNode): Promise<void> => {
+  const trigger = host.querySelector<HTMLButtonElement>('[data-slot="popover-trigger"][title="How to show the library"]')
+  expect(trigger).toBeTruthy()
+  await act(async () => trigger!.click())
+  const matrix = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')]
+    .find(node => node.textContent?.trim() === 'Matrix')
+  expect(matrix).toBeTruthy()
+  await act(async () => matrix!.click())
+}
 
 it('retains a Library inventory and its expanded skill while visiting the installed plugin page', async () => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -19,9 +28,8 @@ it('retains a Library inventory and its expanded skill while visiting the instal
   try {
     await act(async () => root.render(<ReleaseStills />))
     expect(container.textContent).toContain('Library')
-    const matrix = container.querySelector<HTMLSelectElement>('select[aria-label="How to show the library"]')
-    expect(matrix).toBeTruthy()
-    await act(async () => {matrix!.value='matrix';matrix!.dispatchEvent(new Event('change',{bubbles:true}))})
+    await selectLibraryMatrix(container)
+    expect(container.querySelector('[data-slot="library-matrix"]')).toBeTruthy()
     const skill = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.startsWith('code-review'))
     expect(skill).toBeTruthy()
     await act(async () => skill!.click())
