@@ -1784,7 +1784,8 @@ export const Settings = ({
   const filtered = filterSettingsGroups(settingsGroups(snapshot, runtime), query)
 
   return (
-    <AppWindow owner="settings" onClose={onClose} onBack={() => onSection('general')} label="Settings" leftColumn={leftColumn}>
+    <AppWindow owner="settings" onClose={onClose} onBack={() => onSection('general')} label="Settings" leftColumn={leftColumn}
+      closeOnLeftNavigation={leftColumn !== undefined && (section === 'library' || section === 'plugins')}>
       {leftColumn === undefined && <WindowNav
         onBack={onClose}
         search={{

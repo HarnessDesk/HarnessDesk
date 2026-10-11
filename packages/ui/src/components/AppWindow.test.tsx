@@ -6,7 +6,7 @@ import { TopBarProvider } from '../panels/top-bar'
 import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { AppWindow as AppWindowBody, AppWindowMode, WindowGroup, WindowNav, WindowNavIdentity, WindowNavItem } from './AppWindow'
 import { Menu, MenuItem, Popover, useEscapeSurface } from '../design'
@@ -25,7 +25,8 @@ import { Menu, MenuItem, Popover, useEscapeSurface } from '../design'
 
 const store = previewStore()
 const Tree = ({ children }: { children: ReactNode }) => <StoreProvider store={store}><TopBarProvider><ShellHostsProvider>{children}<ShellOutlets activeOwner="settings" /></ShellHostsProvider></TopBarProvider></StoreProvider>
-const AppWindow = (props: Omit<ComponentProps<typeof AppWindowBody>, 'owner' | 'onClose'>) => <AppWindowBody owner={props.label === 'Dashboard' ? 'dashboard' : 'settings'} onClose={() => {}} {...props} />
+type TestWindowProps = Omit<ComponentProps<typeof AppWindowBody>, 'owner' | 'onClose'> & { onClose?: () => void }
+const AppWindow = ({ onClose = () => {}, ...props }: TestWindowProps) => <AppWindowBody owner={props.label === 'Dashboard' ? 'dashboard' : 'settings'} onClose={onClose} {...props} />
 
 let container: HTMLDivElement
 let root: Root
@@ -249,6 +250,31 @@ it('keeps the trailing values out of the label’s space', () => {
   // `flex: none` on the count is what stops the shared trailing slot shrinking it.
   expect(getComputedStyle(count as HTMLElement).flexGrow).toBe('0')
   expect(getComputedStyle(count as HTMLElement).flexShrink).toBe('0')
+})
+
+it('closes the transitional destination window after a navigation in its left column', () => {
+  const events: string[] = []
+  const onClose = vi.fn(() => events.push('close'))
+  render(<AppWindow label="Settings" closeOnLeftNavigation onClose={onClose}
+    leftColumn={<button data-slot="sidebar-menu-button" onClick={() => events.push('route')}>New session</button>}>
+    <button>Page control</button>
+  </AppWindow>)
+  act(() => container.querySelector<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')!.click())
+  expect(onClose).toHaveBeenCalledOnce()
+  expect(events).toEqual(['route', 'close'])
+})
+
+it.each([
+  { key: 'n', shiftKey: false },
+  { key: 'n', shiftKey: true },
+])('closes on the New session shortcut ($key, Shift $shiftKey) and leaves it for the app to dispatch', ({ key, shiftKey }) => {
+  const onClose = vi.fn()
+  render(<AppWindow label="Dashboard" closeOnLeftNavigation onClose={onClose}><button>Page control</button></AppWindow>)
+  const surface = container.querySelector<HTMLElement>('[data-slot="app-window"]')!
+  const event = new KeyboardEvent('keydown', { key, metaKey: true, shiftKey, bubbles: true, cancelable: true })
+  act(() => surface.dispatchEvent(event))
+  expect(onClose).toHaveBeenCalledOnce()
+  expect(event.defaultPrevented).toBe(false)
 })
 
 it('gives a clipped long identity name its full title', () => {

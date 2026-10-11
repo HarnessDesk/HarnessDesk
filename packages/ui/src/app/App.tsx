@@ -433,6 +433,7 @@ export const App = () => {
           // navigation can be handed a specific account key from outside it
           // yet (review of #1069, B5).
           onOpenPlanSettings={(runtime) => openSettingsAt('runtimes', runtime)}
+          leftColumn={renderLeftColumn(true)}
         />
       )}
       {teamsOpen && <TeamsWindow onClose={() => setTeamsOpen(false)} />}

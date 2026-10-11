@@ -297,6 +297,57 @@ test('shared heading and page or panel stacks hold across preview destinations',
   expect(firstCardBox.y - searchBottom).toBeGreaterThanOrEqual(stackGap - 0.5)
 })
 
+test('the old destination window closes after sidebar navigation, Escape and new-work shortcuts', async ({ page }) => {
+  await openFrame(page, 'frame-wall=library', 'light', 1440)
+  const settings = page.getByRole('dialog', { name: 'Settings' })
+  await expect(settings).toBeVisible()
+  await page.locator('[data-app-window-left]').getByRole('button', { name: 'New session', exact: true }).click()
+  await expect(settings).toHaveCount(0)
+
+  await openFrame(page, 'frame-wall=library', 'light', 1440)
+  const sessionWindow = page.getByRole('dialog', { name: 'Settings' })
+  const session = page.locator('[data-app-window-left] [data-region="session-row"] [data-slot="sidebar-menu-button"]').first()
+  await expect(session).toBeVisible()
+  await session.click()
+  await expect(sessionWindow).toHaveCount(0)
+
+  await openFrame(page, 'frame-wall=plugins', 'light', 1440)
+  const plugins = page.getByRole('dialog', { name: 'Settings' })
+  await expect(plugins).toBeVisible()
+  await page.locator('[data-app-window-left]').getByRole('button', { name: 'Teams', exact: true }).click()
+  await expect(plugins).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: 'Teams' })).toBeVisible()
+
+  await openFrame(page, 'frame-wall=dashboard', 'light', 1440)
+  const dashboard = page.getByRole('dialog', { name: 'Dashboard' })
+  await expect(dashboard).toBeVisible()
+  await page.locator('[data-app-window-left]').getByRole('button', { name: 'Agents', exact: true }).click()
+  await expect(dashboard).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: 'Agents' })).toBeVisible()
+
+  await openFrame(page, 'frame-wall=dashboard', 'light', 1440)
+  const dashboardToPlugins = page.getByRole('dialog', { name: 'Dashboard' })
+  await page.locator('[data-app-window-left]').getByRole('button', { name: 'Plugins', exact: true }).click()
+  await expect(dashboardToPlugins).toHaveCount(0)
+  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
+  await expect(page.locator('[data-slot="top-bar"]:visible').first()).toContainText('Plugins')
+
+  await openFrame(page, 'frame-wall=library', 'light', 1440)
+  const library = page.getByRole('dialog', { name: 'Settings' })
+  await page.keyboard.press('Escape')
+  await expect(library).toHaveCount(0)
+
+  await openFrame(page, 'frame-wall=plugins', 'light', 1440)
+  const pluginWindow = page.getByRole('dialog', { name: 'Settings' })
+  await page.keyboard.press('Meta+n')
+  await expect(pluginWindow).toHaveCount(0)
+
+  await openFrame(page, 'frame-wall=dashboard', 'light', 1440)
+  const dashboardWindow = page.getByRole('dialog', { name: 'Dashboard' })
+  await page.keyboard.press('Meta+Shift+n')
+  await expect(dashboardWindow).toHaveCount(0)
+})
+
 for (const theme of WALL_THEMES) {
   for (const width of WALL_WIDTHS) {
     test(`Owner fix 2 frame reaches bottom and More retains Terminal at ${width} in ${theme}`, async ({ page }) => {
