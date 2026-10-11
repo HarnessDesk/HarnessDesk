@@ -2003,3 +2003,10 @@ A section's choices live in that section's head beside its name. Use the same
 body. The shared head wraps its action below the name when the available width
 is tight. The `FIX3 section choices live in the same page head across Dashboard
 tabs` frame contract checks that Dashboard sections keep their choices there.
+
+## Banner measure
+
+A Banner defaults to the reading column. When it sits in a page section whose
+other blocks use a wider measure, set `measure="container"`: the notice fills
+the section's width so a warning and its list share one edge. The banner frame
+and card both follow that measure; a screen should not size either one itself.

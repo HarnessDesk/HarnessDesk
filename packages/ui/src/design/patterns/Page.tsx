@@ -24,13 +24,15 @@ export type PageWidth = 'reading' | 'wide' | 'canvas'
  * facts against the sidebar, a button across the window and a switch in the
  * middle of it because nothing told the page what width it was.
  */
-export const Page = ({ width, gutter = 'page', children, ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'className' | 'style'> & {
+export const Page = ({ width, gutter = 'page', fill = false, children, ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'className' | 'style'> & {
   readonly width: PageWidth
   /** `none` lets an enclosing frame own the inset while this pattern owns its stack and measure. */
   readonly gutter?: 'page' | 'none'
+  /** Fill the destination body's height so a page empty state can centre in its remaining space. */
+  readonly fill?: boolean
   readonly children: ReactNode
 }) => {
-  const attributes = { 'data-slot': 'page', 'data-width': width, 'data-gutter': gutter, className: styles.page, ...props }
+  const attributes = { 'data-slot': 'page', 'data-width': width, 'data-gutter': gutter, ...(fill ? { 'data-fill': '' } : {}), className: styles.page, ...props }
   if (gutter === 'none') return <div {...attributes}>{children}</div>
   return <PaneColumn {...(width === 'canvas' ? { inset: 'canvas' as const } : { inset: 'reading' as const, page: true })} {...attributes}>{children}</PaneColumn>
 }

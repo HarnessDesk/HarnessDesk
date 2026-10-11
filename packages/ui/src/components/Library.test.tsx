@@ -1914,9 +1914,47 @@ it('uses Banner anatomy for the empty-directory alert and keeps cleanup actionab
   const attention = container.querySelector('[data-slot="library-attention"]')!
   expect(attention.querySelector('[data-part="banner-icon"]')).not.toBeNull()
   expect(attention.querySelector('[data-slot="alert-title"]')?.textContent).toBe('Empty skill directories')
+  expect(attention.querySelector('[data-slot="alert"]')?.parentElement?.getAttribute('data-measure')).toBe('container')
   const cleanup = [...attention.querySelectorAll('button')].find(button => button.textContent?.includes('Clean up'))!
   await act(async () => cleanup.click())
   expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('Clean up empty skill directories')
+})
+
+it('clamps a table description to two lines and keeps the full description in its detail', async () => {
+  const description = 'Canvas checks can run in a browser, compare visual output, and record the exact behavior expected before changes are made.'
+  await mount(library([entry('canvas', ['reaches', 'absent'], { description })]))
+  const row = container.querySelector<HTMLTableRowElement>('[data-slot="skill-row"]')!
+  expect(row.querySelector('[data-skill-description]')?.className).toContain('line-clamp-2')
+
+  await act(async () => row.click())
+  expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain(description)
+})
+
+it('labels the broad filter in sentence case', async () => {
+  await mount(library([entry('code-review', ['reaches', 'absent'])]))
+  expect(container.textContent).toContain('Any agent')
+  expect(container.textContent).not.toContain('Any Agent')
+})
+
+it('says a repeated load state once and leaves different states on their own rows', async () => {
+  const agents = Array.from({ length: 12 }, (_, index) => runtime(`agent-${index + 1}`, `Agent ${index + 1}`))
+  const reaches = agents.map((info, index) => ({
+    runtime: runtimeId(info.id),
+    state: index === 11 ? 'reaches' as const : 'unscanned' as const,
+    basis: 'scanned' as const,
+  }))
+  const autopilot = entry('autopilot', reaches.map(reach => reach.state), { reach: reaches })
+  await mount({ ...library([autopilot]), runtimes: agents.map(info => runtimeId(info.id)), locations: [] }, undefined, { runtimes: agents })
+  await act(async () => container.querySelector<HTMLTableRowElement>('[data-slot="skill-row"]')?.click())
+
+  const dialog = document.body.querySelector('[role="dialog"]')!
+  const group = [...dialog.querySelectorAll('section')].find(one => one.querySelector('h3')?.textContent === 'Which agents load it')!
+  const repeated = 'Installed where this agent does not look'
+  const rows = [...group.querySelectorAll<HTMLElement>('[role="listitem"]')]
+  expect(rows).toHaveLength(12)
+  expect(group.textContent?.match(/Installed where this agent does not look/g)).toHaveLength(1)
+  expect(rows.filter(one => one.textContent?.includes(repeated))).toHaveLength(0)
+  expect(rows.find(one => one.textContent?.includes('Agent 12'))?.textContent).toContain('Loads it')
 })
 
 

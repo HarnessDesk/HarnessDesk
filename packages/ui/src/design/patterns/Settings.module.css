@@ -655,6 +655,17 @@
   color: var(--hd-muted-foreground);
 }
 
+.note[data-layout='inline'] {
+  display: flex;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hd-space-1);
+  white-space: normal;
+}
+
 .note[data-inset='pane-title'] {
   padding-left: calc(var(--hd-bar-ink) + var(--hd-space-6) + var(--hd-bar-gap));
   padding-right: var(--hd-bar-pad);

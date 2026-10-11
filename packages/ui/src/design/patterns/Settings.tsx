@@ -492,6 +492,7 @@ export const Note = ({
   icon,
   action,
   inset,
+  layout = 'default',
   className,
   ...props
 }: Omit<ComponentProps<'p'>, 'children'> & {
@@ -503,6 +504,8 @@ export const Note = ({
   action?: ReactNode
   /** Follow a pane title’s ink column, or the table family’s row inset. */
   inset?: 'pane-title' | 'row'
+  /** Inline content may include a middle-truncated path and uses the whole parent measure. */
+  layout?: 'default' | 'inline'
   className?: string
 }) => {
   /* In a dialog the form stack spaces the note; a page's note carries its
@@ -514,6 +517,7 @@ export const Note = ({
   <p
     className={cx(styles.note, className)}
     data-slot="note"
+    data-layout={layout}
     {...(inset ? { 'data-inset': inset } : {})}
     {...(inDialog ? { 'data-context': 'dialog' } : {})}
     data-ink={ink}

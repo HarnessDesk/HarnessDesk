@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 
 import type { AgentEntry, AgentOrigin, AuthoringPending } from '@harnessdesk/protocol'
 
@@ -6,19 +6,21 @@ import {
   agentName,
   bySection,
   firstReason,
+  markFor,
   originWords,
   projectName,
   seatTaken,
 } from '../lib/agents'
 import { shortPath } from '../lib/paths'
 import { projectRootOf } from '../lib/projects'
+import { brandForRuntime } from '../lib/brands'
 import { useSnapshot, useStore } from '../state/context'
 import { DestinationBar, useDestinationPage } from '../panels/destination-page'
-import { AgentIcon } from './Icons'
+import { RuntimeMark } from './BrandIcons'
 import { AgentNew } from './AgentNew'
 import { AgentPage } from './AgentPage'
 import { CeilingChip } from './CeilingChip'
-import { Button, Chip, EmptyState, IconTile, Note, PageExplanation, Row, RowButton, RowValue, Rows, Section } from '../design'
+import { Button, Chip, EmptyState, IconTile, MiddleTruncate, Monogram, Note, PageExplanation, Row, RowButton, RowValue, Rows, Section } from '../design'
 
 /**
  * The Agents window's overview: who does the work.
@@ -40,13 +42,38 @@ const EMPTY: Readonly<Record<AgentOrigin, string>> = {
   user: 'None of your own yet',
   builtin: 'None ship with this build',
 }
+const NO_SHARED_FLAGS: ReadonlySet<string> = new Set()
 
 /** The checkout actually read, never the main checkout a linked worktree belongs to. */
-const footnote = (origin: AgentOrigin, folder: string | null, home: string | null): string => {
+const footnote = (origin: AgentOrigin, folder: string | null, home: string | null): ReactNode => {
   if (origin === 'builtin') return 'Ships with HarnessDesk, and changes only when HarnessDesk does.'
-  const where = folder ? shortPath(`${folder}/agents`, home) : 'the Agents folder'
+  const fullPath = folder ? `${folder}/agents` : null
+  const where = fullPath ? shortPath(fullPath, home) : 'the Agents folder'
   if (origin === 'user') return `Read from ${where} — yours, on this Mac only.`
-  return `Read from ${where}, and committed with the code: everyone who clones it has these.`
+  if (!folder) return `Read from ${where}, and committed with the code: everyone who clones it has these.`
+  const suffix = where.split(/[\\/]/u).filter(Boolean).slice(-3).join('/')
+  return <>
+    <span>Read from</span>
+    <MiddleTruncate grow prefix="…/" title={fullPath ?? undefined} aria-label={fullPath ?? undefined}>{suffix}</MiddleTruncate>
+    <span>, and committed with the code: everyone who clones it has these.</span>
+  </>
+}
+
+const initials = (name: string): string =>
+  (name.match(/[\p{L}\p{N}]+/gu) ?? []).slice(0, 2).map((part) => Array.from(part)[0] ?? '').join('').toLocaleUpperCase()
+
+/** A seated Agent wears its runtime's mark; one without a seat gets its own initials. */
+const AgentFace = ({ entry }: { readonly entry: AgentEntry }) => {
+  const snapshot = useSnapshot()
+  const candidate = seatTaken(snapshot.agentPlans.get(entry.id))
+  const runtime = candidate ? markFor(candidate, snapshot.runtimes) : null
+  return (
+    <IconTile shape="face" {...(candidate ? { title: candidate.runtimeName } : {})}>
+      {runtime && brandForRuntime(runtime)
+        ? <RuntimeMark runtime={runtime} size={16} />
+        : <Monogram>{initials(entry.definition?.name ?? entry.id)}</Monogram>}
+    </IconTile>
+  )
 }
 
 export const AgentsRosterSection = ({
@@ -93,24 +120,49 @@ export const AgentsRosterSection = ({
         const shadowed = agents.flatMap((winner) =>
           winner.shadows.filter((one) => one.origin === origin).map((one) => ({ winner, path: one.path })),
         )
+        const flagCounts = new Map<string, number>()
+        const ceilingCounts = new Map<string, number>()
+        for (const entry of rows) {
+          if (!entry.definition) continue
+          const flag = flagWords(entry.definition)
+          if (flag) flagCounts.set(flag, (flagCounts.get(flag) ?? 0) + 1)
+          const plan = snapshot.agentPlans.get(entry.id)
+          if (!plan || !seatTaken(plan)) continue
+          const ceiling = plan.ceiling ?? { level: entry.definition.ceiling, hold: 'asked' as const }
+          const key = `${ceiling.level}:${ceiling.hold}`
+          ceilingCounts.set(key, (ceilingCounts.get(key) ?? 0) + 1)
+        }
+        const sharedFlags = new Set([...flagCounts].filter(([, count]) => count > 1).map(([flag]) => flag))
+        const mostCommon = [...ceilingCounts].sort((left, right) => right[1] - left[1])
+        const sharedCeiling = mostCommon[0] && mostCommon[0][1] > 1 && mostCommon[0][1] > (mostCommon[1]?.[1] ?? 0)
+          ? mostCommon[0][0]
+          : null
         return (
           <Section key={origin} title={heading}>
             <Rows>
               {rows.length === 0 && shadowed.length === 0 && <EmptyState variant="row" title={EMPTY[origin]} />}
-              {rows.map((entry) => (
-                <AgentRow
+              {rows.map((entry) => {
+                const plan = snapshot.agentPlans.get(entry.id)
+                const candidate = seatTaken(plan)
+                const ceiling = entry.definition
+                  ? plan?.ceiling ?? { level: entry.definition.ceiling, hold: 'asked' as const }
+                  : null
+                const hideCeiling = Boolean(sharedCeiling && plan && candidate && ceiling && `${ceiling.level}:${ceiling.hold}` === sharedCeiling)
+                return <AgentRow
                   key={entry.id}
                   entry={entry}
+                  sharedFlags={sharedFlags}
+                  hideCeiling={hideCeiling}
                   onOpen={() => {
                     setOpen(entry.id)
                   }}
                 />
-              ))}
+              })}
               {shadowed.map(({ winner, path }) => (
                 <Row
                   key={path}
                   kind="record"
-                  face={<IconTile shape="face"><AgentIcon size={16} /></IconTile>}
+                  face={<AgentFace entry={winner} />}
                   title={agentName(winner)}
                   desc={`Shadowed by ${winner.origin === 'user' ? 'yours' : `the one in ${project ?? 'this project'}`}, which does the same job. This copy is not used.`}
                   /* A copy that is not used, said as a fact rather than a
@@ -119,7 +171,14 @@ export const AgentsRosterSection = ({
                 />
               ))}
             </Rows>
-            <Note ink="muted" inset="row">{footnote(origin, origin === 'user' ? snapshot.stateDir : projectFolder, snapshot.home)}</Note>
+            {sharedFlags.size > 0 && [...sharedFlags].map((flag) => <Note key={flag} ink="muted" inset="row">{flag}</Note>)}
+            <Note
+              ink="muted"
+              inset="row"
+              {...(origin === 'project' && projectFolder ? { layout: 'inline' as const } : {})}
+            >
+              {footnote(origin, origin === 'user' ? snapshot.stateDir : projectFolder, snapshot.home)}
+            </Note>
           </Section>
         )
       })}
@@ -140,7 +199,12 @@ export const AgentsRosterSection = ({
 import { flagWords } from '../lib/ceilings'
 
 /** One Agent in force, or one whose file will not parse — each a way into its page. */
-export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readonly onOpen: () => void }) => {
+export const AgentRow = ({ entry, onOpen, sharedFlags = NO_SHARED_FLAGS, hideCeiling = false }: {
+  readonly entry: AgentEntry
+  readonly onOpen: () => void
+  readonly sharedFlags?: ReadonlySet<string>
+  readonly hideCeiling?: boolean
+}) => {
   const snapshot = useSnapshot()
   const definition = entry.definition
   if (!definition) {
@@ -148,7 +212,7 @@ export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readon
     return (
       <RowButton
         kind="record"
-        face={<IconTile shape="face"><AgentIcon size={16} /></IconTile>}
+        face={<AgentFace entry={entry} />}
         title={entry.id}
         desc={problem ? `${problem.at} — ${problem.text}` : 'Its file could not be read.'}
         control={<Chip state="broken" label="Will not parse" />}
@@ -160,19 +224,19 @@ export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readon
   const seat = seatTaken(plan)
   const reason = plan ? firstReason(plan) : null
   const flag = flagWords(definition)
-  const description = [definition.description, flag].filter((part): part is string => Boolean(part)).join(' ')
+  const description = [definition.description, flag && !sharedFlags.has(flag) ? flag : null].filter((part): part is string => Boolean(part)).join(' ')
   const desc = [description, seat?.label, !seat && reason].filter(Boolean).join(' · ')
   const ceiling = plan?.ceiling ?? { level: definition.ceiling, hold: 'asked' as const }
   return (
     <RowButton
       kind="record"
-      face={<IconTile shape="face"><AgentIcon size={16} /></IconTile>}
+      face={<AgentFace entry={entry} />}
       title={definition.name}
       {...(desc ? { desc } : {})}
       control={
         !seat && plan ? <Chip tone="warning">Can't seat here</Chip>
           : !plan ? <RowValue>{snapshot.agentPlansFailed ? 'Its seats could not be checked' : 'Checking seats…'}</RowValue>
-          : <CeilingChip ceiling={ceiling} />
+          : !hideCeiling && <CeilingChip ceiling={ceiling} />
       }
       onClick={onOpen}
     />

@@ -10,6 +10,10 @@
   margin-inline: auto;
 }
 
+.page[data-fill] {
+  min-height: 100%;
+}
+
 .page[data-width='reading'] {
   max-width: calc(var(--hd-column) + 2 * var(--hd-page-gutter));
 }
