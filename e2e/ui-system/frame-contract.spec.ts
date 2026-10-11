@@ -344,6 +344,24 @@ for (const theme of WALL_THEMES) {
   })
 }
 
+for (const theme of WALL_THEMES) {
+  test(`R5.6 Browser address placeholder fits the tool field in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme, 1100)
+    await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Browser', exact: true }).click()
+    const address = page.getByRole('textbox', { name: 'Address', exact: true })
+    await expect(address).toHaveAttribute('placeholder', 'Enter a URL or query')
+    const fit = await address.evaluate((input: HTMLInputElement) => {
+      const style = getComputedStyle(input)
+      const canvas = document.createElement('canvas')
+      const context = canvas.getContext('2d')!
+      context.font = style.font
+      const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+      return { text: context.measureText(input.placeholder).width, room: input.clientWidth - padding }
+    })
+    expect(fit.text).toBeLessThanOrEqual(fit.room)
+  })
+}
+
 for (const theme of WALL_THEMES) for (const width of WALL_WIDTHS) {
   test(`Owner fix 2 empty connection host takes no main height at ${width} in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation', theme, width)
