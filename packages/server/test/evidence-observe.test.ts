@@ -128,6 +128,88 @@ test('what a backup brought never stands for what this desk observed: the same f
   )
 })
 
+test('an unchanged fact is observed again when its checkout changes branches at the same commit', async () => {
+  const repo = await branchWithWork()
+  const project = await canonical(repo.dir)
+  const store = new EvidenceStore(tempDir('hd-observe-store-'))
+  const { gh } = forge({ stdout: JSON.stringify({ number: 3, state: 'OPEN', headRefOid: HEAD, url: null, statusCheckRollup: [{ name: 'ci', status: 'COMPLETED', conclusion: 'SUCCESS' }] }) })
+  const observer = new Observer({ store, gh, log: () => {} })
+  const look = { room: 'room-1', card: 4, project, cwd: repo.dir, seat: null }
+  await observer.observe(look)
+  const before = (await store.read(project, 'evidence')).lines
+  await repo.git('switch', '-c', 'final')
+
+  assert.equal(await observer.observe(look), true, 'a branch change is new evidence even when every payload is unchanged')
+  const after = (await store.read(project, 'evidence')).lines.slice(before.length)
+  assert.deepEqual(after.map((line) => line.type === 'evidence' ? [line.record.fact.kind, line.record.checkout?.branch] : null),
+    [['diff', 'final'], ['pr', 'final'], ['ci', 'final']])
+  assert.deepEqual(after.map((line) => line.type === 'evidence' ? line.record.fact : null),
+    before.map((line) => line.type === 'evidence' ? line.record.fact : null), 'the facts themselves did not move')
+  assert.equal(await observer.observe(look), false, 'the same payload and checkout are still deduplicated')
+})
+
+for (const stoppedBranch of ['work', null]) {
+  test(`a board refresh keeps a stopped diff on its completion branch: ${stoppedBranch ?? 'detached'}`, async () => {
+    const repo = await branchWithWork()
+    if (stoppedBranch === null) await repo.git('checkout', '--detach')
+    const project = await canonical(repo.dir)
+    const untilCommit = await repo.git('rev-parse', 'HEAD')
+    const state = tempDir('hd-observe-state-')
+    let now = 1_000_000
+    const { gh } = forge({ exitCode: 1, stderr: 'no pull requests found' })
+    const plane = new EvidencePlane(
+      { dir: join(state, 'evidence'), seenFile: join(state, 'seen.json'), gh, now: () => now },
+      {
+        board: () => ({ id: 'room-1', root: repo.dir,
+          intents: [{ id: 4, state: 'done', claim: null, until: untilCommit, untilBranch: stoppedBranch }] }) as unknown as TeamState,
+        cwdOf: () => repo.dir, push: () => {}, log: () => {},
+      },
+    )
+    await plane.observer.observe({ room: 'room-1', card: 4, project, cwd: repo.dir, seat: null })
+    await repo.git('switch', '-c', 'later')
+    // A changed dirt flag forces a new diff fact even though its bound is unchanged.
+    await writeFile(join(repo.dir, 'later.txt'), 'later work\n')
+    now += OBSERVE_EVERY_MS + 1
+    await plane.board('room-1')
+    await plane.close()
+    const diffs = (await plane.store.read(project, 'evidence')).lines.flatMap((line) =>
+      line.type === 'evidence' && line.record.fact.kind === 'diff' ? [line.record] : [])
+    assert.equal(diffs.length, 2)
+    const latest = diffs.at(-1)
+    assert.equal(latest?.checkout?.branch, stoppedBranch, 'the current branch must not relabel the completion revision')
+    assert.equal(latest?.fact.kind === 'diff' && latest.fact.to, untilCommit)
+  })
+}
+
+test('the immediate finish look uses the durable stop even if another card already moved the checkout', async () => {
+  const repo = await branchWithWork()
+  const project = await canonical(repo.dir)
+  const untilCommit = await repo.git('rev-parse', 'HEAD')
+  const since = await repo.git('rev-parse', 'main')
+  const state = tempDir('hd-observe-state-')
+  const { gh } = forge({ exitCode: 1, stderr: 'no pull requests found' })
+  const plane = new EvidencePlane(
+    { dir: join(state, 'evidence'), seenFile: join(state, 'seen.json'), gh },
+    {
+      board: () => ({ id: 'room-1', root: repo.dir,
+        intents: [{ id: 4, state: 'done', claim: null, until: untilCommit, untilBranch: 'work' }] }) as unknown as TeamState,
+      cwdOf: () => repo.dir, push: () => {}, log: () => {},
+    },
+  )
+  await repo.git('switch', '-c', 'later')
+  await writeFile(join(repo.dir, 'later.txt'), 'later work\n')
+  await repo.git('add', '.')
+  await repo.git('commit', '-q', '-m', 'later work')
+  // Team's completion callback retains the old claim for its checkout lookup.
+  plane.settled('room-1', { id: 4, state: 'done', claim: { runtime: 'fake', sessionId: 'writer', head: since } } as unknown as Intent)
+  await plane.settledFor('room-1')
+  await plane.close()
+  const [diff] = (await plane.store.read(project, 'evidence')).lines.flatMap((line) =>
+    line.type === 'evidence' && line.record.fact.kind === 'diff' ? [line.record] : [])
+  assert.equal(diff?.checkout?.branch, 'work')
+  assert.deepEqual(diff?.fact, { kind: 'diff', files: 1, added: 2, removed: 0, from: since, to: untilCommit, dirty: false })
+})
+
 test('a fact a backup brought never says where the desk looks', async () => {
   const repo = await branchWithWork()
   const elsewhere = await branchWithWork()

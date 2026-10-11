@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
@@ -47,3 +47,38 @@ test('a claim that recorded no start falls back to where its Seat opened', async
   assert.equal(cardStart(undefined, 'b'.repeat(40), 'c'.repeat(40)), 'b'.repeat(40))
   assert.equal(cardStart(null, null, null), null)
 })
+
+for (const mark of ['initial', 'switched', null]) {
+  test(`a stopped card keeps its summary and explains checkout history: ${mark}`, async t => {
+    const dir = await mkdtemp(join(tmpdir(), 'hd-card-branch-'))
+    let checkoutMark: string | null = 'initial'
+    const port: TeamPort = {
+      peers: () => [{ runtime: 'codex' as RuntimeId, sessionId: 'worker', title: null, cwd: '/repo', agent: 'codex', busy: false, canSteer: false, queuedByUser: 0, here: true }],
+      rootOf: async () => '/repo', send: async () => {}, steer: async () => {},
+      changed: () => {}, removed: () => {}, membershipChanged: () => {}, audit: () => {},
+      cwdOf: () => '/repo', startOf: async () => ({ head: 'a'.repeat(40), upstream: null, checkoutMark }),
+    }
+    const team = new Team(dir, port)
+    t.after(async () => { team.stopWaiting('done'); await team.flush(); await rm(dir, { recursive: true, force: true }) })
+    const room = (await team.createRoom('/repo', 'Goal')).id
+    await team.joinRoom(room, 'codex' as RuntimeId, 'worker')
+    team.addIntentForFlow(room, { title: 'Work', role: 'build', dispatch: 'run:1:0' }, { kind: 'user' })
+    team.setRole(room, 'codex', 'worker', 'build')
+    const scope = { runtime: 'codex', sessionId: 'worker' }
+    await team.claim(1, scope)
+    assert.equal(team.stateFor(room).intents[0]!.claim?.checkoutMark, undefined, 'the history mark stays host-only')
+    checkoutMark = mark
+    await team.complete(1, { note: 'The committed work is ready.' }, scope)
+    await team.awaitStops(room)
+    const card = team.stateFor(room).intents[0]!
+    assert.equal(card.until, 'a'.repeat(40))
+    assert.ok(card.note?.includes('The committed work is ready.'))
+    if (mark === 'initial') assert.equal(card.note, 'The committed work is ready.')
+    else assert.ok(card.note!.startsWith(mark === null
+      ? 'Branch history unavailable; review the final revision.'
+      : 'Work may span branches; review the final revision.'))
+    await team.flush()
+    const stored = JSON.parse(await readFile(join(dir, `${encodeURIComponent(room)}.json`), 'utf8'))
+    assert.equal(stored.intents[0].note, card.note, 'the explanation is durable')
+  })
+}

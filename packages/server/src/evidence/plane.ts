@@ -479,8 +479,9 @@ export class EvidencePlane {
    * at this same moment is recorded separately, durably, on the card itself
    * (`Team#captureStop` — every way a claim clears, not only a finish) and is
    * what bounds every later look once the card is no longer held
-   * (`Intent.until`, `#lookAround`); this look does not depend on it landing
-   * first. Tells every window when this look recorded something. Never
+   * (`Intent.until`, `#lookAround`). Completion waits for that stop before
+   * this callback, whose retained claim still names the holder's checkout.
+   * Tells every window when this look recorded something. Never
    * awaited by the board.
    */
   settled(room: string, intent: Intent): void {
@@ -493,9 +494,12 @@ export class EvidencePlane {
     const since = cardStart(intent.claim.head, null, kept?.checkout.head)
     const upstream = intent.claim.upstream
     const sinceDirtyPaths = intent.claim.dirtyPaths
+    const stopped = board.intents.find((one) => one.id === intent.id && one.state === 'done' && !one.claim)
     const work = (async () => {
       const look: Look = {
         room, card: intent.id, project: await projectOf(board.cwd ?? board.root), cwd, seat, since,
+        ...(stopped?.until != null ? { until: stopped.until } : {}),
+        ...(stopped?.untilBranch !== undefined ? { untilBranch: stopped.untilBranch } : {}),
         ...(upstream !== undefined ? { upstream } : {}),
         ...(sinceDirtyPaths !== undefined ? { sinceDirtyPaths } : {}),
       }
@@ -596,6 +600,7 @@ export class EvidencePlane {
       looks.push({
         room, card: intent.id, project, cwd, seat, since,
         ...(until !== null ? { until } : {}),
+        ...(!holder && intent.untilBranch !== undefined ? { untilBranch: intent.untilBranch } : {}),
         ...(skipDiff ? { skipDiff: true } : {}),
         ...(upstream !== undefined ? { upstream } : {}),
       })
