@@ -120,9 +120,12 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
   const unattributedLabel = view === 'goal' ? 'Not attributed to a Team' : 'Not attributed to an Agent'
   const unattributedReason = breakdown?.reason ?? 'No unique historical Seat could be established.'
   const showReason = unattributedReason.replace(/[.]$/, '') !== unattributedLabel
+  const emptyAttribution = !breakdown || breakdown.rows.length === 0
+  const emptyTitle = !breakdown ? `Recorded usage has no ${view} attribution.` : view === 'goal' ? 'No Team usage was recorded' : 'No Agent usage was recorded'
+  const emptyDescription = breakdown?.reason ?? 'Unknown historical usage remains unassigned.'
   return <>
-    {rangeWarning ? <Banner tone="warning" title={hasAmounts ? 'Amounts are incomplete for this range' : 'Amounts are unknown for this range'} actions={(owned ? days !== 1 : rangeDays !== 1) && (owned || onShorterRange) && <Button variant="outline" size="sm" onClick={shorter}>Last 24 hours</Button>}>{reason}</Banner> : null}
-    {!breakdown || breakdown.rows.length === 0 ? <Rows><EmptyState variant="row" title={!breakdown ? `Recorded usage has no ${view} attribution.` : view === 'goal' ? 'No Team usage was recorded' : 'No Agent usage was recorded'} description={breakdown?.reason ?? 'Unknown historical usage remains unassigned.'} /></Rows> : null}
+    {rangeWarning ? <Banner tone="warning" title={hasAmounts ? 'Amounts are incomplete for this range' : 'Amounts are unknown for this range'} actions={(owned ? days !== 1 : rangeDays !== 1) && (owned || onShorterRange) && <Button variant="outline" size="sm" onClick={shorter}>Last 24 hours</Button>}>{reason}{emptyAttribution && <> {emptyTitle} {emptyDescription}</>}</Banner> : null}
+    {emptyAttribution && !rangeWarning ? <Rows><EmptyState variant="row" title={emptyTitle} description={emptyDescription} /></Rows> : null}
     {breakdown && <DashboardTable kind="insight">
       <TableHeader><TableRow>
         <TableHead>{view === 'goal' ? 'Team' : 'Agent'}</TableHead>
