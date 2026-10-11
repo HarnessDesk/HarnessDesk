@@ -94,23 +94,60 @@ const type = (value: string): void => {
   })
 }
 
-it('shows Recents before Actions and uses current destination labels', async () => {
+it('shows Recents before Actions and names the current panel actions', async () => {
   const { host } = await mount()
   const panel = palette()
   expect([...panel.querySelectorAll('[data-menu-group]')].map((label) => label.textContent)).toEqual(['Recents', 'Actions'])
   expect(panel.textContent).toContain('Pin the flaky inventory check')
-  const labels = [...panel.querySelectorAll<HTMLElement>('[role="option"]')].map((row) => row.textContent)
-  expect(labels).toContain('Teams')
-  expect(labels).toContain('Activity')
-  expect(labels).toContain('Trajectory')
+  const labels = [...panel.querySelectorAll<HTMLElement>('[role="option"] [data-palette-result-title]')].map((title) => title.textContent)
+  expect(labels).toContain('Show Teams')
+  expect(labels).toContain('Show Details')
+  expect(labels).toContain('Show Activity')
+  expect(labels).toContain('Show Browser')
+  expect(labels).toContain('Show Terminal')
+  expect(labels).toContain('Show Repository')
+  expect(labels).toContain('Show Changes')
+  expect(labels).toContain('Show Agents')
+  expect(labels).not.toContain('Teams')
+  expect(labels).not.toContain('Activity')
+  expect(labels).not.toContain('Trajectory')
   expect(labels).not.toContain('Show room')
   expect(labels).not.toContain('Show background tasks')
   expect(labels).not.toContain('Show trajectory')
   expect(labels).not.toContain('Show activity')
-  const teams = [...panel.querySelectorAll<HTMLElement>('[role="option"]')].find((row) => row.textContent === 'Teams')
+  const teams = [...panel.querySelectorAll<HTMLElement>('[role="option"]')].find((row) => row.querySelector('[data-palette-result-title]')?.textContent === 'Show Teams')
   expect(teams).toBeTruthy()
   act(() => teams!.click())
   expect(host.openTeams).toHaveBeenCalledOnce()
+})
+
+it('uses the Agents door line glyph for the Agents panel action', async () => {
+  await mount()
+  const row = [...palette().querySelectorAll<HTMLElement>('[role="option"]')].find((candidate) =>
+    candidate.querySelector('[data-palette-result-title]')?.textContent?.toLowerCase() === 'show agents',
+  )
+  expect(row).toBeTruthy()
+  expect(row!.querySelector('[data-palette-result-icon] [data-slot="icon-tile"]')).toBeNull()
+  expect(row!.querySelector('[data-palette-result-icon] svg')?.getAttribute('class')).toContain('lucide-bot')
+})
+
+it('keeps the worktree and team chooser explanations on hover', async () => {
+  await mount({ workspace: { path: '/repo/storefront' } as AppSnapshot['workspace'] })
+  const rowFor = (label: string): HTMLElement => {
+    const row = [...palette().querySelectorAll<HTMLElement>('[role="option"]')].find((candidate) =>
+      candidate.querySelector('[data-palette-result-title]')?.textContent === label,
+    )
+    if (!row) throw new Error(`no palette row for ${label}`)
+    return row
+  }
+
+  const worktree = rowFor('New worktree…')
+  expect(worktree.querySelector('[data-palette-result-meta]')).toBeNull()
+  expect(worktree.getAttribute('title')).toBe('Its own checkout, on its own branch')
+
+  const team = rowFor('Start with a team')
+  expect(team.querySelector('[data-palette-result-meta]')).toBeNull()
+  expect(team.getAttribute('title')).toBe('Choose a shape this project ships')
 })
 
 it('filters by type and presents session titles before their secondary agent and project', async () => {

@@ -118,6 +118,7 @@ interface Entry {
   readonly label: string
   /** Query matches in the visible label, rather than a secondary transcript line. */
   readonly labelMatches?: readonly HighlightSpan[]
+  readonly title?: string
   readonly hint?: string
   /** A line from the content where the query matched, for inline display. */
   readonly matchLine?: string
@@ -300,7 +301,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
         id: 'worktree',
         group: 'Actions',
         label: 'New worktree…',
-        hint: 'Its own checkout, on its own branch',
+        title: 'Its own checkout, on its own branch',
         icon: <BranchIcon size={14} />,
         run: () => {
           close()
@@ -319,7 +320,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
               id: 'start-team',
               group: 'Actions' as const,
               label: 'Start with a team',
-              hint: 'Choose a shape this project ships',
+              title: 'Choose a shape this project ships',
               icon: <TeamIcon size={14} />,
               run: () => {
                 close()
@@ -358,17 +359,11 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
           id: definition.kind,
           group: 'Actions',
           ...(definition.kind === 'room' ? { filter: 'Teams' as const } : {}),
-          label: definition.kind === 'room'
-            ? 'Teams'
-            : definition.kind === 'activity'
-              ? 'Activity'
-              : definition.kind === 'trajectory'
-                ? 'Trajectory'
-                : `Show ${definition.label.toLowerCase()}`,
+          label: `Show ${definition.kind === 'room' ? 'Teams' : definition.kind === 'trajectory' ? 'Details' : definition.label}`,
           hint: definition.kind === 'changes' ? '⇧⌘D' : undefined,
           /* The view's own sentence, so "tokens" still finds Trajectory. */
           keywords: definition.hint,
-          icon: <definition.icon size={14} />,
+          icon: definition.kind === 'agents' ? <AgentIcon size={14} /> : <definition.icon size={14} />,
           run: () => {
             close()
             if (definition.kind === 'room') host.openTeams?.()
@@ -627,7 +622,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
     const scored = candidates
       .map((entry) => ({
         entry,
-        score: score(needle, entry.label, `${entry.keywords ?? ''} ${entry.hint ?? ''}`)
+        score: score(needle, entry.label, `${entry.keywords ?? ''} ${entry.hint ?? ''} ${entry.title ?? ''}`)
           + (entry.matchLine ? 20 : 0),
       }))
       .filter((item) => item.score > 0)
@@ -774,6 +769,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
                   onMouseEnter={() => setActiveId(entry.id)}
                   onClick={() => run(index)}
                   icon={entry.icon}
+                  title={entry.title}
                   label={entry.labelMatches?.length ? (
                     <>
                       {entry.labelMatches.map((span, matchIndex) => (
