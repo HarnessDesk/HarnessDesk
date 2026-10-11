@@ -26,7 +26,7 @@ export const TerminalShellTabs = ({
   readonly onNewShell: () => void
   readonly onCloseTerminal: () => void
 }) => (
-  <DockPanelBar data-terminal-shell-tabs="">
+  <DockPanelBar data-terminal-shell-tabs="" title="Press Escape, then Tab within 1.5 seconds to focus the panel controls. A single Escape is sent to the shell immediately.">
     <Tabs
       value={value}
       onValueChange={(next) => onValueChange(String(next))}
