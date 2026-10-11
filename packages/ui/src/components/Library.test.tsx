@@ -1969,11 +1969,32 @@ it('says a repeated load state once and leaves different states on their own row
   const dialog = document.body.querySelector('[role="dialog"]')!
   const group = [...dialog.querySelectorAll('section')].find(one => one.querySelector('h3')?.textContent === 'Which agents load it')!
   const repeated = 'Installed where this agent does not look'
+  const grouped = 'Installed where these agents do not look'
   const rows = [...group.querySelectorAll<HTMLElement>('[role="listitem"]')]
   expect(rows).toHaveLength(12)
-  expect(group.textContent?.match(/Installed where this agent does not look/g)).toHaveLength(1)
+  expect(group.textContent?.match(new RegExp(grouped, 'g'))).toHaveLength(1)
+  expect(group.querySelector('[data-slot="note"][data-ink="muted"]')?.textContent).toBe(grouped)
   expect(rows.filter(one => one.textContent?.includes(repeated))).toHaveLength(0)
   expect(rows.find(one => one.textContent?.includes('Agent 12'))?.textContent).toContain('Loads it')
+})
+
+it('groups identical Why notes once and names the agents they cover', async () => {
+  const agents = Array.from({ length: 12 }, (_, index) => runtime(`agent-${index + 1}`, `Agent ${index + 1}`))
+  const reason = 'On disk, but not in any directory this agent reads — it did not report it.'
+  const reaches = agents.map((info, index) => ({
+    runtime: runtimeId(info.id),
+    state: index === 11 ? 'reaches' as const : 'unscanned' as const,
+    basis: 'scanned' as const,
+    ...(index < 3 ? { note: reason } : {}),
+  }))
+  const autopilot = entry('autopilot', reaches.map(reach => reach.state), { reach: reaches })
+  await mount({ ...library([autopilot]), runtimes: agents.map(info => runtimeId(info.id)), locations: [] }, undefined, {
+    runtimes: agents,
+  })
+  await act(async () => container.querySelector<HTMLTableRowElement>('[data-slot="skill-row"]')?.click())
+
+  const why = [...document.body.querySelectorAll('section')].find(one => one.querySelector('h3')?.textContent === 'Why')!
+  expect(why.querySelector('[role="list"]')?.textContent).toBe(`Agent 1, Agent 2, Agent 3 — ${reason}`)
 })
 
 

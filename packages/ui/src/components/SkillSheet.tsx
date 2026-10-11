@@ -30,6 +30,7 @@ import {
   DialogHead,
   DialogRoot,
   EmptyState,
+  FormStack,
   IconTile,
   KeyValue,
   KeyValueRow,
@@ -222,6 +223,13 @@ export const SkillSheet = ({
   }
   const repeatedReachFacts = [...reachFactCounts].filter(([, fact]) => fact.count > 1)
   const repeatedReachSentences = new Set(repeatedReachFacts.map(([sentence]) => sentence))
+  const groupedWhy = new Map<string, string[]>()
+  for (const reach of entry.reach) {
+    if (reach.note) {
+      const label = columns.find((one) => one.id === reach.runtime)?.label ?? reach.runtime
+      groupedWhy.set(reach.note, [...(groupedWhy.get(reach.note) ?? []), label])
+    }
+  }
 
   /**
    * Agents that read this definition and refused it, with their reason.
@@ -539,7 +547,8 @@ export const SkillSheet = ({
           {/* The evidence. Everything the matrix knew, about this one thing. */}
           <DialogBody layout="reading" className="flex min-w-0 flex-col gap-4">
             <Fact label="Which agents load it">
-              <div role="list" className="flex flex-col gap-1.5">
+              <FormStack>
+                <div role="list" className="flex flex-col gap-1.5">
                 {entry.reach.map((reach, index) => {
                   const column = columns[index]
                   const problem = isReachProblem(reach.state)
@@ -605,12 +614,15 @@ export const SkillSheet = ({
                     </div>
                   )
                 })}
-              </div>
-              {repeatedReachFacts.map(([sentence, fact]) => (
-                <Note key={sentence} ink="muted" {...(fact.warning ? { tone: 'warn' as const } : {})}>
-                  {sentence}
-                </Note>
-              ))}
+                </div>
+                {repeatedReachFacts.map(([sentence, fact]) => (
+                  <Note key={sentence} ink="muted" {...(fact.warning ? { tone: 'warn' as const } : {})}>
+                    {sentence === REACH_SENTENCE.unscanned
+                      ? 'Installed where these agents do not look'
+                      : sentence}
+                  </Note>
+                ))}
+              </FormStack>
               {staleIn.length > 0 && (
                 <Text as="p" role="meta" ink="secondary" className="m-0 flex flex-wrap items-center gap-x-1.5 gap-y-1">
                   <span className="min-w-0">
@@ -660,24 +672,16 @@ export const SkillSheet = ({
               )}
             </Fact>
 
-            {entry.reach.some((one) => one.note) && (
+            {groupedWhy.size > 0 && (
               <Fact label="Why">
                 <div role="list" className="flex flex-col gap-1">
-                  {entry.reach
-                    .filter((one) => one.note)
-                    .map((reach) => (
-                      <Text as="p" role="meta" ink="secondary" key={reach.runtime} className="m-0">
-                        {/* An em dash, not a space. The notes are sentences
-                            and the labels are names, so "Claude Code On disk,
-                            but not in any directory…" ran the two together
-                            into something that read like a typo. */}
-                        <Text role="meta" ink="primary">
-                          {columns[entry.reach.indexOf(reach)]?.label ?? reach.runtime}
-                        </Text>
-                        {' — '}
-                        {reach.note}
-                      </Text>
-                    ))}
+                  {[...groupedWhy].map(([note, agents]) => (
+                    <Text as="p" role="meta" ink="secondary" key={note} className="m-0">
+                      <Text role="meta" ink="primary">{agents.join(', ')}</Text>
+                      {' — '}
+                      {note}
+                    </Text>
+                  ))}
                 </div>
               </Fact>
             )}
