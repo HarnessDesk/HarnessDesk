@@ -287,7 +287,7 @@ const libraryDesk = async (t: any, entries: readonly object[], definitions: Read
     protocolVersion: 1, hostVersion: 'fixture', desk: { home, pid: process.pid, startedAt: 1 },
     tiers: ['read'], methods: Object.keys(CLIENT_METHODS), runtimes,
   }
-  const library = { generatedAt: 1, home: '/home/jane', runtimes: runtimes.map(runtime => runtime.id), locations: [], entries, gaps: [] }
+  const library = { generatedAt: 1, home: '/home/dev', runtimes: runtimes.map(runtime => runtime.id), locations: [], entries, gaps: [] }
   const usage = { generatedAt: 1, sessionsScanned: 3, skills }
   server.on('upgrade', (request, socket, head) => sockets.handleUpgrade(request, socket, head, ws => {
     ws.on('message', raw => {
@@ -349,8 +349,8 @@ test('library list filters issue rows, reports reach and differing copies, and s
     { runtime: 'runtime-a', state: 'reaches' }, { runtime: 'runtime-b', state: 'reaches' },
     { runtime: 'runtime-c', state: 'rejected' }, { runtime: 'runtime-d', state: 'absent' },
   ], [
-    { path: '/home/jane/.agents/skills/split-skill', scope: 'user', readBy: ['runtime-a'], hollow: false, digest: 'a', readOnly: false },
-    { path: '/home/jane/.codex/skills/split-skill', scope: 'user', readBy: ['runtime-b'], hollow: false, digest: 'b', readOnly: false },
+    { path: '/home/dev/.agents/skills/split-skill', scope: 'user', readBy: ['runtime-a'], hollow: false, digest: 'a', readOnly: false },
+    { path: '/home/dev/.codex/skills/split-skill', scope: 'user', readBy: ['runtime-b'], hollow: false, digest: 'b', readOnly: false },
   ])
   const mcp = libraryEntry('mcp', 'fixture-server', [{ runtime: 'runtime-a', state: 'rejected' }], [])
   const rig = await libraryDesk(t, [healthy, issue, mcp])
@@ -379,7 +379,7 @@ test('library show sanitizes descriptions and prints copies, agent reach, usage 
     { runtime: 'runtime-a', state: 'reaches', basis: 'reported' },
     { runtime: 'runtime-b', state: 'stale', basis: 'scanned', note: 'Refresh after install' },
   ], [
-    { path: '/home/jane/.agents/skills/demo-skill', scope: 'user', readBy: ['runtime-a'], hollow: false, digest: 'abc', readOnly: false },
+    { path: '/home/dev/.agents/skills/demo-skill', scope: 'user', readBy: ['runtime-a'], hollow: false, digest: 'abc', readOnly: false },
     { path: '/tmp/project/.agents/skills/demo-skill', scope: 'project', readBy: ['runtime-b'], hollow: true, digest: null, readOnly: true },
   ], 'A useful \u001b[31mskill\u001b[0m description')
   const definition = {
@@ -407,11 +407,11 @@ test('library show sanitizes descriptions and prints copies, agent reach, usage 
 
 test('library show --text prints only the first readable definition, with human text sanitized', async t => {
   const entry = libraryEntry('skill', 'pipe-skill', [], [
-    { path: '/home/jane/first', scope: 'user', readBy: [], hollow: false, digest: 'a', readOnly: false },
-    { path: '/home/jane/second', scope: 'user', readBy: [], hollow: false, digest: 'b', readOnly: false },
+    { path: '/home/dev/first', scope: 'user', readBy: [], hollow: false, digest: 'a', readOnly: false },
+    { path: '/home/dev/second', scope: 'user', readBy: [], hollow: false, digest: 'b', readOnly: false },
   ])
   const rig = await libraryDesk(t, [entry], {
-    '/home/jane/second': { name: 'pipe-skill', kind: 'skill', path: '/home/jane/second', text: 'one\n\u001b[31mtwo\u001b[0m\n', truncated: false, files: [], moreFiles: 0 },
+    '/home/dev/second': { name: 'pipe-skill', kind: 'skill', path: '/home/dev/second', text: 'one\n\u001b[31mtwo\u001b[0m\n', truncated: false, files: [], moreFiles: 0 },
   })
   const result = await runCli(t, ['library', 'show', 'pipe-skill', '--text'])
   assert.equal(result.code, 0, result.stderr)
@@ -421,12 +421,12 @@ test('library show --text prints only the first readable definition, with human 
 
 test('library show --text refuses truncated definitions without printing partial text', async t => {
   const entry = libraryEntry('skill', 'partial-skill', [], [
-    { path: '/home/jane/partial', scope: 'user', readBy: [], hollow: false, digest: 'a', readOnly: false },
+    { path: '/home/dev/partial', scope: 'user', readBy: [], hollow: false, digest: 'a', readOnly: false },
   ])
   const definition = {
-    name: 'partial-skill', kind: 'skill', path: '/home/jane/partial', text: '# Partial\n', truncated: true, files: [], moreFiles: 0,
+    name: 'partial-skill', kind: 'skill', path: '/home/dev/partial', text: '# Partial\n', truncated: true, files: [], moreFiles: 0,
   }
-  const rig = await libraryDesk(t, [entry], { '/home/jane/partial': definition })
+  const rig = await libraryDesk(t, [entry], { '/home/dev/partial': definition })
   const result = await runCli(t, ['library', 'show', 'partial-skill', '--text'])
   assert.equal(result.code, 1)
   assert.equal(result.stdout, '')
