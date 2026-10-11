@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
-import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
-import { chmod, cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs'
+import { cp, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
@@ -99,16 +99,42 @@ interface Definition {
   readonly text: string
 }
 
+/** Never wait for a special file or allocate from a file's untrusted size. */
+const readSkillFile = (path: string, limit: number): { bytes: Buffer; mode: number } => {
+  const before = lstatSync(path)
+  if (!before.isFile()) throw new Error(`${basename(path)} is not a regular file, so this bundle was not read.`)
+  const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+  try {
+    const opened = fstatSync(fd)
+    if (!opened.isFile() || opened.dev !== before.dev || opened.ino !== before.ino) {
+      throw new Error(`${basename(path)} was replaced while this bundle was being read.`)
+    }
+    const chunks: Buffer[] = []
+    const buffer = Buffer.allocUnsafe(Math.min(64 * 1024, limit + 1))
+    let bytes = 0
+    for (;;) {
+      const count = readSync(fd, buffer, 0, Math.min(buffer.length, limit - bytes + 1), bytes)
+      if (count === 0) break
+      bytes += count
+      if (bytes > limit) throw new Error('The bundle holds more than 20 MB — too large to carry as a skill.')
+      chunks.push(Buffer.from(buffer.subarray(0, count)))
+    }
+    return { bytes: Buffer.concat(chunks, bytes), mode: opened.mode }
+  } finally {
+    closeSync(fd)
+  }
+}
+
 /** Read a copy's definition wherever its spelling put it. */
 const readDefinition = (path: string): Definition | null => {
   try {
     const stats = statSync(path)
     if (stats.isDirectory()) {
-      const text = readFileSync(join(path, 'SKILL.md'), 'utf8')
+      const text = readSkillFile(join(path, 'SKILL.md'), MAX_BUNDLE_BYTES).bytes.toString('utf8')
       return { container: path, flat: false, text }
     }
     if (stats.isFile()) {
-      return { container: path, flat: true, text: readFileSync(path, 'utf8') }
+      return { container: path, flat: true, text: readSkillFile(path, MAX_BUNDLE_BYTES).bytes.toString('utf8') }
     }
   } catch {
     return null
@@ -149,6 +175,7 @@ const bundleExtras = (
         if (failed !== null) return failed
         continue
       }
+      if (!stats.isFile()) return `${relative} is not a regular file, so this bundle was not read.`
       files.push(relative)
       bytes += stats.size
       if (files.length > MAX_BUNDLE_FILES) {
@@ -181,10 +208,9 @@ const skillFiles = (text: string, sourcePath?: string): readonly SkillFile[] => 
     const full = join(sourcePath, path)
     const stats = lstatSync(full)
     if (stats.isSymbolicLink()) continue
-    const content = readFileSync(full)
-    bytes += content.length
-    if (bytes > MAX_BUNDLE_BYTES) throw new Error('The bundle holds more than 20 MB — too large to carry as a skill.')
-    files.push({ path, bytes: content, mode: stats.mode })
+    const content = readSkillFile(full, MAX_BUNDLE_BYTES - bytes)
+    bytes += content.bytes.length
+    files.push({ path, ...content })
   }
   return files
 }
@@ -192,7 +218,18 @@ const skillFiles = (text: string, sourcePath?: string): readonly SkillFile[] => 
 /** A flat definition has the same single-file identity as a bare bundle. */
 const currentSkillFiles = (path: string): readonly SkillFile[] | null => {
   const existing = readDefinition(path)
-  return existing === null ? null : skillFiles(existing.text, existing.flat ? undefined : existing.container)
+  try {
+    return existing === null ? null : skillFiles(existing.text, existing.flat ? undefined : existing.container)
+  } catch (error) {
+    throw new SkillBundleReadError(path, error)
+  }
+}
+
+/** Keep a failed target read attached to the one intent it refuses. */
+class SkillBundleReadError extends Error {
+  constructor(readonly targetPath: string, error: unknown) {
+    super(error instanceof Error ? error.message : String(error))
+  }
 }
 
 const currentSkillBundleDigest = (path: string): string | null => {
@@ -233,7 +270,8 @@ interface PlanState {
 
 const push = (state: PlanState, op: Omit<LibraryPlannedOp, 'id'>): void => {
   state.counter += 1
-  if (op.kind === 'skill') {
+  // A refusal writes nothing and must not retry the read that caused it.
+  if (op.kind === 'skill' && op.action !== 'refuse') {
     const guardBundle = insideRoots(op.targetPath, knownRoots('skill', state.home, state.cwd))
       ? currentSkillBundleDigest(op.targetPath)
       : null
@@ -971,28 +1009,38 @@ export const planLibrary = async (
       refuse(state, intent.kind.endsWith('Mcp') ? 'mcp' : 'skill', intent.name, '', 'Not a name a directory can carry.')
       continue
     }
-    switch (intent.kind) {
-      case 'installSkill':
-        planInstallSkill(state, intent)
-        break
-      case 'authorSkill':
-        planAuthorSkill(state, intent)
-        break
-      case 'syncSkill':
-        planSyncSkill(state, intent)
-        break
-      case 'removeCopy':
-        planRemoveCopy(state, intent)
-        break
-      case 'restoreCopy':
-        planRestoreCopy(state, intent, context.libraryDir)
-        break
-      case 'installMcp':
-        planInstallMcp(state, intent)
-        break
-      case 'removeMcp':
-        planRemoveMcp(state, intent)
-        break
+    try {
+      switch (intent.kind) {
+        case 'installSkill':
+          planInstallSkill(state, intent)
+          break
+        case 'authorSkill':
+          planAuthorSkill(state, intent)
+          break
+        case 'syncSkill':
+          planSyncSkill(state, intent)
+          break
+        case 'removeCopy':
+          planRemoveCopy(state, intent)
+          break
+        case 'restoreCopy':
+          planRestoreCopy(state, intent, context.libraryDir)
+          break
+        case 'installMcp':
+          planInstallMcp(state, intent)
+          break
+        case 'removeMcp':
+          planRemoveMcp(state, intent)
+          break
+      }
+    } catch (error) {
+      const targetPath = error instanceof SkillBundleReadError ? error.targetPath
+        : 'targetPath' in intent ? intent.targetPath : 'path' in intent ? intent.path : ''
+      refuse(
+        state, intent.kind.endsWith('Mcp') ? 'mcp' : 'skill', intent.name, targetPath,
+        error instanceof Error ? error.message : String(error),
+        'targetRuntime' in intent ? intent.targetRuntime : undefined,
+      )
     }
   }
 
@@ -1047,6 +1095,42 @@ export const isSafeSkillRelativePath = (relative: string): boolean => {
     return false
   }
   return relative.split(/[/\\]/).every(isSafePathSegment)
+}
+
+/** A leaf link can be replaced, but no directory on the way may be followed. */
+const checkSkillWriteParents = (root: string, path: string): void => {
+  for (let at = dirname(path); insideRoots(at, [root]); at = dirname(at)) {
+    let stats
+    try {
+      stats = lstatSync(at)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue
+      throw error
+    }
+    if (stats.isSymbolicLink() || !stats.isDirectory()) {
+      throw new Error('A target directory is a link or is not a folder — plan again.')
+    }
+  }
+}
+
+/** Write and set the mode on a new file, then replace the leaf without following it. */
+const writeSkillFile = async (path: string, bytes: Buffer, mode?: number): Promise<void> => {
+  await mkdir(dirname(path), { recursive: true })
+  if (mode === undefined) {
+    const existing = lstatSync(path, { throwIfNoEntry: false })
+    if (existing?.isFile()) mode = existing.mode
+  }
+  const tmp = `${path}.harnessdesk-tmp-${randomUUID()}`
+  const handle = await open(tmp, 'wx')
+  try {
+    await handle.writeFile(bytes)
+    if (mode !== undefined) await handle.chmod(mode)
+    await handle.close()
+    await rename(tmp, path)
+  } finally {
+    await handle.close().catch(() => {})
+    await rm(tmp, { force: true }).catch(() => {})
+  }
 }
 
 const applyOne = async (
@@ -1121,6 +1205,15 @@ const applyOne = async (
     if ((op.sourceBundle !== undefined || op.sourcePath !== undefined || (op.extraFiles?.length ?? 0) > 0) && bundleDigest(files) !== op.sourceBundle) {
       throw new Error('The source changed since the preview — plan again.')
     }
+    const toWrite = files.filter((file) => file.path === 'SKILL.md' ||
+      (op.extraFiles?.includes(file.path) && isSafeSkillRelativePath(file.path)))
+    const writeRoot = op.flat === true ? dirname(op.targetPath) : op.targetPath
+    // Check every destination before the first write. A replacement removes
+    // the old tree, so only its parent directory survives that operation.
+    if (op.action === 'replace') checkSkillWriteParents(dirname(op.targetPath), op.targetPath)
+    else for (const file of toWrite) {
+      checkSkillWriteParents(writeRoot, op.flat === true ? op.targetPath : join(op.targetPath, file.path))
+    }
     if (op.backup && existsNow) {
       backupPath = backupHome(context.libraryDir, op.name)
       await mkdir(dirname(backupPath), { recursive: true })
@@ -1131,17 +1224,12 @@ const applyOne = async (
     }
 
     if (op.flat === true) {
-      await mkdir(dirname(op.targetPath), { recursive: true })
-      await writeFile(op.targetPath, content)
+      await writeSkillFile(op.targetPath, Buffer.from(content))
     } else {
-      await mkdir(op.targetPath, { recursive: true })
-      await writeFile(join(op.targetPath, 'SKILL.md'), content)
-      for (const file of files) {
-        if (file.path === 'SKILL.md' || !op.extraFiles?.includes(file.path) || !isSafeSkillRelativePath(file.path)) continue
+      for (const file of toWrite) {
         const to = join(op.targetPath, file.path)
-        await mkdir(dirname(to), { recursive: true })
-        await writeFile(to, file.bytes)
-        if (file.mode !== undefined) await chmod(to, file.mode)
+        checkSkillWriteParents(op.targetPath, to)
+        await writeSkillFile(to, file.bytes, file.mode)
       }
     }
     await withLock(resolve(context.libraryDir, 'manifest.json'), async () => {
