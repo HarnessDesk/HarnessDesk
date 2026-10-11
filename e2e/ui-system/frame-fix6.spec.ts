@@ -104,6 +104,20 @@ test('R12.5 Details uses the shared disclosure chevron', async ({ page }) => {
   }
 })
 
+test('R12.6 team approvals use the same short folder label and full-path title', async ({ page }) => {
+  const path = '/private/tmp/frame-fix6/fixture-run/storefront'
+  for (const theme of ['light', 'dark'] as const) for (const width of [1280, 720]) {
+    await openFrame(page, 'team-overview', theme, width)
+    const approval = page.locator('#team-overview-answer-approval [data-slot="request-answer"]')
+    const folder = approval.locator('[data-slot="approval-meta"][data-kind="folder"]')
+    await expect(folder).toBeVisible()
+    await expect(folder.locator('span').nth(0)).toHaveText('in')
+    await expect(folder.locator('span').nth(1)).toHaveText('storefront')
+    await expect(folder).toHaveAttribute('title', path)
+    await expect(folder).not.toContainText(path)
+  }
+})
+
 test('R12.7 an unavailable conversation keeps the message in its body without repeating it in the strip', async ({ page }) => {
   const message = 'A runtime was found at /work/fixture/bin/agent, but did not report its version.'
   for (const theme of ['light', 'dark'] as const) for (const width of [1280, 720]) {
