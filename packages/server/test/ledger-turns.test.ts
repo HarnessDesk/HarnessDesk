@@ -671,6 +671,7 @@ test('a completed desk scan restates the cached UsageReport turns and emits usag
       valueFor: (runtime, since) => ledger.valueFor(runtime, since),
     },
     onReport: (report) => pushed.push(report),
+    now: () => NOON,
   })
 
   const first = (await usage.reports())[0]

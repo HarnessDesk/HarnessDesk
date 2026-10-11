@@ -1286,6 +1286,7 @@ test('a failed sidecar write blocks the first turn: the Seat is closed, the runt
   )
   let recordCalls = 0
   ;(seen.ctx as unknown as { attachments: HostContext['attachments'] }).attachments = {
+    preflight: async () => { throw new Error('not used by this test') },
     prepare: async (subject) => ({
       subject,
       input: { key: 'k', skills: null, mcp: [{ name: 'reviewer-tools', digest: 'd', endpoint: 'e' }] },
