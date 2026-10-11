@@ -403,10 +403,17 @@ it('E5 controlled filter belongs to the first page body row', async () => {
 })
 it('E5 empty Teams uses the shared block inside the main Page', async () => {
  const {teamsPageStore}=await import('../preview/teams-page-fixture')
- await act(async()=>root.render(<StoreProvider store={teamsPageStore('empty')}><PageScope><TestPage/></PageScope></StoreProvider>))
- const empty=container.querySelector('[data-slot="page"] > [data-slot="empty-state"][data-variant="panel"]')
+ const onNew=vi.fn()
+ await act(async()=>root.render(<StoreProvider store={teamsPageStore('empty')}><PageScope><TestPage onNew={onNew}/></PageScope></StoreProvider>))
+ const empty=container.querySelector('[data-slot="page"] [data-slot="empty-state"][data-variant="panel"]')
  expect(empty).not.toBeNull()
  expect(empty?.textContent).toContain('No active Teams')
+ expect(empty?.querySelector('svg')).not.toBeNull()
+ expect(empty?.querySelector('p')?.textContent).toContain('Create a Team')
+ const action=empty?.querySelector<HTMLButtonElement>('button')
+ expect(action?.textContent).toBe('New Team')
+ await act(async()=>action?.click())
+ expect(onNew).toHaveBeenCalledOnce()
 })
 
 it('E5 retained inactive Teams stops usage reads and retry timers',async()=>{

@@ -12,7 +12,7 @@ import { elapsedSince, instant } from '../lib/clock'
 import { formatCountdownShort } from '../lib/usage'
 import { DestinationBar, useDestinationActive } from '../panels/destination-page'
 import { runtimeTint } from '../lib/accounts'
-import { AgentIcon, ChevronIcon, MoreIcon, ResetIcon, BlindIcon } from './Icons'
+import { AgentIcon, ChevronIcon, MoreIcon, ResetIcon, BlindIcon, TeamIcon } from './Icons'
 import { Banner, Button, Chip, DisclosureChevron, Dot, EmptyState, AvatarStack, Menu, MenuItem, Popover, Page, PageRecords, Section, PageRecordViews, Text } from '../design'
 
 const words = (value: string): string => {
@@ -186,12 +186,19 @@ const TeamsList = ({filter,onFilter,onNew}: TeamsPageProps) => {
      })),
    }))} />
  }
- return <MinuteClock><Page width="wide">
+ return <MinuteClock><Page width="wide" fill>
   <DestinationBar place="Teams" verb={{label:'New Team',run:onNew,disabled:snapshot.workspace?false:'Open a project folder first.'}}/>
   <PageRecordViews label="Teams views" value={filter} change={onFilter} choices={(['active','needs-you','settled'] as const).map(value=>({value,label:labels[value],count:list.counts[value]}))}/>
   {snapshot.goalProblem && <Banner tone="warning" title="Teams could not be refreshed">{words(snapshot.goalProblem)}</Banner>}
   {reading && <Text role="meta">Reading recorded usage…</Text>}
-  {list[filter].length?groups(list[filter]):<EmptyState title={filter==='active'?'No active Teams':filter==='needs-you'?'No Teams need you':'No settled Teams'}/>}
+  {list[filter].length?groups(list[filter]):<EmptyState
+   fill
+   icon={<TeamIcon />}
+   title={filter==='active'?'No active Teams':filter==='needs-you'?'No Teams need you':'No settled Teams'}
+   description="Create a Team to bring agents together on a project."
+  >
+   <Button variant="outline" disabled={!snapshot.workspace} title={!snapshot.workspace?'Open a project folder first.':undefined} onClick={onNew}>New Team</Button>
+  </EmptyState>}
   {filter==='active' && list.ready.length>0 && <Section title="Ready to wrap" action={
    <Button variant="outline" size="sm" aria-expanded={expanded} onClick={()=>setExpanded(!expanded)}>
     <DisclosureChevron open={expanded}/>Ready to wrap · {list.ready.reduce((count,group)=>count+group.rows.length,0)}
