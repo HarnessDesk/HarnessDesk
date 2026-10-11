@@ -1854,3 +1854,19 @@ below 600px of list-container width. The title keeps the name and command,
 the description wraps for at most two lines with its full sentence in the
 definition, the state sits on the meta line, and loading faces and the opening
 chevron keep the trail. Wider tables keep a 192px floor on the identity cell.
+
+## Command palette
+
+The search palette is a window-level surface, fixed at the top centre so its
+position does not change when results arrive or the query changes. Its content
+uses one 24px inset: query text, group labels and result icons share a left
+edge. The search field is borderless inside the header. Type tabs are **All**,
+**Sessions**, **Teams**, **Agents** and **Commands**; **Include tool output**
+remains a separate filter. With an empty query, **Recents** comes before
+**Actions**. A session result leads with its title in primary ink and puts its
+agent and project at the right edge in secondary ink. The footer shows the
+**Close Esc**, **Change type ←→** and **Open ↵** key hints.
+
+The `Palette stays top-centred` frame contract checks the fixed position before
+and after typing, these shared edges, the header, filters, footer and result
+hierarchy in light and dark themes at wide and narrow window widths.

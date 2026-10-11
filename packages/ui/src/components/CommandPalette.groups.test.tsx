@@ -65,7 +65,7 @@ const mount = async (history: readonly SessionSummary[]): Promise<void> => {
 }
 
 const type = (value: string): void => {
-  const field = container.querySelector('input')
+  const field = document.body.querySelector<HTMLInputElement>('[aria-label="Command palette"] input')
   if (!field) throw new Error('no palette input')
   act(() => {
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
@@ -106,7 +106,7 @@ it('does not render duplicate or interleaved group headers when filtering (#386)
   await mount(history)
   type('settings')
 
-  const groupElements = [...container.querySelectorAll('[data-slot="group-label"]')]
+  const groupElements = [...document.body.querySelectorAll('[aria-label="Command palette"] [data-menu-group]')]
   const headers = groupElements.map((el) => el.textContent?.trim() ?? '')
 
   // Headers must not have duplicates

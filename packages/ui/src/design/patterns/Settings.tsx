@@ -323,9 +323,9 @@ export const Search = ({
   label?: string
   className?: string
   autoFocus?: boolean
-  size?: 'default' | 'compact'
+  size?: 'default' | 'compact' | 'bare'
   /** A filter field is still a search input, but its resting glyph says what it narrows. */
-  icon?: 'search' | 'filter'
+  icon?: 'search' | 'filter' | 'none'
   title?: string
   onFocus?: FocusEventHandler<HTMLInputElement>
   onBlur?: FocusEventHandler<HTMLInputElement>
@@ -346,15 +346,17 @@ export const Search = ({
   >
     {icon === 'filter'
       ? <FilterIcon size={size === 'compact' ? 12 : 14} />
-      : <SearchIcon size={size === 'compact' ? 12 : 14} />}
+      : icon === 'search'
+        ? <SearchIcon size={size === 'compact' ? 12 : 14} />
+        : null}
     <Input
       ref={inputRef}
       data-focus-indicator={focusIndicator === 'caret' ? 'caret' : undefined}
       type="search"
       spellCheck={false}
-      variant={size === 'compact' ? 'quiet' : 'default'}
-      controlSize={size === 'compact' ? 'compact' : 'default'}
-      className={size === 'compact' ? styles.searchCompactInput : styles.input}
+      variant={size === 'bare' ? 'bare' : size === 'compact' ? 'quiet' : 'default'}
+      controlSize={size === 'bare' ? 'bare' : size === 'compact' ? 'compact' : 'default'}
+      className={size === 'compact' ? styles.searchCompactInput : size === 'default' ? styles.input : undefined}
       placeholder={placeholder}
       aria-label={label ?? placeholder}
       value={value}

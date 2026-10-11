@@ -230,6 +230,10 @@ const boxedVariants = cva(
            person asked to be comfortable is the exception: its rows carry a
            second line and keep the air around it. */
         navigation: 'h-auto min-h-(--hd-nav-h) gap-(--hd-nav-gap) rounded-(--hd-nav-radius) p-(--hd-nav-padding) text-(length:--hd-text-sm) leading-(--hd-line-sm) font-normal data-[density=comfortable]:py-2 data-[density=compact]:py-1',
+        /* A result inside a padded palette/list already owns its inset. Keep
+           the same navigation pitch and type, with the row's contents on the
+           container edge and no transparent border shifting the first mark. */
+        'navigation-edge': 'h-auto min-h-(--hd-nav-h) gap-(--hd-nav-gap) rounded-(--hd-nav-radius) p-0 border-0 text-(length:--hd-text-sm) leading-(--hd-line-sm) font-normal whitespace-normal',
         fill: 'h-full w-full p-0',
         'icon-circle': 'size-(--hd-btn-h) rounded-full p-0',
       },

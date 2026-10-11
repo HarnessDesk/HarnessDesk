@@ -92,7 +92,7 @@ const mount = async () => {
 }
 
 const field = (): HTMLInputElement => {
-  const input = container.querySelector('input')
+  const input = document.body.querySelector<HTMLInputElement>('[aria-label="Command palette"] input')
   if (!input) throw new Error('no palette input')
   return input
 }
@@ -112,7 +112,7 @@ const press = (key: string): void => {
 }
 
 const activeLabel = (): string =>
-  container.querySelector('[data-active]')?.textContent ?? ''
+  document.body.querySelector('[aria-label="Command palette"] [role="option"][data-active]')?.textContent ?? ''
 
 const settle = async (): Promise<void> => {
   // Past the 120ms search debounce, then let the promises land.
@@ -131,7 +131,7 @@ it('a reshuffle cannot move the highlight off the row the user saw', async () =>
   await settle()
 
   // The boosted content hit has taken the top of the list…
-  const first = container.querySelector('[role="option"]')
+  const first = document.body.querySelector('[aria-label="Command palette"] [role="option"]')
   expect(first?.textContent).toContain('Settings expedition')
   // …but the highlight stayed where the user left it.
   expect(activeLabel()).toContain('Settings › Runtimes')

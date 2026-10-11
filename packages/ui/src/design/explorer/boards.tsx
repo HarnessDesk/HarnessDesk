@@ -171,9 +171,9 @@ const Case = ({ label, children }: { label: string; children: React.ReactNode })
 )
 
 const BUTTON_CATALOG_VARIANTS = ['default', 'outline', 'secondary', 'ghost', 'floating', 'danger', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'] as const
-const BUTTON_CATALOG_SIZES = ['default', 'xs', 'sm', 'sidebar-nav', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'log-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'] as const
+const BUTTON_CATALOG_SIZES = ['default', 'xs', 'sm', 'sidebar-nav', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'log-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'navigation-edge', 'fill', 'icon-circle'] as const
 const BUTTON_CATALOG_STATES = ['default', 'hover', 'focus-visible', 'disabled'] as const
-const INPUT_CATALOG_VARIANTS = ['default', 'quiet', 'filled', 'chrome', 'code'] as const
+const INPUT_CATALOG_VARIANTS = ['default', 'quiet', 'bare', 'filled', 'chrome', 'code'] as const
 const INPUT_CATALOG_SIZES = ['default', 'compact', 'bare', 'row'] as const
 const INPUT_CATALOG_STATES = ['default', 'focus-visible', 'disabled', 'error'] as const
 const NATIVE_SELECT_CATALOG_VARIANTS = ['default', 'filled'] as const
@@ -354,7 +354,7 @@ const ButtonBoard = () => (
       <Case label="all supported sizes">
         <div className="flex w-full flex-wrap items-start gap-2">
           {BUTTON_CATALOG_SIZES.map((size) => (
-            <Button key={size} variant="outline" size={size} data-catalog-size={size} aria-label={`Button size ${size}`}>
+            <Button key={size} variant={size === 'navigation-edge' ? 'row' : 'outline'} size={size} data-catalog-size={size} aria-label={`Button size ${size}`}>
               {size.startsWith('icon') ? <TerminalIcon size={14} /> : size}
             </Button>
           ))}
