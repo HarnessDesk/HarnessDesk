@@ -19,7 +19,7 @@ for (const theme of ['light', 'dark'] as const) {
     expect(gap).toBe(FRAME.page.canvasGutter)
   })
   for (const width of [1440, 1000, 900, 760, 640, 560]) {
-    test(`board rearranges in a ${width}px pane in ${theme}`, async ({ page }) => {
+    test(`board columns keep their width in a ${width}px pane in ${theme}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 1000 })
       await page.emulateMedia({ colorScheme: theme })
       await page.goto('/preview.html?board-list')
@@ -36,45 +36,23 @@ for (const theme of ['light', 'dark'] as const) {
         return
       }
       const board = pane.locator('[data-slot="board"]')
-      const columns = board.locator('[data-slot="board-column"]:not([data-collapsed])')
-      await expect(columns).toHaveCount(width === 1440 ? 5 : width === 900 ? 3 : 4)
+      const columns = board.locator('[data-slot="board-column"]')
+      await expect(columns).toHaveCount(5)
+      await expect(board.locator('[data-slot="board-column"][data-collapsed]')).toHaveCount(0)
       for (const column of await columns.all()) expect((await column.boundingBox())!.width).toBeGreaterThanOrEqual(220)
-      expect(await board.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1)
-      if (width <= 760) {
-        const needs = await board.locator('[data-column="needs"]').boundingBox()
-        const working = await board.locator('[data-column="working"]').boundingBox()
-        const review = await board.locator('[data-column="review"]').boundingBox()
-        const todo = await board.locator('[data-column="todo"]').boundingBox()
-        expect(needs!.y).toBe(working!.y)
-        expect(review!.y).toBe(todo!.y)
-        expect(review!.y).toBeGreaterThan(needs!.y)
-      }
-      if (width === 900) await expect(board.getByRole('button', { name: 'To do 1 — Open column', exact: true })).toBeVisible()
-      if (width !== 1440) await expect(board.getByRole('button', { name: 'Ready 1 — Open column', exact: true })).toBeVisible()
+      expect(await board.evaluate(el => el.scrollWidth - el.clientWidth)).toBeGreaterThan(0)
     })
   }
-  test(`folded rails open and close in place with the keyboard in ${theme}`, async ({ page }) => {
-    await page.setViewportSize({ width: 1000, height: 1000 })
+  test(`empty columns stay full width in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 1000 })
     await page.emulateMedia({ colorScheme: theme })
-    await page.goto('/preview.html?board-list')
-    const pane = page.locator('[data-frame-id="board-list-page"]')
-    const ready = pane.locator('[data-column="ready"]')
-    const rail = ready.getByRole('button', { name: 'Ready 1 — Open column', exact: true })
-    await rail.focus()
-    await rail.press('Enter')
-    await expect(ready).not.toHaveAttribute('data-collapsed')
-    expect((await ready.boundingBox())!.width).toBeGreaterThanOrEqual(220)
-    await expect(pane.locator('[data-slot="board-card"]')).toHaveCount(4)
-    await expect(ready.locator('[data-slot="board-card"]')).toBeVisible()
-    await expect(pane.locator('[data-column="todo"]')).toHaveAttribute('data-collapsed', 'true')
-    expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
-    if (process.env.HD_BOARD_WIDTH_FRAMES) await pane.screenshot({ path: `${process.env.HD_BOARD_WIDTH_FRAMES}/opened-${theme}.png` })
-    await ready.getByRole('button', { name: 'Fold Ready', exact: true }).press('Enter')
-    await expect(rail).toBeVisible()
-    await expect(rail).toBeFocused()
-    await rail.press('Enter')
-    await page.setViewportSize({ width: 1440, height: 1000 })
-    await expect(ready.getByRole('button', { name: 'Fold Ready', exact: true })).toHaveCount(0)
+    await page.goto('/preview.html?team-frame=board')
+    const board = page.locator('[data-slot="board"]')
+    const columns = board.locator('[data-slot="board-column"]')
+    await expect(columns).toHaveCount(6)
+    await expect(board.locator('[data-slot="board-column"][data-collapsed]')).toHaveCount(0)
+    for (const column of await columns.all()) expect((await column.boundingBox())!.width).toBeGreaterThanOrEqual(220)
+    expect(await board.evaluate(el => el.scrollWidth - el.clientWidth)).toBeGreaterThan(0)
   })
   test(`board follows the pane when the window stays wide in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
@@ -84,22 +62,20 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(pane.getByRole('table', { name: 'Jobs' })).toHaveAttribute('data-hd-table', 'compact')
     await pane.evaluate(el => { el.style.width = '1000px' })
     await expect(pane.locator('[data-slot="board"]')).toBeVisible()
-    await expect(pane.getByRole('button', { name: 'Ready 1 — Open column', exact: true })).toBeVisible()
+    await expect(pane.locator('[data-column="ready"] h3')).toBeVisible()
   })
 }
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`folded columns keep the dense inset in ${theme}`, async ({ page }) => {
+  test(`empty Board columns keep the standard width in ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1000, height: 1000 })
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html?board-list')
-    const rail = page.locator('[data-column="ready"]')
-    await expect(rail).toHaveAttribute('data-collapsed', 'true')
-    const insets = await rail.evaluate(el => {
-      const style = getComputedStyle(el)
-      return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft]
-    })
-    expect(insets).toEqual(['8px', '8px', '8px', '8px'])
+    const board = page.locator('[data-slot="board"]')
+    const empty = board.locator('[data-column="ready"]')
+    await expect(empty).not.toHaveAttribute('data-collapsed')
+    expect((await empty.boundingBox())!.width).toBeGreaterThanOrEqual(220)
+    expect(await board.evaluate(el => el.scrollWidth - el.clientWidth)).toBeGreaterThan(0)
   })
 
   test(`compact Board choice explains its width and keeps the preference in ${theme}`, async ({ page }) => {
@@ -127,7 +103,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(pane.locator('[data-slot="board"]')).toBeVisible()
   })
 
-  test(`scrolling board keeps its gutters at fold thresholds in ${theme}`, async ({ page }) => {
+  test(`scrolling Board keeps every column at full width through viewport changes in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html?board-list')
     await page.addStyleTag({ content: '*::-webkit-scrollbar { display: block !important; width: 8px !important; } [data-slot="tool-pane-body"] { overflow-y: scroll !important; scrollbar-gutter: stable; }' })
@@ -137,21 +113,21 @@ for (const theme of ['light', 'dark'] as const) {
     for (const width of [812, 814, 988, 990, 1164, 1166]) {
       await page.setViewportSize({ width, height: 300 })
       await expect.poll(() => board.evaluate(el => {
-        const open = [...el.querySelectorAll('[data-slot="board-column"]:not([data-collapsed])')]
-        return el.scrollWidth - el.clientWidth <= 1 && open.every(column => column.getBoundingClientRect().width >= 220)
+        const columns = [...el.querySelectorAll('[data-slot="board-column"]')]
+        return el.scrollWidth > el.clientWidth && columns.length === 5 && columns.every(column => !column.hasAttribute('data-collapsed') && column.getBoundingClientRect().width >= 220)
       })).toBe(true)
     }
     // Removing and restoring a scrollbar remeasures without changing the pane's border box.
     await page.setViewportSize({ width: 990, height: 1000 })
     const todo = board.locator('[data-column="todo"]')
-    await expect(todo).toHaveAttribute('data-collapsed', 'true')
+    await expect(todo).not.toHaveAttribute('data-collapsed')
     await page.addStyleTag({ content: '[data-slot="tool-pane-body"] { overflow-y: hidden !important; scrollbar-gutter: auto; }' })
     await expect.poll(() => body.evaluate(el => el.offsetWidth - el.clientWidth)).toBe(0)
     await expect(todo).not.toHaveAttribute('data-collapsed')
     await page.addStyleTag({ content: '[data-slot="tool-pane-body"] { overflow-y: scroll !important; scrollbar-gutter: stable; }' })
     await expect.poll(() => body.evaluate(el => el.offsetWidth - el.clientWidth)).toBe(8)
-    await expect(todo).toHaveAttribute('data-collapsed', 'true')
-    await expect.poll(() => board.evaluate(el => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1)
+    await expect(todo).not.toHaveAttribute('data-collapsed')
+    await expect.poll(() => board.evaluate(el => el.scrollWidth - el.clientWidth)).toBeGreaterThan(0)
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.HD_BOARD_WIDTH_FRAMES) await page.locator('[data-frame-id="board-list-page"]').screenshot({ path: `${process.env.HD_BOARD_WIDTH_FRAMES}/scrolling-990-${theme}.png` })
   })
@@ -165,7 +141,7 @@ test('the interface names board columns in their rendered order', async ({ page 
 })
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`tall board keeps rail names and empty lines in the first viewport in ${theme}`, async ({ page }) => {
+    test(`tall board keeps full empty columns and their lines in the first viewport in ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1000, height: 800 })
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html?board-list&tall=todo')
@@ -174,27 +150,29 @@ for (const theme of ['light', 'dark'] as const) {
     await page.evaluate(() => document.fonts.ready)
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.HD_BOARD_REPAIR_FRAMES) await pane.screenshot({ path: `${process.env.HD_BOARD_REPAIR_FRAMES}/tall-${theme}.png` })
-    const rail = pane.locator('[data-column="ready"] button > span').first()
+    const ready = pane.locator('[data-column="ready"]')
+    await expect(ready).not.toHaveAttribute('data-collapsed')
+    expect((await ready.boundingBox())!.width).toBeGreaterThanOrEqual(220)
     const empty = pane.locator('[data-slot="board-empty"]')
     await expect(empty).toHaveCount(2)
-    for (const label of [rail, ...await empty.all()]) {
+    for (const label of await empty.all()) {
       const bounds = await label.boundingBox()
       expect(bounds!.y).toBeGreaterThanOrEqual(0)
       expect.soft(bounds!.y + bounds!.height).toBeLessThanOrEqual(800)
     }
   })
 
-  test(`opening a rail preserves neighboring header and card alignment in ${theme}`, async ({ page }) => {
+  test(`neighboring Board columns keep their headers aligned in ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1000, height: 800 })
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html?board-list')
     const pane = page.locator('[data-frame-id="board-list-page"]')
     const ready = pane.locator('[data-column="ready"]')
-    await ready.getByRole('button', { name: 'Ready 1 — Open column', exact: true }).press('Enter')
-    await expect(ready.getByRole('button', { name: 'Fold Ready', exact: true })).toBeFocused()
     await page.evaluate(() => document.fonts.ready)
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
-    if (process.env.HD_BOARD_REPAIR_FRAMES) await pane.screenshot({ path: `${process.env.HD_BOARD_REPAIR_FRAMES}/opened-${theme}.png` })
+    expect((await ready.boundingBox())!.width).toBeGreaterThanOrEqual(220)
+    await expect(ready).not.toHaveAttribute('data-collapsed')
+    if (process.env.HD_BOARD_REPAIR_FRAMES) await pane.screenshot({ path: `${process.env.HD_BOARD_REPAIR_FRAMES}/aligned-${theme}.png` })
     const needs = pane.locator('[data-column="needs"]')
     for (const selector of ['header', 'h3', '[data-slot="board-card"]']) {
       const neighbor = (await needs.locator(selector).first().boundingBox())!
@@ -213,7 +191,7 @@ test('the compact threshold is documented in content width', () => {
 test.describe('board fit with the app scrollbar skin', () => {
 
   for (const theme of ['light', 'dark'] as const) {
-    test(`scrollbar-dependent layouts settle at fold and compact thresholds in ${theme}`, async ({ page }) => {
+    test(`scrollbar-dependent layouts keep full columns and settle at compact threshold in ${theme}`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: theme })
       await page.setViewportSize({ width: 984, height: 1000 })
       await page.goto('/preview.html?board-list&tall=todo')
@@ -222,8 +200,7 @@ test.describe('board fit with the app scrollbar skin', () => {
       for (const width of Array.from({ length: 17 }, (_, index) => 984 + index)) {
         await page.setViewportSize({ width, height: 1000 })
         await expect.poll(() => pane.evaluate(el => el.getBoundingClientRect().width)).toBe(width)
-        // Allow the resize commit, then sample the actual layout on successive
-        // paints. No forced overflow: the column itself decides whether to scroll.
+        // Allow the resize commit, then sample the actual layout on successive paints.
         const states = await pane.evaluate(async el => {
           const read = () => {
             const body = el.querySelector<HTMLElement>('[data-slot="tool-pane-body"]')!
@@ -239,10 +216,11 @@ test.describe('board fit with the app scrollbar skin', () => {
           return frames
         })
         expect(new Set(states.map(state => JSON.stringify(state))).size, `${width}px`).toBe(1)
-        expect(states[0]!.overflow, `${width}px`).toBeLessThanOrEqual(1)
+        expect(states[0]!.folded, `${width}px`).toEqual([])
+        expect(states[0]!.overflow, `${width}px`).toBeGreaterThan(0)
       }
       await page.setViewportSize({ width: 990, height: 1000 })
-      await expect(pane.locator('[data-column="todo"]')).toHaveAttribute('data-collapsed', 'true')
+      await expect(pane.locator('[data-column="todo"]')).not.toHaveAttribute('data-collapsed')
       expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
       if (process.env.HD_BOARD_WIDTH_FRAMES) await pane.screenshot({ path: `${process.env.HD_BOARD_WIDTH_FRAMES}/stable-todo-${theme}.png` })
       await page.setViewportSize({ width: 603, height: 840 })
@@ -259,26 +237,17 @@ test.describe('board fit with the app scrollbar skin', () => {
       expect(views).toEqual(Array(12).fill(false))
     })
 
-    test(`only columns that will fold offer Fold and retain focus in ${theme}`, async ({ page }) => {
+    test(`columns do not offer folding controls and keep full width in ${theme}`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: theme })
       await page.setViewportSize({ width: 900, height: 1000 })
       await page.goto('/preview.html?board-list')
-      const todo = page.locator('[data-column="todo"]')
-      const ready = page.locator('[data-column="ready"]')
-      await todo.getByRole('button', { name: 'To do 1 — Open column', exact: true }).press('Enter')
-      await expect(todo.getByRole('button', { name: 'Fold To do', exact: true })).toBeFocused()
-      await todo.getByRole('button', { name: 'Fold To do', exact: true }).press('Enter')
-      await expect(todo.getByRole('button', { name: 'To do 1 — Open column', exact: true })).toBeFocused()
-      await todo.getByRole('button', { name: 'To do 1 — Open column', exact: true }).press('Enter')
-      await ready.getByRole('button', { name: 'Ready 1 — Open column', exact: true }).press('Enter')
-      await expect(todo.getByRole('button', { name: 'Fold To do', exact: true })).toHaveCount(0)
-      await expect(ready.getByRole('button', { name: 'Fold Ready', exact: true })).toBeFocused()
+      const columns = page.locator('[data-slot="board-column"]')
+      await expect(columns).toHaveCount(5)
+      await expect(page.getByRole('button', { name: /Open column|Fold / })).toHaveCount(0)
+      await expect(page.locator('[data-slot="board-column"][data-collapsed]')).toHaveCount(0)
+      for (const column of await columns.all()) expect((await column.boundingBox())!.width).toBeGreaterThanOrEqual(220)
       expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
-      if (process.env.HD_BOARD_WIDTH_FRAMES) await page.locator('[data-frame-id="board-list-page"]').screenshot({ path: `${process.env.HD_BOARD_WIDTH_FRAMES}/two-opened-${theme}.png` })
-      await ready.getByRole('button', { name: 'Fold Ready', exact: true }).press('Enter')
-      await expect(ready.getByRole('button', { name: 'Ready 1 — Open column', exact: true })).toBeFocused()
-      await todo.getByRole('button', { name: 'Fold To do', exact: true }).press('Enter')
-      await expect(todo.getByRole('button', { name: 'To do 1 — Open column', exact: true })).toBeFocused()
+      if (process.env.HD_BOARD_WIDTH_FRAMES) await page.locator('[data-frame-id="board-list-page"]').screenshot({ path: `${process.env.HD_BOARD_WIDTH_FRAMES}/full-columns-${theme}.png` })
       const add = page.getByRole('button', { name: /^New job/ })
       await add.focus()
       await page.setViewportSize({ width: 1000, height: 1000 })
@@ -290,17 +259,18 @@ test.describe('board fit with the app scrollbar skin', () => {
       await page.setViewportSize({ width: 1112, height: 1000 })
       await page.goto('/preview.html?board-list')
       const ready = page.locator('[data-column="ready"]')
-      await expect(ready).toHaveAttribute('data-collapsed', 'true')
+      await expect(ready).not.toHaveAttribute('data-collapsed')
       await page.addStyleTag({ content: 'body { --hd-space-2: 0.5rem; --hd-space-3: 0.75rem; }' })
       // Trigger a measure after the foundation changes without changing the final width.
       await page.setViewportSize({ width: 1111, height: 1000 })
       await page.evaluate(async () => { for (let frame = 0; frame < 3; frame++) await new Promise(requestAnimationFrame) })
       await page.setViewportSize({ width: 1112, height: 1000 })
       await page.evaluate(async () => { for (let frame = 0; frame < 3; frame++) await new Promise(requestAnimationFrame) })
-      await expect(ready).toHaveAttribute('data-collapsed', 'true')
+      await expect(ready).not.toHaveAttribute('data-collapsed')
       const box = await page.locator('[data-slot="board"]').evaluate(el => ({ gap: getComputedStyle(el).columnGap, overflow: el.scrollWidth - el.clientWidth }))
       expect(box.gap).toBe('12px')
-      expect(box.overflow).toBeLessThanOrEqual(1)
+      expect(box.overflow).toBeGreaterThan(0)
+      expect((await ready.boundingBox())!.width).toBeGreaterThanOrEqual(220)
     })
   }
 })

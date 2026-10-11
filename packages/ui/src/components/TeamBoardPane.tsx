@@ -47,8 +47,6 @@ import {
   Board,
   BoardCard,
   BoardColumn,
-  BOARD_COLUMN_MIN_WIDTH,
-  BOARD_RAIL_WIDTH,
   Banner,
   BannerAction,
   Button,
@@ -250,29 +248,17 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   const [preferredView, setView] = useState<'board' | 'list'>('board')
   const paneRef = useRef<HTMLElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
-  const boardRef = useRef<HTMLDivElement>(null)
-  const [paneSize, setPaneSize] = useState<{ width: number; contentWidth: number; gap: number } | null>(null)
-  const [openedColumns, setOpenedColumns] = useState<ReadonlySet<string>>(() => new Set())
-  const layout = teamBoardLayout(paneSize?.width ?? Infinity, paneSize?.contentWidth ?? Infinity, openedColumns, paneSize?.gap ?? 12)
+  const [paneWidth, setPaneWidth] = useState<number | null>(null)
+  const layout = teamBoardLayout(paneWidth ?? Infinity)
   const view = layout.compact ? 'list' : preferredView
   useEffect(() => {
     const pane = paneRef.current
     const body = bodyRef.current
     if (!pane || !body) return
     const measure = () => {
-      // The body reserves its scrollbar gutter, so changing layout cannot
-      // change the width that chose it. Read resolved CSS lengths so a
-      // foundation may express spacing in rem or calc() as well as px.
       const width = body.clientWidth
       if (width <= 0) return
-      const style = getComputedStyle(body)
-      const contentWidth = width - parseFloat(style.paddingInlineStart) - parseFloat(style.paddingInlineEnd)
-      const board = boardRef.current
-      setPaneSize(previous => {
-        const gap = board ? parseFloat(getComputedStyle(board).columnGap) : previous?.gap ?? 12
-        return previous?.width === width && previous.contentWidth === contentWidth && previous.gap === gap
-          ? previous : { width, contentWidth, gap }
-      })
+      setPaneWidth(previous => previous === width ? previous : width)
     }
     measure()
     if (typeof ResizeObserver === 'undefined') {
@@ -620,28 +606,12 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
               onAct={(verb, outcome) => verb === 'block' ? setStopping(intent) : act(intent.id, verb, undefined, outcome)} />
           )} />
         ) : (
-          <Board ref={boardRef} wrap derived className="items-stretch" data-layout={layout.lanes ? 'lanes' : 'columns'}
-            style={{ gridTemplateColumns: layout.lanes
-              ? `repeat(2, minmax(${BOARD_COLUMN_MIN_WIDTH}px, 1fr))${layout.folded.includes('ready') ? ` ${BOARD_RAIL_WIDTH}px` : ''}`
-              : ['needs', 'working', 'review', 'todo', 'ready'].map(id => layout.folded.includes(id as FactColumn) ? `${BOARD_RAIL_WIDTH}px` : `minmax(${BOARD_COLUMN_MIN_WIDTH}px, 1fr)`).join(' ') }}>
+          <Board derived className="items-stretch" data-layout="columns">
             {['needs', 'working', 'review', 'todo', 'ready', 'aside'].flatMap(id => shown.filter(column => column.id === id)).map((column) => {
               const cards = byColumn.get(column.id) ?? []
-              const withoutColumn = new Set(openedColumns)
-              withoutColumn.delete(column.id)
-              const canFold = openedColumns.has(column.id) && teamBoardLayout(
-                paneSize?.width ?? Infinity, paneSize?.contentWidth ?? Infinity, withoutColumn, paneSize?.gap ?? 12,
-              ).folded.includes(column.id)
               return (
                 <BoardColumn key={column.id} title={column.title} count={cards.length} tint={column.tint}
-                  data-column={column.id} collapsed={layout.folded.includes(column.id)}
-                  style={column.id === 'aside' ? { gridColumn: '1 / -1' }
-                    : layout.lanes && layout.folded.includes(column.id) ? { gridColumn: 3, gridRow: '1 / span 2' } : undefined}
-                  onCollapsedChange={layout.folded.includes(column.id) || canFold ? collapsed => setOpenedColumns(previous => {
-                    const next = new Set(previous)
-                    if (collapsed) next.delete(column.id)
-                    else next.add(column.id)
-                    return next
-                  }) : undefined}>
+                  data-column={column.id}>
                   {cards.map((intent) => (
                     <IntentCard
                       key={intent.id}
