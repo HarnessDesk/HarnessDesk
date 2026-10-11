@@ -186,9 +186,15 @@ const mount = async (
  * later cannot silently re-point these at the wrong one.
  */
 const showMatrix = async (): Promise<void> => {
-  const select = document.body.querySelector<HTMLSelectElement>('select[aria-label="How to show the library"]')!
-  expect(select).not.toBeNull()
-  await act(async () => { select.value = 'matrix'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+  const trigger = document.body.querySelector<HTMLButtonElement>(
+    '[data-slot="popover-trigger"][title="How to show the library"]',
+  )!
+  expect(trigger).not.toBeNull()
+  await act(async () => trigger.click())
+  const matrix = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')]
+    .find((node) => node.textContent?.trim() === 'Matrix')
+  expect(matrix).not.toBeUndefined()
+  await act(async () => matrix?.click())
 }
 
 /**
@@ -305,7 +311,7 @@ it('the first body options own search, filter and view; the selected filter can 
   await mount(library([entry('good', ['reaches', 'reaches']), entry('empty', ['hollow', 'absent'])]))
   const options = document.body.querySelector('[data-slot="page-options"]')!
   expect(options.querySelector('[aria-label="Search library"]')).not.toBeNull()
-  expect(options.querySelector('[aria-label="How to show the library"]')).not.toBeNull()
+  expect(options.querySelector('[data-slot="popover-trigger"][title="How to show the library"]')).not.toBeNull()
   expect(options.contains(filterTrigger())).toBe(true)
   expect(document.body.querySelector('[data-slot="library-toolbar"]')).toBeNull()
   await openFilter()
@@ -317,6 +323,19 @@ it('the first body options own search, filter and view; the selected filter can 
   expect(cards()).toHaveLength(2)
   expect(filterTrigger().textContent).toBe('Everything')
   expect(document.activeElement).toBe(filterTrigger())
+})
+
+it('uses one menu trigger form for the view, filter and agent choices', async () => {
+  await mount(library([entry('good', ['reaches', 'reaches'])]))
+  const options = document.body.querySelector('[data-slot="page-options"]')!
+  const triggers = [...options.querySelectorAll<HTMLElement>('[data-slot="popover-trigger"]')]
+
+  expect(triggers.map((trigger) => trigger.getAttribute('title'))).toEqual([
+    'How to show the library',
+    'Filter the library',
+    'Declared by',
+  ])
+  expect(options.querySelectorAll('[data-slot="native-select"]')).toHaveLength(0)
 })
 
 it('opening a row shows every copy and who reads it', async () => {

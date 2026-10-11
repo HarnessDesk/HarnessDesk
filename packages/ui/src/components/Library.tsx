@@ -600,6 +600,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
   const libraryChoices: readonly PageOption[] = [
     { id: 'view', label: 'How to show the library', value: view,
       items: [{ value: 'list', label: 'List' }, { value: 'matrix', label: 'Matrix' }],
+      mode: 'menu',
       change: value => { setView(value as 'list' | 'matrix'); setOpen(null) } },
     { id: 'filter', label: 'Filter the library', value: filter, mode: 'menu',
       items: filterData.filter(item => counts === null || item.value === 'all' || item.value === filter || (item.count ?? 0)> 0).map(item => ({ ...item, disabled: counts === null ? 'Reading every agent’s directories…' : item.disabled })),
