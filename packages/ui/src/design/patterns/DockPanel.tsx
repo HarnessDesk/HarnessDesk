@@ -202,7 +202,7 @@ const PAINTED_RULE: Record<PanelEdge, string> = {
 }
 
 /**
- * The frame: a column with a rule on the edge it hugs, and its own ground.
+ * The frame: a column with its own ground and an optional edge rule.
  *
  * One component for the right panel, the bottom panel and the sidebar's lower
  * stack, because those three differ in exactly two ways — which edge they sit
@@ -213,10 +213,11 @@ export const DockPanel = ({
   edge,
   collapsed,
   paintedRule = false,
+  rule = true,
   floating = false,
   className,
   ...props
-}: React.ComponentProps<'section'> & { edge: PanelEdge; collapsed?: boolean; paintedRule?: boolean; floating?: boolean }) => (
+}: React.ComponentProps<'section'> & { edge: PanelEdge; collapsed?: boolean; paintedRule?: boolean; rule?: boolean; floating?: boolean }) => (
   <section
     data-slot="dock-panel"
     data-edge={edge}
@@ -224,7 +225,7 @@ export const DockPanel = ({
     className={cn(
       'flex min-h-0 min-w-0 flex-col overflow-hidden bg-(--hd-card)',
       floating && '[box-shadow:var(--hd-shadow-lg)]',
-      paintedRule ? cn('relative after:absolute after:pointer-events-none after:bg-(--hd-border)', PAINTED_RULE[edge]) : RULE[edge],
+      rule && (paintedRule ? cn('relative after:absolute after:pointer-events-none after:bg-(--hd-border)', PAINTED_RULE[edge]) : RULE[edge]),
       className,
     )}
     {...props}

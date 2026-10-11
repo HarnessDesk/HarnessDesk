@@ -1494,7 +1494,7 @@ The one highlighted landing target under a dragged panel tab.
 
 `packages/ui/src/design/patterns/DockPanel.tsx`
 
-The frame: a column with a rule on the edge it hugs, and its own ground.
+The frame: a column with its own ground and an optional edge rule.
 
 One component for the right panel, the bottom panel and the sidebar's lower
 stack, because those three differ in exactly two ways — which edge they sit

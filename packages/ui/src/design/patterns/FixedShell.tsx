@@ -27,8 +27,8 @@ export const FixedShell = forwardRef<HTMLDivElement, FixedShellProps>(({ viewpor
   <WorkbenchRail data-frame-region="left" className={styles.left} inert={!leftOpen}>{left}</WorkbenchRail>
   <div data-frame-region="top" className={styles.top}>{top}</div>
   <div data-frame-region="main" className={styles.main}>{main}</div>
-  <DockPanel data-slot="frame-panel" data-frame-region="right" edge="left" paintedRule floating={panelFloating} className={styles.right} inert={!rightOpen}>{right}</DockPanel>
-  <DockPanel data-slot="frame-panel" data-frame-region="bottom" edge="top" paintedRule className={styles.bottom} inert={!bottomOpen}>{bottom}</DockPanel>
+  <DockPanel data-slot="frame-panel" data-frame-region="right" edge="left" rule={false} floating={panelFloating} className={styles.right} inert={!rightOpen}>{right}</DockPanel>
+  <DockPanel data-slot="frame-panel" data-frame-region="bottom" edge="top" rule={false} className={styles.bottom} inert={!bottomOpen}>{bottom}</DockPanel>
 </WorkbenchCanvas>)
 FixedShell.displayName = 'FixedShell'
 
