@@ -751,8 +751,8 @@ export const previewSession = {
   /* `ContextUsage`'s own ring, in the composer: a context window most of the
      way full, so the ring reads as something other than empty. */
   usage: {
-    total: { totalTokens: 84_000, inputTokens: 80_000, cachedInputTokens: 60_000 },
-    last: { totalTokens: 9_000, inputTokens: 8_500, cachedInputTokens: 6_000 },
+    total: { totalTokens: 84_000, inputTokens: 80_000, cachedInputTokens: 60_000, outputTokens: 4_000, reasoningOutputTokens: 0 },
+    last: { totalTokens: 9_000, inputTokens: 8_500, cachedInputTokens: 6_000, outputTokens: 500, reasoningOutputTokens: 0 },
     contextUsed: 96_000,
     contextWindow: 128_000,
   },
