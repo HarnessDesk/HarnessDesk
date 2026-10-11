@@ -34,6 +34,7 @@ import {
 } from '../state/workbench'
 import { toolOf } from '../state/frame-tools'
 import { Workbench as WorkbenchBody } from './Workbench'
+import * as terminalLabels from '../lib/terminal-labels'
 import { TopBarProvider } from './top-bar'
 import { ShellHostsProvider, ShellOutlets } from './shell-hosts'
 import type { ComponentProps } from 'react'
@@ -150,6 +151,11 @@ const rig = (build: (start: Model) => Model = (start) => start, extra: Partial<A
     apply(next)
     for (const listener of listeners) listener()
   }
+  const actions = {
+    openTerminal: vi.fn(),
+    closeTerminal: vi.fn(),
+    closeTerminalDock: vi.fn(),
+  }
   const store = {
     subscribe: (listener: () => void) => {
       listeners.add(listener)
@@ -182,9 +188,10 @@ const rig = (build: (start: Model) => Model = (start) => start, extra: Partial<A
       settle({ ...snapshot.workbench, main: collapseIn(snapshot.workbench.main) }),
     focusPane: vi.fn(),
     focusView: vi.fn(),
+    ...actions,
     workSubject: () => fixedSubject(snapshot.layout),
   } as unknown as AppStore
-  return { store, get snapshot() { return snapshot } }
+  return { store, actions, get snapshot() { return snapshot } }
 }
 
 const render = (store: AppStore): void => {
@@ -252,6 +259,52 @@ it('terminal process documents have no split action at any width', () => {
   expect(container.querySelectorAll('[data-terminal-mount]')).toHaveLength(2)
   expect(container.querySelector('[aria-label^="Move or split"]')).toBeNull()
   expect(container.querySelector('[aria-label="Resize these panels"]')).toBeNull()
+})
+
+it('one terminal has a persistent shell tab with new-shell and close-dock actions', () => {
+  const cwd = '/work/one/two/three/four/five/storefront'
+  const { store, actions } = rig(
+    start => dock(start, 'bottom', { kind: 'terminal', terminalId: 't1', runtime: 'codex' as never, cwd }),
+    { home: '/work' },
+  )
+  render(store)
+
+  const row = container.querySelector('[data-terminal-shell-tabs]')
+  expect(row).not.toBeNull()
+  expect([...row!.querySelectorAll('[role="tab"]')].map(tab => tab.textContent)).toEqual(['storefront'])
+  const newShell = container.querySelector<HTMLButtonElement>('[aria-label="New shell"]')
+  expect(newShell?.getAttribute('title')).toBe('New shell in ~/…/storefront')
+  const closeDock = container.querySelector<HTMLButtonElement>('[aria-label="Close terminal"]')
+  expect(closeDock).not.toBeNull()
+  expect(row!.contains(newShell)).toBe(true)
+  expect(row!.contains(closeDock)).toBe(true)
+  act(() => newShell!.click())
+  act(() => closeDock!.click())
+  expect(actions.openTerminal).toHaveBeenCalledWith({ cwd })
+  expect(actions.closeTerminalDock).toHaveBeenCalledOnce()
+})
+
+it('terminal tabs name duplicate shells by folder and each has its own close action', () => {
+  const cwd = '/work/storefront'
+  const { store, actions } = rig(start => dock(
+    dock(start, 'bottom', { kind: 'terminal', terminalId: 't1', runtime: 'codex' as never, cwd }),
+    'bottom', { kind: 'terminal', terminalId: 't2', runtime: 'codex' as never, cwd },
+  ))
+  render(store)
+
+  expect(tabs()).toEqual(['storefront', 'storefront 2'])
+  const closeFirst = container.querySelector<HTMLButtonElement>('[aria-label="Close storefront"]')
+  const closeSecond = container.querySelector<HTMLButtonElement>('[aria-label="Close storefront 2"]')
+  expect(closeFirst).not.toBeNull()
+  expect(closeSecond).not.toBeNull()
+  act(() => closeSecond!.click())
+  expect(actions.closeTerminal).toHaveBeenCalledWith('t2')
+})
+
+it('terminal path titles replace home and keep both ends when shortened', () => {
+  const format = Reflect.get(terminalLabels, 'terminalPathTitle') as (path: string, home: string) => string
+  expect(format).toBeTypeOf('function')
+  expect(format('/work/one/two/three/four/five/storefront', '/work')).toBe('~/…/storefront')
 })
 
 it('every retained work tool stays mounted under its original scope', () => {
@@ -509,9 +562,11 @@ it('the arrow keys move a seam the way they point, on both edges', () => {
 it('one terminal process has no duplicate frame strip', () => {
   const { store } = rig(start => dock(start, 'bottom', { kind: 'terminal', terminalId: 't1', runtime: 'codex' as never, cwd: '/repo/api' }))
   render(store)
-  expect(tabs()).toEqual([])
+  expect(tabs()).toEqual(['api'])
+  expect(container.querySelector('[data-terminal-shell-tabs]')).not.toBeNull()
   expect(container.querySelectorAll('[data-terminal-mount]')).toHaveLength(1)
   expect(container.querySelector('[data-slot="dock-panel-bar"]')).toBeNull()
+  expect(container.querySelector('[data-slot="dock-panel-tabs"]')).toBeNull()
 })
 
 it('the main area gives its edge to zoom when it cannot close', () => {

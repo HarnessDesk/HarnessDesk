@@ -134,6 +134,38 @@ for (const theme of WALL_THEMES) for (const destination of ['settings', 'agents'
 }
 
 for (const theme of WALL_THEMES) {
+  test(`terminal tabs hold shell actions and per-shell close in one row in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&frame-terminal=1', theme)
+    const row = page.locator('[data-terminal-shell-tabs]')
+    const tabs = row.getByRole('tab')
+    await expect(row).toBeVisible()
+    await expect(tabs).toHaveCount(1)
+
+    const tab = tabs.first()
+    const tabClose = row.locator('[data-slot="dock-panel-tab-close"]')
+    const newShell = row.getByRole('button', { name: 'New shell' })
+    const closeTerminal = row.getByRole('button', { name: 'Close terminal' })
+    await expect(tabClose).toHaveCSS('opacity', '0')
+    await tab.hover()
+    await expect(tabClose).toHaveCSS('opacity', '1')
+    const tooltip = (await newShell.getAttribute('title'))!
+    expect(tooltip).toMatch(/^New shell in /)
+    expect(tooltip).not.toContain('\n')
+    expect(tooltip.length).toBeLessThanOrEqual(42)
+    expect((await tab.getAttribute('title'))!.length).toBeLessThanOrEqual(32)
+    await expect(page.locator('[data-terminal-id] [data-slot="tool-pane-bar"]')).toHaveCount(0)
+
+    const rowBox = (await row.boundingBox())!
+    const tabBox = (await tab.boundingBox())!
+    const newBox = (await newShell.boundingBox())!
+    const closeBox = (await closeTerminal.boundingBox())!
+    const center = (box: { y: number; height: number }) => box.y + box.height / 2
+    for (const box of [tabBox, newBox, closeBox]) expect(Math.abs(center(box) - center(rowBox))).toBeLessThanOrEqual(1)
+    expect(newBox.x).toBeGreaterThan(tabBox.x + tabBox.width)
+    expect(closeBox.x).toBeGreaterThan(newBox.x)
+    expect(closeBox.x + closeBox.width).toBeLessThanOrEqual(rowBox.x + rowBox.width)
+  })
+
   test(`Owner fix 2 seat usage menu returns focus and has plan actions in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation', theme)
     const trigger = page.locator('[data-left-seat] [data-slot="popover-trigger"]:not(:has([data-slot="inbox-button"]))')

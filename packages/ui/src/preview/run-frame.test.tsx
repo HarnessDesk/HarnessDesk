@@ -6,6 +6,7 @@ import { RunControlExample } from './frames-run-controls'
 import { StopRunExample } from './frames-stop-run'
 import { ReviewPublicationExample } from './frames-review-publication'
 import { RunShapesFrame } from './frames-run-shapes'
+import { terminalAttach } from './terminal-fixture'
 import { FRAME } from '../design'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -74,6 +75,16 @@ it('the supported terminal specimen opens and closes the real PreviewStore resou
   expect(container.textContent).toContain('1 terminal resources')
   await act(async () => container.querySelector<HTMLButtonElement>('[aria-label="Close terminal"]')!.click())
   expect(container.textContent).toContain('0 terminal resources')
+})
+it('keeps a fixed synthetic prompt in the terminal preview for public frames', () => {
+  const bytes = Uint8Array.from(atob(terminalAttach().scrollback), character => character.charCodeAt(0))
+  const plain = new TextDecoder().decode(bytes).replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+  const prompts = plain.split('\r\n').filter(line => line.startsWith('~/work/storefront main $ '))
+
+  expect(prompts).toEqual([
+    '~/work/storefront main $ pnpm --filter @harnessdesk/ui test',
+    '~/work/storefront main $ ',
+  ])
 })
 it('the main work specimen changes actual Fill state and restores the layout without arrangement actions', async () => {
   const { MainWorkActionsSpecimen } = await import('./frames-supported-controls')

@@ -5,11 +5,13 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 import {
   DockDropEdge,
   DockDropTarget,
+  DockPanelTab,
   PaneSurface,
   WorkbenchCanvas,
   WorkbenchRail,
   WorkbenchScrim,
 } from './DockPanel'
+import { Tabs, TabsList } from '../ui/tabs'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -57,4 +59,19 @@ it('owns empty-edge drop geometry and the active target label', () => {
   expect(target?.hasAttribute('data-over')).toBe(true)
   expect(target?.className).toContain('data-[over]:border-(--hd-accent)')
   expect(target?.querySelector('[data-slot="dock-drop-label"]')?.textContent).toBe('Dock in Bottom')
+})
+
+it('keeps an active shell tab close affordance hidden until hover or focus', () => {
+  act(() => root.render(
+    <Tabs value="shell">
+      <TabsList aria-label="Terminal shells" variant="line">
+        <DockPanelTab value="shell" label="storefront" onClose={() => {}} closeOnHover />
+      </TabsList>
+    </Tabs>,
+  ))
+
+  const close = container.querySelector<HTMLElement>('[data-slot="dock-panel-tab-close"]')
+  expect(close?.className).not.toContain('peer-data-active/tab:opacity-100')
+  expect(close?.className).toContain('group-hover/tab:opacity-100')
+  expect(close?.className).toContain('focus-visible:opacity-100')
 })

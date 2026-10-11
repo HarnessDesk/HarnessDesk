@@ -2188,6 +2188,12 @@ A Settings record's actions: its name and distinguishing location, with destruct
 
 A quiet conversation or room state ends on the inset rail and folds to a dot for its own row's actions.
 
+### `TerminalShellTabs`
+
+`packages/ui/src/design/patterns/TerminalShellTabs.tsx`
+
+The shell tabs and panel actions share one row above the terminal screen.
+
 ### `ToolProse`
 
 `packages/ui/src/design/patterns/ToolBody.tsx`
@@ -2247,5 +2253,5 @@ list only goes down, except when the audit learns to see something it was blind 
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 76 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 21 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2840 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `screenLayout` | 2838 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 
