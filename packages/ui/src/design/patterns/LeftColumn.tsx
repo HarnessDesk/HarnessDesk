@@ -93,8 +93,13 @@ export interface LeftColumnTopProps {
   readonly goForward: () => void
   readonly search: ReactNode
 }
+/**
+ * The column's top controls share the window's edge row and keep the drag
+ * region around every control. The row has no separator hairline beneath it;
+ * the column's own spacing marks the transition to its brand row.
+ */
 export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top className={styles.top}>
-  <Bar corner rule="bottom" className="hd-drag">
+  <Bar corner className="hd-drag">
     <div className={styles.lead}>
       <Button variant="ghost" size="pattern" className={`${styles.topButton} hd-no-drag`}
         aria-label={props.shown ? 'Hide sidebar' : 'Show sidebar'} title={props.shown ? 'Hide the sidebar' : 'Show the sidebar'}
@@ -109,9 +114,10 @@ export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top c
     </div>
   </Bar>
 </div>
+/** The account row closes the column without a separator hairline above it. */
 export const LeftColumnSeat = ({ menu, notifications, settingsOpen, onSettings }: {
   menu: ReactNode; notifications?: ReactNode; settingsOpen: boolean; onSettings: () => void
-}) => <Bar rule="top"><div data-left-seat className={styles.seat}>
+}) => <Bar><div data-left-seat className={styles.seat}>
   <div className={styles.seatMenu}>{menu}</div>
   <div className={`${styles.topActions} hd-no-drag`}>{notifications}</div>
   <Button variant="ghost" size="pattern" className={styles.topButton} aria-label="Settings" title="Settings"

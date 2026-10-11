@@ -1561,6 +1561,20 @@ minute-by-minute countdowns cannot leave the card holding an older fact.
 
 Works outside a group too; only grouped readings contribute to its card.
 
+### `LeftColumnTop`
+
+`packages/ui/src/design/patterns/LeftColumn.tsx`
+
+The column's top controls share the window's edge row and keep the drag
+region around every control. The row has no separator hairline beneath it;
+the column's own spacing marks the transition to its brand row.
+
+### `LeftColumnSeat`
+
+`packages/ui/src/design/patterns/LeftColumn.tsx`
+
+The account row closes the column without a separator hairline above it.
+
 ### `Lightbox`
 
 `packages/ui/src/design/patterns/Lightbox.tsx`
@@ -2109,8 +2123,9 @@ One line of text that ellipsises, and says itself whole on hover — only
 while it is cut. A title on text that is not cut repeats what you are
 reading and hides the tooltip of whatever holds it (the seat's "New
 sessions run as …"), so the title is decided as the pointer arrives, from
-whether the text overflows its box right then. The ellipsis is the
-caller's class: `overflow: hidden`, `text-overflow: ellipsis`, `nowrap`.
+whether the text overflows its box right then. Pass `truncate` for the
+one-line ellipsis; the caller's class supplies width and minimum-size
+constraints.
 
 ### `RowValue`
 
@@ -2247,5 +2262,5 @@ list only goes down, except when the audit learns to see something it was blind 
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 76 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 21 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2840 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `screenLayout` | 2838 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 

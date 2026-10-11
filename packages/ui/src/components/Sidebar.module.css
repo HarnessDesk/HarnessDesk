@@ -34,8 +34,6 @@
 
 .accountLabel {
   min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
 }
 
 .seatTrigger {

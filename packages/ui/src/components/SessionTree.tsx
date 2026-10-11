@@ -117,12 +117,14 @@ const SessionRow = memo(({
   summary,
   now,
   onDelete,
+  suppressSelection = false,
   virtualKey,
   virtualIndex,
   virtualCount,
 }: {
   summary: SessionSummary
   now: number
+  suppressSelection?: boolean
   /** Raises the confirmation; the dialog belongs to the list, not to a row. */
   onDelete: (summary: SessionSummary) => void
   virtualKey?: string
@@ -228,7 +230,7 @@ const SessionRow = memo(({
       onKeyDown={event => {
         if (event.key === 'Enter') commitRename()
         if (event.key === 'Escape') { event.preventDefault(); setRenaming(false) }
-      }} />} /> : <LeftColumnRow ref={rowRef} label={label} title={facts} selected={active}
+      }} />} /> : <LeftColumnRow ref={rowRef} label={label} title={facts} selected={active && !suppressSelection}
       onClick={() => { void store.openSession(summary.id, { runtime: summary.runtime }) }}
       icon={<SessionHoverCard session={summary}><span aria-label={agentName}>{runtime ? <RuntimeMark runtime={runtime} size={16} /> : <AgentIcon size={16} />}</span></SessionHoverCard>}
       trailing={trailing} action={{ label: `Actions for ${label}`, expanded: menu.at !== null,
@@ -520,9 +522,10 @@ const roomMembers = (
     )
 }
 
-const RoomRow = ({ room, state, virtualKey, virtualIndex, virtualCount }: {
+const RoomRow = ({ room, state, suppressSelection = false, virtualKey, virtualIndex, virtualCount }: {
   readonly room: TeamState
   readonly state: TeamListState
+  readonly suppressSelection?: boolean
   readonly virtualKey?: string
   readonly virtualIndex?: number
   readonly virtualCount?: number
@@ -548,7 +551,7 @@ const RoomRow = ({ room, state, virtualKey, virtualIndex, virtualCount }: {
       : running ? { kind: 'mark', icon: <Spinner size="sm" tone="neutral" />, label: 'Working' }
       : held > 0 ? { kind: 'count', value: held, label: `${held} held messages` } : undefined
   return <div data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount}>
-    <LeftColumnRow label={name} icon={<TeamIcon size={16} />} selected={selected}
+    <LeftColumnRow label={name} icon={<TeamIcon size={16} />} selected={selected && !suppressSelection}
       title={`${name}${waiting ? ' · Needs you' : ''}${unread ? ' · Unread activity' : ''}${running ? ' · Working' : ''}${held > 0 ? ` · ${held} held messages` : ''}${claimed > 0 ? ` · ${claimed} claimed jobs` : ''}`}
       buttonProps={{ 'aria-label': `Room ${name}` }} trailing={trailing}
       onClick={() => store.openTeamRoom(room.id)} />
@@ -1038,10 +1041,11 @@ export const useProjectList = ({ searching = false }: { searching?: boolean } = 
 export const useProjectGroups = (options: { searching?: boolean } = {}): ProjectGroup[] =>
   useProjectList(options).groups
 
-export const SessionTree = ({ now, searching = false, searchEmptyState = null }: {
+export const SessionTree = ({ now, searching = false, searchEmptyState = null, suppressSelection = false }: {
   now: number
   searching?: boolean
   searchEmptyState?: ReactNode
+  suppressSelection?: boolean
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -1480,12 +1484,13 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
                   key={row.room.id}
                   room={row.room}
                   state={teamRows.get(row.room.id)!.state}
+                  suppressSelection={suppressSelection}
                   virtualKey={`room:${row.room.id}`}
                   virtualIndex={index}
                   virtualCount={rows.length}
                 />
               ) : (
-                <SessionRow key={row.summary.id} summary={row.summary} now={now} onDelete={setDeleting} virtualKey={`session:${row.summary.runtime}:${row.summary.id}`} virtualIndex={index} virtualCount={rows.length} />
+                <SessionRow key={row.summary.id} summary={row.summary} now={now} onDelete={setDeleting} suppressSelection={suppressSelection} virtualKey={`session:${row.summary.runtime}:${row.summary.id}`} virtualIndex={index} virtualCount={rows.length} />
               )
             }
           />
@@ -1507,7 +1512,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null }:
       {pinnedRows.length > 0 && (
         <div data-sidebar-band="pinned">
           <LeftColumnGroup label={`Pinned · ${pinnedRows.length}`}>
-            {pinnedRows.map(summary => <SessionRow key={`p-${summary.runtime}-${summary.id}`} summary={summary} now={now} onDelete={setDeleting} />)}
+            {pinnedRows.map(summary => <SessionRow key={`p-${summary.runtime}-${summary.id}`} summary={summary} now={now} onDelete={setDeleting} suppressSelection={suppressSelection} />)}
             <Separator />
           </LeftColumnGroup>
         </div>
