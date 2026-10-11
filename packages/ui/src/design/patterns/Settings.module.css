@@ -647,6 +647,8 @@
   font-size: var(--hd-text-sm);
   line-height: var(--hd-line-sm);
   color: var(--hd-secondary-foreground);
+  /* Notices can carry opaque runtime tokens; keep them inside their column. */
+  overflow-wrap: anywhere;
 }
 
 .note[data-ink='muted'] {

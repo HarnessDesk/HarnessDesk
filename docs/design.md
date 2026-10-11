@@ -1854,3 +1854,12 @@ below 600px of list-container width. The title keeps the name and command,
 the description wraps for at most two lines with its full sentence in the
 definition, the state sits on the meta line, and loading faces and the opening
 chevron keep the trail. Wider tables keep a 192px floor on the identity cell.
+
+## Conversation overflow
+
+A long token in a conversation never widens the main column. Prose, notices,
+tool labels and Markdown headings break anywhere a token can occur. Code
+plates, diffs and tables keep their own horizontal scrollers. The frame
+contract checks the workbench main region at 1440px and 720px: its
+`scrollWidth` must equal its `clientWidth` with 600-character tokens in each
+transcript row kind.
