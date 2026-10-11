@@ -336,6 +336,31 @@ for (const theme of WALL_THEMES) for (const width of WALL_WIDTHS) {
   })
 }
 
+test('shared overlay scrollbar stays hidden at rest and appears while scrolling', async ({ page }) => {
+  await openFrame(page, 'frame-wall=conversation', 'light')
+  await page.evaluate(() => {
+    const region = document.createElement('div')
+    region.dataset.contractScrollbar = ''
+    region.style.cssText = 'position:fixed;left:0;top:0;width:80px;height:40px;overflow-y:auto'
+    const content = document.createElement('div')
+    content.style.height = '240px'
+    region.append(content)
+    document.body.append(region)
+  })
+  const scroller = page.locator('[data-contract-scrollbar]')
+
+  const thumbColor = () => scroller.evaluate(node => getComputedStyle(node, '::-webkit-scrollbar-thumb').backgroundColor)
+  const resting = await thumbColor()
+  expect(resting).toBe('rgba(0, 0, 0, 0)')
+
+  await scroller.evaluate(node => { node.scrollTop = 32 })
+  await expect(scroller).toHaveAttribute('data-scrolling', '')
+  expect(await thumbColor()).not.toBe(resting)
+
+  await expect(scroller).not.toHaveAttribute('data-scrolling', '', { timeout: 2000 })
+  expect(await thumbColor()).toBe(resting)
+})
+
 const layoutDestinations = (() => {
   const seen = new Set<string>()
   return WALL_DESTINATIONS.filter(destination => {

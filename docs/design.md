@@ -1961,3 +1961,12 @@ plates, diffs and tables keep their own horizontal scrollers. The frame
 contract checks the workbench main region at 1440px and 720px: its
 `scrollWidth` must equal its `clientWidth` with 600-character tokens in each
 transcript row kind.
+
+## Overlay scrollbars
+
+Every scrollable region in the main area, pages, panels, dialogs and the
+command palette uses the shared scrollbar rule. Its thumb is transparent at
+rest, appears briefly while that region scrolls, and fades when scrolling
+stops. Scrolling never adds a per-screen scrollbar skin. The frame contract
+checks that a resting thumb is invisible, that scrolling reveals it, and that
+it fades again.

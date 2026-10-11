@@ -127,6 +127,7 @@ import { ComposerSlotsFrames } from './frames-composer-slots'
 import { CjkSpecimen } from './cjk-specimen'
 import { BRIEF_SCENES, FlowBriefDialog, type BriefScene } from './flow-brief-content'
 import '../styles/app.css'
+import { installOverlayScrollbarTracking } from '../styles/overlay-scrollbars'
 
 const SHOW_COMPOSER = new URLSearchParams(window.location.search).has('composer')
 /* A second full `<Conversation>` duplicates every ambient header element —
@@ -1230,6 +1231,7 @@ const FindingsPreview = () => {
 
 const siteSceneParam = new URLSearchParams(window.location.search).get('site-scene') ?? ''
 const siteScene = isSceneName(siteSceneParam) ? siteSceneParam : null
+installOverlayScrollbarTracking()
 createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>

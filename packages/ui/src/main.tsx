@@ -5,9 +5,11 @@ import { App } from './app/App'
 import { installPanelComponent } from './slots/PanelBlocks'
 import { AppStore } from './state/store'
 import { StoreProvider } from './state/context'
+import { installOverlayScrollbarTracking } from './styles/overlay-scrollbars'
 import './styles/app.css'
 
 installPanelComponent()
+installOverlayScrollbarTracking()
 
 const store = new AppStore()
 // Development probe surface; harmless in production and priceless in a bug.
