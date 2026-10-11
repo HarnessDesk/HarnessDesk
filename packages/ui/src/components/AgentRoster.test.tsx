@@ -75,13 +75,13 @@ const ROSTER: readonly AgentEntry[] = [
   }),
 ]
 
-const taken = (id: string, label: string): SeatPlan => ({
+const taken = (id: string, label: string, runtime: string = 'claude-code'): SeatPlan => ({
   id,
   from: 'prefer',
   winner: 0,
   blocked: null,
   ceiling: { level: 'edit', hold: 'asked' },
-  candidates: [{ seat: { runtime: 'claude-code' }, label, runtimeName: 'Claude', state: 'taken', reason: null, fix: null }],
+  candidates: [{ seat: { runtime }, label, runtimeName: label.split(' · ')[0] ?? label, state: 'taken', reason: null, fix: null }],
 })
 
 const PLANS = new Map<string, SeatPlan>([
@@ -177,7 +177,9 @@ it('lists three sections in precedence order, each naming the folder it reads', 
   mount()
   const headings = [...container.querySelectorAll('section[aria-label]')].map((one) => one.getAttribute('aria-label'))
   expect(headings).toEqual(['In storefront', 'Yours', 'Built in'])
-  expect(sectionText('In storefront')).toContain('Read from /w/storefront/.harnessdesk/agents')
+  const projectSource = container.querySelector('section[aria-label="In storefront"] [data-slot="middle-truncate"]')!
+  expect(projectSource.textContent).toContain('storefront/.harnessdesk/agents')
+  expect(projectSource.getAttribute('title')).toBe('/w/storefront/.harnessdesk/agents')
   expect(sectionText('Yours')).toContain('Read from ~/.harnessdesk/agents')
   expect(sectionText('Built in')).toContain('Ships with HarnessDesk')
 })
@@ -192,6 +194,54 @@ it('shows each Agent with what it is for, its ceiling as asked, and the seat it 
   // No wire: never the spec, never the digest.
   expect(container.textContent).not.toContain('claude-code')
   expect(container.textContent).not.toContain('=opus')
+})
+
+it('uses each Agent seat mark, with a name avatar when no seat can be taken', async () => {
+  const plans = new Map(PLANS)
+  plans.set('scout', taken('scout', 'Codex', 'codex'))
+  mount({ agentPlans: plans })
+  await act(async () => {})
+
+  const row = (name: string) => [...container.querySelectorAll<HTMLButtonElement>('button[data-kind="record"]')]
+    .find((one) => one.textContent?.includes(name))!
+  expect(row('Storefront reviewer').querySelector('[data-slot="row-face"] svg')?.getAttribute('class')).toContain('brand-claudecode')
+  expect(row('Scout').querySelector('[data-slot="row-face"] svg')?.getAttribute('class')).toContain('brand-codex')
+  expect(row('Security reviewer').querySelector('[data-slot="row-face"] [data-slot="monogram"]')?.textContent).toBe('SR')
+  expect(row('draft').querySelector('[data-slot="row-face"] [data-slot="monogram"]')?.textContent).toBe('D')
+})
+
+it('says repeated legacy ceiling facts once and keeps a ceiling chip only for the differing Agent', async () => {
+  const release = agent('release', 'Release', 'user')
+  const scout = agent('scout', 'Scout', 'user')
+  const safety = agent('safety', 'Safety', 'user', {
+    definition: { ...agent('safety', 'Safety', 'user').definition!, ceiling: 'publish' },
+  })
+  const plans = new Map(PLANS)
+  plans.set('release', taken('release', 'Claude'))
+  plans.set('safety', { ...taken('safety', 'Claude'), ceiling: { level: 'publish', hold: 'asked' } })
+  mount({
+    agents: [release, scout, safety],
+    agentPlans: plans,
+  })
+  await act(async () => {})
+
+  const yours = container.querySelector('section[aria-label="Yours"]')!
+  const sentence = "Set by this file's older permission line, which counts as Edit."
+  const rows = [...yours.querySelectorAll<HTMLButtonElement>('button[data-kind="record"]')]
+  expect(yours.textContent?.match(/Set by this file's older permission line, which counts as Edit\./g)).toHaveLength(1)
+  expect(rows.every((row) => !row.querySelector('[data-slot="row-desc"]')?.textContent?.includes(sentence))).toBe(true)
+  expect(rows.map((row) => row.querySelector('[data-ceiling]')?.textContent).filter(Boolean)).toEqual(['Publish · asked, not enforced'])
+})
+
+it('middle-truncates a project Agents folder in its quiet source note', async () => {
+  mount()
+  await act(async () => {})
+  const note = container.querySelector('section[aria-label="In storefront"] [data-slot="middle-truncate"]')
+  expect(note).not.toBeNull()
+  expect(note?.textContent).toContain('storefront/.harnessdesk/agents')
+  expect(note?.getAttribute('title')).toBe('/w/storefront/.harnessdesk/agents')
+  expect(note?.className).toContain('flex-1')
+  expect(note?.closest('[data-slot="note"]')?.getAttribute('data-layout')).toBe('inline')
 })
 
 /** A refusal is the row’s one reading; the ceiling is not repeated beside it. */
@@ -357,10 +407,13 @@ it('gives each roster record one reading, and moves its seat and refusal reason 
   expect(refused.querySelector('[data-slot="row-desc"]')?.textContent).toContain('Cursor is signed out')
 })
 
-it('names the linked checkout that was actually read rather than the main checkout', () => {
+it('names the linked checkout that was actually read rather than the main checkout', async () => {
   mount({ agentsProject: '/w/review-copy', workspace: { path: '/w/review-copy', checkoutRoot: '/w/review-copy', name: 'storefront', lastOpenedAt: 1, repo: { root: '/w/main', worktree: true, key: 'root:/w/main' } } as AppSnapshot['workspace'] })
-  expect(container.textContent).toContain('/w/review-copy/.harnessdesk/agents')
-  expect(container.textContent).not.toContain('/w/main/.harnessdesk/agents')
+  await act(async () => {})
+  const source = container.querySelector('section[aria-label="In review-copy"] [data-slot="middle-truncate"]')!
+  expect(source.getAttribute('title')).toBe('/w/review-copy/.harnessdesk/agents')
+  expect(source.textContent).toContain('review-copy/.harnessdesk/agents')
+  expect(source.getAttribute('title')).not.toContain('/w/main/.harnessdesk/agents')
 })
 
 it('names no folder for a roster still read for the workspace open before', () => {
