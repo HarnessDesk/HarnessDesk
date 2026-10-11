@@ -892,7 +892,8 @@ step. The Settings frame contract checks every Settings page so a wrapper or a
 first-child reset cannot make one page drift from the rest.
 
 **The description is one sentence.** It says what the section is, muted,
-directly under the label. A paragraph of how it works is not a description:
+directly under the label, on its own full-width row even when it would fit
+beside the heading. A paragraph of how it works is not a description:
 Project, Permissions and Triggers each opened every section with two or three
 lines of it under the page's own blurb, and the one warning that mattered read
 like the four around it.

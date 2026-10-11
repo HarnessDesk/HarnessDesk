@@ -3,32 +3,31 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { RuntimeInfo } from '@harnessdesk/protocol'
 
-import { InlineParts, Note, Row, RowChoice, Rows, Section, RowValue, Text } from '../design'
+import { Chip, Row, RowChoice, Rows, Section, SegmentedReadout } from '../design'
 import { runtimeHolds } from '../lib/ceilings'
+import { ceilingWords } from '../lib/agents'
 import { useSnapshot, useStore } from '../state/context'
 import type { UnheldCeilings } from '../state/store'
 import { RuntimeMark } from './BrandIcons'
-import { CeilingChip } from './CeilingChip'
 
 const RuntimeCeilings = ({ runtime }: { readonly runtime: RuntimeInfo }) => {
   const holds = runtimeHolds(runtime)
+  const effective = [...holds].reverse().find((hold) => hold.held)?.level ?? 'read'
+  const enforced = holds.some((hold) => hold.level === effective && hold.held)
+  const options = holds.map((hold) => ({
+    value: hold.level,
+    label: hold.level === 'read' ? 'Read only' : ceilingWords(hold.level),
+    disabled: true,
+  }))
   return <Row
     mark={<RuntimeMark runtime={runtime} size={13} />}
     title={runtime.presentation.name}
-    control={
-      <RowValue>
-        <InlineParts>
-          {holds.map((hold) => (
-            <CeilingChip
-              key={hold.level}
-              ceiling={{ level: hold.level, hold: hold.held ? 'held' : 'asked' }}
-              note={hold.how}
-              showHold={false}
-            />
-          ))}
-        </InlineParts>
-      </RowValue>
-    }
+    titleChip={<Chip tone="neutral" size="sm">{enforced ? 'Enforced' : 'Asked'}</Chip>}
+    control={<SegmentedReadout
+      label={`${runtime.presentation.name} ceiling`}
+      options={options}
+      value={effective}
+    />}
   />
 }
 
@@ -38,7 +37,6 @@ export const CeilingsSection = ({ focus = null }: { readonly focus?: string | nu
 
   const store = useStore()
   const snapshot = useSnapshot()
-  const hasAskedCeiling = snapshot.runtimes.some((runtime) => runtimeHolds(runtime).some((hold) => !hold.held))
   const section = useRef<HTMLElement>(null)
   const saving = useRef(false)
   const savingUnattended = useRef(false)
@@ -113,7 +111,6 @@ export const CeilingsSection = ({ focus = null }: { readonly focus?: string | nu
         <Rows>
           {snapshot.runtimes.map((runtime) => <RuntimeCeilings key={runtime.id} runtime={runtime} />)}
         </Rows>
-        {hasAskedCeiling && <Note><span data-slot="ceiling-group-note"><Text role="meta">Asked, not enforced</Text></span></Note>}
       </Section>
 
       <Section title="A ceiling a runtime cannot hold" description="In a conversation you are watching.">

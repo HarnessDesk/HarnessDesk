@@ -2184,6 +2184,12 @@ The canonical toggle group supplies radio semantics and roving focus while
 this pattern supplies the settings-specific segmented appearance.
 An unavailable answer takes a disabled reason, kept in its hover title.
 
+### `SegmentedReadout`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+The same segmented setting when it reports a value instead of changing it.
+
 ### `Text`
 
 `packages/ui/src/design/patterns/Settings.tsx`

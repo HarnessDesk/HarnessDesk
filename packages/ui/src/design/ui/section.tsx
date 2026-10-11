@@ -144,8 +144,8 @@ const Section = (props: SectionProps) => {
           data-slot="section-head"
           /* This is page furniture. A body's card or row inset belongs to
              that body and never moves the heading away from the page edge.
-             The grid keeps its title and action on the same center line, with
-             the description on a separate row below the title. */
+             The description is a full-width flex item that cannot shrink
+             beside the title, so it always starts below the heading. */
           className="flex min-w-0 flex-wrap items-center gap-x-(--hd-space-3) gap-y-(--hd-space-0-5)"
         >
           <GroupLabel as="h2" data-section-name="" className="min-w-0 flex-[1_1_20ch] truncate">{title}</GroupLabel>
@@ -157,9 +157,9 @@ const Section = (props: SectionProps) => {
           {description != null && (
             <p
               data-slot="section-description"
-              className="m-0 basis-full max-w-[62ch] text-(length:--hd-text-sm) leading-(--hd-line-sm) text-(--hd-muted-foreground)"
+              className="m-0 basis-full shrink-0 text-(length:--hd-text-sm) leading-(--hd-line-sm) text-(--hd-muted-foreground)"
             >
-              {description}
+              <span className="inline-block max-w-[62ch]">{description}</span>
             </p>
           )}
         </div>

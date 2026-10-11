@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { Segmented } from './Settings'
+import { Segmented, SegmentedReadout } from './Settings'
 import css from '../ui/switcher.module.css?raw'
 
 /**
@@ -60,6 +60,25 @@ it('marks only the chosen segment with the attribute the CSS relies on', () => {
   const { chosen, unchosen } = draw()
   expect(chosen.hasAttribute('data-pressed')).toBe(true)
   expect(unchosen.hasAttribute('data-pressed')).toBe(false)
+})
+
+it('keeps a read-only value on the same segmented track with exactly one disabled selection', () => {
+  const options = [
+    { value: 'read', label: 'Read only' },
+    { value: 'edit', label: 'Edit' },
+    { value: 'publish', label: 'Publish' },
+    { value: 'merge', label: 'Merge' },
+  ] as const
+  act(() => root.render(
+    <SegmentedReadout options={options} value="publish" label="Runtime ceiling" />,
+  ))
+  const group = container.querySelector('[role="radiogroup"]')
+  const items = [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
+  expect(group).not.toBeNull()
+  expect(items).toHaveLength(4)
+  expect(items.filter(item => item.getAttribute('aria-checked') === 'true')).toHaveLength(1)
+  expect(items[2]?.getAttribute('aria-checked')).toBe('true')
+  expect(items.every(item => item.disabled)).toBe(true)
 })
 
 it('lifts the chosen segment on the page, its strong ring, and primary ink — never the hover wash', () => {
