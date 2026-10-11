@@ -13,8 +13,10 @@ export type PageWidth = 'reading' | 'wide' | 'canvas'
  * write a max-width, a padding or an outer margin of its own. `reading` is the
  * app's reading measure (`--hd-column`), centred: a conversation, a setting, a
  * round's findings. `wide` is for tables and card grids (`--hd-page-wide`),
- * centred. `canvas` has no measure, for a board that fills the width, and
- * keeps `PaneColumn`'s dense canvas inset (`--hd-space-2`) on all four edges.
+ * centred. `canvas` fills the width and keeps `PaneColumn`'s dense canvas
+ * inset (`--hd-space-2`) on all four edges. A canvas may name a `measure` for
+ * its page blocks: the canvas keeps its frame inset while those blocks use the
+ * chosen centred page measure.
  * Reading and wide pages keep the reading inset (`--hd-page-gutter`) on all
  * four edges. A surface that brings its own geometry — a terminal, a diff,
  * a graph — bleeds instead of taking a page.
@@ -24,15 +26,18 @@ export type PageWidth = 'reading' | 'wide' | 'canvas'
  * facts against the sidebar, a button across the window and a switch in the
  * middle of it because nothing told the page what width it was.
  */
-export const Page = ({ width, gutter = 'page', fill = false, children, ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'className' | 'style'> & {
+export const Page = ({ width, measure, gutter = 'page', fill = false, children, ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'className' | 'style'> & {
   readonly width: PageWidth
+  /** A centred block measure inside a full-width canvas page. */
+  readonly measure?: 'reading' | 'wide'
   /** `none` lets an enclosing frame own the inset while this pattern owns its stack and measure. */
   readonly gutter?: 'page' | 'none'
   /** Fill the destination body's height so a page empty state can centre in its remaining space. */
   readonly fill?: boolean
   readonly children: ReactNode
 }) => {
-  const attributes = { 'data-slot': 'page', 'data-width': width, 'data-gutter': gutter, ...(fill ? { 'data-fill': '' } : {}), className: styles.page, ...props }
-  if (gutter === 'none') return <div {...attributes}>{children}</div>
-  return <PaneColumn {...(width === 'canvas' ? { inset: 'canvas' as const } : { inset: 'reading' as const, page: true })} {...attributes}>{children}</PaneColumn>
+  const attributes = { 'data-slot': 'page', 'data-width': width, 'data-gutter': gutter, ...(measure ? { 'data-measure': measure } : {}), ...(fill ? { 'data-fill': '' } : {}), className: styles.page, ...props }
+  const content = measure ? <div data-page-measure={measure} className={styles.measure}>{children}</div> : children
+  if (gutter === 'none') return <div {...attributes}>{content}</div>
+  return <PaneColumn {...(width === 'canvas' ? { inset: 'canvas' as const } : { inset: 'reading' as const, page: true })} {...attributes}>{content}</PaneColumn>
 }

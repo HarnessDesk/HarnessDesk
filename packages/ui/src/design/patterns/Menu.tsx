@@ -145,7 +145,7 @@ const FIRST_ROW =
  */
 // A shared empty state keeps a menu readable when every contextual action
 // is inapplicable. It carries no invented action or duplicate trigger label.
-const hasMenuContent = (content: ReactNode): boolean => {
+export const hasMenuContent = (content: ReactNode): boolean => {
   if (content === null || content === undefined || typeof content === 'boolean') return false
   if (Array.isArray(content)) return content.some(hasMenuContent)
   if (isValidElement<{children?:ReactNode}>(content) && content.type === Fragment) return hasMenuContent(content.props.children)

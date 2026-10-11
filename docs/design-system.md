@@ -1869,8 +1869,10 @@ A screen says what kind of page it is and passes its blocks; it does not
 write a max-width, a padding or an outer margin of its own. `reading` is the
 app's reading measure (`--hd-column`), centred: a conversation, a setting, a
 round's findings. `wide` is for tables and card grids (`--hd-page-wide`),
-centred. `canvas` has no measure, for a board that fills the width, and
-keeps `PaneColumn`'s dense canvas inset (`--hd-space-2`) on all four edges.
+centred. `canvas` fills the width and keeps `PaneColumn`'s dense canvas
+inset (`--hd-space-2`) on all four edges. A canvas may name a `measure` for
+its page blocks: the canvas keeps its frame inset while those blocks use the
+chosen centred page measure.
 Reading and wide pages keep the reading inset (`--hd-page-gutter`) on all
 four edges. A surface that brings its own geometry — a terminal, a diff,
 a graph — bleeds instead of taking a page.

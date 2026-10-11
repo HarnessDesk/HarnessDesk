@@ -163,8 +163,8 @@ export const ChangesView = () => {
               one leaves the layout entirely for the review workspace. Two ⤢ an
               inch apart, doing different things, is the reader's problem. */}
           <Button variant="ghost" size="icon-sm"
-            aria-label="Review in a full window"
-            title="Review in a full window — folders, hunks, and revise-this-hunk"
+            aria-label="Open review"
+            title="Open review"
             onClick={() => window.dispatchEvent(new CustomEvent('harnessdesk:review'))}
           >
             <ReviewIcon size={14} />
