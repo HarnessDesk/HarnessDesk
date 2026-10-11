@@ -285,7 +285,10 @@ it('shows reporting agents first and folds unreported agents into one note while
   const labels = [...menu.querySelectorAll<HTMLElement>('[data-menu-label]')].map(node => node.textContent?.trim())
   const currentUsage = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')]
     .find(item => item.querySelector('[data-menu-label]')?.textContent?.trim() === 'Usage remaining')
+  const codexUsage = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .find(item => item.querySelector('[data-menu-label]')?.textContent?.trim() === `${codex.presentation.name} usage`)
   expect(currentUsage?.title?.startsWith('Agent One —')).toBe(true)
+  expect(codexUsage?.querySelector('.brand-codex')).not.toBeNull()
   expect(labels.indexOf('Usage remaining')).toBeLessThan(labels.indexOf(`${codex.presentation.name} usage`))
   expect(labels).toContain('Sign in to Agent Four')
   expect([...menu.querySelectorAll<HTMLElement>('[data-menu-note]')].map(note => note.textContent?.trim()))

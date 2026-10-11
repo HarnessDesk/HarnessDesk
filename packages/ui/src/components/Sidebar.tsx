@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { SidebarNotices, useInboxMessages } from './Notices'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 import { useActiveSession, useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
-import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignInIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
+import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
 import { FrontDoor } from './FrontDoor'
 import { SessionListControls, SessionTree } from './SessionTree'
 import {
@@ -717,6 +717,10 @@ const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime: RuntimeId) => v
     accountPrefs: snapshot.accountPrefs, health: snapshot.health, activeRuntime: snapshot.activeRuntime, sessionRuntime: null, now })
   const meters: readonly StripMeter[] = [...(view.anchor?.kind === 'meter' ? [view.anchor.meter] : []), ...(view.rest?.meters ?? [])]
   const signIns = view.rest?.asides.filter(aside => aside.detail === 'Needs sign-in').map(aside => aside.info) ?? []
+  const markFor = (runtime: RuntimeId): ReactNode => {
+    const info = snapshot.runtimes.find(one => one.id === runtime)
+    return info ? <RuntimeMark runtime={info} size={16} /> : <AgentIcon size={16} />
+  }
   const signedInIds = new Set([
     ...(view.anchor?.kind === 'signIn' ? [view.anchor.info.id] : []),
     ...signIns.map(info => info.id),
@@ -730,22 +734,22 @@ const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime: RuntimeId) => v
       : noUsageNames.length === 2 ? `No usage reported: ${noUsageNames[0]} and ${noUsageNames[1]}`
         : `No usage reported: ${noUsageNames[0]}, ${noUsageNames[1]} and ${noUsageNames.length - 2} more`
   return <>
-    {view.anchor?.kind === 'signIn' && <MenuItem icon={<SignInIcon size={16} />} label={`Sign in to ${view.anchor.info.presentation.name}`}
+    {view.anchor?.kind === 'signIn' && <MenuItem icon={markFor(view.anchor.info.id)} label={`Sign in to ${view.anchor.info.presentation.name}`}
       onSelect={() => { if (view.anchor?.kind === 'signIn') onSignIn(view.anchor.info.id) }} />}
     {meters.map((meter, index) => {
       const key = `${meter.runtime}:${meter.report.account ?? ''}`, open = expanded === key
-      return <SeatUsageRows key={key} meter={meter} now={now} open={open}
+      return <SeatUsageRows key={key} meter={meter} now={now} open={open} icon={markFor(meter.runtime)}
         label={index === 0 && view.anchor?.kind === 'meter' ? 'Usage remaining' : `${meter.name}${meter.account ? ` · ${meter.account}` : ''} usage`}
         toggle={() => setExpanded(open ? null : key)} onOpen={() => onOpen(meter.runtime)} />
     })}
-    {signIns.map(info => <MenuItem key={info.id} icon={<SignInIcon size={16} />}
+    {signIns.map(info => <MenuItem key={info.id} icon={markFor(info.id)}
       label={`Sign in to ${info.presentation.name}`}
       onSelect={() => onSignIn(info.id)} />)}
     {noUsageSummary && <MenuNote>{noUsageSummary}</MenuNote>}
   </>
 }
-const SeatUsageRows = ({ meter, now, open, label, toggle, onOpen }: { meter: StripMeter; now: number; open: boolean; label: string; toggle: () => void; onOpen: () => void }) => <>
-  <MenuItem icon={<UsageIcon size={16} />} label={label} trailing={<><Text role="muted" tone={usageReadingTone(meter.tone)} numeric>{meter.figure}</Text><DisclosureChevron open={open} placement="trailing" tone={usageReadingTone(meter.tone) ? 'warning' : 'neutral'} /></>} expanded={open} keepOpen onSelect={toggle} title={meter.title} />
+const SeatUsageRows = ({ meter, now, open, icon, label, toggle, onOpen }: { meter: StripMeter; now: number; open: boolean; icon: ReactNode; label: string; toggle: () => void; onOpen: () => void }) => <>
+  <MenuItem icon={icon} label={label} trailing={<><Text role="muted" tone={usageReadingTone(meter.tone)} numeric>{meter.figure}</Text><DisclosureChevron open={open} placement="trailing" tone={usageReadingTone(meter.tone) ? 'warning' : 'neutral'} /></>} expanded={open} keepOpen onSelect={toggle} title={meter.title} />
   {open && <div data-usage-details>
     {(meter.report.plan || meter.report.account) && <MenuNote>{[meter.report.plan, meter.report.account].filter(Boolean).join(' · ')}</MenuNote>}
     <MenuFacts rows={meter.report.lanes.map(raw => {
