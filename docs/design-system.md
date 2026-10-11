@@ -2264,6 +2264,12 @@ A Settings record's actions: its name and distinguishing location, with destruct
 
 A quiet conversation or room state ends on the inset rail and folds to a dot for its own row's actions.
 
+### `TerminalShellTabs`
+
+`packages/ui/src/design/patterns/TerminalShellTabs.tsx`
+
+The shell tabs and panel actions share one row above the terminal screen.
+
 ### `ToolProse`
 
 `packages/ui/src/design/patterns/ToolBody.tsx`

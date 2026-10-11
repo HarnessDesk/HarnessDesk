@@ -223,6 +223,7 @@ export {
 } from './patterns/ChannelMessage'
 export { AgentCard, MemberName, CardBand, CardCrest, CardCrestBody, CardShell, type AgentCardAction, type AgentCardCaution, type AgentCardSubject } from './patterns/AgentCard'
 export * from './patterns/DockPanel'
+export { TerminalShellTabs, type TerminalShellTab } from './patterns/TerminalShellTabs'
 export { Checklist, ChecklistItem, type ChecklistState } from './patterns/Checklist'
 export { KindGlyph, StatePill, publicationVerb, stateTone, type StateToneState } from './patterns/PublicationCard'
 export { PlanCard, type PlanCardProps } from './patterns/PlanCard'

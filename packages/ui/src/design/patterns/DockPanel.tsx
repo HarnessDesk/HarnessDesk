@@ -396,6 +396,7 @@ export const DockPanelTab = ({
   onClose,
   label,
   live,
+  closeOnHover = false,
   className,
   ...props
 }: Omit<React.ComponentProps<typeof TabsTrigger>, 'children'> & {
@@ -409,6 +410,8 @@ export const DockPanelTab = ({
    * tab still says there is something in here to look at.
    */
   live?: boolean
+  /** Keep the close control hidden on the active tab until hover or keyboard focus. */
+  closeOnHover?: boolean
 }) => (
   /* Out of the strip's drag region, and the *tab* rather than the tab list:
      the list is `w-full`, so no-dragging it would hand the whole strip back
@@ -521,9 +524,8 @@ export const DockPanelTab = ({
          * on the trigger and never read by anything; the reveal hung off
          * `group/panel`, so pointing anywhere in the panel lit up every tab's
          * ✕ at once and pointing at a tab in a panel you were not over lit
-         * none. The active tab keeps its ✕ shown unconditionally — that is the
-         * tab you are looking at, and every tabbed interface on this machine
-         * offers to close it without being asked twice.
+         * none. By default the active tab keeps its ✕ shown; `closeOnHover`
+         * opts into the quieter hover-and-focus reveal used by shell tabs.
          *
          * `group-hover/panel` is gone rather than kept as a wider reveal: with
          * it here the paragraph above was a description of what the code did
@@ -541,7 +543,10 @@ export const DockPanelTab = ({
          * ever reach it: the ✕ did nothing when clicked. Positioning it puts it
          * back on top, where being the later sibling wins.
          */
-        className="relative -ml-5 inline-flex size-4 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) opacity-0 hover:bg-(--hd-hover) hover:text-(--hd-foreground) focus-visible:opacity-100 peer-data-active/tab:opacity-100 group-hover/tab:opacity-100 [&_svg]:size-3.5"
+        className={cn(
+          'relative -ml-5 inline-flex size-4 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) opacity-0 hover:bg-(--hd-hover) hover:text-(--hd-foreground) focus-visible:opacity-100 group-hover/tab:opacity-100 [&_svg]:size-3.5',
+          !closeOnHover && 'peer-data-active/tab:opacity-100',
+        )}
       >
         <CrossIcon />
       </Button>

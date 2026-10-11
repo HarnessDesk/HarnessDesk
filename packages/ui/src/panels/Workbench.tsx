@@ -14,13 +14,15 @@ import {
   type RefObject,
 } from 'react'
 
-import { FRAME, FixedShell, ShellNoticeHost, FixedPanelFrame, FixedPanelBody, FixedToolLayer, Tabs, TabsList, TabsTrigger, ToolBody, ToolBodySections, ToolFooterProvider, ToolFooterScope, ToolFooterOutlet, WorkbenchRail, WorkbenchScrim } from '../design'
+import { FRAME, FixedShell, ShellNoticeHost, FixedPanelFrame, FixedPanelBody, FixedToolLayer, TerminalShellTabs, ToolBody, ToolBodySections, ToolFooterProvider, ToolFooterScope, ToolFooterOutlet, WorkbenchRail, WorkbenchScrim } from '../design'
 import { DockPanelBody, PanelSeam } from '../design'
 import { dismissOverlays } from '../design'
 import { ComposerMountsProvider, NoticeStripFallback, NoticeStripOutlet } from '../components/Notices'
 import { Panes } from '../components/Panes'
+import { terminalName, terminalPathTitle } from '../lib/terminal-labels'
 import { KeyboardHereContext, PaneProvider, useSnapshot, useStore, type PaneScope } from '../state/context'
 import { findPane, sameView, type PaneView } from '../state/layout'
+import type { TerminalView } from '../state/layout'
 import {
   areaVisible,
   cornerArea,
@@ -37,11 +39,12 @@ import {
   fixedSubject,
   sidebarPlacement,
   type DockId,
+  type Mounted,
 } from '../state/workbench'
 import { hasTrafficLights } from '../lib/desktop'
 import { supportsFixedTool, toolOf } from '../state/frame-tools'
 import { MountProvider } from './mount'
-import { ViewHost, useViewTitle } from './views'
+import { ViewHost } from './views'
 import styles from './Workbench.module.css'
 
 import './builtins'
@@ -339,10 +342,24 @@ const RightPanel = () => {
 const BottomPanel = () => {
   const store = useStore(), snapshot = useSnapshot()
   const workbench = tileBrowserWorkbench(snapshot), dock = workbench.bottom
-  const entries = dockViews(dock).filter(entry => entry.view.kind === 'terminal')
-  const titleOf = useViewTitle()
+  const entries = dockViews(dock).filter(
+    (entry): entry is Mounted & { readonly view: TerminalView } => entry.view.kind === 'terminal',
+  )
   const current = activeView(dock)
   const active = entries.find(entry => entry.id === current?.id) ?? entries[0]
+  const activeTerminal = active?.view.kind === 'terminal' ? active.view : undefined
+  const occurrences = new Map<string, number>()
+  const terminalTabs = entries.map(entry => {
+    const name = terminalName(entry.view)
+    const occurrence = (occurrences.get(name) ?? 0) + 1
+    occurrences.set(name, occurrence)
+    return {
+      id: entry.id,
+      label: terminalName(entry.view, occurrence),
+      title: terminalPathTitle(entry.view.cwd, snapshot.home),
+      onClose: () => store.closeTerminal(entry.view.terminalId),
+    }
+  })
   const workActive = useContext(WorkActive)
   const shown = workActive && effectiveBottomHeight(workbench, snapshot.windowHeight) > 0
   const noticeHost = shown && noticeArea(workbench, snapshot.windowWidth) === 'bottom'
@@ -352,10 +369,14 @@ const BottomPanel = () => {
        {...(noticeHost ? { 'data-notice-host': '' } : {})}>
       {noticeHost && <NoticeStripOutlet host area="bottom" hostId="workbench:bottom" />}
       {noticeHost && <NoticeStripFallback area="bottom" />}
-      {entries.length > 1 && <Tabs value={active?.id ?? null} onValueChange={id => { if (id) store.activateView('bottom', id) }}>
-        <TabsList aria-label="Terminal processes" variant="line">{entries.map(entry => <TabsTrigger key={entry.id} value={entry.id}>
-          {titleOf(entry.view)}</TabsTrigger>)}</TabsList>
-      </Tabs>}
+      {activeTerminal && <TerminalShellTabs
+        tabs={terminalTabs}
+        value={active?.id ?? null}
+        newShellTitle={`New shell in ${terminalPathTitle(activeTerminal.cwd, snapshot.home)}`}
+        onValueChange={id => store.activateView('bottom', id)}
+        onNewShell={() => void store.openTerminal({ cwd: activeTerminal.cwd })}
+        onCloseTerminal={() => store.closeTerminalDock()}
+      />}
       <DockPanelBody className={styles.layers}>
         {entries.map(entry => <div key={entry.id} data-terminal-mount={entry.id} className={styles.layer}
           {...(shown && entry.id === active?.id ? {} : { 'data-hidden': '', inert: true })}>

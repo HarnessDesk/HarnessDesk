@@ -6,20 +6,17 @@ import '@xterm/xterm/css/xterm.css'
 import { useSnapshot, useStore } from '../state/context'
 import type { TerminalView } from '../state/layout'
 import { useMount } from '../panels/mount'
-import { ltr } from '../lib/projects'
 import { useTheme } from '../state/theme'
-import { CrossIcon, PlusIcon } from './Icons'
 import { terminalAppearance } from '../design/adapters/terminal'
 import {
   Button,
-  CodeText,
-  Text,
   ToolPane,
-  ToolPaneBar,
   ToolPaneBody,
   ToolPaneNotice,
 } from '../design'
 import styles from './ToolPanes.module.css'
+
+export { terminalName, terminalPathTitle } from '../lib/terminal-labels'
 
 /**
  * One integrated terminal.
@@ -54,52 +51,23 @@ const encode = (text: string): string => btoa(unescape(encodeURIComponent(text))
  * because they are the same three controls whatever is inside.
  */
 export const TerminalSurface = () => {
-  const store = useStore()
   const snapshot = useSnapshot()
   const mount = useMount()
   const view = mount?.view.kind === 'terminal' ? mount.view : null
   if (!view) return null
   const runtime = snapshot.runtimes.find((entry) => entry.id === view.runtime)
   return (
-    <ToolPane variant="integrated" data-terminal-id={view.terminalId}>
-      <ToolPaneBar
-        variant="terminal"
-        title={
-          [
-            runtime
-              ? `Runs inside ${runtime.presentation.name}'s sandbox${view.session ? ', with this conversation’s permissions' : ''}.`
-              : undefined,
-            'Press Escape, then Tab within 1.5 seconds to focus the panel controls.',
-          ].filter(Boolean).join(' ')
-        }
-      >
-        <Text role="meta" truncate className="min-w-0 [direction:rtl]" title={view.cwd}>
-          <CodeText size="inherit">{ltr(view.cwd)}</CodeText>
-        </Text>
-        <span style={{ flex: 1 }} />
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => void store.openTerminal({ cwd: view.cwd })}
-          title={`New shell in ${view.cwd}`}
-          aria-label="New terminal"
-        >
-          <PlusIcon size={12} />
-        </Button>
-        {/* Alone in its panel, this row is the only one — so the panel's verbs
-            live at the end of it rather than in a strip above saying
-            "Terminal" over a bar that already says where the shell is. */}
-        {<Button variant="ghost" size="icon-sm" aria-label="Close terminal" title="Close terminal"
-          onClick={() => store.closeTerminal(view.terminalId)}><CrossIcon size={12} /></Button>}
-      </ToolPaneBar>
+    <ToolPane
+      variant="integrated"
+      data-terminal-id={view.terminalId}
+      aria-label={runtime
+        ? `Terminal running inside ${runtime.presentation.name}'s sandbox${view.session ? ', with this conversation’s permissions' : ''}`
+        : 'Terminal'}
+    >
       <TerminalScreen view={view} />
     </ToolPane>
   )
 }
-
-/** What a terminal's tab is called: the command's first word, else the folder. */
-export const terminalName = (view: TerminalView): string =>
-  view.command?.[0]?.split('/').pop() ?? view.cwd.split('/').filter(Boolean).at(-1) ?? 'Terminal'
 
 /** The xterm surface for one terminal id; remounts when the id changes. */
 const TerminalScreen = ({ view }: { view: TerminalView }) => {
