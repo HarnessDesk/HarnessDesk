@@ -4613,3 +4613,8 @@ test('Library family owns no screen layout, measure or retired heads', () => {
 test('Plugins family owns no screen layout, measure or retired heads', () => {
   assert.deepEqual(pageLayoutFindings('plugins'), [])
 })
+
+
+test('Changes review family has zero page layout, measure and retired-frame findings', () => {
+  assert.deepEqual(pageLayoutFindings('review'), [])
+})
