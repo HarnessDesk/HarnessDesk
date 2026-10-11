@@ -1114,9 +1114,9 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
 
   return (
     <>
-      <BackLink to="Runtimes" onClick={onBack} />
       <PageHead
         title="Add a runtime"
+        parent={{ label: 'Runtimes', run: onBack }}
         blurb="A runtime keeps its own account, configuration and history; adding it here only tells HarnessDesk how to start it."
       />
       <Rows>
@@ -2050,7 +2050,7 @@ export const RuntimesSection = ({
     }
   }, [focus, snapshot.runtimes])
 
-  const back = (): void => setView({ kind: 'list' })
+  const back = useCallback((): void => setView({ kind: 'list' }), [])
   const openAccount = (runtime: RuntimeId, key: string): void => setView({ kind: 'account', runtime, key })
 
   const groups = useMemo(() => agentGroups(snapshot.runtimes), [snapshot.runtimes])

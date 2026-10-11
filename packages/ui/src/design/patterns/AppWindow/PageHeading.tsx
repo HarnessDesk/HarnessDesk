@@ -1,6 +1,11 @@
 import { createContext, useContext, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 
-export interface PageHeadingData { readonly place: ReactNode; readonly actions?: ReactNode }
+export interface PageHeadingParent { readonly label: string; readonly run: () => void }
+export interface PageHeadingData {
+  readonly place: ReactNode
+  readonly actions?: ReactNode
+  readonly parent?: PageHeadingParent
+}
 interface Channel {
   readonly claim: (token: object) => void
   readonly publish: (token: object, data: PageHeadingData) => void
@@ -17,7 +22,8 @@ export const PageHeadingProvider = ({ children, onHeading }: {
     return {
       claim: token => { current = token },
       publish: (token, data) => {
-        if (current !== token || (last?.place === data.place && last?.actions === data.actions)) return
+        if (current !== token || (last?.place === data.place && last?.actions === data.actions &&
+          last?.parent?.label === data.parent?.label && last?.parent?.run === data.parent?.run)) return
         last = data; receive.current(data)
       },
       remove: token => {
@@ -28,13 +34,13 @@ export const PageHeadingProvider = ({ children, onHeading }: {
   }, [])
   return <Heading.Provider value={channel}>{children}</Heading.Provider>
 }
-export const usePageHeading = (place: ReactNode, actions?: ReactNode): boolean => {
+export const usePageHeading = (place: ReactNode, actions?: ReactNode, parent?: PageHeadingParent): boolean => {
   const channel = useContext(Heading), token = useRef<object>({})
   useLayoutEffect(() => {
     const identity = token.current
     channel?.claim(identity)
     return () => channel?.remove(identity)
   }, [channel])
-  useLayoutEffect(() => { channel?.publish(token.current, { place, actions }) }, [channel, place, actions])
+  useLayoutEffect(() => { channel?.publish(token.current, { place, actions, parent }) }, [channel, place, actions, parent])
   return channel !== null
 }

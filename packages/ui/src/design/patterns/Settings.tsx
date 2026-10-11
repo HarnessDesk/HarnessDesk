@@ -1,4 +1,4 @@
-import { usePageHeading } from './AppWindow/PageHeading'
+import { usePageHeading, type PageHeadingParent } from './AppWindow/PageHeading'
 import { FaceBadge } from '../ui/icon-tile'
 import { Button } from '../ui/button'
 import { Children, createContext, createElement, isValidElement, useContext, useEffect, useId, useState, type ButtonHTMLAttributes, type ComponentProps, type CSSProperties, type FocusEventHandler, type HTMLAttributes, type KeyboardEventHandler, type ReactNode, type Ref } from 'react'
@@ -607,12 +607,15 @@ export const PageHead = ({
   title,
   blurb,
   actions,
+  parent,
 }: {
   title: ReactNode
   blurb?: ReactNode
   actions?: ReactNode
+  /** A parent link drawn in the shared top bar when this page sits inside a frame. */
+  parent?: PageHeadingParent
 }) => {
-  const inFrame = usePageHeading(title, actions)
+  const inFrame = usePageHeading(title, actions, parent)
   if (inFrame) return blurb || actions ? <div className={styles.pageHeadContent} data-page-support>
     {blurb && <div className={styles.pageHeadText}><p className={styles.pageBlurb}>{blurb}</p></div>}
     {actions && <div className={styles.pageCtl}>{actions}</div>}

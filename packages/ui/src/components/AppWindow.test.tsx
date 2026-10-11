@@ -9,6 +9,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { AppWindow as AppWindowBody, AppWindowMode, WindowGroup, WindowNav, WindowNavIdentity, WindowNavItem } from './AppWindow'
+import { AddAgents } from './SettingsAgents'
 import { Menu, MenuItem, PageHead, Popover, useEscapeSurface } from '../design'
 
 /**
@@ -74,6 +75,22 @@ it('does not repeat Settings as the parent crumb on a Settings page', async () =
   const place = container.querySelector('[data-topbar="place"]')!
   expect(place.querySelectorAll('button')).toHaveLength(0)
   expect(place.querySelector('[data-topbar-title]')?.textContent).toContain('General')
+})
+
+it('puts Add a runtime under a Runtimes crumb in the bar', async () => {
+  const back = vi.fn()
+  render(<AppWindowBody owner="settings" label="Settings" onClose={() => {}} onBack={() => {}}>
+    <AddAgents onBack={back} onDone={() => {}} />
+  </AppWindowBody>)
+  await frame()
+
+  const place = container.querySelector('[data-topbar="place"]')!
+  const parent = place.querySelector<HTMLButtonElement>('button')
+  expect(parent?.textContent?.trim()).toMatch(/^Runtimes/)
+  expect(place.querySelector('[data-topbar-title]')?.textContent).toBe('Add a runtime')
+  expect([...container.querySelectorAll('button')].filter(node => node.textContent?.trim().startsWith('Runtimes'))).toHaveLength(1)
+  act(() => parent?.click())
+  expect(back).toHaveBeenCalledOnce()
 })
 
 it.each(['darwin', 'browser'])('the actual %s window supplies native corner room only when it has traffic lights', async platform => {

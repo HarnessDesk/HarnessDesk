@@ -93,12 +93,18 @@ const AppWindowFrame = ({ owner, label, children, responsive = false, onBack, on
   const [heading, setHeading] = useState<PageHeadingData | null>(null)
   useTopBar(owner, {
     place: heading?.place ?? label,
-    parent: owner !== 'settings' && heading && heading.place !== label && onBack ? { label, run: onBack } : undefined,
+    parent: heading?.parent
+      ? { label: heading.parent.label, run: heading.parent.run }
+      : owner !== 'settings' && heading && heading.place !== label && onBack ? { label, run: onBack } : undefined,
     lead: sidebarPlacement(snapshot) !== 'column' ? <WindowControls /> : undefined,
     corner: columnWidth === 0,
     more: close => <MenuItem icon={<ArrowLeftIcon size={16} />} label="Back to app" onSelect={() => { onClose(); close() }} />,
   })
-  const receiveHeading = (next: PageHeadingData | null) => setHeading(current => current?.place === next?.place ? current : next)
+  const receiveHeading = (next: PageHeadingData | null) => setHeading(current =>
+    current?.place === next?.place &&
+    current?.parent?.label === next?.parent?.label && current?.parent?.run === next?.parent?.run
+      ? current : next,
+  )
   const pageContent = <PageHeadingProvider onHeading={receiveHeading}>{children}</PageHeadingProvider>
   const [host, setHost] = useState<HTMLDivElement | null>(null)
   const surface = useRef<HTMLDivElement>(null)
