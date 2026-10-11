@@ -65,6 +65,7 @@ import {
   AccountMark,
   RingChoices,
   IconTile,
+  InlineParts,
   SettingsRowMenu,
   Button,
   Card,
@@ -475,11 +476,11 @@ const AgentRow = ({
       kind="record"
       face={<RuntimeFace runtime={info} />}
       title={
-        <span title={info.presentation.tagline}>
+        <InlineParts title={info.presentation.tagline}>
           <span data-slot="runtime-name">{info.presentation.name}</span>
-          {build && <Text role="muted" ink="muted" numeric>{build}</Text>}
+          {build && <Text role="muted" ink="muted" numeric data-runtime-version="">{build}</Text>}
           {snapshot.activeRuntime === info.id && <Chip tone="neutral" size="sm">Default</Chip>}
-        </span>
+        </InlineParts>
       }
       desc={who ?? (state === 'signin' ? 'Not signed in' : undefined)} truncateDesc
       control={state === 'limit' || state === 'broken' ? <Chip state={state} /> : undefined}

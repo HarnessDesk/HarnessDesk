@@ -1,6 +1,6 @@
 import { sessionKey } from '@harnessdesk/protocol'
 import { useDestinationActive } from '../panels/destination-page'
-import { PageExplanation, PageControls, Clipped, ListRows } from '../design'
+import { PageExplanation, PageControls, Clipped, RowButton } from '../design'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { HistorySummary, HostMethods, RuntimeId, RuntimeInfo } from '@harnessdesk/protocol'
 import { BoardMenuButton, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Button, Chip, ConfirmDialog, EmptyState, Note, Row, Rows, RowValue, Search, SectionHead, Switch, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
@@ -128,12 +128,13 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
   return <>
     <PageExplanation>Conversations imported from your agents. Open one to preview it; send a message to add it to the sidebar.</PageExplanation>
     <PageControls search={{label:'Search history titles',placeholder:'Search titles',value:query,change:setQuery}}
-      choices={[{id:'agent',title:'History agent',value:agent,options:[{value:'',label:'All agents'},...snapshot.runtimes.map(info=>({value:info.id,label:info.presentation.name}))],change:setAgent},
-        {id:'project',title:'History project',value:project,options:[{value:'',label:'All projects'},...projectOptions.map(root=>({value:root,label:folderName(root)}))],change:setProject}]}/>
+      choices={[{id:'agent',title:'Agent',value:agent,options:[{value:'',label:'All agents'},...snapshot.runtimes.map(info=>({value:info.id,label:info.presentation.name}))],change:setAgent},
+        {id:'project',title:'Project',value:project,options:[{value:'',label:'All projects'},...projectOptions.map(root=>({value:root,label:folderName(root)}))],change:setProject}]}/>
     <Rows><Row title="Show hidden" control={<Switch aria-label="Show hidden" checked={hidden} onCheckedChange={setHidden}/>}/></Rows>
     {problem && <Note tone="bad" action={<Button variant="outline" size="sm" onClick={() => setRetry(was => was + 1)}>Retry</Button>}>{problem}</Note>}
     {!loading && !problem && rows.length === 0 && <EmptyState variant="inline" align="start" title={!anyImport && !agent && !project && !query.trim() && !hidden ? 'Import history from an agent’s settings page.' : 'Nothing matches these filters.'}
-      children={!anyImport ? <ListRows>{importable.map(info => <Button key={info.id} variant="outline" onClick={() => onOpenAgent(info.id)}>{info.presentation.name}</Button>)}</ListRows> : undefined} />}
+      children={!anyImport ? <Rows>{importable.map(info => <RowButton key={info.id} kind="record" mark={<RuntimeFace runtime={info} size="navigation" />}
+        title={info.presentation.name} onClick={() => onOpenAgent(info.id)} />)}</Rows> : undefined} />}
     {rows.length > 0 && <Table aria-rowcount={rows.length + 1} rows="bare" density="comfortable" inset="row" viewport={{ref:scroll, 'data-history-scroll':true, onScroll:event => {
       const node = event.currentTarget
       setViewport(was => ({ ...was, top: node.scrollTop, height: node.clientHeight || 440 }))

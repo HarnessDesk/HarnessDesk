@@ -12,13 +12,13 @@ export interface PageChoice {
 export const PageControls = ({ search, choices = [] }: {
   readonly search?: { readonly label: string; readonly placeholder: string; readonly value: string; readonly change: (value: string) => void }
   readonly choices?: readonly PageChoice[]
-}) => <Rows>
-  {search && <Row title={search.label} control={<Search label={search.label} placeholder={search.placeholder} value={search.value} onChange={search.change} />} />}
-  {choices.map(choice => <Row key={choice.id} title={choice.title} desc={choice.description}
+}) => <>
+  {search && <Search label={search.label} placeholder={search.placeholder} value={search.value} onChange={search.change} />}
+  {choices.length > 0 && <Rows>{choices.map(choice => <Row key={choice.id} title={choice.title} desc={choice.description}
     control={<NativeSelect aria-label={choice.title} value={choice.value} onChange={event => choice.change(event.target.value)}>
       {choice.options.map(option => <option key={option.value} value={option.value} disabled={option.disabled}>{option.label}</option>)}
-    </NativeSelect>} />)}
-</Rows>
+    </NativeSelect>} />)}</Rows>}
+</>
 /** A keyboard chord, with one keycap per key. */
 export const ShortcutKeys = ({ keys }: { readonly keys: readonly string[] }) =>
   <span data-slot="shortcut-keys" className={styles.keys}>{keys.map((key, index) => <Keycap key={`${index}:${key}`}>{key}</Keycap>)}</span>

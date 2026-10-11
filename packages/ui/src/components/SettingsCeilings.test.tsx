@@ -98,16 +98,21 @@ it('says, per runtime and per level, whether it holds the ceiling or is only ask
     'neutral', 'neutral', 'neutral', 'neutral',
   ])
   expect(chips()[0]?.title).toContain('Read-only sandbox')
+  expect(chips().map((chip) => chip.querySelector('[data-slot="chip"]')?.getAttribute('data-variant'))).toEqual([
+    'default', 'default', 'outline', 'outline',
+    'outline', 'outline', 'outline', 'outline',
+  ])
   expect(document.body.textContent).toContain('Alpha')
   expect(document.body.textContent).toContain('Beta')
+  const groupNote = document.body.querySelectorAll('[data-slot="ceiling-group-note"]')
+  expect(groupNote).toHaveLength(1)
+  expect(groupNote[0]?.textContent).toBe('Asked, not enforced')
   const runtimeRows = [...document.body.querySelectorAll<HTMLElement>('[data-slot="row"]')]
     .filter((row) => ['Alpha', 'Beta'].includes(row.querySelector('[data-slot="row-title"]')?.textContent ?? ''))
   expect(runtimeRows).toHaveLength(2)
   for (const row of runtimeRows) {
     expect(row.querySelectorAll('[data-ceiling][data-hold]')).toHaveLength(4)
-    expect(row.querySelectorAll('[data-slot="ceiling-hold-note"]')).toHaveLength(1)
-    expect(row.querySelector('[data-slot="ceiling-hold-note"]')?.textContent).toBe('Asked, not enforced')
-    expect(row.querySelectorAll('[data-slot="ceiling-hold-note"] [data-ceiling][data-hold]')).toHaveLength(0)
+    expect(row.querySelectorAll('[data-slot="ceiling-group-note"]')).toHaveLength(0)
   }
 })
 

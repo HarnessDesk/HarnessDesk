@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { RuntimeInfo } from '@harnessdesk/protocol'
 
-import { Row, RowChoice, Rows, Section, RowValue, Text } from '../design'
+import { InlineParts, Note, Row, RowChoice, Rows, Section, RowValue, Text } from '../design'
 import { runtimeHolds } from '../lib/ceilings'
 import { useSnapshot, useStore } from '../state/context'
 import type { UnheldCeilings } from '../state/store'
@@ -17,15 +17,16 @@ const RuntimeCeilings = ({ runtime }: { readonly runtime: RuntimeInfo }) => {
     title={runtime.presentation.name}
     control={
       <RowValue>
-        {holds.map((hold) => (
-          <CeilingChip
-            key={hold.level}
-            ceiling={{ level: hold.level, hold: hold.held ? 'held' : 'asked' }}
-            note={hold.how}
-            showHold={false}
-          />
-        ))}
-        {holds.some((hold) => !hold.held) && <span data-slot="ceiling-hold-note"><Text role="meta">Asked, not enforced</Text></span>}
+        <InlineParts>
+          {holds.map((hold) => (
+            <CeilingChip
+              key={hold.level}
+              ceiling={{ level: hold.level, hold: hold.held ? 'held' : 'asked' }}
+              note={hold.how}
+              showHold={false}
+            />
+          ))}
+        </InlineParts>
       </RowValue>
     }
   />
@@ -37,6 +38,7 @@ export const CeilingsSection = ({ focus = null }: { readonly focus?: string | nu
 
   const store = useStore()
   const snapshot = useSnapshot()
+  const hasAskedCeiling = snapshot.runtimes.some((runtime) => runtimeHolds(runtime).some((hold) => !hold.held))
   const section = useRef<HTMLElement>(null)
   const saving = useRef(false)
   const savingUnattended = useRef(false)
@@ -111,6 +113,7 @@ export const CeilingsSection = ({ focus = null }: { readonly focus?: string | nu
         <Rows>
           {snapshot.runtimes.map((runtime) => <RuntimeCeilings key={runtime.id} runtime={runtime} />)}
         </Rows>
+        {hasAskedCeiling && <Note><span data-slot="ceiling-group-note"><Text role="meta">Asked, not enforced</Text></span></Note>}
       </Section>
 
       <Section title="A ceiling a runtime cannot hold" description="In a conversation you are watching.">

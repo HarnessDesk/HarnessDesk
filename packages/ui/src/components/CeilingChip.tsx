@@ -12,6 +12,9 @@ export const CeilingChip = ({ ceiling, note, showHold = true }: { readonly ceili
     data-ceiling={ceiling.level}
     data-hold={ceiling.hold}
   >
-    <Chip tone={ceilingTone()}>{seatCeilingWords(showHold ? ceiling : { ...ceiling, hold: 'held' })}</Chip>
+    <Chip
+      tone={ceilingTone()}
+      variant={!showHold && ceiling.hold === 'asked' ? 'outline' : 'default'}
+    >{seatCeilingWords(showHold ? ceiling : { ...ceiling, hold: 'held' })}</Chip>
   </span>
 )
