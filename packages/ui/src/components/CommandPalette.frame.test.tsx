@@ -125,11 +125,14 @@ it('filters by type and presents session titles before their secondary agent and
   act(() => sessionTab!.click())
   const row = panel.querySelector<HTMLElement>('[data-palette-result]')
   expect(row).not.toBeNull()
-  expect(row?.querySelector('[data-palette-result-title]')?.textContent).toBe('Pin the flaky inventory check')
-  expect(row?.querySelector('[data-palette-result-title]')?.getAttribute('data-ink')).toBe('primary')
+  const title = row?.querySelector<HTMLElement>('[data-palette-result-title]')
+  expect(title?.textContent).toBe('Pin the flaky inventory check')
+  expect(title?.getAttribute('data-ink')).toBe('primary')
+  expect(title?.querySelector('b')?.textContent).toBe('flaky')
   expect(row?.querySelector('[data-palette-result-meta]')?.textContent).toBe('Sample · storefront')
   expect(row?.querySelector('[data-palette-result-meta]')?.getAttribute('data-ink')).toBe('secondary')
-  expect(row?.querySelector('[data-palette-result-title]')?.compareDocumentPosition(row.querySelector('[data-palette-result-meta]')!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  expect(title?.compareDocumentPosition(row!.querySelector('[data-palette-result-meta]')!)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  expect(row?.textContent).toBe('Pin the flaky inventory checkSample · storefront')
 })
 
 it('keeps type tabs, the tool-output filter, and keyboard hints in the palette chrome', async () => {
