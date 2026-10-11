@@ -84,6 +84,8 @@ import {
 import { editOf } from '../lib/handoff'
 import { findTodos, planOf, todoState, type Todo } from '../lib/todos'
 import { readToolResult, resultPartsToDraw } from '../lib/tool-result'
+import { folderShown } from '../lib/projects'
+import { activityLabel } from '../lib/turn-view'
 import { effectiveItemStatus } from '../lib/turn-view'
 import {
   bareToolName,
@@ -782,10 +784,19 @@ const Command = ({ item, root }: { item: CommandItem; root?: string }) => {
   const copyFailed = useCopyFailed()
   const labels = useContext(StepPathLabels)
   const described = describeCommand(item, root, labels)
+  const snapshot = useSnapshot()
+  const session = useActiveSession()
+  const waiting = item.status === 'inProgress' && snapshot.approvals.some(({ approval }) => approval.type === 'command'
+    && approval.itemId === item.id && (!session || approval.sessionId === session.id))
+  const folder = folderShown(item.cwd, snapshot.home, item.cwd)
+  const listing = item.actions.length === 1 && item.actions[0]?.type === 'listFiles'
+  const sentence = waiting ? `Waiting for approval · ${listing ? `List files in ${folder}` : shellCommandOf(item.command)}`
+    : listing ? `${item.status === 'completed' ? 'Listed' : item.status === 'failed' ? 'Could not list' : 'Listing'} files in ${folder}`
+      : item.status === 'inProgress' ? activityLabel(item) : described.sentence
   return (
     <Row
       icon={<TerminalIcon size={14} />}
-      title={described.sentence}
+      title={sentence}
       hoverTitle={described.path}
       meta={
         <>

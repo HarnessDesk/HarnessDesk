@@ -44,3 +44,11 @@ test('FIX9 stopped Team keeps its Researcher and explains round counts', async (
   await expect(agents).toContainText('Stopped')
   await expect(page.locator('[data-slot="team-overview"]')).not.toContainText('Rounds 0 of')
 })
+
+test('FIX9 command card waits for approval and names its folder', async ({ page }) => {
+  await openFrame(page, 'frame-wall=conversation&frame-fix9-command-waiting=1')
+  const transcript = page.locator('[data-live-transcript]')
+  await expect(transcript).toContainText('Waiting for approval · List files in storefront')
+  await expect(transcript).not.toContainText('Listed')
+  await expect(transcript).not.toContainText('/work/storefront')
+})

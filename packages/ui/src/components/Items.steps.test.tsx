@@ -150,3 +150,13 @@ describe('step sentences', () => {
     expect(titles()[2]?.closest('button')?.title).toBe('src/checkout/retry.ts')
   })
 })
+
+it('uses past tense for a completed directory listing and present tense while it runs', () => {
+  const command = { id: 'listing-state', type: 'command', command: 'ls -la', cwd: '/w/storefront',
+    origin: 'agent', actions: [{ type: 'listFiles', command: 'ls -la', path: '/w/storefront' }] }
+  render([{ ...command, status: 'inProgress' } as AgentItem])
+  expect(container.textContent).toContain('Listing files in storefront')
+  expect(container.textContent).not.toContain('Listed')
+  render([{ ...command, status: 'completed', exitCode: 0 } as AgentItem])
+  expect(container.textContent).toContain('Listed files in storefront')
+})

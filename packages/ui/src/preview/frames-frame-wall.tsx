@@ -575,9 +575,9 @@ export const FrameWall = () => {
         }],
       })
     }
-    if (destination === 'conversation' && session && query.get('frame-fix8-command-waiting') === '1') {
+    if (destination === 'conversation' && session && (query.get('frame-fix8-command-waiting') === '1' || query.get('frame-fix9-command-waiting') === '1')) {
       const command = { id: itemId('waiting-command'), type: 'command' as const, command: 'echo synthetic', cwd: '/work/storefront',
-        origin: 'agent' as const, status: 'inProgress' as const, actions: [], startedAt: Date.now() - 1000 }
+        origin: 'agent' as const, status: 'inProgress' as const, actions: query.get('frame-fix9-command-waiting') === '1' ? [{ type: 'listFiles' as const, command: 'ls -la', path: '/work/storefront' }] : [], startedAt: Date.now() - 1000 }
       Object.assign(snapshot, { sessions: new Map(snapshot.sessions).set(PREVIEW_SESSION_KEY, { ...session,
         status: { type: 'active' as const }, turns: [{ id: turnId('waiting-turn'), status: 'inProgress' as const, items: [command] }],
       }), approvals: [{ key: PREVIEW_SESSION_KEY, approval: { id: approvalId('waiting-approval'), sessionId: session.id,
