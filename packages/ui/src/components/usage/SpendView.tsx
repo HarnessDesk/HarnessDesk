@@ -1,6 +1,6 @@
 import type { LedgerReport, RuntimeId, RuntimeInfo } from '@harnessdesk/protocol'
 
-import { PageOptions, PageControls, Section } from '../../design'
+import { PageOptions, Section } from '../../design'
 import { PIVOTS, RANGES, Ranked, Spend, type Pivot, type TintOf } from './shared'
 
 /**
@@ -57,10 +57,9 @@ export const SpendView = ({
       }
     />
 
-    <Section title="Where it went">
-      <PageControls choices={[{ id: 'pivot', title: 'Group spend by', value: pivot,
-        options: PIVOTS.map(item => ({ value: item.value, label: item.label })),
-        change: value => onPivotChange(value as Pivot) }]} />
+    <Section title="Where it went" action={
+      <PageOptions choices={[{id:'pivot',label:'Group spend by',value:pivot,items:PIVOTS,change:value=>onPivotChange(value as Pivot)}]} />
+    }>
       <Ranked
         ledger={ledger}
         wideLedger={wideLedger}
