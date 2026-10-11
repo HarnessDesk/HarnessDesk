@@ -18,7 +18,7 @@ const emptyLedger = (days: number): LedgerReport => ({
   totalCost: null,
   totalTokens: 0,
   provenance: 'unknown',
-  coverage: { priced: 0, unpriced: 0, unmetered: 0, estimated: 0, daysCovered: 0, daysRequested: days },
+  coverage: { priced: 0, unpriced: 0, unmetered: 0, estimated: 0, daysCovered: 0, daysRequested: days, earliestDay: null, coveredDays: [] },
   rows: [],
   daily: [],
   scannedAt: null,
@@ -31,4 +31,15 @@ it('places the empty plot inside a chart card', () => {
   const cards = frame.querySelectorAll<HTMLElement>(':scope > [data-slot="chart-card"]')
   expect(cards).toHaveLength(2)
   expect(cards[1]?.contains(empty)).toBe(true)
+})
+
+it('does not show zero spend for shorter periods containing unscanned days', () => {
+  act(() => root.render(<Spend ledger={emptyLedger(30)} wideLedger={emptyLedger(60)} byId={new Map()} tintOf={() => 'blue'} scan={null} now={Date.parse('2026-10-10T12:00:00')} range={30} mode="bars" onModeChange={() => {}} onScan={() => {}} />))
+  const stats = [...host.querySelectorAll('[data-slot="stat"]')]
+  expect(stats.find(stat => stat.textContent?.includes('Today'))?.textContent).toContain('Not read yet')
+  expect(stats.find(stat => stat.textContent?.includes('Last 7 days'))?.textContent).toContain('Not read yet')
+  expect(host.querySelector('[data-slot="chart-title"]')?.textContent).toBe('—')
+  expect(host.textContent?.match(/0 of 30 days scanned/g)).toHaveLength(1)
+  expect(host.textContent).toContain('No usage recorded in this window')
+  expect(host.textContent).not.toContain('unpriced')
 })

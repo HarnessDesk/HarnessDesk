@@ -315,6 +315,22 @@ export const FrameWall = () => {
       }) as typeof next.transport.request
     }
 
+    if (destination === 'dashboard' && query.has('frame-fix9-ledger')) {
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = (async (method, params) => {
+        if (method !== 'usage/ledger') return request(method, params as never)
+        const days = (params as { days: number }).days, runtime = snapshot.activeRuntime!
+        const today = new Date(); today.setHours(0, 0, 0, 0)
+        const coveredDays = Array.from({ length: days }, (_, i) => new Date(today.getFullYear(), today.getMonth(), today.getDate() - i).getTime())
+          .filter((_, i) => query.get('frame-fix9-ledger') !== 'mixed' || i > 2)
+        const daily = coveredDays.map(day => ({ day, runtime, cost: query.get('frame-fix9-ledger') === 'mixed' ? 2 : 0, tokens: 10, requests: 1 }))
+        return { days, currency: 'USD', totalCost: daily.reduce((sum, one) => sum + one.cost, 0), totalTokens: daily.length * 10,
+          provenance: 'metered', coverage: { priced: daily.length, unpriced: 0, unmetered: 0, estimated: 0,
+            daysCovered: coveredDays.length, daysRequested: days, coveredDays, earliestDay: Math.min(...coveredDays) },
+          daily, rows: [{ key: 'recorded', label: 'Recorded work', runtime, cost: daily.reduce((sum, one) => sum + one.cost, 0), tokens: daily.length * 10, hasUnpriced: false }], scannedAt: Date.now() }
+      }) as typeof next.transport.request
+    }
+
     if (destination === 'conversation' && query.get('frame-palette-files') === '1') {
       const request = next.transport.request.bind(next.transport)
       next.transport.request = (async (method: HostMethodName, params: unknown, options?: { signal?: AbortSignal }) => {

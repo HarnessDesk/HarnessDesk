@@ -693,11 +693,12 @@ export const Spend = ({
   // figure on this page uses, rather than a number that is quietly only
   // part of the truth.
   const turnsPartial = metric === 'turns' && ledger !== null && ledger.totals?.turns === undefined
+  const noRecordedUsage = ledger !== null && ledger.daily.length === 0 && (ledger.totalTokens ?? 0) === 0
   const headline =
     ledger === null
       ? '—'
       : metric === 'cost' && ledger.totalCost === null
-        ? 'unpriced'
+        ? '—'
         : turnsPartial
           ? '—'
           : format(series.total)
@@ -774,8 +775,8 @@ export const Spend = ({
               />
             )}
           </ChartHead>
-          <DashboardStats facts={periods.map(period => ({id:String(period.days),label:period.label,value:format(period.cost),
-            qualifier:period.partial ? 'so far' : undefined,
+          <DashboardStats facts={periods.map(period => ({id:String(period.days),label:period.label,value:period.unknown ? 'Not read yet' : format(period.cost),
+            qualifier:!period.unknown && period.partial ? 'so far' : undefined,
             trend:!period.partial && !turnsPartial && period.change !== null ? <Delta value={Math.round(period.change)} better="down" caption={`vs the ${period.days} days before`} tone={metric === 'cost' ? undefined : 'neutral'} /> : undefined,
           }))} />
         </ChartCard>
@@ -816,7 +817,7 @@ export const Spend = ({
                 scan?.running
                   ? 'Reading transcripts'
                   : metric === 'cost'
-                    ? 'No priced usage in this window yet'
+                    ? noRecordedUsage ? 'No usage recorded in this window' : 'No priced usage in this window'
                     : `${words.empty} in this window`
               }
               description={scan?.running ? `${scan.filesDone} of ${scan.filesTotal} files` : undefined}
@@ -825,7 +826,7 @@ export const Spend = ({
         )}
 
         {showFooter && <ChartFoot>
-          <Text role="meta">{coverageSentence(ledger, metric)}</Text>
+          <Text role="meta">{noRecordedUsage ? null : coverageSentence(ledger, metric)}</Text>
           <ToolbarGap />
           <Button size="sm" variant="ghost" disabled={scan?.running} onClick={onScan}>
             {scan?.running ? `Scanning ${scan.filesDone}/${scan.filesTotal}` : 'Rescan'}
@@ -845,7 +846,7 @@ export const Spend = ({
  */
 const coverageSentence = (ledger: LedgerReport | null, metric: ChartMetric): string => {
   if (!ledger) return 'Nothing has been scanned yet.'
-  const covered = coverageLabel(ledger)
+  const covered = ''
   if (metric === 'tokens') {
     const parts: string[] = []
     if (ledger.totalTokens !== null) parts.push(`${formatTokens(ledger.totalTokens)} tokens`)
