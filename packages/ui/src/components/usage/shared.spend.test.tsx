@@ -70,7 +70,7 @@ it('agrees to the cent across ranges for a partly read week beside a quiet day',
   render(30)
   const week = [...host.querySelectorAll('[data-slot="stat"]')].find(stat => stat.textContent?.includes('Last 7 days'))!
   expect(week.textContent).toContain(headline)
-  expect(week.textContent).toContain('4 of 7 days read')
+  expect(week.textContent).toContain('4 of 7 days scanned')
   expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('TodayNot read yet')
   render(7, { ...ledger(7), daily: [], totalCost: 0 }, day(1) + 12 * 3600000)
   expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('Today$0')
