@@ -183,3 +183,12 @@ export const PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
   ...E3_PAGE_WALL_DESTINATIONS,
 ]
 ;(WALL_DESTINATIONS as WallDestination[]).push(...PAGE_WALL_DESTINATIONS)
+
+export const AGENTS_PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
+  { id: 'e4-agents-roster', query: 'frame-wall=agents', pageWidth: 'wide' },
+  { id: 'e4-agent-detail', query: 'frame-wall=agents&frame-detail=agent', pageWidth: 'reading' },
+  { id: 'e4-agent-parse', query: 'frame-wall=agents&frame-agent-case=parse', pageWidth: 'reading' },
+  { id: 'e4-agent-refused', query: 'frame-wall=agents&frame-agent-case=refused', pageWidth: 'reading' },
+  { id: 'e4-agent-missing', query: 'frame-wall=agents&frame-agent-case=missing', pageWidth: 'wide' },
+]
+;(PAGE_WALL_DESTINATIONS as WallDestination[]).push(...AGENTS_PAGE_WALL_DESTINATIONS)

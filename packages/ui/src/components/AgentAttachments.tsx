@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 
 import type { AgentAttachmentsView, AgentEntry, AttachmentEditPreview, AttachmentReview } from '@harnessdesk/protocol'
 
-import { Banner, Button, CodeText, ConfirmDialog, Dialog, Note, Checkbox, Row, Rows, SectionHead, SummaryItem } from '../design'
+import { Banner, Button, CodeText, ConfirmDialog, Dialog, FormStack, Note, Checkbox, Row, Rows, SectionHead, SummaryItem } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { DiffView } from './Diff'
 
@@ -84,10 +84,10 @@ export const AgentAttachments = ({
         {...(loadable && anyCapable && snapshot.workspace
           ? {
               note: (
-                <span className="inline-flex flex-wrap items-center gap-2">
+                <>
                   {`Review what this Agent would load in ${snapshot.workspace.name}`}
                   <Button size="sm" variant="outline" onClick={() => setReviewing(true)}>Review & Approve…</Button>
-                </span>
+                </>
               ),
             }
           : {})}
@@ -173,8 +173,8 @@ const AttachmentEditDialog = ({
       onClose={onClose}
       footer={
         <>
-          <Button variant="default" disabled={busy || !preview} onClick={save}>{busy ? 'Writing…' : 'Save'}</Button>
           <Button variant="secondary" disabled={busy} onClick={onClose}>Cancel</Button>
+          <Button variant="default" disabled={busy || !preview} onClick={save}>{busy ? 'Writing…' : 'Save'}</Button>
         </>
       }
     >
@@ -211,10 +211,10 @@ const AttachmentEditDialog = ({
       </Rows>
       {problem && <Banner tone="danger" title="This cannot be written">{problem}</Banner>}
       {preview && (
-        <div className="space-y-2">
+        <FormStack>
           <CodeText>{preview.path}</CodeText>
           <DiffView diff={preview.diff} wrap />
-        </div>
+        </FormStack>
       )}
     </Dialog>
   )
@@ -296,14 +296,14 @@ const AttachmentReviewDialog = ({
     >
       {problem && <Banner tone="danger" title="This could not be reviewed">{problem}</Banner>}
       {review && (
-        <div className="space-y-2">
+        <FormStack>
           <Note>{review.consequence}</Note>
           <Note>Effective ceiling: {review.effectiveCeiling}</Note>
           {review.files.map((file) => (
-            <div key={file.path} className="space-y-1">
+            <FormStack key={file.path}>
               <CodeText>{file.path}</CodeText>
               <CodeText as="pre">{file.text}</CodeText>
-            </div>
+            </FormStack>
           ))}
           {hidden.length > 0 && (
             <Rows>
@@ -315,7 +315,7 @@ const AttachmentReviewDialog = ({
               />
             </Rows>
           )}
-        </div>
+        </FormStack>
       )}
     </ConfirmDialog>
   )

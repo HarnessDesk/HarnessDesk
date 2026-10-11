@@ -1,4 +1,8 @@
-import { act } from 'react'
+import { act, useState } from 'react'
+import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
+import { DestinationPageScope } from '../panels/destination-page'
+import { installTopBarTestLayout } from '../test/top-bar-layout'
+installTopBarTestLayout()
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
@@ -38,7 +42,7 @@ const agent = (
 ): AgentEntry => ({
   id,
   origin,
-  path: origin === 'user' ? `/Users/dev/.harnessdesk/agents/${id}/AGENT.md` : `/w/storefront/.harnessdesk/agents/${id}/AGENT.md`,
+  path: origin === 'user' ? `/home/dev/.harnessdesk/agents/${id}/AGENT.md` : `/w/storefront/.harnessdesk/agents/${id}/AGENT.md`,
   digest: 'd',
   shadows: [],
   problems: [],
@@ -106,12 +110,21 @@ const PLANS = new Map<string, SeatPlan>([
   ],
 ])
 
-const mount = (over: Partial<AppSnapshot> = {}, storeOver: Record<string, unknown> = {}): AppStore => {
+const RosterHarness = ({ focus: supplied, onFocus }: {
+  readonly focus?: string | null; readonly onFocus?: (id: string | null) => void
+}) => {
+  const [own, setOwn] = useState<string | null>(null)
+  return <TopBarProvider><DestinationPageScope owner="destination:agents" active>
+    <AgentsRosterSection focus={supplied === undefined ? own : supplied} onFocus={id => { setOwn(id); onFocus?.(id) }} />
+  </DestinationPageScope><TopBarOutlet owner="destination:agents" fallback={{ place: 'Agents', more: () => null }} /></TopBarProvider>
+}
+
+const mount = (over: Partial<AppSnapshot> = {}, storeOver: Record<string, unknown> = {}, selection: { focus?: string | null; onFocus?: (id: string | null) => void } = {}): AppStore => {
   const snapshot = {
     ...emptySnapshot(),
     status: 'open',
-    home: '/Users/dev',
-    stateDir: '/Users/dev/.harnessdesk',
+    home: '/home/dev',
+    stateDir: '/home/dev/.harnessdesk',
     workspace: { path: '/w/storefront', name: 'storefront', lastOpenedAt: 1 },
     runtimes: [{ id: runtimeId('claude-code'), capabilities: {}, presentation: { name: 'Claude' } } as unknown as RuntimeInfo],
     agents: ROSTER,
@@ -128,6 +141,7 @@ const mount = (over: Partial<AppSnapshot> = {}, storeOver: Record<string, unknow
     discardAuthoringSave: vi.fn(async () => []),
     applyAuthoringSave: vi.fn(async () => ({ state: 'refused', written: [], message: 'not wired in this test' })),
     loadAgents: vi.fn(async () => {}),
+    loadSeating: vi.fn(async () => {}),
     readAuthoring: vi.fn(async (target: { readonly id?: string }) => ({
       target,
       source: '---\nname: x\n---\nBrief.\n',
@@ -142,7 +156,7 @@ const mount = (over: Partial<AppSnapshot> = {}, storeOver: Record<string, unknow
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <AgentsRosterSection />
+        <RosterHarness {...selection} />
       </StoreProvider>,
     )
   })
@@ -154,7 +168,8 @@ const sectionText = (label: string): string =>
 
 it('heads the page as the roadmap says', () => {
   mount()
-  expect(container.querySelector('[data-slot="page-title"]')?.textContent).toBe('Agents')
+  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Agents')
+  expect(container.querySelector('[data-slot="page-title"]')).toBeNull()
   expect(container.textContent).toContain('Who does the work: a brief, the most it may do, and the seats it prefers.')
 })
 
@@ -354,4 +369,15 @@ it('names no folder for a roster still read for the workspace open before', () =
   expect(sectionText('In storefront')).toContain('Read from the Agents folder, and committed with the code')
   expect(container.textContent).not.toContain('/w/storefront/.harnessdesk/agents')
   expect(container.textContent).not.toContain('undefined')
+})
+
+it('the supplied Agent route is authoritative and its parent records the list route', () => {
+  const onFocus = vi.fn()
+  mount({}, { readAgentAttachments: vi.fn(async () => ({ declarations: [], support: [] })), readAgentNotes: vi.fn(async () => ({ text: null })) }, { focus: ROSTER[0]!.id, onFocus })
+  const parent = [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Agents ›')
+  expect(parent).toBeTruthy()
+  act(() => parent!.click())
+  expect(onFocus).toHaveBeenCalledWith(null)
+  mount({}, {}, { focus: null, onFocus })
+  expect(container.textContent).toContain('Who does the work: a brief, the most it may do, and the seats it prefers.')
 })

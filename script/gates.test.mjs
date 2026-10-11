@@ -4597,3 +4597,7 @@ test('E Settings screen layout, measures and old heads are zero', () => {
 test('Dashboard family owns no screen layout, measure or retired heads', () => {
   assert.deepEqual(pageLayoutFindings('dashboard'), [])
 })
+
+test('Agents family owns no screen layout, measure or retired heads', () => {
+  assert.deepEqual(pageLayoutFindings('agents'), [])
+})
