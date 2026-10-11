@@ -172,6 +172,9 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
     : undefined
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
+  PageControls: ['default'],
+  PageOptions: ['default'],
+  SettingsChoices: ['default'],
   MainDestination: ['light', 'dark'],
   InboxMenu: ['default'],
   SubjectActionsMenu: ['default'],
@@ -287,6 +290,9 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
+  PageControls: ['default', 'disabled'],
+  PageOptions: ['default', 'loading', 'folded-state'],
+  SettingsChoices: ['populated', 'unknown', 'selected'],
   MainDestination: ['default', 'open', 'closed'],
   InboxMenu: ['default'],
   SubjectActionsMenu: ['default'],
@@ -433,6 +439,9 @@ Object.assign(SIZES, {
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
+  PageControls: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  PageOptions: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  SettingsChoices: 'packages/ui/src/components/SettingsYou.tsx',
   MainDestination: 'packages/ui/src/panels/Workbench.tsx',
   InboxMenu: 'packages/ui/src/design/patterns/Notices.tsx',
   SubjectActionsMenu: 'packages/ui/src/components/TeamRoomPane.tsx',
@@ -488,6 +497,9 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
 Object.assign(PATTERN_CONSUMER, { LeftColumn: 'packages/ui/src/components/Sidebar.tsx' })
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  PageControls: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  PageOptions: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  SettingsChoices: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   MainDestination: 'packages/ui/src/design/explorer/boards-compositions.tsx',
 
   SeatList: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -689,6 +701,9 @@ export const CANONICAL_PATTERN_MODULES = [
   ['FlowCanvas', 'flow-canvas', 'A lazy, controlled plan canvas: pan, zoom, selection, edits and read-only Run state slots'],
   ['FlowGraph', 'flow-graph', 'A Flow’s steps and rules drawn read-only, with the list that says the same'],
   ['FlowStepRow', 'flow-graph', 'Shared Flow and main Run Timeline step rows with kind, recorded state, time and run count'],
+  ['PageControls', 'page-controls', 'Labelled page fields, complete explanations and shortcut keys'],
+  ['PageOptions', 'page-options', 'Current page choices and read actions in the first body block'],
+  ['SettingsChoices', 'settings-choices', 'Picture, accent and account ring choices with preserved radio behavior'],
   ['Page', 'app-frame', 'The page template at its reading, wide and canvas measures'],
   ['PaneColumn', 'conversation', 'The reading column\'s inset, shared by the transcript and the room stream, plus the bars strip, the jobs strip and the rail'],
   ['PlanCard', 'plan-card', 'A plan\'s price and a key or metered account\'s monthly budget, set once from a suggested price'],

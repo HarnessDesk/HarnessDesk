@@ -241,6 +241,8 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-table-end-gap` | `12px` |
 | `--hd-history-detail-min-h` | `160px` |
 | `--hd-field-h` | `30px` |
+| `--hd-field-name-width` | `220px` |
+| `--hd-field-path-width` | `280px` |
 | `--hd-control-h-lg` | `<cycle>` |
 | `--hd-chip-h` | `22px` |
 | `--hd-chip-radius-sm` | `calc(6px * 5 / 6)` |
@@ -1763,6 +1765,48 @@ it names; a `Section` brings its own larger step. A Team's Findings drew its
 facts against the sidebar, a button across the window and a switch in the
 middle of it because nothing told the page what width it was.
 
+### `PageControls`
+
+`packages/ui/src/design/patterns/PageControls.tsx`
+
+Labelled search and choices, using the Settings row control slots.
+
+### `ShortcutKeys`
+
+`packages/ui/src/design/patterns/PageControls.tsx`
+
+A keyboard chord, with one keycap per key.
+
+### `PageExplanation`
+
+`packages/ui/src/design/patterns/PageControls.tsx`
+
+A complete page explanation in the prose role.
+
+### `PreservedText`
+
+`packages/ui/src/design/patterns/PageControls.tsx`
+
+Source prose retaining its line breaks, wrapping within the page.
+
+### `InlineQualifier`
+
+`packages/ui/src/design/patterns/PageControls.tsx`
+
+A short qualifier beside the fact it belongs to.
+
+### `PageNotes`
+
+`packages/ui/src/design/patterns/PageControls.tsx`
+
+Complete supporting notes that belong to a page group.
+
+### `PageOptions`
+
+`packages/ui/src/design/patterns/PageOptions.tsx`
+
+Current choices, search and read actions in the first body block; long menu choices wrap within the page.
+
 ### `PaneColumn`
 
 `packages/ui/src/design/patterns/PaneColumn.tsx`
@@ -2188,6 +2232,24 @@ Initials inside a row's neutral mark. They identify the thing without becoming i
 
 Compact facts whose dot separators belong to the role, not to each caller.
 
+### `PictureChoices`
+
+`packages/ui/src/design/patterns/SettingsChoices.tsx`
+
+Pictures as one radio group; arrows choose across an eight-column grid and unknown pictures check nothing.
+
+### `AccentChoices`
+
+`packages/ui/src/design/patterns/SettingsChoices.tsx`
+
+Accent colours as radio choices, with palette values supplied by the caller.
+
+### `RingChoices`
+
+`packages/ui/src/design/patterns/SettingsChoices.tsx`
+
+Account ring colours, keeping the selected mark and current tint callback.
+
 ### `SettingsRowMenu`
 
 `packages/ui/src/design/patterns/SettingsRowMenu.tsx`
@@ -2259,5 +2321,5 @@ list only goes down, except when the audit learns to see something it was blind 
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 76 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 21 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2840 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `screenLayout` | 2821 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 

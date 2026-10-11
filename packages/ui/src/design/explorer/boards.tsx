@@ -174,6 +174,7 @@ const BUTTON_CATALOG_VARIANTS = ['default', 'outline', 'secondary', 'ghost', 'fl
 const BUTTON_CATALOG_SIZES = ['default', 'xs', 'sm', 'sidebar-nav', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'log-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'] as const
 const BUTTON_CATALOG_STATES = ['default', 'hover', 'focus-visible', 'disabled'] as const
 const INPUT_CATALOG_VARIANTS = ['default', 'quiet', 'filled', 'chrome', 'code'] as const
+const INPUT_CATALOG_MEASURE = ['auto', 'name', 'path'] as const
 const INPUT_CATALOG_SIZES = ['default', 'compact', 'bare', 'row'] as const
 const INPUT_CATALOG_STATES = ['default', 'focus-visible', 'disabled', 'error'] as const
 const NATIVE_SELECT_CATALOG_VARIANTS = ['default', 'filled'] as const
@@ -508,6 +509,9 @@ const ControlBoard = () => {
             ))}
             {INPUT_CATALOG_SIZES.map((controlSize) => (
               <Input key={controlSize} controlSize={controlSize} data-catalog-size={controlSize} placeholder={controlSize} aria-label={`${controlSize} input size`} />
+            ))}
+            {INPUT_CATALOG_MEASURE.map(measure => (
+              <Input key={measure} measure={measure} data-catalog-measure={measure} placeholder={measure} aria-label={`${measure} input measure`} />
             ))}
             <Input disabled value="disabled" aria-label="Disabled input" readOnly />
             <Input aria-invalid value="invalid" aria-label="Invalid input" readOnly />

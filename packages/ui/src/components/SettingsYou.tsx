@@ -1,5 +1,5 @@
 import { useInboxMessages } from './Notices'
-import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { useSnapshot, useStore } from '../state/context'
 import { chordParts, SHORTCUTS, type Shortcut } from '../lib/shortcuts'
@@ -19,7 +19,8 @@ import {
 import { EditorSample, ThemeCards, useResolvedDark } from './AppearancePreview'
 import {
   Button,
-  Card,
+  PictureChoices,
+  AccentChoices,
   DetailHead,
   Face,
   Input,
@@ -145,7 +146,7 @@ export const ProfileSection = () => {
           desc={`Leave it empty to use ${DEFAULT_PROFILE_NAME}.`}
           control={
             <Input
-              className={styles.nameField}
+              measure="name"
               value={draft}
               placeholder={DEFAULT_PROFILE_NAME}
               aria-label="Your name"
@@ -196,13 +197,8 @@ export const ProfileSection = () => {
 /**
  * Eight to a row: Default and the mark's six colourways fill the first row and
  * a tile over, and the twenty-three whales run on to the end of the fourth.
- * The grid takes its column count from here (`--face-columns`), so the step
- * Up and Down take and the row the eye sees are one number.
+ * The system pattern owns both the eight-column grid and the arrow step.
  */
-const FACE_COLUMNS = 8
-
-const ARROWS: ReadonlySet<string> = new Set(['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'])
-
 const FACE_CHOICES: readonly { readonly id: AvatarId | null; readonly label: string; readonly about: string }[] = [
   { id: null, label: 'Default', about: 'The HarnessDesk mark' },
   ...AVATARS,
@@ -241,71 +237,7 @@ const FacePicker = ({
   describedBy?: string | undefined
   onChange: (next: AvatarId | null) => void
 }) => {
-  const buttons = useRef<(HTMLButtonElement | null)[]>([])
-  const current = FACE_CHOICES.findIndex((choice) => choice.id === (value ?? null))
-  const stop = current === -1 ? 0 : current
-  const last = FACE_CHOICES.length - 1
-  const step = (from: number, key: string): number | null => {
-    switch (key) {
-      case 'ArrowRight':
-        return from + 1 <= last ? from + 1 : null
-      case 'ArrowLeft':
-        return from - 1 >= 0 ? from - 1 : null
-      case 'ArrowDown':
-        return from + FACE_COLUMNS <= last ? from + FACE_COLUMNS : null
-      case 'ArrowUp':
-        return from - FACE_COLUMNS >= 0 ? from - FACE_COLUMNS : null
-      default:
-        return null
-    }
-  }
-
-  return (
-    <Card spacing="compact" radius="lg">
-      <div
-        className={styles.faces}
-        style={{ '--face-columns': FACE_COLUMNS } as CSSProperties}
-        role="radiogroup"
-        aria-label="Picture"
-        {...(describedBy ? { 'aria-describedby': describedBy } : {})}
-      >
-        {FACE_CHOICES.map((choice, index) => {
-        const on = index === current
-        return (
-          <Button
-            key={choice.id ?? 'default'}
-            ref={(node) => {
-              buttons.current[index] = node
-            }}
-            type="button"
-            role="radio"
-            aria-checked={on}
-            aria-label={choice.label}
-            title={`${choice.label} — ${choice.about}`}
-            tabIndex={index === stop ? 0 : -1}
-            variant="ghost" size="inline" className={styles.faceChoice}
-            data-swatch
-            {...(on ? { 'data-on': '' } : {})}
-            onClick={() => onChange(choice.id)}
-            onKeyDown={(event) => {
-              if (!ARROWS.has(event.key)) return
-              // The arrows are the group's even with nowhere to go: left to
-              // the page, one would scroll it under the tile.
-              event.preventDefault()
-              const next = step(index, event.key)
-              const target = next === null ? undefined : FACE_CHOICES[next]
-              if (next === null || !target) return
-              onChange(target.id)
-              buttons.current[next]?.focus()
-            }}
-          >
-            <Face avatar={choice.id} size={44} className={styles.faceTile} />
-          </Button>
-        )
-        })}
-      </div>
-    </Card>
-  )
+  return <PictureChoices value={value} items={FACE_CHOICES} describedBy={describedBy} change={onChange} />
 }
 
 /**
@@ -376,32 +308,9 @@ const AccentSwatches = () => {
   const store = useStore()
   const { accent, palette } = useSnapshot()
   const dark = useResolvedDark()
-  return (
-    <span className={styles.swatches} role="radiogroup" aria-label="Accent">
-      {ACCENTS.map((entry) => (
-        <Button
-          key={entry.value}
-          type="button"
-          role="radio"
-          aria-checked={accent === entry.value}
-          aria-label={entry.label}
-          title={entry.label}
-          variant="ghost" size="icon-circle"
-          {...(accent === entry.value ? { 'data-on': '' } : {})}
-          swatch={
-            (dark ? entry.dark : entry.colour) ??
-            /* "Default" is the palette's own accent: the live token while it
-               is the one in use, and the palette's recorded value otherwise
-               — the token on `body` would report whichever accent is on. */
-            (accent === 'default'
-              ? 'var(--hd-accent)'
-              : (PALETTE_ACCENT[palette]?.[dark ? 1 : 0] ?? 'var(--hd-accent)'))
-          }
-          onClick={() => store.setAccent(entry.value)}
-        />
-      ))}
-    </span>
-  )
+  return <AccentChoices value={accent} items={ACCENTS.map(entry => ({ value: entry.value, label: entry.label,
+    swatch: (dark ? entry.dark : entry.colour) ?? (accent === 'default' ? 'var(--hd-accent)' : (PALETTE_ACCENT[palette]?.[dark ? 1 : 0] ?? 'var(--hd-accent)')),
+  }))} change={value => store.setAccent(value)} />
 }
 
 /**

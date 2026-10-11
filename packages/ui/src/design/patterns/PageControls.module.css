@@ -1,0 +1,3 @@
+.keys { display: inline-flex; gap: var(--hd-space-1); flex-wrap: wrap; }
+.preserved { white-space: pre-wrap; overflow-wrap: anywhere; margin: 0; }
+.qualifier { margin-inline-start: var(--hd-space-2); }

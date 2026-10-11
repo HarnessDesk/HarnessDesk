@@ -3107,6 +3107,10 @@ export const SeatListBoard = () => {
 }
 
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  {id:'page-controls',title:'Page controls',about:'Labelled fields, complete prose and semantic input measures.',render:() => <PageControlsBoard />},
+  {id:'page-options',title:'Page options',about:'Current values, pending scope and long choices folded in the body.',render:() => <PageOptionsBoard />},
+  {id:'settings-choices',title:'Settings choices',about:'Selected and unknown pictures, accent and account ring choices.',render:() => <SettingsChoicesBoard />},
+
   { id: 'popup-inbox', title: 'Inbox menu', about: 'Kept notifications, complete expanded facts and actions.', render: () => <PopupInboxBoard /> },
   { id: 'subject-actions', title: 'Subject actions', about: 'Verbs and Messages choices retain their callbacks outside facts.', render: () => <PopupSubjectBoard /> },
   { id: 'info-card', title: 'Info card', about: 'Complete facts on hover and focus, without actions or menu overlap.', render: () => <PopupInfoBoard /> },
@@ -3504,3 +3508,58 @@ const INBOXMENU_CATALOG_VARIANTS = ['default'] as const
 const INBOXMENU_CATALOG_SIZES = ['default'] as const
 const INBOXMENU_CATALOG_STATES = ['default'] as const
 const PopupInboxBoard = () => <>{INBOXMENU_CATALOG_VARIANTS.map(variant => INBOXMENU_CATALOG_SIZES.map(size => INBOXMENU_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><InboxExample /></div>)))}</>
+
+import { PageControls, ShortcutKeys, PageExplanation, PreservedText, InlineQualifier, PageNotes, PageOptions, PictureChoices, AccentChoices, RingChoices } from '..'
+import { AVATARS, type AvatarId } from '../../lib/avatars'
+
+const PAGECONTROLS_CATALOG_VARIANTS = ['default'] as const
+const PAGECONTROLS_CATALOG_SIZES = ['default'] as const
+const PAGECONTROLS_CATALOG_STATES = ['default', 'disabled'] as const
+export const PageControlsBoard = () => {
+  const [scope, setScope] = useState('all'), [query, setQuery] = useState('')
+  return <div data-catalog-variants={PAGECONTROLS_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={PAGECONTROLS_CATALOG_SIZES.join(' ')} data-catalog-states={PAGECONTROLS_CATALOG_STATES.join(' ')}>
+    <Page width="reading"><PageControls search={{label:'Search records',placeholder:'Search records…',value:query,change:setQuery}}
+      choices={[{id:'scope',title:'Agent scope',description:'The selected scope applies to the records below. 長い説明もすべて表示します。',value:scope,
+        options:[{value:'all',label:'All agents · チェックアウトのレビュー'},{value:'pending',label:'Pending agent read',disabled:true}],change:setScope}]} />
+      <PageExplanation>A complete explanation keeps its lines within the page.</PageExplanation>
+      <PreservedText value={'First line\nSecond line · チェックアウト'} />
+      <Text>Read just now<InlineQualifier value="local" /></Text>
+      <ShortcutKeys keys={['⌘', '[']} />
+      <PageNotes notes={[{id:'read',text:'The records are read from their current source.'}]} />
+      <Input measure="name" aria-label="Example name" defaultValue="Jane Doe" />
+      <Input measure="path" aria-label="Example path" defaultValue="/repo/storefront" />
+    </Page>
+  </div>
+}
+const PAGEOPTIONS_CATALOG_VARIANTS = ['default'] as const
+const PAGEOPTIONS_CATALOG_SIZES = ['default'] as const
+const PAGEOPTIONS_CATALOG_STATES = ['default', 'loading', 'folded-state'] as const
+export const PageOptionsBoard = () => {
+  const [scope,setScope] = useState('all'), [query,setQuery] = useState('')
+  const items = [{value:'all',label:'All agents · long reusable checkout review · チェックアウトのレビュー'},
+    {value:'local',label:'Local',count:3},{value:'pending',label:'Pending agent read',disabled:'Reading the current scope…'}]
+  return <div data-catalog-variants={PAGEOPTIONS_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={PAGEOPTIONS_CATALOG_SIZES.join(' ')} data-catalog-states={PAGEOPTIONS_CATALOG_STATES.join(' ')}>
+    {[736,320].map(width => <div key={width} style={{width,maxWidth:'100%'}}>
+      <Page width="reading"><PageOptions choices={[{id:'scope',label:'Agent scope',value:scope,items,change:setScope,mode:'menu'},
+        {id:'layout',label:'Library layout',value:'list',items:[{value:'list',label:'List · 長いチェックアウトのレビュー'},{value:'matrix',label:'Matrix'}],change:()=>{}}]}
+        search={{label:'Search records',value:query,change:setQuery}} read="Read just now" action={{label:'Refresh',run:()=>{}}} />
+        <PageOptions choices={[{id:'pending',label:'Pending scope',value:'pending',items,change:()=>{}}]}
+          read="Reading current scope…" action={{label:'Refresh',disabled:true,run:()=>{}}} />
+      </Page>
+    </div>)}
+  </div>
+}
+const SETTINGSCHOICES_CATALOG_VARIANTS = ['default'] as const
+const SETTINGSCHOICES_CATALOG_SIZES = ['default'] as const
+const SETTINGSCHOICES_CATALOG_STATES = ['populated', 'unknown', 'selected'] as const
+export const SettingsChoicesBoard = () => {
+  const [picture,setPicture] = useState<AvatarId | null>('wizard'), [accent,setAccent] = useState('default'), [ring,setRing] = useState<'blue' | 'green' | 'amber' | 'rose' | 'violet'>('blue')
+  const pictures = [{id:null,label:'Default',about:'The HarnessDesk mark'},...AVATARS]
+  return <div data-catalog-variants={SETTINGSCHOICES_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={SETTINGSCHOICES_CATALOG_SIZES.join(' ')} data-catalog-states={SETTINGSCHOICES_CATALOG_STATES.join(' ')}>
+    <Page width="reading"><SectionHead name="Selected picture" /><PictureChoices value={picture} items={pictures} change={setPicture} />
+      <SectionHead name="Unknown picture" /><PictureChoices value="unavailable-picture" items={pictures} change={setPicture} />
+      <Rows><Row title="Accent" control={<AccentChoices value={accent} items={[{value:'default',label:'Default',swatch:'var(--hd-accent)'},{value:'green',label:'Green',swatch:'var(--hd-success)'}]} change={setAccent} />} />
+        <Row title="Ring colour" control={<RingChoices value={ring} values={['blue','green','amber','rose','violet']} mark={<AgentIcon size={14} />} change={setRing} />} /></Rows>
+    </Page>
+  </div>
+}

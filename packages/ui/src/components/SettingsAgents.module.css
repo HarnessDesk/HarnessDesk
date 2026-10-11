@@ -10,34 +10,10 @@
   min-width: 0;
 }
 
-/* A name is a short thing; the field is sized for one rather than the row. */
-.nameField {
-  width: 220px;
-}
 
 .unverifiedBadge {
   margin-left: var(--hd-space-1-5);
   vertical-align: middle;
-}
-
-/* The five rings, as the account's own colour worn by the agent's mark. */
-.rings {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--hd-space-1-5); /* desk: 6 → var(--hd-space-1-5), on the scale */
-}
-
-.ring {
-  opacity: 0.55;
-  transition: opacity var(--hd-duration-fast) var(--hd-ease);
-}
-
-.ring:hover {
-  opacity: 0.85;
-}
-
-.ring[data-on] {
-  opacity: 1;
 }
 
 /* --- narrowing the list -------------------------------------------------- */

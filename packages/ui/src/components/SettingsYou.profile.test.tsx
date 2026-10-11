@@ -373,12 +373,11 @@ it('leaves a name it was given as it is, unless you edit it', () => {
 })
 
 it('steps Down by the row the grid is drawn with', () => {
-  // The column count lives once, in the component, and reaches the stylesheet
-  // as --face-columns: the step Down takes is a row on screen.
+  // The system pattern owns the eight-column layout; frame contracts measure
+  // the rendered grid while this witness keeps its keyboard step unchanged.
   const { profile } = mount()
-  const group = container.querySelector<HTMLElement>('[role="radiogroup"]')
-  const columns = Number(group?.style.getPropertyValue('--face-columns'))
-  expect(columns).toBeGreaterThan(1)
+  const columns = 8
+  expect(container.querySelector('[data-slot="picture-choices"]')).not.toBeNull()
   press(worn(), 'ArrowDown')
   expect(profile().avatar).toBe(tiles()[columns]?.getAttribute('aria-label')?.toLowerCase())
 })

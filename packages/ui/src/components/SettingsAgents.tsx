@@ -61,6 +61,7 @@ import {
 } from './Icons'
 import {
   AccountMark,
+  RingChoices,
   IconTile,
   SettingsRowMenu,
   BackLink,
@@ -351,25 +352,7 @@ const RingPicker = ({
   info: RuntimeInfo
   value: Tint
   onChange: (tint: Tint) => void
-}) => (
-  <span className={styles.rings} role="radiogroup" aria-label="Ring colour">
-    {TINTS.map((tint) => (
-      <AccountMark
-        as="button"
-        key={tint}
-        role="radio"
-        aria-checked={tint === value}
-        aria-label={tint}
-        className={styles.ring}
-        data-tint={tint}
-        {...(tint === value ? { 'data-on': '' } : {})}
-        onClick={() => onChange(tint)}
-      >
-        <RuntimeMark runtime={info} size={14} />
-      </AccountMark>
-    ))}
-  </span>
-)
+}) => <RingChoices value={value} values={TINTS} mark={<RuntimeMark runtime={info} size={14} />} change={onChange} />
 
 
 /**
@@ -1380,7 +1363,7 @@ const AccountDetail = ({
             desc="How the sidebar, the composer and the menu bar refer to this account."
             control={
               <Input
-                className={styles.nameField}
+                measure="name"
                 value={name}
                 placeholder={accountName(account, undefined, info.presentation.name)}
                 aria-label="Account name"

@@ -447,6 +447,8 @@ body {
    * a field.
    */
   --hd-field-h: var(--hd-btn-h);
+  --hd-field-name-width: 220px;
+  --hd-field-path-width: 280px;
   /*
    * The third rung, and the one a settings or dashboard page is built on.
    *

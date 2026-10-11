@@ -67,6 +67,7 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'agent', query: 'frame-wall=agent' },
   { id: 'dashboard', query: 'frame-wall=dashboard' },
   { id: 'settings', query: 'frame-wall=settings' },
+  { id: 'settings-profile', query: 'frame-wall=settings&frame-section=profile' },
   { id: 'left-column-probe', surface: 'pattern', query: 'frame-wall=left-column' },
   { id: 'conversation-left-open', query: 'frame-wall=conversation', leftOpen: true },
   { id: 'left-inbox', query: 'frame-wall=conversation', leftOpen: true, leftPopup: 'inbox' },

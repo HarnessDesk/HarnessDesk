@@ -2259,3 +2259,28 @@ for (const theme of WALL_THEMES) {
     })
   }
 }
+
+for (const theme of ['light', 'dark'] as const) for (const width of [1440, 1100, 720]) {
+  test(`E2a Profile choices remain inside the frame ${width} ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=settings&frame-section=profile', theme, width)
+    const choices = page.getByRole('radiogroup', { name: 'Picture', exact: true })
+    await expect(choices).toBeVisible()
+    await expect(choices).toHaveAttribute('data-slot', 'picture-choices')
+    expect(await choices.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+    expect((await page.locator('[data-slot="top-bar"]:visible').locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
+  })
+}
+
+for (const theme of ['light', 'dark'] as const) {
+  test(`E2a narrow page options keep long current choices within the body in ${theme}`, async ({ page }) => {
+    await page.setViewportSize({width:720,height:900})
+    await page.emulateMedia({colorScheme:theme})
+    await page.goto(`/design.html?view=page-options&theme=${theme}`)
+    const options = page.locator('[data-slot="page-options"]').nth(2)
+    await expect(options).toBeVisible()
+    const trigger = options.locator('[data-slot="popover-trigger"]')
+    await expect(trigger).toContainText('チェックアウトのレビュー')
+    expect(await trigger.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+    expect(await options.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
+  })
+}

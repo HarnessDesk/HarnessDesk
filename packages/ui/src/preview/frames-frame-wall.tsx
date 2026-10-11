@@ -155,7 +155,7 @@ const FrameDestination = ({ destination }: { destination: Destination }) => {
     return () => { delete (window as Window & { __hdFrameWall?: typeof api }).__hdFrameWall }
   }, [store])
   const [page, setPage] = useState<PageOwner | null>(() => pageFor(destination))
-  const [section, setSection] = useState<Section>(() => sectionFor(destination))
+  const [section, setSection] = useState<Section>(() => destination === 'settings' && new URLSearchParams(window.location.search).get('frame-section') === 'profile' ? 'profile' : sectionFor(destination))
   const [view, setView] = useState<DashboardView>('overview')
   const [scope, setScope] = useState<RuntimeId | null>(null)
   const [focus, setFocus] = useState<string | null>(() => destination === 'agent' ? 'implementer' : null)
