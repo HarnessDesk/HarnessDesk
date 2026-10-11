@@ -2532,6 +2532,26 @@ export class AppStore {
          when the agent will not — but on a conversation this desk has never
          opened there is no host copy either, and then both halves fail. */
       const painted = this.#snapshot.sessions.get(key)
+      const savedIdentity = painted ? null : (
+        this.#snapshot.historyIdentity.find((row) => row.runtime === runtime && row.id === id) ??
+        this.#snapshot.history.find((row) => row.runtime === runtime && row.id === id) ??
+        null
+      )
+      const runtimeHealth = this.#snapshot.healthByRuntime[runtime] ??
+        (runtime === this.#snapshot.activeRuntime ? this.#snapshot.health : null)
+      const runtimeCannotRun = !this.#snapshot.runtimes.some((entry) => entry.id === runtime) ||
+        runtimeHealth?.state === 'unavailable'
+      const keptIdentity = Boolean(savedIdentity && runtimeCannotRun && !painted)
+      if (savedIdentity && runtimeCannotRun && !painted) {
+        // The index owns identity, not messages. Keep its title and folder in
+        // the selected pane, but never promote its preview into a transcript.
+        this.#setSession({
+          ...savedIdentity,
+          status: { type: 'idle' },
+          turns: [],
+          itemsLoaded: false,
+        })
+      }
       /* The folder it ran in, whether or not its transcript arrived: the
          sidebar row carries the folder too, and where nothing was painted the
          row is the only place it is written down. */
@@ -2549,7 +2569,7 @@ export class AppStore {
       if (goneFolder !== null) {
         this.#patch({ foldersGone: new Map(this.#snapshot.foldersGone).set(goneFolder, describe(error)) })
       }
-      if (!options.preserveLayoutOnReadFailure && (!painted || (options.restoring && !readSucceeded && !isHeldElsewhere(error) && !isFolderGone(error)))) {
+      if (!keptIdentity && !options.preserveLayoutOnReadFailure && (!painted || (options.restoring && !readSucceeded && !isHeldElsewhere(error) && !isFolderGone(error)))) {
         // The composer stays editable while reading. Save its live draft
         // before clearing the key, where the fresh composer can restore it.
         // A repeated refusal must not save the same draft a second time.
@@ -2580,7 +2600,9 @@ export class AppStore {
           if (docked) this.#setWorkbench(undockIn(this.#snapshot.workbench, docked.mounted.id))
         }
       }
-      if (isHeldElsewhere(error)) {
+      if (keptIdentity) {
+        // The selected pane carries the saved identity and an inline reason.
+      } else if (isHeldElsewhere(error)) {
         this.resultNotice('error', describe(error), {
           label: 'Open a copy',
           run: () => void this.forkSession(key),

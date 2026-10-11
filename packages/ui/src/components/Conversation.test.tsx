@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { wrapContext, reduceSession, sessionId, sessionKey, turnId, itemId, type AgentEntry, type GoalView, type Session } from '@harnessdesk/protocol'
+import { wrapContext, reduceSession, runtimeId, sessionId, sessionKey, turnId, itemId, type AgentEntry, type GoalView, type Session } from '@harnessdesk/protocol'
 
 import { seatAgentKey } from '../lib/agents'
 import { PaneProvider, StoreProvider } from '../state/context'
@@ -220,6 +220,30 @@ it('keeps the opening pitch above a notice-only conversation', () => {
   expectNoticeBelowEmptyState()
 })
 
+it('keeps a saved conversation identity visible when its runtime is absent', () => {
+  const runtime = runtimeId('synthetic-missing')
+  const saved = session({
+    runtime,
+    title: 'Judge the storefront layout',
+    turns: [],
+    itemsLoaded: false,
+  })
+  const { store } = rig(null)
+  const key = sessionKey(runtime, saved.id)
+  Object.assign(store.getSnapshot(), {
+    sessions: new Map([[key, saved]]),
+    activeSessionKey: key,
+  })
+
+  render(store, key)
+
+  expect(container.textContent).toContain('Judge the storefront layout')
+  expect(container.textContent).toContain('Add it in Settings')
+  expect(container.textContent).not.toContain('What should we build?')
+  expect(container.textContent).not.toContain('Waiting for the runtime')
+  expect(container.querySelector('textarea')).toBeNull()
+})
+
 it('keeps the restore explanation above a notice-only conversation', () => {
   const id = sessionId('s-1')
   const withNotice = reduceSession(session({ updatedAt: 9_000 }), { type: 'notice', sessionId: id, class: 'conversation', level: 'warning', message: 'No tools declared', id: 'tools-1' })
@@ -232,7 +256,7 @@ it('keeps the restore explanation above a notice-only conversation', () => {
 })
 
 it.each([
-  ['unavailable', 'Codex isn’t available', {
+  ['unavailable', 'The agent could not start. Check the runtime in Settings, then reopen this conversation.', {
     healthByRuntime: { codex: { state: 'unavailable', message: 'The agent could not start.' } },
   }],
   ['signed out', 'Sign in to Codex', {
@@ -286,6 +310,16 @@ it('with no session at all, offers the opening pitch rather than a failure', () 
 
   expect(container.textContent).not.toContain('Nothing to show')
   expect(container.textContent).not.toContain('restore')
+})
+
+it('names the chosen project in the empty draft pitch', () => {
+  const { store } = rig(null, new Map(), {
+    workspace: { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 },
+  })
+  render(store, null)
+
+  expect(container.textContent).toContain('Describe what you want done in storefront.')
+  expect(container.textContent).not.toContain('Pick a project folder')
 })
 
 it('a ready, empty pane whose folder is known offers to start with a team there', async () => {

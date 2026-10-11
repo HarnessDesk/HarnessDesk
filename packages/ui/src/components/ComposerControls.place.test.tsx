@@ -79,10 +79,10 @@ const row = (text: string): HTMLButtonElement | undefined =>
     entry.textContent?.startsWith(text),
   )
 
-it('says Local on a draft in the main checkout, and names the folder and branch on hover', () => {
+it('names the project folder on a draft in the main checkout, and names the branch on hover', () => {
   rig()
 
-  expect(trigger()?.textContent).toContain('Local')
+  expect(trigger()?.textContent).toContain('harness-desk')
   expect(trigger()?.title).toBe('Starts in harness-desk, on main')
 
   open()
@@ -91,6 +91,24 @@ it('says Local on a draft in the main checkout, and names the folder and branch 
   expect(popup.querySelector('[data-menu-icon]')).toBeNull()
   expect(row('Local')?.getAttribute('aria-checked')).toBe('true')
   expect(row('New worktree')?.getAttribute('aria-checked')).toBe('false')
+})
+
+it('shows the selected project folder beside the folder icon', () => {
+  rig({
+    workspace: { ...MAIN, path: '/work/storefront', name: 'storefront' },
+  })
+
+  expect(trigger()?.textContent).toContain('storefront')
+})
+
+it('keeps the full path on hover while the long folder label can truncate', () => {
+  const path = '/work/this-is-a-very-long-storefront-folder-name'
+  rig({ workspace: { ...MAIN, path, name: path.split('/').at(-1)! } })
+
+  const label = trigger()?.querySelector<HTMLElement>('[data-slot="text"]')
+  expect(label?.textContent).toBe(path.split('/').at(-1))
+  expect(label?.getAttribute('title')).toBe(path)
+  expect(label?.className).toContain('truncate')
 })
 
 it('is gone once the conversation exists — the header says where a session runs', () => {
