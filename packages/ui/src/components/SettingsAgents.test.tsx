@@ -94,6 +94,14 @@ const mount = async (
 const button = (label: string): HTMLButtonElement | undefined =>
   [...document.body.querySelectorAll('button')].find((node) => node.textContent?.includes(label))
 
+it('shows Add a runtime under only its Runtimes crumb', async () => {
+  await mount()
+
+  const place = container.querySelector('[data-topbar="place"]')!
+  expect([...place.querySelectorAll('button')].map((node) => node.textContent?.trim())).toEqual(['Runtimes ›'])
+  expect(place.querySelector('[data-topbar-title]')?.textContent).toBe('Add a runtime')
+})
+
 /** A form field, by the visible label `Field` points at it — the name a person reads. */
 const byLabel = (text: string): string => {
   const label = [...document.body.querySelectorAll('label')].find((node) => node.textContent?.trim() === text)

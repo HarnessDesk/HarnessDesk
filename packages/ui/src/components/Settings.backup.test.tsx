@@ -6,7 +6,7 @@ import type { BackupFile, BackupReport } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { BackupRows } from './Settings'
+import { BackupRows, GeneralSectionRows } from './Settings'
 
 /**
  * The Backup rows' outcome sentence, pinned after review found it still
@@ -49,6 +49,16 @@ const render = (store: AppStore): void => {
   })
 }
 
+const renderGeneral = (store: AppStore): void => {
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <GeneralSectionRows />
+      </StoreProvider>,
+    )
+  })
+}
+
 const button = (label: string): HTMLButtonElement | HTMLLabelElement => {
   const found = [
     ...container.querySelectorAll<HTMLButtonElement | HTMLLabelElement>('button, label'),
@@ -72,6 +82,14 @@ const BACKUP: BackupFile = {
   ],
   seating: {},
 }
+
+it('uses the action labels alone for export, restore and diagnostics', () => {
+  const store = { subscribe: () => () => {}, getSnapshot: () => emptySnapshot(), transport: { request: vi.fn() } } as unknown as AppStore
+  renderGeneral(store)
+  for (const label of ['Export…', 'Restore…', 'Save bundle…']) {
+    expect(button(label).querySelector('svg'), `${label} has a redundant icon`).toBeNull()
+  }
+})
 
 it('says the runtimes it exported are runtimes, and counts Agents and seats apart', async () => {
   const request = vi.fn(async () => BACKUP)

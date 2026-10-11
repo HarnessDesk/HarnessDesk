@@ -1123,10 +1123,8 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
 
   return (
     <>
-<DestinationBar place="Add a runtime" parents={[
-  { label: 'Settings', run: () => store.askSettings('general') }, { label: 'Runtimes', run: onBack },
-]} />
-<PageExplanation>A runtime keeps its own account, configuration and history; adding it here only tells HarnessDesk how to start it.</PageExplanation>
+      <DestinationBar place="Add a runtime" parents={[{ label: 'Runtimes', run: onBack }]} />
+      <PageExplanation>A runtime keeps its own account, configuration and history; adding it here only tells HarnessDesk how to start it.</PageExplanation>
       <Rows>
         {(templates ?? []).map((template) => (
           <Row
@@ -1998,7 +1996,7 @@ export const RuntimesSection = ({
     void store.loadAccounts()
   }, [destinationActive, store])
 
-  const back = (): void => setView({ kind: 'list' })
+  const back = useCallback((): void => setView({ kind: 'list' }), [])
   const openAccount = (runtime: RuntimeId, key: string): void => setView({ kind: 'account', runtime, key })
 
   const groups = useMemo(() => agentGroups(snapshot.runtimes), [snapshot.runtimes])

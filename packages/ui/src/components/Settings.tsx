@@ -20,7 +20,6 @@ import { useRuntime, useSnapshot, useStore } from '../state/context'
 import {
   ArrowLeftIcon,
   BranchIcon,
-  DownloadIcon,
   FolderIcon,
   HookIcon,
   KeyIcon,
@@ -1557,7 +1556,6 @@ export const BackupRows = () => {
         desc="Runtimes, your Agents and their seats on this Mac, preferences, transcripts and what the desk observed, in one file — sign in again after restoring."
         control={
           <Button variant="secondary" size="sm" disabled={busy !== false} onClick={() => void exportBackup()}>
-            <DownloadIcon size={13} />
             {busy === 'export' ? 'Exporting…' : 'Export…'}
           </Button>
         }
@@ -1605,7 +1603,6 @@ const DiagnosticsButton = () => {
   }
   return (
     <Button variant="secondary" size="sm" disabled={busy} onClick={() => void save()}>
-      <DownloadIcon size={13} />
       {busy ? 'Collecting…' : 'Save bundle…'}
     </Button>
   )

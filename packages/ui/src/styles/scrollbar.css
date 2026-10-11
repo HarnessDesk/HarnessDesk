@@ -1,9 +1,9 @@
 /*
  * The scrollbar skin.
  *
- * Every scrolling region in the app takes its bar from here. Left alone, the
- * engine draws one that knows nothing about the palette, which on the dark
- * face is a bright native strip down the edge of a themed window.
+ * Every scrolling region in the app takes its bar from here. A shared scroll
+ * listener marks a region briefly after it moves; the thumb is transparent
+ * at rest and visible only while that mark is present.
  *
  * ## The shape
  *
@@ -20,14 +20,8 @@
  * width is the part that reads: a change from one grey to another is a hard
  * thing to notice on a four-pixel object, and a change of size is not.
  *
- * It answers to the pointer being ON it, and only that. Thickening whenever
- * the pointer is anywhere over the region that scrolls would be better — four
- * pixels is a hard thing to aim at — and it is not available:
- * `:hover::-webkit-scrollbar-thumb` matches nothing that Chromium repaints,
- * measured in the running app at three pointer positions. The scrollbar
- * pseudo-elements answer to their own hover state and not to the originating
- * element's. Doing it properly needs the standard `scrollbar-color`, which
- * costs the whole shape (see the gate below), so the trade is the shape.
+ * The thumb fades after scrolling. A pointer over a scrollbar can still
+ * thicken it, but only while the scrolling region is marked visible.
  *
  * ## Layer
  *
@@ -72,13 +66,16 @@
    * lower down means the lookup happens there instead. `scrollbar-width` is
    * not an inherited property to begin with.
    *
-   * No pill to inset here, and no hover of its own: `scrollbar-color` takes a
-   * single thumb colour and the engine decides for itself how to shade that
-   * under a pointer.
+   * No pill to inset here: `scrollbar-color` takes a single thumb colour and
+   * the engine decides for itself how to shade that under a pointer.
    */
   body,
   body * {
     scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+  }
+
+  body [data-scrolling] {
     scrollbar-color: var(--hd-scrollbar-fill) transparent; /* desk: the private scrollbar contract moved into public foundation names */
   }
 }
@@ -112,11 +109,15 @@
 ::-webkit-scrollbar-thumb {
   border: var(--hd-scrollbar-inset) solid transparent; /* desk: the private scrollbar contract moved into public foundation names */
   border-radius: 9999px; /* desk: 4 → a pill at whatever the inset leaves */
-  background: var(--hd-scrollbar-fill); /* desk: the private scrollbar contract moved into public foundation names */
+  background: transparent; /* desk: every scrolling region is clear at rest in either theme */
   background-clip: padding-box;
 }
 
-::-webkit-scrollbar-thumb:hover {
+[data-scrolling]::-webkit-scrollbar-thumb {
+  background: var(--hd-scrollbar-fill); /* desk: the private scrollbar contract moved into public foundation names */
+}
+
+[data-scrolling]::-webkit-scrollbar-thumb:hover {
   border-width: var(--hd-scrollbar-inset-hover); /* desk: the private scrollbar contract moved into public foundation names */
   background: var(--hd-scrollbar-fill-hover); /* desk: the private scrollbar contract moved into public foundation names */
   background-clip: padding-box;

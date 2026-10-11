@@ -129,6 +129,15 @@ it('reads the whole path once, and keeps the visible halves selectable', () => {
   }
 })
 
+it('keeps a short prefix beside the path without including it in the accessible path', () => {
+  const path = '/work/checkouts/storefront'
+  const line = draw(<MiddleTruncate prefix="From">{path}</MiddleTruncate>)
+
+  expect(line.querySelector('[data-part="prefix"]')?.textContent).toBe('From')
+  expect(line.querySelector('.sr-only')?.textContent).toBe(path)
+  expect(line.querySelector('[data-part="tail"]')?.textContent).toBe('/storefront')
+})
+
 it('answers a copy that touches the path with the whole path', () => {
   const path = '~/work/storefront/.harnessdesk/triggers/review.json'
   const line = draw(<MiddleTruncate>{path}</MiddleTruncate>)

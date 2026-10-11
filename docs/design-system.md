@@ -2441,4 +2441,3 @@ list only goes down, except when the audit learns to see something it was blind 
 | `retiredComponent` | 5 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 20 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
 | `screenLayout` | 2125 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
-

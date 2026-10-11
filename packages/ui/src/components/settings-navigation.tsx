@@ -6,7 +6,7 @@ import { agentGroups } from '../lib/accounts'
 import { agentReadiness } from './SettingsAgents'
 import { isBlocking, worstReadiness, type Readiness } from '../lib/readiness'
 import { ArchiveIcon, BellIcon, ExtensionIcon, FolderIcon, GlobeIcon, KeyboardIcon,
-  RouteIcon, ServerIcon, ShieldIcon, SlidersIcon, SparkIcon, ThemeSystemIcon } from './Icons'
+  HistoryIcon, ResourceIcon, RouteIcon, ServerIcon, ShieldIcon, SlidersIcon, SparkIcon, ThemeSystemIcon } from './Icons'
 
 export interface SettingsNavEntry {
   readonly id: Section
@@ -26,7 +26,7 @@ export const settingsGroups = (snapshot: AppSnapshot, runtime: RuntimeInfo): rea
   const worst = worstReadiness(agentGroups(snapshot.runtimes).map(group => agentReadiness(group.siblings, snapshot)))
   const scoped = (page: string) => `${page} belongs to ${runtime.presentation.name}, the agent the active conversation is with.`
   return [
-    { label: 'General', entries: [
+    { label: 'Preferences', entries: [
       { id: 'general', label: 'General', icon: <SlidersIcon size={16} />, keywords: ['backup', 'restore', 'export', 'diagnostics', 'support', 'data', 'sync', 'account', 'transcripts', 'this mac'] },
       { id: 'appearance', label: 'Appearance', icon: <ThemeSystemIcon size={16} />, keywords: ['theme', 'dark', 'light', 'system', 'interface', 'desk', 'studio', 'palette', 'blueprint', 'editorial', 'accent', 'colour', 'color', 'corners', 'radius', 'faces', 'avatar shape', 'round', 'font', 'text size', 'line numbers', 'wrap', 'indent', 'tab', 'density', 'sort', 'code editor'] },
       { id: 'notifications', label: 'Notifications', icon: <BellIcon size={16} />, keywords: ['banner', 'message', 'mute', 'silence', 'alert', 'stop showing', 'remind', 'finished turns', 'failures', 'approvals', 'needs you', 'quota', 'rate limit', 'macos'] },
@@ -34,8 +34,8 @@ export const settingsGroups = (snapshot: AppSnapshot, runtime: RuntimeInfo): rea
     ] },
     { label: 'Conversations', entries: [
       { id: 'workspaces', label: 'Workspaces', icon: <FolderIcon size={16} />, keywords: ['folders', 'projects', 'worktrees', 'forget', 'open folder', 'checkout', 'branch'] },
-      { id: 'history', label: 'History', icon: <ArchiveIcon size={16} />, keywords: ['history', 'import', 'other agents', 'past conversations'] },
-      { id: 'storage', label: 'Storage', icon: <FolderIcon size={16} />, keywords: ['storage', 'disk', 'space', 'clean up', 'worktrees', 'cache'] },
+      { id: 'history', label: 'History', icon: <HistoryIcon size={16} />, keywords: ['history', 'import', 'other agents', 'past conversations'] },
+      { id: 'storage', label: 'Storage', icon: <ResourceIcon size={16} />, keywords: ['storage', 'disk', 'space', 'clean up', 'worktrees', 'cache'] },
       { id: 'archive', label: 'Archive', icon: <ArchiveIcon size={16} />, keywords: ['archived', 'history', 'restore', 'delete', 'trash', 'old sessions'] },
     ] },
     { label: 'Agents', entries: [
