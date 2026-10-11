@@ -190,13 +190,13 @@ it('keeps day and hour measures independently when switching views', async () =>
   await renderSuppliedReport(groupedLedgerReport([{ runtime: CLAUDE, weekday: 1, hour: 10, requests: 2, tokens: 100 }]))
   await act(async () => choose('Cost'))
   await act(async () => choose('By hour'))
-  expect(container.textContent).toContain('tokens last 12 months')
+  expect(container.textContent).toContain('Tokens with a recorded hour')
   await act(async () => choose('Calls'))
-  expect(container.textContent).toContain('calls last 12 months')
+  expect(container.textContent).toContain('Calls, last 12 months')
   await act(async () => choose('Last 12 months'))
   expect(container.textContent).toContain('$')
   await act(async () => choose('By hour'))
-  expect(container.textContent).toContain('calls last 12 months')
+  expect(container.textContent).toContain('Calls, last 12 months')
 })
 
 it('does not show the not-recorded swatch in the hour view', async () => {
@@ -356,4 +356,19 @@ it('ignores an injected hourly measure outside the offered calls and tokens', as
   await act(async () => { measure.value = 'cost'; measure.dispatchEvent(new Event('change', { bubbles: true })) })
   expect(changed).not.toHaveBeenCalled()
   expect(container.textContent).toContain('calls')
+})
+
+it('names the hourly subset and states tokens without a recorded hour once', async () => {
+  const runtime = runtimeId('hour-fixture')
+  const day = new Date(NOW); day.setHours(0, 0, 0, 0)
+  const report: LedgerReport = { ...ledgerReport(), totalTokens: 300, daily: [
+    { day: day.getTime(), runtime, cost: 0, tokens: 100 },
+    { day: day.getTime(), runtime, cost: 0, tokens: 200 },
+  ], hourly: [{ runtime, weekday: day.getDay(), hour: 10, requests: 1, tokens: 100 }],
+    coverage: { ...ledgerReport().coverage, hoursKnownFor: [runtime] } }
+  await renderSuppliedReport(report)
+  await act(async () => choose('By hour'))
+  expect(container.textContent).toContain('Tokens with a recorded hour')
+  expect(container.textContent).toContain('200 tokens have no recorded hour.')
+  expect(container.textContent?.match(/200 tokens have no recorded hour\./g)).toHaveLength(1)
 })

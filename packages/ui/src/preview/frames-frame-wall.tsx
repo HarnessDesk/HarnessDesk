@@ -315,6 +315,18 @@ export const FrameWall = () => {
       }) as typeof next.transport.request
     }
 
+    if (destination === 'dashboard' && query.get('frame-fix9-hours') === '1') {
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = (async (method, params) => {
+        if (method !== 'usage/ledger') return request(method, params as never)
+        const runtime = snapshot.activeRuntime!, day = new Date(); day.setHours(0, 0, 0, 0)
+        return { days: (params as { days: number }).days, currency: 'USD', totalCost: 0, totalTokens: 300, provenance: 'metered',
+          daily: [{ day: day.getTime(), runtime, cost: 0, tokens: 100 }, { day: day.getTime(), runtime, cost: 0, tokens: 200 }],
+          hourly: [{ runtime, weekday: day.getDay(), hour: 10, requests: 1, tokens: 100 }], rows: [], scannedAt: Date.now(),
+          coverage: { priced: 2, unpriced: 0, unmetered: 0, estimated: 0, hoursKnownFor: [runtime], coveredDays: [day.getTime()], daysCovered: 1, daysRequested: 365 } }
+      }) as typeof next.transport.request
+    }
+
     if (destination === 'dashboard' && query.has('frame-fix9-ledger')) {
       const request = next.transport.request.bind(next.transport)
       next.transport.request = (async (method, params) => {

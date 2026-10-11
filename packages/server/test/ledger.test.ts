@@ -1286,3 +1286,17 @@ test('inclusive 7 and 30 day queries agree with daily subsets and name covered d
     }
   } finally { ledger.close() }
 })
+
+test('a ledger keeps daily tokens whose records carry no time of day beside its hourly subset', () => {
+  const store = new LedgerStore(':memory:')
+  const day = new Date(2026, 9, 11).getTime()
+  try {
+    for (const [file, tokens, timed] of [['/fixture/timed', 100, true], ['/fixture/day-only', 200, false]] as const) {
+      store.commit({ path: file, size: 1, mtime: 1, offset: 1, tail: [] }, [{ file, day, runtime: 'hour-fixture', model: 'fixture', project: '/work/storefront',
+        input: tokens, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, requests: 1 }], day, true,
+      timed ? [{ file, day, runtime: 'hour-fixture', hour: 10, requests: 1, tokens }] : [])
+    }
+    assert.equal(store.since(day).reduce((sum, row) => sum + row.input + row.output + row.cacheRead + row.cacheWrite, 0), 300)
+    assert.equal(store.hourly(day, day + 86_400_000).reduce((sum, row) => sum + row.tokens, 0), 100)
+  } finally { store.close() }
+})

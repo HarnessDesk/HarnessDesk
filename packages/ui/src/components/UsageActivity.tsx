@@ -198,6 +198,7 @@ export const UsageActivity = ({
   )
 
   const hourTotal = hourGrid.cells.flat().reduce((sum, cell) => sum + cell.value, 0)
+  const tokensWithoutHour = Math.max(0, yearCells.reduce((sum, cell) => sum + cell.tokens, 0) - hourTotal)
   const busiestHour = hourGrid.cells.flat().reduce<(typeof hourGrid.cells)[number][number] | null>(
     (best, cell) => (cell.value > (best?.value ?? 0) ? cell : best), null,
   )
@@ -254,7 +255,7 @@ export const UsageActivity = ({
       <ChartFrame>
         <ChartCard>
           <DashboardStats facts={view === 'hour' ? [
-            {id:'total',label:hourMetric === 'calls' ? `${hourTotal === 1 ? 'call' : 'calls'} last 12 months` : 'tokens last 12 months',value:!hourGrid.available ? '—' : hourMetric === 'calls' ? hourTotal.toLocaleString() : formatTokens(hourTotal)},
+            {id:'total',label:hourMetric === 'calls' ? 'Calls, last 12 months' : tokensWithoutHour > 0 ? 'Tokens with a recorded hour' : 'Tokens, last 12 months',value:!hourGrid.available ? '—' : hourMetric === 'calls' ? hourTotal.toLocaleString() : formatTokens(hourTotal)},
             {id:'hour',label:'busiest hour',value:busiestHour ? `${WEEKDAY_NAMES[busiestHour.weekday]?.slice(0,3)} ${busiestHour.hour % 12 || 12} ${busiestHour.hour < 12 ? 'AM' : 'PM'}` : '—'},
             {id:'weekday',label:'busiest day of the week',value:busiestHourWeekday === null ? '—' : WEEKDAY_NAMES[busiestHourWeekday]},
           ] : [
@@ -284,6 +285,7 @@ export const UsageActivity = ({
         </ChartCard>
 
         <ChartFoot>
+          {view === 'hour' && hourMetric === 'tokens' && hourGrid.available && tokensWithoutHour > 0 && <Text role="meta">{formatTokens(tokensWithoutHour)} tokens have no recorded hour.</Text>}
           <HeatLegend
             levelTitle={(level) => levelTitle(level, view === 'hour' ? hourMetric : dayMetric)}
             showNotScanned={view !== 'hour' && inView.some(cell => !cell.scanned)}

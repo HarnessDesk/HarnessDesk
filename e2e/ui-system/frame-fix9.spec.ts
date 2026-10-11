@@ -73,3 +73,11 @@ test('FIX9 shorter spend figures distinguish unscanned days from quiet days', as
     await expect(today).toContainText(state === 'mixed' ? 'Not read yet' : '$0')
   }
 })
+
+test('FIX9 hourly tokens name the subset and the missing amount', async ({ page }) => {
+  await openFrame(page, 'frame-wall=dashboard&frame-view=activity&frame-fix9-hours=1')
+  await page.getByRole('combobox', { name: 'Show by', exact: true }).selectOption('hour')
+  const activity = page.getByRole('region', { name: 'When it ran', exact: true })
+  await expect(activity).toContainText('Tokens with a recorded hour')
+  await expect(activity.getByText('200 tokens have no recorded hour.', { exact: true })).toHaveCount(1)
+})
