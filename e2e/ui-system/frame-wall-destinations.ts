@@ -82,6 +82,8 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'settings-middle-empty', surface: 'pattern', query: 'frame-wall=settings-middle', settingsQuery: 'no matching preference with a deliberately long search phrase' },
   { id: 'popup-menu-icons', query: 'frame-wall=conversation&popup=menu-icons', popup: 'Frame menu' },
   { id: 'popup-menu-none', query: 'frame-wall=conversation&popup=menu-none', popup: 'Frame menu' },
+  { id: 'popup-disabled-rows', query: 'frame-wall=conversation&popup=disabled-rows', popup: 'Frame disabled menu' },
+  { id: 'popup-palette-result', query: 'frame-wall=conversation&popup=palette-result' },
   { id: 'popup-composer-add', query: 'frame-wall=conversation', composerAdd: true },
   { id: 'settings-general', query: 'frame-wall=settings-general' },
   { id: 'settings-runtimes', query: 'frame-wall=settings-runtimes' },
@@ -119,6 +121,7 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'popup-inbox-expanded', query: 'frame-wall=conversation&popup=inbox', inbox: true, expandInbox: true },
   { id: 'popup-suggestions', query: 'frame-wall=conversation&popup=suggestions' },
   { id: 'popup-select', query: 'frame-wall=conversation&popup=select', select: true },
+  { id: 'popup-select-disabled', query: 'frame-wall=conversation&popup=select-disabled', select: true },
 ] as const
 
 /** Wide (every region stands), between the folds, and the narrowest window. */

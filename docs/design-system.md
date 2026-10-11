@@ -477,6 +477,7 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-external-canvas` | `rgb(255, 255, 255)` |
 | `--hd-secondary-foreground` | `rgb(49, 49, 49)` |
 | `--hd-tertiary-foreground` | `rgb(71, 71, 71)` |
+| `--hd-disabled-foreground` | `color-mix(in srgb, rgb(177, 177, 177) 80%, rgb(27, 27, 27))` |
 | `--hd-sidebar-plate` | `rgb(249, 249, 249)` |
 | `--hd-chip-fill-hover` | `color-mix(in srgb, rgb(245, 245, 245) 92%, rgb(27, 27, 27))` |
 | `--hd-shadow-xs` | `0 1px 2px rgba(0, 0, 0, 0.05)` |

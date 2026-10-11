@@ -444,17 +444,20 @@ ground reads thin.
 | `--hdp-alias-label-primary` | `rgb(25, 27, 30)` | `rgb(229, 231, 234)` | anything a person reads: titles, rows, prose, values |
 | `--hd-secondary-foreground` | `rgb(49, 49, 49)` | `rgb(224, 224, 224)` | structure and explanation: section headings, hints, blurbs, icons beside a label |
 | `--hd-muted-foreground` | `rgb(71, 71, 71)` | `rgb(208, 208, 208)` | facts at the edge of a row: counts, times, keyboard hints |
+| `--hd-disabled-foreground` | about `rgb(147, 147, 147)` | `rgb(107, 107, 107)` | disabled popup labels, icons and trailing values; refusal reasons stay secondary |
 
 In components, reach for the semantic tokens `--hd-foreground`,
-`--hd-secondary-foreground`, and `--hd-muted-foreground` (`tokens.css`), which
-resolve to these three palette aliases.
+`--hd-secondary-foreground`, `--hd-muted-foreground`, and
+`--hd-disabled-foreground` (`tokens.css`). The disabled ink is based on the
+palette's quietest label tier and measures about 3:1 against popup surfaces.
 
-Three levels have to read as three, not two. Secondary uses the existing
-grey-800 step in light mode and grey-200 in dark mode; muted uses grey-750 and
-grey-300. These steps preserve the distinction from primary and between
-secondary and muted, while keeping both lower tiers on their existing palette
-ramps. The contrast test measures the semantic tokens on the app's real text
-grounds in both themes.
+The three ordinary ink levels have to read as three, not two. Secondary uses
+the existing grey-800 step in light mode and grey-200 in dark mode; muted uses
+grey-750 and grey-300. These steps preserve the distinction from primary and
+between secondary and muted, while keeping both lower tiers on their existing
+palette ramps. The contrast test measures the semantic tokens on the app's real
+text grounds in both themes. Disabled ink is a separate state: clearly fainter
+than an enabled label, while remaining legible on the popup surface.
 
 Three rules, learned the hard way:
 

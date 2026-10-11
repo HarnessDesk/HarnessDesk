@@ -1,4 +1,4 @@
-import { Button, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, InfoCard, Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MiddleTruncate, Popover, Input, Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../index'
+import { Button, CommandPaletteResult, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, InfoCard, Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, MiddleTruncate, Popover, Input, Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '../index'
 import { CopyIcon, FolderOpenIcon, UndoIcon } from '../../components/Icons'
 export const MenuExample = ({ icons = 'all' }: { icons?: 'all' | 'none' }) => <Popover title="Frame menu" label="Frame menu" icons={icons}>
   {close => <Menu close={close}>
@@ -9,6 +9,15 @@ export const MenuExample = ({ icons = 'all' }: { icons?: 'all' | 'none' }) => <P
     <MenuItem icon={<UndoIcon size={16} />} label="Undo the last turn" hint="Files are left as they are." onSelect={close} />
     <MenuItem icon={<CopyIcon size={16} />} label="Keep the checkout" hint={<>Files stay in this folder.<br />History stays in this conversation.</>} onSelect={close} />
     <MenuNote>Workspace actions</MenuNote>
+  </Menu>}
+</Popover>
+
+export const DisabledRowsExample = () => <Popover title="Frame disabled menu" label="Frame disabled menu" icons="all">
+  {close => <Menu close={close}>
+    <MenuLabel>Storefront workspace</MenuLabel>
+    <MenuItem icon={<FolderOpenIcon size={16} />} label="Open workspace" onSelect={close} />
+    <MenuItem icon={<CopyIcon size={16} />} label="Copy deployment notes" value="Unavailable" disabled="This action is unavailable for this folder." onSelect={close} />
+    <MenuToggle icon={<UndoIcon size={16} />} label="Remember this workspace" checked={false} disabled="Workspace policy prevents this change." onChange={() => {}} />
   </Menu>}
 </Popover>
 
@@ -49,6 +58,19 @@ const SELECT_EXAMPLE_ITEMS = [
 export const SelectExample = () => <Select defaultValue="scout" items={SELECT_EXAMPLE_ITEMS}><SelectTrigger aria-label="Frame Select"><SelectValue /></SelectTrigger><SelectContent>
   {SELECT_EXAMPLE_ITEMS.map(item => <SelectItem key={item.value} value={item.value} label={item.label} />)}
 </SelectContent></Select>
+
+const DISABLED_SELECT_EXAMPLE_ITEMS = [
+  ...SELECT_EXAMPLE_ITEMS,
+  { value: 'archived', label: 'Archived Agent', disabled: true, hint: 'This Agent is unavailable in this workspace.' },
+] as const
+export const DisabledSelectExample = () => <Select defaultValue="scout" items={DISABLED_SELECT_EXAMPLE_ITEMS}><SelectTrigger aria-label="Frame Select with disabled option"><SelectValue /></SelectTrigger><SelectContent>
+  {DISABLED_SELECT_EXAMPLE_ITEMS.map(item => <SelectItem key={item.value} value={item.value} label={item.label} disabled={'disabled' in item ? item.disabled : false} hint={'hint' in item ? item.hint : undefined} />)}
+</SelectContent></Select>
+
+export const PaletteResultExample = () => <div data-popup-kind="menu" data-menu-icons="none">
+  <CommandPaletteResult icon={<CopyIcon size={16} />} label="Open storefront workspace" meta="Available" />
+  <CommandPaletteResult icon={<UndoIcon size={16} />} label="Restore archived workspace" meta="Unavailable" disabled title="This workspace is archived." />
+</div>
 
 export const DropdownExample = ({ icons = 'none' }: { icons?: 'all' | 'none' }) => <DropdownMenu icons={icons}>
   <DropdownMenuTrigger render={<Button variant="outline">Frame dropdown</Button>} />

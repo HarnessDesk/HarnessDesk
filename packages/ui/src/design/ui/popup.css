@@ -45,9 +45,7 @@
 [data-menu-row][data-highlighted], [data-menu-row][aria-expanded='true'] { background: var(--hd-hover); }
 [data-menu-row][data-current] { background: var(--hd-accent-dim); }
 [data-menu-row][data-danger], [data-menu-row][data-variant='destructive'] { color: var(--hd-danger); }
-[data-menu-row]:is([data-disabled], [aria-disabled='true'], :disabled):not([data-danger]):not([data-variant='destructive']) { color: var(--hd-muted-foreground); cursor: default; }
-[data-menu-row]:is([data-disabled], [aria-disabled='true'], :disabled) { cursor: default; }
-[data-menu-row]:disabled:hover { background: transparent; }
+[data-menu-row]:is([data-disabled], [aria-disabled='true'], :disabled) { color: var(--hd-disabled-foreground); cursor: default; }
 [data-menu-icon] {
   flex: none;
   display: inline-flex;
@@ -103,9 +101,29 @@
 [data-info-meter], [data-info-composition] { margin-top: var(--hd-space-2); }
 [data-info-composition] [data-slot='progress-stack'] > div { margin-inline: 0; padding-inline: 0; }
 
-/* A refused control greys its complete row, including its earned reason. */
-[data-menu-row]:is([data-disabled], [aria-disabled='true'], :disabled) :is([data-menu-icon], [data-menu-label], [data-menu-hint]) {
-  color: inherit; /* desk: secondary → muted, refused icon and reason share the row's ink */
+/* A refused row shares one label ink; its earned reason remains secondary. */
+[data-menu-row]:is([data-disabled], [aria-disabled='true'], :disabled) :is([data-menu-icon], [data-menu-label], [data-menu-trailing]) {
+  color: inherit;
+}
+[data-menu-row]:is([data-disabled], [aria-disabled='true'], :disabled) [data-menu-hint] {
+  color: var(--hd-secondary-foreground);
+}
+[data-menu-row]:is([data-disabled], [aria-disabled='true'], :disabled):is(:hover, :focus-visible, [data-highlighted], [data-selected], [data-current], [aria-expanded='true']) {
+  background: transparent;
+}
+
+/* Command-palette results do not use the shared menu-row slots. Keep their
+   icon, title and trailing fact on the same disabled ink and skip row fading. */
+button[data-palette-result]:is([data-disabled], [aria-disabled='true'], :disabled) {
+  color: var(--hd-disabled-foreground);
+  opacity: 1;
+  background: transparent;
+}
+button[data-palette-result]:is([data-disabled], [aria-disabled='true'], :disabled) :is([data-palette-result-icon], [data-palette-result-title], [data-palette-result-meta]) {
+  color: inherit;
+}
+button[data-palette-result]:is([data-disabled], [aria-disabled='true'], :disabled):is(:hover, :focus-visible, [data-highlighted], [data-selected], [data-current]) {
+  background: transparent;
 }
 [data-popup-kind] [data-menu-group][data-inset='false'] { padding-inline: var(--hd-space-2-5); }
 

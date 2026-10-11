@@ -769,6 +769,10 @@ body {
   --hd-skeleton: var(--hdp-alias-bg-skeleton);
   --hd-placeholder-foreground: var(--hdp-alias-label-quaternary, var(--hd-muted-foreground));
 
+  /* A disabled popup row gets one quiet label ink. The palette's caption tier
+     is raised toward primary just enough to stay near 3:1 on a light surface. */
+  --hd-disabled-foreground: color-mix(in srgb, var(--hdp-alias-label-caption) 80%, var(--hd-foreground));
+
   /* Secondary text: present, readable, not the point of the sentence. */
   --hd-secondary-foreground: var(--hdp-static-grey-800); /* Secondary ink sits one tier under the foreground. */
 
@@ -1353,6 +1357,8 @@ body[data-hd-dark-theme] {
      only asked of the light one. */
   --hd-secondary-foreground: var(--hdp-alias-label-secondary);
   --hd-tertiary-foreground: var(--hdp-alias-label-tertiary);
+  /* The dark caption tier already measures near 3:1 on a popup surface. */
+  --hd-disabled-foreground: var(--hdp-alias-label-caption);
   --hd-sidebar-plate: var(--hdp-static-grey-850); /* A plate above the page, the direction the column reads in. */
 
   /* A lighter grey needs a longer step to read as one: the same 8% on a dark

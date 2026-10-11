@@ -16,13 +16,15 @@ const MemberFactsProbe = () => {
 }
 const BudgetFactsProbe = () => <BudgetFooter state={triggerBudgetState()} now={1_700_000_060_000} />
 
-import { DropdownExample, MenuExample, WideMenuExample, MeteredMenuExample, InfoCardExample, SuggestionsExample, SelectExample, InboxExample } from '../design/catalog/popup-examples'
+import { DropdownExample, MenuExample, DisabledRowsExample, WideMenuExample, MeteredMenuExample, InfoCardExample, SuggestionsExample, SelectExample, DisabledSelectExample, InboxExample, PaletteResultExample } from '../design/catalog/popup-examples'
 export const PopupWall = () => {
   const one = new URLSearchParams(location.search).get('popup')
   const body = (() => {
     switch (one) {
       case 'menu-icons': return <MenuExample />
       case 'menu-none': return <MenuExample icons="none" />
+      case 'disabled-rows': return <DisabledRowsExample />
+      case 'palette-result': return <PaletteResultExample />
       case 'dropdown-icons': return <DropdownExample icons="all" />
       case 'dropdown-none': return <DropdownExample icons="none" />
       case 'wide': return <WideMenuExample />
@@ -36,6 +38,7 @@ export const PopupWall = () => {
       case 'suggestions': return <SuggestionsExample />
       case 'inbox': return <InboxExample />
       case 'select': return <SelectExample />
+      case 'select-disabled': return <DisabledSelectExample />
       default: return null
     }
   })()

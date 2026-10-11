@@ -36,6 +36,23 @@ const resolvedPx = (page: Page, token: string) => page.evaluate((name) => {
   return px
 }, token)
 
+const contrastRatio = (foreground: string, background: string): number => {
+  const luminance = (color: string) => {
+    const encoded = color.match(/^color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)/)
+    const values = encoded
+      ? encoded.slice(1, 4).map(value => Number(value) * 255)
+      : color.match(/[\d.]+/g)?.slice(0, 3).map(Number)
+    if (!values || values.length !== 3) throw new Error(`Cannot read RGB color ${color}`)
+    const linear = values.map(value => {
+      const channel = value / 255
+      return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+    })
+    return linear[0]! * 0.2126 + linear[1]! * 0.7152 + linear[2]! * 0.0722
+  }
+  const a = luminance(foreground), b = luminance(background)
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05)
+}
+
 for (const theme of WALL_THEMES) for (const width of [1440, 720]) {
   test(`Palette stays top-centred with one 24px content edge at ${width} in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
@@ -1760,7 +1777,7 @@ const rowMetrics = async (surface: Locator) => surface.evaluate(surface => [...s
   const meter = el.querySelector('[data-menu-meter]')
   const body = el.querySelector('[data-menu-body]')!
   const trailing = el.querySelector('[data-menu-trailing]')
-  return { height: el.getBoundingClientRect().height, radius: css.borderTopLeftRadius, padTop: parseFloat(css.paddingTop), padBottom: parseFloat(css.paddingBottom), left: el.getBoundingClientRect().left, right: el.getBoundingClientRect().right, labelHeight: label.getBoundingClientRect().height, labelSize: getComputedStyle(label).fontSize, labelLine: getComputedStyle(label).lineHeight, labelWeight: getComputedStyle(label).fontWeight, font: getComputedStyle(label).fontFamily, smoothing: getComputedStyle(label).getPropertyValue('-webkit-font-smoothing'), hintHeight: hint?.getBoundingClientRect().height ?? 0, meterHeight: meter?.getBoundingClientRect().height ?? 0, meterGap: meter ? parseFloat(getComputedStyle(meter).marginTop) : 0, hintSize: hint ? getComputedStyle(hint).fontSize : null, hintLine: hint ? getComputedStyle(hint).lineHeight : null, danger: el.hasAttribute('data-danger'), color: css.color, icon: Boolean(icon), iconLeft: icon?.getBoundingClientRect().left ?? null, iconWidth: icon?.getBoundingClientRect().width ?? 0, gap: parseFloat(css.columnGap), iconTop: icon?.getBoundingClientRect().top ?? 0, labelTop: label.getBoundingClientRect().top, labelLeft: label.getBoundingClientRect().left, bodyLeft: body.getBoundingClientRect().left, bodyRight: body.getBoundingClientRect().right, trailingLeft: trailing?.getBoundingClientRect().left ?? null, trailingRight: trailing?.getBoundingClientRect().right ?? null, trailingWhiteSpace: trailing ? getComputedStyle(trailing).whiteSpace : null }
+  return { height: el.getBoundingClientRect().height, radius: css.borderTopLeftRadius, padTop: parseFloat(css.paddingTop), padBottom: parseFloat(css.paddingBottom), left: el.getBoundingClientRect().left, right: el.getBoundingClientRect().right, labelHeight: label.getBoundingClientRect().height, labelSize: getComputedStyle(label).fontSize, labelLine: getComputedStyle(label).lineHeight, labelWeight: getComputedStyle(label).fontWeight, font: getComputedStyle(label).fontFamily, smoothing: getComputedStyle(label).getPropertyValue('-webkit-font-smoothing'), hintHeight: hint?.getBoundingClientRect().height ?? 0, meterHeight: meter?.getBoundingClientRect().height ?? 0, meterGap: meter ? parseFloat(getComputedStyle(meter).marginTop) : 0, hintSize: hint ? getComputedStyle(hint).fontSize : null, hintLine: hint ? getComputedStyle(hint).lineHeight : null, danger: el.hasAttribute('data-danger'), disabled: el.matches(':is([data-disabled],[aria-disabled="true"],:disabled)'), color: css.color, icon: Boolean(icon), iconLeft: icon?.getBoundingClientRect().left ?? null, iconWidth: icon?.getBoundingClientRect().width ?? 0, gap: parseFloat(css.columnGap), iconTop: icon?.getBoundingClientRect().top ?? 0, labelTop: label.getBoundingClientRect().top, labelLeft: label.getBoundingClientRect().left, bodyLeft: body.getBoundingClientRect().left, bodyRight: body.getBoundingClientRect().right, trailingLeft: trailing?.getBoundingClientRect().left ?? null, trailingRight: trailing?.getBoundingClientRect().right ?? null, trailingWhiteSpace: trailing ? getComputedStyle(trailing).whiteSpace : null }
 }))
 const expectMenuPlateGeometry = async (surface: Locator) => {
   const m = await menuMetrics(surface)
@@ -1788,6 +1805,10 @@ const expectMenuGeometry = async (surface: Locator) => {
   expect(new Set(uniqueLabels).size, 'menu labels are unique within a menu level').toBe(uniqueLabels.length)
   const dangerInk = await surface.evaluate(el => {
     const probe = document.createElement('span'); probe.style.color = 'var(--hd-danger)'; el.append(probe)
+    const color = getComputedStyle(probe).color; probe.remove(); return color
+  })
+  const disabledInk = await surface.evaluate(el => {
+    const probe = document.createElement('span'); probe.style.color = 'var(--hd-disabled-foreground)'; el.append(probe)
     const color = getComputedStyle(probe).color; probe.remove(); return color
   })
   for (const row of rows) {
@@ -1825,7 +1846,7 @@ const expectMenuGeometry = async (surface: Locator) => {
     }
     if (row.danger) {
       expect(row.icon).toBe(true)
-      expect(row.color).toBe(dangerInk)
+      expect(row.color).toBe(row.disabled ? disabledInk : dangerInk)
     }
   }
   await expectMenuAnatomy(surface, rows[0]!.icon)
@@ -1845,18 +1866,19 @@ const expectMenuAnatomy = async (surface: Locator, icons: boolean) => {
   })
   for (const group of anatomy.groups) expect(group).toEqual({ size: `${FRAME_MENU.groupSize}px`, weight: String(FRAME_MENU.groupWeight), color: anatomy.secondaryColor, icon: false })
   const hintInk = await surface.evaluate(el => {
-    const probe = document.createElement('span'); probe.style.color = 'var(--hd-muted-foreground)'; el.append(probe)
-    const muted = getComputedStyle(probe).color; probe.remove()
+    const probe = document.createElement('span'); probe.style.color = 'var(--hd-secondary-foreground)'; el.append(probe)
+    const secondary = getComputedStyle(probe).color; probe.remove()
     const enabled: string[] = []; const refused: string[] = []
     for (const hint of el.querySelectorAll('[data-menu-hint]')) {
       if (hint.closest('[data-popup-kind]') !== el) continue
       (hint.closest('[data-menu-row]:is([data-disabled],[aria-disabled="true"],:disabled)') ? refused : enabled).push(getComputedStyle(hint).color)
     }
-    return { muted, enabled, refused }
+    return { secondary, enabled, refused }
   })
-  for (const color of hintInk.refused) expect(color).toBe(hintInk.muted)
+  for (const color of hintInk.refused) expect(color).toBe(hintInk.secondary)
   anatomy.hints = hintInk.enabled
   for (const color of anatomy.hints) expect(color).toBe(anatomy.secondaryColor)
+  for (const color of hintInk.refused) expect(color).toBe(anatomy.secondaryColor)
   for (const separator of anatomy.separators) expect(separator).toEqual({ height: FRAME_MENU.separator, margins: [`${FRAME_MENU.padding - 2}px`, `${FRAME_MENU.separatorInset}px`, `${FRAME_MENU.padding - 2}px`, `${FRAME_MENU.separatorInset}px`], left: FRAME_MENU.padding + FRAME_MENU.separatorInset, right: FRAME_MENU.padding + FRAME_MENU.separatorInset })
   const edge = await surface.evaluate(el => {
     const box = el.getBoundingClientRect()
@@ -1909,7 +1931,7 @@ test('S17 Projects keeps Show agents values on one line', async ({ page }) => {
   expect(await show.locator('[data-menu-trailing]').evaluate(node => getComputedStyle(node).whiteSpace)).toBe('nowrap')
 })
 
-test('S17 disabled destructive session actions keep destructive ink', async ({ page }) => {
+test('S17 disabled destructive session actions use the shared disabled ink', async ({ page }) => {
   await openFrame(page, 'frame-wall=left-work', 'light', 1100)
   await applyLeftColumnActions(page, { leftOpen: true, leftPopup: 'session' })
   const menu = page.locator('[data-popup-kind]:visible').last()
@@ -1917,12 +1939,15 @@ test('S17 disabled destructive session actions keep destructive ink', async ({ p
   const remove = menu.locator('[data-menu-row]').filter({ hasText: 'Delete everywhere…' })
   await expect(remove).toHaveAttribute('data-danger', '')
   const colors = await remove.evaluate(el => {
-    const probe = document.createElement('span'); probe.style.color = 'var(--hd-danger)'; el.append(probe)
-    const danger = getComputedStyle(probe).color; probe.remove()
-    return { danger, row: getComputedStyle(el).color, icon: getComputedStyle(el.querySelector('[data-menu-icon]')!).color }
+    const probe = document.createElement('span'); probe.style.color = 'var(--hd-disabled-foreground)'; el.append(probe)
+    const disabled = getComputedStyle(probe).color; probe.remove()
+    return { disabled, row: getComputedStyle(el).color, icon: getComputedStyle(el.querySelector('[data-menu-icon]')!).color,
+      label: getComputedStyle(el.querySelector('[data-menu-label]')!).color, trailing: getComputedStyle(el.querySelector('[data-menu-trailing]')!).color }
   })
-  expect(colors.row).toBe(colors.danger)
-  expect(colors.icon).toBe(colors.danger)
+  expect(colors.row).toBe(colors.disabled)
+  expect(colors.icon).toBe(colors.disabled)
+  expect(colors.label).toBe(colors.disabled)
+  expect(colors.trailing).toBe(colors.disabled)
 })
 
 test('S17 conversation More keeps one Terminal row with its shortcut', async ({ page }) => {
@@ -2016,14 +2041,96 @@ for (const theme of WALL_THEMES) for (const width of WALL_WIDTHS) {
 }
 
 for (const theme of WALL_THEMES) {
-  test(`B11a reconcile disabled start menu retains icons and mutes the whole row in ${theme}`, async ({ page }) => {
+  test(`B11a reconcile disabled start menu retains icons and readable reasons in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation', theme)
     await page.locator('[data-left-column]').getByRole('button', { name: 'More ways to start', exact: true }).click()
     const row = page.getByRole('menuitem', { name: /New worktree/ })
     await expect(row).toBeDisabled()
     await expect(row.locator('[data-menu-icon]')).toHaveCount(1)
-    const ink = await row.evaluate(node => [node, ...node.querySelectorAll('[data-menu-icon],[data-menu-label],[data-menu-hint]')].map(one => getComputedStyle(one).color))
-    expect(new Set(ink).size).toBe(1)
+    await expectRefusedMenuRow(row)
+  })
+}
+
+for (const theme of WALL_THEMES) {
+  test(`S22 disabled popup rows share one ink and keep refusal reasons readable in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&popup=disabled-rows', theme)
+    await page.getByRole('button', { name: 'Frame disabled menu', exact: true }).click()
+    const menu = page.locator('[data-popup-kind="menu"]:visible').last()
+    await expectMenuGeometry(menu)
+    const disabledRows = menu.locator('[data-menu-row]:is([data-disabled],[aria-disabled="true"],:disabled)')
+    await expect(disabledRows).toHaveCount(2)
+    const enabledColor = await menu.locator('[data-menu-label]').filter({ hasText: 'Open workspace' }).evaluate(node => getComputedStyle(node).color)
+    const menuTokens = await menu.evaluate(node => {
+      const token = (name: string) => {
+        const probe = document.createElement('span'); probe.style.color = `var(${name})`; node.append(probe)
+        const color = getComputedStyle(probe).color; probe.remove(); return color
+      }
+      return { disabled: token('--hd-disabled-foreground'), secondary: token('--hd-secondary-foreground'), background: getComputedStyle(node).backgroundColor }
+    })
+    const rows = await disabledRows.evaluateAll(nodes => nodes.map(node => {
+      const color = (selector: string) => getComputedStyle(node.querySelector(selector)!).color
+      return {
+        label: color('[data-menu-label]'), icon: color('[data-menu-icon]'), trailing: color('[data-menu-trailing]'),
+        reason: color('[data-menu-hint]'), reasonExists: node.querySelector('[data-menu-hint]') !== null,
+      }
+    }))
+    const enabledContrast = contrastRatio(enabledColor, menuTokens.background)
+    for (const [index, row] of rows.entries()) {
+      expect(row.label).toBe(menuTokens.disabled)
+      expect(row.icon).toBe(row.label)
+      expect(row.trailing).toBe(row.label)
+      expect(row.reasonExists).toBe(true)
+      expect(row.reason).toBe(menuTokens.secondary)
+      const disabledContrast = contrastRatio(row.label, menuTokens.background)
+      const reasonContrast = contrastRatio(row.reason, menuTokens.background)
+      expect(disabledContrast).toBeGreaterThanOrEqual(3)
+      expect(enabledContrast / disabledContrast).toBeGreaterThanOrEqual(1.8)
+      expect(reasonContrast).toBeGreaterThanOrEqual(4.5)
+      if (index === 0) console.log(`S22 ${theme}: enabled ${enabledContrast.toFixed(2)}:1, disabled ${disabledContrast.toFixed(2)}:1, reason ${reasonContrast.toFixed(2)}:1`)
+    }
+
+    const refusedMenuItem = disabledRows.first()
+    await refusedMenuItem.hover({ force: true })
+    const plates = await refusedMenuItem.evaluate(node => {
+      const hover = getComputedStyle(node).backgroundColor
+      for (const state of ['data-highlighted', 'data-selected', 'data-current']) node.setAttribute(state, '')
+      return { hover, highlighted: getComputedStyle(node).backgroundColor }
+    })
+    expect(plates.hover).toBe('rgba(0, 0, 0, 0)')
+    expect(plates.highlighted).toBe('rgba(0, 0, 0, 0)')
+
+    await openFrame(page, 'frame-wall=conversation&popup=suggestions', theme)
+    const suggestions = page.getByRole('listbox')
+    const archivedOption = suggestions.getByRole('option', { name: /Archived conversation/ })
+    await expect(archivedOption).toHaveAttribute('aria-disabled', 'true')
+    expect(await archivedOption.locator('[data-menu-label]').evaluate(node => getComputedStyle(node).color)).toBe(menuTokens.disabled)
+    expect(await archivedOption.locator('[data-menu-hint]').evaluate(node => getComputedStyle(node).color)).toBe(menuTokens.secondary)
+
+    await openFrame(page, 'frame-wall=conversation&popup=select-disabled', theme)
+    await page.getByRole('combobox', { name: 'Frame Select with disabled option' }).click()
+    const archivedSelect = page.getByRole('option', { name: 'Archived Agent' })
+    await expect(archivedSelect).toHaveAttribute('data-disabled', '')
+    expect(await archivedSelect.locator('[data-menu-label]').evaluate(node => getComputedStyle(node).color)).toBe(menuTokens.disabled)
+    expect(await archivedSelect.locator('[data-menu-hint]').evaluate(node => getComputedStyle(node).color)).toBe(menuTokens.secondary)
+
+    await openFrame(page, 'frame-wall=conversation&popup=palette-result', theme)
+    const palette = page.locator('[data-popup-kind="menu"]')
+    const disabledPaletteRow = palette.locator('[data-palette-result]').last()
+    await expect(disabledPaletteRow).toBeDisabled()
+    const paletteInk = await disabledPaletteRow.evaluate(node => ({
+      row: getComputedStyle(node).color,
+      icon: getComputedStyle(node.querySelector('[data-palette-result-icon]')!).color,
+      label: getComputedStyle(node.querySelector('[data-palette-result-title]')!).color,
+      trailing: getComputedStyle(node.querySelector('[data-palette-result-meta]')!).color,
+      opacity: getComputedStyle(node).opacity,
+    }))
+    expect(paletteInk.row).toBe(menuTokens.disabled)
+    expect(paletteInk.icon).toBe(menuTokens.disabled)
+    expect(paletteInk.label).toBe(menuTokens.disabled)
+    expect(paletteInk.trailing).toBe(menuTokens.disabled)
+    expect(paletteInk.opacity).toBe('1')
+    await disabledPaletteRow.hover({ force: true })
+    expect(await disabledPaletteRow.evaluate(node => getComputedStyle(node).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
   })
 }
 
@@ -2685,7 +2792,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 1100,
 }
 
 for (const theme of WALL_THEMES) for (const width of [1440, 720]) {
-  test(`C3 refused rows retain icons and mute every text track at ${width} in ${theme}`, async ({ page }) => {
+  test(`C3 refused rows retain disabled ink and readable reasons at ${width} in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation', theme, width)
     await applyLeftColumnActions(page, { leftOpen: true, leftPopup: 'start' })
     const worktree = page.getByRole('menuitem', { name: /^New worktree/ })
@@ -2701,12 +2808,20 @@ for (const theme of WALL_THEMES) for (const width of [1440, 720]) {
 }
 const expectRefusedMenuRow = async (row: Locator) => {
   const colors = await row.evaluate(el => {
-    const resolve = document.createElement('span'); resolve.style.color = 'var(--hd-muted-foreground)'; el.append(resolve)
-    const muted = getComputedStyle(resolve).color; resolve.remove()
-    return { muted, tracks: [el, ...el.querySelectorAll('[data-menu-icon],[data-menu-label],[data-menu-hint]')].map(node => getComputedStyle(node).color) }
+    const disabledProbe = document.createElement('span'); disabledProbe.style.color = 'var(--hd-disabled-foreground)'; el.append(disabledProbe)
+    const disabled = getComputedStyle(disabledProbe).color; disabledProbe.remove()
+    const secondaryProbe = document.createElement('span'); secondaryProbe.style.color = 'var(--hd-secondary-foreground)'; el.append(secondaryProbe)
+    const secondary = getComputedStyle(secondaryProbe).color; secondaryProbe.remove()
+    return {
+      disabled,
+      secondary,
+      tracks: [el, ...el.querySelectorAll('[data-menu-icon],[data-menu-label],[data-menu-trailing]')].map(node => getComputedStyle(node).color),
+      reason: el.querySelector('[data-menu-hint]') ? getComputedStyle(el.querySelector('[data-menu-hint]')!).color : null,
+    }
   })
   expect(colors.tracks.length).toBe(4)
-  for (const color of colors.tracks) expect(color).toBe(colors.muted)
+  for (const color of colors.tracks) expect(color).toBe(colors.disabled)
+  if (colors.reason !== null) expect(colors.reason).toBe(colors.secondary)
   const icon = row.locator('[data-menu-icon] svg')
   await expect(icon).toHaveCount(1)
   const box = (await icon.boundingBox())!
