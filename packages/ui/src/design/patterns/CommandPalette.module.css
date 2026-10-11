@@ -57,10 +57,6 @@
   margin-inline: calc(-1 * var(--hd-space-2-5));
 }
 
-button.result {
-  padding-inline: var(--hd-space-2-5);
-}
-
 .resultIcon {
   flex: none;
   display: inline-flex;
