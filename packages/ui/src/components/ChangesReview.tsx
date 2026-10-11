@@ -141,7 +141,7 @@ const ReviewBody = ({ root, returnTo }: ReviewProps) => {
         { value: 'working', label: 'Working tree', run: () => setStaged(false) },
         { value: 'staged', label: 'Staged', run: () => setStaged(true) },
       ]} />
-      <Page width="canvas" measure="wide">
+      <Page width="canvas" measure="wide" topInset="page">
         <ReviewFilter query={query} change={setQuery} />
         <SummaryList><SummaryItem label={git?.branch ? <>on <MiddleTruncate>{git.branch}</MiddleTruncate></> : null}>
           {files.length} file{files.length === 1 ? '' : 's'}

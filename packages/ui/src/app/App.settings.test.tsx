@@ -183,7 +183,7 @@ it('opens the command palette from Search in the hidden-column top row', async (
   expect(container.querySelector('[data-testid="command-palette"]')).not.toBeNull()
 })
 
-it('New Team leaves a main page before opening its dialog', async () => {
+it('New Team keeps its main page behind the dialog', async () => {
   const previous = MAIN_PAGE_ENTRIES.plugins
   MAIN_PAGE_ENTRIES.plugins = () => <output>Plugins</output>
   try {
@@ -192,7 +192,8 @@ it('New Team leaves a main page before opening its dialog', async () => {
     await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
     act(() => store.openDestination({kind:'plugins',section:'installed',id:null}))
     act(() => native.run('new-team'))
-    expect(store.getSnapshot().workbench.navigation.current.kind).toBe('work')
+    expect(store.getSnapshot().workbench.navigation.current).toEqual({kind:'plugins',section:'installed',id:null})
+    expect(container.querySelector('[data-page-destination="plugins"]')?.hasAttribute('hidden')).toBe(false)
     expect(container.querySelector('[data-new-team]')).not.toBeNull()
   } finally { MAIN_PAGE_ENTRIES.plugins = previous }
 })

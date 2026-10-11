@@ -39,6 +39,22 @@ export const stepDestination = (history: DestinationHistory, direction: 'back' |
   const other = direction === 'back' ? 'forward' : 'back'
   return { ...history, current: target, [direction]: from.slice(0, -1), [other]: [...history[other], history.current].slice(-50) }
 }
+
+/** Leave the Settings section stack in one move while retaining each route for Forward. */
+export const leaveSettingsDestination = (history: DestinationHistory): DestinationHistory | null => {
+  if (history.current.kind !== 'settings') return null
+  let destinationIndex = -1
+  for (let index = history.back.length - 1; index >= 0; index--) {
+    if (history.back[index]?.kind !== 'settings') { destinationIndex = index; break }
+  }
+  if (destinationIndex < 0) return null
+  return {
+    current: history.back[destinationIndex]!,
+    back: history.back.slice(0, destinationIndex),
+    forward: [...history.forward, history.current, ...history.back.slice(destinationIndex + 1).reverse()].slice(-50),
+  }
+}
+
 const object = (raw: unknown): Record<string, unknown> | null =>
   typeof raw === 'object' && raw !== null && !Array.isArray(raw) ? raw as Record<string, unknown> : null
 const string = (raw: unknown): raw is string => typeof raw === 'string' && raw.length > 0

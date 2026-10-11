@@ -711,6 +711,78 @@ test('E9 review is opened as a page with a clear label', async ({ page }) => {
   await expect(page.locator('[data-page-destination="changes-review"]:visible')).toHaveCount(1)
   await expect(page.locator('[data-slot="app-window"]')).toHaveCount(0)
 })
+
+// R10 nav4 owns these round-four navigation and Changes review contracts.
+test('R10 nav4 New Team keeps the Teams page behind the dialog from the top bar', async ({ page }) => {
+  await openFrame(page, 'frame-wall=teams', 'light')
+  await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'New Team', exact: true }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page.locator('[data-page-destination="teams"]:visible')).toHaveCount(1)
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page.locator('[data-page-destination="teams"]:visible')).toHaveCount(1)
+})
+
+test('R10 nav4 New Team keeps the empty Teams page behind the dialog', async ({ page }) => {
+  await openFrame(page, 'frame-wall=teams&frame-empty=1', 'light')
+  const teams = page.locator('[data-page-destination="teams"]:visible')
+  await teams.getByRole('button', { name: 'New Team', exact: true }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(teams).toHaveCount(1)
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(teams).toHaveCount(1)
+})
+
+test('R10 nav4 Settings Back exits after page history while Meta bracket stays one step', async ({ page }) => {
+  await openFrame(page, 'frame-wall=navigation', 'light')
+  const column = page.locator('[data-left-column]:visible')
+  await column.locator('[data-left-seat]').getByRole('button', { name: 'Settings', exact: true }).click()
+  const settings = page.locator('[data-page-destination="settings"]:visible')
+  const nav = page.getByRole('navigation', { name: 'Settings navigation' })
+  await expect(settings).toHaveCount(1)
+  await nav.getByRole('button', { name: 'General', exact: true }).click()
+  await nav.getByRole('button', { name: 'Appearance', exact: true }).click()
+  await nav.getByRole('button', { name: 'Runtimes', exact: true }).click()
+  await page.keyboard.press('Meta+[')
+  await expect(nav.getByRole('button', { name: 'Appearance', exact: true })).toHaveAttribute('aria-current', 'page')
+  await page.keyboard.press('Meta+]')
+  await expect(nav.getByRole('button', { name: 'Runtimes', exact: true })).toHaveAttribute('aria-current', 'page')
+  await nav.getByRole('button', { name: 'Back', exact: true }).click()
+  await expect(settings).toHaveCount(0)
+  await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
+})
+
+test('R10 nav4 opening the fourth storefront conversation keeps project recency order', async ({ page }) => {
+  await openFrame(page, 'frame-wall=navigation&frame-recency=1', 'light')
+  const project = page.locator('[data-left-column]:visible [data-project-root="/work/storefront"]')
+  await expect(project).toBeVisible()
+  const rows = project.locator('[data-region="session-row"]')
+  await expect(rows).toHaveCount(4)
+  const labels = async () => rows.evaluateAll(elements => elements.map(element => element.querySelector('[data-left-row] > button')?.getAttribute('aria-label')))
+  const before = await labels()
+  expect(before).toEqual([
+    'Review the checkout plan', 'Inspect basket validation', 'Adjust retry handling', 'Check payment edge cases',
+  ])
+  await rows.nth(3).locator('[data-left-row] > button').click()
+  expect(await labels()).toEqual(before)
+})
+
+test('R10 nav4 Changes review uses page top gutter and Escape returns to work', async ({ page }) => {
+  await openFrame(page, 'frame-wall=conversation', 'light')
+  await page.locator('[data-work-tool="changes"]:visible').click()
+  await page.getByRole('button', { name: 'Open review', exact: true }).click()
+  const review = page.locator('[data-page-destination="changes-review"]:visible')
+  await expect(review).toHaveCount(1)
+  const topBar = (await page.locator('[data-slot="top-bar"]:visible').boundingBox())!
+  const firstBlock = (await review.locator('[data-page-measure="wide"] > *').first().boundingBox())!
+  const topOffset = firstBlock.y - (topBar.y + topBar.height)
+  expect(Math.round(topOffset)).toBe(FRAME.page.gutter)
+  await page.keyboard.press('Escape')
+  await expect(review).toHaveCount(0)
+  await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
+})
+
 for (const kind of ['library','plugins','dashboard']) test(`E9 owner Escape leaves the former ${kind} window destination`, async ({page}) => {
   await openFrame(page,'frame-wall=navigation','light')
   await page.locator('[data-left-column]:visible').getByRole('button',{name:kind[0]!.toUpperCase()+kind.slice(1),exact:true}).click()

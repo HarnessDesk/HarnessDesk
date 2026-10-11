@@ -1,4 +1,4 @@
-import { destinationOf, sameDestination, visitDestination, stepDestination, type PageDestination, type WorkView, type DestinationHistory } from './destinations'
+import { destinationOf, leaveSettingsDestination, sameDestination, visitDestination, stepDestination, type PageDestination, type WorkView, type DestinationHistory } from './destinations'
 import { FRAME } from '../design/frame'
 import { type TeamChatLayout, type TeamFramePage } from './layout'
 import { replaceTeamPayload } from './workbench'
@@ -1330,6 +1330,36 @@ export class AppStore {
       if (!stillSelected()) return
       const after = stepDestination(this.#snapshot.workbench.navigation, direction)
       if (!after) return
+      const target = after.current
+      if (target.kind === 'work' && target.view.kind === 'conversation' && target.view.session) {
+        const { runtime, id } = splitSessionKey(target.view.session)
+        if (!await this.openSession(id, { runtime, reveal: false, preserveLayoutOnReadFailure: true })) return
+      }
+      if (!stillSelected()) return
+      const remembered = focusedPane(this.#snapshot.layout).view
+      const unchanged = target.kind !== 'work' || ((remembered.kind === 'conversation' || remembered.kind === 'room')
+        && sameDestination(destinationOf(remembered), target))
+      const main = unchanged || target.kind !== 'work' ? this.#snapshot.layout
+        : settleExpansion(singleConversation(onlyIn(this.#snapshot.layout, target.view)))
+      this.#setWorkbench({ ...this.#snapshot.workbench, main, navigation: after })
+      this.closeFloatingSidebar()
+    }
+    const next = this.#navigationQueue.then(step, step)
+    this.#navigationQueue = next.catch(() => {})
+    return next
+  }
+  leaveSettings(): Promise<void> {
+    const project = this.#snapshot.workspace?.path ?? null
+    const epoch = this.#navigationEpoch
+    const stillSelected = () => epoch === this.#navigationEpoch && (this.#snapshot.workspace?.path ?? null) === project
+    const step = async (): Promise<void> => {
+      if (!stillSelected()) return
+      const history = this.#snapshot.workbench.navigation
+      const after = leaveSettingsDestination(history)
+      if (!after) {
+        if (history.current.kind === 'settings') this.returnToWork()
+        return
+      }
       const target = after.current
       if (target.kind === 'work' && target.view.kind === 'conversation' && target.view.session) {
         const { runtime, id } = splitSessionKey(target.view.session)
