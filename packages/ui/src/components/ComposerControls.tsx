@@ -318,7 +318,7 @@ const ChoiceRows = ({
               selected={choice.value === option.currentValue}
               label={choiceLabel(option, choice)}
               {...(choice.description && !(option.category === '_profile' && choice.value === '') && (option.category === '_permissions'
-                ? choice.risk === 'high' && (choice.label === 'Full access' || choice.label === 'Never ask')
+                ? choice.group === 'Profiles' || choice.risk === 'high' && (choice.label === 'Full access' || choice.label === 'Never ask')
                 : column) ? { hint: choice.description } : {})}
               {...(choice.description ? { title: choice.description } : {})}
               disabled={option.disabled || choice.disabled}

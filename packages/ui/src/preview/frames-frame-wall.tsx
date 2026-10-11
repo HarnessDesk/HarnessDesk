@@ -401,6 +401,20 @@ export const FrameWall = () => {
         draftPlace: { kind: 'existing', path: main.path, branch: main.branch ?? null },
       })
     }
+    if (destination === 'draft' && query.get('frame-fix8-permission-profile') === '1') {
+      Object.assign(snapshot, { draftOptions: [{ id: 'permissions', type: 'select', category: '_permissions', label: 'Permissions', currentValue: ':workspace', choices: [
+        { value: ':read-only', label: 'Read only' }, { value: ':workspace', label: 'Workspace write' },
+        { value: ':danger-full-access', label: 'Full access', risk: 'high', description: 'Can change any file.' },
+        { value: 'ci', label: 'ci', group: 'Profiles', description: 'Checks files using the project configuration.' },
+      ] }, { id: 'approvals', type: 'select', category: '_permissions', label: 'Approvals', currentValue: 'on-request', choices: [{ value: 'on-request', label: 'When it asks' }] }] })
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = (async (method, params) => {
+        if (method === 'runtime/sessionDefaults') return snapshot.draftOptions!.map(option => ({ ...option,
+          currentValue: (params as { values?: Record<string, string> }).values?.[option.id] ?? option.currentValue,
+        }))
+        return request(method, params as never)
+      }) as typeof next.transport.request
+    }
     if (destination === 'draft' && query.get('frame-composer-labels') === '1') {
       Object.assign(snapshot, { draftOptions: [
         { id: 'sandbox', type: 'select', category: '_permissions', label: 'Sandbox', currentValue: 'workspace', choices: [

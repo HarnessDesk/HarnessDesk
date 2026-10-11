@@ -168,3 +168,15 @@ it('draws Work in for drafts and leaves its track out of a live conversation', (
   draw(true)
   expect(container.querySelector('[data-composer-track="work-in"]')).toBeNull()
 })
+
+it('a named permission profile earns its description and selection state in its group', () => {
+  const profile: ConfigOption = { id: 'permissions', label: 'Permissions', category: '_permissions', type: 'select', currentValue: 'ci',
+    choices: [{ value: ':workspace', label: 'Workspace write' }, { value: 'ci', label: 'ci', group: 'Profiles', description: 'Checks files using the project configuration.' }] }
+  const state = { ...snapshot(), draftOptions: [profile] }
+  const store = { subscribe: () => () => {}, getSnapshot: () => state } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><PermissionControl /></StoreProvider>))
+  act(() => container.querySelector<HTMLButtonElement>('button')!.click())
+  const row = document.querySelector('[role="menuitemradio"][aria-checked="true"]')!
+  expect(row.textContent).toContain('Checks files using the project configuration.')
+  expect(row.getAttribute('title')).toBe('Checks files using the project configuration.')
+})

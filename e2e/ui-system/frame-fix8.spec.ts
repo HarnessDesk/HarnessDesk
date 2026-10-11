@@ -127,3 +127,20 @@ test('command strip waits for approval before saying it is running', async ({ pa
   await expect(page.getByText('1 command waiting for approval in this turn', { exact: true })).toBeVisible()
   await expect(page.getByText('1 command running in this turn', { exact: true })).toHaveCount(0)
 })
+
+test('permission profile is grouped described and selectable at both widths', async ({ page }) => {
+  for (const width of [1280, 720]) {
+    await openFrame(page, 'frame-wall=draft&frame-fix8-permission-profile=1', width)
+    await page.getByRole('button', { name: /Workspace write/ }).last().click()
+    const menu = page.getByRole('menu')
+    await expect(menu.getByText('Profiles', { exact: true })).toBeVisible()
+    const row = menu.getByRole('menuitemradio', { name: 'ci Checks files using the project configuration.', exact: true })
+    await expect(row).toHaveAttribute('aria-checked', 'false')
+    const box = await row.boundingBox()
+    expect(box!.x).toBeGreaterThanOrEqual(0)
+    expect(box!.x + box!.width).toBeLessThanOrEqual(width)
+    await row.click()
+    await page.getByRole('button', { name: width === 720 ? 'ci — what the agent may do' : 'ci', exact: true }).click()
+    await expect(page.getByRole('menuitemradio', { name: 'ci Checks files using the project configuration.', exact: true })).toHaveAttribute('aria-checked', 'true')
+  }
+})
