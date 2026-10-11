@@ -52,7 +52,19 @@ export const applyLeftColumnActions = async (page: Page, actions: {
     const expanded = actions.leftHeading === 'hover-open'
     if ((await heading.getAttribute('aria-expanded') === 'true') !== expanded) await heading.click()
     await expect(heading).toHaveAttribute('aria-expanded', String(expanded))
-    if (expanded) await heading.hover()
+    if (expanded) {
+      await heading.hover()
+      const chevron = heading.locator('[data-slot="disclosure-chevron"]')
+      // The floating rail can finish moving the heading after hover scrolls it
+      // into view. Keep the pointer on its current box until the hover-owned
+      // disclosure is actually painted.
+      await expect.poll(async () => {
+        const box = await heading.boundingBox()
+        if (!box) return false
+        await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+        return chevron.evaluate(node => getComputedStyle(node).visibility === 'visible')
+      }).toBe(true)
+    }
     else {
       await heading.evaluate(node => (node as HTMLElement).blur())
       await page.mouse.move(page.viewportSize()!.width - 1, 899)

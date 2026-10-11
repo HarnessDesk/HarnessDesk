@@ -219,10 +219,13 @@ it.each(['trash', 'erase', false] as const)('uses the declared delete dispositio
   const actions = box.querySelector<HTMLButtonElement>('[aria-label="Imported actions"]')
   expect(actions).not.toBeNull()
   await act(async () => actions!.click())
-  const deletion = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(el => el.textContent === 'Delete everywhere…')!
+  const deletion = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .find(el => el.querySelector('[data-menu-label]')?.textContent === 'Delete everywhere…')!
   expect(deletion.getAttribute('aria-disabled') === 'true').toBe(disposition !== 'trash')
   if (disposition !== 'trash') {
-    expect(deletion.title).toBe(disposition === 'erase' ? 'Alpha erases it for good, so delete it there' : 'Alpha keeps no way to delete one.')
+    const reason = disposition === 'erase' ? 'Alpha erases it for good, so delete it there' : 'Alpha keeps no way to delete one.'
+    expect(deletion.title).toBe(reason)
+    expect(deletion.querySelector('[data-menu-hint]')?.textContent).toBe(reason)
   } else {
     await act(async () => deletion.click())
     expect(document.body.textContent).toContain('Delete "Imported" everywhere?')

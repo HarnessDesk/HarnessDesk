@@ -4079,6 +4079,9 @@ for (const theme of WALL_THEMES) {
     const top = page.locator('[data-slot="top-bar"]:visible')
     await top.getByRole('button', { name: 'Details', exact: true }).click()
     const main = page.locator('[data-frame-region="main"]:visible')
+    const right = page.locator('[data-frame-region="right"]:visible')
+    await expect(right).toBeVisible()
+    await expect.poll(async () => Math.round((await right.boundingBox())!.width)).toBe(FRAME.rightPanel.width)
     const before = (await main.boundingBox())!
     const seam = page.getByRole('separator', { name: 'Resize the right panel', exact: true })
     const seamBox = (await seam.boundingBox())!

@@ -68,7 +68,7 @@ export const frameDestinationStore = (fixture: AppStore): AppStore => {
     if (method === 'credentials/list' || method === 'runtime/hooks' || method === 'runtime/mcp/list' || method === 'provenance/status') return []
     if (method === 'runtime/catalog') return {plugins:[],marketplaces:[],loadErrors:[],featured:[]}
     if (method === 'runtime/apps/search') return {apps:[]}
-    if (method === 'worktree/list') return seed.worktrees
+    if (method === 'worktree/list') return store.getSnapshot().worktrees
     if (method === 'git/branches') return fixture.listBranches(query.root)
     if (method === 'runtime/installs') return null
     if (method === 'runtime/warm') return {ready:true}

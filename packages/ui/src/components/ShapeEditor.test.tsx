@@ -171,7 +171,8 @@ const byAriaLabel = (label: string): HTMLElement => {
 }
 /** A row's overflow menu item — Base UI's `Menu.Item` renders a `<div role="menuitem">` by default, never a `<button>`. */
 const menuItem = (label: string): HTMLElement => {
-  const found = [...document.body.querySelectorAll('[role="menuitem"]')].find((one) => one.textContent?.trim() === label)
+  const found = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .find((one) => one.querySelector('[data-menu-label]')?.textContent?.trim() === label)
   if (!found) throw new Error(`no menu item “${label}”`)
   return found as HTMLElement
 }
@@ -799,6 +800,9 @@ it('removing a step uses the destructive tone, and only there', async () => {
   await settle()
   const remove = menuItem('Remove step')
   expect(remove.getAttribute('data-variant')).toBe('destructive')
+  expect(remove.getAttribute('aria-disabled')).toBe('true')
+  expect(remove.querySelector('[data-menu-hint]')?.textContent).toBe('The seed step, and a step a rule still points at, cannot be removed.')
+  expect(remove.querySelector('[data-menu-icon]')?.getAttribute('data-variant')).not.toBe('destructive')
   // Neither of its siblings in the same menu carries the same tone.
   expect(menuItem('Move up').getAttribute('data-variant')).not.toBe('destructive')
   expect(menuItem('Move down').getAttribute('data-variant')).not.toBe('destructive')

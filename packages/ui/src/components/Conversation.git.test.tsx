@@ -135,7 +135,8 @@ const menu = (): string[] => {
   act(() => {
     chip()!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   })
-  return [...document.querySelectorAll('[role="menuitem"]')].map((row) => row.textContent ?? '')
+  return [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .map((row) => row.querySelector('[data-menu-label]')?.textContent ?? '')
 }
 
 const inTree = { activeSessionKey: KEY, sessions: new Map([[KEY, conversation(TREE)]]) }
@@ -207,6 +208,10 @@ it('offers no git verbs for a draft pointed at a worktree, which the host reads 
   expect(rows).not.toContain('History')
   expect(rows.some((row) => row.includes('harnessdesk/checkout-retry'))).toBe(false)
   expect(rows).toContain('Starts in this worktree when the message goes')
+  const refused = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .find((row) => row.querySelector('[data-menu-label]')?.textContent === 'Starts in this worktree when the message goes')!
+  expect(refused.querySelector('[data-menu-hint]')?.textContent).toBe('Where it starts is chosen in the composer, under Work in.')
+  expect(refused.getAttribute('aria-disabled')).toBe('true')
 })
 
 it('offers no git verbs for a draft armed with a new worktree, which does not exist yet', () => {
@@ -216,6 +221,10 @@ it('offers no git verbs for a draft armed with a new worktree, which does not ex
   expect(rows).not.toContain('History')
   expect(rows.some((row) => row.includes('harnessdesk/checkout-retry'))).toBe(false)
   expect(rows).toContain('The worktree is made when the message goes')
+  const refused = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .find((row) => row.querySelector('[data-menu-label]')?.textContent === 'The worktree is made when the message goes')!
+  expect(refused.querySelector('[data-menu-hint]')?.textContent).toBe('Where it starts is chosen in the composer, under Work in.')
+  expect(refused.getAttribute('aria-disabled')).toBe('true')
 })
 
 it('names the branch a draft is pointed at from the draft, though the worktree list could not be read', () => {

@@ -88,6 +88,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'teams' 
     newDraft,
     loadWorktrees: vi.fn(async () => {}),
     loadAgents: vi.fn(async () => {}),
+    returnToWork: vi.fn(),
     flowCatalog: vi.fn(async () => []), agentsIn: vi.fn(async () => []), openFrontDoor: vi.fn(), closeFrontDoor: vi.fn(),
   } as unknown as AppStore
 

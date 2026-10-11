@@ -120,6 +120,8 @@ interface Entry {
   readonly labelMatches?: readonly HighlightSpan[]
   readonly title?: string
   readonly hint?: string
+  /** Transcript match ranking remains useful when a title hit suppresses its duplicate snippet. */
+  readonly contentMatch?: boolean
   /** A line from the content where the query matched, for inline display. */
   readonly matchLine?: string
   /** Start offset of the match within `matchLine`. */
@@ -540,6 +542,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
         filter: 'Sessions',
         label,
         ...(labelMatches.length > 0 ? { labelMatches } : {}),
+        ...(content ? { contentMatch: true } : {}),
         hint: `${brandOf(agent)} · ${folder}`,
         icon: <SessionIcon size={14} />,
         keywords: `${folder} ${agent} ${summary.preview ?? ''}`,
@@ -623,7 +626,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
       .map((entry) => ({
         entry,
         score: score(needle, entry.label, `${entry.keywords ?? ''} ${entry.hint ?? ''} ${entry.title ?? ''}`)
-          + (entry.matchLine ? 20 : 0),
+          + (entry.matchLine || entry.contentMatch ? 20 : 0),
       }))
       .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score)
