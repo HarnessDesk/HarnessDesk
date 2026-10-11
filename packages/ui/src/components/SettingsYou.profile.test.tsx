@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { applyProfile, type Profile, type ProfilePatch } from '../lib/profile'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { ProfileSection } from './SettingsYou'
+import { GeneralSection, ProfileSection } from './SettingsYou'
 
 /**
  * Settings › Profile: your name and your face.
@@ -380,4 +380,11 @@ it('steps Down by the row the grid is drawn with', () => {
   expect(container.querySelector('[data-slot="picture-choices"]')).not.toBeNull()
   press(worn(), 'ArrowDown')
   expect(profile().avatar).toBe(tiles()[columns]?.getAttribute('aria-label')?.toLowerCase())
+})
+
+it('General scopes local storage to HarnessDesk and acknowledges agent services', () => {
+  act(() => root.render(<GeneralSection rows={null} />))
+  expect(container.textContent).toContain('HarnessDesk keeps its preferences, conversations and work records in ~/.harnessdesk.')
+  expect(container.textContent).toContain('Agents connect to their own services.')
+  expect(container.textContent).not.toContain('nothing syncs or uploads')
 })

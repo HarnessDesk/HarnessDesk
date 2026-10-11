@@ -1553,7 +1553,7 @@ export const BackupRows = () => {
     <Rows>
       <Row
         title="Back up this Mac’s HarnessDesk"
-        desc="Runtimes, your Agents and their seats on this Mac, preferences, transcripts and what the desk observed, in one file — sign in again after restoring."
+        desc="Runtimes, your Agents and their seats on this Mac, preferences, transcripts and work evidence, in one file — sign in again after restoring."
         control={
           <Button variant="secondary" size="sm" disabled={busy !== false} onClick={() => void exportBackup()}>
             {busy === 'export' ? 'Exporting…' : 'Export…'}

@@ -401,6 +401,21 @@ export const FrameWall = () => {
         draftPlace: { kind: 'existing', path: main.path, branch: main.branch ?? null },
       })
     }
+    if (query.get('frame-fix8-signin') === '1') {
+      const [first, second] = snapshot.runtimes
+      const failed = { state: 'unavailable' as const, reason: 'missing' as const, message: 'The agent cannot start.', remediation: 'Choose a working installation.' }
+      Object.assign(snapshot, { runtimes: [first!, { ...second!, capabilities: { ...second!.capabilities, account: true } }], activeRuntime: first!.id, health: failed,
+        healthByRuntime: { [first!.id]: failed, [second!.id]: { state: 'ready' } },
+        accountsByRuntime: { ...snapshot.accountsByRuntime, [second!.id]: { ...snapshot.accountsByRuntime[second!.id]!, accounts: [], signInMethods: snapshot.accountsByRuntime[first!.id]!.signInMethods } },
+      })
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = (async (method, params) => {
+        const runtime = (params as { runtime: RuntimeId }).runtime
+        if (method === 'runtime/health') return snapshot.healthByRuntime[runtime]
+        if (method === 'runtime/account') return snapshot.accountsByRuntime[runtime]
+        return request(method, params as never)
+      }) as typeof next.transport.request
+    }
     if (query.get('frame-fix8-palette') === '1') {
       const entry = snapshot.agents!.find(one => one.definition)!
       const agent = { ...entry, id: 'unavailable-reviewer', path: '/app/agents/unavailable-reviewer/AGENT.md',

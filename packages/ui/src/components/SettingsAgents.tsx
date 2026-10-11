@@ -798,7 +798,7 @@ const AgentAccounts = ({
                   answering.length > 0 ? (
                     `${answering.length === 1 ? 'Another account has' : 'Other accounts have'} not answered yet.`
                   ) : (
-                    `${info.presentation.name} has no credential here yet, so a session sent to it would not start.`
+                    'Signed out. Sign in to start a session.'
                   )
                 ) : info.install?.signIn ? (
                   <Prose

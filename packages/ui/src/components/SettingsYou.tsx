@@ -251,8 +251,8 @@ export const GeneralSection = ({ rows }: { rows: ReactNode }) => (
     <SectionHead name="Your data" />
     <Rows>
       <Row
-        title="Everything stays on this Mac"
-        desc="Everything lives in ~/.harnessdesk; nothing syncs or uploads."
+        title="HarnessDesk’s data stays on this Mac"
+        desc="HarnessDesk keeps its preferences, conversations and work records in ~/.harnessdesk. Agents connect to their own services."
         control={<RowValue>Local</RowValue>}
       />
       <Row

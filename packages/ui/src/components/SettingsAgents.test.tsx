@@ -622,7 +622,7 @@ it("an extra account that could not start is not one the page is waiting on (#10
   })
   await act(async () => line('Alpha').click())
   // Nothing else is going to answer, so the claim is back.
-  expect(document.body.textContent).toContain('would not start')
+  expect(document.body.textContent).toContain('Signed out. Sign in to start a session.')
   expect(document.body.textContent).not.toContain('not answered yet.')
 })
 
@@ -673,7 +673,7 @@ it("an agent's page claims no session would fail while another of its accounts i
     accountsByRuntime: { ...ROSTER.accountsByRuntime, alpha: signedIn([], ['browser']), 'alpha#2': signedIn([], ['browser']) },
   })
   await act(async () => line('Alpha').click())
-  expect(document.body.textContent).toContain('would not start')
+  expect(document.body.textContent).toContain('Signed out. Sign in to start a session.')
   act(() => root.unmount())
   root = createRoot(container)
 
@@ -683,7 +683,7 @@ it("an agent's page claims no session would fail while another of its accounts i
   await act(async () => line('Alpha').click())
   expect(document.body.textContent).toContain('Not signed in')
   expect(document.body.textContent).toContain('Another account has not answered yet.')
-  expect(document.body.textContent).not.toContain('would not start')
+  expect(document.body.textContent).not.toContain('Signed out. Sign in to start a session.')
   expect(button('Sign in')).toBeTruthy()
 })
 
