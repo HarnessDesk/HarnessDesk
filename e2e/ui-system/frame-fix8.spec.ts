@@ -33,3 +33,13 @@ test('draft composer distinguishes a failed runtime from one starting', async ({
     await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
   }
 })
+
+test('column filter keeps a matching conversation across repository worktrees', async ({ page }) => {
+  await openFrame(page, 'frame-wall=conversation&frame-fix8-filter=1')
+  await expect(page.getByRole('button', { name: 'Lead', exact: true })).toBeVisible()
+  await page.getByRole('searchbox', { name: 'Filter this list' }).fill('Lead')
+  await expect(page.getByRole('button', { name: 'Lead', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Review', exact: true })).toHaveCount(0)
+  await expect(page.getByText('No conversations match', { exact: false })).toHaveCount(0)
+})
+

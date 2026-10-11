@@ -569,6 +569,21 @@ export const FrameWall = () => {
         }],
       }) })
     }
+    if (destination === 'conversation' && query.get('frame-fix8-filter') === '1') {
+      const runtime = snapshot.activeRuntime!
+      const history = ['Lead', 'Review'].map((title, index) => ({ id: `filter-${index}`, runtime, title, preview: null,
+        cwd: `/work/storefront/.worktrees/${title.toLowerCase()}`, repo: { root: '/work/storefront', worktree: true },
+        status: { type: 'notLoaded' as const }, createdAt: 1, updatedAt: 2 }))
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = (async (method, params) => {
+        if (method === 'session/index') return { data: history, nextCursor: null }
+        if (method === 'session/search') return { data: [], nextCursor: null }
+        return request(method, params as never)
+      }) as typeof next.transport.request
+      Object.assign(snapshot, { sessions: new Map(), teams: new Map(), goals: new Map(),
+        workspace: { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 }, workspaces: [] })
+      void next.loadHistory({ reset: true })
+    }
     const tool = query.get('frame-tool'), path = query.get('frame-tool-path')
     if (tool === 'file' && path) next.openFile(path)
     else if (tool === 'preview' && path) next.openPreview(path)

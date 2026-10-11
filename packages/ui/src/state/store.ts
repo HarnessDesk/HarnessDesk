@@ -159,6 +159,7 @@ import { readEditorPrefs } from '../lib/editor-prefs'
 import { readColumnWidths } from '../lib/git-columns'
 import { readSystemNotifications } from '../lib/system-notifications'
 import { sessionLabel, shortLabel } from '../lib/sessions'
+import { seatLabelsOf } from '../lib/seat-names'
 import { isStale } from '../lib/versions'
 import { isPathInside } from '../lib/paths'
 import { buildHandoff, type Carry } from '../lib/handoff'
@@ -2360,7 +2361,16 @@ export class AppStore {
               .catch(() => [] as SessionSummary[]),
           ),
       )
-      const results = pages.flat()
+      const labels = seatLabelsOf(this.#snapshot)
+      const needle = query.trim().toLocaleLowerCase()
+      const local = this.#snapshot.historyIdentity.filter(row => {
+        const key = sessionKey(row.runtime, row.id)
+        const live = this.#snapshot.sessions.get(key)
+        const first = live?.turns.flatMap(turn => turn.items).find(item => item.type === 'userMessage')
+        const preview = first?.type === 'userMessage' ? first.content.filter(part => part.type === 'text').map(part => part.text).join('') : null
+        return sessionLabel(live?.title ?? row.title, live?.preview ?? preview ?? row.preview, labels.get(String(key))).toLocaleLowerCase().includes(needle)
+      })
+      const results = [...new Map([...pages.flat(), ...local].map(row => [String(sessionKey(row.runtime, row.id)), row])).values()]
         .filter((row) => this.#snapshot.runtimes.some((entry) => entry.id === row.runtime))
         .sort((a, b) => b.updatedAt - a.updatedAt)
       if (requestId !== this.#historyRequestId) return
