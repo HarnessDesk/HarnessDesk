@@ -94,7 +94,7 @@ it('starts from the branch you are on unless you pick another', async () => {
   await render(store)
   await type('parser fix')
 
-  await act(async () => button('Start in a new worktree').click())
+  await act(async () => button('Open new session').click())
 
   expect(store.armWorktree).toHaveBeenCalledWith('/repos/harness-desk', 'parser fix', 'main')
 })
@@ -105,7 +105,7 @@ it('sends the branch that was picked', async () => {
   await type('parser fix')
 
   await act(async () => button('feat/docs').click())
-  await act(async () => button('Start in a new worktree').click())
+  await act(async () => button('Open new session').click())
 
   expect(store.armWorktree).toHaveBeenCalledWith('/repos/harness-desk', 'parser fix', 'feat/docs')
 })
@@ -116,7 +116,7 @@ it('makes nothing on disk: the draft is pointed, and the host cuts it on send', 
   await render(store, onClose)
   await type('parser fix')
 
-  await act(async () => button('Start in a new worktree').click())
+  await act(async () => button('Open new session').click())
 
   expect(store.newSession).not.toHaveBeenCalled()
   expect(onClose).toHaveBeenCalled()
@@ -130,7 +130,7 @@ it('stays open when the draft could not be pointed', async () => {
   await render(store, onClose)
   await type('parser fix')
 
-  await act(async () => button('Start in a new worktree').click())
+  await act(async () => button('Open new session').click())
 
   expect(onClose).not.toHaveBeenCalled()
 })
@@ -208,11 +208,11 @@ it('waits to be typed in before it says anything is wrong', async () => {
   const { store } = rig()
   await render(store)
 
-  expect(button('Start in a new worktree').disabled).toBe(true)
+  expect(button('Open new session').disabled).toBe(true)
   expect(document.body.textContent).not.toContain('Give it a name.')
 
   await type('///')
 
-  expect(button('Start in a new worktree').disabled).toBe(true)
+  expect(button('Open new session').disabled).toBe(true)
   expect(document.body.textContent).toContain('Give it a name.')
 })

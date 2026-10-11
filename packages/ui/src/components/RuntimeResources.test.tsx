@@ -43,6 +43,8 @@ it('shows process cost, keeps a refused recycle disabled, and refreshes after re
   const root = createRoot(box)
   try {
     await act(async () => root.render(<StoreProvider store={store}><RuntimeResources runtime={id} /></StoreProvider>))
+    expect(box.textContent).toContain('Process resources')
+    expect(box.querySelector('thead')?.textContent).not.toContain('Idle runtime')
     expect(box.textContent).toContain('3 processes')
     expect(box.textContent).toContain('128 MiB')
     const button = box.querySelector('button')!
@@ -103,5 +105,18 @@ it('a recycle completion from the previous page cannot invalidate the new page o
     await act(async () => finishRead([cost(newId, 9)]))
     expect(box.textContent).toContain('9 processes')
     expect(read).toHaveBeenCalledTimes(2)
+  } finally { act(() => root.unmount()); box.remove() }
+})
+
+it('a refused recycle always carries an actionable reason even when the measurement omitted it', async () => {
+  const snapshot = emptySnapshot()
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, runtimeResources: async () => [{
+    runtime: runtimeId('fixture'), observedAt: 1, processes: 2, residentBytes: 0, canRecycle: false, reason: null,
+  }] } as unknown as AppStore
+  const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
+  try {
+    await act(async () => root.render(<StoreProvider store={store}><RuntimeResources /></StoreProvider>))
+    expect(box.querySelector('button')!.disabled).toBe(true)
+    expect(box.querySelector('button')!.title).toBe('Let its work finish and close its conversations before recycling.')
   } finally { act(() => root.unmount()); box.remove() }
 })

@@ -133,7 +133,7 @@ export const NewWorktree = ({
       footer={
         <>
           <Button variant="default" disabled={busy || problem !== null} onClick={() => void create()}>
-            {busy ? 'Opening…' : 'Start in a new worktree'}
+            {busy ? 'Opening…' : 'Open new session'}
           </Button>
           <Button variant="secondary" disabled={busy} onClick={onClose}>
             Cancel

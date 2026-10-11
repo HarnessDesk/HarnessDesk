@@ -401,6 +401,10 @@ export const FrameWall = () => {
         draftPlace: { kind: 'existing', path: main.path, branch: main.branch ?? null },
       })
     }
+    if (destination === 'draft' && query.get('frame-fix8-worktree') === '1') {
+      Object.assign(snapshot, { workspace: { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1,
+        git: { branch: 'main' }, repo: { root: '/work/storefront', worktree: false } } })
+    }
     if (destination === 'draft' && query.get('frame-fix8-permission-profile') === '1') {
       Object.assign(snapshot, { draftOptions: [{ id: 'permissions', type: 'select', category: '_permissions', label: 'Permissions', currentValue: ':workspace', choices: [
         { value: ':read-only', label: 'Read only' }, { value: ':workspace', label: 'Workspace write' },

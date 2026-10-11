@@ -61,15 +61,15 @@ export const RuntimeResources = ({ runtime }: { readonly runtime?: RuntimeId }) 
   const reasons = [...new Set(rows.map(cost => cost.reason).filter((reason): reason is string => reason !== null))]
   if (shown.length === 0 && !problem) return null
   return <>
-    <SectionHead name="Process cost" />
+    <SectionHead name="Process resources" />
     {shown.some(cost => cost.processes === 0) && <Chip tone="neutral">Not running</Chip>}
     {rows.length > 0 && <Table density="compact" inset="row">
-      <TableHeader><TableRow><TableHead>Runtime</TableHead><TableHead numeric>Processes</TableHead><TableHead numeric>Resident memory</TableHead><TableHead align="end">Idle runtime</TableHead></TableRow></TableHeader>
+      <TableHeader><TableRow><TableHead>Runtime</TableHead><TableHead numeric>Processes</TableHead><TableHead numeric>Resident memory</TableHead><TableHead align="end"><span className="sr-only">Actions</span></TableHead></TableRow></TableHeader>
       <TableBody>{rows.map((cost) => <TableRow key={cost.runtime}>
         <TableHead variant="row"><Text role="prose">{nameFor(cost.runtime)}</Text></TableHead>
         <TableCell numeric>{cost.processes === null ? 'Unavailable' : `${cost.processes} ${cost.processes === 1 ? 'process' : 'processes'}`}</TableCell>
         <TableCell numeric>{cost.residentBytes === null ? 'Unavailable' : `${Math.round(cost.residentBytes / 1024 / 1024)} MiB`}</TableCell>
-        <TableCell align="end"><Button size="sm" variant="outline" title={cost.reason ?? undefined} aria-label={`Recycle idle ${nameFor(cost.runtime)}`} disabled={!cost.canRecycle || busy !== null} onClick={() => { void recycle(cost.runtime) }}>Recycle</Button></TableCell>
+        <TableCell align="end"><Button size="sm" variant="outline" title={busy !== null ? (busy === cost.runtime ? 'Recycling this runtime…' : 'Wait for the current recycle to finish.') : !cost.canRecycle ? cost.reason ?? 'Let its work finish and close its conversations before recycling.' : 'Recycle this idle runtime'} aria-label={`Recycle idle ${nameFor(cost.runtime)}`} disabled={!cost.canRecycle || busy !== null} onClick={() => { void recycle(cost.runtime) }}>Recycle</Button></TableCell>
       </TableRow>)}</TableBody>
     </Table>}
     {reasons.map(reason => <Note key={reason}>{reason}</Note>)}
