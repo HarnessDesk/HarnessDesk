@@ -34,8 +34,8 @@
 .shell[data-bottom-open='false'] .bottom {
   grid-area: auto; position: absolute; left: var(--frame-left); right: 0; top: calc(100% - var(--frame-bottom-retained)); bottom: 0;
 }
-.shell[data-panel-floats='true'] { grid-template-columns: var(--frame-left) minmax(0, 1fr) var(--frame-right-open); }
-.shell[data-left-floats='true'][data-panel-floats='true'] { grid-template-columns: 0 minmax(0, 1fr) var(--frame-right-open); }
+.shell[data-panel-floats='true'] { grid-template-columns: var(--frame-left) minmax(0, 1fr) 0; }
+.shell[data-left-floats='true'][data-panel-floats='true'] { grid-template-columns: 0 minmax(0, 1fr) 0; }
 .shell[data-panel-floats='true'] .right {
   grid-area: auto; position: absolute; top: var(--hd-bar-h); right: 0;
   bottom: var(--frame-bottom); width: var(--frame-right-open);

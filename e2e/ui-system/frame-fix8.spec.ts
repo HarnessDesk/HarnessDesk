@@ -43,3 +43,18 @@ test('column filter keeps a matching conversation across repository worktrees', 
   await expect(page.getByText('No conversations match', { exact: false })).toHaveCount(0)
 })
 
+test('right tools overlay the full main area below the wide breakpoint', async ({ page }) => {
+  for (const width of [1100, 720]) for (const tool of ['Changes', 'Details', 'Browser']) {
+    await openFrame(page, 'frame-wall=conversation', width)
+    const main = page.locator('[data-frame-region="main"]:visible')
+    const before = await main.boundingBox()
+    await page.getByRole('button', { name: tool, exact: true }).first().click()
+    const right = page.locator('[data-frame-region="right"]:visible')
+    await expect(right).toBeVisible()
+    const after = await main.boundingBox(), panel = await right.boundingBox()
+    expect(after!.width).toBe(before!.width)
+    expect(panel!.x).toBeGreaterThanOrEqual(after!.x)
+    expect(panel!.x + panel!.width).toBeLessThanOrEqual(after!.x + after!.width + 1)
+  }
+})
+
