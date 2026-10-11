@@ -662,7 +662,7 @@ export const Conversation = ({
             left sitting there to be typed into and refused. */}
         {!composer ? null : folderGone && session ? (
           <FolderGone folder={session.cwd} said={folderGone} />
-        ) : sessionCannotRun ? null : (
+        ) : sessionCannotRun ? (items.length > 0 && <PaneColumn inset="reading"><Text role="prose" ink="secondary">{unavailableSessionMessage}</Text></PaneColumn>) : (
           <Composer onChooseProject={onChooseProject} />
         )}
       </ComposerDock>

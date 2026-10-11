@@ -241,7 +241,7 @@ export const FrameWall = () => {
     }
     if (query.get('frame-settings-round4') === '1') {
       const base = snapshot.runtimes[0]!
-      const names = ['Codex', 'Claude', 'Cursor', 'Gemini', 'DeepSeek', 'Windsurf',
+      const names = ['Runtime 1', 'Runtime 2', 'Runtime 3', 'Runtime 4', 'Runtime 5', 'Runtime 6',
         'Runtime 07', 'Runtime 08', 'Runtime 09', 'Runtime 10', 'Runtime 11', 'Runtime 12'] as const
       const ids: readonly RuntimeId[] = ['codex', 'claude', 'cursor', 'gemini', 'deepseek', 'windsurf',
         'round4-runtime-07', 'round4-runtime-08', 'round4-runtime-09', 'round4-runtime-10',
@@ -412,6 +412,14 @@ export const FrameWall = () => {
       const workspace = { path, name: path.split('/').at(-1)!, lastOpenedAt: 1 }
       Object.assign(snapshot, { workspace, workspaces: [workspace], activeSessionKey: null, sessions: new Map() })
     }
+    if (destination === 'draft' && query.has('frame-fix8-readiness')) {
+      const state = query.get('frame-fix8-readiness')
+      const health = state === 'starting' ? { state: 'starting' as const } : {
+        state: 'unavailable' as const, reason: 'unreadable' as const,
+        message: 'The agent failed its version check.', remediation: 'Choose a working installation in Settings.',
+      }
+      Object.assign(snapshot, { health, healthByRuntime: { ...snapshot.healthByRuntime, [snapshot.activeRuntime!]: health } })
+    }
     const session = snapshot.sessions.get(PREVIEW_SESSION_KEY)
     if (destination === 'conversation' && session && query.get('frame-fix5-command-approval') === '1') {
       Object.assign(snapshot, {
@@ -474,6 +482,27 @@ export const FrameWall = () => {
         activeSessionKey: key,
       })
       showing(next, { kind: 'conversation', session: key }, key)
+    }
+    if (destination === 'conversation' && session && query.get('frame-fix8-kept') === '1') {
+      const kept = { ...session, title: 'Kept conversation', itemsLoaded: true, deskCopy: true,
+        turns: [{ id: turnId('kept-turn'), status: 'completed' as const, items: [
+          { id: itemId('kept-message'), type: 'assistantMessage' as const, text: 'First kept message' },
+        ] }] }
+      Object.assign(snapshot, { sessions: new Map([[PREVIEW_SESSION_KEY, { ...kept, turns: [], itemsLoaded: false }]]),
+        teams: new Map(), goals: new Map(), workspaces: [],
+        healthByRuntime: { ...snapshot.healthByRuntime, [session.runtime]: {
+          state: 'unavailable' as const, reason: 'unreadable' as const, message: 'The agent failed its version check.',
+          remediation: 'Choose a working installation in Settings.',
+        } }, history: [{ ...kept, status: { type: 'notLoaded' as const } }], historyIdentity: [{ ...kept, status: { type: 'notLoaded' as const } }],
+      })
+      // Keep the supplied history stable when the sidebar mounts its empty filter.
+      next.searchHistory = async () => {}
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = (async (method, params) => {
+        if (method === 'session/read') return kept
+        if (method === 'session/resume') throw new Error('The agent failed its version check.')
+        return request(method, params as never)
+      }) as typeof next.transport.request
     }
     if (destination === 'conversation' && session && query.get('frame-fix6-runtime-unavailable') === '1') {
       const message = 'A runtime was found at /work/fixture/bin/agent, but did not report its version.'

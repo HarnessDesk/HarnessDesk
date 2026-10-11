@@ -674,7 +674,7 @@ export const NoticeStripOutlet = ({
     : null
   const bodyShowsStandingHealth = Boolean(
     standing?.identity.kind === 'agent:health' && conversationSessionKey && session &&
-    snapshot.runtimes.some(runtime => runtime.id === session.runtime) && allItems(session).length === 0 &&
+    snapshot.runtimes.some(runtime => runtime.id === session.runtime) &&
     sessionHealth?.state === 'unavailable' && standing.runtime === session.runtime &&
     standing.message.title === sessionHealth.message,
   )

@@ -1,3 +1,4 @@
+import { readKeptTranscriptFile } from './kept-transcript.js'
 import { Storage } from './storage.js'
 import { SessionWorktrees } from './session-worktrees.js'
 import { archiveConversation } from './methods/sessions.js'
@@ -6464,6 +6465,13 @@ export class Host {
   async #readTranscript(runtime: AgentRuntime, id: SessionId): Promise<Session> {
     const held = this.registry.get(runtime.info.id, id)
     if (held?.live && held.session.itemsLoaded && held.running.size > 0) return held.session
+    // Reading the desk's own history needs no working agent process.
+    const health = runtime.health()
+    if (health.state === 'unavailable' && health.reason !== 'unknown' && !held?.live) {
+      const kept = await this.#transcripts.recover(runtime.info.id, id) ??
+        await readKeptTranscriptFile(join(this.#state.directory, 'transcripts'), runtime.info.id, id)
+      if (kept) return { ...kept, deskCopy: true }
+    }
     const scoped = await this.#scopedRead(runtime, id)
     if (scoped) return scoped
     const source = await this.#sourceState(runtime, id)
@@ -6505,7 +6513,8 @@ export class Host {
       }
       // The backend cannot serve it — but the host may have watched it
       // happen. A read-only copy beats an unopenable conversation.
-      const recovered = await this.#transcripts.recover(runtime.info.id, id)
+      const recovered = await this.#transcripts.recover(runtime.info.id, id) ??
+        await readKeptTranscriptFile(join(this.#state.directory, 'transcripts'), runtime.info.id, id)
       if (!recovered) throw error
       this.#logger.warn(`session/read fell back to the stored transcript for ${id}`, {
         runtime: runtime.info.id,

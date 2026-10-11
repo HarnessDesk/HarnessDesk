@@ -1041,7 +1041,9 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   const placeholder = useMemo(() => {
     if (record) return RECORD_REASON
     if (!session && !canType) {
-      return snapshot.workspace ? 'Waiting for the runtime…' : 'Choose a project folder to begin'
+      if (!snapshot.workspace) return 'Choose a project folder to begin'
+      if (snapshot.health?.state === 'unavailable') return [snapshot.health.message, snapshot.health.remediation ?? 'Choose a working installation in Settings.'].join(' ')
+      return 'Waiting for the runtime…'
     }
     if (awaitingConversation) return 'Opening the conversation — you can keep typing'
     if (!session) return 'Describe a task to start a session — / for commands, @ for files'
@@ -1054,7 +1056,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       return `Adds to the ${waiting} message${waiting === 1 ? '' : 's'} already waiting`
     }
     return 'Type a reply — / for commands, @ for files'
-  }, [record, busy, canSteer, canType, awaitingConversation, session, snapshot.workspace, waiting])
+  }, [record, busy, canSteer, canType, awaitingConversation, session, snapshot.workspace, snapshot.health, waiting])
 
   // Whether pressing send delivers now or hands the message to the queue.
   // A running turn is the usual reason; a queue held behind a stopped turn

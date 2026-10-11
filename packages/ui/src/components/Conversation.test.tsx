@@ -899,3 +899,17 @@ it('Undo leaves the menu before asking, and Keep never rolls back', async () => 
     history.replaceState(null, '', previousURL)
   }
 })
+
+it('a failed runtime keeps the transcript and replaces the composer with one actionable reason', () => {
+  const reason = 'The agent failed its version check.'
+  const one = session({ turns: [{ id: turnId('kept-turn'), status: 'completed', items: [
+    { id: itemId('kept-message'), type: 'assistantMessage', text: 'First kept message' },
+  ] }] })
+  render(rig(one, new Map(), { healthByRuntime: { [one.runtime]: {
+    state: 'unavailable', reason: 'unreadable', message: reason, remediation: 'Choose a working installation in Settings.',
+  } } }).store)
+  expect(container.querySelector('[data-live-transcript]')?.textContent).toContain('First kept message')
+  expect(container.querySelector('textarea')).toBeNull()
+  expect(container.textContent?.split(reason).length).toBe(2)
+  expect(container.textContent).toContain('Choose a working installation in Settings.')
+})

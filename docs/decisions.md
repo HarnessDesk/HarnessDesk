@@ -185,8 +185,9 @@ context survive a cold recovery. Changed items update their existing occurrences
 an unchanged turn writes nothing. Conversation facts occupy a small `bodies`
 table so deleting a body leaves the sidebar index to its own owner.
 
-Old transcript files are kept, not migrated (owner, 2026-10-08). Only the
-index's one-time metadata seed reads them. The transcript store never reads,
+Old transcript files are kept, not migrated (owner, 2026-10-08). The index's one-time metadata seed reads them. An on-demand host fallback also reads a kept
+file when the agent cannot answer and SQLite has no body; it never changes or
+migrates that file. The transcript store never reads,
 writes or removes them. Backups retain their existing transcript-entry format;
 a daily database snapshot runs on a worker and keeps the newest three copies.
 

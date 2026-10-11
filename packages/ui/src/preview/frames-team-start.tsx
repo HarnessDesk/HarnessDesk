@@ -32,7 +32,7 @@ const teamStartStore = (): AppStore => {
   const base = previewStore({ theme: requestedTheme === 'light' || requestedTheme === 'dark' ? requestedTheme : 'system' })
   const mutable = base as unknown as { patch: (partial: Partial<AppSnapshot>) => void }
   const workspace = { ...base.getSnapshot().workspace!, path: TEAM_ROOT, checkoutRoot: TEAM_ROOT, name: 'storefront' }
-  mutable.patch({ workspace, workspaces: [workspace], runtimes: [previewRuntime('codex', 'Codex'), previewRuntime('claude-code', 'Claude'), previewRuntime('windsurf', 'Windsurf')], sessions: new Map(), history: [], historyIdentity: [], teams: new Map(), goals: new Map(), lanes: [] })
+  mutable.patch({ workspace, workspaces: [workspace], runtimes: [previewRuntime('codex', 'Runtime 1'), previewRuntime('claude-code', 'Runtime 2'), previewRuntime('windsurf', 'Runtime 3')], sessions: new Map(), history: [], historyIdentity: [], teams: new Map(), goals: new Map(), lanes: [] })
   return new Proxy(base, { get(target, key, receiver) {
     if (key === 'flowCatalog') return async () => entries
     if (key === 'flowSource') return async (_root: string, id: string) => TEAM_START_SOURCES[id] ?? ''

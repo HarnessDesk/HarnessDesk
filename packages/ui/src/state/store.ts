@@ -2600,7 +2600,9 @@ export class AppStore {
           if (docked) this.#setWorkbench(undockIn(this.#snapshot.workbench, docked.mounted.id))
         }
       }
-      if (keptIdentity) {
+      if (readSucceeded && this.#snapshot.healthByRuntime[runtime]?.state === 'unavailable') {
+        // The transcript's continuation line owns this persistent refusal.
+      } else if (keptIdentity) {
         // The selected pane carries the saved identity and an inline reason.
       } else if (isHeldElsewhere(error)) {
         this.resultNotice('error', describe(error), {
