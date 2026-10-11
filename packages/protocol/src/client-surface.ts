@@ -24,6 +24,9 @@ export const CLIENT_METHODS = {
   'finding/list': 'read',
   'evidence/board': 'read',
   'insight/goal': 'read',
+  'library/read': 'read',
+  'library/definition': 'read',
+  'library/usage': 'read',
 } as const satisfies Partial<Record<HostMethodName, ClientTier>>
 
 /** The action, not the broad method name, grants the verb. Omitted and

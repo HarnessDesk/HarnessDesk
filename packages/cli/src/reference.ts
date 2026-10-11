@@ -125,6 +125,31 @@ export const FLOW_OPTIONS: readonly OptionDoc[] = [
   },
 ]
 
+/** The project and kind filters shared by the Library commands. */
+export const LIBRARY_OPTIONS: readonly OptionDoc[] = [
+  {
+    flag: '--project',
+    value: 'PATH',
+    description:
+      'Include this project’s own skill and MCP folders. Symbolic links are followed. Defaults to the Git repository containing the current folder; outside a repository, only user scope is read.',
+  },
+  {
+    flag: '--kind',
+    value: 'skill|mcp',
+    description: 'Show only skills or only MCP servers.',
+  },
+]
+
+/** Extra filters that belong to one Library command. */
+export const LIBRARY_ISSUES_OPTION: OptionDoc = {
+  flag: '--issues',
+  description: 'Show only entries the Library identifies as having a problem.',
+}
+export const LIBRARY_TEXT_OPTION: OptionDoc = {
+  flag: '--text',
+  description: 'Print the first readable copy’s definition text by itself, for a pipe.',
+}
+
 /** The flag that answers a confirmation, shared by every command that asks one. */
 export const YES_OPTION: OptionDoc = {
   flag: '--yes',
