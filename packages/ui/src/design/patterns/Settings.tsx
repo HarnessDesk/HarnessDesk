@@ -922,6 +922,10 @@ const RowTitle = ({ kind, title, chip }: { kind: 'setting' | 'record'; title: Re
   </span>
 )
 
+/**
+ * A named row with optional text below it. Keep the title scannable and put
+ * its full sentence in `desc`, where it wraps as an earned second line.
+ */
 export const Row = ({
   layout = 'default',
   reserveChevronSlot = false,

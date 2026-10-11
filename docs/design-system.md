@@ -2220,6 +2220,13 @@ of `RowChoice` rows and nothing else is a `ChoiceList` — no card, and each
 row a compact radio row. A radio group of anything else (a branch picker of
 row buttons) keeps its card, its edge and its ground.
 
+### `Row`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A named row with optional text below it. Keep the title scannable and put
+its full sentence in `desc`, where it wraps as an earned second line.
+
 ### `RowButton`
 
 `packages/ui/src/design/patterns/Settings.tsx`

@@ -186,7 +186,7 @@ it('states the built-in origin once for the built-in group and keeps varying ori
   expect(rows.find(row => row.dataset.pluginId === 'local-helper')?.textContent).toContain('Installed')
 })
 
-it('names a plugin and its tools on the wire in the code face at the meta step, behind a labelled switch', () => {
+it('uses a scannable tool label and moves its technical name into that line behind the switch', () => {
   const tool = {
     id: 'git/git_status',
     owner: 'git',
@@ -201,16 +201,14 @@ it('names a plugin and its tools on the wire in the code face at the meta step, 
   mount([{ ...plugin('git', 'Git', {}), contributions: [tool] } as unknown as PluginInstance])
   open('Git')
 
-  // The identifier is the meta role holding the code face.
-  const wire = (text: string): Element | undefined =>
-    [...container.querySelectorAll('[data-slot="text"][data-role="meta"] > [data-slot="code-text"]')].find((node) => node.textContent === text)
-  expect(wire('git')).toBeTruthy()
-
+  const row = container.querySelector('section[aria-label="Tools"] [data-slot="row"]')!
+  expect(row.querySelector('[data-slot="row-title"]')?.textContent).toBe('Git status')
+  expect(row.querySelector('[data-slot="row-desc"]')?.textContent).toBe('Show the working tree status.')
   const toggle = container.querySelector('[aria-label="Show tool names"]')!
   expect(toggle.closest('[data-slot="row"]')?.querySelector('[data-slot="row-title"]')?.textContent).toBe('Tool names')
-  expect(wire('git/git_status')).toBeUndefined()
   act(() => (toggle as HTMLElement).click())
-  expect(wire('git/git_status')).toBeTruthy()
+  expect(row.querySelector('[data-slot="row-title"]')?.textContent).toBe('git/git_status')
+  expect(row.querySelector('[data-slot="row-desc"]')?.textContent).toBe('Show the working tree status.')
 })
 
 it('E7 plugin detail names Plugins as its parent crumb in the main bar', () => {

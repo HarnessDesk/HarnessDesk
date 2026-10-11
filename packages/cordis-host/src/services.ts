@@ -75,6 +75,8 @@ const normaliseResult = (value: unknown): ToolResult => {
 
 export interface ToolSpec {
   readonly name: string
+  /** A short human label for lists that also show the full description. */
+  readonly title?: string
   readonly description: string
   readonly inputSchema: JsonSchema
   /** Defaults to the plugin's id, so two plugins can both offer `search`. */
@@ -108,6 +110,7 @@ export class ToolsService extends Service {
         scope: spec.scope ?? GLOBAL_SCOPE,
         namespace: spec.namespace ?? String(owner.instanceId),
         name: spec.name,
+        ...(spec.title ? { title: spec.title } : {}),
         description: spec.description,
         inputSchema: spec.inputSchema,
         ...(spec.requiresApproval ? { requiresApproval: true } : {}),
