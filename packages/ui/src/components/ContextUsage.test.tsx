@@ -114,17 +114,18 @@ describe('ContextUsage', () => {
   it('draws an empty ring until the runtime has reported usage', () => {
     mount(withSession(runtime('alpha', 'Assistant A', false), null))
     const trigger = container.querySelector<HTMLButtonElement>('button')
-    expect(trigger?.getAttribute('aria-label')).toBe('No usage yet')
+    expect(trigger?.getAttribute('aria-label')).toBe('Usage')
     expect(ring()?.getAttribute('aria-label')).toBe('No usage yet')
     mount({})
     expect(container.querySelector('button')).not.toBeNull()
-    expect(container.querySelector<HTMLButtonElement>('button')?.getAttribute('aria-label')).toBe('No usage yet')
+    expect(container.querySelector<HTMLButtonElement>('button')?.getAttribute('aria-label')).toBe('Usage')
   })
 
   it('opens the empty context popover to No usage yet', () => {
     mount({})
     open()
-    expect(panelText()).toContain('No usage yet')
+    expect(panelText().match(/No usage yet/g)).toHaveLength(1)
+    expect(panelText()).toContain('Usage')
   })
 
   it('fills from contextUsed over contextWindow, never the session total', () => {

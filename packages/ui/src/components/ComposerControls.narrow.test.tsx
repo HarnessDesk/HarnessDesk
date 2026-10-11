@@ -31,12 +31,14 @@ const tokenValue = (name: string): number => {
   return Number(match[1])
 }
 const wideTracks = ['add', 'work-in', 'agent', 'permissions', 'mode', 'extension', 'more', 'context', 'model', 'send']
-const foldOrder = ['agent', 'work-in', 'more', 'mode', 'permissions', 'model']
+const foldOrder = ['agent', 'work-in', 'more', 'context', 'mode', 'permissions', 'model']
 const toolbarGap = tokenValue('--hd-space-1-5')
+const wideToken = (track: string): string =>
+  `--hd-composer-track-${track}${['permissions', 'mode', 'context'].includes(track) ? '-wide' : ''}`
 const foldThreshold = (target: string): number => {
   const widths = new Map(wideTracks.map((track) => [
     track,
-    tokenValue(`--hd-composer-track-${track}`),
+    tokenValue(wideToken(track)),
   ]))
   const gaps = wideTracks.length * toolbarGap
   for (const track of foldOrder) {
@@ -230,6 +232,8 @@ it('folds Permissions and then Model at the sums of their preceding tracks', () 
   expect(model().textContent).toContain('Small')
   expect(triggers().find((trigger) => /what the agent may do/i.test(trigger.title))?.textContent?.trim()).toBe('')
 
+  resize(permissionsAt)
+  expect(model().textContent).toContain('Small')
   resize(modelAt)
   expect(model().textContent).toContain('Small')
   resize(modelAt - 1)
@@ -266,17 +270,13 @@ it('reserves the populated Extension track width even when the track is empty', 
 
 /**
  * Above the fold nobody is the exception either — in the other direction.
- *
- * The narrow test asserts every control is down to its mark. This is the same
- * question asked of the wide side: the model says its name *and so does its
- * neighbour*, so a change that folded the model alone to buy room would be as
- * visible as the one that kept it alone.
+ * The model says its name and so does its neighbour; they fold together only
+ * after the selected choice values have had their room.
  */
 it('keeps every control’s words, the model’s among them, while there is room', () => {
   draw(700)
   expect(triggers()).toHaveLength(2)
   for (const trigger of triggers()) expect(trigger.textContent?.trim()).not.toBe('')
-  // The permission control is the neighbour, saying its own current choice.
   const permission = triggers().find((trigger) => /what the agent may do/i.test(trigger.title))
   expect(permission?.textContent).toContain('Ask first')
   expect(model().textContent).toContain('Small')

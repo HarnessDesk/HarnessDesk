@@ -65,12 +65,13 @@ import sheet from './ComposerControls.module.css'
 
 const Chevron = () => <ChevronIcon size={11} style={{ transform: 'rotate(90deg)' }} />
 
-const FOLD_ORDER = ['agent', 'work-in', 'more', 'mode', 'permissions', 'model'] as const
+const FOLD_ORDER = ['agent', 'work-in', 'more', 'context', 'mode', 'permissions', 'model'] as const
 type FoldableTrack = (typeof FOLD_ORDER)[number]
 type ToolbarStep = { folded: number; tight: boolean }
 
+const WIDE_TRACKS_WITH_OWN_MEASURE = new Set(['permissions', 'mode', 'context'])
 const trackToken = (track: string, size: 'wide' | 'folded' | 'tight'): string =>
-  `--hd-composer-track-${track}${size === 'wide' ? '' : `-${size}`}`
+  `--hd-composer-track-${track}${size === 'wide' ? (WIDE_TRACKS_WITH_OWN_MEASURE.has(track) ? '-wide' : '') : `-${size}`}`
 
 const px = (value: string): number => Number.parseFloat(value) || 0
 
@@ -123,7 +124,7 @@ const toolbarStepper = (toolbar: HTMLElement): ((width: number) => ToolbarStep) 
  * nothing — its options arrive after the runtime does — and starts watching
  * only once it has drawn something.
  */
-const useNarrowToolbar = (name: FoldableTrack): {
+export const useNarrowToolbar = (name: FoldableTrack): {
   ref: (node: HTMLSpanElement | null) => void
   folded: boolean
   tight: boolean
@@ -247,6 +248,7 @@ export const ComposerTrack = ({
     data-folded={folded || undefined}
     data-tight={tight || undefined}
     className={`${sheet.track} ${wideTrackClass[name]} ${folded ? foldedTrackClass[name] ?? '' : ''} ${tight ? tightTrackClass[name] ?? '' : ''}`}
+    style={name === 'context' ? { width: `var(--hd-composer-track-context-${tight ? 'tight' : folded ? 'folded' : 'wide'})` } : undefined}
   >
     {children}
   </div>

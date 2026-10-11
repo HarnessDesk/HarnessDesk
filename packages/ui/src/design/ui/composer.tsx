@@ -122,7 +122,7 @@ const ComposerTools = ({ className, ...props }: React.ComponentProps<'div'>) => 
   <div
     data-slot="composer-tools"
     data-surface=""
-    className={cn('flex min-w-0 items-center gap-1.5 pt-1 pr-2 pb-2 pl-2.5', className)}
+    className={cn('flex min-w-0 items-center gap-1 pt-1 pr-2 pb-2 pl-2.5', className)}
     {...props}
   />
 )

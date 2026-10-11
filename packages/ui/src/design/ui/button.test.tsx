@@ -160,6 +160,14 @@ describe('the canonical button', () => {
     expect(compact).toContain('text-(length:--hd-text-sm)')
   })
 
+  it('keeps a compact icon label visible without redrawing the button at its caller', () => {
+    const compact = buttonVariants({ size: 'icon-label' })
+    expect(compact).toContain('h-(--hd-btn-h-sm)')
+    expect(compact).toContain('gap-(--hd-space-0-5)')
+    expect(compact).toContain('p-0')
+    expect(compact).toContain('text-(length:--hd-text-xs)')
+  })
+
   it('owns borderless and default-cursor row postures without a feature override', () => {
     const markup = renderToStaticMarkup(
       <Button variant="row" bordered={false} cursor="default">History row</Button>,
@@ -279,6 +287,7 @@ it('catalogues only the log-row size for the windowed row pitch', () => {
   expect(buttonSource.includes("'table-row':")).toBe(false)
   const entry = CATALOG_ENTRIES.find(entry => entry.id === 'primitive.button')!
   expect(entry.sizes).toContain('log-row')
+  expect(entry.sizes).toContain('icon-label')
   expect(entry.sizes).not.toContain('table-row')
 })
 
