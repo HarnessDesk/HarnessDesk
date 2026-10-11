@@ -495,6 +495,16 @@ export const FrameWall = () => {
         }],
       })
     }
+    if (destination === 'conversation' && session && query.get('frame-fix8-command-waiting') === '1') {
+      const command = { id: itemId('waiting-command'), type: 'command' as const, command: 'echo synthetic', cwd: '/work/storefront',
+        origin: 'agent' as const, status: 'inProgress' as const, actions: [], startedAt: Date.now() - 1000 }
+      Object.assign(snapshot, { sessions: new Map(snapshot.sessions).set(PREVIEW_SESSION_KEY, { ...session,
+        status: { type: 'active' as const }, turns: [{ id: turnId('waiting-turn'), status: 'inProgress' as const, items: [command] }],
+      }), approvals: [{ key: PREVIEW_SESSION_KEY, approval: { id: approvalId('waiting-approval'), sessionId: session.id,
+        turnId: turnId('waiting-turn'), itemId: command.id, requestedAt: Date.now(), type: 'command', command: command.command,
+        cwd: command.cwd, actions: [], options: [{ id: 'allow', label: 'Allow', intent: 'approve' }, { id: 'deny', label: 'Deny', intent: 'deny' }],
+      } }] })
+    }
     if (destination === 'conversation' && session && query.get('frame-fix5-live-title') === '1') {
       const task = 'List the storefront files and tell me where the product cards are implemented.'
       const live = {

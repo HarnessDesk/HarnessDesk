@@ -120,3 +120,10 @@ test('settled Team Receipt and Findings share the kept finding and count', async
     await expect(page.getByText('No findings recorded', { exact: true })).toHaveCount(0)
   }
 })
+
+test('command strip waits for approval before saying it is running', async ({ page }) => {
+  await openFrame(page, 'frame-wall=conversation&frame-fix8-command-waiting=1')
+  await expect(page.getByRole('banner')).toContainText('Waiting for you')
+  await expect(page.getByText('1 command waiting for approval in this turn', { exact: true })).toBeVisible()
+  await expect(page.getByText('1 command running in this turn', { exact: true })).toHaveCount(0)
+})
