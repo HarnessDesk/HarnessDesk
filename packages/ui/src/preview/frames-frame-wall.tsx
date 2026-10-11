@@ -214,6 +214,7 @@ export const FrameWall = () => {
     // Additional Details states for the same real frame; all data is synthetic.
     const detailsCase = query.get('frame-details-case')
     const snapshot = next.getSnapshot()
+    if (query.get('frame-sidebar-notice') === '1') Object.assign(snapshot, { goalMigrationPending: true })
     if (query.get('frame-conversation-actions') === '1') {
       Object.assign(snapshot, { runtimes: snapshot.runtimes.map(runtime => ({
         ...runtime, capabilities: { ...runtime.capabilities, memory: true, compaction: true, undo: true },

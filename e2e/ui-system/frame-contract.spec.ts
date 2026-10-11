@@ -1796,6 +1796,118 @@ for (const theme of WALL_THEMES) {
   })
 }
 
+// D8 is the app-frame left-column repair lane. These cases use the assembled
+// Sidebar and synthetic preview stores, including Settings mode.
+for (const theme of WALL_THEMES) {
+  for (const mode of ['conversation', 'settings-navigation'] as const) {
+    test(`D8 column brand row stays between the top row and navigation in ${mode} in ${theme}`, async ({ page }) => {
+      await openFrame(page, `frame-wall=${mode}`, theme)
+      const column = page.locator('[data-left-column]:visible').first()
+      const top = column.locator('[data-left-top]')
+      const brand = column.locator('[data-left-brand]')
+      await expect(brand).toContainText('HarnessDesk')
+      expect(await top.evaluate((node, next) => node.nextElementSibling === next, await brand.elementHandle())).toBe(true)
+      expect(await brand.locator('svg').getAttribute('height')).toBe('14')
+      await expect(brand).toHaveClass(/hd-drag/)
+      const nextRow = mode === 'conversation'
+        ? column.getByRole('button', { name: 'New session', exact: true })
+        : column.locator('[data-left-settings]').getByRole('button', { name: 'Back', exact: true })
+      expect(await brand.evaluate((node, next) => Boolean(node.compareDocumentPosition(next) & Node.DOCUMENT_POSITION_FOLLOWING), await nextRow.elementHandle())).toBe(true)
+    })
+  }
+
+  test(`D8 column bars meet without hairlines in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme)
+    const column = page.locator('[data-left-column]:visible').first()
+    await expect(column.locator('[data-left-top] [data-slot="bar"]')).not.toHaveAttribute('data-rule', 'bottom')
+    await expect(column.locator('[data-left-seat]').locator('..')).not.toHaveAttribute('data-rule', 'top')
+  })
+
+  test(`D8 column scrolling has no permanent scrollbar in normal and Settings mode in ${theme}`, async ({ page }) => {
+    for (const mode of ['conversation', 'settings-navigation'] as const) {
+      await openFrame(page, `frame-wall=${mode}`, theme)
+      const body = page.locator('[data-left-column]:visible [data-region="sidebar-content"]:visible').first()
+      await expect(body).toBeVisible()
+      expect(await body.evaluate(node => getComputedStyle(node).scrollbarWidth)).toBe('none')
+    }
+  })
+
+  test(`D8 project heading controls share the rows trailing edge in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=left-work', theme)
+    const column = page.locator('[data-left-column]:visible').first()
+    const headerAction = column.locator('[data-left-projects-head] button[aria-label="Open a project folder"]')
+    const projectSlot = column.locator('[data-left-row][data-left-project] [data-left-trailing]').first()
+    const sessionSlot = column.locator('[data-region="session-tree"] [data-left-trailing]').first()
+    const newSessionMenu = column.locator('button[title="More ways to start"]')
+    await expect(headerAction).toBeVisible()
+    await expect(projectSlot).toBeVisible()
+    await expect(sessionSlot).toBeVisible()
+    const edges = await Promise.all([headerAction, projectSlot, sessionSlot, newSessionMenu].map(async node => {
+      const box = await node.boundingBox()
+      return box!.x + box!.width
+    }))
+    expect(Math.max(...edges) - Math.min(...edges)).toBeLessThanOrEqual(1)
+  })
+
+  test(`D8 the seat name truncates with an ellipsis in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme)
+    const column = page.locator('[data-left-column]:visible').first()
+    const name = column.locator('[data-left-seat] [data-role="subject"] span')
+    await expect(name).toHaveText('HarnessDesk')
+    expect(await name.evaluate(node => getComputedStyle(node).textOverflow)).toBe('ellipsis')
+  })
+
+  test(`D8 only the current destination stays selected in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=agents', theme)
+    const column = page.locator('[data-left-column]:visible').first()
+    const current = column.locator('[data-left-row] [aria-current="page"]')
+    await expect(current).toHaveCount(1)
+    await expect(current).toHaveAttribute('aria-label', 'Agents')
+    await expect(column.locator('[data-region="session-tree"] [aria-current="page"]')).toHaveCount(0)
+  })
+
+  test(`D8 the first Settings group has breathing room below search in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=settings-navigation', theme)
+    const column = page.locator('[data-left-column]:visible').first()
+    const search = column.getByRole('searchbox', { name: 'Search settings' })
+    const general = column.locator('[data-left-settings] [data-left-group-text]').first()
+    const searchBox = (await search.boundingBox())!
+    const generalBox = (await general.boundingBox())!
+    expect(generalBox.y - searchBox.y - searchBox.height).toBeGreaterThanOrEqual(12)
+  })
+
+  test(`D8 Settings notices leave the Access rows clear in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=settings-navigation&frame-sidebar-notice=1', theme)
+    const column = page.locator('[data-left-column]:visible').first()
+    await expect(column.locator('[data-slot="notice-card"]')).toHaveCount(0)
+    const body = column.locator('[data-region="sidebar-content"]:visible').first()
+    await body.evaluate(node => { node.scrollTop = node.scrollHeight })
+    const browser = column.locator('[data-left-settings]').getByRole('button', { name: 'Browser', exact: true })
+    await expect(browser).toBeVisible()
+    const rowBox = (await browser.boundingBox())!
+    const footerBox = (await column.locator('[data-region="sidebar-footer"]').boundingBox())!
+    expect(rowBox.y + rowBox.height).toBeLessThanOrEqual(footerBox.y + 1)
+  })
+
+}
+
+for (const theme of WALL_THEMES) {
+  test(`D8 Settings page title has no redundant Settings crumb in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=settings-general', theme)
+    const appWindow = page.locator('[data-slot="app-window"]:visible').last()
+    const place = appWindow.locator('[data-topbar="place"]')
+    await expect(place.locator('button')).toHaveCount(0)
+    await expect(place.locator('[data-topbar-title]')).toContainText('General')
+  })
+}
+
+test('D8 Search stays in the window top row when the column is hidden', async ({ page }) => {
+  await openFrame(page, 'frame-wall=conversation&frame-sidebar-hidden=1', 'light')
+  await expect(page.locator('[data-left-column]:visible')).toHaveCount(0)
+  const top = page.locator('[data-slot="top-bar"]:visible').first()
+  await expect(top.getByRole('button', { name: 'Search everything', exact: true })).toBeVisible()
+})
+
 // D7a is additive. Measure painted list content, rather than the containing
 // backgrounds and hit targets, whose inset deliberately precedes their ink.
 const d7a = test.extend({})
