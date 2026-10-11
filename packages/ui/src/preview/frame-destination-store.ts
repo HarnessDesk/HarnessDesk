@@ -2,9 +2,10 @@ import { DEFAULT_LANE_PREFERENCES } from '@harnessdesk/protocol'
 import type { TransportEvents } from '../lib/transport'
 import { AppStore, type AppSnapshot } from '../state/store'
 import type { HostMethodName, HostParams, RuntimeId, SessionId } from '@harnessdesk/protocol'
-import { sessionKey } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, sessionIndexCompare, sessionIndexCursorOf } from '@harnessdesk/protocol'
 import { focusedPane } from '../state/layout'
 import { destinationOf } from '../state/destinations'
+import { captureHealth, provenancePage, sceneCommit } from './provenance-fixture'
 export const frameDestinationStore = (fixture: AppStore): AppStore => {
   const store = new AppStore('ws://localhost:0/')
   const seed: AppSnapshot = fixture.getSnapshot()
@@ -18,6 +19,90 @@ export const frameDestinationStore = (fixture: AppStore): AppStore => {
       const session = store.getSnapshot().sessions.get(sessionKey(query.runtime, query.sessionId))
       if (!session) throw new Error('Synthetic session is unavailable')
       return session
+    }
+    if (method === 'session/index') {
+      const query = params as HostParams<'session/index'>
+      if (query.archived === 'only') return fixtureRequest(method, params as never)
+      const rows = [...seed.history].filter(row => !row.archived && (!query.runtimes || query.runtimes.includes(row.runtime))).sort(sessionIndexCompare)
+      const start = query.cursor ? rows.findIndex(row => sessionIndexCursorOf(row) === query.cursor) + 1 : 0
+      const data = rows.slice(start, start + (query.pageSize ?? 50))
+      return { data, nextCursor: start + data.length < rows.length && data.length ? sessionIndexCursorOf(data[data.length - 1]!) : null }
+    }
+    if (method === 'team/peers') return fixture.teamPeers((params as HostParams<'team/peers'>).room)
+    if (method === 'attachment/seat') return fixture.readSeatAttachments((params as HostParams<'attachment/seat'>).seat)
+    if (method === 'evidence/board') {
+      const { room } = params as HostParams<'evidence/board'>
+      const observed = seed.boardEvidence.get(room)
+      if (observed) return observed
+      const project = seed.teams.get(room)?.root ?? seed.goals.get(room)?.goal.root
+      if (!project) throw new Error('Synthetic room is unavailable')
+      const checks = await fixture.projectChecks(project)
+      return {
+        room, stamp: Date.now(), cards: [], checks: checks.checks.map(check => check.name),
+        refused: checks.problems.flatMap(problem => problem.check ? [{ name: problem.check, why: problem.text }] : []),
+        unreadable: checks.problems.filter(problem => !problem.check).map(problem => problem.text).join('; ') || null,
+      }
+    }
+    if (method === 'evidence/seat') {
+      const query = params as HostParams<'evidence/seat'>
+      return fixture.seatRecord(runtimeId(query.runtime), sessionId(query.sessionId))
+    }
+    if (method === 'finding/list') {
+      const reading = await fixtureRequest(method, params as never)
+      if (reading !== null && reading !== undefined) return reading
+      const query = params as HostParams<'finding/list'>
+      await fixture.loadFindings(query.goal, query.filter)
+      const state = fixture.getSnapshot().findings.get(query.goal)
+      if (!state) throw new Error('Synthetic findings ledger is unavailable')
+      return { goal: query.goal, stamp: 'fixture-ledger', rows: state.rows, next: state.next, totals: state.totals, problem: state.problem }
+    }
+    if (method === 'provenance/commits') {
+      const { root, shas } = params as HostParams<'provenance/commits'>
+      return provenancePage(shas.map(sha => ({ ...sceneCommit('unknown'), sha })), captureHealth({ project: root }))
+    }
+    if (method === 'flow/executions') {
+      const { team, project, active } = params as HostParams<'flow/executions'>
+      const runs = [...seed.flowExecutions.values()]
+      const continued = new Set(runs.map(run => run.continues).filter(Boolean))
+      return runs.filter(run => (!team || run.goal === team)
+        && (!project || seed.goals.get(run.goal)?.goal.root === project)
+        && (active === false || !continued.has(run.id) && (run.state === 'running' || run.state === 'stalled')))
+        .map(run => { const round = run.rounds.at(-1); return {
+          id: run.id, team: run.goal, flow: run.document.flow.name, state: run.state,
+          round: round?.n ?? null, role: round?.role ?? null, reason: run.reason,
+          startedAt: seed.goals.get(run.goal)?.goal.createdAt ?? 0,
+        } })
+    }
+    if (method === 'flow/execution') {
+      const run = seed.flowExecutions.get((params as HostParams<'flow/execution'>).run)
+      if (!run) throw new Error('Synthetic Run is unavailable')
+      return run
+    }
+    if (method === 'insight/goal') return fixture.readGoalInsight((params as HostParams<'insight/goal'>).goal)
+    if (method === 'git/diffRange') {
+      const { root, from, to } = params as HostParams<'git/diffRange'>
+      return fixture.readWorkDiff(root, from, to)
+    }
+    if (method === 'flow/check/attempts') {
+      const { run, card } = params as HostParams<'flow/check/attempts'>
+      return fixture.readCheckAttempts(run, card)
+    }
+    if (method === 'finding/publications') {
+      const { goal, run } = params as HostParams<'finding/publications'>
+      return fixture.readFindingPublications(goal, run)
+    }
+    if (method === 'finding/read') {
+      const { goal, finding, cursor } = params as HostParams<'finding/read'>
+      return fixture.readFinding(goal, finding, cursor)
+    }
+    if (method === 'trigger/goal') return fixture.triggerGoal((params as HostParams<'trigger/goal'>).goal)
+    if (method === 'team/messaging') {
+      const { room, enabled } = params as HostParams<'team/messaging'>
+      const current = store.getSnapshot().teams.get(room)
+      if (!current) throw new Error('Synthetic Team is unavailable')
+      const state = { ...current, messaging: enabled }
+      ;(store.transport as unknown as { handlers: TransportEvents }).handlers.onNotification({ method: 'team/changed', params: { state } })
+      return null
     }
     if (method === 'app/state/get') return {}
     if (method === 'app/state/set') return {}
@@ -43,6 +128,8 @@ export const frameDestinationStore = (fixture: AppStore): AppStore => {
     if (method === 'insight/goals') return fixture.readGoalInsights(detail.goals)
     if (method === 'finding/run') {
       const {goal,run} = params as {goal:string;run:string}
+      const reading = fixture.getSnapshot().findingRuns.get(run)
+      if (reading?.goal === goal) return reading
       return {goal,run,round:0,finished:0,total:0,embargoed:false,open:0,blocking:0,reason:null,ceilingStop:false,stamp:'fixture-empty',publication:'local',rounds:[],reviewersFinished:null,reviewersTotal:null,pendingExceptions:[],repair:null,boundPr:null,unbound:null,undecidable:null}
     }
     if (method === 'usage/reports' || method === 'usage/refresh') return seed.usage

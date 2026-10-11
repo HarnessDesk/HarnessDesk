@@ -826,7 +826,10 @@ export const FrameWall = () => {
     return next
   }, [destination, location.search])
   useEffect(() => {
-    const api={resizeLeft:(width:number)=>store.resizePanel('sidebar',width), finishStoppedTurn: () => {
+    // Seed the real store's private history page before a capture can observe
+    // the sidebar's debounced empty search restoring that page.
+    const ready = store.loadHistory({ reset: true })
+    const api={ready, resizeLeft:(width:number)=>store.resizePanel('sidebar',width), finishStoppedTurn: () => {
       const snapshot = store.getSnapshot(), goal = snapshot.goals.get('overview-team')
       const member = goal?.pastMembers?.[0]
       if (!member || new URLSearchParams(location.search).get('frame-fix10-stop') !== '1') return

@@ -52,6 +52,7 @@ import {
   type RuntimeId,
   type RuntimeInfo,
   type SeatRecord,
+  type SeatAttachmentsRecord,
   type SeatCeiling,
   type SeatPlan,
   type Session,
@@ -1547,6 +1548,7 @@ class PreviewStore {
   }
 
   loadBoardEvidence = async (): Promise<void> => {}
+  readSeatAttachments = async (): Promise<SeatAttachmentsRecord | null> => null
   runCheck = async (): Promise<{ readonly kind: 'unseen'; readonly unseen: CheckUnseen }> => ({
     kind: 'unseen',
     unseen: PREVIEW_UNSEEN,

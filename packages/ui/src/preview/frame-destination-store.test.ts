@@ -3,6 +3,8 @@ import { expect, it } from 'vitest'
 import { AppStore } from '../state/store'
 import { PREVIEW_AGENTS, previewStore } from './harness'
 import { frameDestinationStore, setFrameConnection } from './frame-destination-store'
+import { overviewTeamStore } from './team-overview-fixture'
+import { PREVIEW_SESSION_KEY } from './harness'
 it('uses real store navigation, connection events and resource reads without connecting',async()=>{
   const fixture=previewStore(),store=frameDestinationStore(fixture)
   expect(store).toBeInstanceOf(AppStore)
@@ -38,4 +40,76 @@ it('the real page store reads the seeded branch list from its fixture',async()=>
   const fixture=previewStore(),branches=[{name:'main',current:true,committedAt:1},{name:'feature/checkout',current:false,committedAt:2}]
   fixture.listBranches=async root=>{expect(root).toBe('/repo');return branches}
   expect(await frameDestinationStore(fixture).listBranches('/repo')).toEqual(branches)
+})
+
+it('page history reconciliation retains the synthetic conversations', async () => {
+  const fixture = previewStore(), store = frameDestinationStore(fixture)
+  await store.loadHistory({ reset: true })
+  await store.searchHistory('')
+  expect(store.getSnapshot().history.map(row => row.id)).toEqual(fixture.getSnapshot().history.map(row => row.id))
+})
+
+it('page Chat and Details read peer and seat evidence contracts', async () => {
+  const fixture = previewStore(), store = frameDestinationStore(fixture)
+  expect(await store.teamPeers('preview')).toEqual(await fixture.teamPeers('preview'))
+  const session = fixture.getSnapshot().sessions.get(PREVIEW_SESSION_KEY)!
+  expect(await store.seatRecord(session.runtime, session.id)).toEqual(await fixture.seatRecord(session.runtime, session.id))
+})
+
+it('page Findings filter reads retain the fixture ledger and its Run counts', async () => {
+  const fixture = overviewTeamStore('running'), store = frameDestinationStore(fixture)
+  const before = fixture.getSnapshot().findings.get('overview-team')!
+  for (const filter of ['open', 'blocking'] as const) {
+    await store.loadFindings('overview-team', filter)
+    expect(store.getSnapshot().findings.get('overview-team')).toMatchObject({ filter, rows: before.rows, error: null, totals: before.totals })
+  }
+  await store.loadFindingRun('overview-team', 'overview-run')
+  expect(store.getSnapshot().findingRuns.get('overview-run')).toEqual(fixture.getSnapshot().findingRuns.get('overview-run'))
+})
+
+it('page Git history receives an explicit synthetic provenance batch', async () => {
+  const store = frameDestinationStore(previewStore())
+  const shas = ['a'.repeat(40), 'b'.repeat(40)]
+  const reading = await store.readProvenance('/work/project', shas)
+  expect(reading.project).toBe('/work/project')
+  expect(reading.commits.map(one => one.sha)).toEqual(shas)
+  expect(reading.commits.every(one => one.state === 'unattributed' && one.coverage === 'none')).toBe(true)
+  expect(store.getSnapshot().captureHealth.get('/work/project')).toEqual(reading.health)
+})
+
+it('page Team history and recorded usage read the seeded run and report', async () => {
+  const fixture = overviewTeamStore('running'), store = frameDestinationStore(fixture)
+  await expect(store.loadTeamRuns('overview-team')).resolves.toBeUndefined()
+  expect(store.getSnapshot().flowExecutions).toEqual(fixture.getSnapshot().flowExecutions)
+  expect(await store.readGoalInsight('overview-team')).toEqual(await fixture.readGoalInsight('overview-team'))
+})
+
+it('page Team changes read the fixture diff and Hold changes the shared room setting', async () => {
+  const fixture = overviewTeamStore('running'), store = frameDestinationStore(fixture)
+  expect(await store.readWorkDiff('/work/storefront', 'base', 'head')).toEqual(await fixture.readWorkDiff('/work/storefront', 'base', 'head'))
+  await store.teamMessaging('overview-team', false)
+  expect(store.getSnapshot().teams.get('overview-team')?.messaging).toBe(false)
+  await store.teamMessaging('overview-team', true)
+  expect(store.getSnapshot().teams.get('overview-team')?.messaging).toBe(true)
+})
+
+
+it('page Details reads a seeded attachment observation and the explicit legacy absence', async () => {
+  const fixture = previewStore(), store = frameDestinationStore(fixture)
+  await expect(store.readSeatAttachments('unobserved-seat')).resolves.toBeNull()
+  const observed = { version: 1 as const, seat: 'observed-seat', agentDigest: 'synthetic-digest', runtime: 'fixture', build: 'fixture', epoch: 0, observedAt: 1, skillsMode: 'runtime-defaults' as const, mcpMode: 'runtime-defaults' as const, declarations: [], results: [], restored: false }
+  Object.assign(fixture, { readSeatAttachments: async (seat: string) => seat === observed.seat ? observed : null })
+  await expect(store.readSeatAttachments(observed.seat)).resolves.toEqual(observed)
+})
+
+
+it('page Run keeps seeded board evidence and explicitly answers rooms with no observed facts', async () => {
+  const fixture = previewStore(), store = frameDestinationStore(fixture)
+  const [room, evidence] = [...fixture.getSnapshot().boardEvidence][0]!
+  await store.loadBoardEvidence(room)
+  expect(store.getSnapshot().boardEvidence.get(room)).toEqual(evidence)
+  const overview = frameDestinationStore(overviewTeamStore('running'))
+  await overview.loadBoardEvidence('overview-team')
+  expect(overview.getSnapshot().boardEvidenceFailed.has('overview-team')).toBe(false)
+  expect(overview.getSnapshot().boardEvidence.get('overview-team')).toMatchObject({ room: 'overview-team', cards: [], unreadable: null })
 })
