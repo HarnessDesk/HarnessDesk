@@ -54,7 +54,7 @@ const contrastRatio = (foreground: string, background: string): number => {
 }
 
 for (const theme of WALL_THEMES) for (const width of [1440, 720]) {
-  test(`Palette stays top-centred with one 24px content edge at ${width} in ${theme}`, async ({ page }) => {
+  test(`Palette result plate keeps the shared content edge inset at ${width} in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await mountFocusFixture(page)
     await page.setViewportSize({ width, height: 900 })
@@ -96,12 +96,21 @@ for (const theme of WALL_THEMES) for (const width of [1440, 720]) {
           queryBorder: getComputedStyle(input).borderLeftWidth,
           titleInk: getComputedStyle(title).color,
           metaInk: getComputedStyle(meta).color,
+          rowLeft: element.querySelector<HTMLElement>('[data-palette-result]')!.getBoundingClientRect().left,
           rowRight: element.querySelector<HTMLElement>('[data-palette-result]')!.getBoundingClientRect().right,
           metaRight: meta.getBoundingClientRect().right,
         }
       })
       return { bounds, edges }
     }
+
+    const recent = panel.locator('[data-palette-result]').first()
+    await recent.hover()
+    const recentEdges = (await measure()).edges
+    expect(recentEdges.fieldText).toBeCloseTo(recentEdges.groupText, 1)
+    expect(recentEdges.fieldText).toBeCloseTo(recentEdges.rowIcon, 1)
+    expect(recentEdges.rowIcon - recentEdges.rowLeft).toBeGreaterThanOrEqual(8)
+    expect(recentEdges.rowRight - recentEdges.metaRight).toBeGreaterThanOrEqual(8)
 
     await field.fill('flaky')
     const result = panel.locator('[data-palette-result]')
@@ -118,9 +127,11 @@ for (const theme of WALL_THEMES) for (const width of [1440, 720]) {
     expect(edges.padding).toBe(await resolvedPx(page, '--hd-space-6'))
     expect(edges.fieldText).toBeCloseTo(edges.groupText, 1)
     expect(edges.fieldText).toBeCloseTo(edges.rowIcon, 1)
+    expect(edges.rowIcon - edges.rowLeft).toBeGreaterThanOrEqual(8)
+    expect(edges.rowRight - edges.metaRight).toBeGreaterThanOrEqual(8)
     expect(edges.queryBorder).toBe('0px')
     expect(edges.titleInk).not.toBe(edges.metaInk)
-    expect(edges.metaRight).toBeCloseTo(edges.rowRight, 1)
+    expect(edges.rowRight - edges.metaRight).toBeGreaterThanOrEqual(8)
 
     await field.fill('f')
     await expect.poll(async () => (await panel.boundingBox())?.y ?? -1).toBe(emptyBounds!.y)
