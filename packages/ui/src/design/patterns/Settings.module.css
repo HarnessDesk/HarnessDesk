@@ -1175,6 +1175,10 @@
   place-items: center;
 }
 
+.rowChev:empty {
+  width: var(--hd-space-4);
+}
+
 .detailMark {
   flex: none;
   display: inline-grid;

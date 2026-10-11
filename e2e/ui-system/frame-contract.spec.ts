@@ -3970,6 +3970,71 @@ for(const theme of ['light','dark'] as const) test(`E5 Teams empty state uses th
  await expect(empty.getByText(/Create a Team/)).toBeVisible()
  await expect(empty.getByRole('button',{name:'New Team',exact:true})).toBeVisible()
 })
+
+test('R10 Agents source notes keep middle-truncated paths content-sized', async ({ page }) => {
+  await openFrame(page, 'frame-wall=agents&frame-agent-path=long', 'light', 1440)
+  const project = page.locator('[data-page-destination="agents"] section[aria-label="In storefront"] [data-slot="middle-truncate"]')
+  const userNote = page.locator('[data-page-destination="agents"] section[aria-label="Yours"] [data-slot="note"]')
+  const userPath = userNote.locator('[data-slot="middle-truncate"]')
+  await userNote.scrollIntoViewIfNeeded()
+  await expect(project).toBeVisible()
+  await expect(userPath).toBeVisible()
+  const pathGeometry = await project.evaluate(node => {
+    const right = Math.max(...[...node.querySelectorAll<HTMLElement>('[data-part]')].map(part => part.getBoundingClientRect().right))
+    const next = node.nextElementSibling!.getBoundingClientRect()
+    return {
+      pathGap: node.getBoundingClientRect().right - right,
+      sentenceGap: next.left - node.getBoundingClientRect().right,
+    }
+  })
+  expect(pathGeometry.pathGap).toBeLessThanOrEqual(2)
+  expect(pathGeometry.sentenceGap).toBeLessThanOrEqual(10)
+  await expect(userPath).toHaveAttribute('title', '/private/tmp/synthetic-agent-fixture/isolated/worker/worktrees/round-four/app-frame-fix4-lists4/shared-home/profile/.harnessdesk/agents')
+  expect((await userNote.boundingBox())!.height).toBeLessThanOrEqual(21)
+})
+
+test('R10 Release checker keeps the roster face and drops the redundant origin line', async ({ page }) => {
+  await openFrame(page, 'frame-wall=agents&frame-detail=agent&frame-agent-case=release', 'light', 1440)
+  const bar = page.locator('[data-slot="top-bar"]:visible')
+  const face = bar.locator('[data-topbar-mark] [data-slot="icon-tile"]')
+  await expect(bar.locator('[data-topbar="place"]')).toContainText('Release checker')
+  await expect(face).toContainText('RC')
+  const explanations = page.locator('[data-page-destination="agents"]:visible [data-slot="page"] > p[data-role="prose"]')
+  await expect(explanations).toHaveCount(1)
+  await expect(explanations).toContainText('Reads a release branch')
+})
+
+test('R10 Release checker automatic trigger names its action and keeps dialog rhythm', async ({ page }) => {
+  await openFrame(page, 'frame-wall=agents&frame-detail=agent&frame-agent-case=release', 'light', 1440)
+  const bar = page.locator('[data-slot="top-bar"]:visible')
+  await bar.getByRole('button', { name: 'More', exact: true }).click()
+  const runAutomatically = page.getByRole('menuitem', { name: 'Run automatically…', exact: true })
+  await expect(runAutomatically).toBeVisible()
+  await runAutomatically.click()
+  const dialog = page.getByRole('dialog', { name: 'Run Release checker automatically', exact: true })
+  await expect(dialog).toBeVisible()
+  const events = dialog.locator('section[aria-label="Events"]')
+  await expect(events.getByText('Opened', { exact: true })).toBeVisible()
+  await expect(events.getByText('Pushed', { exact: true })).toBeVisible()
+  await expect(dialog.getByText('Pull request', { exact: true }).first()).toBeVisible()
+  await expect(dialog.getByText('Head commit', { exact: true }).first()).toBeVisible()
+  const eventRows = events.locator('[data-slot="rows"]').first()
+  const forks = events.locator('[data-slot="form-field"]').first()
+  const gap = (await forks.boundingBox())!.y - ((await eventRows.boundingBox())!.y + (await eventRows.boundingBox())!.height)
+  expect(gap).toBeGreaterThanOrEqual(await resolvedPx(page, '--hd-space-6') - 1)
+})
+
+test('R10 built-in shadow status uses the Agent row chip column', async ({ page }) => {
+  await openFrame(page, 'frame-wall=agents', 'light', 1440)
+  const builtin = page.locator('[data-page-destination="agents"]:visible section[aria-label="Built in"]')
+  const shadow = builtin.locator('[data-slot="row"]').filter({ hasText: 'Shadowed by the one in storefront' })
+  const chip = shadow.locator('[data-slot="row-ctl"] [data-slot="chip"]')
+  const reference = builtin.locator('button[data-kind="record"]').filter({ hasText: 'Implementer' }).locator('[data-slot="chip"]')
+  await expect(chip).toHaveText('Shadowed')
+  const chipBox = (await chip.boundingBox())!, referenceBox = (await reference.boundingBox())!
+  expect(Math.abs(chipBox.x + chipBox.width - referenceBox.x - referenceBox.width)).toBeLessThanOrEqual(1)
+})
+
 test('E5 Team row enters work and keeps room navigation separate from page history',async({page})=>{
 
  await openFrame(page,'frame-wall=teams','dark')

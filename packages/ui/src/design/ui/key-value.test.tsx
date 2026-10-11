@@ -117,9 +117,9 @@ it('preserves an explicit full title when a shortened path is cut', () => {
   expect(line.getAttribute('title')).toBe(full)
 })
 
-it('grows when a middle-truncated path shares a line with surrounding words', () => {
-  const line = draw(<MiddleTruncate grow>storefront/.harnessdesk/agents</MiddleTruncate>)
-  expect(line.className).toContain('flex-1')
+it('keeps middle-truncated paths content-sized instead of growing into inline notes', () => {
+  const line = draw(<MiddleTruncate>storefront/.harnessdesk/agents</MiddleTruncate>)
+  expect(line.className).not.toContain('flex-1')
   expect(line.className).toContain('min-w-0')
 })
 

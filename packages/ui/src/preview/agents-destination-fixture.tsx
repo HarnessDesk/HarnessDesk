@@ -1,4 +1,4 @@
-import type { HostMethodName, HostParams } from '@harnessdesk/protocol'
+import { DEFAULT_TRIGGER_BUDGET, type HostMethodName, type HostParams, type TriggerDefinition } from '@harnessdesk/protocol'
 import { App } from '../app/App'
 import { StoreProvider } from '../state/context'
 import { emptyWorkbench } from '../state/workbench'
@@ -6,11 +6,26 @@ import { AppStore } from '../state/store'
 import { frameDestinationStore } from './frame-destination-store'
 import { framePageRoute, framePageIds } from './frame-page-route'
 import { PREVIEW_AGENTS, PREVIEW_SESSION_KEY, previewStore } from './harness'
+import { PREVIEW_ROOT } from './sidebar-fixture'
 import '../styles/app.css'
 
 /** E4's isolated preview entry. Integration uses the same routes in FrameWall. */
 export const agentsDestinationStore = (query: URLSearchParams): AppStore => {
   const fixture = previewStore()
+  const snapshot = fixture.getSnapshot()
+  const storefront = '/work/storefront'
+  Object.assign(snapshot, {
+    workspace: snapshot.workspace ? { ...snapshot.workspace, path: storefront, checkoutRoot: storefront, name: 'storefront' } : null,
+    agentsProject: storefront,
+    agents: snapshot.agents?.map(entry => entry.origin === 'project'
+      ? { ...entry, path: entry.path.replace(PREVIEW_ROOT, storefront) }
+      : entry),
+  })
+  if (query.get('frame-agent-path') === 'long') {
+    Object.assign(snapshot, {
+      stateDir: '/private/tmp/synthetic-agent-fixture/isolated/worker/worktrees/round-four/app-frame-fix4-lists4/shared-home/profile/.harnessdesk',
+    })
+  }
   const main = { root: { kind: 'pane' as const, id: 'e4-work', view: { kind: 'conversation' as const, session: PREVIEW_SESSION_KEY } }, focused: 'e4-work', expanded: null }
   Object.assign(fixture.getSnapshot(), { workbench: { ...emptyWorkbench(), main }, layout: main,
     activeSessionKey: PREVIEW_SESSION_KEY, sidebarCollapsed: false, sidebarFloating: false })
@@ -19,6 +34,13 @@ export const agentsDestinationStore = (query: URLSearchParams): AppStore => {
     Object.assign(snapshot, { agentPlans: new Map(snapshot.agentPlans).set('code-reviewer', {
       ...plan, from: 'prefer', winner: null, ceiling: null, candidates: [plan.candidates[0]!], own: [],
     }), seating: { ...snapshot.seating!, entries: snapshot.seating!.entries.filter(entry => entry.id !== 'code-reviewer') } })
+  }
+  if (query.get('frame-agent-case') === 'release') {
+    const plan = snapshot.agentPlans.get('release-checker')!
+    const candidates = plan.candidates.map((candidate, index) => index === plan.winner
+      ? { ...candidate, seat: { ...candidate.seat, runtime: 'preview-unbranded' as typeof candidate.seat.runtime }, runtimeName: 'Local seat' }
+      : candidate)
+    Object.assign(snapshot, { agentPlans: new Map(snapshot.agentPlans).set('release-checker', { ...plan, candidates }) })
   }
   const store = frameDestinationStore(fixture)
   const request = store.transport.request.bind(store.transport)
@@ -30,6 +52,29 @@ export const agentsDestinationStore = (query: URLSearchParams): AppStore => {
     }
     if (method === 'authoring/read') return fixture.readAuthoring(target.target)
     if (method === 'authoring/save/pending') return fixture.authoringPending()
+    if (method === 'authoring/triggers/draft') {
+      const draft = params as HostParams<'authoring/triggers/draft'>
+      const definition: TriggerDefinition = {
+        id: draft.id,
+        on: draft.on === 'issue'
+          ? { kind: 'issue', events: ['labelled', 'closed', 'commented'] }
+          : draft.on === 'schedule'
+            ? { kind: 'schedule', events: ['tick'], everyMinutes: 60 }
+            : { kind: 'pull-request', events: ['opened', 'pushed'] },
+        opens: draft.opens,
+        goal: ['pr'],
+        again: null,
+        dedupe: ['pr', 'head', 'event'],
+        concurrency: 1,
+        forks: 'never',
+        budget: DEFAULT_TRIGGER_BUDGET,
+      }
+      return definition
+    }
+    if (method === 'authoring/triggers/render') {
+      const { definitions } = params as HostParams<'authoring/triggers/render'>
+      return { source: JSON.stringify(definitions), issues: [] }
+    }
     if (method === 'attachment/agent') return fixture.readAgentAttachments(target.id, target.origin)
     if (method === 'attachment/notes') return fixture.readAgentNotes(target.id, target.origin)
     if (method === 'agent/seat/dry') return target.ids.map(id => fixture.getSnapshot().agentPlans.get(id)).filter(Boolean)
@@ -40,7 +85,7 @@ export const agentsDestinationStore = (query: URLSearchParams): AppStore => {
   const route = selected === 'missing' ? { kind: 'agents' as const, id: 'missing-agent' }
     : selected === 'parse' ? { kind: 'agents' as const, id: 'draft' }
     : selected === 'refused' ? { kind: 'agents' as const, id: 'code-reviewer' }
-    : framePageRoute(query, { ...framePageIds(store.getSnapshot()), agent: PREVIEW_AGENTS.find(entry => entry.id === 'code-reviewer')!.id })
+    : framePageRoute(query, { ...framePageIds(store.getSnapshot()), agent: selected === 'release' ? 'release-checker' : PREVIEW_AGENTS.find(entry => entry.id === 'code-reviewer')!.id })
   // Start with recorded work behind the page; navigation remains the real store's.
   if (route) store.openDestination(route)
   return store

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { Button } from '../ui/button'
 import { Input } from '../ui/input'
+import { DialogFormScope } from './DialogForm'
 import { Field, FormStack, Row, RowInput, Rows } from './Settings'
 
 /**
@@ -187,5 +188,19 @@ describe('FormStack', () => {
     expect(getComputedStyle(stack).alignItems).toBe('flex-start')
     expect(getComputedStyle(fieldBox).alignSelf).toBe('stretch')
     expect(getComputedStyle(button).alignSelf).not.toBe('stretch')
+  })
+
+  it('uses the section rhythm when a dialog group asks for it', () => {
+    act(() => root.render(
+      <DialogFormScope>
+        <FormStack spacing="section">
+          <Rows><Row title="Events" /></Rows>
+          <Field label="Forks">{(control) => <Input {...control} value="" onChange={() => {}} />}</Field>
+        </FormStack>
+      </DialogFormScope>,
+    ))
+    const stack = container.querySelector('[data-slot="form-stack"]') as HTMLElement
+    expect(stack.dataset.spacing).toBe('section')
+    expect(stack.className).toContain('sectionStack')
   })
 })
