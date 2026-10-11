@@ -47,7 +47,7 @@ export const teamSeats = (
     }
     return seats
   }
-  for (const record of goal?.members ?? []) {
+  for (const record of [...(goal?.pastMembers ?? []), ...(goal?.members ?? [])]) {
     if (!record.session.runtime || !record.session.sessionId) continue
     const key = sessionKey(record.session.runtime, record.session.sessionId)
     const role = [...rounds].reverse().find(round => round.seats.includes(record.id))?.role ?? record.role

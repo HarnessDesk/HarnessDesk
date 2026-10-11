@@ -674,3 +674,13 @@ test('a Run completed by its person does not keep its finished attempts in Team 
   proof.port.executions = () => [execution, { ...next, state: 'settled', end: { kind: 'unrouted', card: 3, outcome: 'merged' } }]
   assert.equal((await proof.plane.view('g1')).activity, 'needs-you', 'an unrouted ending still waits')
 })
+
+test('a stopped Seat remains readable as history without becoming a live member', async () => {
+  const proof = await rig()
+  const stopped = seat('researcher', { closed: { at: 5, why: 'released' }, role: 'researcher', seatLabel: 'Researcher' })
+  proof.seats.push(stopped)
+  const view = await proof.plane.view('g1')
+  assert.deepEqual(view.members, [])
+  assert.deepEqual((view as typeof view & { pastMembers?: readonly SeatRecord[] }).pastMembers, [stopped])
+  assert.deepEqual(view.board.members, [])
+})

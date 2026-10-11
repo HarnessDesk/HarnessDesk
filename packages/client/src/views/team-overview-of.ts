@@ -19,7 +19,7 @@ export function teamOverviewInputOf(snapshot: ClientSnapshot, team: GoalId, extr
   const execution = snapshot.runs.filter(one => one.goal === team).sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0]
   return {
     team,
-    seats: (extras.seats ?? (view?.members ?? []).map((record): TeamOverviewSeat => ({
+    seats: (extras.seats ?? [...new Map([...(view?.pastMembers ?? []), ...(view?.members ?? [])].map(record => [sessionKey(record.session.runtime, record.session.sessionId), record])).values()].map((record): TeamOverviewSeat => ({
       record,
       name: board?.nicknames?.[sessionKey(record.session.runtime, record.session.sessionId)] ?? record.agent?.name ?? record.seatLabel ?? 'Agent',
       runtime: runtimeCapabilities.has(record.session.runtime) ? { capabilities: runtimeCapabilities.get(record.session.runtime)! } : null,

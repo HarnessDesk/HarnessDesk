@@ -31,3 +31,16 @@ test('FIX9 wrapped findings use the receipt and ask nothing of a person', async 
     await expect(pane).not.toContainText('Goal')
   }
 })
+
+test('FIX9 stopped Team keeps its Researcher and explains round counts', async ({ page }) => {
+  await openFrame(page, 'frame-wall=team&frame-fix9-stop=1')
+  await page.getByRole('tab', { name: 'Run 1', exact: true }).click()
+  await page.getByRole('button', { name: 'Stop run…', exact: true }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Stop run', exact: true }).click()
+  await page.getByRole('tab', { name: 'Overview', exact: true }).click()
+  const agents = page.locator('[data-slot="team-overview"]')
+  await expect(agents).not.toContainText('No agents')
+  await expect(agents).toContainText('Researcher')
+  await expect(agents).toContainText('Stopped')
+  await expect(page.locator('[data-slot="team-overview"]')).not.toContainText('Rounds 0 of')
+})

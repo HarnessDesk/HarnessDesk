@@ -165,6 +165,8 @@ export interface GoalView {
   readonly activity: GoalActivity | null
   readonly waitingOn: readonly { id: GoalId; sentence: string }[]
   readonly members: readonly SeatRecord[]
+  /** Closed Seats kept for reading; never live membership or dispatch targets. */
+  readonly pastMembers?: readonly SeatRecord[]
   readonly board: TeamState
   readonly receipt: GoalReceipt | null
   readonly problem: string | null

@@ -76,7 +76,8 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
   const stoppedCards = new Map(timeline?.rows.filter(row => row.card !== null && (row.status === 'Stopping' || row.status === 'Stopped'))
     .map(row => [row.card, row]) ?? [])
   const cardState = (row: SeatRow) => row.card ? stoppedCards.get(row.card.id) : undefined
-  const seatState = (row: SeatRow) => cardState(row)
+  const seatState = (row: SeatRow) => model.run?.state === 'stopped' && row.round !== null
+    ? <span data-slot="seat-state"><Text role="meta">Stopped</Text></span> : cardState(row)
     ? <span data-slot="seat-state"><Text role="meta">{cardState(row)!.status}</Text></span> : <SeatState row={row} />
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
@@ -131,10 +132,10 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
               <div className="flex flex-wrap gap-3">
                 {run.round !== null && <Text role="meta">Round {run.round}{run.role ? ` · ${stepName(words(run.role))}` : ''}</Text>}
                 {run.startedAt !== null && <Text role="meta">Started {new Date(run.startedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</Text>}
-                {run.reviewRounds && <Text role="meta">Rounds {run.reviewRounds.used} of {run.reviewRounds.of}</Text>}
+                {run.reviewRounds && <Text role="meta">Completed rounds {run.reviewRounds.used} of {run.reviewRounds.of}</Text>}
                 <Text role="meta" numeric title={run.total.money === null && run.total.turns === null ? 'Recorded usage is unavailable' : undefined}>
                   {[run.total.money !== null ? `$${run.total.money.toFixed(2)}` : null,
-                    run.total.turns !== null ? `${run.total.turns} turns` : null].filter(Boolean).join(' · ') || '—'}
+                    run.total.turns !== null ? `${run.total.turns} turns` : null].filter(Boolean).join(' · ')}
                 </Text>
               </div>
               {[...stoppedCards.values()].filter(row => row.round === run.round).map(row => <div key={row.id} data-slot="run-current-step"><Text role="meta">
@@ -167,7 +168,7 @@ export const TeamOverview = ({ model, timeline, faces, metered, unavailable, onO
           </Button>}>
           {model.seats.length === 0 ? (
             <SectionBody spacing="inline">
-              <EmptyState variant="inline" align="start" title="No agents in this Team yet" />
+              <EmptyState variant="inline" align="start" title={run ? 'No agent conversations were kept for this Run' : 'No agents in this Team yet'} />
             </SectionBody>
           ) : rows.length === 0 || narrow === null ? null : narrow ? (
             <ListRows>

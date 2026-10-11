@@ -319,7 +319,7 @@ export class GoalPlane {
         const found = dependencies.find((one) => one.id === dependency)
         return found?.state === 'wrapped' ? [] : [{ id: dependency, sentence: found?.sentence ?? 'A missing Goal' }]
       }),
-      members, board, receipt: document.receipt,
+      members, pastMembers: this.port.seats.all().filter(seat => seat.board === id && seat.closed !== null && !seat.restored), board, receipt: document.receipt,
       problem: document.restored ? 'This Goal came from a backup. Start a new Goal to continue its work.' : problem,
       ...(document.flowReservation ? { reservation: { run: document.flowReservation.run } } : {}),
     }

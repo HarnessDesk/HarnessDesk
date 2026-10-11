@@ -74,3 +74,9 @@ it('keeps full nicknames when shortened names collide across Agents or custom na
  expect(seatDisplayName(a.record,a.nickname,a.runtimeName,[a,{nickname:'Model A · High'}])).toBe(a.nickname)
  expect(seatDisplayName(a.record,a.nickname,a.runtimeName,[a])).toBe('Model A · High')
 })
+
+it('keeps stopped Seats beside active membership, with one row per conversation', () => {
+ const stopped = record('a','one')
+ const view = { ...goal([]), pastMembers: [stopped] }
+ expect(teamSeats(view,team(),run).map(one=>[one.record.id,one.role])).toEqual([['a','writer']])
+})
