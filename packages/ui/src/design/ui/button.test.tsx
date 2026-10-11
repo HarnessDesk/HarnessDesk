@@ -114,6 +114,16 @@ describe('the canonical button', () => {
     }
   })
 
+  it('keeps choice plates neutral across hover and selected states', () => {
+    const choice = buttonVariants({ variant: 'choice' })
+    expect(choice).toContain('hover:bg-(--hd-hover)')
+    expect(choice).toContain('data-[selected]:bg-(--hd-active)')
+    expect(choice).toContain('data-[on]:bg-(--hd-active)')
+    expect(choice).toContain('aria-checked:bg-(--hd-active)')
+    expect(choice).not.toContain('--hd-accent')
+    expect(choice).not.toContain('--hd-ring')
+  })
+
   /* A refused row's own dimming is a canonical Button concern (see
      NewSessionChoice.tsx's comment on its `.group` rule): `ghost` and
      `floating` already fade on `data-refused` for a runtime an attachment

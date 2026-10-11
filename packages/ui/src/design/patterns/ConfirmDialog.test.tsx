@@ -106,6 +106,12 @@ const button = (surface: HTMLElement, label: string): HTMLButtonElement => {
   return found
 }
 
+it('uses the Dialog primitive’s named small width', () => {
+  const surface = open()
+  expect(surface.className).toContain('w-[min(460px,100%)]')
+  expect(surface.className).toContain('max-w-none')
+})
+
 /**
  * A flex row's children, left to right, as a browser paints them: the tree
  * order, reversed by `row-reverse`, with no `order` re-sorting any child. The

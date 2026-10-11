@@ -116,10 +116,9 @@ const VARIANTS = {
     'justify-start text-left bg-transparent hover:bg-(--hd-hover) data-[selected]:bg-(--hd-active) data-[active]:bg-(--hd-active) data-[open]:bg-(--hd-active) data-[on]:bg-(--hd-active) data-[current]:bg-(--hd-active) aria-checked:bg-(--hd-active) data-[insert=into]:bg-(--hd-accent-dim) data-[insert=into]:shadow-[inset_0_0_0_1px_var(--hd-accent)]',
   navigation:
     'justify-start text-left bg-transparent text-(--hd-sidebar-foreground) hover:bg-(--hd-sidebar-hover) data-[active]:bg-(--hd-sidebar-selected) data-[current]:bg-(--hd-sidebar-selected) data-[open]:bg-(--hd-sidebar-selected) data-[selected]:bg-(--hd-sidebar-selected) data-[active]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[current]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[open]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[current]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[open]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] data-[current]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] data-[open]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] data-[selected]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] data-[insert=before]:shadow-[inset_0_2px_0_0_var(--hd-primary)] data-[insert=after]:shadow-[inset_0_-2px_0_0_var(--hd-primary)]',
-  /* A chosen option is filled whichever way its caller says so:
-     `data-selected`, `data-on`, or the radio's own `aria-checked`.
-     Hover takes the plain hover fill, so pointing at an option never
-     reads as having chosen it. */
+  /* Choice cards use the same quiet plates as rows and menus. Selection
+     keeps the neutral active ground; hover uses the neutral hover ground.
+     Neither state changes the border to an accent. */
   /* Unlike `ghost`/`floating`'s whole-control `data-[refused]:opacity-45`,
      a refused choice keeps its reason in the same control — measured
      at ~1.9:1 in light mode when the whole row faded with it, well
@@ -128,7 +127,7 @@ const VARIANTS = {
      own `data-role`) fade; nothing marked `data-role=muted` — the
      reason — is touched, so it keeps its ink. */
   choice:
-    'justify-start text-left border-(--hd-btn-border) bg-(--hd-card) text-(--hd-foreground) hover:border-(--hd-accent) hover:bg-(--hd-hover) data-[selected]:border-(--hd-accent) data-[selected]:bg-(--hd-accent-dim) data-[on]:border-(--hd-ring) data-[on]:bg-(--hd-accent-dim) aria-checked:border-(--hd-ring) aria-checked:bg-(--hd-accent-dim) data-[hard]:data-[on]:border-(--hd-danger) data-[hard]:data-[on]:bg-(--hd-danger-dim) data-[refused]:[&_[data-slot=icon-tile]]:opacity-45 data-[refused]:[&_[data-role=row]]:opacity-45',
+    'justify-start text-left border-(--hd-btn-border) bg-(--hd-card) text-(--hd-foreground) hover:bg-(--hd-hover) data-[selected]:bg-(--hd-active) data-[on]:bg-(--hd-active) aria-checked:bg-(--hd-active) data-[hard]:data-[on]:border-(--hd-danger) data-[hard]:data-[on]:bg-(--hd-danger-dim) data-[refused]:[&_[data-slot=icon-tile]]:opacity-45 data-[refused]:[&_[data-role=row]]:opacity-45',
   quiet:
     'bg-transparent text-(--hd-secondary-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) aria-expanded:bg-(--hd-hover) aria-pressed:bg-(--hd-hover) data-[on]:bg-(--hd-active) data-[on]:text-(--hd-foreground) data-[active]:bg-(--hd-accent-dim) data-[active]:text-(--hd-accent) data-[live]:bg-(--hd-success-dim) data-[live]:text-(--hd-success-ink)',
   muted:
