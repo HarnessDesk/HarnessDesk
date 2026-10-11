@@ -155,6 +155,17 @@ it('a plugin holding nothing still says so', () => {
   expect(container.textContent).toContain('Nothing beyond running in the plugin host')
 })
 
+it('uses sentence case for Active and keeps Built in as a title-line chip', () => {
+  mount([plugin('android', 'Android', {})])
+  open('Android')
+
+  const stateRow = [...container.querySelectorAll<HTMLElement>('[data-slot="row"]')]
+    .find(row => row.querySelector('[data-slot="row-title"]')?.textContent?.includes('Active'))!
+  expect(stateRow.querySelector('[data-slot="row-title"]')?.textContent).toContain('Active')
+  expect(stateRow.querySelector('[data-slot="row-title-chip"]')?.textContent).toBe('Built in')
+  expect([...container.querySelectorAll('[data-slot="page-explanation"]')].some(one => one.textContent?.includes('Built in'))).toBe(false)
+})
+
 it('names a plugin and its tools on the wire in the code face at the meta step, behind a labelled switch', () => {
   const tool = {
     id: 'git/git_status',

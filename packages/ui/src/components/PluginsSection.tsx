@@ -152,11 +152,17 @@ const KIND_HEADING: Record<CapabilityContribution['kind'], string> = {
 export const stateLabel = (state: PluginState): string => {
   switch (state.type) {
     case 'pending':
-      return state.waitingFor.length > 0 ? `waiting for ${state.waitingFor.join(', ')}` : 'waiting'
+      return state.waitingFor.length > 0 ? `Waiting for ${state.waitingFor.join(', ')}` : 'Waiting'
     case 'failed':
       return 'Failed'
-    default:
-      return state.type
+    case 'active':
+      return 'Active'
+    case 'loading':
+      return 'Loading'
+    case 'unloading':
+      return 'Unloading'
+    case 'disposed':
+      return 'Disposed'
   }
 }
 
@@ -284,8 +290,18 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
             onSelect={() => { void store.uninstallPlugin(plugin.identity.id); onBack(); close() }} />}
         </>} />
       {plugin.identity.description && <PageExplanation>{plugin.identity.description}</PageExplanation>}
-      <Rows><Row title={stateLabel(plugin.state)} control={<PluginToggle plugin={plugin} />} /></Rows>
-      <PageExplanation>{`${originLabel(plugin)}${plugin.identity.version ? ` · ${plugin.identity.version}` : ''}`}</PageExplanation>
+      <Rows><Row
+        title={stateLabel(plugin.state)}
+        {...(plugin.identity.source.kind === 'builtin' ? { titleChip: <Chip tone="neutral">Built in</Chip> } : {})}
+        control={<PluginToggle plugin={plugin} />}
+      /></Rows>
+      {(plugin.identity.source.kind === 'builtin'
+        ? plugin.identity.version && `Version ${plugin.identity.version}`
+        : `${originLabel(plugin)}${plugin.identity.version ? ` · ${plugin.identity.version}` : ''}`) && (
+        <PageExplanation>{plugin.identity.source.kind === 'builtin'
+          ? `Version ${plugin.identity.version}`
+          : `${originLabel(plugin)}${plugin.identity.version ? ` · ${plugin.identity.version}` : ''}`}</PageExplanation>
+      )}
 
       {plugin.state.type === 'failed' && (
         <Section title="Why it did not load">
