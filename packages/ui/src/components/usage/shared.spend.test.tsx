@@ -1,7 +1,7 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
-import type { LedgerReport } from '@harnessdesk/protocol'
+import { runtimeId, type LedgerReport } from '@harnessdesk/protocol'
 
 import { Spend } from './shared'
 
@@ -51,4 +51,27 @@ it('states complete scan coverage once even when the recorded window is empty', 
   act(() => root.render(<Spend ledger={ledger} wideLedger={null} byId={new Map()} tintOf={() => 'blue'} scan={null} now={now} range={30} mode="bars" onModeChange={() => {}} onScan={() => {}} />))
   expect(host.textContent?.match(/30 of 30 days scanned/g)).toHaveLength(1)
   expect(host.textContent).toContain('No usage recorded in this window')
+})
+
+
+it('agrees to the cent across ranges for a partly read week beside a quiet day', () => {
+  const now = new Date(2026, 9, 10, 12).getTime()
+  const day = (back: number) => new Date(2026, 9, 10 - back).getTime()
+  const coveredDays = [1, 3, 4, 6].map(day)
+  const daily = [3, 4, 6].map((back, index) => ({ day: day(back), runtime: runtimeId('fixture'), cost: [10.01, 9.03, 4.05][index]!, tokens: 10 }))
+  const ledger = (days: number): LedgerReport => ({ ...emptyLedger(days), totalCost: 23.09, daily,
+    coverage: { ...emptyLedger(days).coverage, coveredDays, daysCovered: 4, earliestDay: day(6) } })
+  const render = (days: number, report = ledger(days), at = now) => act(() => root.render(<Spend ledger={report} wideLedger={null} byId={new Map()} tintOf={() => 'blue'} scan={null} now={at} range={days} mode="bars" onModeChange={() => {}} onScan={() => {}} />))
+  render(7)
+  const headline = host.querySelector('[data-slot="chart-title"]')!.textContent
+  expect(headline).toBe('$23.09')
+  expect(host.textContent).toContain('4 of 7 days scanned')
+  expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('TodayNot read yet')
+  render(30)
+  const week = [...host.querySelectorAll('[data-slot="stat"]')].find(stat => stat.textContent?.includes('Last 7 days'))!
+  expect(week.textContent).toContain(headline)
+  expect(week.textContent).toContain('4 of 7 days read')
+  expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('TodayNot read yet')
+  render(7, { ...ledger(7), daily: [], totalCost: 0 }, day(1) + 12 * 3600000)
+  expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('Today$0')
 })

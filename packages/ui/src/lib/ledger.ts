@@ -166,8 +166,9 @@ export interface PeriodTotal {
    * percentage.
    */
   readonly change: number | null
-  /** At least one day in this figure has not been scanned. */
+  /** No day in this figure has been read. */
   readonly unknown: boolean
+  readonly daysRead: number
 }
 
 /**
@@ -196,6 +197,7 @@ export const periodTotals = (
         days: 1,
         label: 'Today',
         unknown: series.days.at(-1)?.unknown ?? true,
+        daysRead: series.days.at(-1)?.unknown === false ? 1 : 0,
         cost: totals[totals.length - 1] ?? 0,
         partial: true,
         change: null,
@@ -207,7 +209,8 @@ export const periodTotals = (
     out.push({
       days: span,
       label: `Last ${span} days`,
-      unknown: series.days.slice(-span).some(day => day.unknown),
+      unknown: series.days.slice(-span).every(day => day.unknown),
+      daysRead: series.days.slice(-span).filter(day => !day.unknown).length,
       cost: recent,
       partial: true,
       change: null,

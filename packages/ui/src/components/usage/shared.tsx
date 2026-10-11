@@ -776,7 +776,7 @@ export const Spend = ({
             )}
           </ChartHead>
           <DashboardStats facts={periods.map(period => ({id:String(period.days),label:period.label,value:period.unknown ? 'Not read yet' : format(period.cost),
-            qualifier:!period.unknown && period.partial ? 'so far' : undefined,
+            qualifier:!period.unknown && period.daysRead < period.days ? `· ${period.daysRead} of ${period.days} days read` : !period.unknown && period.partial ? 'so far' : undefined,
             trend:!period.partial && !turnsPartial && period.change !== null ? <Delta value={Math.round(period.change)} better="down" caption={`vs the ${period.days} days before`} tone={metric === 'cost' ? undefined : 'neutral'} /> : undefined,
           }))} />
         </ChartCard>
