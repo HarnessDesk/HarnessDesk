@@ -22,7 +22,7 @@ import {
  * would be a test hook, and a second `createHash` somewhere else would be a
  * second answer about trailing whitespace.
  */
-export { digestOf } from './digest.js'
+export { bundleDigest, digestOf } from './digest.js'
 export { unifiedDiff } from './diff.js'
 export { LibraryManifest, type ManifestEntry } from './manifest.js'
 export {
