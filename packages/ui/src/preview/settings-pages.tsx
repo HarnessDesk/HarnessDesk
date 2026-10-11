@@ -15,12 +15,13 @@ export const SettingsPreview = ({section='general',focus=null,onSection}: {
   const store=useMemo(()=>frameDestinationStore(fixture),[fixture])
   useEffect(()=>{
     const page=destinationForSettings(section,focus)
-    if(page.kind==='settings')store.openDestination(page)
-    else store.askSettings(section,focus)
+    store.openDestination(page)
   },[store,section,focus])
   useEffect(()=>store.subscribe(()=>{
     const page=store.getSnapshot().workbench.navigation.current
     if(page.kind==='settings'&&page.route.kind==='section')onSection?.(page.route.section,page.route.focus)
+    else if(page.kind==='library')onSection?.('library')
+    else if(page.kind==='plugins')onSection?.('plugins')
   }),[store,onSection])
   return <StoreProvider store={store}><App/></StoreProvider>
 }

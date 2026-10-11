@@ -1,4 +1,5 @@
 import { DEFAULT_LANE_PREFERENCES } from '@harnessdesk/protocol'
+import { capabilityListsStore } from './capability-lists-fixture'
 import { expect, it } from 'vitest'
 import { AppStore } from '../state/store'
 import { PREVIEW_AGENTS, previewStore } from './harness'
@@ -112,4 +113,36 @@ it('page Run keeps seeded board evidence and explicitly answers rooms with no ob
   await overview.loadBoardEvidence('overview-team')
   expect(overview.getSnapshot().boardEvidenceFailed.has('overview-team')).toBe(false)
   expect(overview.getSnapshot().boardEvidence.get('overview-team')).toMatchObject({ room: 'overview-team', cards: [], unreadable: null })
+})
+
+it('page configuration reads retain the synthetic hook, server, catalogue and credential observations', async () => {
+  const fixture = capabilityListsStore(true), store = frameDestinationStore(fixture)
+  for (const method of ['loadHooks', 'loadMcpServers', 'loadCatalog', 'listCredentials'] as const) {
+    const observed = await fixture[method]()
+    expect(observed).not.toEqual([])
+    expect(await store[method]()).toEqual(observed)
+  }
+})
+
+
+it('page imported history retains the fixture transport list and filter', async () => {
+  const fixture = previewStore()
+  const observed = { data: [], nextCursor: 'synthetic-next' }
+  const original = fixture.transport.request.bind(fixture.transport)
+  fixture.transport.request = (async (method, params) => {
+    if (method === 'history/list') { expect(params).toMatchObject({ query: 'checkout' }); return observed }
+    return original(method, params as never)
+  }) as typeof fixture.transport.request
+  const store = frameDestinationStore(fixture)
+  await expect(store.transport.request('history/list', { query: 'checkout' })).resolves.toEqual(observed)
+})
+
+it('page defaults acknowledge a valid synthetic choice without changing the declared choices', async () => {
+  const fixture = previewStore(), store = frameDestinationStore(fixture), runtime = fixture.getSnapshot().activeRuntime!
+  const before = await store.transport.request('runtime/sessionDefaults', { runtime })
+  const after = await store.transport.request('runtime/sessionDefaults', { runtime, values: { approvalsReviewer: 'auto_review' } })
+  const original = before.find(option => option.id === 'approvalsReviewer')!
+  const chosen = after.find(option => option.id === 'approvalsReviewer')!
+  expect(chosen.currentValue).toBe('auto_review')
+  expect(chosen.type === 'select' && chosen.choices).toEqual(original.type === 'select' && original.choices)
 })

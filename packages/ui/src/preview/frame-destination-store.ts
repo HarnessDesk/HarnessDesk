@@ -112,7 +112,17 @@ export const frameDestinationStore = (fixture: AppStore): AppStore => {
     if (method === 'runtime/health') return fixture.healthFor(query.runtime)
     if (method === 'runtime/limits') return fixture.limitsFor(query.runtime)
     if (method === 'runtime/options') return fixture.optionsFor(query.runtime)
-    if (method === 'runtime/sessionDefaults') return fixture.newSessionDefaultsFor(query.runtime)
+    if (method === 'runtime/sessionDefaults') {
+      const defaults = params as HostParams<'runtime/sessionDefaults'>
+      const options = await fixture.newSessionDefaultsFor(defaults.runtime)
+      return options.map(option => {
+        const value = defaults.values?.[option.id]
+        if (option.disabled) return option
+        if (option.type === 'select' && typeof value === 'string' && option.choices.some(choice => choice.value === value)) return { ...option, currentValue: value }
+        if (option.type === 'boolean' && typeof value === 'boolean') return { ...option, currentValue: value }
+        return option
+      })
+    }
     if (method === 'usage/plan/read') return fixture.readPlan(query)
     if (method === 'acp/catalog') return fixture.agentCatalog()
     if (method === 'acp/registry') return fixture.acpRegistry()
@@ -151,9 +161,12 @@ export const frameDestinationStore = (fixture: AppStore): AppStore => {
     if (method === 'lane/list') return seed.lanes
     if (method === 'trigger/preferences') return fixture.triggerPreferences()
     if (method === 'history/status') return seed.historyImports[query.runtime] ?? null
-    if (method === 'history/list') return {data:[],nextCursor:null}
-    if (method === 'credentials/list' || method === 'runtime/hooks' || method === 'runtime/mcp/list' || method === 'provenance/status') return []
-    if (method === 'runtime/catalog') return {plugins:[],marketplaces:[],loadErrors:[],featured:[]}
+    if (method === 'history/list') return fixtureRequest(method, params as never)
+    if (method === 'credentials/list') return fixture.listCredentials()
+    if (method === 'runtime/hooks') return fixture.loadHooks()
+    if (method === 'runtime/mcp/list') return fixture.loadMcpServers()
+    if (method === 'provenance/status') return []
+    if (method === 'runtime/catalog') return fixture.loadCatalog()
     if (method === 'runtime/apps/search') return {apps:[]}
     if (method === 'worktree/list') return store.getSnapshot().worktrees
     if (method === 'git/branches') return fixture.listBranches(query.root)
