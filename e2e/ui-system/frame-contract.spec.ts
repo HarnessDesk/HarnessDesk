@@ -269,6 +269,41 @@ for (const theme of WALL_THEMES) {
   })
 }
 
+for (const { label, query } of [
+  { label: 'draft', query: 'frame-wall=draft' },
+  { label: 'conversation closed', query: 'frame-wall=conversation' },
+  { label: 'conversation open', query: 'frame-wall=conversation&frame-tool=details' },
+  { label: 'Settings mode', query: 'frame-wall=settings-navigation' },
+  { label: 'Team', query: 'frame-wall=team' },
+]) for (const width of WALL_WIDTHS) {
+  test(`Owner check 1 interactive descendants opt out of the drag region in ${label} at ${width}`, async ({ page }) => {
+    await openFrame(page, query, 'light', width)
+    const region = page.locator('.hd-drag:visible').filter({ has: page.locator('[data-slot="top-bar"]:visible') }).first()
+    await expect(region).toBeVisible()
+    const measurements = await region.evaluate(node => {
+      const selectors = [
+        'button', 'a[href]', 'input', 'select', 'textarea', 'summary', '[contenteditable]',
+        '[tabindex]:not([tabindex="-1"])', '[role="button"]', '[role="link"]', '[role="tab"]',
+        '[role="menuitem"]', '[role="switch"]', '[role="checkbox"]', '[role="combobox"]', '[role="option"]',
+      ].join(',')
+      const visible = (element: Element) => {
+        const rect = element.getBoundingClientRect()
+        return rect.width > 0 && rect.height > 0 && getComputedStyle(element).visibility !== 'hidden'
+      }
+      const interactive = [...node.querySelectorAll<HTMLElement>(selectors)]
+        .filter(element => visible(element) && element.closest('.hd-drag') === node)
+        .map(element => ({
+          label: element.getAttribute('aria-label') ?? element.textContent?.trim() ?? element.tagName,
+          region: getComputedStyle(element).getPropertyValue('-webkit-app-region'),
+        }))
+      return { region: getComputedStyle(node).getPropertyValue('-webkit-app-region'), interactive }
+    })
+    expect(measurements.region).toBe('drag')
+    expect(measurements.interactive.length).toBeGreaterThan(0)
+    expect(measurements.interactive.filter(element => element.region !== 'no-drag'), JSON.stringify(measurements.interactive)).toEqual([])
+  })
+}
+
 for (const theme of WALL_THEMES) {
   test(`B8 Agents layout measures allocated rows and keeps names inside their column in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team', theme)
