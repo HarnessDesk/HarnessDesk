@@ -35,6 +35,54 @@ export const agentsDestinationStore = (query: URLSearchParams): AppStore => {
       ...plan, from: 'prefer', winner: null, ceiling: null, candidates: [plan.candidates[0]!], own: [],
     }), seating: { ...snapshot.seating!, entries: snapshot.seating!.entries.filter(entry => entry.id !== 'code-reviewer') } })
   }
+  if (query.get('frame-agent-case') === 'local-seat-mismatch') {
+    const plan = snapshot.agentPlans.get('code-reviewer')!
+    const machineSeat = { runtime: 'runtime-gamma' }
+    const release = snapshot.agents?.find(one => one.id === 'release-checker')
+    const secondLegacy = release?.definition ? {
+      ...release,
+      id: 'fixture-second-checker',
+      path: '/private/tmp/synthetic-agent-fixture/isolated/worker/worktrees/round-four/shared-home/.harnessdesk/agents/second-checker/AGENT.md',
+      digest: 'synthetic-second-checker',
+      definition: {
+        ...release.definition,
+        id: 'fixture-second-checker',
+        name: 'Second checker',
+        description: 'Checks the same change from a separate synthetic brief.',
+        ceiling: 'publish' as const,
+        ceilingFrom: 'permission' as const,
+      },
+    } : null
+    Object.assign(snapshot, {
+      agents: snapshot.agents?.map(one => one.id === 'code-reviewer' && one.definition
+        ? { ...one, definition: { ...one.definition, ceiling: 'edit', ceilingFrom: 'permission', prefer: [{ runtime: 'runtime-alpha' }] } }
+        : one.id === 'release-checker' && one.definition
+          ? { ...one, definition: { ...one.definition, ceiling: 'publish', ceilingFrom: 'permission' } }
+        : one),
+      agentPlans: new Map(snapshot.agentPlans).set('code-reviewer', {
+        ...plan,
+        from: 'machine',
+        winner: 0,
+        candidates: [{
+          seat: machineSeat,
+          label: 'Gamma',
+          runtimeName: 'Gamma',
+          state: 'passed' as const,
+          reason: { kind: 'signedOut' as const },
+          fix: { kind: 'signIn' as const, runtime: 'runtime-gamma' },
+        }],
+        own: [{ seat: { runtime: 'runtime-alpha' }, label: 'Alpha', runtimeName: 'Alpha', state: 'taken' as const, reason: null, fix: null }],
+      }),
+      seating: {
+        ...snapshot.seating!,
+        entries: [
+          ...snapshot.seating!.entries.filter(one => one.id !== 'code-reviewer'),
+          { id: 'code-reviewer', seats: [machineSeat] },
+        ],
+      },
+    })
+    if (secondLegacy && snapshot.agents) Object.assign(snapshot, { agents: [...snapshot.agents, secondLegacy] })
+  }
   if (query.get('frame-agent-case') === 'release') {
     const plan = snapshot.agentPlans.get('release-checker')!
     const candidates = plan.candidates.map((candidate, index) => index === plan.winner

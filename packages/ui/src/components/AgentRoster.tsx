@@ -40,8 +40,6 @@ const EMPTY: Readonly<Record<AgentOrigin, string>> = {
   user: 'None of your own yet',
   builtin: 'None ship with this build',
 }
-const NO_SHARED_FLAGS: ReadonlySet<string> = new Set()
-
 /** The checkout actually read, never the main checkout a linked worktree belongs to. */
 const footnote = (origin: AgentOrigin, folder: string | null, home: string | null): ReactNode => {
   if (origin === 'builtin') return 'Ships with HarnessDesk, and changes only when HarnessDesk does.'
@@ -108,19 +106,15 @@ export const AgentsRosterSection = ({
         const shadowed = agents.flatMap((winner) =>
           winner.shadows.filter((one) => one.origin === origin).map((one) => ({ winner, path: one.path })),
         )
-        const flagCounts = new Map<string, number>()
         const ceilingCounts = new Map<string, number>()
         for (const entry of rows) {
           if (!entry.definition) continue
-          const flag = flagWords(entry.definition)
-          if (flag) flagCounts.set(flag, (flagCounts.get(flag) ?? 0) + 1)
           const plan = snapshot.agentPlans.get(entry.id)
           if (!plan || !seatTaken(plan)) continue
           const ceiling = plan.ceiling ?? { level: entry.definition.ceiling, hold: 'asked' as const }
           const key = `${ceiling.level}:${ceiling.hold}`
           ceilingCounts.set(key, (ceilingCounts.get(key) ?? 0) + 1)
         }
-        const sharedFlags = new Set([...flagCounts].filter(([, count]) => count > 1).map(([flag]) => flag))
         const mostCommon = [...ceilingCounts].sort((left, right) => right[1] - left[1])
         const sharedCeiling = mostCommon[0] && mostCommon[0][1] > 1 && mostCommon[0][1] > (mostCommon[1]?.[1] ?? 0)
           ? mostCommon[0][0]
@@ -139,7 +133,6 @@ export const AgentsRosterSection = ({
                 return <AgentRow
                   key={entry.id}
                   entry={entry}
-                  sharedFlags={sharedFlags}
                   hideCeiling={hideCeiling}
                   onOpen={() => {
                     setOpen(entry.id)
@@ -160,7 +153,6 @@ export const AgentsRosterSection = ({
                 />
               ))}
             </Rows>
-            {sharedFlags.size > 0 && [...sharedFlags].map((flag) => <Note key={flag} ink="muted" inset="row">{flag}</Note>)}
             <Note
               ink="muted"
               inset="row"
@@ -185,13 +177,10 @@ export const AgentsRosterSection = ({
   )
 }
 
-import { flagWords } from '../lib/ceilings'
-
 /** One Agent in force, or one whose file will not parse — each a way into its page. */
-export const AgentRow = ({ entry, onOpen, sharedFlags = NO_SHARED_FLAGS, hideCeiling = false }: {
+export const AgentRow = ({ entry, onOpen, hideCeiling = false }: {
   readonly entry: AgentEntry
   readonly onOpen: () => void
-  readonly sharedFlags?: ReadonlySet<string>
   readonly hideCeiling?: boolean
 }) => {
   const snapshot = useSnapshot()
@@ -212,9 +201,7 @@ export const AgentRow = ({ entry, onOpen, sharedFlags = NO_SHARED_FLAGS, hideCei
   const plan = snapshot.agentPlans.get(entry.id)
   const seat = seatTaken(plan)
   const reason = plan ? firstReason(plan) : null
-  const flag = flagWords(definition)
-  const description = [definition.description, flag && !sharedFlags.has(flag) ? flag : null].filter((part): part is string => Boolean(part)).join(' ')
-  const desc = [description, seat?.label, !seat && reason].filter(Boolean).join(' · ')
+  const desc = [definition.description, seat?.label, !seat && reason].filter(Boolean).join(' · ')
   const ceiling = plan?.ceiling ?? { level: definition.ceiling, hold: 'asked' as const }
   return (
     <RowButton
