@@ -5687,8 +5687,8 @@ export class Host {
     try {
       const live = await this.#liveFor(runtime.info.id, id)
       const session = await this.#transcripts.enrich(await runtime.readSession(live.id))
-      if (source) await this.#cacheRead(session, source.source)
-      return session
+      if (source) return this.#cacheRead(session, source.source)
+      return this.#preserveReadRecency(session)
     } catch (error) {
       if (kept && source) return { ...kept, deskCopy: true }
       throw error
@@ -6436,7 +6436,7 @@ export class Host {
     const restored = await this.#sessionWorktrees.prepare(runtime.info.id, id)
     const read = await this.#readTranscript(runtime, id)
     const cwd = restored.cwd || indexed?.cwd || read.cwd
-    const session = { ...read, cwd, ...(restored.warning ? { worktreeWarning: restored.warning } : {}) }
+    const session = this.#preserveReadRecency({ ...read, cwd, ...(restored.warning ? { worktreeWarning: restored.warning } : {}) })
     this.#recordSessionIndex(session, true)
     this.#sessionIndex.opened(runtime.info.id, id)
     // A closed source-less replay may contain new work without desk events.
@@ -6448,9 +6448,17 @@ export class Host {
     return session
   }
 
-  async #cacheRead(session: Session, source: SessionSource | null): Promise<void> {
-    this.#recordSessionIndex(session, true)
-    await this.#transcripts.refresh(session, source)
+  #preserveReadRecency(session: Session): Session {
+    const key = String(sessionKey(session.runtime, session.id))
+    const indexed = this.#indexPending.get(key) ?? this.#sessionIndex.get(session.runtime, session.id)
+    return indexed ? { ...session, createdAt: indexed.createdAt, updatedAt: indexed.updatedAt } : session
+  }
+
+  async #cacheRead(session: Session, source: SessionSource | null): Promise<Session> {
+    const stable = this.#preserveReadRecency(session)
+    this.#recordSessionIndex(stable, true)
+    await this.#transcripts.refresh(stable, source)
+    return stable
   }
 
   async #readTranscript(runtime: AgentRuntime, id: SessionId): Promise<Session> {
@@ -6469,14 +6477,14 @@ export class Host {
       if (this.#sessionIndex.fillMissingMetadata(session)) this.#sessionIndexRepos.read(session.cwd)
       session.cwd = this.#sessionIndex.get(runtime.info.id, id)?.cwd || session.cwd
       // Read the fingerprint before replay, so a concurrent append always forces another refresh.
-      if (source) await this.#cacheRead(session, source.source)
+      if (source) return this.#cacheRead(session, source.source)
       else if (runtime.info.capabilities.sourceTranscript && runtime.sourceOf) {
         // Startup can negotiate this capability inside readSession. A stat
         // taken now could include an append the replay missed, so leave it
         // unstamped until a subsequent read captures metadata before replay.
-        await this.#cacheRead(session, null)
+        return this.#cacheRead(session, null)
       }
-      return session
+      return this.#preserveReadRecency(session)
     } catch (error) {
       // A conversation this host started and is still holding open was
       // watched item by item; what the registry has *is* the transcript.

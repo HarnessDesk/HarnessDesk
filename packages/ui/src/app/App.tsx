@@ -70,7 +70,7 @@ export const App = () => {
   // resolved `root` rather than opening a chooser of its own. `null` is
   // closed; this is the one instance the app renders for it.
   const [frontDoorRoot, setFrontDoorRoot] = useState<string | null>(null)
-  const openFrontDoor = useCallback((root: string) => { store.returnToWork(); setFrontDoorRoot(root) }, [store])
+  const openFrontDoor = useCallback((root: string) => { setFrontDoorRoot(root) }, [])
   // `true` opens the sign-in page where it thinks best; a runtime id pins it.
   const [signInOpen, setSignInOpen] = useState<boolean | RuntimeId>(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -178,7 +178,7 @@ export const App = () => {
     const leavePage = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape' || event.defaultPrevented) return
       const kind = store.getSnapshot().workbench.navigation.current.kind
-      if (kind !== 'library' && kind !== 'plugins' && kind !== 'dashboard') return
+      if (kind !== 'library' && kind !== 'plugins' && kind !== 'dashboard' && kind !== 'changes-review') return
       event.preventDefault()
       store.returnToWork()
     }
@@ -353,7 +353,7 @@ export const App = () => {
     activeDestination={pageActive && current.kind!=='settings' && current.kind!=='changes-review'?current.kind
       :null}
     settings={pageActive && settingsSection?{section:settingsSection,onSection:section=>openSettingsAt(section,null),
-      onBack:()=>{if(snapshot.navCanBack)void store.navigateBack();else store.returnToWork()}}:undefined}/>
+      onBack:()=>{void store.leaveSettings()}}:undefined}/>
   const frameOwner=(pageActive?`destination:${current.kind}`:null)
   return (
     /* One shell, one set of actions — including retained main pages. A project page lives in Settings, and its Agent

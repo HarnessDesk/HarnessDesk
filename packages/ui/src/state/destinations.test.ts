@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest'
-import { destinationOf, readDestination, readDestinationHistory, stepDestination, visitDestination } from './destinations'
+import { destinationOf, leaveSettingsDestination, readDestination, readDestinationHistory, stepDestination, visitDestination } from './destinations'
 
 const work = destinationOf({ kind: 'room', room: 'team-demo', framePage: 'findings' })
 const settings = { kind: 'settings', route: { kind: 'section', section: 'appearance', focus: null } } as const
@@ -23,6 +23,19 @@ test('draft is a destination; replacing control state makes no extra visit', () 
   const updated = visitDestination(open, { ...dashboard, view: 'spend' }, true)
   expect(updated.back).toEqual([draft])
   expect(updated.current).toEqual({ ...dashboard, view: 'spend' })
+})
+
+test('leaving Settings skips its visited routes and keeps them available through Forward', () => {
+  const general = { kind: 'settings', route: { kind: 'section', section: 'general', focus: null } } as const
+  const appearance = { kind: 'settings', route: { kind: 'section', section: 'appearance', focus: null } } as const
+  const runtimes = { kind: 'settings', route: { kind: 'section', section: 'runtimes', focus: null } } as const
+  const history = { current: runtimes, back: [work, general, appearance], forward: [] }
+  const left = leaveSettingsDestination(history)!
+  expect(left.current).toEqual(work)
+  expect(left.back).toEqual([])
+  expect(stepDestination(left, 'forward')?.current).toEqual(general)
+  expect(stepDestination(stepDestination(left, 'forward')!, 'forward')?.current).toEqual(appearance)
+  expect(stepDestination(stepDestination(stepDestination(left, 'forward')!, 'forward')!, 'forward')?.current).toEqual(runtimes)
 })
 
 test('old documents restore work; invalid entries are removed and history is bounded', () => {

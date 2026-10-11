@@ -22,6 +22,7 @@ import { PopupWall } from './popup-wall'
 import { triggerGoalStatus } from './intake-fixture'
 import { type Section } from '../components/Settings'
 import { Sidebar } from '../components/Sidebar'
+import { sidebarStorefrontRecencyFixture } from './sidebar-projects-fixture'
 import { Workbench } from '../panels/Workbench'
 import { ShellProvider } from '../panels/views'
 import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
@@ -125,7 +126,11 @@ const storeFor = (destination: Destination): AppStore => {
   switch (destination) {
     case 'left-work': return showing(previewStore(sidebarStructureFixture(previewStore().getSnapshot())),
       { kind: 'room', room: 'structure-team' }, null)
-    case 'navigation': return showing(previewStore(), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY)
+    case 'navigation': {
+      const fixture = previewStore(new URLSearchParams(location.search).has('frame-recency')
+        ? sidebarStorefrontRecencyFixture(previewStore().getSnapshot()) : undefined)
+      return showing(fixture, { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY)
+    }
     case 'conversation': return popupContent(showing(previewStore(new URLSearchParams(window.location.search).has('sidebar-geometry')
       ? sidebarGeometryFixture(previewStore().getSnapshot()) : undefined), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY))
     case 'draft': return popupContent(showing(previewStore(), { kind: 'conversation', session: null }, null))

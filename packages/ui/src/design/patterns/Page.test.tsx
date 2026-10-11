@@ -56,3 +56,20 @@ it('lets a window own its gutter while retaining the shared page stack', () => {
     container.remove()
   }
 })
+
+it('lets a canvas page use the shared page top inset without changing its frame', () => {
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  try {
+    act(() => root.render(<Page width="canvas" measure="wide" topInset="page">content</Page>))
+    const page = container.firstElementChild as HTMLElement
+    expect(page.dataset['topInset']).toBe('page')
+    expect(page.dataset['width']).toBe('canvas')
+    expect(page.dataset['inset']).toBe('canvas')
+    expect(page.style.paddingTop).toBe('calc(var(--hd-page-gutter) - var(--hd-space-2) + var(--hd-space-px))')
+  } finally {
+    act(() => root.unmount())
+    container.remove()
+  }
+})

@@ -1878,7 +1878,9 @@ round's findings. `wide` is for tables and card grids (`--hd-page-wide`),
 centred. `canvas` fills the width and keeps `PaneColumn`'s dense canvas
 inset (`--hd-space-2`) on all four edges. A canvas may name a `measure` for
 its page blocks: the canvas keeps its frame inset while those blocks use the
-chosen centred page measure.
+chosen centred page measure. A dense canvas with topInset="page" replaces
+its smaller top inset with the page's top content inset while keeping the
+same full-width canvas frame.
 Reading and wide pages keep the reading inset (`--hd-page-gutter`) on all
 four edges. A surface that brings its own geometry — a terminal, a diff,
 a graph — bleeds instead of taking a page.
