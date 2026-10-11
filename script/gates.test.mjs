@@ -4593,3 +4593,8 @@ test('page family scanner preserves the layout, measure and retired-head authori
 test('E Settings screen layout, measures and old heads are zero', () => {
   assert.deepEqual(pageLayoutFindings('settings'), [])
 })
+
+
+test('Changes review family has zero page layout, measure and retired-frame findings', () => {
+  assert.deepEqual(pageLayoutFindings('review'), [])
+})

@@ -100,3 +100,41 @@ test('Changes review captures remembered work without changing its layout or doc
   store.returnToWork()
   expect(store.getSnapshot().layout).toBe(before.main)
 })
+
+
+test('review freezes its root and originating work, then returns without closing it', () => {
+  const store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), { workspace: { path: '/synthetic/project', name: 'project' } })
+  const origin = store.getSnapshot().workbench.navigation.current
+  store.openReview()
+  const review = store.getSnapshot().workbench.navigation.current
+  if (review.kind !== 'changes-review' || origin.kind !== 'work') throw new Error('review/work expected')
+  expect(review.root).toBe('/synthetic/project')
+  expect(review.returnTo).toEqual(origin.view)
+  store.openDestination(settings)
+  expect(store.selectWork(review.returnTo)).toBe(true)
+  expect(store.getSnapshot().workbench.navigation.current).toEqual(origin)
+})
+
+test('review receipt bridge refuses a missing conversation without changing navigation or work', () => {
+  const store = new AppStore('ws://localhost:0/')
+  store.openReview()
+  const before = store.getSnapshot().workbench
+  expect(store.selectWork({ kind: 'conversation', session: 'synthetic:missing' as never })).toBe(false)
+  expect(store.getSnapshot().workbench).toBe(before)
+})
+
+test('review receipt bridge returns to the captured Team view with docks and layout intact', () => {
+  const store = new AppStore('ws://localhost:0/')
+  store.openTeamRoom('team-demo')
+  store.setTeamFramePage('team-demo', 'run')
+  const before = store.getSnapshot().workbench
+  store.openReview()
+  const review = store.getSnapshot().workbench.navigation.current
+  if (review.kind !== 'changes-review') throw new Error('review expected')
+  expect(store.selectWork(review.returnTo)).toBe(true)
+  expect(store.getSnapshot().workbench.navigation.current).toEqual(before.navigation.current)
+  expect(store.getSnapshot().layout).toBe(before.main)
+  expect(store.getSnapshot().workbench.right).toBe(before.right)
+  expect(store.getSnapshot().workbench.bottom).toBe(before.bottom)
+})

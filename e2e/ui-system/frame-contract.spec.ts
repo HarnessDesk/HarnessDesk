@@ -1,4 +1,4 @@
-import { measureDestination, expectPageJourney } from './frame-page-contract'
+import { measureDestination, expectPageJourney, expectDestinationTab } from './frame-page-contract'
 import { applySettingsNavigationActions } from './left-column-actions'
 import { applyLeftColumnActions } from './left-column-actions'
 import { openWallDestination } from './frame-wall-actions'
@@ -2363,4 +2363,86 @@ test('E2 Settings More offers Terminal only with a folder', async ({ page }) => 
 
 for(const theme of ['light','dark'] as const) for(const width of [2200,1440,1100,720]) test(`E2 Settings Profile is reading at ${width} in ${theme}`,async({page})=>{
   await measureDestination(page,'frame-wall=settings&frame-section=profile','reading',theme,width)
+})
+
+// E8 opens from the conversation's review event; review has no column door.
+const expectReviewJourney = async (page: Page, width: number): Promise<void> => {
+  await openFrame(page, 'frame-wall=navigation', 'light', width)
+  const reveal = async () => {
+    if (width < FRAME.fold.sidebarFloats) await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
+  }
+  const column = page.locator('[data-left-column]:visible')
+  const chrome = async () => {
+    expect((await column.boundingBox())!.y).toBe(0)
+    expect((await column.locator('[data-left-top]').boundingBox())!.height).toBe(FRAME.bar.height)
+    const paint = await column.evaluate(node => {
+      const ground = (element: Element): string => {
+        const color = getComputedStyle(element).backgroundColor
+        return color === 'rgba(0, 0, 0, 0)' || color === 'transparent'
+          ? element.parentElement ? ground(element.parentElement) : color : color
+      }
+      const expected = document.createElement('div'); expected.style.background = 'var(--hd-sidebar)'; node.append(expected)
+      const colors = [ground(node), ground(node.querySelector('[data-left-top]')!), getComputedStyle(expected).backgroundColor]
+      expected.remove(); return colors
+    })
+    expect(paint[0]).toBe(paint[2]); expect(paint[1]).toBe(paint[2])
+
+    expect(await column.locator('[data-left-top] button').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label'))))
+      .toEqual(['Hide sidebar', 'Search everything', 'Back', 'Forward'])
+    await expect(column.locator('[data-left-settings]:visible')).toHaveCount(0)
+    await expect(column.getByText('Back to app', { exact: true })).toHaveCount(0)
+  }
+  const remembered = page.locator('[data-slot="retained-work"] [data-pane-id]').first()
+  await remembered.evaluate(node => { node.setAttribute('data-page-journey', 'remembered-review-work') })
+  const composer = page.locator('[data-slot="composer-text"]:visible')
+  await composer.fill('Keep this review draft')
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('harnessdesk:review')))
+  await expect(page.locator('[data-page-destination="changes-review"]:visible')).toHaveCount(1)
+  await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
+  await reveal(); await chrome()
+  await column.getByRole('button', { name: 'Back', exact: true }).click()
+  await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
+  await expect(remembered).toHaveAttribute('data-page-journey', 'remembered-review-work')
+  await expect(composer).toHaveValue('Keep this review draft')
+  await reveal(); await chrome()
+  await column.getByRole('button', { name: 'Forward', exact: true }).click()
+  await expect(page.locator('[data-page-destination="changes-review"]:visible')).toHaveCount(1)
+  await reveal(); await chrome()
+  await column.getByRole('button', { name: 'New session', exact: true }).click()
+  await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
+  await reveal()
+  // The ordinary session row also returns from a review visit.
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('harnessdesk:review')))
+  await expect(page.locator('[data-page-destination="changes-review"]:visible')).toHaveCount(1)
+  if (width < FRAME.fold.sidebarFloats && await column.count() === 0) await reveal()
+  await column.locator('[data-region="session-row"] [data-slot="sidebar-menu-button"]').first().click()
+  await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
+}
+for (const width of [1440, 720]) test(`E8 review journey retains the conversation and normal column ${width}`, async ({ page }) => {
+  await expectReviewJourney(page, width)
+})
+for (const theme of ['light', 'dark'] as const) for (const width of [1440, 1100, 720]) {
+  test(`E8 Changes canvas ${width} ${theme}`, async ({ page }) => {
+    await page.addInitScript(() => {
+      const timer = window.setInterval(() => {
+        if (document.querySelector('[data-page-destination="changes-review"]')) { clearInterval(timer); return }
+        if (document.querySelector('[data-slot="retained-work"]')) window.dispatchEvent(new CustomEvent('harnessdesk:review'))
+      }, 20)
+    })
+    await measureDestination(page, 'frame-wall=navigation', 'canvas', theme, width)
+    await expectDestinationTab(page, 'working')
+    await expect(page.getByRole('searchbox', { name: 'Filter files', exact: true })).toBeVisible()
+    await expect(page.locator('[data-slot="app-window"]')).toHaveCount(0)
+  })
+}
+test('E8 review More contains only Terminal and opens the reviewed folder', async ({ page }) => {
+  await openFrame(page, 'frame-wall=navigation', 'light')
+  await page.evaluate(() => window.dispatchEvent(new CustomEvent('harnessdesk:review')))
+  await expect(page.locator('[data-page-destination="changes-review"]:visible')).toHaveCount(1)
+  await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
+  const menu = page.getByRole('menu')
+  await expect(menu.getByRole('menuitem')).toHaveCount(0)
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(1)
+  await menu.getByRole('menuitemradio', { name: /Terminal/ }).click()
+  await expect(page.locator('[data-frame-region="bottom"]:visible')).toBeVisible()
 })

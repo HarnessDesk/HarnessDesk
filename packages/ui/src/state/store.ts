@@ -1292,6 +1292,12 @@ export class AppStore {
     const session = view.kind === 'conversation' && view.session ? this.#snapshot.sessions.get(view.session) : null
     this.openDestination({ kind: 'changes-review', root: session?.cwd ?? this.#snapshot.workspace?.path ?? null, returnTo: view })
   }
+  /** Select already mounted work for a review quote, without resuming or sending. */
+  selectWork(view: WorkView): boolean {
+    if (view.kind === 'conversation' && view.session && !this.#snapshot.sessions.has(view.session)) return false
+    this.#selectWork(view)
+    return true
+  }
   #selectWork(request: WorkView): void {
     const remembered = focusedPane(this.#snapshot.layout).view
     // Opening a Team by identity returns to its remembered view; an explicit

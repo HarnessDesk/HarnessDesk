@@ -176,3 +176,14 @@ export const PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'settings-skill', query: 'frame-wall=settings&frame-detail=skill', pageWidth: 'reading' },
 ]
 ;(WALL_DESTINATIONS as WallDestination[]).push(...PAGE_WALL_DESTINATIONS)
+
+/** E8 scene wiring is applied by the integration owner with the shared preview assembly. */
+export const E8_REVIEW_WALL_DESTINATIONS: readonly WallDestination[] = [
+  { id: 'e8-review-working', query: 'frame-wall=changes-review', pageWidth: 'canvas' },
+  { id: 'e8-review-staged', query: 'frame-wall=changes-review', pageWidth: 'canvas', tab: 'staged' },
+  { id: 'e8-review-filtered', query: 'frame-wall=changes-review', pageWidth: 'canvas', bodySearch: { label: 'Filter files', value: 'src/a' } },
+  { id: 'e8-review-empty', query: 'frame-wall=changes-review&frame-review-scene=empty', pageWidth: 'canvas' },
+  { id: 'e8-review-not-repository', query: 'frame-wall=changes-review&frame-review-scene=not-repository', pageWidth: 'canvas' },
+  { id: 'e8-review-large', query: 'frame-wall=changes-review&frame-review-scene=large', pageWidth: 'canvas' },
+]
+;(PAGE_WALL_DESTINATIONS as WallDestination[]).push(...E8_REVIEW_WALL_DESTINATIONS)
