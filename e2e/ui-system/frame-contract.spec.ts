@@ -2364,3 +2364,101 @@ test('E2 Settings More offers Terminal only with a folder', async ({ page }) => 
 for(const theme of ['light','dark'] as const) for(const width of [2200,1440,1100,720]) test(`E2 Settings Profile is reading at ${width} in ${theme}`,async({page})=>{
   await measureDestination(page,'frame-wall=settings&frame-section=profile','reading',theme,width)
 })
+
+// E3 owns these appended witnesses. Shared wall replacement belongs to Task 9.
+for (const width of [1440, 720]) {
+  test(`E3 Dashboard normal column page journey ${width}`, async ({ page }) => {
+    await expectPageJourney(page, 'Dashboard', 'dashboard', width)
+  })
+  test(`E3 Dashboard section heading clears its controls ${width}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=navigation', 'light', width)
+    await page.keyboard.press('Meta+u')
+    const heading = page.getByText('Where it went', { exact: true }).first()
+    await expect(heading).toBeVisible()
+    const controls = page.getByRole('group', { name: 'Group spend by', exact: true }).or(page.getByRole('radiogroup', { name: 'Group spend by', exact: true }))
+    await expect(heading.locator('xpath=ancestor::*[@data-slot="section-head"]')).toHaveCount(1)
+    const textBox = await heading.evaluate(node => { const range=document.createRange(); range.selectNodeContents(node); const box=range.getBoundingClientRect(); return {x:box.x,y:box.y,width:box.width,height:box.height} })
+    const controlBox = (await controls.boundingBox())!
+    expect(textBox.x + textBox.width <= controlBox.x || controlBox.x + controlBox.width <= textBox.x || textBox.y + textBox.height <= controlBox.y || controlBox.y + controlBox.height <= textBox.y, 'heading text never intersects its switch').toBe(true)
+  })
+}
+test('E3 Dashboard command opens main and Back restores work', async ({ page }) => {
+  await openFrame(page, 'frame-wall=navigation', 'light')
+  await page.keyboard.press('Meta+u')
+  await expect(page.locator('[data-page-destination="dashboard"]:visible')).toHaveCount(1)
+  await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(page.locator('[data-page-destination="dashboard"]:visible')).toHaveCount(1)
+  await page.keyboard.press('Meta+[')
+  await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
+})
+test('E3 Dashboard More contains only page actions', async ({ page }) => {
+  await openFrame(page, 'frame-wall=navigation', 'light')
+  await page.keyboard.press('Meta+u')
+  await page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button').click()
+  await expect(page.getByRole('menuitem', { name: 'Terminal', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(0)
+  await expect(page.getByRole('menuitem', { name: 'Back to app', exact: true })).toHaveCount(0)
+})
+for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440, 1100, 720]) {
+  for (const view of ['overview', 'plans', 'spend', 'activity', 'projects']) {
+    test(`E3 Dashboard ${view} wide column ${width} ${theme}`, async ({ page }) => {
+      await openFrame(page, 'frame-wall=navigation', theme, width)
+      await page.keyboard.press('Meta+u')
+      await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
+      await page.locator('[data-page-destination="dashboard"]:visible').getByRole('tab', { name: new RegExp(`^${view[0]!.toUpperCase()}${view.slice(1)}`) }).click()
+      const body = page.locator('[data-page-destination="dashboard"]:visible [data-slot="page"][data-width="wide"]')
+      await expect(body).toBeVisible()
+      const measure = await body.evaluate(node => { const box=node.getBoundingClientRect(), css=getComputedStyle(node), parent=node.parentElement!.getBoundingClientRect(); return {width:box.width-parseFloat(css.paddingLeft)-parseFloat(css.paddingRight),available:parent.width,padding:[css.paddingLeft,css.paddingRight,css.paddingTop].map(parseFloat),center:(box.left+box.right-parent.left-parent.right)/2} })
+      expect(measure.padding).toEqual([FRAME.page.gutter,FRAME.page.gutter,FRAME.page.gutter])
+      expect(measure.width).toBeCloseTo(Math.min(FRAME.page.wide,measure.available-2*FRAME.page.gutter),0)
+      expect(Math.abs(measure.center)).toBeLessThanOrEqual(1)
+      const bar=page.locator('[data-slot="top-bar"]:visible')
+      await expect(bar).toHaveCount(1)
+      expect((await bar.locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
+      await expect(bar.locator('[data-work-tool], [data-topbar="view"] button, [role="tab"]')).toHaveCount(0)
+      const title=bar.locator('[data-topbar-title] [data-slot="text"]').first()
+      await expect(title).toHaveText('Dashboard')
+      const type=await title.evaluate(node=>{const css=getComputedStyle(node);return {size:parseFloat(css.fontSize),weight:css.fontWeight,family:css.fontFamily}})
+      expect(type.size).toBe(14);expect(type.weight).toBe('500');expect(type.family).toContain('Geist')
+      const options=body.locator('[data-slot="page-options"]').first()
+      expect((await body.getByRole('tablist',{name:'Dashboard views'}).boundingBox())!.y).toBeLessThan((await options.boundingBox())!.y)
+      const edges=await body.evaluate(node=>{const start=node.getBoundingClientRect().left+parseFloat(getComputedStyle(node).paddingLeft);return [...node.children].filter(child=>child.getClientRects().length>0).map(child=>child.getBoundingClientRect().left-start)})
+      for(const edge of edges) expect(Math.abs(edge)).toBeLessThanOrEqual(1)
+      for(const control of await bar.locator('button:visible').all()) expect(await control.evaluate(node=>getComputedStyle(node).getPropertyValue('-webkit-app-region'))).toBe('no-drag')
+      await expect(page.locator('[data-frame-region="right"]:visible, [data-slot="status-bar"]')).toHaveCount(0)
+      expect(await page.evaluate(()=>document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+    })
+  }
+}
+test('E3 Dashboard keeps scope through Back/Forward and local chart state through page visits', async ({ page }) => {
+  await openFrame(page, 'frame-wall=navigation', 'light')
+  await page.keyboard.press('Meta+u')
+  await page.getByRole('tab', { name: 'Spend', exact: true }).click()
+  await page.getByRole('combobox', { name: 'Group spend by', exact: true }).selectOption('project')
+  const scope = page.getByTitle('Scope the dashboard to one account', { exact: true })
+  await scope.click()
+  const account = page.getByRole('menuitemradio').filter({ hasNotText: 'All accounts' }).first()
+  const name = await account.innerText()
+  await account.click()
+  await page.keyboard.press('Meta+,')
+  await page.keyboard.press('Meta+[')
+  await expect(page.getByRole('combobox', { name: 'Group spend by', exact: true })).toHaveValue('project')
+  await expect(scope).toContainText(name)
+  await page.keyboard.press('Meta+]')
+  await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1)
+})
+
+for(const width of [1440,720]) test(`E3 Dashboard New session and conversation rows select work ${width}`,async({page})=>{
+  await openFrame(page,'frame-wall=navigation','light',width)
+  const reveal=async()=>{if(width<FRAME.fold.sidebarFloats) await page.getByRole('button',{name:'Show sidebar',exact:true}).click()}
+  await page.keyboard.press('Meta+u');await reveal()
+  await page.locator('[data-left-column]:visible').getByRole('button',{name:'New session',exact:true}).click()
+  await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
+  await expect(page.locator('[data-page-destination="dashboard"]:visible')).toHaveCount(0)
+  await page.keyboard.press('Meta+u');await reveal()
+  const column=page.locator('[data-left-column]:visible')
+  await column.locator('[data-region="session-row"] [data-slot="sidebar-menu-button"]').first().click()
+  await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
+  await expect(page.locator('[data-page-destination="dashboard"]:visible')).toHaveCount(0)
+})

@@ -6,12 +6,11 @@ import type { RuntimeId, RuntimeInfo, UsagePreference, UsageReport } from '@harn
 import { accountForUsage, accountKey, defaultTint, prefsForUsage, tintOf } from '../../lib/accounts'
 import type { RunwaySummary } from '../../lib/usage'
 import { planRows, shapeCountsOf } from '../../lib/plans-table'
-import { Row, Rows, Button, SectionHead } from '../../design'
+import { Row, Rows, Button, Section } from '../../design'
 import { RuntimeMark } from '../BrandIcons'
-import { BandHead, Runway, type SilentAgent } from './shared'
+import { Runway, type SilentAgent } from './shared'
 import { PlansTable, ShapeFilters, type ShapeFilter } from './PlansTable'
 import { entriesFromSilent, NotReportingList } from './NotReporting'
-import styles from './usage.module.css'
 
 /**
  * Plans: every account, whether it will last, and what is missing.
@@ -88,17 +87,8 @@ export const PlansView = ({
 
   return (
     <>
-      <BandHead
-        name="What is left"
-        note={summary.headline ?? undefined}
-        className={styles.firstBandHead}
-        action={
-          <div className={styles.shapeFiltersWrap}>
-            <ShapeFilters counts={counts} value={filter} onChange={setFilter} />
-          </div>
-        }
-      />
-      <section className={styles.band} aria-label="What is left">
+      <Section title="What is left" description={summary.headline ?? undefined}
+        action={<ShapeFilters counts={counts} value={filter} onChange={setFilter} />}>
         <PlansTable
           rows={rows}
           snapshot={snapshot}
@@ -117,7 +107,7 @@ export const PlansView = ({
           onOpenPlanSettings={onOpenPlanSettings}
         />
         <NotReportingList entries={notReportingEntries} />
-      </section>
+      </Section>
 
       {/* Only when the header is scoped to one account: see `Runway`. Its own
           lanes decide whether it draws anything at all, so an agent with no
@@ -132,8 +122,7 @@ export const PlansView = ({
       )}
 
       {untracked.length > 0 && (
-        <section className={styles.band} aria-label="Not tracked">
-          <SectionHead level="heading" name="Not tracked" />
+        <Section title="Not tracked">
           <Rows>
             {untracked.map((info) => (
               <Row
@@ -149,7 +138,7 @@ export const PlansView = ({
               />
             ))}
           </Rows>
-        </section>
+        </Section>
       )}
     </>
   )

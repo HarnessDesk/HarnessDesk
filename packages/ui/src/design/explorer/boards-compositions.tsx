@@ -3107,6 +3107,7 @@ export const SeatListBoard = () => {
 }
 
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  {id:'dashboard-bands',title:'Dashboard bands',about:'Long labels, unavailable values and empty source bands in both themes.',render:DashboardBandsBoard},
   {id:'page-controls',title:'Page controls',about:'Labelled fields, complete prose and semantic input measures.',render:() => <PageControlsBoard />},
   {id:'page-options',title:'Page options',about:'Current values, pending scope and long choices folded in the body.',render:() => <PageOptionsBoard />},
   {id:'settings-choices',title:'Settings choices',about:'Selected and unknown pictures, accent and account ring choices.',render:() => <SettingsChoicesBoard />},
@@ -3563,3 +3564,16 @@ export const SettingsChoicesBoard = () => {
     </Page>
   </div>
 }
+
+import { DashboardBands, DashboardStats } from '..'
+const DASHBOARDBANDS_CATALOG_VARIANTS = ['light', 'dark'] as const
+const DASHBOARDBANDS_CATALOG_SIZES = ['default'] as const
+const DASHBOARDBANDS_CATALOG_STATES = ['default', 'empty', 'unknown', 'long-title'] as const
+export function DashboardBandsBoard() { return <div data-catalog-variants={DASHBOARDBANDS_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={DASHBOARDBANDS_CATALOG_SIZES.join(' ')} data-catalog-states={DASHBOARDBANDS_CATALOG_STATES.join(' ')}>
+  <Case label="known, empty and unknown">
+    <Page width="wide"><DashboardBands bands={[
+      {id:'recorded',title:'Recorded readings',rows:[{id:'known',title:'Long account name · 記録された利用状況',description:'One source on this machine.',value:'42%'},{id:'missing',title:'Unavailable account',value:'—'}]},
+      {id:'empty',title:'No records yet',explanation:'No measured value is available.',rows:[]},
+    ]} /><DashboardStats facts={[{id:'known',label:'Known reading',value:'42%'},{id:'unknown',label:'Unknown reading',value:'—'}]} /></Page>
+  </Case>
+</div> }

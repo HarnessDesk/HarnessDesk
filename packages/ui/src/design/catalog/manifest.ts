@@ -172,6 +172,7 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
     : undefined
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
+  DashboardBands: ['light', 'dark'],
   PageControls: ['default'],
   PageOptions: ['default'],
   SettingsChoices: ['default'],
@@ -290,6 +291,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
+  DashboardBands: ['default', 'empty', 'unknown', 'long-title'],
   PageControls: ['default', 'disabled'],
   PageOptions: ['default', 'loading', 'folded-state'],
   SettingsChoices: ['populated', 'unknown', 'selected'],
@@ -439,6 +441,7 @@ Object.assign(SIZES, {
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
+  DashboardBands: 'packages/ui/src/components/Usage.tsx',
   PageControls: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   PageOptions: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   SettingsChoices: 'packages/ui/src/components/SettingsYou.tsx',
@@ -497,6 +500,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
 Object.assign(PATTERN_CONSUMER, { LeftColumn: 'packages/ui/src/components/Sidebar.tsx' })
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  DashboardBands: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   PageControls: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   PageOptions: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   SettingsChoices: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -658,6 +662,7 @@ export const CANONICAL_UI_MODULES = [
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
+  ['DashboardBands', 'dashboard-bands', 'Recorded plan, spend and activity readings through canonical page blocks'],
   ['MainDestination', 'main-destination', 'Retained work and visited pages share one main region'],
   ['InboxMenu', 'popup-inbox', 'Kept messages and their actions through the wide-menu contract'],
   ['SubjectActionsMenu', 'subject-actions', 'Existing action callbacks and Messages choices outside facts'],

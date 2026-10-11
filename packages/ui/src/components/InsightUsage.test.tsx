@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { InsightReport, SeatRecord } from '@harnessdesk/protocol'
 
+import { DestinationPageScope } from '../panels/destination-page'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
 import { InsightUsage } from './InsightUsage'
@@ -353,12 +354,12 @@ it('labels Project usage’s range, restores it and resets it on a project switc
   const store = { subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) }, getSnapshot: () => snapshot, loadUsage: vi.fn(async () => {}), refreshUsage: vi.fn(async () => {}), ledger: vi.fn(async () => null), readUsageInsight, openGoal: vi.fn() } as unknown as AppStore
   await act(async () => { root.render(<StoreProvider store={store}><Usage view="projects" onClose={() => {}} /></StoreProvider>); await Promise.resolve() })
   const span = () => { const query = readUsageInsight.mock.calls.at(-1)![0] as unknown as { from: number; to: number }; return query.to - query.from }
-  const click = async (text: string) => { await act(async () => { [...container.querySelectorAll('button')].find(button => button.textContent === text)!.click(); await Promise.resolve() }) }
-  expect(container.querySelector('[aria-label="Project usage"]')?.textContent).toContain('Last 30 days')
+  const click = async (text: string) => { await act(async () => { const select=container.querySelector<HTMLSelectElement>('select[aria-label="Project usage range"]')!; const option=[...select.options].find(option=>option.textContent === text)!; select.value=option.value; select.dispatchEvent(new Event('change',{bubbles:true})); await Promise.resolve() }) }
+  expect(container.querySelector<HTMLSelectElement>('select[aria-label="Project usage range"]')?.value).toBe('30')
   expect(span()).toBe(30 * 86400000)
   await click('Last 24 hours')
   expect(span()).toBe(86400000)
-  expect(container.querySelector('[aria-label="Project usage"]')?.textContent).toContain('Last 24 hours')
+  expect(container.querySelector<HTMLSelectElement>('select[aria-label="Project usage range"]')?.value).toBe('1')
   expect([...container.querySelectorAll('button')].some(button => button.textContent === 'Last 24 hours')).toBe(false)
   await click('Last 30 days')
   expect(span()).toBe(30 * 86400000)
@@ -366,7 +367,7 @@ it('labels Project usage’s range, restores it and resets it on a project switc
   await act(async () => { snapshot = { ...snapshot, workspace: { path: '/other', name: 'other', lastOpenedAt: 0, repo: { root: '/other' } } }; listeners.forEach(listener => listener()); await Promise.resolve() })
   expect(span()).toBe(30 * 86400000)
   expect(readUsageInsight).toHaveBeenLastCalledWith(expect.objectContaining({ root: '/other' }))
-  expect(container.querySelector('[aria-label="Project usage"]')?.textContent).toContain('Last 30 days')
+  expect(container.querySelector<HTMLSelectElement>('select[aria-label="Project usage range"]')?.value).toBe('30')
 })
 
 
@@ -496,4 +497,13 @@ it('keeps the focused retry and refusal visible until a delayed retry settles', 
  expect(retry.getAttribute('aria-disabled')).not.toBe('true')
  expect(document.activeElement).toBe(retry)
  expect(container.textContent).toContain('Run counts are unavailable for some Teams.')
+})
+
+it('defers project attribution and Team history until the retained page is active',async()=>{
+ const readUsageInsight=vi.fn(async()=>report()),loadGoals=vi.fn(async()=>{}),loadTeamRunsBatch=vi.fn(async()=>({loaded:new Set(['goal-1']),unavailable:new Set<string>()}))
+ const snapshot=emptySnapshot()
+ const store={subscribe:()=>()=>{},getSnapshot:()=>snapshot,readUsageInsight,loadGoals,loadTeamRunsBatch} as unknown as AppStore
+ const draw=async(active:boolean)=>act(async()=>root.render(<StoreProvider store={store}><DestinationPageScope owner="destination:dashboard" active={active}><InsightUsage root="/work/storefront" runtime={null} view="goal" onGoal={()=>{}} /></DestinationPageScope></StoreProvider>))
+ await draw(false);expect(readUsageInsight).not.toHaveBeenCalled();expect(loadGoals).not.toHaveBeenCalled();expect(loadTeamRunsBatch).not.toHaveBeenCalled()
+ await draw(true);expect(readUsageInsight).toHaveBeenCalledTimes(1);expect(loadTeamRunsBatch).toHaveBeenCalledTimes(1)
 })

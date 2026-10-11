@@ -25,6 +25,7 @@ import {
 import { formatMoney } from '../lib/usage'
 import { formatTokens } from '../lib/context-usage'
 import { agentCoverage } from '../lib/overview-strip'
+import { useDestinationActive } from '../panels/destination-page'
 import { useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import {
@@ -34,12 +35,10 @@ import {
   EmptyState,
   HeatGrid,
   HeatLegend,
-  SectionHead,
-  Segmented,
+  Section, PageControls, DashboardStats, DashboardAgentReading,
   Text,
   type HeatGridRow,
 } from '../design'
-import styles from './UsageActivity.module.css'
 
 /**
  * "When it ran" — a calendar heatmap of the account's own activity, the year
@@ -119,6 +118,7 @@ export const UsageActivity = ({
   hourMetric?: HourMetric
   onHourMetricChange?: (metric: HourMetric) => void
 }) => {
+  const active = useDestinationActive()
   const store = useStore()
   const [ownView, setOwnView] = useState<HeatView>('year')
   const [ownDayMetric, setOwnDayMetric] = useState<HeatMetric>('tokens')
@@ -134,7 +134,7 @@ export const UsageActivity = ({
   const owned = suppliedReport === undefined
 
   useEffect(() => {
-    if (!owned) return
+    if (!active || !owned) return
     let cancelled = false
     void store
       .ledger({ days: 365, groupBy: 'runtime', ...(scope ? { runtime: scope } : {}) })
@@ -144,7 +144,7 @@ export const UsageActivity = ({
     return () => {
       cancelled = true
     }
-  }, [store, scope, scanFinishedAt, owned])
+  }, [active, store, scope, scanFinishedAt, owned])
 
   const ledger = owned ? ownLedger : suppliedReport ?? null
 
@@ -234,11 +234,7 @@ export const UsageActivity = ({
           return {
             key: String(row.runtime),
             header: (
-              <span className="flex items-center gap-1.5">
-                {mark && <RuntimeMark runtime={mark} size={13} />}
-                <Text role="row">{nameOf(row.runtime)}</Text>
-                <Text role="meta">{format(row.total)}</Text>
-              </span>
+              <DashboardAgentReading mark={mark ? <RuntimeMark runtime={mark} size={13} /> : undefined} name={nameOf(row.runtime)} value={format(row.total)} />
             ),
             cells: row.cells.map((cell) =>
               toGridCell(cell, dayMetric, levelOf, { currency, today: todayKey, rowKey: String(row.runtime), nameOf }),
@@ -249,84 +245,27 @@ export const UsageActivity = ({
   const columns = view === 'year' ? 53 : AGENT_SPAN_DAYS
 
   return (
-    <section className={styles.band} aria-label="When it ran">
-      <SectionHead
-        level="heading"
-        name="When it ran"
-        description={view !== 'hour' && busiestDow !== null ? `Busiest on ${WEEKDAY_NAMES[busiestDow]}s` : undefined}
-        action={
-          <>
-            <Segmented
-              label="Show by"
-              options={VIEWS}
-              value={view}
-              onChange={(next) => setView(next as HeatView)}
-            />
-            <Segmented
-              label="Measure"
-              options={view === 'hour' ? HOUR_METRICS : DAY_METRICS}
-              value={view === 'hour' ? hourMetric : dayMetric}
-              onChange={(next) => view === 'hour' ? setHourMetric(next as HourMetric) : setDayMetric(next as HeatMetric)}
-            />
-          </>
-        }
-      />
-
+    <Section title="When it ran" description={view !== 'hour' && busiestDow !== null ? `Busiest on ${WEEKDAY_NAMES[busiestDow]}s` : undefined}>
+      <PageControls choices={[
+        {id:'view',title:'Show by',value:view,options:VIEWS,change:next=>setView(next as HeatView)},
+        {id:'metric',title:'Measure',value:view === 'hour' ? hourMetric : dayMetric,options:view === 'hour' ? HOUR_METRICS : DAY_METRICS,change:next=>view === 'hour' ? setHourMetric(next as HourMetric) : setDayMetric(next as HeatMetric)},
+      ]} />
       <ChartFrame>
-        <ChartCard className={styles.facts}>
-          {view === 'hour' ? (
-            <>
-              <div className={styles.fact}>
-                <Text role="metric">{!hourGrid.available ? '—' : hourMetric === 'calls' ? hourTotal.toLocaleString() : formatTokens(hourTotal)}</Text>
-                <Text role="meta">{hourMetric === 'calls' ? `${hourTotal === 1 ? 'call' : 'calls'} this year` : 'tokens this year'}</Text>
-              </div>
-              <div className={styles.fact}>
-                <Text role="metric">{busiestHour ? `${WEEKDAY_NAMES[busiestHour.weekday]?.slice(0, 3)} ${busiestHour.hour % 12 || 12} ${busiestHour.hour < 12 ? 'AM' : 'PM'}` : '—'}</Text>
-                <Text role="meta">busiest hour</Text>
-              </div>
-              <div className={styles.fact}>
-                <Text role="metric">{busiestHourWeekday === null ? '—' : WEEKDAY_NAMES[busiestHourWeekday]}</Text>
-                <Text role="meta">busiest day of the week</Text>
-              </div>
-            </>
-          ) : (
-            <>
-              <div className={styles.fact}>
-                <Text role="metric">{totalLabel}</Text>
-                <Text role="meta">
-                  {view === 'year' ? 'this year' : 'last 13 weeks'}
-                  {somePartiallyUnpriced ? ' · some unpriced' : ''}
-                </Text>
-              </div>
-              <div className={styles.fact}>
-                <Text role="metric">{activeCount}</Text>
-                <Text role="meta">active of {scannedCount} scanned</Text>
-              </div>
-              <div className={styles.fact}>
-                <Text role="metric">{streaks.current} days</Text>
-                <Text role="meta">streak · best {streaks.best}</Text>
-              </div>
-              <div className={styles.fact}>
-                <Text role="metric">
-                  {busiest
-                    ? dayMetric === 'cost' && isUnpricedCost(busiest)
-                      ? 'unpriced'
-                      : format(dayMetric === 'tokens' ? busiest.tokens : busiest.cost)
-                    : '—'}
-                </Text>
-                <Text role="meta">{busiest ? dayLabelLong(busiest.day) : 'busiest day'}</Text>
-              </div>
-              {view === 'year' && (
-                <div className={styles.fact}>
-                  <Text role="metric">{leader ? nameOf(leader) : '—'}</Text>
-                  <Text role="meta">did the most</Text>
-                </div>
-              )}
-            </>
-          )}
+        <ChartCard>
+          <DashboardStats facts={view === 'hour' ? [
+            {id:'total',label:hourMetric === 'calls' ? `${hourTotal === 1 ? 'call' : 'calls'} this year` : 'tokens this year',value:!hourGrid.available ? '—' : hourMetric === 'calls' ? hourTotal.toLocaleString() : formatTokens(hourTotal)},
+            {id:'hour',label:'busiest hour',value:busiestHour ? `${WEEKDAY_NAMES[busiestHour.weekday]?.slice(0,3)} ${busiestHour.hour % 12 || 12} ${busiestHour.hour < 12 ? 'AM' : 'PM'}` : '—'},
+            {id:'weekday',label:'busiest day of the week',value:busiestHourWeekday === null ? '—' : WEEKDAY_NAMES[busiestHourWeekday]},
+          ] : [
+            {id:'total',label:view === 'year' ? 'this year' : 'last 13 weeks',value:totalLabel,caption:somePartiallyUnpriced ? 'some unpriced' : undefined},
+            {id:'active',label:`active of ${scannedCount} scanned`,value:activeCount},
+            {id:'streak',label:`streak · best ${streaks.best}`,value:`${streaks.current} days`},
+            {id:'busiest',label:busiest ? dayLabelLong(busiest.day) : 'busiest day',value:busiest ? dayMetric === 'cost' && isUnpricedCost(busiest) ? 'unpriced' : format(dayMetric === 'tokens' ? busiest.tokens : busiest.cost) : '—'},
+            ...(view === 'year' ? [{id:'leader',label:'did the most',value:leader ? nameOf(leader) : '—'}] : []),
+          ]} />
         </ChartCard>
 
-        <ChartCard className={styles.plot}>
+        <ChartCard>
           {ledger === null ? (
             <EmptyState tight title="Reading the ledger" />
           ) : view === 'hour' && !hourGrid.available ? (
@@ -349,11 +288,11 @@ export const UsageActivity = ({
             showNotScanned={view !== 'hour' && inView.some(cell => !cell.scanned)}
           />
           {view === 'hour' && hoursCoverage.partial && hoursCoverage.known > 0 && (
-            <Text role="meta" className="basis-full">known for {hoursCoverage.known} of {hoursCoverage.total} agents</Text>
+            <Text role="meta">known for {hoursCoverage.known} of {hoursCoverage.total} agents</Text>
           )}
         </ChartFoot>
       </ChartFrame>
-    </section>
+    </Section>
   )
 }
 

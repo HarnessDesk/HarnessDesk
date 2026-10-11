@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import type { RuntimeId } from '@harnessdesk/protocol'
 import type { PageDestination } from '../state/destinations'
+import { DashboardEntry } from '../components/Usage'
 import { Settings } from '../components/Settings'
 export interface MainPageInput {
   readonly page: PageDestination
@@ -11,6 +12,7 @@ export interface MainPageInput {
   readonly libraryImportIntent: number
 }
 export const MAIN_PAGE_ENTRIES: Partial<Record<PageDestination['kind'], (input: MainPageInput) => ReactNode>> = {
+  dashboard: input => <DashboardEntry {...input} />,
   settings: ({page,visit,onSignIn}) => page.kind === 'settings'
     ? <Settings route={page.route} onRoute={route=>visit({kind:'settings',route})} onSignIn={onSignIn} /> : null,
 }

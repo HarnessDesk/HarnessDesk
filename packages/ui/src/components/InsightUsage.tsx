@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import type { InsightDimension, InsightReport, RuntimeId } from '@harnessdesk/protocol'
 
 import { commonRowNote, metricWords } from '../lib/insight'
+import { useDestinationActive } from '../panels/destination-page'
 import { useSnapshot, useStore } from '../state/context'
-import { Banner, Button, Chip, EmptyState, IconTile, Note, Row, Rows, Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow, Text } from '../design'
+import { DashboardTable, Banner, Button, Chip, EmptyState, IconTile, Note, Row, Rows, Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow, Text } from '../design'
 import { GoalIcon, ArrowRightIcon } from './Icons'
 
 export interface InsightUsageProps {
@@ -25,18 +26,19 @@ export interface InsightUsageProps {
 }
 
 export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedReport, problem: suppliedProblem, onShorterRange, rangeDays }: InsightUsageProps) => {
+  const active = useDestinationActive()
   const snapshot = useSnapshot()
   const [days, setDays] = useState(30)
   const store = useStore(); const [ownReport, setOwnReport] = useState<InsightReport | null>(null); const [ownProblem, setOwnProblem] = useState<string | null>(null)
   const owned = suppliedReport === undefined
   useEffect(() => {
-    if (!owned) return
+    if (!active || !owned) return
     setOwnReport(null); setOwnProblem(null)
     if (!root) return
     let current = true; const to = Date.now(); const from = to - days * 86_400_000
     void store.readUsageInsight({ root, from, to, ...(runtime ? { runtime } : {}) }).then((next) => { if (current) setOwnReport(next) }).catch((error: unknown) => { if (current) setOwnProblem(error instanceof Error ? error.message : 'Recorded usage could not be read.') })
     return () => { current = false }
-  }, [store, root, runtime, owned, days])
+  }, [active, store, root, runtime, owned, days])
   const report = owned ? ownReport : (suppliedReport ?? null)
   const problem = owned ? ownProblem : (suppliedProblem ?? null)
   const dimension: InsightDimension = view
@@ -70,7 +72,7 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
     return [...ids]
   }, [report, breakdown, view])
   useEffect(() => {
-    if (!report || !root) return
+    if (!active || !report || !root) return
     let current = true
     history.goals ??= store.loadGoals ? store.loadGoals(root).catch(() => undefined) : Promise.resolve()
     void (async () => {
@@ -96,7 +98,7 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
       if (current) redrawHistory(value => value + 1)
     })()
     return () => { current = false }
-  }, [store, report, root, teamIds, history, historyAttempt])
+  }, [active, store, report, root, teamIds, history, historyAttempt])
   if (!root) return <Note>Choose a project to see its Teams.</Note>
   if (problem) return <Note tone="warn">{problem}</Note>
   if (!report) return <Note>Reading recorded usage…</Note>
@@ -121,12 +123,12 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
   return <>
     {rangeWarning ? <Banner tone="warning" title={hasAmounts ? 'Amounts are incomplete for this range' : 'Amounts are unknown for this range'} actions={(owned ? days !== 1 : rangeDays !== 1) && (owned || onShorterRange) && <Button variant="outline" size="sm" onClick={shorter}>Last 24 hours</Button>}>{reason}</Banner> : null}
     {!breakdown || breakdown.rows.length === 0 ? <Rows><EmptyState variant="row" title={!breakdown ? `Recorded usage has no ${view} attribution.` : view === 'goal' ? 'No Team usage was recorded' : 'No Agent usage was recorded'} description={breakdown?.reason ?? 'Unknown historical usage remains unassigned.'} /></Rows> : null}
-    {breakdown && <Table variant="framed" className="table-fixed">
+    {breakdown && <DashboardTable kind="insight">
       <TableHeader><TableRow>
-        <TableHead className="w-1/2">{view === 'goal' ? 'Team' : 'Agent'}</TableHead>
+        <TableHead>{view === 'goal' ? 'Team' : 'Agent'}</TableHead>
         <TableHead numeric>Runs</TableHead><TableHead numeric>Seats</TableHead>
         {hasAmounts && <TableHead numeric>Cost</TableHead>}
-        {view === 'goal' && <TableHead className="w-12"><span className="sr-only">Open</span></TableHead>}
+        {view === 'goal' && <TableHead><span className="sr-only">Open</span></TableHead>}
       </TableRow></TableHeader>
       <TableBody>{breakdown.rows.map(row => {
         const goal = row.goal ? snapshot.goals.get(row.goal) : undefined
@@ -143,7 +145,7 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
         const open = view === 'goal' && row.goal ? () => onGoal(row.goal!) : null
         return <TableRow key={row.key} interactive={open !== null} onClick={open ?? undefined}>
           <TableCell lead={view === 'goal' ? <IconTile shape="face" tone="neutral"><GoalIcon /></IconTile> : undefined}>
-            <div className="min-w-0 flex-1"><Text as="div" role="subject" truncate>{name}</Text>
+            <div><Text as="div" role="subject" truncate>{name}</Text>
             {row.note && row.note !== groupNote && <Text as="div" role="meta" className="whitespace-normal">{row.note}</Text>}
             {facts && <Text as="div" role="meta" truncate title={facts}>{facts}</Text>}</div>
           </TableCell>
@@ -154,11 +156,11 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
         </TableRow>
       })}</TableBody>
       <TableFooter variant="plain"><TableRow>
-        <TableCell colSpan={3}><div className="flex min-w-0 flex-col items-start"><Text role="muted">{unattributedLabel}</Text>{showReason && <Text as="div" role="meta" className="whitespace-normal">{unattributedReason}</Text>}</div></TableCell>
+        <TableCell colSpan={3}><div><Text role="muted">{unattributedLabel}</Text>{showReason && <Text as="div" role="meta" className="whitespace-normal">{unattributedReason}</Text>}</div></TableCell>
         {hasAmounts && <TableCell numeric>{cost(breakdown.unattributed.usd)}</TableCell>}
         {view === 'goal' && <TableCell />}
       </TableRow></TableFooter>
-    </Table>}
+    </DashboardTable>}
     {groupNote && <Note>{groupNote}</Note>}
     {(retrying || teamIds.some(team => unavailableTeams.has(team))) && <Note tone="warn" action={<Button variant="outline" size="sm" disabled={retrying} focusableWhenDisabled onClick={() => {
       if (retrying) return
