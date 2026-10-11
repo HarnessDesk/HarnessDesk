@@ -9,6 +9,7 @@ import { browserView, drivenBrowserTab, findPane, show as showPane, type PaneVie
 import { BrowserTileRegistry, type BrowserTileMount } from '../lib/browser-tiles'
 import { addBrowserTab, patchBrowserTab, type BrowserView } from '../state/layout'
 import { replaceView, viewAt } from '../state/workbench'
+import { destinationOf, stepDestination, visitDestination } from '../state/destinations'
 import type { ReactNode } from 'react'
 
 import {
@@ -1289,7 +1290,34 @@ class PreviewStore {
     this.#browser(id, view => addBrowserTab(view, url))
   }
 
-  #workbench(next: AppSnapshot['workbench']): void { this.patch({ workbench: next, layout: next.main }) }
+  #workbench(next: AppSnapshot['workbench']): void {
+    const view = findPane(next.main, next.main.focused)?.view
+    const navigation = next.navigation === this.#snapshot.workbench.navigation && next.navigation.current.kind === 'work'
+      && (view?.kind === 'conversation' || view?.kind === 'room')
+      ? visitDestination(next.navigation, destinationOf(view), true) : next.navigation
+    const workbench = navigation === next.navigation ? next : { ...next, navigation }
+    this.patch({ workbench, layout: workbench.main, navCanBack: navigation.back.length > 0, navCanForward: navigation.forward.length > 0 })
+  }
+  openTeamMemberChat(room: string, member: SessionKey): void {
+    const pane = panes(this.#snapshot.workbench.main.root).find(one => one.view.kind === 'room' && one.view.room === room)
+    if (pane?.view.kind !== 'room') return
+    const view = { ...pane.view, framePage: 'room' as const, chatLayout: 'thread' as const, chatMember: member }
+    const workbench = replaceTeamPayload(this.#snapshot.workbench, pane.id, view)
+    this.#workbench({ ...workbench, navigation: visitDestination(workbench.navigation, destinationOf(view)) })
+  }
+  #navigateHistory(direction: 'back' | 'forward'): void {
+    const after = stepDestination(this.#snapshot.workbench.navigation, direction)
+    if (!after) return
+    if (after.current.kind !== 'work') {
+      this.#workbench({ ...this.#snapshot.workbench, navigation: after })
+      return
+    }
+    const before = this.#snapshot.workbench
+    const main = showPane(before.main, before.main.focused, after.current.view)
+    this.#workbench({ ...before, main, navigation: after })
+  }
+  navigateBack(): Promise<void> { this.#navigateHistory('back'); return Promise.resolve() }
+  navigateForward(): Promise<void> { this.#navigateHistory('forward'); return Promise.resolve() }
   setTeamFramePage(room: string, framePage: TeamFramePage, chatLayout?: TeamChatLayout): void {
     const pane = panes(this.#snapshot.workbench.main.root).find(one => one.view.kind === 'room' && one.view.room === room)
     if (pane?.view.kind !== 'room' || pane.view.framePage === framePage && (chatLayout === undefined || pane.view.chatLayout === chatLayout)) return

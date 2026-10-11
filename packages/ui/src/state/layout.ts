@@ -154,6 +154,8 @@ export type PaneView =
       readonly framePage?: TeamFramePage
       /** Chosen Chat view, independent of the retained tile arrangement. */
       readonly chatLayout?: TeamChatLayout
+      /** The member transcript open in Chat, when Chat was opened from this Team. */
+      readonly chatMember?: SessionKey
       /**
        * The members whose transcripts are up as columns.
        *
@@ -936,6 +938,7 @@ export const readView = (raw: unknown): PaneView => {
         room,
         ...(record['chatLayout'] === 'thread' || record['chatLayout'] === 'side-by-side' ? { chatLayout: record['chatLayout'] } : {}),
         ...(TEAM_FRAME_PAGES.includes(record['framePage'] as TeamFramePage) ? { framePage: record['framePage'] as TeamFramePage } : {}),
+        ...(typeof record['chatMember'] === 'string' && record['chatMember'] !== '' ? { chatMember: record['chatMember'] as SessionKey } : {}),
         ...(watching.length > 0 ? { watching } : {}),
         ...(sideBySide ? { sideBySide } : {}),
       }

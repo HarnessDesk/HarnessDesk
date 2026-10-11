@@ -326,11 +326,14 @@ export const TeamRoomPane = ({
      what the person came for, and the page tabs are the way around it. */
   const opensOnReceipt = record && Boolean(goal?.receipt)
   const [open, setOpen] = useState<TeamFramePage | 'side-by-side' | SessionKey>(
-    () => (mount?.view.kind === 'room' && mount.view.framePage ? mount.view.framePage === 'room' && (mount.view.chatLayout === 'side-by-side' || mount.view.chatLayout === undefined && grid.tiles.length > 0) ? 'side-by-side' : mount.view.framePage : opensOnReceipt ? 'receipt' : grid.tiles.length > 0 ? 'side-by-side' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room'),
+    () => mount?.view.kind === 'room' && mount.view.chatMember ? mount.view.chatMember
+      : mount?.view.kind === 'room' && mount.view.framePage ? mount.view.framePage === 'room' && (mount.view.chatLayout === 'side-by-side' || mount.view.chatLayout === undefined && grid.tiles.length > 0) ? 'side-by-side' : mount.view.framePage
+        : opensOnReceipt ? 'receipt' : grid.tiles.length > 0 ? 'side-by-side' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room',
   )
   const chatLayout = useRef(mount?.view.kind === 'room' && mount.view.chatLayout ? mount.view.chatLayout : grid.tiles.length > 0 ? 'side-by-side' : 'thread')
   const selectedPage = useRef<TeamFramePage>(mount?.view.kind === 'room' && mount.view.framePage ? mount.view.framePage : opensOnReceipt ? 'receipt' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room')
   const destination = useRef({ room, chosen: mount?.view.kind === 'room' && mount.view.framePage !== undefined })
+  const roomView = mount?.view.kind === 'room' ? mount.view : undefined
   useEffect(() => {
     if (destination.current.room !== room) {
       const restored = mount?.view.kind === 'room' ? mount.view.framePage : undefined
@@ -350,6 +353,28 @@ export const TeamRoomPane = ({
     selectedPage.current = next
     setOpen(next)
   }, [room, flowExecution?.id, record])
+  useEffect(() => {
+    if (!roomView || roomView.room !== room) return
+    chatLayout.current = roomView.chatLayout ?? (grid.tiles.length > 0 ? 'side-by-side' : 'thread')
+    if (roomView.chatMember) {
+      destination.current = { room, chosen: true }
+      selectedPage.current = 'room'
+      setOpen(roomView.chatMember)
+      return
+    }
+    if (roomView.framePage) {
+      destination.current = { room, chosen: true }
+      selectedPage.current = roomView.framePage
+      setOpen(roomView.framePage === 'room' && (roomView.chatLayout === 'side-by-side' || roomView.chatLayout === undefined && grid.tiles.length > 0)
+        ? 'side-by-side' : roomView.framePage)
+      return
+    }
+    destination.current = { room, chosen: false }
+    const next = opensOnReceipt ? 'receipt' : grid.tiles.length > 0 ? 'side-by-side' : flowExecution || goal?.activity === 'ready-to-wrap' ? 'overview' : 'room'
+    selectedPage.current = next === 'side-by-side' ? 'room' : next
+    setOpen(next)
+  }, [room, roomView?.room, roomView?.chatMember, roomView?.framePage, roomView?.chatLayout,
+    roomView?.framePage === 'room' ? grid.tiles.length : 0])
   const [chosenRun, setChosenRun] = useState<string | null>(null)
   const [again, setAgain] = useState<FlowExecution | null>(null)
   const [retryCheck, setRetryCheck] = useState<{ run: string; card: number } | null>(null)
@@ -440,7 +465,8 @@ export const TeamRoomPane = ({
     }
     selectedPage.current = 'room'
     if (next === 'side-by-side') chatLayout.current = 'side-by-side'
-    store.setTeamFramePage(room, 'room', next === 'side-by-side' ? 'side-by-side' : undefined)
+    if (next === 'side-by-side') store.setTeamFramePage(room, 'room', 'side-by-side')
+    else store.openTeamMemberChat(room, next)
     setOpen(next)
   }
 

@@ -701,3 +701,8 @@ test.each([
    expect(view).toMatchObject({ chatLayout, sideBySide: { tiles: sideBySide.tiles, pinned: sideBySide.pinned, focused: sideBySide.focused } })
    expect(readView({ kind: 'room', room: 'fixture-team', chatLayout: 'invalid' })).toEqual({ kind: 'room', room: 'fixture-team' })
  })
+
+ test('restores the member Chat selected from a Team', () => {
+   expect(readView({ kind: 'room', room: 'fixture-team', framePage: 'room', chatLayout: 'thread', chatMember: 'codex\u0000member' }))
+     .toEqual({ kind: 'room', room: 'fixture-team', framePage: 'room', chatLayout: 'thread', chatMember: 'codex\u0000member' })
+ })

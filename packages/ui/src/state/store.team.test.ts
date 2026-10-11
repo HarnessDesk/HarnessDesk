@@ -288,6 +288,28 @@ it('brings the room back still watching what it was watching', async () => {
   expect(back?.kind === 'room' ? back.watching : null).toEqual(watching)
 })
 
+it('returns from a member Chat to the Team tab it came from', async () => {
+  await inAWorktree()
+  await knownRoom([KEY])
+  store.openTeamRoom(ROOM)
+  store.setTeamFramePage(ROOM, 'overview')
+
+  store.openTeamMemberChat(ROOM, KEY)
+  expect(panes(store.getSnapshot().layout.root)[0]?.view).toMatchObject({
+    kind: 'room', room: ROOM, framePage: 'room', chatMember: KEY,
+  })
+
+  await store.navigateBack()
+  expect(panes(store.getSnapshot().layout.root)[0]?.view).toMatchObject({
+    kind: 'room', room: ROOM, framePage: 'overview',
+  })
+
+  await store.navigateForward()
+  expect(panes(store.getSnapshot().layout.root)[0]?.view).toMatchObject({
+    kind: 'room', room: ROOM, framePage: 'room', chatMember: KEY,
+  })
+})
+
 it('Back returns from a conversation to the new-session draft with its text intact', async () => {
   if (workspace) await store.openWorkspace(PROJECT)
   store.newDraft()
