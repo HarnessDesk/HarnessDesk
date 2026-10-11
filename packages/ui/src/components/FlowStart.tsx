@@ -624,13 +624,18 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
         const role = flow.roles.find(one => one.id === seat.role)
         if (role?.kind !== 'agent') return null
         const slots = preview.seats.filter(one => one.role === role.id).sort((a, b) => a.index - b.index)
-        const picked = role.seats[seat.index] ?? role.seats[0] ?? seatTaken(seat.plan)?.seat
+        const configured = role.seats[seat.index] ?? role.seats[0]
+        const automatic = seatTaken(seat.plan)
+        const picked = configured ?? automatic?.seat
+        const automaticName = automatic
+          ? snapshot.runtimes.find(one => one.id === automatic.seat.runtime)?.presentation.name ?? automatic.runtimeName
+          : null
         const label = role.id === flow.seed.role && hasReviewLoop ? 'Writes' : role.id === 'reviewer' ? 'Reviews' : role.id === 'competitor' ? `Attempt ${String.fromCharCode(65 + seat.index)}` : role.id === 'judge' ? 'Judge' : role.id
         const repeatsInReviewLoop = seat.reviews && flow.rules.some(rule => rule.on === seat.role && rule.then.role === flow.seed.role)
         return <Row key={`${role.id}-${seat.index}`} title={<span className={styles.roleTitle}>{label}{repeatsInReviewLoop && <Chip tone="neutral" size="sm">Fresh each round</Chip>}</span>} desc={!seatTaken(seat.plan) ? firstReason(seat.plan) ?? undefined : undefined}
           mark={picked ? <RuntimeMark runtime={snapshot.runtimes.find(one => one.id === picked.runtime) ?? { id: picked.runtime, presentation: { name: 'Selected agent' } }} size={16} /> : <AgentIcon size={16} />}
           control={<div className={styles.roleControls}>
-            <TeamSeatControls label={label} seat={picked} disabled={disabled} onChange={next => {
+            <TeamSeatControls label={label} seat={configured} automaticName={automaticName} disabled={disabled} onChange={next => {
               const seats = slots.map(one => one.index === seat.index ? next : role.seats[one.index] ?? role.seats[0] ?? seatTaken(one.plan)?.seat)
               if (seats.every((one): one is FlowSeat => one !== undefined)) editRole({ ...role, seats })
             }} />
@@ -679,7 +684,7 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
   </div>
 }
 
-const TeamSeatControls = ({ label, seat, disabled, onChange }: { readonly label: string; readonly seat?: FlowSeat; readonly disabled?: boolean; readonly onChange: (seat: FlowSeat) => void }) => {
+const TeamSeatControls = ({ label, seat, automaticName, disabled, onChange }: { readonly label: string; readonly seat?: FlowSeat; readonly automaticName: string | null; readonly disabled?: boolean; readonly onChange: (seat: FlowSeat) => void }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [models, setModels] = useState<readonly ModelInfo[]>([])
@@ -692,8 +697,8 @@ const TeamSeatControls = ({ label, seat, disabled, onChange }: { readonly label:
   const model = models.find(one => one.id === seat?.model) ?? models.find(one => one.isDefault)
   const selectedRuntime = snapshot.runtimes.find(one => one.id === seat?.runtime)
   return <>
-    <NativeSelect className={styles.agentSelect} aria-label={`Agent for ${label}`} title={selectedRuntime?.presentation.name} disabled={disabled} value={seat?.runtime ?? ''} onChange={event => onChange({ runtime: event.target.value })}>
-      {!seat && <option value="">Automatic</option>}
+    <NativeSelect className={styles.agentSelect} aria-label={`Agent for ${label}`} title={selectedRuntime?.presentation.name ?? automaticName ?? undefined} disabled={disabled} value={seat?.runtime ?? ''} onChange={event => onChange({ runtime: event.target.value })}>
+      {!seat && <option value="">{automaticName ? `Automatic · ${automaticName}` : 'Automatic · Nothing can run'}</option>}
       {seat && !snapshot.runtimes.some(one => one.id === seat.runtime) && <option value={seat.runtime}>Selected agent</option>}
       {snapshot.runtimes.map(one => <option key={one.id} value={one.id}>{one.presentation.name}</option>)}
     </NativeSelect>
