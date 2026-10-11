@@ -2,6 +2,7 @@ import { dashboardDestinationStore } from './dashboard-destination-fixture'
 import { agentsDestinationStore } from './agents-destination-fixture'
 import { pluginsDestinationStore } from './plugins-destination-fixture'
 import { reviewPageStore, type ReviewScene } from './review-page-fixture'
+import { signInSeed } from './signin-fixture'
 import { App } from '../app/App'
 import { frameDestinationStore, setFrameConnection } from './frame-destination-store'
 import { framePageIds, framePageRoute } from './frame-page-route'
@@ -11,7 +12,7 @@ import { sidebarGeometryFixture } from './sidebar-geometry-fixture'
 import { runTeamStore, equivalentRunFixture, type RunScene } from './run-view-fixture'
 import { sidebarStructureFixture } from './sidebar-structure-fixture'
 import { useEffect, useMemo, useState } from 'react'
-import { contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, turnId, type AcpRegistryAgentInfo, type CapabilityContribution, type UiContribution, type AgentItem, type BackgroundTask, type ConfigOption, type RuntimeId } from '@harnessdesk/protocol'
+import { approvalId, contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, runtimeId, sessionKey, turnId, type AcpRegistryAgentInfo, type CapabilityContribution, type UiContribution, type AgentItem, type BackgroundTask, type ConfigOption, type RuntimeId } from '@harnessdesk/protocol'
 import { installPanelComponent } from '../slots/PanelBlocks'
 
 installPanelComponent()
@@ -197,6 +198,8 @@ export const FrameWall = () => {
       : destination==='plugins' ? pluginsDestinationStore(routeQuery)
       : destination==='changes-review'||destination==='navigation' && query.get('frame-review')==='1'
         ? frameDestinationStore(showing(reviewPageStore(scene), {kind:'conversation',session:PREVIEW_SESSION_KEY},PREVIEW_SESSION_KEY))
+      : destination === 'conversation' && query.get('frame-fix5-no-changes') === '1'
+        ? frameDestinationStore(reviewPageStore('empty'))
       : destination === 'library' && (query.get('frame-library-state') === 'autopilot' || query.get('frame-library-state') === 'import')
         ? frameDestinationStore(showing(libraryAuditFixtureStore(query.get('frame-library-state') as 'autopilot' | 'import'), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY))
       : frameDestinationStore(storeFor(destination))
@@ -259,6 +262,29 @@ export const FrameWall = () => {
         }],
         healthByRuntime: { ...snapshot.healthByRuntime,
           windsurf: { state: 'unavailable', reason: 'notInstalled', message: 'Unavailable in this preview.' } },
+      })
+    }
+    if (destination === 'conversation' && query.get('frame-fix5-runtime-unavailable') === '1') {
+      const seed = signInSeed('refused')
+      const runtimes = seed.runtimes!.slice(1, 6)
+      const selected = runtimes[0]!
+      const accounts = { ...seed.accountsByRuntime }
+      accounts[runtimes[3]!.id] = accounts[runtimes[2]!.id]!
+      Object.assign(snapshot, {
+        runtimes: runtimes.map(runtime => ({
+          ...runtime,
+          capabilities: { ...runtime.capabilities, account: true },
+        })),
+        activeRuntime: selected.id,
+        accountsByRuntime: accounts,
+        healthByRuntime: {
+          ...snapshot.healthByRuntime,
+          [selected.id]: {
+            state: 'unavailable', reason: 'notInstalled',
+            message: 'The selected runtime cannot start.',
+            remediation: 'Install it in Settings, then try again.',
+          },
+        },
       })
     }
     if (query.get('frame-short-title') === '1') {
@@ -341,7 +367,78 @@ export const FrameWall = () => {
       })
     }
     if (query.get('frame-no-folder') === '1') Object.assign(snapshot, {workspace:null,activeSessionKey:null,sessions:new Map()})
+    if (destination === 'draft' && query.get('frame-fix5-storefront') === '1') {
+      const workspace = { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 }
+      Object.assign(snapshot, { workspace, workspaces: [workspace], activeSessionKey: null, sessions: new Map() })
+    }
+    if (destination === 'draft' && query.get('frame-fix5-long-folder') === '1') {
+      const path = '/work/this-is-a-very-long-storefront-folder-name'
+      const workspace = { path, name: path.split('/').at(-1)!, lastOpenedAt: 1 }
+      Object.assign(snapshot, { workspace, workspaces: [workspace], activeSessionKey: null, sessions: new Map() })
+    }
     const session = snapshot.sessions.get(PREVIEW_SESSION_KEY)
+    if (destination === 'conversation' && session && query.get('frame-fix5-command-approval') === '1') {
+      Object.assign(snapshot, {
+        approvals: [{
+          key: PREVIEW_SESSION_KEY,
+          approval: {
+            id: approvalId('frame-command-approval'),
+            sessionId: session.id,
+            requestedAt: 1,
+            type: 'command',
+            command: 'ls -la',
+            cwd: '/work/storefront',
+            options: [
+              { id: 'deny', label: 'Deny', intent: 'deny' },
+              { id: 'session', label: 'Allow for this session', intent: 'approveAlways' },
+              { id: 'allow', label: 'Allow', intent: 'approve' },
+            ],
+          },
+        }],
+      })
+    }
+    if (destination === 'conversation' && session && query.get('frame-fix5-live-title') === '1') {
+      const task = 'List the storefront files and tell me where the product cards are implemented.'
+      const live = {
+        ...session,
+        title: null,
+        preview: null,
+        turns: [{
+          id: turnId('frame-fix5-live-title'),
+          status: 'completed' as const,
+          items: [{ id: itemId('frame-fix5-live-title'), type: 'userMessage' as const, content: [{ type: 'text' as const, text: task }] }],
+        }],
+      }
+      const stale = { ...live, title: 'Untitled session', preview: null }
+      Object.assign(snapshot, {
+        sessions: new Map(snapshot.sessions).set(PREVIEW_SESSION_KEY, live),
+        history: [stale],
+        historyIdentity: [stale],
+      })
+    }
+    if (destination === 'conversation' && session && query.get('frame-fix5-missing-runtime') === '1') {
+      const runtime = runtimeId('synthetic-missing-runtime')
+      const key = sessionKey(runtime, session.id)
+      const saved = {
+        ...session,
+        runtime,
+        title: 'Judge the storefront layout',
+        cwd: '/work/storefront',
+        status: { type: 'idle' as const },
+        createdAt: 1,
+        updatedAt: 2,
+        turns: [],
+        itemsLoaded: false,
+      }
+      const summary = { ...saved, status: { type: 'notLoaded' as const } }
+      Object.assign(snapshot, {
+        sessions: new Map([[key, saved]]),
+        history: [summary],
+        historyIdentity: [summary],
+        activeSessionKey: key,
+      })
+      showing(next, { kind: 'conversation', session: key }, key)
+    }
     if (destination === 'conversation' && session && query.get('frame-overflow') === '1') {
       const longToken = 'x'.repeat(600)
       const items: AgentItem[] = [
