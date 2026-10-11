@@ -127,7 +127,7 @@ const DialogContent = forwardRef<
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            className="absolute top-3.5 right-3.5 grid size-6 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none"
+            className="absolute top-(--hd-inset-dialog) right-(--hd-inset-dialog) grid size-6 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none"
           >
             <CrossIcon size={13} />
             <span className="sr-only">Close</span>
@@ -181,7 +181,7 @@ const DialogTitle = ({
 }: React.ComponentProps<typeof DialogPrimitive.Title>) => (
   <DialogPrimitive.Title
     data-slot="dialog-title"
-    className={cn('text-base leading-none font-medium', className)}
+    className={cn('text-(length:--hd-text-lg) leading-(--hd-line-lg) font-semibold', className)}
     {...props}
   />
 )

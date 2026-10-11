@@ -6,49 +6,6 @@
  * class it does not own.
  */
 
-/* --- which project this is of ------------------------------------------- */
-
-/* One box that cannot outgrow the strip, so the path ellipses inside it
-   rather than making the strip scroll sideways. */
-.of {
-  display: flex;
-  align-items: baseline;
-  gap: 0;
-  min-width: 0;
-  width: 100%;
-  overflow: hidden;
-}
-
-.ofIcon {
-  flex: none;
-  align-self: center;
-  margin-right: var(--hd-space-1-5);
-}
-
-/*
- * One path, with its last segment lit. The lead is the only part allowed to
- * shrink — `leadPath` has already trimmed its front, and if there is still
- * not room it ellipses in the middle of somewhere generic. The name never
- * shrinks, because the name is the whole reason the strip is here. The full
- * path is the strip's tooltip either way.
- */
-.ofLead {
-  flex: 0 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.ofName {
-  flex: none;
-}
-
-.ofNote {
-  flex: none;
-  margin-left: auto;
-}
-
 .field {
   display: block;
   margin-top: var(--hd-space-4);

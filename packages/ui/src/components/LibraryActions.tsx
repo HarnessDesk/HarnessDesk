@@ -241,7 +241,7 @@ export const PlanDialog = ({
        */
       size="xl"
       onClose={onClose}
-      subhead={
+      bodyPrelude={
         results ? (
           <Text as="p" role="muted" className={styles.summary} data-testid="apply-summary">
             {done} {done === 1 ? 'change' : 'changes'} made
@@ -519,7 +519,7 @@ export const ImportDialog = ({
       size="lg"
       tall
       onClose={onClose}
-      subhead={
+      bodyPrelude={
         <div className={styles.pickPair}>
           <div className={styles.pickCol}>
             <Text role="muted">From</Text>

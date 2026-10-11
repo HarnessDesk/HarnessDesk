@@ -1911,3 +1911,25 @@ The top controls share the window's edge row and retain their drag region, but
 the left column draws no separator hairline below that row or above the seat
 row. The brand row sits directly after the top controls; whitespace marks each
 transition. A Settings column keeps that brand row above its Back row.
+
+## Dialog anatomy
+
+Every application dialog composes the `DialogHead`, `DialogBody` and
+`DialogFooter` slots in `design/patterns/ModalDialog.tsx`; a confirmation uses
+the same slots. The header has a 16px semibold title with no leading icon, an
+optional context chip after the title, an optional one-line description in
+secondary ink, and a close control at the top right on the dialog's 24px inset.
+The body has 24px padding on all four sides in every layout, including a list
+or a reading body. Context that needs more room, such as a breadcrumb, starts
+inside the body through `bodyPrelude` rather than forming another header band.
+
+Search fields use the shared `Search` component: its search glyph stays visible
+and its placeholder names the search plainly (`Search branches…`, not a
+colon-led instruction). The footer is one band with one shared minimum height.
+Actions sit at the right, with the secondary action before the primary from
+left to right; write the primary first because the actions slot paints in
+reverse order. A quiet navigation link may sit at the left. The frame contract
+checks the title size and weight, close inset, body padding, footer height and
+action order on New Team and every application dialog in the transcript
+preview. AppWindow, popups and the command palette keep their own surface
+contracts.
