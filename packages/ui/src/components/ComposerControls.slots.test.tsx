@@ -100,7 +100,7 @@ it('keeps moot controls greyed with their reason and omits empty Extension and M
   }
   expect(container.querySelector('[data-composer-track="extension"] button')).toBeNull()
   expect(container.querySelector('[data-composer-track="more"] button')).toBeNull()
-  expect(container.querySelector('button[aria-label="No usage yet"][data-info-source="context"]')).not.toBeNull()
+  expect(container.querySelector('button[aria-label="Usage"][data-info-source="context"]')).not.toBeNull()
 })
 
 it('shows a single declared mode as a fact instead of opening a one-choice menu', () => {

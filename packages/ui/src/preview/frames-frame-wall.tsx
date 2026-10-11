@@ -4,7 +4,7 @@ import { sidebarGeometryFixture } from './sidebar-geometry-fixture'
 import { runTeamStore, equivalentRunFixture, type RunScene } from './run-view-fixture'
 import { sidebarStructureFixture } from './sidebar-structure-fixture'
 import { useEffect, useMemo, useState } from 'react'
-import { contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, turnId, type AcpRegistryAgentInfo, type CapabilityContribution, type UiContribution, type BackgroundTask, type RuntimeId } from '@harnessdesk/protocol'
+import { contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, turnId, type AcpRegistryAgentInfo, type CapabilityContribution, type UiContribution, type AgentItem, type BackgroundTask, type RuntimeId } from '@harnessdesk/protocol'
 import { installPanelComponent } from '../slots/PanelBlocks'
 
 installPanelComponent()
@@ -259,6 +259,16 @@ export const FrameWall = () => {
     if (destination === 'draft' && detailsCase === 'armed') {
       Object.assign(snapshot, { draftPlace: { kind: 'worktree', root: snapshot.workspace?.path ?? '/work/storefront', name: 'checkout retry', base: 'main' } })
     }
+    if (destination === 'draft' && query.get('frame-composer-labels') === '1') {
+      Object.assign(snapshot, { draftOptions: [
+        { id: 'sandbox', type: 'select', category: '_permissions', label: 'Sandbox', currentValue: 'workspace', choices: [
+          { value: 'read', label: 'Read only' }, { value: 'workspace', label: 'Workspace' },
+        ] },
+        { id: 'mode', type: 'select', category: 'mode', label: 'Mode', currentValue: 'default', choices: [
+          { value: 'default', label: 'Default' }, { value: 'plan', label: 'Plan' },
+        ] },
+      ] })
+    }
     // This explicit range state has recorded synthetic source facts. The
     // parent Team fixture still keeps its unavailable Changes reason.
     if (destination === 'team' && query.get('frame-work-range') === '1') {
@@ -270,6 +280,21 @@ export const FrameWall = () => {
       })
     }
     const session = snapshot.sessions.get(PREVIEW_SESSION_KEY)
+    if (destination === 'conversation' && session && query.get('frame-overflow') === '1') {
+      const longToken = 'x'.repeat(600)
+      const items: AgentItem[] = [
+        { id: itemId('frame-overflow-user'), type: 'userMessage', content: [{ type: 'text', text: longToken }] },
+        { id: itemId('frame-overflow-answer'), type: 'assistantMessage', text: longToken, phase: 'final' },
+        { id: itemId('frame-overflow-heading'), type: 'assistantMessage', text: `# ${longToken}`, phase: 'final' },
+        { id: itemId('frame-overflow-notice'), type: 'notice', text: longToken },
+        { id: itemId('frame-overflow-tool'), type: 'toolCall', tool: 'read', source: { kind: 'builtin' }, status: 'completed',
+          args: { value: longToken }, result: [{ type: 'text', text: longToken }] },
+      ]
+      Object.assign(snapshot, { sessions: new Map(snapshot.sessions).set(PREVIEW_SESSION_KEY, {
+        ...session,
+        turns: [...session.turns, { id: turnId('frame-overflow'), status: 'completed', items }],
+      }) })
+    }
     if (destination === 'conversation' && session && ['active', 'complete', 'cleared', 'asked'].includes(detailsCase ?? '')) {
       const plan = [
         { step: 'Review the checkout and the recorded changes', status: 'completed' as const },

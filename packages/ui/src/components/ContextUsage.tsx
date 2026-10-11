@@ -10,8 +10,8 @@ import {
 import { describeLimits, formatReset } from '../lib/limits'
 import { formatResetCountdown } from '../lib/usage'
 import { useActiveSession, useRuntime, useSnapshot } from '../state/context'
-import { ComposerTrack } from './ComposerControls'
-import { Button, InfoCard, ProgressRing, type InfoFact, type Tone } from '../design'
+import { ComposerTrack, useNarrowToolbar } from './ComposerControls'
+import { Button, InfoCard, ProgressRing, Text, type InfoFact, type Tone } from '../design'
 
 /**
  * The ring beside the model: how full the context window is, for whichever
@@ -23,6 +23,7 @@ import { Button, InfoCard, ProgressRing, type InfoFact, type Tone } from '../des
  * did not say gets a dashed ring and a sentence, never an estimate.
  */
 export const ContextUsage = () => {
+  const { ref, folded, tight } = useNarrowToolbar('context')
   const session = useActiveSession()
   const snapshot = useSnapshot()
   // The ring is about the session, so the runtime is the session's own —
@@ -40,7 +41,20 @@ export const ContextUsage = () => {
   const metered = runtime.capabilities.metered && runtime.id === snapshot.activeRuntime
   const limits = metered ? describeLimits(snapshot.limits) : null
 
-  if (!view) return <ComposerTrack name="context"><InfoCard title="No usage yet" side="top" align="end" trigger={<Button variant="ghost" size="icon-sm" data-info-source="context"><Ring fill={null} size={16} label="No usage yet" /></Button>} rows={[{ id: 'usage', label: 'Usage', value: 'No usage yet' }]} /></ComposerTrack>
+  const usageTrigger = (fill: ContextFill | null, ringLabel: string) => <Button
+    variant="ghost"
+    size={tight ? 'icon-sm' : 'icon-label'}
+    aria-label="Usage"
+    data-info-source="context"
+  >
+    <Ring fill={fill} size={folded ? 12 : 16} label={ringLabel} />
+    {!tight && <Text role="meta">Usage</Text>}
+  </Button>
+  if (!view) return <ComposerTrack name="context" folded={folded} tight={tight}>
+    <span ref={ref} style={{ display: 'contents' }}>
+      <InfoCard title="Usage" side="top" align="end" trigger={usageTrigger(null, 'No usage yet')} rows={[{ id: 'status', label: 'Status', value: 'No usage yet' }]} />
+    </span>
+  </ComposerTrack>
   const { fill, last, total, cost, delegated, composition } = view
 
   const facts: InfoFact[] = [
@@ -61,9 +75,13 @@ export const ContextUsage = () => {
     parts: composition.segments.map(segment => ({ id: segment.id, label: segment.label, value: segment.percent, reading: formatTokens(segment.tokens), meta: `${segment.percent}%`, detail: segment.count != null ? `(${segment.count})` : undefined })),
   } : undefined
   const contextMeter = fill ? { label: 'Context window', value: fill.percent, max: 100, tone: toneOf(fill.tone), reading: `${fill.percent}% full` } : undefined
-  return <ComposerTrack name="context"><InfoCard title={view.title} side="top" align="end"
-    trigger={<Button variant="ghost" size="icon-sm" data-info-source="context"><Ring fill={fill} size={16} label={view.title} /></Button>}
-    rows={facts} meter={contextMeter} composition={compositionData} notes={[...(cache ? [cache.title] : []), `Reported by ${agent}.`]} /></ComposerTrack>
+  return <ComposerTrack name="context" folded={folded} tight={tight}>
+    <span ref={ref} style={{ display: 'contents' }}>
+      <InfoCard title={view.title} side="top" align="end"
+        trigger={usageTrigger(fill, view.title)}
+        rows={facts} meter={contextMeter} composition={compositionData} notes={[...(cache ? [cache.title] : []), `Reported by ${agent}.`]} />
+    </span>
+  </ComposerTrack>
 }
 
 /**

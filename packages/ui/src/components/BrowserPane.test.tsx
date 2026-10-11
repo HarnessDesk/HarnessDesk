@@ -227,7 +227,8 @@ describe('BrowserPane', () => {
       guest.dispatchEvent(Object.assign(new Event('did-navigate'), { url: 'http://127.0.0.1:9/' }))
     })
     expect(container.textContent).not.toContain('connection was refused')
-    expect(container.textContent).toContain('Idle')
+    expect(container.textContent).not.toContain('Idle')
+    expect(container.querySelector('[data-slot="content-footer"]')).toBeNull()
   })
 
   it('draws one tab per page, named by the page', () => {
@@ -405,13 +406,10 @@ describe('BrowserPane', () => {
 
   it('is idle when nothing is touching the page', () => {
     mount(browserView('https://a.test/'))
-    expect(container.textContent).toContain('Idle')
+    expect(container.textContent).not.toContain('Idle')
     expect(container.textContent).not.toContain('Being driven')
-    const footer = [...container.querySelectorAll('[data-slot="content-footer"]')]
-      .find((bar) => bar.textContent?.includes('Idle'))
-    expect(footer).toBeDefined()
-    expect(footer?.querySelector('[data-slot="text"][data-role="meta"]')?.textContent).toBe('Idle')
-    expect(footer?.textContent).toContain('Never your own browser profile')
+    expect(container.querySelector('[data-slot="content-footer"]')).toBeNull()
+    expect(container.textContent).not.toContain('Never your own browser profile')
   })
 
   it('names the driven tab to the shell, not whichever tab is on screen', () => {

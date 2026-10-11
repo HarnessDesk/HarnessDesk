@@ -558,6 +558,18 @@ App-frame row leading and height are independent of navigation density. The fact
 | `--hd-menu-search-h` | `28px` |
 | `--hd-info-card-key` | `96px` |
 
+### Composer selected values
+
+These wide tracks name the selected values themselves. The earlier base tracks remain the compact measure; a visible short choice gets enough room for its icon, word and chevron before the toolbar starts folding.
+
+| token | value |
+| --- | --- |
+| `--hd-composer-track-permissions-wide` | `132px` |
+| `--hd-composer-track-mode-wide` | `96px` |
+| `--hd-composer-track-context-wide` | `52px` |
+| `--hd-composer-track-context-folded` | `48px` |
+| `--hd-composer-track-context-tight` | `24px` |
+
 ## When to use which
 
 When to use which — the layer the design system did not have.

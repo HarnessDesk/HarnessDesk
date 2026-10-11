@@ -348,8 +348,8 @@ const Changes = ({
 
   useEffect(() => {
     onFoot(
-      `${files.length} file${files.length === 1 ? '' : 's'}`,
-      git?.branch ? `against ${git.branch}` : (snapshot.workspace?.name ?? ''),
+      files.length > 0 ? `${files.length} file${files.length === 1 ? '' : 's'}` : '',
+      files.length > 0 && git?.branch ? `against ${git.branch}` : '',
     )
   }, [files.length, git?.branch, snapshot.workspace?.name, onFoot])
 

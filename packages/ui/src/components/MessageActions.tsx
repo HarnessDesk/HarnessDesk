@@ -46,7 +46,7 @@ export const MessageActions = ({ text, at }: { text: string; at?: number | null 
   }, [key, store, record])
 
   return (
-    <div className={styles.actions} {...(copied || vote ? { 'data-sticky': '' } : {})}>
+    <div data-message-actions="assistant" className={styles.actions} {...(copied || vote ? { 'data-sticky': '' } : {})}>
       <CopyButton
         text={text}
         label="Copy this message"

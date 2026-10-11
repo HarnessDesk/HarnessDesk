@@ -137,10 +137,10 @@ export const Activity = ({ query, onFoot, sessionKeys }: { query: string; onFoot
 
   useEffect(() => {
     onFoot(
-      `${shown.length} event${shown.length === 1 ? '' : 's'}`,
+      shown.length > 0 ? `${shown.length} event${shown.length === 1 ? '' : 's'}` : '',
       sessions > 0
         ? `${sessions} session${sessions === 1 ? '' : 's'}`
-        : (snapshot.workspace?.name ?? ''),
+        : '',
     )
   }, [shown.length, sessions, snapshot.workspace?.name, onFoot])
 

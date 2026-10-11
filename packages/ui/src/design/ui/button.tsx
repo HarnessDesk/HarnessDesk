@@ -176,6 +176,9 @@ const boxedVariants = cva(
            keeps the 13px navigation type and 24px hit target, with no outer
            inset so all three names fit together at the rail's narrow width. */
         'sidebar-nav': 'h-(--hd-btn-h-sm) gap-(--hd-space-0-5) p-0 text-(length:--hd-text-sm)',
+        /* A small glyph with its own short label, for compact controls whose
+           meaning should remain visible beside the mark. */
+        'icon-label': 'h-(--hd-btn-h-sm) gap-(--hd-space-0-5) p-0 text-(length:--hd-text-xs)',
         icon: 'size-(--hd-btn-h) p-0',
         /* The floor, not a literal. This was `size-5` — 20px, four under the
            target the system declares and names twice (`--hd-target-min`,

@@ -1949,3 +1949,12 @@ agent and project at the right edge in secondary ink. The footer shows the
 The `Palette stays top-centred` frame contract checks the fixed position before
 and after typing, these shared edges, the header, filters, footer and result
 hierarchy in light and dark themes at wide and narrow window widths.
+
+## Conversation overflow
+
+A long token in a conversation never widens the main column. Prose, notices,
+tool labels and Markdown headings break anywhere a token can occur. Code
+plates, diffs and tables keep their own horizontal scrollers. The frame
+contract checks the workbench main region at 1440px and 720px: its
+`scrollWidth` must equal its `clientWidth` with 600-character tokens in each
+transcript row kind.
