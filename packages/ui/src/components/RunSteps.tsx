@@ -37,6 +37,7 @@ export const RunSteps = ({ input, selectedRow, selectedStep, faces, faceTints, a
   }, [execution.state])
   const normalized = rounds.map(round => {
     const run = flowOverlay({ execution: { ...execution, rounds: [round] }, model, cards: input.cards, sessions: input.sessions,
+      waitingSeats: input.waitingSeats,
       attempts: input.attempts ? new Map([...input.attempts].map(([id, attempts]) => [id, {
         attempts, complete: !attemptsRead && !input.incompleteAttempts?.has(id),
       }])) : undefined }).steps.get(round.role)

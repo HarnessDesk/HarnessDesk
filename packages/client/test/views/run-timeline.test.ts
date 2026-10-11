@@ -47,6 +47,17 @@ describe('runTimeline', () => {
       assert.equal(timeline.header.needsYou,overview.run?.needsYou)
     }
   })
+  it('marks the agent step waiting on an open approval', () => {
+    const base = run({ rounds: [{ ...run().rounds[0]!, seats: ['seat-alpha'] }] })
+    const execution = { ...base, document: { ...base.document, flow: { ...base.document.flow, roles: [
+      { id: 'writer', kind: 'agent' as const, uses: ['writer'], seats: [], isolate: false, grant: 'edit' as const, independentOf: [] },
+      ...base.document.flow.roles,
+    ] } } } as FlowExecution
+    const model = runTimeline({ execution, cards: [card()], waitingSeats: new Set(['seat-alpha']) })
+    assert.partialDeepStrictEqual(model.rows.find(row => row.kind === 'card'), {
+      status: 'Waiting for you', attention: true, working: false,
+    })
+  })
   it('CI waits do not need attention in either Run view', () => {
     const execution=run({reason:'Rule after-review: Waiting for CI to go green at this revision.',rounds:[{...run().rounds[0]!,state:'waiting-evidence'}]})
     assert.equal(runTimeline({execution,cards:[]}).header.needsYou,false)

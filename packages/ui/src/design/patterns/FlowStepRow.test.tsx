@@ -46,10 +46,23 @@ it('advances waiting time and keeps terminal durations fixed', () => {
   try {
     act(() => root.render(<FlowStepRow step={model.steps[3]!} run={{ ...run, state: 'waiting', durationMs: 0, since: 1000 }} now={61_000} />))
     expect(container.querySelector('[data-slot="list-row-trail"]')?.textContent).toContain('1m')
-    expect(container.querySelector('[data-slot="chip"][data-tone="warning"]')?.textContent).toBe('Needs you')
+    expect(container.querySelector('[data-slot="chip"][data-tone="warning"]')?.textContent).toBe('Waiting for you')
     act(() => root.render(<FlowStepRow step={model.steps[0]!} run={{ ...run, state: 'stopped', since: 1000 }} now={1_000_000} />))
     expect(container.querySelector('[data-slot="list-row-trail"]')?.textContent).toContain('14m')
     expect(container.textContent).not.toContain('Published')
+  } finally { act(() => root.unmount()) }
+})
+
+it('uses Waiting for you for approval waits and keeps future steps free of outcome lines', () => {
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  try {
+    act(() => root.render(<FlowStepRow timeline step={model.steps[0]!} run={{ ...run, state: 'waiting' }} />))
+    expect(container.textContent).toContain('Waiting for you')
+    expect(container.textContent).not.toContain('Needs you')
+    act(() => root.render(<FlowStepRow timeline step={{ ...model.steps[3]!, line: 'closed' }} run={{ ...run, state: 'future', line: null }} />))
+    expect(container.textContent).toContain('Not reached')
+    expect(container.textContent).not.toContain('closed')
   } finally { act(() => root.unmount()) }
 })
 
