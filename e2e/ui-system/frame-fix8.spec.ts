@@ -144,3 +144,21 @@ test('permission profile is grouped described and selectable at both widths', as
     await expect(page.getByRole('menuitemradio', { name: 'ci Checks files using the project configuration.', exact: true })).toHaveAttribute('aria-checked', 'true')
   }
 })
+
+test('accent leaves selection and on switches neutral in both themes', async ({ page }) => {
+  for (const theme of ['light', 'dark'] as const) {
+    await openFrame(page, 'frame-wall=settings&frame-section=appearance', 1280, theme)
+    await page.getByRole('combobox', { name: 'Interface', exact: true }).selectOption('studio')
+    const values = () => page.evaluate(() => {
+      const style = getComputedStyle(document.body)
+      return ['--hd-toggle-on', '--hd-toggle-knob-on', '--hd-sidebar-selected', '--hd-ring'].map(name => style.getPropertyValue(name).trim())
+    })
+    await page.getByRole('radio', { name: 'Violet', exact: true }).click()
+    const violet = await values()
+    await page.getByRole('radio', { name: 'Green', exact: true }).click()
+    const green = await values()
+    expect(green.slice(0, 3)).toEqual(violet.slice(0, 3))
+    expect(green[3]).not.toBe(violet[3])
+    await expect(page.getByText('Focus rings and primary action highlights.', { exact: true })).toBeVisible()
+  }
+})

@@ -1264,42 +1264,12 @@ body {
      the translucent hover that reads as nothing over grey. */
   --hd-chip-fill-hover: color-mix(in srgb, var(--hd-chip-fill) 92%, var(--hd-foreground));
 
-  /* The switch, the checkbox and the radio: three shapes, one question, which
-     is whether the control is on. On is the **accent**, and this token spent a
-     while on the solid, which was wrong.
-
-     The rule above is "ink is for what you press, the accent is for what is
-     yours", and a switch was filed under the first half because it is a thing
-     you press. But a switch is pressed in both states. If the ink were marking
-     pressability, an off switch would be ink too — it is not. What the fill
-     actually marks is that the control is *on*, and a state is what the accent
-     is for: the row you are on, the conversation you are in, the column a card
-     would land in, a progress bar filling. An on switch belongs in that list
-     and not beside the button, because pressing a button *does* the thing
-     while a switch's fill only reports.
-
-     The objection this replaces was that picking Violet turned the switch
-     violet one row under a sentence promising buttons are ink in every accent.
-     That sentence says buttons, and it is still true: the button beside it
-     stays ink. A switch that follows the dial is the dial showing its work —
-     which is what a person changing an accent on the Appearance page is
-     looking for, and what every platform this app is measured against does
-     with a system tint.
-
-     The knob is `--hd-primary-foreground` rather than a value of its own,
-     because that token is already solved for exactly this question — what
-     reads on the accent — per accent *and* per face: white where it carries,
-     `#171717` on green and orange, which are too light for it, and on the
-     lighter rose and mono dark faces. Naming a second answer here would be a
-     second place to get those six measurements wrong.
-
-     The track's off state is the third border step, which is a shade darker
-     than anything `--hd-border-*` names: an off switch has to read as a
-     control at rest rather than as a divider. */
+  /* On controls use the neutral solid pair. Accent belongs to keyboard focus
+     and primary actions, never a selected state. */
   --hd-toggle-knob: rgb(255, 255, 255);
-  --hd-toggle-knob-on: var(--hd-primary-foreground);
+  --hd-toggle-knob-on: var(--hd-solid-foreground); /* desk: knob follows the neutral on-state */
   --hd-toggle-track: var(--hdp-alias-border-l3);
-  --hd-toggle-on: var(--hd-accent); /* The dial reaches the accent. */
+  --hd-toggle-on: var(--hd-solid); /* desk: owner requires neutral on-state in both interfaces */
   --hd-toggle-width: 34px;
   --hd-toggle-width-sm: 30px;
   --hd-toggle-height-sm: 18px;
@@ -1383,7 +1353,6 @@ body[data-hd-dark-theme] {
   --hd-accent-dim: rgba(112, 142, 250, 0.12);
   --hd-accent-foreground: rgb(17, 17, 17); /* Near-black ink on the lifted accent. */
   --hd-primary-foreground: rgb(17, 17, 17); /* Near-black ink on the lifted accent. */
-  --hd-toggle-knob-on: rgb(255, 255, 255); /* the knob stays white on the lifted accent */
 }
 
 /*
@@ -1429,30 +1398,9 @@ body[data-hd-dark-theme] {
  * missing focus mark and a cascade bug, not a look — they are fixed in both.
  */
 body[data-hd-interface='studio'] {
-  /* 1 — selection */
-  /*
-   * The selected row is the brand, and it has to *stay* the brand.
-   *
-   * This was briefly a literal — the hue scaled to 90%, to lift white ink on
-   * it from 4.08:1 to 4.89:1. That bought contrast and broke the Accent dial:
-   * measured across all six accents, `--hd-primary` moved to violet, green,
-   * orange and near-black while the selected row stayed cobalt, so Mono — a
-   * palette chosen to have no colour — grew a blue row in three navigation
-   * columns. A literal hidden behind a custom property is exactly what
-   * AGENTS.md rule 11 forbids, and this is why.
-   *
-   * The contrast question is real and does not belong here. White on the
-   * default brand is 4.08:1, under the 4.5 that 14px text wants — but that is
-   * the pairing the app already puts on every primary button, and in the dark
-   * theme green (#22c55e) and orange (#f97316) are paler still. No single
-   * darkening fixes all twelve accent-and-theme combinations, because what is
-   * wrong is the palette's choice of ink for a pale accent, not this token.
-   * Fixing it belongs to `shadcn-themes.css`, where it would reach the button
-   * and the chips too; doing it here would make one row quietly better than
-   * the button beside it and leave the real defect in place.
-   */
-  --hd-sidebar-selected: var(--hd-primary);
-  --hd-sidebar-selected-foreground: var(--hd-primary-foreground);
+  /* Studio keeps a filled selection, using the neutral solid pair. */
+  --hd-sidebar-selected: var(--hd-solid); /* desk: owner requires neutral selection; Studio keeps the filled shape */
+  --hd-sidebar-selected-foreground: var(--hd-solid-foreground); /* desk: ink follows the neutral selection */
   /* The quieter marks inside a selected row — a subtitle, a count, a status
      glyph. White at 86% of the row's own ink, which keeps them secondary
      without dropping them off the fill; on the default accent that is 4.83:1

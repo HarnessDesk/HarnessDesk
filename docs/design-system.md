@@ -462,7 +462,7 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-toggle-knob` | `rgb(255, 255, 255)` |
 | `--hd-toggle-knob-on` | `rgb(255, 255, 255)` |
 | `--hd-toggle-track` | `rgba(9, 12, 17, 0.14)` |
-| `--hd-toggle-on` | `rgb(52, 88, 240)` |
+| `--hd-toggle-on` | `rgb(27, 27, 27)` |
 | `--hd-toggle-width` | `34px` |
 | `--hd-toggle-width-sm` | `30px` |
 | `--hd-toggle-height-sm` | `18px` |
@@ -493,7 +493,6 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-accent-dim` | `rgba(52, 88, 240, 0.12)` |
 | `--hd-accent-foreground` | `rgb(255, 255, 255)` |
 | `--hd-primary-foreground` | `rgb(255, 255, 255)` |
-| `--hd-toggle-knob-on` | `rgb(255, 255, 255)` |
 | `--hd-sidebar-selected` | `color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)` |
 | `--hd-sidebar-selected-foreground` | `` |
 | `--hd-sidebar-selected-muted-foreground` | `` |

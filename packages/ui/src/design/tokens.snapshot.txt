@@ -357,7 +357,7 @@
 --hd-toggle-height-sm = 18px
 --hd-toggle-knob = rgb(255, 255, 255)
 --hd-toggle-knob-on = rgb(255, 255, 255)
---hd-toggle-on = rgb(52, 88, 240)
+--hd-toggle-on = rgb(27, 27, 27)
 --hd-toggle-track = rgba(9, 12, 17, 0.14)
 --hd-toggle-width = 34px
 --hd-toggle-width-sm = 30px
@@ -907,8 +907,8 @@
 --hd-titlebar-lights = 78px
 --hd-toggle-height-sm = 18px
 --hd-toggle-knob = rgb(255, 255, 255)
---hd-toggle-knob-on = rgb(255, 255, 255)
---hd-toggle-on = rgb(112, 142, 250)
+--hd-toggle-knob-on = rgb(49, 49, 49)
+--hd-toggle-on = rgb(231, 231, 231)
 --hd-toggle-track = rgba(255, 255, 255, 0.2)
 --hd-toggle-width = 34px
 --hd-toggle-width-sm = 30px
@@ -1381,7 +1381,7 @@
 --hd-sidebar-hover = rgba(9, 12, 17, 0.05)
 --hd-sidebar-muted-foreground = rgb(71, 71, 71)
 --hd-sidebar-plate = rgb(249, 249, 249)
---hd-sidebar-selected = rgb(52, 88, 240)
+--hd-sidebar-selected = rgb(27, 27, 27)
 --hd-sidebar-selected-foreground = rgb(255, 255, 255)
 --hd-sidebar-selected-muted-foreground = color-mix( in srgb, rgb(255, 255, 255) 86%, transparent )
 --hd-sidebar-start-inset = 8px
@@ -1468,7 +1468,7 @@
 --hd-toggle-height-sm = 18px
 --hd-toggle-knob = rgb(255, 255, 255)
 --hd-toggle-knob-on = rgb(255, 255, 255)
---hd-toggle-on = rgb(52, 88, 240)
+--hd-toggle-on = rgb(27, 27, 27)
 --hd-toggle-track = rgba(9, 12, 17, 0.14)
 --hd-toggle-width = 34px
 --hd-toggle-width-sm = 30px
@@ -1941,9 +1941,9 @@
 --hd-sidebar-hover = rgba(255, 255, 255, 0.07)
 --hd-sidebar-muted-foreground = rgb(177, 177, 177)
 --hd-sidebar-plate = rgb(41, 41, 41)
---hd-sidebar-selected = rgb(112, 142, 250)
---hd-sidebar-selected-foreground = rgb(17, 17, 17)
---hd-sidebar-selected-muted-foreground = color-mix( in srgb, rgb(17, 17, 17) 86%, transparent )
+--hd-sidebar-selected = rgb(231, 231, 231)
+--hd-sidebar-selected-foreground = rgb(49, 49, 49)
+--hd-sidebar-selected-muted-foreground = color-mix( in srgb, rgb(49, 49, 49) 86%, transparent )
 --hd-sidebar-start-inset = 8px
 --hd-sidebar-width = 256px
 --hd-sidebar-width-icon = 48px
@@ -2027,8 +2027,8 @@
 --hd-titlebar-lights = 78px
 --hd-toggle-height-sm = 18px
 --hd-toggle-knob = rgb(255, 255, 255)
---hd-toggle-knob-on = rgb(255, 255, 255)
---hd-toggle-on = rgb(112, 142, 250)
+--hd-toggle-knob-on = rgb(49, 49, 49)
+--hd-toggle-on = rgb(231, 231, 231)
 --hd-toggle-track = rgba(255, 255, 255, 0.2)
 --hd-toggle-width = 34px
 --hd-toggle-width-sm = 30px

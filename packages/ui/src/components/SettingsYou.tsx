@@ -362,10 +362,7 @@ export const AppearanceSection = () => {
         />
         <Row
           title="Accent"
-          /* Earned under the second-line rule: the accent used to be every
-             filled control in the app and is now the marks that say where you
-             are, so the label alone would over-promise. */
-          desc="The selected row, a switch that is on, a focus ring, a link."
+          desc="Focus rings and primary action highlights."
           control={<AccentSwatches />}
         />
         <Row

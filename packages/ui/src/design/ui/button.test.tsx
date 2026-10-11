@@ -237,13 +237,13 @@ describe('the button is ink, not the brand', () => {
  * Pinned because the wrong answer is the tidy-looking one: `--hd-solid` reads
  * as "the loud fill" and will attract this back if nothing objects.
  */
-describe('the on-states follow the accent dial', () => {
-  it('the three of them read the accent, and the knob reads what sits on it', () => {
-    expect(tokenSheet).toMatch(/--hd-toggle-on:\s*var\(--hd-accent\)/)
+describe('the on-states use neutral ink', () => {
+  it('the three of them read the neutral solid, and the knob reads its foreground', () => {
+    expect(tokenSheet).toMatch(/--hd-toggle-on:\s*var\(--hd-solid\)/)
     /* Not a value of its own: `--hd-primary-foreground` is already solved per
        accent and per face — white where it carries, dark ink on green, orange
        and the lighter rose and mono dark faces. */
-    expect(tokenSheet).toMatch(/--hd-toggle-knob-on:\s*var\(--hd-primary-foreground\)/)
+    expect(tokenSheet).toMatch(/--hd-toggle-knob-on:\s*var\(--hd-solid-foreground\)/)
   })
 
   it('reaches them through the toggle tokens, so a foundation swap carries', () => {
