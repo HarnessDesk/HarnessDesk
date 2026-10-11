@@ -1,3 +1,8 @@
+import { App } from '../app/App'
+import { LegacyManagedPageWindow } from '../components/LegacyManagedPageWindow'
+import { frameDestinationStore, setFrameConnection } from './frame-destination-store'
+import { SettingsPreview } from './settings-pages'
+import { framePageIds, framePageRoute } from './frame-page-route'
 import { shortcutFor } from '../lib/shortcuts'
 import { toggleTerminal } from '../components/TerminalToggle'
 import { sidebarGeometryFixture } from './sidebar-geometry-fixture'
@@ -16,7 +21,7 @@ import { triggerGoalStatus } from './intake-fixture'
 import { AgentsWindow } from '../components/AgentsWindow'
 import { ChangesReview } from '../components/ChangesReview'
 import { AppWindowMode } from '../components/AppWindow'
-import { Settings, type Section } from '../components/Settings'
+import { type Section } from '../components/Settings'
 import { Sidebar } from '../components/Sidebar'
 import { TeamsWindow } from '../components/TeamsWindow'
 import { Usage, type DashboardView } from '../components/Usage'
@@ -42,7 +47,7 @@ import { usagePreviewStore } from './usage-fixture'
  * drawn here the same way, so the wall shows the app as it is.
  * Placeholder fixtures only.
  */
-export const FRAME_WALL_DESTINATIONS = ['conversation', 'draft', 'team', 'team-trigger', 'team-receipt', 'team-run-recorded', 'team-run-not-reached', 'team-run-repeated', 'team-run-equivalent', 'teams', 'agents', 'agent', 'dashboard', 'settings', 'settings-general', 'settings-runtimes', 'settings-navigation', 'settings-search', 'library', 'plugins', 'changes-review', 'left-work'] as const
+export const FRAME_WALL_DESTINATIONS = ['navigation', 'conversation', 'draft', 'team', 'team-trigger', 'team-receipt', 'team-run-recorded', 'team-run-not-reached', 'team-run-repeated', 'team-run-equivalent', 'teams', 'agents', 'agent', 'dashboard', 'settings', 'settings-general', 'settings-runtimes', 'settings-navigation', 'settings-search', 'library', 'plugins', 'changes-review', 'left-work'] as const
 type Destination = (typeof FRAME_WALL_DESTINATIONS)[number]
 type PageOwner = 'teams' | 'agents' | 'dashboard' | 'settings' | 'changes-review'
 const pageFor = (destination: Destination): PageOwner | null => {
@@ -121,6 +126,7 @@ const storeFor = (destination: Destination): AppStore => {
   switch (destination) {
     case 'left-work': return showing(previewStore(sidebarStructureFixture(previewStore().getSnapshot())),
       { kind: 'room', room: 'structure-team' }, null)
+    case 'navigation': return showing(previewStore(), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY)
     case 'conversation': return popupContent(showing(previewStore(new URLSearchParams(window.location.search).has('sidebar-geometry')
       ? sidebarGeometryFixture(previewStore().getSnapshot()) : undefined), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY))
     case 'draft': return popupContent(showing(previewStore(), { kind: 'conversation', session: null }, null))
@@ -171,6 +177,7 @@ const FrameDestination = ({ destination }: { destination: Destination }) => {
     onSignIn={() => {}} onSearch={() => {}}
     activeDestination={page === 'settings' && section === 'library' ? 'library' : page === 'settings' && section === 'plugins' ? 'plugins' : page === 'settings' || page === 'changes-review' ? null : page}
     settings={inWindow && section !== 'library' && section !== 'plugins' ? { section, onSection: setSection, onBack: close } : undefined} />
+  if(page==='settings' && section!=='library' && section!=='plugins') return <SettingsPreview section={section} onSection={setSection}/>
   return <TopBarProvider><ShellHostsProvider>
     <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: usage,
       openRuntimes: () => settings('runtimes'), openAgents: agents, reviewImports: () => {} }}>
@@ -180,7 +187,7 @@ const FrameDestination = ({ destination }: { destination: Destination }) => {
           {page === 'teams' && <TeamsWindow onClose={close} />}
           {page === 'agents' && <AgentsWindow focus={focus} onClose={close} onFocus={setFocus} />}
           {page === 'dashboard' && <Usage view={view} scope={scope} onView={setView} onScope={setScope} onClose={close} onSignIn={() => {}} />}
-          {page === 'settings' && <Settings leftColumn={left(true)} section={section} onSection={setSection} onClose={close} onSignIn={() => {}} />}
+          {page === 'settings' && (section === 'library' || section === 'plugins') && <LegacyManagedPageWindow leftColumn={left(true)} page={section} onClose={close} />}
           {page === 'changes-review' && <ChangesReview onClose={close} />}
           <ShellOutlets activeOwner={page} />
           <PopupWall />
@@ -214,7 +221,14 @@ export const FrameWall = () => {
   const destination: Destination = FRAME_WALL_DESTINATIONS.find((one) => one === requested) ?? 'conversation'
   const query = new URLSearchParams(location.search)
   const store = useMemo(() => {
-    const next = storeFor(destination)
+    const complete = previewStore()
+    const ids = framePageIds(complete.getSnapshot())
+    const realPage = destination.startsWith('settings') || destination === 'navigation'
+    const next = realPage ? frameDestinationStore(storeFor(destination)) : storeFor(destination)
+    if (realPage) {
+      const initial = framePageRoute(new URLSearchParams(destination === 'settings' ? location.search : `frame-wall=settings&frame-section=${sectionFor(destination)}`), ids)
+      if (initial && destination !== 'navigation') {if(initial.kind==='settings') next.openDestination(initial);else next.askSettings(initial.kind)}
+    }
     // Additional Details states for the same real frame; all data is synthetic.
     const detailsCase = query.get('frame-details-case')
     const snapshot = next.getSnapshot()
@@ -248,7 +262,9 @@ export const FrameWall = () => {
         }])),
       })
     }
+    if (query.get('frame-no-folder') === '1') Object.assign(snapshot, {workspace:null,activeSessionKey:null,sessions:new Map()})
     const session = snapshot.sessions.get(PREVIEW_SESSION_KEY)
+    if (destination === 'navigation' && session) Object.assign(snapshot,{sessions:new Map(snapshot.sessions).set(PREVIEW_SESSION_KEY,{...session,turns:Array.from({length:30},(_,index)=>({...session.turns[0]!,id:turnId(`retained-turn-${index}`),items:session.turns[0]!.items.map((item,at)=>({...item,id:itemId(`retained-item-${index}-${at}`)}))}))})})
     if (destination === 'conversation' && session && ['active', 'complete', 'cleared', 'asked'].includes(detailsCase ?? '')) {
       const plan = [
         { step: 'Review the checkout and the recorded changes', status: 'completed' as const },
@@ -294,20 +310,26 @@ export const FrameWall = () => {
     return next
   }, [destination, location.search])
   useEffect(() => {
+    const api={resizeLeft:(width:number)=>store.resizePanel('sidebar',width)}
+    Object.assign(window,{__hdFrameWall:api})
+    return()=>{delete(window as Window & {__hdFrameWall?:typeof api}).__hdFrameWall}
+  },[store])
+  useEffect(() => {
     const onConnection = (event: Event) => {
       const status: unknown = (event as CustomEvent).detail
-      if (status === 'open' || status === 'connecting' || status === 'reconnecting' || status === 'closed') (store as ReturnType<typeof previewStore>).patch({ status })
+      if (status === 'open' || status === 'connecting' || status === 'reconnecting' || status === 'closed') destination.startsWith('settings') || destination==='navigation' ? setFrameConnection(store,status) : (store as ReturnType<typeof previewStore>).patch({status})
     }
     const onKey = (event: KeyboardEvent) => {
+      if (destination.startsWith('settings') || destination === 'navigation') return
       if (shortcutFor(event)?.action !== 'toggle-terminal') return
       event.preventDefault(); toggleTerminal(store)
     }
     window.addEventListener('harnessdesk:preview-connection', onConnection)
     document.addEventListener('keydown', onKey)
     return () => { window.removeEventListener('harnessdesk:preview-connection', onConnection); document.removeEventListener('keydown', onKey) }
-  }, [store])
+  }, [store,destination])
   if (requested === 'topbar') return <TopBarProbe />
   return <StoreProvider store={store}>
-    <FrameDestination destination={destination} />
+    {destination.startsWith('settings') || destination === 'navigation' ? <div data-frame-id="frame-wall" data-destination={destination}><App/><PopupWall/></div> : <FrameDestination destination={destination} />}
   </StoreProvider>
 }

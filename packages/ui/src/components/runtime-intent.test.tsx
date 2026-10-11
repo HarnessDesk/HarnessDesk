@@ -1,3 +1,4 @@
+import { RuntimesTestPage as RuntimesSection } from './settings-test-page'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
@@ -5,9 +6,7 @@ import { NO_CAPABILITIES, runtimeId, type RuntimeInfo, type RuntimeHealth } from
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, AppStore } from '../state/store'
 import { AgentControl } from './ComposerControls'
-import { RuntimesSection } from './SettingsAgents'
-
-;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const info = (id: string): RuntimeInfo => ({ id: runtimeId(id), name: id, version: null, presentation: { name: id }, capabilities: NO_CAPABILITIES })
 const mount = async (settings: boolean) => {

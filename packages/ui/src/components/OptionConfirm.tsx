@@ -1,4 +1,5 @@
-import { useState, type ReactNode } from 'react'
+import { useDestinationActive } from '../panels/destination-page'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { ConfigOption, OptionValue } from '@harnessdesk/protocol'
 
 import { ConfirmDialog } from '../design'
@@ -22,12 +23,15 @@ export const useOptionConfirm = (): {
   ask: (option: ConfigOption, value: OptionValue, commit: () => void) => void
   dialog: ReactNode
 } => {
+  const active=useDestinationActive()
   const [pending, setPending] = useState<{
     option: ConfigOption
     commit: () => void
   } | null>(null)
 
+  useEffect(()=>{if(!active)setPending(null)},[active])
   const ask = (option: ConfigOption, value: OptionValue, commit: () => void): void => {
+    if (!active) return
     const gated = option.confirm && (option.type !== 'boolean' || value === true)
     if (!gated) {
       commit()
@@ -41,7 +45,7 @@ export const useOptionConfirm = (): {
   return {
     ask,
     dialog:
-      pending && confirm ? (
+      active && pending && confirm ? (
         <ConfirmDialog
           title={confirm.title}
           tone="default"

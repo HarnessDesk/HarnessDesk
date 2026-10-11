@@ -5,7 +5,7 @@ import { StoreProvider } from '../state/context'
 import { previewStore } from '../preview/harness'
 import { installTopBarTestLayout } from '../test/top-bar-layout'
 import { TopBarOutlet, TopBarProvider, useRegisteredOwner } from './top-bar'
-import { DestinationBar, DestinationPageScope } from './destination-page'
+import { DestinationBar, DestinationPageScope, useDestinationActive } from './destination-page'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 installTopBarTestLayout()
@@ -13,6 +13,15 @@ let host: HTMLDivElement, root: Root
 beforeEach(() => { host = document.createElement('div'); document.body.append(host); root = createRoot(host) })
 afterEach(() => { act(() => root.unmount()); host.remove() })
 const Claim = () => <span data-registered={useRegisteredOwner('destination:library')} />
+const Activity = () => <output>{String(useDestinationActive())}</output>
+it('shared readers default to active and follow page deactivation and return', () => {
+  act(() => root.render(<Activity />))
+  expect(host.textContent).toBe('true')
+  for (const active of [false, true]) {
+    act(() => root.render(<DestinationPageScope owner="destination:settings" active={active}><Activity /></DestinationPageScope>))
+    expect(host.textContent).toBe(String(active))
+  }
+})
 it('withdraws an inactive page claim and restores it on the next visit', () => {
   const store = previewStore()
   const render = (active: boolean) => act(() => root.render(<StoreProvider store={store}><TopBarProvider>

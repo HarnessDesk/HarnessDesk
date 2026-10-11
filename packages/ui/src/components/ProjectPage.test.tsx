@@ -1,3 +1,4 @@
+import { WorkspacesTestPage as WorkspacesSection } from './settings-test-page'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -7,7 +8,7 @@ import type { AgentEntry, FlowEntry, ProjectChecks, TriggerProjectView, Workspac
 import { ShellProvider } from '../panels/views'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { WorkspacesSection } from './Settings'
+
 import { WorkspaceMenu } from './WorkspaceMenu'
 
 /**
@@ -183,7 +184,7 @@ it('each folder opens its project’s page, which lists the project’s own Agen
   act(() => rowFor('storefront').click())
   await settle()
   expect(store.agentsIn).toHaveBeenCalledWith(STOREFRONT.path)
-  expect(button('Workspaces')).toBeDefined()
+  expect(button('Workspaces ›')).toBeDefined()
   const text = agentsText()
   expect(text).toContain('Code reviewer')
   expect(text).toContain('Edit')
@@ -205,9 +206,11 @@ it('a project not open says how to reach its Agents, and is opened or forgotten 
   expect(agentsText()).toContain('Docs editor')
   expect(container.querySelectorAll('section[aria-label="Agents"] button')).toHaveLength(0)
   expect(container.textContent).toContain('Open this project to start its Agents')
-  act(() => button('Open').click())
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="More"]')!.click())
+  await act(async () => [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')].find(one=>one.textContent?.trim()==='Open')!.click())
   expect(store.openWorkspace).toHaveBeenCalledWith(DOCS.path)
-  act(() => button('Forget').click())
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="More"]')!.click())
+  await act(async () => [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')].find(one=>one.textContent?.trim()==='Forget')!.click())
   expect(store.forgetWorkspace).toHaveBeenCalledWith(DOCS.path)
 })
 

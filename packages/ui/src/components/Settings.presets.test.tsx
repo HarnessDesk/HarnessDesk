@@ -1,12 +1,11 @@
+import { SettingsTestPage as Settings } from './settings-test-page'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 import { NO_CAPABILITIES, runtimeId, type ConfigOption, type RuntimeInfo } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
-import { Settings } from './Settings'
-
-;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 for (const reported of [true, false]) it(`describes only saved preferences when model status is ${reported ? 'reported' : 'absent'}`, async () => {
   const runtime = { id: runtimeId('fixture'), presentation: { name: 'Fixture agent' }, capabilities: NO_CAPABILITIES } as RuntimeInfo

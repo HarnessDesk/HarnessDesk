@@ -1,7 +1,8 @@
+import { SettingsPreview as Settings } from './settings-pages'
 import { useState, type ComponentProps } from 'react'
 import { runtimeId, type AccountStatus, type RuntimeInfo } from '@harnessdesk/protocol'
 
-import { Settings, type Section } from '../components/Settings'
+import { type Section } from '../components/Settings'
 import { AgentsView } from '../components/Details'
 import { AgentsWindow } from '../components/AgentsWindow'
 import { WorkspaceMenu } from '../components/WorkspaceMenu'
@@ -35,11 +36,11 @@ export const IconFollowupsFrames = () => {
   return <div className="grid gap-4 p-4">
     <Frame id="icon-settings" title="Runtimes — destination and account faces">
       <div className="relative h-[700px]" style={{ transform: 'translateZ(0)' }}>
-        <StoreProvider store={accountsStore}><Settings section={section} onSection={setSection} onSignIn={() => {}} onClose={() => {}} /></StoreProvider>
+        <StoreProvider store={accountsStore}><Settings section={section} onSection={setSection} /></StoreProvider>
       </div>
     </Frame>
     <Frame id="icon-agents" title="Saved Agents">
-      <div className="relative h-[620px]" style={{ transform: 'translateZ(0)' }}><Mount><AgentsWindow focus={agentsFocus} onFocus={setAgentsFocus} onClose={() => {}} /></Mount></div>
+      <div className="relative h-[620px]" style={{ transform: 'translateZ(0)' }}><Mount><AgentsWindow focus={agentsFocus} onClose={() => {}} onFocus={setAgentsFocus} /></Mount></div>
     </Frame>
     <Frame id="icon-subagents" title="Sub-agents — parent conversation’s inspector">
       <div className="h-[380px]"><Mount with={compactAgentsStore}><AgentsView /></Mount></div>

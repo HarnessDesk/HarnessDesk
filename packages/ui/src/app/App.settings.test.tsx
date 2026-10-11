@@ -1,138 +1,149 @@
-import { StrictMode } from 'react'
-import { act } from 'react'
+import { StrictMode, act, type ReactNode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-
 import { StoreProvider } from '../state/context'
-import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { AppStore } from '../state/store'
+import type { SettingsRoute } from '../state/destinations'
 
-vi.mock('../lib/desktop', () => ({
-  desktop: () => undefined,
-  isDesktop: () => false,
-  onOpenGoal: () => () => {},
-  onOpenSession: () => () => {},
-  onShortcut: () => () => {},
-  setTraySummary: () => {},
-  setWindowTitle: () => {},
-}))
-vi.mock('../panels/Workbench', () => ({ Workbench: () => null }))
-vi.mock('../components/Sidebar', () => ({ Sidebar: () => null }))
+const native = vi.hoisted(() => ({run: (_action: string) => {}}))
+vi.mock('../lib/desktop', () => ({ desktop: () => undefined, isDesktop: () => false,
+  onOpenGoal: () => () => {}, onOpenSession: () => () => {}, onShortcut: (run: (action:string)=>void) => { native.run=run; return () => {} }, setTraySummary: () => {}, setWindowTitle: () => {} }))
+vi.mock('../panels/Workbench', () => ({ Workbench: ({sidebar, pages, pageActive}: {sidebar:ReactNode;pages:ReactNode;pageActive:boolean}) =>
+  <>{sidebar}<div data-slot="retained-work" hidden={pageActive} inert={pageActive}><input defaultValue="Remembered draft" /></div>{pages}</> }))
+vi.mock('../components/Sidebar', () => ({ Sidebar: (props: Record<string, unknown>) => <div data-sidebar>
+  {['Settings','Agents','Teams','Library','Plugins','Dashboard'].map((label, at) => <button key={label} onClick={() =>
+    (props[['onOpenSettings','onOpenAgents','onOpenTeams','onOpenLibrary','onOpenPlugins','onOpenUsage'][at]!] as () => void)()}>{label}</button>)}
+  <output data-selected>{String(props.activeDestination ?? '')}</output><output data-settings>{JSON.stringify(props.settings ? (props.settings as {section:string}).section : null)}</output>
+</div> }))
 vi.mock('../components/Notices', () => ({ Notices: () => null }))
-vi.mock('../components/ImportOffer', () => ({ ImportOffer: () => null }))
-vi.mock('../design', () => ({ Toaster: () => null }))
+vi.mock('../design', async importOriginal => ({...await importOriginal<object>(), Toaster: () => null}))
 vi.mock('../state/theme', () => ({ useTheme: () => 'light' }))
-vi.mock('../components/Settings', async () => {
+vi.mock('../components/Settings', async importOriginal => {
   const { useShell } = await import('../panels/views')
-  return {
-  resolveSection: () => 'workspaces',
-  Settings: ({ focus }: { readonly focus?: string | null }) => {
-    const shell = useShell()
-    return (
-      <div>
-        <output data-testid="settings-focus">{focus ?? 'nothing focused'}</output>
-        <button type="button" onClick={() => shell.openAgents('room-reviewer')}>Open its Agent</button>
-      </div>
-    )
-  },
-  }
+  const { useDestinationActive } = await import('../panels/destination-page')
+  return { ...await importOriginal<object>(), Settings: ({ route }: {route:SettingsRoute}) => {
+    const shell = useShell(), active = useDestinationActive()
+    return <div><output data-settings-route>{JSON.stringify(route)}</output><output data-active>{String(active)}</output>
+      <button onClick={() => shell.openAgents('fixture-reviewer')}>Open its Agent</button><button onClick={shell.reviewImports}>Review imports</button></div>
+  }}
 })
-vi.mock('../components/AgentsWindow', () => ({
-  AgentsWindow: ({ focus }: { readonly focus: string | null }) => (
-    <output data-testid="agent-focus">{focus ?? 'Agent overview'}</output>
-  ),
-}))
-
+vi.mock('../components/Usage', () => ({Usage: () => <div data-legacy-dashboard />}))
+vi.mock('../components/LegacyManagedPageWindow', async()=>{
+  const {useState}=await import('react')
+  return {LegacyManagedPageWindow:({page,libraryImport,onClose}:{page:string;libraryImport:boolean;onClose:()=>void})=>{
+    const [importAtMount]=useState(libraryImport)
+    return <div data-legacy-managed data-page={page} data-import-at-mount={String(importAtMount)}><button onClick={onClose}>Close legacy</button></div>
+  }}
+})
+vi.mock('../components/AgentsWindow', () => ({ AgentsWindow: ({focus}:{focus:string|null}) => <output data-agent-focus>{focus ?? 'Agent overview'}</output> }))
+import { MAIN_PAGE_ENTRIES } from './main-page-entries'
 import { App } from './App'
-
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
-
-let container: HTMLDivElement
-let root: ReturnType<typeof createRoot>
-
-beforeEach(() => {
-  container = document.createElement('div')
-  document.body.appendChild(container)
-  root = createRoot(container)
-  globalThis.ResizeObserver = class {
-    observe(): void {}
-    unobserve(): void {}
-    disconnect(): void {}
-  }
+let container: HTMLDivElement, root: ReturnType<typeof createRoot>
+beforeEach(() => { container = document.createElement('div'); document.body.append(container); root = createRoot(container)
+  globalThis.ResizeObserver = class { observe() {} unobserve() {} disconnect() {} }
 })
-
-afterEach(() => {
-  act(() => root.unmount())
-  container.remove()
-})
-
-/** A store that behaves like a one-shot deep route: clearing it notifies App immediately. */
-const routedStore = (focus: string): AppStore => {
-  let snapshot = {
-    ...emptySnapshot(),
-    status: 'open',
-    settingsFor: 'workspaces',
-    settingsFocus: focus,
-  } as AppSnapshot
-  const listeners = new Set<() => void>()
-  return {
-    subscribe: (listener: () => void) => {
-      listeners.add(listener)
-      return () => listeners.delete(listener)
-    },
-    getSnapshot: () => snapshot,
-    askSettings: vi.fn((section: string | null) => {
-      if (section !== null) return
-      snapshot = { ...snapshot, settingsFor: null, settingsFocus: null }
-      for (const listener of listeners) listener()
-    }),
-    refreshCatalogIfStale: vi.fn(async () => {}),
-  } as unknown as AppStore
+afterEach(() => { act(() => root.unmount()); container.remove() })
+const routedStore = (focus?: string) => {
+  const store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), {status:'open',...(focus ? {settingsFor:'workspaces',settingsFocus:focus} : {})})
+  store.refreshCatalogIfStale = vi.fn(async () => {})
+  store.transport.request = vi.fn(async () => ({})) as typeof store.transport.request
+  return store
 }
-
-it('keeps a project focus through the one-shot route that opens Settings', async () => {
-  const project = '/home/user/work/storefront'
-  await act(async () => {
-    root.render(
-      <StrictMode>
-        <StoreProvider store={routedStore(project)}>
-          <App />
-        </StoreProvider>
-      </StrictMode>,
-    )
-  })
-
-  expect(container.querySelector('[data-testid="settings-focus"]')?.textContent).toBe(project)
+const settle = () => act(async()=>{await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()))})
+const click = async (label: string) => {await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(one=>one.textContent===label)!.click());await settle()}
+it('keeps a project detail after consuming its one-shot request and mounts Settings in main', async () => {
+  const store = routedStore('/synthetic/project')
+  await act(async () => root.render(<StrictMode><StoreProvider store={store}><App /></StoreProvider></StrictMode>))
+  expect(store.getSnapshot().workbench.navigation.current).toEqual({kind:'settings',route:{kind:'project',root:'/synthetic/project'}})
+  expect(store.getSnapshot().settingsFor).toBeNull()
+  expect(container.querySelector('[data-page-destination="settings"]')).not.toBeNull()
+  expect(container.querySelector('[data-slot="retained-work"]')?.hasAttribute('hidden')).toBe(true)
 })
-
-it('lets a project page in Settings open that Agent in the app shell', async () => {
-  await act(async () => {
-    root.render(
-      <StoreProvider store={routedStore('/home/user/work/storefront')}>
-        <App />
-      </StoreProvider>,
-    )
-  })
-
-  const open = [...container.querySelectorAll('button')].find((one) => one.textContent === 'Open its Agent')
-  if (!open) throw new Error('the project page did not render its Agent door')
-  await act(async () => open.click())
-
-  expect(container.querySelector('[data-testid="agent-focus"]')?.textContent).toBe('room-reviewer')
-  expect(container.querySelector('[data-testid="settings-focus"]')).toBeNull()
-})
-
-it('answers both navigation chords at 720 while the sidebar floats', async () => {
-  const store = routedStore('')
-  Object.assign(store.getSnapshot(), { windowWidth: 720, narrowWindow: true })
-  const back = vi.fn(async () => {})
-  const forward = vi.fn(async () => {})
-  Object.assign(store, { navigateBack: back, navigateForward: forward })
+it('a legacy Agent opener suspends retained Settings instead of leaving its readers active', async () => {
+  const store = routedStore('/synthetic/project')
   await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
-  for (const key of ['[', ']']) {
-    const event = new KeyboardEvent('keydown', { key, metaKey: true, bubbles: true, cancelable: true })
-    act(() => document.dispatchEvent(event))
-    expect(event.defaultPrevented).toBe(true)
+  await settle()
+  await click('Open its Agent')
+  expect(container.querySelector('[data-agent-focus]')?.textContent).toBe('fixture-reviewer')
+  expect(container.querySelector('[data-page-destination="settings"]')?.hasAttribute('hidden')).toBe(true)
+  expect(container.querySelector('[data-active]')?.textContent).toBe('false')
+})
+for (const kind of ['dashboard','agents','teams','library','plugins'] as const) it(`all normal ${kind} doors use registration, normal selection and real Back/Forward`, async () => {
+  const label = {dashboard:'Dashboard',agents:'Agents',teams:'Teams',library:'Library',plugins:'Plugins'}[kind]
+  MAIN_PAGE_ENTRIES[kind] = ({page}) => <output data-future-page>{page.kind}</output>
+  try {
+    const store = routedStore()
+    await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
+    await settle()
+    const input = container.querySelector('input')!
+    input.value = 'Draft retained across pages'
+    await click(label)
+    expect(store.getSnapshot().workbench.navigation.current.kind).toBe(kind)
+    expect(container.querySelector('[data-selected]')?.textContent).toBe(kind)
+    expect(container.querySelector('[data-settings]')?.textContent).toBe('null')
+    expect(container.querySelector(`[data-page-destination="${kind}"]`)?.hasAttribute('hidden')).toBe(false)
+    await act(async () => { await store.navigateBack() });await settle()
+    expect(store.getSnapshot().workbench.navigation.current.kind).toBe('work')
+    expect(container.querySelector('input')).toBe(input)
+    expect(input.value).toBe('Draft retained across pages')
+    await act(async () => { await store.navigateForward() });await settle()
+    expect(store.getSnapshot().workbench.navigation.current.kind).toBe(kind)
+  } finally { delete MAIN_PAGE_ENTRIES[kind] }
+})
+it('page Escape remains on Settings while Command-W returns to retained work', async () => {
+  const store = routedStore('/synthetic/project')
+  await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
+  act(() => document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})))
+  expect(store.getSnapshot().workbench.navigation.current.kind).toBe('settings')
+  await settle()
+  act(() => document.dispatchEvent(new KeyboardEvent('keydown',{key:'w',metaKey:true,bubbles:true,cancelable:true})))
+  await settle()
+  expect(store.getSnapshot().workbench.navigation.current.kind).toBe('work')
+})
+
+it('the native Dashboard command enters the common registered page boundary', async () => {
+  MAIN_PAGE_ENTRIES.dashboard = ({page}) => <output>{page.kind}</output>
+  try {
+    const store = routedStore()
+    await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
+    act(() => native.run('usage'))
+    expect(store.getSnapshot().workbench.navigation.current).toEqual({kind:'dashboard',view:'overview',scope:null})
+  } finally { delete MAIN_PAGE_ENTRIES.dashboard }
+})
+
+it('repeated compatibility requests route Library and Plugins and deliver import intent at mount',async()=>{
+  const store=routedStore()
+  await act(async()=>root.render(<StoreProvider store={store}><App/></StoreProvider>))
+  await click('Settings');await click('Review imports')
+  expect(container.querySelector('[data-legacy-managed]')?.getAttribute('data-page')).toBe('library')
+  expect(container.querySelector('[data-legacy-managed]')?.getAttribute('data-import-at-mount')).toBe('true')
+  expect(container.querySelector('[data-active]')?.textContent).toBe('false')
+  for(const section of ['plugins','library','plugins']) {
+    await act(async()=>store.askSettings(section));await settle();await settle()
+    expect(container.querySelector('[data-legacy-managed]')?.getAttribute('data-page')).toBe(section)
+    expect(store.getSnapshot().settingsFor).toBeNull()
   }
-  expect(back).toHaveBeenCalledOnce()
-  expect(forward).toHaveBeenCalledOnce()
+  await click('Close legacy');await click('Settings')
+  expect(container.querySelector('[data-active]')?.textContent).toBe('true')
+})
+it('real bracket history remains available at720 with the column closed',async()=>{
+  const store=routedStore();store.setWindowSize(720,900)
+  await act(async()=>root.render(<StoreProvider store={store}><App/></StoreProvider>))
+  await click('Settings')
+  expect(store.getSnapshot().sidebarFloating).toBe(false)
+  await act(async()=>document.dispatchEvent(new KeyboardEvent('keydown',{key:'[',metaKey:true,bubbles:true,cancelable:true})));await settle()
+  expect(store.getSnapshot().workbench.navigation.current.kind).toBe('work')
+  await act(async()=>document.dispatchEvent(new KeyboardEvent('keydown',{key:']',metaKey:true,bubbles:true,cancelable:true})));await settle()
+  expect(store.getSnapshot().workbench.navigation.current.kind).toBe('settings')
+  expect(store.getSnapshot().sidebarFloating).toBe(false)
+})
+it('a native new draft reveals work and closes the legacy page above retained Settings',async()=>{
+  const store=routedStore('/synthetic/project')
+  await act(async()=>root.render(<StoreProvider store={store}><App/></StoreProvider>));await settle();await click('Open its Agent')
+  expect(container.querySelector('[data-agent-focus]')).not.toBeNull()
+  await act(async()=>native.run('new-session'));await settle()
+  expect(store.getSnapshot().workbench.navigation.current.kind).toBe('work')
+  expect(container.querySelector('[data-agent-focus]')).toBeNull()
 })

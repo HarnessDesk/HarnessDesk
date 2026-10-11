@@ -22,7 +22,7 @@ export const PageOptions = ({ choices = [], search, read, action }: {
 }) => <div data-slot="page-options" className={styles.options}>
   {choices.map(choice => choice.mode === 'menu'
     ? <Popover key={choice.id} title={choice.label} icons="none" label={<><span className={styles.current}>{choice.items.find(item => item.value === choice.value)?.label ?? choice.value}</span><CaretIcon /></>}
-        triggerVariant={{ variant: 'outline' }}>{close => <Menu close={close}>
+        triggerVariant={{ variant: 'outline', size: 'wrap' }}>{close => <Menu close={close}>
         {choice.items.map(item => <MenuItem key={item.value} label={item.label} value={item.count}
           title={item.title} selected={item.value === choice.value} disabled={item.disabled}
           onSelect={() => { choice.change(item.value); close() }} />)}

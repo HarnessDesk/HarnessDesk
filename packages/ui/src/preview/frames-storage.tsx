@@ -1,6 +1,7 @@
+import { SettingsPreview as Settings } from './settings-pages'
 import { useMemo } from 'react'
 import { NO_CAPABILITIES, runtimeId, sessionId, type StorageCleanupPreview, type StorageUsage, type RuntimeInfo } from '@harnessdesk/protocol'
-import { Settings } from '../components/Settings'
+
 import { StoreProvider } from '../state/context'
 import { Frame } from './main'
 import { previewStore } from './harness'
@@ -36,7 +37,7 @@ const StorageFrame = ({ scene }: { scene: string }) => {
   }, [scene])
   return <Frame id={`storage-${scene}`} title={`Storage — ${scene}`}>
     <div className="relative h-[700px]" style={{ transform: 'translateZ(0)' }}><StoreProvider store={own}>
-      <Settings section="storage" onSection={() => {}} onClose={() => {}} onSignIn={() => {}} />
+      <Settings section="storage" />
     </StoreProvider></div>
   </Frame>
 }

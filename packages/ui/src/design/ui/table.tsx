@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 const Table = ({
   className,
   containerClassName,
+  viewport,
   variant = 'default',
   inset,
   density = variant === 'panel' ? 'compact' : 'comfortable',
@@ -16,18 +17,23 @@ const Table = ({
   density?: 'comfortable' | 'compact'
   rows?: 'default' | 'bare'
   containerClassName?: string
+  /** Bounded page scroll owner, including its ref, events and data attributes. */
+  viewport?: React.ComponentProps<'div'> & { [attribute: `data-${string}`]: unknown }
   variant?: 'default' | 'framed' | 'panel'
   /** The table and its replacement list keep the same row-content edge. */
   inset?: 'row'
 }) => (
   <div
+    {...viewport}
     data-slot="table-container"
     data-variant={variant}
     className={cn(
       'relative w-full overflow-x-auto',
+      viewport && 'max-h-(--hd-table-page-max-height) overflow-auto',
       variant === 'framed' && 'rounded-(--hd-radius) shadow-(--hd-hairline)',
       variant === 'panel' && 'rounded-(--hd-radius-sm) border border-(--hd-border)',
       containerClassName,
+      viewport?.className,
     )}
   >
     <table

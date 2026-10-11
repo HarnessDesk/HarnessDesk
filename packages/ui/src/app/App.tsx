@@ -1,8 +1,12 @@
+import { MainPages, isMainPage } from './MainPages'
+import { destinationForSettings } from './settings-destination'
+import { LegacyManagedPageWindow } from '../components/LegacyManagedPageWindow'
+import type { PageDestination } from '../state/destinations'
 import { toggleTerminal } from '../components/TerminalToggle'
 import { TopBarProvider } from '../panels/top-bar'
 import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 import { TeamsWindow } from '../components/TeamsWindow'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
 
@@ -18,7 +22,7 @@ import { ChangesReview } from '../components/ChangesReview'
 import { CommandPalette } from '../components/CommandPalette'
 import { FolderPicker } from '../components/FolderPicker'
 import { FrontDoor } from '../components/FrontDoor'
-import { resolveSection, Settings, type Section } from '../components/Settings'
+import { resolveSection, type Section } from '../components/Settings'
 import { NewWorktree } from '../components/NewWorktree'
 import { SeatSheet } from '../components/SeatSheet'
 import { RaceStart } from '../components/RaceStart'
@@ -59,24 +63,8 @@ export const App = () => {
   const store = useStore()
   const snapshot = useSnapshot()
   const session = useActiveSession()
-  // Whether Settings is open, and the page it is on: one piece of state, not
-  // two. Every route into Settings sets it — the app menu, ⌘K opened over the
-  // window, the import banner, a deep `askSettings` — and so does the nav
-  // rail inside the window, through `onSection`. Held in both places, a
-  // request naming the page this one already held could not move the window,
-  // because nothing here changed and so neither did the prop.
-  const [teamsOpen, setTeamsOpen] = useState(false)
-  const [settingsOpen, setSettingsOpen] = useState<false | Section>(false)
-  // The thing the page was opened on. Keep it with the route until a person
-  // chooses another Settings page or closes the window: clearing it in an
-  // effect made the one-shot race the store request that opened the window,
-  // and Strict Mode could mount Workspaces only after the project was gone.
-  const [settingsFocus, setSettingsFocus] = useState<string | null>(null)
-  const openSettingsAt = useCallback((section: Section, focus: string | null) => {
-    setTeamsOpen(false)
-    setSettingsOpen(section)
-    setSettingsFocus(focus)
-  }, [])
+  const [teamsOpen,setTeamsOpen]=useState(false)
+  const [legacyManagedPage,setLegacyManagedPage]=useState<false|'library'|'plugins'>(false)
   /**
    * The Agents window (Task 13's owner decision: the roster lives in the left
    * menu, never in Settings) — `false`, or open on the Agent named by `focus`
@@ -85,15 +73,6 @@ export const App = () => {
    * it before the window itself exists; Task 13 reads this state and draws it.
    */
   const [agentsOpen, setAgentsOpen] = useState<false | { focus: string | null }>(false)
-  const openAgents = useCallback((focus?: string) => {
-    // Top-level destinations replace one another. In particular, a project
-    // Agent row lives inside Settings but opens the app's one Agents window;
-    // leaving Settings underneath made Back return to the page it had left.
-    setTeamsOpen(false)
-    setSettingsOpen(false)
-    setSettingsFocus(null)
-    setAgentsOpen({ focus: focus ?? null })
-  }, [])
   // One-shot: the import banner routes here, and the Library opens with the
   // import flow already up. Cleared when Settings closes, like any dialog.
   const [libraryImport, setLibraryImport] = useState(false)
@@ -123,15 +102,40 @@ export const App = () => {
    * way clicking that account in the old rail used to.
    */
   const [usageOpen, setUsageOpen] = useState<false | { view: DashboardView; scope: RuntimeId | null }>(false)
-  const openUsage = useCallback((runtime?: RuntimeId) => { setTeamsOpen(false); setUsageOpen(dashboardRouteFor(runtime)) }, [])
   // The review workspace opens from anywhere — the Changes panel, ⌘K —
   // through one event, the way the composer takes text.
   const [reviewOpen, setReviewOpen] = useState(false)
-  useEffect(() => {
-    const open = (): void => setReviewOpen(true)
-    window.addEventListener('harnessdesk:review', open)
-    return () => window.removeEventListener('harnessdesk:review', open)
+  const clearLegacyPages = useCallback(() => {
+    setTeamsOpen(false); setAgentsOpen(false); setUsageOpen(false); setReviewOpen(false); setLegacyManagedPage(false)
   }, [])
+  const previousDestination = useRef(snapshot.workbench.navigation.current)
+  useEffect(() => {
+    const current = snapshot.workbench.navigation.current
+    if (current !== previousDestination.current && current.kind === 'work') clearLegacyPages()
+    previousDestination.current = current
+  }, [snapshot.workbench.navigation.current, clearLegacyPages])
+  const openPage = useCallback((target: PageDestination, legacy: () => void) => {
+    clearLegacyPages()
+    if (!isMainPage(target.kind)) { legacy(); return }
+    store.openDestination(target)
+  }, [store,clearLegacyPages])
+  const openSettingsAt = useCallback((section: Section, focus: string | null) => {
+    const target=destinationForSettings(section,focus)
+    openPage(target,()=>{if(target.kind==='library'||target.kind==='plugins')setLegacyManagedPage(target.kind)})
+  },[openPage])
+  const openAgents = useCallback((focus?:string)=>openPage({kind:'agents',id:focus??null},()=>setAgentsOpen({focus:focus??null})),[openPage])
+  const openTeams = useCallback(()=>openPage({kind:'teams',filter:'active'},()=>setTeamsOpen(true)),[openPage])
+  const openUsage = useCallback((runtime?:RuntimeId)=>openPage({kind:'dashboard',...dashboardRouteFor(runtime)},()=>setUsageOpen(dashboardRouteFor(runtime))),[openPage])
+  useEffect(()=>{
+    const open=():void=>{
+      if(isMainPage('changes-review')) {
+        setTeamsOpen(false);setAgentsOpen(false);setUsageOpen(false);setReviewOpen(false);setLegacyManagedPage(false)
+        store.openReview()
+      } else openPage({kind:'changes-review',root:null,returnTo:{kind:'conversation',session:null}},()=>setReviewOpen(true))
+    }
+    window.addEventListener('harnessdesk:review',open)
+    return ()=>window.removeEventListener('harnessdesk:review',open)
+  },[store,openPage])
   // The resolved face, for anything that needs telling rather than styling —
   // Sonner paints its own surface and takes the theme as a value.
   const theme = useTheme()
@@ -166,6 +170,7 @@ export const App = () => {
           return
         }
         case 'new-session':
+          clearLegacyPages()
           store.newDraft()
           return
         case 'open-folder':
@@ -195,17 +200,20 @@ export const App = () => {
         case 'usage':
           // ⌘U toggles, and always across every agent on Overview — a scoped
           // view is something you ask for by pointing at one.
-          setUsageOpen((open) => (open === false ? dashboardRouteFor() : false))
+          if (isMainPage('dashboard') && snapshot.workbench.navigation.current.kind==='dashboard') store.returnToWork()
+          else if (usageOpen) setUsageOpen(false)
+          else openUsage()
           return
         case 'close-pane':
-          store.closePane(snapshot.layout.focused)
+          if(snapshot.workbench.navigation.current.kind!=='work')store.returnToWork()
+          else store.closePane(snapshot.layout.focused)
           return
         case 'palette':
           setPaletteOpen((value) => !value)
           return
       }
     },
-    [store, snapshot.layout.focused, snapshot.workspace, openFrontDoor, openSettingsAt],
+    [store, snapshot.layout.focused, snapshot.workspace, snapshot.workbench.navigation.current, openFrontDoor, openSettingsAt, openUsage, usageOpen,clearLegacyPages],
   )
 
   useEffect(() => onShortcut(run), [run])
@@ -237,14 +245,15 @@ export const App = () => {
   // A clicked macOS notification lands on the conversation it was about.
   useEffect(
     () =>
-      onOpenSession(({ runtime, sessionId }) =>
+      onOpenSession(({ runtime, sessionId }) => {
+        clearLegacyPages()
         void store.openSession(sessionId as Parameters<typeof store.openSession>[0], {
           runtime: runtime as RuntimeId,
-        }),
-      ),
-    [store],
+        })
+      }),
+    [store,clearLegacyPages],
   )
-  useEffect(() => onOpenGoal(({ goal }) => store.openGoal(goal)), [store])
+  useEffect(() => onOpenGoal(({ goal }) => {clearLegacyPages();store.openGoal(goal)}), [store,clearLegacyPages])
 
   /**
    * The menu bar's status item.
@@ -365,18 +374,21 @@ export const App = () => {
   }, [run])
 
   const [leftFilter, setLeftFilter] = useState('')
-  const closeSettings = () => { setSettingsOpen(false); setSettingsFocus(null); setLibraryImport(false) }
-  const renderLeftColumn = (inWindow: boolean) => <Sidebar active={inWindow || !settingsOpen}
-    listFilter={{ value: leftFilter, onChange: setLeftFilter }} sessionsOwner={!inWindow}
-    onOpenSettings={section => openSettingsAt(section ?? 'runtimes', null)}
-    onOpenLibrary={() => openSettingsAt('library', null)} onOpenPlugins={() => openSettingsAt('plugins', null)}
-    onOpenAgents={() => openAgents()}
-    onOpenTeams={() => { setSettingsOpen(false); setSettingsFocus(null); setAgentsOpen(false); setUsageOpen(false); setTeamsOpen(true) }}
-    onOpenUsage={openUsage} onBrowseFolders={chooseFolder} onSignIn={runtime => setSignInOpen(runtime ?? true)} onSearch={() => setPaletteOpen(true)}
-    activeDestination={teamsOpen ? 'teams' : agentsOpen ? 'agents' : usageOpen ? 'dashboard' : settingsOpen === 'library' ? 'library' : settingsOpen === 'plugins' ? 'plugins' : null}
-    settings={inWindow && settingsOpen && settingsOpen !== 'library' && settingsOpen !== 'plugins'
-      ? { section: settingsOpen, onSection: section => openSettingsAt(section, null), onBack: closeSettings } : undefined} />
-  const frameOwner = reviewOpen ? 'changes-review' : agentsOpen ? 'agents' : teamsOpen ? 'teams' : usageOpen ? 'dashboard' : settingsOpen ? 'settings' : null
+  const current=snapshot.workbench.navigation.current
+  const legacyOwner=reviewOpen?'changes-review':agentsOpen?'agents':teamsOpen?'teams':usageOpen?'dashboard':legacyManagedPage?'settings':null
+  const pageActive=current.kind!=='work' && isMainPage(current.kind) && legacyOwner===null
+  const settingsSection:Section|null=current.kind!=='settings'?null:current.route.kind==='section'?current.route.section
+    :current.route.kind==='project'?'workspaces':current.route.kind==='skill'?'skills':'runtimes'
+  const renderLeftColumn=(inWindow:boolean)=><Sidebar active={inWindow||legacyOwner===null}
+    listFilter={{value:leftFilter,onChange:setLeftFilter}} sessionsOwner={!inWindow}
+    onOpenSettings={section=>openSettingsAt(section??'runtimes',null)} onOpenLibrary={()=>openSettingsAt('library',null)} onOpenPlugins={()=>openSettingsAt('plugins',null)}
+    onOpenAgents={()=>openAgents()} onOpenTeams={openTeams} onOpenUsage={openUsage} onBrowseFolders={chooseFolder}
+    onSignIn={runtime=>setSignInOpen(runtime??true)} onSearch={()=>setPaletteOpen(true)}
+    activeDestination={pageActive && current.kind!=='settings' && current.kind!=='changes-review'?current.kind
+      :teamsOpen?'teams':agentsOpen?'agents':usageOpen?'dashboard':legacyManagedPage||null}
+    settings={!inWindow && pageActive && settingsSection?{section:settingsSection,onSection:section=>openSettingsAt(section,null),
+      onBack:()=>{if(snapshot.navCanBack)void store.navigateBack();else store.returnToWork()}}:undefined}/>
+  const frameOwner=legacyOwner??(pageActive?`destination:${current.kind}`:null)
   return (
     /* One shell, one set of actions — including the app windows mounted
        beside the workbench. A project page lives in Settings, and its Agent
@@ -397,9 +409,9 @@ export const App = () => {
     >
     <TopBarProvider><ShellHostsProvider><div className="hd-shell">
       <div className="hd-shellBody">
-          <Workbench suspended={frameOwner !== null}
-            sidebar={renderLeftColumn(false)}
-          />
+          <Workbench suspended={legacyOwner!==null} sidebar={renderLeftColumn(false)} pageActive={pageActive}
+            pages={<MainPages key={snapshot.workspace?.path??'unscoped'} suspended={legacyOwner!==null}
+              onSignIn={runtime=>setSignInOpen(runtime)} onNewTeam={()=>{const root=projectRootOf(snapshot.workspace);if(root)openFrontDoor(root)}} libraryImportIntent={libraryImport?1:0}/>} />
       </div>
       {/* Results, and failures the store could not say in place, as toasts:
           `Notices` hands the store's queue to the one toaster. Standing
@@ -407,17 +419,8 @@ export const App = () => {
           above the panes, the sidebar's foot — never floated over a pane. */}
       <Notices />
       <Toaster theme={theme} />
-      {settingsOpen && (
-        <Settings
-          section={settingsOpen}
-          focus={settingsFocus}
-          libraryImport={libraryImport}
-          onSection={(section, focus) => openSettingsAt(section, focus ?? null)}
-          leftColumn={renderLeftColumn(true)}
-          onClose={closeSettings}
-          onSignIn={(runtime) => setSignInOpen(runtime)}
-        />
-      )}
+      {legacyManagedPage && <LegacyManagedPageWindow page={legacyManagedPage} leftColumn={renderLeftColumn(true)}
+        libraryImport={libraryImport} onClose={()=>{setLegacyManagedPage(false);setLibraryImport(false)}}/>}
       {usageOpen && (
         <Usage
           view={usageOpen.view}
@@ -502,7 +505,7 @@ export const App = () => {
           onClose={() => setSignInOpen(false)}
         />
       )}
-      <ShellOutlets activeOwner={frameOwner} />
+      <ShellOutlets activeOwner={frameOwner} hostOwner={pageActive?'work':undefined} />
     </div></ShellHostsProvider></TopBarProvider>
     </ShellProvider>
   )

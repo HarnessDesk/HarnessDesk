@@ -1,12 +1,11 @@
+import { SettingsTestPage as Settings } from './settings-test-page'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { StoreProvider } from '../state/context'
 import { AppStore, emptySnapshot } from '../state/store'
-import { Settings } from './Settings'
-
-;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 const LABEL = 'Let command-line clients answer for me'
 let container: HTMLDivElement

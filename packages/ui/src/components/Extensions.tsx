@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useDestinationActive } from '../panels/destination-page'
+import { PageExplanation, PageControls } from '../design'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import type { McpServer, RuntimeCatalog, RuntimePlugin } from '@harnessdesk/protocol'
 
@@ -6,9 +8,8 @@ import { openExternal } from '../lib/desktop'
 import { shortPath } from '../lib/paths'
 import { useRuntime, useSnapshot, useStore } from '../state/context'
 import { AlertIcon, ExtensionIcon, PluginIcon, ServerIcon } from './Icons'
-import { Button, Chip, EmptyState, IconTile, Monogram, Note, PageHead, Row, Rows, Search, SectionHead } from '../design'
+import { Button, Chip, EmptyState, IconTile, Monogram, Note, Row, Rows, Search, SectionHead } from '../design'
 import { Tabs, TabsList, TabsTrigger } from '../design'
-import styles from './Settings.module.css'
 
 /**
  * The backend's own extension plane, surfaced.
@@ -29,6 +30,8 @@ const disabledLabel = (reason?: string | null): string =>
   reason ? `${reason.charAt(0).toUpperCase()}${reason.slice(1)}` : 'Off'
 
 export const ExtensionsSection = () => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const runtime = useRuntime()
   const snapshot = useSnapshot()
@@ -40,11 +43,19 @@ export const ExtensionsSection = () => {
   const [shown, setShown] = useState(PAGE)
   const [failuresShown, setFailuresShown] = useState(FAILURES)
 
+  const generation=useRef(0)
+  const activeRead=useRef(destinationActive)
+  activeRead.current=destinationActive
   const reload = useCallback(() => {
-    void store.loadCatalog().then(setCatalog)
+    if (!activeRead.current) return
+    const epoch=++generation.current
+    void store.loadCatalog().then(value=>{if(activeRead.current && epoch===generation.current)setCatalog(value)})
   }, [store])
-
-  useEffect(reload, [reload, snapshot.workspace?.path])
+  useEffect(() => {
+    activeRead.current=destinationActive
+    if (destinationActive) reload()
+    return () => {generation.current++;activeRead.current=false}
+  }, [destinationActive, reload, snapshot.workspace?.path])
 
   const { installed, available } = useMemo(() => {
     const all = catalog?.plugins ?? []
@@ -77,10 +88,7 @@ export const ExtensionsSection = () => {
 
   return (
     <>
-      <PageHead
-        title="Extensions"
-        blurb={`What ${runtime.presentation.name} can connect to: its plugins, apps and MCP servers.`}
-      />
+      <PageExplanation>{`What ${runtime.presentation.name} can connect to: its plugins, apps and MCP servers.`}</PageExplanation>
 
       {/* A row per marketplace that failed, each with its own words. One row
           counted them all and showed the first message, so with three
@@ -111,7 +119,7 @@ export const ExtensionsSection = () => {
       )}
 
       {tabs.length > 1 && (
-        <div className={styles.extTabs}>
+        <>
           {/* Tabs, not `Segmented`. These switch which list is on screen, which
               is what a tab is; `Segmented` is `role="radiogroup"`, so a screen
               reader was announcing "What to show, radio button, 1 of 2" for a
@@ -128,20 +136,15 @@ export const ExtensionsSection = () => {
               ))}
             </TabsList>
           </Tabs>
-        </div>
+        </>
       )}
 
       {tab === 'plugins' && (
         <>
-          <Search
-            className={styles.pageSearch}
-            value={query}
-            placeholder="Search plugins"
-            onChange={(next) => {
+          <PageControls search={{label:"Search plugins",placeholder:"Search plugins",value:query,change:(next) => {
               setQuery(next)
               setShown(PAGE)
-            }}
-          />
+            }}}/>
           {catalog === null ? (
             <Note>Loading…</Note>
           ) : (
@@ -184,11 +187,17 @@ const rank = (plugin: RuntimePlugin, featured: ReadonlySet<string>): number =>
   plugin.installed ? 0 : featured.has(plugin.id) ? 1 : 2
 
 const PluginRow = ({ plugin }: { plugin: RuntimePlugin }) => {
+  const active=useDestinationActive(),activeRead=useRef(active)
+  activeRead.current=active
+  const lifetime=useRef(0),wasActive=useRef(active)
+  if(wasActive.current!==active){wasActive.current=active;lifetime.current++}
+  useEffect(()=>()=>{activeRead.current=false;lifetime.current++},[])
   const store = useStore()
   const [busy, setBusy] = useState(false)
   const [logoBroken, setLogoBroken] = useState(false)
 
   const toggle = async (): Promise<void> => {
+    const owner=lifetime.current
     setBusy(true)
     try {
       await store.setRuntimePluginInstalled(
@@ -197,7 +206,7 @@ const PluginRow = ({ plugin }: { plugin: RuntimePlugin }) => {
         plugin.id,
         !plugin.installed,
       )
-      await store.loadCatalog()
+      if(activeRead.current && owner===lifetime.current) await store.loadCatalog()
     } finally {
       setBusy(false)
     }
@@ -230,7 +239,7 @@ const PluginRow = ({ plugin }: { plugin: RuntimePlugin }) => {
       title={
         <>
           {plugin.name}
-          {plugin.category && <Chip tone="neutral" size="sm" className={styles.inlineBadge}>{plugin.category}</Chip>}
+          {plugin.category && <Chip tone="neutral" size="sm" >{plugin.category}</Chip>}
         </>
       }
       desc={
@@ -281,12 +290,16 @@ const PluginRow = ({ plugin }: { plugin: RuntimePlugin }) => {
  * find-and-connect surface, not an install list.
  */
 const AppDirectory = () => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const runtime = useRuntime()
   const [query, setQuery] = useState('')
   const [apps, setApps] = useState<readonly RuntimePlugin[] | null>(null)
 
   useEffect(() => {
+    if (!destinationActive) return
+
     let cancelled = false
     const timer = window.setTimeout(() => {
       void store.searchApps(query).then((result) => {
@@ -297,7 +310,7 @@ const AppDirectory = () => {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [query, store])
+  }, [destinationActive, query, store])
 
   if (!runtime.capabilities.extensionStore) return null
 
@@ -305,12 +318,7 @@ const AppDirectory = () => {
     <>
       <SectionHead name="Connect an app" />
       <Note>Connecting happens in {runtime.presentation.name}; HarnessDesk opens the link.</Note>
-      <Search
-        className={styles.pageSearch}
-        value={query}
-        placeholder="Search apps to connect"
-        onChange={setQuery}
-      />
+      <PageControls search={{label:"Search apps to connect",placeholder:"Search apps to connect",value:query,change:setQuery}}/>
       <Rows>
         {apps === null ? (
           <Row title="Type to search" />
@@ -326,16 +334,26 @@ const AppDirectory = () => {
 
 /** MCP servers the runtime has configured — the tools the agent can call. */
 const McpServers = () => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const runtime = useRuntime()
   const snapshot = useSnapshot()
   const [servers, setServers] = useState<readonly McpServer[] | null>(null)
 
+  const generation=useRef(0)
+  const activeRead=useRef(destinationActive)
+  activeRead.current=destinationActive
   const reload = useCallback(() => {
-    void store.loadMcpServers().then(setServers)
+    if (!activeRead.current) return
+    const epoch=++generation.current
+    void store.loadMcpServers().then(value=>{if(activeRead.current && epoch===generation.current)setServers(value)})
   }, [store])
-
-  useEffect(reload, [reload, snapshot.workspace?.path])
+  useEffect(() => {
+    activeRead.current=destinationActive
+    if (destinationActive) reload()
+    return () => {generation.current++;activeRead.current=false}
+  }, [destinationActive, reload, snapshot.workspace?.path])
 
   if (!runtime.capabilities.mcp) return null
 
@@ -348,7 +366,8 @@ const McpServers = () => {
             variant="outline"
             size="sm"
             onClick={() => {
-              void store.reloadMcp().then(reload)
+              const owner=generation.current
+              void store.reloadMcp().then(()=>{if(activeRead.current && owner===generation.current)reload()})
             }}
           >
             Reload

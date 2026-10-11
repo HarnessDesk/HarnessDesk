@@ -74,3 +74,50 @@ export const expectDestinationTab = async (page: Page, value: string): Promise<v
   await expect(item).toHaveAttribute('aria-checked', 'true')
   await page.keyboard.press('Escape')
 }
+
+export const expectPageJourney = async (page: Page, label: string, kind: string, width = 1440): Promise<void> => {
+  await installFramePreviewFixture(page)
+  await page.setViewportSize({width,height:900})
+  await page.goto('/preview.html?frame-wall=navigation&theme=light')
+  const reveal = async () => { if(width < FRAME.fold.sidebarFloats) await page.getByRole('button',{name:'Show sidebar',exact:true}).click() }
+  await reveal()
+  const column = page.locator('[data-left-column]:visible')
+  const columnChrome = async () => {
+    expect((await column.boundingBox())!.y).toBe(0)
+    expect((await column.locator('[data-left-top]').boundingBox())!.height).toBe(FRAME.bar.height)
+    const colors = await column.evaluate(node => {
+      const paint = (element:Element):string => {
+        const color=getComputedStyle(element).backgroundColor
+        return color==='rgba(0, 0, 0, 0)' || color==='transparent' ? element.parentElement ? paint(element.parentElement) : color : color
+      }
+      const expected=document.createElement('div');expected.style.background='var(--hd-sidebar)';node.append(expected)
+      const result=[paint(node),paint(node.querySelector('[data-left-top]')!),getComputedStyle(expected).backgroundColor]
+      expected.remove();return result
+    })
+    expect(colors[0]).toBe(colors[2]);expect(colors[1]).toBe(colors[2])
+    expect(await column.locator('[data-left-top] button').evaluateAll(nodes=>nodes.map(node=>node.getAttribute('aria-label'))))
+      .toEqual(['Hide sidebar','Search everything','Back','Forward'])
+    await expect(column.getByText('Back to app',{exact:true})).toHaveCount(0)
+  }
+  await columnChrome()
+  const remembered = page.locator('[data-slot="retained-work"] [data-pane-id]').first()
+  await remembered.evaluate(node => { node.setAttribute('data-page-journey','remembered') })
+  const door = label === 'Settings'
+    ? column.locator('[data-left-seat]').getByRole('button',{name:label,exact:true})
+    : column.locator('[aria-label="Main sections"]').getByRole('button',{name:label,exact:true})
+  await door.click()
+  await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
+  await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
+  await reveal();await columnChrome()
+  await expect(column.locator('[data-left-settings]:visible')).toHaveCount(kind === 'settings' ? 1 : 0)
+  if (kind !== 'settings') await expect(door).toHaveAttribute('aria-current','page')
+  const back = column.locator('[data-left-top]').getByRole('button',{name:'Back',exact:true})
+  const forward = column.locator('[data-left-top]').getByRole('button',{name:'Forward',exact:true})
+  await expect(back).toBeEnabled();await back.click()
+  await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
+  await expect(remembered).toHaveAttribute('data-page-journey','remembered')
+  await reveal();await columnChrome()
+  await expect(forward).toBeEnabled();await forward.click()
+  await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
+  await reveal();await columnChrome()
+}

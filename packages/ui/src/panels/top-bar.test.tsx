@@ -193,3 +193,22 @@ test('view actions preserve the parent subject slots and share one More Menu wit
     container.remove()
   }
 })
+
+test('a page menu offers Terminal only when the current work has a folder', async () => {
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  try {
+    for (const hasFolder of [false, true]) {
+      const store = previewStore()
+      if (!hasFolder) Object.assign(store.getSnapshot(), { workspace: null, activeSessionKey: null })
+      await act(async () => root.render(<StoreProvider store={store}><TopBarProvider>
+        <PublishedBase owner="destination:settings" slots={{place:'General',more:emptyMore}} />
+        <TopBarOutlet owner="destination:settings" fallback={{place:'Fallback',more:emptyMore}} />
+      </TopBarProvider></StoreProvider>))
+      await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
+      expect([...document.querySelectorAll('[role^="menuitem"]')].some(node => node.textContent?.startsWith('Terminal'))).toBe(hasFolder)
+      await act(async () => document.dispatchEvent(new KeyboardEvent('keydown', {key:'Escape',bubbles:true})))
+    }
+  } finally { act(() => root.unmount()); container.remove() }
+})

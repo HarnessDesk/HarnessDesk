@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { screenLayoutOf, pageMeasuresOf, retiredComponentsOf } from './design-audit.mjs'
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const families = {
-  settings: ['Settings', 'SettingsYou', 'SettingsAgents', 'SettingsCeilings', 'SettingsQuestionWait', 'SettingsClientAnswers', 'ProjectPage', 'LaneSettings', 'TriggerSettings', 'History', 'Archive', 'Storage', 'Extensions'],
+  settings: ['Settings', 'SettingsYou', 'SettingsAgents', 'RuntimeResources', 'SettingsCeilings', 'SettingsQuestionWait', 'SettingsClientAnswers', 'ProjectPage', 'LaneSettings', 'TriggerSettings', 'History', 'Archive', 'Storage', 'Extensions'],
   dashboard: ['Usage', 'UsageActivity', 'InsightUsage'],
   agents: ['AgentsWindow', 'AgentRoster', 'AgentPage', 'AgentFields', 'AgentNew', 'AgentAttachments'],
   teams: ['TeamsWindow'],

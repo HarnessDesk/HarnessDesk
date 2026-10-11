@@ -1,3 +1,4 @@
+import { measureDestination, expectPageJourney } from './frame-page-contract'
 import { applySettingsNavigationActions } from './left-column-actions'
 import { applyLeftColumnActions } from './left-column-actions'
 import { openWallDestination } from './frame-wall-actions'
@@ -2284,3 +2285,82 @@ for (const theme of ['light', 'dark'] as const) {
     expect(await options.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
   })
 }
+
+for (const theme of ['light', 'dark'] as const) {
+  for (const width of [2200, 1440, 1100, 720]) {
+    for (const section of ['general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'history', 'storage', 'archive', 'runtimes', 'models', 'skills', 'extensions', 'permissions', 'browser']) {
+      test(`E2 Settings ${section} is reading at ${width} in ${theme}`, async ({ page }) => {
+        await measureDestination(page, `frame-wall=settings&frame-section=${section}`, 'reading', theme, width)
+        await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
+        await expect(page.locator('[data-left-column]:visible')).toHaveCount(width < 1000 ? 0 : 1)
+      })
+    }
+  }
+  test(`E2 keyboard history keeps work and terminal under Settings in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=navigation&frame-terminal=1', theme)
+    const work = page.locator('[data-slot="retained-work"]')
+    const transcript = work.locator('[data-transcript]').first()
+    const terminal = page.locator('[data-frame-region="bottom"] [data-terminal-id]').first()
+    await expect(transcript).toBeVisible()
+    await transcript.evaluate(el => { el.dataset.retentionWitness = 'transcript'; el.scrollTop = 120 })
+    const scroll = await transcript.evaluate(el => el.scrollTop)
+    await terminal.evaluate(el => { el.dataset.retentionWitness = 'terminal' })
+    const terminalId = await terminal.getAttribute('data-terminal-id')
+    await page.keyboard.press('Meta+,')
+    await expect(page.locator('[data-page-destination="settings"]')).toBeVisible()
+    await expect(work).toBeHidden()
+    await expect(work).toHaveAttribute('inert', '')
+    await expect(terminal).toHaveAttribute('data-terminal-id', terminalId!)
+    await expect(terminal).toHaveAttribute('data-retention-witness', 'terminal')
+    const terminalInput=terminal.locator('.xterm-helper-textarea')
+    await terminalInput.focus();await expect(terminalInput).toBeFocused()
+    await page.evaluate(()=>window.dispatchEvent(new CustomEvent('harnessdesk:preview-connection',{detail:'reconnecting'})))
+    await expect(page.locator('[data-shell-host="main-notice"]')).toContainText('Reconnecting to HarnessDesk.')
+    await expect(page.locator('[data-page-destination="settings"]')).toBeVisible()
+    await page.evaluate(()=>window.dispatchEvent(new CustomEvent('harnessdesk:preview-connection',{detail:'open'})))
+    await expect(page.locator('[data-shell-host="main-notice"] [role="status"]')).toHaveCount(0)
+    await page.keyboard.press('Meta+[')
+    await expect(work).toBeVisible()
+    await expect(transcript).toHaveAttribute('data-retention-witness', 'transcript')
+    expect(await transcript.evaluate(el => el.scrollTop)).toBe(scroll)
+    await page.keyboard.press('Meta+]')
+    await expect(page.locator('[data-page-destination="settings"]')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.locator('[data-page-destination="settings"]')).toBeVisible()
+    await page.keyboard.press('Meta+w')
+    await expect(work).toBeVisible()
+    await expect(terminal).toHaveAttribute('data-retention-witness', 'terminal')
+  })
+}
+
+for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440, 1100, 720]) {
+  for (const child of ['runtime', 'account', 'project', 'skill']) test(`E2 Settings child ${child} ${width} ${theme}`, async ({ page }) => {
+    await measureDestination(page, `frame-wall=settings&frame-detail=${child}`, 'reading', theme, width)
+    const bar = page.locator('[data-slot="top-bar"]:visible')
+    const parents = bar.locator('[data-topbar="place"] button')
+    await expect(parents.last()).toBeVisible()
+    if (width >= 1440) await expect(bar.getByRole('button', { name: 'Settings ›', exact: true })).toBeVisible()
+  })
+  test(`E2 Add runtime ${width} ${theme}`, async ({ page }) => {
+    await measureDestination(page, 'frame-wall=settings&frame-section=runtimes&frame-focus=add', 'reading', theme, width)
+    await expect(page.locator('[data-slot="top-bar"]:visible')).toContainText('Add a runtime')
+  })
+}
+
+for(const width of [1440,720]) test(`E2 Settings door preserves normal history and the retained work ${width}`, async ({ page }) => {
+  await expectPageJourney(page,'Settings','settings',width)
+})
+test('E2 Settings More offers Terminal only with a folder', async ({ page }) => {
+  await openFrame(page, 'frame-wall=settings&frame-section=general&frame-no-folder=1', 'light')
+  await page.locator('[data-slot="top-bar"]:visible').getByRole('button', {name:'More',exact:true}).click()
+  await expect(page.getByRole('menuitemradio', {name:/Terminal/})).toHaveCount(0)
+  await expect(page.getByRole('menuitem', {name:'Back to app',exact:true})).toHaveCount(0)
+  await openFrame(page,'frame-wall=settings&frame-section=general','light')
+  await page.locator('[data-slot="top-bar"]:visible').getByRole('button',{name:'More',exact:true}).click()
+  await expect(page.getByRole('menuitemradio',{name:/Terminal/})).toHaveCount(1)
+  await expect(page.getByRole('menuitem',{name:'Back to app',exact:true})).toHaveCount(0)
+})
+
+for(const theme of ['light','dark'] as const) for(const width of [2200,1440,1100,720]) test(`E2 Settings Profile is reading at ${width} in ${theme}`,async({page})=>{
+  await measureDestination(page,'frame-wall=settings&frame-section=profile','reading',theme,width)
+})

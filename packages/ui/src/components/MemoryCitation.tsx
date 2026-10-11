@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useDestinationActive } from '../panels/destination-page'
+import { useEffect, useRef, useState } from 'react'
 
 import type {
   GitFileStatus,
@@ -55,15 +56,27 @@ export const MemoryCitation = ({
   readonly goal: GoalId | null
   readonly citation?: GoalCitation
 }) => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const [head, setHead] = useState<string | null>(null)
   const [files, setFiles] = useState<readonly MemoryFile[] | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [dirty, setDirty] = useState<readonly GitFileStatus[]>([])
+  const activeRead=useRef(destinationActive)
+  activeRead.current=destinationActive
+  const lifetime=useRef(0),wasActive=useRef(destinationActive)
+  if(wasActive.current!==destinationActive){wasActive.current=destinationActive;lifetime.current++}
+  const activation=lifetime.current
+  useEffect(()=>{activeRead.current=destinationActive;return()=>{activeRead.current=false;lifetime.current++}},[])
   const [citing, setCiting] = useState<string | null>(null)
   const [opened, setOpened] = useState<GoalCitation | null>(null)
 
+  useEffect(() => { if (!destinationActive) { setCiting(null); setOpened(null) } }, [destinationActive])
+
   useEffect(() => {
+    if (!destinationActive) return
+
     if (citation) return
     let live = true
     Promise.all([
@@ -78,9 +91,11 @@ export const MemoryCitation = ({
       () => { if (live) setHead(null) },
     )
     return () => { live = false }
-  }, [root, store, citation])
+  }, [destinationActive, root, store, citation])
 
   useEffect(() => {
+    if (!destinationActive) return
+
     if (citation || head === null) return
     let live = true
     setProblem(null)
@@ -89,12 +104,14 @@ export const MemoryCitation = ({
       (error: unknown) => { if (live) setProblem(error instanceof Error ? error.message : String(error)) },
     )
     return () => { live = false }
-  }, [root, head, store, citation])
+  }, [destinationActive, root, head, store, citation])
 
   if (citation) return <CitationDetail root={root} citation={citation} />
 
   const dirtyPaths = new Set(dirty.map((one) => one.path))
   const rows = (files ?? []).filter((one) => !dirtyPaths.has(one.path))
+
+
 
   return (
     <>
@@ -120,17 +137,17 @@ export const MemoryCitation = ({
           ))}
         </Rows>
       )}
-      {citing && goal && head && (
+      {destinationActive && citing && goal && head && (
         <CiteDialog
           root={root}
           goal={goal}
           path={citing}
           at={head}
           onClose={() => setCiting(null)}
-          onCited={(made) => { setCiting(null); setOpened(made) }}
+          onCited={(made) => { if (activeRead.current && lifetime.current===activation) {setCiting(null); setOpened(made)} }}
         />
       )}
-      {opened && (
+      {destinationActive && opened && (
         <Dialog title={opened.path} size="lg" onClose={() => setOpened(null)}>
           <CitationDetail root={root} citation={opened} />
         </Dialog>
@@ -141,9 +158,13 @@ export const MemoryCitation = ({
 
 /** A memory file with uncommitted changes: never offered for citing, and the desk never commits it on a person's behalf. */
 const DirtyMemoryRow = ({ root, path }: { readonly root: string; readonly path: string }) => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const [viewing, setViewing] = useState(false)
   const [diff, setDiff] = useState<string | null>(null)
+  useEffect(() => { if (!destinationActive) { setViewing(false) } }, [destinationActive])
+
   return (
     <>
       <Row
@@ -170,7 +191,7 @@ const DirtyMemoryRow = ({ root, path }: { readonly root: string; readonly path: 
           </span>
         }
       />
-      {viewing && diff !== null && <DiffView diff={diff} wrap />}
+      {destinationActive && viewing && diff !== null && <DiffView diff={diff} wrap />}
     </>
   )
 }
@@ -196,6 +217,8 @@ const CiteDialog = ({
   readonly onClose: () => void
   readonly onCited: (citation: GoalCitation) => void
 }) => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const [sources, setSources] = useState<readonly GoalView[] | null>(null)
   const [selected, setSelected] = useState('')
@@ -203,16 +226,20 @@ const CiteDialog = ({
   const [problem, setProblem] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!destinationActive) return
+
     let live = true
     store.transport.request('goal/list', { root }).then(
       (views: readonly GoalView[]) => { if (live) setSources(views.filter((one) => one.goal.state === 'wrapped')) },
       (error: unknown) => { if (live) setProblem(error instanceof Error ? error.message : String(error)) },
     )
     return () => { live = false }
-  }, [root, store])
+  }, [destinationActive, root, store])
 
   const source = sources?.find((one) => one.goal.id === selected) ?? null
 
+  const live=useRef(true)
+  useEffect(()=>{live.current=true;return()=>{live.current=false}},[])
   const confirm = (): void => {
     if (!source || busy) return
     setBusy(true)
@@ -223,7 +250,7 @@ const CiteDialog = ({
         if (!receipt) throw new Error('Choose an existing wrapped receipt.')
         const made: GoalCitation = { goal: source.goal.id, receipt: receipt.id, project: root, path, at }
         await store.citeMemory(goal, made)
-        onCited(made)
+        if(live.current) onCited(made)
       } catch (error) {
         setBusy(false)
         setProblem(error instanceof Error ? error.message : String(error))
@@ -261,6 +288,8 @@ const CiteDialog = ({
  * suggesting an active session.
  */
 const CitationDetail = ({ root, citation }: { readonly root: string; readonly citation: GoalCitation }) => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const key = JSON.stringify(citation)
   const [read, setRead] = useState<
@@ -270,6 +299,8 @@ const CitationDetail = ({ root, citation }: { readonly root: string; readonly ci
   >(null)
 
   useEffect(() => {
+    if (!destinationActive) return
+
     let live = true
     store.readMemoryCitation(root, citation).then(
       (value) => { if (live) setRead({ key, value }) },
@@ -277,7 +308,7 @@ const CitationDetail = ({ root, citation }: { readonly root: string; readonly ci
     )
     return () => { live = false }
     // `citation` is captured by `key` — every field of it changes `key` too.
-  }, [root, key, store])
+  }, [destinationActive, root, key, store])
 
   if (!read || read.key !== key) return <Note>Reading this citation…</Note>
   if ('problem' in read) return <Banner tone="danger" title="This citation could not be read">{read.problem}</Banner>

@@ -447,6 +447,7 @@ body {
    * a field.
    */
   --hd-field-h: var(--hd-btn-h);
+  --hd-table-page-max-height: 50dvh;
   --hd-field-name-width: 220px;
   --hd-field-path-width: 280px;
   /*

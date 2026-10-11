@@ -14,7 +14,7 @@ export const useDestinationPage = (): { readonly owner: string; readonly active:
   if (!scope) throw new Error('Page requires DestinationPageScope')
   return scope
 }
-export const useDestinationActive = (): boolean => useDestinationPage().active
+export const useDestinationActive = (): boolean => useContext(PageContext)?.active ?? true
 export const DestinationBar = ({ more = () => null, ...slots }: Omit<TopBarProps,
   'more' | 'lead' | 'corner' | 'tools' | 'view' | 'rightColumnWidth'> & { readonly more?: TopBarProps['more'] }) => {
   const scope = useDestinationPage(), snapshot = useSnapshot()

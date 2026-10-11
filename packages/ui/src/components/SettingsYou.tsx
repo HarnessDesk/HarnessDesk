@@ -1,3 +1,5 @@
+import { useDestinationActive } from '../panels/destination-page'
+import { PageExplanation, PageOptions, ShortcutKeys } from '../design'
 import { useInboxMessages } from './Notices'
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react'
 
@@ -21,23 +23,19 @@ import {
   Button,
   PictureChoices,
   AccentChoices,
-  DetailHead,
   Face,
   Input,
   InboxPanel,
   Keycap,
   Note,
   RowValue,
-  PageHead,
   Row,
   Rows,
   SectionHead,
-  Segmented,
   NativeSelect,
   Switch,
   Text,
 } from '../design'
-import styles from './SettingsYou.module.css'
 
 /**
  * The pages about the person rather than the agents.
@@ -65,6 +63,8 @@ import styles from './SettingsYou.module.css'
  * shown only while there is something to reset.
  */
 export const ProfileSection = () => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const { profile } = useSnapshot()
   const stored = profile.name ?? ''
@@ -99,7 +99,7 @@ export const ProfileSection = () => {
     store.setProfile({ name: null, avatar: null })
   }
   // Any change from outside the field puts the field back.
-  useEffect(() => setDraft(stored), [stored])
+  useEffect(() => { if (destinationActive) setDraft(stored) }, [destinationActive, stored])
   // Leaving is letting go — of an edit, if there is one; a page opened and
   // closed again writes nothing. Leaving for another page unmounts this one.
   // A quit or a reload tears the page down without running React's cleanups,
@@ -107,6 +107,8 @@ export const ProfileSection = () => {
   // is a message that has to leave before the page does, and a crash writes
   // nothing at all.
   useEffect(() => {
+    if (!destinationActive) return
+
     const letGo = (): void => {
       if (latest.current !== kept.current) store.setProfile({ name: latest.current })
     }
@@ -117,7 +119,7 @@ export const ProfileSection = () => {
       window.removeEventListener('beforeunload', letGo)
       letGo()
     }
-  }, [store])
+  }, [destinationActive, store])
 
   // The head previews what is typed, before it is let go — and while nothing
   // is, shows what is kept, as it is kept.
@@ -127,18 +129,11 @@ export const ProfileSection = () => {
 
   return (
     <>
-      <DetailHead
-        mark={<Face avatar={profile.avatar} size={44} />}
-        name={profileName(live)}
-        blurb="Shown at the foot of the sidebar and beside what you say in a room. Kept on this Mac."
-        actions={
-          isDefaultProfile(live) ? undefined : (
+      <Rows><Row mark={<Face avatar={profile.avatar} size={44} />} title={profileName(live)} desc={"Shown at the foot of the sidebar and beside what you say in a room. Kept on this Mac."} control={isDefaultProfile(live) ? undefined : (
             <Button variant="outline" onClick={reset}>
               Reset to default
             </Button>
-          )
-        }
-      />
+          )}/></Rows>
 
       <Rows>
         <Row
@@ -185,7 +180,7 @@ export const ProfileSection = () => {
         onChange={(avatar) => store.setProfile({ avatar })}
       />
       {keeps && (
-        <Note id={noteId} className={styles.pageNote}>
+        <Note id={noteId}>
           Your profile holds a face this version of HarnessDesk cannot draw, so it shows as the house mark. It is kept
           as it is until you choose one here.
         </Note>
@@ -251,7 +246,7 @@ const FacePicker = ({
  */
 export const GeneralSection = ({ rows }: { rows: ReactNode }) => (
   <>
-    <PageHead title="General" blurb="What this Mac’s HarnessDesk keeps, and how to take it with you." />
+    <PageExplanation>What this Mac’s HarnessDesk keeps, and how to take it with you.</PageExplanation>
 
     <SectionHead name="Your data" />
     <Rows>
@@ -340,7 +335,7 @@ export const AppearanceSection = () => {
 
   return (
     <>
-      <PageHead title="Appearance" blurb="How HarnessDesk looks. Every change shows here as you make it." />
+      <PageExplanation>How HarnessDesk looks. Every change shows here as you make it.</PageExplanation>
 
       <SectionHead name="Theme" />
       <ThemeCards />
@@ -349,30 +344,20 @@ export const AppearanceSection = () => {
           title="Interface"
           desc="Studio reads as a dashboard: filled selection, taller controls."
           control={
-            <Segmented
-              label="Interface"
-              value={snapshot.look}
-              options={[
+            <PageOptions choices={[{id:"Interface",label:"Interface",value:snapshot.look,items:[
                 { value: 'desk', label: 'Desk' },
                 { value: 'studio', label: 'Studio' },
-              ]}
-              onChange={(next) => store.setLook(next)}
-            />
+              ],change:next => store.setLook((next as typeof snapshot.look))}]}/>
           }
         />
         <Row
           title="Palette"
           control={
-            <Segmented
-              label="Palette"
-              value={snapshot.palette}
-              options={[
+            <PageOptions choices={[{id:"Palette",label:"Palette",value:snapshot.palette,items:[
                 { value: 'harnessdesk', label: 'Blueprint' },
                 { value: 'editorial', label: 'Editorial' },
                 { value: 'shadcn', label: 'Neutral' },
-              ]}
-              onChange={(next) => store.setPalette(next)}
-            />
+              ],change:next => store.setPalette((next as typeof snapshot.palette))}]}/>
           }
         />
         <Row
@@ -386,16 +371,11 @@ export const AppearanceSection = () => {
         <Row
           title="Corners"
           control={
-            <Segmented
-              label="Corners"
-              value={snapshot.corners}
-              options={[
+            <PageOptions choices={[{id:"Corners",label:"Corners",value:snapshot.corners,items:[
                 { value: 'square', label: 'Square' },
                 { value: 'default', label: 'Default' },
                 { value: 'round', label: 'Round' },
-              ]}
-              onChange={(next) => store.setCorners(next)}
-            />
+              ],change:next => store.setCorners((next as typeof snapshot.corners))}]}/>
           }
         />
         <Row
@@ -404,15 +384,10 @@ export const AppearanceSection = () => {
              ring and a thing's tile keep their own shape. */
           desc="Agents and people, wherever they appear. Accounts keep their ring."
           control={
-            <Segmented
-              label="Faces"
-              value={snapshot.faces}
-              options={[
+            <PageOptions choices={[{id:"Faces",label:"Faces",value:snapshot.faces,items:[
                 { value: 'square', label: 'Square' },
                 { value: 'round', label: 'Round' },
-              ]}
-              onChange={(next) => store.setFaces(next)}
-            />
+              ],change:next => store.setFaces((next as typeof snapshot.faces))}]}/>
           }
         />
       </Rows>
@@ -436,12 +411,7 @@ export const AppearanceSection = () => {
         <Row
           title="Size"
           control={
-            <Segmented
-              label="Code text size"
-              value={String(snapshot.editorPrefs.fontSize)}
-              options={FONT_SIZES.map((size) => ({ value: String(size), label: `${size}` }))}
-              onChange={(next) => store.setEditorPrefs({ fontSize: Number(next) })}
-            />
+            <PageOptions choices={[{id:"Code text size",label:"Code text size",value:String(snapshot.editorPrefs.fontSize),items:FONT_SIZES.map((size) => ({ value: String(size), label: `${size}` })),change:next => store.setEditorPrefs({ fontSize: Number(next) })}]}/>
           }
         />
         <Row
@@ -468,12 +438,7 @@ export const AppearanceSection = () => {
           title="Indent"
           desc="Spaces per level."
           control={
-            <Segmented
-              label="Indent width"
-              value={String(snapshot.editorPrefs.tabSize)}
-              options={TAB_SIZES.map((size) => ({ value: String(size), label: `${size}` }))}
-              onChange={(next) => store.setEditorPrefs({ tabSize: Number(next) })}
-            />
+            <PageOptions choices={[{id:"Indent width",label:"Indent width",value:String(snapshot.editorPrefs.tabSize),items:TAB_SIZES.map((size) => ({ value: String(size), label: `${size}` })),change:next => store.setEditorPrefs({ tabSize: Number(next) })}]}/>
           }
         />
       </Rows>
@@ -483,29 +448,19 @@ export const AppearanceSection = () => {
         <Row
           title="Density"
           control={
-            <Segmented
-              label="Density"
-              value={snapshot.listPrefs.density}
-              options={[
+            <PageOptions choices={[{id:"Density",label:"Density",value:snapshot.listPrefs.density,items:[
                 { value: 'compact', label: 'Compact' },
                 { value: 'comfortable', label: 'Comfortable' },
-              ]}
-              onChange={(density) => store.setListPrefs({ density, densityPicked: true })}
-            />
+              ],change:next => store.setListPrefs({ density: (next as typeof snapshot.listPrefs.density), densityPicked: true })}]}/>
           }
         />
         <Row
           title="Sort by"
           control={
-            <Segmented
-              label="Sort"
-              value={snapshot.listPrefs.sort}
-              options={[
+            <PageOptions choices={[{id:"Sort",label:"Sort",value:snapshot.listPrefs.sort,items:[
                 { value: 'recency', label: 'Recent' },
                 { value: 'name', label: 'Name' },
-              ]}
-              onChange={(sort) => store.setListPrefs({ sort })}
-            />
+              ],change:next => store.setListPrefs({ sort: (next as typeof snapshot.listPrefs.sort) })}]}/>
           }
         />
       </Rows>
@@ -546,11 +501,8 @@ export const NotificationsSection = () => {
 
   return (
     <>
-      <PageHead
-        title="Notifications"
-        blurb="Where HarnessDesk tells you things, and which ones."
-        actions={
-          silenced.length > 0 ? (
+      <PageExplanation>Where HarnessDesk tells you things, and which ones.</PageExplanation>
+<Rows><Row title="Muted messages" control={silenced.length > 0 ? (
             <Button
               variant="outline"
               onClick={() => {
@@ -559,9 +511,7 @@ export const NotificationsSection = () => {
             >
               Turn all back on
             </Button>
-          ) : undefined
-        }
-      />
+          ) : undefined}/></Rows>
 
       {/* The map before the switches: what each kind of message is for, and
           where that puts it. Read once, it explains every control below. */}
@@ -709,9 +659,7 @@ const ChordRow = ({ shortcut }: { shortcut: Shortcut }) => (
   <Row
     title={shortcut.label}
     control={
-      <span className="flex gap-1">
-        {chordParts(shortcut).map((key, index) => <Keycap key={index} className={styles.chord}>{key}</Keycap>)}
-      </span>
+      <ShortcutKeys keys={chordParts(shortcut)}/>
     }
   />
 )
@@ -722,10 +670,7 @@ const ChordRow = ({ shortcut }: { shortcut: Shortcut }) => (
  */
 export const ShortcutsSection = () => (
   <>
-    <PageHead
-      title="Keyboard shortcuts"
-      blurb="What the window answers to. Keys inside a pane belong to whatever has focus."
-    />
+    <PageExplanation>What the window answers to. Keys inside a pane belong to whatever has focus.</PageExplanation>
     {GROUPS.map((group) => {
       const tiles = SHORTCUTS.filter(shortcut => shortcut.group === group && /^tile-\d+$/.test(shortcut.action))
       const first = tiles[0]
@@ -745,9 +690,7 @@ export const ShortcutsSection = () => (
             {rows.map((shortcut) => (
               groupTiles && shortcut === first ? (
                 <Row key={shortcut.action} title={`Focus tile ${range}`} control={
-                  <span className="flex gap-1">
-                    {[...firstParts.slice(0, -1), range].map(key => <Keycap key={key} className={styles.chord}>{key}</Keycap>)}
-                  </span>
+                  <ShortcutKeys keys={[...firstParts.slice(0,-1),range]}/>
                 } />
               ) : <ChordRow key={shortcut.action} shortcut={shortcut} />
             ))}
@@ -758,10 +701,10 @@ export const ShortcutsSection = () => (
 
     <SectionHead name="In the composer" />
     <Rows>
-      <Row title="Send" control={<Keycap className={styles.chord}>↵</Keycap>} />
-      <Row title="New line" control={<span className="flex gap-1"><Keycap className={styles.chord}>⇧</Keycap><Keycap className={styles.chord}>↵</Keycap></span>} />
-      <Row title="Commands" control={<Keycap className={styles.chord}>/</Keycap>} />
-      <Row title="Mention a file" control={<Keycap className={styles.chord}>@</Keycap>} />
+      <Row title="Send" control={<Keycap>↵</Keycap>} />
+      <Row title="New line" control={<ShortcutKeys keys={['⇧','↵']}/>} />
+      <Row title="Commands" control={<Keycap>/</Keycap>} />
+      <Row title="Mention a file" control={<Keycap>@</Keycap>} />
     </Rows>
   </>
 )

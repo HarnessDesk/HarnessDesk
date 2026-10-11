@@ -170,6 +170,7 @@ const boxedVariants = cva(
            compact, but its actual box was a control a finger could miss.
            The floor, not the padding: `--hd-target-min` sets the height,
            the tight `px-1.5`/`text-xs` keep the compact look. */
+        wrap: 'h-auto min-h-(--hd-btn-h) p-(--hd-btn-padding) whitespace-normal has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
         xs: "h-(--hd-target-min) gap-1 px-1.5 text-xs [&_svg:not([class*='size-'])]:size-3",
         sm: 'h-(--hd-btn-h-sm) gap-1 p-(--hd-btn-padding-sm) text-(length:--hd-btn-text-sm) has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5',
         /* A labelled destination in the sidebar's three-item rail. The row

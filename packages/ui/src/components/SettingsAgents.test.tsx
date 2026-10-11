@@ -1,3 +1,4 @@
+import { RuntimesTestPage as RuntimesSection } from './settings-test-page'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -14,18 +15,9 @@ import { NO_CAPABILITIES } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { AddAgents, RuntimesSection } from './SettingsAgents'
-
-/**
- * Adding an agent from the interface — the door the audit found missing.
- *
- * The catalogue is the host's; the page renders what it is given and never
- * names a runtime of its own. What it owes the user: a template that cannot
- * be added says why with the install command beside the reason, a registered
- * one says so instead of offering itself again, and the custom form sends
- * exactly what was typed.
- */
-
+import { AddAgentsTestPage as AddAgents } from './settings-test-page'
+import { AddAgents as ControlledAddAgents } from './SettingsAgents'
+import { SettingsTestScope } from './settings-test-page'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let container: HTMLDivElement
@@ -294,12 +286,11 @@ it('renders the registry with the same honesty per row', async () => {
   // Every entry is a plate card, compact — the card the transcript's cards
   // are, not a box drawn for the registry alone.
   const cells = REGISTRY.map((agent) =>
-    [...document.body.querySelectorAll('[data-slot="card"]')].find((card) => card.textContent?.includes(agent.name)),
+    [...document.body.querySelectorAll('[data-slot="row"]')].find((card) => card.textContent?.includes(agent.name)),
   )
   expect(cells.every(Boolean)).toBe(true)
   for (const cell of cells) {
-    expect(cell?.getAttribute('data-variant')).toBe('plate')
-    expect(cell?.getAttribute('data-spacing')).toBe('compact')
+    expect(cell?.querySelector('[data-slot="row-title"]')).not.toBeNull()
   }
 })
 
@@ -1268,10 +1259,71 @@ it('unanswered extra account menus name the credential homes that distinguish th
   expect(names).toEqual(['Alpha actions · /tmp/alpha-2', 'Alpha actions · /tmp/alpha-3'])
 })
 
-it('a runtime detail mark follows the Faces setting through the shared detail pattern', async () => {
+it('a runtime destination bar keeps its 16px presentation mark', async () => {
   await mountList()
   await act(async () => line('Alpha').click())
-  const title = container.querySelector('[data-slot="detail-title"]')!
+  const title = container.querySelector('[data-topbar-title]')!
   expect(title.textContent).toBe('Alpha')
-  expect(title.parentElement?.parentElement?.parentElement?.querySelector('[data-shape="face"]')).not.toBeNull()
+  expect(title.closest('[data-topbar="place"]')?.querySelector('[data-topbar-mark] svg[width="16"]')).not.toBeNull()
+})
+
+it.each(['template','registry'] as const)('a submitted %s add finishes without catalogue reads after hiding its owner',async(kind)=>{
+  let resolve!:(value:string|null)=>void
+  const pending=new Promise<string|null>(yes=>{resolve=yes})
+  const {store,agentCatalog,acpRegistry,addAgent}=await mount(CATALOG,REGISTRY,()=>pending)
+  const render=(active:boolean)=>act(async()=>root.render(<StoreProvider store={store}><SettingsTestScope active={active}><ControlledAddAgents onBack={()=>{}} onDone={()=>{}}/></SettingsTestScope></StoreProvider>))
+  await render(true);const beforeCatalog=agentCatalog.mock.calls.length,beforeRegistry=acpRegistry.mock.calls.length
+  if(kind==='template')act(()=>button('Add')!.click())
+  else act(()=>button('Download')!.click())
+  await render(false);await act(async()=>resolve('synthetic-added'))
+  expect(addAgent).toHaveBeenCalledTimes(1);expect(agentCatalog).toHaveBeenCalledTimes(beforeCatalog);expect(acpRegistry).toHaveBeenCalledTimes(beforeRegistry)
+})
+it('a submitted custom add finishes after dialog unmount without revisiting its old route',async()=>{
+  let resolve!:(value:string|null)=>void
+  const pending=new Promise<string|null>(yes=>{resolve=yes}),onDone=vi.fn()
+  const {store,addAgent}=await mount(CATALOG,[],()=>pending)
+  await act(async()=>root.render(<StoreProvider store={store}><AddAgents onBack={()=>{}} onDone={onDone}/></StoreProvider>))
+  act(()=>button('Set up…')!.click());type(byLabel('Name'),'Synthetic Agent');type(byLabel('Command'),'synthetic-agent')
+  act(()=>button('Add runtime')!.click());act(()=>root.render(<div>Work</div>));await act(async()=>resolve('synthetic-added'))
+  expect(addAgent).toHaveBeenCalledTimes(1);expect(onDone).not.toHaveBeenCalled();expect(container.textContent).toBe('Work')
+})
+
+it('an approved option write after unmount does not read options again',async()=>{
+  let resolve!:(value:boolean)=>void
+  const pending=new Promise<boolean>(yes=>{resolve=yes}),optionsFor=vi.fn(async()=>[{id:'bounded',type:'boolean',label:'Bounded',currentValue:false}]),setOptionFor=vi.fn(()=>pending)
+  await mountList({store:{optionsFor,setOptionFor}});await act(async()=>line('Alpha').click())
+  act(()=>[...container.querySelectorAll<HTMLButtonElement>('[role="switch"]')].find(node=>node.closest('[data-slot="row"]')?.textContent?.includes('Bounded'))!.click())
+  act(()=>root.render(<div>Work</div>));await act(async()=>resolve(true))
+  expect(setOptionFor).toHaveBeenCalledTimes(1);expect(optionsFor).toHaveBeenCalledTimes(1)
+})
+
+it('an approved runtime update after unmount does not read installs again',async()=>{
+  let resolve!:(value:boolean)=>void
+  const pending=new Promise<boolean>(yes=>{resolve=yes})
+  const copy={path:'/synthetic/agent',version:'1',channel:'managed' as const,channelLabel:'Managed',standing:'chosen' as const,managed:true}
+  const install={copies:[copy],chosen:copy,policy:'newest' as const,fallback:{command:copy.path,version:'1',managed:true},registryUpdate:{version:'2'},checkedAt:0}
+  const info=runtime({id:'synthetic',name:'Synthetic',presentation:{name:'Synthetic'},origin:'registry',install})
+  const installsFor=vi.fn(async()=>install),updateAgent=vi.fn(()=>pending)
+  await mountList({runtimes:[info],accountsByRuntime:{synthetic:signedIn([],[])},store:{installsFor,updateAgent}})
+  await act(async()=>line('Synthetic').click());act(()=>button('Update to 2')!.click())
+  act(()=>root.render(<div>Work</div>));await act(async()=>resolve(true))
+  expect(updateAgent).toHaveBeenCalledTimes(1);expect(installsFor).toHaveBeenCalledTimes(1)
+})
+it.each(['apiKey','browser'] as const)('a deferred %s account add keeps its approved mutation and suppresses obsolete sign-in UI',async(flow)=>{
+  let resolve!:(value:string|null)=>void
+  const pending=new Promise<string|null>(yes=>{resolve=yes}),onSignIn=vi.fn(),signInAgent=vi.fn(async()=>{})
+  const info=runtime({id:'synthetic',name:'Synthetic',presentation:{name:'Synthetic'},slot:{agent:'synthetic',canAdd:true}})
+  const snapshot={...emptySnapshot(),status:'open',activeRuntime:'synthetic',runtimes:[info],accountsByRuntime:{synthetic:signedIn([{email:'dev@example.com'}], [flow])}} as unknown as AppSnapshot
+  const store={subscribe:()=>()=>{},getSnapshot:()=>snapshot,transport:{request:vi.fn(async()=>null)},loadAccounts:async()=>{},healthFor:async()=>null,installsFor:async()=>null,optionsFor:async()=>[],newSessionDefaultsFor:async()=>({}),listModels:async()=>[],readPlan:async()=>({entry:null,suggestion:null,refusal:null}),addAccount:vi.fn(()=>pending),signInAgent} as unknown as AppStore
+  await act(async()=>root.render(<StoreProvider store={store}><RuntimesSection onSignIn={onSignIn}/></StoreProvider>));await act(async()=>line('Synthetic').click())
+  act(()=>button('Add account')!.click());act(()=>root.render(<div>Work</div>));await act(async()=>resolve('synthetic-extra'))
+  expect(store.addAccount).toHaveBeenCalledTimes(1);expect(onSignIn).not.toHaveBeenCalled()
+  if(flow==='browser')expect(signInAgent).toHaveBeenCalledWith('synthetic-extra');else expect(signInAgent).not.toHaveBeenCalled()
+})
+
+it('a successful current custom add visits its owner once',async()=>{
+  const {store}=await mount(),onDone=vi.fn()
+  await act(async()=>root.render(<StoreProvider store={store}><AddAgents onBack={()=>{}} onDone={onDone}/></StoreProvider>))
+  act(()=>button('Set up…')!.click());type(byLabel('Name'),'Synthetic Agent');type(byLabel('Command'),'synthetic-agent')
+  await act(async()=>button('Add runtime')!.click());expect(onDone).toHaveBeenCalledTimes(1)
 })

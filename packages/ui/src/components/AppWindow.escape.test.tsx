@@ -1,3 +1,6 @@
+import { App } from '../app/App'
+import { frameDestinationStore } from '../preview/frame-destination-store'
+import { SettingsTestPage as Settings } from './settings-test-page'
 import { Sidebar } from './Sidebar'
 import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -9,7 +12,7 @@ import { NO_CAPABILITIES } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { Menu, MenuItem, Popover, useEscapeSurface } from '../design'
-import { Settings } from './Settings'
+
 import { Usage } from './Usage'
 import { AgentsWindow } from './AgentsWindow'
 import { previewStore } from '../preview/harness'
@@ -112,7 +115,7 @@ const escape = async (): Promise<boolean> => {
 
 const menu = (): HTMLElement | null => document.querySelector('[data-slot="popover-popup"]')
 const window_ = (label: string): HTMLElement | null =>
-  document.querySelector(`[role="dialog"][aria-label="${label}"]`)
+  label==='Settings' ? document.querySelector('[data-slot="page"][data-width="reading"]') : document.querySelector(`[role="dialog"][aria-label="${label}"]`)
 
 /** The window, with a menu beside it, and whether the window is still up. */
 const mount = async (which: 'Settings' | 'Dashboard'): Promise<() => boolean> => {
@@ -155,7 +158,7 @@ for (const which of ['Settings', 'Dashboard'] as const) {
       const [open, setOpen] = useState(false)
       return <>
         <Popover label="Account">{close => <Menu close={close}>
-          <MenuItem label={`Open ${which}`} onSelect={() => setOpen(true)} />
+          <MenuItem label={`Open ${which}`} onSelect={() => {setOpen(true); close()}} />
         </Menu>}</Popover>
         {open && (which === 'Settings'
           ? <Settings section="appearance" onSection={() => {}} onClose={() => setOpen(false)} onSignIn={() => {}} />
@@ -171,10 +174,10 @@ for (const which of ['Settings', 'Dashboard'] as const) {
     action.focus()
     await act(async () => action.click())
     await frame()
-    expect(document.activeElement).toBe(window_(which))
+    expect(document.activeElement).toBe(which==='Settings'?trigger:window_(which))
     await escape()
     await frame()
-    expect(window_(which)).toBeNull()
+    if(which==='Settings') expect(window_(which)).not.toBeNull(); else expect(window_(which)).toBeNull()
     expect(document.activeElement).toBe(trigger)
   })
 
@@ -195,9 +198,9 @@ for (const which of ['Settings', 'Dashboard'] as const) {
     expect(up()).toBe(true)
 
     // And the window still answers a key nothing else wanted.
-    expect(await escape()).toBe(true)
-    expect(up()).toBe(false)
-    expect(window_(which)).toBeNull()
+    expect(await escape()).toBe(which!=='Settings')
+    expect(up()).toBe(which==='Settings')
+    if(which==='Settings') expect(window_(which)).not.toBeNull(); else expect(window_(which)).toBeNull()
   })
 }
 
@@ -234,7 +237,7 @@ it('Agents spends More menu Escape before its own close and returns focus to the
   expect(document.activeElement).toBe(opener)
 })
 
-it('overlapping real Agents and Settings windows close the active window before the underlying owner', async () => {
+it('a real Agents dialog closes while the underlying Settings page stays nonmodal', async () => {
   const store = previewStore(), settingsClosed = vi.fn(), agentsClosed = vi.fn()
   const Harness = () => {
     const [settings, setSettings] = useState(true), [agents, setAgents] = useState(true)
@@ -253,9 +256,9 @@ it('overlapping real Agents and Settings windows close the active window before 
   expect(settingsClosed).not.toHaveBeenCalled()
   expect(window_('Agents')).toBeNull()
   expect(window_('Settings')).not.toBeNull()
-  expect(await escape()).toBe(true)
-  expect(settingsClosed).toHaveBeenCalledOnce()
-  expect(window_('Settings')).toBeNull()
+  expect(await escape()).toBe(false)
+  expect(settingsClosed).not.toHaveBeenCalled()
+  expect(window_('Settings')).not.toBeNull()
 })
 
 /**
@@ -304,48 +307,23 @@ it('the surface on top answers, and the pane below hears that the key is spent (
   window.removeEventListener('keydown', inThePane)
 })
 
-it('the shared Settings column spends Escape on its menu, float, then window', async () => {
-  const frame = () => act(async () => { await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
-  // jsdom omits inert focus refusal. React restores the pre-commit account
-  // focus after the float hides; browsers refuse that hidden inert target.
-  const focusMethod = HTMLElement.prototype.focus
-  const inertFocus = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(function (this: HTMLElement, options) {
-    if (!this.closest('[inert]')) focusMethod.call(this, options)
-  })
-  const store = previewStore()
-  act(() => store.setWindowSize(720, 900))
-  const Harness = () => {
-    const [open, setOpen] = useState(true)
-    return open && <Settings section="appearance" onSection={() => {}} onClose={() => setOpen(false)} onSignIn={() => {}}
-      leftColumn={<Sidebar sessionsOwner={false} onOpenSettings={() => {}} onOpenPlugins={() => {}}
-        onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}}
-        onSignIn={() => {}} onSearch={() => {}}
-        settings={{ section: 'appearance', onSection: () => {}, onBack: () => setOpen(false) }} />} />
-  }
-  await act(async () => root.render(<StoreProvider store={store}><TopBarProvider><ShellHostsProvider>
-    <Harness /><ShellOutlets activeOwner="settings" />
-  </ShellHostsProvider></TopBarProvider></StoreProvider>))
-  await frame()
-  const modal = window_('Settings')!
-  const show = modal.querySelector<HTMLButtonElement>('[data-shell-host="top"] button[aria-label="Show sidebar"]')!
-  expect(show).not.toBeNull()
-  act(() => show.focus())
-  expect(document.activeElement).toBe(show)
-  await act(async () => show.click())
-  const column = modal.querySelector<HTMLElement>('[data-left-column]')!
-  expect(column.closest('[data-app-window-left]')?.hasAttribute('hidden')).toBe(false)
-  const account = column.querySelector<HTMLButtonElement>('[data-left-seat] [data-slot="popover-trigger"]')!
-  await act(async () => account.click())
+it('the main Settings column spends Escape on its menu and float while retaining the page', async () => {
+  const store=frameDestinationStore(previewStore())
+  store.setWindowSize(720,900)
+  store.openDestination({kind:'settings',route:{kind:'section',section:'appearance',focus:null}})
+  const frame=()=>act(async()=>{await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()))})
+  await act(async()=>root.render(<StoreProvider store={store}><App/></StoreProvider>));await frame()
+  const show=container.querySelector<HTMLButtonElement>('button[aria-label="Show sidebar"]')!
+  act(()=>show.focus())
+  await act(async()=>show.click());await frame()
+  const column=container.querySelector<HTMLElement>('[data-left-column]')!
+  await act(async()=>column.querySelector<HTMLButtonElement>('[data-left-seat] [data-slot="popover-trigger"]')!.click())
   expect(menu()).not.toBeNull()
-  const covered = vi.fn()
-  const handler = (event: KeyboardEvent) => { if (event.key === 'Escape' && !event.defaultPrevented) covered() }
-  window.addEventListener('keydown', handler)
-  try {
-    expect(await escape()).toBe(true); expect(menu()).toBeNull(); await frame()
-    expect(store.getSnapshot().sidebarFloating).toBe(true)
-    expect(await escape()).toBe(true); expect(store.getSnapshot().sidebarFloating).toBe(false); await frame()
-    expect(window_('Settings')).not.toBeNull(); expect(document.activeElement).toBe(show)
-    expect(await escape()).toBe(true); expect(window_('Settings')).toBeNull()
-    expect(covered).not.toHaveBeenCalled()
-  } finally { window.removeEventListener('keydown', handler); inertFocus.mockRestore() }
+  expect(await escape()).toBe(true);await frame();expect(menu()).toBeNull()
+  expect(store.getSnapshot().sidebarFloating).toBe(true)
+  expect(await escape()).toBe(true);await frame();expect(store.getSnapshot().sidebarFloating).toBe(false)
+  expect(document.activeElement).toBe(show)
+  expect(await escape()).toBe(false)
+  expect(store.getSnapshot().workbench.navigation.current.kind).toBe('settings')
+  expect(container.querySelector('[data-slot="app-window"]')).toBeNull()
 })

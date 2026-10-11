@@ -241,6 +241,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-table-end-gap` | `12px` |
 | `--hd-history-detail-min-h` | `160px` |
 | `--hd-field-h` | `30px` |
+| `--hd-table-page-max-height` | `50dvh` |
 | `--hd-field-name-width` | `220px` |
 | `--hd-field-path-width` | `280px` |
 | `--hd-control-h-lg` | `<cycle>` |
@@ -536,6 +537,7 @@ A table scope owns its density, including list and settings examples. Restating 
 | `--hd-table-lead-gap` | `12px` | `10px` |
 | `--hd-table-line-gap` | `2px` | `2px` |
 | `--hd-table-name-size` | `14px` | `13px` |
+| `--hd-table-page-max-height` | `50dvh` | `50dvh` |
 | `--hd-table-row-min` | `56px` | `40px` |
 | `--hd-table-row-min-bare` | `44px` | `32px` |
 | `--hd-table-sentence-size` | `13px` | `12px` |
@@ -2319,7 +2321,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawDuration` | 0 | Will not follow a change to how fast the app moves — every other surface speeds up and this one keeps its own clock. |
 | `rawColour` | 0 | Will not follow a palette or theme change. |
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
-| `retiredComponent` | 76 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
+| `retiredComponent` | 39 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 21 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2821 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `screenLayout` | 2705 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 

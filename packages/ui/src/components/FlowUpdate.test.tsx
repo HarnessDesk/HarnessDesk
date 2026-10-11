@@ -105,3 +105,16 @@ it('an error in the preview keeps Apply visible and disabled, with the fix named
   const proceed = [...document.body.querySelectorAll('button')].find((one) => one.textContent === 'Write these files')!
   expect((proceed as HTMLButtonElement).disabled).toBe(true)
 })
+
+it('lets an approved write finish after unmount without re-previewing or opening navigation',async()=>{
+  let finish!:(value:FlowUpdateResult)=>void
+  const snapshot=emptySnapshot(),store={subscribe:()=>()=>{},getSnapshot:()=>snapshot,previewFlowUpdate:vi.fn(async()=>PREVIEW),applyFlowUpdate:vi.fn(()=>new Promise<FlowUpdateResult>(yes=>{finish=yes}))} as unknown as AppStore
+  const applied=vi.fn(),close=vi.fn()
+  await act(async()=>root.render(<StoreProvider store={store}><FlowUpdate root="/synthetic/project" id="fix" mode="update" onApplied={applied} onClose={close}/></StoreProvider>))
+  act(()=>[...document.querySelectorAll<HTMLButtonElement>('button')].find(node=>node.textContent==='Write these files')!.click())
+  act(()=>root.render(<StoreProvider store={store}><div>Other destination</div></StoreProvider>))
+  await act(async()=>finish({state:'partial',written:['.harnessdesk/flows/fix.yml'],message:'Review the partial write.'}))
+  expect(store.applyFlowUpdate).toHaveBeenCalledTimes(1)
+  expect(store.previewFlowUpdate).toHaveBeenCalledTimes(1)
+  expect(applied).not.toHaveBeenCalled();expect(close).not.toHaveBeenCalled()
+})

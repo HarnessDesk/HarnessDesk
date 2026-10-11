@@ -153,4 +153,26 @@ export interface WallDestination { readonly leftHeading?: 'hover-open' | 'folded
 )
 export interface WallDestination { readonly plan?: 'anchor' | 'rest' }
 
-export const PAGE_WALL_DESTINATIONS: readonly WallDestination[] = []
+export const PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
+  { id: 'settings-general', query: 'frame-wall=settings&frame-section=general', pageWidth: 'reading' },
+  { id: 'settings-appearance', query: 'frame-wall=settings&frame-section=appearance', pageWidth: 'reading' },
+  { id: 'settings-notifications', query: 'frame-wall=settings&frame-section=notifications', pageWidth: 'reading' },
+  { id: 'settings-shortcuts', query: 'frame-wall=settings&frame-section=shortcuts', pageWidth: 'reading' },
+  { id: 'settings-workspaces', query: 'frame-wall=settings&frame-section=workspaces', pageWidth: 'reading' },
+  { id: 'settings-archive', query: 'frame-wall=settings&frame-section=archive', pageWidth: 'reading' },
+  { id: 'settings-history', query: 'frame-wall=settings&frame-section=history', pageWidth: 'reading' },
+  { id: 'settings-storage', query: 'frame-wall=settings&frame-section=storage', pageWidth: 'reading' },
+  { id: 'settings-runtimes', query: 'frame-wall=settings&frame-section=runtimes', pageWidth: 'reading' },
+  { id: 'settings-models', query: 'frame-wall=settings&frame-section=models', pageWidth: 'reading' },
+  { id: 'settings-skills', query: 'frame-wall=settings&frame-section=skills', pageWidth: 'reading' },
+  { id: 'settings-extensions', query: 'frame-wall=settings&frame-section=extensions', pageWidth: 'reading' },
+  { id: 'settings-permissions', query: 'frame-wall=settings&frame-section=permissions', pageWidth: 'reading' },
+  { id: 'settings-browser', query: 'frame-wall=settings&frame-section=browser', pageWidth: 'reading' },
+  { id: 'settings-profile', query: 'frame-wall=settings&frame-section=profile', pageWidth: 'reading' },
+  { id: 'settings-add-runtime', query: 'frame-wall=settings&frame-section=runtimes&frame-focus=add', pageWidth: 'reading' },
+  { id: 'settings-runtime', query: 'frame-wall=settings&frame-detail=runtime', pageWidth: 'reading' },
+  { id: 'settings-account', query: 'frame-wall=settings&frame-detail=account', pageWidth: 'reading' },
+  { id: 'settings-project', query: 'frame-wall=settings&frame-detail=project', pageWidth: 'reading' },
+  { id: 'settings-skill', query: 'frame-wall=settings&frame-detail=skill', pageWidth: 'reading' },
+]
+;(WALL_DESTINATIONS as WallDestination[]).push(...PAGE_WALL_DESTINATIONS)

@@ -1,6 +1,7 @@
+import { SettingsPreview as Settings } from './settings-pages'
 import { useMemo, useState } from 'react'
 import { NO_CAPABILITIES, runtimeId, sessionId, type HistoryImportState, type HistorySummary, type RuntimeInfo } from '@harnessdesk/protocol'
-import { Settings, type Section } from '../components/Settings'
+import { type Section } from '../components/Settings'
 import { StoreProvider } from '../state/context'
 import { Frame } from './main'
 import { previewStore } from './harness'
@@ -46,7 +47,7 @@ const HistoryFrame = ({ scene }: { scene: string }) => {
   }, [scene])
   return <Frame id={`history-${scene}`} title={scene.startsWith('agent-') ? `Agent settings — ${scene.slice(6)}` : `History — ${scene}`}>
     <div className="relative h-[700px]" style={{ transform: 'translateZ(0)' }}><StoreProvider store={own}>
-      <Settings section={route.section} focus={route.focus} onSection={(section, focus) => setRoute({ section, focus: focus ?? null })} onClose={() => {}} onSignIn={() => {}} />
+      <Settings section={route.section} focus={route.focus} onSection={(section, focus) => setRoute({ section, focus: focus ?? null })} />
     </StoreProvider></div>
   </Frame>
 }

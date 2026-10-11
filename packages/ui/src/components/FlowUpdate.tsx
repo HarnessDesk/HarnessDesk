@@ -1,3 +1,4 @@
+import { useDestinationActive } from '../panels/destination-page'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { FlowUpdatePreview, FlowUpdateResult } from '@harnessdesk/protocol'
@@ -29,6 +30,9 @@ export interface FlowUpdateProps {
  */
 export const FlowUpdate = ({ root, id, mode, onClose, onApplied }: FlowUpdateProps) => {
   const store = useStore()
+  const active=useDestinationActive(),live=useRef(active),generation=useRef(0)
+  live.current=active
+  useEffect(()=>{return()=>{live.current=false;generation.current++}},[active,root,id,mode])
   const [preview, setPreview] = useState<FlowUpdatePreview | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [result, setResult] = useState<FlowUpdateResult | null>(null)
@@ -36,27 +40,32 @@ export const FlowUpdate = ({ root, id, mode, onClose, onApplied }: FlowUpdatePro
   const writing = useRef(false)
 
   const load = useCallback((): void => {
+    if(!live.current)return
+    const epoch=++generation.current
     setPreview(null)
     setProblem(null)
     store.previewFlowUpdate(root, id, mode).then(
-      (next) => setPreview(next),
-      (error: unknown) => setProblem(error instanceof Error ? error.message : String(error)),
+      (next) => {if(live.current&&generation.current===epoch)setPreview(next)},
+      (error: unknown) => {if(live.current&&generation.current===epoch)setProblem(error instanceof Error ? error.message : String(error))},
     )
   }, [store, root, id, mode])
 
   useEffect(() => {
-    load()
-  }, [load])
+    live.current=active
+    if(active)load()
+  }, [active,load])
 
   const errors = preview?.problems.filter((one) => one.level === 'error') ?? []
   const canApply = preview !== null && errors.length === 0 && problem === null
 
   const apply = async (): Promise<void> => {
     if (!preview || !canApply || writing.current) return
+    const epoch=generation.current
     writing.current = true
     setBusy(true)
     try {
       const next = await store.applyFlowUpdate(root, id, preview.token, mode)
+      if(!live.current||generation.current!==epoch)return
       setResult(next)
       if (next.state === 'applied') {
         onApplied()

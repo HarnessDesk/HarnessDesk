@@ -1,6 +1,7 @@
+import { RuntimesPreview as RuntimesSection } from './settings-pages'
 import { NO_CAPABILITIES, runtimeId, type AuthMethod, type ConfigOption, type RuntimeInfo } from '@harnessdesk/protocol'
 import { Composer } from '../components/Composer'
-import { RuntimesSection } from '../components/SettingsAgents'
+
 import { StoreProvider } from '../state/context'
 import { useMemo } from 'react'
 import { Frame } from './main'

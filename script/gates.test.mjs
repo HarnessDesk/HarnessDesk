@@ -4590,3 +4590,6 @@ test('page family scanner preserves the layout, measure and retired-head authori
   assert.ok(findings.some(value => value.includes('<PaneColumn page>')))
   assert.throws(() => pageLayoutFindings('unregistered'), /Unknown page family/)
 })
+test('E Settings screen layout, measures and old heads are zero', () => {
+  assert.deepEqual(pageLayoutFindings('settings'), [])
+})

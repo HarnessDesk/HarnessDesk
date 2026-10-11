@@ -515,6 +515,7 @@ export const Conversation = ({
             ref={scroll}
             onScroll={onScroll}
             onClick={onScrollClick}
+            data-transcript
             data-live-transcript
           >
             {session.worktreeWarning && <Banner tone="neutral" compact>{session.worktreeWarning}</Banner>}

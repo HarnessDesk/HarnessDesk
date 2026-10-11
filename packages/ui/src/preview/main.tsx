@@ -1,3 +1,4 @@
+import { SettingsPreview as Settings, RuntimesPreview as RuntimesSection, WorkspacesPreview as WorkspacesSection } from './settings-pages'
 import { FRAME } from '../design'
 import { NativeServersPreview } from './native-servers'
 import { TeamViewFrame } from './TeamViewFrame'
@@ -49,10 +50,10 @@ import { AgentsWindow } from '../components/AgentsWindow'
 import { NewSessionChoice } from '../components/NewSessionChoice'
 import { SeatSheet } from '../components/SeatSheet'
 import { SaveAsAgentDialog } from '../components/SaveAsAgent'
-import { Settings, WorkspacesSection, type Section } from '../components/Settings'
+import { type Section } from '../components/Settings'
 import { Usage, type DashboardView } from '../components/Usage'
 import { SignIn } from '../components/SignIn'
-import { RuntimesSection } from '../components/SettingsAgents'
+
 import { SIGN_IN_SCENES, SIGN_IN_SELECTED, runtimesSeed, signInSeed, type SignInScene } from './signin-fixture'
 import { RemoveWorktree } from './../components/RemoveWorktree'
 import { Sidebar } from '../components/Sidebar'
@@ -758,21 +759,15 @@ const Preview = () => {
           <TeamViewFrame room={EDGE_ROOM} page="board"><TeamBoardPane room={EDGE_ROOM} /></TeamViewFrame>
         </div>
       </Frame>
-      {/* Settings is a fixed-position sheet, so it would paint over the whole
-          page. A `transform` on the wrapper makes it the containing block for
-          `position: fixed`, which pins the real dialog — unedited — inside a
-          frame. It is the only way to see the settings surface at the 980px
-          it actually opens at. */}
-      <Frame id="settings-sheet" title="Settings — the sheet, its nav, and a page">
+      {/* Settings uses the real App destination frame with a synthetic store. */}
+      <Frame id="settings-sheet" title="Settings — the main page and its navigation">
         <div className="relative h-[940px]" style={{ transform: 'translateZ(0)' }}>
           {/* The page is the caller's, so the dial drives it directly and the
-              sheet's own nav rail writes back to the same state — no remount,
+              real column navigation writes back to the same state — no remount,
               and clicking around in here moves the dial with it. */}
           <StoreProvider store={settingsListsStore}><Settings
             section={settingsSection}
             onSection={setSettingsSection}
-            onClose={() => {}}
-            onSignIn={() => {}}
           /></StoreProvider>
         </div>
       </Frame>

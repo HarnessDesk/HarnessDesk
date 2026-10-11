@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useDestinationActive } from '../panels/destination-page'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import type { FlowEntry, TriggerFiring, TriggerHistoryPage, TriggerView } from '@harnessdesk/protocol'
 
@@ -25,6 +26,8 @@ const switchId = (id: string): string => `trigger-arm-${id}`
  * explicit arm review in `TriggerArm` ever consents to unattended work.
  */
 export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const snapshot = useSnapshot()
   const revision = snapshot.triggerRevisions[root]
@@ -42,18 +45,32 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
   const [chosenFlow, setChosenFlow] = useState<string>('')
   const [creating, setCreating] = useState<{ readonly flow: string } | null>(null)
 
-  const load = useCallback((): void => {
+  const generation = useRef(0)
+  const activeRead = useRef(destinationActive)
+  activeRead.current = destinationActive
+  const lifetime=useRef(0),wasActive=useRef(destinationActive)
+  if(wasActive.current!==destinationActive){wasActive.current=destinationActive;lifetime.current++}
+  const activation=lifetime.current
+  useEffect(()=>{activeRead.current=destinationActive;return()=>{activeRead.current=false;lifetime.current++}},[])
+  const load = useCallback((owner?:number): void => {
+    if (!activeRead.current || (owner!==undefined && owner!==lifetime.current)) return
+    const epoch = ++generation.current
     store.projectTriggers(root).then(
-      (view) => setRead({ root, view }),
-      (error: unknown) => setRead({ root, problem: error instanceof Error ? error.message : String(error) }),
+      view => { if (activeRead.current && generation.current === epoch) setRead({ root, view }) },
+      (error: unknown) => { if (activeRead.current && generation.current === epoch) setRead({ root, problem: error instanceof Error ? error.message : String(error) }) },
     )
   }, [store, root])
 
+  useEffect(() => { if (!destinationActive) { setDialog(null); setChoosingFlow(false); setCreating(null) } }, [destinationActive])
+
   useEffect(() => {
+    if (!destinationActive) return
+
     load()
+    return () => { generation.current++ }
     // A push notification only bumps `revision`; this effect is what turns
     // that into a fresh read, whichever project raised it or none did.
-  }, [load, revision])
+  }, [destinationActive, load, revision])
 
   const restoreFocus = (id: string): void => {
     document.getElementById(switchId(id))?.focus()
@@ -64,7 +81,7 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
     setRowProblem(null)
     try {
       await store.disarmTrigger(root, id)
-      load()
+      load(activation)
     } catch (error) {
       setRowProblem({ id, message: error instanceof Error ? error.message : String(error) })
     } finally {
@@ -87,7 +104,7 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
     setRowProblem(null)
     try {
       await store.rebaselineTrigger(root, id)
-      load()
+      load(activation)
     } catch (error) {
       setRowProblem({ id, message: error instanceof Error ? error.message : String(error) })
     } finally {
@@ -126,6 +143,8 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
 
   const { view } = read
 
+
+
   if (!view.exists) {
     return (
       <Section title="Triggers" action={<Button size="sm" variant="outline" onClick={openChooser}>New trigger…</Button>}>
@@ -137,7 +156,7 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
           />
         </Rows>
         <FlowChooser
-          open={choosingFlow}
+          open={destinationActive && choosingFlow}
           flows={flows}
           chosen={chosenFlow}
           onChoose={setChosenFlow}
@@ -147,14 +166,14 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
             setCreating({ flow: chosenFlow })
           }}
         />
-        {creating && (
+        {destinationActive && creating && (
           <TriggerCreate
             root={root}
             opens={{ flow: creating.flow }}
             onClose={() => setCreating(null)}
             onSaved={() => {
               setCreating(null)
-              load()
+              load(activation)
             }}
           />
         )}
@@ -206,7 +225,7 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
         ))}
       </ListRows>
       <Button variant="secondary" onClick={() => store.openFile(view.path)}>Open file</Button>
-      {dialog && (
+      {destinationActive && dialog && (
         <TriggerArm
           root={root}
           id={dialog}
@@ -218,13 +237,13 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
           onArmed={() => {
             const id = dialog
             setDialog(null)
-            load()
+            load(activation)
             restoreFocus(id)
           }}
         />
       )}
       <FlowChooser
-        open={choosingFlow}
+        open={destinationActive && choosingFlow}
         flows={flows}
         chosen={chosenFlow}
         onChoose={setChosenFlow}
@@ -234,7 +253,7 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
           setCreating({ flow: chosenFlow })
         }}
       />
-      {creating && (
+      {destinationActive && creating && (
         <TriggerCreate
           root={root}
           opens={{ flow: creating.flow }}
@@ -244,7 +263,7 @@ export const ProjectTriggers = ({ root }: ProjectTriggersProps) => {
             // trigger and, per decision, the Intake refusal until it is
             // committed — the existing Commit/Arm path handles that.
             setCreating(null)
-            load()
+            load(activation)
           }}
         />
       )}
@@ -362,19 +381,23 @@ const TriggerRowGroup = ({
 }
 
 const TriggerHistory = ({ root, id }: { readonly root: string; readonly id: string }) => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const [page, setPage] = useState<TriggerHistoryPage | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [loadingMore, setLoadingMore] = useState(false)
 
   useEffect(() => {
+    if (!destinationActive) return
+
     let live = true
     store.triggerHistory(root, id).then(
       (next) => { if (live) setPage(next) },
       (error: unknown) => { if (live) setProblem(error instanceof Error ? error.message : String(error)) },
     )
     return () => { live = false }
-  }, [store, root, id])
+  }, [destinationActive, store, root, id])
 
   const more = async (): Promise<void> => {
     if (!page?.next || loadingMore) return

@@ -310,6 +310,7 @@
 --hd-table-line-gap = 2px
 --hd-table-log-head-h = 28px
 --hd-table-name-size = 14px
+--hd-table-page-max-height = 50dvh
 --hd-table-row-h = 26px
 --hd-table-row-min = 56px
 --hd-table-row-min-bare = 44px
@@ -860,6 +861,7 @@
 --hd-table-line-gap = 2px
 --hd-table-log-head-h = 28px
 --hd-table-name-size = 14px
+--hd-table-page-max-height = 50dvh
 --hd-table-row-h = 26px
 --hd-table-row-min = 56px
 --hd-table-row-min-bare = 44px
@@ -1419,6 +1421,7 @@
 --hd-table-line-gap = 2px
 --hd-table-log-head-h = 28px
 --hd-table-name-size = 14px
+--hd-table-page-max-height = 50dvh
 --hd-table-row-h = 26px
 --hd-table-row-min = 56px
 --hd-table-row-min-bare = 44px
@@ -1978,6 +1981,7 @@
 --hd-table-line-gap = 2px
 --hd-table-log-head-h = 28px
 --hd-table-name-size = 14px
+--hd-table-page-max-height = 50dvh
 --hd-table-row-h = 26px
 --hd-table-row-min = 56px
 --hd-table-row-min-bare = 44px
