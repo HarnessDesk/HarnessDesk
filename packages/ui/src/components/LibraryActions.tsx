@@ -375,7 +375,7 @@ const AgentPick = ({
   label: string
 }) => (
   <ChoiceList<RuntimeId | ''> label={label} value={value ?? ''}
-    options={columns.map(column => ({ value: column.id, title: <>{column.info && <RuntimeMark runtime={column.info} size={13} />}{column.label}</> }))}
+    options={columns.map(column => ({ value: column.id, title: <Toolbar>{column.info && <RuntimeMark runtime={column.info} size={13} />}<span>{column.label}</span></Toolbar> }))}
     onChange={next => { if (next !== '') onChange(next) }} />
 )
 
@@ -481,6 +481,7 @@ export const ImportDialog = ({
   return (
     <Dialog
       title="Import between agents"
+      description="Pick where to import from, and which agent should get it. Nothing changes until a preview is confirmed."
       size="lg"
       tall
       onClose={onClose}
@@ -495,14 +496,11 @@ export const ImportDialog = ({
         </>
       }
    >
+      <PageControls search={{ label: 'Search imports', placeholder: 'Search imports', value: query, change: setQuery }} />
       <Fieldset legend="From"><AgentPick columns={columns} value={source} onChange={pickSource} label="Import from" /></Fieldset>
       <Fieldset legend="To"><AgentPick columns={columns} value={target} onChange={pickTarget} label="Import into" /></Fieldset>
-      <PageControls search={{ label: 'Search imports', placeholder: 'Search imports', value: query, change: setQuery }} />
       {source === null || target === null ? (
-        <Text as="p" role="muted">
-          Pick where to import from, and which agent should get it. Nothing changes until a
-          preview is confirmed.
-        </Text>
+        null
       ) : candidates.length === 0 ? (
         <Text as="p" role="muted">
           {library.locations.some((one) => one.runtime === target)

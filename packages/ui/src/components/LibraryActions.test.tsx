@@ -154,6 +154,37 @@ it('previews before it applies, and applies exactly what was previewed', async (
   )
 })
 
+it('puts the import explanation in the dialog head and gives agent marks their own title-line gap', async () => {
+  const columns: readonly LibraryColumn[] = [
+    { id: runtimeId('one'), label: 'Agent One', info: { id: 'agent-one', presentation: { name: 'Agent One' } } },
+    { id: runtimeId('two'), label: 'Agent Two', info: { id: 'agent-two', presentation: { name: 'Agent Two' } } },
+  ]
+  const library: Library = {
+    generatedAt: 1,
+    home: HOME,
+    runtimes: columns.map(column => column.id),
+    locations: [],
+    entries: [],
+    gaps: [],
+  }
+  await render(storeWith(async () => null), <ImportDialog library={library} columns={columns} onClose={() => {}} onPlan={() => {}} />)
+
+  const head = document.body.querySelector('[data-slot="dialog-head"]')!
+  expect(head.querySelector('[data-slot="dialog-description"]')?.textContent).toBe(
+    'Pick where to import from, and which agent should get it. Nothing changes until a preview is confirmed.',
+  )
+  const firstChoice = document.body.querySelector('[role="radiogroup"] [role="radio"] [data-slot="choice-title"]') as HTMLElement
+  expect(firstChoice.firstElementChild?.className).toContain('items-center')
+  expect(firstChoice.firstElementChild?.className).toContain('gap-2')
+  expect(firstChoice.querySelector('svg')).toBeTruthy()
+  expect(firstChoice.textContent).toContain('Agent One')
+  const body = document.body.querySelector('[data-slot="modal-dialog-body"]')!
+  const search = body.querySelector('[aria-label="Search imports"]')!
+  expect(body.querySelector('input')).toBe(search)
+  expect(body.firstElementChild?.contains(search)).toBe(true)
+  expect(body.textContent).not.toContain('Nothing changes until a preview is confirmed.')
+})
+
 it('a failed op wears its reason after apply; the batch reports per op', async () => {
   const ops: LibraryPlan['ops'] = [
     {
