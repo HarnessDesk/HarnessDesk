@@ -97,9 +97,9 @@ import { Menu, MenuItem, MenuSeparator, Popover } from '../../design'
  */
 
 export const PIVOTS = [
-  { value: 'runtime', label: 'by agent' },
-  { value: 'model', label: 'by model' },
-  { value: 'project', label: 'by project' },
+  { value: 'runtime', label: 'By agent' },
+  { value: 'model', label: 'By model' },
+  { value: 'project', label: 'By project' },
 ] as const
 
 export type Pivot = (typeof PIVOTS)[number]['value']

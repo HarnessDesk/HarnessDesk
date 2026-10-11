@@ -315,6 +315,10 @@ export const FrameWall = () => {
       }) as typeof next.transport.request
     }
 
+    if (destination === 'dashboard' && query.get('frame-fix9-silent') === '1') {
+      Object.assign(snapshot, { accountsByRuntime: Object.fromEntries(snapshot.runtimes.map(info => [info.id, { accounts: [], signInMethods: [] }])) })
+    }
+
     if (destination === 'dashboard' && query.has('frame-fix9-project')) {
       const workspace = { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1, repo: { root: '/work/storefront' } }
       Object.assign(snapshot, { workspace: query.get('frame-fix9-project') === 'none' ? null : workspace })

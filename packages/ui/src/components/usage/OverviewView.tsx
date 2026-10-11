@@ -119,7 +119,7 @@ export const OverviewView = ({
           <Button variant="link" size="content" onClick={onGoToPlans}>
             See all in Plans
           </Button>
-          {scopedSilent.length > 0 && (
+          {summary.metered > 0 && scopedSilent.length > 0 && (
             <Text role="meta">
               {scopedSilent.length} {scopedSilent.length === 1 ? 'agent doesn’t' : 'agents don’t'} report usage
             </Text>
