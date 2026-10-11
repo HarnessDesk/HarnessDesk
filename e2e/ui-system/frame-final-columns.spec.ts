@@ -11,6 +11,7 @@ for (const theme of ['light', 'dark'] as const) {
       const after = getComputedStyle(element, '::after')
       return { border: style.borderLeftWidth, rule: after.content }
     })).toEqual({ border: '0px', rule: 'none' })
+    await expect(page.locator('[data-topbar="tools"][data-standing]')).toHaveCSS('border-left-width', '0px')
     for (const width of [1100, 720]) {
       await page.setViewportSize({ width, height: 900 })
       const main = page.locator('[data-frame-region="main"]')

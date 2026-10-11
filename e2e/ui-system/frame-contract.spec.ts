@@ -305,7 +305,7 @@ test.describe('B11a owner corrections', () => {
             const column = (await tools.boundingBox())!
             expect(column.y).toBe(head.y)
             expect(column.height).toBe(FRAME.bar.height)
-            expect(await tools.evaluate(node => getComputedStyle(node).borderLeftWidth)).toBe('1px')
+            expect(await tools.evaluate(node => getComputedStyle(node).borderLeftWidth)).toBe('0px')
           } else expect(await tools.evaluate(node => getComputedStyle(node).borderLeftWidth)).toBe('0px')
         }
       }
@@ -2075,7 +2075,7 @@ for (const theme of WALL_THEMES) {
       const pressed = bar.locator('[data-work-tool="details"]')
       await expect(pressed).toHaveAttribute('aria-pressed', 'true')
       expect(await pressed.evaluate(node => getComputedStyle(node).boxShadow)).toContain('inset')
-      expect(await tools.evaluate(node => getComputedStyle(node).borderLeftWidth)).toBe(width >= FRAME.fold.panelFloats ? '1px' : '0px')
+      expect(await tools.evaluate(node => getComputedStyle(node).borderLeftWidth)).toBe('0px')
       if (width >= FRAME.fold.panelFloats) {
         const top = (await tools.boundingBox())!, body = (await panel.boundingBox())!
         expect(top.x).toBe(body.x)
