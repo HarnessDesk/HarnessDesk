@@ -1,4 +1,5 @@
 import { MenuItem } from '../design'
+import { ImportIcon, RetryIcon } from '../components/Icons'
 import { DestinationBar } from './destination-page'
 
 export const LibraryBar = ({ kind, counts, change, loaded, loading, author, importing, rescan }: {
@@ -15,6 +16,6 @@ export const LibraryBar = ({ kind, counts, change, loaded, loading, author, impo
     .map(tab => ({ ...tab, count: counts[tab.value], run: () => change(tab.value) }))}
   verb={{ label: 'New skill', disabled: loaded ? false : 'The library has not been read.', run: author }}
   more={close => <>
-    <MenuItem label="Import" disabled={!loaded} onSelect={() => { importing(); close() }} />
-    <MenuItem label="Rescan" disabled={loading} onSelect={() => { rescan(); close() }} />
+    <MenuItem icon={<ImportIcon size={16} />} label="Import" disabled={!loaded} onSelect={() => { importing(); close() }} />
+    <MenuItem icon={<RetryIcon size={16} />} label="Rescan" disabled={loading} onSelect={() => { rescan(); close() }} />
   </>} />

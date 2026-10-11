@@ -1,5 +1,7 @@
 import {
   createContext,
+  Fragment,
+  isValidElement,
   useCallback,
   useContext,
   useEffect,
@@ -141,6 +143,15 @@ const FIRST_ROW =
  * buttons in a menu keeps Tab for going from one to the next, and leaves by
  * it after the last.
  */
+// A shared empty state keeps a menu readable when every contextual action
+// is inapplicable. It carries no invented action or duplicate trigger label.
+const hasMenuContent = (content: ReactNode): boolean => {
+  if (content === null || content === undefined || typeof content === 'boolean') return false
+  if (Array.isArray(content)) return content.some(hasMenuContent)
+  if (isValidElement<{children?:ReactNode}>(content) && content.type === Fragment) return hasMenuContent(content.props.children)
+  return true
+}
+
 export const Menu = ({ close, onEscape, children }: { close: () => void; onEscape?: () => void; children: ReactNode }) => {
   const presentation = useMenuPresentation()
   const scope = useMemo<Scope>(() => ({ close }), [close])
@@ -201,7 +212,7 @@ export const Menu = ({ close, onEscape, children }: { close: () => void; onEscap
               }}
             >
               <DropdownMenuPopup ref={level} className={styles.level} finalFocus={false}>
-                {children}
+                {hasMenuContent(children) ? children : <MenuNote>No actions here.</MenuNote>}
               </DropdownMenuPopup>
             </DropdownMenuPositioner>
           </DropdownMenuPortal>

@@ -1,3 +1,4 @@
+import { CheckIcon } from './Icons'
 import { DestinationBar, useDestinationActive } from '../panels/destination-page'
 import { PageExplanation, PageControls, PageOptions, MenuItem } from '../design'
 import { AgentHistory } from './History'
@@ -1874,7 +1875,7 @@ const AgentDetail = ({
 <DestinationBar place={info.presentation.name} mark={<RuntimeMark runtime={info} size={16} />}
   parents={[{ label: 'Settings', run: () => store.askSettings('general') }, { label: 'Runtimes', run: onBack }]}
   state={snapshot.activeRuntime === info.id ? <Chip state={defaultChipState(info, snapshot)} label="Default" /> : undefined}
-  more={close => <>{snapshot.activeRuntime !== info.id && <MenuItem label="Use for new sessions" onSelect={() => { void store.selectRuntime(info.id); close() }} />}</>} />
+  more={close => <>{snapshot.activeRuntime !== info.id && <MenuItem icon={<CheckIcon size={16} />} label="Use for new sessions" onSelect={() => { void store.selectRuntime(info.id); close() }} />}</>} />
 {build && <Text role="meta">{build}</Text>}
 {info.presentation.tagline && <PageExplanation>{info.presentation.tagline}</PageExplanation>}
 

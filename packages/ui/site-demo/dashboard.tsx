@@ -75,10 +75,9 @@ export const DashboardScene = memo(({ data, view = 'dashboard' }: { data: Return
     style={full ? undefined : { padding: 'var(--hd-space-5)' }}>
     {full ? <div className="site-dashboard-spend">
       {spend}
-      <section aria-label="Where it went" className="site-dashboard-breakdown">
-        <Section title="Where it went">{<Segmented label="Group spend by" options={PIVOTS} value={pivot} onChange={next => setPivot(next as Pivot)} />}</Section>
-        <Ranked ledger={ledger} wideLedger={wideLedger} pivot={pivot} range={range} now={data.now} byId={byId} tintOf={tints} compact />
-      </section>
+      <div className="site-dashboard-breakdown">
+        <Section title="Where it went" action={<Segmented label="Group spend by" options={PIVOTS} value={pivot} onChange={next => setPivot(next as Pivot)} />}><Ranked ledger={ledger} wideLedger={wideLedger} pivot={pivot} range={range} now={data.now} byId={byId} tintOf={tints} compact /></Section>
+      </div>
     </div> : view === 'dashboard-spend' ? spend : null}
     {(full || view === 'dashboard-limits') && <div className="site-dashboard-accounts">
       <PlansView reports={reports} byId={byId} snapshot={snapshot} now={data.now} summary={summary}

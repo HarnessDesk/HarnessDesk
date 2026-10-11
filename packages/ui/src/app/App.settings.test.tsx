@@ -15,6 +15,7 @@ vi.mock('../components/Sidebar', () => ({ Sidebar: (props: Record<string, unknow
     (props[['onOpenSettings','onOpenAgents','onOpenTeams','onOpenLibrary','onOpenPlugins','onOpenUsage'][at]!] as () => void)()}>{label}</button>)}
   <output data-selected>{String(props.activeDestination ?? '')}</output><output data-settings>{JSON.stringify(props.settings ? (props.settings as {section:string}).section : null)}</output>
 </div> }))
+vi.mock('../components/FrontDoor', () => ({ FrontDoor: () => <output data-new-team /> }))
 vi.mock('../components/Notices', () => ({ Notices: () => null }))
 vi.mock('../components/CommandPalette', () => ({ CommandPalette: () => <output data-testid="command-palette" /> }))
 vi.mock('../components/ImportOffer', () => ({ ImportOffer: () => null }))
@@ -169,10 +170,10 @@ it('opens the column Settings mode from Command-comma', async () => {
   const store = routedStore('')
   await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
   const event = new KeyboardEvent('keydown', { key: ',', metaKey: true, bubbles: true, cancelable: true })
-  act(() => document.dispatchEvent(event))
+  act(() => document.dispatchEvent(event)); await settle()
   expect(event.defaultPrevented).toBe(true)
-  expect(container.querySelector('[data-testid="settings-section"]')?.textContent).toBe('general')
-  expect(container.querySelector('[data-testid="settings-column-mode"]')?.textContent).toBe('present')
+  expect(store.getSnapshot().workbench.navigation.current).toEqual({kind:'settings',route:{kind:'section',section:'general',focus:null}})
+  expect(container.querySelector('[data-settings]')?.textContent).toBe(JSON.stringify('general'))
 })
 
 it('opens the command palette from Search in the hidden-column top row', async () => {
@@ -180,4 +181,36 @@ it('opens the command palette from Search in the hidden-column top row', async (
   expect(container.querySelector('[data-testid="command-palette"]')).toBeNull()
   act(() => window.dispatchEvent(new Event('harnessdesk:search')))
   expect(container.querySelector('[data-testid="command-palette"]')).not.toBeNull()
+})
+
+it('New Team leaves a main page before opening its dialog', async () => {
+  const previous = MAIN_PAGE_ENTRIES.plugins
+  MAIN_PAGE_ENTRIES.plugins = () => <output>Plugins</output>
+  try {
+    const store = routedStore()
+    Object.assign(store.getSnapshot(), { workspace: {path:'/work/project',name:'Synthetic project'} })
+    await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
+    act(() => store.openDestination({kind:'plugins',section:'installed',id:null}))
+    act(() => native.run('new-team'))
+    expect(store.getSnapshot().workbench.navigation.current.kind).toBe('work')
+    expect(container.querySelector('[data-new-team]')).not.toBeNull()
+  } finally { MAIN_PAGE_ENTRIES.plugins = previous }
+})
+for (const kind of ['library','plugins','dashboard'] as const) it(`Escape returns from the former ${kind} window page`, async () => {
+  const previous = MAIN_PAGE_ENTRIES[kind]
+  MAIN_PAGE_ENTRIES[kind] = () => <output>Page</output>
+  try {
+    const store = routedStore()
+    await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
+    const page = kind === 'library' ? {kind,section:'skill' as const} : kind === 'plugins' ? {kind,section:'installed' as const,id:null} : {kind,view:'overview' as const,scope:null}
+    act(() => store.openDestination(page))
+    const handled = new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})
+    handled.preventDefault()
+    act(() => window.dispatchEvent(handled))
+    expect(store.getSnapshot().workbench.navigation.current.kind).toBe(kind)
+    const escape = new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})
+    act(() => window.dispatchEvent(escape))
+    expect(store.getSnapshot().workbench.navigation.current.kind).toBe('work')
+    expect(escape.defaultPrevented).toBe(true)
+  } finally { MAIN_PAGE_ENTRIES[kind] = previous }
 })

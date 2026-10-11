@@ -46,7 +46,7 @@ for (const width of [720,1440]) it(`uses the existing work lead and corner polic
     <TopBarOutlet owner="destination:library" fallback={{place:'Fallback',more:()=>null}} />
   </TopBarProvider></StoreProvider>))
   const labels = [...host.querySelectorAll('[data-topbar="lead"] button')].map(node=>node.getAttribute('aria-label'))
-  expect(labels).toEqual(width===720 ? ['Show sidebar'] : ['Show sidebar','Back','Forward'])
+  expect(labels).toEqual(width===720 ? ['Show sidebar','Search everything'] : ['Show sidebar','Search everything','Back','Forward'])
   expect(host.querySelector('[data-slot="bar"]')?.hasAttribute('data-corner')).toBe(true)
   expect(host.querySelectorAll('[data-work-tool], [data-topbar="view"] button')).toHaveLength(0)
 })

@@ -2867,7 +2867,7 @@ export class AppStore {
     this.#parkedHandoff = null
     // And it starts in the open folder: a worktree chosen for the last draft
     // is a decision about that one, and "New session" is asked to be empty.
-    this.#patch({ draftHandoff: parked, draftPlace: null })
+    this.#patch({ draftHandoff: parked, draftPlace: null, sidebarFloating: false })
     // Hand the keyboard to the composer, the only thing to do in an empty pane.
     window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: '' }))
   }

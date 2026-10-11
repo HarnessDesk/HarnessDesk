@@ -1865,7 +1865,7 @@ class PreviewStore {
     { name: 'fix/worktree-listing', current: false, committedAt: now - 86_400_000 },
   ]
   agentCatalog = async () => []
-  agentsIn = async (): Promise<readonly AgentEntry[]> => PREVIEW_AGENTS
+  agentsIn = async (): Promise<readonly AgentEntry[]> => this.#snapshot.agents ?? PREVIEW_AGENTS
   /* `AgentFields`, `AgentNotes` and the two field-edit dialogs all wait on
      this read before they draw anything — without it `AgentPage` falls back
      to its no-document branch and none of them ever mount. The source is

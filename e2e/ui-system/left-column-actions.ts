@@ -31,7 +31,19 @@ export const applyLeftColumnActions = async (page: Page, actions: {
     await expect(page.getByRole('menu')).toBeVisible()
   }
   if (actions.leftPopup === 'card') {
-    await column.locator('[data-region="session-row"] [data-slot="hover-card-trigger"]').first().hover()
+    const trigger = column.locator('[data-region="session-row"] [data-slot="hover-card-trigger"]').first()
+    // Real App can publish a later rail layout after the initial hover.
+    // Follow only a moved target; its unchanged hover delay still applies.
+    let target = await trigger.boundingBox()
+    await trigger.hover()
+    await expect.poll(async () => {
+      const current = await trigger.boundingBox()
+      if (current && target && (current.x !== target.x || current.y !== target.y)) {
+        await trigger.hover()
+        target = current
+      }
+      return page.locator('[data-slot="hover-card-content"]:visible').isVisible()
+    }).toBe(true)
     await expect(page.locator('[data-slot="hover-card-content"]:visible')).toBeVisible()
   }
   if (actions.leftPopup && ['inbox', 'account', 'start'].includes(actions.leftPopup)) await expect(page.locator('[data-slot="popover-popup"]:visible')).toBeVisible()

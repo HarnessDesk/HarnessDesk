@@ -35,6 +35,7 @@ export const selectFrameTab = async (page: Page, value: string): Promise<void> =
   const item = page.locator(`[role="menu"] [data-team-page="${value}"]:visible`)
   await expect(item).toHaveCount(1)
   await item.click()
+  await expect(page.getByRole('menu')).toHaveCount(0)
 }
 export const applyFrameActions = async (page: Page, actions: FrameActions): Promise<void> => {
   if (actions.tab) await selectFrameTab(page, actions.tab)
@@ -54,5 +55,6 @@ export const applyFrameActions = async (page: Page, actions: FrameActions): Prom
   if (actions.holdMessages) {
     await page.getByRole('button', { name: 'Send to', exact: true }).click()
     await page.getByRole('switch', { name: 'Hold messages', exact: true }).click()
+    await expect(page.getByRole('menu')).toHaveCount(0)
   }
 }

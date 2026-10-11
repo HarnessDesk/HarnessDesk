@@ -70,7 +70,7 @@ export const App = () => {
   // resolved `root` rather than opening a chooser of its own. `null` is
   // closed; this is the one instance the app renders for it.
   const [frontDoorRoot, setFrontDoorRoot] = useState<string | null>(null)
-  const openFrontDoor = useCallback((root: string) => setFrontDoorRoot(root), [])
+  const openFrontDoor = useCallback((root: string) => { store.returnToWork(); setFrontDoorRoot(root) }, [store])
   // `true` opens the sign-in page where it thinks best; a runtime id pins it.
   const [signInOpen, setSignInOpen] = useState<boolean | RuntimeId>(false)
   const [paletteOpen, setPaletteOpen] = useState(false)
@@ -171,6 +171,20 @@ export const App = () => {
   )
 
   useEffect(() => onShortcut(run), [run])
+
+  // Menus and dialogs consume Escape first. The former window destinations
+  // keep their departure key after those controls have released it.
+  useEffect(() => {
+    const leavePage = (event: KeyboardEvent): void => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return
+      const kind = store.getSnapshot().workbench.navigation.current.kind
+      if (kind !== 'library' && kind !== 'plugins' && kind !== 'dashboard') return
+      event.preventDefault()
+      store.returnToWork()
+    }
+    window.addEventListener('keydown', leavePage)
+    return () => window.removeEventListener('keydown', leavePage)
+  }, [store])
 
   // A settings page asked for from somewhere deep — the composer's model menu
   // — opens here, where the window state lives, and the request is cleared so

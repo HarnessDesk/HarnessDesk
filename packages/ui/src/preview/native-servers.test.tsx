@@ -2,6 +2,7 @@ import { installTopBarTestLayout } from '../test/top-bar-layout'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
+import { AppStore } from '../state/store'
 import { StoreProvider } from '../state/context'
 import * as harness from './harness'
 import { NativeServersPreview } from './native-servers'
@@ -11,14 +12,8 @@ installTopBarTestLayout()
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 it('the real native-server Agent preview retains its registered Start handler and server content', async () => {
-  const outer = harness.previewStore(), make = harness.previewStore
-  let start: ReturnType<typeof vi.fn>
-  const factory = vi.spyOn(harness, 'previewStore').mockImplementation(seed => {
-    const store = make(seed)
-    start = vi.fn(async () => null)
-    Object.assign(store, { startAsAgent: start })
-    return store
-  })
+  const outer = harness.previewStore()
+  const start = vi.spyOn(AppStore.prototype, 'startAsAgent').mockResolvedValue(null)
   const host = document.createElement('div'); document.body.append(host)
   const root = createRoot(host)
   try {
@@ -31,11 +26,11 @@ it('the real native-server Agent preview retains its registered Start handler an
     expect([...host.querySelectorAll('[data-slot="summary-item"]')].find(one => one.textContent?.startsWith('Native servers'))?.textContent).toBe('Native serversNone')
     expect(host.textContent).toContain(entry.definition!.description)
     await act(async () => button!.click())
-    expect(start!).toHaveBeenCalledWith(entry.id)
+    expect(start).toHaveBeenCalledWith(entry.id)
     expect(host.querySelectorAll('[data-slot="top-bar"]')).toHaveLength(1)
     expect(host.querySelector('[data-topbar-title]')?.textContent).toBe(entry.definition!.name)
     expect(host.querySelectorAll('[data-slot="detail-title"]')).toHaveLength(0)
   } finally {
-    act(() => root.unmount()); host.remove(); factory.mockRestore()
+    act(() => root.unmount()); host.remove(); start.mockRestore()
   }
 })

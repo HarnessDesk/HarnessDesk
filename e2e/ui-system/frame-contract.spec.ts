@@ -7,7 +7,7 @@ import { selectRunView } from './run-frame-actions'
 import { expect, test, type Page } from '@playwright/test'
 import { FRAME, FRAME_TOKENS } from '../../packages/ui/src/design/frame'
 import { WALL_DESTINATIONS, WALL_THEMES, WALL_WIDTHS } from './frame-wall-destinations'
-import { applyFrameActions, selectFrameTab } from './frame-actions'
+import { applyFrameActions, selectFrameTab, settleFrameBar } from './frame-actions'
 import { mountFocusFixture } from './focus-ring-fixture'
 
 // Contract runs measure the preview; the final wall owns images and recordings.
@@ -22,6 +22,7 @@ const openFrame = async (page: Page, query: string, theme: 'light' | 'dark', wid
   await installFramePreviewFixture(page)
   await page.setViewportSize({ width, height: 900 })
   await page.emulateMedia({ colorScheme: theme })
+  await page.mouse.move(width - 1, 899)
   await page.goto(`/preview.html?${query}&theme=${theme}`)
   if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
   await page.evaluate(async () => { await document.fonts.ready })
@@ -192,6 +193,8 @@ test.describe('B11a owner corrections', () => {
         const toggle = bar.getByRole('button', { name: 'Toggle right panel', exact: true })
         for (const open of [false, true, false]) {
           if (open || await toggle.getAttribute('aria-pressed') === 'true') await toggle.click()
+          await expect(toggle).toHaveAttribute('aria-pressed', String(open))
+          await settleFrameBar(bar)
           const box = (await toggle.boundingBox())!, head = (await header.boundingBox())!
           // The former border occupied the final pixel of the 40px bar.
           expect(box.y + box.height / 2 - head.y).toBe((FRAME.bar.height - 1) / 2)
@@ -211,9 +214,10 @@ test.describe('B11a owner corrections', () => {
 for (const theme of WALL_THEMES) for (const destination of ['settings', 'agents', 'teams', 'dashboard']) {
   test(`Owner fix 2 ${destination} has one shell bar and no footer in ${theme}`, async ({ page }) => {
     await openFrame(page, `frame-wall=${destination}`, theme, 720)
-    const dialog = page.getByRole('dialog')
-    await expect(dialog).toBeVisible()
-    const bar = dialog.locator('[data-slot="top-bar"]')
+    const destinationPage = page.locator(`[data-page-destination="${destination}"]:visible`)
+    await expect(destinationPage).toBeVisible()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    const bar = page.locator('[data-slot="top-bar"]:visible')
     await expect(bar).toHaveCount(1)
     await expect(page.locator('[data-slot="status-bar"], [data-frame-region="status"]')).toHaveCount(0)
     await expect(page.locator('[data-slot="top-bar"]:visible')).toHaveCount(1)
@@ -222,8 +226,8 @@ for (const theme of WALL_THEMES) for (const destination of ['settings', 'agents'
     const more = bar.getByRole('button', { name: 'More', exact: true })
     await more.focus()
     await expect(more).toBeFocused()
-    await page.keyboard.press('Escape')
-    await expect(dialog).toHaveCount(0)
+    await page.keyboard.press('Meta+w')
+    await expect(destinationPage).toHaveCount(0)
     await expect(page.locator('[data-slot="top-bar"]:visible')).toHaveCount(1)
     await expect(page.locator('[data-slot="status-bar"]:visible')).toHaveCount(0)
   })
@@ -300,24 +304,29 @@ for (const theme of WALL_THEMES) {
     const terminalId = await terminal.getAttribute('data-terminal-id')
     await terminal.evaluate(node => { node.dataset.b10Retained = 'terminal' })
     await page.locator('[data-frame-region="left"]').getByRole('button', { name: 'Agents', exact: true }).click()
-    const dialog = page.getByRole('dialog')
-    await expect(dialog).toBeVisible()
+    const destinationPage = page.locator('[data-page-destination="agents"]:visible')
+    await expect(destinationPage).toBeVisible()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(editor).toBeHidden()
-    await expect(terminal).toBeHidden()
-    await expect(dialog.locator('[data-slot="top-bar"] [data-work-tool]')).toHaveCount(0)
-    await expect(dialog).toBeVisible()
+    await expect(terminal).toBeVisible()
+    const bar = page.locator('[data-slot="top-bar"]:visible')
+    await expect(bar.locator('[data-work-tool]')).toHaveCount(0)
     await expect(page.locator('[data-slot="work-tools"]')).toBeHidden()
-    const more = dialog.getByRole('button', { name: 'More', exact: true })
+    const more = bar.getByRole('button', { name: 'More', exact: true })
     await more.focus()
     await page.keyboard.press('Enter')
     await expect(page.getByRole('menu')).toBeVisible()
-    await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveAttribute('aria-checked', 'true')
+    await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(0)
     await page.keyboard.press('Escape')
     await expect(page.getByRole('menu')).toHaveCount(0)
-    await expect(dialog).toBeVisible()
+    await expect(destinationPage).toBeVisible()
     await expect(more).toBeFocused()
+    await page.keyboard.press('Meta+w')
+    await expect(destinationPage).toHaveCount(0)
+    await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
+    await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(1)
+    await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveAttribute('aria-checked', 'true')
     await page.keyboard.press('Escape')
-    await expect(dialog).toHaveCount(0)
     await expect(page.locator('[data-slot="work-tools"]')).toBeVisible()
     await expect(page.locator('[data-b10-retained="file"]')).toHaveCount(1)
     await expect(editor).toContainText('Keep this dirty checkout note')
@@ -379,7 +388,7 @@ test('shared heading and page or panel stacks hold across preview destinations',
         '[data-slot="section"][data-variant="panel"]',
       ].join(',')
       const roots = document.querySelectorAll<HTMLElement>(
-        '[data-slot="page"], [data-slot="app-window-page"], [data-slot="tool-pane-body"], [data-slot="inspector-body"], [data-slot="section"][data-variant="panel"]',
+        '[data-slot="page"], [data-slot="tool-pane-body"], [data-slot="inspector-body"], [data-slot="section"][data-variant="panel"]',
       )
       for (const root of roots) {
         const candidates = [...root.querySelectorAll<HTMLElement>(selector)].filter(node => {
@@ -419,61 +428,64 @@ test('shared heading and page or panel stacks hold across preview destinations',
   const search = page.locator('[data-slot="search"]').filter({ has: page.getByRole('searchbox', { name: 'Search the ACP registry' }) })
   await expect(search).toBeVisible()
   const searchBottom = (await search.boundingBox())!.y + (await search.boundingBox())!.height
-  const firstCard = page.locator('[data-slot="card"]').first()
-  await expect(firstCard).toBeVisible()
-  const firstCardBox = (await firstCard.boundingBox())!
-  expect(firstCardBox.y - searchBottom).toBeGreaterThanOrEqual(stackGap - 0.5)
+  const firstRegistryRows = page.locator('[data-page-destination="settings"]:visible [data-slot="rows"]:visible').filter({has:page.getByText('Runtime 01',{exact:true})})
+  await expect(firstRegistryRows).toBeVisible()
+  const firstRegistryBox = (await firstRegistryRows.boundingBox())!
+  expect(firstRegistryBox.y - searchBottom).toBeGreaterThanOrEqual(stackGap - 0.5)
 })
 
-test('the old destination window closes after sidebar navigation, Escape and new-work shortcuts', async ({ page }) => {
-  await openFrame(page, 'frame-wall=library', 'light', 1440)
-  const settings = page.getByRole('dialog', { name: 'Settings' })
-  await expect(settings).toBeVisible()
-  await page.locator('[data-app-window-left]').getByRole('button', { name: 'New session', exact: true }).click()
-  await expect(settings).toHaveCount(0)
-
-  await openFrame(page, 'frame-wall=library', 'light', 1440)
-  const sessionWindow = page.getByRole('dialog', { name: 'Settings' })
-  const session = page.locator('[data-app-window-left] [data-region="session-row"] [data-slot="sidebar-menu-button"]').first()
-  await expect(session).toBeVisible()
-  await session.click()
-  await expect(sessionWindow).toHaveCount(0)
-
-  await openFrame(page, 'frame-wall=plugins', 'light', 1440)
-  const plugins = page.getByRole('dialog', { name: 'Settings' })
-  await expect(plugins).toBeVisible()
-  await page.locator('[data-app-window-left]').getByRole('button', { name: 'Teams', exact: true }).click()
-  await expect(plugins).toHaveCount(0)
-  await expect(page.getByRole('dialog', { name: 'Teams' })).toBeVisible()
-
-  await openFrame(page, 'frame-wall=dashboard', 'light', 1440)
-  const dashboard = page.getByRole('dialog', { name: 'Dashboard' })
-  await expect(dashboard).toBeVisible()
-  await page.locator('[data-app-window-left]').getByRole('button', { name: 'Agents', exact: true }).click()
-  await expect(dashboard).toHaveCount(0)
-  await expect(page.getByRole('dialog', { name: 'Agents' })).toBeVisible()
-
-  await openFrame(page, 'frame-wall=dashboard', 'light', 1440)
-  const dashboardToPlugins = page.getByRole('dialog', { name: 'Dashboard' })
-  await page.locator('[data-app-window-left]').getByRole('button', { name: 'Plugins', exact: true }).click()
-  await expect(dashboardToPlugins).toHaveCount(0)
-  await expect(page.getByRole('dialog', { name: 'Settings' })).toBeVisible()
-  await expect(page.locator('[data-slot="top-bar"]:visible').first()).toContainText('Plugins')
-
-  await openFrame(page, 'frame-wall=library', 'light', 1440)
-  const library = page.getByRole('dialog', { name: 'Settings' })
+// The retired window stopgap survives as navigation behavior on actual pages.
+for (const kind of ['settings', 'dashboard', 'agents', 'teams', 'library', 'plugins', 'changes-review']) {
+  test(`E9 owner page ${kind} leaves main through new-work shortcuts`, async ({ page }) => {
+    const open = async () => {
+      await openFrame(page, 'frame-wall=navigation&frame-review=1', 'light')
+      if (kind === 'changes-review') await page.evaluate(() => window.dispatchEvent(new CustomEvent('harnessdesk:review')))
+      else await page.locator('[data-left-column]:visible').getByRole('button', {name: kind === 'settings' ? 'Settings' : kind[0]!.toUpperCase() + kind.slice(1), exact:true}).click()
+      await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
+    }
+    for (const chord of ['Meta+n', 'Meta+Shift+n']) {
+      await open()
+      await page.keyboard.press(chord)
+      await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(0)
+      await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
+    }
+  })
+  if (kind !== 'settings') test(`E9 owner page ${kind} every column door and work row navigates`, async ({ page }) => {
+    for (const label of ['Teams','Agents','Library','Plugins','Dashboard','Settings','New session','conversation']) {
+      if (label.toLowerCase() === kind) continue
+      await openFrame(page, 'frame-wall=navigation&frame-review=1', 'light')
+      const column = page.locator('[data-left-column]:visible')
+      if (kind === 'changes-review') await page.evaluate(() => window.dispatchEvent(new CustomEvent('harnessdesk:review')))
+      else await column.getByRole('button', {name:kind[0]!.toUpperCase()+kind.slice(1),exact:true}).click()
+      await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
+      if (label === 'conversation') await column.locator('[data-region="session-row"] [data-slot="sidebar-menu-button"]').first().click()
+      else await column.getByRole('button', {name:label,exact:true}).click()
+      await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(0)
+      if (label === 'conversation' || label === 'New session') await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
+      else await expect(page.locator(`[data-page-destination="${label.toLowerCase()}"]:visible`)).toHaveCount(1)
+    }
+  })
+}
+for (const kind of ['library','plugins','dashboard']) test(`E9 owner Escape leaves the former ${kind} window destination`, async ({page}) => {
+  await openFrame(page,'frame-wall=navigation','light')
+  await page.locator('[data-left-column]:visible').getByRole('button',{name:kind[0]!.toUpperCase()+kind.slice(1),exact:true}).click()
+  await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
+  await page.locator('[data-slot="top-bar"]:visible').getByRole('button',{name:'More',exact:true}).click()
   await page.keyboard.press('Escape')
-  await expect(library).toHaveCount(0)
-
-  await openFrame(page, 'frame-wall=plugins', 'light', 1440)
-  const pluginWindow = page.getByRole('dialog', { name: 'Settings' })
-  await page.keyboard.press('Meta+n')
-  await expect(pluginWindow).toHaveCount(0)
-
-  await openFrame(page, 'frame-wall=dashboard', 'light', 1440)
-  const dashboardWindow = page.getByRole('dialog', { name: 'Dashboard' })
-  await page.keyboard.press('Meta+Shift+n')
-  await expect(dashboardWindow).toHaveCount(0)
+  await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
+  await expect(page.locator('[role="menu"]:visible')).toHaveCount(0)
+  if (kind === 'library' || kind === 'plugins') {
+    if (kind === 'library') {
+      await page.locator('[data-slot="top-bar"]:visible').getByRole('button',{name:'More',exact:true}).click()
+      await page.getByRole('menuitem',{name:'Import',exact:true}).click()
+    } else await page.getByRole('button',{name:'Add plugin',exact:true}).click()
+    await expect(page.getByRole('dialog')).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
+  }
+  await page.keyboard.press('Escape')
+  await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
 })
 
 for (const theme of WALL_THEMES) {
@@ -983,6 +995,21 @@ test('S18 every dialog preview uses the same title, inset, close, and footer ana
     opened = await inspect(kind)
     await expect(opened.footer.locator('[data-slot="dialog-footer-actions"] button').first()).toBeVisible()
   }
+
+  await openFrame(page, 'frame-wall=library', 'light')
+  await page.locator('[data-slot="top-bar"]:visible').getByRole('button', {name:'More',exact:true}).click()
+  await page.getByRole('menuitem', {name:'Import',exact:true}).click()
+  opened = await inspect('dialog')
+  await expect(opened.surface.locator('[data-slot="search"] svg')).toHaveCount(1)
+  await opened.surface.getByRole('button', {name:'Cancel',exact:true}).click()
+
+  await openFrame(page, 'frame-wall=plugins', 'light')
+  await page.locator('[data-slot="top-bar"]:visible').getByRole('button', {name:'Add plugin',exact:true}).click()
+  opened = await inspect('dialog')
+  await opened.surface.getByRole('textbox', {}).fill('/work/sample-plugin')
+  await opened.surface.getByRole('button', {name:'Continue',exact:true}).click()
+  opened = await inspect('dialog')
+  await expect(opened.surface.getByRole('button', {name:'Install and enable',exact:true})).toBeVisible()
 
   expect(new Set(footers).size).toBe(1)
 })
@@ -2466,8 +2493,8 @@ for (const theme of WALL_THEMES) {
 for (const theme of WALL_THEMES) {
   test(`D8 Settings page title has no redundant Settings crumb in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=settings-general', theme)
-    const appWindow = page.locator('[data-slot="app-window"]:visible').last()
-    const place = appWindow.locator('[data-topbar="place"]')
+    await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1)
+    const place = page.locator('[data-slot="top-bar"]:visible [data-topbar="place"]')
     await expect(place.locator('button')).toHaveCount(0)
     await expect(place.locator('[data-topbar-title]')).toContainText('General')
   })
@@ -2939,6 +2966,8 @@ const S17_ICON_POLICY: Readonly<Record<string, 'all' | 'none'>> = {
   'left-project-menu': 'all',
   'left-session-menu': 'all',
   'popup-menu-icons': 'all',
+  'popup-disabled-rows': 'all',
+  'popup-select-disabled': 'none',
   'popup-menu-none': 'none',
   'popup-composer-add': 'all',
   'popup-conversation-more': 'all',
@@ -3284,6 +3313,8 @@ test('E3 Dashboard command opens main and Back restores work', async ({ page }) 
   await expect(page.locator('[data-page-destination="dashboard"]:visible')).toHaveCount(1)
   await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
   await page.keyboard.press('Escape')
+  await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
+  await page.keyboard.press('Meta+[')
   await expect(page.locator('[data-page-destination="dashboard"]:visible')).toHaveCount(1)
   await page.keyboard.press('Meta+[')
   await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)

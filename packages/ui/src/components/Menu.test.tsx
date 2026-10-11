@@ -951,3 +951,13 @@ describe('ContextMenu', () => {
     expect(row('Archive')).toBeDefined()
   })
 })
+
+it('an empty contextual menu states that no actions apply and still dismisses with Escape', async () => {
+  await act(async()=>root.render(<Popover label="Empty menu">{close=><Menu close={close}><>{null}{false}<>{undefined}</></></Menu>}</Popover>))
+  click(row('Empty menu')); await frame()
+  const menu = document.querySelector<HTMLElement>('[role="menu"]')!
+  expect(menu.textContent).toBe('No actions here.')
+  expect(menu.querySelectorAll('[role^="menuitem"]')).toHaveLength(0)
+  key(menu,'Escape'); await frame()
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+})

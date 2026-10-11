@@ -2,7 +2,7 @@ import { expect } from '@playwright/test'
 import { FRAME } from '../../packages/ui/src/design/frame'
 import { applyLeftColumnActions } from './left-column-actions'
 import type { Page } from '@playwright/test'
-export interface WallActions { readonly popup?: string }
+export interface WallActions { readonly popup?: string; readonly query?: string }
 /** Popup actions run after the wall's existing destination navigation. */
 export const openWallDestination = async (page: Page, destination: WallActions): Promise<void> => {
   if (destination.hover) {
@@ -68,7 +68,7 @@ export const openWallDestination = async (page: Page, destination: WallActions):
   }
   if (destination.inbox) await page.getByRole('button', { name: 'Inbox, 1 unread', exact: true }).click()
   if (destination.expandInbox) await page.getByRole('menuitem', { name: /The Storefront catalogue compatibility check/ }).click()
-  if (destination.select) await page.getByRole('combobox', { name: 'Frame Select', exact: true }).click()
+  if (destination.select) await page.getByRole('combobox', { name: destination.query?.includes('popup=select-disabled') ? 'Frame Select with disabled option' : 'Frame Select', exact: true }).click()
   if (destination.composerAdd) await page.getByRole('button', { name: 'Add', exact: true }).first().click()
   if (destination.undo) {
     await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()

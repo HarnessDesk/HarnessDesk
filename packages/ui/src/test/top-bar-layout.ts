@@ -10,8 +10,13 @@ export const installTopBarTestLayout = (): void => {
       return this.matches('[data-topbar-title]') ? new DOMRect(0, 0, FRAME.bar.titleMin, FRAME.bar.height)
         : this.matches('[data-topbar="place"]') ? new DOMRect(0, 0, 300, FRAME.bar.height) : bounds.call(this)
     })
+    const noLayout = document.createElement('div').style
     const computed = getComputedStyle
     const token = vi.spyOn(globalThis, 'getComputedStyle').mockImplementation((node, pseudo) => {
+      // The retained composer now mounts beneath page specimens. jsdom has
+      // no track geometry or loaded token cascade; measuring that empty track
+      // repeatedly walks the full frame's descendants for every control.
+      if (node.matches('[data-slot="composer-tools"]')) return noLayout
       const result = computed(node, pseudo)
       if (!node.matches('[data-slot="top-bar"]')) return result
       return new Proxy(result, { get(target, property) {

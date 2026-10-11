@@ -38,7 +38,7 @@ export const frameDestinationStore = (fixture: AppStore): AppStore => {
     if (method === 'authoring/save/pending') return fixture.authoringPending()
     if (method === 'attachment/agent') return fixture.readAgentAttachments(detail.id, detail.origin)
     if (method === 'attachment/notes') return fixture.readAgentNotes(detail.id, detail.origin)
-    if (method === 'agent/seat/dry') return detail.ids.map(id => seed.agentPlans.get(id)).filter(Boolean)
+    if (method === 'agent/seat/dry') return (detail.ids ?? [...seed.agentPlans.keys()]).map(id => seed.agentPlans.get(id)).filter(Boolean)
     if (method === 'agent/seating/read') return seed.seating
     if (method === 'insight/goals') return fixture.readGoalInsights(detail.goals)
     if (method === 'finding/run') {
@@ -50,8 +50,13 @@ export const frameDestinationStore = (fixture: AppStore): AppStore => {
     if (method === 'insight/usage') return fixture.readUsageInsight(params as Parameters<AppStore['readUsageInsight']>[0])
     if (method === 'capability/list') return seed.contributions.filter(contribution => contribution.kind === (params as {kind:string}).kind)
     if (method === 'plugin/inspect') return {id:'sample',name:'Sample plugin',permissions:['Read workspace files'],alreadyInstalled:false}
-    if (method === 'plugin/list') return seed.plugins
-    if (method === 'plugin/install' || method === 'plugin/configure' || method === 'plugin/setEnabled' || method === 'plugin/uninstall') return undefined
+    if (method === 'plugin/list') return fixture.getSnapshot().plugins
+    if (method === 'plugin/setEnabled') {
+      const { pluginId, enabled } = params as {pluginId:string;enabled:boolean}
+      await fixture.setPluginEnabled(pluginId, enabled)
+      return undefined
+    }
+    if (method === 'plugin/install' || method === 'plugin/configure' || method === 'plugin/uninstall') return undefined
     if (method === 'flow/catalog') return fixture.flowCatalog(query.root)
     if (method === 'evidence/checks') return fixture.projectChecks(query.project)
     if (method === 'trigger/list') return fixture.projectTriggers(query.root)
@@ -64,6 +69,7 @@ export const frameDestinationStore = (fixture: AppStore): AppStore => {
     if (method === 'runtime/catalog') return {plugins:[],marketplaces:[],loadErrors:[],featured:[]}
     if (method === 'runtime/apps/search') return {apps:[]}
     if (method === 'worktree/list') return seed.worktrees
+    if (method === 'git/branches') return fixture.listBranches(query.root)
     if (method === 'runtime/installs') return null
     if (method === 'runtime/warm') return {ready:true}
     if (method === 'terminal/open') return {terminalId:'frame-pty',runtime:seed.activeRuntime}
