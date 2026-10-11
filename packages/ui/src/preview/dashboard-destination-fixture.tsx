@@ -7,11 +7,20 @@ import { frameDestinationStore } from './frame-destination-store'
 import { usagePreviewStore } from './usage-fixture'
 
 /** Lane-owned host answers around the real AppStore and App navigation. */
-export const dashboardDestinationStore = ({ view = 'overview', scope = null, borrowed = false }: {
-  readonly view?: DashboardView; readonly scope?: RuntimeId | null; readonly borrowed?: boolean
+export const dashboardDestinationStore = ({ view = 'overview', scope = null, borrowed = false, emptyUsage = false, unpricedPaid = false }: {
+  readonly view?: DashboardView; readonly scope?: RuntimeId | null; readonly borrowed?: boolean; readonly emptyUsage?: boolean; readonly unpricedPaid?: boolean
 } = {}) => {
   const fixture = usagePreviewStore(), store = frameDestinationStore(fixture)
   const snapshot = store.getSnapshot()
+  if (emptyUsage) {
+    Object.assign(snapshot, { usage: [] })
+    Object.assign(fixture.getSnapshot(), { usage: [] })
+  } else if (unpricedPaid && snapshot.usage[0]) {
+    const report = snapshot.usage[0]
+    const usage = [{ ...report, billing: { ...(report.billing ?? { kinds: [] }), fee: null } }]
+    Object.assign(snapshot, { usage })
+    Object.assign(fixture.getSnapshot(), { usage })
+  }
   if (borrowed) {
     const source = snapshot.usage.find(report => (scope === null || report.runtime === scope) && report.lanes.length > 0)
     if (source) Object.assign(snapshot,{usage:snapshot.usage.map(report => report === source ? {
@@ -24,6 +33,18 @@ export const dashboardDestinationStore = ({ view = 'overview', scope = null, bor
     if (method === 'usage/reports' || method === 'usage/refresh') return snapshot.usage
     if (method === 'usage/ledger') {
       const query = params as LedgerQuery
+      if (emptyUsage) return {
+        days: query.days,
+        currency: 'USD',
+        totalCost: null,
+        totalTokens: 0,
+        provenance: 'unknown',
+        coverage: { priced: 0, unpriced: 0, unmetered: 0, estimated: 0, daysCovered: 0, daysRequested: query.days },
+        rows: [],
+        daily: [],
+        scannedAt: null,
+        totals: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, requests: 0, turns: 0 },
+      } satisfies LedgerReport
       const reading = await fixture.ledger(query) as LedgerReport
       if (!query.runtime) return reading
       const daily = reading.daily.filter(day => day.runtime === query.runtime)
@@ -38,6 +59,16 @@ export const dashboardDestinationStore = ({ view = 'overview', scope = null, bor
       const report = await fixture.readUsageInsight(params as InsightQuery)
       const latest = fixture.getSnapshot()
       Object.assign(snapshot,{goals:latest.goals,flowExecutions:latest.flowExecutions})
+      if (emptyUsage) {
+        const unknown = (metric: typeof report.totals.usd) => ({ ...metric, value: null, quality: 'unknown' as const, coverage: 'none' as const, sourceIds: [], missing: [] })
+        return {
+          ...report,
+          totals: { ...report.totals, usd: unknown(report.totals.usd) },
+          breakdowns: [],
+          sources: [],
+          gaps: [],
+        }
+      }
       return report
     }
     return request(method,params as never)
@@ -46,7 +77,7 @@ export const dashboardDestinationStore = ({ view = 'overview', scope = null, bor
   return store
 }
 /** Task 9 can mount this fixture without introducing a second route state. */
-export const DashboardDestinationFixture = (input: {readonly view?:DashboardView;readonly scope?:RuntimeId|null;readonly borrowed?:boolean}) => {
-  const store=useMemo(()=>dashboardDestinationStore(input),[input.view,input.scope,input.borrowed])
+export const DashboardDestinationFixture = (input: {readonly view?:DashboardView;readonly scope?:RuntimeId|null;readonly borrowed?:boolean;readonly emptyUsage?:boolean;readonly unpricedPaid?:boolean}) => {
+  const store=useMemo(()=>dashboardDestinationStore(input),[input.view,input.scope,input.borrowed,input.emptyUsage,input.unpricedPaid])
   return <StoreProvider store={store}><App /></StoreProvider>
 }

@@ -68,11 +68,11 @@ it('a Section owns its spacing: the stack gap inside, 32px between sections, and
   expect(own).toContain('first:mt-0')
   // A card's or a note's own margin cannot reopen the gap the section decided.
   expect(own).toContain('*:my-0!')
-  // The head sits on its card: a taller action grows upward.
-  expect(classes(section.querySelector('[data-slot="section-head"]'))).toContain('items-end')
+  // The page title and action share a center line; descriptions take their own row.
+  expect(classes(section.querySelector('[data-slot="section-head"]'))).toContain('items-center')
 })
 
-it('wraps section controls below a truncated title when the row cannot hold both', () => {
+it('keeps the section title and controls on one head row while the title truncates', () => {
   const section = draw(<Section title="A title that may be longer than the available measure" action={<Button>Actions</Button>} />)
   const heading = section.querySelector('[data-slot="section-head"]')
   const name = heading?.querySelector('[data-section-name]')

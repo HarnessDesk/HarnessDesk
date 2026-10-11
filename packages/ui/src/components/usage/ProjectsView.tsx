@@ -4,7 +4,7 @@ import { PageOptions, Section } from '../../design'
 import { InsightUsage } from '../InsightUsage'
 
 const INSIGHT_OPTIONS = [
-  { value: 'goal', label: 'By Team' },
+  { value: 'goal', label: 'By team' },
   { value: 'agent', label: 'By Agent' },
 ] as const
 

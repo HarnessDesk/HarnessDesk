@@ -2014,6 +2014,21 @@ body. The shared head wraps its action below the name when the available width
 is tight. The `FIX3 section choices live in the same page head across Dashboard
 tabs` frame contract checks that Dashboard sections keep their choices there.
 
+## Section actions share the heading's center line
+
+When a page section has an action, its title and action share a vertical
+center line while they fit on the same row. A description takes a separate row
+below the title, so its extra height cannot pull the title away from the
+controls. `FIX4 Dashboard contracts` checks every preview destination.
+
+## Figure strips keep balanced rows
+
+A strip never leaves one figure alone on a wrapped row. Four figures stay four
+across or become two by two; five use three by two. `StatRow` owns those column
+counts so every screen that uses the pattern gets the same rule. The `FIX4
+Dashboard contracts` check measures Overview at 1100px and 720px and checks the
+five-figure empty Activity strip.
+
 ## Banner measure
 
 A Banner defaults to the reading column. When it sits in a page section whose

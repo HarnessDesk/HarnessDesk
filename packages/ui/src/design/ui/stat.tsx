@@ -1,4 +1,5 @@
 import { cva, type VariantProps } from 'class-variance-authority'
+import { Children } from 'react'
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
@@ -129,18 +130,19 @@ const Stat = ({
 )
 
 /**
- * A row of figures that stays a row.
- *
- * `auto-fit` rather than a fixed column count, so the same markup gives four
- * across a desk window, two on a split pane and one in a sidebar without a
- * breakpoint being written at the call site.
+ * A strip gives every figure a peer on its row. Fixed, count-aware columns
+ * keep wrapping balanced: four become four or two-by-two; five become
+ * three-by-two rather than leaving a final figure by itself.
  */
-const StatRow = ({ className, ...props }: React.ComponentProps<'div'>) => (
-  <div
-    data-slot="stat-row"
-    className={cn('grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]', className)}
-    {...props}
-  />
-)
+const StatRow = ({ className, children, ...props }: React.ComponentProps<'div'>) => {
+  const count = Children.count(children)
+  const columns = count === 2 ? 'grid-cols-2'
+    : count === 3 ? 'grid-cols-3'
+    : count === 4 ? 'grid-cols-4 max-lg:grid-cols-2'
+    : count === 5 ? 'grid-cols-3'
+    : count === 1 ? 'grid-cols-1'
+    : '[grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]'
+  return <div data-slot="stat-row" data-count={count} className={cn('grid gap-3', columns, className)} {...props}>{children}</div>
+}
 
 export { Stat, StatRow, statVariants }

@@ -550,6 +550,127 @@ test('FIX3 heatmap cells follow weekday labels and keep a partial first week', a
   }
 })
 
+test.describe('FIX4 Dashboard contracts', () => {
+  test('Overview captions and figure labels share their text baseline', async ({ page }) => {
+    await openFrame(page, 'frame-wall=dashboard&frame-view=overview&frame-unpriced-paid=1', 'light', 1440)
+    const geometry = await page.locator('[aria-label="What it cost, in brief"]').evaluate(root => {
+      const figures = [...root.querySelectorAll<HTMLElement>('[data-slot="stat"]')]
+      const paid = figures[0]!.querySelector<HTMLElement>('[data-slot="stat-label"]')!
+      const paidText = document.createRange()
+      paidText.selectNodeContents(paid)
+      const link = [...root.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.includes('Set plan prices'))!
+      const linkText = document.createRange()
+      linkText.selectNodeContents(link)
+      const labelTops = figures.map(figure => {
+        const label = figure.querySelector<HTMLElement>('[data-slot="stat-label"]')!
+        const firstLabel = label.firstElementChild ?? label
+        const text = document.createRange()
+        text.selectNode([...firstLabel.childNodes].find(node => node.nodeType === Node.TEXT_NODE)!)
+        return text.getBoundingClientRect().top
+      })
+      return { paidEdge: paidText.getBoundingClientRect().left, linkEdge: linkText.getBoundingClientRect().left, labelTops }
+    })
+    expect(Math.abs(geometry.linkEdge - geometry.paidEdge), 'Set plan prices begins at the Paid text edge').toBeLessThanOrEqual(1)
+    expect(Math.max(...geometry.labelTops) - Math.min(...geometry.labelTops), 'all Overview figure labels share a baseline').toBeLessThanOrEqual(1)
+  })
+
+  test('Overview selection is a chip and the figure hover plate is outdented', async ({ page }) => {
+    await openFrame(page, 'frame-wall=dashboard&frame-view=overview', 'light', 1440)
+    const turns = page.locator('[aria-label="What it cost, in brief"] button').filter({ hasText: 'Turns' })
+    await turns.click()
+    await expect(page.getByText('Turns per day', { exact: true })).toBeVisible()
+    const selected = page.locator('[aria-label="What it cost, in brief"] button[aria-pressed="true"]')
+    const chip = selected.locator('[data-slot="chip"]')
+    await expect(chip).toHaveText('Selected')
+    await expect(chip).toHaveAttribute('data-variant', 'default')
+    await selected.hover()
+    const geometry = await selected.evaluate(button => {
+      const label = button.querySelector<HTMLElement>('[data-slot="stat-label"]')!
+      const firstLabel = label.firstElementChild ?? label
+      const text = document.createRange()
+      text.selectNode([...firstLabel.childNodes].find(node => node.nodeType === Node.TEXT_NODE)!)
+      const style = getComputedStyle(button)
+      return { plateLeft: button.getBoundingClientRect().left, textLeft: text.getBoundingClientRect().left, paddingLeft: parseFloat(style.paddingLeft) }
+    })
+    const inset = await resolvedPx(page, '--hd-space-2')
+    expect(geometry.textLeft - geometry.plateLeft, 'the hover plate pulls back by its inset').toBeCloseTo(inset, 1)
+    expect(geometry.paddingLeft, 'button padding keeps the figure text on its column edge').toBeCloseTo(inset, 1)
+  })
+
+  test('four Overview figures never wrap into a lone final row', async ({ page }) => {
+    for (const width of [1100, 720]) {
+      await openFrame(page, 'frame-wall=dashboard&frame-view=overview', 'light', width)
+      const rows = await page.locator('[aria-label="What it cost, in brief"] [data-slot="stat-row"]').evaluate(row => {
+        const figures = [...row.querySelectorAll<HTMLElement>('[data-slot="stat"]')]
+        const sorted = figures.map(figure => figure.getBoundingClientRect().top).sort((a, b) => a - b)
+        const grouped: { top: number; count: number }[] = []
+        for (const top of sorted) {
+          const row = grouped[grouped.length - 1]
+          if (row && top - row.top <= 2) row.count += 1
+          else grouped.push({ top, count: 1 })
+        }
+        return grouped.map(row => row.count)
+      })
+      expect(rows.every(count => count >= 2) && (rows.length === 1 ? rows[0] === 4 : rows.length === 2 && rows.every(count => count === 2)), `four figures at ${width}px do not leave one alone`).toBe(true)
+    }
+  })
+
+  test('empty Activity uses no busiest day and its five figures have no lone row', async ({ page }) => {
+    await openFrame(page, 'frame-wall=dashboard&frame-view=activity&frame-empty-usage=1', 'light', 720)
+    const stats = await page.locator('[data-page-destination="dashboard"] [data-slot="stat-row"] [data-slot="stat"]').evaluateAll(figures => figures.map(figure => ({
+      label: figure.querySelector<HTMLElement>('[data-slot="stat-label"]')?.textContent?.trim(),
+      value: figure.querySelector<HTMLElement>('.text-xl')?.textContent?.trim(),
+      y: Math.round(figure.getBoundingClientRect().top),
+    })))
+    expect(stats).toHaveLength(5)
+    expect(stats[3]?.label, 'zero activity uses the busiest day label, not the range start date').toBe('busiest day')
+    expect(stats[3]?.value, 'zero activity has no busiest day or zero figure').toBe('—')
+    const rows = new Map<number, number>()
+    for (const stat of stats) rows.set(stat.y, (rows.get(stat.y) ?? 0) + 1)
+    expect([...rows.values()].every(count => count > 1), 'a wrapped five-figure strip never strands one figure').toBe(true)
+  })
+
+  test('empty Projects keeps amount warning and attribution copy in one section surface', async ({ page }) => {
+    await openFrame(page, 'frame-wall=dashboard&frame-view=projects&frame-empty-usage=1', 'light', 1440)
+    const section = page.locator('[data-slot="section"][aria-label="Project usage"]')
+    const warning = section.locator('[data-slot="alert"]')
+    await expect(warning).toContainText('Amounts are unknown for this range')
+    await expect(warning).toContainText('Recorded usage has no goal attribution.')
+    await expect(section.locator('[data-slot="rows"], [data-dashboard-table="insight"]')).toHaveCount(0)
+    const width = await warning.evaluate(node => node.getBoundingClientRect().width)
+    expect(width, 'the one empty-state surface uses the Dashboard measure').toBeCloseTo(await resolvedPx(page, '--hd-column'), 1)
+  })
+
+  test('Projects view select uses sentence case', async ({ page }) => {
+    await openFrame(page, 'frame-wall=dashboard&frame-view=projects&frame-empty-usage=1', 'light', 1440)
+    const select = page.getByRole('combobox', { name: 'Project usage view' })
+    const options = await select.locator('option').evaluateAll(nodes => nodes.map(node => node.textContent?.trim()))
+    expect(options).toEqual(['By team', 'By Agent'])
+  })
+
+  test('section headings and controls share a center line on every preview page', async ({ page }) => {
+    test.setTimeout(120_000)
+    for (const destination of layoutDestinations) {
+      await openFrame(page, destination.query, 'light', 1440)
+      await applyFrameActions(page, destination)
+      const offsets = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('[data-section-head], [data-slot="section-head"]')].flatMap(head => {
+        const name = head.querySelector<HTMLElement>('[data-section-name], [data-slot="section-name"]')
+        const action = head.querySelector<HTMLElement>('[data-slot="section-action"]')
+        if (!name || !action || !name.getClientRects().length || !action.getClientRects().length) return []
+        return [{ name: name.textContent?.trim() ?? 'section', difference: Math.abs(name.getBoundingClientRect().top + name.getBoundingClientRect().height / 2 - action.getBoundingClientRect().top - action.getBoundingClientRect().height / 2) }]
+      }))
+      for (const offset of offsets) expect(offset.difference, `${destination.id} ${offset.name} title/control centers`).toBeLessThanOrEqual(1)
+    }
+  })
+
+  test('empty Spend plot message stays inside its ChartCard', async ({ page }) => {
+    await openFrame(page, 'frame-wall=dashboard&frame-view=spend&frame-empty-usage=1', 'light', 1440)
+    const empty = page.getByText('No priced usage in this window yet', { exact: true })
+    await expect(empty).toBeVisible()
+    await expect(empty.locator('xpath=ancestor::*[@data-slot="chart-card"]')).toHaveCount(1)
+  })
+})
+
 test('shared heading and page or panel stacks hold across preview destinations', async ({ page }) => {
   test.setTimeout(120_000)
   const stackGap = await resolvedPx(page, '--hd-card-gap')
