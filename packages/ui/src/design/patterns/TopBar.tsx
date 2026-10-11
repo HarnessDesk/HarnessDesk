@@ -1,10 +1,17 @@
+/**
+ * The fixed toolbar shared by every destination.
+ *
+ * More is conditional on the current page, view and fold: without an action
+ * row there is no button and no empty menu. The shell recomputes it from the
+ * current slots, so moving to a page with actions brings the door back.
+ */
 import { useId, useLayoutEffect, useRef, useState, type ReactNode, type CSSProperties, type ComponentProps } from 'react'
 import { Bar } from '../ui/bar'
 import { Button } from '../ui/button'
 import { Tabs, TabsList, TabsTrigger } from '../ui/tabs'
 import { Text } from './Settings'
 import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip'
-import { Menu, MenuItem, MenuSeparator } from './Menu'
+import { hasMenuContent, Menu, MenuItem, MenuSeparator } from './Menu'
 import { Popover } from './Popover'
 import { ArrowRightIcon, MoreIcon, CaretIcon, SlidersIcon } from '../../components/Icons'
 import styles from './TopBar.module.css'
@@ -43,7 +50,19 @@ export interface TopBarProps {
   readonly extraMore?: readonly TopBarAction[]
   readonly corner?: boolean
 }
+
 type Fold = 0 | 1 | 2 | 3
+/** The More door follows its current rows, including actions folded into it. */
+const topBarMoreRows = (props: TopBarProps, fold: Fold, settledFold: Fold, foldedParents: readonly { readonly label: string; readonly run: () => void }[]) => (close: () => void) => <>
+  {(fold === 3 || settledFold === 3) && props.verb && !props.verb.icon && <>
+    <MenuItem icon={<ArrowRightIcon size={16} />} label={props.verb.label} disabled={props.verb.disabled} onSelect={() => { props.verb?.run(); close() }} />
+    <MenuSeparator />
+  </>}
+  {foldedParents.map((one, index) => <MenuItem key={`${index}:${one.label}`} icon={<ArrowRightIcon size={16} />} label={one.label} onSelect={() => { one.run(); close() }} />)}
+  {props.more(close)}
+  {props.extraMore?.map(one => <MenuItem
+    key={one.label} icon={one.icon ?? <ArrowRightIcon size={16} />} label={one.label} disabled={one.disabled} onSelect={() => { one.run(); close() }} />)}
+</>
 const DestinationTab = ({ tab }: { tab: TopBarTab }) => {
   const reasonId = useId()
   const trigger = <TabsTrigger value={tab.value} data-team-page={tab.value}
@@ -67,6 +86,12 @@ export const TopBar = (props: TopBarProps) => {
   const foldedAnchor = useRef<DOMRect | null>(null)
   const measuredFold = useRef<Fold>(0)
   const [measurement, setMeasurement] = useState(0)
+  const parents = props.parents ?? (props.parent ? [props.parent] : [])
+  const shownParents = fold >= 2 ? parents.slice(-1) : parents
+  const foldedParents = fold >= 2 ? parents.slice(0, -1) : []
+  const hasProvidedMoreRows = hasMenuContent(props.more(() => {})) || Boolean(props.extraMore?.length)
+  const moreRows = topBarMoreRows(props, fold, settledFold, foldedParents)
+  const hasMore = hasMenuContent(moreRows(() => {}))
   // Reset on inputs that change intrinsic room. ResizeObserver observes the
   // outer row and externally sized standing tools: observing the title would
   // feed the fold back into itself. A seam drag changes tools without the row.
@@ -93,7 +118,7 @@ export const TopBar = (props: TopBarProps) => {
     observer?.observe(node)
     if (props.rightColumnWidth && tools.current) observer?.observe(tools.current)
     return () => { observer?.disconnect() }
-  }, [props.place, props.parent?.label, props.parents?.map(one => one.label).join('\0'), props.mark, Boolean(props.view), props.state, props.tab, props.tabs, props.verb?.label, props.verb?.icon, props.lead, props.tools, props.rightColumnWidth])
+  }, [props.place, props.parent?.label, props.parents?.map(one => one.label).join('\0'), props.mark, Boolean(props.view), props.state, props.tab, props.tabs, props.verb?.label, props.verb?.icon, props.lead, props.tools, props.rightColumnWidth, hasProvidedMoreRows])
   useLayoutEffect(() => {
     // Probe every intrinsic stage before paint. RAF-separated renders exposed
     // expanded slots beside the retained menu on live publications. Layout
@@ -134,9 +159,6 @@ export const TopBar = (props: TopBarProps) => {
     tabFocusOwner.current = null
     previousFold.current = settledFold
   }, [settledFold])
-  const parents = props.parents ?? (props.parent ? [props.parent] : [])
-  const shownParents = fold >= 2 ? parents.slice(-1) : parents
-  const foldedParents = fold >= 2 ? parents.slice(0, -1) : []
   const current = props.tabs?.find(one => one.value === props.tab)
   return <Bar as="header" data-content-inset="frame" corner={props.corner} className={`${styles.bar} hd-drag`}>
     <div data-slot="top-bar" data-fold={fold} className={styles.row} ref={node => { root.current = node }}>
@@ -168,14 +190,10 @@ export const TopBar = (props: TopBarProps) => {
       </Popover>}</div>
       <div ref={tools} data-topbar="tools" className={styles.fixed} data-standing={props.rightColumnWidth ? '' : undefined}
         style={props.rightColumnWidth ? { '--topbar-right-column': typeof props.rightColumnWidth === 'number' ? `${props.rightColumnWidth}px` : props.rightColumnWidth } as CSSProperties : undefined}>{props.tools}
-      <div data-topbar="more" className={styles.fixed}><Popover title="More" label={<MoreIcon />}
+      <div data-topbar="more" className={styles.fixed}>{hasMore && <Popover title="More" label={<MoreIcon />}
         triggerVariant={{ variant: 'ghost', size: 'icon-sm' }} icons="all">
-        {close => <Menu close={close}>{(fold === 3 || settledFold === 3) && props.verb && !props.verb.icon && <>
-          <MenuItem icon={<ArrowRightIcon size={16} />} label={props.verb.label} disabled={props.verb.disabled} onSelect={() => { props.verb?.run(); close() }} />
-          <MenuSeparator />
-        </>}{foldedParents.map((one, index) => <MenuItem key={`${index}:${one.label}`} icon={<ArrowRightIcon size={16} />} label={one.label} onSelect={() => { one.run(); close() }} />)}{props.more(close)}{props.extraMore?.map(one => <MenuItem
-          key={one.label} icon={one.icon ?? <ArrowRightIcon size={16} />} label={one.label} disabled={one.disabled} onSelect={() => { one.run(); close() }} />)}</Menu>}
-      </Popover></div></div>
+        {close => <Menu close={close}>{moreRows(close)}</Menu>}
+      </Popover>}</div></div>
     </div>
   </Bar>
 }

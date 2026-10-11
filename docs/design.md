@@ -525,6 +525,11 @@ mode, permissions, work-in, and sort/show menus. Agent and account lists show
 each entry's mark or avatar. A group label never gets an icon. A menu has no
 duplicate labels at one level.
 
+The top bar's **More** button appears only when its current page, view or folded
+controls provide at least one row. A page with no applicable action has no
+button to open an empty menu. The shell derives this from the current slots, so
+navigating to a page with actions restores the button.
+
 Second lines still have to earn their height under [The second line](#the-second-line):
 in Permissions, only **Full access** and **Never ask** keep the
 risky-choice explanation visible; other choice descriptions go in `title`.
