@@ -30,10 +30,21 @@
 .trackModelTight { width: var(--hd-composer-track-model-tight); }
 .trackSend { width: var(--hd-composer-track-send); }
 
-/* Selected values use their full content while the toolbar has room. */
+/* Selected values use their full content while the toolbar has room. The
+   shared trigger has to leave its label enough of its own row before it
+   shortens the word; this tighter inset and gap are only for content-sized
+   composer tracks. The flex row can still shrink them when it truly runs out
+   of room. */
 .trackContentSized,
 .trackPermissions:not([data-folded]):not([data-tight]),
 .trackMode:not([data-folded]):not([data-tight]) {
   width: max-content;
   flex: 0 1 auto;
+}
+
+.trackContentSized :global([data-full-width][data-align] > button),
+.trackPermissions:not([data-folded]):not([data-tight]) :global([data-full-width][data-align] > button),
+.trackMode:not([data-folded]):not([data-tight]) :global([data-full-width][data-align] > button) {
+  gap: var(--hd-space-0-5);
+  padding-inline: var(--hd-space-1-5);
 }
