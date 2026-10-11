@@ -544,7 +544,9 @@ These only exist because no vendor owns the desk:
   Scans skills and MCP server definitions across all installed agents without
   booting them. Translates configurations across agent dialects via a canonical
   specification, generates unified diff previews, takes automatic file backups,
-  and records every change in `audit.ndjson`.
+  and records every change in `audit.ndjson`. Skill writes compare and guard the
+  whole bundle, including scripts and references; apply writes the source bytes
+  it checked, and an edited supporting file requires a backup to replace.
 - **One history, one search** across every backend, grouped by repository so
   a project is one row whichever agent worked in it.
 - **One permission policy and one audit log.**

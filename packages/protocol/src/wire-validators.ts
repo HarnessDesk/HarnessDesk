@@ -270,6 +270,8 @@ const libraryPlannedOpValidator: Validator<LibraryPlannedOp> = shape({
   sourcePath: optional(isString),
   flat: optional(isBoolean),
   guardDigest: nullableString,
+  guardBundle: (value, path) => value === undefined ? undefined : nullableString(value, path),
+  sourceBundle: (value, path) => value === undefined ? undefined : isString(value, path),
   backup: isBoolean,
 }) as Validator<LibraryPlannedOp>
 

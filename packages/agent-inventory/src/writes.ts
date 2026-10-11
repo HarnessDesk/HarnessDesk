@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, lstatSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
-import { cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
+import { chmod, cp, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 
@@ -14,7 +14,7 @@ import type {
   RuntimeId,
 } from '@harnessdesk/protocol'
 
-import { digestOf } from './digest.js'
+import { bundleDigest, digestOf } from './digest.js'
 import { unifiedDiff } from './diff.js'
 import {
   insideReadOnlyRoot,
@@ -164,6 +164,55 @@ const bundleExtras = (
   return refused !== null ? { refused } : { files: files.sort() }
 }
 
+interface SkillFile {
+  readonly path: string
+  readonly bytes: Buffer
+  readonly mode?: number
+}
+
+/** Snapshot the same bounded, link-skipping extras that an install carries. */
+const skillFiles = (text: string, sourcePath?: string): readonly SkillFile[] => {
+  const files: SkillFile[] = [{ path: 'SKILL.md', bytes: Buffer.from(text) }]
+  if (sourcePath === undefined) return files
+  const walked = bundleExtras(sourcePath)
+  if ('refused' in walked) throw new Error(walked.refused)
+  let bytes = 0
+  for (const path of walked.files) {
+    const full = join(sourcePath, path)
+    const stats = lstatSync(full)
+    if (stats.isSymbolicLink()) continue
+    const content = readFileSync(full)
+    bytes += content.length
+    if (bytes > MAX_BUNDLE_BYTES) throw new Error('The bundle holds more than 20 MB — too large to carry as a skill.')
+    files.push({ path, bytes: content, mode: stats.mode })
+  }
+  return files
+}
+
+/** A flat definition has the same single-file identity as a bare bundle. */
+const currentSkillFiles = (path: string): readonly SkillFile[] | null => {
+  const existing = readDefinition(path)
+  return existing === null ? null : skillFiles(existing.text, existing.flat ? undefined : existing.container)
+}
+
+const currentSkillBundleDigest = (path: string): string | null => {
+  const files = currentSkillFiles(path)
+  return files === null ? null : bundleDigest(files)
+}
+
+/** Only supporting-file changes need a note beside the definition's diff. */
+const bundleDifference = (targetPath: string, text: string, sourcePath?: string): string | undefined => {
+  const existing = readDefinition(targetPath)
+  if (existing === null || digestOf(existing.text) !== digestOf(text)) return undefined
+  const before = new Map((currentSkillFiles(targetPath) ?? []).map((file) => [file.path, file.bytes]))
+  const after = new Map(skillFiles(text, existing.flat ? undefined : sourcePath).map((file) => [file.path, file.bytes]))
+  const different = [...new Set([...before.keys(), ...after.keys()])].sort().filter((path) =>
+    path !== 'SKILL.md' && (!before.has(path) || !after.has(path) || !before.get(path)!.equals(after.get(path)!)),
+  )
+  if (different.length === 0) return undefined
+  return `Bundle files differ: ${different.slice(0, 5).join(', ')}${different.length > 5 ? ` and ${different.length - 5} more` : ''}.`
+}
+
 /** Whether a directory exists and holds anything at all. */
 const dirHasEntries = (path: string): boolean => {
   try {
@@ -184,7 +233,20 @@ interface PlanState {
 
 const push = (state: PlanState, op: Omit<LibraryPlannedOp, 'id'>): void => {
   state.counter += 1
-  state.ops.push({ id: `op-${state.counter}`, ...op })
+  if (op.kind === 'skill') {
+    const guardBundle = insideRoots(op.targetPath, knownRoots('skill', state.home, state.cwd))
+      ? currentSkillBundleDigest(op.targetPath)
+      : null
+    const source = op.flat === true ? undefined : op.sourcePath
+    const difference = op.content === undefined ? undefined : bundleDifference(op.targetPath, op.content, source)
+    state.ops.push({
+      id: `op-${state.counter}`, ...op, guardBundle,
+      ...(op.content !== undefined ? { sourceBundle: bundleDigest(skillFiles(op.content, source)) } : {}),
+      ...(difference !== undefined ? { reason: [op.reason, difference].filter(Boolean).join(' ') } : {}),
+    })
+  } else {
+    state.ops.push({ id: `op-${state.counter}`, ...op })
+  }
 }
 
 const refuse = (
@@ -225,6 +287,13 @@ const ownership = (
 ): 'ours' | 'edited' | 'foreign' => {
   const entry = manifest.find(kind, path, name)
   if (!entry) return 'foreign'
+  if (kind === 'skill') {
+    const files = currentSkillFiles(path)
+    if (files === null) return 'edited'
+    if (entry.bundle !== undefined) return entry.bundle === bundleDigest(files) ? 'ours' : 'edited'
+    // Old manifests only vouched for SKILL.md; no supporting file was theirs.
+    return files.length === 1 && entry.digest === currentDigest ? 'ours' : 'edited'
+  }
   return entry.digest === currentDigest ? 'ours' : 'edited'
 }
 
@@ -313,7 +382,7 @@ const planInstallSkill = (
       kind: 'skill',
       name,
       action: 'skip',
-      targetPath: bundleTarget,
+      targetPath: intent.sourcePath,
       targetRuntime,
       reason: 'This copy already is the one this agent reads.',
       guardDigest: null,
@@ -334,7 +403,7 @@ const planInstallSkill = (
 
   if (existing !== null) {
     const current = digestOf(existing.text)
-    if (current === digestOf(text)) {
+    if (currentSkillBundleDigest(targetPath) === bundleDigest(skillFiles(text, existing.flat ? undefined : sourcePath))) {
       push(state, {
         kind: 'skill',
         name,
@@ -354,9 +423,10 @@ const planInstallSkill = (
         'skill',
         name,
         targetPath,
-        who === 'edited'
+        [who === 'edited'
           ? 'HarnessDesk installed this copy, but it has been edited since — resolve the copies from the row instead of overwriting the edit.'
           : 'A different copy already sits here, and it was not written by HarnessDesk — resolve the copies from the row instead.',
+          bundleDifference(targetPath, text, sourcePath)].filter(Boolean).join(' '),
         targetRuntime,
       )
       return
@@ -372,8 +442,8 @@ const planInstallSkill = (
       backup: false,
       content: text,
       ...(existing.flat ? { flat: true } : {}),
-      ...(files.length > 0 ? { extraFiles: files } : {}),
-      ...(sourcePath !== undefined ? { sourcePath } : {}),
+      ...(!existing.flat && files.length > 0 ? { extraFiles: files } : {}),
+      ...(!existing.flat && sourcePath !== undefined ? { sourcePath } : {}),
     })
     return
   }
@@ -443,7 +513,7 @@ const planSyncSkill = (
       continue
     }
     const current = existing === null ? null : digestOf(existing.text)
-    if (current !== null && current === digestOf(source.text)) {
+    if (current !== null && currentSkillBundleDigest(targetPath) === bundleDigest(skillFiles(source.text, existing?.flat === true ? undefined : extrasFrom))) {
       push(state, {
         kind: 'skill',
         name,
@@ -633,7 +703,7 @@ const planRestoreCopy = (
   }
   const existing = readDefinition(targetPath)
   const current = existing === null ? null : digestOf(existing.text)
-  if (current !== null && current === digestOf(filed.text)) {
+  if (current !== null && currentSkillBundleDigest(targetPath) === bundleDigest(skillFiles(filed.text, filed.flat ? undefined : backupPath))) {
     push(state, {
       kind: 'skill',
       name,
@@ -935,11 +1005,6 @@ const backupHome = (libraryDir: string, name: string): string => {
   return join(libraryDir, 'backups', `${stamp}-${name}-${Math.random().toString(36).slice(2, 6)}`)
 }
 
-const currentSkillDigest = (targetPath: string): string | null => {
-  const existing = readDefinition(targetPath)
-  return existing === null ? null : digestOf(existing.text)
-}
-
 const targetLocks = new Map<string, Promise<void>>()
 
 export const activeLockCountForTest = (): number => targetLocks.size
@@ -1011,10 +1076,13 @@ const applyOne = async (
   let backupPath: string | undefined
 
   if (op.kind === 'skill') {
-    const current = currentSkillDigest(op.targetPath)
-    if (current !== op.guardDigest) {
-      throw new Error('The target changed since the preview — plan again to see what is there now.')
+    if (op.guardBundle === undefined) throw new Error('Plan again.')
+    const currentBundle = currentSkillBundleDigest(op.targetPath)
+    if (currentBundle !== op.guardBundle) {
+      throw new Error('The target changed since the preview — plan again.')
     }
+    const definition = readDefinition(op.targetPath)
+    const current = definition === null ? null : digestOf(definition.text)
     const existsNow = existsSync(op.targetPath)
     // The overwrite rule, re-derived here rather than trusted from the wire.
     // A hollow directory with nothing in it has nothing to lose, so it alone
@@ -1044,6 +1112,15 @@ const applyOne = async (
 
     const content = op.content
     if (content === undefined) throw new Error('The operation carries nothing to write.')
+    let files: readonly SkillFile[]
+    try {
+      files = skillFiles(content, op.flat === true ? undefined : op.sourcePath)
+    } catch {
+      throw new Error('The source changed since the preview — plan again.')
+    }
+    if ((op.sourceBundle !== undefined || op.sourcePath !== undefined || (op.extraFiles?.length ?? 0) > 0) && bundleDigest(files) !== op.sourceBundle) {
+      throw new Error('The source changed since the preview — plan again.')
+    }
     if (op.backup && existsNow) {
       backupPath = backupHome(context.libraryDir, op.name)
       await mkdir(dirname(backupPath), { recursive: true })
@@ -1059,18 +1136,12 @@ const applyOne = async (
     } else {
       await mkdir(op.targetPath, { recursive: true })
       await writeFile(join(op.targetPath, 'SKILL.md'), content)
-      for (const relative of op.extraFiles ?? []) {
-        if (op.sourcePath === undefined) break
-        if (!isSafeSkillRelativePath(relative)) continue
-        const from = join(op.sourcePath, relative)
-        const to = join(op.targetPath, relative)
-        try {
-          await mkdir(dirname(to), { recursive: true })
-          await cp(from, to)
-        } catch {
-          // A bundle file that vanished since the plan is not worth failing
-          // the definition for; the definition is the skill.
-        }
+      for (const file of files) {
+        if (file.path === 'SKILL.md' || !op.extraFiles?.includes(file.path) || !isSafeSkillRelativePath(file.path)) continue
+        const to = join(op.targetPath, file.path)
+        await mkdir(dirname(to), { recursive: true })
+        await writeFile(to, file.bytes)
+        if (file.mode !== undefined) await chmod(to, file.mode)
       }
     }
     await withLock(resolve(context.libraryDir, 'manifest.json'), async () => {
@@ -1080,6 +1151,7 @@ const applyOne = async (
         name: op.name,
         path: op.targetPath,
         digest: digestOf(content),
+        bundle: currentSkillBundleDigest(op.targetPath)!,
         at: Date.now(),
         ...(op.sourcePath !== undefined ? { source: op.sourcePath } : {}),
       })
