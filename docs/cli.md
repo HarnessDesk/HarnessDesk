@@ -260,7 +260,7 @@ A single object, `{ "flows": [...] }`. Each flow has `id`, `origin` (`project`, 
 harnessdesk flow preview <flow> [--project PATH] [--title TEXT] [--brief-file PATH] [--input NAME=VALUE] [--seat ROLE=RUNTIME] [--unattended]
 ```
 
-Says what a flow would do, without doing it or spending anything. It lists the seats the flow would open (with any override beside the file's own), the check commands it would run, and everything wrong with it. A preview opens no session, spends nothing and starts nothing, so it is free to repeat. Warnings stay visible and do not stop a start.
+Says what a flow would do, without doing it or spending anything. It lists the seats the flow would open (with any override beside the file's own), which declared skills and servers would load and why any would not, the check commands it would run, and everything wrong with it. A seat that would be refused stops Start. A preview opens no session, spends nothing and starts nothing, so it is free to repeat. Warnings stay visible and do not stop a start.
 
 Needs the **read** tier.
 

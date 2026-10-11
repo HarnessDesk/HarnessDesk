@@ -50,6 +50,8 @@ export interface FlowPreviewPort {
   agents(root: string): Promise<readonly AgentEntry[]>
   /** One Agent's seat plan for the exact seats and grant a role names; `requireHeld` passes over every seat that cannot hold. */
   previewAgent(root: string, agent: string, seats: readonly FlowSeat[], grant: CeilingLevel, options?: { readonly unattended?: boolean; readonly requireHeld?: true; readonly includeCandidateCeilings?: true }): Promise<SeatPlan>
+  /** Dry attachment decisions for the final winning candidate, after independence has been checked. */
+  preflightAttachments?(root: string, agent: AgentEntry, seat: FlowSeat, ceiling: CeilingLevel): Promise<NonNullable<FlowPreviewSeat['attachments']>>
   /** Reads the provider a runtime would use in this checkout; null means independence cannot be proven. */
   providerOf?(runtime: string, cwd: string): Promise<string | null>
   /** The checkout whose runtime configuration an opened role would read. */
@@ -443,10 +445,23 @@ export class FlowPreviews {
           ...(providersByRole.get(role.id) ?? []),
           selected ? await provider(selected.seat.runtime, providerRoot) : null,
         ])
+        const entry = agents.find(one => one.id === binding.agent.id)
+        const attachments = !plan.blocked && selected && plan.ceiling && entry?.definition &&
+          (entry.definition.skills.length > 0 || entry.definition.mcp.length > 0)
+          ? await this.#port.preflightAttachments?.(root, entry, selected.seat, plan.ceiling.level)
+          : undefined
         seats.push({
           role: role.id, index: binding.index, agent: binding.agent.id, plan, isolate: role.isolate || compiled.document.flow.base !== undefined,
           ...(atPredecessor.has(role.id) ? { atPredecessor: atPredecessor.get(role.id)! } : {}), reviews: reviewsIn(binding),
+          ...(attachments ? { attachments } : {}),
         })
+        if (attachments?.refusal) problems.push({ level: 'error', at: `roles.${role.id}.seat`, text: `${attachments.refusal} Review it on the Agent page.` })
+        for (const declaration of attachments?.declarations ?? []) {
+          if (declaration.problem !== null) problems.push({
+            level: 'warning', at: `roles.${role.id}.seat`,
+            text: `${role.id}[${binding.index + 1}] ${declaration.kind === 'mcp' ? 'server' : 'skill'} “${declaration.name}”: ${declaration.problem}`,
+          })
+        }
         if (!plan.blocked && selected && this.#port.seatOptionsProblem) {
           const problem = await this.#port.seatOptionsProblem(selected.seat, cwd)
           if (problem) problems.push({ level: 'error', at: `roles.${role.id}.seat[${binding.index}]`, ...problem })
