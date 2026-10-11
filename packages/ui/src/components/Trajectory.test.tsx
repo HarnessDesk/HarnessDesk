@@ -75,6 +75,12 @@ const TURN = {
 const rows = (): HTMLElement[] => [...container.querySelectorAll<HTMLElement>('[data-slot="inspector-row"]')]
 const leads = (): string[] => rows().map((row) => row.firstElementChild?.textContent ?? '')
 
+it('leaves the footer empty when the current filter has no steps', async () => {
+  const onFoot = vi.fn()
+  await render([TURN], 'no matching step', false, onFoot)
+  expect(onFoot).toHaveBeenLastCalledWith('', '')
+})
+
 it('says who produced each step in sentence case, never in capitals', async () => {
   await render([TURN])
   expect(leads()).toEqual(['You', 'Shell', 'Sub-agent', 'Post'])

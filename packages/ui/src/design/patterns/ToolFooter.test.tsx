@@ -46,6 +46,15 @@ it('falls back to content facts without a shell scope', () => {
   expect(container.querySelector('[data-slot="content-footer"]')?.textContent).toBe('12 eventsRecorded')
   expect(container.querySelector('[data-slot="bar"]')).toBeNull()
 })
+it('omits an empty footer from both the fixed shell and standalone content', () => {
+  act(() => root.render(<ToolFooterProvider>
+    <ToolFooterScope id="empty"><ToolFooterPublisher left="" right="" /></ToolFooterScope>
+    <ToolFooterOutlet id="empty" />
+  </ToolFooterProvider>))
+  expect(container.querySelector('[data-slot="tool-footer"]')).toBeNull()
+  act(() => root.render(<ToolFooterPublisher left="" right="" />))
+  expect(container.querySelector('[data-slot="content-footer"]')).toBeNull()
+})
 it('composes registered fact and plugin sections under one tool body and scroll owner', () => {
   act(() => root.render(<ToolBody><ToolBodySections><ToolBody><ToolSection label="Conversation">Facts</ToolSection></ToolBody><ToolBody><ToolSection label="Plugin"><PanelFrame><PanelBody>Recorded output</PanelBody></PanelFrame></ToolSection></ToolBody></ToolBodySections></ToolBody>))
   expect(container.querySelectorAll('[data-slot="tool-body"]')).toHaveLength(1)

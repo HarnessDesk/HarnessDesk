@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { runtimeId, sessionId, sessionKey } from '@harnessdesk/protocol'
 
@@ -31,6 +31,16 @@ const ROWS: readonly AuditRow[] = [
   { at: noon, runtime: 'codex', sessionId: 's1', kind: 'turn/completed' },
   { at: noon - DAY, runtime: 'codex', sessionId: 's2', kind: 'turn/completed' },
 ]
+
+it('leaves empty audit counts and the workspace name out of the footer', async () => {
+  const snapshot = { ...emptySnapshot(), workspace: { name: 'Sample workspace' } } as unknown as ReturnType<typeof emptySnapshot>
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, loadAudit: async () => [] } as unknown as AppStore
+  const onFoot = vi.fn()
+  await act(async () => root.render(<StoreProvider store={store}>
+    <Activity query="" onFoot={onFoot} />
+  </StoreProvider>))
+  expect(onFoot).toHaveBeenLastCalledWith('', '')
+})
 
 it('heads each day of the log with the inspector’s one group line', async () => {
   const snapshot = emptySnapshot()

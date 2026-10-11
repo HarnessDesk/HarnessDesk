@@ -88,7 +88,7 @@ export const Agents = ({ query, onFoot }: { query: string; onFoot: ReportFoot })
 
   useEffect(() => {
     onFoot(
-      running > 0 ? `${running} running` : `${agents.length} started`,
+      agents.length === 0 ? '' : running > 0 ? `${running} running` : `${agents.length} started`,
       agents.length > 0 ? `${agents.length} in this session` : '',
     )
   }, [running, agents.length, onFoot])

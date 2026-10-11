@@ -1972,8 +1972,8 @@ const BrowserPaneContent = () => {
       </ToolPaneBody>
       {/* What the pane is, said once at the bottom: whether a turn has the
           wheel, and that the profile is never the one your own browser uses. */}
-      <ToolFooterPublisher left={loadFailures[view.active] ? 'Page failed to load' : driving ? <><Dot state="signin" pulse /> Being driven</> : 'Idle'}
-        right={inline ? 'Never your own browser profile' : 'Framed pages only — the desktop app runs a real browser'} />
+      <ToolFooterPublisher left={loadFailures[view.active] ? 'Page failed to load' : driving ? <><Dot state="signin" pulse /> Being driven</> : ''}
+        right="" />
     </ToolPane>
   )
 }

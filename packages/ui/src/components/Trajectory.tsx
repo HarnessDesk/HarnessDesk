@@ -312,10 +312,10 @@ export const Trajectory = ({
 
   useEffect(() => {
     onFoot(
-      `${shownItems} step${shownItems === 1 ? '' : 's'}`,
-      overview.measured > 0 || overview.wall !== null ? overview.headline : '',
+      shownItems > 0 ? `${shownItems} step${shownItems === 1 ? '' : 's'}` : '',
+      shownItems > 0 && (overview.measured > 0 || overview.wall !== null) ? overview.headline : '',
     )
-  }, [shownItems, overview.headline, overview.measured, overview.wall, onFoot])
+  }, [totalItems, shownItems, overview.headline, overview.measured, overview.wall, onFoot])
 
   if (totalItems === 0) {
     return (

@@ -3,6 +3,9 @@ import { Text } from './Settings'
 import { SectionFooter } from '../ui/section'
 
 export interface ToolFoot { readonly left: ReactNode; readonly right: ReactNode }
+const present = (value: ReactNode): boolean => typeof value === 'string'
+  ? value.trim().length > 0
+  : value != null && value !== false
 const createFeet = () => {
   let entries = new Map<string, { value: ToolFoot; token: object }>()
   const listeners = new Set<() => void>()
@@ -39,8 +42,8 @@ export const ToolFooterPublisher = ({ left, right }: ToolFoot) => {
     const identity = token.current
     return () => { if (source && id) source.remove(id, identity) }
   }, [source, id, suppressed])
-  return !suppressed && (!source || !id) ? <SectionFooter variant="facts" ruled={false} data-slot="content-footer">
-    <Text role="meta">{left}</Text><span className="flex-1" /><Text role="meta">{right}</Text>
+  return !suppressed && (!source || !id) && (present(left) || present(right)) ? <SectionFooter variant="facts" ruled={false} data-slot="content-footer">
+    {present(left) && <Text role="meta">{left}</Text>}{present(left) && present(right) && <span className="flex-1" />}{present(right) && <Text role="meta">{right}</Text>}
   </SectionFooter> : null
 }
 export const ToolFooterOutlet = ({ id }: { id: string | null }) => {
@@ -48,8 +51,8 @@ export const ToolFooterOutlet = ({ id }: { id: string | null }) => {
   if (!source) throw new Error('ToolFooterOutlet requires ToolFooterProvider')
   const entries = useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot)
   const foot = id ? entries.get(id)?.value : undefined
-  if (!foot) return null
+  if (!foot || (!present(foot.left) && !present(foot.right))) return null
   return <SectionFooter variant="facts" data-slot="tool-footer">
-    <Text role="meta">{foot.left}</Text><span className="flex-1" /><Text role="meta">{foot.right}</Text>
+    {present(foot.left) && <Text role="meta">{foot.left}</Text>}{present(foot.left) && present(foot.right) && <span className="flex-1" />}{present(foot.right) && <Text role="meta">{foot.right}</Text>}
   </SectionFooter>
 }
