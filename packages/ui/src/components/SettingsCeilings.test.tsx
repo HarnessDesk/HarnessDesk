@@ -100,6 +100,15 @@ it('says, per runtime and per level, whether it holds the ceiling or is only ask
   expect(chips()[0]?.title).toContain('Read-only sandbox')
   expect(document.body.textContent).toContain('Alpha')
   expect(document.body.textContent).toContain('Beta')
+  const runtimeRows = [...document.body.querySelectorAll<HTMLElement>('[data-slot="row"]')]
+    .filter((row) => ['Alpha', 'Beta'].includes(row.querySelector('[data-slot="row-title"]')?.textContent ?? ''))
+  expect(runtimeRows).toHaveLength(2)
+  for (const row of runtimeRows) {
+    expect(row.querySelectorAll('[data-ceiling][data-hold]')).toHaveLength(4)
+    expect(row.querySelectorAll('[data-slot="ceiling-hold-note"]')).toHaveLength(1)
+    expect(row.querySelector('[data-slot="ceiling-hold-note"]')?.textContent).toBe('Asked, not enforced')
+    expect(row.querySelectorAll('[data-slot="ceiling-hold-note"] [data-ceiling][data-hold]')).toHaveLength(0)
+  }
 })
 
 it('capabilities update after a runtime starts', async () => {
