@@ -1872,3 +1872,10 @@ below 600px of list-container width. The title keeps the name and command,
 the description wraps for at most two lines with its full sentence in the
 definition, the state sits on the meta line, and loading faces and the opening
 chevron keep the trail. Wider tables keep a 192px floor on the identity cell.
+
+## Left column bars
+
+The top controls share the window's edge row and retain their drag region, but
+the left column draws no separator hairline below that row or above the seat
+row. The brand row sits directly after the top controls; whitespace marks each
+transition. A Settings column keeps that brand row above its Back row.

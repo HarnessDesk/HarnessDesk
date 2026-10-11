@@ -49,6 +49,14 @@ it('can keep a label visible while its filtered state is active', () => {
   expect(header?.querySelector('[data-slot="navigation-group-label"]')?.textContent).toBe('Projects · Filtered')
 })
 
+it('aligns a row-inset header controls with the row edge', () => {
+  act(() => root.render(<NavigationGroupHeader label="Projects" inset="row"><button type="button">Open</button></NavigationGroupHeader>))
+  const header = container.querySelector<HTMLElement>('[data-slot="navigation-group-header"]')!
+  expect(header.className).toContain('ps-(--hd-space-2)')
+  expect(header.className).toContain('pe-(--hd-space-2)')
+  expect(header.className).not.toContain('pe-(--hd-sidebar-end-header-inset)')
+})
+
 it('gives navigation metadata the rail ink without changing its role', () => {
   act(() => root.render(<Text role="meta" ink="navigation">12</Text>))
   const meta = container.querySelector('[data-slot="text"]')

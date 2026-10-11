@@ -1303,12 +1303,13 @@ export const Face = ({
  * while it is cut. A title on text that is not cut repeats what you are
  * reading and hides the tooltip of whatever holds it (the seat's "New
  * sessions run as …"), so the title is decided as the pointer arrives, from
- * whether the text overflows its box right then. The ellipsis is the
- * caller's class: `overflow: hidden`, `text-overflow: ellipsis`, `nowrap`.
+ * whether the text overflows its box right then. Pass `truncate` for the
+ * one-line ellipsis; the caller's class supplies width and minimum-size
+ * constraints.
  */
-export const Clipped = ({ className, title, children }: { readonly className?: string; readonly title?: string; readonly children: ReactNode }) => (
+export const Clipped = ({ className, title, truncate = false, children }: { readonly className?: string; readonly title?: string; readonly truncate?: boolean; readonly children: ReactNode }) => (
   <span
-    className={className}
+    className={cx(className, truncate && 'truncate')}
     title={title}
     onMouseEnter={(event) => {
       const node = event.currentTarget

@@ -21,6 +21,7 @@ import {
   ActionError,
   useDismissOverlays,
   Button,
+  Bar,
   Dot,
   Menu,
   MenuItem,
@@ -45,7 +46,7 @@ import { brandOf } from '../lib/identity'
 import { profileName } from '../lib/profile'
 import { READINESS_LABEL, readinessOf, type Readiness } from '../lib/readiness'
 import { AccountHoverCard } from './AgentCards'
-import { RuntimeMark } from './BrandIcons'
+import { HarnessMark, RuntimeMark } from './BrandIcons'
 import { ProfileFace } from './ProfileFace'
 import { Clipped, DisclosureChevron, EmptyState } from '../design'
 import type { Section } from './Settings'
@@ -150,6 +151,10 @@ export const Sidebar = ({
     goForward={() => { void store.navigateForward() }}
     search={<Button variant="ghost" size="icon-sm" onClick={onSearch}
       title="Search everything (⌘K)" aria-label="Search everything" aria-keyshortcuts="Meta+K"><SearchIcon size={16} /></Button>} />
+  const brand = <Bar inset="ink" className="hd-drag" data-left-brand>
+    <HarnessMark size={14} />
+    <Text role="wordmark" truncate title={snapshot.workspace?.path ?? undefined}>HarnessDesk</Text>
+  </Bar>
   const pageDoors = [
     { id: 'teams' as const, label: 'Teams', icon: <TeamIcon size={16} />, run: onOpenTeams, count: 0 },
     { id: 'agents' as const, label: 'Agents', icon: <AgentIcon size={16} />, run: onOpenAgents, count: agentsCount },
@@ -188,6 +193,7 @@ export const Sidebar = ({
       )}
       <SessionTree
         now={now}
+        suppressSelection={activeDestination !== null}
         searching={searchQuery.length > 0}
         searchEmptyState={searchQuery && !snapshot.historyLoading ? (
           <EmptyState variant="inline" title={`No conversations match “${searchQuery}”.`}>
@@ -203,11 +209,11 @@ export const Sidebar = ({
   )
   return <>
     {starting && projectRootOf(snapshot.workspace) && <FrontDoor context={{ kind: 'project', root: projectRootOf(snapshot.workspace)! }} onClose={() => setStarting(false)} onStarted={execution => { store.openGoal(execution.goal); setStarting(false) }} />}
-  <LeftColumn active={active} top={top} head={<LeftColumnModeHead hidden={Boolean(settings)}>{sessionsHead}</LeftColumnModeHead>}
+  <LeftColumn active={active} top={<>{top}{brand}</>} head={<LeftColumnModeHead hidden={Boolean(settings)}>{sessionsHead}</LeftColumnModeHead>}
     body={<>{sessionsBody}<LeftColumnBody hidden={!settings}>
       {settings && <SettingsNavigation section={settings.section} onSection={settings.onSection} onBack={settings.onBack} />}
     </LeftColumnBody></>}
-    footer={<><Slot name="sidebar.panel" /><SidebarNotices /><SidebarUpdate /><AccountFooter notifications={<InboxPanel side="top" size="icon-sm" messages={inbox}
+    footer={<><Slot name="sidebar.panel" />{!settings && <SidebarNotices />}<SidebarUpdate /><AccountFooter notifications={<InboxPanel side="top" size="icon-sm" messages={inbox}
       onOpen={id => store.markInboxRead(id)} onMarkAllRead={() => store.markInboxRead(null)}
       onClear={() => store.clearInbox()} />}
       onOpenSettings={onOpenSettings}
@@ -534,7 +540,7 @@ export const AccountFooter = ({
     <>
       <ProfileFace size={24} />
       <Text role="subject" className={styles.accountName}>
-        <Clipped className={styles.accountLabel}>{yourName}</Clipped>
+        <Clipped truncate className={styles.accountLabel}>{yourName}</Clipped>
       </Text>
       {here?.figure && here.tone !== 'good' && (
         <Text role="muted" tone={usageReadingTone(here.tone)} numeric className={styles.accountMeta}>

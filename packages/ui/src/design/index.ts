@@ -78,6 +78,7 @@ export {
 export { SettingsRowMenu } from './patterns/SettingsRowMenu'
 export { SidebarMenuState, type SidebarMenuStateProps } from './patterns/SidebarMenuState'
 export { Button, buttonVariants, buttonEdge } from './ui/button'
+export { Bar } from './ui/bar'
 export {
   SidebarGroup, SidebarGroupContent, SidebarMenu,
   SidebarMenuAction, SidebarMenuBadge, SidebarMenuButton, SidebarMenuItem,

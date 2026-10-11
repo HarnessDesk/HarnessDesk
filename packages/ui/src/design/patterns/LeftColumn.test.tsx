@@ -1,7 +1,7 @@
 import { act, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { LeftColumnGroup, LeftColumnRow } from './LeftColumn'
+import { LeftColumnGroup, LeftColumnRow, LeftColumnSeat, LeftColumnTop } from './LeftColumn'
 import { FolderIcon } from '../../components/Icons'
 import sheet from './LeftColumn.module.css?raw'
 import styles from './LeftColumn.module.css'
@@ -30,6 +30,17 @@ test('a missing icon reserves its column; the only trailing action does not open
   expect(container.querySelector('button button')).toBeNull()
   act(() => button('Another conversation').click())
   expect(open).toHaveBeenCalledOnce()
+})
+
+test('the column top and seat bars meet without a separator hairline', () => {
+  mount(<>
+    <LeftColumnTop shown back={false} forward={false} toggle={() => {}} goBack={() => {}}
+      goForward={() => {}} search={<button aria-label="Search everything" />} />
+    <LeftColumnSeat menu={<button>Seat</button>} settingsOpen={false} onSettings={() => {}} />
+  </>)
+  const bars = [...container.querySelectorAll<HTMLElement>('[data-slot="bar"]')]
+  expect(bars).toHaveLength(2)
+  expect(bars.map(bar => bar.getAttribute('data-rule'))).toEqual([null, null])
 })
 
 test('a row menu is beside its opener and remains the only trailing control', () => {
