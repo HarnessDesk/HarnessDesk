@@ -75,7 +75,7 @@ const ROSTER: readonly AgentEntry[] = [
   }),
 ]
 
-const taken = (id: string, label: string, runtime: string = 'claude-code'): SeatPlan => ({
+const taken = (id: string, label: string, runtime = 'runtime-one'): SeatPlan => ({
   id,
   from: 'prefer',
   winner: 0,
@@ -196,18 +196,38 @@ it('shows each Agent with what it is for, its ceiling as asked, and the seat it 
   expect(container.textContent).not.toContain('=opus')
 })
 
-it('uses each Agent seat mark, with a name avatar when no seat can be taken', async () => {
+it('uses a seat mark and an Agent name avatar when no seat can be taken', async () => {
+  const store = mount()
+  const runtime = store.getSnapshot().runtimes[0]!.id
+  const reviewer = PLANS.get('code-reviewer')!
   const plans = new Map(PLANS)
-  plans.set('scout', taken('scout', 'Codex', 'codex'))
+  plans.set('code-reviewer', {
+    ...reviewer,
+    candidates: reviewer.candidates.map(candidate => ({ ...candidate, seat: { ...candidate.seat, runtime } })),
+  })
   mount({ agentPlans: plans })
   await act(async () => {})
 
   const row = (name: string) => [...container.querySelectorAll<HTMLButtonElement>('button[data-kind="record"]')]
     .find((one) => one.textContent?.includes(name))!
-  expect(row('Storefront reviewer').querySelector('[data-slot="row-face"] svg')?.getAttribute('class')).toContain('brand-claudecode')
-  expect(row('Scout').querySelector('[data-slot="row-face"] svg')?.getAttribute('class')).toContain('brand-codex')
+  const marked = row('Storefront reviewer').querySelector('[data-slot="row-face"]')!
+  expect(marked.querySelector('svg[class*="brand-"]')).not.toBeNull()
+  expect(marked.querySelector('svg.lucide-bot')).toBeNull()
   expect(row('Security reviewer').querySelector('[data-slot="row-face"] [data-slot="monogram"]')?.textContent).toBe('SR')
   expect(row('draft').querySelector('[data-slot="row-face"] [data-slot="monogram"]')?.textContent).toBe('D')
+})
+
+it('uses the Agent name avatar when a seated runtime has no mark', async () => {
+  const id = runtimeId('unbranded-runtime')
+  const info = { id, capabilities: {}, presentation: { name: 'General runtime' } } as unknown as RuntimeInfo
+  mount({
+    runtimes: [info],
+    agentPlans: new Map([['code-reviewer', taken('code-reviewer', 'Seat A', id)]]),
+  })
+  await act(async () => {})
+  const face = container.querySelector('section[aria-label="In storefront"] button[data-kind="record"] [data-slot="row-face"]')!
+  expect(face.querySelector('svg')).toBeNull()
+  expect(face.querySelector('[data-slot="monogram"]')?.textContent).toBe('SR')
 })
 
 it('says repeated legacy ceiling facts once and keeps a ceiling chip only for the differing Agent', async () => {
@@ -217,8 +237,8 @@ it('says repeated legacy ceiling facts once and keeps a ceiling chip only for th
     definition: { ...agent('safety', 'Safety', 'user').definition!, ceiling: 'publish' },
   })
   const plans = new Map(PLANS)
-  plans.set('release', taken('release', 'Claude'))
-  plans.set('safety', { ...taken('safety', 'Claude'), ceiling: { level: 'publish', hold: 'asked' } })
+  plans.set('release', taken('release', 'Seat A'))
+  plans.set('safety', { ...taken('safety', 'Seat B'), ceiling: { level: 'publish', hold: 'asked' } })
   mount({
     agents: [release, scout, safety],
     agentPlans: plans,

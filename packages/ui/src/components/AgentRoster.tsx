@@ -13,6 +13,7 @@ import {
 } from '../lib/agents'
 import { shortPath } from '../lib/paths'
 import { projectRootOf } from '../lib/projects'
+import { brandForRuntime } from '../lib/brands'
 import { useSnapshot, useStore } from '../state/context'
 import { DestinationBar, useDestinationPage } from '../panels/destination-page'
 import { RuntimeMark } from './BrandIcons'
@@ -65,10 +66,11 @@ const initials = (name: string): string =>
 const AgentFace = ({ entry }: { readonly entry: AgentEntry }) => {
   const snapshot = useSnapshot()
   const candidate = seatTaken(snapshot.agentPlans.get(entry.id))
+  const runtime = candidate ? markFor(candidate, snapshot.runtimes) : null
   return (
     <IconTile shape="face" {...(candidate ? { title: candidate.runtimeName } : {})}>
-      {candidate
-        ? <RuntimeMark runtime={markFor(candidate, snapshot.runtimes)} size={16} />
+      {runtime && brandForRuntime(runtime)
+        ? <RuntimeMark runtime={runtime} size={16} />
         : <Monogram>{initials(entry.definition?.name ?? entry.id)}</Monogram>}
     </IconTile>
   )
