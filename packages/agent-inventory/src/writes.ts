@@ -203,6 +203,11 @@ interface SkillFile {
   readonly mode?: number
 }
 
+/** Preview counts only the incoming files apply will actually write. */
+const writableSkillFiles = (files: readonly SkillFile[], extras: readonly string[] = []): readonly SkillFile[] =>
+  files.filter((file) => file.path === 'SKILL.md' ||
+    (extras.includes(file.path) && isSafeSkillRelativePath(file.path)))
+
 /** Updates retain unshipped extras; the resulting union must remain readable. */
 const updatedSkillBundleRefusal = (retained: readonly SkillFile[], incoming: readonly SkillFile[]): string | undefined => {
   const extras = new Map([...retained, ...incoming].filter((file) => file.path !== 'SKILL.md').map((file) => [file.path, file.bytes]))
@@ -296,7 +301,7 @@ const push = (state: PlanState, op: Omit<LibraryPlannedOp, 'id'>): void => {
     const source = op.flat === true ? undefined : op.sourcePath
     const files = op.content === undefined ? undefined : skillFiles(op.content, source)
     if (op.action === 'update' && op.flat !== true && files !== undefined) {
-      const reason = updatedSkillBundleRefusal(currentFiles ?? [], files)
+      const reason = updatedSkillBundleRefusal(currentFiles ?? [], writableSkillFiles(files, op.extraFiles))
       if (reason !== undefined) {
         refuse(state, 'skill', op.name, op.targetPath, reason, op.targetRuntime)
         return
@@ -1239,9 +1244,8 @@ const applyOne = async (
     if (sourceExtras.length !== plannedExtras.size || sourceExtras.some((file) => !plannedExtras.has(file.path))) {
       throw new Error('The source changed since the preview — plan again.')
     }
-    const toWrite = files.filter((file) => file.path === 'SKILL.md' ||
-      (op.extraFiles?.includes(file.path) && isSafeSkillRelativePath(file.path)))
-    if (op.action === 'update' && op.flat !== true) {
+    const toWrite = writableSkillFiles(files, op.extraFiles)
+    if (op.action !== 'replace' && op.flat !== true) {
       const reason = updatedSkillBundleRefusal(currentFiles ?? [], toWrite)
       if (reason !== undefined) throw new Error(reason)
     }

@@ -1114,9 +1114,9 @@ test('an update records retained files as owned, and reports at most five change
   })
 })
 
-test('updates refuse retained-plus-incoming bundles over a cap before touching the target', async (t) => {
+test('writes refuse retained-plus-incoming bundles over a cap before touching the target', async (t) => {
   for (const cap of ['files', 'bytes'] as const) {
-    for (const phase of ['plan', 'apply'] as const) {
+    for (const phase of ['plan', 'update', 'create'] as const) {
       await t.test(`${cap} at ${phase}`, async () => {
         await withHome(async (home, libraryDir) => {
           const sourcePath = join(home, '.codex/skills/commit')
@@ -1155,7 +1155,7 @@ test('updates refuse retained-plus-incoming bundles over a cap before touching t
             const extraFiles = (await readdir(sourcePath)).filter((path) => path !== 'SKILL.md')
             const files = await Promise.all(['SKILL.md', ...extraFiles].map(async (path) =>
               ({ path, bytes: await readFile(join(sourcePath, path)) })))
-            const op: LibraryPlannedOp = { ...initial, action: 'update', content: EDITED,
+            const op: LibraryPlannedOp = { ...initial, action: phase, content: EDITED,
               guardDigest: digestOf(BODY), guardBundle: initial.sourceBundle!,
               extraFiles, sourceBundle: bundleDigest(files), backup: true }
             const result = (await applyLibrary([op], context))[0]!
@@ -1201,6 +1201,45 @@ test('updates at a bundle cap count incoming replacements once and keep unshippe
         assert.equal(await readFile(join(targetPath, 'SKILL.md'), 'utf8'), EDITED)
         assert.deepEqual(await readFile(join(targetPath, 'note-0.txt')), retained)
         assert.deepEqual(await readFile(join(targetPath, 'note-1.txt')), incoming)
+      })
+    })
+  }
+})
+
+test('preview cap accounting excludes incoming paths that apply will skip', async (t) => {
+  for (const cap of ['files', 'bytes'] as const) {
+    await t.test(cap, async () => {
+      await withHome(async (home, libraryDir) => {
+        const sourcePath = join(home, '.codex/skills/commit')
+        const targetPath = join(home, '.claude/skills/commit')
+        const context = { home, libraryDir }
+        const agents = [agent('codex'), agent('claudecode')]
+        const intent = { kind: 'installSkill' as const, name: 'commit', sourcePath, targetRuntime: runtimeId('claudecode') }
+        await skill(join(home, '.codex/skills'), 'commit', BODY)
+        if (cap === 'files') {
+          for (let i = 0; i < MAX_BUNDLE_FILES; i++) await writeFile(join(sourcePath, `note-${i}.txt`), 'original')
+        } else {
+          await writeFile(join(sourcePath, 'note-0.txt'), Buffer.alloc(10 * 1024 * 1024, 'a'))
+          await writeFile(join(sourcePath, 'note-1.txt'), Buffer.alloc(10 * 1024 * 1024, 'a'))
+        }
+        assert.equal((await applyLibrary((await planLibrary(agents, [intent], context)).ops, context))[0]?.outcome, 'done')
+        const retained = await readFile(join(targetPath, 'note-0.txt'))
+        await rm(join(sourcePath, 'note-0.txt'))
+        const incoming = cap === 'files' ? Buffer.from('updated') : Buffer.alloc(10 * 1024 * 1024, 'b')
+        await writeFile(join(sourcePath, 'note-1.txt'), incoming)
+        await writeFile(join(sourcePath, '..\\ignored.txt'), 'ignored')
+        await writeFile(join(sourcePath, 'SKILL.md'), EDITED)
+        const plan = await planLibrary(agents, [intent,
+          { kind: 'syncSkill', name: 'commit', sourcePath, targetPaths: [targetPath] },
+        ], context)
+        assert.deepEqual(plan.ops.map((op) => op.action), ['update', 'update'])
+        assert.equal((await applyLibrary([plan.ops[0]!], context))[0]?.outcome, 'done')
+        assert.equal(await readFile(join(targetPath, 'SKILL.md'), 'utf8'), EDITED)
+        assert.deepEqual(await readFile(join(targetPath, 'note-0.txt')), retained)
+        assert.deepEqual(await readFile(join(targetPath, 'note-1.txt')), incoming)
+        assert.equal(existsSync(join(targetPath, '..\\ignored.txt')), false)
+        assert.equal(existsSync(join(home, '.claude/skills/ignored.txt')), false)
+        assert.equal((await readdir(targetPath)).length, cap === 'files' ? MAX_BUNDLE_FILES + 1 : 3)
       })
     })
   }
