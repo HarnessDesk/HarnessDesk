@@ -3,3 +3,5 @@
 .track .item:is([data-active], [data-pressed]) { background: var(--hd-background); color: var(--hd-foreground); box-shadow: 0 0 0 var(--hd-border-width) var(--hd-border-strong); }
 .track .item::after { display: none; }
 .track .item [data-slot="switcher-count"] { font-size: var(--hd-text-xs); color: var(--hd-tertiary-foreground); font-weight: var(--hd-weight-normal); font-variant-numeric: tabular-nums; }
+
+.track .item.item[data-icon-only="true"] { padding-inline: 0; }
