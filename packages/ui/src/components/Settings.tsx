@@ -88,7 +88,7 @@ import { NewSessionDefaults } from './SettingsAgents'
 import { ProjectPage } from './ProjectPage'
 import { LaneSettings } from './LaneSettings'
 import { TriggerSettings } from './TriggerSettings'
-import { moveWindowRailFocus } from './AppWindow'
+import { moveSettingsNavigationFocus } from './settings-navigation-focus'
 import { filterSettingsGroups, settingsGroups } from './settings-navigation'
 
 /**
@@ -1662,7 +1662,7 @@ const WorktreeRows = () => {
  * Settings is a window, not a sheet.
  *
  * It takes the whole frame: the window's own traffic lights sit at the top of
- * its nav, "Back to app" is where a sidebar's first row would be, and there is
+ * its nav, the Back row is where a sidebar's first row would be, and there is
  * no dimmed backdrop, because this is somewhere you come to read rather than
  * a question to dismiss. The nav groups the pages by what a person is
  * thinking about — themselves, the work they have put away, the agents, what
@@ -1745,7 +1745,7 @@ export const SettingsNavigation = ({ section, onSection, onBack }: {
   const snapshot = useSnapshot(), runtime = useRuntime()
   const [query, setQuery] = useState('')
   const groups = filterSettingsGroups(settingsGroups(snapshot, runtime), query)
-  return <nav aria-label="Settings navigation" data-left-settings onKeyDown={moveWindowRailFocus}>
+  return <nav aria-label="Settings navigation" data-left-settings onKeyDown={moveSettingsNavigationFocus}>
     <LeftColumnRow label="Back" icon={<ArrowLeftIcon size={16} />} onClick={onBack} />
     <LeftColumnHead search={<Search value={query} onChange={setQuery}
       label="Search settings" placeholder="Search settings…" />} />

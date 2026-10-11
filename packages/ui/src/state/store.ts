@@ -3783,7 +3783,9 @@ export class AppStore {
     const runtime = this.#snapshot.activeRuntime
     const sessionKeyNow = this.#snapshot.activeSessionKey
     const session = sessionKeyNow ? this.#snapshot.sessions.get(sessionKeyNow) : undefined
-    const cwd = options.cwd ?? session?.cwd ?? this.#snapshot.workspace?.path
+    const destination = this.#snapshot.workbench.navigation.current
+    const cwd = options.cwd ?? (destination.kind === 'changes-review'
+      ? destination.root : session?.cwd ?? this.#snapshot.workspace?.path)
     if (!runtime || !cwd) {
       this.resultNotice('warning', 'Choose a project folder before opening a terminal.')
       return

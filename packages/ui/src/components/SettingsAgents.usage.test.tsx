@@ -1,4 +1,4 @@
-import { RuntimesTestPage as RuntimesSection } from './settings-test-page'
+import { RuntimesTestPage as RuntimesSection } from '../test-support/settings-page'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'

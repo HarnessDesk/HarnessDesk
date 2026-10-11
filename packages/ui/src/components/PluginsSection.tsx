@@ -8,7 +8,7 @@ import {
   type PluginState,
 } from '@harnessdesk/protocol'
 
-import { DestinationBar, DestinationPageScope, useDestinationPage } from '../panels/destination-page'
+import { DestinationBar, useDestinationPage } from '../panels/destination-page'
 import { livePlugins, supersededPlugins } from '../lib/plugins'
 import { useRuntime, useSnapshot, useStore } from '../state/context'
 import { Slot } from '../slots/registry'
@@ -405,16 +405,7 @@ export interface PluginsSectionProps {
   readonly onPlugin: (id: string | null) => void
 }
 
-/** Temporary no-prop adapter for the shared legacy window; retired by Task 9. */
-const LegacyPluginsSection = () => {
-  const [section, onSection] = useState<PluginsSectionProps['section']>('installed')
-  const [id, onPlugin] = useState<string | null>(null)
-  return <DestinationPageScope owner="settings" active>
-    <PluginsBody section={section} id={id} onSection={onSection} onPlugin={onPlugin} />
-  </DestinationPageScope>
-}
-export const PluginsSection = (props: PluginsSectionProps | Record<string, never>) =>
-  'section' in props ? <PluginsBody {...props as PluginsSectionProps} /> : <LegacyPluginsSection />
+export const PluginsSection = (props: PluginsSectionProps) => <PluginsBody {...props} />
 
 const PluginsBody = ({ section, id: openId, onSection, onPlugin: setOpenId }: PluginsSectionProps) => {
   const { owner, active } = useDestinationPage()

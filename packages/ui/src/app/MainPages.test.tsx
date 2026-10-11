@@ -11,13 +11,13 @@ vi.mock('../components/Settings',()=>({Settings:()=>null}))
 ;(globalThis as {IS_REACT_ACT_ENVIRONMENT?:boolean}).IS_REACT_ACT_ENVIRONMENT=true
 const original={...MAIN_PAGE_ENTRIES}
 afterEach(()=>{for(const key of Object.keys(MAIN_PAGE_ENTRIES))delete MAIN_PAGE_ENTRIES[key as keyof typeof MAIN_PAGE_ENTRIES];Object.assign(MAIN_PAGE_ENTRIES,original)})
-it('the production registry starts with Settings alone',()=>expect(MIGRATED_PAGE_KINDS).toEqual(['settings']))
+it('the production registry assembles every phase E page',()=>expect([...MIGRATED_PAGE_KINDS].sort()).toEqual(['agents','changes-review','dashboard','library','plugins','settings','teams']))
 it('retains one keyed body per kind, deactivates its callbacks and resets on project ownership change',async()=>{
   const box=document.createElement('div');document.body.append(box);const root=createRoot(box),store=new AppStore('ws://localhost:0/')
   const Body=({visit}:{visit:()=>void})=>{const active=useDestinationActive(),[draft,setDraft]=useState('remembered');return <div><input value={draft} onChange={event=>setDraft(event.target.value)}/><output>{String(active)}</output><button onClick={visit}>Visit</button></div>}
   MAIN_PAGE_ENTRIES.settings=({visit})=><Body visit={()=>visit({kind:'dashboard',view:'overview',scope:null})}/>
   MAIN_PAGE_ENTRIES.dashboard=()=><span>Dashboard body</span>
-  const render=(key='project-a',suspended=false)=>act(async()=>root.render(<StoreProvider store={store}><MainPages key={key} suspended={suspended} onSignIn={()=>{}}/></StoreProvider>))
+  const render=(key='project-a',suspended=false)=>act(async()=>root.render(<StoreProvider store={store}><MainPages key={key} suspended={suspended} onSignIn={()=>{}} onNewTeam={()=>{}} libraryImportIntent={0}/></StoreProvider>))
   try{
     store.openDestination({kind:'settings',route:{kind:'section',section:'general',focus:null}});await render()
     const input=box.querySelector('input')!;input.focus()
@@ -40,7 +40,7 @@ it('rejects captured visit and replace after leaving, returning, suspending or u
   MAIN_PAGE_ENTRIES.settings=input=>{captured=input;return <span>Settings</span>}
   const page={kind:'settings',route:{kind:'section',section:'general',focus:null}} as const
   const target={kind:'settings',route:{kind:'section',section:'appearance',focus:null}} as const
-  const render=(suspended=false,key='project-a')=>act(async()=>root.render(<StoreProvider store={store}><MainPages key={key} suspended={suspended} onSignIn={()=>{}}/></StoreProvider>))
+  const render=(suspended=false,key='project-a')=>act(async()=>root.render(<StoreProvider store={store}><MainPages key={key} suspended={suspended} onSignIn={()=>{}} onNewTeam={()=>{}} libraryImportIntent={0}/></StoreProvider>))
   try{
     store.openDestination(page);await render();const departed=captured
     await act(async()=>{store.returnToWork();await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()))})

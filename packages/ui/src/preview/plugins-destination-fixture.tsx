@@ -1,13 +1,9 @@
-import { createRoot } from 'react-dom/client'
-import { App } from '../app/App'
-import { StoreProvider } from '../state/context'
 import { frameDestinationStore } from './frame-destination-store'
 import { previewStore } from './harness'
 import { framePageIds, framePageRoute } from './frame-page-route'
-import '../styles/app.css'
 
-/** Lane bootstrap for preview.html; Task 9 joins these routes to the common wall. */
-const query = new URLSearchParams(location.search)
+/** Synthetic plugin states served through the shared App destination. */
+export const pluginsDestinationStore = (query: URLSearchParams) => {
 const fixture = previewStore()
 const snapshot = fixture.getSnapshot()
 const first = snapshot.plugins[0]!
@@ -34,4 +30,5 @@ store.transport.request = (async (method, params) => {
 const route = framePageRoute(query, framePageIds(snapshot))
 if (route) store.openDestination(query.get('frame-plugin-page') === 'failed'
   ? { kind: 'plugins', section: 'installed', id: failed.instanceId } : route)
-createRoot(document.getElementById('root')!).render(<StoreProvider store={store}><App /></StoreProvider>)
+return store
+}

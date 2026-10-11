@@ -317,10 +317,9 @@ export const ELEMENTS: readonly UsageRule[] = [
   {
     family: 'title',
     variant: 'one step',
-    when: 'Every page head, a list page\'s `PageHead` and a drilled-into `DetailHead` alike: the page-title step, 20px semibold — the wordmark\'s own type.',
-    never: 'A second size for a detail page. What tells a detail page apart is its mark and its owner chip, never a bigger or lighter name.',
-    because:
-      'At 24px regular a drilled-into page read lighter and less finished than the list it came from, and the sidebar\'s wordmark beside it. The owner settled it in #832: page titles match the wordmark.',
+    when: 'A destination is named once by its permanent top bar, using the subject step: 14px medium. The wordmark keeps its own type role.',
+    never: 'A second title block in the page body, or another type size for a detail destination.',
+    because: 'A retained destination shares the same shell and title position as work. Its content starts at the Page gutter.',
   },
   {
     family: 'label',
@@ -467,11 +466,11 @@ export const SLOTS: readonly {
 }[] = [
   {
     slot: 'pageAction',
-    what: 'the `actions` of a `PageHead`',
+    what: 'the historical page action slot, retained only for migration checks',
     allow: ['outline', 'default', 'primary', 'destructive', 'danger'],
     size: 'full',
     oneInk: true,
-    why: 'It sits on the page\'s own ground with nothing enclosing it, so it needs an edge or a fill. The unqualified grey and `ghost` both vanish there — which is exactly how one settings window came to carry four different treatments of one slot.',
+    why: 'Retired page actions remain checked until their last caller is removed. Destinations now put their verbs in the permanent top bar.',
   },
   {
     slot: 'sectionAction',

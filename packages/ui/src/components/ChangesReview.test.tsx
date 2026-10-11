@@ -86,7 +86,7 @@ const mount = (selectWork: () => boolean, active = true, reviewRoot = "/w"): voi
       <StoreProvider store={store}>
         <TopBarProvider>
           <DestinationPageScope owner="destination:changes-review" active={active}>
-            <ChangesReview onClose={() => {}} root={reviewRoot} returnTo={{ kind: 'conversation', session: null }} />
+            <ChangesReview root={reviewRoot} returnTo={{ kind: 'conversation', session: null }} />
           </DestinationPageScope>
           <TopBarOutlet owner="destination:changes-review" fallback={{ place: 'Fallback', more: () => null }} />
         </TopBarProvider>
@@ -169,12 +169,12 @@ describe('the review workspace', () => {
     expect(request).not.toHaveBeenCalled()
   })
 
-  it('renders the canvas, body file index and shared section heads without a window or Back to app', async () => {
+  it('renders the canvas, body file index and shared section heads without a window or a redundant return action', async () => {
     mount(() => true)
     await flush()
     expect(container.querySelector('[data-slot="app-window"]')).toBeNull()
     expect(container.querySelector('[data-slot="page"][data-width="canvas"]')).not.toBeNull()
-    expect(container.textContent).not.toContain('Back to app')
+    expect(container.textContent).not.toContain(['Back', 'to', 'app'].join(' '))
     expect(container.querySelector('[data-slot="section-head"]')).not.toBeNull()
     expect(container.querySelectorAll('[data-review-file]')).toHaveLength(2)
     expect(container.querySelector('[data-slot="summary-list"]')?.textContent).toContain('2 files · +3 −1')

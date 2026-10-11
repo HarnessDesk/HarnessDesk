@@ -1,4 +1,4 @@
-import { act } from 'react'
+import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
@@ -184,4 +184,38 @@ it('a dialog owns its box: no utility on any of its parts ties with its sheet', 
     'fieldset', 'fieldsetBody', 'legend', 'legendName', 'legendHint', 'choiceList', 'choice', 'radio', 'choiceTitle', 'choiceDesc',
   ]))
   for (const part of parts) expect(part.ties, part.element).toEqual([])
+})
+
+it('E9 modal focus returns to its opener, and a nested menu spends Escape first', async () => {
+  const { Menu, MenuItem, Popover } = await import('..')
+  const Harness = () => {
+    const [open, setOpen] = useState(false)
+    return <><Button onClick={() => setOpen(true)}>Open dialog</Button>{open && <Dialog title="Modal policy" onClose={() => setOpen(false)}><Popover label="Range">{close => <Menu close={close}><MenuItem label="Last 30 days" onSelect={close} /></Menu>}</Popover></Dialog>}</>
+  }
+  await act(async () => root.render(<Harness />))
+  const opener=container.querySelector<HTMLButtonElement>('button')!
+  opener.focus(); await act(async () => opener.click())
+  const frame=()=>act(async()=>{await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()))})
+  await frame()
+  const dialog=document.querySelector<HTMLElement>('[role="dialog"]')!
+  expect(dialog).not.toBeNull(); expect(dialog.contains(document.activeElement)).toBe(true)
+  const trigger=dialog.querySelector<HTMLButtonElement>('[data-slot="popover-trigger"]')!
+  await act(async () => {trigger.focus();trigger.click()})
+  expect(document.querySelector('[role="menu"]')).not.toBeNull()
+  const escape=()=>act(async()=>{document.activeElement!.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}))})
+  await escape();await frame()
+  expect(document.querySelector('[role="menu"]')).toBeNull();expect(document.querySelector('[role="dialog"]')).toBe(dialog)
+  expect(document.activeElement).toBe(trigger)
+  await escape();await frame()
+  expect(document.querySelector('[role="dialog"]')).toBeNull();expect(document.activeElement).toBe(opener)
+})
+it('E9 a canonical modal dismisses on an outside press', async () => {
+  const Harness=()=>{const [open,setOpen]=useState(true);return open?<Dialog title="Outside policy" onClose={()=>setOpen(false)}>Inside</Dialog>:null}
+  await act(async()=>root.render(<Harness />))
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+  const backdrop=document.querySelector<HTMLElement>('[data-slot="dialog-overlay"]')!
+  expect(backdrop).not.toBeNull()
+  await act(async()=>{backdrop.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0}));backdrop.dispatchEvent(new MouseEvent('mouseup',{bubbles:true,button:0}));backdrop.click()})
+  await act(async()=>{await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()))})
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
 })

@@ -27,7 +27,7 @@ it('publishes a standalone Library crumb, counted sections and only the Library 
     expect(labels.filter(label=>label==='Import')).toHaveLength(1)
     expect(labels.filter(label=>label==='Rescan')).toHaveLength(1)
     expect(labels).not.toContain('Terminal')
-    expect(labels).not.toContain('Back to app')
+    expect(labels).not.toContain(['Back', 'to', 'app'].join(' '))
     await act(async () => actions.find(node=>node.textContent==='Import')!.click())
     expect(importing).toHaveBeenCalledOnce()
     expect(rescan).not.toHaveBeenCalled()

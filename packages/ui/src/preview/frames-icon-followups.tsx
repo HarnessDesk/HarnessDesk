@@ -1,3 +1,4 @@
+import { CurrentPagePreview } from './page-preview'
 import { SettingsPreview as Settings } from './settings-pages'
 import { useState, type ComponentProps } from 'react'
 import { runtimeId, type AccountStatus, type RuntimeInfo } from '@harnessdesk/protocol'
@@ -40,7 +41,7 @@ export const IconFollowupsFrames = () => {
       </div>
     </Frame>
     <Frame id="icon-agents" title="Saved Agents">
-      <div className="relative h-[620px]" style={{ transform: 'translateZ(0)' }}><Mount><AgentsWindow focus={agentsFocus} onClose={() => {}} onFocus={setAgentsFocus} /></Mount></div>
+      <div className="relative h-[620px]" style={{ transform: 'translateZ(0)' }}><Mount><CurrentPagePreview page={{kind:'agents',id:agentsFocus}} /></Mount></div>
     </Frame>
     <Frame id="icon-subagents" title="Sub-agents — parent conversation’s inspector">
       <div className="h-[380px]"><Mount with={compactAgentsStore}><AgentsView /></Mount></div>

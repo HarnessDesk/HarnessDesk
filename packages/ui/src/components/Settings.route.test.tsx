@@ -1,5 +1,5 @@
 import { destinationForSettings } from '../app/settings-destination'
-import { SettingsTestPage as Settings } from './settings-test-page'
+import { SettingsTestPage as Settings } from '../test-support/settings-page'
 import type { ComponentProps } from 'react'
 import { TopBarProvider } from '../panels/top-bar'
 import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'

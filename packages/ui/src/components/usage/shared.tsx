@@ -123,10 +123,6 @@ export const tintsForRoster = (runtimes: readonly RuntimeInfo[]): TintOf => {
   return (runtime: string): Tint => map.get(runtime) ?? tintFor(runtime)
 }
 
-/** Legacy site specimen heading; shared preview replacement is queued for Task 9. */
-export const BandHead = ({ name, note, action }: { readonly name: string; readonly note?: ReactNode; readonly action?: ReactNode }) =>
-  <Section title={name} description={note}>{action}</Section>
-
 // `reportNeedsAttention` lives in `lib/usage.ts` now — the one rule the
 // Plans table's own status chip reads too (review of #1069, B2) — and is
 // re-exported below so this file's own callers, and `shared.attention.test.tsx`,

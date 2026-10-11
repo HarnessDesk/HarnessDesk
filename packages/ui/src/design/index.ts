@@ -50,14 +50,11 @@ export {
   Note,
   NoteList,
   Segmented,
-  PageHead,
   SectionHead,
   Rows,
   Row,
   RowButton,
   RowChoice,
-  BackLink,
-  DetailHead,
   Clipped,
   Face,
   FileButton,
@@ -66,7 +63,6 @@ export {
   Monogram,
   MetaList,
   DetailMark,
-  PageDescription,
   RowInput,
   RowMark,
   RowValue,
@@ -129,15 +125,6 @@ export { FlowGraph, type FlowGraphProps } from './patterns/FlowGraph'
 export { FlowStepRow, RunStateChip } from './patterns/FlowStepRow'
 export { CopyButton, copyButtonIconMarkup } from './patterns/CopyButton'
 export { ActionError } from './patterns/ActionError'
-export {
-  AppWindowContent,
-  AppWindowPage,
-  AppWindowRail,
-  AppWindowRailScroll,
-  AppWindowRailTop,
-  AppWindowSurface,
-  AppWindowTopHost,
-} from './patterns/AppWindow'
 export * from './patterns/InspectorPanel'
 export { Page, type PageWidth } from './patterns/Page'
 export { FRAME, FRAME_TOKENS } from './frame'
@@ -234,9 +221,7 @@ export { MenuPresentation, MenuRowContent, MenuListboxOption, menuRowAttributes,
 export { FixedShell, ShellNoticeHost, type FixedShellProps } from './patterns/FixedShell'
 
 
-export { PageHeadingProvider, usePageHeading, type PageHeadingData } from './patterns/AppWindow/PageHeading'
 
-export { AppWindowLeftFrame } from './patterns/AppWindow'
 export { LeftColumnModeHead } from './patterns/LeftColumn'
 export { WideMenu, WideMenuRows, MenuSearch, MenuFacts, type WideMenuItem, type MenuMeterData, type MenuSearchProps } from './patterns/WideMenu'
 
@@ -257,3 +242,4 @@ export { PictureChoices, AccentChoices, RingChoices } from './patterns/SettingsC
 export { DashboardOverviewStats, DashboardBands, DashboardColumns, DashboardAccounts, DashboardAccountHead, DashboardAccountBody, DashboardAccountFoot, DashboardFigure, DashboardLanes, DashboardReadingNote, DashboardFact, DashboardMoney, DashboardTable, DashboardPlanName, DashboardPlanReading, DashboardAgentReading, DashboardStats, DashboardBurn, DashboardAccountActivity, type DashboardBand } from './patterns/DashboardBands'
 export { PageRecords, PageRecordViews, type RecordColumn, type PageRecord, type RecordGroup } from './patterns/PageRecords'
 export { LibraryMatrix, type LibraryMatrixColumn, type LibraryMatrixCell, type LibraryMatrixRow, type LibraryMatrixFooter } from './patterns/LibraryMatrix'
+export { SignInRail } from './patterns/SignInRail'

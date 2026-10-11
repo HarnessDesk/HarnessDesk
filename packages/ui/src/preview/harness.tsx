@@ -61,7 +61,7 @@ import {
   type TeamState,
 } from '@harnessdesk/protocol'
 
-import { AppWindowMode } from '../components/AppWindow'
+import { SignInMode } from '../components/SignInMode'
 import { EMPTY_FINDINGS_STATE, findingDetail, findingsListState } from './findings-fixture'
 import { focus as focusPaneIn } from '../state/layout'
 import type { FindingFilter } from '../lib/findings'
@@ -2320,16 +2320,16 @@ export const libraryColumnsFor = (ids: readonly RuntimeId[]): readonly { readonl
  * it, and one screen's crash kept to one screen.
  *
  * The app gives a screen a store through context and tells it, through
- * `AppWindowMode`, whether it is standing in a window of its own. A screen
+ * `SignInMode`, whether it is standing in a window of its own. A screen
  * mounted without those does not render a *simpler* version of itself — it
  * throws, or it renders the branch the app never shows. So every surface goes
  * through here, and what the catalogue draws is what the app draws.
  */
 export const Mount = ({ children, with: own }: { children: ReactNode; with?: AppStore }) => (
   <StoreProvider store={own ?? store}>
-    <AppWindowMode.Provider value="embedded">
+    <SignInMode.Provider value="embedded">
       <Boundary>{children}</Boundary>
-    </AppWindowMode.Provider>
+    </SignInMode.Provider>
   </StoreProvider>
 )
 

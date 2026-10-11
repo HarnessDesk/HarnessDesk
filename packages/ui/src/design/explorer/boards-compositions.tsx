@@ -1,3 +1,4 @@
+import { PagePreview } from '../../preview/page-preview'
 import { InfoCardBody, SubjectActionsMenu } from '..'
 import { PlanMetersSpecimen, TerminalToggleSpecimen, MainWorkActionsSpecimen } from '../../preview/frames-supported-controls'
 import { FRAME, FixedShell, SeatList, ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolProse, ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet, SummaryList, SummaryItem, Checklist, ChecklistItem } from '../index'
@@ -2924,7 +2925,7 @@ const PlansTableBoard = () => {
 
 const LibraryBoard = () => {
   const [store] = useState(previewStore)
-  return <StoreProvider store={store}><LibrarySection /></StoreProvider>
+  return <div className="h-screen"><PagePreview fixture={store} page={{kind:'library',section:'skill'}} /></div>
 }
 
 const HeaderStatusBoard = () => (
@@ -3107,6 +3108,7 @@ export const SeatListBoard = () => {
 }
 
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  {id:'sign-in-rail',title:'Sign-in rail',about:'The first-run navigation boundary.',render:() => <SignInRailBoard />},
   {id:'dashboard-bands',title:'Dashboard bands',about:'Long labels, unavailable values and empty source bands in both themes.',render:DashboardBandsBoard},
   {id:'page-records',title:'Page records',about:'Content-width table and list rows, complete reasons and isolated actions.',render:() => <PageRecordsBoard />},
   {id:'page-controls',title:'Page controls',about:'Labelled fields, complete prose and semantic input measures.',render:() => <PageControlsBoard />},
@@ -3484,12 +3486,7 @@ const MENU_ROW_CATALOG_SIZES = ['default'] as const
 const MENU_ROW_CATALOG_STATES = ['default'] as const
 const PopupMenuBoard = () => <>{MENU_ROW_CATALOG_VARIANTS.map(variant => MENU_ROW_CATALOG_SIZES.map(size => MENU_ROW_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><MenuExample /><MenuExample icons="none" /></div>)))}</>
 
-import { AppWindowLeftFrame } from '..'
-export const AppWindowLeftBoard = () => <div className="grid h-96 w-full" data-catalog-variant="default" data-catalog-size="default" data-catalog-state="nested-rail"><AppWindowLeftFrame placement="column" width={FRAME.sidebar.width} onWidth={() => {}} onCloseFloat={() => {}}
-  left={<LeftColumnBoard />} top={<Bar><Text role="navigation">General</Text></Bar>}
-  body={<Text as="p" role="row">Preference content stays in its existing window until phase E.</Text>}
-  /></div>
-COMPOSITION_BOARDS.push({ id: 'app-window-left', title: 'Window left column', about: 'Temporary shared left slot with one shell header and no status strip.', render: AppWindowLeftBoard })
+
 import { WideMenuExample, MeteredMenuExample, InfoCardExample } from '../catalog/popup-examples'
 const WIDEMENU_CATALOG_VARIANTS = ['default'] as const
 const WIDEMENU_CATALOG_SIZES = ['default'] as const
@@ -3607,3 +3604,9 @@ export const LibraryMatrixBoard = () => {
     </Page>
   </div>
 }
+
+import { SignInRail, RailSection } from '..'
+const SIGNINRAIL_CATALOG_VARIANTS = ['default'] as const
+const SIGNINRAIL_CATALOG_SIZES = ['default'] as const
+const SIGNINRAIL_CATALOG_STATES = ['default'] as const
+export const SignInRailBoard = () => <div data-catalog-variants={SIGNINRAIL_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={SIGNINRAIL_CATALOG_SIZES.join(' ')} data-catalog-states={SIGNINRAIL_CATALOG_STATES.join(' ')}><SignInRail aria-label="Sign in"><RailSection stretch="list" density="comfortable">Choose an agent</RailSection></SignInRail></div>

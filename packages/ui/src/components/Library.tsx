@@ -57,7 +57,7 @@ import { SkillSheet } from './SkillSheet'
 import { shortPath } from '../lib/paths'
 import { REACH_NAME } from '../lib/reach-states'
 import { LibraryBar } from '../panels/library-bar'
-import { DestinationPageScope, useDestinationPage } from '../panels/destination-page'
+import { useDestinationPage } from '../panels/destination-page'
 import { LibraryMatrix, PageOptions, PageExplanation, FormStack, Row, Rows, type PageOption } from '../design'
 
 /**
@@ -222,15 +222,7 @@ const FILTER_WORDS: Record<Filter, string> = {
 }
 
 interface LibrarySectionProps { readonly section: LibraryKind; readonly onSection: (kind: LibraryKind) => void; readonly importIntent: number }
-/** Temporary adapter for unassembled preview/legacy callers; E9 removes it. */
-export const LibrarySection = (props: LibrarySectionProps | { readonly initialFlow?: 'import' | null } = {}) => {
-  if ('section' in props) return <LibraryBody {...props} />
-  return <LegacyLibrarySection initialFlow={props.initialFlow ?? null} />
-}
-const LegacyLibrarySection = ({ initialFlow }: { readonly initialFlow: 'import' | null }) => {
-  const [section, onSection] = useState<LibraryKind>('skill')
-  return <DestinationPageScope owner="settings" active><LibraryBody section={section} onSection={onSection} importIntent={initialFlow === 'import' ? 1 : 0} /></DestinationPageScope>
-}
+export const LibrarySection = (props: LibrarySectionProps) => <LibraryBody {...props} />
 const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: LibrarySectionProps) => {
   const { active } = useDestinationPage()
   const alive = useRef(active)

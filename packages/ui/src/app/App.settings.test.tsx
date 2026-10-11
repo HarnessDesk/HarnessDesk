@@ -27,14 +27,6 @@ vi.mock('../components/Settings', async importOriginal => {
       <button onClick={() => shell.openAgents('fixture-reviewer')}>Open its Agent</button><button onClick={shell.reviewImports}>Review imports</button></div>
   }}
 })
-vi.mock('../components/Usage', () => ({Usage: () => <div data-legacy-dashboard />}))
-vi.mock('../components/LegacyManagedPageWindow', async()=>{
-  const {useState}=await import('react')
-  return {LegacyManagedPageWindow:({page,libraryImport,onClose}:{page:string;libraryImport:boolean;onClose:()=>void})=>{
-    const [importAtMount]=useState(libraryImport)
-    return <div data-legacy-managed data-page={page} data-import-at-mount={String(importAtMount)}><button onClick={onClose}>Close legacy</button></div>
-  }}
-})
 vi.mock('../components/AgentsWindow', () => ({ AgentsWindow: ({focus}:{focus:string|null}) => <output data-agent-focus>{focus ?? 'Agent overview'}</output> }))
 import { MAIN_PAGE_ENTRIES } from './main-page-entries'
 import { App } from './App'
@@ -48,7 +40,7 @@ const routedStore = (focus?: string) => {
   const store = new AppStore('ws://localhost:0/')
   Object.assign(store.getSnapshot(), {status:'open',...(focus ? {settingsFor:'workspaces',settingsFocus:focus} : {})})
   store.refreshCatalogIfStale = vi.fn(async () => {})
-  store.transport.request = vi.fn(async () => ({})) as typeof store.transport.request
+  store.transport.request = vi.fn(async (method, params) => method==='workspace/open' ? {path:(params as {path:string}).path,name:'Synthetic project'} : method==='workspace/recent' ? [] : {}) as typeof store.transport.request
   return store
 }
 const settle = () => act(async()=>{await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()))})
@@ -61,7 +53,7 @@ it('keeps a project detail after consuming its one-shot request and mounts Setti
   expect(container.querySelector('[data-page-destination="settings"]')).not.toBeNull()
   expect(container.querySelector('[data-slot="retained-work"]')?.hasAttribute('hidden')).toBe(true)
 })
-it('a legacy Agent opener suspends retained Settings instead of leaving its readers active', async () => {
+it('an Agent destination deactivates retained Settings readers', async () => {
   const store = routedStore('/synthetic/project')
   await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
   await settle()
@@ -72,6 +64,7 @@ it('a legacy Agent opener suspends retained Settings instead of leaving its read
 })
 for (const kind of ['dashboard','agents','teams','library','plugins'] as const) it(`all normal ${kind} doors use registration, normal selection and real Back/Forward`, async () => {
   const label = {dashboard:'Dashboard',agents:'Agents',teams:'Teams',library:'Library',plugins:'Plugins'}[kind]
+  const previous=MAIN_PAGE_ENTRIES[kind]
   MAIN_PAGE_ENTRIES[kind] = ({page}) => <output data-future-page>{page.kind}</output>
   try {
     const store = routedStore()
@@ -90,7 +83,7 @@ for (const kind of ['dashboard','agents','teams','library','plugins'] as const) 
     expect(input.value).toBe('Draft retained across pages')
     await act(async () => { await store.navigateForward() });await settle()
     expect(store.getSnapshot().workbench.navigation.current.kind).toBe(kind)
-  } finally { delete MAIN_PAGE_ENTRIES[kind] }
+  } finally { MAIN_PAGE_ENTRIES[kind]=previous }
 })
 it('page Escape remains on Settings while Command-W returns to retained work', async () => {
   const store = routedStore('/synthetic/project')
@@ -104,29 +97,35 @@ it('page Escape remains on Settings while Command-W returns to retained work', a
 })
 
 it('the native Dashboard command enters the common registered page boundary', async () => {
+  const previous=MAIN_PAGE_ENTRIES.dashboard
   MAIN_PAGE_ENTRIES.dashboard = ({page}) => <output>{page.kind}</output>
   try {
     const store = routedStore()
     await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
     act(() => native.run('usage'))
     expect(store.getSnapshot().workbench.navigation.current).toEqual({kind:'dashboard',view:'overview',scope:null})
-  } finally { delete MAIN_PAGE_ENTRIES.dashboard }
+  } finally { MAIN_PAGE_ENTRIES.dashboard=previous }
 })
 
-it('repeated compatibility requests route Library and Plugins and deliver import intent at mount',async()=>{
-  const store=routedStore()
-  await act(async()=>root.render(<StoreProvider store={store}><App/></StoreProvider>))
-  await click('Settings');await click('Review imports')
-  expect(container.querySelector('[data-legacy-managed]')?.getAttribute('data-page')).toBe('library')
-  expect(container.querySelector('[data-legacy-managed]')?.getAttribute('data-import-at-mount')).toBe('true')
-  expect(container.querySelector('[data-active]')?.textContent).toBe('false')
-  for(const section of ['plugins','library','plugins']) {
-    await act(async()=>store.askSettings(section));await settle();await settle()
-    expect(container.querySelector('[data-legacy-managed]')?.getAttribute('data-page')).toBe(section)
-    expect(store.getSnapshot().settingsFor).toBeNull()
-  }
-  await click('Close legacy');await click('Settings')
-  expect(container.querySelector('[data-active]')?.textContent).toBe('true')
+it('repeated compatibility requests route Library and Plugins through the retained registry',async()=>{
+  const saved={library:MAIN_PAGE_ENTRIES.library,plugins:MAIN_PAGE_ENTRIES.plugins}
+  MAIN_PAGE_ENTRIES.library=({libraryImportIntent})=><output data-import-intent>{libraryImportIntent}</output>
+  MAIN_PAGE_ENTRIES.plugins=()=> <output data-plugins>Plugins</output>
+  try {
+    const store=routedStore()
+    await act(async()=>root.render(<StoreProvider store={store}><App/></StoreProvider>))
+    await click('Settings');await click('Review imports')
+    expect(store.getSnapshot().workbench.navigation.current).toEqual({kind:'library',section:'skill'})
+    expect(container.querySelector('[data-import-intent]')?.textContent).toBe('1')
+    expect(container.querySelector('[data-active]')?.textContent).toBe('false')
+    for(const section of ['plugins','library','plugins'] as const) {
+      await act(async()=>store.askSettings(section));await settle();await settle()
+      expect(container.querySelector(`[data-page-destination="${section}"]`)?.hasAttribute('hidden')).toBe(false)
+      expect(store.getSnapshot().settingsFor).toBeNull()
+    }
+    await act(async()=>store.returnToWork());await click('Settings')
+    expect(container.querySelector('[data-active]')?.textContent).toBe('true')
+  } finally { Object.assign(MAIN_PAGE_ENTRIES,saved) }
 })
 it('real bracket history remains available at720 with the column closed',async()=>{
   const store=routedStore();store.setWindowSize(720,900)
@@ -139,11 +138,27 @@ it('real bracket history remains available at720 with the column closed',async()
   expect(store.getSnapshot().workbench.navigation.current.kind).toBe('settings')
   expect(store.getSnapshot().sidebarFloating).toBe(false)
 })
-it('a native new draft reveals work and closes the legacy page above retained Settings',async()=>{
+it('a native new draft reveals work while deactivating the retained Agent page',async()=>{
   const store=routedStore('/synthetic/project')
   await act(async()=>root.render(<StoreProvider store={store}><App/></StoreProvider>));await settle();await click('Open its Agent')
   expect(container.querySelector('[data-agent-focus]')).not.toBeNull()
   await act(async()=>native.run('new-session'));await settle()
   expect(store.getSnapshot().workbench.navigation.current.kind).toBe('work')
-  expect(container.querySelector('[data-agent-focus]')).toBeNull()
+  expect(container.querySelector('[data-page-destination="agents"]')?.hasAttribute('hidden')).toBe(true)
+})
+
+it('E9 delivers separate Library import events and resets the counter with the project', async () => {
+  const previous = MAIN_PAGE_ENTRIES.library
+  MAIN_PAGE_ENTRIES.library = ({libraryImportIntent}) => <output data-import-intent>{libraryImportIntent}</output>
+  try {
+    const store = routedStore()
+    await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
+    await click('Settings'); await click('Review imports')
+    expect(container.querySelector('[data-import-intent]')?.textContent).toBe('1')
+    await click('Settings'); await click('Review imports')
+    expect(container.querySelector('[data-import-intent]')?.textContent).toBe('2')
+    await act(async () => { await store.openWorkspace('/synthetic/second') }); await settle()
+    await click('Library')
+    expect(container.querySelector('[data-import-intent]')?.textContent).toBe('0')
+  } finally { MAIN_PAGE_ENTRIES.library = previous }
 })

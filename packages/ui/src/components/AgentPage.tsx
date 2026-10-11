@@ -1,4 +1,4 @@
-import { DestinationBar, DestinationPageScope, useDestinationPage } from '../panels/destination-page'
+import { DestinationBar, useDestinationPage } from '../panels/destination-page'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
@@ -102,14 +102,7 @@ const authoringTarget = (entry: AgentEntry, project: string | null): AuthoringTa
  * remove, and the page must not lean on the host's own refusal to find that
  * out (`isAgentFolder`).
  */
-export const AgentPage = ({ entry, onBack, onLeave }: {
-  readonly entry: AgentEntry
-  readonly onBack: () => void
-  /** Temporary adapter for catalogue callers queued for integration. */
-  readonly onLeave?: () => void
-}) => onLeave ? <DestinationPageScope owner="agents" active><AgentPageBody entry={entry} onBack={onBack} /></DestinationPageScope>
-  : <AgentPageBody entry={entry} onBack={onBack} />
-
+export const AgentPage = (props: { readonly entry: AgentEntry; readonly onBack: () => void }) => <AgentPageBody {...props} />
 const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly onBack: () => void }) => {
   const { active } = useDestinationPage()
   const store = useStore()

@@ -36,7 +36,7 @@ export const applyPageFrameActions = async (page: Page, actions: PageFrameAction
     await expect(ready).toHaveAttribute('aria-expanded', 'true')
   }
   if (actions.expandLibraryEntry) {
-    const entry = page.locator('[data-page-destination="library"]:visible button[aria-expanded="false"]').first()
+    const entry = page.locator('[data-page-destination="library"]:visible [data-slot="library-matrix"] tr button[aria-expanded="false"]').first()
     await expect(entry).toBeVisible()
     await entry.click()
     await expect(entry).toHaveAttribute('aria-expanded', 'true')

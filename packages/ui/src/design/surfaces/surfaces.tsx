@@ -1,3 +1,4 @@
+import { DashboardDestinationFixture } from '../../preview/dashboard-destination-fixture'
 import { TopBarProvider } from '../../panels/top-bar'
 import { ShellHostsProvider, ShellOutlets } from '../../panels/shell-hosts'
 import { TeamViewFrame } from '../../preview/TeamViewFrame'
@@ -20,7 +21,6 @@ import { TeamBoardPane } from '../../components/TeamBoardPane'
 import { TeamRoomPane } from '../../components/TeamRoomPane'
 import { Text } from '..'
 import { TerminalSurface as TerminalPane } from '../../components/TerminalPane'
-import { Usage } from '../../components/Usage'
 import { MountProvider } from '../../panels/mount'
 import { Workbench } from '../../panels/Workbench'
 import { dock, emptyWorkbench } from '../../state/workbench'
@@ -976,7 +976,7 @@ export const DashboardSurface = () => {
   return (
     <Mount with={own}>
       <Frame height="window">
-        <Usage onClose={() => {}} onSignIn={() => {}} />
+        <DashboardDestinationFixture />
       </Frame>
     </Mount>
   )

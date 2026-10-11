@@ -3695,6 +3695,8 @@ export const retiredComponentsOf = (file, source) => {
     for (const binding of bindings) {
       if (binding.kind === 'namespace') {
         for (const [name, ref] of exported) identities.set(`${binding.localBinding}.${name}`, ref.localName)
+        // Retirement removes the export, but a stale namespace consumer must still fail.
+        for (const name of RETIRED_NAMES) identities.set(`${binding.localBinding}.${name}`, name)
       } else {
         identities.set(binding.localBinding, exported.get(binding.name)?.localName ?? binding.name)
       }

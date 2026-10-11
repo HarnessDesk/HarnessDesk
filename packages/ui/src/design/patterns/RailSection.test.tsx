@@ -1,7 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 
-import { AppWindowRailScroll, AppWindowRailTop } from './AppWindow'
 import { RailSection } from './DockPanel'
 
 const classOf = (markup: string): string[] => /class="([^"]*)"/.exec(markup)?.[1]?.split(' ') ?? []
@@ -18,12 +17,12 @@ it('holds a compact rail on the bars’ gutter with a short head step and a long
   expect(list).toContain('pb-3')
 })
 
-it('gives the window rail its wider gutter and longer steps below the shared top bar', () => {
-  const top = classOf(renderToStaticMarkup(<AppWindowRailTop>back</AppWindowRailTop>))
+it('gives a comfortable rail its wider gutter and longer steps below the shared top bar', () => {
+  const top = classOf(renderToStaticMarkup(<RailSection stretch="head" density="comfortable">back</RailSection>))
   expect(top).toEqual(expect.arrayContaining(['px-3', 'pb-2']))
   expect(top).not.toContain('pt-(--hd-titlebar-height)')
 
-  const scroll = classOf(renderToStaticMarkup(<AppWindowRailScroll>pages</AppWindowRailScroll>))
+  const scroll = classOf(renderToStaticMarkup(<RailSection stretch="list" density="comfortable">pages</RailSection>))
   expect(scroll).toEqual(expect.arrayContaining(['px-3', 'pt-1.5', 'pb-3']))
   expect(scroll).not.toContain('pt-(--hd-titlebar-height)')
 })
@@ -31,8 +30,8 @@ it('gives the window rail its wider gutter and longer steps below the shared top
 it('is one part under both rails', () => {
   for (const markup of [
     renderToStaticMarkup(<RailSection stretch="head">a</RailSection>),
-    renderToStaticMarkup(<AppWindowRailTop>b</AppWindowRailTop>),
-    renderToStaticMarkup(<AppWindowRailScroll>c</AppWindowRailScroll>),
+    renderToStaticMarkup(<RailSection stretch="head" density="comfortable">b</RailSection>),
+    renderToStaticMarkup(<RailSection stretch="list" density="comfortable">c</RailSection>),
   ]) expect(markup).toContain('data-slot="rail-section"')
 })
 

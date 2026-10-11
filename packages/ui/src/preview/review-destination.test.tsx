@@ -16,7 +16,7 @@ const mount = async (scene: ReviewScene) => {
   const review = store.getSnapshot().workbench.navigation.current
   if (review.kind !== 'changes-review') throw new Error('review expected')
   await act(async () => root.render(<StoreProvider store={store}><TopBarProvider>
-    <MainPages onSignIn={() => {}} />
+    <MainPages onNewTeam={() => {}} libraryImportIntent={0} onSignIn={() => {}} />
     <TopBarOutlet owner="destination:changes-review" fallback={{place:'Fallback',more:()=>null}} />
   </TopBarProvider></StoreProvider>))
   return { store, review }
@@ -26,6 +26,16 @@ const click = async (selector: string) => {
   expect(button).not.toBeNull()
   await act(async () => button!.click())
 }
+it('history hydration preserves the navigation fixture’s current retained transcript', async () => {
+  const store=reviewPageStore('tree')
+  const snapshot=store.getSnapshot()
+  const [key, session]=[...snapshot.sessions][0]!
+  const retained={...session,turns:Array.from({length:30},()=>session.turns[0]!)}
+  Object.assign(snapshot,{sessions:new Map(snapshot.sessions).set(key,retained)})
+  const restored=await store.transport.request('session/read',{runtime:session.runtime,sessionId:session.id})
+  expect(restored.turns).toHaveLength(30)
+  expect(restored).toBe(retained)
+})
 it('working, staged and filtered reviews retain their exact file counts and paths', async () => {
   await mount('tree')
   expect(container.textContent).toContain('2 files · +3 −1')

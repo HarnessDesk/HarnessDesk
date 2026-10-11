@@ -1,8 +1,8 @@
+import { CurrentPagePreview } from './page-preview'
 import { useMemo, useState } from 'react'
 import type { FlowEntry, FlowPolicy, FlowPreview, FrontDoorPreviewInput, ShapeLayout } from '@harnessdesk/protocol'
 import { FrontDoor } from '../components/FrontDoor'
 import { Sidebar } from '../components/Sidebar'
-import { Usage } from '../components/Usage'
 import { Button, Text } from '../design'
 import { useTheme } from '../state/theme'
 import { StoreProvider } from '../state/context'
@@ -67,7 +67,7 @@ const teamStartStore = (): AppStore => {
 
 const TeamStartExample = ({ scene, onClose }: { readonly scene: string; readonly onClose: () => void }) => {
   useTheme()
-  if (scene === 'usage') return <Usage view="projects" onClose={onClose} />
+  if (scene === 'usage') return <CurrentPagePreview page={{kind:'dashboard',view:'projects',scope:null}} />
   const initial = scene === 'comparison' || scene === 'fix-and-review' ? { id: scene, origin: 'builtin' as const } : undefined
   return scene === 'menu' ? <div className="h-screen w-60"><Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onSearch={() => {}} /></div>
     : <FrontDoor context={{ kind: 'project', root: TEAM_ROOT }} initial={initial} onClose={onClose} onStarted={onClose} />

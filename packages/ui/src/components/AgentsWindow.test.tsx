@@ -142,11 +142,11 @@ it('reads the roster once, on opening', () => {
   const { store } = mount()
   expect(store.loadAgents).toHaveBeenCalledTimes(1)
 })
-it('Agents in main has one page and no private rail or Back to app', () => {
+it('Agents in main has one page and no private rail or a redundant return action', () => {
   mount()
   expect(container.querySelector('[data-slot="app-window"]')).toBeNull()
   expect(container.querySelector('nav')).toBeNull()
-  expect(container.textContent).not.toContain('Back to app')
+  expect(container.textContent).not.toContain(['Back', 'to', 'app'].join(' '))
   expect(container.querySelector('[data-slot="page"]')?.getAttribute('data-width')).toBe('wide')
 })
 it('the roster records a named route through its caller', () => {

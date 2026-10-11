@@ -1,4 +1,4 @@
-import { SkillsTestPage as SkillsSection } from './settings-test-page'
+import { SkillsTestPage as SkillsSection } from '../test-support/settings-page'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'

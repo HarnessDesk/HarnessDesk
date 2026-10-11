@@ -2350,14 +2350,15 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440,
 for(const width of [1440,720]) test(`E2 Settings door preserves normal history and the retained work ${width}`, async ({ page }) => {
   await expectPageJourney(page,'Settings','settings',width)
 })
-test('E2 Settings More offers Terminal only with a folder', async ({ page }) => {
+test('E2 Settings More excludes Terminal even with retained work in a folder', async ({ page }) => {
   await openFrame(page, 'frame-wall=settings&frame-section=general&frame-no-folder=1', 'light')
   await page.locator('[data-slot="top-bar"]:visible').getByRole('button', {name:'More',exact:true}).click()
   await expect(page.getByRole('menuitemradio', {name:/Terminal/})).toHaveCount(0)
   await expect(page.getByRole('menuitem', {name:'Back to app',exact:true})).toHaveCount(0)
   await openFrame(page,'frame-wall=settings&frame-section=general','light')
+  await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1)
   await page.locator('[data-slot="top-bar"]:visible').getByRole('button',{name:'More',exact:true}).click()
-  await expect(page.getByRole('menuitemradio',{name:/Terminal/})).toHaveCount(1)
+  await expect(page.getByRole('menuitemradio',{name:/Terminal/})).toHaveCount(0)
   await expect(page.getByRole('menuitem',{name:'Back to app',exact:true})).toHaveCount(0)
 })
 
@@ -2484,16 +2485,11 @@ test('E4 Agents named history', async ({ page }) => {
 
 // Until Task 9 joins the shared preview assembly, load the lane-owned preview
 // entry in the existing preview document. It renders App and the real AppStore.
-const installAgentsEntry = async (page: Page): Promise<void> => {
-  await page.route('**/preview.html?*frame-e4=1*', async route => {
-    const response = await route.fetch()
-    await route.fulfill({ response, body: (await response.text()).replace('/src/preview/main.tsx', '/src/preview/agents-destination-fixture.tsx') })
-  })
-}
+
 for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440, 1100, 720]) {
   for (const detail of [false, true]) test(`E4 Agents ${detail ? 'detail' : 'roster'} ${width} ${theme}`, async ({ page }) => {
-    await installAgentsEntry(page)
-    await measureDestination(page, `frame-wall=agents&frame-e4=1${detail ? '&frame-detail=agent' : ''}`, detail ? 'reading' : 'wide', theme, width)
+
+    await measureDestination(page, `frame-wall=agents${detail ? '&frame-detail=agent' : ''}`, detail ? 'reading' : 'wide', theme, width)
     await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
     const bar = page.locator('[data-slot="top-bar"]:visible')
     if (detail) {
@@ -2503,8 +2499,8 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440,
   })
 }
 for (const state of ['parse', 'refused', 'missing']) test(`E4 Agents ${state} keeps the destination`, async ({ page }) => {
-  await installAgentsEntry(page)
-  await measureDestination(page, `frame-wall=agents&frame-e4=1&frame-agent-case=${state}`, state === 'missing' ? 'wide' : 'reading', 'light', 1440)
+
+  await measureDestination(page, `frame-wall=agents&frame-agent-case=${state}`, state === 'missing' ? 'wide' : 'reading', 'light', 1440)
   const main = page.locator('[data-page-destination="agents"]:visible')
   if (state === 'parse') await expect(main).toContainText('Why it will not parse')
   if (state === 'refused') await expect(main).toContainText('signed out')
@@ -2546,14 +2542,7 @@ for (const detail of [false, true]) test(`E4 Agents ${detail ? 'detail' : 'roste
 
 // The shared preview replacement belongs to Task 9. Route only this lane's
 // Teams fixture module through the existing preview document; all UI/store code is real.
-const installE5TeamsFixture = async (page: Page) => {
- await page.route('**/src/preview/frames-frame-wall.tsx*', async route => {
-  const query=new URL(page.url()).searchParams
-  if(query.get('frame-wall')!=='teams'){await route.continue();return}
-  const response=await page.request.get(new URL('/src/preview/teams-destination-fixture.tsx',route.request().url()).href)
-  await route.fulfill({response})
- })
-}
+
 
 for (const width of [1440,720]) test(`E5 Teams journey keeps the normal column and history ${width}`, async ({page}) => {
  await expectPageJourney(page,'Teams','teams',width)
@@ -2568,7 +2557,7 @@ for (const width of [1440,720]) test(`E5 Teams journey keeps the normal column a
  await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1);await back()
 })
 test('E5 Teams column background reaches the window top', async ({page}) => {
- await installE5TeamsFixture(page)
+
  await openFrame(page,'frame-wall=teams','light')
  const legacy=page.locator('[data-slot="app-window"]:visible [data-slot="app-window-nav"]')
  const column=await legacy.count()?legacy:page.locator('[data-left-column]:visible')
@@ -2583,7 +2572,7 @@ test('E5 Teams column background reaches the window top', async ({page}) => {
  expect(colors.slice(0,2)).toEqual([colors[2],colors[2]])
 })
 test('E5 Teams More applies only to the folderless list', async ({page}) => {
- await installE5TeamsFixture(page)
+
  await openFrame(page,'frame-wall=teams','light')
  await page.locator('[data-slot="top-bar"]:visible').getByRole('button',{name:'More',exact:true}).click()
  await expect(page.getByRole('menu').getByText('Back to app',{exact:true})).toHaveCount(0)
@@ -2592,7 +2581,7 @@ test('E5 Teams More applies only to the folderless list', async ({page}) => {
 
 for (const theme of ['light','dark'] as const) for (const width of [2200,1440,1100,720]) {
  for (const filter of ['active','needs-you','settled']) test(`E5 Teams ${filter} ${width} ${theme}`,async({page})=>{
-  await installE5TeamsFixture(page)
+
   await measureDestination(page,`frame-wall=teams&frame-filter=${filter}`,'wide',theme,width)
   await expect(page.locator('[data-slot="top-bar"]:visible').getByRole('button',{name:'New Team',exact:true})).toBeVisible()
   const records=page.locator('[data-slot="page-records"]:visible').first()
@@ -2604,13 +2593,13 @@ for (const theme of ['light','dark'] as const) for (const width of [2200,1440,11
  })
 }
 for(const theme of ['light','dark'] as const) test(`E5 Teams empty state uses the shared main block ${theme}`,async({page})=>{
- await installE5TeamsFixture(page)
+
  await openFrame(page,'frame-wall=teams&frame-empty=1',theme)
  const empty=page.locator('[data-page-destination="teams"]:visible [data-slot="page"] > [data-slot="empty-state"][data-variant="panel"]')
  await expect(empty).toBeVisible();await expect(empty).toHaveText('No active Teams')
 })
 test('E5 Team row enters work and keeps room navigation separate from page history',async({page})=>{
- await installE5TeamsFixture(page)
+
  await openFrame(page,'frame-wall=teams','dark')
  await page.locator('[data-slot="page-records"]:visible').getByRole('button',{name:/^Open /}).first().click()
  await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
@@ -2622,7 +2611,7 @@ test('E5 Team row enters work and keeps room navigation separate from page histo
  await expect(page.locator('[data-team-page="findings"]')).toBeVisible()
 })
 for(const theme of ['light','dark'] as const) test(`E5 Teams filters replace the route and New Team invokes the existing dialog ${theme}`,async({page})=>{
- await installE5TeamsFixture(page)
+
  await openFrame(page,'frame-wall=teams',theme)
  const views=page.getByRole('tablist',{name:'Teams views'})
  await views.getByRole('tab',{name:/^Settled/}).click()
@@ -2635,7 +2624,7 @@ for(const theme of ['light','dark'] as const) test(`E5 Teams filters replace the
  await expect(page.getByRole('dialog')).toBeVisible()
 })
 test('E5 Teams without a folder refuses New Team',async({page})=>{
- await installE5TeamsFixture(page)
+
  await openFrame(page,'frame-wall=teams&frame-no-folder=1','light')
  const create=page.locator('[data-slot="top-bar"]:visible').getByRole('button',{name:'New Team',exact:true})
  await expect(create).toBeDisabled();await expect(create).toHaveAttribute('title','Open a project folder first.')
@@ -2753,7 +2742,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
   })
 }
 // Shared TopBarOutlet policy is owned by the play/foundation integration.
-// This owner regression remains red until E9 joins the folder-bound action policy.
+// This owner regression remains red until the play merge supplies folder-bound action policy.
 test('E6 Library More excludes Terminal even with retained work in a folder', async ({ page }) => {
   await openFrame(page, 'frame-wall=settings&frame-section=library', 'light')
   await page.locator('[data-slot="top-bar"]:visible').getByRole('button',{name:'More',exact:true}).click()
@@ -2761,13 +2750,8 @@ test('E6 Library More excludes Terminal even with retained work in a folder', as
   await expect(page.getByRole('menuitem',{name:'Back to app',exact:true})).toHaveCount(0)
 })
 
-// E7 measures the real App in the lane bootstrap until Task 9 joins the shared preview.
-const installE7Preview = async (page: Page): Promise<void> => {
-  await page.route('**/preview.html?**', async route => {
-    const response = await route.fetch()
-    await route.fulfill({ response, body: (await response.text()).replace('/src/preview/main.tsx', '/src/preview/plugins-destination-fixture.tsx') })
-  })
-}
+// E7 measures the real App through the assembled shared preview.
+
 for (const width of [1440, 720]) test(`E7 Plugins door preserves normal history and retained work ${width}`, async ({ page }) => {
   await expectPageJourney(page, 'Plugins', 'plugins', width)
 })
@@ -2795,7 +2779,7 @@ test('E7 Plugins More excludes Terminal and Back to app', async ({ page }) => {
 })
 for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440, 1100, 720]) {
   for (const child of ['installed', 'capabilities', 'detail']) test(`E7 Plugins ${child} ${width} ${theme}`, async ({ page }) => {
-    await installE7Preview(page)
+
     await measureDestination(page, `frame-wall=plugins&frame-plugin-page=${child}`, 'wide', theme, width)
     await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
     if (child === 'detail') {
@@ -2808,7 +2792,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440,
   })
 }
 test('E7 Plugins capabilities and named detail share destination history', async ({ page }) => {
-  await installE7Preview(page)
+
   await openFrame(page, 'frame-wall=plugins&frame-plugin-page=capabilities', 'dark')
   await selectFrameTab(page, 'installed')
   const plugin = page.locator('[data-plugin-id]:visible').first()
@@ -2823,7 +2807,7 @@ test('E7 Plugins capabilities and named detail share destination history', async
   await expect(page.getByRole('searchbox', { name: 'Search plugins', exact: true })).toBeVisible()
 })
 test('E7 install flow uses Dialog header body and right ordered footer actions', async ({ page }) => {
-  await installE7Preview(page)
+
   await openFrame(page, 'frame-wall=plugins', 'light')
   await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Add plugin', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Install a plugin' })
@@ -2841,14 +2825,14 @@ test('E7 install flow uses Dialog header body and right ordered footer actions',
 })
 
 test('E7 Plugins pending Here keeps the host answer distinct from Anywhere', async ({ page }) => {
-  await installE7Preview(page)
+
   await measureDestination(page, 'frame-wall=plugins&frame-plugin-page=capabilities&frame-plugin-pending=1', 'wide', 'dark', 720,
     { bodyChoice: { label: 'Where it applies', value: 'here' } })
   await expect(page.getByText('Asking the host…', { exact: true })).toBeVisible()
   await expect(page.locator('[data-page-destination="plugins"]:visible button[data-kind="record"]')).toHaveCount(0)
 })
 test('E7 Plugins failed detail keeps its reason and guarded source actions', async ({ page }) => {
-  await installE7Preview(page)
+
   await measureDestination(page, 'frame-wall=plugins&frame-plugin-page=failed', 'wide', 'light', 1100)
   await expect(page.getByText('Synthetic manifest could not be loaded.', { exact: true })).toBeVisible()
   await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
@@ -2868,60 +2852,8 @@ test('E7 Plugins every other normal column destination door navigates away', asy
 })
 
 // E8 opens from the conversation's review event; review has no column door.
-const expectReviewJourney = async (page: Page, width: number): Promise<void> => {
-  await openFrame(page, 'frame-wall=navigation', 'light', width)
-  const reveal = async () => {
-    if (width < FRAME.fold.sidebarFloats) await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
-  }
-  const column = page.locator('[data-left-column]:visible')
-  const chrome = async () => {
-    expect((await column.boundingBox())!.y).toBe(0)
-    expect((await column.locator('[data-left-top]').boundingBox())!.height).toBe(FRAME.bar.height)
-    const paint = await column.evaluate(node => {
-      const ground = (element: Element): string => {
-        const color = getComputedStyle(element).backgroundColor
-        return color === 'rgba(0, 0, 0, 0)' || color === 'transparent'
-          ? element.parentElement ? ground(element.parentElement) : color : color
-      }
-      const expected = document.createElement('div'); expected.style.background = 'var(--hd-sidebar)'; node.append(expected)
-      const colors = [ground(node), ground(node.querySelector('[data-left-top]')!), getComputedStyle(expected).backgroundColor]
-      expected.remove(); return colors
-    })
-    expect(paint[0]).toBe(paint[2]); expect(paint[1]).toBe(paint[2])
-
-    expect(await column.locator('[data-left-top] button').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label'))))
-      .toEqual(['Hide sidebar', 'Search everything', 'Back', 'Forward'])
-    await expect(column.locator('[data-left-settings]:visible')).toHaveCount(0)
-    await expect(column.getByText('Back to app', { exact: true })).toHaveCount(0)
-  }
-  const remembered = page.locator('[data-slot="retained-work"] [data-pane-id]').first()
-  await remembered.evaluate(node => { node.setAttribute('data-page-journey', 'remembered-review-work') })
-  const composer = page.locator('[data-slot="composer-text"]:visible')
-  await composer.fill('Keep this review draft')
-  await page.evaluate(() => window.dispatchEvent(new CustomEvent('harnessdesk:review')))
-  await expect(page.locator('[data-page-destination="changes-review"]:visible')).toHaveCount(1)
-  await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
-  await reveal(); await chrome()
-  await column.getByRole('button', { name: 'Back', exact: true }).click()
-  await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
-  await expect(remembered).toHaveAttribute('data-page-journey', 'remembered-review-work')
-  await expect(composer).toHaveValue('Keep this review draft')
-  await reveal(); await chrome()
-  await column.getByRole('button', { name: 'Forward', exact: true }).click()
-  await expect(page.locator('[data-page-destination="changes-review"]:visible')).toHaveCount(1)
-  await reveal(); await chrome()
-  await column.getByRole('button', { name: 'New session', exact: true }).click()
-  await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
-  await reveal()
-  // The ordinary session row also returns from a review visit.
-  await page.evaluate(() => window.dispatchEvent(new CustomEvent('harnessdesk:review')))
-  await expect(page.locator('[data-page-destination="changes-review"]:visible')).toHaveCount(1)
-  if (width < FRAME.fold.sidebarFloats && await column.count() === 0) await reveal()
-  await column.locator('[data-region="session-row"] [data-slot="sidebar-menu-button"]').first().click()
-  await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
-}
 for (const width of [1440, 720]) test(`E8 review journey retains the conversation and normal column ${width}`, async ({ page }) => {
-  await expectReviewJourney(page, width)
+  await expectPageJourney(page, 'Changes', 'changes-review', width, {opener:'review'})
 })
 for (const theme of ['light', 'dark'] as const) for (const width of [1440, 1100, 720]) {
   test(`E8 Changes canvas ${width} ${theme}`, async ({ page }) => {
@@ -2947,4 +2879,69 @@ test('E8 review More contains only Terminal and opens the reviewed folder', asyn
   await expect(menu.getByRole('menuitemradio')).toHaveCount(1)
   await menu.getByRole('menuitemradio', { name: /Terminal/ }).click()
   await expect(page.locator('[data-frame-region="bottom"]:visible')).toBeVisible()
+})
+
+for (const theme of ['light', 'dark'] as const) for (const width of [1440, 1100, 720]) {
+  test(`E9 only the permanent shell frames a destination ${width} ${theme}`, async ({ page }) => {
+    await measureDestination(page, 'frame-wall=plugins&frame-plugin-page=capabilities', 'wide', theme, width)
+    await expect(page.locator('[data-app-window-left-frame], [data-slot="app-window"]')).toHaveCount(0)
+    await expect(page.locator('[data-slot="page-head"], [data-slot="detail-head"]')).toHaveCount(0)
+    await expectDestinationTab(page, 'capabilities')
+  })
+}
+
+// E8 semantic scenes use the assembled dispatcher and the existing review scroll.
+test('E8 working staged and filtered reviews keep exact paths and counts', async ({page}) => {
+  await openFrame(page,'frame-wall=changes-review','light')
+  const body=page.locator('[data-page-destination="changes-review"]:visible')
+  await expect(body.getByText('2 files · +3 −1',{exact:true})).toBeVisible()
+  await expect(body.locator('[data-review-file]')).toHaveCount(2)
+  await page.getByRole('searchbox',{name:'Filter files',exact:true}).fill('src/a')
+  await expect(body.locator('[data-review-file]')).toHaveCount(1)
+  await expect(body.locator('[data-review-file="src/a.ts"]')).toBeVisible()
+  await page.getByRole('searchbox',{name:'Filter files',exact:true}).fill('')
+  await selectFrameTab(page,'staged')
+  await expect(body.getByText('1 file · +1 −0',{exact:true})).toBeVisible()
+  await expect(body.locator('[data-review-file="ready.txt"]')).toBeVisible()
+  await expect(body.locator('[data-review-file="src/a.ts"]')).toHaveCount(0)
+})
+test('E8 body index jumps inside the existing destination scroll',async({page})=>{
+  await openFrame(page,'frame-wall=changes-review&frame-review-scene=large','dark',720)
+  const scroll=page.locator('[data-page-destination="changes-review"][data-slot="destination-scroll"]')
+  await page.locator('[data-page-destination="changes-review"] [data-slot="rows"] button').filter({hasText:'large.txt'}).click()
+  await expect.poll(()=>scroll.evaluate(node=>node.scrollTop)).toBeGreaterThan(0)
+  const section=page.locator('[data-review-file="large.txt"]')
+  const boxes=await Promise.all([scroll.boundingBox(),section.boundingBox()])
+  expect(Math.abs(boxes[0]!.y-boxes[1]!.y)).toBeLessThanOrEqual(1)
+})
+test('E8 capped revision quote returns to the mounted originating work',async({page})=>{
+  await openFrame(page,'frame-wall=navigation&frame-review=1&frame-review-scene=large&frame-terminal=1','light')
+  const work=page.locator('[data-slot="retained-work"]')
+  await work.evaluate(node=>{node.setAttribute('data-retention-witness','original-work')})
+  await page.evaluate(()=>window.dispatchEvent(new CustomEvent('harnessdesk:review')))
+  await page.getByRole('button',{name:'Revise this hunk…',exact:true}).first().click()
+  await expect(work).toBeVisible()
+  await expect(work).toHaveAttribute('data-retention-witness','original-work')
+  const composer=page.locator('[data-slot="composer-text"]:visible')
+  await expect(composer).toHaveValue(/Please revise this hunk of/)
+  const quote=(await composer.inputValue()).split('\n```diff\n')[1]!.split('\n```')[0]!
+  expect(quote).toHaveLength(1802);expect(quote).toMatch(/\n…$/);expect(quote).not.toContain('diff --git')
+  await page.keyboard.press('Meta+[')
+  await expect(page.locator('[data-page-destination="changes-review"]:visible')).toHaveCount(1)
+})
+for(const scene of ['empty','not-repository'] as const)test(`E8 review preserves the ${scene} message`,async({page})=>{
+  await openFrame(page,`frame-wall=changes-review&frame-review-scene=${scene}`,'dark')
+  await expect(page.locator('[data-page-destination="changes-review"]:visible').getByText(scene==='empty'?'No uncommitted changes.':'This folder is not a git repository, so there is nothing to compare against.',{exact:true})).toBeVisible()
+})
+test('E8 bracket history crosses destinations and preserves the editor draft',async({page})=>{
+  await openFrame(page,'frame-wall=navigation','dark')
+  const composer=page.locator('[data-slot="composer-text"]:visible')
+  await composer.fill('Keep this draft')
+  await page.keyboard.press('Meta+,');await page.keyboard.press('Meta+u');await page.keyboard.press('Meta+[')
+  await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1)
+  await page.keyboard.press('Meta+[')
+  await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
+  await expect(composer).toHaveValue('Keep this draft')
+  await page.keyboard.press('Meta+]');await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1)
+  await page.keyboard.press('Meta+]');await expect(page.locator('[data-page-destination="dashboard"]:visible')).toHaveCount(1)
 })

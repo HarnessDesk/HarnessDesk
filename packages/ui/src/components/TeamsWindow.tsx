@@ -10,7 +10,7 @@ import { sanitizeHtml } from '../lib/sanitize'
 import { folderName } from '../lib/projects'
 import { elapsedSince, instant } from '../lib/clock'
 import { formatCountdownShort } from '../lib/usage'
-import { DestinationBar, DestinationPageScope, useDestinationActive } from '../panels/destination-page'
+import { DestinationBar, useDestinationActive } from '../panels/destination-page'
 import { runtimeTint } from '../lib/accounts'
 import { AgentIcon, ChevronIcon, MoreIcon, ResetIcon, BlindIcon } from './Icons'
 import { Banner, Button, Chip, DisclosureChevron, Dot, EmptyState, AvatarStack, Menu, MenuItem, Popover, Page, PageRecords, Section, PageRecordViews, Text } from '../design'
@@ -85,14 +85,7 @@ const stateLabels = {'needs-you':'Needs you',unread:'Unread',working:'Working',i
 
 /** Every Team on the desk; no per-project or runtime-specific reader. */
 interface TeamsPageProps { readonly filter: TeamFilter; readonly onFilter: (filter: TeamFilter) => void; readonly onNew: () => void }
-interface LegacyTeamsProps { readonly onClose: () => void; readonly initialFilter?: TeamFilter }
-/** Temporary callable adapter for the shared previews awaiting Task 9 assembly. */
-export const TeamsWindow = (props: TeamsPageProps | LegacyTeamsProps) => 'filter' in props
- ? <TeamsList {...props}/> : <LegacyTeamsList {...props}/>
-const LegacyTeamsList = ({initialFilter='active'}: LegacyTeamsProps) => {
- const [filter,onFilter]=useState<TeamFilter>(initialFilter)
- return <DestinationPageScope owner="teams" active={useDestinationActive()}><TeamsList filter={filter} onFilter={onFilter} onNew={()=>{}}/></DestinationPageScope>
-}
+export const TeamsWindow = (props: TeamsPageProps) => <TeamsList {...props} />
 const TeamsList = ({filter,onFilter,onNew}: TeamsPageProps) => {
  const active=useDestinationActive()
  const store=useStore(); const snapshot=useSnapshot()

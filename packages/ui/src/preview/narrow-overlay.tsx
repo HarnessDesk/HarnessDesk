@@ -9,7 +9,7 @@ import { StoreProvider } from '../state/context'
 import { dockViews, emptyWorkbench } from '../state/workbench'
 import { BLANK } from '../state/layout'
 import { runtimeId } from '@harnessdesk/protocol'
-import { AppWindowMode } from '../components/AppWindow'
+import { SignInMode } from '../components/SignInMode'
 import { PREVIEW_SESSION_KEY, previewStore } from './harness'
 import '../styles/app.css'
 
@@ -71,9 +71,9 @@ if (!root) throw new Error('#root is missing from narrow-overlay.html')
 createRoot(root).render(
   <StrictMode>
     <StoreProvider store={store}>
-      <AppWindowMode.Provider value="embedded">
+      <SignInMode.Provider value="embedded">
         <TopBarProvider><ShellHostsProvider><Workbench sidebar={<div />} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
-      </AppWindowMode.Provider>
+      </SignInMode.Provider>
     </StoreProvider>
   </StrictMode>,
 )

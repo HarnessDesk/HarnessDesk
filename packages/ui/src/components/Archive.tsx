@@ -10,7 +10,7 @@ import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { DeleteSession } from './DeleteSession'
 import { ArchiveIcon, FolderIcon, SearchIcon, UndoIcon } from './Icons'
-import { BoardMenuButton, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, Button, EmptyState, Note, PageDescription, Row, Rows, Search, SectionHead, Chip } from '../design'
+import { BoardMenuButton, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, Button, EmptyState, Note, Row, Rows, Search, SectionHead, Chip } from '../design'
 import { DiscardWorktree } from './DiscardWorktree'
 
 /**
@@ -123,12 +123,12 @@ export const ArchiveSection = () => {
       <PageExplanation>Conversations taken out of the list. Nothing here has been deleted; restore one and it goes back where it was.</PageExplanation>
 
       {unreachable.length > 0 && (
-        <PageDescription>
+        <Note>
           The archive could not be read. <Button variant="outline" size="sm" onClick={() => void load()}>Try again</Button>
-        </PageDescription>
+        </Note>
       )}
 
-      {loading && <PageDescription>Reading the archive…</PageDescription>}
+      {loading && <Note>Reading the archive…</Note>}
 
       {!loading && sessions.length > 0 && (
         <PageControls search={{label:"Search archived conversations",placeholder:"Search the archive",value:query,change:setQuery}}/>

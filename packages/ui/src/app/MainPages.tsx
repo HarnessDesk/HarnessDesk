@@ -7,8 +7,8 @@ import type { PageDestination } from '../state/destinations'
 import { MAIN_PAGE_ENTRIES } from './main-page-entries'
 export const MIGRATED_PAGE_KINDS = Object.keys(MAIN_PAGE_ENTRIES) as PageDestination['kind'][]
 export const isMainPage = (kind: string): boolean => Object.hasOwn(MAIN_PAGE_ENTRIES, kind)
-export const MainPages = ({onSignIn,onNewTeam=()=>{},libraryImportIntent=0,suspended=false}: {
-  readonly onSignIn:(runtime:RuntimeId)=>void;readonly onNewTeam?:()=>void;readonly libraryImportIntent?:number;readonly suspended?:boolean
+export const MainPages = ({onSignIn,onNewTeam,libraryImportIntent,suspended=false}: {
+  readonly onSignIn:(runtime:RuntimeId)=>void;readonly onNewTeam:()=>void;readonly libraryImportIntent:number;readonly suspended?:boolean
 }) => {
   const store=useStore(), snapshot=useSnapshot(), current=snapshot.workbench.navigation.current
   const live=useRef({current,suspended,generation:0,mounted:true})

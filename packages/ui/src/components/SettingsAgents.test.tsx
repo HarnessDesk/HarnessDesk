@@ -1,4 +1,4 @@
-import { RuntimesTestPage as RuntimesSection } from './settings-test-page'
+import { RuntimesTestPage as RuntimesSection } from '../test-support/settings-page'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -15,9 +15,9 @@ import { NO_CAPABILITIES } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { AddAgentsTestPage as AddAgents } from './settings-test-page'
+import { AddAgentsTestPage as AddAgents } from '../test-support/settings-page'
 import { AddAgents as ControlledAddAgents } from './SettingsAgents'
-import { SettingsTestScope } from './settings-test-page'
+import { SettingsTestScope } from '../test-support/settings-page'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let container: HTMLDivElement

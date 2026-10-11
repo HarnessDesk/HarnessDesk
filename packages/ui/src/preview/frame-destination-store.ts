@@ -15,7 +15,7 @@ export const frameDestinationStore = (fixture: AppStore): AppStore => {
   store.transport.request = (async (method: HostMethodName, params: HostParams<HostMethodName>) => {
     if (method === 'session/read' || method === 'session/resume') {
       const query = params as { runtime: RuntimeId; sessionId: SessionId }
-      const session = seed.sessions.get(sessionKey(query.runtime, query.sessionId))
+      const session = store.getSnapshot().sessions.get(sessionKey(query.runtime, query.sessionId))
       if (!session) throw new Error('Synthetic session is unavailable')
       return session
     }
@@ -32,6 +32,26 @@ export const frameDestinationStore = (fixture: AppStore): AppStore => {
     if (method === 'acp/catalog') return fixture.agentCatalog()
     if (method === 'acp/registry') return fixture.acpRegistry()
     if (method === 'agent/list') return fixture.agentsIn(query.project)
+    const detail = params as { id: string; origin: 'project' | 'user' | 'builtin'; target: Parameters<AppStore['readAuthoring']>[0]; ids: readonly string[]; agent: string; goals: readonly string[] }
+    if (method === 'insight/agent') return fixture.readAgentInsight(query.root, detail.agent, detail.origin)
+    if (method === 'authoring/read') return fixture.readAuthoring(detail.target)
+    if (method === 'authoring/save/pending') return fixture.authoringPending()
+    if (method === 'attachment/agent') return fixture.readAgentAttachments(detail.id, detail.origin)
+    if (method === 'attachment/notes') return fixture.readAgentNotes(detail.id, detail.origin)
+    if (method === 'agent/seat/dry') return detail.ids.map(id => seed.agentPlans.get(id)).filter(Boolean)
+    if (method === 'agent/seating/read') return seed.seating
+    if (method === 'insight/goals') return fixture.readGoalInsights(detail.goals)
+    if (method === 'finding/run') {
+      const {goal,run} = params as {goal:string;run:string}
+      return {goal,run,round:0,finished:0,total:0,embargoed:false,open:0,blocking:0,reason:null,ceilingStop:false,stamp:'fixture-empty',publication:'local',rounds:[],reviewersFinished:null,reviewersTotal:null,pendingExceptions:[],repair:null,boundPr:null,unbound:null,undecidable:null}
+    }
+    if (method === 'usage/reports' || method === 'usage/refresh') return seed.usage
+    if (method === 'usage/ledger') return fixture.ledger(params as Parameters<AppStore['ledger']>[0])
+    if (method === 'insight/usage') return fixture.readUsageInsight(params as Parameters<AppStore['readUsageInsight']>[0])
+    if (method === 'capability/list') return seed.contributions.filter(contribution => contribution.kind === (params as {kind:string}).kind)
+    if (method === 'plugin/inspect') return {id:'sample',name:'Sample plugin',permissions:['Read workspace files'],alreadyInstalled:false}
+    if (method === 'plugin/list') return seed.plugins
+    if (method === 'plugin/install' || method === 'plugin/configure' || method === 'plugin/setEnabled' || method === 'plugin/uninstall') return undefined
     if (method === 'flow/catalog') return fixture.flowCatalog(query.root)
     if (method === 'evidence/checks') return fixture.projectChecks(query.project)
     if (method === 'trigger/list') return fixture.projectTriggers(query.root)

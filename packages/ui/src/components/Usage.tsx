@@ -8,7 +8,7 @@ import { byUrgency, costClause, formatAge, runway } from '../lib/usage'
 import { useSnapshot, useStore } from '../state/context'
 import { Page, PageOptions, PageExplanation } from '../design'
 import { DashboardBar } from '../panels/dashboard-bar'
-import { DestinationPageScope, useDestinationPage } from '../panels/destination-page'
+import { useDestinationPage } from '../panels/destination-page'
 import {
   DEFAULT_RANGE,
   reportNeedsAttention,
@@ -398,19 +398,6 @@ export const DashboardEntry = ({ page, visit, onSignIn }: MainPageInput) => {
   return page.kind === 'dashboard' ? <DashboardPage view={page.view} scope={page.scope}
     onView={view => visit({ ...page, view })} onScope={scope => visit({ ...page, scope })}
     onSignIn={onSignIn} onOpenPlanSettings={runtime => store.askSettings('runtimes', String(runtime))} /> : null
-}
-
-/** Temporary adapter for legacy preview/catalogue callers; Task 9 retires it. */
-export const Usage = ({ view: suppliedView, scope: suppliedScope, onView, onScope, onSignIn, onOpenPlanSettings }: {
-  readonly view?: DashboardView; readonly scope?: RuntimeId | null
-  readonly onView?: (view: DashboardView) => void; readonly onScope?: (scope: RuntimeId | null) => void
-  readonly onClose?: () => void; readonly onSignIn?: (runtime: RuntimeId) => void
-  readonly onOpenPlanSettings?: (runtime: RuntimeId) => void
-}) => {
-  const [view, changeView] = useState<DashboardView>('overview')
-  const [scope, changeScope] = useState<RuntimeId | null>(null)
-  return <DestinationPageScope owner="dashboard" active><DashboardPage view={suppliedView ?? view} scope={suppliedScope === undefined ? scope : suppliedScope}
-    onView={onView ?? changeView} onScope={onScope ?? changeScope} onSignIn={onSignIn} onOpenPlanSettings={onOpenPlanSettings} /></DestinationPageScope>
 }
 
 // Re-exported so tests and other callers can keep reading `./Usage` for the

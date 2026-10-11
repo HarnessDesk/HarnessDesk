@@ -3,7 +3,7 @@ import { expect, test } from '@playwright/test'
 for (const view of ['spend', 'overview'] as const) {
   test(`the model pivot keeps 8px dots in ${view === 'spend' ? 'comfortable' : 'compact'} table leads`, async ({ page }) => {
     await page.goto(`/preview.html?view=${view}`)
-    const dashboard = page.getByRole('dialog', { name: 'Dashboard', exact: true })
+    const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
     await dashboard.getByRole('radiogroup', { name: 'Group spend by' }).getByRole('radio', { name: 'by model', exact: true }).click()
     const dots = dashboard.locator('[data-slot="table-cell-lead"] [data-slot="series-dot"]')
     await expect(dots.first()).toBeVisible()

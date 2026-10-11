@@ -75,12 +75,12 @@ export const expectDestinationTab = async (page: Page, value: string): Promise<v
   await page.keyboard.press('Escape')
 }
 
-export const expectPageJourney = async (page: Page, label: string, kind: string, width = 1440): Promise<void> => {
+export const expectPageJourney = async (page: Page, label: string, kind: string, width = 1440, options: { readonly opener?: 'review' } = {}): Promise<void> => {
   await installFramePreviewFixture(page)
   await page.setViewportSize({width,height:900})
-  await page.goto('/preview.html?frame-wall=navigation&theme=light')
+  await page.goto(`/preview.html?frame-wall=navigation${options.opener==='review'?'&frame-review=1':''}&theme=light`)
   const reveal = async () => { if(width < FRAME.fold.sidebarFloats) await page.getByRole('button',{name:'Show sidebar',exact:true}).click() }
-  await reveal()
+  if (options.opener !== 'review') await reveal()
   const column = page.locator('[data-left-column]:visible')
   const columnChrome = async () => {
     expect((await column.boundingBox())!.y).toBe(0)
@@ -98,26 +98,43 @@ export const expectPageJourney = async (page: Page, label: string, kind: string,
     expect(await column.locator('[data-left-top] button').evaluateAll(nodes=>nodes.map(node=>node.getAttribute('aria-label'))))
       .toEqual(['Hide sidebar','Search everything','Back','Forward'])
     await expect(column.getByText('Back to app',{exact:true})).toHaveCount(0)
+    if(options.opener==='review')await expect(column.locator('[data-left-settings]:visible')).toHaveCount(0)
   }
-  await columnChrome()
+  if (options.opener !== 'review') await columnChrome()
   const remembered = page.locator('[data-slot="retained-work"] [data-pane-id]').first()
   await remembered.evaluate(node => { node.setAttribute('data-page-journey','remembered') })
   const door = label === 'Settings'
     ? column.locator('[data-left-seat]').getByRole('button',{name:label,exact:true})
     : column.locator('[aria-label="Main sections"]').getByRole('button',{name:label,exact:true})
-  await door.click()
+  const composer = page.locator('[data-slot="composer-text"]:visible')
+  if (options.opener === 'review') {
+    await composer.fill('Keep this review draft')
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('harnessdesk:review')))
+  } else await door.click()
   await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
   await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
   await reveal();await columnChrome()
   await expect(column.locator('[data-left-settings]:visible')).toHaveCount(kind === 'settings' ? 1 : 0)
-  if (kind !== 'settings') await expect(door).toHaveAttribute('aria-current','page')
+  if (kind !== 'settings' && options.opener!=='review') await expect(door).toHaveAttribute('aria-current','page')
   const back = column.locator('[data-left-top]').getByRole('button',{name:'Back',exact:true})
   const forward = column.locator('[data-left-top]').getByRole('button',{name:'Forward',exact:true})
   await expect(back).toBeEnabled();await back.click()
   await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
   await expect(remembered).toHaveAttribute('data-page-journey','remembered')
+  if (options.opener==='review') await expect(composer).toHaveValue('Keep this review draft')
   await reveal();await columnChrome()
   await expect(forward).toBeEnabled();await forward.click()
   await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
   await reveal();await columnChrome()
+  if (options.opener === 'review') {
+    await column.getByRole('button', {name:'New session',exact:true}).click()
+    await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
+    await reveal()
+    await page.evaluate(() => window.dispatchEvent(new CustomEvent('harnessdesk:review')))
+    await expect(page.locator('[data-page-destination="changes-review"]:visible')).toHaveCount(1)
+    if (width < FRAME.fold.sidebarFloats && await column.count() === 0) await reveal()
+    await column.locator('[data-region="session-row"] [data-slot="sidebar-menu-button"]').first().click()
+    await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
+  }
+
 }

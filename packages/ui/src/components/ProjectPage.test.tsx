@@ -1,4 +1,4 @@
-import { WorkspacesTestPage as WorkspacesSection } from './settings-test-page'
+import { WorkspacesTestPage as WorkspacesSection } from '../test-support/settings-page'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'

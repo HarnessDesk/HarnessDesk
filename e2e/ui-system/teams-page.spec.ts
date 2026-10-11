@@ -73,7 +73,7 @@ for(const theme of ['light','dark'] as const) {
    await page.setViewportSize({width,height:900})
    await openTeams(page,theme)
    const frame=page.locator('#teams-page-active')
-   const pageBox=frame.locator('[data-slot="teams-page"]')
+   const pageBox=frame.locator('[data-page-destination="teams"]:visible [data-slot="page-records"]')
    await expect(pageBox).toBeVisible()
    if((await pageBox.boundingBox())!.width<600){
     await expect(pageBox).toHaveAttribute('data-layout','narrow')
@@ -113,7 +113,7 @@ for(const theme of ['light','dark'] as const) {
   await page.evaluate(()=>document.fonts.ready)
   for(const scene of ['active','needs-you','settled','empty','pending','failed','narrow']) {
    const frame=page.locator(`#teams-page-${scene}`)
-   const pageBox=frame.locator('[data-slot="teams-page"]')
+   const pageBox=frame.locator('[data-page-destination="teams"]:visible [data-slot="page-records"]')
    await expect(pageBox).toBeVisible()
    if((await pageBox.boundingBox())!.width<600){
     await expect(pageBox).toHaveAttribute('data-layout','narrow')

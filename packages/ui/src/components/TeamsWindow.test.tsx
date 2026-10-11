@@ -436,10 +436,10 @@ it('E5 leaving Teams dismisses its portalled row menu',async()=>{
  expect(document.querySelector('[role="menu"]')).toBeNull()
 })
 
-it('E5 legacy adapter cannot undo a room open through onClose',async()=>{
+it('E5 controlled page opens a room exactly once',async()=>{
  const base=overviewTeamStore('running'),open=vi.fn(),close=vi.fn()
  const store=new Proxy(base,{get(target,key){if(key==='openTeamRoom')return open;return Reflect.get(target,key)}}) as AppStore
- await act(async()=>root.render(<StoreProvider store={store}><TopBarProvider><TeamsWindow onClose={close}/></TopBarProvider></StoreProvider>))
+ await act(async()=>root.render(<StoreProvider store={store}><TopBarProvider><DestinationPageScope owner="destination:teams" active><TeamsWindow filter="active" onFilter={()=>{}} onNew={()=>{}}/></DestinationPageScope></TopBarProvider></StoreProvider>))
  await act(async()=>container.querySelector<HTMLButtonElement>('[data-team-row] button[aria-label^="Open "]')!.click())
  expect(open).toHaveBeenCalledOnce();expect(close).not.toHaveBeenCalled()
 })

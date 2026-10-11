@@ -1,20 +1,12 @@
 import { useEffect } from 'react'
-import { Page, useEscapeSurface } from '../design'
+import { Page } from '../design'
 import { useSnapshot, useStore } from '../state/context'
-import { DestinationPageScope, useDestinationPage } from '../panels/destination-page'
+import { useDestinationPage } from '../panels/destination-page'
 import { AgentsRosterSection } from './AgentRoster'
 
 /** Agents is a retained destination; the shell owns its column and bar. */
-export const AgentsWindow = ({ focus, onFocus, onClose }: {
-  readonly focus: string | null
-  readonly onFocus: (id: string | null) => void
-  /** Temporary adapter for legacy callers, removed by destination integration. */
-  readonly onClose?: () => void
-}) => {
-  useEscapeSurface(Boolean(onClose), onClose ?? (() => {}))
-  const body = <AgentsDestination focus={focus} onFocus={onFocus} />
-  return onClose ? <DestinationPageScope owner="agents" active>{body}</DestinationPageScope> : body
-}
+export const AgentsWindow = (props: { readonly focus: string | null; readonly onFocus: (id: string | null) => void }) =>
+  <AgentsDestination {...props} />
 const AgentsDestination = ({ focus, onFocus }: {
   readonly focus: string | null; readonly onFocus: (id: string | null) => void
 }) => {

@@ -1,15 +1,15 @@
 import { beforeEach, afterEach, vi } from 'vitest'
 import { FRAME } from '../design/frame'
-import { SettingsNavigation } from './SettingsNavigation'
-import { AddAgents } from './SettingsAgents'
+import { SettingsNavigation } from '../components/SettingsNavigation'
+import { AddAgents } from '../components/SettingsAgents'
 import { useEffect, useState, type ReactNode } from 'react'
 import type { RuntimeId } from '@harnessdesk/protocol'
 import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
 import { DestinationPageScope } from '../panels/destination-page'
 import { destinationForSettings } from '../app/settings-destination'
 import type { SettingsRoute } from '../state/destinations'
-import { Settings, SkillsSection, WorkspacesSection, type Section } from './Settings'
-import { RuntimesSection, type RuntimeSettingsView } from './SettingsAgents'
+import { Settings, SkillsSection, WorkspacesSection, type Section } from '../components/Settings'
+import { RuntimesSection, type RuntimeSettingsView } from '../components/SettingsAgents'
 
 /** Component tests own routes just as App's destination registry does. */
 export const SettingsTestScope = ({children,active=true}: {children:ReactNode;active?:boolean}) => <TopBarProvider>

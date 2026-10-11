@@ -1,4 +1,4 @@
-import { SettingsTestPage as Settings } from './settings-test-page'
+import { SettingsTestPage as Settings } from '../test-support/settings-page'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'

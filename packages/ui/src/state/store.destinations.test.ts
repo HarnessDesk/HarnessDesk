@@ -138,3 +138,21 @@ test('review receipt bridge returns to the captured Team view with docks and lay
   expect(store.getSnapshot().workbench.right).toBe(before.right)
   expect(store.getSnapshot().workbench.bottom).toBe(before.bottom)
 })
+
+test.each(['/synthetic/captured', null])('review Terminal keeps its captured folder on Forward (%s)', async root => {
+  const store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), {activeRuntime:'fixture',workspace:{path:'/synthetic/captured',name:'Captured'}})
+  const work=store.getSnapshot().workbench.navigation.current
+  if(work.kind!=='work')throw new Error('work expected')
+  store.openDestination({kind:'changes-review',root,returnTo:work.view})
+  await store.navigateBack()
+  Object.assign(store.getSnapshot(), {workspace:{path:'/synthetic/later',name:'Later'}})
+  await store.navigateForward()
+  const request=vi.spyOn(store.transport,'request').mockResolvedValue({terminalId:'fixture-terminal',runtime:'fixture'} as never)
+  await store.openTerminal()
+  if(root)expect(request).toHaveBeenCalledWith('terminal/open',expect.objectContaining({cwd:root}))
+  else {
+    expect(request).not.toHaveBeenCalled()
+    expect(store.getSnapshot().notices.at(-1)?.message).toBe('Choose a project folder before opening a terminal.')
+  }
+})

@@ -46,7 +46,7 @@ export const useDismissOverlays = (
  * Answers Escape while it is the surface on top.
  *
  * Orders screen-level surfaces after nested menus and dialogs have had the
- * key. AppWindow uses canonical dialog modality but explicitly delegates
+ * key. destination uses canonical dialog modality but explicitly delegates
  * Escape here, retaining the window stack's ordering and approval boundary.
  * Other dialogs consume Escape themselves; see `lib/overlays.ts`.
  */

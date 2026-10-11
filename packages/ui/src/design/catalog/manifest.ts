@@ -160,7 +160,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'radio-group', 'resize-handle', 'scroll-area', 'select', 'separator', 'sortable-list',
   'spark', 'stepper', 'timeline', 'timeline-cards', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
-  'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
+  'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'Change', 'RefusedAction',
   'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist', 'FlowGraph', 'FlowCanvas', 'FlowStepRow',
   'heat-grid', 'PlanCard', 'SidebarMenuState',
   'SettingsRowMenu', 'HeaderStatusGroup',
@@ -172,6 +172,7 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
     : undefined
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
+  SignInRail: ['default'],
   DashboardBands: ['light', 'dark'],
   LibraryMatrix: ['default'],
   PageControls: ['default'],
@@ -269,7 +270,6 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   DockPanel: ['default', 'workbench'],
   PublicationCard: ['default'],
   ActionError: ['default'],
-  AppWindow: ['default'],
   Change: ['default'],
   RefusedAction: ['default'],
   InspectorPanel: ['default'],
@@ -293,6 +293,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
+  SignInRail: ['default'],
   DashboardBands: ['default', 'empty', 'unknown', 'long-title'],
   LibraryMatrix: ['populated', 'empty', 'long-title'],
   PageControls: ['default', 'disabled'],
@@ -389,7 +390,6 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   CopyButton: ['default'],
   PublicationCard: ['default', 'open', 'draft', 'merged', 'closed', 'passed', 'failed', 'running', 'skipped', 'timed out'],
   ActionError: ['error'],
-  AppWindow: ['default', 'nested-rail'],
   Change: ['default', 'selected', 'warning', 'error'],
   RefusedAction: ['disabled', 'focus-visible'],
   InspectorPanel: ['default', 'selected', 'empty', 'running'],
@@ -445,6 +445,7 @@ Object.assign(SIZES, {
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
+  SignInRail: 'packages/ui/src/components/SignIn.tsx',
   DashboardBands: 'packages/ui/src/components/Usage.tsx',
   LibraryMatrix: 'packages/ui/src/components/Library.tsx',
   PageControls: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -483,7 +484,6 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   DockPanel: 'packages/ui/src/panels/Workbench.tsx',
   PublicationCard: 'packages/ui/src/components/Publication.tsx',
   ActionError: 'packages/ui/src/components/BranchSwitcher.tsx',
-  AppWindow: 'packages/ui/src/components/AppWindow.tsx',
   Change: 'packages/ui/src/components/GitPane.tsx',
   RefusedAction: 'packages/ui/src/components/ComposerControls.tsx',
   InspectorPanel: 'packages/ui/src/components/Panel.tsx',
@@ -506,6 +506,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
 Object.assign(PATTERN_CONSUMER, { LeftColumn: 'packages/ui/src/components/Sidebar.tsx' })
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  SignInRail: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   DashboardBands: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   LibraryMatrix: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   PageControls: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -545,7 +546,6 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   CopyButton: 'packages/ui/src/design/explorer/boards.tsx',
   PublicationCard: 'packages/ui/src/design/explorer/boards.tsx',
   ActionError: 'packages/ui/src/design/explorer/boards.tsx',
-  AppWindow: 'packages/ui/src/design/explorer/boards.tsx',
   Change: 'packages/ui/src/design/explorer/boards.tsx',
   RefusedAction: 'packages/ui/src/design/explorer/boards.tsx',
   InspectorPanel: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -603,7 +603,6 @@ const pattern = ([name, exampleId, purpose]: ModuleSeed): CatalogEntry => ({
   consumers: [PATTERN_CONSUMER[name] ?? 'packages/ui/src/design/explorer/Explorer.tsx'],
   coverageExemption: compoundCoverageExemption(name, exampleId),
   visual: true,
-  ...(name === 'AppWindow' ? { examples: [PATTERN_EXAMPLE_CONSUMER[name]!, 'packages/ui/src/design/explorer/boards-compositions.tsx'] } : {}),
 })
 
 export const CANONICAL_UI_MODULES = [
@@ -703,7 +702,6 @@ export const CANONICAL_PATTERN_MODULES = [
   ['DockPanel', 'panels', 'Docked panel chrome and actions'],
   ['PublicationCard', 'conversation', 'Published plan and artifact card'],
   ['ActionError', 'banner', 'Failure and reason for an action just taken'],
-  ['AppWindow', 'app-window', 'Full-window destination chrome and plates'],
   ['Change', 'git', 'File state, change counts and patch anatomy'],
   ['RefusedAction', 'propagation', 'Keyboard-reachable disabled-action explanation'],
   ['InspectorPanel', 'tool-pane', 'Right-hand inspector anatomy'],
@@ -714,6 +712,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['FlowCanvas', 'flow-canvas', 'A lazy, controlled plan canvas: pan, zoom, selection, edits and read-only Run state slots'],
   ['FlowGraph', 'flow-graph', 'A Flow’s steps and rules drawn read-only, with the list that says the same'],
   ['FlowStepRow', 'flow-graph', 'Shared Flow and main Run Timeline step rows with kind, recorded state, time and run count'],
+  ['SignInRail', 'sign-in-rail', 'Sign-in navigation on the shared sidebar ground'],
   ['PageRecords', 'page-records', 'Responsive grouped records with aligned facts and isolated row actions'],
   ['PageControls', 'page-controls', 'Labelled page fields, complete explanations and shortcut keys'],
   ['LibraryMatrix', 'library-matrix', 'Availability columns, inline copies and per-agent catalogue costs'],

@@ -16,8 +16,6 @@ import barSystem from '../design/ui/bar.tsx?raw'
 import workbenchCss from './Workbench.module.css?raw'
 import dockPanel from '../design/patterns/DockPanel.tsx?raw'
 import appCss from '../styles/app.css?raw'
-import appWindowSource from '../components/AppWindow.tsx?raw'
-import appWindowSystem from '../design/patterns/AppWindow.tsx?raw'
 import fixedShellSource from '../design/patterns/FixedShell.tsx?raw'
 
 /**
@@ -144,16 +142,14 @@ describe('nothing decides this for itself', () => {
     eager: true,
   })
 
-  it('only the work and nonwork shell hosts ask whether there are window buttons at all', () => {
+  it('only the permanent shell host ask whether there are window buttons at all', () => {
     const asking = Object.entries(sources)
       .filter(([path]) => !/\.test\.tsx?$/.test(path) && !/\/lib\/desktop\.ts$/.test(path))
       .filter(([, text]) => /hasTrafficLights\(\)/.test(text))
       .map(([path]) => path)
-    // Workbench and the transitional AppWindow are the two shell hosts.
+    // The permanent workbench owns the native corner.
     // Page bodies still inherit the canonical reserve, never decide it.
-    expect(asking).toEqual(['../components/AppWindow.tsx', './Workbench.tsx'])
-    expect(appWindowSource).toContain('nativeCorner={columnWidth === 0 && hasTrafficLights()}')
-    expect(appWindowSystem).toContain("'--titlebar-inset': nativeCorner ? 'var(--hd-titlebar-lights)' : '0px'")
+    expect(asking).toEqual(['./Workbench.tsx'])
   })
 
   it('and no stylesheet writes the width of the buttons out by hand', () => {

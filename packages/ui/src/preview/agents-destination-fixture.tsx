@@ -1,4 +1,3 @@
-import { createRoot } from 'react-dom/client'
 import type { HostMethodName, HostParams } from '@harnessdesk/protocol'
 import { App } from '../app/App'
 import { StoreProvider } from '../state/context'
@@ -49,7 +48,3 @@ export const agentsDestinationStore = (query: URLSearchParams): AppStore => {
 
 export const AgentsDestinationFixture = ({ store }: { readonly store: AppStore }) =>
   <StoreProvider store={store}><App /></StoreProvider>
-
-if (new URLSearchParams(location.search).get('frame-e4') === '1') {
-  createRoot(document.getElementById('root')!).render(<AgentsDestinationFixture store={agentsDestinationStore(new URLSearchParams(location.search))} />)
-}

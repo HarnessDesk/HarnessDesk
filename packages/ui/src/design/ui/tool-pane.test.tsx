@@ -17,7 +17,6 @@ import {
   ToolPaneHeaderDivider,
   ToolPaneMessage,
   ToolPaneNotice,
-  ToolPaneReading,
   ToolPaneTabIcon,
   ToolPaneTabViewport,
   ToolPaneToolGroup,
@@ -99,7 +98,6 @@ it('owns the bars, messages, document tabs and activity anatomy', () => {
       </ToolPaneTabViewport>
       <ToolPaneActivity><ToolPaneActivityMark>1</ToolPaneActivityMark>Running</ToolPaneActivity>
       <ToolPaneToolGroup>Tools</ToolPaneToolGroup>
-      <ToolPaneReading>Reading</ToolPaneReading>
     </ToolPane>,
   ))
 
@@ -115,7 +113,6 @@ it('owns the bars, messages, document tabs and activity anatomy', () => {
     'tool-pane-activity',
     'tool-pane-activity-mark',
     'tool-pane-tool-group',
-    'tool-pane-reading',
   ]) expect(container.querySelector(`[data-slot="${slot}"]`)).not.toBeNull()
   expect(container.querySelector('[data-slot="tool-pane-tab-viewport"]')?.hasAttribute('data-more-start')).toBe(true)
   expect(container.querySelector('[data-slot="tool-pane-tab-viewport"]')?.hasAttribute('data-more-end')).toBe(true)

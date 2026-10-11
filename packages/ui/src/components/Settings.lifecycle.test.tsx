@@ -41,7 +41,7 @@ it('a real Settings custom add cannot reopen its destination after Work is selec
   const add=vi.spyOn(store,'addAgent').mockImplementation(()=>new Promise(yes=>{resolve=yes}))
   store.openDestination({kind:'settings',route:{kind:'add-runtime'}})
   try{
-    await act(async()=>root.render(<StoreProvider store={store}><TopBarProvider><MainPages onSignIn={()=>{}}/></TopBarProvider></StoreProvider>))
+    await act(async()=>root.render(<StoreProvider store={store}><TopBarProvider><MainPages onNewTeam={()=>{}} libraryImportIntent={0} onSignIn={()=>{}}/></TopBarProvider></StoreProvider>))
     act(()=>[...box.querySelectorAll<HTMLButtonElement>('button')].find(node=>node.textContent==='Set up…')!.click())
     for(const [label,value] of [['Name','Synthetic Agent'],['Command','synthetic-agent']])act(()=>{
       const field=document.querySelector<HTMLInputElement>(`[id="${[...document.querySelectorAll('label')].find(node=>node.textContent?.trim()===label)!.htmlFor}"]`)!

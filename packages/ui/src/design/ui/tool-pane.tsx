@@ -418,9 +418,6 @@ const ToolPaneToolGroup = ({ className, ...props }: React.ComponentProps<'div'>)
   />
 )
 
-const ToolPaneReading = ({ className, ...props }: React.ComponentProps<'div'>) => (
-  <div data-slot="tool-pane-reading" className={cn('max-w-3xl px-6 py-4', className)} {...props} />
-)
 
 /**
  * The strip of tabs a tool pane can carry.
@@ -506,7 +503,6 @@ export {
   ToolPaneHeaderDivider,
   ToolPaneMessage,
   ToolPaneNotice,
-  ToolPaneReading,
   ToolPaneStage,
   ToolPaneTab,
   ToolPaneTabIcon,

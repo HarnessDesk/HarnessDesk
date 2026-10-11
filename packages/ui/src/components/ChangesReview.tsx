@@ -5,12 +5,10 @@ import type { GitFileStatus, GitStatus } from '@harnessdesk/protocol'
 import { countChanges, splitByFile, splitHunks, type DiffHunk } from '../lib/diff'
 import { inView } from '../lib/git-view'
 import { Button, Card, ChangeStats, CodeText, EmptyState, Note, Page, PatchHeader, Section, Separator, SummaryList, SummaryItem, MiddleTruncate, Text, ToolbarGap } from '../design'
-import { useActiveSession, useSnapshot, useStore } from '../state/context'
-import { AppWindow } from './AppWindow'
-import { DestinationBar, DestinationPageScope, useDestinationPage } from '../panels/destination-page'
+import { useStore } from '../state/context'
+import { DestinationBar, useDestinationPage } from '../panels/destination-page'
 import { ReviewIndex } from '../panels/review-index'
 import type { WorkView } from '../state/destinations'
-import { focusedPane } from '../state/layout'
 import { handOverToComposer } from '../lib/compose'
 import { DiffView } from './Diff'
 
@@ -61,19 +59,8 @@ const groupByFolder = (files: readonly GitFileStatus[]): FolderGroup[] => {
 const Counts = ({ added, removed }: { added: number; removed: number }) =>
   added + removed > 0 ? <ChangeStats added={added} removed={removed} /> : null
 
-interface ReviewProps { readonly root: string | null; readonly returnTo: WorkView; readonly onClose?: () => void }
-/** The legacy overlay remains callable until the shared assembly retires it. */
-export const ChangesReview = (props: ReviewProps | { readonly onClose: () => void }) => {
-  const snapshot = useSnapshot(), session = useActiveSession()
-  if ('root' in props) return <ReviewBody root={props.root} returnTo={props.returnTo} />
-  const view = focusedPane(snapshot.layout).view
-  const returnTo: WorkView = view.kind === 'conversation' || view.kind === 'room' ? view : { kind: 'conversation', session: null }
-  return <AppWindow owner="changes-review" onClose={props.onClose} label="Changes">
-    <DestinationPageScope owner="changes-review" active>
-      <ReviewBody root={session?.cwd ?? snapshot.workspace?.path ?? null} returnTo={returnTo} />
-    </DestinationPageScope>
-  </AppWindow>
-}
+interface ReviewProps { readonly root: string | null; readonly returnTo: WorkView }
+export const ChangesReview = (props: ReviewProps) => <ReviewBody {...props} />
 
 const ReviewBody = ({ root, returnTo }: ReviewProps) => {
   const store = useStore()

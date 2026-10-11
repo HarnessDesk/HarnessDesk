@@ -62,12 +62,6 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'team-runs-filtered', query: 'frame-wall=team-trigger', tab: 'runs', viewChoice: 'Running' },
   { id: 'team-chat', query: 'frame-wall=team', tab: 'room' },
   { id: 'team-findings', query: 'frame-wall=team', tab: 'findings' },
-  { id: 'teams', query: 'frame-wall=teams' },
-  { id: 'agents', query: 'frame-wall=agents' },
-  { id: 'agent', query: 'frame-wall=agent' },
-  { id: 'dashboard', query: 'frame-wall=dashboard' },
-  { id: 'settings', query: 'frame-wall=settings' },
-  { id: 'settings-profile', query: 'frame-wall=settings&frame-section=profile' },
   { id: 'left-column-probe', surface: 'pattern', query: 'frame-wall=left-column' },
   { id: 'conversation-left-open', query: 'frame-wall=conversation', leftOpen: true },
   { id: 'left-inbox', query: 'frame-wall=conversation', leftOpen: true, leftPopup: 'inbox' },
@@ -84,11 +78,6 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'popup-menu-icons', query: 'frame-wall=conversation&popup=menu-icons', popup: 'Frame menu' },
   { id: 'popup-menu-none', query: 'frame-wall=conversation&popup=menu-none', popup: 'Frame menu' },
   { id: 'popup-composer-add', query: 'frame-wall=conversation', composerAdd: true },
-  { id: 'settings-general', query: 'frame-wall=settings-general' },
-  { id: 'settings-runtimes', query: 'frame-wall=settings-runtimes' },
-  { id: 'library', query: 'frame-wall=library' },
-  { id: 'plugins', query: 'frame-wall=plugins' },
-  { id: 'changes-review', query: 'frame-wall=changes-review' },
   { id: 'popup-conversation-more', query: 'frame-wall=conversation&frame-conversation-actions=1', popup: 'More' },
   { id: 'popup-undo-confirmation', query: 'frame-wall=conversation&frame-conversation-actions=1', undo: true },
   { id: 'popup-wide-menu', query: 'frame-wall=conversation&popup=wide', popup: 'Frame wide menu' },
@@ -134,8 +123,6 @@ export const WALL_TIME = new Date('2026-09-30T10:00:00-07:00')
   { id: 'settings-navigation', query: 'frame-wall=settings-navigation', leftOpen: true },
   { id: 'settings-search', query: 'frame-wall=settings-search', leftOpen: true, settingsQuery: 'mute' },
   { id: 'settings-search-empty', query: 'frame-wall=settings-search', leftOpen: true, settingsQuery: 'zzzz' },
-  { id: 'library-left', query: 'frame-wall=library', leftOpen: true },
-  { id: 'plugins-left', query: 'frame-wall=plugins', leftOpen: true },
 )
 
 ;(WALL_DESTINATIONS as WallDestination[]).push(
@@ -157,6 +144,8 @@ export const E3_PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
   ...['overview','plans','spend','activity','projects'].map(view => ({id:`dashboard-${view}`,query:`frame-wall=dashboard&frame-view=${view}`,pageWidth:'wide' as const})),
   {id:'dashboard-scoped-plans',query:'frame-wall=dashboard&frame-view=plans&frame-scope=runtime',pageWidth:'wide'},
   {id:'dashboard-borrowed-plans',query:'frame-wall=dashboard&frame-view=plans&frame-scope=runtime&frame-borrowed=1',pageWidth:'wide'},
+]
+
 /** E7 route witnesses; common preview replacement and old ids retire in Task 9. */
 export const E7_PLUGIN_PAGE_DESTINATIONS: readonly WallDestination[] = [
   { id: 'plugins-installed', query: 'frame-wall=plugins&frame-plugin-page=installed', pageWidth: 'wide' },
@@ -192,7 +181,6 @@ export const PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
   ...E3_PAGE_WALL_DESTINATIONS,
   ...E7_PLUGIN_PAGE_DESTINATIONS,
 ]
-;(WALL_DESTINATIONS as WallDestination[]).push(...PAGE_WALL_DESTINATIONS)
 
 export const AGENTS_PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'e4-agents-roster', query: 'frame-wall=agents', pageWidth: 'wide' },
@@ -235,3 +223,5 @@ export const E8_REVIEW_WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'e8-review-large', query: 'frame-wall=changes-review&frame-review-scene=large', pageWidth: 'canvas' },
 ]
 ;(PAGE_WALL_DESTINATIONS as WallDestination[]).push(...E8_REVIEW_WALL_DESTINATIONS)
+
+;(WALL_DESTINATIONS as WallDestination[]).push(...PAGE_WALL_DESTINATIONS)

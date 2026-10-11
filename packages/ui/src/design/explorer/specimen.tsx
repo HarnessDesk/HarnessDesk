@@ -35,7 +35,7 @@ export const Specimen = ({
    *          tiles) stays that size instead of stretching a plate across
    *          whatever is left of the page. The default.
    *   page   the app's own reading measure, `--hd-column` — for a mock of a
-   *          whole settings/detail page (Rows, PageHead, Field, Stepper,
+   *          whole settings/detail page (Rows, page body, Field, Stepper,
    *          Banner), which reads at the width a real page gives it, not
    *          squeezed to its narrowest row.
    *   wide   fills the column — for a board proving a *row's* own spacing

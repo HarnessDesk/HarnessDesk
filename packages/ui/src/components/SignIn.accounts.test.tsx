@@ -288,9 +288,9 @@ it('composes the shared roster, state and text roles', async () => {
   // first, each counted in its head — and the work beside it is the dialog's
   // reading body.
   const rail = container.querySelector('nav[aria-label="Agents"]')
-  expect(rail?.getAttribute('data-slot')).toBe('app-window-nav')
-  expect([...(rail?.querySelectorAll(':scope > [data-slot="rail-section"]') ?? [])].map((node) => node.getAttribute('data-stretch')))
-    .toEqual(['list'])
+  expect(rail?.getAttribute('data-slot')).toBe('sign-in-rail')
+  expect([...(rail?.querySelectorAll(':scope > [data-slot="sign-in-list"]') ?? [])].map(node => node.getAttribute('data-slot')))
+    .toEqual(['sign-in-list'])
   expect(rail?.querySelector(':scope > [data-slot="section-footer"]')?.textContent).toContain('Credentials stay on this machine')
   // Named groups rather than region landmarks; the count is the head's to show.
   expect(rail?.querySelector('section')).toBeNull()

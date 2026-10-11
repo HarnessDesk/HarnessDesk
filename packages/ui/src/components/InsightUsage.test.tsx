@@ -7,7 +7,7 @@ import { DestinationPageScope } from '../panels/destination-page'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
 import { InsightUsage } from './InsightUsage'
-import { Usage } from './Usage'
+import { DashboardTestPage as Usage } from '../test-support/dashboard-page'
 import { usagePreviewStore } from '../preview/usage-fixture'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -30,7 +30,7 @@ it('loads By Goal on the Dashboard’s Projects view', async () => {
   const openGoal = vi.fn()
   const snapshot = { ...emptySnapshot(), workspace: { path: '/repo', name: 'repo', lastOpenedAt: 0, repo: { root: '/repo' } } }
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, loadUsage: vi.fn(async () => {}), refreshUsage: vi.fn(async () => {}), ledger: vi.fn(async () => null), readUsageInsight, openGoal } as unknown as AppStore
-  await act(async () => { root.render(<StoreProvider store={store}><Usage view="projects" onClose={() => {}} /></StoreProvider>); await Promise.resolve() })
+  await act(async () => { root.render(<StoreProvider store={store}><Usage view="projects" /></StoreProvider>); await Promise.resolve() })
   expect(readUsageInsight).toHaveBeenCalledOnce()
   expect(container.textContent).toContain('Goal')
   expect(container.textContent).not.toContain('goal-1')
@@ -352,7 +352,7 @@ it('labels Project usage’s range, restores it and resets it on a project switc
   let snapshot = { ...emptySnapshot(), workspace: { path: '/repo', name: 'repo', lastOpenedAt: 0, repo: { root: '/repo' } } }
   const listeners = new Set<() => void>()
   const store = { subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) }, getSnapshot: () => snapshot, loadUsage: vi.fn(async () => {}), refreshUsage: vi.fn(async () => {}), ledger: vi.fn(async () => null), readUsageInsight, openGoal: vi.fn() } as unknown as AppStore
-  await act(async () => { root.render(<StoreProvider store={store}><Usage view="projects" onClose={() => {}} /></StoreProvider>); await Promise.resolve() })
+  await act(async () => { root.render(<StoreProvider store={store}><Usage view="projects" /></StoreProvider>); await Promise.resolve() })
   const span = () => { const query = readUsageInsight.mock.calls.at(-1)![0] as unknown as { from: number; to: number }; return query.to - query.from }
   const click = async (text: string) => { await act(async () => { const select=container.querySelector<HTMLSelectElement>('select[aria-label="Project usage range"]')!; const option=[...select.options].find(option=>option.textContent === text)!; select.value=option.value; select.dispatchEvent(new Event('change',{bubbles:true})); await Promise.resolve() }) }
   expect(container.querySelector<HTMLSelectElement>('select[aria-label="Project usage range"]')?.value).toBe('30')
