@@ -58,3 +58,41 @@ test('right tools overlay the full main area below the wide breakpoint', async (
   }
 })
 
+test('dashboard without plan reports explains the absence once', async ({ page }) => {
+  await openFrame(page, 'frame-wall=dashboard&frame-view=overview&frame-empty-usage=1')
+  await expect(page.getByText('Nothing is spent or low right now.', { exact: true })).toHaveCount(0)
+  await expect(page.getByText('No agent here reports plan usage.', { exact: true })).toHaveCount(1)
+})
+
+test('spend keeps unscanned days as gaps in bars and line beside its coverage', async ({ page }) => {
+  await openFrame(page, 'frame-wall=dashboard&frame-view=spend&frame-fix8-ledger=1')
+  const range = page.getByRole('combobox', { name: 'How far back', exact: true })
+  await range.selectOption('7')
+  const plot = page.locator('[data-slot="day-columns"]').first()
+  await expect(plot.locator('li').filter({ hasText: 'No record yet' })).toHaveCount(3)
+  await expect(page.locator('[data-slot="chart-head"]').first()).toContainText('4 of 7 days scanned')
+  await page.getByRole('combobox', { name: 'Bars or line', exact: true }).selectOption('line')
+  await expect(plot.locator('li').filter({ hasText: 'No record yet' })).toHaveCount(3)
+})
+
+test('projects empty usage has one message and headings follow the grouping', async ({ page }) => {
+  await openFrame(page, 'frame-wall=dashboard&frame-view=projects&frame-empty-usage=1')
+  await expect(page.getByRole('heading', { name: 'Team usage', exact: true })).toBeVisible()
+  await expect(page.getByText('No usage recorded in this range', { exact: true })).toHaveCount(1)
+  await expect(page.locator('[data-slot="banner"]')).toHaveCount(0)
+  await page.getByRole('combobox', { name: 'Project usage view', exact: true }).selectOption('agent')
+  await expect(page.getByRole('heading', { name: 'Agent usage', exact: true })).toBeVisible()
+  await expect(page.getByText('No usage recorded in this range', { exact: true })).toHaveCount(1)
+})
+
+test('spend selected ranges equal their shorter figures', async ({ page }) => {
+  await openFrame(page, 'frame-wall=dashboard&frame-view=spend&frame-fix8-ledger=1')
+  const range = page.getByRole('combobox', { name: 'How far back', exact: true })
+  for (const [wide, span] of [[30, 7], [90, 30]]) {
+    await range.selectOption(String(wide))
+    const stat = page.locator('[data-slot="stat"]').filter({ hasText: `Last ${span} days` })
+    const value = await stat.locator('[data-role="metric"]').innerText()
+    await range.selectOption(String(span))
+    await expect(page.locator('[data-slot="chart-title"][data-figure]').first()).toHaveText(value)
+  }
+})

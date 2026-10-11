@@ -227,6 +227,30 @@ export const FrameWall = () => {
     // Additional Details states for the same real frame; all data is synthetic.
     const detailsCase = query.get('frame-details-case')
     const snapshot = next.getSnapshot()
+    if (destination === 'dashboard' && query.get('frame-fix8-unattributed') === '1') {
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = (async (method, params) => {
+        const report = await request(method, params as never)
+        return method === 'insight/usage' ? { ...report as object, breakdowns: [], gaps: [], sources: [] } : report
+      }) as typeof next.transport.request
+    }
+    if (destination === 'dashboard' && query.get('frame-fix8-ledger') === '1') {
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = (async (method, params) => {
+        if (method !== 'usage/ledger') return request(method, params as never)
+        const days = (params as { days: number }).days, runtime = snapshot.activeRuntime!
+        const now = new Date(), today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+        const daily = Array.from({ length: days }, (_, i) => i).filter(i => ![1, 3, 5].includes(i % 7)).map(i => ({
+          day: new Date(today.getFullYear(), today.getMonth(), today.getDate() - i).getTime(), runtime,
+          cost: i % 4 === 0 ? 0 : (i + 1) / 10, tokens: 100, requests: 1,
+        })).sort((a, b) => a.day - b.day)
+        return { days, currency: 'USD', totalCost: daily.reduce((sum, day) => sum + day.cost, 0), totalTokens: daily.length * 100,
+          provenance: 'mixed', coverage: { priced: daily.length - 1, unpriced: 1, unmetered: 0, estimated: 0,
+            daysCovered: daily.length, daysRequested: days, coveredDays: daily.map(day => day.day), earliestDay: daily[0]?.day },
+          daily, rows: [{ key: 'fixture', label: 'Recorded work', runtime, cost: daily.reduce((sum, day) => sum + day.cost, 0), tokens: 100 * daily.length, hasUnpriced: true }], scannedAt: Date.now() }
+      }) as typeof next.transport.request
+    }
+
     if (destination === 'conversation' && query.get('frame-palette-files') === '1') {
       const request = next.transport.request.bind(next.transport)
       next.transport.request = (async (method: HostMethodName, params: unknown, options?: { signal?: AbortSignal }) => {

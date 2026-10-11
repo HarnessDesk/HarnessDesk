@@ -112,9 +112,9 @@ export const OverviewView = ({
                 onStopTracking={() => onStopTracking(report.runtime)}
               />
             ))} />
-        ) : (
+        ) : summary.metered > 0 ? (
           <Text role="muted">Nothing is spent or low right now.</Text>
-        )}
+        ) : null}
         <>
           <Button variant="link" size="content" onClick={onGoToPlans}>
             See all in Plans

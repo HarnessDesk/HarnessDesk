@@ -162,6 +162,8 @@ export interface SpendCoverage {
   readonly estimated: number
   /** Days in the requested window that the scan actually covered. */
   readonly daysCovered: number
+  /** Local dates with recorded scan coverage; absent dates are unknown, not zero. */
+  readonly coveredDays?: readonly number[]
   readonly daysRequested: number
   /**
    * The earliest day this runtime scope has any row for at all, unwindowed —

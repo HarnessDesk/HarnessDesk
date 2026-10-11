@@ -102,6 +102,8 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
   if (!root) return <Note>Choose a project to see its Teams.</Note>
   if (problem) return <Note tone="warn">{problem}</Note>
   if (!report) return <Note>Reading recorded usage…</Note>
+  const hasRecords = report.recordedSpend.length > 0 || report.breakdowns.some(group => group.rows.length > 0) || Object.values(report.totals).some(value => value.value !== null && value.value > 0)
+  if (!hasRecords && report.sources.every(source => source.problem === null) && report.scan !== 'partial') return <Text role="muted">No usage recorded in this range</Text>
   const failedSources = report.sources.filter((source) => source.problem !== null)
   const hasAmounts = report.totals.usd.value !== null || (breakdown?.rows.some(row => row.amounts.usd.value !== null) ?? false) || breakdown?.unattributed.usd.value != null
   const incomplete = report.scan === 'partial'
@@ -121,12 +123,13 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
   const unattributedReason = breakdown?.reason ?? 'No unique historical Seat could be established.'
   const showReason = unattributedReason.replace(/[.]$/, '') !== unattributedLabel
   const emptyAttribution = !breakdown || breakdown.rows.length === 0
-  const emptyTitle = !breakdown ? `Recorded usage has no ${view} attribution.` : view === 'goal' ? 'No Team usage was recorded' : 'No Agent usage was recorded'
+  const emptyTitle = `Recorded usage has no ${view === 'goal' ? 'Team' : 'agent'} attribution.`
+  if (emptyAttribution && !incomplete && failedSources.length === 0) return <Text role="muted">{emptyTitle}</Text>
   const emptyDescription = breakdown?.reason ?? 'Unknown historical usage remains unassigned.'
   return <>
-    {rangeWarning ? <Banner tone="warning" title={hasAmounts ? 'Amounts are incomplete for this range' : 'Amounts are unknown for this range'} actions={(owned ? days !== 1 : rangeDays !== 1) && (owned || onShorterRange) && <Button variant="outline" size="sm" onClick={shorter}>Last 24 hours</Button>}>{reason}{emptyAttribution && <> {emptyTitle} {emptyDescription}</>}</Banner> : null}
+    {rangeWarning ? <Banner tone="warning" title={hasAmounts ? 'Amounts are incomplete for this range' : 'Amounts are unknown for this range'} actions={incomplete && (owned ? days !== 1 : rangeDays !== 1) && (owned || onShorterRange) && <Button variant="outline" size="sm" onClick={shorter}>Last 24 hours</Button>}>{reason}{emptyAttribution && <> {emptyTitle} {emptyDescription}</>}</Banner> : null}
     {emptyAttribution && !rangeWarning ? <Rows><EmptyState variant="row" title={emptyTitle} description={emptyDescription} /></Rows> : null}
-    {breakdown && <DashboardTable kind="insight">
+    {breakdown && !emptyAttribution && <DashboardTable kind="insight">
       <TableHeader><TableRow>
         <TableHead>{view === 'goal' ? 'Team' : 'Agent'}</TableHead>
         <TableHead numeric>Runs</TableHead><TableHead numeric>Seats</TableHead>

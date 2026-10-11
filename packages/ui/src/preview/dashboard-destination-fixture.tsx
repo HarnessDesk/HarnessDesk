@@ -63,7 +63,8 @@ export const dashboardDestinationStore = ({ view = 'overview', scope = null, bor
         const unknown = (metric: typeof report.totals.usd) => ({ ...metric, value: null, quality: 'unknown' as const, coverage: 'none' as const, sourceIds: [], missing: [] })
         return {
           ...report,
-          totals: { ...report.totals, usd: unknown(report.totals.usd) },
+          totals: { usd: unknown(report.totals.usd), tokens: unknown(report.totals.tokens), turns: unknown(report.totals.turns), activeMs: unknown(report.totals.activeMs) },
+          recordedSpend: [], seats: [], goals: [],
           breakdowns: [],
           sources: [],
           gaps: [],

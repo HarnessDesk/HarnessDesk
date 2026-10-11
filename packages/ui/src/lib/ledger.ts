@@ -120,6 +120,7 @@ export const stackDailyMetric = (
   // is unknown. A finite day is the first one on record, and only the days
   // before it (that carry no spend) are unknown.
   const earliest = ledger.coverage?.earliestDay
+  const coveredDays = ledger.coverage?.coveredDays ? new Set(ledger.coverage.coveredDays) : null
 
   const start = midnight(now)
   const days: StackedDay[] = []
@@ -132,7 +133,7 @@ export const stackDailyMetric = (
     const dayTotal = parts.reduce((sum, part) => sum + part, 0)
     if (dayTotal > peak) peak = dayTotal
     total += dayTotal
-    let unknown = !bucket && earliest !== undefined && (earliest === null || day < earliest)
+    let unknown = coveredDays ? !coveredDays.has(day) : !bucket && earliest !== undefined && (earliest === null || day < earliest)
     // A turns day whose every runtime that actually spent that day is
     // turn-unknown has no honest total at all — not "0 turns", which a
     // turn-known day with genuinely nothing done would also read as. Only
@@ -175,24 +176,16 @@ export interface PeriodTotal {
  * than being silently truncated into a smaller number wearing a bigger label.
  * A change is only computed where the *whole* earlier period is also loaded.
  *
- * **The comparison windows end at the last complete day, and today is its own
- * tile.** A day still running measured against a whole one falls every
- * morning and recovers by evening, which is a property of the clock rather
- * than of the spending — worst at one day, where the figure can be a tenth of
- * what it will be, and still a systematic understatement of up to a seventh
- * over a week. So the multi-day windows drop the running day from *both*
- * sides, and today keeps a tile of its own with no percentage on it, because
- * there is nothing it can honestly be compared against. The pair reads
- * correctly together on the page: the "so far" under today's figure is what
- * tells a reader the window beside it is a finished one.
+ * All ranges include today, matching the host query and selected figure.
+ * A running day is marked "so far" and has no comparison percentage.
  */
 export const periodTotals = (
   series: StackedSeries,
   spans: readonly number[] = [1, 7, 30],
 ): readonly PeriodTotal[] => {
   const totals = series.days.map((day) => day.total)
-  // Today is the last bucket, and it is the one still being written to.
-  const complete = totals.slice(0, -1)
+  // Today is the last bucket and belongs to every selected range.
+  const complete = totals
   const out: PeriodTotal[] = []
   for (const span of spans) {
     if (span === 1) {
@@ -208,16 +201,12 @@ export const periodTotals = (
     }
     if (span > complete.length) continue
     const recent = sum(complete.slice(complete.length - span))
-    const earlier =
-      span * 2 <= complete.length
-        ? sum(complete.slice(complete.length - span * 2, complete.length - span))
-        : null
     out.push({
       days: span,
       label: `Last ${span} days`,
       cost: recent,
-      partial: false,
-      change: earlier === null || earlier === 0 ? null : ((recent - earlier) / earlier) * 100,
+      partial: true,
+      change: null,
     })
   }
   return out

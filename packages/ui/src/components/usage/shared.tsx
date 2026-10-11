@@ -758,6 +758,7 @@ export const Spend = ({
           <ChartHead>
             <div>
               <ChartTitle figure>{headline}</ChartTitle>
+              {ledger && ledger.coverage.daysCovered < ledger.coverage.daysRequested && <ChartHint>{coverageLabel(ledger)}</ChartHint>}
               <ChartHint>
                 {metric === 'cost'
                   ? `Last ${ledger?.days ?? range} days — ${spendHint(ledger?.provenance)}`

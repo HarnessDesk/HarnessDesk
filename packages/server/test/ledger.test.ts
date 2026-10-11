@@ -1263,3 +1263,26 @@ test('an agent that has never been run has no folder, and that is not worth a li
   assert.deepEqual(logged, [])
   ledger.close()
 })
+
+test('inclusive 7 and 30 day queries agree with daily subsets and name covered days', () => {
+  const dir = scratch(), databasePath = join(dir, 'usage.sqlite')
+  const now = new Date(2026, 9, 11, 0, 15).getTime()
+  const store = new LedgerStore(databasePath)
+  for (let i = 0; i < 90; i++) {
+    if (i % 5 === 1) continue
+    const day = new Date(2026, 9, 11 - i).getTime(), file = `/fixture/day-${i}`
+    store.commit({ path: file, size: 1, mtime: 1, offset: 1, tail: [] }, [{ file, day, runtime: 'fixture', model: 'unpriced', project: '', input: 1, output: 0, cacheRead: 0, cacheWrite: 0, reasoning: 0, requests: 1, ...(i % 4 === 0 ? {} : { vendorCost: i / 100 }) }], 1, true)
+  }
+  store.close()
+  const ledger = new Ledger({ stateDir: dir, databasePath, corpora: [], now: () => now })
+  try {
+    const wide = ledger.query({ days: 90, groupBy: 'runtime' })
+    for (const days of [7, 30]) {
+      const selected = ledger.query({ days, groupBy: 'runtime' })
+      const from = new Date(2026, 9, 12 - days).getTime()
+      assert.ok(Math.abs((selected.totalCost ?? 0) - wide.daily.filter(row => row.day >= from).reduce((sum, row) => sum + row.cost, 0)) < 1e-8)
+      assert.deepEqual((selected.coverage as typeof selected.coverage & {coveredDays?: readonly number[]}).coveredDays, [...new Set(selected.daily.map(row => row.day))])
+      assert.ok(selected.coverage.unpriced > 0)
+    }
+  } finally { ledger.close() }
+})

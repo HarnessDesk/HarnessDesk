@@ -783,6 +783,7 @@ export class Ledger {
         unmetered: 0,
         estimated: 0,
         daysCovered: this.#store.daysCovered(from, runtime),
+        coveredDays: [...byDay.keys()].sort((a, b) => a - b),
         daysRequested: days,
         earliestDay: this.#store.earliestDay(runtime),
         turnsKnownFor: this.#turnKnown(runtime) ? [runtimeId(runtime)] : [],
@@ -940,6 +941,7 @@ export class Ledger {
       unmetered: 0,
       estimated: 0,
       daysCovered: this.#store.daysCovered(from, request.runtime),
+      coveredDays: [...new Set([...daily.values()].map(row => row.day))].sort((a, b) => a - b),
       daysRequested: days,
       earliestDay: this.#store.earliestDay(request.runtime),
       turnsKnownFor: [...allRuntimes]

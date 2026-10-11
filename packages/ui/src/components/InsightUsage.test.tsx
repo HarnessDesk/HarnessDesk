@@ -80,7 +80,7 @@ it('keeps safe unreadable-source warnings visible when the Dashboard has no attr
     await Promise.resolve()
   })
 
-  expect(container.textContent).toContain('Recorded usage has no goal attribution.')
+  expect(container.textContent).toContain('Recorded usage has no Team attribution.')
   expect(container.textContent).toContain('Recorded usage source could not be discovered.')
   expect(container.textContent).toContain('Recorded usage may be incomplete.')
   expect(container.textContent).toContain('Recorded usage')
@@ -211,7 +211,7 @@ it('keeps row notes and the compact Cost qualification visible while leaving the
  expect(costCell.querySelector('[title]')?.getAttribute('title')).toContain('Estimated known subtotal')
 })
 
-it('wraps the empty-state reason sentence instead of clipping it', async () => {
+it('replaces redundant unattributed explanation with one grouping sentence', async () => {
   const empty = {
     ...report(),
     breakdowns: [{ dimension: 'goal' as const, rows: [], unattributed: report().breakdowns[0]!.unattributed, reason: null }],
@@ -223,8 +223,7 @@ it('wraps the empty-state reason sentence instead of clipping it', async () => {
     await Promise.resolve()
   })
 
-  const row = [...container.querySelectorAll('[data-wrap]')].find((el) => el.textContent === 'Unknown historical usage remains unassigned.')
-  expect(row).toBeTruthy()
+  expect(container.textContent).toBe('Recorded usage has no Team attribution.')
 })
 
 it('retains source age and cost qualification on the numeric cost cell', async () => {
@@ -515,4 +514,20 @@ it('defers project attribution and Team history until the retained page is activ
  const draw=async(active:boolean)=>act(async()=>root.render(<StoreProvider store={store}><DestinationPageScope owner="destination:dashboard" active={active}><InsightUsage root="/work/storefront" runtime={null} view="goal" onGoal={()=>{}} /></DestinationPageScope></StoreProvider>))
  await draw(false);expect(readUsageInsight).not.toHaveBeenCalled();expect(loadGoals).not.toHaveBeenCalled();expect(loadTeamRunsBatch).not.toHaveBeenCalled()
  await draw(true);expect(readUsageInsight).toHaveBeenCalledTimes(1);expect(loadTeamRunsBatch).toHaveBeenCalledTimes(1)
+})
+
+it('shows one empty line without warnings or a shorter-range shortcut when no usage is recorded', async () => {
+  const empty = { ...report(), breakdowns: [], sources: [], gaps: [], recordedSpend: [], totals: { ...report().totals, usd: metric(null), turns: { ...metric(null), unit: 'count' as const, basis: 'observed' as const } } }
+  const snapshot = emptySnapshot()
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}><InsightUsage root="/work/storefront" runtime={null} view="goal" onGoal={() => {}} report={empty} onShorterRange={() => {}} rangeDays={30} /></StoreProvider>))
+  expect(container.textContent).toBe('No usage recorded in this range')
+  expect(container.querySelector('[data-slot="banner"]')).toBeNull()
+})
+
+it.each(['goal', 'agent'] as const)('names an unattributed record by its display grouping %s once', async view => {
+  const snapshot = emptySnapshot(), unattributed = { ...report(), breakdowns: [], sources: [], gaps: [] }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}><InsightUsage root="/work/storefront" runtime={null} view={view} onGoal={() => {}} report={unattributed} /></StoreProvider>))
+  expect(container.textContent).toBe(`Recorded usage has no ${view === 'goal' ? 'Team' : 'agent'} attribution.`)
 })

@@ -636,10 +636,10 @@ describe('pricedNote', () => {
 
   it('names the rows that are short, whatever priced the rest', () => {
     expect(pricedNote(1, 'mixed')).toBe(
-      'One of these rows includes a model with no public price, so its cost is lower than shown.',
+      'One of these rows includes a model with no public price, so the real cost is higher than shown.',
     )
     expect(pricedNote(3, 'listPrice')).toBe(
-      '3 of these rows include models with no public price, so their cost is lower than shown.',
+      '3 of these rows include models with no public price, so the real cost is higher than shown.',
     )
   })
 })
