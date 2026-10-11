@@ -172,6 +172,7 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
     : undefined
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
+  LibraryMatrix: ['default'],
   PageControls: ['default'],
   PageOptions: ['default'],
   SettingsChoices: ['default'],
@@ -290,6 +291,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
+  LibraryMatrix: ['populated', 'empty', 'long-title'],
   PageControls: ['default', 'disabled'],
   PageOptions: ['default', 'loading', 'folded-state'],
   SettingsChoices: ['populated', 'unknown', 'selected'],
@@ -439,6 +441,7 @@ Object.assign(SIZES, {
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
+  LibraryMatrix: 'packages/ui/src/components/Library.tsx',
   PageControls: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   PageOptions: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   SettingsChoices: 'packages/ui/src/components/SettingsYou.tsx',
@@ -497,6 +500,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
 Object.assign(PATTERN_CONSUMER, { LeftColumn: 'packages/ui/src/components/Sidebar.tsx' })
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  LibraryMatrix: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   PageControls: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   PageOptions: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   SettingsChoices: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -702,6 +706,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['FlowGraph', 'flow-graph', 'A Flow’s steps and rules drawn read-only, with the list that says the same'],
   ['FlowStepRow', 'flow-graph', 'Shared Flow and main Run Timeline step rows with kind, recorded state, time and run count'],
   ['PageControls', 'page-controls', 'Labelled page fields, complete explanations and shortcut keys'],
+  ['LibraryMatrix', 'library-matrix', 'Availability columns, inline copies and per-agent catalogue costs'],
   ['PageOptions', 'page-options', 'Current page choices and read actions in the first body block'],
   ['SettingsChoices', 'settings-choices', 'Picture, accent and account ring choices with preserved radio behavior'],
   ['Page', 'app-frame', 'The page template at its reading, wide and canvas measures'],

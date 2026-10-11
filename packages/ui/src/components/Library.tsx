@@ -24,13 +24,9 @@ import {
   CrossIcon,
   DiffIcon,
   FileIcon,
-  FilterIcon,
   ImportIcon,
   LibraryIcon,
-  MatrixIcon,
   PlusIcon,
-  RetryIcon,
-  RowsLooseIcon,
   SearchIcon,
   TodoPendingIcon,
   TrashIcon,
@@ -41,30 +37,13 @@ import {
   Chip,
   CodeText,
   Dot,
-  Menu,
-  MenuItem,
-  MenuLabel,
-  MenuSeparator,
   MetaList,
-  PageHead,
-  Popover,
-  Search,
-  Segmented,
-  Submenu,
   Text,
   Toolbar,
 } from '../design'
 import {
   Button,
   EmptyState,
-  Table,
-  TableBody,
-  TableCaption,
-  TableCell,
-  TableFooter,
-  TableHead,
-  TableHeader,
-  TableRow,
 } from '../design'
 import {
   installSource,
@@ -77,7 +56,9 @@ import { SkillList, SkillRow } from './SkillRow'
 import { SkillSheet } from './SkillSheet'
 import { shortPath } from '../lib/paths'
 import { REACH_NAME } from '../lib/reach-states'
-import styles from './Library.module.css'
+import { LibraryBar } from '../panels/library-bar'
+import { DestinationPageScope, useDestinationPage } from '../panels/destination-page'
+import { LibraryMatrix, PageOptions, PageExplanation, FormStack, Row, Rows, type PageOption } from '../design'
 
 /**
  * The library: every skill and MCP server on this machine, and which agents
@@ -175,10 +156,9 @@ const ReachMark = ({
       {...(warning ? { tone: 'warning' as const } : { ink: 'muted' as const })}
       data-reach={state}
       data-placement={placement}
-      className={`inline-flex shrink-0 items-center justify-center ${placement === 'cell' ? 'w-full' : ''}`}
     >
       {/* The mark is a picture of its label; `Text`'s own `role` is its type role. */}
-      <span role="img" aria-label={label} className="inline-flex items-center justify-center">{mark}</span>
+      <span role="img" aria-label={label}>{mark}</span>
     </Text>
   )
 }
@@ -217,69 +197,17 @@ const Legend = ({ rows }: { rows: readonly LibraryEntry[] }) => {
   if (present.length < 2) return null
   return (
     <div data-slot="library-legend">
-      <Text as="p" role="meta" className={styles.legend}>
+      <Toolbar>
         {present.map((state) => (
-          <span key={state} className={styles.legendItem}>
+          <Text key={state} role="meta">
             <ReachMark state={state} label={REACH_NAME[state]} />
             {REACH_NAME[state]}
-          </span>
+          </Text>
         ))}
-      </Text>
+      </Toolbar>
     </div>
   )
 }
-
-/*
- * The kind switcher and the list/matrix switch are the system's `Segmented`,
- * the same control as the import dialog's agent pickers: a `ToggleGroup`
- * underneath, because a Base UI tab activates on `mousedown`, which a plain
- * `element.click()` never fires, and these have to answer to tests and
- * keyboards alike.
- */
-
-/**
- * One count, which is also the filter that isolates it.
- *
- * Five shapes, in order. Six dashboard tiles, which promised a *metric* when
- * every one of them is a filter; outlined pills; the app's outlined `Button`;
- * then the inspectors' filter pill, a second line of controls under a toolbar
- * that already wrapped its own view switch onto a line of its own — three
- * rows of controls before the first skill.
- *
- * Now each is a row of the toolbar's one Filter menu: its words, and its count
- * where a menu keeps a value, on tabular figures. A count of none is not
- * offered — a row that would empty the list is not a choice — except the one
- * that is on, which stays so it can be seen and left. The set is one answer
- * (radio rows). Amber stays on the number of a problem, never the row.
- */
-const FilterRow = ({
-  value,
-  label,
-  tone,
-  title,
-  active,
-  onSelect,
-}: {
-  value: number
-  label: string
-  tone?: 'warn'
-  title?: string
-  active: boolean
-  onSelect: () => void
-}) =>
-  value === 0 && !active ? null : (
-    <MenuItem
-      label={label}
-      {...(title ? { title } : {})}
-      selected={active}
-      value={(
-        <Text role="meta" numeric {...(tone === 'warn' && value > 0 ? { tone: 'warning' as const } : {})}>
-          {value}
-        </Text>
-      )}
-      onSelect={onSelect}
-    />
-  )
 
 /** The words a filter goes by, in its menu row and on its pill while it is on. */
 const FILTER_WORDS: Record<Filter, string> = {
@@ -293,14 +221,27 @@ const FILTER_WORDS: Record<Filter, string> = {
   unused: 'Never fired',
 }
 
-export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' | null } = {}) => {
+interface LibrarySectionProps { readonly section: LibraryKind; readonly onSection: (kind: LibraryKind) => void; readonly importIntent: number }
+/** Temporary adapter for unassembled preview/legacy callers; E9 removes it. */
+export const LibrarySection = (props: LibrarySectionProps | { readonly initialFlow?: 'import' | null } = {}) => {
+  if ('section' in props) return <LibraryBody {...props} />
+  return <LegacyLibrarySection initialFlow={props.initialFlow ?? null} />
+}
+const LegacyLibrarySection = ({ initialFlow }: { readonly initialFlow: 'import' | null }) => {
+  const [section, onSection] = useState<LibraryKind>('skill')
+  return <DestinationPageScope owner="settings" active><LibraryBody section={section} onSection={onSection} importIntent={initialFlow === 'import' ? 1 : 0} /></DestinationPageScope>
+}
+const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: LibrarySectionProps) => {
+  const { active } = useDestinationPage()
+  const alive = useRef(active)
+  alive.current = active
+  const generation = useRef(0)
   const store = useStore()
   const snapshot = useSnapshot()
   const [library, setLibrary] = useState<Library | null>(null)
   const [usage, setUsage] = useState<LibraryUsage | null>(null)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState<string | null>(null)
-  const [kind, setKind] = useState<LibraryKind>('skill')
   const [filter, setFilter] = useState<Filter>('all')
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState<string | null>(null)
@@ -319,9 +260,16 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
   const [view, setView] = useState<'list' | 'matrix'>('list')
   /** The entry whose sheet is open — the reading surface, by name. */
   const [reading, setReading] = useState<string | null>(null)
-  const [flow, setFlow] = useState<LibraryFlow | null>(
-    initialFlow === 'import' ? { type: 'import' } : null,
-  )
+  const [flow, setFlow] = useState<LibraryFlow | null>(null)
+  const lastImport = useRef(0)
+  useEffect(() => {
+    if (!active) { setReading(null); setFlow(null) }
+  }, [active])
+  useEffect(() => {
+    if (!active || importIntent === 0 || importIntent === lastImport.current) return
+    lastImport.current = importIntent
+    setFlow({ type: 'import' })
+  }, [active, importIntent])
   /** `''` is every Agent; otherwise `${origin}:${id}` of one on the current roster. */
   const [agentFilter, setAgentFilter] = useState('')
   /** `${kind}:${name}` -> every Agent (winner, never a shadowed origin) that declared it. Bounded to the visible roster — never a background scan of every repository. */
@@ -330,34 +278,34 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
   const cwd = snapshot.workspace?.path
 
   const load = useCallback(async () => {
+    if (!alive.current) return
+    const ticket = ++generation.current
+    const current = () => alive.current && ticket === generation.current
     setLoading(true)
     setFailed(null)
     try {
-      setLibrary(await store.transport.request('library/read', cwd ? { cwd } : {}))
-      // Usage arrives second and never blocks the matrix: the first read
-      // walks every stored conversation, and the page has plenty to say
-      // while it does.
-      void store.transport
-        .request('library/usage', {})
-        .then(setUsage)
-        .catch(() => setUsage(null))
+      const next = await store.transport.request('library/read', cwd ? { cwd } : {})
+      if (!current()) return
+      setLibrary(next)
+      void store.transport.request('library/usage', {}).then(value => { if (current()) setUsage(value) })
+        .catch(() => { if (current()) setUsage(null) })
     } catch (error) {
-      setFailed(error instanceof Error ? error.message : String(error))
+      if (current()) setFailed(error instanceof Error ? error.message : String(error))
     } finally {
-      setLoading(false)
+      if (current()) setLoading(false)
     }
   }, [cwd, store])
-
   useEffect(() => {
-    void load()
-  }, [load])
+    if (active) void load()
+    return () => { generation.current++ }
+  }, [active, load])
 
   // The Agent filter's own roster — the same guarded, cached read every other
   // Agent picker in the app uses (`CommandPalette`), never a fresh load per
   // render of this page.
   useEffect(() => {
-    if (snapshot.agents === null) void store.loadAgents()
-  }, [store, snapshot.agents])
+    if (active && snapshot.agents === null) void store.loadAgents()
+  }, [active, store, snapshot.agents])
 
   /**
    * What each Agent on the visible roster declares, resolved once per
@@ -367,6 +315,7 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
    * winner for each id, the same roster the Agents window itself lists.
    */
   useEffect(() => {
+    if (!active) return
     const roster = snapshot.agents
     if (!roster) {
       setDeclaredBy(null)
@@ -405,7 +354,7 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
     return () => {
       live = false
     }
-  }, [store, snapshot.agents])
+  }, [active, store, snapshot.agents])
 
   /**
    * Column headings, named the way the rest of the interface names an agent:
@@ -476,12 +425,12 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
       if (filter === 'problems') return entryHasProblem(entry)
       if (filter === 'partial') {
         const reaching = entry.reach.filter((one) => one.state === 'reaches').length
-        return reaching > 0 && reaching < entry.reach.length
+        return reaching> 0 && reaching < entry.reach.length
       }
       if (filter === 'hollow') return entry.copies.some((copy) => copy.hollow)
       if (filter === 'differs') {
         const digests = new Set(entry.copies.filter((one) => !one.hollow).map((one) => one.digest))
-        return digests.size > 1
+        return digests.size> 1
       }
       if (filter === 'unreachable') return entry.reach.every((one) => one.state !== 'reaches')
       if (filter === 'off') return entry.reach.some((one) => one.state === 'off')
@@ -638,48 +587,45 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
   /** Only the gaps that apply to what is on screen; the rest are noise here. */
   const gaps = (library?.gaps ?? []).filter((gap) => gap.kind === kind)
 
-  const filterTrigger = useRef<HTMLButtonElement>(null)
   /** Over `searched`, like every count in the menu: the rows choosing it will leave. */
   const problemCount = useMemo(() => searched.filter(entryHasProblem).length, [searched])
   const agentName = agentFilter
     ? (snapshot.agents?.find((entry) => `${entry.origin}:${entry.id}` === agentFilter)?.definition?.name ?? null)
     : null
 
+  const filterData: PageOption['items'] = [
+    { value: 'all', label: FILTER_WORDS.all, count: counts?.total },
+    { value: 'problems', label: FILTER_WORDS.problems, count: problemCount, title: 'Anything wrong: reaches no agent, empty on disk, or copies that differ.' },
+    { value: 'partial', label: FILTER_WORDS.partial, count: counts?.partial },
+    { value: 'unreachable', label: FILTER_WORDS.unreachable, count: counts?.unreachable },
+    { value: 'hollow', label: FILTER_WORDS.hollow, count: counts?.hollow },
+    { value: 'differs', label: FILTER_WORDS.differs, count: counts?.differs },
+    { value: 'off', label: FILTER_WORDS.off, count: counts?.off, title: 'Installed in an agent and turned off in its own settings, so nothing loads it there.' },
+    ...(kind === 'skill' ? [{ value: 'unused', label: FILTER_WORDS.unused, count: unusedCount,
+      disabled: usage === null ? 'Counting activations in the stored conversations…' : false as const,
+      title: usage === null ? undefined : `Reaches at least one agent, and none of the ${usage.sessionsScanned} conversations this desk stores shows it loading. What ran elsewhere is not counted.` }] : []),
+  ]
+  const libraryChoices: readonly PageOption[] = [
+    { id: 'view', label: 'How to show the library', value: view,
+      items: [{ value: 'list', label: 'List' }, { value: 'matrix', label: 'Matrix' }],
+      change: value => { setView(value as 'list' | 'matrix'); setOpen(null) } },
+    { id: 'filter', label: 'Filter the library', value: filter, mode: 'menu',
+      items: filterData.filter(item => counts === null || item.value === 'all' || item.value === filter || (item.count ?? 0)> 0).map(item => ({ ...item, disabled: counts === null ? 'Reading every agent’s directories…' : item.disabled })),
+      change: value => setFilter(value as Filter) },
+    { id: 'agent', label: 'Declared by', value: agentFilter, mode: 'menu',
+      items: [{ value: '', label: 'Any Agent' }, ...(snapshot.agents ?? []).map(entry => ({ value: `${entry.origin}:${entry.id}`, label: entry.definition?.name ?? entry.id }))], change: setAgentFilter },
+  ]
   return (
     <>
-      <PageHead
-        title="Library"
-        /*
-         * The blurb used to open on the safety machinery — previews, backups,
-         * the audit log. All true, all reassuring, and all answers to a
-         * question nobody has yet on their first read of a page. It now says
-         * what the page is *for* first and keeps the guarantee as the second
-         * clause, where a promise about writes belongs.
-         */
-        blurb="Every skill and MCP server your agents can load, wherever each one keeps them."
-        actions={
-          <>
-            <Button variant="default" onClick={() => setFlow({ type: 'author' })} disabled={library === null}>
-              <PlusIcon size={13} />
-              New skill
-            </Button>
-            <Button variant="outline" onClick={() => setFlow({ type: 'import' })} disabled={library === null}>
-              <ImportIcon size={13} />
-              Import
-            </Button>
-            <Button variant="outline" onClick={() => void load()} disabled={loading}>
-              <RetryIcon size={13} />
-              Rescan
-            </Button>
-          </>
-        }
-      />
-
+      <LibraryBar kind={kind} counts={kindCounts} change={next => { setKind(next); setOpen(null) }} loaded={library !== null} loading={loading}
+        author={() => setFlow({ type: 'author' })} importing={() => setFlow({ type: 'import' })} rescan={() => void load()} />
+      <PageOptions choices={libraryChoices} search={{ label: 'Search library', value: query, change: setQuery }} />
+      <PageExplanation>Every skill and MCP server your agents can load, wherever each one keeps them.</PageExplanation>
       {failed !== null && <ActionError>The library could not be read: {failed}</ActionError>}
 
-      {kind === 'skill' && (hollowCopies.length > 0 || overloaded.length > 0) && (
-        <div data-slot="library-attention" className="mb-4 flex flex-col gap-2">
-          {hollowCopies.length > 0 && <Banner
+      {kind === 'skill' && (hollowCopies.length> 0 || overloaded.length> 0) && (
+        <div data-slot="library-attention"><FormStack>
+          {hollowCopies.length> 0 && <Banner
             tone="warning"
             title="Empty skill directories"
             actions={<Button variant="outline" size="sm" onClick={() => setFlow({
@@ -695,162 +641,20 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
             key={column.id}
             tone="neutral"
             title={`${column.label} skill catalogue`}
-            actions={neverFired !== null && neverFired > 0
+            actions={neverFired !== null && neverFired> 0
               ? <Button variant="outline" size="sm" onClick={() => setFilter('unused')}>Show never fired</Button>
               : undefined}
           >
             ≈{total.toLocaleString()} tokens of skill catalogue ride every {column.label} turn
-            {neverFired !== null && neverFired > 0
+            {neverFired !== null && neverFired> 0
               ? ` — ${neverFired} of its skills never fired in a conversation this desk stores.`
               : '.'}
           </Banner>)}
-        </div>
+        </FormStack></div>
       )}
 
-      {/*
-       * One row: what is listed, a search, the filter menu and how to show it.
-       * The view switch used to wrap onto a line of its own and six count
-       * pills took a third; the counts are the Filter menu's rows now, and
-       * the Agent picker is its submenu, so the toolbar fits the page.
-       */}
-      <Toolbar className="mb-3" data-slot="library-toolbar">
-        <Segmented
-          label="What the library is listing"
-          value={kind}
-          options={[
-            { value: 'skill', label: `Skills · ${kindCounts.skill}` },
-            { value: 'mcp', label: `MCP servers · ${kindCounts.mcp}` },
-          ]}
-          onChange={(next) => {
-            setKind(next)
-            setOpen(null)
-          }}
-        />
-        {/* Wide enough to type a skill name into, and capped: a text input's
-            size is a claim about how much you type in it. */}
-        <Search
-          className="min-w-0 flex-1 basis-44 md:max-w-64"
-          value={query}
-          placeholder={kind === 'skill' ? 'Search skills' : 'Search servers'}
-          label="Filter the library by name"
-          onChange={setQuery}
-        />
-        {/* The filters and the view travel together at the row's end. When
-            the page is too narrow for one row, the pills wrap inside this
-            group, and Filter and List | Matrix wrap as one pair — so the view
-            switch is never left on a line of its own, and nothing is clipped. */}
-        <Toolbar className="ml-auto min-w-0 justify-end">
-          {/* What narrows the list right now, each a pressed pill that lets go
-              of it — the inspectors' filter pill, so a filter that is on looks
-              the same wherever it is on. Letting go hands the focus to Filter,
-              where the next choice is made, rather than to the top of the page. */}
-          {filter !== 'all' && (
-            <Button variant="ghost" size="chip" title="Show everything again" onClick={() => { setFilter('all'); filterTrigger.current?.focus() }}>
-              {FILTER_WORDS[filter]}
-            </Button>
-          )}
-          {agentName && (
-            <Button variant="ghost" size="chip" title="Show what every Agent declares" onClick={() => { setAgentFilter(''); filterTrigger.current?.focus() }}>
-              {agentName}
-            </Button>
-          )}
-          <Toolbar className="flex-nowrap">
-            <Popover
-              label={(
-                <>
-                  <FilterIcon size={13} />
-                  <span>Filter</span>
-                  {/* The one piece of news the menu holds, at rest: how many have a
-                      problem, in the problem's amber, until a filter is chosen. */}
-                  {filter === 'all' && problemCount > 0 && (
-                    <Text role="meta" numeric tone="warning">{problemCount}</Text>
-                  )}
-                </>
-              )}
-              title={filter === 'all' && problemCount > 0 ? `Filter the library — ${problemCount} with a problem` : 'Filter the library'}
-              align="right"
-              triggerVariant={{ variant: 'outline' }}
-              triggerRef={filterTrigger}
-             icons="none">
-              {(close) => (
-                <Menu close={close}>
-                  <MenuLabel>Show</MenuLabel>
-                  {counts ? (
-                    <>
-                      <FilterRow value={counts.total} label={FILTER_WORDS.all} active={filter === 'all'} onSelect={() => setFilter('all')} />
-                      <FilterRow value={problemCount} label={FILTER_WORDS.problems} tone="warn" title="Anything wrong: reaches no agent, empty on disk, or copies that differ." active={filter === 'problems'} onSelect={() => setFilter('problems')} />
-                      <FilterRow value={counts.partial} label={FILTER_WORDS.partial} active={filter === 'partial'} onSelect={() => setFilter('partial')} />
-                      <FilterRow value={counts.unreachable} label={FILTER_WORDS.unreachable} tone="warn" active={filter === 'unreachable'} onSelect={() => setFilter('unreachable')} />
-                      <FilterRow value={counts.hollow} label={FILTER_WORDS.hollow} tone="warn" active={filter === 'hollow'} onSelect={() => setFilter('hollow')} />
-                      <FilterRow value={counts.differs} label={FILTER_WORDS.differs} tone="warn" active={filter === 'differs'} onSelect={() => setFilter('differs')} />
-                      {/* No warn tone: a switch somebody threw is not a defect. */}
-                      <FilterRow
-                        value={counts.off}
-                        label={FILTER_WORDS.off}
-                        title="Installed in an agent and turned off in its own settings, so nothing loads it there."
-                        active={filter === 'off'}
-                        onSelect={() => setFilter('off')}
-                      />
-                      {kind === 'skill' &&
-                        (usage !== null ? (
-                          <FilterRow
-                            value={unusedCount}
-                            label={FILTER_WORDS.unused}
-                            title={`Reaches at least one agent, and none of the ${usage.sessionsScanned} conversations this desk stores shows it loading. What ran elsewhere is not counted.`}
-                            active={filter === 'unused'}
-                            onSelect={() => setFilter('unused')}
-                          />
-                        ) : (
-                          /* The first usage read walks every stored conversation,
-                             so this row arrives late; it holds its place. */
-                          <MenuItem label={FILTER_WORDS.unused} disabled="Counting activations in the stored conversations…" onSelect={() => {}} />
-                        ))}
-                    </>
-                  ) : (
-                    <MenuItem label={FILTER_WORDS.all} disabled="Reading every agent’s directories…" onSelect={() => {}} />
-                  )}
-                  {snapshot.agents && snapshot.agents.length > 0 && (
-                    <>
-                      <MenuSeparator />
-                      <Submenu label="Declared by" value={agentName ?? 'Any Agent'} wide icons="none">
-                        <MenuItem label="Any Agent" selected={agentFilter === ''} onSelect={() => setAgentFilter('')} />
-                        {snapshot.agents.map((entry) => (
-                          <MenuItem
-                            key={`${entry.origin}:${entry.id}`}
-                            label={entry.definition?.name ?? entry.id}
-                            selected={agentFilter === `${entry.origin}:${entry.id}`}
-                            onSelect={() => setAgentFilter(`${entry.origin}:${entry.id}`)}
-                          />
-                        ))}
-                      </Submenu>
-                    </>
-                  )}
-                </Menu>
-              )}
-            </Popover>
-            {/*
-             * Two ways to read the same list, and the switch says which by
-             * drawing it — and by naming it: a glyph with its name only in a
-             * tooltip is a control you have to hover to read.
-             */}
-            <Segmented
-              label="How to show the library"
-              value={view}
-              options={[
-                { value: 'list', label: <><RowsLooseIcon size={13} />List</> },
-                { value: 'matrix', label: <><MatrixIcon size={13} />Matrix</> },
-              ]}
-              onChange={(next) => {
-                setView(next)
-                setOpen(null)
-              }}
-            />
-          </Toolbar>
-        </Toolbar>
-      </Toolbar>
-
       {agentFilter && (
-        <Text as="p" role="meta" className="mb-2">
+        <Text as="p" role="meta">
           {`${rows.length} of ${searched.length} declared by ${agentName ?? 'this Agent'}`}
         </Text>
       )}
@@ -879,7 +683,7 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
              */
             description={
               query.trim() !== '' && filter !== 'all'
-                ? searched.length > 0
+                ? searched.length> 0
                   ? `${searched.length} ${searched.length === 1 ? 'entry matches' : 'entries match'} “${query.trim()}”, and none of them is in that state.`
                   : `No ${kind === 'skill' ? 'skill' : 'server'} here is called “${query.trim()}”.`
                 : query.trim() !== ''
@@ -909,7 +713,7 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
             }
           >
             {kind === 'skill' && (
-              <div className="flex flex-wrap justify-center gap-2">
+              <Toolbar>
                 <Button size="sm" onClick={() => setFlow({ type: 'author' })}>
                   <PlusIcon size={13} />
                   Write a skill
@@ -918,7 +722,7 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
                   <ImportIcon size={13} />
                   Import
                 </Button>
-              </div>
+              </Toolbar>
             )}
           </EmptyState>
         )
@@ -939,138 +743,52 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
               any window, so a key underneath is a key nobody reaches — and the
               marks it explains are met at the top. */}
           <Legend rows={rows} />
-          <Table variant="framed" containerClassName={styles.scroll} className={styles.grid}>
-            <TableCaption variant="sr-only">
-              Each row is one entry; each column is one agent. A dot means the agent loads it.
-              {kind === 'skill' &&
-                usage !== null &&
-                ` Fired-counts come from the ${usage.sessionsScanned} conversations this desk stores — what ran elsewhere is not counted.`}
-            </TableCaption>
-            <TableHeader>
-              <TableRow variant="matrix">
-                <TableHead variant="matrix" pinned scope="col" className={styles.nameHead}>
-                  <Text role="muted">Name</Text>
-                </TableHead>
-                {columns.map((column) => (
-                  <TableHead
-                    variant="matrix"
-                    align="center"
-                    scope="col"
-                    key={column.id}
-                    className={styles.agentHead}
-                  >
-                    <Text
-                      role="muted"
-                      className={styles.agentName}
-                      title={[column.label, attachmentSupportWords(column.info)].filter(Boolean).join(' — ')}
-                      truncate
-                    >
-                      {column.info && <RuntimeMark runtime={column.info} size={13} />}
-                      {column.head}
-                    </Text>
-                  </TableHead>
-                ))}
-              </TableRow>
-            </TableHeader>
-            {kind === 'skill' && (
-              <TableFooter variant="plain">
-                <TableRow variant="matrix">
-                  {/* Summed over the rows on screen, so the number under a
-                      filtered table is true of that table — the tile lesson,
-                      applied before it is relearned. */}
-                  <TableHead
-                    variant="footer"
-                    scope="row"
-                    title="Name and description at ≈3.6 characters per token — the catalogue line an agent carries for every skill it loads, fired or not. How each agent advertises varies; this prices the standard line."
-                  >
-                    Advertised each turn{filter !== 'all' || query.trim() !== '' ? ' (these rows)' : ''}
-                  </TableHead>
-                  {columns.map((column, index) => {
-                    const total = rows.reduce(
-                      (sum, entry) =>
-                        entry.reach[index]?.state === 'reaches' && entry.catalogTokens
-                          ? sum + entry.catalogTokens
-                          : sum,
-                      0,
-                    )
-                    return (
-                      <TableCell variant="footer" key={column.id}>
-                        {total > 0 ? `≈${total.toLocaleString()} tok` : '—'}
-                      </TableCell>
-                    )
-                  })}
-                </TableRow>
-                {usage !== null && (
-                  <TableRow variant="matrix">
-                    <TableHead
-                      variant="footer"
-                      scope="row"
-                      title="Of the rows on screen, how many this agent loaded in a conversation this desk stores. Conversations held elsewhere are not counted."
-                    >
-                      Fired here, ever
-                    </TableHead>
-                    {columns.map((column) => {
-                      const fired = rows.filter(
-                        (entry) => usage.skills[entry.name]?.byRuntime?.[column.id] !== undefined,
-                      ).length
-                      return (
-                        <TableCell variant="footer" key={column.id}>
-                          {fired > 0 ? `${fired} of ${rows.length}` : '—'}
-                        </TableCell>
-                      )
-                    })}
-                  </TableRow>
-                )}
-              </TableFooter>
-            )}
-            <TableBody>
-              {ordered.map((entry) => (
-                <Entry
-                  key={`${entry.kind}:${entry.name}`}
-                  entry={entry}
-                  columns={columns}
-                  usage={usage}
-                  scanOrder={scanOrder}
-                  hosts={hosts}
-                  home={library?.home}
-                  onFlow={setFlow}
-                  onRead={() => setReading(entry.name)}
-                  open={open === entry.name}
-                  onToggle={() => setOpen((current) => (current === entry.name ? null : entry.name))}
-                />
-              ))}
-            </TableBody>
-          </Table>
+          <LibraryMatrix
+            caption={`Each row is one entry; each column is one agent. A dot means the agent loads it.${kind === 'skill' && usage !== null ? ` Fired-counts come from the ${usage.sessionsScanned} conversations this desk stores — what ran elsewhere is not counted.` : ''}`}
+            columns={columns.map(column => ({ id: column.id, label: column.head, mark: column.info && <RuntimeMark runtime={column.info} size={13} />,
+              help: [column.label, attachmentSupportWords(column.info)].filter(Boolean).join(' — ') }))}
+            rows={ordered.map(entry => ({ id: `${entry.kind}:${entry.name}`, name: entry.title ?? entry.name, description: entry.description ?? undefined,
+              open: () => setOpen(current => current === entry.name ? null : entry.name),
+              cells: entry.reach.map((reach, index) => { const label = `${entry.name} — ${columns[index]?.label ?? reach.runtime}: ${REACH_NAME[reach.state]}`
+                return { id: reach.runtime, state: reach.state, label, problem: isReachProblem(reach.state), help: reach.note ? `${REACH_NAME[reach.state]} — ${reach.note}` : REACH_NAME[reach.state], mark: <ReachMark state={reach.state} label={label} placement="cell" /> } }),
+              expanded: open === entry.name ? <EntryDetail entry={entry} columns={columns} usage={usage} scanOrder={scanOrder} hosts={hosts} home={library?.home} onFlow={setFlow} onRead={() => setReading(entry.name)} /> : undefined,
+            }))}
+            footer={kind === 'skill' ? { label: `Advertised each turn${filter !== 'all' || query.trim() !== '' ? ' (these rows)' : ''}`,
+              title: 'Name and description at ≈3.6 characters per token — the catalogue line an agent carries for every skill it loads, fired or not. How each agent advertises varies; this prices the standard line.',
+              values: Object.fromEntries(columns.map((column, index) => [column.id, rows.reduce((sum, entry) => entry.reach[index]?.state === 'reaches' ? sum + (entry.catalogTokens ?? 0) : sum, 0)])) } : undefined}
+            fired={kind === 'skill' && usage !== null ? { label: 'Fired here, ever', title: 'Of the rows on screen, how many this agent loaded in a conversation this desk stores. Conversations held elsewhere are not counted.',
+              values: Object.fromEntries(columns.map(column => [column.id, rows.filter(entry => usage.skills[entry.name]?.byRuntime?.[column.id] !== undefined).length])) } : undefined}
+          />
         </>
       )}
 
-      {gaps.length > 0 && gaps.length <= 2 && (
-        <div className={styles.gaps}>
+      {gaps.length> 0 && gaps.length <= 2 && (
+        <div>
           {gaps.map((gap, index) => {
             const runtime = columns.find((one) => one.id === gap.runtime)
             return (
-              <Text as="p" role="meta" key={`${gap.runtime}:${gap.kind}:${index}`} className={styles.gap}>
+              <Text as="p" role="meta" key={`${gap.runtime}:${gap.kind}:${index}`}>
                 <strong>{runtime?.label ?? gap.runtime}</strong> {gap.reason}
               </Text>
             )
           })}
         </div>
       )}
-      {gaps.length > 2 && (
+      {gaps.length> 2 && (
         /*
          * Ten agents can produce ten of these sentences, and a wall of
          * near-identical paragraphs teaches the eye to skip the whole block.
          * The fact survives the fold — how many columns are weaker, and one
          * click to read each agent's own reason.
          */
-        <details className={styles.gaps}>
-          <Text as="summary" role="meta" className={styles.gapsFold}>
+        <details>
+          <Text as="summary" role="meta">
             {gaps.length} columns are read from disk rather than from their agents — show why
           </Text>
           {gaps.map((gap, index) => {
             const runtime = columns.find((one) => one.id === gap.runtime)
             return (
-              <Text as="p" role="meta" key={`${gap.runtime}:${gap.kind}:${index}`} className={styles.gap}>
+              <Text as="p" role="meta" key={`${gap.runtime}:${gap.kind}:${index}`}>
                 <strong>{runtime?.label ?? gap.runtime}</strong> {gap.reason}
               </Text>
             )
@@ -1091,7 +809,7 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
        * stacked dialogs would put the diff a person is confirming behind the
        * document they were reading.
        */}
-      {readingEntry && flow === null && (
+      {active && readingEntry && flow === null && (
         <SkillSheet
           entry={readingEntry}
           columns={columns}
@@ -1109,7 +827,7 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
       )}
 
       <LibraryFlows
-        flow={flow}
+        flow={active ? flow : null}
         setFlow={setFlow}
         library={library}
         columns={columns}
@@ -1127,7 +845,7 @@ export const LibrarySection = ({ initialFlow = null }: { initialFlow?: 'import' 
  * path, and which agents read the directory it is in. A state in the grid is a
  * claim; this is the evidence for it.
  */
-const Entry = ({
+const EntryDetail = ({
   entry,
   columns,
   usage,
@@ -1136,8 +854,6 @@ const Entry = ({
   home,
   onFlow,
   onRead,
-  open,
-  onToggle,
 }: {
   entry: LibraryEntry
   columns: readonly LibraryColumn[]
@@ -1149,8 +865,6 @@ const Entry = ({
   onFlow: (flow: LibraryFlow) => void
   /** Open the full reading surface — the same sheet a card opens. */
   onRead: () => void
-  open: boolean
-  onToggle: () => void
 }) => {
   /**
    * Which copy an agent actually loads when more than one sits where it
@@ -1192,64 +906,30 @@ const Entry = ({
    * Resolve first; the buttons return when there is one truth to install.
    */
   const installable = columns.filter((column, index) => {
-    if (entry.kind === 'skill' && digests.size > 1) return false
+    if (entry.kind === 'skill' && digests.size> 1) return false
     const state = entry.reach[index]?.state
     if (state !== 'absent' && state !== 'unscanned') return false
     // Anything can only go where the agent has somewhere to keep it — a
     // skills directory, or a config file for its servers.
     if (entry.kind === 'skill') return source !== null && hosts.skill.has(column.id)
-    return entry.copies.length > 0 && hosts.mcp.has(column.id)
+    return entry.copies.length> 0 && hosts.mcp.has(column.id)
   })
 
-  const mcpSource = entry.copies.find((copy) => copy.readBy.length > 0) ?? entry.copies[0]
+  const mcpSource = entry.copies.find((copy) => copy.readBy.length> 0) ?? entry.copies[0]
 
   return (
-    <>
-      <TableRow variant="matrix" interactive {...(open ? { 'data-state': 'selected' } : {})}>
-        <TableHead variant="row" pinned scope="row" className={styles.name}>
-          <Button
-            type="button"
-            variant="link"
-            size="content"
-            className={styles.nameButton}
-            onClick={onToggle}
-            aria-expanded={open}
-          >
-            <Text role="navigation">{entry.title ?? entry.name}</Text>
-            {entry.description && <Text role="meta" truncate>{entry.description}</Text>}
-          </Button>
-        </TableHead>
-        {entry.reach.map((reach, index) => {
-          const runtime = columns[index]
-          const label = `${entry.name} — ${runtime?.label ?? reach.runtime}: ${REACH_NAME[reach.state]}`
-          return (
-            <TableCell
-              variant="matrix"
-              key={reach.runtime}
-              data-state={reach.state}
-              {...(isReachProblem(reach.state) ? { 'data-problem': '' } : {})}
-              title={reach.note ? `${REACH_NAME[reach.state]} — ${reach.note}` : REACH_NAME[reach.state]}
-            >
-              <ReachMark state={reach.state} label={label} placement="cell" />
-            </TableCell>
-          )
-        })}
-      </TableRow>
-      {open && (
-        <TableRow variant="matrix">
-          <TableCell variant="detail" colSpan={columns.length + 1}>
-            <div className={styles.detailBody}>
-            <Text as="p" role="meta" ink="secondary" className={styles.detailHead}>
+    <FormStack>
+            <Text as="p" role="meta" ink="secondary">
               {entry.copies.length === 1 ? 'One copy on disk' : `${entry.copies.length} copies on disk`}
             </Text>
-            <div className={styles.copies} role="list">
+            <Rows role="list">
               {entry.copies.map((copy) => {
                 const order = orderOf(copy)
                 return (
-                  <div key={copy.path} role="listitem" className={`${styles.copy} group/copy`}>
-                    <span className={styles.copyLine}>
+                  <Row key={copy.path} role="listitem" title={<>
+                    <Toolbar>
                       <CodeText as="code">{shortPath(copy.path, home)}</CodeText>
-                      {order.wins.length > 0 && (
+                      {order.wins.length> 0 && (
                         <Chip
                           tone="neutral"
                           size="sm"
@@ -1260,7 +940,7 @@ const Entry = ({
                           loads for {order.wins.join(', ')}
                         </Chip>
                       )}
-                      {order.shadowed.length > 0 && (
+                      {order.shadowed.length> 0 && (
                         <Chip
                           tone="neutral"
                           size="sm"
@@ -1304,8 +984,7 @@ const Entry = ({
                           <TrashIcon size={12} />
                         </Button>
                       )}
-                    </span>
-                    <Text role="meta">
+                    </Toolbar></>} desc={<Text role="meta">
                       {copy.hollow
                         ? 'No definition inside it — an agent that scans this directory lists the name and loads nothing.'
                         : copy.readBy.length === 0
@@ -1316,12 +995,11 @@ const Entry = ({
                               .map((id) => columns.find((one) => one.id === id)?.label ?? id)
                               .join(', ')}.`}
                       {copy.readOnly && ' Shipped by the agent.'}
-                    </Text>
-                  </div>
+                    </Text>} />
                 )
               })}
-            </div>
-            <div className={styles.rowActions}>
+            </Rows>
+            <Toolbar>
               {/*
                * The drawer peeks — every copy and who reads it, without
                * losing your place in a table of a hundred rows. Reading the
@@ -1332,9 +1010,9 @@ const Entry = ({
                 <FileIcon size={13} />
                 Read the definition
               </Button>
-            </div>
-            {(installable.length > 0 || digests.size > 1 || hollowCopies.length > 0) && (
-              <div className={styles.rowActions}>
+            </Toolbar>
+            {(installable.length> 0 || digests.size> 1 || hollowCopies.length> 0) && (
+              <Toolbar>
                 {/*
                   * One button per agent reads fine at four agents and turns
                   * into a keyboard row at ten. Past three targets the offer
@@ -1342,7 +1020,7 @@ const Entry = ({
                   * preview still names every target, and apply is still
                   * per-op, so a refusal for one agent never blocks the rest.
                   */}
-                {installable.length > 3 ? (
+                {installable.length> 3 ? (
                   entry.kind === 'skill' && source !== null ? (
                     <Button
                       variant="outline"
@@ -1431,12 +1109,12 @@ const Entry = ({
                   ) : null,
                   )
                 )}
-                {entry.kind === 'skill' && digests.size > 1 && (
+                {entry.kind === 'skill' && digests.size> 1 && (
                   <Button variant="outline" size="sm" onClick={() => onFlow({ type: 'resolve', entry })}>
                     Resolve copies…
                   </Button>
                 )}
-                {entry.kind === 'skill' && hollowCopies.length > 0 && (
+                {entry.kind === 'skill' && hollowCopies.length> 0 && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -1455,10 +1133,10 @@ const Entry = ({
                     Clean up empty {hollowCopies.length === 1 ? 'copy' : 'copies'}
                   </Button>
                 )}
-              </div>
+              </Toolbar>
             )}
             {entry.kind === 'skill' && (
-              <MetaList className={styles.facts}>
+              <MetaList>
                 <span>
                   {entry.catalogTokens
                     ? `Catalogue ≈${entry.catalogTokens} tok/turn`
@@ -1488,15 +1166,15 @@ const Entry = ({
                       parts.push(`${bucket.activations}× ${column.label}`)
                     }
                     const rest = fired.activations - attributed
-                    if (rest > 0) parts.push(`${rest}× under earlier registrations`)
+                    if (rest> 0) parts.push(`${rest}× under earlier registrations`)
                     return (
                       <>
                         <span>
                           Fired {fired.activations}×{' '}
                           {`in ${fired.sessions} ${fired.sessions === 1 ? 'conversation' : 'conversations'}`}
-                          {parts.length > 0 ? ` (${parts.join(', ')})` : ''}
+                          {parts.length> 0 ? ` (${parts.join(', ')})` : ''}
                         </span>
-                        {fired.lastAt > 0 && (
+                        {fired.lastAt> 0 && (
                           <span>
                             Last {new Date(fired.lastAt).toLocaleDateString()}
                           </span>
@@ -1507,7 +1185,7 @@ const Entry = ({
               </MetaList>
             )}
             {entry.reach.some((reach) => reach.note) && (
-              <div className={styles.notes} role="list">
+              <FormStack>
                 {entry.reach
                   .filter((reach) => reach.note)
                   .map((reach) => (
@@ -1521,12 +1199,8 @@ const Entry = ({
                       </Text>
                     </div>
                   ))}
-              </div>
+              </FormStack>
             )}
-            </div>
-          </TableCell>
-        </TableRow>
-      )}
-    </>
+    </FormStack>
   )
 }

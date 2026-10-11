@@ -3108,6 +3108,7 @@ export const SeatListBoard = () => {
 
 export const COMPOSITION_BOARDS: BoardSpec[] = [
   {id:'page-controls',title:'Page controls',about:'Labelled fields, complete prose and semantic input measures.',render:() => <PageControlsBoard />},
+  {id:'library-matrix',title:'Library matrix',about:'Populated, empty, long-name and overflowing availability records.',render:() => <LibraryMatrixBoard />},
   {id:'page-options',title:'Page options',about:'Current values, pending scope and long choices folded in the body.',render:() => <PageOptionsBoard />},
   {id:'settings-choices',title:'Settings choices',about:'Selected and unknown pictures, accent and account ring choices.',render:() => <SettingsChoicesBoard />},
 
@@ -3560,6 +3561,24 @@ export const SettingsChoicesBoard = () => {
       <SectionHead name="Unknown picture" /><PictureChoices value="unavailable-picture" items={pictures} change={setPicture} />
       <Rows><Row title="Accent" control={<AccentChoices value={accent} items={[{value:'default',label:'Default',swatch:'var(--hd-accent)'},{value:'green',label:'Green',swatch:'var(--hd-success)'}]} change={setAccent} />} />
         <Row title="Ring colour" control={<RingChoices value={ring} values={['blue','green','amber','rose','violet']} mark={<AgentIcon size={14} />} change={setRing} />} /></Rows>
+    </Page>
+  </div>
+}
+
+
+import { LibraryMatrix } from '..'
+const LIBRARYMATRIX_CATALOG_VARIANTS = ['default'] as const
+const LIBRARYMATRIX_CATALOG_SIZES = ['default'] as const
+const LIBRARYMATRIX_CATALOG_STATES = ['populated', 'empty', 'long-title'] as const
+export const LibraryMatrixBoard = () => {
+  const columns = Array.from({length: 12}, (_, index) => ({id:`agent-${index}`,label:`Agent ${index + 1}`}))
+  const row = (name: string) => ({id:name,name,description:'A complete declaration compared against the current scan.',open:()=>{},
+    cells:columns.map(column=>({id:column.id,state:'reaches',label:`${name} — ${column.label}: Reaches`,mark:<Dot state="ready"/>}))})
+  return <div data-catalog-variants={LIBRARYMATRIX_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={LIBRARYMATRIX_CATALOG_SIZES.join(' ')} data-catalog-states={LIBRARYMATRIX_CATALOG_STATES.join(' ')}>
+    <Page width="wide">
+      <LibraryMatrix columns={columns.slice(0,2)} rows={[row('sample-skill')].map(entry=>({...entry,cells:entry.cells.slice(0,2)}))}/>
+      <LibraryMatrix columns={[]} rows={[]}/>
+      <LibraryMatrix columns={columns} rows={[row('Reusable checkout review · 長いチェックアウトのレビュー'),row('sample-skill')]}/>
     </Page>
   </div>
 }

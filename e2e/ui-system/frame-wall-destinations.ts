@@ -176,3 +176,14 @@ export const PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'settings-skill', query: 'frame-wall=settings&frame-detail=skill', pageWidth: 'reading' },
 ]
 ;(WALL_DESTINATIONS as WallDestination[]).push(...PAGE_WALL_DESTINATIONS)
+
+export const E6_LIBRARY_PAGE_DESTINATIONS: readonly WallDestination[] = [
+  { id: 'e6-library-skills', query: 'frame-wall=library&frame-kind=skill', pageWidth: 'wide' },
+  { id: 'e6-library-mcp', query: 'frame-wall=library&frame-kind=mcp', pageWidth: 'wide', tab: 'mcp' },
+  { id: 'e6-library-matrix', query: 'frame-wall=library', pageWidth: 'wide', bodyChoice: {label:'How to show the library',value:'matrix'} },
+  { id: 'e6-library-expanded', query: 'frame-wall=library', pageWidth: 'wide', bodyChoice: {label:'How to show the library',value:'matrix'}, expandLibraryEntry: true },
+  { id: 'e6-library-import', query: 'frame-wall=library', pageWidth: 'wide', moreChoice: 'Import' },
+  { id: 'e6-library-attention', query: 'frame-wall=library', pageWidth: 'wide', bodyChoice: {label:'Filter the library',value:'problems',item:'Problems'} },
+  { id: 'e6-library-conflict', query: 'frame-wall=library', pageWidth: 'wide', bodyChoice: {label:'Filter the library',value:'differs',item:'Copies differ'} },
+]
+;(PAGE_WALL_DESTINATIONS as WallDestination[]).push(...E6_LIBRARY_PAGE_DESTINATIONS)

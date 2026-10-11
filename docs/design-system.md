@@ -1565,6 +1565,12 @@ minute-by-minute countdowns cannot leave the card holding an older fact.
 
 Works outside a group too; only grouped readings contribute to its card.
 
+### `LibraryMatrix`
+
+`packages/ui/src/design/patterns/LibraryMatrix.tsx`
+
+Availability geometry belongs to this data block; Page owns the outer measure.
+
 ### `Lightbox`
 
 `packages/ui/src/design/patterns/Lightbox.tsx`
