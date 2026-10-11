@@ -70,12 +70,18 @@ it('sends agent and project filters, then pages when scrolled near the end', asy
   expect(request).toHaveBeenLastCalledWith('history/list', { pageSize: 100, includeHidden: false, runtimes: [info.id], repoRoot: '/preview/project', query: 'Row', cursor: 'next' })
 })
 
-it('points an empty import to its agent page and shows Archived on one line', async () => {
+it('leads an empty history page with import choices and keeps search for imported rows', async () => {
   await mount(null, false, [])
+  expect(box.querySelector('[data-slot="empty-state"]')?.textContent).toContain('Nothing imported yet')
   expect(box.textContent).toContain('Import history from an agent’s settings page.')
+  expect(box.querySelector('input[aria-label="Search history titles"]')).toBeNull()
+  expect(box.querySelector('select[aria-label="Agent"]')).toBeNull()
+  expect(box.querySelector('select[aria-label="Project"]')).toBeNull()
+  expect(box.querySelector('[aria-label="Show hidden"]')).toBeNull()
   act(() => button('Alpha').click())
   expect(onOpenAgent).toHaveBeenCalledWith(info.id)
   await mount(done, false, [row('Filed', { archived: true })])
+  expect(box.querySelector('input[aria-label="Search history titles"]')).not.toBeNull()
   expect(box.textContent).toContain('Archived')
   expect(box.querySelector('[data-slot="row-desc"]')).toBeNull()
 })

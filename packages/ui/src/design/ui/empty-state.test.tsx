@@ -55,6 +55,13 @@ it('centres content-width actions while leaving choice rows full-width', () => {
   expect(actions?.className).toContain('w-full')
 })
 
+it('can stretch a choice list to the empty-state panel width', () => {
+  const panel = draw(<EmptyState stretchChildren title="Nothing imported yet"><div data-testid="choices" /></EmptyState>)
+  const choices = panel.querySelector('[data-testid="choices"]')
+  expect(choices?.parentElement?.className).toContain('items-stretch')
+  expect(choices?.parentElement?.className).not.toContain('items-center')
+})
+
 it('draws inline as one muted line with no icon and no heading', () => {
   const line = draw(<EmptyState variant="inline" title="Nothing here." description="Cards land here when claimed." />)
   // A div, so the line can carry an element; one look for every list: centred, padded, muted.
