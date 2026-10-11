@@ -14,7 +14,9 @@ export const measureDestination = async (page: Page, query: string, widthKind: '
   expect((await bar.locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
   await expect(bar.locator('[data-work-tool]')).toHaveCount(0)
   await expect(bar.locator('[data-topbar="view"] button')).toHaveCount(0)
-  await expect(bar.locator('[data-topbar="more"] button')).toBeVisible()
+  const more = bar.locator('[data-topbar="more"] button')
+  if (actions.more === 'absent') await expect(more).toHaveCount(0)
+  else await expect(more).toBeVisible()
   const title = bar.locator('[data-topbar-title]')
   const titleText = title.locator('[data-slot="text"]').first()
   const titleStyle = await titleText.evaluate(element => {
@@ -25,8 +27,10 @@ export const measureDestination = async (page: Page, query: string, widthKind: '
   expect(titleStyle.weight).toBe('500')
   expect(titleStyle.family).toContain('Geist')
   expect((await title.boundingBox())!.width).toBeGreaterThanOrEqual(FRAME.bar.titleMin - 1)
-  const moreBox = (await bar.locator('[data-topbar="more"] button').boundingBox())!
-  expect(Math.abs(moreBox.x + moreBox.width - (width - FRAME.bar.pad))).toBeLessThanOrEqual(1)
+  if (actions.more !== 'absent') {
+    const moreBox = (await more.boundingBox())!
+    expect(Math.abs(moreBox.x + moreBox.width - (width - FRAME.bar.pad))).toBeLessThanOrEqual(1)
+  }
   const leftTop = page.locator('[data-left-top]:visible')
   if (await leftTop.count()) {
     const topBox = (await leftTop.boundingBox())!, barBox = (await bar.locator('..').boundingBox())!

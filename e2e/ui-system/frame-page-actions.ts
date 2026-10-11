@@ -2,6 +2,7 @@ import { expect, type Page } from '@playwright/test'
 import { applyFrameActions, type FrameActions } from './frame-actions'
 import type { WallActions } from './frame-wall-actions'
 export interface PageFrameActions extends FrameActions, WallActions {
+  readonly more?: 'present' | 'absent'
   readonly bodyChoice?: { readonly label: string; readonly value: string; readonly item?: string }
   readonly moreChoice?: string
   readonly bodySearch?: { readonly label: string; readonly value: string }

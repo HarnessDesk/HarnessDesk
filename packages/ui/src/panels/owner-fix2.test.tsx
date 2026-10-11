@@ -2,6 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { sessionKey, runtimeId, sessionId, type BackgroundTask } from '@harnessdesk/protocol'
+import { MenuItem } from '../design'
 import { StoreProvider, PaneProvider } from '../state/context'
 import { previewStore, PREVIEW_SESSION_KEY } from '../preview/harness'
 import { Sidebar } from '../components/Sidebar'
@@ -73,11 +74,15 @@ it('connection Banner is at main top only during slow connecting, reconnecting a
   act(() => store.patch({ status: 'closed' })); expect(notice()?.textContent).toContain('Disconnected')
   act(() => store.patch({ status: 'open' })); expect(notice()).toBeNull()
 })
-it('a page without a folder omits the Terminal toggle and its shortcut', async () => {
+it('a page with an applicable action omits the Terminal toggle and its shortcut', async () => {
   const store = previewStore()
-  const Register = () => { useTopBar('page', { place: 'Settings', more: () => null }); return <TopBarOutlet owner="page" fallback={{ place: 'Settings', more: () => null }} /> }
+  const more = (close: () => void) => <MenuItem icon={<span />} label="Open this setting" onSelect={close} />
+  const Register = () => { useTopBar('page', { place: 'Settings', more }); return <TopBarOutlet owner="page" fallback={{ place: 'Settings', more }} /> }
   await act(async () => root.render(<StoreProvider store={store}><TopBarProvider><Register /></TopBarProvider></StoreProvider>))
-  act(() => host.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click())
+  const trigger = host.querySelector<HTMLButtonElement>('[aria-label="More"]')
+  expect(trigger).not.toBeNull()
+  act(() => trigger!.click())
+  expect(document.querySelector('[role="menu"]')?.textContent).toContain('Open this setting')
   expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('Terminal')
   expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('⌃`')
 })

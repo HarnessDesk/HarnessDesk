@@ -715,15 +715,20 @@ for (const kind of ['library','plugins','dashboard']) test(`E9 owner Escape leav
   await openFrame(page,'frame-wall=navigation','light')
   await page.locator('[data-left-column]:visible').getByRole('button',{name:kind[0]!.toUpperCase()+kind.slice(1),exact:true}).click()
   await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
-  await page.locator('[data-slot="top-bar"]:visible').getByRole('button',{name:'More',exact:true}).click()
-  await page.keyboard.press('Escape')
-  await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
-  await expect(page.locator('[role="menu"]:visible')).toHaveCount(0)
+  const more = page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')
+  if (kind === 'library') {
+    await expect(more).toBeVisible()
+    await more.click()
+    await page.keyboard.press('Escape')
+    await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
+    await expect(page.locator('[role="menu"]:visible')).toHaveCount(0)
+    await page.locator('[data-slot="top-bar"]:visible').getByRole('button',{name:'More',exact:true}).click()
+    await page.getByRole('menuitem',{name:'Import',exact:true}).click()
+  } else {
+    await expect(more).toHaveCount(0)
+  }
   if (kind === 'library' || kind === 'plugins') {
-    if (kind === 'library') {
-      await page.locator('[data-slot="top-bar"]:visible').getByRole('button',{name:'More',exact:true}).click()
-      await page.getByRole('menuitem',{name:'Import',exact:true}).click()
-    } else await page.getByRole('button',{name:'Add plugin',exact:true}).click()
+    if (kind === 'plugins') await page.getByRole('button',{name:'Add plugin',exact:true}).click()
     await expect(page.getByRole('dialog')).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(page.getByRole('dialog')).toHaveCount(0)
@@ -3653,7 +3658,7 @@ for (const theme of ['light', 'dark'] as const) {
   for (const width of [2200, 1440, 1100, 720]) {
     for (const section of ['general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'history', 'storage', 'archive', 'runtimes', 'models', 'skills', 'extensions', 'permissions', 'browser']) {
       test(`E2 Settings ${section} is reading at ${width} in ${theme}`, async ({ page }) => {
-        await measureDestination(page, `frame-wall=settings&frame-section=${section}`, 'reading', theme, width)
+        await measureDestination(page, `frame-wall=settings&frame-section=${section}`, 'reading', theme, width, { more: 'absent' })
         await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
         await expect(page.locator('[data-left-column]:visible')).toHaveCount(width < 1000 ? 0 : 1)
       })
@@ -3698,14 +3703,14 @@ for (const theme of ['light', 'dark'] as const) {
 
 for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440, 1100, 720]) {
   for (const child of ['runtime', 'account', 'project', 'skill']) test(`E2 Settings child ${child} ${width} ${theme}`, async ({ page }) => {
-    await measureDestination(page, `frame-wall=settings&frame-detail=${child}`, 'reading', theme, width)
+    await measureDestination(page, `frame-wall=settings&frame-detail=${child}`, 'reading', theme, width, { more: 'absent' })
     const bar = page.locator('[data-slot="top-bar"]:visible')
     const parents = bar.locator('[data-topbar="place"] button')
     await expect(parents.last()).toBeVisible()
     if (width >= 1440) await expect(bar.getByRole('button', { name: 'Settings ›', exact: true })).toBeVisible()
   })
   test(`E2 Add runtime ${width} ${theme}`, async ({ page }) => {
-    await measureDestination(page, 'frame-wall=settings&frame-section=runtimes&frame-focus=add', 'reading', theme, width)
+    await measureDestination(page, 'frame-wall=settings&frame-section=runtimes&frame-focus=add', 'reading', theme, width, { more: 'absent' })
     await expect(page.locator('[data-slot="top-bar"]:visible')).toContainText('Add a runtime')
   })
 }
@@ -3713,20 +3718,16 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440,
 for(const width of [1440,720]) test(`E2 Settings door preserves normal history and the retained work ${width}`, async ({ page }) => {
   await expectPageJourney(page,'Settings','settings',width)
 })
-test('E2 Settings More excludes Terminal even with retained work in a folder', async ({ page }) => {
+test('E2 Settings omits empty More with or without a folder', async ({ page }) => {
   await openFrame(page, 'frame-wall=settings&frame-section=general&frame-no-folder=1', 'light')
-  await page.locator('[data-slot="top-bar"]:visible').getByRole('button', {name:'More',exact:true}).click()
-  await expect(page.getByRole('menuitemradio', {name:/Terminal/})).toHaveCount(0)
-  await expect(page.getByRole('menuitem', {name:'Back to app',exact:true})).toHaveCount(0)
+  await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')).toHaveCount(0)
   await openFrame(page,'frame-wall=settings&frame-section=general','light')
   await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1)
-  await page.locator('[data-slot="top-bar"]:visible').getByRole('button',{name:'More',exact:true}).click()
-  await expect(page.getByRole('menuitemradio',{name:/Terminal/})).toHaveCount(0)
-  await expect(page.getByRole('menuitem',{name:'Back to app',exact:true})).toHaveCount(0)
+  await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')).toHaveCount(0)
 })
 
 for(const theme of ['light','dark'] as const) for(const width of [2200,1440,1100,720]) test(`E2 Settings Profile is reading at ${width} in ${theme}`,async({page})=>{
-  await measureDestination(page,'frame-wall=settings&frame-section=profile','reading',theme,width)
+  await measureDestination(page,'frame-wall=settings&frame-section=profile','reading',theme,width,{more:'absent'})
 })
 
 // E3 owns these appended witnesses. Shared wall replacement belongs to Task 9.
@@ -3739,8 +3740,10 @@ for (const width of [1440, 720]) {
     await page.keyboard.press('Meta+u')
     const heading = page.getByText('Where it went', { exact: true }).first()
     await expect(heading).toBeVisible()
-    const controls = page.getByRole('group', { name: 'Group spend by', exact: true }).or(page.getByRole('radiogroup', { name: 'Group spend by', exact: true }))
-    await expect(heading.locator('xpath=ancestor::*[@data-slot="section-head"]')).toHaveCount(1)
+    const head = heading.locator('xpath=ancestor::*[@data-slot="section-head"]')
+    await expect(head).toHaveCount(1)
+    const controls = head.locator('[data-slot="page-options"]')
+    await expect(controls).toHaveCount(1)
     const textBox = await heading.evaluate(node => { const range=document.createRange(); range.selectNodeContents(node); const box=range.getBoundingClientRect(); return {x:box.x,y:box.y,width:box.width,height:box.height} })
     const controlBox = (await controls.boundingBox())!
     expect(textBox.x + textBox.width <= controlBox.x || controlBox.x + controlBox.width <= textBox.x || textBox.y + textBox.height <= controlBox.y || controlBox.y + controlBox.height <= textBox.y, 'heading text never intersects its switch').toBe(true)
@@ -3758,13 +3761,10 @@ test('E3 Dashboard command opens main and Back restores work', async ({ page }) 
   await page.keyboard.press('Meta+[')
   await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
 })
-test('E3 Dashboard More contains only page actions', async ({ page }) => {
+test('E3 Dashboard omits More when the page has no actions', async ({ page }) => {
   await openFrame(page, 'frame-wall=navigation', 'light')
   await page.keyboard.press('Meta+u')
-  await page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button').click()
-  await expect(page.getByRole('menuitem', { name: 'Terminal', exact: true })).toHaveCount(0)
-  await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(0)
-  await expect(page.getByRole('menuitem', { name: 'Back to app', exact: true })).toHaveCount(0)
+  await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')).toHaveCount(0)
 })
 for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440, 1100, 720]) {
   for (const view of ['overview', 'plans', 'spend', 'activity', 'projects']) {
@@ -3854,7 +3854,7 @@ test('E4 Agents named history', async ({ page }) => {
 for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440, 1100, 720]) {
   for (const detail of [false, true]) test(`E4 Agents ${detail ? 'detail' : 'roster'} ${width} ${theme}`, async ({ page }) => {
 
-    await measureDestination(page, `frame-wall=agents${detail ? '&frame-detail=agent' : ''}`, detail ? 'reading' : 'wide', theme, width)
+    await measureDestination(page, `frame-wall=agents${detail ? '&frame-detail=agent' : ''}`, detail ? 'reading' : 'wide', theme, width, detail ? {} : { more: 'absent' })
     await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
     const bar = page.locator('[data-slot="top-bar"]:visible')
     if (detail) {
@@ -3865,7 +3865,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440,
 }
 for (const state of ['parse', 'refused', 'missing']) test(`E4 Agents ${state} keeps the destination`, async ({ page }) => {
 
-  await measureDestination(page, `frame-wall=agents&frame-agent-case=${state}`, state === 'missing' ? 'wide' : 'reading', 'light', 1440)
+  await measureDestination(page, `frame-wall=agents&frame-agent-case=${state}`, state === 'missing' ? 'wide' : 'reading', 'light', 1440, state === 'missing' ? { more: 'absent' } : {})
   const main = page.locator('[data-page-destination="agents"]:visible')
   if (state === 'parse') await expect(main).toContainText('Why it will not parse')
   if (state === 'refused') await expect(main).toContainText('signed out')
@@ -3897,6 +3897,10 @@ for (const width of [1440, 720]) test(`E4 Agents column opens draft session and 
 for (const detail of [false, true]) test(`E4 Agents ${detail ? 'detail' : 'roster'} More excludes Terminal and Back to app`, async ({ page }) => {
   await openFrame(page, 'frame-wall=navigation', 'light')
   await page.locator('[aria-label="Main sections"]').getByRole('button', { name: 'Agents', exact: true }).click()
+  if (!detail) {
+    await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')).toHaveCount(0)
+    return
+  }
   if (detail) await page.getByRole('button', { name: /^Code reviewer/ }).first().click()
   await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
   const items = page.locator('[role="menuitem"], [role="menuitemradio"]')
@@ -3936,18 +3940,17 @@ test('E5 Teams column background reaches the window top', async ({page}) => {
  })
  expect(colors.slice(0,2)).toEqual([colors[2],colors[2]])
 })
-test('E5 Teams More applies only to the folderless list', async ({page}) => {
-
- await openFrame(page,'frame-wall=teams','light')
- await page.locator('[data-slot="top-bar"]:visible').getByRole('button',{name:'More',exact:true}).click()
- await expect(page.getByRole('menu').getByText('Back to app',{exact:true})).toHaveCount(0)
- await expect(page.getByRole('menu').getByText('Terminal',{exact:true})).toHaveCount(0)
+test('E5 Teams omits empty More with or without a folder', async ({page}) => {
+ for (const query of ['frame-wall=teams','frame-wall=teams&frame-no-folder=1']) {
+  await openFrame(page,query,'light')
+  await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')).toHaveCount(0)
+ }
 })
 
 for (const theme of ['light','dark'] as const) for (const width of [2200,1440,1100,720]) {
  for (const filter of ['active','needs-you','settled']) test(`E5 Teams ${filter} ${width} ${theme}`,async({page})=>{
 
-  await measureDestination(page,`frame-wall=teams&frame-filter=${filter}`,'wide',theme,width)
+  await measureDestination(page,`frame-wall=teams&frame-filter=${filter}`,'wide',theme,width,{more:'absent'})
   await expect(page.locator('[data-slot="top-bar"]:visible').getByRole('button',{name:'New Team',exact:true})).toBeVisible()
   const records=page.locator('[data-slot="page-records"]:visible').first()
   await expect(records).toHaveAttribute('data-layout',(await records.boundingBox())!.width<600?'narrow':'table')
@@ -3961,7 +3964,11 @@ for(const theme of ['light','dark'] as const) test(`E5 Teams empty state uses th
 
  await openFrame(page,'frame-wall=teams&frame-empty=1',theme)
  const empty=page.locator('[data-page-destination="teams"]:visible [data-slot="page"] > [data-slot="empty-state"][data-variant="panel"]')
- await expect(empty).toBeVisible();await expect(empty).toHaveText('No active Teams')
+ await expect(empty).toBeVisible()
+ await expect(empty.locator('svg')).toHaveCount(1)
+ await expect(empty.getByRole('heading',{name:'No active Teams',exact:true})).toBeVisible()
+ await expect(empty.getByText(/Create a Team/)).toBeVisible()
+ await expect(empty.getByRole('button',{name:'New Team',exact:true})).toBeVisible()
 })
 test('E5 Team row enters work and keeps room navigation separate from page history',async({page})=>{
 
@@ -4135,17 +4142,15 @@ test('E7 Plugins column New session and session rows navigate away with Back', a
   await column.getByRole('button', { name: 'Back', exact: true }).click()
   await expect(page.locator('[data-page-destination="plugins"]:visible')).toHaveCount(1)
 })
-test('E7 Plugins More excludes Terminal and Back to app', async ({ page }) => {
+test('E7 Plugins omits More when the page has no actions', async ({ page }) => {
   await openFrame(page, 'frame-wall=navigation', 'light')
   await page.locator('[data-left-column]:visible').getByRole('button', { name: 'Plugins', exact: true }).click()
-  await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
-  await expect(page.getByRole('menu')).toBeVisible()
-  await expect(page.getByRole('menu').locator('[role^="menuitem"]').filter({ hasText: /Terminal|Back to app/ })).toHaveCount(0)
+  await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')).toHaveCount(0)
 })
 for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440, 1100, 720]) {
   for (const child of ['installed', 'capabilities', 'detail']) test(`E7 Plugins ${child} ${width} ${theme}`, async ({ page }) => {
 
-    await measureDestination(page, `frame-wall=plugins&frame-plugin-page=${child}`, 'wide', theme, width)
+    await measureDestination(page, `frame-wall=plugins&frame-plugin-page=${child}`, 'wide', theme, width, { more: 'absent' })
     await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
     if (child === 'detail') {
       await expect(page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Plugins ›', exact: true })).toBeVisible()
@@ -4192,7 +4197,7 @@ test('E7 install flow uses Dialog header body and right ordered footer actions',
 test('E7 Plugins pending Here keeps the host answer distinct from Anywhere', async ({ page }) => {
 
   await measureDestination(page, 'frame-wall=plugins&frame-plugin-page=capabilities&frame-plugin-pending=1', 'wide', 'dark', 720,
-    { bodyChoice: { label: 'Where it applies', value: 'here' } })
+    { more: 'absent', bodyChoice: { label: 'Where it applies', value: 'here' } })
   await expect(page.getByText('Asking the host…', { exact: true })).toBeVisible()
   await expect(page.locator('[data-page-destination="plugins"]:visible button[data-kind="record"]')).toHaveCount(0)
 })
@@ -4248,7 +4253,7 @@ test('E8 review More contains only Terminal and opens the reviewed folder', asyn
 
 for (const theme of ['light', 'dark'] as const) for (const width of [1440, 1100, 720]) {
   test(`E9 only the permanent shell frames a destination ${width} ${theme}`, async ({ page }) => {
-    await measureDestination(page, 'frame-wall=plugins&frame-plugin-page=capabilities', 'wide', theme, width)
+    await measureDestination(page, 'frame-wall=plugins&frame-plugin-page=capabilities', 'wide', theme, width, { more: 'absent' })
     await expect(page.locator('[data-app-window-left-frame], [data-slot="app-window"]')).toHaveCount(0)
     await expect(page.locator('[data-slot="page-head"], [data-slot="detail-head"]')).toHaveCount(0)
     await expectDestinationTab(page, 'capabilities')

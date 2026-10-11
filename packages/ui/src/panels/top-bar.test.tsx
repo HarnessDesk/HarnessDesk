@@ -194,10 +194,10 @@ test('view actions preserve the parent subject slots and share one More Menu wit
   }
 })
 
-test('More offers Terminal once on a folder surface and omits it on a page', async () => {
+test('More offers Terminal once on a folder surface and omits it on a page with actions', async () => {
   const App = ({ owner }: { owner: 'conversation' | 'settings' }) => <StoreProvider store={previewStore()}><TopBarProvider>
     <PublishedBase owner="conversation" slots={{ place: 'Conversation', terminal: true, more: emptyMore }} />
-    <PublishedBase owner="settings" slots={{ place: 'Settings', more: emptyMore }} />
+    <PublishedBase owner="settings" slots={{ place: 'Settings', more: close => <MenuItem icon={<span />} label="Open settings" onSelect={close} /> }} />
     <TopBarOutlet owner={owner} fallback={{ place: 'New session', more: emptyMore }} />
   </TopBarProvider></StoreProvider>
   const container = document.createElement('div')
@@ -213,8 +213,12 @@ test('More offers Terminal once on a folder surface and omits it on a page', asy
     expect(terminals[0]?.querySelector('[data-menu-icon]')).not.toBeNull()
     await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
     await act(async () => root.render(<App owner="settings" />))
-    await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
-    expect([...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
+    const pageMore = container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')
+    expect(pageMore).not.toBeNull()
+    await act(async () => pageMore!.click())
+    const pageRows = [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
+    expect(pageRows.map(one => one.textContent?.trim())).toContain('Open settings')
+    expect(pageRows
       .filter(one => one.querySelector('[data-menu-label]')?.textContent?.trim() === 'Terminal')).toHaveLength(0)
   } finally {
     act(() => root.unmount())
