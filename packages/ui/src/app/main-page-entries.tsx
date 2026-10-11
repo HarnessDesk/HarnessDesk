@@ -24,7 +24,7 @@ export const MAIN_PAGE_ENTRIES: Partial<Record<PageDestination['kind'], (input: 
   library: ({page,visit,libraryImportIntent}) => page.kind === 'library'
     ? <Page width="wide"><LibrarySection section={page.section} onSection={section=>visit({kind:'library',section})} importIntent={libraryImportIntent} /></Page> : null,
   plugins: ({ page, visit }) => page.kind === 'plugins'
-    ? <Page width="wide"><PluginsSection section={page.section} id={page.id}
+    ? <Page width={page.id === null ? 'wide' : 'reading'}><PluginsSection section={page.section} id={page.id}
         onSection={section => visit({ kind: 'plugins', section, id: null })}
         onPlugin={id => visit({ kind: 'plugins', section: 'installed', id })} /></Page> : null,
   'changes-review': ({ page }) => page.kind === 'changes-review'
