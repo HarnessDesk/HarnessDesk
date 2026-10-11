@@ -1,8 +1,7 @@
 import type { LedgerReport, RuntimeId, RuntimeInfo } from '@harnessdesk/protocol'
 
-import { Segmented } from '../../design'
-import { BandHead, PIVOTS, RANGES, Ranked, Spend, type Pivot, type TintOf } from './shared'
-import styles from './usage.module.css'
+import { PageOptions, PageControls, Section } from '../../design'
+import { PIVOTS, RANGES, Ranked, Spend, type Pivot, type TintOf } from './shared'
 
 /**
  * Spend: what it cost, and where it went — full width, over 7, 30 or 90 days.
@@ -54,27 +53,14 @@ export const SpendView = ({
       onModeChange={onModeChange}
       onScan={onScan}
       rangeControl={
-        <Segmented
-          label="How far back"
-          options={RANGES}
-          value={String(range)}
-          onChange={(next) => onRangeChange(Number(next))}
-        />
+        <PageOptions choices={[{id:'range',label:'How far back',value:String(range),items:RANGES,change:next=>onRangeChange(Number(next))}]} />
       }
     />
 
-    <section className={styles.band} aria-label="Where it went">
-      <BandHead
-        name="Where it went"
-        action={
-          <Segmented
-            label="Group spend by"
-            options={PIVOTS}
-            value={pivot}
-            onChange={(next) => onPivotChange(next as Pivot)}
-          />
-        }
-      />
+    <Section title="Where it went">
+      <PageControls choices={[{ id: 'pivot', title: 'Group spend by', value: pivot,
+        options: PIVOTS.map(item => ({ value: item.value, label: item.label })),
+        change: value => onPivotChange(value as Pivot) }]} />
       <Ranked
         ledger={ledger}
         wideLedger={wideLedger}
@@ -84,6 +70,6 @@ export const SpendView = ({
         byId={byId}
         tintOf={agentTints}
       />
-    </section>
+    </Section>
   </>
 )

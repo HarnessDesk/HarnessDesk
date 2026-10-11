@@ -2,7 +2,6 @@ import type { ReactNode } from 'react'
 
 import type { RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 
-import { cn } from '@/lib/utils'
 import { paidRatioCaption } from '../../lib/overview-strip'
 import { planLabel } from '../../lib/usage'
 import { formatMoney } from '../../lib/usage'
@@ -11,13 +10,10 @@ import { RuntimeMark } from '../BrandIcons'
 import {
   Button,
   Card as SurfaceCard,
-  CardContent,
-  CardFooter,
+  DashboardAccountHead, DashboardAccountBody, DashboardAccountFoot, DashboardMoney,
   Chip,
-  ToolbarGap,
   Text,
 } from '../../design'
-import styles from './usage.module.css'
 
 /**
  * The frame every one of the six shape bodies sits in — the header, footer
@@ -54,35 +50,17 @@ export const PlanFrame = ({
   const agent = info?.presentation.name ?? 'Agent'
   const plan = planLabel(report.plan)
   return (
-    <SurfaceCard as="article" className={styles.frame} data-shape={shape}>
+    <SurfaceCard as="article" data-shape={shape}>
       {/* The canonical card inset holds the recorded heading and its state. */}
-      <CardContent className={cn(styles.frameHead, 'flex items-center gap-(--hd-space-1-5)')}>
-        {info && (
-          <Text role="muted" className={styles.cardMark}>
-            <RuntimeMark runtime={info} size={15} />
-          </Text>
-        )}
-        <Text role="subject" truncate className={styles.cardName}>{report.account ?? agent}</Text>
-        {report.account && <Text role="meta" truncate className={styles.cardAgent}>{agent}</Text>}
-        <ToolbarGap />
-        {shapeChip}
-        {plan && <Chip label={plan} tone="neutral" />}
-        <Chip tone={statusPresentation(status).tone} label={statusPresentation(status).label} />
-      </CardContent>
+      <DashboardAccountHead mark={info ? <RuntimeMark runtime={info} size={15} /> : undefined}
+        name={report.account ?? agent} agent={report.account ? agent : undefined}
+        states={<>{shapeChip}{plan && <Chip label={plan} tone="neutral" />}<Chip tone={statusPresentation(status).tone} label={statusPresentation(status).label} /></>} />
 
       <MoneyRowView money={money} onOpenPlanSettings={onOpenPlanSettings} />
 
-      <CardContent className={styles.frameBody}>{children}</CardContent>
+      <DashboardAccountBody>{children}</DashboardAccountBody>
 
-      <CardFooter className={styles.cardFoot}>
-        <Text role="meta" truncate className={styles.cardSource}>{report.source.label}</Text>
-        <ToolbarGap />
-        {footerAction && (
-          <Button variant="outline" size="sm" onClick={footerAction.onClick}>
-            {footerAction.label}
-          </Button>
-        )}
-      </CardFooter>
+      <DashboardAccountFoot source={report.source.label} actions={footerAction ? <Button variant="outline" size="sm" onClick={footerAction.onClick}>{footerAction.label}</Button> : undefined} />
     </SurfaceCard>
   )
 }
@@ -104,7 +82,7 @@ export const MoneyRowView = ({
   const value = money.value === null ? 'unpriced' : (formatMoney(money.value, money.currency) ?? `${money.value}`)
   const fee = money.fee
   return (
-    <CardContent className={styles.frameMoney}>
+    <DashboardMoney>
       {fee && money.paid !== null && (
         <>
           <Text role="meta">Paid</Text>
@@ -134,6 +112,6 @@ export const MoneyRowView = ({
       ) : (
         <Text role="value">Fee not set</Text>
       )}
-    </CardContent>
+    </DashboardMoney>
   )
 }

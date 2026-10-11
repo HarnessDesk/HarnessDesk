@@ -1,9 +1,7 @@
 import type { InsightReport, RuntimeId } from '@harnessdesk/protocol'
 
-import { Button, Segmented, Text } from '../../design'
+import { PageOptions, Section } from '../../design'
 import { InsightUsage } from '../InsightUsage'
-import { BandHead } from './shared'
-import styles from './usage.module.css'
 
 const INSIGHT_OPTIONS = [
   { value: 'goal', label: 'By Team' },
@@ -33,22 +31,10 @@ export const ProjectsView = ({
   rangeDays: number
   onRangeChange: (days: number) => void
 }) => (
-  <section className={styles.band} aria-label="Project usage">
-    <BandHead
-      name="Project usage"
-      action={
-        <div className="flex flex-wrap items-center gap-(--hd-space-2)">
-          <Text role="meta">{rangeDays === 1 ? 'Last 24 hours' : 'Last 30 days'}</Text>
-          {rangeDays === 1 && <Button variant="outline" size="sm" onClick={() => onRangeChange(30)}>Last 30 days</Button>}
-        <Segmented
-          label="Project usage view"
-          options={INSIGHT_OPTIONS}
-          value={insightView}
-          onChange={(next) => onInsightViewChange(next as 'goal' | 'agent')}
-        />
-        </div>
-      }
-    />
+  <Section title="Project usage" action={<PageOptions choices={[
+    {id:'range',label:'Project usage range',value:String(rangeDays),items:[{value:'1',label:'Last 24 hours'},{value:'30',label:'Last 30 days'}],change:value=>onRangeChange(Number(value))},
+    {id:'view',label:'Project usage view',value:insightView,items:INSIGHT_OPTIONS,change:value=>onInsightViewChange(value as 'goal' | 'agent')},
+  ]} />}>
     <InsightUsage root={root} runtime={scope} view={insightView} onGoal={onGoal} report={insightReport} problem={insightProblem} rangeDays={rangeDays} onShorterRange={rangeDays === 1 ? undefined : () => onRangeChange(1)} />
-  </section>
+  </Section>
 )

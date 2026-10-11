@@ -1244,6 +1244,72 @@ this layer has no store — so it is handed back rather than dropped. A row
 that stays shown while the tick is up hears about it through
 `onCopiedChange`.
 
+### `DashboardBands`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+Recorded facts and quantitative figures; controls belong to the shared section head.
+
+### `DashboardColumns`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+Overview's two related sections; the secondary column yields on narrow pages.
+
+### `DashboardAccounts`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+Plan readings share a responsive card grid.
+
+### `DashboardFigure`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+A plan's measured figure and its qualifiers, never a new control.
+
+### `DashboardLanes`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+Related meter rows inside one account.
+
+### `DashboardReadingNote`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+A complete note next to its source glyph.
+
+### `DashboardFact`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+A single quantitative fact; groups keep the same key column.
+
+### `DashboardTable`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+Tables carry their shared account/reading/action column geometry in the system.
+
+### `DashboardStats`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+Periods and heatmap facts compose the canonical numeric tiles.
+
+### `DashboardAccountActivity`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+A borrowed reading's activity summary belongs to that account, in one band.
+
+### `DashboardOverviewStats`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+Paid plus the three chart measures, using the shared stat and button contracts.
+
 ### `DialogFormScope`
 
 `packages/ui/src/design/patterns/DialogForm.tsx`

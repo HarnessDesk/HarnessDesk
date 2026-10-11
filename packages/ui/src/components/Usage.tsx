@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
 
+import type { MainPageInput } from '../app/main-page-entries'
 import type { InsightReport, LedgerReport, RuntimeId, UsageReport } from '@harnessdesk/protocol'
 
 import { prefsForUsage } from '../lib/accounts'
 import { byUrgency, costClause, formatAge, runway } from '../lib/usage'
 import { useSnapshot, useStore } from '../state/context'
-import { AppWindow, WindowGroup, WindowNav, WindowNavItem, WindowPage } from './AppWindow'
-import { ActivityIcon, CostIcon, GoalIcon, OverviewIcon, RetryIcon, UsageIcon } from './Icons'
-import { Button, PageHead, Text, dismissOverlays, useEscapeSurface } from '../design'
+import { Page, PageOptions, PageExplanation } from '../design'
+import { DashboardBar } from '../panels/dashboard-bar'
+import { DestinationPageScope, useDestinationPage } from '../panels/destination-page'
 import {
   DEFAULT_RANGE,
-  ScopeControl,
   reportNeedsAttention,
   silentAgentsOf,
   tintsForRoster,
@@ -24,67 +24,24 @@ import { ActivityView } from './usage/ActivityView'
 import { ProjectsView } from './usage/ProjectsView'
 import type { HeatMetric, HourMetric } from '../lib/heat'
 import type { HeatView } from './UsageActivity'
-import styles from './Usage.module.css'
 
 /**
- * Usage — what every plan has left, when it comes back, and what it cost.
- *
- * Design and rationale: `docs/usage-dashboard.md`. Everything true on this
- * screen is decided in `lib/usage.ts`, which is tested without a browser; this
- * file only loads the data every view needs and draws the shell around it —
- * the rail, the header, and the one view showing. It never picks the
- * headline lane itself, and it never names an agent — every name comes from
- * `RuntimeInfo.presentation`.
- *
- * The rail lists **views**, not accounts. It held one account per row for a
- * while, which duplicated the account list a click away, mixed units row to
- * row, and put a filter — "look at one account" — where navigation belongs.
- * The account is now a choice in every view's own header, made once and kept
- * across all five: `ScopeControl`, beside the title, in `usage/shared.tsx`.
+ * Dashboard readings are decided by the usage libraries and supplied sources.
+ * This retained body owns chart choices and fetch cancellation; destination
+ * history owns its five views and account scope. Names come from presentation.
  */
-
 export type DashboardView = 'overview' | 'plans' | 'spend' | 'activity' | 'projects'
 
-const VIEW_LABEL: Readonly<Record<DashboardView, string>> = {
-  overview: 'Overview',
-  plans: 'Plans',
-  spend: 'Spend',
-  activity: 'Activity',
-  projects: 'Projects',
-}
-
-export const Usage = ({
-  view: viewProp,
-  scope: scopeProp,
-  onView: onViewProp,
-  onScope: onScopeProp,
-  onClose,
-  onSignIn,
-  onOpenPlanSettings,
-}: {
-  /** The rail's own row, owned by the caller so any entry point can redirect it. */
-  view?: DashboardView
-  /** The account every band reads, or `null` for all of them. Owned by the caller, the way `view` is. */
-  scope?: RuntimeId | null
-  onView?: (view: DashboardView) => void
-  onScope?: (scope: RuntimeId | null) => void
-  onClose: () => void
-  /** Opening the sign-in window from the agent that has nothing to report. */
-  onSignIn?: (runtime: RuntimeId) => void
-  /** Opens an account's own Plan card in Settings — Plans' Key body and money row read it (review of #1069, B5). Falls back to `onSignIn`'s own door (Settings › Runtimes) when the caller has nothing more specific. */
-  onOpenPlanSettings?: (runtime: RuntimeId) => void
+/** Controlled retained Dashboard body. View and account scope belong to destination history. */
+export const DashboardPage = ({ view, scope, onView, onScope, onSignIn, onOpenPlanSettings }: {
+  readonly view: DashboardView; readonly scope: RuntimeId | null
+  readonly onView: (view: DashboardView) => void; readonly onScope: (scope: RuntimeId | null) => void
+  readonly onSignIn?: (runtime: RuntimeId) => void
+  readonly onOpenPlanSettings?: (runtime: RuntimeId) => void
 }) => {
+  const { active } = useDestinationPage()
   const store = useStore()
   const snapshot = useSnapshot()
-  // Falls back to state of its own when the caller supplies neither prop —
-  // the catalogue's `DashboardSurface` mounts this uncontrolled, and without
-  // this its rail and scope menu did nothing (review of #1057, item 6).
-  const [ownView, setOwnView] = useState<DashboardView>('overview')
-  const [ownScope, setOwnScope] = useState<RuntimeId | null>(null)
-  const view = viewProp ?? ownView
-  const scope = scopeProp ?? ownScope
-  const onView = onViewProp ?? setOwnView
-  const onScope = onScopeProp ?? setOwnScope
   const [now, setNow] = useState(() => Date.now())
   const [pivot, setPivot] = useState<Pivot>('runtime')
   const [range, setRange] = useState<number>(DEFAULT_RANGE)
@@ -116,25 +73,26 @@ export const Usage = ({
   const [insightReport, setInsightReport] = useState<InsightReport | null>(null)
   const [insightProblem, setInsightProblem] = useState<string | null>(null)
 
-  useEffect(dismissOverlays, [])
-  useEscapeSurface(true, onClose)
-
   // Countdowns are the point of half this screen, so the clock has to move.
   useEffect(() => {
+    if (!active) return
+    setNow(Date.now())
     const timer = window.setInterval(() => setNow(Date.now()), 30_000)
     return () => window.clearInterval(timer)
-  }, [])
+  }, [active])
 
   useEffect(() => {
-    void store.loadUsage()
-  }, [store])
+    if (active) void store.loadUsage()
+  }, [active, store])
 
   useEffect(() => {
+    if (!active) return
     const timer = window.setInterval(() => void store.refreshUsage(), 120_000)
     return () => window.clearInterval(timer)
-  }, [store])
+  }, [active, store])
 
   useEffect(() => {
+    if (!active) return
     let cancelled = false
     void store
       .ledger({ days: range, groupBy: pivot, ...(scope ? { runtime: scope } : {}) })
@@ -144,9 +102,10 @@ export const Usage = ({
     return () => {
       cancelled = true
     }
-  }, [store, pivot, scope, range, snapshot.scan?.finishedAt])
+  }, [active, store, pivot, scope, range, snapshot.scan?.finishedAt])
 
   useEffect(() => {
+    if (!active) return
     let cancelled = false
     void store
       .ledger({ days: Math.min(365, range * 2), groupBy: 'runtime', ...(scope ? { runtime: scope } : {}) })
@@ -156,9 +115,10 @@ export const Usage = ({
     return () => {
       cancelled = true
     }
-  }, [store, scope, range, snapshot.scan?.finishedAt])
+  }, [active, store, scope, range, snapshot.scan?.finishedAt])
 
   useEffect(() => {
+    if (!active) return
     let cancelled = false
     void store
       .ledger({ days: 365, groupBy: 'runtime', ...(scope ? { runtime: scope } : {}) })
@@ -168,7 +128,7 @@ export const Usage = ({
     return () => {
       cancelled = true
     }
-  }, [store, scope, snapshot.scan?.finishedAt])
+  }, [active, store, scope, snapshot.scan?.finishedAt])
 
   const projectRoot = snapshot.workspace?.repo?.root ?? snapshot.workspace?.path ?? null
   // A range belongs to its project. Reset before its new read, rather than
@@ -180,6 +140,7 @@ export const Usage = ({
   // switching Projects' own By Goal/By Agent toggle, or switching away and
   // back to Projects, issues no new read (review of #1057, item 4).
   useEffect(() => {
+    if (!active) return
     let cancelled = false
     setInsightReport(null)
     setInsightProblem(null)
@@ -199,7 +160,7 @@ export const Usage = ({
     return () => {
       cancelled = true
     }
-  }, [store, projectRoot, scope, insightDays])
+  }, [active, store, projectRoot, scope, insightDays])
 
   const off = useMemo(() => new Set(snapshot.usageOff), [snapshot.usageOff])
   const tracked = useMemo(
@@ -214,14 +175,14 @@ export const Usage = ({
   // Scoping to an agent and then switching it off would leave the screen
   // showing one card that is not there any more.
   useEffect(() => {
-    if (scope !== null && off.has(scope)) onScope(null)
-  }, [scope, off, onScope])
+    if (active && scope !== null && off.has(scope)) store.replaceDestination({ kind: 'dashboard', view, scope: null })
+  }, [active, scope, off, view, store])
 
   const byId = useMemo(
     () => new Map(snapshot.runtimes.map((info) => [info.id, info] as const)),
     [snapshot.runtimes],
   )
-  const nameOf = (id: RuntimeId): string => byId.get(id)?.presentation.name ?? String(id)
+  const nameOf = (id: RuntimeId): string => byId.get(id)?.presentation.name ?? 'Unavailable account'
 
   const agentTints = useMemo(() => tintsForRoster(snapshot.runtimes), [snapshot.runtimes])
 
@@ -317,73 +278,18 @@ export const Usage = ({
         ? `What every plan has left, ${costClause(ledger?.provenance)}, and where it went, read from each agent’s own numbers on this machine.`
         : undefined
 
-  return (
-    <AppWindow owner="dashboard" onClose={onClose} label="Dashboard">
-      <WindowNav onBack={onClose}>
-        <WindowGroup label="Views">
-          <WindowNavItem
-            icon={<OverviewIcon size={14} />}
-            label="Overview"
-            selected={view === 'overview'}
-            onClick={() => onView('overview')}
-          />
-          <WindowNavItem
-            icon={<UsageIcon size={14} />}
-            label="Plans"
-            {...(attention.length > 0
-              ? {
-                  trail: (
-                    <Text role="meta" tone="warning" numeric>
-                      {attention.length} low
-                    </Text>
-                  ),
-                }
-              : {})}
-            selected={view === 'plans'}
-            onClick={() => onView('plans')}
-          />
-          <WindowNavItem
-            icon={<CostIcon size={14} />}
-            label="Spend"
-            selected={view === 'spend'}
-            onClick={() => onView('spend')}
-          />
-          <WindowNavItem
-            icon={<ActivityIcon size={14} />}
-            label="Activity"
-            selected={view === 'activity'}
-            onClick={() => onView('activity')}
-          />
-          <WindowNavItem
-            icon={<GoalIcon size={14} />}
-            label="Projects"
-            selected={view === 'projects'}
-            onClick={() => onView('projects')}
-          />
-        </WindowGroup>
-
-        <div className={styles.navFoot}>
-          {oldest !== null && <Text role="meta">Read {formatAge(oldest, now)}</Text>}
-          <Button variant="secondary" size="sm" disabled={refreshing} onClick={() => void refresh()}>
-            <RetryIcon size={13} />
-            {refreshing ? 'Refreshing…' : 'Refresh'}
-          </Button>
-        </div>
-      </WindowNav>
-
-      <WindowPage wide>
-        {/* The stat strip lives inside `OverviewView` itself, not here: it
-            reads Overview's own spend range and switches Overview's own
-            chart, so it is drawn once, by the one view it belongs to,
-            rather than a slot every view would otherwise share and only one
-            uses (`docs/usage-dashboard.md`, "The Overview strip"). */}
-        <PageHead
-          title={VIEW_LABEL[view]}
-          blurb={blurb}
-          actions={<ScopeControl everyReport={everyReport} byId={byId} scope={scope} onScope={onScope} />}
-        />
-
-        <div className={styles.body}>
+  const scopeItems = [{ value: '', label: 'All accounts' }, ...[...new Set(everyReport.map(report => report.runtime))].map(id => ({
+    value: String(id), label: byId.get(id)?.presentation.name ?? 'Unavailable account',
+  }))]
+  // An unavailable route keeps its identity until the user chooses a scope.
+  if (scope !== null && !scopeItems.some(item => item.value === scope)) scopeItems.push({ value: scope, label: 'Unavailable account' })
+  return <Page width="wide">
+    <DashboardBar view={view} attention={attention.length} changeView={onView} />
+    <PageOptions choices={[{ id: 'scope', label: 'Scope the dashboard to one account', mode: 'menu',
+      value: scope ?? '', items: scopeItems, change: value => onScope(value ? value as RuntimeId : null) }]}
+      read={oldest === null ? null : `Read ${formatAge(oldest, now)}`}
+      action={{ label: refreshing ? 'Refreshing…' : 'Refresh', disabled: refreshing, run: () => void refresh() }} />
+    {blurb && <PageExplanation>{blurb}</PageExplanation>}
           {view === 'overview' && (
             <OverviewView
               reports={reports}
@@ -484,10 +390,27 @@ export const Usage = ({
               onRangeChange={days => setInsightRange({ root: projectRoot, days })}
             />
           )}
-        </div>
-      </WindowPage>
-    </AppWindow>
-  )
+  </Page>
+}
+
+export const DashboardEntry = ({ page, visit, onSignIn }: MainPageInput) => {
+  const store = useStore()
+  return page.kind === 'dashboard' ? <DashboardPage view={page.view} scope={page.scope}
+    onView={view => visit({ ...page, view })} onScope={scope => visit({ ...page, scope })}
+    onSignIn={onSignIn} onOpenPlanSettings={runtime => store.askSettings('runtimes', String(runtime))} /> : null
+}
+
+/** Temporary adapter for legacy preview/catalogue callers; Task 9 retires it. */
+export const Usage = ({ view: suppliedView, scope: suppliedScope, onView, onScope, onSignIn, onOpenPlanSettings }: {
+  readonly view?: DashboardView; readonly scope?: RuntimeId | null
+  readonly onView?: (view: DashboardView) => void; readonly onScope?: (scope: RuntimeId | null) => void
+  readonly onClose?: () => void; readonly onSignIn?: (runtime: RuntimeId) => void
+  readonly onOpenPlanSettings?: (runtime: RuntimeId) => void
+}) => {
+  const [view, changeView] = useState<DashboardView>('overview')
+  const [scope, changeScope] = useState<RuntimeId | null>(null)
+  return <DestinationPageScope owner="dashboard" active><DashboardPage view={suppliedView ?? view} scope={suppliedScope === undefined ? scope : suppliedScope}
+    onView={onView ?? changeView} onScope={onScope ?? changeScope} onSignIn={onSignIn} onOpenPlanSettings={onOpenPlanSettings} /></DestinationPageScope>
 }
 
 // Re-exported so tests and other callers can keep reading `./Usage` for the

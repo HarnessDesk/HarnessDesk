@@ -153,6 +153,12 @@ export interface WallDestination { readonly leftHeading?: 'hover-open' | 'folded
 )
 export interface WallDestination { readonly plan?: 'anchor' | 'rest' }
 
+export const E3_PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
+  ...['overview','plans','spend','activity','projects'].map(view => ({id:`dashboard-${view}`,query:`frame-wall=dashboard&frame-view=${view}`,pageWidth:'wide' as const})),
+  {id:'dashboard-scoped-plans',query:'frame-wall=dashboard&frame-view=plans&frame-scope=runtime',pageWidth:'wide'},
+  {id:'dashboard-borrowed-plans',query:'frame-wall=dashboard&frame-view=plans&frame-scope=runtime&frame-borrowed=1',pageWidth:'wide'},
+]
+
 export const PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'settings-general', query: 'frame-wall=settings&frame-section=general', pageWidth: 'reading' },
   { id: 'settings-appearance', query: 'frame-wall=settings&frame-section=appearance', pageWidth: 'reading' },
@@ -174,5 +180,6 @@ export const PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'settings-account', query: 'frame-wall=settings&frame-detail=account', pageWidth: 'reading' },
   { id: 'settings-project', query: 'frame-wall=settings&frame-detail=project', pageWidth: 'reading' },
   { id: 'settings-skill', query: 'frame-wall=settings&frame-detail=skill', pageWidth: 'reading' },
+  ...E3_PAGE_WALL_DESTINATIONS,
 ]
 ;(WALL_DESTINATIONS as WallDestination[]).push(...PAGE_WALL_DESTINATIONS)
