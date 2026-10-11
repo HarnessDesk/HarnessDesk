@@ -160,6 +160,24 @@ it('names the project in the header description', async () => {
   expect(description?.querySelector('[title]')?.getAttribute('title')).toBe(path)
 })
 
+it('middle-truncates the source path and keeps the project name intact', async () => {
+  const { store } = rig({ here: false })
+  const path = '/work/checkouts/storefront'
+  await act(async () => {
+    root.render(
+      <StoreProvider store={store}>
+        <NewWorktree root={path} onClose={() => {}} />
+      </StoreProvider>,
+    )
+  })
+
+  const description = document.querySelector<HTMLElement>('[data-slot="dialog-description"]')
+  const middle = description?.querySelector<HTMLElement>('[data-slot="middle-truncate"]')
+  expect(middle?.querySelector('[data-part="prefix"]')?.textContent).toBe('From')
+  expect(middle?.querySelector('.sr-only')?.textContent).toBe(path)
+  expect(middle?.querySelector('[data-part="tail"]')?.textContent).toBe('/storefront')
+})
+
 it('uses the shared search glyph and a plain Search placeholder for branches', async () => {
   const { store } = rig({ manyBranches: true })
   await render(store)

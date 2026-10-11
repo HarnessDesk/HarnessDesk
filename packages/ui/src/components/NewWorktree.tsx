@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import { Button, Chip, CodeText, Dialog, EmptyState, Field, Input, Note, Rows, Search, Text } from '../design'
+import { Button, Chip, CodeText, Dialog, EmptyState, Field, Input, MiddleTruncate, Note, Rows, Search, Text } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { slugify } from '../lib/worktree-branch'
 import { BranchIcon, CheckIcon } from './Icons'
@@ -131,7 +131,7 @@ export const NewWorktree = ({
       description={
         <span title={root}>
           {!opened && <>Switches to this folder first · </>}
-          From <CodeText>{root}</CodeText>
+          <CodeText><MiddleTruncate prefix="From">{root}</MiddleTruncate></CodeText>
         </span>
       }
       footer={

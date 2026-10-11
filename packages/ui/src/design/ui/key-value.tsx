@@ -48,9 +48,11 @@ export const splitPath = (text: string): readonly [head: string, tail: string] =
 
 type MiddleTruncateProps = Omit<React.ComponentProps<'span'>, 'children'> & {
   children: string
+  /** A short visible label that shares the available line width with the path. */
+  prefix?: React.ReactNode
 }
 
-const MiddleTruncate = ({ children, className, ...props }: MiddleTruncateProps) => {
+const MiddleTruncate = ({ children, className, prefix, ...props }: MiddleTruncateProps) => {
   const [head, tail] = splitPath(children)
   const long = graphemes(head).length > 3
   return (
@@ -70,7 +72,8 @@ const MiddleTruncate = ({ children, className, ...props }: MiddleTruncateProps) 
         // `intersectsNode`, not `containsNode(…, true)`: a selection wholly
         // inside the path does not "partially contain" the path itself.
         const ranges = Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index))
-        if (!ranges.some((range) => range.intersectsNode(node))) return
+        const pathParts = node.querySelectorAll('[data-part="head"], [data-part="tail"]')
+        if (![...pathParts].some(part => ranges.some(range => range.intersectsNode(part)))) return
         event.clipboardData.setData('text/plain', children)
         event.preventDefault()
       }}
@@ -79,6 +82,7 @@ const MiddleTruncate = ({ children, className, ...props }: MiddleTruncateProps) 
       {/* Out of the selection, so a copy that starts before the path does not
           take it twice. */}
       <span className="sr-only select-none">{children}</span>
+      {prefix != null && <span aria-hidden="true" data-part="prefix" className="shrink-0">{prefix}</span>}
       {/* Only the head gives way, so the name stays whole while there is any
           head left to give — and the head keeps enough of itself (`~/…`) to
           show that something was cut. A name wider than all of that is the
