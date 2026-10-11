@@ -6,7 +6,7 @@ import { NO_PERMISSIONS, type PluginInstance, type PluginPermissions, type Runti
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { PluginsTestPage } from './plugins-test-page'
+import { PluginsTestPage } from '../test/plugins-test-page'
 
 /**
  * The Access list, as the person actually reads it (#288).

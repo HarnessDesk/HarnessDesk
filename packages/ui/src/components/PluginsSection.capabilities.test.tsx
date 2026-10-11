@@ -12,7 +12,7 @@ import { NO_PERMISSIONS } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { PluginsTestPage } from './plugins-test-page'
+import { PluginsTestPage } from '../test/plugins-test-page'
 
 /**
  * The capability inventory: everything plugins contribute, findable.

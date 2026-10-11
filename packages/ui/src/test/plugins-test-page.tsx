@@ -1,8 +1,8 @@
 import { useState, type ComponentProps } from 'react'
 import { DestinationPageScope } from '../panels/destination-page'
 import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
-import { installTopBarTestLayout } from '../test/top-bar-layout'
-import { PluginsSection } from './PluginsSection'
+import { installTopBarTestLayout } from './top-bar-layout'
+import { PluginsSection } from '../components/PluginsSection'
 
 installTopBarTestLayout()
 
