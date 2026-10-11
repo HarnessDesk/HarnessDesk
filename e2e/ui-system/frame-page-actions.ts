@@ -20,7 +20,9 @@ export const applyPageFrameActions = async (page: Page, actions: PageFrameAction
     else {
       if (!choice.item) throw new Error(`Missing menu item for ${choice.label}`)
       await options.getByTitle(choice.label, { exact: true }).click()
-      await page.getByRole('menuitemradio', { name: choice.item, exact: true }).click()
+      const item = page.getByRole('menuitemradio').filter({ has: page.getByText(choice.item, { exact: true }) })
+      await expect(item).toHaveCount(1)
+      await item.click()
     }
   }
   if (actions.moreChoice) {
@@ -38,8 +40,9 @@ export const applyPageFrameActions = async (page: Page, actions: PageFrameAction
     await expect(ready).toHaveAttribute('aria-expanded', 'true')
   }
   if (actions.expandLibraryEntry) {
-    const entry = page.locator('[data-page-destination="library"]:visible [data-slot="library-matrix"] tr button[aria-expanded="false"]').first()
+    const entry = page.locator('[data-page-destination="library"]:visible [data-slot="library-matrix"] tr button[aria-expanded]').first()
     await expect(entry).toBeVisible()
+    await expect(entry).toHaveAttribute('aria-expanded', 'false')
     await entry.click()
     await expect(entry).toHaveAttribute('aria-expanded', 'true')
   }

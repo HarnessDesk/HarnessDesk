@@ -3893,7 +3893,6 @@ for (const theme of WALL_THEMES) for (const width of WALL_WIDTHS) {
   })
   for (const destination of WALL_DESTINATIONS.filter(destination => destination.gitRef)) {
     test(`C10 exhaustive popup contracts ${destination.id} at ${width} in ${theme}`, async ({ page }) => {
-      test.fixme(true, 'Controller decision pending: refs rail requires a panel at least 640px wide; the preview allocates 400px.')
       await expectDestinationPopupContracts(page, destination, theme, width)
     })
   }

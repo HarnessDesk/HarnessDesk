@@ -3,7 +3,7 @@ import { MemberHoverCard, type MemberCardFacts } from '../components/AgentCards'
 import { BudgetFooter } from '../components/TeamRoomPane'
 import { itemId } from '@harnessdesk/protocol'
 import { Publication } from '../components/Publication'
-import { Button, SubjectActionsMenu } from '../design'
+import { Button, SubjectActionsMenu, HeaderStatusGroup, HeaderStatusReading } from '../design'
 import { useSnapshot } from '../state/context'
 import { triggerBudgetState } from './intake-fixture'
 const MemberFactsProbe = () => {
@@ -31,6 +31,7 @@ export const PopupWall = () => {
       case 'metered': return <MeteredMenuExample />
       case 'info': return <InfoCardExample />
       case 'info-and-menu': return <><InfoCardExample /><MenuExample /></>
+      case 'header-info': return <HeaderStatusGroup><HeaderStatusReading label="Status" detail="Idle"><Button variant="ghost">Frame status facts</Button></HeaderStatusReading></HeaderStatusGroup>
       case 'member-info': return <MemberFactsProbe />
       case 'budget-info': return <BudgetFactsProbe />
       case 'publication-info': return <PublicationFactsProbe />
