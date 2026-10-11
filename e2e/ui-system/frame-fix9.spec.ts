@@ -81,3 +81,14 @@ test('FIX9 hourly tokens name the subset and the missing amount', async ({ page 
   await expect(activity).toContainText('Tokens with a recorded hour')
   await expect(activity.getByText('200 tokens have no recorded hour.', { exact: true })).toHaveCount(1)
 })
+
+test('FIX9 Projects names an empty current project beside spend elsewhere', async ({ page }) => {
+  await openFrame(page, 'frame-wall=dashboard&frame-view=projects&frame-fix9-project=empty')
+  for (const view of ['goal', 'agent']) {
+    await page.getByRole('combobox', { name: 'Project usage view' }).selectOption(view)
+    await expect(page.getByRole('region', { name: `${view === 'goal' ? 'Team' : 'Agent'} usage in storefront`, exact: true })).toContainText('No Team usage in storefront in the last 30 days')
+  }
+  await openFrame(page, 'frame-wall=dashboard&frame-view=projects&frame-fix9-project=none')
+  await expect(page.getByText('Open a project to see its Team usage.', { exact: true })).toBeVisible()
+})
+

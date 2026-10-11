@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { InsightDimension, InsightReport, RuntimeId } from '@harnessdesk/protocol'
 
+import { folderName } from '../lib/projects'
 import { commonRowNote, metricWords } from '../lib/insight'
 import { useDestinationActive } from '../panels/destination-page'
 import { useSnapshot, useStore } from '../state/context'
@@ -99,11 +100,11 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
     })()
     return () => { current = false }
   }, [active, store, report, root, teamIds, history, historyAttempt])
-  if (!root) return <Note>Choose a project to see its Teams.</Note>
+  if (!root) return <Note>Open a project to see its Team usage.</Note>
   if (problem) return <Note tone="warn">{problem}</Note>
   if (!report) return <Note>Reading recorded usage…</Note>
   const hasRecords = report.recordedSpend.length > 0 || report.breakdowns.some(group => group.rows.length > 0) || Object.values(report.totals).some(value => value.value !== null && value.value > 0)
-  if (!hasRecords && report.sources.every(source => source.problem === null) && report.scan !== 'partial') return <Text role="muted">No usage recorded in this range</Text>
+  if (!hasRecords && report.sources.every(source => source.problem === null) && report.scan !== 'partial') return <Text role="muted">{`No Team usage in ${folderName(root)} in the last ${(rangeDays ?? days) === 1 ? '24 hours' : `${rangeDays ?? days} days`}`}</Text>
   const failedSources = report.sources.filter((source) => source.problem !== null)
   const hasAmounts = report.totals.usd.value !== null || (breakdown?.rows.some(row => row.amounts.usd.value !== null) ?? false) || breakdown?.unattributed.usd.value != null
   const incomplete = report.scan === 'partial'

@@ -521,7 +521,7 @@ it('shows one empty line without warnings or a shorter-range shortcut when no us
   const snapshot = emptySnapshot()
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
   await act(async () => root.render(<StoreProvider store={store}><InsightUsage root="/work/storefront" runtime={null} view="goal" onGoal={() => {}} report={empty} onShorterRange={() => {}} rangeDays={30} /></StoreProvider>))
-  expect(container.textContent).toBe('No usage recorded in this range')
+  expect(container.textContent).toBe('No Team usage in storefront in the last 30 days')
   expect(container.querySelector('[data-slot="banner"]')).toBeNull()
 })
 
@@ -530,4 +530,17 @@ it.each(['goal', 'agent'] as const)('names an unattributed record by its display
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
   await act(async () => root.render(<StoreProvider store={store}><InsightUsage root="/work/storefront" runtime={null} view={view} onGoal={() => {}} report={unattributed} /></StoreProvider>))
   expect(container.textContent).toBe(`Recorded usage has no ${view === 'goal' ? 'Team' : 'agent'} attribution.`)
+})
+
+it('names the current project and range when no Team usage was recorded in either grouping', async () => {
+  const base = report()
+  const empty = { ...base, breakdowns: [], recordedSpend: [], totals: Object.fromEntries(Object.entries(base.totals).map(([key, value]) => [key, { ...value, value: 0 }])) as typeof base.totals }
+  const snapshot = emptySnapshot()
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  for (const view of ['goal', 'agent'] as const) {
+    await act(async () => root.render(<StoreProvider store={store}><InsightUsage root="/work/storefront" runtime={null} view={view} onGoal={() => {}} report={empty} rangeDays={30} /></StoreProvider>))
+    expect(container.textContent).toBe('No Team usage in storefront in the last 30 days')
+  }
+  await act(async () => root.render(<StoreProvider store={store}><InsightUsage root={null} runtime={null} view="goal" onGoal={() => {}} report={empty} /></StoreProvider>))
+  expect(container.textContent).toBe('Open a project to see its Team usage.')
 })

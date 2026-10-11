@@ -315,6 +315,19 @@ export const FrameWall = () => {
       }) as typeof next.transport.request
     }
 
+    if (destination === 'dashboard' && query.has('frame-fix9-project')) {
+      const workspace = { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1, repo: { root: '/work/storefront' } }
+      Object.assign(snapshot, { workspace: query.get('frame-fix9-project') === 'none' ? null : workspace })
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = (async (method, params) => {
+        const report = await request(method, params as never)
+        if (method !== 'insight/usage') return report
+        const one = report as import('@harnessdesk/protocol').InsightReport
+        return { ...one, breakdowns: [], recordedSpend: [], sources: [], gaps: [],
+          totals: Object.fromEntries(Object.entries(one.totals).map(([key, value]) => [key, { ...value, value: 0 }])) }
+      }) as typeof next.transport.request
+    }
+
     if (destination === 'dashboard' && query.get('frame-fix9-hours') === '1') {
       const request = next.transport.request.bind(next.transport)
       next.transport.request = (async (method, params) => {
