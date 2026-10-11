@@ -14,7 +14,7 @@ import { Input } from '../ui/input'
 import { dotTone as dotToneClass, inkTint, inkTone, softTint, softTone, type Tint, type Tone } from '../ui/tone'
 import { GroupLabel } from '../ui/group-label'
 import { useInPageSection } from '../ui/section'
-import { ChoiceRow, choiceListClass, dialogStackClass, FieldsetLegend, stepRadio, useDialogForm } from './DialogForm'
+import { ChoiceRow, choiceListClass, dialogSectionStackClass, dialogStackClass, FieldsetLegend, stepRadio, useDialogForm } from './DialogForm'
 import styles from './Settings.module.css'
 import { switcherTrack, switcherItem } from '../ui/switcher'
 
@@ -469,11 +469,15 @@ export const Field = ({
 /**
  * Fields, stacked — the body of a dialog that asks for more than one thing.
  * Inside a dialog it keeps the dialog's form rhythm (`DialogForm`): 16px
- * between fields, a legend 6px over its group.
+ * between fields by default, a named 24px section gap when requested, and a
+ * legend 6px over its group.
  */
-export const FormStack = ({ children }: { children: ReactNode }) => {
+export const FormStack = ({ children, spacing = 'form' }: { children: ReactNode; spacing?: 'form' | 'section' }) => {
   const inDialog = useDialogForm()
-  return <div className={inDialog ? dialogStackClass : styles.formStack} data-slot="form-stack">{children}</div>
+  const className = inDialog
+    ? cx(dialogStackClass, spacing === 'section' && dialogSectionStackClass)
+    : styles.formStack
+  return <div className={className} data-slot="form-stack" data-spacing={spacing}>{children}</div>
 }
 
 /**
@@ -920,6 +924,7 @@ const RowTitle = ({ kind, title, chip }: { kind: 'setting' | 'record'; title: Re
 
 export const Row = ({
   layout = 'default',
+  reserveChevronSlot = false,
   mark,
   face,
   kind = 'setting',
@@ -933,6 +938,8 @@ export const Row = ({
 }: {
   /** Record titles stay whole; narrow rows put metadata and state below. */
   layout?: 'default' | 'record'
+  /** Keep the trailing control in the same column as row buttons without showing a drill-in mark. */
+  reserveChevronSlot?: boolean
   mark?: ReactNode
   /** A face that draws its own ground or ring, without another tile. */
   face?: ReactNode
@@ -953,7 +960,12 @@ export const Row = ({
       <RowTitle kind={kind} title={title} chip={titleChip} />
       {desc ? <RowDesc truncate={truncateDesc}>{desc}</RowDesc> : null}
     </span>
-    {control ? <span className={styles.rowCtl} data-slot="row-ctl">{control}</span> : null}
+    {control ? reserveChevronSlot ? (
+      <span className={styles.rowEnd} data-slot="row-end">
+        <span className={styles.rowCtl} data-slot="row-ctl">{control}</span>
+        <span className={styles.rowChev} data-slot="row-chevron-space" aria-hidden="true" />
+      </span>
+    ) : <span className={styles.rowCtl} data-slot="row-ctl">{control}</span> : null}
   </div>
 )
 

@@ -153,7 +153,7 @@ const EmptyState = (allProps: EmptyStateProps) => {
           <p className="text-base text-(--hd-muted-foreground)">{description}</p>
         )}
       </div>
-      {children != null && <div className="mt-2 flex w-full flex-col gap-2">{children}</div>}
+      {children != null && <div className="mt-2 flex w-full flex-col items-center gap-2">{children}</div>}
       {footer != null && <div className="mt-1 text-xs text-(--hd-muted-foreground)">{footer}</div>}
     </div>
   )

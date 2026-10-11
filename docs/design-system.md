@@ -1372,6 +1372,12 @@ Whether this part is drawn inside a dialog's body.
 
 The class a dialog's body and an in-dialog `FormStack` share.
 
+### `dialogSectionStackClass`
+
+`packages/ui/src/design/patterns/DialogForm.tsx`
+
+A named group separation for related controls inside a dialog form.
+
 ### `FieldsetLegend`
 
 `packages/ui/src/design/patterns/DialogForm.tsx`
@@ -2134,7 +2140,8 @@ one long label ("Detail optional").
 
 Fields, stacked — the body of a dialog that asks for more than one thing.
 Inside a dialog it keeps the dialog's form rhythm (`DialogForm`): 16px
-between fields, a legend 6px over its group.
+between fields by default, a named 24px section gap when requested, and a
+legend 6px over its group.
 
 ### `Note`
 

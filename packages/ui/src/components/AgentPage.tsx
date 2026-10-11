@@ -26,7 +26,6 @@ import {
   fixWords,
   isAgentFolder,
   markFor,
-  originWords,
   projectName,
   sameSeat,
   shadowWords,
@@ -38,7 +37,7 @@ import { ceilingTitle, flagWords, runtimeHolds } from '../lib/ceilings'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { AgentSeatCosts } from './AgentSeatCosts'
-import { AgentIcon, PlusIcon, TrashIcon, CopyIcon, FolderIcon, FileIcon, ShieldIcon, ClockIcon } from './Icons'
+import { PlusIcon, TrashIcon, CopyIcon, FolderIcon, FileIcon, ShieldIcon, ClockIcon } from './Icons'
 import {
   Banner,
   Chip,
@@ -72,6 +71,7 @@ import {
   useSortable,
 } from '../design'
 import { AgentAttachments } from './AgentAttachments'
+import { AgentFace } from './AgentFace'
 import { AgentFields, AgentPageSections, FieldEditDialog, PreferFieldDialog } from './AgentFields'
 import { AgentNotes } from './AgentNotes'
 import { CeilingUpdate } from './CeilingUpdate'
@@ -216,18 +216,17 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
   return (
     <>
       <DestinationBar place={name} parents={[{ label: 'Agents', run: onBack }]}
-        mark={<AgentIcon size={16} />} state={definition ? <Chip label={ceilingWords(definition.ceiling)} tone="neutral" title={ceilingFlag ?? undefined} /> : undefined}
+        mark={<AgentFace entry={entry} />} state={definition ? <Chip label={ceilingWords(definition.ceiling)} tone="neutral" title={ceilingFlag ?? undefined} /> : undefined}
         verb={definition ? { label: `Start a conversation as ${definition.name}`, run: start } : undefined}
         more={close => <>
           {canStartHigher && <MenuItem icon={<ShieldIcon size={14} />} label="Start at a higher ceiling…" onSelect={() => { setStartingHigher(true); close() }} />}
           {targets.length > 0 && <MenuItem icon={<CopyIcon size={14} />} label="Customize…" onSelect={() => { setCustomizing(true); close() }} />}
-          {definition && snapshot.agentsProject && <MenuItem icon={<ClockIcon size={14} />} label="Every time…" onSelect={() => { setEveryTime(true); close() }} />}
+          {definition && snapshot.agentsProject && <MenuItem icon={<ClockIcon size={14} />} label="Run automatically…" onSelect={() => { setEveryTime(true); close() }} />}
           {folder && <MenuItem icon={<FileIcon size={14} />} label="Open file" onSelect={() => { openFile(); close() }} />}
           {folder && <MenuItem icon={<FolderIcon size={14} />} label="Reveal" onSelect={() => { void store.revealAgent(entry.id, entry.origin); close() }} />}
           {folder && entry.origin !== 'builtin' && <MenuItem icon={<TrashIcon size={14} />} label="Remove…" danger onSelect={() => { setRemoving(true); close() }} />}
-        </>} />
+      </>} />
       {definition?.description && <PageExplanation>{definition.description}</PageExplanation>}
-      <PageExplanation>{originWords(entry.origin, project)}</PageExplanation>
 
       {(folder || definition) && (
         <Section title="Agent">
@@ -422,6 +421,7 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
         <TriggerCreate
           root={snapshot.agentsProject}
           opens={{ agent: entry.id }}
+          dialogTitle={`Run ${name} automatically`}
           onClose={() => setEveryTime(false)}
           onSaved={() => setEveryTime(false)}
         />

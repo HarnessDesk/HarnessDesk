@@ -105,6 +105,14 @@ it('gives marked rows and marked row buttons the same stable mark slot', () => {
   expect(markup.match(/data-slot="row-mark"/g)).toHaveLength(2)
 })
 
+it('reserves the drill-in column for a static row without drawing a chevron', () => {
+  const markup = renderToStaticMarkup(<Row title="Shadowed copy" reserveChevronSlot control={<i>Shadowed</i>} />)
+  expect(markup).toMatch(/data-slot="row-end"[^>]*>[\s\S]*data-slot="row-ctl"[\s\S]*data-slot="row-chevron-space"/)
+  expect(markup).not.toContain('chevron-right')
+  expect(css).toMatch(/\.rowEnd\s*\{[^}]*gap:\s*var\(--hd-space-6\)/s)
+  expect(css).toMatch(/\.rowChev:empty\s*\{[^}]*width:\s*var\(--hd-space-4\)/s)
+})
+
 it('the pattern size brings the behaviour and the variant, and none of the box', () => {
   // The guard on the guard: the sheet says the box and the ink, so a tie on
   // any of them would be found.

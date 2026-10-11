@@ -180,8 +180,19 @@ it('lists three sections in precedence order, each naming the folder it reads', 
   const projectSource = container.querySelector('section[aria-label="In storefront"] [data-slot="middle-truncate"]')!
   expect(projectSource.textContent).toContain('storefront/.harnessdesk/agents')
   expect(projectSource.getAttribute('title')).toBe('/w/storefront/.harnessdesk/agents')
-  expect(sectionText('Yours')).toContain('Read from ~/.harnessdesk/agents')
+  expect(sectionText('Yours')).toContain('~/.harnessdesk/agents')
   expect(sectionText('Built in')).toContain('Ships with HarnessDesk')
+})
+
+it('middle-truncates the Yours source path and keeps its full title', async () => {
+  mount()
+  await act(async () => {})
+  const note = container.querySelector<HTMLElement>('section[aria-label="Yours"] [data-slot="note"]')!
+  const path = note.querySelector<HTMLElement>('[data-slot="middle-truncate"]')
+  expect(path).not.toBeNull()
+  expect(path?.getAttribute('title')).toBe('/home/dev/.harnessdesk/agents')
+  expect(path?.textContent).toContain('~/.harnessdesk/agents')
+  expect(note.dataset['layout']).toBe('inline')
 })
 
 it('shows each Agent with what it is for, its ceiling as asked, and the seat it would take here', () => {
@@ -260,7 +271,7 @@ it('middle-truncates a project Agents folder in its quiet source note', async ()
   expect(note).not.toBeNull()
   expect(note?.textContent).toContain('storefront/.harnessdesk/agents')
   expect(note?.getAttribute('title')).toBe('/w/storefront/.harnessdesk/agents')
-  expect(note?.className).toContain('flex-1')
+  expect(note?.className).not.toContain('flex-1')
   expect(note?.closest('[data-slot="note"]')?.getAttribute('data-layout')).toBe('inline')
 })
 
@@ -284,16 +295,12 @@ it('keeps an Agent that cannot be seated here, with the first reason on screen',
 
 it('lists a shadowed copy where it lives, in the Plugins-superseded idiom — a value and a sentence', () => {
   mount()
-  const text = sectionText('Built in')
-  expect(text).toContain('Shadowed')
-  expect(text).toContain('Shadowed by the one in storefront')
-  // A copy that is not used is a fact, not a warning (usage.ts, `tone`).
-  const value = [...container.querySelectorAll('section[aria-label="Built in"] *')]
-    .find((one) => one.children.length === 0 && one.textContent === 'Shadowed')
-  expect(value).toBeDefined()
-  expect(value?.closest('[data-tone]')).toBeNull()
-  expect(value?.className ?? '').not.toContain('warning')
-  expect(value?.closest('[data-slot="row"]')?.className).not.toContain('opacity-50')
+  const row = [...container.querySelectorAll('section[aria-label="Built in"] [data-slot="row"]')]
+    .find((one) => one.textContent?.includes('Shadowed by the one in storefront'))!
+  const chip = row.querySelector<HTMLElement>('[data-slot="row-ctl"] [data-slot="chip"]')
+  expect(row.textContent).toContain('Shadowed by the one in storefront')
+  expect(chip?.textContent).toBe('Shadowed')
+  expect(chip?.getAttribute('data-tone')).toBe('neutral')
 })
 
 it('lists a file that will not parse, with why', () => {

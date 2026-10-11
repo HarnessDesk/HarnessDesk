@@ -22,6 +22,12 @@
   gap: var(--hd-space-4);
 }
 
+/* A section contains related controls whose separation follows the dialog's
+   larger group rhythm rather than the ordinary field-to-field step. */
+.sectionStack {
+  gap: var(--hd-space-6);
+}
+
 /* --- the legend ----------------------------------------------------------
    The name over a group of controls, drawn exactly as a Field's label so a
    form reads as one list of named things. */

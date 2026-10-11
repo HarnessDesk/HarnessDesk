@@ -6,21 +6,19 @@ import {
   agentName,
   bySection,
   firstReason,
-  markFor,
   originWords,
   projectName,
   seatTaken,
 } from '../lib/agents'
 import { shortPath } from '../lib/paths'
 import { projectRootOf } from '../lib/projects'
-import { brandForRuntime } from '../lib/brands'
 import { useSnapshot, useStore } from '../state/context'
 import { DestinationBar, useDestinationPage } from '../panels/destination-page'
-import { RuntimeMark } from './BrandIcons'
+import { AgentFace } from './AgentFace'
 import { AgentNew } from './AgentNew'
 import { AgentPage } from './AgentPage'
 import { CeilingChip } from './CeilingChip'
-import { Button, Chip, EmptyState, IconTile, MiddleTruncate, Monogram, Note, PageExplanation, Row, RowButton, RowValue, Rows, Section } from '../design'
+import { Button, Chip, EmptyState, MiddleTruncate, Note, PageExplanation, Row, RowButton, RowValue, Rows, Section } from '../design'
 
 /**
  * The Agents window's overview: who does the work.
@@ -49,31 +47,21 @@ const footnote = (origin: AgentOrigin, folder: string | null, home: string | nul
   if (origin === 'builtin') return 'Ships with HarnessDesk, and changes only when HarnessDesk does.'
   const fullPath = folder ? `${folder}/agents` : null
   const where = fullPath ? shortPath(fullPath, home) : 'the Agents folder'
-  if (origin === 'user') return `Read from ${where} — yours, on this Mac only.`
+  if (origin === 'user') {
+    if (!fullPath) return `Read from ${where} — yours, on this Mac only.`
+    return <>
+      <span>Read from</span>
+      <MiddleTruncate title={fullPath} aria-label={fullPath}>{where}</MiddleTruncate>
+      <span>— yours, on this Mac only.</span>
+    </>
+  }
   if (!folder) return `Read from ${where}, and committed with the code: everyone who clones it has these.`
   const suffix = where.split(/[\\/]/u).filter(Boolean).slice(-3).join('/')
   return <>
     <span>Read from</span>
-    <MiddleTruncate grow prefix="…/" title={fullPath ?? undefined} aria-label={fullPath ?? undefined}>{suffix}</MiddleTruncate>
+    <MiddleTruncate prefix="…/" title={fullPath ?? undefined} aria-label={fullPath ?? undefined}>{suffix}</MiddleTruncate>
     <span>, and committed with the code: everyone who clones it has these.</span>
   </>
-}
-
-const initials = (name: string): string =>
-  (name.match(/[\p{L}\p{N}]+/gu) ?? []).slice(0, 2).map((part) => Array.from(part)[0] ?? '').join('').toLocaleUpperCase()
-
-/** A seated Agent wears its runtime's mark; one without a seat gets its own initials. */
-const AgentFace = ({ entry }: { readonly entry: AgentEntry }) => {
-  const snapshot = useSnapshot()
-  const candidate = seatTaken(snapshot.agentPlans.get(entry.id))
-  const runtime = candidate ? markFor(candidate, snapshot.runtimes) : null
-  return (
-    <IconTile shape="face" {...(candidate ? { title: candidate.runtimeName } : {})}>
-      {runtime && brandForRuntime(runtime)
-        ? <RuntimeMark runtime={runtime} size={16} />
-        : <Monogram>{initials(entry.definition?.name ?? entry.id)}</Monogram>}
-    </IconTile>
-  )
 }
 
 export const AgentsRosterSection = ({
@@ -161,13 +149,14 @@ export const AgentsRosterSection = ({
               {shadowed.map(({ winner, path }) => (
                 <Row
                   key={path}
+                  reserveChevronSlot
                   kind="record"
                   face={<AgentFace entry={winner} />}
                   title={agentName(winner)}
                   desc={`Shadowed by ${winner.origin === 'user' ? 'yours' : `the one in ${project ?? 'this project'}`}, which does the same job. This copy is not used.`}
                   /* A copy that is not used, said as a fact rather than a
                      warning — the way a superseded plugin's row says it. */
-                  control={<RowValue>Shadowed</RowValue>}
+                  control={<Chip tone="neutral">Shadowed</Chip>}
                 />
               ))}
             </Rows>
@@ -175,7 +164,7 @@ export const AgentsRosterSection = ({
             <Note
               ink="muted"
               inset="row"
-              {...(origin === 'project' && projectFolder ? { layout: 'inline' as const } : {})}
+              {...((origin === 'project' && projectFolder) || (origin === 'user' && snapshot.stateDir) ? { layout: 'inline' as const } : {})}
             >
               {footnote(origin, origin === 'user' ? snapshot.stateDir : projectFolder, snapshot.home)}
             </Note>

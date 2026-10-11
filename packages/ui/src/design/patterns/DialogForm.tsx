@@ -43,6 +43,9 @@ export const useDialogForm = (): boolean => useContext(DialogFormContext)
 /** The class a dialog's body and an in-dialog `FormStack` share. */
 export const dialogStackClass = styles.stack
 
+/** A named group separation for related controls inside a dialog form. */
+export const dialogSectionStackClass = styles.sectionStack
+
 /**
  * The name over a group, as a `Field` names its control. `SectionHead` draws
  * this inside a dialog, so a group label written for a page lands attached
