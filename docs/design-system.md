@@ -37,6 +37,15 @@ on hover, as `title` — same string, later. The tests, the exceptions (a
 refused row keeps its reason on screen; Settings is a document, not a menu)
 and the ledger of what moved are docs/design.md.
 
+Menus fit their rows within 200–340px: a 6px plate inset, shared 16px
+content edges, and 12px between row text and a one-line trailing value.
+Action menus give every row an icon, including destructive rows in danger
+ink; choice menus have no row icons and put the selected check at the end.
+Agent/account lists show each entry's mark. Labels are unique and group
+labels have no icons. Permissions keep visible reasons only for Full access
+and Never ask; a model update is one row with its command in the title.
+The popup-wall contract enforces the full rule in docs/design.md.
+
 ## Foundation
 
 ### Cjk faces
@@ -2247,5 +2256,5 @@ list only goes down, except when the audit learns to see something it was blind 
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 76 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 21 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2840 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `screenLayout` | 2838 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 

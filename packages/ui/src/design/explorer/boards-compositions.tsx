@@ -3040,7 +3040,7 @@ export const TopBarBoard = () => {
       verb={{ label: 'Decide this run', run: () => {} }}
       tools={<><Button variant="ghost" size="icon-sm" title="Details"><PlanIcon /></Button><Button variant="ghost" size="icon-sm" title="Changes"><DiffIcon /></Button><Button variant="ghost" size="icon-sm" title="Activity"><HistoryIcon /></Button><Button variant="ghost" size="icon-sm" title="Browser"><GlobeIcon /></Button><Button variant="ghost" size="icon-sm" title="Toggle panel"><PanelIcon /></Button></>}
       view={{ narrowed: width === 720, content: close => <Menu close={close}><MenuItem label="All" onSelect={close} /><MenuItem label="Open" onSelect={close} /><MenuItem label="Blocking" onSelect={close} /></Menu> }}
-      more={close => <MenuItem label="Wrap…" onSelect={close} />} />
+      more={close => <MenuItem icon={<CommentIcon />} label="Wrap…" onSelect={close} />} />
     <TopBar place="A session without layout choices" verb={{ label: 'New job', icon: <PlusIcon />, run: () => {} }} view={{ disabled: 'This view has no layout choices', content: () => null }} more={() => null} />
   </section>)}</div>
 }

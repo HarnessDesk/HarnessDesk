@@ -146,10 +146,10 @@ export const Popover = ({
   /** Remove horizontal inset and keep icon marks full-size in a tight trigger. */
   tightTrigger?: boolean
   /**
-   * `trigger` follows the anchor width; `wide` uses the foundation's shared
-   * wide-panel width while still respecting the viewport clamp.
+   * Every menu sizes to its content within the foundation's shared minimum
+   * and maximum. `wide` gives nested choices the wide menu presentation.
    */
-  panelWidth?: 'content' | 'trigger' | 'wide'
+  panelWidth?: 'content' | 'wide'
   icons?: MenuIcons
   onOpenChange?: (open: boolean) => void
   /** Colours the trigger by risk, for controls where neutral would mislead. */
@@ -278,7 +278,6 @@ export const Popover = ({
               data-menu-icons={icons}
               aria-labelledby={triggerId}
               className={styles.panel}
-              data-width={panelWidth === 'trigger' || panelWidth === 'wide' ? panelWidth : undefined}
               initialFocus={false}
               finalFocus={() => {
                 const requested = externalReturnFocus.current
@@ -334,7 +333,7 @@ export const PopoverSurface = forwardRef<
     data-popup-kind={wide ? 'wide-menu' : 'menu'}
     data-menu-icons={icons}
     {...(limit ? { 'data-limit': limit } : {})}
-    {...(anchor ? { 'data-width': 'trigger' } : {})}
+    {...(anchor ? { 'data-anchor': '' } : {})}
     className={`${styles.panel}${className ? ` ${className}` : ''}`}
   />
   if (!anchor) return surface

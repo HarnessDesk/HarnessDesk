@@ -52,7 +52,7 @@
 .panel { position: static; }
 
 /* An inline typing picker floats above its composer's containing block. */
-.panel[data-limit='trigger']:not([data-width='trigger']) {
+.panel[data-limit='trigger']:not([data-anchor]) {
   position: absolute;
   right: 0;
   bottom: calc(100% + var(--hd-space-1-5));

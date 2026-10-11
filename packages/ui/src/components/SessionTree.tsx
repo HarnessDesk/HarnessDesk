@@ -233,7 +233,7 @@ const SessionRow = memo(({
       icon={<SessionHoverCard session={summary}><span aria-label={agentName}>{runtime ? <RuntimeMark runtime={runtime} size={16} /> : <AgentIcon size={16} />}</span></SessionHoverCard>}
       trailing={trailing} action={{ label: `Actions for ${label}`, expanded: menu.at !== null,
         onClick: event => { rowRef.current?.focus({ preventScroll: true }); menu.open(event) } }} />}
-      <ContextMenu at={menu.at} label={`Actions for ${label}`} onClose={menu.close} icons="none">
+      <ContextMenu at={menu.at} label={`Actions for ${label}`} onClose={menu.close} icons="all">
         <MenuItem
           icon={<PencilIcon size={13} />}
           label="Rename"
@@ -575,7 +575,7 @@ const GoneFolders = ({ folders }: { folders: readonly string[] }) => {
       <LeftColumnRow label={folders.length === 1 ? '1 folder is gone' : `${folders.length} folders are gone`}
         icon={<FolderGoneIcon size={16} />} title="Conversations in a folder that no longer exists are not listed here. They are kept, and search and the archive still find them."
         onClick={menu.open} action={{ label: 'Actions for gone folders', expanded: menu.at !== null, onClick: menu.open }} />
-      <ContextMenu at={menu.at} label="Actions for gone folders" onClose={menu.close} icons="none">
+      <ContextMenu at={menu.at} label="Actions for gone folders" onClose={menu.close} icons="all">
         <MenuItem
           icon={<FolderGoneIcon size={13} />}
           label={`Forget ${count}`}

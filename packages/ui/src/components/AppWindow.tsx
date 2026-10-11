@@ -94,7 +94,7 @@ const AppWindowFrame = ({ owner, label, children, responsive = false, onBack, on
     parent: heading && heading.place !== label && onBack ? { label, run: onBack } : undefined,
     lead: sidebarPlacement(snapshot) !== 'column' ? <WindowControls /> : undefined,
     corner: columnWidth === 0,
-    more: close => <MenuItem label="Back to app" onSelect={() => { onClose(); close() }} />,
+    more: close => <MenuItem icon={<ArrowLeftIcon size={16} />} label="Back to app" onSelect={() => { onClose(); close() }} />,
   })
   const receiveHeading = (next: PageHeadingData | null) => setHeading(current => current?.place === next?.place ? current : next)
   const [host, setHost] = useState<HTMLDivElement | null>(null)

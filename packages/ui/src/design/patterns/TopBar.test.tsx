@@ -215,7 +215,7 @@ test('a worded verb folds last into the first More item with its action and retu
   const run = vi.fn()
   const slots: Partial<TopBarProps> = {
     verb: { label: 'Decide this run', run },
-    more: () => <MenuItem label="Existing action" onSelect={noop} />,
+    more: () => <MenuItem icon={<PlusIcon />} label="Existing action" onSelect={noop} />,
   }
   // Native reserve leaves 137.82 after the first two stages; only removing
   // the 110px worded button can bring the actual modeled title above 180.

@@ -3,7 +3,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { runtimeId, sessionId, sessionKey, type AccountStatus, type RuntimeId, type RuntimeInfo, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, type AccountStatus, type RuntimeId, type RuntimeInfo, type Session, type UsageLane, type UsageReport } from '@harnessdesk/protocol'
 
 import { accountKey } from '../lib/accounts'
 import { StoreProvider } from '../state/context'
@@ -191,8 +191,9 @@ it('marks the default in the menu, chooses on a seat’s press, and signs out of
 it('opens above the footer row at a width of its own, not the sidebar’s', () => {
   mount()
   click(row())
-  const panel = document.querySelector('[role="menu"]')?.closest('[data-width]')
-  expect(panel?.getAttribute('data-width')).toBe('wide')
+  const panel = document.querySelector('[role="menu"]')?.closest('[data-popup-kind]')
+  expect(panel?.getAttribute('data-width')).toBeNull()
+  expect(panel?.getAttribute('data-popup-kind')).toBe('wide-menu')
   expect(panel?.closest('[data-side]')?.getAttribute('data-side')).toBe('top')
 })
 
@@ -257,6 +258,56 @@ it('expands Usage remaining inline and lists the current account windows', () =>
   // The fold keeps the windows and their scoped action; Dashboard stays in nav.
   expect(document.querySelector('[data-usage-details] [role="menuitem"]')?.textContent).toContain('Open usage')
   expect(document.querySelector('[data-usage-details] [data-meter-column="reset"] [title]')?.getAttribute('title')).toMatch(/^resets /)
+})
+
+it('shows reporting agents first and folds unreported agents into one note while preserving sign-in', () => {
+  const one = runtime(runtimeId('agent-one'), 'Agent One', 'agent-one')
+  const two = runtime(runtimeId('agent-two'), 'Agent Two', 'agent-two')
+  const three = runtime(runtimeId('agent-three'), 'Agent Three', 'agent-three')
+  const four = runtime(runtimeId('agent-four'), 'Agent Four', 'agent-four')
+  const report = (runtimeId: RuntimeId) => ({
+    ...usageReport(runtimeId, [lane({ id: 'weekly', label: 'Weekly', usedPercent: 32 })]),
+    account: null,
+  })
+  const foreignKey = sessionKey(CODEX, sessionId('foreign-session'))
+  const foreignSession = { id: sessionId('foreign-session'), runtime: CODEX, cwd: '/preview/project' } as Session
+  mount({
+    runtimes: [codex, one, two, three, four],
+    usage: [report(CODEX), report(one.id)],
+    activeRuntime: one.id,
+    activeSessionKey: foreignKey,
+    sessions: new Map([[foreignKey, foreignSession]]),
+    accountsByRuntime: { [CODEX]: signedIn('Account Current'), [one.id]: signedIn('Account One'),
+      [two.id]: signedIn('Account Two'), [three.id]: signedIn('Account Three'), [four.id]: signedOut },
+  })
+  click(row())
+  const menu = document.querySelector('[role="menu"]')!
+  const labels = [...menu.querySelectorAll<HTMLElement>('[data-menu-label]')].map(node => node.textContent?.trim())
+  const currentUsage = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .find(item => item.querySelector('[data-menu-label]')?.textContent?.trim() === 'Usage remaining')
+  expect(currentUsage?.title?.startsWith('Agent One —')).toBe(true)
+  expect(labels.indexOf('Usage remaining')).toBeLessThan(labels.indexOf(`${codex.presentation.name} usage`))
+  expect(labels).toContain('Sign in to Agent Four')
+  expect([...menu.querySelectorAll<HTMLElement>('[data-menu-note]')].map(note => note.textContent?.trim()))
+    .toContain('No usage reported: Agent Two and Agent Three')
+  expect(labels).not.toContain('Agent Two usage')
+  expect(labels).not.toContain('Agent Three usage')
+  expect(labels).not.toContain('Agent Four usage')
+  expect(menu.querySelectorAll('[data-menu-note]')).toHaveLength(1)
+})
+
+it('shows the current seat sign-in once and keeps it out of the no-usage note', () => {
+  const one = runtime(runtimeId('agent-one'), 'Agent One', 'agent-one')
+  const two = runtime(runtimeId('agent-two'), 'Agent Two', 'agent-two')
+  mount({ runtimes: [one, two], activeRuntime: one.id,
+    accountsByRuntime: { [one.id]: signedOut, [two.id]: signedIn('Account Two') } })
+  click(row())
+  const menu = document.querySelector('[role="menu"]')!
+  const labels = [...menu.querySelectorAll<HTMLElement>('[data-menu-label]')].map(node => node.textContent?.trim())
+  expect(labels.filter(label => label === 'Sign in to Agent One')).toHaveLength(1)
+  expect(labels).not.toContain('Agent One usage')
+  expect([...menu.querySelectorAll<HTMLElement>('[data-menu-note]')].map(note => note.textContent?.trim()))
+    .toContain('No usage reported: Agent Two')
 })
 
 it.each([
@@ -503,16 +554,17 @@ it('the badge card exposes facts while scoped Usage stays in account More', () =
   expect(document.querySelector('[data-popup-kind="info-card"]')).toBeNull()
 })
 
-it('account More keeps scoped Usage routes without nested cards', () => {
+it('account More folds agents without usage into one note and exposes no empty usage action', () => {
   const { onOpenUsage } = mount()
   click(row())
   const current = document.querySelector('[role="menuitem"][data-current]')!
   click(current)
-  const usage = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(node => node.querySelector('[data-menu-label]')?.textContent === `${codex.presentation.name} usage`)!
-  expect(usage).toBeTruthy()
+  const menu = document.querySelector('[role="menu"]')!
+  const labels = [...menu.querySelectorAll<HTMLElement>('[data-menu-label]')].map(label => label.textContent?.trim())
+  expect(labels.some(label => label?.toLowerCase().includes('usage'))).toBe(false)
+  expect([...menu.querySelectorAll('[data-menu-note]')].some(note => note.textContent?.includes('No usage reported'))).toBe(true)
   expect(document.querySelector('[role="menu"] [data-slot="hover-card-trigger"]')).toBeNull()
-  click(usage)
-  expect(onOpenUsage).toHaveBeenCalledExactlyOnceWith(CODEX)
+  expect(onOpenUsage).not.toHaveBeenCalled()
   expect(document.querySelector('[data-popup-kind="info-card"]')).toBeNull()
 })
 it('is you once you have chosen: your name and your face, with the pen still beside them', () => {

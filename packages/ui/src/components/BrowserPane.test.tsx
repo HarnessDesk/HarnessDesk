@@ -587,6 +587,20 @@ describe('BrowserPane', () => {
     expect(rows.join('|')).toContain('Duplicate')
     expect(rows.join('|')).toContain('Close other tabs')
     expect(rows.join('|')).toContain('Close tabs to the right')
+    const menu = document.querySelector<HTMLElement>('[role="menu"]')!
+    expect(menu.closest('[data-popup-kind]')?.getAttribute('data-menu-icons')).toBe('all')
+    expect([...menu.querySelectorAll<HTMLElement>('[data-menu-row]')].every(row => row.querySelector('[data-menu-icon]'))).toBe(true)
+  })
+
+  it('gives every page action in the right-click menu its own icon', () => {
+    const view = addBrowserTab(browserView('https://example.test/'), 'https://next.example.test/')
+    mount(view)
+    const event = new Event('context-menu') as Event & { params?: { x: number; y: number; linkURL?: string; selectionText?: string } }
+    event.params = { x: 40, y: 20, linkURL: 'https://link.example.test/', selectionText: '' }
+    act(() => webviews()[0]?.dispatchEvent(event))
+    const menu = document.querySelector<HTMLElement>('[role="menu"]')!
+    expect(menu.closest('[data-popup-kind]')?.getAttribute('data-menu-icons')).toBe('all')
+    expect([...menu.querySelectorAll<HTMLElement>('[data-menu-row]')].every(row => row.querySelector('[data-menu-icon]'))).toBe(true)
   })
 
   it('reorders tabs by dragging one along the strip', () => {

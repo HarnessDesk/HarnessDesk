@@ -18,7 +18,7 @@ export const FRAME = {
   fold: { panelFloats: 1280, sidebarFloats: 1000 },
   page: { reading: 736, wide: 1320, gutter: 24, canvasGutter: 8 },
   rail: { rowHeight: 30, inset: 8, icon: 16, gap: 8, label: 13, line: 20, groupWeight: 500 },
-  menu: { min: 200, max: 340, padding: 4, radius: 10, rowHeight: 30, rowRadius: 6 },
+  menu: { min: 200, max: 340, padding: 6, radius: 10, rowHeight: 30, rowRadius: 6 },
   infoCard: { width: 288, padding: 12 },
   summaryKey: { page: 132, panel: 92, infoCard: 96 },
 } as const
@@ -44,7 +44,8 @@ export const FRAME_TOKENS: Readonly<Record<string, number>> = {
 /** Phase C row internals extend A's menu without rewriting its shared entry. */
 export const FRAME_MENU = {
   ...FRAME.menu,
-  icon: 16, gap: 8, rowInset: 8, labelSize: 13, labelLine: 18,
+  icon: 16, gap: 12, rowInset: 10, contentInset: 16, trailingInset: 16,
+  separatorInset: 10, labelSize: 13, labelLine: 18,
   hintSize: 12, hintLine: 16, earnedPad: 6, searchHeight: 28,
   groupSize: 12, groupWeight: 500, separator: 1,
 } as const

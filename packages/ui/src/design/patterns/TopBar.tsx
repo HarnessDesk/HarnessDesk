@@ -6,7 +6,7 @@ import { Text } from './Settings'
 import { Tooltip, TooltipTrigger, TooltipContent } from '../ui/tooltip'
 import { Menu, MenuItem, MenuSeparator } from './Menu'
 import { Popover } from './Popover'
-import { MoreIcon, CaretIcon, SlidersIcon } from '../../components/Icons'
+import { ArrowRightIcon, MoreIcon, CaretIcon, SlidersIcon } from '../../components/Icons'
 import styles from './TopBar.module.css'
 
 export interface TopBarAction {
@@ -36,6 +36,8 @@ export interface TopBarProps {
   /** Standing panel width; closed and floating panels reserve no column. */
   readonly rightColumnWidth?: number | string
   readonly more: (close: () => void) => ReactNode
+  /** The surface has a working folder and can open its terminal. */
+  readonly terminal?: boolean
   readonly extraMore?: readonly TopBarAction[]
   readonly corner?: boolean
 }
@@ -160,12 +162,12 @@ export const TopBar = (props: TopBarProps) => {
       <div ref={tools} data-topbar="tools" className={styles.fixed} data-standing={props.rightColumnWidth ? '' : undefined}
         style={props.rightColumnWidth ? { '--topbar-right-column': typeof props.rightColumnWidth === 'number' ? `${props.rightColumnWidth}px` : props.rightColumnWidth } as CSSProperties : undefined}>{props.tools}
       <div data-topbar="more" className={styles.fixed}><Popover title="More" label={<MoreIcon />}
-        triggerVariant={{ variant: 'ghost', size: 'icon-sm' }} icons="none">
+        triggerVariant={{ variant: 'ghost', size: 'icon-sm' }} icons="all">
         {close => <Menu close={close}>{(fold === 3 || settledFold === 3) && props.verb && !props.verb.icon && <>
-          <MenuItem label={props.verb.label} disabled={props.verb.disabled} onSelect={() => { props.verb?.run(); close() }} />
+          <MenuItem icon={<ArrowRightIcon size={16} />} label={props.verb.label} disabled={props.verb.disabled} onSelect={() => { props.verb?.run(); close() }} />
           <MenuSeparator />
         </>}{props.more(close)}{props.extraMore?.map(one => <MenuItem
-          key={one.label} label={one.label} disabled={one.disabled} onSelect={() => { one.run(); close() }} />)}</Menu>}
+          key={one.label} icon={one.icon ?? <ArrowRightIcon size={16} />} label={one.label} disabled={one.disabled} onSelect={() => { one.run(); close() }} />)}</Menu>}
       </Popover></div></div>
     </div>
   </Bar>

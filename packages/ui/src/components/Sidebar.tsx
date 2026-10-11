@@ -37,7 +37,7 @@ import {
   type MenuAccountFigure,
   type Tone,
 } from '../design'
-import { accountKey, accountName, accountIdentity, agentKey, tintOf, type AccountPrefs } from '../lib/accounts'
+import { accountKey, accountName, accountIdentity, agentKey, runtimeLabel, tintOf, type AccountPrefs } from '../lib/accounts'
 import { folderName, projectRootOf } from '../lib/projects'
 import { anyBroken, inForce } from '../lib/agents'
 import { livePlugins } from '../lib/plugins'
@@ -252,7 +252,7 @@ const WorktreeItems = ({ onChoose, close }: { readonly onChoose: () => void; rea
           <MenuItem icon={<PlusIcon size={14} />} label="New session" shortcut="⌘N" onSelect={() => { close(); store.newDraft() }} />
           <MenuItem icon={<TeamIcon size={14} />} label="New Team…" shortcut="⌘⇧N" {...(!hasFolder ? { disabled: 'Open a folder to start one.' } : {})} onSelect={() => { close(); onChoose() }} />
           <MenuItem
-            icon={<PlusIcon size={14} />}
+            icon={<BranchIcon size={14} />}
             label="New worktree…"
             title="Its own checkout, on a branch of its own."
             {...(!isRepo || !ready ? { disabled: true, hint: isRepo ? 'Connect an agent to work in a worktree.' : 'Worktrees need a git repository.' } : {})}
@@ -710,12 +710,25 @@ export const AccountFooter = ({
 
 /** The same plan facts as PlanMeters, in the seat's existing menu rows. */
 const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime: RuntimeId) => void; onSignIn: (runtime: RuntimeId) => void }) => {
-  const snapshot = useSnapshot(), session = useActiveSession()
+  const snapshot = useSnapshot()
   const [now, setNow] = useState(Date.now), [expanded, setExpanded] = useState<string | null>(null)
   useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 60_000); return () => window.clearInterval(timer) }, [])
   const view = describeStrip({ runtimes: snapshot.runtimes, usage: snapshot.usage, accountsByRuntime: snapshot.accountsByRuntime,
-    accountPrefs: snapshot.accountPrefs, health: snapshot.health, activeRuntime: snapshot.activeRuntime, sessionRuntime: session?.runtime ?? null, now })
+    accountPrefs: snapshot.accountPrefs, health: snapshot.health, activeRuntime: snapshot.activeRuntime, sessionRuntime: null, now })
   const meters: readonly StripMeter[] = [...(view.anchor?.kind === 'meter' ? [view.anchor.meter] : []), ...(view.rest?.meters ?? [])]
+  const signIns = view.rest?.asides.filter(aside => aside.detail === 'Needs sign-in').map(aside => aside.info) ?? []
+  const signedInIds = new Set([
+    ...(view.anchor?.kind === 'signIn' ? [view.anchor.info.id] : []),
+    ...signIns.map(info => info.id),
+  ])
+  const reportingIds = new Set(meters.map(meter => meter.runtime))
+  const noUsageNames = snapshot.runtimes
+    .filter(info => !signedInIds.has(info.id) && !reportingIds.has(info.id))
+    .map(info => runtimeLabel(info, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs))
+  const noUsageSummary = noUsageNames.length === 0 ? null
+    : noUsageNames.length === 1 ? `No usage reported: ${noUsageNames[0]}`
+      : noUsageNames.length === 2 ? `No usage reported: ${noUsageNames[0]} and ${noUsageNames[1]}`
+        : `No usage reported: ${noUsageNames[0]}, ${noUsageNames[1]} and ${noUsageNames.length - 2} more`
   return <>
     {view.anchor?.kind === 'signIn' && <MenuItem icon={<SignInIcon size={16} />} label={`Sign in to ${view.anchor.info.presentation.name}`}
       onSelect={() => { if (view.anchor?.kind === 'signIn') onSignIn(view.anchor.info.id) }} />}
@@ -725,10 +738,10 @@ const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime: RuntimeId) => v
         label={index === 0 && view.anchor?.kind === 'meter' ? 'Usage remaining' : `${meter.name}${meter.account ? ` · ${meter.account}` : ''} usage`}
         toggle={() => setExpanded(open ? null : key)} onOpen={() => onOpen(meter.runtime)} />
     })}
-    {view.rest?.asides.map(aside => <MenuItem key={aside.runtime} icon={aside.detail === 'Needs sign-in' ? <SignInIcon size={16} /> : <UsageIcon size={16} />}
-      label={aside.detail === 'Needs sign-in' ? `Sign in to ${aside.info.presentation.name}` : `${aside.info.presentation.name} usage`}
-      hint={aside.detail === 'Needs sign-in' ? undefined : aside.detail}
-      onSelect={() => aside.detail === 'Needs sign-in' ? onSignIn(aside.runtime) : onOpen(aside.runtime)} />)}
+    {signIns.map(info => <MenuItem key={info.id} icon={<SignInIcon size={16} />}
+      label={`Sign in to ${info.presentation.name}`}
+      onSelect={() => onSignIn(info.id)} />)}
+    {noUsageSummary && <MenuNote>{noUsageSummary}</MenuNote>}
   </>
 }
 const SeatUsageRows = ({ meter, now, open, label, toggle, onOpen }: { meter: StripMeter; now: number; open: boolean; label: string; toggle: () => void; onOpen: () => void }) => <>

@@ -65,6 +65,7 @@ import { Slot } from '../slots/registry'
 import {
   AlertIcon,
   AtIcon,
+  BriefIcon,
   CrossIcon,
   FileIcon,
   FolderOpenIcon,
@@ -73,6 +74,7 @@ import {
   NoteIcon,
   PaperclipIcon,
   PlusIcon,
+  ResourceIcon,
   SendIcon,
   SlashIcon,
   SparkIcon,
@@ -1251,7 +1253,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
               <MenuItem icon={<SlashIcon size={16} />} label="Slash commands" shortcut="/" onSelect={() => { onChange('/'); textarea.current?.focus() }} />
               {chipProviders.length > 0 && <>
                 <MenuLabel>Add context</MenuLabel>
-                {chipProviders.map(provider => <MenuItem key={provider.id} icon={<PaperclipIcon size={16} />} label={`${provider.label}${provider.chip?.prompt ? '…' : ''}`} title={provider.chip?.description} onSelect={() => { if (provider.chip?.prompt) setRefPrompt(provider); else addContext(provider) }} />)}
+                {chipProviders.map(provider => <MenuItem key={provider.id} icon={provider.form === 'instructions' ? <BriefIcon size={16} /> : <ResourceIcon size={16} />} label={`${provider.label}${provider.chip?.prompt ? '…' : ''}`} title={provider.chip?.description} onSelect={() => { if (provider.chip?.prompt) setRefPrompt(provider); else addContext(provider) }} />)}
                 <MenuLabel>Project</MenuLabel>
               </>}
               <MenuItem icon={<FolderOpenIcon size={16} />} label="Change project folder…" onSelect={onChooseProject} />

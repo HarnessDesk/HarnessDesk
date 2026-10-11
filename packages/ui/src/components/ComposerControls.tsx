@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { ConfigOption, OptionChoice, RuntimeId, RuntimeInfo, SeatAttachmentsRecord, SelectOption } from '@harnessdesk/protocol'
 
-import { Button, Chip, CodeText, Dialog, RowChoice, Text } from '../design'
+import { Button, Chip, Dialog, RowChoice, Text } from '../design'
 import { Badge } from '../design'
 import { runtimeLabel } from '../lib/accounts'
 import { CARRY_OPTIONS, type Carry } from '../lib/handoff'
@@ -11,6 +11,7 @@ import { brandOf } from '../lib/identity'
 import { describesEveryChoice, riskTone, selectedChoice } from '../lib/options'
 import { matchPreset, presetsFor } from '../state/presets'
 import { describeChecked, describeUpdate, describeVersion } from '../lib/versions'
+import { openExternal } from '../lib/desktop'
 import { useActiveSession, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { useSeatAgent } from '../state/seat-agent'
 import { optionsBySlot } from '../lib/composer-slots'
@@ -357,7 +358,9 @@ const ChoiceRows = ({
               icon={choiceIcon(option, choice, agent)}
               selected={choice.value === option.currentValue}
               label={choiceLabel(option, choice)}
-              {...(column && choice.description ? { hint: choice.description } : {})}
+              {...(choice.description && (option.category === '_permissions'
+                ? choice.risk === 'high' && (choice.label === 'Full access' || choice.label === 'Never ask')
+                : column) ? { hint: choice.description } : {})}
               {...(choice.description ? { title: choice.description } : {})}
               disabled={option.disabled || choice.disabled}
               onSelect={() => void (key ? store.setOption(option.id, choice.value, key) : store.setOption(option.id, choice.value))}
@@ -779,10 +782,10 @@ export const ModelControl = () => {
 }
 
 /**
- * Which build this list came from, at the foot of the menu — and, when a
- * newer one is published, the fact and the command. The list is whatever the
- * running agent declared; a model that is "missing" is nearly always an agent
- * that is behind, and this is the one place a person looks when they notice.
+ * Which build this list came from, at the foot of the menu. When a newer one
+ * is available, its install action is one row and the command stays in the
+ * title. The list is whatever the running agent declared; a model that is
+ * "missing" is nearly always an agent that is behind.
  */
 const RuntimeBuildNote = () => {
   const store = useStore()
@@ -809,18 +812,15 @@ const RuntimeBuildNote = () => {
             {checked && ` · ${checked}`}
           </div>
         )}
-        {update && (
-          /* A shade warmer than the note around it. The command is the shared
-             command block — the muted plate Settings sets a command on — on a
-             line of its own, folding only when it is wider than the menu. */
-          <Text as="div" role="muted" className="mt-1" data-testid="runtime-update">
-            {update.text}
-            {update.command && (
-              <CodeText as="pre" block ground="muted" wrap className="mt-1">{update.command}</CodeText>
-            )}
-          </Text>
-        )}
       </MenuNote>
+      {update && <MenuItem
+        label={`Update ${runtime.presentation.name} to ${runtime.update?.version ?? ''}`}
+        title={update.command ?? update.url ?? undefined}
+        onSelect={() => {
+          if (update.command) void navigator.clipboard?.writeText(update.command)
+          else if (update.url) void openExternal(update.url)
+        }}
+      />}
     </>
   )
 }
@@ -848,7 +848,7 @@ export const ModeControl = () => {
   return (
     <ComposerTrack name="mode" folded={folded} tight={tight}>
       <InToolbar refer={ref}>
-        <Popover
+        {mode.type === 'select' && mode.choices.length === 1 ? <Chip tone="neutral">{label}</Chip> : <Popover
           fullWidth
           tightTrigger={tight}
           title={folded ? `${label} — ${mode.description ?? mode.label}` : mode.description ?? mode.label}
@@ -869,7 +869,7 @@ export const ModeControl = () => {
               ))}
             </Menu>
           )}
-        </Popover>
+        </Popover>}
       </InToolbar>
     </ComposerTrack>
   )
@@ -1015,7 +1015,7 @@ export const AgentControl = () => {
             {!tight && <Chevron />}
           </>
         }
-         panelWidth="wide" icons="none">
+         panelWidth="wide" icons="all">
           {(close) => (
             <Menu close={close}>
               {session ? (
@@ -1037,21 +1037,23 @@ export const AgentControl = () => {
                       same for all of them, so N copies of it are N times the
                       height and none of the information. One runtime has
                       nowhere to hand off to. */}
-                  {others.length > 0 && (
-                    <>
-                      <MenuLabel>Hand off</MenuLabel>
-                      <MenuNote>Starts a new conversation there with what happened here.</MenuNote>
-                      {others.map((entry) => (
-                        <MenuItem
-                          key={entry.id}
-                          icon={<RuntimeMark runtime={entry} />}
-                          label={`Hand off to ${label(entry)}…`}
-                          onHighlight={() => warm(entry.id)}
-                          onSelect={() => { warm(entry.id); setHandoff(entry.id) }}
-                        />
-                      ))}
-                    </>
-                  )}
+                  {others.length > 0 && <Submenu
+                    label="Hand off to"
+                    icon={<HandoffIcon size={16} />}
+                    wide
+                    icons="all"
+                  >
+                    <MenuNote>Starts a new conversation there with what happened here.</MenuNote>
+                    {others.map((entry) => (
+                      <MenuItem
+                        key={entry.id}
+                        icon={<RuntimeMark runtime={entry} />}
+                        label={label(entry)}
+                        onHighlight={() => warm(entry.id)}
+                        onSelect={() => { warm(entry.id); setHandoff(entry.id) }}
+                      />
+                    ))}
+                  </Submenu>}
               </>
             ) : (
               <>

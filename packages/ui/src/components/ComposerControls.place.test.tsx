@@ -86,6 +86,9 @@ it('says Local on a draft in the main checkout, and names the folder and branch 
   expect(trigger()?.title).toBe('Starts in harness-desk, on main')
 
   open()
+  const popup = document.querySelector('[data-popup-kind="wide-menu"]')!
+  expect(popup.getAttribute('data-menu-icons')).toBe('none')
+  expect(popup.querySelector('[data-menu-icon]')).toBeNull()
   expect(row('Local')?.getAttribute('aria-checked')).toBe('true')
   expect(row('New worktree')?.getAttribute('aria-checked')).toBe('false')
 })

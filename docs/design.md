@@ -503,6 +503,38 @@ than an exception to it:
 Inline code inside a sentence is a `<code>` element, not `.mono`, so it picks up
 the frame the Markdown column gives it.
 
+## Menus
+
+A menu is a list of choices or actions, sized for the rows it contains. Its
+width is the widest row's content plus its insets, clamped to **200–340px**;
+it never follows the trigger or a column and never uses a fixed width. The popup
+plate has a 6px edge inset. The row plate sits inside that inset; its text (or
+its icon when the menu has icons), group labels, notes, and separators share a
+16px content edge on both sides. A trailing check, shortcut, value, or chevron
+ends 16px from the right edge, with at least 12px between it and the row body.
+Trailing values stay on one line. Names and paths can truncate; a path keeps
+its complete value in `title`.
+
+An action menu is consistent: every row has an icon, including destructive
+rows, whose icon and label use destructive ink. A choice menu has no row icons;
+the selected value gets a check at the trailing edge. This applies to model,
+mode, permissions, work-in, and sort/show menus. Agent and account lists show
+each entry's mark or avatar. A group label never gets an icon. A menu has no
+duplicate labels at one level.
+
+Second lines still have to earn their height under [The second line](#the-second-line):
+in Permissions, only **Full access** and **Never ask** keep the
+risky-choice explanation visible; other choice descriptions go in `title`.
+An identical sentence belongs once in a `MenuNote`. A menu holds rows, not
+panels: the model's update advisory is one **Update <agent> to <version>** row,
+with the install command in its title or a copy action, rather than prose and
+a code block.
+
+`FRAME_MENU` carries these measurements in `packages/ui/src/design/frame.ts`.
+The popup-wall frame contract checks every menu it opens for width limits,
+plate and content insets, one-line trailing values, label uniqueness, and a
+consistent icon policy. The rule applies equally in light and dark themes.
+
 ## The second line
 
 Almost every row in this app can carry a small grey line under its label — a menu

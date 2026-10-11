@@ -52,6 +52,12 @@ const SHOT: CapabilityContribution = {
   chip: { description: 'What the browser shows right now, as an image.' },
 }
 
+const NOTES: CapabilityContribution = {
+  kind: 'context', id: contributionId('ctx-notes'), owner: pluginInstanceId('notes#1'), revision: 0,
+  scope: { kind: 'global' }, label: 'Project notes', form: 'instructions',
+  chip: { description: 'Instructions for this project.' },
+}
+
 const RESOLVED = {
   label: 'Current page screenshot',
   text: 'The browser is on Example — https://example.test.',
@@ -62,7 +68,7 @@ const queue = vi.fn(async (_content: unknown, _key?: unknown) => true)
 const notice = vi.fn()
 const request = vi.fn(async () => RESOLVED)
 
-const mount = (imageInput: boolean, activeRuntime?: string): void => {
+const mount = (imageInput: boolean, activeRuntime?: string, contributions: readonly CapabilityContribution[] = [SHOT]): void => {
   const runtime = {
     id: 'alpha',
     name: 'Alpha Agent',
@@ -87,7 +93,7 @@ const mount = (imageInput: boolean, activeRuntime?: string): void => {
     workspace: { path: '/w', name: 'w' } as AppSnapshot['workspace'],
     sessions: new Map([[KEY, session]]),
     activeSessionKey: KEY,
-    contributions: [SHOT],
+    contributions: [...contributions],
   }
   const store = {
     subscribe: () => () => {},
@@ -124,6 +130,18 @@ const attachShot = (): void => {
   )
   click(item)
 }
+
+it('uses distinct marks for resource and instruction context actions in Add', () => {
+  mount(true, undefined, [SHOT, NOTES])
+  click(container.querySelector('button[title="Add"]'))
+  const context = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .find(item => item.querySelector('[data-menu-label]')?.textContent?.includes(label))!
+  const resourceMark = context('Current page screenshot').querySelector('[data-menu-icon] svg')?.outerHTML
+  const instructionMark = context('Project notes').querySelector('[data-menu-icon] svg')?.outerHTML
+  expect(resourceMark).toBeDefined()
+  expect(instructionMark).toBeDefined()
+  expect(resourceMark).not.toBe(instructionMark)
+})
 
 const send = async (): Promise<void> => {
   const textarea = container.querySelector('textarea')
@@ -271,4 +289,3 @@ describe('a composer in a pane of its own', () => {
     expect(params['sessionId']).toBeUndefined()
   })
 })
-

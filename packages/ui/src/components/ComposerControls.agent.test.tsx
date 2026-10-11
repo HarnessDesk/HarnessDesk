@@ -92,6 +92,33 @@ it('keeps an unavailable agent and its consequence visible while ordinary taglin
   expect(down?.title).toBe('')
   expect(ready?.textContent).not.toContain('The available agent.')
   expect(ready?.title).toBe('The available agent.')
+  expect(ready?.querySelector('[data-menu-hint]')).toBeNull()
+  expect(rows.every(row => row.querySelector('[data-menu-icon]') !== null)).toBe(true)
+})
+
+it('offers hand-off once as a submenu whose recipient rows keep their agent marks', () => {
+  const current = runtime('current', 'Current', 'The current agent.')
+  const target = runtime('target', 'Target', 'The target agent.')
+  const key = sessionKey('current', 'handoff-session')
+  const live = { id: 'handoff-session', runtime: 'current', cwd: '/preview/project', status: { type: 'idle' },
+    createdAt: 1, updatedAt: 1, turns: [], itemsLoaded: true } as unknown as Session
+  const snapshot: AppSnapshot = { ...emptySnapshot(), status: 'open', runtimes: [current, target], activeRuntime: current.id,
+    activeSessionKey: key, sessions: new Map([[key, live]]) }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, transport: { request: vi.fn(async () => null) } } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><AgentControl /></StoreProvider>))
+  const trigger = document.querySelector<HTMLButtonElement>('button[title="This conversation is with Current"]')!
+  click(trigger)
+  const handoff = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .find(one => one.querySelector('[data-menu-label]')?.textContent?.trim() === 'Hand off to')
+  expect(handoff).toBeDefined()
+  expect(document.querySelectorAll('[role="menuitemradio"]')).toHaveLength(1)
+  expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(1)
+  expect(document.body.textContent).not.toContain('Hand off to Target…')
+  click(handoff!)
+  const targetRow = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .find(one => one.querySelector('[data-menu-label]')?.textContent?.trim() === 'Target')
+  expect(targetRow?.querySelector('[data-menu-icon]')).not.toBeNull()
+  expect(targetRow?.closest('[data-popup-kind]')?.getAttribute('data-menu-icons')).toBe('all')
 })
 
 it('a conversation seated as an Agent shows the Agent and the seat it took — even with one runtime', () => {

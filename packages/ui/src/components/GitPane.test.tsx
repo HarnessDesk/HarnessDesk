@@ -602,6 +602,8 @@ it('the commit menu offers the git verbs, and cherry-pick refuses a merge', asyn
   )!
   await rightClick(row)
   const menu = document.querySelector('[role="menu"]')!
+  expect(menu.closest('[data-popup-kind]')?.getAttribute('data-menu-icons')).toBe('all')
+  expect([...menu.querySelectorAll<HTMLElement>('[data-menu-row]')].every(item => item.querySelector('[data-menu-icon]'))).toBe(true)
   expect(menu.textContent).toContain('Check out this commit…')
   expect(menu.textContent).toContain('Tag this commit…')
   expect(menu.textContent).toContain('Reset main to this commit…')
