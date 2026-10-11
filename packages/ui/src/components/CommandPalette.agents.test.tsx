@@ -186,3 +186,26 @@ it('offers no team command with no project open — a context the front door has
   type('start with a team')
   expect(document.body.querySelector('[aria-label="Command palette"] [role="option"]')).toBeNull()
 })
+
+it('Agents offers one Open row per definition until the query asks to start', async () => {
+  await mount()
+  act(() => [...document.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(one => one.textContent === 'Agents')!.click())
+  const labels = [...document.querySelectorAll('[role="option"]')].map(one => one.textContent)
+  expect(labels.filter(label => label?.includes('Open Code reviewer'))).toHaveLength(1)
+  expect(labels.some(label => label?.includes('Start as Code reviewer'))).toBe(false)
+  type('start')
+  expect(row('Start as Code reviewer')).toBeTruthy()
+})
+
+it('a start without a seat is disabled with the reason and cannot run by click or Enter', async () => {
+  const plan = { ...PLANS.get('code-reviewer')!, winner: null, candidates: [] }
+  const { store } = await mount({ agentPlans: new Map([['code-reviewer', plan]]) })
+  type('start as code reviewer')
+  const start = row('Start as Code reviewer')
+  expect(start.disabled).toBe(true)
+  expect(start.title).toBe('It names no seat to try')
+  act(() => start.click())
+  const field = document.querySelector<HTMLInputElement>('[aria-label="Command palette"] input')!
+  act(() => field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
+  expect(store.startAsAgent).not.toHaveBeenCalled()
+})

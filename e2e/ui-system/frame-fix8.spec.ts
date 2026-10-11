@@ -162,3 +162,17 @@ test('accent leaves selection and on switches neutral in both themes', async ({ 
     await expect(page.getByText('Focus rings and primary action highlights.', { exact: true })).toBeVisible()
   }
 })
+
+test('palette shows one Agent door and refuses an unavailable explicit start', async ({ page }) => {
+  await openFrame(page, 'frame-wall=draft&frame-fix8-palette=1')
+  await page.getByRole('button', { name: 'Search everything', exact: true }).click()
+  await page.getByRole('tab', { name: 'Agents', exact: true }).click()
+  await expect(page.getByRole('option', { name: 'Open Unavailable reviewer', exact: true })).toHaveCount(1)
+  await expect(page.getByRole('option', { name: /Start as Unavailable reviewer/ })).toHaveCount(0)
+  await page.getByRole('searchbox', { name: 'Search sessions, files, teams, agents, commands…', exact: true }).fill('start as unavailable reviewer')
+  const start = page.getByRole('option', { name: 'Start as Unavailable reviewer', exact: true })
+  await expect(start).toBeDisabled()
+  await expect(start).toHaveAttribute('title', 'It names no seat to try')
+  await page.getByRole('searchbox', { name: 'Search sessions, files, teams, agents, commands…', exact: true }).press('Enter')
+  await expect(start).toBeVisible()
+})

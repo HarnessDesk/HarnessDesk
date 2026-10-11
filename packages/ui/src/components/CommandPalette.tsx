@@ -22,7 +22,7 @@ import type { FileMatch, SessionSummary, TranscriptHit } from '@harnessdesk/prot
 
 import { runtimeLabel } from '../lib/accounts'
 import { brandOf } from '../lib/identity'
-import { inForce, markFor, seatTaken } from '../lib/agents'
+import { firstReason, inForce, markFor, seatTaken } from '../lib/agents'
 import { extractHit, highlightAll, type HighlightSpan } from '../lib/search-highlight'
 import { sessionLabel } from '../lib/sessions'
 import { availableCommands } from '../state/commands'
@@ -120,6 +120,7 @@ interface Entry {
   /** Query matches in the visible label, rather than a secondary transcript line. */
   readonly labelMatches?: readonly HighlightSpan[]
   readonly title?: string
+  readonly disabled?: string
   readonly hint?: string
   /** Transcript match ranking remains useful when a title hit suppresses its duplicate snippet. */
   readonly contentMatch?: boolean
@@ -475,27 +476,26 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
       },
     }))
 
-    /* Who, before which program: an Agent to start as, and its page in the
-       Agents window. One that cannot be seated here is listed all the same —
-       starting it is how the refusal sheet, and its fixes, are reached. */
+    /* Open is the default door to each Agent; starting one is an explicit query. */
     const roster: Entry[] = inForce(snapshot.agents ?? []).flatMap((entry) => {
       const definition = entry.definition
       if (!definition) return []
       const plan = snapshot.agentPlans.get(entry.id)
       const seat = seatTaken(plan)
       return [
-        {
+        ...(/\bstart\b/i.test(query) ? [{
           id: `start-as-${entry.id}`,
           group: 'Agents' as const,
           label: `Start as ${definition.name}`,
-          hint: seat ? seat.label : plan ? 'Can’t seat here' : undefined,
+          hint: seat?.label,
+          disabled: !plan ? 'Reading where this Agent can start' : !seat ? firstReason(plan) ?? 'No available seat here' : undefined,
           icon: seat ? <RuntimeMark runtime={markFor(seat, snapshot.runtimes)} /> : <AgentIcon size={14} />,
           keywords: `agent new conversation ${definition.description ?? ''}`,
           run: () => {
             close()
             void store.startAsAgent(entry.id)
           },
-        },
+        }] : []),
         {
           id: `open-agent-${entry.id}`,
           group: 'Agents' as const,
@@ -688,7 +688,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
 
   const run = (index: number): void => {
     const entry = shown[index]
-    if (entry) entry.run()
+    if (entry && !entry.disabled) entry.run()
   }
 
   let lastGroup: Entry['group'] | null = null
@@ -774,7 +774,9 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
                   onMouseEnter={() => setActiveId(entry.id)}
                   onClick={() => run(index)}
                   icon={entry.icon}
-                  title={entry.title}
+                  title={entry.disabled ?? entry.title}
+                  disabled={Boolean(entry.disabled)}
+                  aria-disabled={entry.disabled ? true : undefined}
                   label={entry.labelMatches?.length ? (
                     <>
                       {entry.labelMatches.map((span, matchIndex) => (

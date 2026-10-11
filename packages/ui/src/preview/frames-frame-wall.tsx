@@ -401,6 +401,19 @@ export const FrameWall = () => {
         draftPlace: { kind: 'existing', path: main.path, branch: main.branch ?? null },
       })
     }
+    if (query.get('frame-fix8-palette') === '1') {
+      const entry = snapshot.agents!.find(one => one.definition)!
+      const agent = { ...entry, id: 'unavailable-reviewer', path: '/app/agents/unavailable-reviewer/AGENT.md',
+        definition: { ...entry.definition!, id: 'unavailable-reviewer', name: 'Unavailable reviewer' } }
+      const plan = { id: agent.id, from: 'prefer' as const, winner: null, blocked: null, candidates: [], ceiling: { level: 'read' as const, hold: 'asked' as const } }
+      Object.assign(snapshot, { agents: [agent], agentPlans: new Map([[agent.id, plan]]) })
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = (async (method, params) => {
+        if (method === 'agent/list') return [agent]
+        if (method === 'agent/seat/dry') return [plan]
+        return request(method, params as never)
+      }) as typeof next.transport.request
+    }
     if (destination === 'draft' && query.get('frame-fix8-worktree') === '1') {
       Object.assign(snapshot, { workspace: { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1,
         git: { branch: 'main' }, repo: { root: '/work/storefront', worktree: false } } })
