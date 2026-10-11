@@ -668,12 +668,12 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
       : <Rows><Row title={<label htmlFor={checkId}>Check each attempt with</label>} desc={<span id={`${checkId}-hint`}>{checkHint}</span>} control={checkControl({ id: checkId, 'aria-describedby': `${checkId}-hint` })} /></Rows>)}
     {flow.roles.filter(role => role.kind === 'check' && (!hasAttemptCheck || role.id !== 'verify')).map(role => role.kind === 'check' && <Field key={role.id} label={`Check · ${role.id}`}>{control => <Input {...control} disabled={editingDisabled} value={role.check.run} onChange={event => onPolicy({ ...flow, roles: flow.roles.map(one => one.id === role.id ? { ...role, check: { ...role.check, run: event.target.value } } : one) })} />}</Field>)}
     {done}
-    <div className={styles.details}>
-      <Button variant="quiet" size="inline-link" aria-expanded={detailsOpen} aria-controls={detailsId} onClick={() => setDetailsOpen(open => !open)}>
+    <div className={styles.flow}>
+      <Button className="self-start" variant="quiet" size="inline-link" aria-expanded={detailsOpen} aria-controls={detailsId} onClick={() => setDetailsOpen(open => !open)}>
         <DisclosureChevron open={detailsOpen} size="sm" />
         <Text as="span" role="muted">Details</Text>
       </Button>
-      <div id={detailsId} data-flow-details hidden={!detailsOpen} className={styles.flow}>
+      <div id={detailsId} data-flow-details hidden={!detailsOpen} className={detailsOpen ? styles.flow : undefined}>
       {details}
       <Rows>{preview.seats.map(seat => {
         const role = flow.roles.find(one => one.id === seat.role)
