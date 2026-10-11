@@ -1,5 +1,6 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -14,6 +15,7 @@ import {
 import { PaneProvider, StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { Composer } from './Composer'
+import { CheckIcon } from './Icons'
 
 /**
  * A context chip that resolves to an image — the screenshot chip. The
@@ -68,6 +70,12 @@ const ISSUE: CapabilityContribution = {
   kind: 'context', id: contributionId('ctx-issue'), owner: pluginInstanceId('git#1'), revision: 0,
   scope: { kind: 'global' }, label: 'Git issue', form: 'resource',
   chip: { description: 'An issue reference.', icon: 'issue' },
+}
+
+const LAST_TEST_RUN: CapabilityContribution = {
+  kind: 'context', id: contributionId('ctx-test-run'), owner: pluginInstanceId('tests#1'), revision: 0,
+  scope: { kind: 'global' }, label: 'Last test run', form: 'resource',
+  chip: { description: 'The most recent verdict and its failing file:lines.', icon: 'check' },
 }
 
 const RESOLVED = {
@@ -144,14 +152,17 @@ const attachShot = (): void => {
 }
 
 it('uses source-specific marks for context actions in Add', () => {
-  mount(true, undefined, [SHOT, CHANGES, ISSUE, NOTES])
+  mount(true, undefined, [SHOT, CHANGES, ISSUE, NOTES, LAST_TEST_RUN])
   click(container.querySelector('button[title="Add"]'))
   const context = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
     .find(item => item.querySelector('[data-menu-label]')?.textContent?.includes(label))!
-  const marks = ['Current page screenshot', 'Uncommitted changes', 'Git issue', 'Project notes']
+  const marks = ['Current page screenshot', 'Uncommitted changes', 'Git issue', 'Project notes', 'Last test run']
     .map(label => context(label).querySelector('[data-menu-icon] svg')?.outerHTML)
   expect(marks.every(Boolean)).toBe(true)
   expect(new Set(marks).size).toBe(marks.length)
+  const attach = context('Attach images…').querySelector('[data-menu-icon] svg')
+  expect(attach?.outerHTML).not.toBe(marks[0])
+  expect(marks[4]).not.toBe(renderToStaticMarkup(<CheckIcon size={16} />))
 })
 
 const send = async (): Promise<void> => {

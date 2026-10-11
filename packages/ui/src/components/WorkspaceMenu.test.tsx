@@ -1,5 +1,6 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { StoreProvider } from '../state/context'
@@ -8,6 +9,7 @@ import type { ProjectGroup } from '../lib/projects'
 import type { CaptureHealth, SessionSummary } from '@harnessdesk/protocol'
 import { captureHealth } from '../preview/provenance-fixture'
 import { WorkspaceMenu } from './WorkspaceMenu'
+import { ChevronIcon, MoveFolderIcon } from './Icons'
 
 /**
  * A project's Move rows are the sidebar's keyboard route through its arranged
@@ -136,6 +138,16 @@ it('groups project choices by task and puts movement in the Move flyout', async 
   expect(allLabels).toContain('Move up')
   expect(allLabels).toContain('Move down')
   expect(allLabels).toContain('Back to automatic order')
+})
+
+it('uses a move glyph before the Move flyout chevron', () => {
+  mount(['/a', '/home/dev/work/project', '/other'], group('/home/dev/work/project', 'project'))
+  const move = row('Move')
+  const leading = move.querySelector('[data-menu-icon] svg')!
+  const trailing = move.querySelector('[data-menu-trailing] svg')!
+  expect(leading.outerHTML).toBe(renderToStaticMarkup(<MoveFolderIcon size={14} />))
+  expect(trailing.outerHTML).toBe(renderToStaticMarkup(<ChevronIcon size={16} />))
+  expect(leading.innerHTML).not.toBe(trailing.innerHTML)
 })
 
 it('keeps the first project Move up refusal reason in the flyout', async () => {
