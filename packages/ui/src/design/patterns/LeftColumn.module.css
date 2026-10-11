@@ -1,6 +1,7 @@
 .column { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; }
 .footer { flex: none; }
-.body { flex: 1; min-height: 0; min-width: 0; overflow-x: hidden; overflow-y: auto; }
+.body { flex: 1; min-height: 0; min-width: 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; }
+.body::-webkit-scrollbar { display: none; }
 .hidden { display: none; }
 .group { min-width: 0; padding: 0; }
 /* The drawing's group rhythm is shared by both interfaces. */
@@ -59,6 +60,9 @@
 
 .headSearch { flex: 1; min-width: 0; }
 .headSearch > [data-slot="search"] { width: 100%; }
+
+/* The first Settings group follows its search control with the normal section air. */
+[data-left-settings] > [data-left-group]:first-of-type .label { margin-block-start: var(--hd-space-5); }
 
 /* Header controls centre a line inside their target; the air belongs to the
    label, not the top of that larger target. */
