@@ -148,3 +148,22 @@ test('FIX9 floating Changes uses overlay elevation', async ({ page }) => {
     expect(shadows[0]).toBe(shadows[1])
   }
 })
+
+test('FIX9 theme thumbnails use neutral selection across accents', async ({ page }) => {
+  for (const theme of ['light', 'dark'] as const) {
+    await openFrame(page, 'frame-wall=settings&frame-section=appearance', 1280, theme)
+    await page.getByRole('combobox', { name: 'Interface', exact: true }).selectOption('studio')
+    await expect(page.locator('body')).toHaveAttribute('data-hd-interface', 'studio')
+    const rows = page.getByRole('radiogroup', { name: 'Theme', exact: true }).locator('svg rect[x="10"][y="30"]')
+    await expect(rows).toHaveCount(4)
+    const neutral = await page.evaluate(() => { const probe = document.createElement('span'); probe.style.color = 'var(--hd-sidebar-selected)'; document.body.append(probe); const color = getComputedStyle(probe).color; probe.remove(); return color })
+    await page.getByRole('radio', { name: 'Violet', exact: true }).click()
+    await expect(page.locator('body')).toHaveAttribute('data-hd-accent', 'violet')
+    const violet = await rows.evaluateAll(elements => elements.map(element => getComputedStyle(element).fill))
+    await page.getByRole('radio', { name: 'Green', exact: true }).click()
+    await expect(page.locator('body')).toHaveAttribute('data-hd-accent', 'green')
+    const green = await rows.evaluateAll(elements => elements.map(element => getComputedStyle(element).fill))
+    expect(green).toEqual(violet)
+    expect(green).toEqual(Array(4).fill(neutral))
+  }
+})
