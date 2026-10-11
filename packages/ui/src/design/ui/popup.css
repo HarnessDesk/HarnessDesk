@@ -43,7 +43,7 @@
 }
 [data-menu-row]:hover, [data-menu-row]:focus-visible,
 [data-menu-row][data-highlighted], [data-menu-row][aria-expanded='true'] { background: var(--hd-hover); }
-[data-menu-row][data-current] { background: var(--hd-accent-dim); }
+[data-menu-row][data-current] { background: var(--hd-active); }
 [data-menu-row][data-danger], [data-menu-row][data-variant='destructive'] { color: var(--hd-danger); }
 [data-menu-row]:is([data-disabled], [aria-disabled='true'], :disabled) { color: var(--hd-disabled-foreground); cursor: default; }
 [data-menu-icon] {

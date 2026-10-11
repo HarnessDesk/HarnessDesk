@@ -1421,7 +1421,7 @@
   display: inline-grid;
   place-items: center;
   width: 16px;
-  color: var(--hd-accent);
+  color: var(--hd-foreground);
 }
 
 /* An empty row is a sentence about the card, not one more item in it: its

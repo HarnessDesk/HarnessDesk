@@ -92,7 +92,7 @@ const VARIANTS = {
   secondary:
     'bg-(--hd-btn-fill) text-(--hd-foreground) hover:bg-(--hd-hover) aria-expanded:bg-(--hd-hover) [[data-slot=dialog-footer]:has([data-filled])_&]:bg-transparent [[data-slot=dialog-footer]:has([data-filled])_&]:text-(--hd-secondary-foreground) [[data-slot=dialog-footer]:has([data-filled])_&]:hover:bg-(--hd-hover) [[data-slot=dialog-footer]:has([data-filled])_&]:hover:text-(--hd-foreground)',
   ghost:
-    'hover:bg-(--hd-hover) hover:text-(--hd-foreground) data-[refused]:opacity-45 aria-expanded:bg-(--hd-hover) aria-expanded:text-(--hd-foreground) data-[swatch]:data-[on]:shadow-[0_0_0_2px_var(--hd-card),0_0_0_4px_var(--hd-ring)]',
+    'hover:bg-(--hd-hover) hover:text-(--hd-foreground) data-[refused]:opacity-45 aria-expanded:bg-(--hd-hover) aria-expanded:text-(--hd-foreground) data-[swatch]:data-[on]:shadow-[0_0_0_2px_var(--hd-card),0_0_0_4px_var(--hd-border-strong)]',
   /* A control that floats over content needs its own ground so its edge
      does not disappear into whatever happens to scroll beneath it. */
   floating:
