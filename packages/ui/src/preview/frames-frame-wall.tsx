@@ -241,6 +241,26 @@ export const FrameWall = () => {
         return request(method, params as never)
       }) as typeof next.transport.request
     }
+    if (destination === 'team-receipt' && query.get('frame-fix9-findings') === '1') {
+      const goal = snapshot.goals.get('overview-team')!
+      const run = snapshot.flowExecutions.get('overview-run')!
+      const findings = Array.from({ length: 5 }, (_, i) => ({ ...PREVIEW_FINDINGS[0]!,
+        id: `kept-finding-${i}`, title: i === 0 ? 'Accepted repair' : `Advisory finding ${i}`,
+        ownerGoal: goal.goal.id, origin: { ...PREVIEW_FINDINGS[0]!.origin, goal: goal.goal.id, run: run.id },
+        blocking: i === 0, lifecycle: { state: i === 0 ? 'repaired' as const : 'open' as const, confirmed: i === 0, repairs: [] },
+      }))
+      const view: import('@harnessdesk/protocol').FindingRunView = { run: run.id, goal: goal.goal.id,
+        round: 4, finished: 4, total: 24, embargoed: false, open: 0, blocking: 0, reason: 'The run was stopped before this was posted, so it stays on the desk.',
+        ceilingStop: false, stamp: 'stopped-review', publication: 'partial', rounds: [], reviewersFinished: 1, reviewersTotal: 1,
+        pendingExceptions: [], repair: null, boundPr: null, unbound: null,
+        undecidable: 'This Team is wrapped. Its findings are history here; carry them into an open Team to decide them.' }
+      Object.assign(snapshot, { goals: new Map(snapshot.goals).set(goal.goal.id, { ...goal, receipt: {
+        ...goal.receipt!, findings: { version: 1, evidence: [], findings, overrides: [] },
+      } }), findings: new Map(), flowExecutions: new Map([[run.id, { ...run, findings: { version: 1, budget: { rounds: 24, withoutProgress: 3 }, closedRounds: [1, 2, 3, 4], idleRounds: 0, progress: [], series: [], stopped: null, extraRound: null, overrides: [], lastDecision: null }, state: 'stopped', end: { kind: 'stopped', by: 'person' } }]]),
+        findingRuns: new Map([[run.id, view]]) })
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = (async (method, params) => method === 'finding/run' ? view : request(method, params as never)) as typeof next.transport.request
+    }
     if (destination === 'team' && query.get('frame-fix8-stop') === '1') {
       Object.assign(snapshot, { approvals: snapshot.approvals.map(({ key, approval }) => ({ key, approval: {
         id: approval.id, sessionId: approval.sessionId, requestedAt: approval.requestedAt, type: 'command', command: 'echo synthetic', cwd: '/work/storefront', actions: [],

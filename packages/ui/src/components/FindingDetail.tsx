@@ -238,7 +238,7 @@ const PersonVerdict = ({ goal, view, run, afterRun, why, setWhy, onDecided }: {
   const [error, setError] = useState<string | null>(null)
   if (view.lifecycle.confirmed || view.restored || view.problem !== null) return null
   const refusal = (afterRun ? null : run.undecidable) ?? (record ? RECORD_REASON : null) ??
-    (view.origin.run !== run.run && view.origin.goal === goal ? 'This finding belongs to an earlier run on this Goal.' : null)
+    (view.origin.run !== run.run && view.origin.goal === goal ? 'This finding belongs to an earlier run on this Team.' : null)
   const choices: readonly { readonly label: string; readonly state: 'open' | 'repaired' | 'withdrawn' }[] = view.lifecycle.state === 'repaired'
     ? [{ label: 'Accept the repair', state: 'repaired' }, { label: 'Reject the repair', state: 'open' }, { label: 'Withdraw it', state: 'withdrawn' }]
     : [{ label: 'Withdraw it', state: 'withdrawn' }]

@@ -647,11 +647,11 @@ const findingDecisionRefusal = (store: GoalStore, goal: string): string | null =
   try {
     document = store.read(goal)
   } catch {
-    return 'There is no such Goal on this desk.'
+    return 'There is no such Team on this desk.'
   }
-  if (document.restored) return 'This Goal came from a backup. Its findings are history here; start a new Goal to decide them.'
-  if (document.goal.state === 'wrapped') return 'This Goal is wrapped. Its findings are history here; carry them into an open Goal to decide them.'
-  if (document.goal.state !== 'open') return 'This Goal is being wrapped, so nothing more is decided on it.'
+  if (document.restored) return 'This Team came from a backup. Its findings are history here; start a new Team to decide them.'
+  if (document.goal.state === 'wrapped') return 'This Team is wrapped. Its findings are history here; carry them into an open Team to decide them.'
+  if (document.goal.state !== 'open') return 'This Team is being wrapped, so nothing more is decided on it.'
   return null
 }
 

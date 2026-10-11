@@ -25,6 +25,7 @@ import {
 } from '../design'
 import { ReviewIcon } from './Icons'
 import { emptyFindingsState, blockingWords, FILTER_LABEL, goalHasBoundPr, lifecycleTone, lifecycleWords, type FindingFilter } from '../lib/findings'
+import { runPublication } from '../lib/review-publication'
 import { goalRunLabel, goalRunOf, goalRunsOf } from '../lib/goal-run'
 import { usePane, useSnapshot, useStore } from '../state/context'
 import { useTopBarView } from '../panels/top-bar'
@@ -156,13 +157,18 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
             ))}
           </NativeSelect>
         )}
-        {runView && !noFindings && (
+        {runView && !record && !noFindings && (
           <>
             <FindingRoundStatus view={runView} publicationOn={confirmedPublication} />
             {runView.undecidable && <Note>{runView.undecidable}</Note>}
             {!runView.undecidable && <FindingPublications goal={goal} run={runView.run} stamp={runView.stamp} />}
           </>
         )}
+        {record && <Note>This Team is wrapped. Its findings are kept as history.</Note>}
+        {record && runView && <Note>
+          {runPublication(runView, confirmedPublication)?.label}
+          {runView.reason ? ` — ${runView.reason}` : ''}
+        </Note>}
         {boundPr ? (
           /* A setting is a settings row: its switch keeps the row's end. */
           <Rows>
@@ -180,12 +186,12 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
             />
           </Rows>
         ) : !noFindings ? (
-          <Note>Local findings — no pull request is bound to this Team yet.</Note>
+          <Note>{record ? 'Local findings — no pull request was bound to this Team.' : 'Local findings — no pull request is bound to this Team yet.'}</Note>
         ) : null}
         {publicationError && (
           <Banner tone="danger" title="This preference could not be saved">{publicationError}</Banner>
         )}
-        {fromEarlier > 0 && (
+        {!record && fromEarlier > 0 && (
           <Note>
             {`${fromEarlier} open finding${fromEarlier === 1 ? ' here was' : 's here were'} raised by another run of this Team. Open one to decide it yourself; it is decided against the run that raised it.`}
           </Note>
