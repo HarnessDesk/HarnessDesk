@@ -2364,3 +2364,83 @@ test('E2 Settings More offers Terminal only with a folder', async ({ page }) => 
 for(const theme of ['light','dark'] as const) for(const width of [2200,1440,1100,720]) test(`E2 Settings Profile is reading at ${width} in ${theme}`,async({page})=>{
   await measureDestination(page,'frame-wall=settings&frame-section=profile','reading',theme,width)
 })
+
+// E4 uses the actual App handlers and the common history fixture.
+for (const width of [1440, 720]) test(`E4 Agents page journey ${width}`, async ({ page }) => {
+  await expectPageJourney(page, 'Agents', 'agents', width)
+})
+test('E4 Agents named history', async ({ page }) => {
+  await openFrame(page, 'frame-wall=navigation', 'light')
+  await page.locator('[aria-label="Main sections"]').getByRole('button', { name: 'Agents', exact: true }).click()
+  const bar = page.locator('[data-slot="top-bar"]:visible')
+  await expect(page.locator('[data-page-destination="agents"]:visible')).toHaveCount(1)
+  await page.getByRole('button', { name: /^Code reviewer/ }).first().click()
+  await expect(bar.getByRole('button', { name: 'Agents ›', exact: true })).toBeVisible()
+  await page.keyboard.press('Meta+[')
+  await expect(bar.getByRole('button', { name: 'New Agent…', exact: true })).toBeVisible()
+  await page.keyboard.press('Meta+]')
+  await expect(bar).toContainText('Code reviewer')
+  await bar.getByRole('button', { name: 'Agents ›', exact: true }).click()
+  await expect(bar.getByRole('button', { name: 'New Agent…', exact: true })).toBeVisible()
+})
+
+// Until Task 9 joins the shared preview assembly, load the lane-owned preview
+// entry in the existing preview document. It renders App and the real AppStore.
+const installAgentsEntry = async (page: Page): Promise<void> => {
+  await page.route('**/preview.html?*frame-e4=1*', async route => {
+    const response = await route.fetch()
+    await route.fulfill({ response, body: (await response.text()).replace('/src/preview/main.tsx', '/src/preview/agents-destination-fixture.tsx') })
+  })
+}
+for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440, 1100, 720]) {
+  for (const detail of [false, true]) test(`E4 Agents ${detail ? 'detail' : 'roster'} ${width} ${theme}`, async ({ page }) => {
+    await installAgentsEntry(page)
+    await measureDestination(page, `frame-wall=agents&frame-e4=1${detail ? '&frame-detail=agent' : ''}`, detail ? 'reading' : 'wide', theme, width)
+    await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
+    const bar = page.locator('[data-slot="top-bar"]:visible')
+    if (detail) {
+      await expect(bar.getByRole('button', { name: 'Agents ›', exact: true })).toBeVisible()
+      await expect(bar.getByRole('button', { name: /^Start a conversation as / })).toBeVisible()
+    }
+  })
+}
+for (const state of ['parse', 'refused', 'missing']) test(`E4 Agents ${state} keeps the destination`, async ({ page }) => {
+  await installAgentsEntry(page)
+  await measureDestination(page, `frame-wall=agents&frame-e4=1&frame-agent-case=${state}`, state === 'missing' ? 'wide' : 'reading', 'light', 1440)
+  const main = page.locator('[data-page-destination="agents"]:visible')
+  if (state === 'parse') await expect(main).toContainText('Why it will not parse')
+  if (state === 'refused') await expect(main).toContainText('signed out')
+  if (state === 'missing') await expect(main).toContainText('Who does the work')
+})
+for (const width of [1440, 720]) test(`E4 Agents column opens draft session and Settings ${width}`, async ({ page }) => {
+  await openFrame(page, 'frame-wall=navigation', 'light', width)
+  const reveal = async () => { if (width === 720) await page.getByRole('button', { name: 'Show sidebar', exact: true }).click() }
+  await reveal()
+  const column = page.locator('[data-left-column]:visible')
+  const agents = () => column.locator('[aria-label="Main sections"]').getByRole('button', { name: 'Agents', exact: true }).click()
+  await agents(); await reveal()
+  await column.getByRole('button', { name: 'New session', exact: true }).click()
+  await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
+  await page.keyboard.press('Meta+[')
+  await expect(page.locator('[data-page-destination="agents"]:visible')).toHaveCount(1)
+  await reveal()
+  await column.getByRole('button', { name: /Worktree Management/ }).first().click()
+  await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
+  await page.keyboard.press('Meta+[')
+  await expect(page.locator('[data-page-destination="agents"]:visible')).toHaveCount(1)
+  await reveal()
+  await column.locator('[data-left-seat]').getByRole('button', { name: 'Settings', exact: true }).click()
+  await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1)
+  await page.keyboard.press('Meta+[')
+  await expect(page.locator('[data-page-destination="agents"]:visible')).toHaveCount(1)
+})
+
+for (const detail of [false, true]) test(`E4 Agents ${detail ? 'detail' : 'roster'} More excludes Terminal and Back to app`, async ({ page }) => {
+  await openFrame(page, 'frame-wall=navigation', 'light')
+  await page.locator('[aria-label="Main sections"]').getByRole('button', { name: 'Agents', exact: true }).click()
+  if (detail) await page.getByRole('button', { name: /^Code reviewer/ }).first().click()
+  await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
+  const items = page.locator('[role="menuitem"], [role="menuitemradio"]')
+  await expect(items.filter({ hasText: 'Back to app' })).toHaveCount(0)
+  await expect(items.filter({ hasText: 'Terminal' })).toHaveCount(0)
+})

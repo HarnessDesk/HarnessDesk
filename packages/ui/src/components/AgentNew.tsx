@@ -117,6 +117,9 @@ export const AgentNew = ({ root, from, onCreated, onClose }: AgentNewProps) => {
       onClose={onClose}
       footer={
         <>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>
+            Cancel
+          </Button>
           {mode === 'template' ? (
             <Button variant="default" disabled={busy || !templateId} onClick={() => void copyTemplate()}>
               {busy ? 'Copying…' : 'Copy and open'}
@@ -126,9 +129,6 @@ export const AgentNew = ({ root, from, onCreated, onClose }: AgentNewProps) => {
               {busy ? 'Creating…' : 'Create'}
             </Button>
           )}
-          <Button variant="secondary" disabled={busy} onClick={onClose}>
-            Cancel
-          </Button>
         </>
       }
     >
