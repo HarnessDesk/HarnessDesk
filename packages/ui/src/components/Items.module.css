@@ -245,10 +245,10 @@
 
 .actions:hover,
 .actions:focus-within,
-[data-turn]:not([data-part]):has([data-slot='message']:hover) [data-message-actions],
-[data-turn]:not([data-part]):has([data-slot='message']:focus-within) [data-message-actions],
-[data-turn]:not([data-part]):has([data-message-actions]:hover) [data-message-actions],
-[data-turn]:not([data-part]):has([data-message-actions]:focus-within) [data-message-actions],
+[data-slot='message']:hover [data-message-actions],
+[data-slot='message']:focus-within [data-message-actions],
+[data-turn]:not([data-part]):has([data-part='answer'] [data-slot='message']:hover) [data-turn-tail] [data-message-actions],
+[data-turn]:not([data-part]):has([data-part='answer'] [data-slot='message']:focus-within) [data-turn-tail] [data-message-actions],
 .actions[data-sticky] {
   opacity: 1;
 }
