@@ -241,7 +241,7 @@ it('uses the Agent name avatar when a seated runtime has no mark', async () => {
   expect(face.querySelector('[data-slot="monogram"]')?.textContent).toBe('SR')
 })
 
-it('says repeated legacy ceiling facts once and keeps a ceiling chip only for the differing Agent', async () => {
+it('keeps legacy ceiling sentences out of roster rows and group notes', async () => {
   const release = agent('release', 'Release', 'user')
   const scout = agent('scout', 'Scout', 'user')
   const safety = agent('safety', 'Safety', 'user', {
@@ -257,11 +257,31 @@ it('says repeated legacy ceiling facts once and keeps a ceiling chip only for th
   await act(async () => {})
 
   const yours = container.querySelector('section[aria-label="Yours"]')!
-  const sentence = "Set by this file's older permission line, which counts as Edit."
+  const sentence = "Set by this file's older permission line"
   const rows = [...yours.querySelectorAll<HTMLButtonElement>('button[data-kind="record"]')]
-  expect(yours.textContent?.match(/Set by this file's older permission line, which counts as Edit\./g)).toHaveLength(1)
+  expect(yours.textContent).not.toContain(sentence)
   expect(rows.every((row) => !row.querySelector('[data-slot="row-desc"]')?.textContent?.includes(sentence))).toBe(true)
   expect(rows.map((row) => row.querySelector('[data-ceiling]')?.textContent).filter(Boolean)).toEqual(['Publish · asked, not enforced'])
+})
+
+it('shows only the brief and the seat result on the second line when a stale winner cannot run here', async () => {
+  const candidate = {
+    seat: { runtime: 'runtime-gamma' },
+    label: 'Gamma',
+    runtimeName: 'Gamma',
+    state: 'passed' as const,
+    reason: { kind: 'signedOut' as const },
+    fix: { kind: 'signIn' as const, runtime: 'runtime-gamma' },
+  }
+  const plan = PLANS.get('code-reviewer')!
+  mount({ agentPlans: new Map([...PLANS, ['code-reviewer', { ...plan, from: 'machine', winner: 0, candidates: [candidate] }]]) })
+  await act(async () => {})
+
+  const reviewer = container.querySelector('section[aria-label="In storefront"] button[data-kind="record"]')!
+  const desc = reviewer.querySelector<HTMLElement>('[data-slot="row-desc"]')?.textContent ?? ''
+  expect(desc).toBe('Storefront reviewer does the work. · Gamma is signed out')
+  expect(desc).not.toContain("Set by this file's older permission line")
+  expect(reviewer.querySelector('[data-slot="chip"]')?.textContent).toBe("Can't seat here")
 })
 
 it('middle-truncates a project Agents folder in its quiet source note', async () => {
@@ -344,8 +364,10 @@ it('flags an Agent still on permission: or on no ceiling, and draws the seat’s
       said('tidy', 'Tidy', 'user', 'ceiling'),
     ],
   })
-  expect(sectionText('In storefront')).toContain("Storefront reviewer does the work. Set by this file's older permission line, which counts as Edit.")
-  expect(sectionText('Yours')).toContain('Scout does the work. No ceiling written, so it runs as read.')
+  expect(sectionText('In storefront')).toContain('Storefront reviewer does the work.')
+  expect(sectionText('In storefront')).not.toContain("Set by this file's older permission line")
+  expect(sectionText('Yours')).toContain('Scout does the work.')
+  expect(sectionText('Yours')).not.toContain('No ceiling written, so it runs as read.')
   expect(sectionText('Yours')).toContain('Tidy does the work.')
   expect(sectionText('Yours')).not.toContain("Tidy does the work. Set by")
   expect(sectionText('Yours')).not.toContain('Tidy does the work. No ceiling')

@@ -126,6 +126,14 @@ const contributionSentence = (contribution: CapabilityContribution): string => {
   return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
+/** A tool's label is a name to scan; its description is the sentence below. */
+const toolLabel = (contribution: Extract<CapabilityContribution, { kind: 'tool' }>): string => {
+  const title = contribution.title?.trim()
+  if (title) return title
+  const words = contribution.name.replace(/[_-]+/g, ' ').trim()
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
 const KIND_LABEL: Record<CapabilityContribution['kind'], [string, string]> = {
   tool: ['tool', 'tools'],
   command: ['command', 'commands'],
@@ -319,15 +327,23 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
         <Section key={kind} title={KIND_HEADING[kind]}>
           <Rows>
             {entries.map((contribution) => (
-              <Row
-                key={contribution.id}
-                title={contributionSentence(contribution)}
-                control={
-                  wire && (kind === 'tool' || kind === 'command') ? (
-                    <Text role="meta"><CodeText>{describeContribution(contribution)}</CodeText></Text>
-                  ) : undefined
-                }
-              />
+              contribution.kind === 'tool' ? (
+                <Row
+                  key={contribution.id}
+                  title={wire ? <CodeText>{describeContribution(contribution)}</CodeText> : toolLabel(contribution)}
+                  desc={contributionSentence(contribution)}
+                />
+              ) : (
+                <Row
+                  key={contribution.id}
+                  title={contributionSentence(contribution)}
+                  control={
+                    wire && contribution.kind === 'command' ? (
+                      <Text role="meta"><CodeText>{describeContribution(contribution)}</CodeText></Text>
+                    ) : undefined
+                  }
+                />
+              )
             ))}
           </Rows>
         </Section>

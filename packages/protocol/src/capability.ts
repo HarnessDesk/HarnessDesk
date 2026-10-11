@@ -92,6 +92,8 @@ export interface ToolContribution extends ContributionBase {
   /** Namespaced so two plugins can both offer `search` without colliding. */
   readonly namespace: string
   readonly name: string
+  /** Short human label for screens that show the description as a second line. */
+  readonly title?: string
   readonly description: string
   readonly inputSchema: JsonSchema
   /** Ask the user before every call, regardless of the plugin's granted permissions. */

@@ -37,8 +37,10 @@ it('lets an inline note share its parent measure with a middle-truncated value',
     const rule = css.match(/\.note\[data-layout='inline'\]\s*\{([^}]*)\}/s)?.[1] ?? ''
     expect(rule).toMatch(/width:\s*100%/)
     expect(rule).toMatch(/max-width:\s*none/)
-    expect(rule).toMatch(/flex-wrap:\s*wrap/)
+    expect(rule).not.toMatch(/flex-wrap:\s*wrap/)
     expect(rule).toMatch(/gap:\s*var\(--hd-space-1\)/)
+    expect(rule).toMatch(/flex-wrap:\s*nowrap/)
+    expect(rule).toMatch(/white-space:\s*nowrap/)
   } finally {
     act(() => root.unmount())
     container.remove()
