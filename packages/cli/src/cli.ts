@@ -1,8 +1,8 @@
 import { connect, WireCallError, type Client, type ClientEvent, type ClientTransport } from '@harnessdesk/client'
 import { teamOverviewOf, runTimelineOf } from '@harnessdesk/client/views'
 import { readTextFile, repositoryRoot, readConfirmation, canonicalProject, findDesks, localTransport, resolveDesk, type DeskPointer } from '@harnessdesk/client/node'
-import { parseSeat, seatSpec, doingSentence, type FlowPreview, type FlowSeat, type ClientTier, type ClientMethodName, type ClientTopic, type GoalView, type HostParams, type HostResult, type FindingView } from '@harnessdesk/protocol'
-import { CARD_ARGUMENT, FLOW_ARGUMENT, FLOW_OPTIONS, RUN_ARGUMENT, TEAM_ARGUMENT, YES_OPTION, type ArgumentDoc, type OptionDoc } from './reference.js'
+import { entryHasProblem, shortPath, parseSeat, seatSpec, doingSentence, type FlowPreview, type FlowSeat, type ClientTier, type ClientMethodName, type ClientTopic, type GoalView, type HostParams, type HostResult, type FindingView, type LibraryEntry, type Library } from '@harnessdesk/protocol'
+import { CARD_ARGUMENT, FLOW_ARGUMENT, FLOW_OPTIONS, LIBRARY_ISSUES_OPTION, LIBRARY_OPTIONS, LIBRARY_TEXT_OPTION, RUN_ARGUMENT, TEAM_ARGUMENT, YES_OPTION, type ArgumentDoc, type OptionDoc } from './reference.js'
 
 interface Arguments {
   command: string
@@ -10,6 +10,9 @@ interface Arguments {
   json?: boolean
   traceWire?: boolean
   project?: string
+  kind?: 'skill' | 'mcp'
+  issues?: boolean
+  text?: boolean
   team?: string
   run?: string
   all?: boolean
@@ -211,6 +214,28 @@ export const COMMANDS = [
     },
   },
   {
+    name: 'library list', tier: 'read', methods: ['library/read'], flags: ['project', 'kind', 'issues'], execute: libraryList,
+    usage: 'library list [--project PATH] [--kind skill|mcp] [--issues]',
+    description: 'Lists every skill and MCP server the desk can see, and how many agents load each one.',
+    arguments: [],
+    options: [...LIBRARY_OPTIONS, LIBRARY_ISSUES_OPTION],
+    json: 'A single object, `{ "home": "…", "runtimes": [...], "entries": [...] }`, from `library/read`; filters apply to `entries` only.',
+    exits: { 0: 'Done.' },
+  },
+  {
+    name: 'library show', tier: 'read', methods: ['library/read', 'library/definition', 'library/usage'], flags: ['target', 'project', 'kind', 'text'], execute: libraryShow,
+    usage: 'library show <name> [--project PATH] [--kind skill|mcp] [--text]',
+    description: 'Shows one skill or MCP server, its copies, and which agents load it. Usage says "last unknown" when activations were counted without a recorded time. Its first read of `library/usage` walks every stored conversation and can take a while.',
+    arguments: [{ name: 'name', description: 'A skill or MCP server name as `harnessdesk library list` prints it.' }],
+    options: [...LIBRARY_OPTIONS, LIBRARY_TEXT_OPTION],
+    json: 'A single object, `{ "home": "…", "runtimes": [...], "entry": {...}, "usage": {...}, "definition": {...} }`; `definition` is null when no copy can be read.',
+    exits: {
+      0: 'Shown.',
+      1: 'No skill or server has that name here, or `--text` has no readable, complete definition.',
+      2: 'A skill and an MCP server share the name; give `--kind`. Or `--text` was combined with `--json`.',
+    },
+  },
+  {
     name: 'card show', tier: 'read', methods: ['goal/read'], flags: ['team', 'card'], execute: showCard,
     usage: 'card show <team> <card>',
     description: "One card on a Team's board: its role, state, outcome, note and handoff. The handoff is what the card's worker left for whoever picks the work up next.",
@@ -270,14 +295,14 @@ export const COMMANDS = [
 
 class UsageError extends Error {}
 /** The second line of every usage message: the command line's own, and the same each time. */
-const USAGE_LINE = 'harnessdesk <desks|status|teams|runs|watch|open|flows|flow preview|flow start|run show|run stop|run wait|card show|card handoff|card answer|card abandon|waiting> [--home DIR] [--json] [--trace-wire]'
+const USAGE_LINE = 'harnessdesk <desks|status|teams|runs|watch|open|flows|flow preview|flow start|run show|run stop|run wait|library list|library show|card show|card handoff|card answer|card abandon|waiting> [--home DIR] [--json] [--trace-wire]'
 // The reason is one line, whatever it was made of: it can carry a name the person typed, or one a flow file declared.
 function usage(reason: string): never { throw new UsageError(`Usage: ${sanitizeHuman(reason)}`) }
 /** The flags every command takes, as the keys the parser stores them under. */
 export const GLOBAL_FLAG_KEYS: readonly string[] = ['home', 'json', 'traceWire']
-const switches = new Set(['json', 'all', 'raw', 'traceWire', 'unattended', 'yes', 'watch'])
+const switches = new Set(['json', 'all', 'raw', 'traceWire', 'unattended', 'yes', 'watch', 'issues', 'text'])
 /** Every flag's spelling, and the key the parser stores it under. */
-export const FLAG_KEYS: Readonly<Record<string, keyof Arguments>> = { '--home': 'home', '--json': 'json', '--trace-wire': 'traceWire', '--project': 'project', '--team': 'team', '--run': 'run', '--all': 'all', '--raw': 'raw', '--until': 'until', '--title': 'title', '--brief-file': 'briefFile', '--input': 'input', '--seat': 'seat', '--unattended': 'unattended', '--yes': 'yes', '--timeout': 'timeout', '--reason': 'reason', '--context-file': 'contextFile', '--watch': 'watch' }
+export const FLAG_KEYS: Readonly<Record<string, keyof Arguments>> = { '--home': 'home', '--json': 'json', '--trace-wire': 'traceWire', '--project': 'project', '--kind': 'kind', '--issues': 'issues', '--text': 'text', '--team': 'team', '--run': 'run', '--all': 'all', '--raw': 'raw', '--until': 'until', '--title': 'title', '--brief-file': 'briefFile', '--input': 'input', '--seat': 'seat', '--unattended': 'unattended', '--yes': 'yes', '--timeout': 'timeout', '--reason': 'reason', '--context-file': 'contextFile', '--watch': 'watch' }
 
 export function parseArgs(argv: readonly string[]): Arguments {
   const result: Record<string, string | boolean | string[]> = {}
@@ -285,8 +310,8 @@ export function parseArgs(argv: readonly string[]): Arguments {
     const arg = argv[i]!
     if (!arg.startsWith('-')) {
       if (!result['command']) result['command'] = arg
-      else if (result['command'] === 'flow' || result['command'] === 'run' || result['command'] === 'card') result['command'] += ` ${arg}`
-      else if (['open', 'flow preview', 'flow start', 'run show', 'run wait', 'run stop'].includes(String(result['command'])) && !result['target']) result['target'] = arg
+      else if (result['command'] === 'flow' || result['command'] === 'run' || result['command'] === 'card' || result['command'] === 'library') result['command'] += ` ${arg}`
+      else if (['open', 'flow preview', 'flow start', 'run show', 'run wait', 'run stop', 'library show'].includes(String(result['command'])) && !result['target']) result['target'] = arg
       else if (String(result['command']).startsWith('card ') && !result['team']) result['team'] = arg
       else if (String(result['command']).startsWith('card ') && !result['card']) result['card'] = arg
       else if (result['command'] === 'card answer' && !result['outcome']) result['outcome'] = arg
@@ -311,6 +336,8 @@ export function parseArgs(argv: readonly string[]): Arguments {
   }
   if (['team', 'run', 'project'].filter(key => result[key] !== undefined).length > 1) usage('Choose only one of --team, --run, --project')
   if ((command.flags as readonly string[]).includes('target') && !result['target']) usage(`${command.name} requires a target`)
+  if (result['kind'] !== undefined && result['kind'] !== 'skill' && result['kind'] !== 'mcp') usage('--kind must be skill or mcp')
+  if (result['text'] && result['json']) usage('--text cannot be combined with --json')
   if (command.name.startsWith('card ') && (!result['team'] || !result['card'] || !/^\d+$/.test(String(result['card'])) || !Number.isSafeInteger(Number(result['card'])))) usage(`${command.name} requires a team and numeric card id`)
   if (command.name === 'card answer' && !result['outcome']) usage('card answer requires an outcome')
   if ((command.name === 'run stop' || command.name === 'card abandon') && (typeof result['reason'] !== 'string' || !result['reason'].trim())) usage(`${command.name} requires --reason TEXT`)
@@ -564,6 +591,120 @@ async function flows(args: Arguments): Promise<number> {
   try {
     const entries = await client.call('flow/catalog', { root })
     output(args, { flows: entries }, () => { for (const flow of entries) line([flow.id, flow.origin, flow.problem]) })
+    return 0
+  } finally { client.close() }
+}
+
+async function libraryProjectOf(args: Arguments): Promise<string | undefined> {
+  if (args.project !== undefined) return canonicalProject(args.project)
+  try { return await repositoryRoot() }
+  catch { return undefined }
+}
+
+function libraryReachSummary(entry: LibraryEntry, runtimes: Library['runtimes']): string {
+  const reached = entry.reach.filter(one => one.state === 'reaches').length
+  const summary = reached === 0 ? 'in none' : `in ${reached} of ${runtimes.length}`
+  const digests = new Set(entry.copies.filter(copy => copy.digest !== null).map(copy => copy.digest))
+  const differs = Math.max(0, digests.size - 1)
+  return differs ? `${summary} · ${differs} differs` : summary
+}
+
+async function libraryList(args: Arguments): Promise<number> {
+  const cwd = await libraryProjectOf(args)
+  const client = await open(args)
+  try {
+    const library = await client.call('library/read', cwd === undefined ? {} : { cwd })
+    const entries = library.entries.filter(entry =>
+      (args.kind === undefined || entry.kind === args.kind) &&
+      (!args.issues || entryHasProblem(entry)),
+    )
+    output(args, { home: library.home, runtimes: library.runtimes, entries }, () => {
+      if (cwd === undefined) line(['User scope only', 'this folder is outside a Git repository'])
+      for (const entry of entries) {
+        line([entry.kind, entry.name, libraryReachSummary(entry, library.runtimes), entryHasProblem(entry) ? 'issue' : undefined])
+      }
+    })
+    return 0
+  } finally { client.close() }
+}
+
+async function firstLibraryDefinition(client: Client, entry: LibraryEntry, cwd: string | undefined) {
+  for (const copy of entry.copies) {
+    const definition = await client.call('library/definition', {
+      kind: entry.kind,
+      name: entry.name,
+      path: copy.path,
+      ...(cwd === undefined ? {} : { cwd }),
+    })
+    if (definition) return definition
+  }
+  return null
+}
+
+async function libraryShow(args: Arguments): Promise<number> {
+  const cwd = await libraryProjectOf(args)
+  const client = await open(args)
+  try {
+    const library = await client.call('library/read', cwd === undefined ? {} : { cwd })
+    const matches = library.entries.filter(entry => entry.name === args.target && (args.kind === undefined || entry.kind === args.kind))
+    if (matches.length === 0) {
+      process.stderr.write(sanitizeHuman(`No skill or server called ${args.target} here.`) + '\n')
+      return 1
+    }
+    if (matches.length > 1) usage(`${args.target} is both a skill and an MCP server; pass --kind skill or --kind mcp`)
+    const entry = matches[0]!
+    const definition = await firstLibraryDefinition(client, entry, cwd)
+    if (args.text) {
+      if (!definition) {
+        process.stderr.write(sanitizeHuman(`No readable definition for ${args.target} here.`) + '\n')
+        return 1
+      }
+      if (definition.truncated) {
+        process.stderr.write(sanitizeHuman(`Definition for ${args.target} is truncated; --text requires a complete definition.`) + '\n')
+        return 1
+      }
+      process.stdout.write(definition.text.split('\n').map(sanitizeHuman).join('\n'))
+      return 0
+    }
+
+    const libraryUsage = entry.kind === 'skill' ? await client.call('library/usage', {}) : null
+    const skillUsage = libraryUsage?.skills[entry.name] ?? null
+    const runtimeNames = new Map(client.hello.runtimes.map(runtime => [runtime.id, runtime.name]))
+    const agentName = (id: string) => runtimeNames.get(id as typeof client.hello.runtimes[number]['id']) ?? 'Unknown agent'
+    output(args, { home: library.home, runtimes: library.runtimes, entry, usage: skillUsage, definition }, () => {
+      if (cwd === undefined) line(['User scope only', 'this folder is outside a Git repository'])
+      line([entry.kind, entry.name])
+      line(['Description', entry.description || 'none'])
+      line(['Copies'])
+      for (const copy of entry.copies) {
+        const readers = copy.readBy.map(agentName)
+        line([
+          shortPath(copy.path, library.home), copy.scope, copy.digest ?? 'no digest',
+          'read by', readers.length ? readers.join(', ') : 'none',
+          copy.hollow ? 'hollow' : undefined,
+          copy.readOnly ? 'read-only' : undefined,
+        ])
+      }
+      line(['Agents'])
+      for (const reach of entry.reach) {
+        line([agentName(reach.runtime), reach.state, reach.basis === 'reported' ? 'asked' : 'on disk', reach.note])
+      }
+      if (entry.kind === 'skill') {
+        const last = skillUsage?.lastAt ? new Date(skillUsage.lastAt).toISOString() : skillUsage?.activations ? 'unknown' : 'never'
+        line(['Usage', `${skillUsage?.sessions ?? 0} stored conversations`, `${skillUsage?.activations ?? 0} activations`, `last ${last}`])
+        line(['counted in conversations this desk stored'])
+      } else {
+        line(['Usage', 'not tracked for MCP servers'])
+      }
+      if (definition) {
+        line(['Files', shortPath(definition.path, library.home)])
+        for (const file of definition.files) line([file.path, `${file.bytes} bytes`])
+        if (definition.moreFiles) line([`${definition.moreFiles} more files`])
+        if (definition.truncated) line(['Definition text is truncated'])
+      } else {
+        line(['Definition', 'no readable copy'])
+      }
+    })
     return 0
   } finally { client.close() }
 }

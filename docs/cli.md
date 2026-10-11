@@ -76,6 +76,8 @@ Every command ends with one of these. A command's own section lists the codes th
 | [`run show`](#harnessdesk-run-show) | Shows the shared Run timeline: its header, brief, rounds, cards, check results, findings and ending. | read |
 | [`run stop`](#harnessdesk-run-stop) | Stops a run and interrupts its seats, without opening the next card. | run |
 | [`run wait`](#harnessdesk-run-wait) | Waits for a run to end, without polling, and says how it ended in its exit code. | read |
+| [`library list`](#harnessdesk-library-list) | Lists every skill and MCP server the desk can see, and how many agents load each one. | read |
+| [`library show`](#harnessdesk-library-show) | Shows one skill or MCP server, its copies, and which agents load it. | read |
 | [`card show`](#harnessdesk-card-show) | One card on a Team's board: its role, state, outcome, note and handoff. | read |
 | [`card handoff`](#harnessdesk-card-handoff) | Prints a card's handoff text and nothing else, so it can go down a pipe. | read |
 | [`card answer`](#harnessdesk-card-answer) | Answers a card a flow addressed to a person, with one of its role's outcomes. | answer |
@@ -402,6 +404,60 @@ Needs the **read** tier.
 - `8`: The timeout passed first.
 - `130`: Interrupted with Ctrl-C.
 - `143`: Terminated.
+
+### `harnessdesk library list`
+
+```
+harnessdesk library list [--project PATH] [--kind skill|mcp] [--issues]
+```
+
+Lists every skill and MCP server the desk can see, and how many agents load each one.
+
+Needs the **read** tier.
+
+**Flags**
+
+- `--project PATH`: Include this project’s own skill and MCP folders. Symbolic links are followed. Defaults to the Git repository containing the current folder; outside a repository, only user scope is read.
+- `--kind skill|mcp`: Show only skills or only MCP servers.
+- `--issues`: Show only entries the Library identifies as having a problem.
+
+**With `--json`**
+
+A single object, `{ "home": "…", "runtimes": [...], "entries": [...] }`, from `library/read`; filters apply to `entries` only.
+
+**Exit codes**
+
+- `0`: Done.
+
+### `harnessdesk library show`
+
+```
+harnessdesk library show <name> [--project PATH] [--kind skill|mcp] [--text]
+```
+
+Shows one skill or MCP server, its copies, and which agents load it. Usage says "last unknown" when activations were counted without a recorded time. Its first read of `library/usage` walks every stored conversation and can take a while.
+
+Needs the **read** tier.
+
+**Arguments**
+
+- `<name>`: A skill or MCP server name as `harnessdesk library list` prints it.
+
+**Flags**
+
+- `--project PATH`: Include this project’s own skill and MCP folders. Symbolic links are followed. Defaults to the Git repository containing the current folder; outside a repository, only user scope is read.
+- `--kind skill|mcp`: Show only skills or only MCP servers.
+- `--text`: Print the first readable copy’s definition text by itself, for a pipe. Cannot be combined with `--json`; an unreadable or truncated definition exits 1 without printing text.
+
+**With `--json`**
+
+A single object, `{ "home": "…", "runtimes": [...], "entry": {...}, "usage": {...}, "definition": {...} }`; `definition` is null when no copy can be read.
+
+**Exit codes**
+
+- `0`: Shown.
+- `1`: No skill or server has that name here, or `--text` has no readable, complete definition.
+- `2`: A skill and an MCP server share the name; give `--kind`. Or `--text` was combined with `--json`.
 
 ### `harnessdesk card show`
 

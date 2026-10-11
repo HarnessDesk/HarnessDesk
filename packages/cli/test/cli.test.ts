@@ -1,5 +1,10 @@
 import assert from 'node:assert/strict'
+import { createHash } from 'node:crypto'
+import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
+import { join } from 'node:path'
 import test from 'node:test'
+import { WebSocketServer } from 'ws'
 import { CLIENT_METHODS, clientTierFor } from '@harnessdesk/protocol'
 import { WireCallError } from '@harnessdesk/client'
 import { COMMANDS, FLAG_KEYS, GLOBAL_FLAG_KEYS, errorText, main, printPreview, sanitizeHuman, parseArgs, errorExit } from '../src/cli.js'
@@ -42,11 +47,28 @@ test('preview prints attachment counts and indented refusal reasons with sanitiz
 })
 
 test('the executable command table covers exactly the declared client surface', () => {
-  assert.deepEqual(COMMANDS.map(command => command.name), ['desks', 'status', 'teams', 'runs', 'watch', 'open', 'flows', 'flow preview', 'flow start', 'run show', 'run stop', 'run wait', 'card show', 'card handoff', 'card answer', 'card abandon', 'waiting'])
+  assert.deepEqual(COMMANDS.map(command => command.name), ['desks', 'status', 'teams', 'runs', 'watch', 'open', 'flows', 'flow preview', 'flow start', 'run show', 'run stop', 'run wait', 'library list', 'library show', 'card show', 'card handoff', 'card answer', 'card abandon', 'waiting'])
   const methods = new Set(COMMANDS.flatMap(command => [...command.methods]))
   for (const command of COMMANDS) for (const method of command.methods) { const tier = clientTierFor(method, 'action' in command ? { action: command.action } : undefined); assert.ok(tier === 'read' || tier === command.tier, `${command.name}: ${method}`) }
   for (const method of methods) assert.ok(Object.hasOwn(CLIENT_METHODS, method), method)
   assert.deepEqual([...methods].sort(), Object.keys(CLIENT_METHODS).sort())
+})
+
+test('library command arguments and option ownership are strict', () => {
+  assert.deepEqual(parseArgs(['library', 'list', '--project', '.', '--kind', 'mcp', '--issues']), {
+    command: 'library list', project: '.', kind: 'mcp', issues: true,
+  })
+  assert.deepEqual(parseArgs(['library', 'show', 'demo-skill', '--text']), {
+    command: 'library show', target: 'demo-skill', text: true,
+  })
+  assert.deepEqual(parseArgs(['--json', 'library', 'show', 'demo-skill', '--kind', 'skill']), {
+    command: 'library show', target: 'demo-skill', json: true, kind: 'skill',
+  })
+  for (const args of [
+    ['library', 'list', '--text'], ['library', 'show'], ['library', 'show', 'demo', '--issues'],
+    ['library', 'list', '--kind', 'plugin'], ['library', 'show', 'demo', '--kind', 'plugin'],
+    ['library', 'list', '--kind', 'skill', '--kind', 'mcp'], ['library', 'show', 'demo', 'extra'],
+  ]) assert.throws(() => parseArgs(args), /usage/i, args.join(' '))
 })
 
 test('human text removes C0/C1, CSI, OSC hyperlinks and clipboard, and DCS payloads', () => {
@@ -123,7 +145,7 @@ const usageFlags = (usage: string) => {
   return [...usage.matchAll(/(--[a-z-]+)/g)].map(hit => ({ flag: hit[1]!, required: required.has(hit[1]!) }))
 }
 const SAMPLE_ARGUMENT: Readonly<Record<string, string>> = { team: 'team-1', card: '1', outcome: 'shipped', run: 'run-1', flow: 'review-pr', path: '.' }
-const SAMPLE_VALUE = (value: string | undefined) => value === undefined ? undefined : value === 'SECONDS' ? '5' : value === 'settled' ? 'settled' : value === 'PATH|-' ? '-' : value.startsWith('ROLE=') ? 'writer=fake/high' : value === 'NAME=VALUE' ? 'a=b' : 'x'
+const SAMPLE_VALUE = (value: string | undefined) => value === undefined ? undefined : value === 'SECONDS' ? '5' : value === 'settled' ? 'settled' : value === 'PATH|-' ? '-' : value === 'skill|mcp' ? 'skill' : value.startsWith('ROLE=') ? 'writer=fake/high' : value === 'NAME=VALUE' ? 'a=b' : 'x'
 
 test('every command is described for the reference, and says how it can end', () => {
   for (const command of COMMANDS) {
@@ -244,4 +266,211 @@ test('any other error is printed the same way: its first line as it is, every la
 test('card answer documents a missing card as an exit-4 refusal', () => {
   const command = COMMANDS.find(command => command.name === 'card answer')!
   assert.match(command.exits[4]!, /missing.*`cardMissing`/)
+})
+
+const libraryEntry = (kind: 'skill' | 'mcp', name: string, reach: readonly object[], copies: readonly object[], description = 'A fixture entry') => ({
+  kind, name, description, reach, copies,
+})
+
+const libraryDesk = async (t: any, entries: readonly object[], definitions: Readonly<Record<string, unknown>> = {}, skills: Readonly<Record<string, unknown>> = {}) => {
+  const directory = await mkdtemp('/tmp/hd-cli-library-')
+  await chmod(directory, 0o700)
+  const homePath = join(directory, 'home')
+  await mkdir(homePath)
+  const home = await realpath(homePath)
+  const socketPath = join(directory, `${createHash('sha256').update(home).digest('hex').slice(0, 16)}.sock`)
+  const server = createServer()
+  const sockets = new WebSocketServer({ noServer: true })
+  const calls: { method: string; params: unknown }[] = []
+  const runtimes = ['runtime-a', 'runtime-b', 'runtime-c', 'runtime-d'].map((id, index) => ({ id, name: `Agent ${index + 1}` }))
+  const hello = {
+    protocolVersion: 1, hostVersion: 'fixture', desk: { home, pid: process.pid, startedAt: 1 },
+    tiers: ['read'], methods: Object.keys(CLIENT_METHODS), runtimes,
+  }
+  const library = { generatedAt: 1, home: '/home/dev', runtimes: runtimes.map(runtime => runtime.id), locations: [], entries, gaps: [] }
+  const usage = { generatedAt: 1, sessionsScanned: 3, skills }
+  server.on('upgrade', (request, socket, head) => sockets.handleUpgrade(request, socket, head, ws => {
+    ws.on('message', raw => {
+      const request = JSON.parse(raw.toString()) as { id: number; method: string; params: Record<string, unknown> }
+      calls.push({ method: request.method, params: request.params })
+      const result = request.method === 'client/hello' ? hello
+        : request.method === 'library/read' ? library
+          : request.method === 'library/usage' ? usage
+            : request.method === 'library/definition' ? definitions[String(request.params['path'])] ?? null
+              : null
+      ws.send(JSON.stringify({ id: request.id, ok: true, result }))
+    })
+  }))
+  await new Promise<void>(resolve => server.listen(socketPath, resolve))
+  await chmod(socketPath, 0o600)
+  await writeFile(socketPath.replace(/\.sock$/, '.json'), JSON.stringify({
+    home, pid: process.pid, startedAt: 1, hostVersion: 'fixture', protocolVersion: 1,
+  }), { mode: 0o600 })
+  const previousClientDir = process.env['HARNESSDESK_CLIENT_DIR']
+  const previousHarnessHome = process.env['HARNESSDESK_HOME']
+  process.env['HARNESSDESK_CLIENT_DIR'] = directory
+  process.env['HARNESSDESK_HOME'] = home
+  t.after(async () => {
+    if (previousClientDir === undefined) delete process.env['HARNESSDESK_CLIENT_DIR']
+    else process.env['HARNESSDESK_CLIENT_DIR'] = previousClientDir
+    if (previousHarnessHome === undefined) delete process.env['HARNESSDESK_HOME']
+    else process.env['HARNESSDESK_HOME'] = previousHarnessHome
+    for (const ws of sockets.clients) ws.terminate()
+    await new Promise<void>(resolve => sockets.close(() => server.close(() => resolve())))
+    await rm(directory, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 })
+  })
+  return { home, directory, library, calls }
+}
+
+const runCli = async (t: any, args: readonly string[]) => {
+  const stdout: string[] = [], stderr: string[] = []
+  t.mock.method(process.stdout, 'write', (chunk: string | Uint8Array) => { stdout.push(String(chunk)); return true })
+  t.mock.method(process.stderr, 'write', (chunk: string | Uint8Array) => { stderr.push(String(chunk)); return true })
+  const code = await main(args)
+  return { code, stdout: stdout.join(''), stderr: stderr.join('') }
+}
+
+test('library show rejects --text with --json before connecting to a desk', async t => {
+  for (const args of [
+    ['library', 'show', 'demo-skill', '--text', '--json'],
+    ['--json', 'library', 'show', 'demo-skill', '--text'],
+  ]) {
+    assert.throws(() => parseArgs(args), /--text.*--json/)
+    const result = await runCli(t, args)
+    assert.equal(result.code, 2)
+    assert.equal(result.stdout, '')
+    assert.match(result.stderr, /--text.*--json/)
+  }
+})
+
+test('library list filters issue rows, reports reach and differing copies, and sends only a read request', async t => {
+  const healthy = libraryEntry('skill', 'plain-skill', Array.from({ length: 4 }, (_, i) => ({ runtime: `runtime-${String.fromCharCode(97 + i)}`, state: 'reaches' })), [])
+  const issue = libraryEntry('skill', 'split-skill', [
+    { runtime: 'runtime-a', state: 'reaches' }, { runtime: 'runtime-b', state: 'reaches' },
+    { runtime: 'runtime-c', state: 'rejected' }, { runtime: 'runtime-d', state: 'absent' },
+  ], [
+    { path: '/home/dev/.agents/skills/split-skill', scope: 'user', readBy: ['runtime-a'], hollow: false, digest: 'a', readOnly: false },
+    { path: '/home/dev/.codex/skills/split-skill', scope: 'user', readBy: ['runtime-b'], hollow: false, digest: 'b', readOnly: false },
+  ])
+  const mcp = libraryEntry('mcp', 'fixture-server', [{ runtime: 'runtime-a', state: 'rejected' }], [])
+  const rig = await libraryDesk(t, [healthy, issue, mcp])
+  const projectPath = join(rig.directory, 'project')
+  await mkdir(projectPath)
+  const project = await realpath(projectPath)
+  const result = await runCli(t, ['library', 'list', '--project', project, '--kind', 'skill', '--issues'])
+  assert.equal(result.code, 0, result.stderr)
+  assert.equal(result.stdout, 'skill  split-skill  in 2 of 4 · 1 differs  issue\n')
+  assert.deepEqual(rig.calls.map(call => call.method), ['client/hello', 'library/read'])
+  assert.deepEqual(rig.calls[1]!.params, { cwd: project })
+})
+
+test('library list JSON keeps the read model and filters only its entries', async t => {
+  const skill = libraryEntry('skill', 'one-skill', [], [])
+  const mcp = libraryEntry('mcp', 'one-server', [], [])
+  const rig = await libraryDesk(t, [skill, mcp])
+  const result = await runCli(t, ['library', 'list', '--json', '--kind', 'mcp'])
+  assert.equal(result.code, 0, result.stderr)
+  const parsed = JSON.parse(result.stdout)
+  assert.deepEqual(parsed, { home: rig.library.home, runtimes: rig.library.runtimes, entries: [mcp] })
+})
+
+test('library show sanitizes descriptions and prints copies, agent reach, usage and definition files', async t => {
+  const entry = libraryEntry('skill', 'demo-skill', [
+    { runtime: 'runtime-a', state: 'reaches', basis: 'reported' },
+    { runtime: 'runtime-b', state: 'stale', basis: 'scanned', note: 'Refresh after install' },
+  ], [
+    { path: '/home/dev/.agents/skills/demo-skill', scope: 'user', readBy: ['runtime-a'], hollow: false, digest: 'abc', readOnly: false },
+    { path: '/tmp/project/.agents/skills/demo-skill', scope: 'project', readBy: ['runtime-b'], hollow: true, digest: null, readOnly: true },
+  ], 'A useful \u001b[31mskill\u001b[0m description')
+  const definition = {
+    name: 'demo-skill', kind: 'skill', path: '/tmp/project/.agents/skills/demo-skill', text: '# Demo', truncated: false,
+    files: [{ path: 'SKILL.md', bytes: 6 }, { path: 'examples/demo.md', bytes: 12 }], moreFiles: 0,
+  }
+  const rig = await libraryDesk(t, [entry], { '/tmp/project/.agents/skills/demo-skill': definition }, {
+    'demo-skill': { sessions: 2, activations: 4, lastAt: 1_800_000_000_000, byRuntime: {} },
+  })
+  const result = await runCli(t, ['library', 'show', 'demo-skill', '--project', '/tmp/project'])
+  assert.equal(result.code, 0, result.stderr)
+  assert.match(result.stdout, /A useful skill description/)
+  assert.doesNotMatch(result.stdout, /\x1b/)
+  assert.match(result.stdout, /~\/\.agents\/skills\/demo-skill/)
+  assert.match(result.stdout, /user.*abc.*Agent 1/)
+  assert.match(result.stdout, /hollow.*read-only/)
+  assert.match(result.stdout, /Agent 1.*reaches.*asked/)
+  assert.match(result.stdout, /Agent 2.*stale.*on disk.*Refresh after install/)
+  assert.match(result.stdout, /2 stored conversations.*4 activations/)
+  assert.match(result.stdout, /last 2027-01-15T08:00:00\.000Z/)
+  assert.match(result.stdout, /counted in conversations this desk stored/)
+  assert.match(result.stdout, /examples\/demo\.md.*12 bytes/)
+  assert.deepEqual(rig.calls.map(call => call.method), ['client/hello', 'library/read', 'library/definition', 'library/definition', 'library/usage'])
+})
+
+test('library show --text prints only the first readable definition, with human text sanitized', async t => {
+  const entry = libraryEntry('skill', 'pipe-skill', [], [
+    { path: '/home/dev/first', scope: 'user', readBy: [], hollow: false, digest: 'a', readOnly: false },
+    { path: '/home/dev/second', scope: 'user', readBy: [], hollow: false, digest: 'b', readOnly: false },
+  ])
+  const rig = await libraryDesk(t, [entry], {
+    '/home/dev/second': { name: 'pipe-skill', kind: 'skill', path: '/home/dev/second', text: 'one\n\u001b[31mtwo\u001b[0m\n', truncated: false, files: [], moreFiles: 0 },
+  })
+  const result = await runCli(t, ['library', 'show', 'pipe-skill', '--text'])
+  assert.equal(result.code, 0, result.stderr)
+  assert.equal(result.stdout, 'one\ntwo\n')
+  assert.deepEqual(rig.calls.map(call => call.method), ['client/hello', 'library/read', 'library/definition', 'library/definition'])
+})
+
+test('library show --text refuses truncated definitions without printing partial text', async t => {
+  const entry = libraryEntry('skill', 'partial-skill', [], [
+    { path: '/home/dev/partial', scope: 'user', readBy: [], hollow: false, digest: 'a', readOnly: false },
+  ])
+  const definition = {
+    name: 'partial-skill', kind: 'skill', path: '/home/dev/partial', text: '# Partial\n', truncated: true, files: [], moreFiles: 0,
+  }
+  const rig = await libraryDesk(t, [entry], { '/home/dev/partial': definition })
+  const result = await runCli(t, ['library', 'show', 'partial-skill', '--text'])
+  assert.equal(result.code, 1)
+  assert.equal(result.stdout, '')
+  assert.match(result.stderr, /truncated/)
+  assert.deepEqual(rig.calls.map(call => call.method), ['client/hello', 'library/read', 'library/definition'])
+
+  const human = await runCli(t, ['library', 'show', 'partial-skill'])
+  assert.equal(human.code, 0, human.stderr)
+  assert.match(human.stdout, /Definition text is truncated/)
+  const json = await runCli(t, ['library', 'show', 'partial-skill', '--json'])
+  assert.equal(json.code, 0, json.stderr)
+  assert.deepEqual(JSON.parse(json.stdout).definition, definition)
+})
+
+test('library show distinguishes unknown activation times from unused skills', async t => {
+  await libraryDesk(t, [
+    libraryEntry('skill', 'untimed-skill', [], []),
+    libraryEntry('skill', 'unused-skill', [], []),
+    libraryEntry('skill', 'unrecorded-skill', [], []),
+  ], {}, {
+    'untimed-skill': { sessions: 2, activations: 4, lastAt: 0, byRuntime: {} },
+    'unused-skill': { sessions: 0, activations: 0, lastAt: 0, byRuntime: {} },
+  })
+  const unknown = await runCli(t, ['library', 'show', 'untimed-skill'])
+  assert.equal(unknown.code, 0, unknown.stderr)
+  assert.match(unknown.stdout, /2 stored conversations.*4 activations.*last unknown/)
+  for (const name of ['unused-skill', 'unrecorded-skill']) {
+    const unused = await runCli(t, ['library', 'show', name])
+    assert.equal(unused.code, 0, unused.stderr)
+    assert.match(unused.stdout, /0 stored conversations.*0 activations.*last never/)
+  }
+})
+
+test('library show reports missing names with exit 1 and ambiguous names with exit 2', async t => {
+  const missingRig = await libraryDesk(t, [])
+  const missing = await runCli(t, ['library', 'show', 'not-here'])
+  assert.equal(missing.code, 1)
+  assert.match(missing.stderr, /No skill or server called not-here here\./)
+  assert.equal(missingRig.calls.at(-1)?.method, 'library/read')
+
+  const ambiguousRig = await libraryDesk(t, [libraryEntry('skill', 'shared-name', [], []), libraryEntry('mcp', 'shared-name', [], [])])
+  const ambiguous = await runCli(t, ['library', 'show', 'shared-name'])
+  assert.equal(ambiguous.code, 2)
+  assert.match(ambiguous.stderr, /both a skill and an MCP server/)
+  assert.match(ambiguous.stderr, /--kind/)
+  assert.equal(ambiguousRig.calls.at(-1)?.method, 'library/read')
 })
