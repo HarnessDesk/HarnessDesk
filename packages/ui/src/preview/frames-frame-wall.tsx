@@ -12,7 +12,7 @@ import { sidebarGeometryFixture } from './sidebar-geometry-fixture'
 import { runTeamStore, equivalentRunFixture, type RunScene } from './run-view-fixture'
 import { sidebarStructureFixture } from './sidebar-structure-fixture'
 import { useEffect, useMemo, useState } from 'react'
-import { approvalId, contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, runtimeId, sessionKey, turnId, type AcpRegistryAgentInfo, type CapabilityContribution, type UiContribution, type AgentItem, type BackgroundTask, type ConfigOption, type RuntimeId } from '@harnessdesk/protocol'
+import { approvalId, contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, runtimeId, sessionKey, turnId, type AcpRegistryAgentInfo, type CapabilityContribution, type UiContribution, type AgentItem, type BackgroundTask, type ConfigOption, type HostMethodName, type RuntimeId } from '@harnessdesk/protocol'
 import { installPanelComponent } from '../slots/PanelBlocks'
 
 installPanelComponent()
@@ -222,6 +222,18 @@ export const FrameWall = () => {
     // Additional Details states for the same real frame; all data is synthetic.
     const detailsCase = query.get('frame-details-case')
     const snapshot = next.getSnapshot()
+    if (destination === 'conversation' && query.get('frame-palette-files') === '1') {
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = (async (method: HostMethodName, params: unknown, options?: { signal?: AbortSignal }) => {
+        if (method === 'workspace/files') {
+          const needle = (params as { query: string }).query.toLowerCase()
+          return needle.includes('sweep-index')
+            ? [{ path: '/work/storefront/src/sweep-index.ts', relativePath: 'src/sweep-index.ts', kind: 'file' as const, score: 100 }]
+            : []
+        }
+        return request(method, params as never, options)
+      }) as typeof next.transport.request
+    }
     if (query.get('frame-settings-round4') === '1') {
       const base = snapshot.runtimes[0]!
       const names = ['Codex', 'Claude', 'Cursor', 'Gemini', 'DeepSeek', 'Windsurf',
@@ -244,10 +256,12 @@ export const FrameWall = () => {
           name,
           version: versions[index],
           ceilings,
-          capabilities: { ...base.capabilities, listHistory: index < 6, extensionStore: index === 0 },
+          capabilities: { ...base.capabilities, account: index === 5 || base.capabilities.account, listHistory: index < 6, extensionStore: index === 0 },
           presentation: { ...base.presentation, name },
         }
       })
+      const healthByRuntime = { ...snapshot.healthByRuntime }
+      delete healthByRuntime[ids[5]!]
       Object.assign(snapshot, {
         runtimes,
         activeRuntime: ids[0],
@@ -260,8 +274,11 @@ export const FrameWall = () => {
           path: '~/.config/harnessdesk/skills/preview-skill',
           scope: 'user',
         }],
-        healthByRuntime: { ...snapshot.healthByRuntime,
-          windsurf: { state: 'unavailable', reason: 'notInstalled', message: 'Unavailable in this preview.' } },
+        healthByRuntime,
+        accountsByRuntime: { ...snapshot.accountsByRuntime, [ids[5]!]: {
+          accounts: [],
+          signInMethods: [{ id: 'browser', label: 'Sign in in your browser', flow: 'browser' }],
+        } },
       })
     }
     if (destination === 'conversation' && query.get('frame-fix5-runtime-unavailable') === '1') {

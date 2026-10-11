@@ -603,6 +603,24 @@ export const Segmented = <T extends string>({
   </ToggleGroup>
 )
 
+/** The same segmented setting when it reports a value instead of changing it. */
+export const SegmentedReadout = <T extends string>({
+  options,
+  value,
+  label,
+}: {
+  options: readonly { readonly value: T; readonly label: ReactNode }[]
+  value: T
+  label: string
+}) => (
+  <Segmented
+    label={label}
+    value={value}
+    options={options.map((option) => ({ ...option, disabled: true }))}
+    onChange={() => {}}
+  />
+)
+
 /* --- page furniture ------------------------------------------------------ */
 
 export const SectionHead = ({

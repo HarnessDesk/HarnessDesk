@@ -3,7 +3,7 @@ import { useDestinationActive } from '../panels/destination-page'
 import { PageExplanation, PageControls, Clipped, RowButton } from '../design'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { HistorySummary, HostMethods, RuntimeId, RuntimeInfo } from '@harnessdesk/protocol'
-import { BoardMenuButton, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Button, Chip, ConfirmDialog, EmptyState, Note, Row, Rows, RowValue, Search, SectionHead, Switch, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
+import { BoardMenuButton, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Button, Chip, ConfirmDialog, EmptyState, Note, Row, Rows, RowValue, SectionHead, Switch, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
 import { folderName } from '../lib/projects'
 import { sessionLabel } from '../lib/sessions'
 import { useSnapshot, useStore } from '../state/context'
@@ -113,7 +113,7 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
     return () => observer.disconnect()
   }, [destinationActive, rows.length === 0])
   const projectOptions = [...new Set([...projects, ...snapshot.workspaces.map(workspace => workspace.repo?.root ?? workspace.path)])].sort()
-  const anyImport = Object.values(snapshot.historyImports).some(state => state != null)
+  const hasSearchableHistory = rows.length > 0 || query.trim() !== '' || agent !== '' || project !== '' || hidden
   const open = async (row: HistorySummary): Promise<void> => {
     if (!destinationActive) return
     const generation = ++opens.current
@@ -127,14 +127,18 @@ export const HistorySection = ({ focus = null, onOpenAgent, onOpen }: {
 
   return <>
     <PageExplanation>Conversations imported from your agents. Open one to preview it; send a message to add it to the sidebar.</PageExplanation>
-    <PageControls search={{label:'Search history titles',placeholder:'Search titles',value:query,change:setQuery}}
-      choices={[{id:'agent',title:'Agent',value:agent,options:[{value:'',label:'All agents'},...snapshot.runtimes.map(info=>({value:info.id,label:info.presentation.name}))],change:setAgent},
-        {id:'project',title:'Project',value:project,options:[{value:'',label:'All projects'},...projectOptions.map(root=>({value:root,label:folderName(root)}))],change:setProject}]}/>
-    <Rows><Row title="Show hidden" control={<Switch aria-label="Show hidden" checked={hidden} onCheckedChange={setHidden}/>}/></Rows>
+    {hasSearchableHistory && <>
+      <PageControls search={{label:'Search history titles',placeholder:'Search titles',value:query,change:setQuery}}
+        choices={[{id:'agent',title:'Agent',value:agent,options:[{value:'',label:'All agents'},...snapshot.runtimes.map(info=>({value:info.id,label:info.presentation.name}))],change:setAgent},
+          {id:'project',title:'Project',value:project,options:[{value:'',label:'All projects'},...projectOptions.map(root=>({value:root,label:folderName(root)}))],change:setProject}]}/>
+      <Rows><Row title="Show hidden" control={<Switch aria-label="Show hidden" checked={hidden} onCheckedChange={setHidden}/>}/></Rows>
+    </>}
     {problem && <Note tone="bad" action={<Button variant="outline" size="sm" onClick={() => setRetry(was => was + 1)}>Retry</Button>}>{problem}</Note>}
-    {!loading && !problem && rows.length === 0 && <EmptyState variant="inline" align="start" title={!anyImport && !agent && !project && !query.trim() && !hidden ? 'Import history from an agent’s settings page.' : 'Nothing matches these filters.'}
-      children={!anyImport ? <Rows>{importable.map(info => <RowButton key={info.id} kind="record" mark={<RuntimeFace runtime={info} size="navigation" />}
-        title={info.presentation.name} onClick={() => onOpenAgent(info.id)} />)}</Rows> : undefined} />}
+    {!loading && !problem && rows.length === 0 && (hasSearchableHistory
+      ? <EmptyState variant="inline" align="start" title="Nothing matches these filters." />
+      : <EmptyState title="Nothing imported yet" description="Import history from an agent’s settings page."
+          stretchChildren children={<Rows>{importable.map(info => <RowButton key={info.id} kind="record" mark={<RuntimeFace runtime={info} size="navigation" />}
+            title={info.presentation.name} onClick={() => onOpenAgent(info.id)} />)}</Rows>} />)}
     {rows.length > 0 && <Table aria-rowcount={rows.length + 1} rows="bare" density="comfortable" inset="row" viewport={{ref:scroll, 'data-history-scroll':true, onScroll:event => {
       const node = event.currentTarget
       setViewport(was => ({ ...was, top: node.scrollTop, height: node.clientHeight || 440 }))

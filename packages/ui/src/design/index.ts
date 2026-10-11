@@ -59,6 +59,7 @@ export {
   Note,
   NoteList,
   Segmented,
+  SegmentedReadout,
   SectionHead,
   Rows,
   Row,

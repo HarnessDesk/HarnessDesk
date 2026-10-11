@@ -107,9 +107,10 @@ export interface PaletteHost {
   readonly close: () => void
 }
 
-type PaletteFilter = 'All' | 'Sessions' | 'Teams' | 'Agents' | 'Commands'
+type PaletteFilter = 'All' | 'Sessions' | 'Teams' | 'Agents' | 'Files' | 'Commands'
 type EntryFilter = Exclude<PaletteFilter, 'All'>
 const PALETTE_FILTERS: readonly PaletteFilter[] = ['All', 'Sessions', 'Teams', 'Agents', 'Commands']
+const FILES_PALETTE_FILTERS: readonly PaletteFilter[] = ['All', 'Sessions', 'Teams', 'Agents', 'Files', 'Commands']
 
 interface Entry {
   readonly id: string
@@ -140,7 +141,7 @@ const GROUP_FILTER: Record<Entry['group'], EntryFilter | null> = {
   Sessions: 'Sessions',
   Recents: 'Sessions',
   Teams: 'Teams',
-  Files: null,
+  Files: 'Files',
   Commands: 'Commands',
 }
 
@@ -648,6 +649,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
     }
     return groupOrder.flatMap((g) => byGroup.get(g) ?? [])
   }, [entries, filter, query])
+  const visibleFilters = files.length > 0 || filter === 'Files' ? FILES_PALETTE_FILTERS : PALETTE_FILTERS
 
   // A fresh query starts back at the top, and the highlight then locks to
   // whichever entry leads that first paint: results that arrive later may
@@ -672,16 +674,16 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
   }
 
   const selectFilter = (value: string): void => {
-    const next = PALETTE_FILTERS.find((candidate) => candidate === value)
+    const next = visibleFilters.find((candidate) => candidate === value)
     if (!next) return
     setFilter(next)
     setActiveId(null)
   }
 
   const moveFilter = (delta: number): void => {
-    const current = PALETTE_FILTERS.indexOf(filter)
-    const next = (current + delta + PALETTE_FILTERS.length) % PALETTE_FILTERS.length
-    selectFilter(PALETTE_FILTERS[next]!)
+    const current = visibleFilters.indexOf(filter)
+    const next = (current + delta + visibleFilters.length) % visibleFilters.length
+    selectFilter(visibleFilters[next]!)
   }
 
   const run = (index: number): void => {
@@ -731,7 +733,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
         <CommandPaletteControls>
           <Tabs value={filter} onValueChange={selectFilter}>
             <TabsList aria-label="Search type" variant="line">
-              {PALETTE_FILTERS.map((value) => (
+              {visibleFilters.map((value) => (
                 <TabsTrigger key={value} value={value} data-palette-tab={value}>{value}</TabsTrigger>
               ))}
             </TabsList>

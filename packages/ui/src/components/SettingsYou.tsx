@@ -342,7 +342,7 @@ export const AppearanceSection = () => {
       <Rows>
         <Row
           title="Interface"
-          desc="Studio reads as a dashboard: filled selection, taller controls."
+          desc="Desk keeps controls compact; Studio reads as a dashboard with filled selection and taller controls."
           control={
             <PageOptions choices={[{id:"Interface",label:"Interface",value:snapshot.look,items:[
                 { value: 'desk', label: 'Desk' },
@@ -502,7 +502,7 @@ export const NotificationsSection = () => {
   return (
     <>
       <PageExplanation>Where HarnessDesk tells you things, and which ones.</PageExplanation>
-<Rows><Row title="Muted messages" control={silenced.length > 0 ? (
+<Rows><Row title="Muted messages" desc={silenced.length === 0 ? 'None muted' : `${silenced.length} muted`} control={silenced.length > 0 ? (
             <Button
               variant="outline"
               onClick={() => {

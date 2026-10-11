@@ -82,38 +82,29 @@ const choices = (): HTMLButtonElement[] =>
 /** The unattended group's own two radios — "Goals a trigger opened". */
 const unattendedChoices = (): HTMLButtonElement[] =>
   [...document.body.querySelectorAll<HTMLButtonElement>('[aria-label="If a runtime cannot hold a ceiling in a Goal a trigger opened"] [role="radio"]')]
-const chips = (): HTMLElement[] => [...document.body.querySelectorAll<HTMLElement>('[data-ceiling][data-hold]')]
+const runtimeRows = (): HTMLElement[] =>
+  [...document.body.querySelectorAll<HTMLElement>('[data-slot="row"]')]
+    .filter((row) => ['Alpha', 'Beta'].some((name) => row.querySelector('[data-slot="row-title"]')?.textContent?.startsWith(name)))
 
-it('says, per runtime and per level, whether it holds the ceiling or is only asked', async () => {
+it('shows one effective ceiling and its enforcement state per runtime', async () => {
   mount()
   await act(async () => {})
-  expect(chips().map((chip) => `${chip.dataset.ceiling}:${chip.dataset.hold}`)).toEqual([
-    'read:held', 'edit:held', 'publish:asked', 'merge:asked',
-    'read:asked', 'edit:asked', 'publish:asked', 'merge:asked',
+  const rows = runtimeRows()
+  expect(rows).toHaveLength(2)
+  const [alpha, beta] = rows
+  expect([...alpha!.querySelectorAll<HTMLElement>('[role="radio"]')].map((choice) => choice.textContent)).toEqual([
+    'Read only', 'Edit', 'Publish', 'Merge',
   ])
-  // Neutral throughout: `asked` is the ordinary state for a ceiling with no
-  // runtime control that holds it, not a warning (#898).
-  expect(chips().map((chip) => chip.firstElementChild?.getAttribute('data-tone'))).toEqual([
-    'neutral', 'neutral', 'neutral', 'neutral',
-    'neutral', 'neutral', 'neutral', 'neutral',
+  expect([...alpha!.querySelectorAll<HTMLElement>('[role="radio"]')].map((choice) => choice.getAttribute('aria-checked'))).toEqual([
+    'false', 'true', 'false', 'false',
   ])
-  expect(chips()[0]?.title).toContain('Read-only sandbox')
-  expect(chips().map((chip) => chip.querySelector('[data-slot="chip"]')?.getAttribute('data-variant'))).toEqual([
-    'default', 'default', 'outline', 'outline',
-    'outline', 'outline', 'outline', 'outline',
+  expect([...beta!.querySelectorAll<HTMLElement>('[role="radio"]')].map((choice) => choice.getAttribute('aria-checked'))).toEqual([
+    'true', 'false', 'false', 'false',
   ])
-  expect(document.body.textContent).toContain('Alpha')
-  expect(document.body.textContent).toContain('Beta')
-  const groupNote = document.body.querySelectorAll('[data-slot="ceiling-group-note"]')
-  expect(groupNote).toHaveLength(1)
-  expect(groupNote[0]?.textContent).toBe('Asked, not enforced')
-  const runtimeRows = [...document.body.querySelectorAll<HTMLElement>('[data-slot="row"]')]
-    .filter((row) => ['Alpha', 'Beta'].includes(row.querySelector('[data-slot="row-title"]')?.textContent ?? ''))
-  expect(runtimeRows).toHaveLength(2)
-  for (const row of runtimeRows) {
-    expect(row.querySelectorAll('[data-ceiling][data-hold]')).toHaveLength(4)
-    expect(row.querySelectorAll('[data-slot="ceiling-group-note"]')).toHaveLength(0)
-  }
+  expect([...rows[0]!.querySelectorAll<HTMLButtonElement>('[role="radio"]'), ...rows[1]!.querySelectorAll<HTMLButtonElement>('[role="radio"]')]
+    .every((choice) => choice.disabled)).toBe(true)
+  expect(alpha!.querySelector('[data-slot="row-title-chip"]')?.textContent).toBe('Enforced')
+  expect(beta!.querySelector('[data-slot="row-title-chip"]')?.textContent).toBe('Asked')
 })
 
 it('capabilities update after a runtime starts', async () => {
@@ -121,10 +112,10 @@ it('capabilities update after a runtime starts', async () => {
   const beta = runtime('beta', 'Beta')
   const { push } = mount({ runtimes: [alpha, beta] })
   await act(async () => {})
-  expect(chips().every((chip) => chip.dataset.hold === 'asked')).toBe(true)
+  expect(runtimeRows()[0]?.querySelector('[data-slot="row-title-chip"]')?.textContent).toBe('Asked')
   push([runtime('alpha', 'Alpha', true), beta])
-  expect(chips().slice(0, 2).map((chip) => chip.dataset.hold)).toEqual(['held', 'held'])
-  expect(chips().slice(4).every((chip) => chip.dataset.hold === 'asked')).toBe(true)
+  expect(runtimeRows()[0]?.querySelector('[data-slot="row-title-chip"]')?.textContent).toBe('Enforced')
+  expect(runtimeRows()[1]?.querySelector('[data-slot="row-title-chip"]')?.textContent).toBe('Asked')
 })
 
 it('seats and says so by default, and writes the other choice when it is made', async () => {
