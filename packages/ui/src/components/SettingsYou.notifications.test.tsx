@@ -5,7 +5,7 @@ import { afterEach, beforeEach, expect, it } from 'vitest'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { kept } from '../lib/inbox'
-import { withSurface, type NoticeSurface } from '../lib/notice-policy'
+import { emptyNoticePolicy, withMuted, withSurface, type NoticeSurface } from '../lib/notice-policy'
 import { NotificationsSection } from './SettingsYou'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -77,6 +77,16 @@ it('each kind says where it is shown, offers only the places it may go, and Off'
   expect(spent.value).toBe('composer')
   expect([...spent.options].map((option) => option.value)).toEqual(['composer', 'strip', 'inbox', 'off'])
   expect(select('Import from your other agents').value).toBe('card')
+})
+
+it('states how many messages are muted in the summary row', () => {
+  mount()
+  const summary = () => [...container.querySelectorAll<HTMLElement>('[data-slot="row"]')]
+    .find((row) => row.querySelector('[data-slot="row-title"]')?.textContent === 'Muted messages')
+  expect(summary()?.querySelector('[data-slot="row-desc"]')?.textContent).toBe('None muted')
+
+  mount({ noticePolicy: withMuted(emptyNoticePolicy(), 'usage:pace', true) })
+  expect(summary()?.querySelector('[data-slot="row-desc"]')?.textContent).toBe('1 muted')
 })
 
 it('moving a kind or turning it off is written to the policy', () => {
