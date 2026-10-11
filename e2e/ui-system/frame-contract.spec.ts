@@ -7,6 +7,7 @@ import { selectRunView } from './run-frame-actions'
 import { expect, test, type Page } from '@playwright/test'
 import { FRAME, FRAME_TOKENS } from '../../packages/ui/src/design/frame'
 import { WALL_DESTINATIONS, WALL_THEMES, WALL_WIDTHS } from './frame-wall-destinations'
+import { PAGE_WALL_DESTINATIONS } from './frame-wall-destinations'
 import { applyFrameActions, selectFrameTab, settleFrameBar } from './frame-actions'
 import { mountFocusFixture } from './focus-ring-fixture'
 
@@ -538,6 +539,59 @@ for (const kind of ['settings', 'dashboard', 'agents', 'teams', 'library', 'plug
     }
   })
 }
+
+// E9: the More door exists only while its destination has at least one row.
+test('E9 every destination More either stays absent or opens rows, and returns for actions', async ({ page }) => {
+  test.setTimeout(120_000)
+  await openFrame(page, 'frame-wall=navigation', 'light')
+  const column = page.locator('[data-left-column]:visible')
+  const more = page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')
+  await column.getByRole('button', { name: 'Dashboard', exact: true }).click()
+  await expect(page.locator('[data-page-destination="dashboard"]:visible')).toHaveCount(1)
+  await expect(more).toHaveCount(0)
+  await column.getByRole('button', { name: 'Library', exact: true }).click()
+  await expect(page.locator('[data-page-destination="library"]:visible')).toHaveCount(1)
+  await expect(more).toBeVisible()
+  await more.click()
+  await expect(page.getByRole('menu').locator('[role^="menuitem"], [role="switch"]')).toHaveCount(2)
+
+  const routes = [...new Set(PAGE_WALL_DESTINATIONS.map(destination => destination.query))]
+  for (const query of routes) {
+    await openFrame(page, query, 'light')
+    const trigger = page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')
+    if (await trigger.count()) {
+      await trigger.click()
+      const rows = page.getByRole('menu').locator('[role^="menuitem"], [role="switch"]')
+      expect(await rows.count(), `${query} opens a menu with at least one row`).toBeGreaterThan(0)
+    }
+  }
+})
+
+test('E9 Changes review content uses the shared page gutter inside its canvas', async ({ page }) => {
+  await openFrame(page, 'frame-wall=changes-review', 'light')
+  const canvas = page.locator('[data-page-destination="changes-review"]:visible [data-slot="page"][data-width="canvas"]')
+  const canvasBox = (await canvas.boundingBox())!
+  const firstBlock = (await canvas.locator('[data-slot="summary-list"]').boundingBox())!
+  expect(Math.round(firstBlock.x - canvasBox.x)).toBe(FRAME.page.gutter)
+})
+
+test('E9 Changes review starts with a single filter field', async ({ page }) => {
+  await openFrame(page, 'frame-wall=changes-review', 'light')
+  const measured = page.locator('[data-page-destination="changes-review"]:visible [data-page-measure="wide"]')
+  const firstRow = measured.locator(':scope > *').first()
+  await expect(firstRow.getByRole('searchbox', { name: 'Filter files', exact: true })).toBeVisible()
+  await expect(firstRow.locator('[data-slot="row-title"]')).toHaveCount(0)
+})
+
+test('E9 review is opened as a page with a clear label', async ({ page }) => {
+  await openFrame(page, 'frame-wall=conversation', 'light')
+  await page.locator('[data-work-tool="changes"]:visible').click()
+  const opener = page.getByRole('button', { name: 'Open review', exact: true })
+  await expect(opener).toBeVisible()
+  await opener.click()
+  await expect(page.locator('[data-page-destination="changes-review"]:visible')).toHaveCount(1)
+  await expect(page.locator('[data-slot="app-window"]')).toHaveCount(0)
+})
 for (const kind of ['library','plugins','dashboard']) test(`E9 owner Escape leaves the former ${kind} window destination`, async ({page}) => {
   await openFrame(page,'frame-wall=navigation','light')
   await page.locator('[data-left-column]:visible').getByRole('button',{name:kind[0]!.toUpperCase()+kind.slice(1),exact:true}).click()

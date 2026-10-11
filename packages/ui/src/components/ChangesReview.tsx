@@ -7,7 +7,7 @@ import { inView } from '../lib/git-view'
 import { Button, Card, ChangeStats, CodeText, EmptyState, Note, Page, PatchHeader, Section, Separator, SummaryList, SummaryItem, MiddleTruncate, Text, ToolbarGap } from '../design'
 import { useStore } from '../state/context'
 import { DestinationBar, useDestinationPage } from '../panels/destination-page'
-import { ReviewIndex } from '../panels/review-index'
+import { ReviewFilter, ReviewIndex } from '../panels/review-index'
 import type { WorkView } from '../state/destinations'
 import { handOverToComposer } from '../lib/compose'
 import { DiffView } from './Diff'
@@ -141,12 +141,13 @@ const ReviewBody = ({ root, returnTo }: ReviewProps) => {
         { value: 'working', label: 'Working tree', run: () => setStaged(false) },
         { value: 'staged', label: 'Staged', run: () => setStaged(true) },
       ]} />
-      <Page width="canvas">
+      <Page width="canvas" measure="wide">
+        <ReviewFilter query={query} change={setQuery} />
         <SummaryList><SummaryItem label={git?.branch ? <>on <MiddleTruncate>{git.branch}</MiddleTruncate></> : null}>
           {files.length} file{files.length === 1 ? '' : 's'}
           {total.added + total.removed > 0 ? ` · +${total.added} −${total.removed}` : ''}
         </SummaryItem></SummaryList>
-        <ReviewIndex query={query} change={setQuery} jump={jumpTo} groups={groups.map(group => ({
+        <ReviewIndex jump={jumpTo} groups={groups.map(group => ({
           folder: group.folder, files: group.files.map(file => ({ path: file.path, name: basename(file.path),
             ...countChanges(diffs.get(file.path) ?? '') })),
         }))} />

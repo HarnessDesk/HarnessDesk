@@ -908,6 +908,11 @@ where the title starts: pushed to the end, a sentence narrower than the row
 began at whatever indent its length left. The row reads which from the
 control, so no caller has to remember.
 
+**A canvas can have a page measure.** The canvas keeps its dense outer inset;
+when its content is a page of cards and lists, `Page` can centre those blocks
+at the reading or wide measure inside that canvas. The blocks keep the same
+page gutter and maximum width as other pages.
+
 **Groups inside a section are sub-heads.** A `SectionHead` among a `Section`'s
 children sits 24px under the card above and 8px over its own — a step between
 the 8px of a label and the 32px of a section — so Permissions' twelve runtimes
