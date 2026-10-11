@@ -166,9 +166,11 @@ export const TopBar = (props: TopBarProps) => {
       <div data-topbar="place" className={styles.place}>
         {shownParents.map((one, index) => <Button key={`${index}:${one.label}`} className="hd-no-drag" variant="link" size="inline-link" onClick={one.run}>{one.label} ›</Button>)}
         {props.mark && <span data-topbar-mark className={styles.fixed}>{props.mark}</span>}
-        <div ref={place} data-topbar-title className={styles.title}><Text role="subject" truncate>{props.place}</Text></div>
+        <div ref={place} data-topbar-title className={styles.title}>
+          <Text role="subject" truncate>{props.place}</Text>
+          {fold === 0 && <div data-topbar="state" className={styles.fixed}>{props.state}</div>}
+        </div>
       </div>
-      {fold === 0 && <div data-topbar="state" className={styles.fixed}>{props.state}</div>}
       {props.tabs && <div data-topbar="tabs" className={styles.fixed}>{fold < 2 && <Tabs key="expanded" value={props.tab ?? null}>
         <TabsList aria-label="Destination views" className={styles.tabs}>
           {props.tabs.map(one => <DestinationTab key={one.value} tab={one} />)}

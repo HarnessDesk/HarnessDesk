@@ -85,6 +85,7 @@ export const agentsDestinationStore = (query: URLSearchParams): AppStore => {
   const route = selected === 'missing' ? { kind: 'agents' as const, id: 'missing-agent' }
     : selected === 'parse' ? { kind: 'agents' as const, id: 'draft' }
     : selected === 'refused' ? { kind: 'agents' as const, id: 'code-reviewer' }
+    : selected === 'release-checker' ? { kind: 'agents' as const, id: 'release-checker' }
     : framePageRoute(query, { ...framePageIds(store.getSnapshot()), agent: selected === 'release' ? 'release-checker' : PREVIEW_AGENTS.find(entry => entry.id === 'code-reviewer')!.id })
   // Start with recorded work behind the page; navigation remains the real store's.
   if (route) store.openDestination(route)
