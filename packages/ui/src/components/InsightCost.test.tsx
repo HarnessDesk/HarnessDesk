@@ -67,7 +67,7 @@ it('keeps total fixed while alternate views retain zero, floor, estimate and unk
   expect(container.textContent).toContain('minutes since observation')
   expect(container.textContent).toContain('$0.00')
   expect(container.textContent).toContain('Unknown')
-  const agent = [...container.querySelectorAll('button')].find((button) => button.textContent === 'By Agent')
+  const agent = [...container.querySelectorAll('button')].find((button) => button.textContent === 'By agent')
   expect(agent).toBeTruthy()
   act(() => agent?.dispatchEvent(new MouseEvent('click', { bubbles: true })))
   expect(container.textContent).toContain('$3.00')

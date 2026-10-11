@@ -152,7 +152,7 @@ it('switches from the Year grid to one row per agent, and back', async () => {
   expect(container.textContent).toContain('Claude Code')
   expect(container.textContent).toContain('Codex')
 
-  await act(async () => choose('Year'))
+  await act(async () => choose('Last 12 months'))
   expect(container.textContent).not.toContain('Codex')
 })
 
@@ -190,13 +190,13 @@ it('keeps day and hour measures independently when switching views', async () =>
   await renderSuppliedReport(groupedLedgerReport([{ runtime: CLAUDE, weekday: 1, hour: 10, requests: 2, tokens: 100 }]))
   await act(async () => choose('Cost'))
   await act(async () => choose('By hour'))
-  expect(container.textContent).toContain('tokens this year')
+  expect(container.textContent).toContain('tokens last 12 months')
   await act(async () => choose('Calls'))
-  expect(container.textContent).toContain('calls this year')
-  await act(async () => choose('Year'))
+  expect(container.textContent).toContain('calls last 12 months')
+  await act(async () => choose('Last 12 months'))
   expect(container.textContent).toContain('$')
   await act(async () => choose('By hour'))
-  expect(container.textContent).toContain('calls this year')
+  expect(container.textContent).toContain('calls last 12 months')
 })
 
 it('does not show the not-recorded swatch in the hour view', async () => {
@@ -335,4 +335,25 @@ it('defers its own year read until the retained page is active',async()=>{
  const draw=async(active:boolean)=>act(async()=>root.render(<StoreProvider store={store}><DestinationPageScope owner="destination:dashboard" active={active}><UsageActivity byId={byId} scope={null} now={NOW} /></DestinationPageScope></StoreProvider>))
  await draw(false);expect(ledger).not.toHaveBeenCalled()
  await draw(true);expect(ledger).toHaveBeenCalledTimes(1)
+})
+
+it('labels the rolling twelve-month window and puts scan coverage in the Active days caption', async () => {
+  await renderBand()
+  expect(container.textContent).toContain('Last 12 months')
+  expect(container.textContent).toContain('Active days')
+  expect(container.textContent).toMatch(/\d+ days scanned/)
+  expect(container.textContent).not.toContain('this year')
+})
+
+it('ignores an injected hourly measure outside the offered calls and tokens', async () => {
+  const changed = vi.fn()
+  const store = { subscribe: () => () => {}, getSnapshot: () => ({}) } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}><UsageActivity byId={byId} scope={null} now={NOW}
+    report={groupedLedgerReport([{ runtime: CLAUDE, weekday: 1, hour: 10, requests: 2, tokens: 100 }])}
+    view="hour" hourMetric="calls" onHourMetricChange={changed} /></StoreProvider>))
+  const measure = container.querySelector<HTMLSelectElement>('select[aria-label="Measure"]')!
+  const injected = document.createElement('option'); injected.value = 'cost'; injected.textContent = 'Injected'; measure.append(injected)
+  await act(async () => { measure.value = 'cost'; measure.dispatchEvent(new Event('change', { bubbles: true })) })
+  expect(changed).not.toHaveBeenCalled()
+  expect(container.textContent).toContain('calls')
 })

@@ -62,7 +62,7 @@ import {
 export type HeatView = 'year' | 'agent' | 'hour'
 
 const VIEWS = [
-  { value: 'year', label: 'Year' },
+  { value: 'year', label: 'Last 12 months' },
   { value: 'agent', label: 'By agent' },
   { value: 'hour', label: 'By hour' },
 ] as const
@@ -130,7 +130,9 @@ export const UsageActivity = ({
   const dayMetric = dayMetricProp ?? ownDayMetric
   const setDayMetric = onDayMetricChangeProp ?? setOwnDayMetric
   const hourMetric = hourMetricProp ?? ownHourMetric
-  const setHourMetric = onHourMetricChangeProp ?? setOwnHourMetric
+  const setHourMetric = (next: string): void => {
+    if (next === 'calls' || next === 'tokens') (onHourMetricChangeProp ?? setOwnHourMetric)(next)
+  }
   const owned = suppliedReport === undefined
 
   useEffect(() => {
@@ -247,17 +249,17 @@ export const UsageActivity = ({
   return (
     <Section title="When it ran" description={view !== 'hour' && busiestDow !== null ? `Busiest on ${WEEKDAY_NAMES[busiestDow]}s` : undefined} action={<PageOptions choices={[
       {id:'view',label:'Show by',value:view,items:VIEWS,change:next=>setView(next as HeatView)},
-      {id:'metric',label:'Measure',value:view === 'hour' ? hourMetric : dayMetric,items:view === 'hour' ? HOUR_METRICS : DAY_METRICS,change:next=>view === 'hour' ? setHourMetric(next as HourMetric) : setDayMetric(next as HeatMetric)},
+      {id:'metric',label:'Measure',value:view === 'hour' ? hourMetric : dayMetric,items:view === 'hour' ? HOUR_METRICS : DAY_METRICS,change:next=>view === 'hour' ? setHourMetric(next) : setDayMetric(next as HeatMetric)},
     ]} />}>
       <ChartFrame>
         <ChartCard>
           <DashboardStats facts={view === 'hour' ? [
-            {id:'total',label:hourMetric === 'calls' ? `${hourTotal === 1 ? 'call' : 'calls'} this year` : 'tokens this year',value:!hourGrid.available ? '—' : hourMetric === 'calls' ? hourTotal.toLocaleString() : formatTokens(hourTotal)},
+            {id:'total',label:hourMetric === 'calls' ? `${hourTotal === 1 ? 'call' : 'calls'} last 12 months` : 'tokens last 12 months',value:!hourGrid.available ? '—' : hourMetric === 'calls' ? hourTotal.toLocaleString() : formatTokens(hourTotal)},
             {id:'hour',label:'busiest hour',value:busiestHour ? `${WEEKDAY_NAMES[busiestHour.weekday]?.slice(0,3)} ${busiestHour.hour % 12 || 12} ${busiestHour.hour < 12 ? 'AM' : 'PM'}` : '—'},
             {id:'weekday',label:'busiest day of the week',value:busiestHourWeekday === null ? '—' : WEEKDAY_NAMES[busiestHourWeekday]},
           ] : [
-            {id:'total',label:view === 'year' ? 'this year' : 'last 13 weeks',value:totalLabel,caption:somePartiallyUnpriced ? 'some unpriced' : undefined},
-            {id:'active',label:`active of ${scannedCount} scanned`,value:activeCount},
+            {id:'total',label:view === 'year' ? 'Last 12 months' : 'last 13 weeks',value:totalLabel,caption:somePartiallyUnpriced ? 'some unpriced' : undefined},
+            {id:'active',label:'Active days',value:activeCount,caption:`${scannedCount} days scanned`},
             {id:'streak',label:`streak · best ${streaks.best}`,value:`${streaks.current} days`},
             {id:'busiest',label:busiest ? dayLabelLong(busiest.day) : 'busiest day',value:busiest ? dayMetric === 'cost' && isUnpricedCost(busiest) ? 'unpriced' : format(dayMetric === 'tokens' ? busiest.tokens : busiest.cost) : '—'},
             ...(view === 'year' ? [{id:'leader',label:'did the most',value:leader ? nameOf(leader) : '—'}] : []),
@@ -271,7 +273,7 @@ export const UsageActivity = ({
             <EmptyState tight title="No hours recorded yet" />
           ) : (
             <HeatGrid
-              label={view === 'year' ? 'Tokens or cost per day, this year' : view === 'agent' ? 'Tokens or cost per day, per agent, last 13 weeks' : 'Tokens or calls by local weekday and hour, this year'}
+              label={view === 'year' ? 'Tokens or cost per day, last 12 months' : view === 'agent' ? 'Tokens or cost per day, per agent, last 13 weeks' : 'Tokens or calls by local weekday and hour, last 12 months'}
               rows={view === 'hour' ? hourRows : rows}
               columns={view === 'hour' ? 24 : columns}
               columnLabels={

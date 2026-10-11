@@ -5,7 +5,7 @@ import { InsightUsage } from '../InsightUsage'
 
 const INSIGHT_OPTIONS = [
   { value: 'goal', label: 'By team' },
-  { value: 'agent', label: 'By Agent' },
+  { value: 'agent', label: 'By agent' },
 ] as const
 
 /** Project accounting by Goal or Agent, with its own 30-day or 24-hour accounting range. */
