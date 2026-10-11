@@ -256,12 +256,19 @@ export const sidebarStorefrontRecencyFixture = (base: AppSnapshot): AppSnapshot 
     { id: 'storefront-three', runtime: CODEX, title: 'Adjust retry handling', cwd: root, repo: repoAt(root), ago: 3 },
     { id: 'storefront-four', runtime: CODEX, title: 'Check payment edge cases', cwd: root, repo: repoAt(root), ago: 4 },
   ].map(row)
+  const sessions = new Map(history.map(summary => {
+    const session: Session = {
+      id: summary.id, runtime: summary.runtime, cwd: root, title: summary.title, preview: summary.preview,
+      status: { type: 'idle' }, createdAt: summary.createdAt, updatedAt: summary.updatedAt, turns: [], itemsLoaded: true,
+    }
+    return [sessionKey(session.runtime, session.id), session] as const
+  }))
   return {
     ...base,
     history,
     historyIdentity: history,
     foldersGone: new Map(),
-    sessions: new Map(),
+    sessions,
     activeSessionKey: null,
     workspace,
     workspaces: [workspace],

@@ -764,7 +764,9 @@ test('R10 nav4 opening the fourth storefront conversation keeps project recency 
   expect(before).toEqual([
     'Review the checkout plan', 'Inspect basket validation', 'Adjust retry handling', 'Check payment edge cases',
   ])
-  await rows.nth(3).locator('[data-left-row] > button').click()
+  const fourth = rows.nth(3).locator('[data-left-row] > button')
+  await fourth.click()
+  await expect(fourth).toHaveAttribute('aria-current', 'page')
   expect(await labels()).toEqual(before)
 })
 
