@@ -67,9 +67,9 @@ export const AppWindowContent = ({ children }: { children: React.ReactNode }) =>
   <div data-slot="app-window-content" className="flex min-h-0 flex-col">{children}</div>
 import frameStyles from './AppWindow.module.css'
 
-export const AppWindowLeftFrame = ({ left, top, body, placement, width, onWidth, onCloseFloat, native = false }: {
+export const AppWindowLeftFrame = ({ left, top, body, placement, width, onWidth, onCloseFloat, onNavigate, native = false }: {
   left: ReactNode; top: ReactNode; body: ReactNode
-  placement: 'column' | 'floating' | 'away'; native?: boolean; width: number; onWidth: (width: number) => void; onCloseFloat: () => void
+  placement: 'column' | 'floating' | 'away'; native?: boolean; width: number; onWidth: (width: number) => void; onCloseFloat: () => void; onNavigate?: () => void
 }) => {
   const [live, setLive] = useState<number | null>(null)
   const leftRef = useRef<HTMLElement>(null)
@@ -110,7 +110,12 @@ export const AppWindowLeftFrame = ({ left, top, body, placement, width, onWidth,
       if (event.target instanceof Element && event.target.closest('[data-popup-kind], [data-slot="popover-popup"]')) return
       event.preventDefault(); event.stopPropagation(); onCloseFloat()
     }}>
-    <aside ref={leftRef} data-app-window-left hidden={placement === 'away'} inert={placement === 'away'} className={frameStyles.left}>
+    <aside ref={leftRef} data-app-window-left hidden={placement === 'away'} inert={placement === 'away'} className={frameStyles.left}
+      onClick={event => {
+        if (!onNavigate || !(event.target instanceof Element)) return
+        const navigation = event.target.closest('[data-slot="sidebar-menu-button"]')
+        if (navigation && leftRef.current?.contains(navigation) && !event.target.closest('[data-slot="sidebar-menu-action"]')) onNavigate()
+      }}>
       {left}
       {placement === 'column' && <PanelSeam orientation="vertical" label="Resize the sidebar" direction={1}
         size={width} min={FRAME.sidebar.min} max={FRAME.sidebar.max}

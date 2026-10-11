@@ -132,17 +132,6 @@
    which is the whole of "why do these two pages feel different". One number,
    and it is the one with a reason behind it: `--hd-column` is a reading
    measure, about ninety characters at the interface's 14px. */
-.pageInner {
-  max-width: var(--hd-column); /* desk: 780 → 736, the measure the conversation already uses */
-  margin-inline: auto;
-}
-
-/* The standalone Library has room for wrapped descriptions, State and
-   Loaded by. Settings keeps its ordinary shared reading measure. */
-.pageInner[data-wide] {
-  max-width: 1320px; /* desk: 1120 → 1320, room for Library descriptions and content-sized trailing columns */
-}
-
 /* A short destination rail can become a top row in its own narrow window.
    Opt-in: long settings trees retain their existing navigation policy. */
 .responsive { container: app-window / inline-size; }

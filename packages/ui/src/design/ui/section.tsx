@@ -52,10 +52,10 @@ const sectionVariants = cva('flex flex-col', {
          taller than the column allots its panels (`--panel-max`, which the
          column sets), so a long one scrolls inside itself instead of taking
          the column's list away. */
-      panel: 'max-h-(--panel-max,none) gap-2 border-t border-(--hd-border) p-(--hd-inset-row)',
+      panel: 'max-h-(--panel-max,none) gap-(--hd-card-gap) border-t border-(--hd-border) p-(--hd-inset-row)',
       /* A section of a page, with its label outside and over its card. Drawn
          only through `title` (below), which is what gives it its head. */
-      page: 'mt-(--hd-space-8) min-w-0 gap-(--hd-space-2) first:mt-0 *:my-0! [&>[data-section-head]]:mt-(--hd-space-4)! [&>button]:self-start',
+      page: 'mt-(--hd-space-8) min-w-0 gap-(--hd-card-gap) first:mt-0 *:my-0! [&>[data-section-head]]:mt-(--hd-space-3)! [&>button]:self-start',
     },
   },
   defaultVariants: { variant: 'card' },
@@ -72,19 +72,19 @@ const sectionVariants = cva('flex flex-col', {
  * cards read as a list of floating grey words. So the section owns the rhythm,
  * and a screen that composes sections writes no margin of its own:
  *
- *   heading → content      8px (`--hd-space-2`), the label belongs to its card.
+ *   heading → content      12px (`--hd-card-gap`), the label belongs to its card.
  *                          The heading sits on its card: an action taller than
  *                          the label grows upward, so every label on a page is
- *                          the same 8px above what it names
+ *                          the same 12px above what it names
  *   section → section      32px (`--hd-space-8`); after a page or detail head
  *                          the head's own 24px collapses into it, so the first
  *                          section sits at the same 32px as every other one
- *   inside, child → child  8px; a card's or a note's own margin is dropped,
+ *   inside, child → child  12px (`--hd-card-gap`); a card's or a note's own margin is dropped,
  *                          so nothing inside can reopen the gap. A card
  *                          fills the column; a lone button keeps its own
  *                          width at the start, never a full-width bar.
  *   a sub-group inside     a `SectionHead` among its children is a sub-head:
- *                          24px above it (16 on the gap), 8px to its card —
+ *                          24px above it (12 on the gap), 12px to its card —
  *                          a step between the two, so Permissions' twelve
  *                          runtimes read as groups of one section rather
  *                          than twelve sections
@@ -153,13 +153,13 @@ const Section = (props: SectionProps) => {
              body is a `Note` or a plain button — ProjectTriggers' own body,
              say — has no such card to answer to, and the same inset put its
              label a row inset right of a body that starts flush with the page. */
-          className={cn('flex min-w-0 items-end gap-(--hd-space-3)',
+          className={cn('flex min-w-0 flex-wrap items-end gap-(--hd-space-3)',
             inset === 'row' ? 'px-(--hd-inset-row)' : inset === 'card' ? 'px-(--hd-inset-card)'
               : 'has-[+[data-slot=rows]]:px-[calc(var(--hd-border-width)+var(--hd-table-edge))] has-[+[role=radiogroup]]:px-[calc(var(--hd-border-width)+var(--hd-table-edge))]',
           )}
         >
-          <div className="flex min-w-0 flex-1 flex-col gap-(--hd-space-0-5)">
-            <GroupLabel as="h2">{title}</GroupLabel>
+          <div className="flex min-w-0 flex-[1_1_20ch] flex-col gap-(--hd-space-0-5)">
+            <GroupLabel as="h2" data-section-name="" className="min-w-0 truncate">{title}</GroupLabel>
             {description != null && (
               <p
                 data-slot="section-description"
@@ -170,7 +170,7 @@ const Section = (props: SectionProps) => {
             )}
           </div>
           {action != null && (
-            <div data-slot="section-action" className="flex flex-none items-center gap-(--hd-space-2)">
+            <div data-slot="section-action" className="flex max-w-full flex-none flex-wrap items-center gap-(--hd-space-2)">
               {action}
             </div>
           )}

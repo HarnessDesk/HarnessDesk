@@ -4,7 +4,7 @@ import { sidebarGeometryFixture } from './sidebar-geometry-fixture'
 import { runTeamStore, equivalentRunFixture, type RunScene } from './run-view-fixture'
 import { sidebarStructureFixture } from './sidebar-structure-fixture'
 import { useEffect, useMemo, useState } from 'react'
-import { contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, turnId, type UiContribution, type BackgroundTask, type RuntimeId } from '@harnessdesk/protocol'
+import { contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, turnId, type AcpRegistryAgentInfo, type UiContribution, type BackgroundTask, type RuntimeId } from '@harnessdesk/protocol'
 import { installPanelComponent } from '../slots/PanelBlocks'
 
 installPanelComponent()
@@ -159,7 +159,7 @@ const FrameDestination = ({ destination }: { destination: Destination }) => {
   const [view, setView] = useState<DashboardView>('overview')
   const [scope, setScope] = useState<RuntimeId | null>(null)
   const [focus, setFocus] = useState<string | null>(() => destination === 'agent' ? 'implementer' : null)
-  const close = () => setPage(null)
+  const close = () => setPage(current => current === page ? null : current)
   const settings = (next: Section = 'general') => { setSection(next); setPage('settings') }
   const agents = (id: string | null = null) => { setFocus(id); setPage('agents') }
   const usage = () => { setView('overview'); setScope(null); setPage('dashboard') }
@@ -170,7 +170,7 @@ const FrameDestination = ({ destination }: { destination: Destination }) => {
     onOpenAgents={agents} onOpenTeams={() => setPage('teams')} onOpenUsage={usage} onBrowseFolders={() => {}}
     onSignIn={() => {}} onSearch={() => {}}
     activeDestination={page === 'settings' && section === 'library' ? 'library' : page === 'settings' && section === 'plugins' ? 'plugins' : page === 'settings' || page === 'changes-review' ? null : page}
-    settings={inWindow && section !== 'library' && section !== 'plugins' ? { section, onSection: setSection, onBack: close } : undefined} />
+    settings={inWindow && page === 'settings' && section !== 'library' && section !== 'plugins' ? { section, onSection: setSection, onBack: close } : undefined} />
   return <TopBarProvider><ShellHostsProvider>
     <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: usage,
       openRuntimes: () => settings('runtimes'), openAgents: agents, reviewImports: () => {} }}>
@@ -179,7 +179,7 @@ const FrameDestination = ({ destination }: { destination: Destination }) => {
           <Workbench suspended={page !== null} sidebar={left(false)} />
           {page === 'teams' && <TeamsWindow onClose={close} />}
           {page === 'agents' && <AgentsWindow focus={focus} onClose={close} onFocus={setFocus} />}
-          {page === 'dashboard' && <Usage view={view} scope={scope} onView={setView} onScope={setScope} onClose={close} onSignIn={() => {}} />}
+          {page === 'dashboard' && <Usage view={view} scope={scope} onView={setView} onScope={setScope} onClose={close} onSignIn={() => {}} leftColumn={left(true)} />}
           {page === 'settings' && <Settings leftColumn={left(true)} section={section} onSection={setSection} onClose={close} onSignIn={() => {}} />}
           {page === 'changes-review' && <ChangesReview onClose={close} />}
           <ShellOutlets activeOwner={page} />
@@ -211,6 +211,20 @@ export const FrameWall = () => {
   const query = new URLSearchParams(location.search)
   const store = useMemo(() => {
     const next = storeFor(destination)
+    if (query.get('layout-registry') === '1') {
+      next.acpRegistry = async () => ({
+        agents: Array.from({ length: 10 }, (_, index): AcpRegistryAgentInfo => ({
+          id: `preview-runtime-${index + 1}`,
+          name: `Runtime ${String(index + 1).padStart(2, '0')}`,
+          version: '1.0.0',
+          description: 'Synthetic registry entry for layout checks.',
+          run: 'npx',
+          available: true,
+          registered: false,
+        })),
+        fetchedAt: 1,
+      })
+    }
     // Additional Details states for the same real frame; all data is synthetic.
     const detailsCase = query.get('frame-details-case')
     const snapshot = next.getSnapshot()

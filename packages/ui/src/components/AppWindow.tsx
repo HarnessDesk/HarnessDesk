@@ -23,6 +23,7 @@ import {
   PageHeadingProvider,
   MenuItem,
   type PageHeadingData,
+  Page,
 } from '../design'
 import { createContext, useContext, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { Clipped } from '../design'
@@ -35,6 +36,7 @@ import { useSnapshot, useStore } from '../state/context'
 import { sidebarPlacement } from '../state/workbench'
 import { WindowControls } from './WindowControls'
 import { hasTrafficLights } from '../lib/desktop'
+import { shortcutFor } from '../lib/shortcuts'
 
 /**
  * The app's second surface: a full window with a nav rail down its left side.
@@ -76,13 +78,13 @@ export const moveWindowRailFocus = (event: ReactKeyboardEvent<HTMLElement>) => {
   rows[next]?.focus()
 }
 
-type AppWindowProps = { owner: string; label: string; children: ReactNode; responsive?: boolean; onBack?: () => void; onClose: () => void; leftColumn?: ReactNode }
+type AppWindowProps = { owner: string; label: string; children: ReactNode; responsive?: boolean; onBack?: () => void; onClose: () => void; leftColumn?: ReactNode; closeOnLeftNavigation?: boolean; splitContent?: boolean }
 export const AppWindow = (props: AppWindowProps) => {
   const embedded = useContext(AppWindowMode) === 'embedded'
   return embedded ? <TopBarProvider><ShellHostsProvider><AppWindowFrame {...props} />
     <ShellOutlets activeOwner={props.owner} /></ShellHostsProvider></TopBarProvider> : <AppWindowFrame {...props} />
 }
-const AppWindowFrame = ({ owner, label, children, responsive = false, onBack, onClose, leftColumn }: AppWindowProps) => {
+const AppWindowFrame = ({ owner, label, children, responsive = false, onBack, onClose, leftColumn, closeOnLeftNavigation = false, splitContent = false }: AppWindowProps) => {
   const embedded = useContext(AppWindowMode) === 'embedded'
   const snapshot = useSnapshot()
   const store = useStore()
@@ -97,6 +99,7 @@ const AppWindowFrame = ({ owner, label, children, responsive = false, onBack, on
     more: close => <MenuItem label="Back to app" onSelect={() => { onClose(); close() }} />,
   })
   const receiveHeading = (next: PageHeadingData | null) => setHeading(current => current?.place === next?.place ? current : next)
+  const pageContent = <PageHeadingProvider onHeading={receiveHeading}>{children}</PageHeadingProvider>
   const [host, setHost] = useState<HTMLDivElement | null>(null)
   const surface = useRef<HTMLDivElement>(null)
   return (
@@ -126,15 +129,21 @@ const AppWindowFrame = ({ owner, label, children, responsive = false, onBack, on
               aria-describedby={undefined}
               initialFocus={embedded ? false : surface}
               finalFocus={!embedded}
+              onKeyDownCapture={event => {
+                if (!closeOnLeftNavigation) return
+                const action = shortcutFor(event.nativeEvent)?.action
+                if (action === 'new-session' || action === 'new-team') onClose()
+              }}
             >
               {leftColumn === undefined ? <>
               <AppWindowTopHost columnWidth={columnWidth} ref={topRef} data-shell-host="top" />
-              <AppWindowContent><ShellNoticeHost ref={mainRef} /><div className={styles.winBody}><PageHeadingProvider onHeading={receiveHeading}>{children}</PageHeadingProvider></div></AppWindowContent>
+              <AppWindowContent><ShellNoticeHost ref={mainRef} /><div className={styles.winBody}>{pageContent}</div></AppWindowContent>
               </> : <AppWindowLeftFrame native={hasTrafficLights()} left={leftColumn}
                 placement={sidebarPlacement(snapshot)} width={snapshot.workbench.sidebar.size}
                 onWidth={width => store.resizePanel('sidebar', width)} onCloseFloat={() => store.closeFloatingSidebar()}
+                onNavigate={closeOnLeftNavigation ? onClose : undefined}
                 top={<div ref={topRef} data-shell-host="top" />}
-                body={<AppWindowContent><ShellNoticeHost ref={mainRef} /><PageHeadingProvider onHeading={receiveHeading}>{children}</PageHeadingProvider></AppWindowContent>} />}
+                body={<AppWindowContent><ShellNoticeHost ref={mainRef} />{splitContent ? <div className={styles.winBody}>{pageContent}</div> : pageContent}</AppWindowContent>} />}
             </AppWindowSurface>
           </DialogPortal>
         )}
@@ -284,8 +293,11 @@ export const WindowNavStateMark = ({ children }: { children: ReactNode }) => (
  */
 export const WindowPage = ({ wide, children }: { wide?: boolean; children: ReactNode }) => (
   <AppWindowPage className={styles.page} data-hd-density="comfortable">
-    <div className={styles.pageInner} {...(wide ? { 'data-wide': '' } : {})}>
-      {children}
-    </div>
+    <Page width={wide ? 'wide' : 'reading'} gutter="none">{children}</Page>
   </AppWindowPage>
+)
+
+/** Dashboard's own view rail and page, inside the app's shared destination rail. */
+export const WindowContentSplit = ({ children }: { children: ReactNode }) => (
+  <div className={styles.winBody}>{children}</div>
 )

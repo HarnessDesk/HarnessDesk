@@ -2,30 +2,33 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { RuntimeInfo } from '@harnessdesk/protocol'
 
-import { Row, RowChoice, Rows, Section } from '../design'
+import { Row, RowChoice, Rows, Section, Text } from '../design'
 import { runtimeHolds } from '../lib/ceilings'
 import { useSnapshot, useStore } from '../state/context'
 import type { UnheldCeilings } from '../state/store'
 import { RuntimeMark } from './BrandIcons'
 import { CeilingChip } from './CeilingChip'
 
-const RuntimeCeilings = ({ runtime }: { readonly runtime: RuntimeInfo }) => (
-  <Row
+const RuntimeCeilings = ({ runtime }: { readonly runtime: RuntimeInfo }) => {
+  const holds = runtimeHolds(runtime)
+  return <Row
     mark={<RuntimeMark runtime={runtime} size={13} />}
     title={runtime.presentation.name}
     control={
-      <span className="flex flex-wrap justify-end gap-2">
-        {runtimeHolds(runtime).map((hold) => (
+      <span className="flex flex-wrap items-center justify-end gap-(--hd-space-2)">
+        {holds.map((hold) => (
           <CeilingChip
             key={hold.level}
             ceiling={{ level: hold.level, hold: hold.held ? 'held' : 'asked' }}
             note={hold.how}
+            showHold={false}
           />
         ))}
+        {holds.some((hold) => !hold.held) && <span data-slot="ceiling-hold-note"><Text role="meta">Asked, not enforced</Text></span>}
       </span>
     }
   />
-)
+}
 
 /** Runtime hold declarations and the policy for a watched seat they cannot hold. */
 export const CeilingsSection = ({ focus = null }: { readonly focus?: string | null }) => {

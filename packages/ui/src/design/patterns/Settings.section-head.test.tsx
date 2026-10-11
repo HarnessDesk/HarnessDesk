@@ -50,12 +50,27 @@ it('keeps card labels distinct from an explicit page-section heading', () => {
   expect(name?.className).toContain('text-(--hd-foreground)')
   expect(heading?.closest('[data-sticky]')?.textContent).toBe('What is leftThe selected account is out of quota.Range')
   expect(heading?.nextElementSibling?.getAttribute('data-slot')).toBe('section-description')
+  const action = heading?.closest('[data-section-head]')?.querySelector('[data-slot="section-action"]')
+  expect(action?.textContent).toBe('Range')
+  expect(action?.firstElementChild?.tagName).toBe('BUTTON')
 
   // The card label is the one group label, not a style of its own.
   expect(label?.className).toContain('text-(length:--hd-text-sm)')
   expect(label?.className).toContain('text-(--hd-secondary-foreground)')
   expect(css).not.toMatch(/\.sectionName\s*\{[^}]*font-size/s)
   expect(css).not.toMatch(/\.sectionName\[data-level='heading'\]/)
+})
+
+it('truncates section names and moves their controls to a second row when they do not fit', () => {
+  const content = /\.sectionHeadContent\s*\{([^}]*)\}/s.exec(css)?.[1] ?? ''
+  const text = /\.sectionHeadText\s*\{([^}]*)\}/s.exec(css)?.[1] ?? ''
+  const name = /\.sectionName\s*\{([^}]*)\}/s.exec(css)?.[1] ?? ''
+  expect(content).toMatch(/flex-wrap:\s*wrap/)
+  expect(text).toMatch(/min-width:\s*0/)
+  expect(name).toMatch(/min-width:\s*0/)
+  expect(name).toMatch(/overflow:\s*hidden/)
+  expect(name).toMatch(/text-overflow:\s*ellipsis/)
+  expect(name).toMatch(/white-space:\s*nowrap/)
 })
 
 /*

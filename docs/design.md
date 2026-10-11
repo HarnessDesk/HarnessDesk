@@ -877,6 +877,24 @@ inside a `Section` is an h3. A detail head's
 owner is either text — a place, a path — that gives way at its end, or a mark
 such as a status chip that stays whole while the name wraps.
 
+## Shared layout rhythm
+
+### Section headings with controls
+
+`SectionHead` and a titled `Section` give the heading text room to shrink and
+truncate with an ellipsis. Their controls wrap onto a second row when the
+heading and controls cannot share one. A heading's text box never runs under a
+control.
+
+### Page and panel stacks
+
+Adjacent blocks in page bodies and panels use `--hd-card-gap` (12px). A field
+that filters a list sits one stack gap above that list. Two bordered or filled
+blocks keep at least one stack gap between them unless they are nested inside
+one grouped surface. The 12px stack rule replaces the earlier 8px page
+label-to-content and child-to-child entries in the page rhythm table above;
+the 32px space between page sections remains.
+
 ## The rules
 
 The UI consistency programme (#831) decided nine rules. Each used to be

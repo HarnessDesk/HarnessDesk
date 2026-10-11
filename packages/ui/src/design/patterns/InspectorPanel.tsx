@@ -33,8 +33,8 @@ const PanelBody = ({ children }: { children: ReactNode }) => {
   const reading = useContext(PanelInset) === 'reading'
   const sections = useToolBodySections()
   if (sections) return <>{children}</>
-  return <div data-slot="inspector-body" className={cn('min-h-0 flex-1 overflow-y-auto', !reading && 'p-(--hd-inset-dense)')}>
-    {reading ? <PaneColumn inset="reading">{children}</PaneColumn> : children}
+  return <div data-slot="inspector-body" className={cn('min-h-0 flex flex-col gap-(--hd-card-gap) flex-1 overflow-y-auto', !reading && 'p-(--hd-inset-dense)')}>
+    {reading ? <PaneColumn inset="reading" className="flex min-w-0 flex-col gap-(--hd-card-gap)">{children}</PaneColumn> : children}
   </div>
 }
 

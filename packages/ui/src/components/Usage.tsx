@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 
 import type { InsightReport, LedgerReport, RuntimeId, UsageReport } from '@harnessdesk/protocol'
 
@@ -61,6 +62,7 @@ export const Usage = ({
   onClose,
   onSignIn,
   onOpenPlanSettings,
+  leftColumn,
 }: {
   /** The rail's own row, owned by the caller so any entry point can redirect it. */
   view?: DashboardView
@@ -73,6 +75,8 @@ export const Usage = ({
   onSignIn?: (runtime: RuntimeId) => void
   /** Opens an account's own Plan card in Settings — Plans' Key body and money row read it (review of #1069, B5). Falls back to `onSignIn`'s own door (Settings › Runtimes) when the caller has nothing more specific. */
   onOpenPlanSettings?: (runtime: RuntimeId) => void
+  /** The app's shared navigation rail while this destination is open. */
+  leftColumn?: ReactNode
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -318,7 +322,8 @@ export const Usage = ({
         : undefined
 
   return (
-    <AppWindow owner="dashboard" onClose={onClose} label="Dashboard">
+    <AppWindow owner="dashboard" onClose={onClose} label="Dashboard" leftColumn={leftColumn}
+      closeOnLeftNavigation={leftColumn !== undefined} splitContent={leftColumn !== undefined}>
       <WindowNav onBack={onClose}>
         <WindowGroup label="Views">
           <WindowNavItem
