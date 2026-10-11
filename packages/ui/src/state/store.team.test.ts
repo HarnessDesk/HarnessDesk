@@ -12,6 +12,7 @@ import { AppStore } from './store'
 import { panes } from './layout'
 import { dockViews } from './workbench'
 import { emptySideBySide, placeTile } from '../lib/side-by-side'
+import { NEW_SESSION_DRAFT_KEY } from './drafts'
 /* The real registry, so `defaultArea` answers the way it does in the app. */
 import '../panels/builtins'
 
@@ -285,6 +286,20 @@ it('brings the room back still watching what it was watching', async () => {
   const back = panes(store.getSnapshot().layout.root)[0]?.view
   expect(back?.kind).toBe('room')
   expect(back?.kind === 'room' ? back.watching : null).toEqual(watching)
+})
+
+it('Back returns from a conversation to the new-session draft with its text intact', async () => {
+  if (workspace) await store.openWorkspace(PROJECT)
+  store.newDraft()
+  store.drafts.setLive(NEW_SESSION_DRAFT_KEY, { text: 'Keep this draft open.', attachments: [] })
+
+  await store.openSession(ID, { runtime: RUNTIME })
+  expect(store.getSnapshot().navCanBack).toBe(true)
+
+  await store.navigateBack()
+
+  expect(panes(store.getSnapshot().layout.root)[0]?.view).toEqual({ kind: 'conversation', session: null })
+  expect(store.drafts.live(NEW_SESSION_DRAFT_KEY)?.text).toBe('Keep this draft open.')
 })
 
 it('stores side-by-side tiles on the room view and removes an empty grid', async () => {

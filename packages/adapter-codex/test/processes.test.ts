@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
@@ -150,6 +153,29 @@ test('a command that cannot start is a spawn error, not a dead process', async (
     () => runtime.processes.spawn({ cwd: '/w', command: ['/definitely/not/a/binary'], tty: false }),
     /failed to spawn/,
   )
+})
+
+test('command/exec starts in the requested existing folder and falls back when it is missing', async (t) => {
+  const runtime = await started(t)
+  const requested = mkdtempSync(join(tmpdir(), 'harnessdesk-terminal-cwd-'))
+  t.after(() => rmSync(requested, { recursive: true, force: true }))
+
+  const runPwd = async (cwd: string): Promise<string> => {
+    const child = await runtime.processes.spawn({
+      cwd,
+      command: [process.execPath, '-e', 'process.stdout.write(process.cwd())'],
+      tty: false,
+    })
+    const output = collect(child)
+    let exit: number | null = null
+    child.onExit((code) => { exit = code })
+    await waitFor(() => exit !== null, 'pwd command exit')
+    assert.equal(exit, 0)
+    return output.join('')
+  }
+
+  assert.equal(await runPwd(requested), realpathSync(requested))
+  assert.equal(await runPwd(join(requested, 'missing')), realpathSync(process.cwd()))
 })
 
 test('a terminal for a session runs under that session\'s permission profile', async (t) => {

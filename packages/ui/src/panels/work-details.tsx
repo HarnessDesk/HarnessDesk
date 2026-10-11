@@ -39,7 +39,11 @@ export const ConversationDetails = ({ session, placeAction }: { session: Session
         {branch && <SummaryItem label="Branch" kind="path">{branch}</SummaryItem>}
         <SummaryItem label="Context">{context?.title ?? 'No usage yet'}</SummaryItem>
       </SummaryList>
-      {(!shown || !branch) && <ToolProse variant="note">Not recorded for this {session ? 'conversation' : 'draft'}: {[!shown && 'the ceiling', !branch && 'the branch'].filter(Boolean).join(', ')}.</ToolProse>}
+      {(!shown || !branch) && <ToolProse variant="note">
+        {!shown && <>Permission level not reported for this {session ? 'conversation' : 'draft'}.</>}
+        {!shown && !branch && ' '}
+        {!branch && <>Branch not reported for this {session ? 'conversation' : 'draft'}.</>}
+      </ToolProse>}
       <Slot name="session.header" />
     </ToolSection>
     <ToolSection label="Plan">

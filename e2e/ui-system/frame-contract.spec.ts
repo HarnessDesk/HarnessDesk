@@ -245,6 +245,24 @@ for (const theme of WALL_THEMES) for (const destination of ['settings', 'agents'
 }
 
 for (const theme of WALL_THEMES) {
+  test(`R5.5 message action reveal stays with the hovered message in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&frame-conversation-actions=1', theme)
+    const userMessage = page.locator('[data-part="prompt"] [data-slot="message"]').first()
+    const userActions = page.locator('[data-message-actions="user"]').first()
+    const answerMessage = page.locator('[data-part="answer"] [data-slot="message"]').first()
+    const answerActions = page.locator('[data-message-actions="assistant"]').last()
+
+    const answerBox = (await answerMessage.boundingBox())!
+    await page.mouse.move(answerBox.x + answerBox.width / 2, answerBox.y + answerBox.height / 2)
+    await expect(answerActions).toHaveCSS('opacity', '1')
+    await expect(userActions).toHaveCSS('opacity', '0')
+
+    const userBox = (await userMessage.boundingBox())!
+    await page.mouse.move(userBox.x + userBox.width / 2, userBox.y + userBox.height / 2)
+    await expect(userActions).toHaveCSS('opacity', '1')
+    await expect(answerActions).toHaveCSS('opacity', '0')
+  })
+
   test(`terminal tabs hold shell actions and per-shell close in one row in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation&frame-terminal=1', theme)
     const row = page.locator('[data-terminal-shell-tabs]')
@@ -344,6 +362,24 @@ for (const theme of WALL_THEMES) {
     await expect(terminal).toHaveAttribute('data-terminal-id', terminalId!)
     await expect(terminal).toHaveAttribute('data-b10-retained', 'terminal')
     await expect(terminal).toBeVisible()
+  })
+}
+
+for (const theme of WALL_THEMES) {
+  test(`R5.6 Browser address placeholder fits the tool field in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation', theme, 1100)
+    await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Browser', exact: true }).click()
+    const address = page.getByRole('textbox', { name: 'Address', exact: true })
+    await expect(address).toHaveAttribute('placeholder', 'Enter a URL or query')
+    const fit = await address.evaluate((input: HTMLInputElement) => {
+      const style = getComputedStyle(input)
+      const canvas = document.createElement('canvas')
+      const context = canvas.getContext('2d')!
+      context.font = style.font
+      const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+      return { text: context.measureText(input.placeholder).width, room: input.clientWidth - padding }
+    })
+    expect(fit.text).toBeLessThanOrEqual(fit.room)
   })
 }
 

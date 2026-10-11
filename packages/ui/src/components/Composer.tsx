@@ -91,7 +91,7 @@ import {
 import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from './ComposerControls'
 import { ContextUsage } from './ContextUsage'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
-import { draftsOf, UNSCOPED_RECOVERY_KEY } from '../state/drafts'
+import { draftsOf, NEW_SESSION_DRAFT_KEY, UNSCOPED_RECOVERY_KEY } from '../state/drafts'
 import styles from './Composer.module.css'
 
 const contextChipIcon = (icon: ContextChipIcon | undefined, form: 'instructions' | 'resource' | undefined): ReactNode => {
@@ -222,10 +222,11 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   const filePicker = useRef<HTMLInputElement>(null)
 
   const drafts = draftsOf(store)
-  const [text, setText] = useState(() => (key ? (drafts.live(key)?.text ?? '') : ''))
-  const [attachments, setAttachments] = useState<Attachment[]>(() => (key ? [...(drafts.live(key)?.attachments ?? [])] : []))
+  const draftKey = key ?? NEW_SESSION_DRAFT_KEY
+  const [text, setText] = useState(() => drafts.live(draftKey)?.text ?? '')
+  const [attachments, setAttachments] = useState<Attachment[]>(() => [...(drafts.live(draftKey)?.attachments ?? [])])
   const [imageReloadWarning, setImageReloadWarning] = useState(
-    () => key ? drafts.live(key)?.imagesWillBeLostOnReload === true : false,
+    () => drafts.live(draftKey)?.imagesWillBeLostOnReload === true,
   )
   /* Which conversation's draft `text` holds, and whether this composer is
      still drawn: words are only ever saved to — or put back into — the
@@ -246,8 +247,8 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   useLayoutEffect(() => {
     const imagesWillBeLostOnReload =
       imageReloadWarning || attachments.some((attachment) => attachment.kind === 'image')
-    if (key && draftOf.current === key) {
-      drafts.setLive(key, { text, attachments, imagesWillBeLostOnReload })
+    if (draftOf.current === key) {
+      drafts.setLive(draftKey, { text, attachments, imagesWillBeLostOnReload })
     }
   }, [drafts, key, text, attachments, imageReloadWarning])
   useLayoutEffect(() => {
