@@ -34,6 +34,7 @@ export const InboxMenu = ({ messages, onOpen, onMarkAllRead, onClear, now = Date
             setExpanded(current => { const next = new Set(current); if (next.has(message.id)) next.delete(message.id); else next.add(message.id); return next })
           }} />
         {expanded.has(message.id) && <>
+          <MenuNote tone={message.tone}><span data-part="inbox-full-title">{message.title}</span></MenuNote>
           {message.from && <MenuNote tone={message.tone}>{message.from}</MenuNote>}
           {message.body && <MenuNote tone={message.tone}>{message.body}</MenuNote>}
           {message.file && <MenuNote tone={message.tone}>In <MiddleTruncate>{message.file}</MiddleTruncate></MenuNote>}

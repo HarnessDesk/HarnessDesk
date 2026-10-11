@@ -2,6 +2,8 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
+import { InboxMenu } from './InboxMenu'
+
 import noticeCss from './Notices.module.css?raw'
 
 const { toast } = vi.hoisted(() => {
@@ -254,4 +256,14 @@ it('the bell offers notification actions through the wide menu and closes once',
   expect(readAll).toHaveBeenCalledTimes(1)
   await click(label('Clear the inbox'))
   expect(cleared).toHaveBeenCalledTimes(1)
+})
+
+
+it('the canonical Inbox menu retains a complete title when title-only guidance expands', async () => {
+  const title = 'A background warning contains the whole instruction: check the configuration before the next run.'
+  await act(async () => root.render(<InboxMenu close={() => {}} messages={[{ id: 'title-only', title }]} />))
+  expect(host.querySelector('[data-part="inbox-full-title"]')).toBeNull()
+  await act(async () => host.querySelector<HTMLElement>('[role="menuitem"]')!.click())
+  expect(host.querySelector('[data-part="inbox-full-title"]')?.textContent).toBe(title)
+  expect(host.querySelector('[data-part="inbox-full-title"]')?.closest('[data-menu-note]')).not.toBeNull()
 })
