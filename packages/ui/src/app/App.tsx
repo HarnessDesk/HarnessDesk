@@ -132,6 +132,11 @@ export const App = () => {
     window.addEventListener('harnessdesk:review', open)
     return () => window.removeEventListener('harnessdesk:review', open)
   }, [])
+  useEffect(() => {
+    const open = (): void => setPaletteOpen(true)
+    window.addEventListener('harnessdesk:search', open)
+    return () => window.removeEventListener('harnessdesk:search', open)
+  }, [])
   // The resolved face, for anything that needs telling rather than styling —
   // Sonner paints its own surface and takes the theme as a value.
   const theme = useTheme()
@@ -187,7 +192,7 @@ export const App = () => {
           store.setDetailsTab('changes')
           return
         case 'settings':
-          openSettingsAt('runtimes', null)
+          openSettingsAt('general', null)
           return
         case 'sign-in':
           setSignInOpen((subject as RuntimeId | undefined) ?? true)

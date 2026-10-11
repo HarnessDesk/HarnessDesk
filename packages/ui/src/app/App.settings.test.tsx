@@ -18,6 +18,7 @@ vi.mock('../lib/desktop', () => ({
 vi.mock('../panels/Workbench', () => ({ Workbench: () => null }))
 vi.mock('../components/Sidebar', () => ({ Sidebar: () => null }))
 vi.mock('../components/Notices', () => ({ Notices: () => null }))
+vi.mock('../components/CommandPalette', () => ({ CommandPalette: () => <output data-testid="command-palette" /> }))
 vi.mock('../components/ImportOffer', () => ({ ImportOffer: () => null }))
 vi.mock('../design', () => ({ Toaster: () => null }))
 vi.mock('../state/theme', () => ({ useTheme: () => 'light' }))
@@ -25,10 +26,12 @@ vi.mock('../components/Settings', async () => {
   const { useShell } = await import('../panels/views')
   return {
   resolveSection: () => 'workspaces',
-  Settings: ({ focus }: { readonly focus?: string | null }) => {
+  Settings: ({ focus, section, leftColumn }: { readonly focus?: string | null; readonly section?: string; readonly leftColumn?: React.ReactNode }) => {
     const shell = useShell()
     return (
       <div>
+        <output data-testid="settings-section">{section ?? 'no section'}</output>
+        <output data-testid="settings-column-mode">{leftColumn === undefined ? 'missing' : 'present'}</output>
         <output data-testid="settings-focus">{focus ?? 'nothing focused'}</output>
         <button type="button" onClick={() => shell.openAgents('room-reviewer')}>Open its Agent</button>
       </div>
@@ -135,4 +138,21 @@ it('answers both navigation chords at 720 while the sidebar floats', async () =>
   }
   expect(back).toHaveBeenCalledOnce()
   expect(forward).toHaveBeenCalledOnce()
+})
+
+it('opens the column Settings mode from Command-comma', async () => {
+  const store = routedStore('')
+  await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
+  const event = new KeyboardEvent('keydown', { key: ',', metaKey: true, bubbles: true, cancelable: true })
+  act(() => document.dispatchEvent(event))
+  expect(event.defaultPrevented).toBe(true)
+  expect(container.querySelector('[data-testid="settings-section"]')?.textContent).toBe('general')
+  expect(container.querySelector('[data-testid="settings-column-mode"]')?.textContent).toBe('present')
+})
+
+it('opens the command palette from Search in the hidden-column top row', async () => {
+  await act(async () => root.render(<StoreProvider store={routedStore('')}><App /></StoreProvider>))
+  expect(container.querySelector('[data-testid="command-palette"]')).toBeNull()
+  act(() => window.dispatchEvent(new Event('harnessdesk:search')))
+  expect(container.querySelector('[data-testid="command-palette"]')).not.toBeNull()
 })

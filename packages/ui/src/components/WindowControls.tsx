@@ -2,7 +2,7 @@ import { useSnapshot, useStore } from '../state/context'
 import { sidebarPlacement } from '../state/workbench'
 import { Button } from '../design'
 import { FRAME } from '../design/frame'
-import { ArrowLeftIcon, ArrowRightIcon, SidebarIcon } from './Icons'
+import { ArrowLeftIcon, ArrowRightIcon, SearchIcon, SidebarIcon } from './Icons'
 import styles from './WindowControls.module.css'
 
 /**
@@ -14,9 +14,9 @@ import styles from './WindowControls.module.css'
  * does not — put away, or floating over a narrow window — so the controls
  * never leave the row the eye expects them on.
  *
- * Below the frame's window threshold, main keeps the toggle alone. The
- * floating sidebar's own row retains both arrows; wider hidden columns keep
- * all three lead controls regardless of the destination's contents.
+ * When the column is away, Search stays beside the toggle in the title row.
+ * Below the frame's window threshold, history arrows move out of the lead;
+ * the floating sidebar's own row retains both arrows.
  */
 export const WindowControls = ({ sidebarRow = false }: { sidebarRow?: boolean }) => {
   const store = useStore()
@@ -33,6 +33,15 @@ export const WindowControls = ({ sidebarRow = false }: { sidebarRow?: boolean })
       >
         <SidebarIcon size={14} />
       </Button>
+      {!shown && <Button
+        variant="ghost" size="icon-sm" className={`${styles.button} hd-no-drag`}
+        onClick={() => window.dispatchEvent(new CustomEvent('harnessdesk:search'))}
+        title="Search everything (⌘K)"
+        aria-label="Search everything"
+        aria-keyshortcuts="Meta+K"
+      >
+        <SearchIcon size={14} />
+      </Button>}
       {navigation && <span>
         <Button
           variant="ghost" size="icon-sm" className={`${styles.button} hd-no-drag`}
