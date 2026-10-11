@@ -114,6 +114,32 @@ it("says what the agent wants to do with the board in plain words, with Allow on
   expect(buttonsOf().filter((button) => button === document.activeElement)).toHaveLength(0)
 })
 
+it('gives only the plain Allow action primary weight and separates its shortcuts as keycaps', () => {
+  const request = {
+    id: 'command-approval',
+    sessionId: SESSION,
+    requestedAt: Date.now(),
+    type: 'command',
+    command: 'ls -la',
+    cwd: '/work/storefront',
+    options: [
+      { id: 'allow', label: 'Allow', intent: 'approve' },
+      { id: 'session', label: 'Allow for this session', intent: 'approveAlways' },
+      { id: 'deny', label: 'Deny', intent: 'deny' },
+    ],
+  } as unknown as Approval
+  mount(request)
+
+  expect(labelsOf()).toEqual(['Deny', 'Allow for this session', 'Allow'])
+  expect(buttonsOf().map((button) => button.getAttribute('data-variant'))).toEqual([
+    'destructive', 'quiet', 'default',
+  ])
+  expect(buttonsOf().map((button) => button.querySelector('[data-slot="keycap"]')?.textContent)).toEqual([
+    '3', '2', '1',
+  ])
+  expect(buttonsOf().every((button) => button.querySelector('[data-slot="keycap"]')?.getAttribute('aria-hidden') === 'true')).toBe(true)
+})
+
 it('keeps a server-wide grant under its own explicit label, so it never reads like the one-tool grant', () => {
   mount(boardApproval(BOARD_TITLE, SESSION_SET), geminiInfo)
   const labels = labelsOf()

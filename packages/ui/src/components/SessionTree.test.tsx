@@ -1647,6 +1647,22 @@ it('names a live row after the person’s first ask as soon as it is typed', () 
   expect(rows()[0]).not.toContain('sign it')
 })
 
+it('uses the first ask while the history row still has no title or preview', () => {
+  const key = sessionKey('codex', sessionId('sent-task'))
+  const firstAsk = 'List the storefront files and tell me where the product cards are implemented.'
+  const indexed = summary({ id: 'sent-task', title: null, preview: null })
+  const live = {
+    ...indexed,
+    status: { type: 'active' }, updatedAt: 2,
+    turns: [{ id: 'turn-1', items: [{ type: 'userMessage', content: [{ type: 'text', text: firstAsk }] }] }],
+  } as unknown as SessionSummary
+  const { container: tree } = treeWith([], [indexed], [live], {}, undefined, key)
+
+  const row = tree.querySelector<HTMLButtonElement>('button[data-active]')
+  expect(row?.textContent).toContain(firstAsk)
+  expect(row?.textContent).not.toContain('Untitled session')
+})
+
 it('reads the ask past the context blocks the composer puts before it', () => {
   const runtime = {
     id: 'agent',

@@ -95,6 +95,7 @@ type SessionRowSlice = {
   runtime: AppSnapshot['runtimes'][number] | undefined
   pinned: boolean
   liveTitle: string | null | undefined
+  livePreview: string | null | undefined
   deskCopy: boolean
   trace: ReturnType<typeof traceOf> | null
   backgrounded: number
@@ -108,7 +109,8 @@ type SessionRowSlice = {
 const sameSessionRowSlice = (left: SessionRowSlice, right: SessionRowSlice): boolean =>
   left.runtime === right.runtime &&
   left.pinned === right.pinned &&
-  left.liveTitle === right.liveTitle && left.deskCopy === right.deskCopy && left.trace === right.trace &&
+  left.liveTitle === right.liveTitle && left.livePreview === right.livePreview &&
+  left.deskCopy === right.deskCopy && left.trace === right.trace &&
   left.backgrounded === right.backgrounded && left.folderGone === right.folderGone &&
   left.active === right.active && left.needsYou === right.needsYou &&
   left.seatLabel === right.seatLabel
@@ -137,7 +139,7 @@ const SessionRow = memo(({
   const [draft, setDraft] = useState('')
   const key = sessionKey(summary.runtime, summary.id)
   const {
-    runtime, pinned, liveTitle, deskCopy, trace, backgrounded,
+    runtime, pinned, liveTitle, livePreview, deskCopy, trace, backgrounded,
     folderGone, active, needsYou, seatLabel,
   } = useSnapshotSelector((snapshot): SessionRowSlice => {
     const live = snapshot.sessions.get(key)
@@ -148,6 +150,7 @@ const SessionRow = memo(({
       runtime: snapshot.runtimes.find((entry) => entry.id === summary.runtime),
       pinned: snapshot.listPrefs.pinnedSessions.includes(String(key)),
       liveTitle: live?.title,
+      livePreview: live ? live.preview ?? firstAsk(live) : undefined,
       deskCopy: live?.deskCopy === true,
       trace,
       backgrounded: (snapshot.tasks.get(key) ?? []).filter((task) => task.state === 'running').length,
@@ -164,7 +167,7 @@ const SessionRow = memo(({
      whole list for the better part of a minute while the room's rail already
      read every name. The live session is the fresher record when it exists. */
   /* A Seat without a person's first message is named by its job and Team. */
-  const label = sessionLabel(liveTitle ?? summary.title, summary.preview, seatLabel ?? undefined)
+  const label = sessionLabel(liveTitle ?? summary.title, livePreview ?? summary.preview, seatLabel ?? undefined)
   const traceShown = trace !== null && (ACTIVE_STATES.has(trace) || trace === 'waiting' || trace === 'failed')
   // Work the agent sent to the background and walked away from: the turn is
   // over, the row would read idle, and something is still running. The glyph

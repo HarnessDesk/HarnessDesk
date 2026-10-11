@@ -15,6 +15,7 @@ import {
   type HostMethodName,
   type RuntimeId,
   type Session,
+  type SessionSummary,
 } from '@harnessdesk/protocol'
 
 import type { TransportEvents } from '../lib/transport'
@@ -246,6 +247,39 @@ describe('opening a conversation', () => {
 
 describe('a conversation that could not be read (#800)', () => {
   const SAID = 'No stored conversation s-1.'
+
+  it('keeps a saved conversation selected when its runtime is not installed, without inventing a transcript', async () => {
+    const saved: SessionSummary = {
+      id: ID,
+      runtime: runtimeId('synthetic-missing'),
+      title: 'Judge the storefront layout',
+      preview: 'Review the saved layout notes.',
+      cwd: '/work/storefront',
+      status: { type: 'notLoaded' },
+      createdAt: 1,
+      updatedAt: 2,
+    }
+    answers['session/index'] = { data: [saved], nextCursor: null }
+    await store.loadHistory({ reset: true })
+    vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => {
+      if (method === 'session/read') throw new Error('The saved runtime is not installed.')
+      return null
+    }) as never)
+
+    await store.openSession(ID, { runtime: saved.runtime })
+
+    const key = sessionKey(saved.runtime, ID)
+    expect(store.getSnapshot().activeSessionKey).toBe(key)
+    expect(panesOf().map(sessionOf)).toEqual([key])
+    expect(store.getSnapshot().sessions.get(key)).toMatchObject({
+      id: ID,
+      runtime: saved.runtime,
+      title: saved.title,
+      cwd: saved.cwd,
+      turns: [],
+      itemsLoaded: false,
+    })
+  })
 
   it.each([undefined, 'sessionFolderGone', 'sessionBusy'])(
     'returns the pane to a draft when the read fails (%s)',

@@ -1149,12 +1149,12 @@ export const PlaceControl = () => {
   const store = useStore()
   const snapshot = useSnapshot()
   const session = useActiveSession()
-  const { ref, folded, tight } = useNarrowToolbar('work-in')
+  const { ref } = useNarrowToolbar('work-in')
   const workspace = snapshot.workspace
   if (session) return null
   if (!workspace) {
     return (
-      <ComposerTrack name="work-in" folded={folded} tight={tight}>
+      <ComposerTrack name="work-in">
         <InToolbar refer={ref}>{null}</InToolbar>
       </ComposerTrack>
     )
@@ -1236,16 +1236,15 @@ export const PlaceControl = () => {
       ? leaf(chosen.branch, chosenMain ? 'Local' : 'Worktree')
       : linked
         ? leaf(branch, 'Worktree')
-        : 'Local'
+        : folder
   const tagged = !armed && !chosenMain && (chosen !== null || linked)
 
   return (
-    <ComposerTrack name="work-in" folded={folded} tight={tight}>
+    <ComposerTrack name="work-in" contentSized>
       <InToolbar refer={ref}>
         <Popover
           fullWidth
-          tightTrigger={tight}
-          title={folded ? `${word} — ${title}` : title}
+          title={title}
           drop="up"
           align="left"
           onOpenChange={(open) => open && void store.loadWorktrees()}
@@ -1258,13 +1257,11 @@ export const PlaceControl = () => {
             ) : (
               <LocalIcon size={13} />
             )}
-            {!folded && (
-              armed
-                ? <Text role="row" tone="brand" className={sheet.word}>{word}</Text>
-                : <Text role="row" className={sheet.word}>{word}</Text>
-            )}
-            {!folded && tagged && <Badge variant="secondary">worktree</Badge>}
-            {!tight && <Chevron />}
+            {armed
+              ? <Text role="row" tone="brand" className={sheet.word}>{word}</Text>
+              : <Text role="row" truncate title={workspace.path} className={sheet.word}>{word}</Text>}
+            {tagged && <Badge variant="secondary">worktree</Badge>}
+            <Chevron />
           </>
         }
          panelWidth="wide" icons="none">

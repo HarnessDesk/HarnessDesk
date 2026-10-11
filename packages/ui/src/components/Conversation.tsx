@@ -147,8 +147,28 @@ const ConversationEmpty = ({
      pick one — which a room column did for a member with no turns yet — is a
      draft's sentence in the wrong pane. */
   const session = useActiveSession()
-  const folder = session?.cwd ? (session.cwd.split('/').filter(Boolean).pop() ?? null) : null
+  const sessionRuntime = session
+    ? snapshot.runtimes.find((entry) => entry.id === session.runtime)
+    : undefined
+  const sessionHealth = session
+    ? snapshot.healthByRuntime[session.runtime] ?? (session.runtime === snapshot.activeRuntime ? snapshot.health : null)
+    : null
+  const unavailableSessionMessage = session && !sessionRuntime
+    ? "This conversation can't be read because its runtime isn't installed. Add it in Settings, then reopen this conversation."
+    : sessionHealth?.state === 'unavailable'
+      ? `${sessionHealth.message}${sessionHealth.remediation ? ` ${sessionHealth.remediation}` : ' Check the runtime in Settings, then reopen this conversation.'}`
+      : null
+  const folderPath = session?.cwd || snapshot.workspace?.path || null
+  const folder = folderPath ? folderPath.split('/').filter(Boolean).pop() ?? null : null
   const [startingTeam, setStartingTeam] = useState(false)
+
+  if (session && unavailableSessionMessage) {
+    return (
+      <ConversationEmptyState height={height}>
+        <EmptyBody>{unavailableSessionMessage}</EmptyBody>
+      </ConversationEmptyState>
+    )
+  }
 
   if (health && health.state === 'unavailable') {
     // Not just this agent's bad news: the whole desk, surveyed, with the one
@@ -355,6 +375,16 @@ export const Conversation = ({
   const [bringingHome, setBringingHome] = useState(false)
   const [creatingBranchRoot, setCreatingBranchRoot] = useState<string | null>(null)
   const loading = key ? snapshot.loadingSessions.has(key) : false
+  const sessionRuntime = session ? snapshot.runtimes.find((entry) => entry.id === session.runtime) : undefined
+  const sessionHealth = session
+    ? snapshot.healthByRuntime[session.runtime] ?? (session.runtime === snapshot.activeRuntime ? snapshot.health : null)
+    : null
+  const sessionCannotRun = Boolean(session && (!sessionRuntime || sessionHealth?.state === 'unavailable'))
+  const unavailableSessionMessage = session && !sessionRuntime
+    ? "This conversation can't be read because its runtime isn't installed. Add it in Settings, then reopen this conversation."
+    : sessionHealth?.state === 'unavailable'
+      ? `${sessionHealth.message}${sessionHealth.remediation ? ` ${sessionHealth.remediation}` : ' Check the runtime in Settings, then reopen this conversation.'}`
+      : null
   /* Keyed on the folder rather than on this conversation: the fact belongs to
      the folder, and every conversation that ran in it is in the same state. */
   const folderGone = session ? (snapshot.foldersGone.get(session.cwd) ?? null) : null
@@ -362,7 +392,11 @@ export const Conversation = ({
   const items = useMemo(() => (session ? allItems(session) : []), [session])
   const hasRealTurn = session?.turns.some(turn => !isNoticeTurn(turn)) ?? false
   const emptyHeight = !hasRealTurn && items.length > 0 ? 'content' : 'pane'
-  const emptyState = session && session.itemsLoaded && session.updatedAt > session.createdAt ? (
+  const emptyState = session && sessionCannotRun && unavailableSessionMessage && items.length === 0 ? (
+    <ConversationEmptyState height={emptyHeight}>
+      <EmptyBody>{unavailableSessionMessage}</EmptyBody>
+    </ConversationEmptyState>
+  ) : session && session.itemsLoaded && session.updatedAt > session.createdAt ? (
     <ConversationEmptyState height={emptyHeight}>
       <EmptyTitle>Nothing to show</EmptyTitle>
       <EmptyBody>
@@ -628,7 +662,7 @@ export const Conversation = ({
             left sitting there to be typed into and refused. */}
         {!composer ? null : folderGone && session ? (
           <FolderGone folder={session.cwd} said={folderGone} />
-        ) : (
+        ) : sessionCannotRun ? null : (
           <Composer onChooseProject={onChooseProject} />
         )}
       </ComposerDock>
