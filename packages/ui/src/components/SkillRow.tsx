@@ -119,7 +119,7 @@ export const SkillRow = ({ entry, columns, onOpen }: {
       <CodeText as="code" size="inherit">{entry.kind === 'skill' ? `/${entry.name}` : entry.name}</CodeText>
     </Text>
   </span>
-  const description = <Text as="span" role="muted" ink="muted" data-skill-description="" className={`whitespace-normal ${narrow ? 'line-clamp-2 text-balance' : 'block [overflow-wrap:anywhere]'}`}>
+  const description = <Text as="span" role="muted" ink="muted" data-skill-description="" className={`whitespace-normal line-clamp-2 [overflow-wrap:anywhere] ${narrow ? 'text-balance' : ''}`}>
     {entry.description ?? (entry.kind === 'skill' ? 'No description in its frontmatter' : 'No description provided')}
   </Text>
   const members = loaded.flatMap(reach => {

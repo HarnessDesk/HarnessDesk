@@ -605,7 +605,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
       items: filterData.filter(item => counts === null || item.value === 'all' || item.value === filter || (item.count ?? 0)> 0).map(item => ({ ...item, disabled: counts === null ? 'Reading every agent’s directories…' : item.disabled })),
       change: value => setFilter(value as Filter) },
     { id: 'agent', label: 'Declared by', value: agentFilter, mode: 'menu',
-      items: [{ value: '', label: 'Any Agent' }, ...(snapshot.agents ?? []).map(entry => ({ value: `${entry.origin}:${entry.id}`, label: entry.definition?.name ?? entry.id }))], change: setAgentFilter },
+      items: [{ value: '', label: 'Any agent' }, ...(snapshot.agents ?? []).map(entry => ({ value: `${entry.origin}:${entry.id}`, label: entry.definition?.name ?? entry.id }))], change: setAgentFilter },
   ]
   return (
     <>
@@ -619,6 +619,7 @@ const LibraryBody = ({ section: kind, onSection: setKind, importIntent }: Librar
         <div data-slot="library-attention"><FormStack>
           {hollowCopies.length> 0 && <Banner
             tone="warning"
+            measure="container"
             title="Empty skill directories"
             actions={<Button variant="outline" size="sm" onClick={() => setFlow({
               type: 'plan',

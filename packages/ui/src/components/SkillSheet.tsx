@@ -33,6 +33,7 @@ import {
   IconTile,
   KeyValue,
   KeyValueRow,
+  Note,
   SectionFooter,
   Segmented,
   Separator,
@@ -204,6 +205,23 @@ export const SkillSheet = ({
    * world one second after this sheet installs something.
    */
   const staleIn = entry.reach.filter((one) => one.state === 'stale')
+
+  const canToggleReach = (reach: LibraryEntry['reach'][number]): boolean =>
+    entry.kind === 'skill' &&
+    reach.basis === 'reported' &&
+    reach.toggleable !== false &&
+    (reach.state === 'reaches' || reach.state === 'off')
+  const reachFactCounts = new Map<string, { count: number; warning: boolean }>()
+  for (const reach of entry.reach) {
+    if (canToggleReach(reach)) continue
+    const sentence = REACH_SENTENCE[reach.state]
+    const fact = reachFactCounts.get(sentence) ?? { count: 0, warning: false }
+    fact.count += 1
+    fact.warning ||= isReachProblem(reach.state)
+    reachFactCounts.set(sentence, fact)
+  }
+  const repeatedReachFacts = [...reachFactCounts].filter(([, fact]) => fact.count > 1)
+  const repeatedReachSentences = new Set(repeatedReachFacts.map(([sentence]) => sentence))
 
   /**
    * Agents that read this definition and refused it, with their reason.
@@ -542,11 +560,7 @@ export const SkillSheet = ({
                    * A switch the host would refuse is worse than no switch:
                    * the row already has a true sentence to show instead.
                    */
-                  const switchable =
-                    entry.kind === 'skill' &&
-                    reach.basis === 'reported' &&
-                    reach.toggleable !== false &&
-                    (reach.state === 'reaches' || reach.state === 'off')
+                  const switchable = canToggleReach(reach)
                   return (
                     <div key={reach.runtime} role="listitem" className="flex min-w-0 items-baseline gap-2">
                       <span className="flex flex-none translate-y-0.5 items-center gap-1.5">
@@ -574,7 +588,7 @@ export const SkillSheet = ({
                             }
                           />
                         </span>
-                      ) : (
+                      ) : repeatedReachSentences.has(REACH_SENTENCE[reach.state]) ? null : (
                         <Text
                           role="meta"
                           align="end"
@@ -592,6 +606,11 @@ export const SkillSheet = ({
                   )
                 })}
               </div>
+              {repeatedReachFacts.map(([sentence, fact]) => (
+                <Note key={sentence} ink="muted" {...(fact.warning ? { tone: 'warn' as const } : {})}>
+                  {sentence}
+                </Note>
+              ))}
               {staleIn.length > 0 && (
                 <Text as="p" role="meta" ink="secondary" className="m-0 flex flex-wrap items-center gap-x-1.5 gap-y-1">
                   <span className="min-w-0">
