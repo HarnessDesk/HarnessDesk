@@ -23,6 +23,9 @@
 }
 
 @container hd-header (max-width: 400px) {
+  /* Header readings remain present while their optional track yields room. */
+  .group [data-plan-popup='anchor'] [data-slot='progress'] { display: none; }
+  .group [data-anchored] > *:first-child { margin-right: 0; }
   .chip[data-slot='chip'] {
     padding: 0;
   }
