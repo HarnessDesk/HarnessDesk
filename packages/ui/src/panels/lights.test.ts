@@ -8,7 +8,7 @@ import sidebarSource from '../components/Sidebar.tsx?raw'
 import leftColumnSource from '../design/patterns/LeftColumn.tsx?raw'
 import teamRoomCss from '../components/TeamRoomPane.module.css?raw'
 import teamRoomTsx from '../components/TeamRoomPane.tsx?raw'
-import terminalPaneSource from '../components/TerminalPane.tsx?raw'
+import terminalShellTabsSource from '../design/patterns/TerminalShellTabs.tsx?raw'
 import topBarSystem from '../design/patterns/TopBar.tsx?raw'
 import toolPanesCss from '../components/ToolPanes.module.css?raw'
 import toolPaneSystem from '../design/ui/tool-pane.tsx?raw'
@@ -67,7 +67,7 @@ describe('the row under the macOS window buttons', () => {
   })
 
   it("a terminal's own bar leaves room for them through its shared bar variant", () => {
-    expect(terminalPaneSource).toContain('variant="terminal"')
+    expect(terminalShellTabsSource).toContain('variant="terminal"')
     expect(toolPaneSystem).toContain("'gap-2 pr-2 pl-[max(var(--hd-space-2-5),var(--titlebar-inset,0px))]")
   })
 

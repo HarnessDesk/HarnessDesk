@@ -455,7 +455,7 @@ it('offers abandoning a card that has not finished, before its conversation link
     const dialog = document.body.querySelector('[role="alertdialog"]')
     expect(dialog?.textContent).toContain('Abandon card #4?')
     // The fixture Run's frozen Flow carries the rule `written`, which hands a writer's round to the verify check.
-    expect(dialog?.querySelector('[data-slot="confirm-body"] p')?.textContent).toBe('The rule that follows the writer role still fires, so abandoning this card opens the verify check.')
+    expect(dialog?.querySelector('[data-slot="modal-dialog-body"] p')?.textContent).toBe('The rule that follows the writer role still fires, so abandoning this card opens the verify check.')
     expect(dialog?.textContent).toContain('Alpha holds this card now.')
   } finally {
     act(() => [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(one => one.textContent === 'Keep it')?.click())

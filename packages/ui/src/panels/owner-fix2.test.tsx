@@ -73,14 +73,13 @@ it('connection Banner is at main top only during slow connecting, reconnecting a
   act(() => store.patch({ status: 'closed' })); expect(notice()?.textContent).toContain('Disconnected')
   act(() => store.patch({ status: 'open' })); expect(notice()).toBeNull()
 })
-it('every destination More menu offers the Terminal toggle and its shortcut', async () => {
-  const store = previewStore(), open = vi.spyOn(store, 'openTerminal').mockResolvedValue()
+it('a page without a folder omits the Terminal toggle and its shortcut', async () => {
+  const store = previewStore()
   const Register = () => { useTopBar('page', { place: 'Settings', more: () => null }); return <TopBarOutlet owner="page" fallback={{ place: 'Settings', more: () => null }} /> }
   await act(async () => root.render(<StoreProvider store={store}><TopBarProvider><Register /></TopBarProvider></StoreProvider>))
   act(() => host.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click())
-  expect(document.querySelector('[role="menu"]')?.textContent).toContain('Terminal')
-  expect(document.querySelector('[role="menu"]')?.textContent).toContain('⌃`')
-  await act(async () => button('Terminal').click()); expect(open).toHaveBeenCalledOnce()
+  expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('Terminal')
+  expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('⌃`')
 })
 it('Control-backtick toggles Terminal while Command-backtick and handled events remain available', () => {
   const chord = { key: '`', metaKey: false, ctrlKey: true, shiftKey: false, altKey: false }

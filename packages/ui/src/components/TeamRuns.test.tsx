@@ -115,8 +115,7 @@ it('releases visible reads when hidden and never registers hidden Runs actions',
   expect(observers).toHaveLength(0)
   await open('more')
   expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(0)
-  expect(document.querySelectorAll('[role="menuitemradio"]')).toHaveLength(1)
-  expect(document.querySelector('[role="menuitemradio"]')?.textContent).toContain('Terminal')
+  expect(document.querySelectorAll('[role="menuitemradio"]')).toHaveLength(0)
   await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
   render(true, source)
   const observer = observers[0]!

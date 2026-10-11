@@ -200,7 +200,7 @@ it('the review is not a destructive confirm, and Approve waits for the review it
   expect(approve().disabled).toBe(true)
   act(() => approve().click())
   expect(approveAttachments).not.toHaveBeenCalled()
-  expect(surface.querySelector('[data-slot="alert-dialog-header"]')?.getAttribute('data-tone')).toBeNull()
+  expect(surface.querySelector('[data-slot="dialog-head"]')?.getAttribute('data-tone')).toBeNull()
   expect(approve().getAttribute('data-variant')).not.toBe('destructive')
 
   await act(async () => { answer({ token: 't', expiresAt: 0, declarations: view.declarations, files: [], runtime: 'seat-runtime-id', effectiveCeiling: 'merge', consequence: 'c', hidden: [] }) })

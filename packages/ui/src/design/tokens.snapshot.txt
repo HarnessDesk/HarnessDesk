@@ -200,7 +200,7 @@
 --hd-menu-label-line = 18px
 --hd-menu-min = 200px
 --hd-menu-row-h = 30px
---hd-menu-row-radius = calc(10px - 4px)
+--hd-menu-row-radius = calc(10px - 6px)
 --hd-menu-search-h = 28px
 --hd-motion-rise = 4px
 --hd-motion-scale = 0.97
@@ -753,7 +753,7 @@
 --hd-menu-label-line = 18px
 --hd-menu-min = 200px
 --hd-menu-row-h = 30px
---hd-menu-row-radius = calc(10px - 4px)
+--hd-menu-row-radius = calc(10px - 6px)
 --hd-menu-search-h = 28px
 --hd-motion-rise = 4px
 --hd-motion-scale = 0.97
@@ -1312,7 +1312,7 @@
 --hd-menu-label-line = 18px
 --hd-menu-min = 200px
 --hd-menu-row-h = 30px
---hd-menu-row-radius = calc(10px - 4px)
+--hd-menu-row-radius = calc(10px - 6px)
 --hd-menu-search-h = 28px
 --hd-motion-rise = 4px
 --hd-motion-scale = 0.97
@@ -1874,7 +1874,7 @@
 --hd-menu-label-line = 18px
 --hd-menu-min = 200px
 --hd-menu-row-h = 30px
---hd-menu-row-radius = calc(10px - 4px)
+--hd-menu-row-radius = calc(10px - 6px)
 --hd-menu-search-h = 28px
 --hd-motion-rise = 4px
 --hd-motion-scale = 0.97

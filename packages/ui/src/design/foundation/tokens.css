@@ -528,8 +528,8 @@ body {
   --hd-menu-min: 200px;
   --hd-popover-width-wide: 340px; /* desk: 320 → 340, the app frame's wide menu */
   /* A menu row's corner runs parallel to the menu's: the surface's radius
-     less the 4px it is padded by. */
-  --hd-menu-row-radius: calc(var(--hd-radius) - var(--hd-space-1));
+     less the 6px it is padded by. */
+  --hd-menu-row-radius: calc(var(--hd-radius) - var(--hd-space-1-5)); /* desk: 6px → 4px, row corners track the plate inset */
   /* The info card: facts only, opened by hover or focus on a fact. */
   --hd-info-card-width: 288px;
 
