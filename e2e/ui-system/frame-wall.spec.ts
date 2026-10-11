@@ -34,12 +34,19 @@ for (const destination of WALL_DESTINATIONS) {
         await page.setViewportSize({ width, height: 900 })
         await page.goto(`/preview.html?${destination.query}&theme=${theme}`)
         await expect(page.locator('[data-frame-id="frame-wall"]')).toBeVisible()
+        if (destination.surface !== 'pattern') {
+          await page.waitForFunction(() => Boolean((window as Window & { __hdFrameWall?: unknown }).__hdFrameWall))
+          await page.evaluate(async () => { await (window as Window & { __hdFrameWall: { ready: Promise<void> } }).__hdFrameWall.ready })
+        }
         if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
         await applyPageFrameActions(page, destination)
         if (destination.id === 'agent') {
           // The selected Agent reads its real authoring document asynchronously.
           await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar-title]')).toContainText('Implementer')
           await expect(page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Start a conversation as Implementer', exact: true })).toBeVisible()
+        }
+        if (destination.id === 'settings-appearance') {
+          await expect(page.getByLabel('Code editor preview').locator('.cm-content')).toContainText('export const plan')
         }
         if (destination.id === 'conversation-file') {
           // The native editor loads after the shell; a blank box is not File evidence.
