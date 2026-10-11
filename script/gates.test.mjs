@@ -4593,3 +4593,7 @@ test('page family scanner preserves the layout, measure and retired-head authori
 test('E Settings screen layout, measures and old heads are zero', () => {
   assert.deepEqual(pageLayoutFindings('settings'), [])
 })
+
+test('Teams family owns no screen layout, measure or retired heads', () => {
+  assert.deepEqual(pageLayoutFindings('teams'), [])
+})

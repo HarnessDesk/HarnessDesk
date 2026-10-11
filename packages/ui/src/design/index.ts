@@ -253,3 +253,5 @@ export { MainDestination, DestinationBody } from './patterns/MainDestination'
 export { PageControls, ShortcutKeys, PageExplanation, PreservedText, InlineQualifier, PageNotes, type PageChoice } from './patterns/PageControls'
 export { PageOptions, type PageOption } from './patterns/PageOptions'
 export { PictureChoices, AccentChoices, RingChoices } from './patterns/SettingsChoices'
+
+export { PageRecords, PageRecordViews, type RecordColumn, type PageRecord, type RecordGroup } from './patterns/PageRecords'
