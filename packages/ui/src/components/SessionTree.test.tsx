@@ -1907,6 +1907,7 @@ it('renames an inactive session without opening it or changing active session (#
   expect(deleteOption.hasAttribute('data-danger')).toBe(true)
   expect(deleteOption.querySelector('[data-menu-icon]')).not.toBeNull()
   expect(deleteOption.getAttribute('title')).toBe('Agent keeps no way to delete one.')
+  expect(deleteOption.querySelector('[data-menu-hint]')?.textContent).toBe('Agent keeps no way to delete one.')
 
   // Click Rename in context menu
   const renameOption = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
@@ -2373,7 +2374,7 @@ it.each(['trash', 'erase', false, 'unavailable'] as const)('offers Archive, Remo
   act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
   act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Actions for Synthetic task"]')!.click())
   const menu = document.querySelector('[role="menu"]')!
-  const item = (label: string) => [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(entry => entry.textContent === label)!
+  const item = (label: string) => [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(entry => entry.querySelector('[data-menu-label]')?.textContent?.trim() === label)!
   expect(item('Archive').title).toBe('Hide it from the sidebar; find it in Archive')
   expect(item('Remove from HarnessDesk').title).toBe(disposition === 'unavailable' ? 'This conversation’s agent keeps its own copy' : 'Agent keeps its own copy')
   const deletion = item('Delete everywhere…')
@@ -2381,6 +2382,9 @@ it.each(['trash', 'erase', false, 'unavailable'] as const)('offers Archive, Remo
   expect(deletion.getAttribute('aria-disabled') === 'true').toBe(disposition !== 'trash')
   expect(deletion.title).toBe(disposition === 'erase' ? 'Agent erases it for good, so delete it there'
     : disposition === false ? 'Agent keeps no way to delete one.' : disposition === 'unavailable' ? 'This conversation’s agent is unavailable.' : '')
+  if (disposition !== 'trash' && disposition !== 'erase') {
+    expect(deletion.querySelector('[data-menu-hint]')?.textContent).toBe(deletion.title)
+  }
   act(() => item('Remove from HarnessDesk').click())
   expect(removeSession).toHaveBeenCalledWith(summary.id, summary.runtime)
 })

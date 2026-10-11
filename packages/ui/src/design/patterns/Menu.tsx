@@ -286,7 +286,7 @@ export const MenuItem = ({
   onHighlight,
 }: MenuItemProps) => {
   const scope = useScope()
-  const reason = typeof disabled === 'string' ? disabled : undefined
+  const reason = typeof disabled === 'string' ? disabled : disabled ? title : undefined
   const reasonId = useId()
   return (
     <DropdownMenuItem

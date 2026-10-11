@@ -665,8 +665,11 @@ word will do.
 **A refused row keeps its reason on screen.** A disabled control cannot be
 relied on to raise a tooltip at all — pointer events are suppressed, and the
 browsers disagree about the rest. The one line that makes a greyed row useful
-must not be the line nobody can reach. `MenuItem` encodes this: a `disabled`
-string renders as the hint *and* the title.
+must not be the line nobody can reach. A refused menu row shows its reason as
+the visible second line and keeps it in the title; its label and icon use the
+disabled ink. A destructive refused row uses that same disabled ink, not red.
+`MenuItem` carries an explicit disabled reason or promotes the row's title to
+the hint when the row is disabled.
 
 **Settings are not menus.** A settings page is a reference document, read
 deliberately and left; a menu is a list, scanned under time pressure and

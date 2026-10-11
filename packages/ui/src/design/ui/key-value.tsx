@@ -56,7 +56,7 @@ const MiddleTruncate = ({ children, className, ...props }: MiddleTruncateProps) 
   return (
     <span
       data-slot="middle-truncate"
-      className={cn('inline-flex min-w-0 max-w-full overflow-hidden whitespace-nowrap align-bottom', className)}
+      className={cn('inline-flex min-w-0 max-w-full gap-0 overflow-hidden whitespace-nowrap align-bottom', className)}
       onMouseEnter={(event) => {
         const node = event.currentTarget
         const cut = [...node.querySelectorAll('[data-part]')].some((part) => part.scrollWidth > part.clientWidth)

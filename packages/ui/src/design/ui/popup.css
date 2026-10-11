@@ -57,13 +57,15 @@
   color: var(--hd-secondary-foreground);
 }
 [data-menu-icon] > svg { width: var(--hd-space-4); height: var(--hd-space-4); }
+[data-menu-row]:is([data-danger], [data-variant='destructive']):not(:is([data-disabled], [aria-disabled='true'], :disabled)) [data-menu-icon] { color: inherit; }
 [data-menu-body] { flex: 1; min-width: 0; display: flex; flex-direction: column; }
 [data-menu-label] { display: block; min-width: 0; white-space: normal; overflow-wrap: normal; word-break: normal; }
 [data-menu-label] > :not([data-menu-badge]) { font-size: inherit; line-height: inherit; }
 [data-menu-row][data-selected] { background: var(--hd-hover); }
 [data-menu-hint] { font-size: var(--hd-text-xs); line-height: var(--hd-line-xs); color: var(--hd-secondary-foreground); white-space: normal; overflow-wrap: normal; word-break: normal; }
 [data-menu-badge] { display: inline-flex; min-width: 0; max-width: calc(100% - var(--hd-space-2)); margin-left: var(--hd-space-2); vertical-align: top; }
-[data-menu-trailing] { flex: none; display: inline-flex; align-items: center; justify-content: flex-end; max-width: 40%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--hd-muted-foreground); font-variant-numeric: tabular-nums; }
+[data-menu-trailing] { flex: none; display: inline-flex; align-items: center; justify-content: flex-end; gap: var(--hd-space-2); max-width: 40%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--hd-muted-foreground); font-variant-numeric: tabular-nums; }
+[data-slot='dropdown-menu-sub-trigger'] [data-menu-trailing] > svg { flex: none; width: var(--hd-space-4); height: var(--hd-space-4); color: inherit; }
 [data-menu-trailing] > [data-slot='text'] { line-height: var(--hd-menu-label-line); }
 [data-menu-group], [data-menu-note], [data-menu-footer] { padding: var(--hd-space-1) var(--hd-space-2-5); }
 [data-menu-group] { color: var(--hd-secondary-foreground); font-size: var(--hd-text-xs); line-height: var(--hd-line-xs); font-weight: var(--hd-weight-medium); }
