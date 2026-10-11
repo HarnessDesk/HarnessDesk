@@ -167,3 +167,8 @@ test('FIX9 theme thumbnails use neutral selection across accents', async ({ page
     expect(green).toEqual(Array(4).fill(neutral))
   }
 })
+
+test('FIX9 unavailable Findings names its refusal without an internal noun', async ({ page }) => {
+  await openFrame(page, 'frame-wall=team&frame-fix9-no-findings=1')
+  await expect(page.getByRole('tab', { name: 'Findings 3', exact: true })).toHaveAttribute('title', 'This Team has no findings')
+})

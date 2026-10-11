@@ -4668,3 +4668,9 @@ it('refreshes Seat display names when the active catalog changes without accepti
   expect((store.modelsFor as ReturnType<typeof vi.fn>).mock.calls).toHaveLength(count)
   expect(detail('Codex')).toContain('Refreshed catalog label')
 })
+
+it('names the disabled Findings tab without an internal Team noun', async () => {
+  await render(rig().store)
+  const findings = row('Findings')
+  expect(findings.getAttribute('title')).toBe('This Team has no findings')
+})

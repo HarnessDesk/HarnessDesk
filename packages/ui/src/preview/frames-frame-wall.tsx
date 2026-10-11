@@ -241,6 +241,9 @@ export const FrameWall = () => {
         return request(method, params as never)
       }) as typeof next.transport.request
     }
+    if (destination === 'team' && query.get('frame-fix9-no-findings') === '1') {
+      Object.assign(snapshot, { goals: new Map(), flowExecutions: new Map() })
+    }
     if (destination === 'team-receipt' && query.get('frame-fix9-findings') === '1') {
       const goal = snapshot.goals.get('overview-team')!
       const run = snapshot.flowExecutions.get('overview-run')!

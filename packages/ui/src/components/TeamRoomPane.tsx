@@ -1044,7 +1044,7 @@ export const TeamRoomPane = ({
     { value: 'run', label: 'Run', count: runs.length || undefined, disabled: !runs.length ? 'This Team has no Run yet' : false, run: () => show('run') },
     { value: 'board', label: 'Board', count: intents.length, run: () => show('board') },
     { value: 'room', label: 'Chat', count: held || undefined, run: () => show(chatLayout.current === 'side-by-side' ? 'side-by-side' : 'room') },
-    { value: 'findings', label: 'Findings', count: findingCount, disabled: !goal ? 'This Team has no Goal findings' : false, run: () => show('findings') },
+    { value: 'findings', label: 'Findings', count: findingCount, disabled: !goal ? 'This Team has no findings' : false, run: () => show('findings') },
     ...(triggerKind ? [{ value: 'runs', label: 'Runs', count: runs.length, run: () => { setChosenRun(null); show('runs') } }] : []),
     ...(goal?.receipt ? [{ value: 'receipt', label: 'Receipt', run: () => show('receipt') }] : []),
   ]
