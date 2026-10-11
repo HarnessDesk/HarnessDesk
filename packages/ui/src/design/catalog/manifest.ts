@@ -284,6 +284,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   SidebarMenuState: ['default'],
   SettingsRowMenu: ['default'],
   LeftColumn: ['light', 'dark'],
+  ComposerTrack: ['default'],
   'menu-row': ['default'],
 }
 
@@ -408,6 +409,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   UsageMeterRow: ['default', 'warning', 'error', 'unknown'],
   SettingsRowMenu: ['closed', 'open'],
   LeftColumn: ['default', 'selected', 'disabled', 'long-title'],
+  ComposerTrack: ['default', 'folded-state'],
   'menu-row': ['default'],
 }
 
@@ -489,6 +491,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
 
 // Append the production adoption without rewriting the shared seed registry.
 Object.assign(PATTERN_CONSUMER, { LeftColumn: 'packages/ui/src/components/Sidebar.tsx' })
+Object.assign(PATTERN_CONSUMER, { ComposerTrack: 'packages/ui/src/components/ComposerControls.tsx' })
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   CommandPalette: 'packages/ui/src/preview/frames-transcript.tsx',
@@ -537,6 +540,7 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   SettingsRowMenu: 'packages/ui/src/design/explorer/boards.tsx',
   LeftColumn: 'packages/ui/src/design/explorer/boards-compositions.tsx',
 }
+Object.assign(PATTERN_EXAMPLE_CONSUMER, { ComposerTrack: 'packages/ui/src/preview/composer-slots-content.tsx' })
 
 const variantsFor = (name: string): readonly CatalogVariant[] => {
   const variants = VARIANTS[name]
@@ -699,6 +703,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['PlanCard', 'plan-card', 'A plan\'s price and a key or metered account\'s monthly budget, set once from a suggested price'],
   ['UsageMeterRow', 'usage-meter-row', 'A shared name, remaining meter, percentage and reset countdown'],
   ['LeftColumn', 'left-column', 'One column row, group edge, top and seat in both modes'],
+  ['ComposerTrack', 'composer', 'Content-sized selected-value tracks that fold with the composer toolbar'],
 ] as const satisfies readonly ModuleSeed[]
 
 /**

@@ -566,9 +566,9 @@ These wide tracks name the selected values themselves. The earlier base tracks r
 | token | value |
 | --- | --- |
 | `--hd-composer-track-permissions-wide` | `132px` |
-| `--hd-composer-track-mode-wide` | `96px` |
-| `--hd-composer-track-context-wide` | `52px` |
-| `--hd-composer-track-context-folded` | `48px` |
+| `--hd-composer-track-mode-wide` | `68px` |
+| `--hd-composer-track-context-wide` | `60px` |
+| `--hd-composer-track-context-folded` | `56px` |
 | `--hd-composer-track-context-tight` | `24px` |
 
 ## When to use which
@@ -1276,6 +1276,12 @@ A comparison’s quiet result shelf, composed from Alert. Its fixed grid track k
 `packages/ui/src/design/patterns/ComparisonSummary.tsx`
 
 The reading page in the same Side by side body, once the person has merged.
+
+### `ComposerTrack`
+
+`packages/ui/src/design/patterns/ComposerTrack.tsx`
+
+A token-sized position in the composer toolbar.
 
 ### `ConfirmDialog`
 
@@ -2342,5 +2348,5 @@ list only goes down, except when the audit learns to see something it was blind 
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 76 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 20 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2783 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `screenLayout` | 2755 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 

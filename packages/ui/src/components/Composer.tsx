@@ -24,6 +24,7 @@ import {
   ComposerDropHint,
   ComposerDock,
   ComposerGap,
+  ComposerTrack,
   ComposerSend,
   ComposerShell,
   ComposerText,
@@ -86,7 +87,7 @@ import {
   TeamIcon,
   TerminalIcon,
 } from './Icons'
-import { AgentControl, ComposerTrack, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from './ComposerControls'
+import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from './ComposerControls'
 import { ContextUsage } from './ContextUsage'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
 import { draftsOf, UNSCOPED_RECOVERY_KEY } from '../state/drafts'

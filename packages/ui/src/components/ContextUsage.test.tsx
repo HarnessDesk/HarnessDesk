@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { sessionKey, type RuntimeInfo, type Session, type SessionUsage } from '@harnessdesk/protocol'
 
@@ -9,6 +9,12 @@ import { formatReset } from '../lib/limits'
 import { formatResetCountdown } from '../lib/usage'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { ContextUsage } from './ContextUsage'
+
+const toolbarStep = vi.hoisted(() => ({ folded: false, tight: false }))
+vi.mock('./ComposerControls', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('./ComposerControls')>()),
+  useNarrowToolbar: () => ({ ref: () => {}, ...toolbarStep }),
+}))
 
 /**
  * The ring's contract, through the DOM: absent until the runtime has said
@@ -23,6 +29,8 @@ let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
+  toolbarStep.folded = false
+  toolbarStep.tight = false
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -111,6 +119,18 @@ const open = (): void => {
 const panelText = (): string => document.querySelector('[data-popup-kind="info-card"]')?.textContent ?? ''
 
 describe('ContextUsage', () => {
+  it('fits its icon-only button in the tight track', () => {
+    toolbarStep.folded = true
+    toolbarStep.tight = true
+    mount({})
+
+    const track = container.querySelector<HTMLElement>('[data-composer-track="context"]')
+    const trigger = container.querySelector<HTMLButtonElement>('button')
+    expect(track?.style.width).toBe('var(--hd-composer-track-context-tight)')
+    expect(trigger?.className).toContain('size-(--hd-icon-target)')
+    expect(trigger?.textContent).toBe('')
+  })
+
   it('draws an empty ring until the runtime has reported usage', () => {
     mount(withSession(runtime('alpha', 'Assistant A', false), null))
     const trigger = container.querySelector<HTMLButtonElement>('button')

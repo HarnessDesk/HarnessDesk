@@ -1961,3 +1961,17 @@ plates, diffs and tables keep their own horizontal scrollers. The frame
 contract checks the workbench main region at 1440px and 720px: its
 `scrollWidth` must equal its `clientWidth` with 600-character tokens in each
 transcript row kind.
+
+## Composer selected values
+
+Permission and Mode tracks size to their selected value while the toolbar has
+room. Their flexible gaps give way before either value is shortened; when the
+row itself is full, a label may ellipsise inside its track and the permission
+chevron stays beside the shortened text. A folded Mode fact never leaves a
+lone initial on screen: a new-session composer uses the mode mark with the
+value available to assistive technology, or hides it at the tightest width; a
+conversation composer keeps the whole value in a content-sized track while it
+fits. The Usage ring and its word use the chip gap
+(`--hd-space-1-5`), and both wide and folded tracks reserve enough room for the
+whole visible label. The `Composer fit:` frame contracts check these values at
+wide, narrow and folded widths in both themes.

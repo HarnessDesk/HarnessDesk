@@ -3101,3 +3101,130 @@ for (const theme of WALL_THEMES) {
     await expect(card.getByText('No usage yet', { exact: true })).toHaveCount(1)
   })
 }
+
+// Composer fit follow-up: real toolbar values, including the 720px folded state.
+for (const theme of WALL_THEMES) {
+  test(`Composer fit: permission value and trailing chevron stay together at 1280 in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=draft&frame-composer-values=1', theme, 1280)
+    expect((await page.locator('[data-frame-region="left"]').boundingBox())!.width).toBeGreaterThan(0)
+    const tools = page.locator('[data-slot="composer-tools"]:visible').last()
+    const permission = tools.locator('[data-composer-track="permissions"] button')
+    const label = permission.locator('[data-slot="text"][data-role="row"]')
+    await expect(label).toHaveText('Workspace write')
+    const geometry = await permission.evaluate(button => {
+      const text = button.querySelector<HTMLElement>('[data-slot="text"][data-role="row"]')!
+      const range = document.createRange(); range.selectNodeContents(text)
+      const ink = range.getBoundingClientRect()
+      const chevron = [...button.querySelectorAll<SVGElement>('svg')].at(-1)!.getBoundingClientRect()
+      return { width: text.clientWidth, scroll: text.scrollWidth, chevronGap: chevron.left - ink.right }
+    })
+    expect(geometry.scroll, 'the full permission value should fit').toBeLessThanOrEqual(geometry.width)
+    expect(geometry.chevronGap, 'the chevron should follow the value at the trigger gap').toBeLessThanOrEqual(5)
+    const model = tools.locator('[data-composer-track="model"] button')
+    await expect(model).toHaveAccessibleName('GPT-5.5 medium')
+  })
+
+  test(`Composer fit: Mode fact stays whole with the right panel at main 560 in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&frame-composer-values=1', theme, 1280)
+    expect((await page.locator('[data-frame-region="left"]').boundingBox())!.width).toBeGreaterThan(0)
+    const top = page.locator('[data-slot="top-bar"]:visible')
+    await top.getByRole('button', { name: 'Details', exact: true }).click()
+    const main = page.locator('[data-frame-region="main"]:visible')
+    const before = (await main.boundingBox())!
+    const seam = page.getByRole('separator', { name: 'Resize the right panel', exact: true })
+    const seamBox = (await seam.boundingBox())!
+    const y = seamBox.y + seamBox.height / 2
+    const x = seamBox.x + seamBox.width / 2
+    const delta = before.width - 560
+    await page.mouse.move(x, y)
+    await page.mouse.down()
+    await page.mouse.move(x - delta, y, { steps: 8 })
+    await page.mouse.up()
+    await expect.poll(async () => Math.round((await main.boundingBox())!.width)).toBe(560)
+    await expect(page.locator('[data-frame-region="right"]')).toBeVisible()
+    const tools = page.locator('[data-slot="composer-tools"]:visible').last()
+    const modeTrack = tools.locator('[data-composer-track="mode"]')
+    const modeChip = modeTrack.locator('[data-slot="chip"]')
+    const modeWords = modeChip.locator('[data-slot="chip-words"] > span:not(.sr-only)')
+    await expect(modeWords).toHaveText('Default')
+    const geometry = await modeWords.evaluate(node => {
+      const track = node.closest('[data-composer-track]')!.getBoundingClientRect()
+      const text = node.getBoundingClientRect()
+      return { width: node.clientWidth, scroll: node.scrollWidth, rightOverflow: text.right - track.right }
+    })
+    expect(geometry.scroll, 'the Mode fact should fit in its track').toBeLessThanOrEqual(geometry.width)
+    expect(geometry.rightOverflow, 'the full Mode fact should stay inside its track').toBeLessThanOrEqual(1)
+    const usage = tools.locator('[data-composer-track="context"] button')
+    await expect(usage).toContainText('Usage')
+    const model = tools.locator('[data-composer-track="model"] button')
+    await expect(model).toHaveAttribute('title', /GPT-5\.5 · medium/)
+  })
+
+  test(`Composer fit: Usage label stays whole with the standard icon gap in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=draft&frame-composer-values=1', theme, 1280)
+    const tools = page.locator('[data-slot="composer-tools"]:visible').last()
+    const usage = tools.locator('[data-composer-track="context"] button')
+    const geometry = await usage.evaluate(button => {
+      const bounds = (rect: DOMRect) => {
+        return { left: rect.left, right: rect.right, width: rect.width }
+      }
+      const ring = button.querySelector<HTMLElement>('[data-slot="progress-ring"]')!.getBoundingClientRect()
+      const label = button.querySelector<HTMLElement>('[data-role="meta"]')!
+      const track = button.closest('[data-composer-track]')!
+      const buttonStyle = getComputedStyle(button)
+      const trackStyle = getComputedStyle(track)
+      return {
+        text: label.textContent?.trim(), width: label.clientWidth, scroll: label.scrollWidth,
+        gap: label.getBoundingClientRect().left - ring.right,
+        rightOverflow: label.getBoundingClientRect().right - track.getBoundingClientRect().right,
+        button: bounds(button.getBoundingClientRect()), ring: bounds(ring), label: bounds(label.getBoundingClientRect()), track: bounds(track.getBoundingClientRect()),
+        buttonGap: buttonStyle.gap, buttonFlexShrink: buttonStyle.flexShrink, trackWidth: trackStyle.width,
+      }
+    })
+    expect(geometry.text).toBe('Usage')
+    expect(geometry.scroll, 'the Usage label should fit without clipping').toBeLessThanOrEqual(geometry.width)
+    expect(geometry.rightOverflow, `the complete label should stay inside its track: ${JSON.stringify(geometry)}`).toBeLessThanOrEqual(1)
+    expect(Math.abs(geometry.gap - await resolvedPx(page, '--hd-space-1-5'))).toBeLessThanOrEqual(1)
+
+    await openFrame(page, 'frame-wall=draft&frame-composer-values=1', theme, 720)
+    const narrowContext = page.locator('[data-slot="composer-tools"]:visible [data-composer-track="context"]')
+    const narrowUsage = narrowContext.locator('button')
+    const narrowGeometry = await narrowUsage.evaluate(button => {
+      const track = button.closest('[data-composer-track]')!.getBoundingClientRect()
+      const box = button.getBoundingClientRect()
+      const label = button.querySelector<HTMLElement>('[data-role="meta"]')
+      return {
+        buttonOverflow: box.right - track.right,
+        text: label?.textContent?.trim() ?? null,
+        width: label?.clientWidth ?? 0,
+        scroll: label?.scrollWidth ?? 0,
+        rightOverflow: label ? label.getBoundingClientRect().right - track.right : 0,
+      }
+    })
+    expect(narrowGeometry.buttonOverflow, 'the folded Usage control should fit its track').toBeLessThanOrEqual(1)
+    if (narrowGeometry.text !== null) {
+      expect(narrowGeometry.text).toBe('Usage')
+      expect(narrowGeometry.scroll).toBeLessThanOrEqual(narrowGeometry.width)
+      expect(narrowGeometry.rightOverflow).toBeLessThanOrEqual(1)
+    }
+  })
+
+  test(`Composer fit: folded Mode never shows a lone initial at 720 in ${theme}`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=draft&frame-composer-values=1', theme, 720)
+    expect((await page.locator('[data-frame-region="left"]').boundingBox())!.width).toBeGreaterThan(0)
+    const modeTrack = page.locator('[data-slot="composer-tools"]:visible [data-composer-track="mode"]')
+    const chip = modeTrack.locator('[data-slot="chip"]')
+    if (await chip.count()) {
+      const folded = await modeTrack.getAttribute('data-folded') !== null || await modeTrack.getAttribute('data-tight') !== null
+      if (folded) {
+        expect(await chip.locator('svg').count(), 'a folded fact keeps its mode mark').toBeGreaterThan(0)
+        await expect(chip.locator('[data-slot="chip-words"] > span:not(.sr-only)')).toHaveCount(0)
+      } else {
+        const modeWords = chip.locator('[data-slot="chip-words"] > span:not(.sr-only)')
+        const geometry = await modeWords.evaluate(node => ({ text: node.textContent?.trim(), width: node.clientWidth, scroll: node.scrollWidth }))
+        expect(geometry.text).toBe('Default')
+        expect(geometry.scroll).toBeLessThanOrEqual(geometry.width)
+      }
+    }
+  })
+}
