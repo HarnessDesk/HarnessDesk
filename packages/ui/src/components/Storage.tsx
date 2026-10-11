@@ -1,6 +1,8 @@
+import { useDestinationActive } from '../panels/destination-page'
+
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { splitSessionKey, type SessionKey, type StorageCandidate, type StorageCleanupPreview, type StorageCleanupResult, type StorageConversation, type StorageKeptWorktree, type StorageUsage } from '@harnessdesk/protocol'
-import { Alert, AlertContent, AlertTitle, Button, Chip, ConfirmDialog, Dialog, MiddleTruncate, NativeSelect, Note, NoteList, PageHead, Row, Rows, RowValue, SectionHead, Switch } from '../design'
+import { Alert, AlertContent, AlertTitle, Button, Chip, ConfirmDialog, Dialog, MiddleTruncate, NativeSelect, Note, NoteList, Row, Rows, RowValue, SectionHead, Switch, FormStack } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { panes } from '../state/layout'
 import { mountedViews } from '../state/workbench'
@@ -18,6 +20,8 @@ const inventoryTitle = (row: StorageKeptWorktree): string => row.reason ?? (row.
   ? `${row.changes.modified} modified, ${row.changes.untracked} untracked, ${row.changes.ignoredCount} ignored entries` : 'Review the worktree before discarding it.')
 
 export const StorageSection = () => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore(), snapshot = useSnapshot()
   const usageRevision = useRef(0)
   const [usage, setUsage] = useState<StorageUsage | null>(null)
@@ -31,20 +35,28 @@ export const StorageSection = () => {
   const [result, setResult] = useState<StorageCleanupResult | null>(null)
   const [clearing, setClearing] = useState(false)
   const [discarding, setDiscarding] = useState<StorageKeptWorktree | null>(null)
-  const read = useCallback(async () => {
+  const activeRead=useRef(destinationActive)
+  activeRead.current=destinationActive
+  const lifetime=useRef(0),wasActive=useRef(destinationActive)
+  if(wasActive.current!==destinationActive){wasActive.current=destinationActive;lifetime.current++}
+  const activation=lifetime.current
+  useEffect(()=>{activeRead.current=destinationActive;return()=>{activeRead.current=false;lifetime.current++}},[])
+  const read = useCallback(async (owner=lifetime.current) => {
+    if (!activeRead.current || owner!==lifetime.current) return
     const revision = usageRevision.current
     const [usage, kept] = await Promise.all([store.transport.request('storage/usage', {}), store.transport.request('storage/kept', {})])
-    if (revision === usageRevision.current) setUsage(usage)
-    setKept(kept)
+    if (activeRead.current && owner===lifetime.current) {if (revision === usageRevision.current) setUsage(usage);setKept(kept)}
   }, [store])
   useEffect(() => {
+    if (!destinationActive) return
+
     let live = true, observed = false
     const off = store.subscribeStorageUsage(usage => { observed = true; usageRevision.current++; if (live) setUsage(usage) })
     void Promise.all([store.transport.request('storage/usage', {}), store.transport.request('storage/kept', {})])
       .then(([usage, kept]) => { if (live) { if (!observed) setUsage(usage); setKept(kept) } })
       .catch(error => { if (live) setProblem(String(error)) })
     return () => { live = false; off() }
-  }, [store, snapshot.status])
+  }, [destinationActive, store, snapshot.status])
 
   // Re-read the current layout at confirmation, since a conversation can open while reviewing.
   const exclude = (): StorageConversation[] => {
@@ -67,14 +79,14 @@ export const StorageSection = () => {
       const result = await store.transport.request('storage/cleanup', { olderThanDays: age, exclude: exclude(), includeDirty, inventoryToken: preview.inventoryToken })
       setResult(result); setPreview(null)
       store.notice('info', `Removed ${countOf(result.removed)} · freed ${bytes(result.freedBytes)}${result.refused.length ? ` · ${result.refused.length} refused` : ''}`)
-      await read()
+      await read(activation)
       if (!result.refused.length) setReviewing(false)
     } catch (error) { setProblem(String(error)); setPreview(null) }
     finally { setBusy(false) }
   }
   const clear = async () => {
     setBusy(true)
-    try { const result = await store.transport.request('history/clearCached', {}); setClearing(false); store.notice('info', `Cleared ${result.count} cached previews`); await read() }
+    try { const result = await store.transport.request('history/clearCached', {}); setClearing(false); store.notice('info', `Cleared ${result.count} cached previews`); await read(activation) }
     catch (error) { setProblem(String(error)) }
     finally { setBusy(false) }
   }
@@ -95,8 +107,10 @@ export const StorageSection = () => {
         {row.changes.ignoredCount > row.changes.ignored.length && <li>and {row.changes.ignoredCount - row.changes.ignored.length} more ignored entries</li>}
       </NoteList></AlertContent></Alert>}
   </div>
+  useEffect(() => { if (!destinationActive) { setReviewing(false); setClearing(false); setDiscarding(null) } }, [destinationActive])
+
   return <>
-    <PageHead title="Storage" />
+
     {problem && !reviewing && <Note tone="bad">{problem}</Note>}
     <Rows>
       <Row title="Conversation database" control={value(usage?.database)} />
@@ -118,7 +132,7 @@ export const StorageSection = () => {
       </NativeSelect>
       <Button variant="outline" size="sm" disabled={busy} onClick={() => void review()}>Review…</Button>
     </>} /></Rows>
-    {reviewing && <Dialog title="Clean up inactive conversations" size="lg" onClose={() => { if (!busy) { setReviewing(false); setProblem(null) } }}
+    {destinationActive && reviewing && <Dialog title="Clean up inactive conversations" size="lg" onClose={() => { if (!busy) { setReviewing(false); setProblem(null) } }}
       description={includeDirty ? 'Unsaved and ignored content goes with the folders. Conversations and branches stay. There is no undo.' : 'Conversations and branches stay. Reopening a conversation recreates its worktree.'}
       footer={<>
         {result || !preview ? <Button variant="default" disabled={busy} onClick={() => void review()}>Review again</Button> : <Button variant={includeDirty ? 'danger' : 'default'} disabled={busy || !selected.length} onClick={() => void cleanup()}>{busy ? 'Removing…' : `Remove ${countOf(selected.length)}`}</Button>}
@@ -138,14 +152,14 @@ export const StorageSection = () => {
         </>}
         <Row title="Space freed" control={<RowValue>{bytes(selected.reduce((sum, row) => sum + row.bytes, 0))}</RowValue>} />
       </>}
-      {result && <><SectionHead name="Worktrees kept" /><div className="grid gap-2">{result.refused.map(row => <Note key={row.path} tone="bad"><span title={row.path}><MiddleTruncate>{row.path}</MiddleTruncate></span>: {row.reason}</Note>)}</div></>}
+      {result && <><SectionHead name="Worktrees kept" /><FormStack>{result.refused.map(row => <Note key={row.path} tone="bad"><span title={row.path}><MiddleTruncate>{row.path}</MiddleTruncate></span>: {row.reason}</Note>)}</FormStack></>}
     </Dialog>}
-    {clearing && <ConfirmDialog title="Clear cached previews?" confirmLabel="Clear cached previews" busy={busy} onCancel={() => { if (!busy) setClearing(false) }} onConfirm={() => void clear()}>
+    {destinationActive && clearing && <ConfirmDialog title="Clear cached previews?" confirmLabel="Clear cached previews" busy={busy} onCancel={() => { if (!busy) setClearing(false) }} onConfirm={() => void clear()}>
       Previews are read again from the agent next time. Conversations opened here and full conversation bodies stay.
       {problem && <Note tone="bad">{problem}</Note>}
     </ConfirmDialog>}
-    {discarding && <DiscardWorktree summary={{ runtime: discarding.runtime, id: discarding.sessionId, worktree: { path: discarding.path, branch: null, state: 'kept' } }} onClose={() => {
-      setDiscarding(null); void store.transport.request('storage/usage', {}).then(() => read()).catch(error => setProblem(String(error)))
+    {destinationActive && discarding && <DiscardWorktree summary={{ runtime: discarding.runtime, id: discarding.sessionId, worktree: { path: discarding.path, branch: null, state: 'kept' } }} onClose={() => {
+      setDiscarding(null); void read(activation).catch(error => setProblem(String(error)))
     }} />}
   </>
 }

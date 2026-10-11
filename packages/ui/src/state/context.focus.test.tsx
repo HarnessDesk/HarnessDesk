@@ -2,12 +2,16 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { sessionId, sessionKey } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey } from '@harnessdesk/protocol'
 
 import { KeyboardHereContext, PaneProvider, StoreProvider, useIsFocusedPane } from './context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from './store'
+import type { PageDestination } from './destinations'
+import type { PaneView } from './layout'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+const TEST_SESSION = sessionKey('codex' as never, sessionId('s-1'))
 
 let container: HTMLDivElement
 let root: Root
@@ -28,10 +32,11 @@ const FocusProbe = () => {
   return <span data-testid="focus-probe" data-focused={String(isFocused)} />
 }
 
-const render = (focusedPane: string, paneId?: string, keyboardHere: boolean | null = null) => {
+const render = (focusedPane: string, paneId?: string, keyboardHere: boolean | null = null, page?: PageDestination, view?: PaneView) => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
+    activeSessionKey: TEST_SESSION,
     workbench: {
       ...emptySnapshot().workbench,
       main: {
@@ -39,6 +44,7 @@ const render = (focusedPane: string, paneId?: string, keyboardHere: boolean | nu
         focused: focusedPane as never,
       },
       focus: null,
+      navigation: page ? { current: page, back: [], forward: [] } : emptySnapshot().workbench.navigation,
     },
   }
   const store = {
@@ -55,8 +61,8 @@ const render = (focusedPane: string, paneId?: string, keyboardHere: boolean | nu
           <PaneProvider
             scope={{
               paneId: paneId as never,
-              view: { kind: 'conversation', session: sessionKey('codex' as never, sessionId('s-1')) },
-              sessionKey: sessionKey('codex' as never, sessionId('s-1')),
+              view: view ?? { kind: 'conversation', session: TEST_SESSION },
+              sessionKey: TEST_SESSION,
             }}
           >
             {content}
@@ -67,6 +73,7 @@ const render = (focusedPane: string, paneId?: string, keyboardHere: boolean | nu
       </StoreProvider>,
     )
   })
+  return snapshot
 }
 
 const isFocused = (): boolean =>
@@ -119,4 +126,21 @@ describe('useIsFocusedPane inside a mount that holds several conversations', () 
     render('p2', 'p1:codex\x00s-1', true)
     expect(isFocused()).toBe(false)
   })
+})
+
+const libraryPage = { kind: 'library', section: 'skill' } as const
+it('a page relinquishes retained conversation keyboard focus without losing remembered work', () => {
+  const snapshot = render('p1','p1',true,libraryPage)
+  expect(isFocused()).toBe(false)
+  expect(snapshot.activeSessionKey).toBe(TEST_SESSION)
+})
+it('a page relinquishes retained room keyboard focus', () => {
+  render('p1','p1',true,libraryPage,{kind:'room',room:'fixture-team'})
+  expect(isFocused()).toBe(false)
+})
+it('a page keeps the shared terminal and outside-pane keyboard scopes active', () => {
+  render('p1','p1',true,libraryPage,{kind:'terminal',terminalId:'fixture-terminal',runtime:runtimeId('fixture'),cwd:'/synthetic/project'})
+  expect(isFocused()).toBe(true)
+  render('p1',undefined,null,libraryPage)
+  expect(isFocused()).toBe(true)
 })

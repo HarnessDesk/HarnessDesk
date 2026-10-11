@@ -1,4 +1,3 @@
-import { usePageHeading } from './AppWindow/PageHeading'
 import { FaceBadge } from '../ui/icon-tile'
 import { Button } from '../ui/button'
 import { Children, createContext, createElement, isValidElement, useContext, useEffect, useId, useState, type ButtonHTMLAttributes, type ComponentProps, type CSSProperties, type FocusEventHandler, type HTMLAttributes, type KeyboardEventHandler, type ReactNode, type Ref } from 'react'
@@ -598,38 +597,6 @@ export const Segmented = <T extends string>({
 
 /* --- page furniture ------------------------------------------------------ */
 
-/**
- * The page's 20px semibold name, matching the wordmark, one line saying what
- * it is for, and anything it acts on. Actions wrap below the copy when the
- * container cannot keep a readable description beside them.
- */
-export const PageHead = ({
-  title,
-  blurb,
-  actions,
-}: {
-  title: ReactNode
-  blurb?: ReactNode
-  actions?: ReactNode
-}) => {
-  const inFrame = usePageHeading(title, actions)
-  if (inFrame) return blurb || actions ? <div className={styles.pageHeadContent} data-page-support>
-    {blurb && <div className={styles.pageHeadText}><p className={styles.pageBlurb}>{blurb}</p></div>}
-    {actions && <div className={styles.pageCtl}>{actions}</div>}
-  </div> : null
-  return (
-    <div className={styles.pageHead} data-slot="page-head">
-    <div className={styles.pageHeadContent}>
-      <div className={styles.pageHeadText}>
-        <h1 className={styles.pageTitle} data-slot="page-title">{title}</h1>
-        {blurb ? <p className={styles.pageBlurb}>{blurb}</p> : null}
-      </div>
-      {actions ? <div className={styles.pageCtl}>{actions}</div> : null}
-    </div>
-  </div>
-  )
-}
-
 export const SectionHead = ({
   name,
   description,
@@ -1189,63 +1156,6 @@ export const RowChoice = ({
   )
 }
 
-/* --- drill-down ---------------------------------------------------------- */
-
-/**
- * The way back out of a detail page. It names where it goes rather than saying
- * "Back", so it reads the same whether you arrived from the list or from a
- * link somewhere else.
- */
-export const BackLink = ({ to, onClick }: { to: string; onClick: () => void }) => (
-  <Button variant="ghost" size="sm" type="button" className={styles.backLink} onClick={onClick}>
-    <ArrowLeftIcon size={14} />
-    {to}
-  </Button>
-)
-
-export const DetailHead = ({
-  mark,
-  name,
-  owner,
-  blurb,
-  actions,
-}: {
-  mark?: ReactNode
-  name: ReactNode
-  /** Who it belongs to — the agent behind an account, the author of a plugin. */
-  owner?: ReactNode
-  blurb?: ReactNode
-  actions?: ReactNode
-}) => {
-  const inFrame = usePageHeading(name, actions)
-  if (inFrame) return owner || blurb || actions ? <div className={styles.detailHeadContent} data-detail-support>
-    {(owner || blurb) && <div className={styles.detailText}>
-      {owner && <span className={styles.detailOwner} data-owner={typeof owner === 'string' ? 'text' : 'mark'}>{owner}</span>}
-      {blurb && <p className={styles.detailBlurb}>{blurb}</p>}
-    </div>}
-    {actions && <div className={styles.detailCtl}>{actions}</div>}
-  </div> : null
-  return (
-  <div className={styles.detailHead}>
-    <div className={styles.detailHeadContent}>
-      {mark}
-      <div className={styles.detailText}>
-        <div className={styles.detailName}>
-          <h1 className={styles.detailTitle} data-slot="detail-title">{name}</h1>
-          {/* A text owner — a place, a path — gives way at its end; a chip or any
-              other element is a mark and stays whole, so the name wraps first. */}
-          {owner ? (
-            <span className={styles.detailOwner} data-owner={typeof owner === 'string' ? 'text' : 'mark'}>{owner}</span>
-          ) : null}
-        </div>
-        {blurb ? <p className={styles.detailBlurb}>{blurb}</p> : null}
-      </div>
-      {actions ? <div className={styles.detailCtl}>{actions}</div> : null}
-    </div>
-  </div>
-  )
-}
-
 /**
  * A person's face: the picture they chose, or the house mark when they have
  * not.
@@ -1321,10 +1231,6 @@ export const Clipped = ({ className, title, truncate = false, children }: { read
   >
     {children}
   </span>
-)
-
-export const PageDescription = ({ children }: { children: ReactNode }) => (
-  <p className={styles.pageBlurb}>{children}</p>
 )
 
 /**

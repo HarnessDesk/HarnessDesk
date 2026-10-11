@@ -849,3 +849,71 @@ describe('a conversation the host removed', () => {
     expect(asked('session/close')).toHaveLength(0)
   })
 })
+
+it('a delayed Back read cannot supersede a newly selected page', async () => {
+  answers['session/read'] = session(); answers['session/resume'] = session()
+  await store.openSession(ID, { runtime: RUNTIME })
+  const settings = { kind: 'settings', route: { kind: 'section', section: 'appearance', focus: null } } as const
+  store.openDestination(settings)
+  let resolveRead!: (value: Session) => void
+  const read = new Promise<Session>(resolve => { resolveRead = resolve })
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) =>
+    method === 'session/read' ? read : answers[method] ?? null) as never)
+  const back = store.navigateBack()
+  await Promise.resolve()
+  store.openDestination({ kind: 'dashboard', view: 'overview', scope: null })
+  const before = store.getSnapshot().workbench.navigation
+  resolveRead(session())
+  await back
+  expect(store.getSnapshot().workbench.navigation).toEqual(before)
+})
+it('a failed Back read cannot use a cached session as successful read evidence', async () => {
+  answers['session/read'] = session(); answers['session/resume'] = session()
+  await store.openSession(ID, { runtime: RUNTIME })
+  store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'appearance', focus: null } })
+  const before = store.getSnapshot().workbench
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => {
+    if (method === 'session/read') throw new Error('Synthetic transcript is unavailable')
+    return answers[method] ?? null
+  }) as never)
+  await store.navigateBack()
+  expect(store.getSnapshot().workbench.navigation).toEqual(before.navigation)
+  expect(store.getSnapshot().layout).toEqual(before.main)
+})
+it('a readable history target with refused resume remains navigable', async () => {
+  answers['session/read'] = session(); answers['session/resume'] = session()
+  await store.openSession(ID, { runtime: RUNTIME })
+  store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'appearance', focus: null } })
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => {
+    if (method === 'session/resume') throw new Error('Synthetic resume was refused')
+    return answers[method] ?? null
+  }) as never)
+  await store.navigateBack()
+  expect(store.getSnapshot().workbench.navigation.current).toEqual({ kind: 'work', view: { kind: 'conversation', session: KEY } })
+})
+
+it('a delayed Back read cannot cross a project selection', async () => {
+  answers['session/read'] = session(); answers['session/resume'] = session()
+  await store.openSession(ID, { runtime: RUNTIME })
+  store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'general', focus: null } })
+  let resolveRead!: (value: Session) => void
+  const read = new Promise<Session>(resolve => { resolveRead = resolve })
+  answers['workspace/open'] = { path: '/synthetic/other', name: 'Other', lastOpenedAt: 0 }
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) =>
+    method === 'session/read' ? read : answers[method] ?? null) as never)
+  const back = store.navigateBack()
+  await Promise.resolve()
+  await store.openWorkspace('/synthetic/other')
+  const before = store.getSnapshot().workbench.navigation
+  resolveRead(session())
+  await back
+  expect(store.getSnapshot().workbench.navigation).toBe(before)
+})
+
+it('a hidden transcript read never visits work or closes the current page', async () => {
+  store.openDestination({ kind: 'dashboard', view: 'overview', scope: null })
+  const before = store.getSnapshot().workbench.navigation
+  answers['session/read'] = session(); answers['session/resume'] = session()
+  expect(await store.openSession(ID, { runtime: RUNTIME, reveal: false })).toBe(true)
+  expect(store.getSnapshot().workbench.navigation).toBe(before)
+})

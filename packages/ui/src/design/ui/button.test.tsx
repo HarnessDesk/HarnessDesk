@@ -313,3 +313,13 @@ it('marks the positioned row without intercepting its readings or duplicating ho
  expect(markup).not.toContain(' stretched=')
  expect(renderToStaticMarkup(<Button stretched variant="row">Open</Button>)).toContain('hover:bg-transparent')
 })
+
+it('lets a wrapping button grow while preserving the default floor and padding',()=>{
+  const wrapped=buttonVariants({size:'wrap'})
+  expect(wrapped).toContain('h-auto')
+  expect(wrapped).toContain('min-h-(--hd-btn-h)')
+  expect(wrapped).toContain('p-(--hd-btn-padding)')
+  expect(wrapped).toContain('whitespace-normal')
+  expect(buttonVariants({size:'default'})).not.toContain('h-auto')
+  expect(CATALOG_ENTRIES.find(entry=>entry.id==='primitive.button')?.sizes).toContain('wrap')
+})

@@ -1,8 +1,9 @@
+import { useDestinationActive } from '../panels/destination-page'
 import { useEffect, useRef, useState } from 'react'
 
 import type { RuntimeInfo } from '@harnessdesk/protocol'
 
-import { Row, RowChoice, Rows, Section, Text } from '../design'
+import { Row, RowChoice, Rows, Section, RowValue, Text } from '../design'
 import { runtimeHolds } from '../lib/ceilings'
 import { useSnapshot, useStore } from '../state/context'
 import type { UnheldCeilings } from '../state/store'
@@ -15,7 +16,7 @@ const RuntimeCeilings = ({ runtime }: { readonly runtime: RuntimeInfo }) => {
     mark={<RuntimeMark runtime={runtime} size={13} />}
     title={runtime.presentation.name}
     control={
-      <span className="flex flex-wrap items-center justify-end gap-(--hd-space-2)">
+      <RowValue>
         {holds.map((hold) => (
           <CeilingChip
             key={hold.level}
@@ -25,44 +26,53 @@ const RuntimeCeilings = ({ runtime }: { readonly runtime: RuntimeInfo }) => {
           />
         ))}
         {holds.some((hold) => !hold.held) && <span data-slot="ceiling-hold-note"><Text role="meta">Asked, not enforced</Text></span>}
-      </span>
+      </RowValue>
     }
   />
 }
 
 /** Runtime hold declarations and the policy for a watched seat they cannot hold. */
 export const CeilingsSection = ({ focus = null }: { readonly focus?: string | null }) => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const snapshot = useSnapshot()
   const section = useRef<HTMLElement>(null)
   const saving = useRef(false)
   const savingUnattended = useRef(false)
+  const watchedRead=useRef(0),unattendedRead=useRef(0)
   const [watched, setWatched] = useState<UnheldCeilings | null>(null)
   const [unattended, setUnattended] = useState<UnheldCeilings | null>(null)
   const [busy, setBusy] = useState(false)
   const [unattendedBusy, setUnattendedBusy] = useState(false)
 
   useEffect(() => {
+    if (!destinationActive) return
+
+    const watchedRevision=++watchedRead.current,unattendedRevision=++unattendedRead.current
     let live = true
-    setWatched(null)
-    setUnattended(null)
-    void store.loadUnheldCeilings().then((next) => {
-      if (live) setWatched(next)
+    if (!saving.current) setWatched(null)
+    if (!savingUnattended.current) setUnattended(null)
+    if (!saving.current) void store.loadUnheldCeilings().then((next) => {
+      if (live && watchedRevision===watchedRead.current && !saving.current) setWatched(next)
     })
-    void store.loadUnattendedCeilings().then((next) => {
-      if (live) setUnattended(next)
+    if (!savingUnattended.current) void store.loadUnattendedCeilings().then((next) => {
+      if (live && unattendedRevision===unattendedRead.current && !savingUnattended.current) setUnattended(next)
     })
     return () => { live = false }
-  }, [store])
+  }, [destinationActive, store])
 
   useEffect(() => {
+    if (!destinationActive) return
+
     if (focus !== 'ceilings') return
     section.current?.scrollIntoView({ block: 'start' })
     section.current?.focus()
-  }, [focus])
+  }, [destinationActive, focus])
 
   const choose = async (next: UnheldCeilings): Promise<void> => {
     if (watched === null || saving.current) return
+    watchedRead.current++
     saving.current = true
     setWatched(next)
     setBusy(true)
@@ -76,6 +86,7 @@ export const CeilingsSection = ({ focus = null }: { readonly focus?: string | nu
 
   const chooseUnattended = async (next: UnheldCeilings): Promise<void> => {
     if (unattended === null || savingUnattended.current) return
+    unattendedRead.current++
     savingUnattended.current = true
     setUnattended(next)
     setUnattendedBusy(true)

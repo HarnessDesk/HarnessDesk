@@ -8,7 +8,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react'
-import { forwardRef } from 'react'
+import { createElement, forwardRef } from 'react'
 
 import { CrossIcon } from '../../components/Icons'
 import { beginResize, endResize, markDragging } from '../../lib/resizing'
@@ -58,18 +58,13 @@ export const WorkbenchCanvas = forwardRef<HTMLDivElement, React.ComponentProps<'
 WorkbenchCanvas.displayName = 'WorkbenchCanvas'
 
 /** The navigation plate down the workbench's side. */
-export const WorkbenchRail = forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(
-  ({ className, ...props }, ref) => (
-    <div
-      ref={ref}
-      data-slot="workbench-rail"
-      className={cn(
-        'bg-(--hd-sidebar-plate) outline-none data-[floating]:shadow-(--hd-shadow-lg)',
-        className,
-      )}
-      {...props}
-    />
-  ),
+export const WorkbenchRail = forwardRef<HTMLElement, React.ComponentProps<'nav'> & { readonly as?: 'div' | 'nav' }>(
+  ({ as = 'div', className, ...props }, ref) => createElement(as, {
+    ref,
+    'data-slot': 'workbench-rail',
+    className: cn('bg-(--hd-sidebar) outline-none data-[floating]:shadow-(--hd-shadow-lg)', className),
+    ...props,
+  }),
 )
 WorkbenchRail.displayName = 'WorkbenchRail'
 

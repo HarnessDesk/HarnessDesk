@@ -4,18 +4,20 @@ import type { GitFileStatus, GitStatus } from '@harnessdesk/protocol'
 
 import { countChanges, splitByFile, splitHunks, type DiffHunk } from '../lib/diff'
 import { inView } from '../lib/git-view'
-import { Button, Card, ChangeStats, CodeText, EmptyState, Note, PageHead, PatchHeader, Separator, Tabs, TabsList, TabsTrigger, Text, ToolbarGap } from '../design'
-import { useActiveSession, useSnapshot, useStore } from '../state/context'
-import { AppWindow, WindowGroup, WindowNav, WindowNavEmpty, WindowNavItem, WindowPage } from './AppWindow'
+import { Button, Card, ChangeStats, CodeText, EmptyState, Note, Page, PatchHeader, Section, Separator, SummaryList, SummaryItem, MiddleTruncate, Text, ToolbarGap } from '../design'
+import { useStore } from '../state/context'
+import { DestinationBar, useDestinationPage } from '../panels/destination-page'
+import { ReviewIndex } from '../panels/review-index'
+import type { WorkView } from '../state/destinations'
+import { handOverToComposer } from '../lib/compose'
 import { DiffView } from './Diff'
-import { FileIcon } from './Icons'
-import styles from './ChangesReview.module.css'
+
 
 /**
- * Changes as a review workspace: the whole working tree in a full window,
+ * Changes as a review workspace: the captured working tree in main,
  * grouped by folder, every hunk carrying the one action a multi-agent tool
  * should own — "revise this hunk", which quotes the hunk into the composer
- * for whichever agent holds the conversation. Staging stays git's: nothing
+ * for the work that opened this review. Staging stays git's: nothing
  * here writes to the index, and the staged toggle only changes what is read.
  *
  * The side panel's Changes tab answers "what just happened" beside the
@@ -37,7 +39,7 @@ interface FolderGroup {
   readonly files: readonly GitFileStatus[]
 }
 
-/** Files by folder, folders in path order, so the nav reads like the tree. */
+/** Files by folder, folders in path order, so the index reads like the tree. */
 const groupByFolder = (files: readonly GitFileStatus[]): FolderGroup[] => {
   const map = new Map<string, GitFileStatus[]>()
   for (const file of files) {
@@ -55,13 +57,14 @@ const groupByFolder = (files: readonly GitFileStatus[]): FolderGroup[] => {
 }
 
 const Counts = ({ added, removed }: { added: number; removed: number }) =>
-  added + removed > 0 ? <ChangeStats added={added} removed={removed} className={styles.counts} /> : null
+  added + removed > 0 ? <ChangeStats added={added} removed={removed} /> : null
 
-export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
+interface ReviewProps { readonly root: string | null; readonly returnTo: WorkView }
+export const ChangesReview = (props: ReviewProps) => <ReviewBody {...props} />
+
+const ReviewBody = ({ root, returnTo }: ReviewProps) => {
   const store = useStore()
-  const snapshot = useSnapshot()
-  const session = useActiveSession()
-  const root = session?.cwd ?? snapshot.workspace?.path ?? null
+  const { active } = useDestinationPage()
 
   const [staged, setStaged] = useState(false)
   const [query, setQuery] = useState('')
@@ -70,24 +73,24 @@ export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
   const sections = useRef<Map<string, HTMLElement>>(new Map())
 
   useEffect(() => {
-    if (!root) return
+    if (!active || !root) return
     let cancelled = false
     void store.transport
       .request('git/status', { root })
       .then((status) => {
         if (!cancelled) setGit(status)
       })
-      .catch(() => setGit(null))
+      .catch(() => { if (!cancelled) setGit(null) })
     void store.transport
       .request('git/diff', { root, ...(staged ? { staged: true } : {}) })
       .then((result) => {
         if (!cancelled) setTreeDiff(result.diff)
       })
-      .catch(() => setTreeDiff(''))
+      .catch(() => { if (!cancelled) setTreeDiff('') })
     return () => {
       cancelled = true
     }
-  }, [root, staged, store])
+  }, [active, root, staged, store])
 
   /** Each path's own diff, cut once from the tree's. */
   const diffs = useMemo(() => {
@@ -119,12 +122,10 @@ export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
   /** The one hunk action: quote it into the composer and hand the window back. */
   const reviseHunk = (path: string, hunk: DiffHunk): void => {
     const quoted = hunk.text.length > QUOTE_CAP ? `${hunk.text.slice(0, QUOTE_CAP)}\n…` : hunk.text
-    window.dispatchEvent(
-      new CustomEvent('harnessdesk:compose', {
-        detail: `Please revise this hunk of ${path}:\n\`\`\`diff\n${quoted}\n\`\`\`\n`,
-      }),
-    )
-    onClose()
+    if (!store.selectWork(returnTo)) return
+    void handOverToComposer({ text: `Please revise this hunk of ${path}:\n\`\`\`diff\n${quoted}\n\`\`\`\n` }).then(received => {
+      if (!received) store.notice('warning', 'The message box did not take it — click into the conversation and try again.')
+    })
   }
 
   const jumpTo = (path: string): void => {
@@ -135,67 +136,20 @@ export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
   const absolute = (path: string): string => (path.startsWith('/') || !root ? path : `${root}/${path}`)
 
   return (
-    <AppWindow owner="changes-review" onClose={onClose} label="Changes">
-      <WindowNav
-        onBack={onClose}
-        search={{ value: query, placeholder: 'Filter files', label: 'Filter files', onChange: setQuery }}
-      >
-        {groups.length === 0 ? (
-          <WindowNavEmpty>
-            {git === null
-              ? 'Not a git repository.'
-              : needle.length > 0
-                ? 'No files match that filter.'
-                : staged
-                  ? 'Nothing staged.'
-                  : 'No uncommitted changes.'}
-          </WindowNavEmpty>
-        ) : (
-          groups.map((group) => (
-            <WindowGroup key={group.folder || '.'} label={group.folder || 'in this folder'}>
-              {group.files.map((file) => {
-                const count = countChanges(diffs.get(file.path) ?? '')
-                return (
-                  <WindowNavItem
-                    key={file.path}
-                    icon={<FileIcon size={13} />}
-                    label={basename(file.path)}
-                    trail={<Counts added={count.added} removed={count.removed} />}
-                    selected={false}
-                    onClick={() => jumpTo(file.path)}
-                  />
-                )
-              })}
-            </WindowGroup>
-          ))
-        )}
-      </WindowNav>
-
-      <WindowPage wide>
-        <PageHead
-          title="Changes"
-          blurb={
-            <>
-              {git?.branch ? `on ${git.branch} · ` : ''}
-              {files.length} file{files.length === 1 ? '' : 's'}
-              {total.added + total.removed > 0 ? ` · +${total.added} −${total.removed}` : ''}
-            </>
-          }
-          actions={(
-            /* Was a hand-rolled tablist: correct roles, but no arrow keys and no
-               roving focus, so a keyboard tabbed through every scope one at a
-               time. The system's tabs bring both. */
-            <Tabs
-              value={staged ? 'staged' : 'working'}
-              onValueChange={(next) => setStaged(next === 'staged')}
-            >
-              <TabsList aria-label="Which changes">
-                <TabsTrigger value="working">Working tree</TabsTrigger>
-                <TabsTrigger value="staged">Staged</TabsTrigger>
-              </TabsList>
-            </Tabs>
-          )}
-        />
+    <>
+      <DestinationBar place="Changes" tab={staged ? 'staged' : 'working'} tabs={[
+        { value: 'working', label: 'Working tree', run: () => setStaged(false) },
+        { value: 'staged', label: 'Staged', run: () => setStaged(true) },
+      ]} />
+      <Page width="canvas">
+        <SummaryList><SummaryItem label={git?.branch ? <>on <MiddleTruncate>{git.branch}</MiddleTruncate></> : null}>
+          {files.length} file{files.length === 1 ? '' : 's'}
+          {total.added + total.removed > 0 ? ` · +${total.added} −${total.removed}` : ''}
+        </SummaryItem></SummaryList>
+        <ReviewIndex query={query} change={setQuery} jump={jumpTo} groups={groups.map(group => ({
+          folder: group.folder, files: group.files.map(file => ({ path: file.path, name: basename(file.path),
+            ...countChanges(diffs.get(file.path) ?? '') })),
+        }))} />
 
         {groups.length === 0 && (
           <EmptyState
@@ -209,8 +163,7 @@ export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
         )}
 
         {groups.map((group) => (
-          <section key={group.folder || '.'} className={styles.folder}>
-            <Text as="h2" role="muted" className={styles.folderName}>{group.folder || 'in this folder'}</Text>
+          <Section key={group.folder || '.'} title={group.folder || 'in this folder'}>
             {group.files.map((file) => {
               const diff = diffs.get(file.path) ?? ''
               const hunks = splitHunks(diff)
@@ -218,14 +171,14 @@ export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
               return (
                 <section
                   key={file.path}
-                  className={styles.file}
+                  data-review-file={file.path}
                   ref={(element) => {
                     if (element) sections.current.set(file.path, element)
                     else sections.current.delete(file.path)
                   }}
                 >
                   <Card as="article" variant="flush">
-                    <PatchHeader className={styles.fileHead}>
+                    <PatchHeader>
                       <Text role="row" truncate title={file.path}>
                         {basename(file.path)}
                       </Text>
@@ -248,7 +201,7 @@ export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
                         /* Hunks are told apart by the app's one hairline. */
                         <section key={`${file.path}-${index}`}>
                           {index > 0 && <Separator />}
-                          <PatchHeader level="hunk" className={styles.hunkHead}>
+                          <PatchHeader level="hunk">
                             <Text role="meta"><CodeText as="code">{hunk.header}</CodeText></Text>
                             <ToolbarGap />
                             <Button
@@ -267,9 +220,9 @@ export const ChangesReview = ({ onClose }: { onClose: () => void }) => {
                 </section>
               )
             })}
-          </section>
+          </Section>
         ))}
-      </WindowPage>
-    </AppWindow>
+      </Page>
+    </>
   )
 }

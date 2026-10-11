@@ -1,3 +1,4 @@
+import { PagePreview } from '../../preview/page-preview'
 import { InfoCardBody, SubjectActionsMenu } from '..'
 import { PlanMetersSpecimen, TerminalToggleSpecimen, MainWorkActionsSpecimen } from '../../preview/frames-supported-controls'
 import { FRAME, FixedShell, SeatList, ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolProse, ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet, SummaryList, SummaryItem, Checklist, ChecklistItem } from '../index'
@@ -20,9 +21,12 @@ import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
 import { TeamOverviewBoard } from '../../preview/frames-team-overview'
 import { TeamBarBoard } from '../../preview/frames-team-frame'
-import { Page, TopBar } from '..'
+import { MainDestination, DestinationBody, Page, TopBar } from '..'
 import { DiffIcon, HistoryIcon, GlobeIcon, PanelIcon } from '../../components/Icons'
 
+const MAINDESTINATION_CATALOG_VARIANTS = ['light', 'dark'] as const
+const MAINDESTINATION_CATALOG_SIZES = ['default'] as const
+const MAINDESTINATION_CATALOG_STATES = ['default', 'open', 'closed'] as const
 const PAGE_CATALOG_VARIANTS = ['light', 'dark'] as const
 const PAGE_CATALOG_SIZES = ['default'] as const
 const PAGE_CATALOG_STATES = ['default'] as const
@@ -2921,7 +2925,7 @@ const PlansTableBoard = () => {
 
 const LibraryBoard = () => {
   const [store] = useState(previewStore)
-  return <StoreProvider store={store}><LibrarySection /></StoreProvider>
+  return <div className="h-screen"><PagePreview fixture={store} page={{kind:'library',section:'skill'}} /></div>
 }
 
 const HeaderStatusBoard = () => (
@@ -3029,6 +3033,14 @@ const ComparisonNoticeBoard = () => {
 const TOPBAR_CATALOG_VARIANTS = ['light', 'dark'] as const
 const TOPBAR_CATALOG_SIZES = ['default'] as const
 const TOPBAR_CATALOG_STATES = ['default', 'disabled', 'filtered', 'folded-state', 'long-title'] as const
+export const MainDestinationBoard = () => {
+  const [page, setPage] = useState(false)
+  return <><Button onClick={() => setPage(value => !value)}>Switch main destination</Button>
+    <MainDestination page={page} work={<Page width="reading"><Textarea aria-label="Retained draft" defaultValue="Review the checkout" /></Page>}
+      pages={<DestinationBody id="library" active={page}><Page width="reading"><Text role="prose">Library · a long reusable project name · チェックアウトのレビュー</Text><Input aria-label="Library search" /></Page></DestinationBody>} />
+  </>
+}
+
 export const TopBarBoard = () => {
   const [tab, setTab] = useState('findings')
   const tabs = ['Overview', 'Run', 'Board', 'Chat', 'Findings', 'Runs'].map(label => ({
@@ -3096,6 +3108,14 @@ export const SeatListBoard = () => {
 }
 
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  {id:'sign-in-rail',title:'Sign-in rail',about:'The first-run navigation boundary.',render:() => <SignInRailBoard />},
+  {id:'dashboard-bands',title:'Dashboard bands',about:'Long labels, unavailable values and empty source bands in both themes.',render:DashboardBandsBoard},
+  {id:'page-records',title:'Page records',about:'Content-width table and list rows, complete reasons and isolated actions.',render:() => <PageRecordsBoard />},
+  {id:'page-controls',title:'Page controls',about:'Labelled fields, complete prose and semantic input measures.',render:() => <PageControlsBoard />},
+  {id:'library-matrix',title:'Library matrix',about:'Populated, empty, long-name and overflowing availability records.',render:() => <LibraryMatrixBoard />},
+  {id:'page-options',title:'Page options',about:'Current values, pending scope and long choices folded in the body.',render:() => <PageOptionsBoard />},
+  {id:'settings-choices',title:'Settings choices',about:'Selected and unknown pictures, accent and account ring choices.',render:() => <SettingsChoicesBoard />},
+
   { id: 'popup-inbox', title: 'Inbox menu', about: 'Kept notifications, complete expanded facts and actions.', render: () => <PopupInboxBoard /> },
   { id: 'subject-actions', title: 'Subject actions', about: 'Verbs and Messages choices retain their callbacks outside facts.', render: () => <PopupSubjectBoard /> },
   { id: 'info-card', title: 'Info card', about: 'Complete facts on hover and focus, without actions or menu overlap.', render: () => <PopupInfoBoard /> },
@@ -3104,6 +3124,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   { id: 'fixed-shell', title: 'FixedShell', about: 'Real-length content in both themes.', render: FixedShellBoard },
   { id: 'tool-body', title: 'ToolBody', about: 'Real-length content in both themes.', render: ToolBodyBoard },
   { id: 'tool-footer', title: 'ToolFooter', about: 'Real-length content in both themes.', render: ToolFooterBoard },
+  { id: 'main-destination', title: 'Retained main destinations', about: 'Work and page inputs survive switching the active main region.', render: MainDestinationBoard },
   { id: 'top-bar', title: 'The top bar', about: 'Nine slots in both fold stages, with long names and CJK.', render: TopBarBoard },
   { id:'git-comparison-dialogs', title:'Git comparison questions', about:'Merge or compare recorded revisions through the shared Git dialogs.', render:GitComparisonDialogsBoard },
   { id: 'comparison-decision', title:'Comparison decision', about:'A recommendation and the person decision above the composer.', render:ComparisonDecisionBoard },
@@ -3465,12 +3486,7 @@ const MENU_ROW_CATALOG_SIZES = ['default'] as const
 const MENU_ROW_CATALOG_STATES = ['default'] as const
 const PopupMenuBoard = () => <>{MENU_ROW_CATALOG_VARIANTS.map(variant => MENU_ROW_CATALOG_SIZES.map(size => MENU_ROW_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><MenuExample /><MenuExample icons="none" /></div>)))}</>
 
-import { AppWindowLeftFrame } from '..'
-export const AppWindowLeftBoard = () => <div className="grid h-96 w-full" data-catalog-variant="default" data-catalog-size="default" data-catalog-state="nested-rail"><AppWindowLeftFrame placement="column" width={FRAME.sidebar.width} onWidth={() => {}} onCloseFloat={() => {}}
-  left={<LeftColumnBoard />} top={<Bar><Text role="navigation">General</Text></Bar>}
-  body={<Text as="p" role="row">Preference content stays in its existing window until phase E.</Text>}
-  /></div>
-COMPOSITION_BOARDS.push({ id: 'app-window-left', title: 'Window left column', about: 'Temporary shared left slot with one shell header and no status strip.', render: AppWindowLeftBoard })
+
 import { WideMenuExample, MeteredMenuExample, InfoCardExample } from '../catalog/popup-examples'
 const WIDEMENU_CATALOG_VARIANTS = ['default'] as const
 const WIDEMENU_CATALOG_SIZES = ['default'] as const
@@ -3492,3 +3508,105 @@ const INBOXMENU_CATALOG_VARIANTS = ['default'] as const
 const INBOXMENU_CATALOG_SIZES = ['default'] as const
 const INBOXMENU_CATALOG_STATES = ['default'] as const
 const PopupInboxBoard = () => <>{INBOXMENU_CATALOG_VARIANTS.map(variant => INBOXMENU_CATALOG_SIZES.map(size => INBOXMENU_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><InboxExample /></div>)))}</>
+
+import { PageControls, ShortcutKeys, PageExplanation, PreservedText, InlineQualifier, PageNotes, PageOptions, PictureChoices, AccentChoices, RingChoices } from '..'
+import { AVATARS, type AvatarId } from '../../lib/avatars'
+
+const PAGECONTROLS_CATALOG_VARIANTS = ['default'] as const
+const PAGECONTROLS_CATALOG_SIZES = ['default'] as const
+const PAGECONTROLS_CATALOG_STATES = ['default', 'disabled'] as const
+export const PageControlsBoard = () => {
+  const [scope, setScope] = useState('all'), [query, setQuery] = useState('')
+  return <div data-catalog-variants={PAGECONTROLS_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={PAGECONTROLS_CATALOG_SIZES.join(' ')} data-catalog-states={PAGECONTROLS_CATALOG_STATES.join(' ')}>
+    <Page width="reading"><PageControls search={{label:'Search records',placeholder:'Search records…',value:query,change:setQuery}}
+      choices={[{id:'scope',title:'Agent scope',description:'The selected scope applies to the records below. 長い説明もすべて表示します。',value:scope,
+        options:[{value:'all',label:'All agents · チェックアウトのレビュー'},{value:'pending',label:'Pending agent read',disabled:true}],change:setScope}]} />
+      <PageExplanation>A complete explanation keeps its lines within the page.</PageExplanation>
+      <PreservedText value={'First line\nSecond line · チェックアウト'} />
+      <Text>Read just now<InlineQualifier value="local" /></Text>
+      <ShortcutKeys keys={['⌘', '[']} />
+      <PageNotes notes={[{id:'read',text:'The records are read from their current source.'}]} />
+      <Input measure="name" aria-label="Example name" defaultValue="Jane Doe" />
+      <Input measure="path" aria-label="Example path" defaultValue="/repo/storefront" />
+    </Page>
+  </div>
+}
+const PAGEOPTIONS_CATALOG_VARIANTS = ['default'] as const
+const PAGEOPTIONS_CATALOG_SIZES = ['default'] as const
+const PAGEOPTIONS_CATALOG_STATES = ['default', 'loading', 'folded-state'] as const
+export const PageOptionsBoard = () => {
+  const [scope,setScope] = useState('all'), [query,setQuery] = useState('')
+  const items = [{value:'all',label:'All agents · long reusable checkout review · チェックアウトのレビュー'},
+    {value:'local',label:'Local',count:3},{value:'pending',label:'Pending agent read',disabled:'Reading the current scope…'}]
+  return <div data-catalog-variants={PAGEOPTIONS_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={PAGEOPTIONS_CATALOG_SIZES.join(' ')} data-catalog-states={PAGEOPTIONS_CATALOG_STATES.join(' ')}>
+    {[736,320].map(width => <div key={width} style={{width,maxWidth:'100%'}}>
+      <Page width="reading"><PageOptions choices={[{id:'scope',label:'Agent scope',value:scope,items,change:setScope,mode:'menu'},
+        {id:'layout',label:'Library layout',value:'list',items:[{value:'list',label:'List · 長いチェックアウトのレビュー'},{value:'matrix',label:'Matrix'}],change:()=>{}}]}
+        search={{label:'Search records',value:query,change:setQuery}} read="Read just now" action={{label:'Refresh',run:()=>{}}} />
+        <PageOptions choices={[{id:'pending',label:'Pending scope',value:'pending',items,change:()=>{}}]}
+          read="Reading current scope…" action={{label:'Refresh',disabled:true,run:()=>{}}} />
+      </Page>
+    </div>)}
+  </div>
+}
+const SETTINGSCHOICES_CATALOG_VARIANTS = ['default'] as const
+const SETTINGSCHOICES_CATALOG_SIZES = ['default'] as const
+const SETTINGSCHOICES_CATALOG_STATES = ['populated', 'unknown', 'selected'] as const
+export const SettingsChoicesBoard = () => {
+  const [picture,setPicture] = useState<AvatarId | null>('wizard'), [accent,setAccent] = useState('default'), [ring,setRing] = useState<'blue' | 'green' | 'amber' | 'rose' | 'violet'>('blue')
+  const pictures = [{id:null,label:'Default',about:'The HarnessDesk mark'},...AVATARS]
+  return <div data-catalog-variants={SETTINGSCHOICES_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={SETTINGSCHOICES_CATALOG_SIZES.join(' ')} data-catalog-states={SETTINGSCHOICES_CATALOG_STATES.join(' ')}>
+    <Page width="reading"><SectionHead name="Selected picture" /><PictureChoices value={picture} items={pictures} change={setPicture} />
+      <SectionHead name="Unknown picture" /><PictureChoices value="unavailable-picture" items={pictures} change={setPicture} />
+      <Rows><Row title="Accent" control={<AccentChoices value={accent} items={[{value:'default',label:'Default',swatch:'var(--hd-accent)'},{value:'green',label:'Green',swatch:'var(--hd-success)'}]} change={setAccent} />} />
+        <Row title="Ring colour" control={<RingChoices value={ring} values={['blue','green','amber','rose','violet']} mark={<AgentIcon size={14} />} change={setRing} />} /></Rows>
+    </Page>
+  </div>
+}
+
+import { DashboardBands, DashboardStats } from '..'
+const DASHBOARDBANDS_CATALOG_VARIANTS = ['light', 'dark'] as const
+const DASHBOARDBANDS_CATALOG_SIZES = ['default'] as const
+const DASHBOARDBANDS_CATALOG_STATES = ['default', 'empty', 'unknown', 'long-title'] as const
+export function DashboardBandsBoard() { return <div data-catalog-variants={DASHBOARDBANDS_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={DASHBOARDBANDS_CATALOG_SIZES.join(' ')} data-catalog-states={DASHBOARDBANDS_CATALOG_STATES.join(' ')}>
+  <Case label="known, empty and unknown">
+    <Page width="wide"><DashboardBands bands={[
+      {id:'recorded',title:'Recorded readings',rows:[{id:'known',title:'Long account name · 記録された利用状況',description:'One source on this machine.',value:'42%'},{id:'missing',title:'Unavailable account',value:'—'}]},
+      {id:'empty',title:'No records yet',explanation:'No measured value is available.',rows:[]},
+    ]} /><DashboardStats facts={[{id:'known',label:'Known reading',value:'42%'},{id:'unknown',label:'Unknown reading',value:'—'}]} /></Page>
+  </Case>
+</div> }
+
+import { PageRecords } from '..'
+const PAGERECORDS_CATALOG_VARIANTS = ['default'] as const
+const PAGERECORDS_CATALOG_SIZES = ['default'] as const
+const PAGERECORDS_CATALOG_STATES = ['default','populated','long-title','folded-state'] as const
+export const PageRecordsBoard = () => <div data-catalog-variants={PAGERECORDS_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={PAGERECORDS_CATALOG_SIZES.join(' ')} data-catalog-states={PAGERECORDS_CATALOG_STATES.join(' ')}>
+ <Specimen measure="wide" caption="Grouped records and whole waiting reasons"><PageRecords label="Team" columns={[{id:'time',label:'Time',numeric:true},{id:'turns',label:'Turns',numeric:true}]}
+  groups={[{id:'/work/storefront',label:'Storefront · 2',rows:[{id:'review',title:'Review the checkout recovery with a long recorded title · 長い記録',description:'Waiting for a decision on whether to keep the original payment method.',values:{time:'47m',turns:'137'},state:<Chip tone="warning">Needs you</Chip>,open:()=>{},actions:<Button variant="quiet" size="sm">Hide</Button>},
+   {id:'cache',title:'Finish the usage cache',values:{time:'5h',turns:'92'},state:<Text role="meta">Ready to wrap</Text>,open:()=>{}}]}]}/></Specimen>
+ <Specimen measure="fit" caption="The same record below the content threshold"><div className="max-w-sm"><PageRecords label="Team" columns={[{id:'time',label:'Time',numeric:true}]} groups={[{id:'/work/billing',label:'Billing · 1',rows:[{id:'invoice',title:'Keep the invoice rounding change',compact:'Review accepted the invoice rounding change · 5h in this state · 46 turns',values:{time:'5h'},state:<Text role="meta">Settled</Text>,open:()=>{}}]}]}/></div></Specimen>
+</div>
+
+import { LibraryMatrix } from '..'
+const LIBRARYMATRIX_CATALOG_VARIANTS = ['default'] as const
+const LIBRARYMATRIX_CATALOG_SIZES = ['default'] as const
+const LIBRARYMATRIX_CATALOG_STATES = ['populated', 'empty', 'long-title'] as const
+export const LibraryMatrixBoard = () => {
+  const columns = Array.from({length: 12}, (_, index) => ({id:`agent-${index}`,label:`Agent ${index + 1}`}))
+  const row = (name: string) => ({id:name,name,description:'A complete declaration compared against the current scan.',open:()=>{},
+    cells:columns.map(column=>({id:column.id,state:'reaches',label:`${name} — ${column.label}: Reaches`,mark:<Dot state="ready"/>}))})
+  return <div data-catalog-variants={LIBRARYMATRIX_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={LIBRARYMATRIX_CATALOG_SIZES.join(' ')} data-catalog-states={LIBRARYMATRIX_CATALOG_STATES.join(' ')}>
+    <Page width="wide">
+      <LibraryMatrix columns={columns.slice(0,2)} rows={[row('sample-skill')].map(entry=>({...entry,cells:entry.cells.slice(0,2)}))}/>
+      <LibraryMatrix columns={[]} rows={[]}/>
+      <LibraryMatrix columns={columns} rows={[row('Reusable checkout review · 長いチェックアウトのレビュー'),row('sample-skill')]}/>
+    </Page>
+  </div>
+}
+
+import { SignInRail, RailSection } from '..'
+const SIGNINRAIL_CATALOG_VARIANTS = ['default'] as const
+const SIGNINRAIL_CATALOG_SIZES = ['default'] as const
+const SIGNINRAIL_CATALOG_STATES = ['default'] as const
+export const SignInRailBoard = () => <div data-catalog-variants={SIGNINRAIL_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={SIGNINRAIL_CATALOG_SIZES.join(' ')} data-catalog-states={SIGNINRAIL_CATALOG_STATES.join(' ')}><SignInRail aria-label="Sign in"><RailSection stretch="list" density="comfortable">Choose an agent</RailSection></SignInRail></div>

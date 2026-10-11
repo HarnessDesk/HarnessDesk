@@ -104,13 +104,13 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto('/preview.html')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await page.evaluate(async () => { await document.fonts.ready })
-    const dashboard = page.getByRole('dialog', { name: 'Dashboard', exact: true })
+    const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
     const card = dashboard.locator('[data-slot="card"]').filter({ has: page.locator('[data-slot="usage-meter-row"]') }).first()
     await expect(card.locator('[data-slot="usage-meter-row"]')).toHaveCount(3)
     await alignedMeters(card.locator('[data-slot="usage-meter-row"]'))
     await page.evaluate(async () => {
       const { mountPlanMetersSpecimen } = await import('/src/preview/frames-supported-controls.tsx' as string)
-      const host = document.createElement('section'); document.querySelector('[role="dialog"][aria-label="Dashboard"]')!.append(host); mountPlanMetersSpecimen(host, true)
+      const host = document.createElement('section'); document.querySelector('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:not([hidden])')!.append(host); mountPlanMetersSpecimen(host, true)
     })
     await page.locator('[data-frame-id="supported-plan-meters"]').getByRole('group', { name: 'Plan usage' }).locator('button').first().click()
     await alignedMeters(page.getByRole('menu').locator('[data-slot="usage-meter-row"]'))
@@ -186,7 +186,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 test('Dashboard Project preview counts its retained Run through the batch history loader', async ({ page }) => {
   await page.goto('/preview.html?view=projects')
-  const dashboard = page.getByRole('dialog', { name: 'Dashboard', exact: true })
+  const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
   const row = dashboard.getByRole('row', { name: /Storefront/ })
   await expect(row.locator('td').nth(1)).toHaveText('1')
   await expect(dashboard.getByText('Run counts are unavailable for some Teams.')).toHaveCount(0)
@@ -196,7 +196,7 @@ for (const theme of ['light', 'dark'] as const) {
   test(`narrow Plans disclosure keeps its position and name in ${theme}`, async ({ page }) => {
     await page.goto('/preview.html?view=plans')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
-    const table = page.getByRole('dialog', { name: 'Dashboard', exact: true }).locator('[data-slot="plans-table"]')
+    const table = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible').locator('[data-slot="plans-table"]')
     await table.locator('[data-slot="table-container"]').evaluate(node => { (node as HTMLElement).style.width = '480px' })
     const button = table.locator('button[aria-controls^="plans-row-body"]').first()
     const name = await button.locator('xpath=ancestor::tr').locator('td').first().locator('[data-role="subject"]').textContent()
@@ -279,7 +279,7 @@ for (const theme of ['light', 'dark'] as const) {
     const gate = await page.evaluate(() => (window as unknown as { __usageGate: number }).__usageGate)
     await page.evaluate(async () => {
       const { mountPlanMetersSpecimen } = await import('/src/preview/frames-supported-controls.tsx' as string)
-      const host = document.createElement('section'); document.querySelector('[role="dialog"][aria-label="Dashboard"]')!.append(host); mountPlanMetersSpecimen(host, true)
+      const host = document.createElement('section'); document.querySelector('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:not([hidden])')!.append(host); mountPlanMetersSpecimen(host, true)
     })
     await page.locator('[data-frame-id="supported-plan-meters"]').getByRole('group', { name: 'Plan usage' }).locator('button').first().click()
     const menu = page.getByRole('menu').filter({ has: page.getByText('blocked 3d', { exact: true }) })
@@ -305,7 +305,7 @@ for (const theme of ['light', 'dark'] as const) {
     })
     await page.goto('/preview.html?view=projects')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
-    const dashboard = page.getByRole('dialog', { name: 'Dashboard', exact: true })
+    const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
     const project = dashboard.locator('[aria-label="Project usage"]')
     const note = project.locator('[data-slot="note"]').filter({ hasText: 'Run counts are unavailable for some Teams.' })
     await expect(note.getByRole('button', { name: 'Try again', exact: true })).toBeVisible()

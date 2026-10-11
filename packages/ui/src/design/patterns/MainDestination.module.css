@@ -1,0 +1,7 @@
+/* packages/ui/src/design/patterns/MainDestination.module.css */
+.root { display: grid; min-width: 0; min-height: 0; height: 100%; overflow: hidden; }
+.work, .pages { grid-area: 1 / 1; min-width: 0; min-height: 0; overflow: hidden; }
+.work { display: flex; flex-direction: column; }
+.pages { display: grid; }
+.body { grid-area: 1 / 1; min-width: 0; min-height: 0; overflow: auto; }
+.root [hidden] { display: none; }

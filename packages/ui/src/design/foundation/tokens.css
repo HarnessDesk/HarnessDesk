@@ -103,20 +103,6 @@ body {
   --hd-font-heading: var(--hd-font-family);
   --hd-tracking-heading: -0.01em;
 
-  /* The title block: the hairline a page head closes on, and the short mark
-     in the accent at its start (Settings.module.css `.pageHead`). The title
-     names the place; the rule sets it off from what is on it. The rule sits
-     inside the head's existing 24px — 12 above it, the hairline, 11 below — so
-     a page with a title block starts its content exactly where it did
-     without one. A foundation that wants no mark sets its
-     width to 0. */
-  --hd-title-rule: var(--hd-border);
-  --hd-title-rule-width: var(--hd-space-px);
-  --hd-title-rule-gap: var(--hd-space-3);
-  --hd-title-rule-mark: var(--hd-accent);
-  --hd-title-rule-mark-width: var(--hd-space-6);
-  --hd-title-rule-mark-height: var(--hd-space-0-5);
-
   /* HarnessDesk brand: Blueprint cobalt, the ink of an engineer's drawing.
      Deep enough that white reads on it at 5.5:1 — the lighter blue it
      replaced managed 4.1:1, short of AA for a 13px label on the fill. */
@@ -251,7 +237,7 @@ body {
   --hd-space-3: 12px;
   /* Trailing marks share the centre of one 24px action slot, 32px from the
      sidebar edge. The row-local rail subtracts the row gutter and half target;
-     AppWindow rows subtract their 20px group gutter. Header controls use the
+     Grouped navigation rows use their shared gutter. Header controls use the
      full-edge inset. Hover actions step by one target. */
   --hd-sidebar-start-inset: var(--hd-space-2);
   --hd-sidebar-end-column: var(--hd-space-8);
@@ -447,6 +433,9 @@ body {
    * a field.
    */
   --hd-field-h: var(--hd-btn-h);
+  --hd-table-page-max-height: 50dvh;
+  --hd-field-name-width: 220px;
+  --hd-field-path-width: 280px;
   /*
    * The third rung, and the one a settings or dashboard page is built on.
    *

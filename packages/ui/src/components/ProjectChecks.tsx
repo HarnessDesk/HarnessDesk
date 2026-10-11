@@ -1,3 +1,4 @@
+import { useDestinationActive } from '../panels/destination-page'
 import { useEffect, useState } from 'react'
 
 import type { ProjectChecks as Checks } from '@harnessdesk/protocol'
@@ -8,6 +9,8 @@ import { shortPath } from '../lib/paths'
 import { useSnapshot, useStore } from '../state/context'
 
 export const ProjectChecks = ({ root }: { readonly root: string }) => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const [read, setRead] = useState<
     { readonly root: string; readonly checks: Checks }
@@ -16,6 +19,8 @@ export const ProjectChecks = ({ root }: { readonly root: string }) => {
   >(null)
 
   useEffect(() => {
+    if (!destinationActive) return
+
     let live = true
     store.projectChecks(root).then(
       (checks) => {
@@ -28,7 +33,7 @@ export const ProjectChecks = ({ root }: { readonly root: string }) => {
     return () => {
       live = false
     }
-  }, [store, root])
+  }, [destinationActive, store, root])
 
   if (!read || read.root !== root) return null
   if ('problem' in read) {

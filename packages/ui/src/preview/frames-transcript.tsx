@@ -1,3 +1,6 @@
+import { useMemo } from 'react'
+import { PagePreview } from './page-preview'
+import { reviewPageStore } from './review-page-fixture'
 import { useState } from 'react'
 
 import { runtimeId, type AgentItem } from '@harnessdesk/protocol'
@@ -151,6 +154,7 @@ const BranchSwitcherFlyout = ({ onDone, onCreate }: { readonly onDone: () => voi
  * confuses with the genuine article.
  */
 export const TranscriptFrames = () => {
+  const review = useMemo(() => reviewPageStore('tree'), [])
   const [dialog, setDialog] = useState<DialogOption>('off')
   return (
     <>
@@ -166,7 +170,7 @@ export const TranscriptFrames = () => {
       <Boundary>
         {dialog === 'branch switcher' && <BranchSwitcherFlyout onDone={() => setDialog('off')} onCreate={() => setDialog('create branch')} />}
         {dialog === 'create branch' && <BranchCreateDialog root={GIT_DIALOG_ROOT} onDone={() => {}} onClose={() => setDialog('off')} />}
-        {dialog === 'changes review' && <ChangesReview onClose={() => setDialog('off')} />}
+        {dialog === 'changes review' && <div className="h-screen"><PagePreview fixture={review} page={{kind:'changes-review',root:'/work/storefront',returnTo:{kind:'conversation',session:review.getSnapshot().activeSessionKey}}} /></div>}
         {dialog === 'ask agent' && <AskAgentDialog trouble={TROUBLE} onDone={() => setDialog('off')} />}
         {dialog === 'worktree manager' && <WorktreeDialog root="/work/storefront" onAdd={() => {}} onDone={() => setDialog('off')} />}
         {dialog === 'new worktree' && <NewWorktree root="/work/storefront" onClose={() => setDialog('off')} />}

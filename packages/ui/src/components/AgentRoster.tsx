@@ -13,11 +13,12 @@ import {
 import { shortPath } from '../lib/paths'
 import { projectRootOf } from '../lib/projects'
 import { useSnapshot, useStore } from '../state/context'
+import { DestinationBar, useDestinationPage } from '../panels/destination-page'
 import { AgentIcon } from './Icons'
 import { AgentNew } from './AgentNew'
 import { AgentPage } from './AgentPage'
 import { CeilingChip } from './CeilingChip'
-import { Button, Chip, EmptyState, IconTile, Note, PageHead, Row, RowButton, RowValue, Rows, Section } from '../design'
+import { Button, Chip, EmptyState, IconTile, Note, PageExplanation, Row, RowButton, RowValue, Rows, Section } from '../design'
 
 /**
  * The Agents window's overview: who does the work.
@@ -49,29 +50,14 @@ const footnote = (origin: AgentOrigin, folder: string | null, home: string | nul
 }
 
 export const AgentsRosterSection = ({
-  focus = null,
-  onLeave = () => {},
-  onFocus,
+  focus, onFocus,
 }: {
-  /** An Agent to open on — *Open <Agent> in Settings*, the refusal sheet's *Edit seats for this Mac*, the rail. */
-  readonly focus?: string | null
-  /** Closes the Agents window, for what an Agent's page opens behind it. */
-  readonly onLeave?: () => void
-  /**
-   * Tells the caller which Agent is open now, so the rail this section is
-   * shown beside (`AgentsWindow`) can keep its own selection in step with a
-   * row pressed here, or with *Back*. Optional: this section owns its own
-   * open/closed state either way, which is what makes it — and this file's
-   * own tests — usable with no window around it at all.
-   */
-  readonly onFocus?: (id: string | null) => void
+  readonly focus: string | null
+  readonly onFocus: (id: string | null) => void
 }) => {
   const snapshot = useSnapshot()
-  const [open, setOpen] = useState<string | null>(focus)
+  const open = focus, setOpen = onFocus
   const [creating, setCreating] = useState(false)
-  useEffect(() => {
-    setOpen(focus)
-  }, [focus])
 
   const agents = snapshot.agents ?? []
   const project = projectName(snapshot.workspace)
@@ -89,20 +75,15 @@ export const AgentsRosterSection = ({
         entry={opened}
         onBack={() => {
           setOpen(null)
-          onFocus?.(null)
         }}
-        onLeave={onLeave}
       />
     )
   }
 
   return (
     <>
-      <PageHead
-        title="Agents"
-        blurb="Who does the work: a brief, the most it may do, and the seats it prefers."
-        actions={<Button variant="default" onClick={() => setCreating(true)}>New Agent…</Button>}
-      />
+      <DestinationBar place="Agents" verb={{ label: 'New Agent…', run: () => setCreating(true) }} />
+      <PageExplanation>Who does the work: a brief, the most it may do, and the seats it prefers.</PageExplanation>
       <AuthoringPendingSection />
       {ORDER.filter((origin) => origin !== 'project' || snapshot.workspace !== null).map((origin) => {
         const heading = originWords(origin, project)
@@ -122,7 +103,6 @@ export const AgentsRosterSection = ({
                   entry={entry}
                   onOpen={() => {
                     setOpen(entry.id)
-                    onFocus?.(entry.id)
                   }}
                 />
               ))}
@@ -150,7 +130,6 @@ export const AgentsRosterSection = ({
           onCreated={(entry) => {
             setCreating(false)
             setOpen(entry.id)
-            onFocus?.(entry.id)
           }}
         />
       )}
@@ -210,11 +189,13 @@ export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readon
  */
 const AuthoringPendingSection = () => {
   const store = useStore()
+  const { active } = useDestinationPage()
   const [pending, setPending] = useState<readonly AuthoringPending[] | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!active) return
     let live = true
     store.authoringPending().then(
       (next) => {
@@ -227,7 +208,7 @@ const AuthoringPendingSection = () => {
     return () => {
       live = false
     }
-  }, [store])
+  }, [active, store])
 
   if (!pending || pending.length === 0) return null
 
@@ -282,14 +263,14 @@ const AuthoringPendingSection = () => {
             title={placeWords(one)}
             desc={one.message}
             control={
-              <span className="flex gap-(--hd-space-2)">
+              <>
                 <Button size="sm" variant="outline" disabled={busyId === one.id} onClick={() => void resume(one.id)}>
                   {busyId === one.id ? 'Resuming…' : 'Resume'}
                 </Button>
                 <Button size="sm" variant="ghost" disabled={busyId === one.id} onClick={() => void discard(one.id)}>
                   Discard
                 </Button>
-              </span>
+              </>
             }
           />
         ))}

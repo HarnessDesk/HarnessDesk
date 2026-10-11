@@ -58,12 +58,12 @@ export const useShellHosts = (owner: string) => {
   }, [source, owner])
   return { topRef, mainRef }
 }
-export const ShellOutlets = ({ activeOwner }: { activeOwner: string | null }) => {
+export const ShellOutlets = ({ activeOwner, hostOwner }: { activeOwner: string | null; hostOwner?: string }) => {
   const source = useContext(HostsContext), snapshot = useSnapshot()
   if (!source) throw new Error('ShellOutlets requires ShellHostsProvider')
   const hosts = useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot)
   const pane = findPane(snapshot.layout, snapshot.layout.focused)
-  const nodes = hosts.get(activeOwner ?? 'work')?.nodes
+  const nodes = hosts.get(hostOwner ?? activeOwner ?? 'work')?.nodes
   if (!nodes) return null
   const scope = pane ? { paneId: pane.id, view: pane.view, sessionKey: pane.view.kind === 'conversation' ? pane.view.session : null } : null
   const top = nodes.top && renderShellSlot(activeOwner

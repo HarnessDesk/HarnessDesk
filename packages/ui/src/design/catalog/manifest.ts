@@ -1,6 +1,6 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
 export type CatalogVariant = 'barless' | 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'section' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'summary' | 'start' | 'end' | 'bare'
-export type CatalogSize = 'stack' | 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-label' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'navigation-edge' | 'fill' | 'icon-circle' | 'log-row' | 'bare' | 'composer' | 'sidebar-nav' | 'paragraphs'
+export type CatalogSize = 'stack' | 'default' | 'wrap' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-label' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'navigation-edge' | 'fill' | 'icon-circle' | 'log-row' | 'bare' | 'composer' | 'sidebar-nav' | 'paragraphs'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out' | 'editing' | 'empty-edit' | 'recoverable' | 'memory-only' | 'image-warning' | 'trailing-glyph-rest' | 'trailing-glyph-action' | 'working' | 'needs-you' | 'pinned' | 'worktree' | 'folder-gone' | 'long-title' | 'room-folded' | 'room-expanded' | 'more-sessions' | 'other-projects' | 'filtered' | 'menu-open' | 'folded-state' | 'nested-rail'
 
 export type CatalogEntry = {
@@ -160,7 +160,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'radio-group', 'resize-handle', 'scroll-area', 'select', 'separator', 'sortable-list',
   'spark', 'stepper', 'timeline', 'timeline-cards', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
-  'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'TerminalShellTabs', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
+  'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'TerminalShellTabs', 'PublicationCard', 'ActionError', 'Change', 'RefusedAction',
   'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist', 'FlowGraph', 'FlowCanvas', 'FlowStepRow',
   'heat-grid', 'PlanCard', 'SidebarMenuState', 'CommandPalette',
   'SettingsRowMenu', 'HeaderStatusGroup',
@@ -173,6 +173,14 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   CommandPalette: ['default'],
+  SignInRail: ['default'],
+  DashboardBands: ['light', 'dark'],
+  LibraryMatrix: ['default'],
+  PageControls: ['default'],
+  PageRecords: ['default'],
+  PageOptions: ['default'],
+  SettingsChoices: ['default'],
+  MainDestination: ['light', 'dark'],
   InboxMenu: ['default'],
   SubjectActionsMenu: ['default'],
   InfoCard: ['default'],
@@ -264,7 +272,6 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   TerminalShellTabs: ['default'],
   PublicationCard: ['default'],
   ActionError: ['default'],
-  AppWindow: ['default'],
   Change: ['default'],
   RefusedAction: ['default'],
   InspectorPanel: ['default'],
@@ -289,6 +296,14 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   CommandPalette: ['default'],
+  SignInRail: ['default'],
+  DashboardBands: ['default', 'empty', 'unknown', 'long-title'],
+  LibraryMatrix: ['populated', 'empty', 'long-title'],
+  PageControls: ['default', 'disabled'],
+  PageRecords: ['default', 'populated', 'long-title', 'folded-state'],
+  PageOptions: ['default', 'loading', 'folded-state'],
+  SettingsChoices: ['populated', 'unknown', 'selected'],
+  MainDestination: ['default', 'open', 'closed'],
   InboxMenu: ['default'],
   SubjectActionsMenu: ['default'],
   InfoCard: ['default'],
@@ -379,7 +394,6 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   CopyButton: ['default'],
   PublicationCard: ['default', 'open', 'draft', 'merged', 'closed', 'passed', 'failed', 'running', 'skipped', 'timed out'],
   ActionError: ['error'],
-  AppWindow: ['default', 'nested-rail'],
   Change: ['default', 'selected', 'warning', 'error'],
   RefusedAction: ['disabled', 'focus-visible'],
   InspectorPanel: ['default', 'selected', 'empty', 'running'],
@@ -420,7 +434,7 @@ Object.assign(SIZES, {
   SubjectActionsMenu: ['default'],
   InfoCard: ['default'],
   WideMenu: ['default'],
-  button: ['default', 'xs', 'sm', 'sidebar-nav', 'icon-label', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'log-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'navigation-edge', 'fill', 'icon-circle'],
+  button: ['default', 'wrap', 'xs', 'sm', 'sidebar-nav', 'icon-label', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'log-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'navigation-edge', 'fill', 'icon-circle'],
   card: ['default', 'compact'],
   input: ['default', 'compact', 'bare', 'row'],
   attachment: ['sm', 'default', 'lg'],
@@ -435,6 +449,14 @@ Object.assign(SIZES, {
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
+  SignInRail: 'packages/ui/src/components/SignIn.tsx',
+  DashboardBands: 'packages/ui/src/components/Usage.tsx',
+  LibraryMatrix: 'packages/ui/src/components/Library.tsx',
+  PageControls: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  PageRecords: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  PageOptions: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  SettingsChoices: 'packages/ui/src/components/SettingsYou.tsx',
+  MainDestination: 'packages/ui/src/panels/Workbench.tsx',
   InboxMenu: 'packages/ui/src/design/patterns/Notices.tsx',
   SubjectActionsMenu: 'packages/ui/src/components/TeamRoomPane.tsx',
   InfoCard: 'packages/ui/src/components/ContextUsage.tsx',
@@ -468,7 +490,6 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   TerminalShellTabs: 'packages/ui/src/panels/Workbench.tsx',
   PublicationCard: 'packages/ui/src/components/Publication.tsx',
   ActionError: 'packages/ui/src/components/BranchSwitcher.tsx',
-  AppWindow: 'packages/ui/src/components/AppWindow.tsx',
   Change: 'packages/ui/src/components/GitPane.tsx',
   RefusedAction: 'packages/ui/src/components/ComposerControls.tsx',
   InspectorPanel: 'packages/ui/src/components/Panel.tsx',
@@ -492,6 +513,14 @@ Object.assign(PATTERN_CONSUMER, { LeftColumn: 'packages/ui/src/components/Sideba
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   CommandPalette: 'packages/ui/src/preview/frames-transcript.tsx',
+  SignInRail: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  DashboardBands: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  LibraryMatrix: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  PageControls: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  PageRecords: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  PageOptions: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  SettingsChoices: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  MainDestination: 'packages/ui/src/design/explorer/boards-compositions.tsx',
 
   SeatList: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   FixedShell: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -525,7 +554,6 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   CopyButton: 'packages/ui/src/design/explorer/boards.tsx',
   PublicationCard: 'packages/ui/src/design/explorer/boards.tsx',
   ActionError: 'packages/ui/src/design/explorer/boards.tsx',
-  AppWindow: 'packages/ui/src/design/explorer/boards.tsx',
   Change: 'packages/ui/src/design/explorer/boards.tsx',
   RefusedAction: 'packages/ui/src/design/explorer/boards.tsx',
   InspectorPanel: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -583,7 +611,6 @@ const pattern = ([name, exampleId, purpose]: ModuleSeed): CatalogEntry => ({
   consumers: [PATTERN_CONSUMER[name] ?? 'packages/ui/src/design/explorer/Explorer.tsx'],
   coverageExemption: compoundCoverageExemption(name, exampleId),
   visual: true,
-  ...(name === 'AppWindow' ? { examples: [PATTERN_EXAMPLE_CONSUMER[name]!, 'packages/ui/src/design/explorer/boards-compositions.tsx'] } : {}),
 })
 
 export const CANONICAL_UI_MODULES = [
@@ -651,6 +678,8 @@ export const CANONICAL_UI_MODULES = [
 
 export const CANONICAL_PATTERN_MODULES = [
   ['CommandPalette', 'conversation', 'Fixed search surface, title-led results and a keyboard-hint footer'],
+  ['DashboardBands', 'dashboard-bands', 'Recorded plan, spend and activity readings through canonical page blocks'],
+  ['MainDestination', 'main-destination', 'Retained work and visited pages share one main region'],
   ['InboxMenu', 'popup-inbox', 'Kept messages and their actions through the wide-menu contract'],
   ['SubjectActionsMenu', 'subject-actions', 'Existing action callbacks and Messages choices outside facts'],
   ['InfoCard', 'info-card', 'Facts only on hover or focus, suppressed while any menu is open'],
@@ -683,7 +712,6 @@ export const CANONICAL_PATTERN_MODULES = [
   ['TerminalShellTabs', 'panels', 'Persistent shell tabs and panel actions'],
   ['PublicationCard', 'conversation', 'Published plan and artifact card'],
   ['ActionError', 'banner', 'Failure and reason for an action just taken'],
-  ['AppWindow', 'app-window', 'Full-window destination chrome and plates'],
   ['Change', 'git', 'File state, change counts and patch anatomy'],
   ['RefusedAction', 'propagation', 'Keyboard-reachable disabled-action explanation'],
   ['InspectorPanel', 'tool-pane', 'Right-hand inspector anatomy'],
@@ -694,6 +722,12 @@ export const CANONICAL_PATTERN_MODULES = [
   ['FlowCanvas', 'flow-canvas', 'A lazy, controlled plan canvas: pan, zoom, selection, edits and read-only Run state slots'],
   ['FlowGraph', 'flow-graph', 'A Flow’s steps and rules drawn read-only, with the list that says the same'],
   ['FlowStepRow', 'flow-graph', 'Shared Flow and main Run Timeline step rows with kind, recorded state, time and run count'],
+  ['SignInRail', 'sign-in-rail', 'Sign-in navigation on the shared sidebar ground'],
+  ['PageRecords', 'page-records', 'Responsive grouped records with aligned facts and isolated row actions'],
+  ['PageControls', 'page-controls', 'Labelled page fields, complete explanations and shortcut keys'],
+  ['LibraryMatrix', 'library-matrix', 'Availability columns, inline copies and per-agent catalogue costs'],
+  ['PageOptions', 'page-options', 'Current page choices and read actions in the first body block'],
+  ['SettingsChoices', 'settings-choices', 'Picture, accent and account ring choices with preserved radio behavior'],
   ['Page', 'app-frame', 'The page template at its reading, wide and canvas measures'],
   ['PaneColumn', 'conversation', 'The reading column\'s inset, shared by the transcript and the room stream, plus the bars strip, the jobs strip and the rail'],
   ['PlanCard', 'plan-card', 'A plan\'s price and a key or metered account\'s monthly budget, set once from a suggested price'],

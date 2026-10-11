@@ -8,13 +8,12 @@ import { teamsInput } from '../lib/teams-snapshot'
 import { teamsList, type TeamFilter, type TeamListGroup, type TeamListRow } from '../lib/teams-list'
 import { sanitizeHtml } from '../lib/sanitize'
 import { folderName } from '../lib/projects'
-import { useNarrowLayout } from '../lib/use-narrow-layout'
 import { elapsedSince, instant } from '../lib/clock'
 import { formatCountdownShort } from '../lib/usage'
-import { AppWindow, WindowNav, WindowNavItem, WindowPage } from './AppWindow'
+import { DestinationBar, useDestinationActive } from '../panels/destination-page'
 import { runtimeTint } from '../lib/accounts'
-import { AgentIcon, ChevronIcon, MoreIcon } from './Icons'
-import { Banner, Button, Chip, DisclosureChevron, Dot, EmptyState, GroupLabel, AvatarStack, ListRow, ListRows, Menu, MenuItem, Popover, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, PageHead, Text, useEscapeSurface } from '../design'
+import { AgentIcon, ChevronIcon, MoreIcon, ResetIcon, BlindIcon } from './Icons'
+import { Banner, Button, Chip, DisclosureChevron, Dot, EmptyState, AvatarStack, Menu, MenuItem, Popover, Page, PageRecords, Section, PageRecordViews, Text } from '../design'
 
 const words = (value: string): string => {
  const box=document.createElement('template'); box.innerHTML=sanitizeHtml(value)
@@ -38,8 +37,9 @@ const stateTime = (since: number | null, now: number): string => {
 /** Only the time cells follow the clock, once a minute: the column shows minutes at best. */
 const MinuteNow = createContext(0)
 const MinuteClock = ({children}: {children: ReactNode}) => {
+ const active=useDestinationActive()
  const [now,setNow]=useState(Date.now)
- useEffect(()=>{const timer=window.setInterval(()=>setNow(Date.now()),60_000);return()=>window.clearInterval(timer)},[])
+ useEffect(()=>{if(!active)return;setNow(Date.now());const timer=window.setInterval(()=>setNow(Date.now()),60_000);return()=>window.clearInterval(timer)},[active])
  return <MinuteNow.Provider value={now}>{children}</MinuteNow.Provider>
 }
 const StateTime = ({since}: {since: number | null}) => <>{stateTime(since,useContext(MinuteNow))}</>
@@ -47,6 +47,8 @@ const parts = <T,>(items: readonly T[], size: number): T[][] => Array.from({leng
 /** Successful reads stay read; refusals get two delayed retries during this opening. */
 const useReadOnce = (scope: string, read: (keys: readonly string[]) => Promise<readonly string[]>) => {
  const reads=useRef({pending:new Set<string>(),waiting:new Set<string>(),done:new Set<string>(),attempts:new Map<string,number>()})
+ const active=useDestinationActive()
+ const activeNow=useRef(active);activeNow.current=active
  const live=useRef(false)
  const timers=useRef(new Set<number>())
  const [retry,setRetry]=useState(0)
@@ -55,6 +57,7 @@ const useReadOnce = (scope: string, read: (keys: readonly string[]) => Promise<r
   return()=>{live.current=false;for(const timer of timers.current)window.clearTimeout(timer);timers.current.clear()}
  },[])
  useEffect(()=>{
+  if(!active){for(const timer of timers.current)window.clearTimeout(timer);timers.current.clear();reads.current.waiting.clear();return}
   const state=reads.current
   const keys=scope.split('\0').filter(key=>key && !state.pending.has(key) && !state.waiting.has(key) && !state.done.has(key) && (state.attempts.get(key)??0)<3)
   if(!keys.length)return
@@ -64,7 +67,7 @@ const useReadOnce = (scope: string, read: (keys: readonly string[]) => Promise<r
    for(const key of keys)state.pending.delete(key)
    for(const key of success)state.done.add(key)
    const failed=keys.filter(key=>!state.done.has(key) && state.attempts.get(key)!<3)
-   if(failed.length){
+   if(failed.length && activeNow.current){
     for(const key of failed)state.waiting.add(key)
     const timer=window.setTimeout(()=>{
      timers.current.delete(timer)
@@ -74,19 +77,19 @@ const useReadOnce = (scope: string, read: (keys: readonly string[]) => Promise<r
     timers.current.add(timer)
    }
   })
- },[scope,read,retry])
+ },[scope,read,retry,active])
 }
 const withCount = (label: string, count: number): string => `${label} · ${count}`
 const labels = {active:'Active','needs-you':'Needs you',settled:'Settled'} as const
 const stateLabels = {'needs-you':'Needs you',unread:'Unread',working:'Working',idle:'Idle',settled:'Settled',wrapped:'Wrapped',wrapping:'Wrapping',stopped:'Stopped'} as const
 
 /** Every Team on the desk; no per-project or runtime-specific reader. */
-export const TeamsWindow = ({onClose, initialFilter='active'}: {onClose:()=>void; initialFilter?:TeamFilter}) => {
- useEscapeSurface(true,onClose)
+interface TeamsPageProps { readonly filter: TeamFilter; readonly onFilter: (filter: TeamFilter) => void; readonly onNew: () => void }
+export const TeamsWindow = (props: TeamsPageProps) => <TeamsList {...props} />
+const TeamsList = ({filter,onFilter,onNew}: TeamsPageProps) => {
+ const active=useDestinationActive()
  const store=useStore(); const snapshot=useSnapshot()
- const [filter,setFilter]=useState<TeamFilter>(initialFilter)
  const [expanded,setExpanded]=useState(false)
- const {ref:pageBox,narrow}=useNarrowLayout<HTMLDivElement>(600)
  const [reports,setReports]=useState<ReadonlyMap<string,InsightReport>>(new Map())
  const [reading,setReading]=useState(false)
  const inputs=useMemo(()=>teamsInput(snapshot,reports),[snapshot,reports])
@@ -104,6 +107,7 @@ export const TeamsWindow = ({onClose, initialFilter='active'}: {onClose:()=>void
  const closed=[...snapshot.teams.values()].filter(team=>shownIds.has(team.id)).flatMap(team=>team.intents.filter(card=>card.state==='done').map(card=>`${team.id}:${card.id}`)).sort().join('\0')
  const running=[...snapshot.flowExecutions.values()].some(run=>run.state==='running')
  useEffect(()=>{
+  if(!active)return
   let live=true
   const ids=usageScope.split('\0').filter(Boolean)
   const read=async()=>{
@@ -123,7 +127,7 @@ export const TeamsWindow = ({onClose, initialFilter='active'}: {onClose:()=>void
   }
   void read(); const timer=running?window.setInterval(read,60_000):null
   return()=>{live=false;if(timer!==null)window.clearInterval(timer)}
- },[store,usageScope,closed,running])
+ },[store,usageScope,closed,running,active])
  // A Run and its review can move a Team into Needs you, so both are read for
  // every Team that is not wrapped. A wrapped Team's Run is read once its row
  // is shown, for its faces, and its review never: nothing on a wrapped row
@@ -148,7 +152,7 @@ export const TeamsWindow = ({onClose, initialFilter='active'}: {onClose:()=>void
  },[store])
  useReadOnce(reviewScope,readReviews)
  const open=(row:TeamListRow)=>{
-  store.markTeamSeen(row.id,row.change); void store.openTeamRoom(row.id,row.change); onClose()
+  store.markTeamSeen(row.id,row.change); void store.openTeamRoom(row.id,row.change)
  }
  const state=(row:TeamListRow)=>row.state==='needs-you'||row.state==='working'
   ? <Chip tone={row.state==='needs-you'?'warning':'info'}>{stateLabels[row.state]}</Chip>
@@ -158,46 +162,41 @@ export const TeamsWindow = ({onClose, initialFilter='active'}: {onClose:()=>void
   const runtime=marks.get(seat.seat)
   return {id:seat.seat,name:say(row).seats[index] ?? plain(seat.name),tint:runtime?runtimeTint(runtime.id,snapshot.accountsByRuntime,snapshot.accountPrefs):'blue',mark:runtime?<RuntimeMark runtime={runtime}/>:<AgentIcon/>}
  })}/>:undefined
- const menu=(row:TeamListRow)=>row.ready && <Popover label={<MoreIcon />} title="More" align="right" icons="none">{close=><Menu close={close}><MenuItem label={snapshot.teamsPrefs.hidden[row.id]===row.change?'Show in Active':'Hide'} onSelect={()=>{store.setTeamHidden(row.id,snapshot.teamsPrefs.hidden[row.id]!==row.change);close()}}/></Menu>}</Popover>
+ const menu=(row:TeamListRow)=>active && row.ready && <Popover label={<MoreIcon />} title="More" align="right" icons="all">{close=><Menu close={close}><MenuItem icon={snapshot.teamsPrefs.hidden[row.id]===row.change?<ResetIcon/>:<BlindIcon/>} label={snapshot.teamsPrefs.hidden[row.id]===row.change?'Show in Active':'Hide'} onSelect={()=>{store.setTeamHidden(row.id,snapshot.teamsPrefs.hidden[row.id]!==row.change);close()}}/></Menu>}</Popover>
  const cost=(row:TeamListRow)=>row.total.money===null?'—':`$${row.total.money.toFixed(2)}`
- const groups=(groups:readonly TeamListGroup[])=>{
- const showCost=groups.some(group=>group.rows.some(row=>row.total.money!==null))
- return narrow === null ? null : narrow ? <>{groups.map(group=><section key={group.project} aria-label={folderName(group.project)} data-team-project={group.project}>
-  <GroupLabel>{withCount(folderName(group.project),group.rows.length)}</GroupLabel>
-  <ListRows>{group.rows.map(row=><ListRow key={row.id} data-team-row={row.id} interactive className="relative isolate"
-   onClick={event=>{if(!event.currentTarget.contains(event.target as Node))return;if(!(event.target as Element).closest('button'))open(row)}}
-   lead={faces(row)} mark={row.unread?<Dot aria-label="Unread changes" tone="info"/>:false}
-   title={<Button stretched hoverFill={false} variant="row" size="content-min" bordered={false} aria-label={`Open ${say(row).sentence}`} onClick={()=>open(row)} className="block max-w-full"><Text as="span" className="block" role="subject" truncate>{say(row).sentence}</Text></Button>} subtitle={<span data-slot="team-detail">{[say(row).detail,instant(row.since)===null?null:<><StateTime since={row.since}/> in this state</>,row.total.turns===null?null:`${row.total.turns} turns`,cost(row)==='—'?null:cost(row)].filter(Boolean).map((part,index)=><Fragment key={index}>{index>0&&' · '}{part}</Fragment>)}</span>} wrapSubtitle
-   trail={<>{state(row)}{menu(row)}<ChevronIcon /></>} />)}</ListRows>
- </section>)}</> : <Table variant="framed" className="table-auto">
-  <TableHeader><TableRow><TableHead>Team</TableHead><TableHead className="w-[1%]">State</TableHead>
-   <TableHead numeric className="w-[1%]">Time</TableHead><TableHead numeric className="w-[1%]">Turns</TableHead>{showCost&&<TableHead numeric className="w-[1%]">Cost</TableHead>}<TableHead className="w-[1%]"><span className="sr-only">Actions</span></TableHead></TableRow></TableHeader>
-  <TableBody>{groups.map(group=><Fragment key={group.project}>
-   <TableRow data-team-project={group.project}><TableCell colSpan={showCost?6:5}><GroupLabel>{withCount(folderName(group.project),group.rows.length)}</GroupLabel></TableCell></TableRow>
-   {group.rows.map(row=><TableRow key={row.id} data-team-row={row.id} interactive className="relative isolate"
-    onClick={event=>{if(!event.currentTarget.contains(event.target as Node))return;if(!(event.target as Element).closest('button'))open(row)}}>
-    <TableCell className="max-w-0" lead={faces(row)}><div data-slot="team-identity" className="min-w-0 flex-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2">
-      <span className="inline-flex w-1.5 self-center">{row.unread&&<Dot aria-label="Unread changes" tone="info"/>}</span><Button stretched hoverFill={false} variant="row" size="content-min" bordered={false} aria-label={`Open ${say(row).sentence}`} onClick={()=>open(row)} className="block min-w-0 max-w-full"><Text as="span" className="block" role="subject" truncate title={say(row).sentence}>{say(row).sentence}</Text></Button>
-      {say(row).detail!==null&&<div data-slot="team-detail" title={say(row).detail!} className="col-start-2 whitespace-normal [overflow-wrap:anywhere]"><Text role="meta">{say(row).detail}</Text></div>}
-    </div></TableCell>
-    <TableCell>{state(row)}</TableCell><TableCell numeric><Text role="meta" numeric title={row.since===null?'Time in this state is unavailable':undefined}><StateTime since={row.since}/></Text></TableCell>
-    <TableCell numeric><Text role="meta" numeric title={row.total.turns===null?'Recorded turns are unavailable':undefined}>{row.total.turns??'—'}</Text></TableCell>{showCost&&<TableCell numeric><Text role="meta" numeric title={row.total.money===null?'Recorded usage is unavailable':'Recorded Team usage; money only from metered accounts with a known rate'}>{cost(row)}</Text></TableCell>}
-    <TableCell><span className="flex items-center gap-2">{menu(row)}<ChevronIcon /></span></TableCell>
-   </TableRow>)}
-  </Fragment>)}</TableBody>
- </Table>
+ const groups = (source: readonly TeamListGroup[]) => {
+   const showCost = source.some(group => group.rows.some(row => row.total.money !== null))
+   return <PageRecords label="Team" columns={[
+     { id: 'time', label: 'Time', numeric: true }, { id: 'turns', label: 'Turns', numeric: true },
+     ...(showCost ? [{ id: 'cost', label: 'Cost', numeric: true }] : []),
+   ]} groups={source.map(group => ({ id: group.project,
+     label: withCount(folderName(group.project), group.rows.length),
+     rows: group.rows.map(row => ({ id: row.id, title: say(row).sentence,
+       description: say(row).detail ?? undefined, lead: faces(row),
+       mark: row.unread ? <Dot aria-label="Unread changes" tone="info" /> : undefined,
+       state: state(row), actions: <>{menu(row)}<ChevronIcon /></>, open: () => open(row),
+       values: {
+         time: <Text role="meta" numeric title={row.since === null ? 'Time in this state is unavailable' : undefined}><StateTime since={row.since}/></Text>,
+         turns: <Text role="meta" numeric title={row.total.turns === null ? 'Recorded turns are unavailable' : undefined}>{row.total.turns ?? '—'}</Text>,
+         cost: <Text role="meta" numeric title={row.total.money === null ? 'Recorded usage is unavailable' : 'Recorded Team usage; money only from metered accounts with a known rate'}>{cost(row)}</Text>,
+       },
+       compact: [say(row).detail, instant(row.since) === null ? null : <><StateTime since={row.since}/> in this state</>,
+         row.total.turns === null ? null : `${row.total.turns} turns`, cost(row) === '—' ? null : cost(row)]
+         .filter(Boolean).map((part,index) => <Fragment key={index}>{index > 0 && ' · '}{part}</Fragment>),
+     })),
+   }))} />
  }
- return <MinuteClock><AppWindow owner="teams" onClose={onClose} label="Teams" responsive>
-  <WindowNav onBack={onClose}>{(['active','needs-you','settled'] as const).map(value=><WindowNavItem key={value} icon={undefined} label={labels[value]} count={list.counts[value]} selected={filter===value} onClick={()=>setFilter(value)}/>)}</WindowNav>
-  <WindowPage><div ref={pageBox} data-slot="teams-page" data-layout={narrow===null?"unmeasured":narrow?"narrow":"table"} className="min-w-0 flex flex-col gap-4">
-   <PageHead title="Teams"/>
-   {snapshot.goalProblem && <Banner tone="warning" title="Teams could not be refreshed">{words(snapshot.goalProblem)}</Banner>}
-   {reading && <Text role="meta">Reading recorded usage…</Text>}
-   {list[filter].length?groups(list[filter]):<EmptyState title={filter==='active'?'No active Teams':filter==='needs-you'?'No Teams need you':'No settled Teams'}/>}
-   {filter==='active' && list.ready.length>0 && <section aria-label="Ready to wrap">
-    <Button variant="quiet" size="content" aria-expanded={expanded} onClick={()=>setExpanded(!expanded)}><DisclosureChevron open={expanded}/>Ready to wrap · {list.ready.reduce((count,group)=>count+group.rows.length,0)}</Button>
-    {expanded && groups(list.ready)}
-   </section>}
-  </div></WindowPage>
- </AppWindow></MinuteClock>
+ return <MinuteClock><Page width="wide">
+  <DestinationBar place="Teams" verb={{label:'New Team',run:onNew,disabled:snapshot.workspace?false:'Open a project folder first.'}}/>
+  <PageRecordViews label="Teams views" value={filter} change={onFilter} choices={(['active','needs-you','settled'] as const).map(value=>({value,label:labels[value],count:list.counts[value]}))}/>
+  {snapshot.goalProblem && <Banner tone="warning" title="Teams could not be refreshed">{words(snapshot.goalProblem)}</Banner>}
+  {reading && <Text role="meta">Reading recorded usage…</Text>}
+  {list[filter].length?groups(list[filter]):<EmptyState title={filter==='active'?'No active Teams':filter==='needs-you'?'No Teams need you':'No settled Teams'}/>}
+  {filter==='active' && list.ready.length>0 && <Section title="Ready to wrap" action={
+   <Button variant="outline" size="sm" aria-expanded={expanded} onClick={()=>setExpanded(!expanded)}>
+    <DisclosureChevron open={expanded}/>Ready to wrap · {list.ready.reduce((count,group)=>count+group.rows.length,0)}
+   </Button>}>
+   {expanded && groups(list.ready)}
+  </Section>}
+ </Page></MinuteClock>
 }

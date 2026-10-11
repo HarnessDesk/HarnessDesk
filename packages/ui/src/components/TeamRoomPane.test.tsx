@@ -1936,7 +1936,7 @@ it('names the room once, on a row that is also the window’s handle', async () 
 })
 
 /**
- * A Goal or room page used to stack two headers: a `DetailHead` naming the
+ * A Goal or room page used to stack two headers: a `subject heading` naming the
  * Goal, its state and its full folder — the folder run across two visible
  * lines — directly over this row naming the room again with its own facts.
  * Redesigned into the one row above: this pins that the page now renders
@@ -2920,7 +2920,7 @@ it('says spend is unknown, with an unfilled ring, when the host cannot read it',
 })
 
 /**
- * The removed `DetailHead` used to show `goal.cwd` directly; folded into one
+ * The removed `subject heading` used to show `goal.cwd` directly; folded into one
  * header row, that fact had nowhere left until a review of #905 asked for it
  * back — an own checkout or a subfolder is a different folder than the
  * project's own root, and a person working in one needs to be able to tell.

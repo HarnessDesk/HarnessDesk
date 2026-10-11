@@ -7,7 +7,7 @@ import { NO_CAPABILITIES, runtimeId } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { Usage } from './Usage'
+import { DashboardTestPage as Usage } from '../test-support/dashboard-page'
 
 /**
  * The Dashboard's "has nothing to report" callout (#986).
@@ -71,7 +71,7 @@ const render = async (accountsByRuntime: AppSnapshot['accountsByRuntime']): Prom
     root.render(
       <StoreProvider store={storeWith(accountsByRuntime)}>
         {/* The full "has nothing to report" callout lives on Plans now — Overview only counts it. */}
-        <Usage view="plans" onClose={() => {}} onSignIn={() => {}} />
+        <Usage view="plans" onSignIn={() => {}} />
       </StoreProvider>,
     ),
   )

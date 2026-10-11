@@ -1,96 +1,71 @@
-import { settingsGroups, filterSettingsGroups } from './settings-navigation'
-import { sidebarPlacement } from '../state/workbench'
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import type { SettingsRoute, SettingsSection } from '../state/destinations'
+import { DestinationBar, useDestinationPage, useDestinationActive } from '../panels/destination-page'
+import { handOverToComposer } from '../lib/compose'
+import { Page, PageExplanation, PreservedText, PageControls } from '../design'
+
+import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type {
   ConfigOption,
-  OptionValue,
-  RateLimits,
-  RuntimeHealth,
   RuntimeId,
-  RuntimeInfo,
   SkillInfo,
-  UsageWindow,
   Worktree,
 } from '@harnessdesk/protocol'
 
 import { withCount } from '../lib/with-count'
 import { desktop, hasInlineBrowser } from '../lib/desktop'
 import { useRuntime, useSnapshot, useStore } from '../state/context'
-import { Slot } from '../slots/registry'
+
+
 import {
-  AppWindow,
-  WindowNav,
-  WindowNavEmpty,
-  WindowNavStateMark,
-  WindowPage,
-} from './AppWindow'
-import { dismissOverlays, useEscapeSurface, LeftColumnGroup, LeftColumnRow } from '../design'
-import {
-  ServerIcon,
-  ArchiveIcon,
-  BellIcon,
+  ArrowLeftIcon,
   BranchIcon,
-  CheckIcon,
-  CrossIcon,
   DownloadIcon,
-  ExtensionIcon,
   FolderIcon,
-  GlobeIcon,
   HookIcon,
-  KeyboardIcon,
   KeyIcon,
-  LibraryIcon,
-  ModelIcon,
   RetryIcon,
-  SearchIcon,
-  PluginIcon,
   PlusIcon,
   PresetIcon,
   RouteIcon,
   ShieldIcon,
-  SignInIcon,
-  SignOutIcon,
-  SlidersIcon,
   SparkIcon,
-  ThemeSystemIcon,
-  UserIcon,
 } from './Icons'
-import { humanizeLabel } from '../lib/identity'
+
 import { brandForRuntime } from '../lib/brands'
 import { ModelMark, RuntimeMark } from './BrandIcons'
-import { describeLimits, formatReset } from '../lib/limits'
+
 import { agentGroups } from '../lib/accounts'
 import { exportedSentence, restoredSentence } from '../lib/backup-words'
-import { describeUpdate, describeVersion } from '../lib/versions'
+
 import { summarise } from '../lib/options'
 import { presetsFor, snapshotValues, type AgentPreset } from '../state/presets'
 import { HistorySection } from './History'
 import { ArchiveSection } from './Archive'
 import { StorageSection } from './Storage'
 import { LibrarySection } from './Library'
-import { RuntimesSection } from './SettingsAgents'
-import { PluginsSection } from './PluginsSection'
+import { RuntimesSection, type RuntimeSettingsView } from './SettingsAgents'
+
 import { ExtensionsSection } from './Extensions'
 import { CeilingsSection } from './SettingsCeilings'
 import { QuestionWaitSection } from './SettingsQuestionWait'
 import { ClientAnswersSection } from './SettingsClientAnswers'
 import { RemoveWorktree } from './RemoveWorktree'
 import {
-  BackLink,
+  Dot,
+  LeftColumnGroup,
+  LeftColumnHead,
+  LeftColumnRow,
+  type LeftColumnTrail,
   Button,
   Chip,
   CodeText,
-  DetailMark,
-  DetailHead,
-  Dot,
   Field,
   FormStack,
   Input,
   IconTile,
   FileButton,
   Note,
-  PageHead,
   SettingsRowMenu,
   Row,
   RowButton,
@@ -113,7 +88,8 @@ import { NewSessionDefaults } from './SettingsAgents'
 import { ProjectPage } from './ProjectPage'
 import { LaneSettings } from './LaneSettings'
 import { TriggerSettings } from './TriggerSettings'
-import styles from './Settings.module.css'
+import { moveSettingsNavigationFocus } from './settings-navigation-focus'
+import { filterSettingsGroups, settingsGroups } from './settings-navigation'
 
 /**
  * Settings.
@@ -275,11 +251,14 @@ const AddRouteDialog = ({ onClose }: { onClose: () => void }) => {
 
 /** The endpoints, as a section of the Models page. */
 const RoutesRows = () => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const snapshot = useSnapshot()
   const runtime = useRuntime()
   const [adding, setAdding] = useState(false)
   const [removing, setRemoving] = useState<RouteInfo | null>(null)
+  useEffect(() => { if (!destinationActive) { setAdding(false); setRemoving(null) } }, [destinationActive])
 
   return (
     <>
@@ -300,13 +279,13 @@ const RoutesRows = () => {
           <Row
             key={route.id}
             kind="record"
-            className={route.usable === false ? styles.rowUnusable : undefined}
+
             mark={<RouteIcon size={15} />}
             title={
               <>
                 <span data-slot="endpoint-name">{route.name}</span>
                 {route.usable === false && (
-                  <Chip tone="neutral" size="sm" className={styles.inlineBadge}>
+                  <Chip tone="neutral" size="sm" >
                     Not available
                   </Chip>
                 )}
@@ -315,7 +294,7 @@ const RoutesRows = () => {
             desc={<>
               {route.endpoint}{route.model ? ` · ${route.model}` : ''}
               {route.usable === false && route.reason && (
-                <Text as="span" role="muted" ink="muted" className="block whitespace-normal">
+                <Text as="p" role="muted" ink="muted">
                   Not available with {runtime.presentation.name}: {route.reason}{/[.!?]$/.test(route.reason) ? '' : '.'}
                 </Text>
               )}
@@ -326,8 +305,8 @@ const RoutesRows = () => {
           />
         ))}
       </Rows>
-      {adding && <AddRouteDialog onClose={() => setAdding(false)} />}
-      {removing && (
+      {destinationActive && adding && <AddRouteDialog onClose={() => setAdding(false)} />}
+      {destinationActive && removing && (
         <ConfirmDialog
           title={`Remove ${removing.name}?`}
           confirmLabel="Remove endpoint"
@@ -374,6 +353,8 @@ const RoutesRows = () => {
  * of #244).
  */
 const KeysRows = () => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const snapshot = useSnapshot()
   const [keys, setKeys] = useState<readonly StoredCredential[] | null>(null)
@@ -391,7 +372,7 @@ const KeysRows = () => {
 
   // Re-read when the endpoints change: adding one stores a key and removing
   // one may drop it, and both happen on the section directly above this.
-  useEffect(() => reload(), [reload, snapshot.routes])
+  useEffect(() => { if (destinationActive) reload() }, [destinationActive, reload, snapshot.routes])
 
   /* The endpoints' own keys, which the host marks as such. An agent's key and
      a gateway account's are different things with different verbs, each with
@@ -413,6 +394,7 @@ const KeysRows = () => {
     }
     return by
   }, [snapshot.routes])
+  useEffect(() => { if (!destinationActive) { setRemoving(null) } }, [destinationActive])
 
   if (keys === null || routeKeys.length === 0) return null
 
@@ -440,7 +422,7 @@ const KeysRows = () => {
           )
         })}
       </Rows>
-      {removing && (
+      {destinationActive && removing && (
         <ConfirmDialog
           title={`Forget ${removing.name}?`}
           confirmLabel="Forget key"
@@ -621,6 +603,8 @@ const isAccessOption = (option: ConfigOption): boolean =>
  * rules that answer for you come second, and are written in a dialog.
  */
 const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }) => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const snapshot = useSnapshot()
   const [rules, setRules] = useState<readonly PolicyRule[] | null>(null)
@@ -629,8 +613,12 @@ const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }
   const [saveError, setSaveError] = useState<string | null>(null)
 
   useEffect(() => {
-    void store.loadPolicyRules().then(setRules)
-  }, [store])
+    if (!destinationActive) return
+
+    let live = true
+    void store.loadPolicyRules().then(value => { if (live) setRules(value) })
+    return () => { live = false }
+  }, [destinationActive, store])
 
   /*
    * Optimistic, and honest about it: the list shows the new rules at once,
@@ -654,13 +642,11 @@ const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }
   }
 
   const groups = agentGroups(snapshot.runtimes)
+  useEffect(() => { if (!destinationActive) { setAdding(false); setRemoving(null) } }, [destinationActive])
 
   return (
     <>
-      <PageHead
-        title="Permissions"
-        blurb="Ceilings set the most a seat may do. Approvals ask you about an action; rules answer recurring permission requests."
-      />
+      <PageExplanation>Ceilings set the most a seat may do. Approvals ask you about an action; rules answer recurring permission requests.</PageExplanation>
 
       <CeilingsSection focus={focus} />
 
@@ -721,10 +707,10 @@ const PermissionsSection = ({ focus = null }: { readonly focus?: string | null }
           )}
         </Rows>
       </Section>
-      {adding && (
+      {destinationActive && adding && (
         <AddRuleDialog onAdd={(rule) => save([...(rules ?? []), rule])} onClose={() => setAdding(false)} />
       )}
-      {removing && (
+      {destinationActive && removing && (
         <ConfirmDialog
           title={`Remove “${removing.name}”?`}
           confirmLabel="Remove rule"
@@ -821,6 +807,8 @@ const SavePresetDialog = ({
  * session to snapshot or a preset to apply — and not before.
  */
 const PresetsRows = () => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const snapshot = useSnapshot()
   const [saving, setSaving] = useState(false)
@@ -832,6 +820,7 @@ const PresetsRows = () => {
   const options = session?.options
   const presets = presetsFor(snapshot.activeRuntime, snapshot.customPresets)
   const elsewhere = snapshot.customPresets.length - presets.length
+  useEffect(() => { if (!destinationActive) { setSaving(false); setRemoving(null) } }, [destinationActive])
 
   if (presets.length === 0 && !options) return null
 
@@ -874,8 +863,8 @@ const PresetsRows = () => {
           {elsewhere} more saved for other agents; they appear when one of them is selected.
         </Note>
       )}
-      {saving && options && <SavePresetDialog options={options} onClose={() => setSaving(false)} />}
-      {removing && (
+      {destinationActive && saving && options && <SavePresetDialog options={options} onClose={() => setSaving(false)} />}
+      {destinationActive && removing && (
         <ConfirmDialog
           title={`Remove ${removing.name}?`}
           confirmLabel="Remove preset"
@@ -924,10 +913,7 @@ const ModelsSection = () => {
 
   return (
     <>
-      <PageHead
-        title="Models"
-        blurb={`Which of ${runtime.presentation.name}’s models the composer offers.`}
-      />
+      <PageExplanation>{`Which of ${runtime.presentation.name}’s models the composer offers.`}</PageExplanation>
 
       <SectionHead
         name={withCount('Models', total)}
@@ -964,12 +950,7 @@ const ModelsSection = () => {
 
       {/* A handful of models is a list you read; a hundred is one you search. */}
       {total > 8 && (
-        <Search
-          className={styles.pageSearch}
-          value={query}
-          placeholder="Search models"
-          onChange={setQuery}
-        />
+        <PageControls search={{label:"Search models",placeholder:"Search models",value:query,change:setQuery}}/>
       )}
 
       <Rows>
@@ -997,8 +978,8 @@ const ModelsSection = () => {
             // No badge, no chip slot: an empty one still takes its gap from the title.
             titleChip={model.isDefault || model.thinking ? (
               <>
-                {model.isDefault && <Chip tone="neutral" size="sm" className={styles.inlineBadge}>Default</Chip>}
-                {model.thinking && <Chip tone="neutral" size="sm" className={styles.inlineBadge}>{model.thinking === 'always' ? 'Always thinks' : 'Thinking'}</Chip>}
+                {model.isDefault && <Chip tone="neutral" size="sm" >Default</Chip>}
+                {model.thinking && <Chip tone="neutral" size="sm" >{model.thinking === 'always' ? 'Always thinks' : 'Thinking'}</Chip>}
               </>
             ) : undefined}
             desc={[
@@ -1033,15 +1014,21 @@ const ModelsSection = () => {
  * one is flagged rather than hidden.
  */
 const HooksList = () => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const runtime = useRuntime()
   const snapshot = useSnapshot()
   const [hooks, setHooks] = useState<import('@harnessdesk/protocol').HookInfo[] | null>(null)
 
   useEffect(() => {
+    if (!destinationActive) return
+
     if (!runtime.capabilities.hooks) return
-    void store.loadHooks().then(setHooks)
-  }, [store, runtime.capabilities.hooks, snapshot.workspace?.path])
+    let live = true
+    void store.loadHooks().then(value => { if (live) setHooks(value) })
+    return () => { live = false }
+  }, [destinationActive, store, runtime.capabilities.hooks, snapshot.workspace?.path])
 
   if (!runtime.capabilities.hooks || !hooks || hooks.length === 0) return null
   return (
@@ -1154,25 +1141,20 @@ const SkillPage = ({
 }) => {
   const runtime = useRuntime()
   const scope = skillScopeLabel(skill.scope)
+  const store=useStore()
   return (
     <>
-      <BackLink to={listLabel} onClick={onBack} />
-      <DetailHead
-        mark={
-          <DetailMark>
-            <SkillMark skill={skill} tile="sm" glyphSize={22} />
-          </DetailMark>
-        }
-        name={skillTitle(skill)}
-        owner={`${runtime.presentation.name}${scope ? ` · ${scope}` : ''}`}
-        {...(skill.shortDescription ? { blurb: skill.shortDescription } : {})}
-        actions={<SkillToggle skill={skill} />}
-      />
+      <DestinationBar place={skillTitle(skill)} mark={<SkillMark skill={skill} tile="sm" glyphSize={16}/>}
+        parents={[{label:'Settings',run:()=>store.askSettings('general')},{label:listLabel,run:onBack}]}
+        verb={{label:'Use in composer',run:()=>{onUse();void handOverToComposer({text:`@${skill.name} `})}}}/>
+      <PageExplanation>{`${runtime.presentation.name}${scope?` · ${scope}`:''}`}</PageExplanation>
+      {skill.shortDescription && <PageExplanation>{skill.shortDescription}</PageExplanation>}
+      <Rows><Row title={skillTitle(skill)} control={<SkillToggle skill={skill}/>}/></Rows>
 
       {skill.description && skill.description !== skill.shortDescription && (
         <>
           <SectionHead name="What it does" />
-          <Text as="p" role="muted" className={styles.skillBody}>{skill.description}</Text>
+          <PreservedText value={skill.description}/>
         </>
       )}
 
@@ -1187,28 +1169,16 @@ const SkillPage = ({
         )}
       </Rows>
 
-      <div className={styles.skillActions}>
-        <Button
-          variant="default"
-          onClick={() => {
-            window.dispatchEvent(
-              new CustomEvent('harnessdesk:compose', { detail: `@${skill.name} ` }),
-            )
-            onUse()
-          }}
-        >
-          Use in composer
-        </Button>
-      </div>
     </>
   )
 }
 
-export const SkillsSection = ({ onUse }: { onUse: () => void }) => {
+export const SkillsSection = ({name,onSkill,onUse}: {readonly name:string|null;readonly onSkill:(name:string|null)=>void;readonly onUse:()=>void}) => {
+  const store=useStore()
   const snapshot = useSnapshot()
   const runtime = useRuntime()
   const [query, setQuery] = useState('')
-  const [openName, setOpenName] = useState<string | null>(null)
+  const openName=name,setOpenName=onSkill
   const label = runtime.presentation.skillsLabel ?? 'Skills'
   const hasFaces = snapshot.skills.some(skill => skill.iconUrl || skill.brandColor)
 
@@ -1240,14 +1210,12 @@ export const SkillsSection = ({ onUse }: { onUse: () => void }) => {
 
   return (
     <>
-      <PageHead
-        title={label}
-        blurb={
+      <DestinationBar place={label} parents={[{label:"Settings",run:()=>store.askSettings("general")}]}/>
+<PageExplanation>{
           declared
             ? `What ${runtime.presentation.name} can be asked to run: its skills and its own commands.`
             : `Instruction bundles ${runtime.presentation.name} found for this project. Mention one with @, or let the agent choose.`
-        }
-      />
+        }</PageExplanation>
 
       {snapshot.skills.length === 0 ? (
         <Rows>
@@ -1262,12 +1230,7 @@ export const SkillsSection = ({ onUse }: { onUse: () => void }) => {
         </Rows>
       ) : (
         <>
-          <Search
-            className={styles.pageSearch}
-            value={query}
-            placeholder={`Search ${label.toLowerCase()}`}
-            onChange={setQuery}
-          />
+          <PageControls search={{label:`Search ${label.toLowerCase()}`,placeholder:`Search ${label.toLowerCase()}`,value:query,change:setQuery}}/>
           <Rows>
             {skills.length === 0 && <EmptyState variant="row" title="Nothing matches" />}
             {skills.map((skill) => {
@@ -1279,12 +1242,12 @@ export const SkillsSection = ({ onUse }: { onUse: () => void }) => {
                   onClick={() => setOpenName(skill.name)}
                   mark={hasFaces ? <SkillMark skill={skill} tile="default" glyphSize={15} /> : undefined}
                   title={skillTitle(skill)}
-                  desc={<span className={styles.skillDesc}>{skill.shortDescription ?? skill.description}</span>}
+                  desc={<Text role="prose">{skill.shortDescription ?? skill.description}</Text>}
                   control={
                     <>
-                      <span className="w-16 text-right">{scope && <RowValue>{scope}</RowValue>}</span>
+                      <RowValue>{scope}</RowValue>
                       {skill.toggleable === false
-                        ? <span className="inline-flex w-(--hd-toggle-width) justify-center" />
+                        ? null
                         : <SkillToggle skill={skill} />}
                     </>
                   }
@@ -1302,7 +1265,6 @@ export const SkillsSection = ({ onUse }: { onUse: () => void }) => {
     </>
   )
 }
-
 
 /**
  * Where an agent's pages open, and in which browser.
@@ -1331,6 +1293,8 @@ const PLACEMENTS = [
 ] as const
 
 const BrowserSection = () => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const snapshot = useSnapshot()
   const prefs = snapshot.browserPrefs
@@ -1338,12 +1302,16 @@ const BrowserSection = () => {
   const [clearing, setClearing] = useState(false)
 
   useEffect(() => {
-    void store.listBrowsers().then(setFound)
-  }, [store])
+    if (!destinationActive) return
+
+    let live = true
+    void store.listBrowsers().then(value => { if (live) setFound(value) })
+    return () => { live = false }
+  }, [destinationActive, store])
 
   return (
     <>
-      <PageHead title="Browser" blurb="Where the pages agents open appear, and what those pages may keep." />
+      <PageExplanation>Where the pages agents open appear, and what those pages may keep.</PageExplanation>
 
       <SectionHead name="Pages open" />
       <Rows role="radiogroup" aria-label="Pages open">
@@ -1383,7 +1351,7 @@ const BrowserSection = () => {
               desc="Chrome, Chromium, Brave or Edge. Safari and Firefox cannot be driven."
               control={
                 <Input
-                  className={styles.pathField}
+                  measure="path"
                   value={
                     found.some((browser) => browser.path === prefs.externalBinary)
                       ? ''
@@ -1481,25 +1449,14 @@ const BrowserSection = () => {
  * goes straight there. Open and Forget are on the page: a row that opens
  * something cannot also hold buttons.
  */
-export const WorkspacesSection = ({ focus = null }: { readonly focus?: string | null }) => {
+export const WorkspacesSection = ({focus=null,project,onProject}: {readonly focus?:string|null;readonly project:string|null;readonly onProject:(root:string|null)=>void}) => {
   const snapshot = useSnapshot()
-  // 'triggers' is not a workspace path — it asks this list page to scroll to
-  // its own machine-wide "Triggers on this Mac", never to open a project by
-  // that literal name.
-  const [open, setOpen] = useState<string | null>(focus === 'triggers' ? null : focus)
-  useEffect(() => {
-    if (focus === 'triggers') setOpen(null)
-    else if (focus) setOpen(focus)
-  }, [focus])
-
+  const open=project,setOpen=onProject
   if (open) return <ProjectPage key={open} root={open} onBack={() => setOpen(null)} />
 
   return (
     <>
-      <PageHead
-        title="Workspaces"
-        blurb="Every folder HarnessDesk has opened, and each project’s own page. Forgetting one touches nothing on disk."
-      />
+      <PageExplanation>Every folder HarnessDesk has opened, and each project’s own page. Forgetting one touches nothing on disk.</PageExplanation>
 
       <SectionHead name={withCount('Folders', snapshot.workspaces.length)} />
       <Rows>
@@ -1660,14 +1617,19 @@ const DiagnosticsButton = () => {
  * clean them up. Nothing renders when there are none.
  */
 const WorktreeRows = () => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const snapshot = useSnapshot()
   const [removing, setRemoving] = useState<Worktree | null>(null)
   const managed = snapshot.worktrees.filter((entry) => entry.managed)
+  useEffect(() => { if (!destinationActive) { setRemoving(null) } }, [destinationActive])
 
   useEffect(() => {
+    if (!destinationActive) return
+
     void store.loadWorktrees()
-  }, [store, snapshot.workspace?.path])
+  }, [destinationActive, store, snapshot.workspace?.path])
 
   if (managed.length === 0) return null
   return (
@@ -1691,7 +1653,7 @@ const WorktreeRows = () => {
           />
         ))}
       </Rows>
-      {removing && <RemoveWorktree worktree={removing} onClose={() => setRemoving(null)} />}
+      {destinationActive && removing && <RemoveWorktree worktree={removing} onClose={() => setRemoving(null)} />}
     </>
   )
 }
@@ -1700,7 +1662,7 @@ const WorktreeRows = () => {
  * Settings is a window, not a sheet.
  *
  * It takes the whole frame: the window's own traffic lights sit at the top of
- * its nav, "Back to app" is where a sidebar's first row would be, and there is
+ * its nav, the Back row is where a sidebar's first row would be, and there is
  * no dimmed backdrop, because this is somewhere you come to read rather than
  * a question to dismiss. The nav groups the pages by what a person is
  * thinking about — themselves, the work they have put away, the agents, what
@@ -1724,121 +1686,78 @@ const WorktreeRows = () => {
  * the props that belong with it — `libraryImport` is set beside the section
  * and read by `LibrarySection` on its own first render.
  */
-export const Settings = ({
-  section = 'runtimes',
-  focus = null,
-  libraryImport = false,
-  onSection,
-  onClose,
-  onSignIn,
-  leftColumn,
-}: {
-  leftColumn?: ReactNode
-  /** The page on show. Owned by the caller, so any route can redirect it. */
-  section?: Section
-  /** The thing inside the page to open — handed down once, as it arrives. */
-  focus?: string | null
-  /** Open the Library with its import flow already up — the banner's route in. */
-  libraryImport?: boolean
-  /** The nav rail's clicks, and the redirect off a page an agent has lost. */
-  onSection: (section: Section, focus?: string) => void
-  onClose: () => void
-  /** Opens the sign-in page on one agent — the flows that need a field live there. */
-  onSignIn: (runtime: RuntimeId) => void
+const SETTINGS_LABELS = {
+  profile: 'Profile', general: 'General', appearance: 'Appearance', notifications: 'Notifications', shortcuts: 'Keyboard shortcuts',
+  workspaces: 'Workspaces', archive: 'Archive', history: 'History', storage: 'Storage', runtimes: 'Runtimes', models: 'Models',
+  skills: 'Skills', extensions: 'Extensions', permissions: 'Permissions', browser: 'Browser',
+} as const
+export const Settings = ({ route, onRoute, onSignIn }: {
+  readonly route: SettingsRoute; readonly onRoute: (route: SettingsRoute) => void; readonly onSignIn: (runtime: RuntimeId) => void
 }) => {
-  const runtime = useRuntime()
-  const snapshot = useSnapshot()
-  const [query, setQuery] = useState('')
+  const destinationActive = useDestinationActive()
 
-  // A menu left open behind this would paint over it — floating panels
-  // outrank the modal layer, because one opened *inside* a dialog has to.
-  // Announcing the window closes them.
-  useEffect(dismissOverlays, [])
-
-  /*
-   * Escape closes the window — unless something inside it answered first.
-   *
-   * It used to be a `document` listener registered when the window mounted, so
-   * it ran *ahead* of the listener a menu opened inside the window adds later,
-   * and one press closed the menu and the window both (#206). On the shared
-   * stack the window is the surface on top only until a menu opens over it, and
-   * the key is still marked spent, so a sidebar floating under the window and
-   * an approval waiting in the pane behind it both stand aside.
-   */
-  const store = useStore()
-  useEscapeSurface(true, () => {
-    if (leftColumn && sidebarPlacement(snapshot) === 'floating') { store.closeFloatingSidebar(); return }
-    onClose()
-  })
-
+  const store = useStore(), runtime = useRuntime(), snapshot = useSnapshot()
+  const { active } = useDestinationPage()
+  const section: SettingsSection = route.kind === 'section' ? route.section : route.kind === 'project' ? 'workspaces' : route.kind === 'skill' ? 'skills' : 'runtimes'
+  const focus = route.kind === 'section' ? route.focus : null
+  const sectionRoute = (next: SettingsSection, nextFocus: string | null = null): void => onRoute({ kind: 'section', section: next, focus: nextFocus })
   const hasExtensions = runtime.capabilities.extensionStore || runtime.capabilities.mcp
-
-  // Extensions is the one page that belongs to the agent rather than to the
-  // app, so switching to an agent without one can pull it out from under you.
-  // Before this, the nav item vanished and the page stayed selected: a blank
-  // panel with nothing highlighted and no way to tell what had happened.
   useEffect(() => {
-    if (section === 'extensions' && !hasExtensions) onSection('runtimes')
-  }, [section, hasExtensions, onSection])
+    if (!destinationActive) return
+ if (active && section === 'extensions' && !hasExtensions) sectionRoute('runtimes') }, [destinationActive, active, section, hasExtensions])
+  const runtimeView: RuntimeSettingsView = route.kind === 'runtime' ? { kind: 'agent', runtime: route.runtime }
+    : route.kind === 'account' ? { kind: 'account', runtime: route.runtime, key: route.key }
+    : route.kind === 'add-runtime' ? { kind: 'add' } : { kind: 'list' }
+  const setRuntimeView = (view: RuntimeSettingsView): void => {
+    if (view.kind === 'list') sectionRoute('runtimes')
+    else if (view.kind === 'add') onRoute({ kind: 'add-runtime' })
+    else if (view.kind === 'agent') onRoute({ kind: 'runtime', runtime: view.runtime })
+    else onRoute({ kind: 'account', runtime: view.runtime, key: view.key })
+  }
+  return <Page width="reading">
+    {route.kind === 'section' && section !== 'runtimes' && section !== 'skills' && <DestinationBar place={SETTINGS_LABELS[section]}
+      more={() => null} />}
+    {section === 'profile' && <ProfileSection />}
+    {section === 'general' && <GeneralSection rows={<GeneralSectionRows />} />}
+    {section === 'appearance' && <AppearanceSection />}
+    {section === 'notifications' && <NotificationsSection />}
+    {section === 'shortcuts' && <ShortcutsSection />}
+    {section === 'workspaces' && <WorkspacesSection focus={focus} project={route.kind === 'project' ? route.root : null}
+      onProject={root => root ? onRoute({ kind: 'project', root }) : sectionRoute('workspaces')} />}
+    {section === 'archive' && <ArchiveSection />}
+    {section === 'storage' && <StorageSection />}
+    {section === 'history' && <HistorySection focus={focus} onOpen={() => store.returnToWork()}
+      onOpenAgent={id => onRoute({ kind: 'runtime', runtime: id as RuntimeId })} />}
+    {section === 'runtimes' && <RuntimesSection onSignIn={onSignIn} view={runtimeView} onView={setRuntimeView}
+      onBrowseHistory={id => sectionRoute('history', id)} />}
+    {section === 'models' && <ModelsSection />}
+    {section === 'extensions' && hasExtensions && <ExtensionsSection />}
+    {section === 'skills' && <SkillsSection name={route.kind === 'skill' ? route.name : null}
+      onSkill={name => name ? onRoute({ kind: 'skill', name }) : sectionRoute('skills')} onUse={() => store.returnToWork()} />}
+    {section === 'permissions' && <PermissionsSection focus={focus} />}
+    {section === 'browser' && <BrowserSection />}
+  </Page>
+}
 
-  const filtered = filterSettingsGroups(settingsGroups(snapshot, runtime), query)
-
-  return (
-    <AppWindow owner="settings" onClose={onClose} onBack={() => onSection('general')} label="Settings" leftColumn={leftColumn}
-      closeOnLeftNavigation={leftColumn !== undefined && (section === 'library' || section === 'plugins')}>
-      {leftColumn === undefined && <WindowNav
-        onBack={onClose}
-        search={{
-          value: query,
-          placeholder: 'Search settings…',
-          label: 'Search settings',
-          onChange: setQuery,
-        }}
-      >
-        {filtered.map((group) => (
-          <LeftColumnGroup key={group.label} label={group.label}>
-            {group.entries.map((entry) => (
-              <LeftColumnRow
-                key={entry.id}
-                icon={entry.icon}
-                label={entry.label}
-                selected={section === entry.id}
-                onClick={() => onSection(entry.id)}
-                title={entry.title ?? entry.label}
-                trailing={entry.state
-                  ? { kind: 'mark', label: `${entry.label} · ${entry.state}`,
-                    icon: <WindowNavStateMark><Dot state={entry.state!} /></WindowNavStateMark> }
-                  : entry.count !== undefined ? { kind: 'count', value: entry.count, label: `${entry.count} ${entry.label}` } : undefined}
-              />
-            ))}
-          </LeftColumnGroup>
-        ))}
-        {filtered.length === 0 && (
-          <WindowNavEmpty>Nothing in settings matches “{query.trim()}”.</WindowNavEmpty>
-        )}
-      </WindowNav>}
-
-      {/* Every Settings page shares one measure. Library descriptions wrap;
-          State and Loaded by keep the space their contents need. */}
-      <WindowPage key={section}>
-            {section === 'profile' && <ProfileSection />}
-            {section === 'general' && <GeneralSection rows={<GeneralSectionRows />} />}
-            {section === 'appearance' && <AppearanceSection />}
-            {section === 'notifications' && <NotificationsSection />}
-            {section === 'shortcuts' && <ShortcutsSection />}
-            {section === 'workspaces' && <WorkspacesSection focus={focus} />}
-            {section === 'archive' && <ArchiveSection />}
-            {section === 'storage' && <StorageSection />}
-            {section === 'history' && <HistorySection focus={focus} onOpen={onClose} onOpenAgent={id => onSection('runtimes', id)} />}
-            {section === 'runtimes' && <RuntimesSection onSignIn={onSignIn} focus={focus} onBrowseHistory={id => onSection('history', id)} />}
-            {section === 'models' && <ModelsSection />}
-            {section === 'plugins' && <PluginsSection />}
-            {section === 'extensions' && hasExtensions && <ExtensionsSection />}
-            {section === 'library' && <LibrarySection initialFlow={libraryImport ? 'import' : null} />}
-            {section === 'skills' && <SkillsSection onUse={onClose} />}
-            {section === 'permissions' && <PermissionsSection focus={focus} />}
-            {section === 'browser' && <BrowserSection />}
-      </WindowPage>
-    </AppWindow>
-  )
+export const SettingsNavigation = ({ section, onSection, onBack }: {
+  section: Section; onSection: (section: Section) => void; onBack: () => void
+}) => {
+  const snapshot = useSnapshot(), runtime = useRuntime()
+  const [query, setQuery] = useState('')
+  const groups = filterSettingsGroups(settingsGroups(snapshot, runtime), query)
+  return <nav aria-label="Settings navigation" data-left-settings onKeyDown={moveSettingsNavigationFocus}>
+    <LeftColumnRow label="Back" icon={<ArrowLeftIcon size={16} />} onClick={onBack} />
+    <LeftColumnHead search={<Search value={query} onChange={setQuery}
+      label="Search settings" placeholder="Search settings…" />} />
+    {groups.map(group => <LeftColumnGroup key={group.label} label={group.label}>
+      {group.entries.map(entry => {
+        const trailing: LeftColumnTrail | undefined = entry.state
+          ? { kind: 'mark', icon: <Dot state={entry.state} />, label: `Runtimes: ${entry.state}` }
+          : entry.count !== undefined ? { kind: 'count', value: entry.count, label: `${entry.count} accounts` } : undefined
+        return <LeftColumnRow key={entry.id} label={entry.label} icon={entry.icon} title={entry.title ?? entry.label}
+          selected={section === entry.id} trailing={trailing} onClick={() => onSection(entry.id)} />
+      })}
+    </LeftColumnGroup>)}
+    {groups.length === 0 && <Text as="p" role="meta">Nothing in settings matches “{query.trim()}”.</Text>}
+  </nav>
 }

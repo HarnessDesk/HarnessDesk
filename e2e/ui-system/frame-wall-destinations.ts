@@ -3,11 +3,11 @@
  * "The visual check"). `tab` is a Team view's `data-team-page` value. A phase
  * that adds a destination adds it here, and the wall grows with it.
  */
-import type { FrameActions } from './frame-actions'
+import type { PageFrameActions } from './frame-page-actions'
 
 import type { WallActions } from './frame-wall-actions'
 
-export interface WallDestination extends FrameActions, WallActions { readonly id: string; readonly query: string; readonly leftWidth?: number; readonly leftOpen?: boolean; readonly leftPopup?: string; readonly settingsQuery?: string; readonly surface?: 'pattern' }
+export interface WallDestination extends PageFrameActions, WallActions { readonly id: string; readonly query: string; readonly leftWidth?: number; readonly leftOpen?: boolean; readonly leftPopup?: string; readonly settingsQuery?: string; readonly surface?: 'pattern'; readonly pageWidth?: 'reading' | 'wide' | 'canvas' }
 
 export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'popup-composer-model', query: 'frame-wall=conversation', composerModel: true },
@@ -62,11 +62,6 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'team-runs-filtered', query: 'frame-wall=team-trigger', tab: 'runs', viewChoice: 'Running' },
   { id: 'team-chat', query: 'frame-wall=team', tab: 'room' },
   { id: 'team-findings', query: 'frame-wall=team', tab: 'findings' },
-  { id: 'teams', query: 'frame-wall=teams' },
-  { id: 'agents', query: 'frame-wall=agents' },
-  { id: 'agent', query: 'frame-wall=agent' },
-  { id: 'dashboard', query: 'frame-wall=dashboard' },
-  { id: 'settings', query: 'frame-wall=settings' },
   { id: 'left-column-probe', surface: 'pattern', query: 'frame-wall=left-column' },
   { id: 'conversation-left-open', query: 'frame-wall=conversation', leftOpen: true },
   { id: 'left-inbox', query: 'frame-wall=conversation', leftOpen: true, leftPopup: 'inbox' },
@@ -85,11 +80,6 @@ export const WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'popup-disabled-rows', query: 'frame-wall=conversation&popup=disabled-rows', popup: 'Frame disabled menu' },
   { id: 'popup-palette-result', query: 'frame-wall=conversation&popup=palette-result' },
   { id: 'popup-composer-add', query: 'frame-wall=conversation', composerAdd: true },
-  { id: 'settings-general', query: 'frame-wall=settings-general' },
-  { id: 'settings-runtimes', query: 'frame-wall=settings-runtimes' },
-  { id: 'library', query: 'frame-wall=library' },
-  { id: 'plugins', query: 'frame-wall=plugins' },
-  { id: 'changes-review', query: 'frame-wall=changes-review' },
   { id: 'popup-conversation-more', query: 'frame-wall=conversation&frame-conversation-actions=1', popup: 'More' },
   { id: 'popup-undo-confirmation', query: 'frame-wall=conversation&frame-conversation-actions=1', undo: true },
   { id: 'popup-wide-menu', query: 'frame-wall=conversation&popup=wide', popup: 'Frame wide menu' },
@@ -141,8 +131,6 @@ export const WALL_TIME = new Date('2026-09-30T10:00:00-07:00')
   { id: 'settings-navigation', query: 'frame-wall=settings-navigation', leftOpen: true },
   { id: 'settings-search', query: 'frame-wall=settings-search', leftOpen: true, settingsQuery: 'mute' },
   { id: 'settings-search-empty', query: 'frame-wall=settings-search', leftOpen: true, settingsQuery: 'zzzz' },
-  { id: 'library-left', query: 'frame-wall=library', leftOpen: true },
-  { id: 'plugins-left', query: 'frame-wall=plugins', leftOpen: true },
 )
 
 ;(WALL_DESTINATIONS as WallDestination[]).push(
@@ -159,3 +147,89 @@ export interface WallDestination { readonly leftHeading?: 'hover-open' | 'folded
   { id: 'left-project-folded', query: 'frame-wall=left-work', leftOpen: true, leftHeading: 'folded' },
 )
 export interface WallDestination { readonly plan?: 'anchor' | 'rest' }
+
+export const E3_PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
+  ...['overview','plans','spend','activity','projects'].map(view => ({id:`dashboard-${view}`,query:`frame-wall=dashboard&frame-view=${view}`,pageWidth:'wide' as const})),
+  {id:'dashboard-scoped-plans',query:'frame-wall=dashboard&frame-view=plans&frame-scope=runtime',pageWidth:'wide'},
+  {id:'dashboard-borrowed-plans',query:'frame-wall=dashboard&frame-view=plans&frame-scope=runtime&frame-borrowed=1',pageWidth:'wide'},
+]
+
+/** E7 route witnesses; common preview replacement and old ids retire in Task 9. */
+export const E7_PLUGIN_PAGE_DESTINATIONS: readonly WallDestination[] = [
+  { id: 'plugins-installed', query: 'frame-wall=plugins&frame-plugin-page=installed', pageWidth: 'wide' },
+  { id: 'plugins-capabilities', query: 'frame-wall=plugins&frame-plugin-page=capabilities', pageWidth: 'wide' },
+  { id: 'plugins-capabilities-here-pending', query: 'frame-wall=plugins&frame-plugin-page=capabilities&frame-plugin-pending=1', pageWidth: 'wide', bodyChoice: { label: 'Where it applies', value: 'here' } },
+  { id: 'plugins-detail', query: 'frame-wall=plugins&frame-plugin-page=detail', pageWidth: 'wide' },
+  { id: 'plugins-failed', query: 'frame-wall=plugins&frame-plugin-page=failed', pageWidth: 'wide' },
+  { id: 'plugins-install', query: 'frame-wall=plugins&frame-plugin-page=installed', pageWidth: 'wide', popup: 'Add plugin' },
+  { id: 'plugins-configuration', query: 'frame-wall=plugins&frame-plugin-page=detail', pageWidth: 'wide' },
+]
+
+export const PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
+  { id: 'settings-general', query: 'frame-wall=settings&frame-section=general', pageWidth: 'reading' },
+  { id: 'settings-appearance', query: 'frame-wall=settings&frame-section=appearance', pageWidth: 'reading' },
+  { id: 'settings-notifications', query: 'frame-wall=settings&frame-section=notifications', pageWidth: 'reading' },
+  { id: 'settings-shortcuts', query: 'frame-wall=settings&frame-section=shortcuts', pageWidth: 'reading' },
+  { id: 'settings-workspaces', query: 'frame-wall=settings&frame-section=workspaces', pageWidth: 'reading' },
+  { id: 'settings-archive', query: 'frame-wall=settings&frame-section=archive', pageWidth: 'reading' },
+  { id: 'settings-history', query: 'frame-wall=settings&frame-section=history', pageWidth: 'reading' },
+  { id: 'settings-storage', query: 'frame-wall=settings&frame-section=storage', pageWidth: 'reading' },
+  { id: 'settings-runtimes', query: 'frame-wall=settings&frame-section=runtimes', pageWidth: 'reading' },
+  { id: 'settings-models', query: 'frame-wall=settings&frame-section=models', pageWidth: 'reading' },
+  { id: 'settings-skills', query: 'frame-wall=settings&frame-section=skills', pageWidth: 'reading' },
+  { id: 'settings-extensions', query: 'frame-wall=settings&frame-section=extensions', pageWidth: 'reading' },
+  { id: 'settings-permissions', query: 'frame-wall=settings&frame-section=permissions', pageWidth: 'reading' },
+  { id: 'settings-browser', query: 'frame-wall=settings&frame-section=browser', pageWidth: 'reading' },
+  { id: 'settings-profile', query: 'frame-wall=settings&frame-section=profile', pageWidth: 'reading' },
+  { id: 'settings-add-runtime', query: 'frame-wall=settings&frame-section=runtimes&frame-focus=add', pageWidth: 'reading' },
+  { id: 'settings-runtime', query: 'frame-wall=settings&frame-detail=runtime', pageWidth: 'reading' },
+  { id: 'settings-account', query: 'frame-wall=settings&frame-detail=account', pageWidth: 'reading' },
+  { id: 'settings-project', query: 'frame-wall=settings&frame-detail=project', pageWidth: 'reading' },
+  { id: 'settings-skill', query: 'frame-wall=settings&frame-detail=skill', pageWidth: 'reading' },
+  ...E3_PAGE_WALL_DESTINATIONS,
+  ...E7_PLUGIN_PAGE_DESTINATIONS,
+]
+
+export const AGENTS_PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
+  { id: 'e4-agents-roster', query: 'frame-wall=agents', pageWidth: 'wide' },
+  { id: 'e4-agent-detail', query: 'frame-wall=agents&frame-detail=agent', pageWidth: 'reading' },
+  { id: 'e4-agent-parse', query: 'frame-wall=agents&frame-agent-case=parse', pageWidth: 'reading' },
+  { id: 'e4-agent-refused', query: 'frame-wall=agents&frame-agent-case=refused', pageWidth: 'reading' },
+  { id: 'e4-agent-missing', query: 'frame-wall=agents&frame-agent-case=missing', pageWidth: 'wide' },
+]
+;(PAGE_WALL_DESTINATIONS as WallDestination[]).push(...AGENTS_PAGE_WALL_DESTINATIONS)
+
+
+export const E5_PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
+ {id:'e5-teams-active',query:'frame-wall=teams&frame-filter=active',pageWidth:'wide'},
+ {id:'e5-teams-needs-you',query:'frame-wall=teams&frame-filter=needs-you',pageWidth:'wide'},
+ {id:'e5-teams-settled',query:'frame-wall=teams&frame-filter=settled',pageWidth:'wide'},
+ {id:'e5-teams-ready',query:'frame-wall=teams&frame-filter=active',pageWidth:'wide',expandReady:true},
+ {id:'e5-teams-no-folder',query:'frame-wall=teams&frame-no-folder=1',pageWidth:'wide'},
+ {id:'e5-teams-empty',query:'frame-wall=teams&frame-empty=1',pageWidth:'wide'},
+]
+;(PAGE_WALL_DESTINATIONS as WallDestination[]).push(...E5_PAGE_WALL_DESTINATIONS)
+
+export const E6_LIBRARY_PAGE_DESTINATIONS: readonly WallDestination[] = [
+  { id: 'e6-library-skills', query: 'frame-wall=library&frame-kind=skill', pageWidth: 'wide' },
+  { id: 'e6-library-mcp', query: 'frame-wall=library&frame-kind=mcp', pageWidth: 'wide', tab: 'mcp' },
+  { id: 'e6-library-matrix', query: 'frame-wall=library', pageWidth: 'wide', bodyChoice: {label:'How to show the library',value:'matrix'} },
+  { id: 'e6-library-expanded', query: 'frame-wall=library', pageWidth: 'wide', bodyChoice: {label:'How to show the library',value:'matrix'}, expandLibraryEntry: true },
+  { id: 'e6-library-import', query: 'frame-wall=library', pageWidth: 'wide', moreChoice: 'Import' },
+  { id: 'e6-library-attention', query: 'frame-wall=library', pageWidth: 'wide', bodyChoice: {label:'Filter the library',value:'problems',item:'Problems'} },
+  { id: 'e6-library-conflict', query: 'frame-wall=library', pageWidth: 'wide', bodyChoice: {label:'Filter the library',value:'differs',item:'Copies differ'} },
+]
+;(PAGE_WALL_DESTINATIONS as WallDestination[]).push(...E6_LIBRARY_PAGE_DESTINATIONS)
+
+/** E8 scene wiring is applied by the integration owner with the shared preview assembly. */
+export const E8_REVIEW_WALL_DESTINATIONS: readonly WallDestination[] = [
+  { id: 'e8-review-working', query: 'frame-wall=changes-review', pageWidth: 'canvas' },
+  { id: 'e8-review-staged', query: 'frame-wall=changes-review', pageWidth: 'canvas', tab: 'staged' },
+  { id: 'e8-review-filtered', query: 'frame-wall=changes-review', pageWidth: 'canvas', bodySearch: { label: 'Filter files', value: 'src/a' } },
+  { id: 'e8-review-empty', query: 'frame-wall=changes-review&frame-review-scene=empty', pageWidth: 'canvas' },
+  { id: 'e8-review-not-repository', query: 'frame-wall=changes-review&frame-review-scene=not-repository', pageWidth: 'canvas' },
+  { id: 'e8-review-large', query: 'frame-wall=changes-review&frame-review-scene=large', pageWidth: 'canvas' },
+]
+;(PAGE_WALL_DESTINATIONS as WallDestination[]).push(...E8_REVIEW_WALL_DESTINATIONS)
+
+;(WALL_DESTINATIONS as WallDestination[]).push(...PAGE_WALL_DESTINATIONS)

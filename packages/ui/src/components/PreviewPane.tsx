@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 
 import { useStore } from '../state/context'
 import { useMount } from '../panels/mount'
-import { Button, ToolPane, ToolPaneBody, ToolPaneGuest, ToolPaneMessage, ToolPaneReading, ToolPaneStage } from '../design'
+import { Button, ToolPane, ToolPaneBody, ToolPaneGuest, ToolPaneMessage, Page, ToolPaneStage } from '../design'
 import { Markdown } from './Markdown'
 import { ToolBodyControls, ToolSection, SummaryList, SummaryItem } from '../design'
 import { sanitizeText } from '../lib/sanitize'
@@ -158,9 +158,9 @@ export const PreviewPane = () => {
         ) : content === null ? (
           <ToolPaneMessage>Loading…</ToolPaneMessage>
         ) : (
-          <ToolPaneReading>
+          <Page width="reading">
             <Markdown text={content} />
-          </ToolPaneReading>
+          </Page>
         )}
       </ToolPaneBody>
     </ToolPane>

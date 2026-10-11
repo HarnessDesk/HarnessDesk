@@ -1,3 +1,5 @@
+import { destinationForSettings } from '../app/settings-destination'
+import { SettingsTestPage as Settings } from '../test-support/settings-page'
 import type { ComponentProps } from 'react'
 import { TopBarProvider } from '../panels/top-bar'
 import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
@@ -12,9 +14,8 @@ import { NO_CAPABILITIES } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import type { Profile } from '../lib/profile'
-import { Settings as SettingsBody, type Section } from './Settings'
+import { type Section } from './Settings'
 
-const Settings = (props: ComponentProps<typeof SettingsBody>) => <TopBarProvider><ShellHostsProvider><SettingsBody {...props} /><ShellOutlets activeOwner="settings" /></ShellHostsProvider></TopBarProvider>
 
 /** The home every `~/…` path in these fixtures hangs off; the page prints them back with the tilde. */
 const HOME = '/home/u'
@@ -204,7 +205,7 @@ const mount = async (runtimes: readonly RuntimeInfo[] = [runtime()], profile: Pr
   return drive
 }
 
-it('Escape closes the window and says so, so a sidebar floating under it stays', async () => {
+it('Escape keeps Settings in main without claiming a modal surface', async () => {
   const { held } = await mount()
   expect(held()).not.toBe(false)
 
@@ -212,8 +213,8 @@ it('Escape closes the window and says so, so a sidebar floating under it stays',
   await act(async () => {
     document.dispatchEvent(event)
   })
-  expect(held()).toBe(false)
-  expect(event.defaultPrevented).toBe(true)
+  expect(held()).toBe('appearance')
+  expect(event.defaultPrevented).toBe(false)
 })
 
 it('a page asked for while the window is open replaces the one on show', async () => {
@@ -234,18 +235,18 @@ it('a page asked for a second time still moves the window back to it', async () 
   // Library by route, Appearance by hand, Library by route again. With the page
   // held in two places the third step was swallowed: the parent still named
   // Library, so its state did not change and neither did the prop.
-  await act(async () => route('library'))
-  expect(page()).toBe('Library')
+  await act(async () => route('general'))
+  expect(page()).toBe('General')
 
   const appearance = navRow('Appearance')
   expect(appearance, 'preferences offer Appearance').toBeTruthy()
   await act(async () => appearance?.click())
   expect(page()).toBe('Appearance')
 
-  await act(async () => route('library'))
-  expect(page()).toBe('Library')
-  await act(async () => route('plugins'))
-  expect(page()).toBe('Plugins')
+  await act(async () => route('general'))
+  expect(page()).toBe('General')
+  await act(async () => route('notifications'))
+  expect(page()).toBe('Notifications')
 })
 
 it('the nav rail keeps the page it moved to when nothing new is asked for', async () => {
@@ -280,17 +281,9 @@ it('a route to Extensions still gives way when the agent has none', async () => 
   expect(page()).toBe('Runtimes')
 })
 
-it('the import banner opens the Library with its import flow, window already open', async () => {
-  const { route } = await mount()
-  expect(page()).toBe('Appearance')
-
-  // App sets `libraryImport` and the section in one update and clears the flag
-  // on the next commit, because `LibrarySection` reads it only on its own
-  // first render. A page that arrived a commit later than the flag would mount
-  // with it already cleared, and the import dialog would never open.
-  await act(async () => route('library', true))
-  expect(page()).toBe('Library')
-  expect(document.body.textContent).toContain('Import between agents')
+it('historical Library and Plugins requests remain explicit compatibility destinations', () => {
+  expect(destinationForSettings('library')).toEqual({kind:'library',section:'skill'})
+  expect(destinationForSettings('plugins')).toEqual({kind:'plugins',section:'installed',id:null})
 })
 
 it('keeps Profile callable by route, with no identity in preferences', async () => {
@@ -364,7 +357,7 @@ it('ordinary Permissions navigation preserves its controls without writing ceili
   expect(store.setQuestionWait).not.toHaveBeenCalled()
 })
 
-it('takes a typed name back on the first Escape, and closes the window on the second', async () => {
+it('takes a typed name back on Escape and keeps the Profile page open', async () => {
   const drive = await mount()
   await act(async () => drive.route('profile'))
   const input = document.body.querySelector<HTMLInputElement>('input[aria-label="Your name"]')
@@ -383,7 +376,7 @@ it('takes a typed name back on the first Escape, and closes the window on the se
   act(() => {
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
   })
-  expect(drive.held()).toBe(false)
+  expect(drive.held()).toBe('profile')
 })
 
 it('keeps the routed profile page up while preference search changes', async () => {

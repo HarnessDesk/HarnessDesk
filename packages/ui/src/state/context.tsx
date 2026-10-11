@@ -250,6 +250,8 @@ export const useIsFocusedPane = (): boolean => {
   const snapshot = useSnapshot()
   if (useContext(KeyboardHereContext) === false) return false
   if (!pane) return true
+  if (snapshot.workbench.navigation.current.kind !== 'work'
+    && (pane.view.kind === 'conversation' || pane.view.kind === 'room')) return false
   const focused = focusedMount(snapshot.workbench)
   const rootId = pane.paneId.includes(':') ? pane.paneId.split(':')[0] : pane.paneId
   return focused === pane.keyboardMountId || focused === rootId || focused === pane.paneId || rootId === 'team-room'

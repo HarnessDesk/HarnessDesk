@@ -6,7 +6,7 @@ import { NO_PERMISSIONS, type PluginInstance, type PluginPermissions, type Runti
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { PluginsSection } from './PluginsSection'
+import { PluginsTestPage } from './plugins-test-page'
 
 /**
  * The Access list, as the person actually reads it (#288).
@@ -75,7 +75,7 @@ const mount = (plugins: PluginInstance[]) => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <PluginsSection />
+        <PluginsTestPage />
       </StoreProvider>,
     )
   })
@@ -175,14 +175,17 @@ it('names a plugin and its tools on the wire in the code face at the meta step, 
     [...container.querySelectorAll('[data-slot="text"][data-role="meta"] > [data-slot="code-text"]')].find((node) => node.textContent === text)
   expect(wire('git')).toBeTruthy()
 
-  // The switch is labelled by the muted words beside it, and the label is the control's.
-  const toggle = container.querySelector('[aria-label="Show tool names"]')
-  const label = toggle?.closest('label')
-  expect(label?.getAttribute('data-slot')).toBe('text')
-  expect(label?.getAttribute('data-role')).toBe('muted')
-  expect(label?.getAttribute('data-ink')).toBe('muted')
-  expect(label?.textContent).toContain('Tool names')
+  const toggle = container.querySelector('[aria-label="Show tool names"]')!
+  expect(toggle.closest('[data-slot="row"]')?.querySelector('[data-slot="row-title"]')?.textContent).toBe('Tool names')
   expect(wire('git/git_status')).toBeUndefined()
-  act(() => (label as HTMLElement).click())
+  act(() => (toggle as HTMLElement).click())
   expect(wire('git/git_status')).toBeTruthy()
+})
+
+it('E7 plugin detail names Plugins as its parent crumb in the main bar', () => {
+  mount([plugin('quiet', 'Quiet', {})])
+  open('Quiet')
+  expect(container.querySelector('[data-topbar-title]')?.textContent).toContain('Quiet')
+  expect([...container.querySelectorAll('[data-topbar="place"] button')].find(button => button.textContent === 'Plugins ›')).toBeTruthy()
+  expect(container.querySelector('[data-slot="top-bar"] [role="tab"]')).toBeNull()
 })

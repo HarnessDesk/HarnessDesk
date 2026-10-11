@@ -223,7 +223,7 @@
 
 /* `data-measure` decides what the plate is sized against: `fit` shrinks to
    its content (a chip-sized example, the default), `page` caps at the app's
-   own reading measure — `--hd-column`, the width `AppWindow` gives a real
+   own reading measure — `--hd-column`, the width `destination` gives a real
    settings/detail page — so a settings-page mock reads at the width a
    settings page actually gets rather than the width its narrowest row
    happens to need, and `wide` fills the column for a board proving a row's

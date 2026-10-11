@@ -15,7 +15,7 @@ import {
 import { agentName, ceilingMeaning, ceilingWords, wordList } from '../lib/agents'
 import {
   Banner, BoardMenuButton, Button, Dialog, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator,
-  DropdownMenuTrigger, Field, Input, MenuNote, MenuSearch, Note, Row, RowChoice, Rows, SectionHead, Text, Textarea,
+  DropdownMenuTrigger, Field, FormStack, Input, MenuNote, MenuSearch, Note, Row, RowChoice, Rows, Section, Text, Textarea,
 } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { MoveDownIcon, MoveUpIcon, PlusIcon, TrashIcon } from './Icons'
@@ -83,16 +83,18 @@ export const AgentFields = ({ document, entry, busy, onEdit, onOpenFile }: Agent
 
   return (
     <>
-      <SectionHead name="Identity" />
-      <Rows>
-        {row('name', definition.name)}
-        {row('description', definition.description ?? '')}
-      </Rows>
-      <SectionHead name="What it hands back" />
-      <Rows>
-        {row('answers', wordList(definition.answers))}
-        {row('produces', wordList(definition.produces))}
-      </Rows>
+      <Section title="Identity">
+        <Rows>
+          {row('name', definition.name)}
+          {row('description', definition.description ?? '')}
+        </Rows>
+      </Section>
+      <Section title="What it hands back">
+        <Rows>
+          {row('answers', wordList(definition.answers))}
+          {row('produces', wordList(definition.produces))}
+        </Rows>
+      </Section>
       {editing && (
         <FieldEditDialog
           fieldKey={editing}
@@ -255,11 +257,11 @@ export const FieldEditDialog = ({
       onClose={onClose}
       footer={
         <>
-          <Button variant="default" disabled={busy || !preview?.token} onClick={() => void save()}>
-            {busy ? 'Saving…' : 'Save'}
-          </Button>
           <Button variant="secondary" disabled={busy} onClick={onClose}>
             Cancel
+          </Button>
+          <Button variant="default" disabled={busy || !preview?.token} onClick={() => void save()}>
+            {busy ? 'Saving…' : 'Save'}
           </Button>
         </>
       }
@@ -270,7 +272,7 @@ export const FieldEditDialog = ({
             <RowChoice
               key={level}
               title={ceilingWords(level)}
-              desc={<span className="whitespace-normal">{ceilingMeaning(level)}</span>}
+              desc={ceilingMeaning(level)}
               selected={text === level}
               disabled={busy}
               onClick={() => setText(level)}
@@ -294,7 +296,7 @@ export const FieldEditDialog = ({
       {problem && <Banner tone="danger" title="This could not be saved">{problem}</Banner>}
       {issue && (
         <Banner tone={offersReload ? 'warning' : 'danger'} title={issue.text}>
-          <span className="flex flex-col items-start gap-(--hd-space-2)">
+          <FormStack>
             {issue.fix}
             {offersOpenFile && (
               <Button size="sm" variant="outline" onClick={onOpenFile}>
@@ -306,15 +308,15 @@ export const FieldEditDialog = ({
                 {reloading ? 'Reloading…' : 'Reload'}
               </Button>
             )}
-          </span>
+          </FormStack>
         </Banner>
       )}
       {edit && !issue && (
-        <div className="space-y-2">
+        <FormStack>
           <Text>{edit.path}</Text>
           <Note>The exact line this would write:</Note>
           <DiffView diff={lineDiff(edit.path, edit.before ?? '', edit.after)} wrap />
-        </div>
+        </FormStack>
       )}
     </Dialog>
   )
@@ -443,11 +445,11 @@ export const PreferFieldDialog = ({
       onClose={onClose}
       footer={
         <>
-          <Button variant="default" disabled={busy || !preview?.token} onClick={() => void save()}>
-            {busy ? 'Saving…' : 'Save'}
-          </Button>
           <Button variant="secondary" disabled={busy} onClick={onClose}>
             Cancel
+          </Button>
+          <Button variant="default" disabled={busy || !preview?.token} onClick={() => void save()}>
+            {busy ? 'Saving…' : 'Save'}
           </Button>
         </>
       }
@@ -497,7 +499,7 @@ export const PreferFieldDialog = ({
       {problem && <Banner tone="danger" title="This could not be saved">{problem}</Banner>}
       {issue && (
         <Banner tone={offersReload ? 'warning' : 'danger'} title={issue.text}>
-          <span className="flex flex-col items-start gap-(--hd-space-2)">
+          <FormStack>
             {issue.fix}
             {offersOpenFile && (
               <Button size="sm" variant="outline" onClick={onOpenFile}>
@@ -509,15 +511,15 @@ export const PreferFieldDialog = ({
                 {reloading ? 'Reloading…' : 'Reload'}
               </Button>
             )}
-          </span>
+          </FormStack>
         </Banner>
       )}
       {edit && !issue && (
-        <div className="space-y-2">
+        <FormStack>
           <Text>{edit.path}</Text>
           <Note>The exact line this would write:</Note>
           <DiffView diff={lineDiff(edit.path, edit.before ?? '', edit.after)} wrap />
-        </div>
+        </FormStack>
       )}
     </Dialog>
   )

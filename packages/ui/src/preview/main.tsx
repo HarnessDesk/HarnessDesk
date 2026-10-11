@@ -1,3 +1,6 @@
+import { CurrentPagePreview } from './page-preview'
+import { DashboardDestinationFixture } from './dashboard-destination-fixture'
+import { SettingsPreview as Settings, RuntimesPreview as RuntimesSection, WorkspacesPreview as WorkspacesSection } from './settings-pages'
 import { FRAME } from '../design'
 import { NativeServersPreview } from './native-servers'
 import { TeamViewFrame } from './TeamViewFrame'
@@ -45,14 +48,13 @@ import { FlowRunStatus } from '../components/FlowRunStatus'
 import { RetryCheck } from '../components/RetryCheck'
 import { AppearanceSection } from '../components/SettingsYou'
 import { LibrarySection } from '../components/Library'
-import { AgentsWindow } from '../components/AgentsWindow'
 import { NewSessionChoice } from '../components/NewSessionChoice'
 import { SeatSheet } from '../components/SeatSheet'
 import { SaveAsAgentDialog } from '../components/SaveAsAgent'
-import { Settings, WorkspacesSection, type Section } from '../components/Settings'
-import { Usage, type DashboardView } from '../components/Usage'
+import { type Section } from '../components/Settings'
+import { type DashboardView } from '../components/Usage'
 import { SignIn } from '../components/SignIn'
-import { RuntimesSection } from '../components/SettingsAgents'
+
 import { SIGN_IN_SCENES, SIGN_IN_SELECTED, runtimesSeed, signInSeed, type SignInScene } from './signin-fixture'
 import { RemoveWorktree } from './../components/RemoveWorktree'
 import { Sidebar } from '../components/Sidebar'
@@ -62,7 +64,7 @@ import { TeamFramePreview } from './TeamFramePreview'
 import { ApprovalDialog, ApprovalReason, NativeSelect, PaneColumn } from '../design'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
-import { AppWindowMode } from '../components/AppWindow'
+import { SignInMode } from '../components/SignInMode'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import {
   Boundary,
@@ -758,21 +760,15 @@ const Preview = () => {
           <TeamViewFrame room={EDGE_ROOM} page="board"><TeamBoardPane room={EDGE_ROOM} /></TeamViewFrame>
         </div>
       </Frame>
-      {/* Settings is a fixed-position sheet, so it would paint over the whole
-          page. A `transform` on the wrapper makes it the containing block for
-          `position: fixed`, which pins the real dialog — unedited — inside a
-          frame. It is the only way to see the settings surface at the 980px
-          it actually opens at. */}
-      <Frame id="settings-sheet" title="Settings — the sheet, its nav, and a page">
+      {/* Settings uses the real App destination frame with a synthetic store. */}
+      <Frame id="settings-sheet" title="Settings — the main page and its navigation">
         <div className="relative h-[940px]" style={{ transform: 'translateZ(0)' }}>
           {/* The page is the caller's, so the dial drives it directly and the
-              sheet's own nav rail writes back to the same state — no remount,
+              real column navigation writes back to the same state — no remount,
               and clicking around in here moves the dial with it. */}
           <StoreProvider store={settingsListsStore}><Settings
             section={settingsSection}
             onSection={setSettingsSection}
-            onClose={() => {}}
-            onSignIn={() => {}}
           /></StoreProvider>
         </div>
       </Frame>
@@ -792,14 +788,10 @@ const Preview = () => {
       </Frame>
       {/* The Agents window: the owner's left-menu decision, in its own
           top-level screen, never a Settings page — the same containment
-          trick as Settings and Usage, both `AppWindow`s too. */}
+          trick as Settings and Usage, both main pages too. */}
       <Frame id="agents-roster" title="Agents — the roster, and a selected Agent">
         <div className="relative h-[940px]" style={{ transform: 'translateZ(0)' }}>
-          <AgentsWindow
-            focus={agentsFocus === 'overview' ? null : agentsFocus}
-            onClose={() => {}}
-            onFocus={(id) => setAgentsFocus(id ?? 'overview')}
-          />
+          <CurrentPagePreview page={{kind:'agents',id:agentsFocus==='overview'?null:agentsFocus}} />
         </div>
       </Frame>
       <div className="my-4 flex flex-wrap items-center gap-3">
@@ -832,7 +824,7 @@ const Preview = () => {
           does.
 
           It needs the same `transform` the Settings frame above does, and for
-          the same reason: `Usage` is an `AppWindow`, which is
+          the same reason: `Usage` is an main page, which is
           `position: fixed`. Without a containing block it escaped its frame
           and painted over the *whole* preview page — every other frame on
           this page became unreachable, and a screenshot of any of them came
@@ -841,14 +833,7 @@ const Preview = () => {
       <Frame id="dashboard-overview" title="Dashboard — what is left, what it cost, where it went">
         <div className="relative h-[900px]" style={{ transform: 'translateZ(0)' }}>
           <StoreProvider store={dashboardStore}>
-            <Usage
-              view={dashboardView}
-              scope={dashboardScope}
-              onView={setDashboardView}
-              onScope={setDashboardScope}
-              onClose={() => {}}
-              onSignIn={() => {}}
-            />
+            <DashboardDestinationFixture view={dashboardView} scope={dashboardScope} />
           </StoreProvider>
         </div>
       </Frame>
@@ -1150,9 +1135,9 @@ const Preview = () => {
           and three Goal frames; a fifth item auto-placed into it lands back
           in the 380px sidebar column, not the wide one, which is what
           crushed this frame's own text to one word a line. */}
-      <Frame id="settings-library" title="Settings › Library">
-        <div className="max-h-[540px] overflow-y-auto p-4">
-          <LibrarySection />
+      <Frame id="settings-library" title="Library">
+        <div className="h-[540px]">
+          <CurrentPagePreview page={{kind:'library',section:'skill'}} />
         </div>
       </Frame>
       {SHOW_LIBRARY_OPTIONS && <LibraryDevFrames />}
@@ -1233,7 +1218,7 @@ const siteScene = isSceneName(siteSceneParam) ? siteSceneParam : null
 createRoot(container).render(
   <StrictMode>
     <StoreProvider store={store}>
-      <AppWindowMode.Provider value="embedded">
+      <SignInMode.Provider value="embedded">
         {siteScene
           ? <SiteScene name={siteScene} theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />
           : new URLSearchParams(window.location.search).has('team-start')
@@ -1290,7 +1275,7 @@ createRoot(container).render(
           ? <FlowBriefDialog scene={(BRIEF_SCENES.find((one) => one === new URLSearchParams(window.location.search).get('flow-brief')) ?? 'empty') as BriefScene} />
           : new URLSearchParams(window.location.search).has('flow-overlay') ? <FlowOverlayFrames />
           : ['run-shapes', 'run-view', 'run-again', 'run-ending-rig', 'run-dock'].some(one => new URLSearchParams(window.location.search).has(one)) ? <RunPreview /> : <Preview />}
-      </AppWindowMode.Provider>
+      </SignInMode.Provider>
     </StoreProvider>
   </StrictMode>,
 )

@@ -1,5 +1,7 @@
 import type { ComponentProps } from 'react'
-import { TopBarProvider } from '../panels/top-bar'
+import { installTopBarTestLayout } from '../test/top-bar-layout'
+import { DestinationPageScope } from '../panels/destination-page'
+import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
 import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 import { fixedSubject } from '../state/workbench'
 import { act, useState } from 'react'
@@ -11,9 +13,10 @@ import { NO_CAPABILITIES, runtimeId } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { Usage as UsageBody, type DashboardView } from './Usage'
+import { DashboardPage as UsageBody, type DashboardView } from './Usage'
 
-const Usage = (props: ComponentProps<typeof UsageBody>) => <TopBarProvider><ShellHostsProvider><UsageBody {...props} /><ShellOutlets activeOwner="dashboard" /></ShellHostsProvider></TopBarProvider>
+const Usage = (props: ComponentProps<typeof UsageBody>) => <TopBarProvider><ShellHostsProvider><DestinationPageScope owner="destination:dashboard" active><UsageBody {...props} /></DestinationPageScope><TopBarOutlet owner="destination:dashboard" fallback={{place:'Dashboard',more:()=>null}} /></ShellHostsProvider></TopBarProvider>
+installTopBarTestLayout()
 
 /**
  * The Dashboard's rail-as-views restructure (the whole-page study's option B):
@@ -110,7 +113,6 @@ const Harness = ({ initial = 'overview' as DashboardView }: { initial?: Dashboar
       scope={scope}
       onView={setView}
       onScope={setScope}
-      onClose={() => {}}
       onSignIn={() => {}}
     />
   )
@@ -132,7 +134,7 @@ const railButton = (label: string): HTMLButtonElement => {
   return button!
 }
 
-describe('the Dashboard rail lists views', () => {
+describe('the Dashboard first body row lists views', () => {
   it('switches the page shown when a different row is clicked', async () => {
     await render('overview')
     expect(document.body.textContent).toContain('What is left')
@@ -144,22 +146,19 @@ describe('the Dashboard rail lists views', () => {
   it('shows "N low" on Plans, in the warn tone, when an account is spent or low', async () => {
     await render('overview')
     const plans = railButton('Plans')
-    const badge = plans.closest('[data-slot="sidebar-menu-item"]')?.querySelector('[data-slot="sidebar-menu-badge"]')
+    const badge = plans.querySelector('[data-slot="switcher-count"]')
     expect(badge?.textContent).toContain('1 low')
     const figure = badge?.querySelector('[data-tone="warning"]')
     expect(figure).not.toBeNull()
   })
 
-  it('moves focus row to row with Tab, in the order drawn', async () => {
+  it('keeps the shared tabs in view order with one keyboard tab stop', async () => {
     await render('overview')
     const rows = ['Overview', 'Plans', 'Spend', 'Activity', 'Projects'].map(railButton)
-    rows[0]!.focus()
+    await act(async () => rows[0]!.focus())
     expect(document.activeElement).toBe(rows[0])
-    // A row is a plain button — Tab moves through them in document order,
-    // the same as any other list of buttons, Settings' rail included.
-    for (let index = 1; index < rows.length; index += 1) {
-      expect(rows[index]!.tabIndex).not.toBe(-1)
-    }
+    expect(rows.map(row => row.tabIndex)).toEqual([0, -1, -1, -1, -1])
+
   })
 })
 
@@ -183,12 +182,12 @@ describe('the header’s account scope', () => {
 
   it('scopes whichever view is open, not only the one it was chosen from', async () => {
     await render('spend')
-    expect(document.querySelector('[data-topbar-title]')?.textContent).toBe('Spend')
+    expect(document.querySelector('[data-topbar-title]')?.textContent).toBe('Dashboard')
     await chooseAccount('Low Agent')
     // The scope moves the control beside the title, the same thing clicking
     // that account in the old rail used to do — the title itself stays the
     // view's own name (review of #1057, NIT 3).
-    expect(document.querySelector('[data-topbar-title]')?.textContent).toBe('Spend')
+    expect(document.querySelector('[data-topbar-title]')?.textContent).toBe('Dashboard')
     expect(scopeTrigger().textContent).toContain('Low Agent')
   })
 
@@ -197,7 +196,7 @@ describe('the header’s account scope', () => {
     await chooseAccount('Low Agent')
     expect(scopeTrigger().textContent).toContain('Low Agent')
     await act(async () => railButton('Activity').click())
-    expect(document.querySelector('[data-topbar-title]')?.textContent).toBe('Activity')
+    expect(document.querySelector('[data-topbar-title]')?.textContent).toBe('Dashboard')
     expect(scopeTrigger().textContent).toContain('Low Agent')
   })
 })
@@ -221,8 +220,8 @@ describe('the heatmap band', () => {
   }
 
   const isPressed = (label: string): boolean => {
-    const button = [...document.querySelectorAll('button')].find((node) => node.textContent?.trim() === label)
-    return button?.hasAttribute('data-pressed') ?? false
+    const select = document.querySelector<HTMLSelectElement>('select[aria-label="Show by"]')
+    return select?.selectedOptions[0]?.textContent === label
   }
 
   it('follows the scope on Overview, the way every other band does', async () => {
@@ -250,9 +249,8 @@ describe('the heatmap band', () => {
     const ledgerMock = store.ledger as unknown as ReturnType<typeof vi.fn>
     expect(isPressed('Year')).toBe(true)
 
-    const byAgent = [...document.querySelectorAll('button')].find((node) => node.textContent?.trim() === 'By agent')
-    expect(byAgent, 'no "By agent" toggle').toBeDefined()
-    await act(async () => byAgent!.click())
+    const byAgent = document.querySelector<HTMLSelectElement>('select[aria-label="Show by"]')!
+    await act(async () => { byAgent.value = 'agent'; byAgent.dispatchEvent(new Event('change', {bubbles:true})) })
     expect(isPressed('By agent')).toBe(true)
 
     const callsAfterToggle = ledgerMock.mock.calls.length

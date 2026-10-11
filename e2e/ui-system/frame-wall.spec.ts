@@ -1,5 +1,6 @@
+import { applyPageFrameActions } from './frame-page-actions'
 import { installFramePreviewFixture } from './frame-preview-fixture'
-import { applyFrameActions, settleFrameBar } from './frame-actions'
+import { settleFrameBar } from './frame-actions'
 import { applyLeftColumnActions } from './left-column-actions'
 import { applySettingsNavigationActions } from './left-column-actions'
 import { mkdirSync } from 'node:fs'
@@ -34,7 +35,7 @@ for (const destination of WALL_DESTINATIONS) {
         await page.goto(`/preview.html?${destination.query}&theme=${theme}`)
         await expect(page.locator('[data-frame-id="frame-wall"]')).toBeVisible()
         if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
-        await applyFrameActions(page, destination)
+        await applyPageFrameActions(page, destination)
         if (destination.id === 'agent') {
           // The selected Agent reads its real authoring document asynchronously.
           await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar-title]')).toContainText('Implementer')

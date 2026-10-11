@@ -568,16 +568,9 @@ test.describe('preview coverage', () => {
    * skill") both made — does not merely sit in its own frame the way an
    * inline component would: it stays pinned to the viewport as the page
    * scrolls, so every screenshot of the page shows it sitting over whatever
-   * else is on screen. Three screens (Settings, Agents, the Dashboard) are
-   * the documented, deliberate exception: each is wrapped in a
-   * `transform`-bearing div that becomes that `position: fixed` dialog's own
-   * containing block, which is what keeps it inside that one frame instead
-   * of following the page (see `main.tsx`'s "Settings — the sheet" comment).
-   * So the real invariant a fresh load must hold is not "no dialog at all" —
-   * it is "no dialog that would follow the page": every `[role="dialog"]`
-   * open before anything is clicked must sit under such a confining
-   * ancestor. Every dialog reached from a dial defaults to `off`, so this
-   * also stands as the fresh-load half of "the dial's default is off".
+   * else is on screen. Settings, Agents and Dashboard are retained main
+   * destinations in their own bounded App specimens. Dialog dials default
+   * to off; an open first-run boundary must remain confined to its frame.
    */
   test('a fresh load opens no dialog that is not confined to its own frame', async ({ page }) => {
     await page.goto('/preview.html')

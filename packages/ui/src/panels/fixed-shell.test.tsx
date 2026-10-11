@@ -1,6 +1,7 @@
 import { splitSessionKey, type CapabilityContribution } from '@harnessdesk/protocol'
 import { AppStore } from '../state/store'
-import { ToolBody, ToolSection } from '../design'
+import { ToolBody, ToolSection, DestinationBody } from '../design'
+import { DestinationBar, DestinationPageScope } from './destination-page'
 import { useSessionKey, useIsFocusedPane } from '../state/context'
 import { publishComponent } from '../slots/registry'
 import { sideBySideStore, SIDE_BY_SIDE_KEYS } from '../preview/side-by-side-fixture'
@@ -18,7 +19,7 @@ import { Workbench as WorkbenchBody } from './Workbench'
 import { TopBarProvider } from './top-bar'
 import { ShellHostsProvider, ShellOutlets } from './shell-hosts'
 import type { ComponentProps } from 'react'
-const Workbench = (props: ComponentProps<typeof WorkbenchBody>) => <TopBarProvider><ShellHostsProvider><WorkbenchBody {...props} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
+const Workbench = ({ pageOwner, ...props }: ComponentProps<typeof WorkbenchBody> & { pageOwner?: string }) => <TopBarProvider><ShellHostsProvider><WorkbenchBody {...props} /><ShellOutlets activeOwner={pageOwner ?? null} hostOwner={pageOwner ? 'work' : undefined} /></ShellHostsProvider></TopBarProvider>
 import './builtins'
 import { onDismissOverlays } from '../lib/overlays'
 import { FRAME } from '../design/frame'
@@ -732,4 +733,42 @@ it('a deferred Activity Escape returns to the current same-subject tool instead 
   act(() => { for (const callback of [...frames]) callback(0) })
   expect(document.activeElement).toBe(button('Details'))
   expect(store.getSnapshot().workbench.frameTools[subject]).toMatchObject({ tool: 'details', open: true })
+})
+
+it('a page keeps remembered work, Browser, terminal and the shared notice host mounted', async () => {
+  const store = mountWork(true)
+  await act(async () => { await store.openBrowser(); await store.openTerminal() })
+  const before = store.getSnapshot().workbench
+  const workPane = container.querySelector('[data-slot="workbench-main"] [data-pane-id]')!
+  const browser = container.querySelector('[data-slot="tool-pane"]')!
+  const terminal = container.querySelector('[data-frame-region="bottom"] [data-terminal-id]')!
+  expect(workPane).not.toBeNull(); expect(browser).not.toBeNull(); expect(terminal).not.toBeNull()
+  const draw = (pageActive: boolean) => act(() => root.render(<StoreProvider store={store}>
+    <Workbench sidebar={<div />} pageActive={pageActive} pageOwner={pageActive ? 'destination:library' : undefined}
+      pages={<DestinationBody id="library" active={pageActive}><DestinationPageScope owner="destination:library" active={pageActive}>
+        <DestinationBar place="Library" /><input aria-label="Library query" />
+      </DestinationPageScope></DestinationBody>} />
+  </StoreProvider>))
+  draw(true)
+  expect(container.querySelector('[data-slot="retained-work"]')?.hasAttribute('hidden')).toBe(true)
+  expect(container.querySelector('[data-slot="retained-work"]')?.hasAttribute('inert')).toBe(true)
+  const shell = container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+  expect(shell.getAttribute('data-right-open')).toBe('false')
+  expect(shell.getAttribute('data-panel-floats')).toBe('false')
+  expect(shell.style.getPropertyValue('--frame-right-size')).toBe('0px')
+  expect(shell.style.getPropertyValue('--frame-right-open')).toBe('0px')
+  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Library')
+  expect(container.querySelectorAll('[data-shell-host="main-notice"]')).toHaveLength(1)
+  expect(container.querySelector('[data-shell-host="main-notice"]')?.closest('[data-slot="retained-work"]')).toBeNull()
+  expect(container.querySelector('[data-frame-region="bottom"] [data-terminal-id]')).toBe(terminal)
+  expect(container.querySelector('[data-slot="tool-pane"]')).toBe(browser)
+  expect(store.getSnapshot().workbench.frameTools).toBe(before.frameTools)
+  expect(store.getSnapshot().workbench.bottom).toBe(before.bottom)
+  draw(false)
+  expect(container.querySelector('[data-slot="retained-work"]')?.hasAttribute('hidden')).toBe(false)
+  expect(container.querySelector('[data-slot="workbench-main"] [data-pane-id]')).toBe(workPane)
+  expect(container.querySelector('[data-slot="tool-pane"]')).toBe(browser)
+  expect(container.querySelector('[data-frame-region="bottom"] [data-terminal-id]')).toBe(terminal)
+  expect(shell.getAttribute('data-right-open')).toBe('true')
+  expect(store.getSnapshot().activeSessionKey).toBe(PREVIEW_SESSION_KEY)
 })

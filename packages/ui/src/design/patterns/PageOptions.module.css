@@ -1,0 +1,6 @@
+.options { display: flex; align-items: center; flex-wrap: wrap; gap: var(--hd-space-2); min-width: 0; }
+.options > * { max-width: 100%; }
+
+/* The menu anchor and its closed value share the body's maximum measure. */
+.options [data-slot='popover-trigger'] { max-width: 100%; }
+.current { min-width: 0; overflow-wrap: anywhere; text-align: start; }

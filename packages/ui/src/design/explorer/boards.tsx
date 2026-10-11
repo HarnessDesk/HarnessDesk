@@ -15,7 +15,6 @@ import { PublicationCard } from '../../components/Publication'
 import { QuestionWaitSection } from '../../components/SettingsQuestionWait'
 import { Mount, PREVIEW_ROOM, previewStore, store } from '../../preview/harness'
 import { AccountFooter, Sidebar as ProductSidebar } from '../../components/Sidebar'
-import { WindowGroup, WindowNav, WindowNavIdentity, WindowNavItem, WindowNavStateMark, WindowPage } from '../../components/AppWindow'
 import { PREVIEW_ROOT, previewHistory, previewSession } from '../../preview/sidebar-fixture'
 import { PREVIEW_GOAL } from '../../preview/goal-fixture'
 import { sidebarGeometryFixture } from '../../preview/sidebar-geometry-fixture'
@@ -48,10 +47,6 @@ import {
   ActionError,
   Bubble,
   BubbleContent,
-  AppWindowPage,
-  AppWindowRail,
-  AppWindowRailScroll,
-  AppWindowRailTop,
   Button,
   Card,
   ChangeStats,
@@ -73,7 +68,6 @@ import {
   CodeText,
   CopyButton,
   ConfirmDialog,
-  DetailHead,
   Face,
   FRAME,
   Field,
@@ -84,7 +78,6 @@ import {
   Dialog,
   Dot,
   NativeSelect,
-  PageHead,
   PatchHeader,
   Row,
   RowButton,
@@ -171,9 +164,10 @@ const Case = ({ label, children }: { label: string; children: React.ReactNode })
 )
 
 const BUTTON_CATALOG_VARIANTS = ['default', 'outline', 'secondary', 'ghost', 'floating', 'danger', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'] as const
-const BUTTON_CATALOG_SIZES = ['default', 'xs', 'sm', 'sidebar-nav', 'icon-label', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'log-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'navigation-edge', 'fill', 'icon-circle'] as const
+const BUTTON_CATALOG_SIZES = ['default', 'wrap', 'xs', 'sm', 'sidebar-nav', 'icon-label', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'log-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'navigation-edge', 'fill', 'icon-circle'] as const
 const BUTTON_CATALOG_STATES = ['default', 'hover', 'focus-visible', 'disabled'] as const
 const INPUT_CATALOG_VARIANTS = ['default', 'quiet', 'bare', 'filled', 'chrome', 'code'] as const
+const INPUT_CATALOG_MEASURE = ['auto', 'name', 'path'] as const
 const INPUT_CATALOG_SIZES = ['default', 'compact', 'bare', 'row'] as const
 const INPUT_CATALOG_STATES = ['default', 'focus-visible', 'disabled', 'error'] as const
 const NATIVE_SELECT_CATALOG_VARIANTS = ['default', 'filled'] as const
@@ -509,6 +503,9 @@ const ControlBoard = () => {
             {INPUT_CATALOG_SIZES.map((controlSize) => (
               <Input key={controlSize} controlSize={controlSize} data-catalog-size={controlSize} placeholder={controlSize} aria-label={`${controlSize} input size`} />
             ))}
+            {INPUT_CATALOG_MEASURE.map(measure => (
+              <Input key={measure} measure={measure} data-catalog-measure={measure} placeholder={measure} aria-label={`${measure} input measure`} />
+            ))}
             <Input disabled value="disabled" aria-label="Disabled input" readOnly />
             <Input aria-invalid value="invalid" aria-label="Invalid input" readOnly />
           </div>
@@ -593,10 +590,8 @@ const RowBoard = () => {
       <Specimen measure="page" caption="A settings page, assembled from Row, RowButton and RowChoice">
       <div className={styles.stack}>
         <Text role="wordmark" data-catalog-size="wordmark">HarnessDesk</Text>
-        <PageHead
-          title={<span data-slot="page-title-case" data-catalog-size="page">General</span>}
-          blurb="Settings for this desk."
-        />
+        <SectionHead name={<span data-slot="page-title-case" data-catalog-size="page">General</span>}
+          description="Settings for this desk." />
         <SectionHead name="Plugins" action={<Button variant="outline" size="sm">Add</Button>} />
         <SectionHead
           sticky
@@ -738,18 +733,10 @@ const HeadBoard = () => (
     <Specimen measure="page" caption="An Agents page, and one row drilled into">
     <div className={styles.stack}>
       <Text role="wordmark" data-catalog-size="wordmark">HarnessDesk</Text>
-      <PageHead
-        title={<span data-slot="page-title-case" data-catalog-size="page">Agents</span>}
-        blurb="Which coding agents this app can start a session with."
-        actions={<Button variant="default">Add an agent</Button>}
-      />
-      <DetailHead
-        mark={<PluginIcon size={22} />}
-        name="Browser"
-        owner="built in"
-        blurb="Drive a page and read it back. Available to agents that accept plugin tools."
-        actions={<Button variant="secondary" size="sm">Remove</Button>}
-      />
+      <SectionHead name={<span data-slot="page-title-case" data-catalog-size="page">Agents</span>}
+        description="Which coding agents this app can start a session with."
+        action={<Button variant="outline" size="sm">Add an agent</Button>} />
+      <SectionHead name="Browser" description="Drive a page and read it back. Available to agents that accept plugin tools." action={<Button variant="outline" size="sm">Remove</Button>} />
     </div>
     </Specimen>
     <p className={styles.rule}>
@@ -763,42 +750,15 @@ const HeadBoard = () => (
   </>
 )
 
-const AppWindowBoard = () => (
-  <>
-    <div className="grid h-96 w-full grid-cols-[15.25rem_minmax(0,1fr)] overflow-hidden rounded-(--hd-radius-lg) border border-(--hd-border)">
-      <div className="flex min-h-0 flex-col bg-sidebar text-sidebar-foreground">
-        <WindowNav onBack={() => {}}>
-          <WindowNavIdentity face={<UserIcon size={20} />} name="Jane Doe with a deliberately long display name" selected={false} onClick={() => {}} />
-          <WindowGroup label="Settings">
-            <WindowNavItem icon={<SettingsIcon size={14} />} label="Settings" selected onClick={() => {}} />
-            <WindowNavItem icon={<AgentIcon size={14} />} label="Agents" count={3} trail={<WindowNavStateMark><Dot state="signin" /></WindowNavStateMark>} selected={false} onClick={() => {}} />
-            <WindowNavItem icon={<UsageIcon size={14} />} label="Usage" count={2} selected={false} onClick={() => {}} />
-          </WindowGroup>
-        </WindowNav>
-      </div>
-      <WindowPage>
-        <PageHead title="Settings" blurb="The full-window page uses the same reading measure and rail in every destination." />
-      </WindowPage>
-    </div>
-    <p className={styles.rule}>
-      The rail uses the shipped identity and destination rows, including the selected fill, trailing count and status mark.
-    </p>
-  </>
-)
-
 const FaceBoard = () => (
   <>
-    <Specimen caption="Face at its sizes, and one drawn into a DetailHead">
+    <Specimen caption="Face at its sizes, and one drawn into a subject summary">
     <div className={styles.stack}>
       <div>
         <Face avatar={null} size={24} /> <Face avatar="astronaut" size={24} /> <Face avatar="pirate" size={24} />{' '}
         <Face avatar={null} size={44} /> <Face avatar="wizard" size={44} />
       </div>
-      <DetailHead
-        mark={<Face avatar="wizard" size={44} />}
-        name="Jane Doe"
-        blurb="A person's head: the face they chose, drawn through the canonical avatar primitive."
-      />
+      <SectionHead name="Jane Doe" description="A person's face, drawn through the canonical avatar primitive." />
     </div>
     </Specimen>
     <p className={styles.rule}>
@@ -2253,15 +2213,9 @@ export const BOARDS: Board[] = [
   },
   {
     id: 'head',
-    title: 'PageHead · DetailHead',
+    title: 'Page and subject type',
     about: 'Naming the screen you are on, and the thing you drilled into.',
     render: HeadBoard,
-  },
-  {
-    id: 'app-window',
-    title: 'AppWindow',
-    about: 'Full-window navigation and page chrome for places a person goes to read.',
-    render: AppWindowBoard,
   },
   {
     id: 'face',

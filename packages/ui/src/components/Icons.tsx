@@ -4,7 +4,7 @@ import { IconTile } from '../design/ui/icon-tile'
 import type { LucideIcon, LucideProps } from 'lucide-react'
 import {
   Activity,
-  AppWindow,
+  AppWindow as DesktopIconGlyph,
   Archive,
   ArrowDownAZ,
   ArrowDownToLine,
@@ -467,7 +467,7 @@ export const EffortMaxIcon = icon(Signal, 'EffortMaxIcon')
 export const ResponsiveIcon = icon(MonitorSmartphone, 'ResponsiveIcon')
 export const MobileIcon = icon(Smartphone, 'MobileIcon')
 export const TabletIcon = icon(Tablet, 'TabletIcon')
-export const DesktopIcon = icon(AppWindow, 'DesktopIcon')
+export const DesktopIcon = icon(DesktopIconGlyph, 'DesktopIcon')
 /** Chromium's own inspector, on the page in the pane. */
 export const DevToolsIcon = icon(Code, 'DevToolsIcon')
 /** The same thing, in a full window. */

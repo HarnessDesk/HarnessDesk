@@ -40,6 +40,11 @@ export const TerminalToggle = () => {
 }
 export const TerminalMenuItem = ({ close }: { close: () => void }) => {
   const { on, run } = useTerminalToggle()
+  const snapshot = useSnapshot()
+  const destination = snapshot.workbench.navigation.current
+  const cwd = destination.kind === 'changes-review' ? destination.root
+    : snapshot.sessions.get(snapshot.activeSessionKey!)?.cwd ?? snapshot.workspace?.path
+  if (!cwd) return null
   return <MenuItem label="Terminal" icon={<TerminalIcon size={16} />} selected={on}
     shortcut={chordOf(SHORTCUTS.find(one => one.action === 'toggle-terminal')!)}
     onSelect={() => { run(); close() }} />

@@ -25,6 +25,8 @@ export interface TopBarTab {
 export interface TopBarProps {
   readonly lead?: ReactNode
   readonly parent?: { readonly label: string; readonly run: () => void }
+  readonly parents?: readonly { readonly label: string; readonly run: () => void }[]
+  readonly mark?: ReactNode
   readonly place: ReactNode
   readonly state?: ReactNode
   readonly tabs?: readonly TopBarTab[]
@@ -91,7 +93,7 @@ export const TopBar = (props: TopBarProps) => {
     observer?.observe(node)
     if (props.rightColumnWidth && tools.current) observer?.observe(tools.current)
     return () => { observer?.disconnect() }
-  }, [props.place, props.parent?.label, Boolean(props.view), props.state, props.tab, props.tabs, props.verb?.label, props.verb?.icon, props.lead, props.tools, props.rightColumnWidth])
+  }, [props.place, props.parent?.label, props.parents?.map(one => one.label).join('\0'), props.mark, Boolean(props.view), props.state, props.tab, props.tabs, props.verb?.label, props.verb?.icon, props.lead, props.tools, props.rightColumnWidth])
   useLayoutEffect(() => {
     // Probe every intrinsic stage before paint. RAF-separated renders exposed
     // expanded slots beside the retained menu on live publications. Layout
@@ -100,10 +102,11 @@ export const TopBar = (props: TopBarProps) => {
     if (!node || fold !== measuredFold.current) return
     const title = place.current
     const parent = title?.parentElement
-    const crumb = parent?.querySelector('button')
+    const siblings = parent ? [...parent.children].filter(child => child !== title) : []
     const gap = Number.parseFloat(getComputedStyle(node).getPropertyValue('--hd-bar-gap')) || 0
+    const occupied = siblings.reduce((sum, child) => sum + child.getBoundingClientRect().width, 0) + siblings.length * gap
     const width = title ? Math.min(title.getBoundingClientRect().width,
-      (parent?.getBoundingClientRect().width ?? title.getBoundingClientRect().width) - (crumb ? crumb.getBoundingClientRect().width + gap : 0)) : 0
+      (parent?.getBoundingClientRect().width ?? title.getBoundingClientRect().width) - occupied) : 0
     const titleMin = Number.parseFloat(getComputedStyle(node).getPropertyValue('--hd-bar-title-min'))
     if (width >= titleMin || fold === 3 || (fold === 2 && (!props.verb || props.verb.icon))) {
       setSettledFold(fold)
@@ -131,12 +134,16 @@ export const TopBar = (props: TopBarProps) => {
     tabFocusOwner.current = null
     previousFold.current = settledFold
   }, [settledFold])
+  const parents = props.parents ?? (props.parent ? [props.parent] : [])
+  const shownParents = fold >= 2 ? parents.slice(-1) : parents
+  const foldedParents = fold >= 2 ? parents.slice(0, -1) : []
   const current = props.tabs?.find(one => one.value === props.tab)
   return <Bar as="header" data-content-inset="frame" corner={props.corner} className={`${styles.bar} hd-drag`}>
     <div data-slot="top-bar" data-fold={fold} className={styles.row} ref={node => { root.current = node }}>
       <div data-topbar="lead" className={styles.fixed}>{props.lead}</div>
       <div data-topbar="place" className={styles.place}>
-        {props.parent && <Button variant="link" size="inline-link" onClick={props.parent.run}>{props.parent.label} ›</Button>}
+        {shownParents.map((one, index) => <Button key={`${index}:${one.label}`} className="hd-no-drag" variant="link" size="inline-link" onClick={one.run}>{one.label} ›</Button>)}
+        {props.mark && <span data-topbar-mark className={styles.fixed}>{props.mark}</span>}
         <div ref={place} data-topbar-title className={styles.title}><Text role="subject" truncate>{props.place}</Text></div>
       </div>
       {fold === 0 && <div data-topbar="state" className={styles.fixed}>{props.state}</div>}
@@ -166,7 +173,7 @@ export const TopBar = (props: TopBarProps) => {
         {close => <Menu close={close}>{(fold === 3 || settledFold === 3) && props.verb && !props.verb.icon && <>
           <MenuItem icon={<ArrowRightIcon size={16} />} label={props.verb.label} disabled={props.verb.disabled} onSelect={() => { props.verb?.run(); close() }} />
           <MenuSeparator />
-        </>}{props.more(close)}{props.extraMore?.map(one => <MenuItem
+        </>}{foldedParents.map((one, index) => <MenuItem key={`${index}:${one.label}`} icon={<ArrowRightIcon size={16} />} label={one.label} onSelect={() => { one.run(); close() }} />)}{props.more(close)}{props.extraMore?.map(one => <MenuItem
           key={one.label} icon={one.icon ?? <ArrowRightIcon size={16} />} label={one.label} disabled={one.disabled} onSelect={() => { one.run(); close() }} />)}</Menu>}
       </Popover></div></div>
     </div>

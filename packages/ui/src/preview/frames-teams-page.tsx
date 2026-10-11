@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { AppWindowMode } from '../components/AppWindow'
+import { PagePreview } from './page-preview'
 import { TeamsWindow } from '../components/TeamsWindow'
 import { StoreProvider } from '../state/context'
 import { teamsPageStore, TEAMS_PAGE_STATES, type TeamsScene } from './teams-page-fixture'
@@ -7,7 +7,7 @@ import { teamsPageStore, TEAMS_PAGE_STATES, type TeamsScene } from './teams-page
 export const TeamsExample=({scene}:{scene:TeamsScene})=>{
  const finished=new URLSearchParams(window.location.search).get('finished')
  const store=useMemo(()=>teamsPageStore(scene,finished==='before'||finished==='after'?finished:undefined),[scene,finished])
- return <div className={scene==='narrow'?'relative h-176 max-w-sm':'relative h-144'} style={{transform:'translateZ(0)'}}><StoreProvider store={store}><AppWindowMode.Provider value="embedded"><TeamsWindow onClose={()=>{}} initialFilter={scene==='needs-you'||scene==='settled'?scene:'active'}/></AppWindowMode.Provider></StoreProvider></div>
+ return <div className={scene==='narrow'?'relative h-176 max-w-sm':'relative h-144'} style={{transform:'translateZ(0)'}}><PagePreview fixture={store} page={{kind:'teams',filter:scene==='needs-you'||scene==='settled'?scene:'active'}} /></div>
 }
 export const TeamsPageBoard=()=> <div className="flex flex-col gap-4">{TEAMS_PAGE_STATES.map(scene=><section key={scene} data-catalog-state={scene}><TeamsExample scene={scene}/></section>)}</div>
 export const TeamsPageFrames=()=> <div className="flex flex-col gap-4 p-4">{TEAMS_PAGE_STATES.map(scene=><section key={scene} id={`teams-page-${scene}`}><TeamsExample scene={scene}/></section>)}</div>

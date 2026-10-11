@@ -6,13 +6,15 @@ import { runtimeId, type AgentEntry, type RuntimeInfo, type SeatPlan } from '@ha
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
+import { DestinationPageScope } from '../panels/destination-page'
+import { installTopBarTestLayout } from '../test/top-bar-layout'
+installTopBarTestLayout()
+import { agentsDestinationStore } from '../preview/agents-destination-fixture'
+import { PREVIEW_SESSION_KEY } from '../preview/harness'
 import { AgentsWindow } from './AgentsWindow'
 
-/**
- * The Agents window: the left-menu screen (never Settings) that reads the
- * roster once, on opening, and shows either the overview (every Agent, in
- * precedence order) or one Agent's own page, selected from the rail.
- */
+/** The controlled Agents destination reads only while active and uses the shell bar. */
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -85,12 +87,12 @@ const PLANS = new Map<string, SeatPlan>([
   ],
 ])
 
-const mount = (focus: string | null = null) => {
+const mount = (focus: string | null = null, active = true) => {
   const snapshot = {
     ...emptySnapshot(),
     status: 'open',
-    home: '/Users/dev',
-    stateDir: '/Users/dev/.harnessdesk',
+    home: '/home/dev',
+    stateDir: '/home/dev/.harnessdesk',
     runtimes: [{ id: runtimeId('claude-code'), capabilities: {}, presentation: { name: 'Claude' } } as unknown as RuntimeInfo],
     agents: ROSTER,
     agentPlans: PLANS,
@@ -129,68 +131,76 @@ const mount = (focus: string | null = null) => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <AgentsWindow focus={focus} onClose={onClose} onFocus={onFocus} />
+        <TopBarProvider><DestinationPageScope owner="destination:agents" active={active}><AgentsWindow focus={focus} onFocus={onFocus} /></DestinationPageScope><TopBarOutlet owner="destination:agents" fallback={{ place: 'Agents', more: () => null }} /></TopBarProvider>
       </StoreProvider>,
     )
   })
   return { store, onClose, onFocus }
 }
 
-const navItem = (label: string): HTMLButtonElement => {
-  const found = [...container.querySelectorAll('nav button')].find((one) => one.textContent?.includes(label))
-  if (!found) throw new Error(`no nav row reading “${label}”`)
-  return found as HTMLButtonElement
-}
-
 it('reads the roster once, on opening', () => {
   const { store } = mount()
-  expect(store.loadAgents).toHaveBeenCalled()
+  expect(store.loadAgents).toHaveBeenCalledTimes(1)
 })
-
-it('the rail leads with All Agents, then the roster grouped by origin', () => {
+it('Agents in main has one page and no private rail or a redundant return action', () => {
   mount()
-  expect(navItem('All Agents')).toBeDefined()
-  expect(navItem('Code reviewer')).toBeDefined()
-  expect(navItem('Judge')).toBeDefined()
-  expect(navItem('draft')).toBeDefined()
+  expect(container.querySelector('[data-slot="app-window"]')).toBeNull()
+  expect(container.querySelector('nav')).toBeNull()
+  expect(container.textContent).not.toContain(['Back', 'to', 'app'].join(' '))
+  expect(container.querySelector('[data-slot="page"]')?.getAttribute('data-width')).toBe('wide')
 })
-
-it('shows the overview when nothing is selected, and a placeholder once an Agent is', () => {
-  mount(null)
-  expect(container.textContent).toContain('Who does the work')
-
-  const { onFocus } = mount(null)
-  act(() => navItem('Code reviewer').click())
+it('the roster records a named route through its caller', () => {
+  const { onFocus } = mount()
+  const row = [...container.querySelectorAll('button')].find(button => button.textContent?.startsWith('Code reviewer'))!
+  act(() => row.click())
   expect(onFocus).toHaveBeenCalledWith('code-reviewer')
 })
-
-it('a selected Agent gets its own page, not the overview', () => {
-  mount('code-reviewer')
-  expect(container.textContent).not.toContain('Who does the work')
-  // The Agent's own page (Task 15) — a drill, not a settings section: no page title, its name in the head instead.
+it('a named Agent uses the reading page and the parent crumb in the shared bar', () => {
+  const { onFocus } = mount('code-reviewer')
+  expect(container.querySelector('[data-slot="page"]')?.getAttribute('data-width')).toBe('reading')
+  const parent = [...container.querySelectorAll('button')].find(button => button.textContent === 'Agents ›')!
+  expect(parent).toBeTruthy()
+  act(() => parent.click())
+  expect(onFocus).toHaveBeenCalledWith(null)
   expect(container.querySelector('[data-slot="page-title"]')).toBeNull()
-  expect(container.textContent).toContain('Code reviewer does the work.')
+})
+it('a missing focused Agent falls back to the roster and wide measure', () => {
+  mount('missing-agent')
+  expect(container.textContent).toContain('Who does the work')
+  expect(container.querySelector('[data-slot="page"]')?.getAttribute('data-width')).toBe('wide')
 })
 
-it('wears a state mark for an Agent that will not parse', () => {
-  mount()
-  const row = navItem('draft')
-  // Shared Sidebar keeps the button and its one trailing badge as siblings.
-  const item = row.closest('[data-slot="sidebar-menu-item"]')
-  expect(item?.querySelector('[data-state="broken"]')).not.toBeNull()
+for (const refused of [false, true]) it(`a ${refused ? 'refused' : 'successful'} start keeps the real destination contract`, async () => {
+  const store = agentsDestinationStore(new URLSearchParams('frame-wall=agents&frame-detail=agent'))
+  const original = store.transport.request.bind(store.transport)
+  const returnToWork = vi.spyOn(store, 'returnToWork')
+  const seed = store.getSnapshot()
+  const plan = seed.agentPlans.get('code-reviewer')!
+  const session = seed.sessions.get(PREVIEW_SESSION_KEY)!
+  store.transport.request = (async (method, params) => {
+    if (method === 'agent/seat/dry') return [{ ...plan, winner: refused ? null : plan.winner }]
+    if (method === 'agent/seat') return session
+    return original(method, params as never)
+  }) as typeof store.transport.request
+  await act(async () => root.render(<StoreProvider store={store}><TopBarProvider>
+    <DestinationPageScope owner="destination:agents" active><AgentsWindow focus="code-reviewer" onFocus={() => {}} /></DestinationPageScope>
+    <TopBarOutlet owner="destination:agents" fallback={{ place: 'Agents', more: () => null }} />
+  </TopBarProvider></StoreProvider>))
+  const start = container.querySelector<HTMLButtonElement>('[data-topbar="verb"] button')!
+  expect(start).toBeTruthy()
+  await act(async () => { start.click() })
+  expect(returnToWork).not.toHaveBeenCalled()
+  if (refused) {
+    expect(store.getSnapshot().workbench.navigation.current).toEqual({ kind: 'agents', id: 'code-reviewer' })
+    expect(store.getSnapshot().seatRefusal?.agent).toBe('code-reviewer')
+  } else {
+    expect(store.getSnapshot().workbench.navigation.current.kind).toBe('work')
+    expect(store.getSnapshot().activeSessionKey).toBe(PREVIEW_SESSION_KEY)
+  }
 })
 
-it('wears a state mark for an Agent that cannot be seated here', () => {
-  mount()
-  const row = navItem('Judge')
-  const item = row.closest('[data-slot="sidebar-menu-item"]')
-  expect(item?.querySelector('[data-state]')).not.toBeNull()
-  // Never the reason inline in the rail — the overview page says why; the rail only marks it.
-  expect(row.textContent).not.toContain('signed out')
-})
-
-it('an Agent that can be seated wears no state mark', () => {
-  mount()
-  const row = navItem('Code reviewer')
-  expect(row.querySelector('[data-state]')).toBeNull()
+it('a retained inactive Agents page does not load its roster or claim the bar', () => {
+  const { store } = mount(null, false)
+  expect(store.loadAgents).not.toHaveBeenCalled()
+  expect(container.querySelector('[data-topbar="verb"] button')).toBeNull()
 })

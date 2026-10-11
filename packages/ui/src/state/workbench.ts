@@ -1,3 +1,4 @@
+import { destinationOf, readDestinationHistory, type DestinationHistory } from './destinations'
 import { FRAME } from '../design/frame'
 import { supportsFixedTool, toolOf, chooseTool, readToolIntents, type ToolIntent } from './frame-tools'
 import type { UiArea } from '@harnessdesk/protocol'
@@ -6,6 +7,7 @@ import {
   close as closePane,
   emptyLayout,
   findPane,
+  focusedPane,
   focus as focusPane,
   onlyMainViews,
   openView,
@@ -261,6 +263,7 @@ export interface Zoom {
  */
 
 export interface Workbench {
+  readonly navigation: DestinationHistory
   readonly frameTools: Readonly<Record<string, ToolIntent>>
   readonly toolOwners: Readonly<Record<MountedId, string>>
   readonly frameSubjects: Readonly<Record<string, { paneId: PaneId; view: PaneView }>>
@@ -298,15 +301,24 @@ export const emptyDock = (area: DockId): Dock => ({
   collapsed: false,
 })
 
-export const emptyWorkbench = (): Workbench => ({
-  frameTools: {}, toolOwners: {}, frameSubjects: {},
-  sidebar: emptyDock('sidebar'),
-  main: emptyLayout(),
-  right: emptyDock('right'),
-  bottom: emptyDock('bottom'),
-  zoom: null,
-  focus: null,
-})
+export const navigationFor = (main: Layout): DestinationHistory => {
+  const view = focusedPane(main).view
+  return { current: destinationOf(view.kind === 'conversation' || view.kind === 'room' ? view : { kind: 'conversation', session: null }), back: [], forward: [] }
+}
+
+export const emptyWorkbench = (): Workbench => {
+  const main = emptyLayout()
+  return {
+    navigation: navigationFor(main),
+    frameTools: {}, toolOwners: {}, frameSubjects: {},
+    sidebar: emptyDock('sidebar'),
+    main,
+    right: emptyDock('right'),
+    bottom: emptyDock('bottom'),
+    zoom: null,
+    focus: null,
+  }
+}
 
 // ------------------------------------------------------------------ reading
 
@@ -1300,6 +1312,7 @@ export const readWorkbench = (raw: unknown, windowHeight = 900): Workbench | nul
   }
 
   return {
+    navigation: readDestinationHistory(record['navigation'], navigationFor(main).current),
     frameTools: readToolIntents(record.frameTools), toolOwners, frameSubjects,
     sidebar: readDock('sidebar', record['sidebar'], windowHeight),
     main,

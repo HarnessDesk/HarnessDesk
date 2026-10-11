@@ -159,6 +159,8 @@
 --hd-fade = linear-gradient(to right, #000 calc(100% - 16px), transparent)
 --hd-fade-edge = 16px
 --hd-field-h = 30px
+--hd-field-name-width = 220px
+--hd-field-path-width = 280px
 --hd-focus-ring = 0 0 0 2px rgb(52, 88, 240)
 --hd-font-cjk-fallback = 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans CJK KR'
 --hd-font-cjk-ja = 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP'
@@ -314,6 +316,7 @@
 --hd-table-line-gap = 2px
 --hd-table-log-head-h = 28px
 --hd-table-name-size = 14px
+--hd-table-page-max-height = 50dvh
 --hd-table-row-h = 26px
 --hd-table-row-min = 56px
 --hd-table-row-min-bare = 44px
@@ -349,12 +352,6 @@
 --hd-tint-violet-fill = rgba(155, 92, 215, 0.14)
 --hd-tint-violet-ink = rgb(133, 77, 187)
 --hd-title = 24px
---hd-title-rule = rgba(9, 12, 17, 0.05)
---hd-title-rule-gap = 12px
---hd-title-rule-mark = rgb(52, 88, 240)
---hd-title-rule-mark-height = 2px
---hd-title-rule-mark-width = 24px
---hd-title-rule-width = 1px
 --hd-titlebar-height = 40px
 --hd-titlebar-lights = 78px
 --hd-toggle-height-sm = 18px
@@ -713,6 +710,8 @@
 --hd-fade = linear-gradient(to right, #000 calc(100% - 16px), transparent)
 --hd-fade-edge = 16px
 --hd-field-h = 30px
+--hd-field-name-width = 220px
+--hd-field-path-width = 280px
 --hd-focus-ring = 0 0 0 2px rgb(112, 142, 250)
 --hd-font-cjk-fallback = 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans CJK KR'
 --hd-font-cjk-ja = 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP'
@@ -868,6 +867,7 @@
 --hd-table-line-gap = 2px
 --hd-table-log-head-h = 28px
 --hd-table-name-size = 14px
+--hd-table-page-max-height = 50dvh
 --hd-table-row-h = 26px
 --hd-table-row-min = 56px
 --hd-table-row-min-bare = 44px
@@ -903,12 +903,6 @@
 --hd-tint-violet-fill = rgba(155, 92, 215, 0.14)
 --hd-tint-violet-ink = rgb(184, 132, 240)
 --hd-title = 24px
---hd-title-rule = rgba(255, 255, 255, 0.05)
---hd-title-rule-gap = 12px
---hd-title-rule-mark = rgb(112, 142, 250)
---hd-title-rule-mark-height = 2px
---hd-title-rule-mark-width = 24px
---hd-title-rule-width = 1px
 --hd-titlebar-height = 40px
 --hd-titlebar-lights = 78px
 --hd-toggle-height-sm = 18px
@@ -1272,6 +1266,8 @@
 --hd-fade = linear-gradient(to right, #000 calc(100% - 16px), transparent)
 --hd-fade-edge = 16px
 --hd-field-h = 30px
+--hd-field-name-width = 220px
+--hd-field-path-width = 280px
 --hd-focus-ring = 0 0 0 3px color-mix(in srgb, rgb(52, 88, 240) 45%, transparent)
 --hd-font-cjk-fallback = 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans CJK KR'
 --hd-font-cjk-ja = 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP'
@@ -1431,6 +1427,7 @@
 --hd-table-line-gap = 2px
 --hd-table-log-head-h = 28px
 --hd-table-name-size = 14px
+--hd-table-page-max-height = 50dvh
 --hd-table-row-h = 26px
 --hd-table-row-min = 56px
 --hd-table-row-min-bare = 44px
@@ -1466,12 +1463,6 @@
 --hd-tint-violet-fill = rgba(155, 92, 215, 0.14)
 --hd-tint-violet-ink = rgb(133, 77, 187)
 --hd-title = 24px
---hd-title-rule = rgba(9, 12, 17, 0.05)
---hd-title-rule-gap = 12px
---hd-title-rule-mark = rgb(52, 88, 240)
---hd-title-rule-mark-height = 2px
---hd-title-rule-mark-width = 24px
---hd-title-rule-width = 1px
 --hd-titlebar-height = 40px
 --hd-titlebar-lights = 78px
 --hd-toggle-height-sm = 18px
@@ -1835,6 +1826,8 @@
 --hd-fade = linear-gradient(to right, #000 calc(100% - 16px), transparent)
 --hd-fade-edge = 16px
 --hd-field-h = 30px
+--hd-field-name-width = 220px
+--hd-field-path-width = 280px
 --hd-focus-ring = 0 0 0 3px color-mix(in srgb, rgb(112, 142, 250) 55%, transparent)
 --hd-font-cjk-fallback = 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans CJK KR'
 --hd-font-cjk-ja = 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP'
@@ -1994,6 +1987,7 @@
 --hd-table-line-gap = 2px
 --hd-table-log-head-h = 28px
 --hd-table-name-size = 14px
+--hd-table-page-max-height = 50dvh
 --hd-table-row-h = 26px
 --hd-table-row-min = 56px
 --hd-table-row-min-bare = 44px
@@ -2029,12 +2023,6 @@
 --hd-tint-violet-fill = rgba(155, 92, 215, 0.14)
 --hd-tint-violet-ink = rgb(184, 132, 240)
 --hd-title = 24px
---hd-title-rule = rgba(255, 255, 255, 0.05)
---hd-title-rule-gap = 12px
---hd-title-rule-mark = rgb(112, 142, 250)
---hd-title-rule-mark-height = 2px
---hd-title-rule-mark-width = 24px
---hd-title-rule-width = 1px
 --hd-titlebar-height = 40px
 --hd-titlebar-lights = 78px
 --hd-toggle-height-sm = 18px

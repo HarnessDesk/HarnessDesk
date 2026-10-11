@@ -1,10 +1,12 @@
+import { useDestinationActive } from '../panels/destination-page'
 import { useEffect, useRef, useState } from 'react'
 import type { RuntimeId, RuntimeResources as Cost } from '@harnessdesk/protocol'
 import { accountKey, accountName, agentKey } from '../lib/accounts'
-import { Button, Chip, Note, SectionHead, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../design'
+import { Button, Chip, Note, SectionHead, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 
 export const RuntimeResources = ({ runtime }: { readonly runtime?: RuntimeId }) => {
+  const active = useDestinationActive()
   const store = useStore()
   const snapshot = useSnapshot()
   const [costs, setCosts] = useState<readonly Cost[]>([])
@@ -13,6 +15,7 @@ export const RuntimeResources = ({ runtime }: { readonly runtime?: RuntimeId }) 
   const request = useRef(0)
   const [busy, setBusy] = useState<RuntimeId | null>(null)
   useEffect(() => {
+    if (!active) { epoch.current++; return }
     ++epoch.current
     setBusy(null)
     let live = true
@@ -29,7 +32,7 @@ export const RuntimeResources = ({ runtime }: { readonly runtime?: RuntimeId }) 
     }
     void read()
     return () => { live = false; epoch.current++; clearTimeout(timer) }
-  }, [store, runtime])
+  }, [store, runtime, active])
   const recycle = async (id: RuntimeId): Promise<void> => {
     if (busy !== null) return
     const ownEpoch = epoch.current
@@ -63,7 +66,7 @@ export const RuntimeResources = ({ runtime }: { readonly runtime?: RuntimeId }) 
     {rows.length > 0 && <Table density="compact" inset="row">
       <TableHeader><TableRow><TableHead>Runtime</TableHead><TableHead numeric>Processes</TableHead><TableHead numeric>Resident memory</TableHead><TableHead align="end">Idle runtime</TableHead></TableRow></TableHeader>
       <TableBody>{rows.map((cost) => <TableRow key={cost.runtime}>
-        <TableHead variant="row" className="whitespace-normal break-words">{nameFor(cost.runtime)}</TableHead>
+        <TableHead variant="row"><Text role="prose">{nameFor(cost.runtime)}</Text></TableHead>
         <TableCell numeric>{cost.processes === null ? 'Unavailable' : `${cost.processes} ${cost.processes === 1 ? 'process' : 'processes'}`}</TableCell>
         <TableCell numeric>{cost.residentBytes === null ? 'Unavailable' : `${Math.round(cost.residentBytes / 1024 / 1024)} MiB`}</TableCell>
         <TableCell align="end"><Button size="sm" variant="outline" title={cost.reason ?? undefined} aria-label={`Recycle idle ${nameFor(cost.runtime)}`} disabled={!cost.canRecycle || busy !== null} onClick={() => { void recycle(cost.runtime) }}>Recycle</Button></TableCell>

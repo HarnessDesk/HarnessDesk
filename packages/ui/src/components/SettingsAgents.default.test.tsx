@@ -1,3 +1,4 @@
+import { RuntimesTestPage as RuntimesSection } from '../test-support/settings-page'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -13,12 +14,7 @@ import {
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { RuntimesSection } from './SettingsAgents'
-
-/** Default is a neutral mode on a record's name line. Detail pages still
- * report readiness separately; a neutral list mode must not erase that fact. */
-
-;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let container: HTMLDivElement
 let root: Root
@@ -137,7 +133,7 @@ const click = async (node: Element | null | undefined, what: string): Promise<vo
 
 const back = async (): Promise<void> => {
   await click(
-    [...container.querySelectorAll('button')].find((node) => node.textContent?.trim() === 'Runtimes'),
+    [...container.querySelectorAll('button')].find((node) => node.textContent?.trim() === 'Runtimes ›'),
     'the back link',
   )
 }
@@ -206,7 +202,7 @@ it('lists an agent as one line that opens its page, with nothing to fold', async
   await mount({ accountsByRuntime: { [CLAUDE]: signedIn } } as unknown as Partial<AppSnapshot>)
   // The accounts are not a fold under the line any more: the line says who
   // it is signed in as, and its page holds the rest.
-  expect(container.querySelector('button[aria-expanded]')).toBeNull()
+  expect(container.querySelector('[data-slot="rows"] button[aria-expanded]')).toBeNull()
   expect(agentName()?.textContent).toContain('olivia@acme.dev')
   await click(agentName(), 'the agent name')
   expect([...container.querySelectorAll('[data-slot="section-name"]')].map((node) => node.textContent)).toContain('Accounts')

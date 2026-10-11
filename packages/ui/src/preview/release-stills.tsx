@@ -1,19 +1,19 @@
+import { CurrentPagePreview } from './page-preview'
 import type { ComponentProps } from 'react'
 import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
 /** Public, frozen camera fixtures; every visible control is the production component. */
 import { useEffect, useMemo, useState } from 'react'
 import type { FlowPreview, LedgerReport } from '@harnessdesk/protocol'
 import { StagedRun } from '../../site-demo/fake-run'
-import { AppWindowMode } from '../components/AppWindow'
+import { SignInMode } from '../components/SignInMode'
 import { FlowStart, type FlowChoice } from '../components/FlowStart'
 import { Sidebar } from '../components/Sidebar'
 import { TeamFramePreview } from './TeamFramePreview'
 import { TeamRunView } from '../components/TeamRunView'
 import { TeamsWindow } from '../components/TeamsWindow'
-import { Usage } from '../components/Usage'
 import { LibrarySection } from '../components/Library'
 import { PluginsSection } from '../components/PluginsSection'
-import { Bar, Button, FormStack, PageHead, PaneColumn } from '../design'
+import { Bar, Button, FormStack, SectionHead, PaneColumn } from '../design'
 import { runTimeline } from '../lib/run-timeline'
 import { StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
@@ -107,7 +107,7 @@ const StartPreview = () => {
   const initial = useMemo(() => ({ source: RUN_FLOW_SOURCE, vars: {
     task: 'Retry the checkout call on a 502', brief: 'Bound the retry attempts and keep the final failure visible.' }, attended: true }), [])
   return <PaneColumn inset="reading" className="py-6"><FormStack>
-    <PageHead title="Start with a team" />
+    <SectionHead name="Start with a team" />
     <FlowStart root="/work/storefront" initial={initial} onChange={setChoice} />
     <Bar><Button disabled={!choice}>Start</Button><Button variant="secondary">Cancel</Button></Bar>
   </FormStack></PaneColumn>
@@ -142,11 +142,9 @@ const PickedRun = () => {
 const Body = ({ scene }: { scene: string }) => {
   useTheme()
   if (SITE_SCENES.includes(scene)) return <SiteStills scene={scene} />
-  if (scene === 'library' || scene === 'plugin-permissions') return <PaneColumn inset="reading" className="py-6"><FormStack>
-    {scene === 'library' && <LibrarySection />}
-    <PluginsSection />
-  </FormStack></PaneColumn>
-  if (scene === 'teams') return <TeamsWindow onClose={() => {}} />
+  if (scene === 'library') return <CurrentPagePreview page={{kind:'library',section:'skill'}} />
+  if (scene === 'plugin-permissions') return <CurrentPagePreview page={{kind:'plugins',section:'capabilities',id:null}} />
+  if (scene === 'teams') return <CurrentPagePreview page={{kind:'teams',filter:'active'}} />
   if (scene === 'project-sidebar') return <div className="flex h-full">
     <div className="w-80 shrink-0"><Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenTeams={() => {}} onOpenAgents={() => {}}
       onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} /></div>
@@ -157,7 +155,7 @@ const Body = ({ scene }: { scene: string }) => {
   if (scene === 'run-picked') return <PickedRun />
   if (scene === 'race-tiles') return <TeamFramePreview room={PREVIEW_ROOM} view={{ kind: 'room', framePage: 'room', room: PREVIEW_ROOM,
     sideBySide: { tiles: SIDE_BY_SIDE_KEYS.slice(0, 2), focused: SIDE_BY_SIDE_KEYS[0], modes: { [SIDE_BY_SIDE_KEYS[0]!]: 'browser' } } }} />
-  return <Usage view={scene === 'dashboard-plans' ? 'plans' : 'activity'} onClose={() => {}} />
+  return <CurrentPagePreview page={{kind:'dashboard',view:scene==='dashboard-plans'?'plans':'activity',scope:null}} />
 }
 
 export const ReleaseStills = () => {
@@ -184,6 +182,6 @@ export const ReleaseStills = () => {
     } }) as AppStore
   }, [scene])
   return <div data-release-still={scene} className="flex h-screen flex-col bg-background text-foreground">
-    <StoreProvider store={own}><AppWindowMode.Provider value="embedded"><Body scene={scene} /></AppWindowMode.Provider></StoreProvider>
+    <StoreProvider store={own}><SignInMode.Provider value="embedded"><Body scene={scene} /></SignInMode.Provider></StoreProvider>
   </div>
 }
