@@ -4,7 +4,7 @@ import { sidebarGeometryFixture } from './sidebar-geometry-fixture'
 import { runTeamStore, equivalentRunFixture, type RunScene } from './run-view-fixture'
 import { sidebarStructureFixture } from './sidebar-structure-fixture'
 import { useEffect, useMemo, useState } from 'react'
-import { contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, turnId, type UiContribution, type BackgroundTask, type RuntimeId } from '@harnessdesk/protocol'
+import { contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, turnId, type AcpRegistryAgentInfo, type UiContribution, type BackgroundTask, type RuntimeId } from '@harnessdesk/protocol'
 import { installPanelComponent } from '../slots/PanelBlocks'
 
 installPanelComponent()
@@ -211,6 +211,20 @@ export const FrameWall = () => {
   const query = new URLSearchParams(location.search)
   const store = useMemo(() => {
     const next = storeFor(destination)
+    if (query.get('layout-registry') === '1') {
+      next.acpRegistry = async () => ({
+        agents: Array.from({ length: 10 }, (_, index): AcpRegistryAgentInfo => ({
+          id: `preview-runtime-${index + 1}`,
+          name: `Runtime ${String(index + 1).padStart(2, '0')}`,
+          version: '1.0.0',
+          description: 'Synthetic registry entry for layout checks.',
+          run: 'npx',
+          available: true,
+          registered: false,
+        })),
+        fetchedAt: 1,
+      })
+    }
     // Additional Details states for the same real frame; all data is synthetic.
     const detailsCase = query.get('frame-details-case')
     const snapshot = next.getSnapshot()

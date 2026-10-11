@@ -665,7 +665,7 @@ export const SectionHead = ({
           <span className={styles.sectionDescription} data-slot="section-description">{description}</span>
         )}
       </div>
-      {action}
+      {action != null && <div className={styles.sectionAction} data-slot="section-action">{action}</div>}
     </div>
   </div>
   )

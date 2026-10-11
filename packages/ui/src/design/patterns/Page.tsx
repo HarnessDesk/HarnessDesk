@@ -19,16 +19,18 @@ export type PageWidth = 'reading' | 'wide' | 'canvas'
  * four edges. A surface that brings its own geometry — a terminal, a diff,
  * a graph — bleeds instead of taking a page.
  *
- * Blocks inside sit one dense step apart, the gap between a label and the card
- * it names; a `Section` brings its own larger step. A Team's Findings drew its
+ * Blocks inside sit one stack gap (`--hd-card-gap`) apart; a `Section` brings
+ * its own larger step. A Team's Findings drew its
  * facts against the sidebar, a button across the window and a switch in the
  * middle of it because nothing told the page what width it was.
  */
-export const Page = ({ width, children, ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'className' | 'style'> & {
+export const Page = ({ width, gutter = 'page', children, ...props }: Omit<HTMLAttributes<HTMLDivElement>, 'className' | 'style'> & {
   readonly width: PageWidth
+  /** `none` lets an enclosing frame own the inset while this pattern owns its stack and measure. */
+  readonly gutter?: 'page' | 'none'
   readonly children: ReactNode
-}) => (
-  <PaneColumn {...(width === 'canvas' ? { inset: 'canvas' as const } : { inset: 'reading' as const, page: true })} data-slot="page" data-width={width} className={styles.page} {...props}>
-    {children}
-  </PaneColumn>
-)
+}) => {
+  const attributes = { 'data-slot': 'page', 'data-width': width, 'data-gutter': gutter, className: styles.page, ...props }
+  if (gutter === 'none') return <div {...attributes}>{children}</div>
+  return <PaneColumn {...(width === 'canvas' ? { inset: 'canvas' as const } : { inset: 'reading' as const, page: true })} {...attributes}>{children}</PaneColumn>
+}

@@ -5,7 +5,7 @@
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  gap: var(--hd-space-2);
+  gap: var(--hd-card-gap); /* desk: 8 → 12, the page's shared block stack. */
   width: 100%;
   margin-inline: auto;
 }
@@ -16,4 +16,21 @@
 
 .page[data-width='wide'] {
   max-width: calc(var(--hd-page-wide) + 2 * var(--hd-page-gutter));
+}
+
+.page[data-gutter='none'][data-width='reading'] {
+  max-width: var(--hd-column);
+}
+
+.page[data-gutter='none'][data-width='wide'] {
+  max-width: var(--hd-page-wide);
+}
+
+.page > * {
+  margin-block: 0;
+}
+
+.page > [data-slot='section'][data-variant='page']:not(:first-child),
+.page > [data-section-head]:not(:first-child) {
+  margin-block-start: calc(var(--hd-space-8) - var(--hd-card-gap));
 }

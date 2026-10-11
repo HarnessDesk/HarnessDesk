@@ -80,6 +80,7 @@ it('a reading inspector keeps its reading body and gives ordinary controls their
   expect(host.querySelector('[data-slot="bar"]')).toBeNull()
   expect(host.querySelector('[data-slot="inspector-body"] [data-slot="pane-column"]')!.getAttribute('data-inset')).toBe('reading')
   expect(host.querySelector('[data-slot="inspector-body"]')!.className).not.toContain('p-2')
+  expect(host.querySelector('[data-slot="inspector-body"]')!.className).toContain('gap-(--hd-card-gap)')
 })
 
 it('clamps prompts to two lines in secondary ink while allowing full refusal sentences', () => {

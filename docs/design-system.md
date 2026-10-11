@@ -1746,8 +1746,8 @@ Reading and wide pages keep the reading inset (`--hd-page-gutter`) on all
 four edges. A surface that brings its own geometry — a terminal, a diff,
 a graph — bleeds instead of taking a page.
 
-Blocks inside sit one dense step apart, the gap between a label and the card
-it names; a `Section` brings its own larger step. A Team's Findings drew its
+Blocks inside sit one stack gap (`--hd-card-gap`) apart; a `Section` brings
+its own larger step. A Team's Findings drew its
 facts against the sidebar, a button across the window and a switch in the
 middle of it because nothing told the page what width it was.
 
@@ -2246,6 +2246,6 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawColour` | 0 | Will not follow a palette or theme change. |
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 76 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
-| `pageMeasureInScreen` | 21 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2840 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `pageMeasureInScreen` | 20 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
+| `screenLayout` | 2838 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
 

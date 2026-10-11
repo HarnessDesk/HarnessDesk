@@ -23,6 +23,7 @@ import {
   PageHeadingProvider,
   MenuItem,
   type PageHeadingData,
+  Page,
 } from '../design'
 import { createContext, useContext, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 import { Clipped } from '../design'
@@ -284,8 +285,6 @@ export const WindowNavStateMark = ({ children }: { children: ReactNode }) => (
  */
 export const WindowPage = ({ wide, children }: { wide?: boolean; children: ReactNode }) => (
   <AppWindowPage className={styles.page} data-hd-density="comfortable">
-    <div className={styles.pageInner} {...(wide ? { 'data-wide': '' } : {})}>
-      {children}
-    </div>
+    <Page width={wide ? 'wide' : 'reading'} gutter="none">{children}</Page>
   </AppWindowPage>
 )

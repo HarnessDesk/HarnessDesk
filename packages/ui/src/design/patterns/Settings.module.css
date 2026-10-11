@@ -847,9 +847,20 @@
 
 .sectionHeadContent {
   display: flex;
+  flex-wrap: wrap;
   flex: 1;
   align-items: flex-end;
   gap: var(--hd-space-3);
+  min-width: 0;
+}
+
+.sectionAction {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hd-space-2);
+  max-width: 100%;
   min-width: 0;
 }
 
@@ -935,7 +946,7 @@
 
 .sectionHeadText {
   display: flex;
-  flex: 1;
+  flex: 1 1 20ch; /* desk: title gets a readable basis before controls move to their own row. */
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0 var(--hd-space-2);
@@ -945,8 +956,19 @@
 /* The word over a settings card is a group label, not another page title: it
    is drawn by `GroupLabel`, and only its place in the head is said here. */
 .sectionName {
-  flex: none;
+  flex: 0 1 auto; /* desk: long headings surrender width and ellipsize before reaching their action. */
+  min-width: 0;
+  overflow: hidden;
   margin: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sectionName [data-role='section'] {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sectionDescription {

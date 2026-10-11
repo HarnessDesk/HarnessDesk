@@ -60,16 +60,26 @@ it('a titled Section is a named region with a group label over its content', () 
   expect(section.lastElementChild?.textContent).toBe('the card')
 })
 
-it('a Section owns its spacing: 8px from head to card, 32px between sections, and no child margin', () => {
+it('a Section owns its spacing: the stack gap inside, 32px between sections, and no child margin', () => {
   const section = draw(<Section title="File"><p>card</p></Section>)
   const own = classes(section)
-  expect(own).toContain('gap-(--hd-space-2)')
+  expect(own).toContain('gap-(--hd-card-gap)')
   expect(own).toContain('mt-(--hd-space-8)')
   expect(own).toContain('first:mt-0')
   // A card's or a note's own margin cannot reopen the gap the section decided.
   expect(own).toContain('*:my-0!')
   // The head sits on its card: a taller action grows upward.
   expect(classes(section.querySelector('[data-slot="section-head"]'))).toContain('items-end')
+})
+
+it('wraps section controls below a truncated title when the row cannot hold both', () => {
+  const section = draw(<Section title="A title that may be longer than the available measure" action={<Button>Actions</Button>} />)
+  const heading = section.querySelector('[data-slot="section-head"]')
+  const name = heading?.querySelector('[data-section-name]')
+  const action = heading?.querySelector('[data-slot="section-action"]')
+  expect(heading?.className).toContain('flex-wrap')
+  expect(name?.className).toContain('truncate')
+  expect(action?.textContent).toBe('Actions')
 })
 
 it('a Section action sits in the head, after the label', () => {
@@ -90,6 +100,11 @@ it('an untitled Section is still the boxed region it was', () => {
   expect(section.dataset['variant']).toBe('quiet')
   expect(section.hasAttribute('aria-label')).toBe(false)
   expect(section.querySelector('[data-slot="section-head"]')).toBeNull()
+})
+
+it('panel sections use the shared stack gap between their blocks', () => {
+  const section = draw(<Section variant="panel"><p>first block</p><p>second block</p></Section>)
+  expect(classes(section)).toContain('gap-(--hd-card-gap)')
 })
 
 it('GroupLabel is 13px, secondary ink and sentence case, and never uppercases', () => {

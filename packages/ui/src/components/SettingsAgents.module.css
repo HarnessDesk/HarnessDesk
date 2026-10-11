@@ -75,7 +75,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
   grid-auto-rows: 1fr; /* desk: auto → 1fr, every row as tall as the tallest, which the cell's min-height used to promise */
-  gap: var(--hd-space-2); /* desk: 8 → var(--hd-space-2), on the scale */
+  gap: var(--hd-card-gap); /* desk: 8 → 12, match card stacks and space the registry filter. */
 }
 
 .registryCell {

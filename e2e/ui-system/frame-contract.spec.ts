@@ -209,6 +209,94 @@ for (const theme of WALL_THEMES) for (const width of WALL_WIDTHS) {
   })
 }
 
+const layoutDestinations = (() => {
+  const seen = new Set<string>()
+  return WALL_DESTINATIONS.filter(destination => {
+    if (destination.surface === 'pattern' || destination.id.startsWith('popup-') || destination.query.includes('popup=')) return false
+    if (destination.popup || destination.leftPopup || destination.hover || destination.focus || destination.plan || destination.infoTarget || destination.infoFocus || destination.contextInfo || destination.memberInfo || destination.account || destination.inbox || destination.undo || destination.git || destination.select || destination.composerAdd) return false
+    const key = [new URLSearchParams(destination.query).get('frame-wall'), destination.query.includes('layout-registry=1') ? 'layout-registry' : '', destination.tab, destination.viewChoice, destination.tool, destination.holdMessages].join('|')
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
+})()
+
+test('shared heading and page or panel stacks hold across preview destinations', async ({ page }) => {
+  test.setTimeout(120_000)
+  const stackGap = await resolvedPx(page, '--hd-card-gap')
+  for (const destination of layoutDestinations) {
+    await openFrame(page, destination.query, 'light', 1440)
+    await applyFrameActions(page, destination)
+    if (destination.id === 'settings-runtimes-add') {
+      await page.getByRole('button', { name: 'Add a runtime', exact: true }).click()
+      await expect(page.getByRole('searchbox', { name: 'Search the ACP registry' })).toBeVisible()
+    }
+    const issues = await page.evaluate(minimum => {
+      const failures: string[] = []
+      for (const head of document.querySelectorAll<HTMLElement>('[data-section-head], [data-slot="section-head"]')) {
+        const name = head.querySelector<HTMLElement>('[data-slot="section-name"], [data-section-name]')
+        const action = head.querySelector<HTMLElement>('[data-slot="section-action"]')
+        if (!name || !action || !name.getClientRects().length || !action.getClientRects().length) continue
+        const one = name.getBoundingClientRect(), two = action.getBoundingClientRect()
+        if (one.left < two.right && two.left < one.right && one.top < two.bottom && two.top < one.bottom) {
+          failures.push(`heading overlaps its control: ${name.textContent?.trim() ?? 'section'}`)
+        }
+      }
+      const selector = [
+        '[data-slot="rows"]', '[data-slot="card"]', '[data-slot="summary-list"]',
+        '[data-slot="note"]', '[data-slot="banner"]', '[data-slot="search"]',
+        '[data-slot="table-container"]', '[data-slot="tool-pane-message"]',
+        '[data-slot="tool-pane-empty"]', '[data-slot="inspector-empty"]',
+        '[data-slot="section"][data-variant="card"]', '[data-slot="section"][data-variant="quiet"]',
+        '[data-slot="section"][data-variant="panel"]',
+      ].join(',')
+      const roots = document.querySelectorAll<HTMLElement>(
+        '[data-slot="page"], [data-slot="app-window-page"], [data-slot="tool-pane-body"], [data-slot="inspector-body"], [data-slot="section"][data-variant="panel"]',
+      )
+      for (const root of roots) {
+        const candidates = [...root.querySelectorAll<HTMLElement>(selector)].filter(node => {
+          const rect = node.getBoundingClientRect()
+          return rect.width > 0 && rect.height > 0 && !node.parentElement?.closest(selector)
+        })
+        for (let index = 0; index < candidates.length; index++) for (let next = index + 1; next < candidates.length; next++) {
+          const a = candidates[index]!.getBoundingClientRect(), b = candidates[next]!.getBoundingClientRect()
+          const overlapX = Math.min(a.right, b.right) - Math.max(a.left, b.left)
+          const overlapY = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
+          const gapY = a.bottom <= b.top ? b.top - a.bottom : b.bottom <= a.top ? a.top - b.bottom : null
+          const gapX = a.right <= b.left ? b.left - a.right : b.right <= a.left ? a.left - b.right : null
+          const gap = overlapX > 0 ? gapY : overlapY > 0 ? gapX : null
+          if (gap !== null && gap < minimum - 0.5) {
+            failures.push(`adjacent surfaces are ${gap.toFixed(1)}px apart (${candidates[index]!.dataset['slot']} / ${candidates[next]!.dataset['slot']})`)
+          }
+        }
+      }
+      return [...new Set(failures)]
+    }, stackGap)
+    expect(issues, `${destination.id} violates a shared layout rule`).toEqual([])
+  }
+
+  await openFrame(page, 'frame-wall=dashboard', 'light', 720)
+  const dashboardIssues = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('[data-section-head]')].flatMap(head => {
+    const name = head.querySelector<HTMLElement>('[data-slot="section-name"]')
+    const action = head.querySelector<HTMLElement>('[data-slot="section-action"]')
+    if (!name || !action || !name.getClientRects().length || !action.getClientRects().length) return []
+    const one = name.getBoundingClientRect(), two = action.getBoundingClientRect()
+    return one.left < two.right && two.left < one.right && one.top < two.bottom && two.top < one.bottom
+      ? [`${name.textContent?.trim() ?? 'section'} overlaps its control`] : []
+  }))
+  expect(dashboardIssues, 'Dashboard section headings must remain clear of their controls when narrow').toEqual([])
+
+  await openFrame(page, 'frame-wall=settings-runtimes&layout-registry=1', 'light', 1440)
+  await page.getByRole('button', { name: 'Add a runtime', exact: true }).click()
+  const search = page.locator('[data-slot="search"]').filter({ has: page.getByRole('searchbox', { name: 'Search the ACP registry' }) })
+  await expect(search).toBeVisible()
+  const searchBottom = (await search.boundingBox())!.y + (await search.boundingBox())!.height
+  const firstCard = page.locator('[data-slot="card"]').first()
+  await expect(firstCard).toBeVisible()
+  const firstCardBox = (await firstCard.boundingBox())!
+  expect(firstCardBox.y - searchBottom).toBeGreaterThanOrEqual(stackGap - 0.5)
+})
+
 for (const theme of WALL_THEMES) {
   for (const width of WALL_WIDTHS) {
     test(`Owner fix 2 frame reaches bottom and More retains Terminal at ${width} in ${theme}`, async ({ page }) => {
