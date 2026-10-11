@@ -11,7 +11,7 @@ import { sidebarGeometryFixture } from './sidebar-geometry-fixture'
 import { runTeamStore, equivalentRunFixture, type RunScene } from './run-view-fixture'
 import { sidebarStructureFixture } from './sidebar-structure-fixture'
 import { useEffect, useMemo, useState } from 'react'
-import { contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, turnId, type AcpRegistryAgentInfo, type CapabilityContribution, type UiContribution, type AgentItem, type BackgroundTask, type ConfigOption, type RuntimeId } from '@harnessdesk/protocol'
+import { contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, turnId, type AcpRegistryAgentInfo, type CapabilityContribution, type UiContribution, type AgentItem, type BackgroundTask, type ConfigOption, type HostMethodName, type RuntimeId } from '@harnessdesk/protocol'
 import { installPanelComponent } from '../slots/PanelBlocks'
 
 installPanelComponent()
@@ -219,6 +219,18 @@ export const FrameWall = () => {
     // Additional Details states for the same real frame; all data is synthetic.
     const detailsCase = query.get('frame-details-case')
     const snapshot = next.getSnapshot()
+    if (destination === 'conversation' && query.get('frame-palette-files') === '1') {
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = (async (method: HostMethodName, params: unknown, options?: { signal?: AbortSignal }) => {
+        if (method === 'workspace/files') {
+          const needle = (params as { query: string }).query.toLowerCase()
+          return needle.includes('sweep-index')
+            ? [{ path: '/work/storefront/src/sweep-index.ts', relativePath: 'src/sweep-index.ts', kind: 'file' as const, score: 100 }]
+            : []
+        }
+        return request(method, params as never, options)
+      }) as typeof next.transport.request
+    }
     if (query.get('frame-settings-round4') === '1') {
       const base = snapshot.runtimes[0]!
       const names = ['Codex', 'Claude', 'Cursor', 'Gemini', 'DeepSeek', 'Windsurf',
