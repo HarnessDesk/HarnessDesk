@@ -109,3 +109,14 @@ test('stopping a waiting Team removes its command approval', async ({ page }) =>
   await expect(page.getByRole('region', { name: 'Needs you', exact: true })).toHaveCount(0)
   await expect(page.getByRole('banner')).not.toContainText('Needs you')
 })
+
+test('settled Team Receipt and Findings share the kept finding and count', async ({ page }) => {
+  for (const theme of ['light', 'dark'] as const) {
+    await openFrame(page, 'frame-wall=team-receipt&frame-fix8-receipt-finding=1', 1280, theme)
+    await expect(page.getByRole('tab', { name: 'Findings 1', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Missing null check on the checkout path/ })).toBeVisible()
+    await page.getByRole('tab', { name: 'Findings 1', exact: true }).click()
+    await expect(page.getByRole('region', { name: 'Findings', exact: true })).toContainText('Missing null check on the checkout path')
+    await expect(page.getByText('No findings recorded', { exact: true })).toHaveCount(0)
+  }
+})

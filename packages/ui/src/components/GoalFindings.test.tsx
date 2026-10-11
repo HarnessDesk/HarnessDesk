@@ -694,3 +694,14 @@ it('identifies restored findings in the muted list metadata', async () => {
   expect(rows.find(one => one.textContent?.includes('#restored'))?.textContent).toContain('from a backup')
   expect(rows.find(one => one.textContent?.includes('#live'))?.textContent).not.toContain('from a backup')
 })
+
+it('a wrapped Team reads the same frozen findings as its Receipt without a live ledger', async () => {
+  const kept = goalView()
+  const { store } = rig(undefined, { goals: new Map([['g1', { ...kept, goal: { ...kept.goal, state: 'wrapped' }, receipt: {
+    version: 1, id: 'receipt', goal: 'g1', sentence: 'Ship it', wrappedAt: 1, summary: 'Kept result', cards: [], seats: [], answers: [], evidence: [], lanes: [], revisions: [], citations: [], gaps: [],
+    findings: { version: 1, findings: [row('f-open')], evidence: [], overrides: [] },
+  } }]]) })
+  await render(store)
+  expect(container.textContent).toContain('Title of f-open')
+  expect(store.loadFindings).not.toHaveBeenCalled()
+})

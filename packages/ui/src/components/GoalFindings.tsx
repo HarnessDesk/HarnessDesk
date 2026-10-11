@@ -24,7 +24,7 @@ import {
   ToolPaneMessage,
 } from '../design'
 import { ReviewIcon } from './Icons'
-import { blockingWords, FILTER_LABEL, goalHasBoundPr, lifecycleTone, lifecycleWords, type FindingFilter } from '../lib/findings'
+import { emptyFindingsState, blockingWords, FILTER_LABEL, goalHasBoundPr, lifecycleTone, lifecycleWords, type FindingFilter } from '../lib/findings'
 import { goalRunLabel, goalRunOf, goalRunsOf } from '../lib/goal-run'
 import { usePane, useSnapshot, useStore } from '../state/context'
 import { useTopBarView } from '../panels/top-bar'
@@ -48,7 +48,6 @@ type OpenedFinding = Readonly<{ finding: string; originRun: string | null }>
 export const GoalFindings = ({ goal }: { readonly goal: string }) => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const state = snapshot.findings.get(goal)
   const [opened, setOpened] = useState<OpenedFinding | null>(null)
   const [deciding, setDeciding] = useState(false)
   const [publicationPending, setPublicationPending] = useState<boolean | null>(null)
@@ -56,6 +55,14 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
 
   const goalView = snapshot.goals.get(goal)
   const record = isRecord(goalView)
+  const [recordFilter, setRecordFilter] = useState<FindingFilter>('all')
+  const frozen = record ? goalView?.receipt?.findings?.findings : undefined
+  const open = frozen?.filter(one => !one.lifecycle.confirmed) ?? []
+  const blocking = open.filter(one => (one.activeBlocking ?? one.blocking) && !one.inactiveReason)
+  const state = frozen ? { ...emptyFindingsState(recordFilter),
+    rows: recordFilter === 'open' ? open : recordFilter === 'blocking' ? blocking : frozen,
+    totals: { all: frozen.length, open: open.length, blocking: blocking.length },
+  } : snapshot.findings.get(goal)
   /* The same run the room's header reads, among those keeping findings (#890),
      unless the person chose an earlier one to read as history. */
   const live = goalRunOf(goal, goalView, snapshot.flowExecutions, (one) => Boolean(one.findings))
@@ -75,8 +82,9 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
   const goalOpen = goalView !== undefined && goalView.goal.state === 'open'
 
   useEffect(() => {
-    void store.loadFindings(goal, 'all')
-  }, [store, goal])
+    setRecordFilter('all')
+    if (!frozen) void store.loadFindings(goal, 'all')
+  }, [store, goal, frozen])
 
   useEffect(() => {
     if (run) void store.loadFindingRun(goal, run.id)
@@ -89,7 +97,8 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
   const filter = state?.filter ?? 'all'
   const setFilter = (next: FindingFilter): void => {
     if (next === filter) return
-    void store.loadFindings(goal, next)
+    if (frozen) setRecordFilter(next)
+    else void store.loadFindings(goal, next)
   }
 
   const boundPr = goalHasBoundPr(snapshot.boardEvidence.get(goal))

@@ -1,3 +1,4 @@
+import { PREVIEW_FINDINGS } from './findings-fixture'
 import { dashboardDestinationStore } from './dashboard-destination-fixture'
 import { agentsDestinationStore } from './agents-destination-fixture'
 import { pluginsDestinationStore } from './plugins-destination-fixture'
@@ -227,6 +228,19 @@ export const FrameWall = () => {
     // Additional Details states for the same real frame; all data is synthetic.
     const detailsCase = query.get('frame-details-case')
     const snapshot = next.getSnapshot()
+    if (destination === 'team-receipt' && query.get('frame-fix8-receipt-finding') === '1') {
+      const goal = snapshot.goals.get('overview-team')!
+      const finding = { ...PREVIEW_FINDINGS[0]!, ownerGoal: goal.goal.id, origin: { ...PREVIEW_FINDINGS[0]!.origin, goal: goal.goal.id } }
+      Object.assign(snapshot, { goals: new Map(snapshot.goals).set(goal.goal.id, { ...goal, receipt: {
+        ...goal.receipt!, findings: { version: 1, evidence: [], findings: [finding], overrides: [] },
+      } }), findings: new Map() })
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = (async (method, params) => {
+        if (method === 'finding/list') return { goal: goal.goal.id, stamp: 'receipt-ledger', rows: [finding],
+          next: null, totals: { all: 1, open: 1, blocking: 1 }, problem: null }
+        return request(method, params as never)
+      }) as typeof next.transport.request
+    }
     if (destination === 'team' && query.get('frame-fix8-stop') === '1') {
       Object.assign(snapshot, { approvals: snapshot.approvals.map(({ key, approval }) => ({ key, approval: {
         id: approval.id, sessionId: approval.sessionId, requestedAt: approval.requestedAt, type: 'command', command: 'echo synthetic', cwd: '/work/storefront', actions: [],

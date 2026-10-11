@@ -1020,7 +1020,9 @@ export const TeamRoomPane = ({
   useEffect(() => { void store.loadBoardEvidence(room).catch(() => undefined) }, [store, room])
   const detailsRun = timelineRun ?? flowExecution
   const pullRequest = runPullRequest(open === 'run' ? timelineRun : flowExecution, snapshot.boardEvidence.get(room))
-  const findingCount = snapshot.findingRuns.get(flowExecution?.id ?? '')?.open
+  const findingCount = isRecord(goal) && goal?.receipt?.findings
+    ? goal.receipt.findings.findings.length
+    : snapshot.findings.get(room)?.totals?.all ?? snapshot.findingRuns.get(flowExecution?.id ?? '')?.open
   const toggleSideBySide = () => {
     if (open === 'side-by-side') return show(selectedPage.current)
     if (roster.length === 0) return
