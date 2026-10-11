@@ -49,11 +49,16 @@ afterEach(() => {
   container.remove()
 })
 
-const mount = (terminals: readonly TerminalView[]): AppStore => {
+const mount = (terminals: readonly TerminalView[], withFolder = true): AppStore => {
   const base = emptySnapshot()
   // The shells live in the bottom panel now, docked the way anything is.
   const workbench = terminals.reduce((acc, view) => dock(acc, 'bottom', view), base.workbench)
-  const snapshot: AppSnapshot = { ...base, workbench, layout: workbench.main }
+  const snapshot: AppSnapshot = {
+    ...base,
+    workspace: withFolder ? { path: '/synthetic/project', name: 'Synthetic project', lastOpenedAt: 1 } : null,
+    workbench,
+    layout: workbench.main,
+  }
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
@@ -94,6 +99,13 @@ it('opens a terminal when the dock is empty', () => {
   expect(button().getAttribute('aria-label')).toBe('Open terminal')
   press()
   expect([opened, closed]).toEqual([1, 0])
+})
+
+it('does not open a terminal when work has no folder', () => {
+  mount([], false)
+  expect(button().getAttribute('aria-label')).toBe('Open terminal')
+  press()
+  expect([opened, closed]).toEqual([0, 0])
 })
 
 it('closes the dock instead of opening a second shell', () => {

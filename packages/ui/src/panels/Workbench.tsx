@@ -20,6 +20,7 @@ import { dismissOverlays } from '../design'
 import { ComposerMountsProvider, NoticeStripFallback, NoticeStripOutlet } from '../components/Notices'
 import { Panes } from '../components/Panes'
 import { terminalName, terminalPathTitle } from '../lib/terminal-labels'
+import { terminalCwdForSnapshot } from '../lib/terminal-scope'
 import { KeyboardHereContext, PaneProvider, useSnapshot, useStore, type PaneScope } from '../state/context'
 import { findPane, sameView, type PaneView } from '../state/layout'
 import type { TerminalView } from '../state/layout'
@@ -210,7 +211,7 @@ export const Workbench = ({ sidebar, suspended = false, pages, pageActive = fals
   useFloatingSidebar(floating && !suspended, sidebarBox, main)
   const standingSidebar = column ? workbench.sidebar.size : 0
   const rightWidth = pageActive ? 0 : effectiveRightWidth(workbench, snapshot.windowWidth, standingSidebar)
-  const bottomHeight = effectiveBottomHeight(workbench, snapshot.windowHeight)
+  const bottomHeight = terminalCwdForSnapshot(snapshot) ? effectiveBottomHeight(workbench, snapshot.windowHeight) : 0
   const retainedRight = Math.min(workbench.right.size, Math.max(0, snapshot.windowWidth - FRAME.page.canvasGutter))
   const frameStyle = {
     '--frame-left-size': `${standingSidebar}px`, '--frame-left': 'var(--frame-left-drag, var(--frame-left-size))',
@@ -363,7 +364,7 @@ const BottomPanel = () => {
     }
   })
   const workActive = useContext(WorkActive)
-  const shown = workActive && effectiveBottomHeight(workbench, snapshot.windowHeight) > 0
+  const shown = workActive && Boolean(terminalCwdForSnapshot(snapshot)) && effectiveBottomHeight(workbench, snapshot.windowHeight) > 0
   const noticeHost = shown && noticeArea(workbench, snapshot.windowWidth) === 'bottom'
   return <>
     {shown && <AreaSeam area="bottom" orientation="horizontal" label="Resize the bottom panel" direction={-1} />}

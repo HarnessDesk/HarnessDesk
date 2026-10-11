@@ -1,8 +1,7 @@
 import { CrossIcon, PlusIcon } from '../../components/Icons'
 import { Button } from '../ui/button'
 import { Tabs, TabsList } from '../ui/tabs'
-import { ToolPaneBar } from '../ui/tool-pane'
-import { DockPanelTab } from './DockPanel'
+import { DockPanelBar, DockPanelTab } from './DockPanel'
 
 export interface TerminalShellTab {
   readonly id: string
@@ -27,7 +26,7 @@ export const TerminalShellTabs = ({
   readonly onNewShell: () => void
   readonly onCloseTerminal: () => void
 }) => (
-  <ToolPaneBar variant="terminal" data-terminal-shell-tabs="">
+  <DockPanelBar data-terminal-shell-tabs="">
     <Tabs
       value={value}
       onValueChange={(next) => onValueChange(String(next))}
@@ -65,5 +64,5 @@ export const TerminalShellTabs = ({
         onClick={onCloseTerminal}
       ><CrossIcon size={12} /></Button>
     </span>
-  </ToolPaneBar>
+  </DockPanelBar>
 )

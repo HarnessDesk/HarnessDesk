@@ -129,7 +129,8 @@ afterEach(() => {
 })
 
 const rig = (build: (start: Model) => Model = (start) => start, extra: Partial<AppSnapshot> = {}) => {
-  let snapshot = { ...emptySnapshot(), status: 'open', windowWidth: 1440, windowHeight: 900, ...extra } as AppSnapshot
+  let snapshot = { ...emptySnapshot(), workspace: { path: '/synthetic/project', name: 'Synthetic project' },
+    status: 'open', windowWidth: 1440, windowHeight: 900, ...extra } as AppSnapshot
   // Raw compatibility fixtures retain payloads and original scopes. Right
   // and bottom project the fixed shell; the sidebar payload stays compatibility-only.
   const compatibility = Object.keys(snapshot.workbench.frameTools).length === 0
@@ -559,13 +560,13 @@ it('the arrow keys move a seam the way they point, on both edges', () => {
   expect(harness.snapshot.workbench.right.size).toBe(before)
 })
 
-it('one terminal process has no duplicate frame strip', () => {
+it('one terminal process uses one panel bar for its shell tabs', () => {
   const { store } = rig(start => dock(start, 'bottom', { kind: 'terminal', terminalId: 't1', runtime: 'codex' as never, cwd: '/repo/api' }))
   render(store)
   expect(tabs()).toEqual(['api'])
   expect(container.querySelector('[data-terminal-shell-tabs]')).not.toBeNull()
   expect(container.querySelectorAll('[data-terminal-mount]')).toHaveLength(1)
-  expect(container.querySelector('[data-slot="dock-panel-bar"]')).toBeNull()
+  expect(container.querySelectorAll('[data-slot="dock-panel-bar"]')).toHaveLength(1)
   expect(container.querySelector('[data-slot="dock-panel-tabs"]')).toBeNull()
 })
 
