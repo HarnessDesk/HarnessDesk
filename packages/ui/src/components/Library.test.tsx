@@ -1,4 +1,4 @@
-import { act, useLayoutEffect } from 'react'
+import { act, useLayoutEffect, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
@@ -9,6 +9,8 @@ import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { LibrarySection } from './Library'
 import { SkillList } from './SkillRow'
+import { DestinationPageScope } from '../panels/destination-page'
+import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
 
 /** The home every `~/…` path in these fixtures hangs off; the page prints them back with the tilde. */
 const HOME = '/home/u'
@@ -104,6 +106,22 @@ const library = (entries: readonly LibraryEntry[]): Library => ({
   gaps: [],
 })
 
+const LibraryHarness = ({ initialFlow = null }: { readonly initialFlow?: 'import' | null }) => {
+  const [section, setSection] = useState<'skill' | 'mcp'>('skill')
+  return <TopBarProvider><DestinationPageScope owner="destination:library" active>
+    <LibrarySection section={section} onSection={setSection} importIntent={initialFlow === 'import' ? 1 : 0} />
+  </DestinationPageScope><TopBarOutlet owner="destination:library" fallback={{place:'Fallback',more:()=>null}} /></TopBarProvider>
+}
+const chooseKind = async (kind: 'skill' | 'mcp') => {
+  let choice = document.body.querySelector<HTMLElement>(`[role="tab"][data-team-page="${kind}"]`)
+  if (!choice) {
+    await act(async () => document.body.querySelector<HTMLButtonElement>('[title="Destination views"]')?.click())
+    choice = document.body.querySelector<HTMLElement>(`[role="menuitemradio"][data-team-page="${kind}"]`)
+  }
+  expect(choice).not.toBeNull()
+  await act(async () => choice!.click())
+}
+
 const mount = async (
   value: Library,
   usage?: LibraryUsage,
@@ -152,7 +170,7 @@ const mount = async (
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
-        <LibrarySection initialFlow={options.initialFlow ?? null} />
+        <LibraryHarness initialFlow={options.initialFlow ?? null} />
       </StoreProvider>,
     )
   })
@@ -168,11 +186,9 @@ const mount = async (
  * later cannot silently re-point these at the wrong one.
  */
 const showMatrix = async (): Promise<void> => {
-  const button = [
-    ...document.body.querySelectorAll('[role="radiogroup"][aria-label="How to show the library"] [role="radio"]'),
-  ].find((node) => node.textContent === 'Matrix') as HTMLButtonElement | undefined
-  expect(button, 'the view switch should offer the matrix').toBeTruthy()
-  await act(async () => button?.click())
+  const select = document.body.querySelector<HTMLSelectElement>('select[aria-label="How to show the library"]')!
+  expect(select).not.toBeNull()
+  await act(async () => { select.value = 'matrix'; select.dispatchEvent(new Event('change', { bubbles: true })) })
 }
 
 /**
@@ -205,10 +221,9 @@ const chooseFilter = async (label: string): Promise<void> => {
   await act(async () => row?.click())
 }
 const chooseAgent = async (name: string): Promise<void> => {
-  await openFilter()
-  const declared = [...document.body.querySelectorAll<HTMLElement>('button')].find((node) => node.textContent?.startsWith('Declared by'))
-  expect(declared, 'the Filter menu should offer the Agent picker once a roster exists').toBeTruthy()
-  await act(async () => declared?.click())
+  const trigger = document.body.querySelector<HTMLButtonElement>('[title="Declared by"]')!
+  expect(trigger).not.toBeNull()
+  await act(async () => trigger.click())
   const row = filterRow(name)
   expect(row, `the Agent picker should offer ${name}`).toBeTruthy()
   await act(async () => row?.click())
@@ -286,41 +301,22 @@ it('a count with nothing to show is not offered', async () => {
   expect(counts.some((text) => text?.startsWith('Everything'))).toBe(true)
 })
 
-it('the toolbar is one row: listing, search, filter and view, and a clear-filter command only for the filter that is on', async () => {
+it('the first body options own search, filter and view; the selected filter can be left', async () => {
   await mount(library([entry('good', ['reaches', 'reaches']), entry('empty', ['hollow', 'absent'])]))
-  const toolbar = document.body.querySelector('[data-slot="library-toolbar"]') as HTMLElement | null
-  expect(toolbar, 'the page should have one toolbar').toBeTruthy()
-  expect(toolbar?.querySelector('[aria-label="What the library is listing"]')).toBeTruthy()
-  expect(toolbar?.querySelector('input[aria-label="Filter the library by name"]')).toBeTruthy()
-  expect(toolbar?.contains(filterTrigger())).toBe(true)
-  expect(toolbar?.querySelector('[aria-label="How to show the library"]')).toBeTruthy()
-  // At rest, the menu's one piece of news is on its button: how many have a problem, in amber.
-  expect(filterTrigger().querySelector('[data-tone="warning"]')?.textContent).toBe('1')
-  expect(filterTrigger().getAttribute('title')).toBe('Filter the library — 1 with a problem')
-  // The filters and the view wrap as one group, so List | Matrix is never alone on a line.
-  const group = toolbar?.querySelector('[data-slot="toolbar"]') as HTMLElement | null
-  expect(group?.contains(filterTrigger())).toBe(true)
-  expect(group?.querySelector('[aria-label="How to show the library"]')).toBeTruthy()
-  // The counts live in the menu, where a problem's number keeps its amber.
-  expect(document.body.querySelector('[data-slot="library-count"]')).toBeNull()
-  expect(document.body.querySelector('select[aria-label="Agent"]')).toBeNull()
+  const options = document.body.querySelector('[data-slot="page-options"]')!
+  expect(options.querySelector('[aria-label="Search library"]')).not.toBeNull()
+  expect(options.querySelector('[aria-label="How to show the library"]')).not.toBeNull()
+  expect(options.contains(filterTrigger())).toBe(true)
+  expect(document.body.querySelector('[data-slot="library-toolbar"]')).toBeNull()
   await openFilter()
-  expect(filterRow('Empty on disk')?.querySelector('[data-tone="warning"]')?.textContent).toBe('1')
-  // A filter that is on is a clear-filter command in the toolbar, so the narrowed list
-  // says why — and pressing it lets go.
+  expect(filterRow('Empty on disk')?.textContent).toContain('1')
   await act(async () => filterRow('Empty on disk')?.click())
-  const pill = [...(toolbar?.querySelectorAll<HTMLButtonElement>('button[title="Show everything again"]') ?? [])].find((node) => node.textContent === 'Empty on disk')
-  expect(pill, 'the filter that is on should be a clear-filter command').toBeTruthy()
-  expect(filterTrigger().textContent).toBe('Filter')
-  expect(cards().length).toBe(1)
-  // From the pill itself, as a keyboard reaches it: the pill goes away with
-  // the filter, and the focus goes to Filter, where the next choice is made.
-  act(() => pill?.focus())
-  expect(document.activeElement).toBe(pill)
-  await act(async () => pill?.click())
-  expect(cards().length).toBe(2)
+  expect(filterTrigger().textContent).toBe('Empty on disk')
+  expect(cards()).toHaveLength(1)
+  await chooseFilter('Everything')
+  expect(cards()).toHaveLength(2)
+  expect(filterTrigger().textContent).toBe('Everything')
   expect(document.activeElement).toBe(filterTrigger())
-  expect([...(toolbar?.querySelectorAll('button[aria-pressed="true"]') ?? [])].some((node) => node.textContent === 'Empty on disk')).toBe(false)
 })
 
 it('opening a row shows every copy and who reads it', async () => {
@@ -382,7 +378,7 @@ it('reports a failed scan instead of an empty library', async () => {
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
-        <LibrarySection />
+        <LibraryHarness />
       </StoreProvider>,
     )
   })
@@ -791,11 +787,7 @@ it('never offers to install a server into an agent with no config file for one',
   }
   // The MCP rows live behind their own tab, and the drawer behind the row.
   const openFetcher = async (): Promise<void> => {
-    await act(async () => {
-      ;[...document.body.querySelectorAll('button')]
-        .find((one) => one.textContent?.startsWith('MCP servers'))
-        ?.click()
-    })
+    await chooseKind('mcp')
     await act(async () => {
       ;[...document.body.querySelectorAll('button')]
         .find((one) => one.textContent?.includes('fetcher'))
@@ -1346,7 +1338,7 @@ it('an agent that refuses toggles gets a sentence, never a switch', async () => 
  */
 const typeSearch = async (text: string): Promise<void> => {
   const box = document.body.querySelector(
-    'input[aria-label="Filter the library by name"]',
+    'input[aria-label="Search library"]',
   ) as HTMLInputElement | null
   expect(box, 'the page should have a search box').toBeTruthy()
   const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
@@ -1730,7 +1722,7 @@ it('Agent filter preserves measured reach: same skill declared by two origins bu
     readAgentAttachments: vi.fn(async (id: string) => viewFor[id]),
   } as unknown as AppStore
   await act(async () => {
-    root.render(<StoreProvider store={store}><LibrarySection /></StoreProvider>)
+    root.render(<StoreProvider store={store}><LibraryHarness /></StoreProvider>)
   })
   // Settle the roster's own declaration read — a microtask past mount.
   await act(async () => {})
@@ -1743,13 +1735,10 @@ it('Agent filter preserves measured reach: same skill declared by two origins bu
   expect(document.body.textContent).toContain('shared-skill')
   expect(document.body.textContent).not.toContain('orphan-skill')
 
-  // The Agent chosen is a clear-filter command; pressing it lets go of the Agent.
-  const agentPill = [...document.body.querySelectorAll<HTMLButtonElement>('[data-slot="library-toolbar"] button[title="Show what every Agent declares"]')].find((node) => node.textContent === 'Agent A')
-  expect(agentPill, 'the chosen Agent should be a clear-filter command').toBeTruthy()
-  act(() => agentPill?.focus())
-  await act(async () => agentPill?.click())
+  // The first-body Agent choice can be cleared through its same menu.
+  await chooseAgent('Any Agent')
   expect(document.body.textContent).toContain('orphan-skill')
-  expect(document.activeElement).toBe(filterTrigger())
+  expect(document.activeElement).toBe(document.body.querySelector('[title="Declared by"]'))
 
   await chooseAgent('Agent A')
 
@@ -1820,7 +1809,7 @@ it('an Agent whose attachments view could not be read is treated as nothing decl
   } as unknown as AppStore
 
   await act(async () => {
-    root.render(<StoreProvider store={store}><LibrarySection /></StoreProvider>)
+    root.render(<StoreProvider store={store}><LibraryHarness /></StoreProvider>)
   })
   // Settle the roster's own declaration read — a microtask past mount, same
   // as the sibling test above.
@@ -1889,8 +1878,7 @@ it('the List responds to its container and retains definition access in the narr
 
 it('the server List uses the same labelled columns, without a skill invocation', async () => {
   await mount(library([entry('workspace-tools', ['reaches', 'absent'], { kind: 'mcp' })]))
-  const kind = [...container.querySelectorAll<HTMLButtonElement>('[role="radio"]')].find(node => node.textContent?.startsWith('MCP servers'))!
-  await act(async () => kind.click())
+  await chooseKind('mcp')
   expect([...container.querySelectorAll('thead th')].map(head => head.textContent)).toEqual(['Server', 'State', 'Loaded by'])
   const row = container.querySelector('tbody tr')!
   expect(row.textContent).not.toContain('/workspace-tools')
@@ -1929,4 +1917,59 @@ it('uses Banner anatomy for the empty-directory alert and keeps cleanup actionab
   const cleanup = [...attention.querySelectorAll('button')].find(button => button.textContent?.includes('Clean up'))!
   await act(async () => cleanup.click())
   expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain('Clean up empty skill directories')
+})
+
+
+it('E6 controlled sections and import intents keep one destination body', async () => {
+  const value = library([entry('alpha', ['reaches', 'absent']), entry('server', ['reaches', 'absent'], { kind: 'mcp' })])
+  const snapshot = { ...emptySnapshot(), status: 'open', agents: [], runtimes: [runtime('one', 'First Agent'), runtime('two', 'Second Agent')] } as AppSnapshot
+  const request = vi.fn(async (method: string) => method === 'library/usage' ? { generatedAt: 1, sessionsScanned: 0, skills: {} } : method === 'audit/query' ? [] : value)
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, transport: { request } } as unknown as AppStore
+  const change = vi.fn()
+  const draw = async (section: 'skill' | 'mcp', intent: number, active = true) => act(async () => root.render(
+    <StoreProvider store={store}><TopBarProvider><DestinationPageScope owner="destination:library" active={active}>
+      <LibrarySection section={section} onSection={change} importIntent={intent} />
+    </DestinationPageScope><TopBarOutlet owner="destination:library" fallback={{ place: 'Fallback', more: () => null }} /></TopBarProvider></StoreProvider>
+  ))
+  await draw('mcp', 0)
+  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Library')
+  expect(container.querySelector('thead')?.textContent).toBe('ServerStateLoaded by')
+  await chooseKind('skill')
+  expect(change).toHaveBeenCalledWith('skill')
+  // The route remains controlled until its owner applies the visit.
+  expect(container.querySelector('thead')?.textContent).toBe('ServerStateLoaded by')
+  await draw('skill', 1)
+  expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Import between agents')
+  const close = document.body.querySelector<HTMLButtonElement>('[role="dialog"] [aria-label="Close"]')!
+  await act(async () => close.click())
+  await draw('skill', 1)
+  expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+  await draw('skill', 2)
+  expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Import between agents')
+  await draw('skill', 2, false)
+  expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+  await draw('skill', 2, true)
+  expect(document.body.querySelector('[role="dialog"]')).toBeNull()
+})
+
+it('E6 hidden Library cancels a late scan before starting usage and rereads on return', async () => {
+  const value = library([entry('fresh', ['reaches', 'absent'])])
+  let reply!: (value: Library) => void
+  const first = new Promise<Library>(resolve => { reply = resolve })
+  const request = vi.fn(async (method: string) => method === 'library/read' ? first
+    : method === 'library/usage' ? {generatedAt:1,sessionsScanned:0,skills:{}} : [])
+  const snapshot = {...emptySnapshot(),status:'open',agents:[]} as AppSnapshot
+  const store = {subscribe:()=>()=>{},getSnapshot:()=>snapshot,transport:{request}} as unknown as AppStore
+  const draw = async (active: boolean) => act(async () => root.render(<StoreProvider store={store}><DestinationPageScope owner="destination:library" active={active}>
+    <LibrarySection section="skill" onSection={()=>{}} importIntent={0} />
+  </DestinationPageScope></StoreProvider>))
+  await draw(true)
+  await draw(false)
+  await act(async () => reply(value))
+  expect(request.mock.calls.filter(call=>call[0]==='library/usage')).toHaveLength(0)
+  expect(container.textContent).not.toContain('fresh')
+  await draw(true)
+  expect(request.mock.calls.filter(call=>call[0]==='library/read')).toHaveLength(2)
+  expect(request.mock.calls.filter(call=>call[0]==='library/usage')).toHaveLength(1)
+  expect(container.textContent).toContain('fresh')
 })

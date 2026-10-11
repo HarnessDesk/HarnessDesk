@@ -173,6 +173,7 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   DashboardBands: ['light', 'dark'],
+  LibraryMatrix: ['default'],
   PageControls: ['default'],
   PageRecords: ['default'],
   PageOptions: ['default'],
@@ -293,6 +294,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   DashboardBands: ['default', 'empty', 'unknown', 'long-title'],
+  LibraryMatrix: ['populated', 'empty', 'long-title'],
   PageControls: ['default', 'disabled'],
   PageRecords: ['default', 'populated', 'long-title', 'folded-state'],
   PageOptions: ['default', 'loading', 'folded-state'],
@@ -444,6 +446,7 @@ Object.assign(SIZES, {
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   DashboardBands: 'packages/ui/src/components/Usage.tsx',
+  LibraryMatrix: 'packages/ui/src/components/Library.tsx',
   PageControls: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   PageRecords: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   PageOptions: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -504,6 +507,7 @@ Object.assign(PATTERN_CONSUMER, { LeftColumn: 'packages/ui/src/components/Sideba
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   DashboardBands: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  LibraryMatrix: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   PageControls: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   PageRecords: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   PageOptions: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -712,6 +716,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['FlowStepRow', 'flow-graph', 'Shared Flow and main Run Timeline step rows with kind, recorded state, time and run count'],
   ['PageRecords', 'page-records', 'Responsive grouped records with aligned facts and isolated row actions'],
   ['PageControls', 'page-controls', 'Labelled page fields, complete explanations and shortcut keys'],
+  ['LibraryMatrix', 'library-matrix', 'Availability columns, inline copies and per-agent catalogue costs'],
   ['PageOptions', 'page-options', 'Current page choices and read actions in the first body block'],
   ['SettingsChoices', 'settings-choices', 'Picture, accent and account ring choices with preserved radio behavior'],
   ['Page', 'app-frame', 'The page template at its reading, wide and canvas measures'],

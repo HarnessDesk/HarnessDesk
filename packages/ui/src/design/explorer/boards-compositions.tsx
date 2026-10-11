@@ -3110,6 +3110,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   {id:'dashboard-bands',title:'Dashboard bands',about:'Long labels, unavailable values and empty source bands in both themes.',render:DashboardBandsBoard},
   {id:'page-records',title:'Page records',about:'Content-width table and list rows, complete reasons and isolated actions.',render:() => <PageRecordsBoard />},
   {id:'page-controls',title:'Page controls',about:'Labelled fields, complete prose and semantic input measures.',render:() => <PageControlsBoard />},
+  {id:'library-matrix',title:'Library matrix',about:'Populated, empty, long-name and overflowing availability records.',render:() => <LibraryMatrixBoard />},
   {id:'page-options',title:'Page options',about:'Current values, pending scope and long choices folded in the body.',render:() => <PageOptionsBoard />},
   {id:'settings-choices',title:'Settings choices',about:'Selected and unknown pictures, accent and account ring choices.',render:() => <SettingsChoicesBoard />},
 
@@ -3589,3 +3590,20 @@ export const PageRecordsBoard = () => <div data-catalog-variants={PAGERECORDS_CA
    {id:'cache',title:'Finish the usage cache',values:{time:'5h',turns:'92'},state:<Text role="meta">Ready to wrap</Text>,open:()=>{}}]}]}/></Specimen>
  <Specimen measure="fit" caption="The same record below the content threshold"><div className="max-w-sm"><PageRecords label="Team" columns={[{id:'time',label:'Time',numeric:true}]} groups={[{id:'/work/billing',label:'Billing · 1',rows:[{id:'invoice',title:'Keep the invoice rounding change',compact:'Review accepted the invoice rounding change · 5h in this state · 46 turns',values:{time:'5h'},state:<Text role="meta">Settled</Text>,open:()=>{}}]}]}/></div></Specimen>
 </div>
+
+import { LibraryMatrix } from '..'
+const LIBRARYMATRIX_CATALOG_VARIANTS = ['default'] as const
+const LIBRARYMATRIX_CATALOG_SIZES = ['default'] as const
+const LIBRARYMATRIX_CATALOG_STATES = ['populated', 'empty', 'long-title'] as const
+export const LibraryMatrixBoard = () => {
+  const columns = Array.from({length: 12}, (_, index) => ({id:`agent-${index}`,label:`Agent ${index + 1}`}))
+  const row = (name: string) => ({id:name,name,description:'A complete declaration compared against the current scan.',open:()=>{},
+    cells:columns.map(column=>({id:column.id,state:'reaches',label:`${name} — ${column.label}: Reaches`,mark:<Dot state="ready"/>}))})
+  return <div data-catalog-variants={LIBRARYMATRIX_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={LIBRARYMATRIX_CATALOG_SIZES.join(' ')} data-catalog-states={LIBRARYMATRIX_CATALOG_STATES.join(' ')}>
+    <Page width="wide">
+      <LibraryMatrix columns={columns.slice(0,2)} rows={[row('sample-skill')].map(entry=>({...entry,cells:entry.cells.slice(0,2)}))}/>
+      <LibraryMatrix columns={[]} rows={[]}/>
+      <LibraryMatrix columns={columns} rows={[row('Reusable checkout review · 長いチェックアウトのレビュー'),row('sample-skill')]}/>
+    </Page>
+  </div>
+}
