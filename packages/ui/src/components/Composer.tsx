@@ -9,9 +9,10 @@ import {
   useState,
   type DragEvent,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react'
 
-import { currentTurn, isBusy, sessionKey, type FileMatch, type RuntimeId, type UserContent } from '@harnessdesk/protocol'
+import { currentTurn, isBusy, sessionKey, type ContextChipIcon, type FileMatch, type RuntimeId, type UserContent } from '@harnessdesk/protocol'
 
 import {
   Attachment as AttachmentTile,
@@ -65,24 +66,43 @@ import { Slot } from '../slots/registry'
 import {
   AlertIcon,
   AtIcon,
+  BriefIcon,
+  CheckIcon,
   CrossIcon,
+  DiffIcon,
   FileIcon,
   FolderOpenIcon,
   HandoffIcon,
   ImageIcon,
+  IssueIcon,
   NoteIcon,
   PaperclipIcon,
   PlusIcon,
+  ResourceIcon,
   SendIcon,
   SlashIcon,
   SparkIcon,
   StopIcon,
+  TeamIcon,
+  TerminalIcon,
 } from './Icons'
 import { AgentControl, ComposerTrack, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from './ComposerControls'
 import { ContextUsage } from './ContextUsage'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
 import { draftsOf, UNSCOPED_RECOVERY_KEY } from '../state/drafts'
 import styles from './Composer.module.css'
+
+const contextChipIcon = (icon: ContextChipIcon | undefined, form: 'instructions' | 'resource' | undefined): ReactNode => {
+  switch (icon) {
+    case 'image': return <ImageIcon size={16} />
+    case 'diff': return <DiffIcon size={16} />
+    case 'issue': return <IssueIcon size={16} />
+    case 'check': return <CheckIcon size={16} />
+    case 'terminal': return <TerminalIcon size={16} />
+    case 'team': return <TeamIcon size={16} />
+    default: return form === 'instructions' ? <BriefIcon size={16} /> : <ResourceIcon size={16} />
+  }
+}
 
 /**
  * The composer.
@@ -1251,7 +1271,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
               <MenuItem icon={<SlashIcon size={16} />} label="Slash commands" shortcut="/" onSelect={() => { onChange('/'); textarea.current?.focus() }} />
               {chipProviders.length > 0 && <>
                 <MenuLabel>Add context</MenuLabel>
-                {chipProviders.map(provider => <MenuItem key={provider.id} icon={<PaperclipIcon size={16} />} label={`${provider.label}${provider.chip?.prompt ? '…' : ''}`} title={provider.chip?.description} onSelect={() => { if (provider.chip?.prompt) setRefPrompt(provider); else addContext(provider) }} />)}
+                {chipProviders.map(provider => <MenuItem key={provider.id} icon={contextChipIcon(provider.chip?.icon, provider.form)} label={`${provider.label}${provider.chip?.prompt ? '…' : ''}`} title={provider.chip?.description} onSelect={() => { if (provider.chip?.prompt) setRefPrompt(provider); else addContext(provider) }} />)}
                 <MenuLabel>Project</MenuLabel>
               </>}
               <MenuItem icon={<FolderOpenIcon size={16} />} label="Change project folder…" onSelect={onChooseProject} />

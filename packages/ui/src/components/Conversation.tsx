@@ -36,6 +36,7 @@ import {
   HomeIcon,
   LocalIcon,
   FolderIcon,
+  FolderOpenIcon,
   MoreIcon,
   ReviewIcon,
   TrashIcon,
@@ -294,7 +295,7 @@ const ConversationMenu = ({ owner, folderActions }: { owner?: string; folderActi
       title="This seat, a brief and a ceiling, under a name to start again." onSelect={() => setSaving(true)} />
     {folderActions?.(close)}
     <MenuLabel>View</MenuLabel>
-    {summonable().filter(definition => definition.menu === true && toolOf(definition.kind) === null && definition.kind !== 'run-steps').map(definition => {
+    {summonable().filter(definition => definition.menu === true && toolOf(definition.kind) === null && definition.kind !== 'run-steps' && definition.kind !== 'terminal').map(definition => {
       const Glyph = definition.icon
       return <MenuItem key={definition.kind} icon={<Glyph size={16} />} label={definition.label} title={definition.hint}
         selected={shownView(snapshot.workbench, definition.kind)} badge={definition.live?.(snapshot) === true ? 'Live' : undefined}
@@ -481,7 +482,8 @@ export const Conversation = ({
     place: <HeaderTitle session={session} />,
     state: session ? <Chip tone={STATUS_PILL_TONE[status]}>{STATUS_LABEL[status]}</Chip> : undefined,
     tools: <WorkTools draft={!session} />,
-    more: session ? () => null : () => <MenuItem label="Choose a project folder…" onSelect={onChooseProject} />,
+    terminal: true,
+    more: session ? () => null : () => <MenuItem icon={<FolderOpenIcon size={16} />} label="Choose a project folder…" onSelect={onChooseProject} />,
     corner: sidebarPlacement(snapshot) !== 'column',
   }, header && pane !== null)
   useWorkDetails(pane?.paneId ?? '', <ConversationDetails session={session}

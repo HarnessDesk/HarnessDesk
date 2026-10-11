@@ -163,16 +163,16 @@ test('registry publication rerenders the outlet without subscribing its producer
 
 test('view actions preserve the parent subject slots and share one More Menu with conversation rows', async () => {
   const ConversationRows = () => {
-    useTopBarMore('main', close => <MenuItem label="Conversation action" onSelect={close} />)
+    useTopBarMore('main', close => <MenuItem icon={<span />} label="Conversation action" onSelect={close} />)
     return null
   }
   const parent: TopBarProps = {
     place: 'Checkout retry', state: <Chip tone="neutral">Working</Chip>,
     tabs: [{ value: 'board', label: 'Board', count: 3, run: () => {} }], tab: 'board',
     tools: <span data-testid="parent-tools">Four tools</span>,
-    more: close => <MenuItem label="Subject action" onSelect={close} />,
+    more: close => <MenuItem icon={<span />} label="Subject action" onSelect={close} />,
   }
-  const view: ViewSlots = { verb: { label: 'New job', run: () => {} }, more: [{ label: 'Hand out', run: () => {} }] }
+  const view: ViewSlots = { verb: { label: 'New job', icon: <span />, run: () => {} }, more: [{ label: 'Hand out', icon: <span />, run: () => {} }] }
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
@@ -188,6 +188,34 @@ test('view actions preserve the parent subject slots and share one More Menu wit
     await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
     expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1)
     expect([...document.querySelectorAll('[role="menuitem"]')].map(one => one.textContent)).toEqual(['Subject action', 'Conversation action', 'Hand out'])
+  } finally {
+    act(() => root.unmount())
+    container.remove()
+  }
+})
+
+test('More offers Terminal once on a folder surface and omits it on a page', async () => {
+  const App = ({ owner }: { owner: 'conversation' | 'settings' }) => <StoreProvider store={previewStore()}><TopBarProvider>
+    <PublishedBase owner="conversation" slots={{ place: 'Conversation', terminal: true, more: emptyMore }} />
+    <PublishedBase owner="settings" slots={{ place: 'Settings', more: emptyMore }} />
+    <TopBarOutlet owner={owner} fallback={{ place: 'New session', more: emptyMore }} />
+  </TopBarProvider></StoreProvider>
+  const container = document.createElement('div')
+  document.body.append(container)
+  const root = createRoot(container)
+  try {
+    await act(async () => root.render(<App owner="conversation" />))
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
+    const terminals = [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
+      .filter(one => one.querySelector('[data-menu-label]')?.textContent?.trim() === 'Terminal')
+    expect(terminals).toHaveLength(1)
+    expect(terminals[0]?.querySelector('[data-menu-trailing]')?.textContent?.trim()).not.toBe('')
+    expect(terminals[0]?.querySelector('[data-menu-icon]')).not.toBeNull()
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
+    await act(async () => root.render(<App owner="settings" />))
+    await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
+    expect([...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
+      .filter(one => one.querySelector('[data-menu-label]')?.textContent?.trim() === 'Terminal')).toHaveLength(0)
   } finally {
     act(() => root.unmount())
     container.remove()

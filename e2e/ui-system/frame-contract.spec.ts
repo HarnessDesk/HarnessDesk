@@ -1529,19 +1529,29 @@ import type { Locator } from '@playwright/test'
 const menuMetrics = async (surface: Locator) => surface.evaluate((el) => {
   const css = getComputedStyle(el)
   const box = el.getBoundingClientRect()
-  return { width: box.width, radius: css.borderTopLeftRadius, pad: [css.paddingTop, css.paddingRight, css.paddingBottom, css.paddingLeft], border: css.borderTopWidth, overflow: el.scrollWidth > el.clientWidth || [...el.querySelectorAll<HTMLElement>('[data-menu-label],[data-menu-hint],[data-menu-meter],[data-info-note]')].some(node => node.scrollWidth > node.clientWidth) }
+  const clone = el.cloneNode(true) as HTMLElement
+  Object.assign(clone.style, { position: 'fixed', visibility: 'hidden', left: '-10000px', top: '0', width: 'max-content', minWidth: '0', maxWidth: 'none', maxHeight: 'none', overflow: 'visible' })
+  document.body.append(clone)
+  const intrinsic = clone.getBoundingClientRect().width
+  clone.remove()
+  return { width: box.width, intrinsic, radius: css.borderTopLeftRadius, pad: [css.paddingTop, css.paddingRight, css.paddingBottom, css.paddingLeft], border: css.borderTopWidth, widthMode: el.getAttribute('data-width'), overflow: el.scrollWidth > el.clientWidth || [...el.querySelectorAll<HTMLElement>('[data-menu-label],[data-menu-hint],[data-menu-meter],[data-info-note]')].some(node => node.scrollWidth > node.clientWidth) }
 })
 const rowMetrics = async (surface: Locator) => surface.evaluate(surface => [...surface.querySelectorAll('[data-menu-row]')].filter(el => el.closest('[data-popup-kind]') === surface).map(el => {
   const css = getComputedStyle(el)
   const label = el.querySelector('[data-menu-label]')!
   const hint = el.querySelector('[data-menu-hint]')
   const icon = el.querySelector('[data-menu-icon]')
-  return { height: el.getBoundingClientRect().height, radius: css.borderTopLeftRadius, padTop: parseFloat(css.paddingTop), padBottom: parseFloat(css.paddingBottom), labelHeight: label.getBoundingClientRect().height, labelSize: getComputedStyle(label).fontSize, labelLine: getComputedStyle(label).lineHeight, labelWeight: getComputedStyle(label).fontWeight, font: getComputedStyle(label).fontFamily, smoothing: getComputedStyle(label).getPropertyValue('-webkit-font-smoothing'), hintHeight: hint?.getBoundingClientRect().height ?? 0, meterHeight: el.querySelector('[data-menu-meter]')?.getBoundingClientRect().height ?? 0, hintSize: hint ? getComputedStyle(hint).fontSize : null, hintLine: hint ? getComputedStyle(hint).lineHeight : null, icon: Boolean(icon), iconWidth: icon?.getBoundingClientRect().width ?? 0, gap: parseFloat(css.columnGap), iconTop: icon?.getBoundingClientRect().top ?? 0, labelTop: label.getBoundingClientRect().top }
+  const meter = el.querySelector('[data-menu-meter]')
+  const body = el.querySelector('[data-menu-body]')!
+  const trailing = el.querySelector('[data-menu-trailing]')
+  return { height: el.getBoundingClientRect().height, radius: css.borderTopLeftRadius, padTop: parseFloat(css.paddingTop), padBottom: parseFloat(css.paddingBottom), left: el.getBoundingClientRect().left, right: el.getBoundingClientRect().right, labelHeight: label.getBoundingClientRect().height, labelSize: getComputedStyle(label).fontSize, labelLine: getComputedStyle(label).lineHeight, labelWeight: getComputedStyle(label).fontWeight, font: getComputedStyle(label).fontFamily, smoothing: getComputedStyle(label).getPropertyValue('-webkit-font-smoothing'), hintHeight: hint?.getBoundingClientRect().height ?? 0, meterHeight: meter?.getBoundingClientRect().height ?? 0, meterGap: meter ? parseFloat(getComputedStyle(meter).marginTop) : 0, hintSize: hint ? getComputedStyle(hint).fontSize : null, hintLine: hint ? getComputedStyle(hint).lineHeight : null, danger: el.hasAttribute('data-danger'), color: css.color, icon: Boolean(icon), iconLeft: icon?.getBoundingClientRect().left ?? null, iconWidth: icon?.getBoundingClientRect().width ?? 0, gap: parseFloat(css.columnGap), iconTop: icon?.getBoundingClientRect().top ?? 0, labelTop: label.getBoundingClientRect().top, labelLeft: label.getBoundingClientRect().left, bodyLeft: body.getBoundingClientRect().left, bodyRight: body.getBoundingClientRect().right, trailingLeft: trailing?.getBoundingClientRect().left ?? null, trailingRight: trailing?.getBoundingClientRect().right ?? null, trailingWhiteSpace: trailing ? getComputedStyle(trailing).whiteSpace : null }
 }))
 const expectMenuPlateGeometry = async (surface: Locator) => {
   const m = await menuMetrics(surface)
   expect(m.width).toBeGreaterThanOrEqual(FRAME_MENU.min)
   expect(m.width).toBeLessThanOrEqual(FRAME_MENU.max)
+  expect(m.widthMode).toBeNull()
+  expect(m.width).toBeCloseTo(Math.min(FRAME_MENU.max, Math.max(FRAME_MENU.min, m.intrinsic)), 1)
   expect(m.pad).toEqual(Array(4).fill(`${FRAME_MENU.padding}px`))
   expect(m.radius).toBe(`${FRAME_MENU.radius}px`)
   expect(m.border).toBe('0px')
@@ -1552,7 +1562,22 @@ const expectMenuGeometry = async (surface: Locator) => {
   const rows = await rowMetrics(surface)
   expect(rows.length).toBeGreaterThan(0)
   expect(new Set(rows.map(row => row.icon)).size, 'whole-level icon policy').toBe(1)
+  const declaredIcons = await surface.getAttribute('data-menu-icons')
+  expect(declaredIcons).toBe(rows[0]!.icon ? 'all' : 'none')
+  const checkedChoices = surface.locator('[role="menuitemradio"][aria-checked="true"]')
+  for (let index = 0; index < await checkedChoices.count(); index += 1) {
+    await expect(checkedChoices.nth(index).locator('[data-menu-trailing] svg')).not.toHaveCount(0)
+  }
+  const uniqueLabels = await surface.locator('[data-menu-row] [data-menu-label]').evaluateAll(nodes => nodes.map(node => node.textContent?.trim().replace(/\s+/g, ' ')).filter(Boolean))
+  expect(new Set(uniqueLabels).size, 'menu labels are unique within a menu level').toBe(uniqueLabels.length)
+  const dangerInk = await surface.evaluate(el => {
+    const probe = document.createElement('span'); probe.style.color = 'var(--hd-danger)'; el.append(probe)
+    const color = getComputedStyle(probe).color; probe.remove(); return color
+  })
   for (const row of rows) {
+    const plate = await surface.boundingBox()
+    expect(row.left - plate!.x).toBeCloseTo(FRAME_MENU.padding, 2)
+    expect(plate!.x + plate!.width - row.right).toBeCloseTo(FRAME_MENU.padding, 2)
     expect(row.radius).toBe(`${FRAME_MENU.rowRadius}px`)
     expect(row.labelSize).toBe(`${FRAME_MENU.labelSize}px`)
     expect(row.labelLine).toBe(`${FRAME_MENU.labelLine}px`)
@@ -1564,7 +1589,7 @@ const expectMenuGeometry = async (surface: Locator) => {
     if (row.hintHeight > 0 || row.meterHeight > 0 || row.labelHeight > FRAME_MENU.labelLine) {
       expect(row.padTop).toBe(FRAME_MENU.earnedPad)
       expect(row.padBottom).toBe(FRAME_MENU.earnedPad)
-      expect(row.height).toBe(row.labelHeight + row.hintHeight + row.meterHeight + (row.meterHeight ? FRAME_MENU.padding : 0) + 2 * FRAME_MENU.earnedPad)
+      expect(row.height).toBe(row.labelHeight + row.hintHeight + row.meterHeight + row.meterGap + 2 * FRAME_MENU.earnedPad)
       if (row.hintHeight > 0) {
         expect(row.hintSize).toBe(`${FRAME_MENU.hintSize}px`)
         expect(row.hintLine).toBe(`${FRAME_MENU.hintLine}px`)
@@ -1574,6 +1599,17 @@ const expectMenuGeometry = async (surface: Locator) => {
       expect(row.iconWidth).toBe(FRAME_MENU.icon)
       expect(row.gap).toBe(FRAME_MENU.gap)
       expect(row.iconTop).toBe(row.labelTop)
+      expect(row.iconLeft! - plate!.x).toBeCloseTo(FRAME_MENU.contentInset, 2)
+    } else expect(row.bodyLeft - plate!.x).toBeCloseTo(FRAME_MENU.contentInset, 2)
+    if (!row.icon) expect(row.labelLeft - plate!.x).toBeCloseTo(FRAME_MENU.contentInset, 2)
+    if (row.trailingLeft !== null) {
+      expect(row.trailingWhiteSpace).toBe('nowrap')
+      expect(plate!.x + plate!.width - row.trailingRight!).toBeCloseTo(FRAME_MENU.trailingInset, 2)
+      expect(row.trailingLeft - row.bodyRight).toBeGreaterThanOrEqual(FRAME_MENU.gap)
+    }
+    if (row.danger) {
+      expect(row.icon).toBe(true)
+      expect(row.color).toBe(dangerInk)
     }
   }
   await expectMenuAnatomy(surface, rows[0]!.icon)
@@ -1585,13 +1621,13 @@ const expectMenuAnatomy = async (surface: Locator, icons: boolean) => {
     const secondaryColor = getComputedStyle(probe).color; probe.remove()
     const own = (node: Element) => node.closest('[data-popup-kind]') === el
     return {
-      groups: [...el.querySelectorAll('[data-menu-group]')].filter(own).map(node => { const css = getComputedStyle(node); return { size: css.fontSize, weight: css.fontWeight, color: css.color } }),
+      groups: [...el.querySelectorAll('[data-menu-group]')].filter(own).map(node => { const css = getComputedStyle(node); return { size: css.fontSize, weight: css.fontWeight, color: css.color, icon: node.querySelector('[data-menu-icon]') !== null } }),
       hints: [...el.querySelectorAll('[data-menu-hint]')].filter(own).map(node => getComputedStyle(node).color),
-      separators: [...el.querySelectorAll('[data-menu-separator]')].filter(own).map(node => { const css = getComputedStyle(node); return { height: node.getBoundingClientRect().height, margins: [css.marginTop, css.marginRight, css.marginBottom, css.marginLeft] } }),
+      separators: [...el.querySelectorAll('[data-menu-separator]')].filter(own).map(node => { const css = getComputedStyle(node); const rect = node.getBoundingClientRect(); const plate = el.getBoundingClientRect(); return { height: rect.height, margins: [css.marginTop, css.marginRight, css.marginBottom, css.marginLeft], left: rect.left - plate.left, right: plate.right - rect.right } }),
       secondaryColor,
     }
   })
-  for (const group of anatomy.groups) expect(group).toEqual({ size: `${FRAME_MENU.groupSize}px`, weight: String(FRAME_MENU.groupWeight), color: anatomy.secondaryColor })
+  for (const group of anatomy.groups) expect(group).toEqual({ size: `${FRAME_MENU.groupSize}px`, weight: String(FRAME_MENU.groupWeight), color: anatomy.secondaryColor, icon: false })
   const hintInk = await surface.evaluate(el => {
     const probe = document.createElement('span'); probe.style.color = 'var(--hd-muted-foreground)'; el.append(probe)
     const muted = getComputedStyle(probe).color; probe.remove()
@@ -1605,18 +1641,83 @@ const expectMenuAnatomy = async (surface: Locator, icons: boolean) => {
   for (const color of hintInk.refused) expect(color).toBe(hintInk.muted)
   anatomy.hints = hintInk.enabled
   for (const color of anatomy.hints) expect(color).toBe(anatomy.secondaryColor)
-  for (const separator of anatomy.separators) expect(separator).toEqual({ height: FRAME_MENU.separator, margins: Array(4).fill(`${FRAME_MENU.padding}px`) })
+  for (const separator of anatomy.separators) expect(separator).toEqual({ height: FRAME_MENU.separator, margins: [`${FRAME_MENU.padding - 2}px`, `${FRAME_MENU.separatorInset}px`, `${FRAME_MENU.padding - 2}px`, `${FRAME_MENU.separatorInset}px`], left: FRAME_MENU.padding + FRAME_MENU.separatorInset, right: FRAME_MENU.padding + FRAME_MENU.separatorInset })
   const edge = await surface.evaluate(el => {
     const box = el.getBoundingClientRect()
-    const labels = [...el.querySelectorAll<HTMLElement>('[data-menu-label],[data-menu-group],[data-menu-note],[data-menu-footer],[data-menu-search]')]
+    const labels = [...el.querySelectorAll<HTMLElement>('[data-menu-group],[data-menu-note],[data-menu-footer],[data-menu-search]')]
     return labels.filter(n => n.offsetParent !== null && n.closest('[data-popup-kind]') === el).map(n => {
       const css = getComputedStyle(n)
-      return n.getBoundingClientRect().left + parseFloat(css.paddingLeft) - box.left
+      const rect = n.getBoundingClientRect()
+      return {
+        left: rect.left + parseFloat(css.paddingLeft) - box.left,
+        right: box.right - (rect.right - parseFloat(css.paddingRight)),
+      }
     })
   })
-  const expected = FRAME_MENU.padding + FRAME_MENU.rowInset + (icons ? FRAME_MENU.icon + FRAME_MENU.gap : 0)
-  for (const x of edge) expect(x).toBe(expected)
+  for (const x of edge) {
+    expect(x.left).toBeCloseTo(FRAME_MENU.contentInset, 2)
+    expect(x.right).toBeCloseTo(FRAME_MENU.contentInset, 2)
+  }
 }
+
+test('S17 popup menus fit their rows and keep one inset and one label per row', async ({ page }) => {
+  await openFrame(page, 'frame-wall=conversation&popup=menu-icons', 'light', 1100)
+  await page.getByRole('button', { name: 'Frame menu', exact: true }).click()
+  await expectMenuGeometry(page.locator('[data-popup-kind="menu"]:visible').last())
+})
+
+test('S17 New session menu uses a branch for worktrees and the neutral open plate', async ({ page }) => {
+  await openFrame(page, 'frame-wall=conversation', 'light', 1100)
+  await applyLeftColumnActions(page, { leftOpen: true, leftPopup: 'start' })
+  const menu = page.locator('[data-popup-kind]:visible').last()
+  await expectMenuGeometry(menu)
+  const sessionIcon = await menu.getByRole('menuitem', { name: /^New session/ }).locator('[data-menu-icon] svg').evaluate(node => node.outerHTML)
+  const worktreeIcon = await menu.getByRole('menuitem', { name: /^New worktree…/ }).locator('[data-menu-icon] svg').evaluate(node => node.outerHTML)
+  expect(worktreeIcon).not.toBe(sessionIcon)
+  const trigger = page.getByRole('button', { name: 'More ways to start', exact: true })
+  const colors = await trigger.evaluate(node => {
+    const hover = document.createElement('span'); hover.style.color = 'var(--hd-hover)'; document.body.append(hover)
+    const expected = getComputedStyle(hover).color; hover.remove()
+    return { actual: getComputedStyle(node).backgroundColor, expected }
+  })
+  expect(colors.actual).toBe(colors.expected)
+})
+
+test('S17 Projects keeps Show agents values on one line', async ({ page }) => {
+  await openFrame(page, 'frame-wall=left-work', 'light', 1100)
+  await applyLeftColumnActions(page, { leftOpen: true })
+  await page.getByTitle('How this list is shown', { exact: true }).click()
+  const menu = page.locator('[data-popup-kind="menu"]:visible').last()
+  await expectMenuGeometry(menu)
+  const show = menu.locator('[data-menu-row]').filter({ hasText: 'Show agents' })
+  expect(await show.locator('[data-menu-trailing]').evaluate(node => getComputedStyle(node).whiteSpace)).toBe('nowrap')
+})
+
+test('S17 disabled destructive session actions keep destructive ink', async ({ page }) => {
+  await openFrame(page, 'frame-wall=left-work', 'light', 1100)
+  await applyLeftColumnActions(page, { leftOpen: true, leftPopup: 'session' })
+  const menu = page.locator('[data-popup-kind]:visible').last()
+  await expectMenuGeometry(menu)
+  const remove = menu.locator('[data-menu-row]').filter({ hasText: 'Delete everywhere…' })
+  await expect(remove).toHaveAttribute('data-danger', '')
+  const colors = await remove.evaluate(el => {
+    const probe = document.createElement('span'); probe.style.color = 'var(--hd-danger)'; el.append(probe)
+    const danger = getComputedStyle(probe).color; probe.remove()
+    return { danger, row: getComputedStyle(el).color, icon: getComputedStyle(el.querySelector('[data-menu-icon]')!).color }
+  })
+  expect(colors.row).toBe(colors.danger)
+  expect(colors.icon).toBe(colors.danger)
+})
+
+test('S17 conversation More keeps one Terminal row with its shortcut', async ({ page }) => {
+  await openFrame(page, 'frame-wall=conversation&frame-conversation-actions=1', 'light', 1100)
+  await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
+  const menu = page.locator('[data-popup-kind="menu"]:visible').last()
+  await expectMenuGeometry(menu)
+  const terminals = menu.locator('[data-menu-row]').filter({ hasText: /^Terminal/ })
+  await expect(terminals).toHaveCount(1)
+  expect((await terminals.locator('[data-menu-trailing]').innerText()).trim()).not.toBe('')
+})
 for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) for (const mode of ['icons', 'none']) {
   test(`C1 menu ${mode} at ${width} in ${theme}`, async ({ page }) => {
     await openFrame(page, `frame-wall=conversation&popup=menu-${mode}`, theme, width)
@@ -2448,6 +2549,11 @@ const expectDestinationPopupContracts = async (page: Page, destination: typeof W
     const kind = await popup.getAttribute('data-popup-kind')
     expect(['menu', 'wide-menu', 'info-card']).toContain(kind)
     kinds.add(kind!)
+    const expectedIcons = S17_ICON_POLICY[destination.id]
+    if (kind !== 'info-card') {
+      expect(expectedIcons, `${destination.id} needs a declared menu icon policy`).toBeDefined()
+      expect(await popup.getAttribute('data-menu-icons')).toBe(expectedIcons)
+    }
     if (kind === 'info-card') {
       await expectInfoGeometry(popup)
       expect(await popup.locator('button,a,input,select,[role="menuitem"],[role="switch"]').count()).toBe(0)
@@ -2460,10 +2566,58 @@ const expectDestinationPopupContracts = async (page: Page, destination: typeof W
       await expect(popup.locator('[data-menu-footer]')).toHaveText('Kept until you clear them.')
       await expectMenuPlateGeometry(popup)
       await expectMenuAnatomy(popup, false)
-    } else await expectMenuGeometry(popup)
+    } else {
+      await expectMenuGeometry(popup)
+      if (destination.id === 'popup-composer-add') {
+        const contextLabels = ['Current page preview', 'Working tree changes', 'Issue reference', 'Last test run', 'Project notes']
+        const marks = await popup.locator('[data-menu-row]').evaluateAll((rows, labels) => rows
+          .filter(row => labels.includes(row.querySelector('[data-menu-label]')?.textContent?.trim() ?? ''))
+          .map(row => row.querySelector('[data-menu-icon] svg')?.outerHTML), contextLabels)
+        expect(marks).toHaveLength(contextLabels.length)
+        expect(marks.every(Boolean)).toBe(true)
+        expect(new Set(marks).size).toBe(marks.length)
+      }
+      if (destination.id === 'popup-seat-actions') {
+        await expect(popup.locator('[data-menu-row]').filter({ hasText: 'Remove from Team' })).toHaveAttribute('data-danger', '')
+      }
+    }
   }
   return kinds
 })
+
+const S17_ICON_POLICY: Readonly<Record<string, 'all' | 'none'>> = {
+  'popup-composer-model': 'none',
+  'popup-topbar-view': 'none',
+  'popup-folded-tabs': 'none',
+  'popup-dropdown-none': 'none',
+  'popup-dropdown-icons': 'all',
+  'conversation-seat-usage': 'all',
+  'conversation-more-terminal': 'all',
+  'left-inbox': 'none',
+  'left-account': 'all',
+  'left-start': 'all',
+  'left-project-menu': 'all',
+  'left-session-menu': 'all',
+  'popup-menu-icons': 'all',
+  'popup-menu-none': 'none',
+  'popup-composer-add': 'all',
+  'popup-conversation-more': 'all',
+  'popup-wide-menu': 'none',
+  'popup-metered-menu': 'none',
+  'popup-plan-usage': 'all',
+  'popup-branch-flyout': 'all',
+  'popup-branch-context': 'all',
+  'popup-account-menu': 'all',
+  'popup-other-agents': 'all',
+  'popup-info-menu-exclusion': 'all',
+  'popup-publication-actions': 'all',
+  'popup-subject-actions': 'all',
+  'popup-inbox': 'none',
+  'popup-inbox-expanded': 'none',
+  'popup-suggestions': 'none',
+  'popup-select': 'none',
+  'popup-seat-actions': 'all',
+}
 
 // Small batches keep the normal test timeout without dropping a wall destination.
 const popupContractDestinations = WALL_DESTINATIONS.filter(destination => !destination.gitRef)

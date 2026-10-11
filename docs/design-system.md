@@ -37,6 +37,15 @@ on hover, as `title` — same string, later. The tests, the exceptions (a
 refused row keeps its reason on screen; Settings is a document, not a menu)
 and the ledger of what moved are docs/design.md.
 
+Menus fit their rows within 200–340px: a 6px plate inset, shared 16px
+content edges, and 12px between row text and a one-line trailing value.
+Action menus give every row an icon, including destructive rows in danger
+ink; choice menus have no row icons and put the selected check at the end.
+Agent/account lists show each entry's mark. Labels are unique and group
+labels have no icons. Permissions keep visible reasons only for Full access
+and Never ask; a model update is one row with its command in the title.
+The popup-wall contract enforces the full rule in docs/design.md.
+
 ## Foundation
 
 ### Cjk faces

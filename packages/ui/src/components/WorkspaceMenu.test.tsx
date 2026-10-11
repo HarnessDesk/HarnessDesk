@@ -150,13 +150,17 @@ it('keeps the first project Move up refusal reason in the flyout', async () => {
   expect(up.getAttribute('title')).toBe('Already first.')
 })
 
-it('shows a home-shortened path hint and copies the absolute project path', async () => {
+it('shows a one-line path hint, exposes its full value as a title, and copies the absolute path', async () => {
   const writeText = vi.fn(async () => {})
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
-  const absolute = '/home/dev/work/project'
+  const absolute = '/preview/projects/storefront/packages/a-very-long-checkout-directory'
   mount([], group(absolute, 'project'))
   const path = row('Copy path')
-  expect(path.querySelector('[data-menu-hint]')?.textContent).toBe('~/work/project')
+  expect(path.getAttribute('title')).toBe(absolute)
+  const shown = path.querySelector<HTMLElement>('[data-menu-hint] [data-slot="middle-truncate"]')
+  expect(shown?.querySelector('.sr-only')?.textContent).toBe(absolute)
+  expect([...shown!.querySelectorAll<HTMLElement>('[data-part]')].map(part => part.textContent).join('')).toBe(absolute)
+  expect(shown?.className).toContain('whitespace-nowrap')
   act(() => path.dispatchEvent(new MouseEvent('click', { bubbles: true })))
   expect(writeText).toHaveBeenCalledWith(absolute)
 })
@@ -240,6 +244,6 @@ it('distinguishes resetting order from moving a project down', async () => {
   const back = await moveRow('Back to automatic order')
   expect(back.querySelector('[data-menu-label]')?.textContent).toBe('Back to automatic order')
   expect(row('Move down').querySelector('[data-menu-label]')?.textContent).toBe('Move down')
-  expect(back.querySelector('[data-menu-icon]')).toBeNull()
-  expect(row('Move down').querySelector('[data-menu-icon]')).toBeNull()
+  expect(back.querySelector('[data-menu-icon]')).not.toBeNull()
+  expect(row('Move down').querySelector('[data-menu-icon]')).not.toBeNull()
 })

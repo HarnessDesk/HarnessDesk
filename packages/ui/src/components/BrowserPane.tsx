@@ -44,6 +44,7 @@ import {
   ArrowLeftIcon,
   ArrowRightIcon,
   CameraIcon,
+  CopyIcon,
   CrossIcon,
   DesktopIcon,
   DevToolsIcon,
@@ -1814,16 +1815,18 @@ const BrowserPaneContent = () => {
         person debugging a page actually reaches for: the real browser, and
         the element inspector at the exact point they clicked.
       */}
-      <ContextMenu at={pageMenu?.at ?? null} label="Page" onClose={() => setPageMenu(null)} icons="none">
+      <ContextMenu at={pageMenu?.at ?? null} label="Page" onClose={() => setPageMenu(null)} icons="all">
         {pageMenu && (
           <>
             {pageMenu.target.linkURL && (
               <>
                 <MenuItem
+                  icon={<PlusIcon size={14} />}
                   label="Open link in new tab"
                   onSelect={() => store.newBrowserTab(paneId, pageMenu.target.linkURL)}
                 />
                 <MenuItem
+                  icon={<CopyIcon size={14} />}
                   label="Copy link"
                   onSelect={() => void navigator.clipboard?.writeText(pageMenu.target.linkURL).catch(() => {})}
                 />
@@ -1838,8 +1841,9 @@ const BrowserPaneContent = () => {
             */}
             {!pageMenu.target.linkURL && pageMenu.target.selectionText && (
               <>
-                <MenuItem label="Copy" onSelect={() => act((element) => element.copy())} />
+                <MenuItem icon={<CopyIcon size={14} />} label="Copy" onSelect={() => act((element) => element.copy())} />
                 <MenuItem
+                  icon={<SearchIcon size={14} />}
                   label={`Search for “${pageMenu.target.selectionText.slice(0, 24)}”`}
                   onSelect={() =>
                     store.newBrowserTab(
@@ -1854,16 +1858,18 @@ const BrowserPaneContent = () => {
               </>
             )}
             <MenuItem
+              icon={<ArrowLeftIcon size={14} />}
               label="Back"
               disabled={arrows.back ? false : 'Nothing to go back to.'}
               onSelect={() => act((element) => element.goBack())}
             />
             <MenuItem
+              icon={<ArrowRightIcon size={14} />}
               label="Forward"
               disabled={arrows.forward ? false : 'Nothing to go forward to.'}
               onSelect={() => act((element) => element.goForward())}
             />
-            <MenuItem label="Reload" onSelect={() => act((element) => element.reload())} />
+            <MenuItem icon={<RetryIcon size={14} />} label="Reload" onSelect={() => act((element) => element.reload())} />
             <MenuSeparator />
             <MenuItem
               icon={<ExternalIcon size={14} />}
@@ -1881,19 +1887,22 @@ const BrowserPaneContent = () => {
           </>
         )}
       </ContextMenu>
-      <ContextMenu at={tabMenu.at} label="Tab" onClose={tabMenu.close} icons="none">
+      <ContextMenu at={tabMenu.at} label="Tab" onClose={tabMenu.close} icons="all">
         {tabMenu.tab && (
           <>
             <MenuItem
+              icon={<CopyIcon size={14} />}
               label="Duplicate"
               onSelect={() => store.duplicateBrowserTab(paneId, tabMenu.tab!.id)}
             />
             <MenuItem
+              icon={<CopyIcon size={14} />}
               label="Copy address"
               disabled={tabMenu.tab.url === BLANK ? 'This tab has no page yet.' : false}
               onSelect={() => void navigator.clipboard?.writeText(tabMenu.tab!.url).catch(() => {})}
             />
             <MenuItem
+              icon={<DesktopIcon size={14} />}
               label="Browser tools drive this tab"
               selected={view.driven === tabMenu.tab.id}
               disabled={canDrive ? false : `${drivingRuntime?.presentation.name ?? 'This agent'} cannot receive browser tools.`}
@@ -1901,15 +1910,18 @@ const BrowserPaneContent = () => {
             />
             <MenuSeparator />
             <MenuItem
+              icon={<CrossIcon size={14} />}
               label={tabs.length === 1 ? 'Close the browser' : 'Close tab'}
               onSelect={() => store.closeBrowserTab(paneId, tabMenu.tab!.id)}
             />
             <MenuItem
+              icon={<CrossIcon size={14} />}
               label="Close other tabs"
               disabled={tabs.length < 2 ? 'There is only this one.' : false}
               onSelect={() => store.closeOtherBrowserTabs(paneId, tabMenu.tab!.id)}
             />
             <MenuItem
+              icon={<ArrowRightIcon size={14} />}
               label="Close tabs to the right"
               disabled={
                 tabs.findIndex((entry) => entry.id === tabMenu.tab!.id) === tabs.length - 1

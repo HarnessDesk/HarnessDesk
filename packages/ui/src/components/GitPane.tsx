@@ -1065,7 +1065,7 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
         </div>
       </div>
 
-      <ContextMenu at={menuSha ? menu.at : null} label="Commit actions" onClose={menu.close} icons="none">
+      <ContextMenu at={menuSha ? menu.at : null} label="Commit actions" onClose={menu.close} icons="all">
         {menuCommit && (
           <>
             <MenuLabel>{shortSha(menuCommit.sha)}</MenuLabel>

@@ -1895,6 +1895,8 @@ it('renames an inactive session without opening it or changing active session (#
   })
 
   const menu = document.querySelector('[role="menu"]')!
+  expect(menu.closest('[data-popup-kind]')?.getAttribute('data-menu-icons')).toBe('all')
+  expect([...menu.querySelectorAll<HTMLElement>('[data-menu-row]')].every(item => item.querySelector('[data-menu-icon]'))).toBe(true)
   expect([...menu.querySelectorAll<HTMLElement>(':scope > [role="menuitem"]')]
     .map((item) => item.querySelector('[data-menu-label]')?.textContent?.trim()))
     .toEqual(['Rename', 'Pin', 'Open on the right', 'Branch from here', 'Copy', 'Archive', 'Remove from HarnessDesk', 'Delete everywhere…'])
@@ -1902,6 +1904,8 @@ it('renames an inactive session without opening it or changing active session (#
   const deleteOption = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')]
     .find((item) => item.textContent?.includes('Delete everywhere…'))!
   expect(deleteOption.getAttribute('aria-disabled')).toBe('true')
+  expect(deleteOption.hasAttribute('data-danger')).toBe(true)
+  expect(deleteOption.querySelector('[data-menu-icon]')).not.toBeNull()
   expect(deleteOption.getAttribute('title')).toBe('Agent keeps no way to delete one.')
 
   // Click Rename in context menu

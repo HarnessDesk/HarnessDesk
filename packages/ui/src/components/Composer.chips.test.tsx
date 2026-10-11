@@ -49,7 +49,25 @@ const SHOT: CapabilityContribution = {
   scope: { kind: 'global' },
   label: 'Current page screenshot',
   form: 'resource',
-  chip: { description: 'What the browser shows right now, as an image.' },
+  chip: { description: 'What the browser shows right now, as an image.', icon: 'image' },
+}
+
+const NOTES: CapabilityContribution = {
+  kind: 'context', id: contributionId('ctx-notes'), owner: pluginInstanceId('notes#1'), revision: 0,
+  scope: { kind: 'global' }, label: 'Project notes', form: 'instructions',
+  chip: { description: 'Instructions for this project.' },
+}
+
+const CHANGES: CapabilityContribution = {
+  kind: 'context', id: contributionId('ctx-changes'), owner: pluginInstanceId('git#1'), revision: 0,
+  scope: { kind: 'global' }, label: 'Uncommitted changes', form: 'resource',
+  chip: { description: 'The current working tree.', icon: 'diff' },
+}
+
+const ISSUE: CapabilityContribution = {
+  kind: 'context', id: contributionId('ctx-issue'), owner: pluginInstanceId('git#1'), revision: 0,
+  scope: { kind: 'global' }, label: 'Git issue', form: 'resource',
+  chip: { description: 'An issue reference.', icon: 'issue' },
 }
 
 const RESOLVED = {
@@ -62,7 +80,7 @@ const queue = vi.fn(async (_content: unknown, _key?: unknown) => true)
 const notice = vi.fn()
 const request = vi.fn(async () => RESOLVED)
 
-const mount = (imageInput: boolean, activeRuntime?: string): void => {
+const mount = (imageInput: boolean, activeRuntime?: string, contributions: readonly CapabilityContribution[] = [SHOT]): void => {
   const runtime = {
     id: 'alpha',
     name: 'Alpha Agent',
@@ -87,7 +105,7 @@ const mount = (imageInput: boolean, activeRuntime?: string): void => {
     workspace: { path: '/w', name: 'w' } as AppSnapshot['workspace'],
     sessions: new Map([[KEY, session]]),
     activeSessionKey: KEY,
-    contributions: [SHOT],
+    contributions: [...contributions],
   }
   const store = {
     subscribe: () => () => {},
@@ -124,6 +142,17 @@ const attachShot = (): void => {
   )
   click(item)
 }
+
+it('uses source-specific marks for context actions in Add', () => {
+  mount(true, undefined, [SHOT, CHANGES, ISSUE, NOTES])
+  click(container.querySelector('button[title="Add"]'))
+  const context = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .find(item => item.querySelector('[data-menu-label]')?.textContent?.includes(label))!
+  const marks = ['Current page screenshot', 'Uncommitted changes', 'Git issue', 'Project notes']
+    .map(label => context(label).querySelector('[data-menu-icon] svg')?.outerHTML)
+  expect(marks.every(Boolean)).toBe(true)
+  expect(new Set(marks).size).toBe(marks.length)
+})
 
 const send = async (): Promise<void> => {
   const textarea = container.querySelector('textarea')
@@ -271,4 +300,3 @@ describe('a composer in a pane of its own', () => {
     expect(params['sessionId']).toBeUndefined()
   })
 })
-

@@ -11,7 +11,7 @@ import { ModelControl } from './ComposerControls'
 /**
  * The model picker draws with the system's parts, never its own: the trigger's
  * words are text roles, the long list's filter is the shared `MenuSearch`, and
- * the build's foot is a note in a text role with the command in the code face.
+ * an available update is one row whose title keeps its install command.
  */
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -178,21 +178,18 @@ it('leaves ↓ with the menu: it moves from the field to a row', async () => {
   expect(document.activeElement).not.toBe(field)
 })
 
-it('sets the update in a text role and its command in the shared command block', async () => {
+it('keeps an available update as one row, with the install command in its title', async () => {
   await mount()
   await open()
-  const update = document.querySelector<HTMLElement>('[data-testid="runtime-update"]')
-  expect(update?.getAttribute('data-slot')).toBe('text')
-  expect(update?.getAttribute('data-role')).toBe('muted')
-  const command = update?.querySelector<HTMLElement>('[data-slot="code-text"]')
-  expect(command?.textContent).toBe('npm i -g @openai/codex@latest')
-  // The shared command block: a line of its own, on the muted plate, folding when it must.
-  expect(command?.tagName).toBe('PRE')
-  expect(command?.hasAttribute('data-block')).toBe(true)
-  expect(command?.getAttribute('data-ground')).toBe('muted')
-  expect(command?.hasAttribute('data-wrap')).toBe(true)
-  // The build line is the note's own ink: nothing inside it redraws it.
-  expect(document.querySelector('[data-testid="runtime-build"] span')).toBeNull()
+  const update = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .find(one => one.querySelector('[data-menu-label]')?.textContent?.trim() === `Update ${codex.presentation.name} to ${codex.update?.version}`)
+  expect(update).toBeDefined()
+  expect(update?.closest('[data-popup-kind]')?.getAttribute('data-menu-icons')).toBe('none')
+  expect(update?.querySelector('[data-menu-icon]')).toBeNull()
+  expect(update?.getAttribute('title')).toBe(codex.update?.command)
+  expect(update?.querySelector('[data-menu-hint]')).toBeNull()
+  expect(document.querySelector('[data-testid="runtime-update"]')).toBeNull()
+  expect(document.querySelector('[data-slot="code-text"]')).toBeNull()
 })
 
 

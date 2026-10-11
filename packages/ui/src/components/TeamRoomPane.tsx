@@ -66,6 +66,7 @@ import {
   ClockIcon,
   SideBySideIcon,
   CrossIcon,
+  ExpandIcon,
   IssueIcon,
   MessageOffIcon,
   MoreIcon,
@@ -1022,10 +1023,11 @@ export const TeamRoomPane = ({
     tabs: teamTabs, tab: open === 'side-by-side' || singleMember ? 'room' : open,
     view: { disabled: 'This view has no layout or filter choices', content: () => null },
     tools: <WorkTools changesRefusal={teamChangesRefusal} />,
+    terminal: true,
     more: close => <>
-      {pullRequest && <MenuItem label="Open pull request" onSelect={() => { void openExternal(pullRequest.url); close() }} />}
-      <MenuItem label="Wrap…" disabled={record ? RECORD_REASON : wrapDisabled} onSelect={() => { setWrapping(true); close() }} />
-      <MenuItem label="Fill the window" onSelect={() => { store.zoomPanel('main', 'window'); close() }} />
+      {pullRequest && <MenuItem icon={<PullRequestIcon size={16} />} label="Open pull request" onSelect={() => { void openExternal(pullRequest.url); close() }} />}
+      <MenuItem icon={<CommentIcon size={16} />} label="Wrap…" disabled={record ? RECORD_REASON : wrapDisabled} onSelect={() => { setWrapping(true); close() }} />
+      <MenuItem icon={<ExpandIcon size={16} />} label="Fill the window" onSelect={() => { store.zoomPanel('main', 'window'); close() }} />
     </>, corner: sidebarPlacement(snapshot) !== 'column',
   }, Boolean(mainOwner))
 
