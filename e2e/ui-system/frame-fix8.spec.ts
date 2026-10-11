@@ -96,3 +96,16 @@ test('spend selected ranges equal their shorter figures', async ({ page }) => {
     await expect(page.locator('[data-slot="chart-title"][data-figure]').first()).toHaveText(value)
   }
 })
+
+test('stopping a waiting Team removes its command approval', async ({ page }) => {
+  await openFrame(page, 'frame-wall=team&frame-fix8-stop=1')
+  await expect(page.getByRole('button', { name: 'Allow', exact: true })).toBeVisible()
+  await page.getByRole('tab', { name: 'Run 1', exact: true }).click()
+  await page.getByRole('button', { name: 'Stop run…', exact: true }).click()
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Stop run', exact: true }).click()
+  await expect(page.getByRole('alertdialog')).toHaveCount(0)
+  await page.getByRole('tab', { name: 'Overview', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Allow', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: 'Needs you', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('banner')).not.toContainText('Needs you')
+})

@@ -139,7 +139,7 @@ const storeFor = (destination: Destination): AppStore => {
     case 'team-run-not-reached': return showing(frameRunStore('empty'), { kind: 'room', room: 'overview-team' }, null)
     case 'team-run-equivalent': return showing(frameEquivalentRunStore(), { kind: 'room', room: 'overview-team' }, null)
     case 'team-run-repeated': return showing(frameRunStore('many'), { kind: 'room', room: 'overview-team' }, null)
-    case 'team': return showing(overviewTeamStore('running'), { kind: 'room', room: 'overview-team' }, null)
+    case 'team': return showing(overviewTeamStore(new URLSearchParams(location.search).has('frame-fix8-stop') ? 'needs-you' : 'running'), { kind: 'room', room: 'overview-team' }, null)
     case 'team-trigger': return showing(triggerTeamStore(), { kind: 'room', room: 'overview-team' }, null)
     case 'team-receipt': return showing(teamRecordStore('wrapped'), { kind: 'room', room: 'overview-team' }, null)
     case 'teams': {
@@ -227,6 +227,22 @@ export const FrameWall = () => {
     // Additional Details states for the same real frame; all data is synthetic.
     const detailsCase = query.get('frame-details-case')
     const snapshot = next.getSnapshot()
+    if (destination === 'team' && query.get('frame-fix8-stop') === '1') {
+      Object.assign(snapshot, { approvals: snapshot.approvals.map(({ key, approval }) => ({ key, approval: {
+        id: approval.id, sessionId: approval.sessionId, requestedAt: approval.requestedAt, type: 'command', command: 'echo synthetic', cwd: '/work/storefront', actions: [],
+        options: [{ id: 'allow', label: 'Allow', intent: 'approve' }, { id: 'deny', label: 'Deny', intent: 'deny' }],
+      } })) })
+      const request = next.transport.request.bind(next.transport)
+      next.transport.request = (async (method, params) => {
+        if (method !== 'flow/execution/stop') return request(method, params as never)
+        const run = snapshot.flowExecutions.get((params as { run: string }).run)!
+        const events = next.transport as unknown as { handlers: { onEvent(runtime: import('@harnessdesk/protocol').RuntimeId, event: import('@harnessdesk/protocol').AgentEvent): void } }
+        for (const { key, approval } of snapshot.approvals) events.handlers.onEvent(snapshot.sessions.get(key)!.runtime, { type: 'approval/resolved', sessionId: approval.sessionId,
+          approvalId: approval.id, resolution: { outcome: 'abandoned', reason: 'Run stopped' } })
+        return { ...run, state: 'stopped', reason: 'The person stopped this run.', end: { kind: 'stopped', by: 'person' },
+          rounds: run.rounds.map(round => ({ ...round, state: 'closed' })) }
+      }) as typeof next.transport.request
+    }
     if (destination === 'dashboard' && query.get('frame-fix8-unattributed') === '1') {
       const request = next.transport.request.bind(next.transport)
       next.transport.request = (async (method, params) => {

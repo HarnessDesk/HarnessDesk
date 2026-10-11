@@ -1395,6 +1395,20 @@ export class Host {
         const record = this.registry.get(seat.session.runtime as RuntimeId, makeSessionId(seat.session.sessionId))
         return record ? this.#queueBusy(record) : false
       },
+      settleApprovals: async (seat, reason) => {
+        const runtime = runtimeId(seat.session.runtime), id = makeSessionId(seat.session.sessionId)
+        const record = this.registry.get(runtime, id)
+        if (!record) return
+        for (const approval of [...record.approvals.values()]) {
+          // Let the agent abandon its outstanding request, then publish the settlement
+          // even when it cannot answer or omits its own resolution event.
+          await record.live?.respondToApproval(approval.id, { type: 'cancel' }).catch(() => {})
+          if (record.approvals.has(String(approval.id))) this.#onEvent(runtime, {
+            type: 'approval/resolved', sessionId: id, approvalId: approval.id,
+            resolution: { outcome: 'abandoned', reason },
+          })
+        }
+      },
       // A trigger's run interrupts each Seat it lets go, closed or not: no turn it started outlives it.
       interrupt: async (seat) => {
         const record = this.registry.get(seat.session.runtime as RuntimeId, makeSessionId(seat.session.sessionId))
