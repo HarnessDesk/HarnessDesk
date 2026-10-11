@@ -808,17 +808,19 @@ export const Spend = ({
             </>
           </ChartCard>
         ) : (
-          <EmptyState
-            tight
-            title={
-              scan?.running
-                ? 'Reading transcripts'
-                : metric === 'cost'
-                  ? 'No priced usage in this window yet'
-                  : `${words.empty} in this window`
-            }
-            description={scan?.running ? `${scan.filesDone} of ${scan.filesTotal} files` : undefined}
-          />
+          <ChartCard>
+            <EmptyState
+              tight
+              title={
+                scan?.running
+                  ? 'Reading transcripts'
+                  : metric === 'cost'
+                    ? 'No priced usage in this window yet'
+                    : `${words.empty} in this window`
+              }
+              description={scan?.running ? `${scan.filesDone} of ${scan.filesTotal} files` : undefined}
+            />
+          </ChartCard>
         )}
 
         {showFooter && <ChartFoot>

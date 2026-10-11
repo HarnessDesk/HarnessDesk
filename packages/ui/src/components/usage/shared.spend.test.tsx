@@ -24,10 +24,11 @@ const emptyLedger = (days: number): LedgerReport => ({
   scannedAt: null,
 })
 
-it('uses the chart frame itself as the empty plot body', () => {
+it('places the empty plot inside a chart card', () => {
   act(() => root.render(<Spend ledger={emptyLedger(30)} wideLedger={emptyLedger(60)} byId={new Map()} tintOf={() => 'blue'} scan={null} now={Date.parse('2026-10-10T12:00:00')} range={30} mode="bars" onModeChange={() => {}} onScan={() => {}} showFooter={false} />))
   const frame = host.querySelector<HTMLElement>('[data-slot="chart-frame"]')!
   const empty = frame.querySelector<HTMLElement>('[data-slot="empty-state"]')!
-  expect(empty.parentElement).toBe(frame)
-  expect(frame.querySelectorAll(':scope > [data-slot="chart-card"]')).toHaveLength(1)
+  const cards = frame.querySelectorAll<HTMLElement>(':scope > [data-slot="chart-card"]')
+  expect(cards).toHaveLength(2)
+  expect(cards[1]?.contains(empty)).toBe(true)
 })
