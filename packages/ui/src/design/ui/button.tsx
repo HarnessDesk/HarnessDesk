@@ -201,6 +201,9 @@ const boxedVariants = cva(
            amount back with a negative margin, the way any hit-slop trick
            does, so the sentence around it never reflows. */
         'inline-link': 'h-auto whitespace-normal px-0 py-(--hd-space-2) -my-(--hd-space-2)',
+        /* A clickable figure keeps its text on the column edge while the
+           hover plate reaches one spacing step past it on each side. */
+        'stat-action': 'h-full w-full -mx-(--hd-space-2) px-(--hd-space-2) items-start justify-start text-left whitespace-normal',
         /* A row of a hand-windowed table: fixed to the pitch the list's own
            arithmetic assumes (`--hd-table-row-h`), with only the right inset
            a table row keeps clear of its own scrollbar. Distinct from `row`

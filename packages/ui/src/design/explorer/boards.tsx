@@ -164,7 +164,7 @@ const Case = ({ label, children }: { label: string; children: React.ReactNode })
 )
 
 const BUTTON_CATALOG_VARIANTS = ['default', 'outline', 'secondary', 'ghost', 'floating', 'danger', 'destructive', 'link', 'row', 'navigation', 'choice', 'quiet', 'muted', 'warning', 'reveal', 'subtle', 'primary', 'action'] as const
-const BUTTON_CATALOG_SIZES = ['default', 'wrap', 'xs', 'sm', 'sidebar-nav', 'icon-label', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'log-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'navigation-edge', 'fill', 'icon-circle'] as const
+const BUTTON_CATALOG_SIZES = ['default', 'wrap', 'xs', 'sm', 'sidebar-nav', 'icon-label', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'stat-action', 'log-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'navigation-edge', 'fill', 'icon-circle'] as const
 const BUTTON_CATALOG_STATES = ['default', 'hover', 'focus-visible', 'disabled'] as const
 const INPUT_CATALOG_VARIANTS = ['default', 'quiet', 'bare', 'filled', 'chrome', 'code'] as const
 const INPUT_CATALOG_MEASURE = ['auto', 'name', 'path'] as const
