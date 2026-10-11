@@ -211,6 +211,13 @@ export const FrameWall = () => {
     // Additional Details states for the same real frame; all data is synthetic.
     const detailsCase = query.get('frame-details-case')
     const snapshot = next.getSnapshot()
+    if (query.get('frame-short-title') === '1') {
+      const session = snapshot.sessions.get(PREVIEW_SESSION_KEY)
+      if (!session) throw new Error('the short-title conversation fixture is missing its session')
+      Object.assign(snapshot, { sessions: new Map(snapshot.sessions).set(PREVIEW_SESSION_KEY, {
+        ...session, title: 'Extract the address form', status: { type: 'idle' }, turns: [],
+      }) })
+    }
     if (query.get('frame-sidebar-notice') === '1') Object.assign(snapshot, { goalMigrationPending: true })
     if (query.get('frame-conversation-actions') === '1') {
       Object.assign(snapshot, { runtimes: snapshot.runtimes.map(runtime => ({

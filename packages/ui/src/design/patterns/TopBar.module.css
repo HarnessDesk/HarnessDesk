@@ -5,9 +5,10 @@
 .fixed:empty { display: none; }
 .row [data-topbar="tabs"] { flex: none; }
 .place { display: flex; align-items: center; gap: var(--hd-bar-gap); flex: 0 1 auto; min-width: 0; }
-.title { flex: 1 1 auto; width: max-content; min-width: var(--hd-bar-title-min); }
+.title { display: flex; align-items: center; gap: var(--hd-bar-gap); flex: 1 1 auto; width: max-content; min-width: var(--hd-bar-title-min); }
 .place { flex-basis: max-content; }
-.title > * { display: block; min-width: 0; }
+.title > [data-slot='text'] { display: block; flex: 0 1 auto; width: max-content; max-width: 100%; min-width: 0; }
+.title > [data-topbar='state'] { flex: none; }
 .spacer { flex: 1 1 0; min-width: 0; }
 .tabs { flex-wrap: nowrap; flex: none; }
 

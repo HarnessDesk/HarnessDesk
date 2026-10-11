@@ -144,6 +144,96 @@ for (const theme of WALL_THEMES) for (const width of [1440, 720]) {
   })
 }
 
+test('R10.11 short title keeps its state chip at the text gap', async ({ page }) => {
+  const cases = [
+    { query: 'frame-wall=agents&frame-detail=agent&frame-agent-case=release-checker', title: 'Release checker', state: 'Edit' },
+    { query: 'frame-wall=conversation&frame-short-title=1', title: 'Extract the address form', state: 'Idle' },
+  ] as const
+  for (const one of cases) {
+    await openFrame(page, one.query, 'light', 1440)
+    const bar = page.locator('[data-slot="top-bar"]:visible')
+    const title = bar.locator('[data-topbar-title] [data-slot="text"]').last()
+    const state = bar.locator('[data-topbar="state"]')
+    await expect(title).toContainText(one.title)
+    await expect(state).toContainText(one.state)
+    const geometry = await title.evaluate(node => {
+      const titleSlot = node.closest<HTMLElement>('[data-topbar-title]')!
+      const stateSlot = titleSlot.parentElement?.parentElement?.querySelector<HTMLElement>('[data-topbar="state"]')
+      const range = document.createRange()
+      range.selectNodeContents(node)
+      const ink = range.getBoundingClientRect()
+      return {
+        titleWidth: titleSlot.getBoundingClientRect().width,
+        inkRight: ink.right,
+        stateLeft: stateSlot?.getBoundingClientRect().left ?? null,
+      }
+    })
+    expect(geometry.titleWidth).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+    expect(geometry.stateLeft, `${one.title} exposes a state chip`).not.toBeNull()
+    expect(geometry.stateLeft! - geometry.inkRight, `${one.title} state gap`).toBeCloseTo(FRAME.bar.gap, 0)
+  }
+})
+
+test('R10.28 Projects keeps submenu values and chevrons inside the popup', async ({ page }) => {
+  await openFrame(page, 'frame-wall=left-work', 'light', 1100)
+  await applyLeftColumnActions(page, { leftOpen: true })
+  await page.getByTitle('How this list is shown', { exact: true }).click()
+  const menu = page.locator('[data-popup-kind="menu"]:visible').last()
+  await expectMenuGeometry(menu)
+  for (const value of ['Recency', 'All agents']) {
+    const row = menu.locator('[data-menu-row]').filter({ hasText: value }).first()
+    const trailing = row.locator('[data-menu-trailing]')
+    const geometry = await trailing.evaluate((node, wanted) => {
+      const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT)
+      let text: Text | null = null
+      while (walker.nextNode()) if (walker.currentNode.textContent?.trim() === wanted) text = walker.currentNode as Text
+      if (!text) throw new Error(`missing trailing value ${wanted}`)
+      const range = document.createRange()
+      range.selectNodeContents(text)
+      const ink = range.getBoundingClientRect()
+      const box = node.getBoundingClientRect()
+      return { inkLeft: ink.left, inkRight: ink.right, left: box.left, right: box.right, scroll: node.scrollWidth, client: node.clientWidth }
+    }, value)
+    expect(geometry.inkLeft, `${value} leading edge is visible`).toBeGreaterThanOrEqual(geometry.left - 0.5)
+    expect(geometry.inkRight, `${value} trailing edge is visible`).toBeLessThanOrEqual(geometry.right + 0.5)
+    expect(geometry.scroll, `${value} and its chevron fit the assigned slot`).toBeLessThanOrEqual(geometry.client)
+  }
+})
+
+test('R10.30 terminal occupies main while the right panel keeps its frame height', async ({ page }) => {
+  for (const width of [1440, 1100]) {
+    await openFrame(page, 'frame-wall=conversation&frame-terminal=1', 'light', width)
+    await page.locator('[data-work-tool="details"]').click()
+    const main = page.locator('[data-frame-region="main"]')
+    const right = page.locator('[data-frame-region="right"]')
+    const bottom = page.locator('[data-frame-region="bottom"]')
+    await expect(bottom.locator('[data-terminal-id]')).toBeVisible()
+    await expect(right).toBeVisible()
+    const geometry = await page.evaluate(() => {
+      const box = (selector: string) => {
+        const rect = document.querySelector<HTMLElement>(selector)!.getBoundingClientRect()
+        return { x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom }
+      }
+      return {
+        shell: box('[data-slot="fixed-shell"]'),
+        main: box('[data-frame-region="main"]'),
+        right: box('[data-frame-region="right"]'),
+        bottom: box('[data-frame-region="bottom"]'),
+        floating: document.querySelector('[data-slot="fixed-shell"]')!.getAttribute('data-panel-floats') === 'true',
+      }
+    })
+    expect(Math.abs(geometry.bottom.x - geometry.main.x), 'terminal starts with main').toBeLessThanOrEqual(1)
+    expect(Math.abs(geometry.bottom.right - geometry.main.right), 'terminal ends with main').toBeLessThanOrEqual(1)
+    if (width >= FRAME.fold.panelFloats) {
+      expect(Math.abs(geometry.right.x - geometry.main.right), 'standing panel follows main').toBeLessThanOrEqual(1)
+      expect(Math.abs(geometry.right.bottom - geometry.shell.bottom), 'standing panel reaches the shell bottom').toBeLessThanOrEqual(1)
+    } else {
+      expect(geometry.floating).toBe(true)
+      expect(Math.abs(geometry.right.bottom - geometry.bottom.y), 'floating panel stops above terminal').toBeLessThanOrEqual(1)
+    }
+  }
+})
+
 for (const theme of WALL_THEMES) for (const filter of ['All', 'Open', 'Blocking']) {
   test(`B11 native-width lead folds the Findings ${filter} verb last in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team', theme, 720)

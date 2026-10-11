@@ -16,7 +16,7 @@
   overflow: hidden;
   grid-template-columns: var(--frame-left) minmax(0, 1fr) var(--frame-right);
   grid-template-rows: var(--hd-bar-h) minmax(0, 1fr) var(--frame-bottom);
-  grid-template-areas: 'left top top' 'left main right' 'left bottom bottom';
+  grid-template-areas: 'left top top' 'left main right' 'left bottom right';
 }
 .left { grid-area: left; position: relative; min-height: 0; min-width: 0; }
 .top { grid-area: top; min-width: 0; }
