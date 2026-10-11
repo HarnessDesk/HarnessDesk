@@ -96,7 +96,7 @@ const EmptyTitle = ({ children }: { children: ReactNode }) => (
 )
 /** An empty-state sentence, in the reading role. */
 const EmptyBody = ({ children }: { children: ReactNode }) => (
-  <Text as="p" role="prose" className="m-0 max-w-[460px]">
+  <Text as="p" role="prose" align="center" className="m-0 max-w-[460px]">
     {children}
   </Text>
 )
