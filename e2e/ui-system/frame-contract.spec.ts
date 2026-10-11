@@ -2542,3 +2542,101 @@ for (const detail of [false, true]) test(`E4 Agents ${detail ? 'detail' : 'roste
   await expect(items.filter({ hasText: 'Back to app' })).toHaveCount(0)
   await expect(items.filter({ hasText: 'Terminal' })).toHaveCount(0)
 })
+
+
+// The shared preview replacement belongs to Task 9. Route only this lane's
+// Teams fixture module through the existing preview document; all UI/store code is real.
+const installE5TeamsFixture = async (page: Page) => {
+ await page.route('**/src/preview/frames-frame-wall.tsx*', async route => {
+  const query=new URL(page.url()).searchParams
+  if(query.get('frame-wall')!=='teams'){await route.continue();return}
+  const response=await page.request.get(new URL('/src/preview/teams-destination-fixture.tsx',route.request().url()).href)
+  await route.fulfill({response})
+ })
+}
+
+for (const width of [1440,720]) test(`E5 Teams journey keeps the normal column and history ${width}`, async ({page}) => {
+ await expectPageJourney(page,'Teams','teams',width)
+ const column=page.locator('[data-left-column]:visible')
+ const reveal=async()=>{if(width===720)await page.getByRole('button',{name:'Show sidebar',exact:true}).click()}
+ const back=async()=>{await reveal();await column.locator('[data-left-top]').getByRole('button',{name:'Back',exact:true}).click();await expect(page.locator('[data-page-destination="teams"]:visible')).toHaveCount(1);await reveal()}
+ await column.getByRole('button',{name:'New session',exact:true}).click()
+ await expect(page.locator('[data-slot="retained-work"]')).toBeVisible();await back()
+ await column.locator('[data-region="session-row"] [data-slot="sidebar-menu-button"]').first().click()
+ await expect(page.locator('[data-slot="retained-work"]')).toBeVisible();await back()
+ await column.locator('[data-left-seat]').getByRole('button',{name:'Settings',exact:true}).click()
+ await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1);await back()
+})
+test('E5 Teams column background reaches the window top', async ({page}) => {
+ await installE5TeamsFixture(page)
+ await openFrame(page,'frame-wall=teams','light')
+ const legacy=page.locator('[data-slot="app-window"]:visible [data-slot="app-window-nav"]')
+ const column=await legacy.count()?legacy:page.locator('[data-left-column]:visible')
+ await expect(column).toBeVisible()
+ expect((await column.boundingBox())!.y).toBe(0)
+ const colors=await column.evaluate(node=>{
+  const paint=(el:Element):string=>{const color=getComputedStyle(el).backgroundColor;return color==='rgba(0, 0, 0, 0)'&&el.parentElement?paint(el.parentElement):color}
+  const expected=document.createElement('div');expected.style.background='var(--hd-sidebar)';node.append(expected)
+  const actual=paint(node),top=paint(node.querySelector('[data-left-top]') ?? node),want=getComputedStyle(expected).backgroundColor;expected.remove()
+  return [actual,top,want]
+ })
+ expect(colors.slice(0,2)).toEqual([colors[2],colors[2]])
+})
+test('E5 Teams More applies only to the folderless list', async ({page}) => {
+ await installE5TeamsFixture(page)
+ await openFrame(page,'frame-wall=teams','light')
+ await page.locator('[data-slot="top-bar"]:visible').getByRole('button',{name:'More',exact:true}).click()
+ await expect(page.getByRole('menu').getByText('Back to app',{exact:true})).toHaveCount(0)
+ await expect(page.getByRole('menu').getByText('Terminal',{exact:true})).toHaveCount(0)
+})
+
+for (const theme of ['light','dark'] as const) for (const width of [2200,1440,1100,720]) {
+ for (const filter of ['active','needs-you','settled']) test(`E5 Teams ${filter} ${width} ${theme}`,async({page})=>{
+  await installE5TeamsFixture(page)
+  await measureDestination(page,`frame-wall=teams&frame-filter=${filter}`,'wide',theme,width)
+  await expect(page.locator('[data-slot="top-bar"]:visible').getByRole('button',{name:'New Team',exact:true})).toBeVisible()
+  const records=page.locator('[data-slot="page-records"]:visible').first()
+  await expect(records).toHaveAttribute('data-layout',(await records.boundingBox())!.width<600?'narrow':'table')
+  await expect(records.locator('[data-team-row]')).not.toHaveCount(0)
+  await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
+  const views=page.locator('[data-page-destination="teams"]:visible [data-slot="page"]').first().locator(':scope > [data-slot="tabs"]')
+  await expect(views.getByRole('tab',{name:filter==='active'?/^Active/:filter==='needs-you'?/^Needs you/:/^Settled/})).toHaveAttribute('aria-selected','true')
+ })
+}
+for(const theme of ['light','dark'] as const) test(`E5 Teams empty state uses the shared main block ${theme}`,async({page})=>{
+ await installE5TeamsFixture(page)
+ await openFrame(page,'frame-wall=teams&frame-empty=1',theme)
+ const empty=page.locator('[data-page-destination="teams"]:visible [data-slot="page"] > [data-slot="empty-state"][data-variant="panel"]')
+ await expect(empty).toBeVisible();await expect(empty).toHaveText('No active Teams')
+})
+test('E5 Team row enters work and keeps room navigation separate from page history',async({page})=>{
+ await installE5TeamsFixture(page)
+ await openFrame(page,'frame-wall=teams','dark')
+ await page.locator('[data-slot="page-records"]:visible').getByRole('button',{name:/^Open /}).first().click()
+ await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
+ await selectFrameTab(page,'findings')
+ await page.keyboard.press('Meta+[')
+ await expect(page.locator('[data-page-destination="teams"]')).toBeVisible()
+ await page.keyboard.press('Meta+]')
+ await expect(page.locator('[data-slot="team-room"]')).toBeVisible()
+ await expect(page.locator('[data-team-page="findings"]')).toBeVisible()
+})
+for(const theme of ['light','dark'] as const) test(`E5 Teams filters replace the route and New Team invokes the existing dialog ${theme}`,async({page})=>{
+ await installE5TeamsFixture(page)
+ await openFrame(page,'frame-wall=teams',theme)
+ const views=page.getByRole('tablist',{name:'Teams views'})
+ await views.getByRole('tab',{name:/^Settled/}).click()
+ await expect(views.getByRole('tab',{name:/^Settled/})).toHaveAttribute('aria-selected','true')
+ await page.keyboard.press('Meta+[')
+ await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
+ await page.keyboard.press('Meta+]')
+ await expect(views.getByRole('tab',{name:/^Settled/})).toHaveAttribute('aria-selected','true')
+ await page.locator('[data-slot="top-bar"]:visible').getByRole('button',{name:'New Team',exact:true}).click()
+ await expect(page.getByRole('dialog')).toBeVisible()
+})
+test('E5 Teams without a folder refuses New Team',async({page})=>{
+ await installE5TeamsFixture(page)
+ await openFrame(page,'frame-wall=teams&frame-no-folder=1','light')
+ const create=page.locator('[data-slot="top-bar"]:visible').getByRole('button',{name:'New Team',exact:true})
+ await expect(create).toBeDisabled();await expect(create).toHaveAttribute('title','Open a project folder first.')
+})

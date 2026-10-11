@@ -192,3 +192,14 @@ export const AGENTS_PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'e4-agent-missing', query: 'frame-wall=agents&frame-agent-case=missing', pageWidth: 'wide' },
 ]
 ;(PAGE_WALL_DESTINATIONS as WallDestination[]).push(...AGENTS_PAGE_WALL_DESTINATIONS)
+
+
+export const E5_PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
+ {id:'e5-teams-active',query:'frame-wall=teams&frame-filter=active',pageWidth:'wide'},
+ {id:'e5-teams-needs-you',query:'frame-wall=teams&frame-filter=needs-you',pageWidth:'wide'},
+ {id:'e5-teams-settled',query:'frame-wall=teams&frame-filter=settled',pageWidth:'wide'},
+ {id:'e5-teams-ready',query:'frame-wall=teams&frame-filter=active',pageWidth:'wide',expandReady:true},
+ {id:'e5-teams-no-folder',query:'frame-wall=teams&frame-no-folder=1',pageWidth:'wide'},
+ {id:'e5-teams-empty',query:'frame-wall=teams&frame-empty=1',pageWidth:'wide'},
+]
+;(PAGE_WALL_DESTINATIONS as WallDestination[]).push(...E5_PAGE_WALL_DESTINATIONS)

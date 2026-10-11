@@ -174,6 +174,7 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   DashboardBands: ['light', 'dark'],
   PageControls: ['default'],
+  PageRecords: ['default'],
   PageOptions: ['default'],
   SettingsChoices: ['default'],
   MainDestination: ['light', 'dark'],
@@ -293,6 +294,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   DashboardBands: ['default', 'empty', 'unknown', 'long-title'],
   PageControls: ['default', 'disabled'],
+  PageRecords: ['default', 'populated', 'long-title', 'folded-state'],
   PageOptions: ['default', 'loading', 'folded-state'],
   SettingsChoices: ['populated', 'unknown', 'selected'],
   MainDestination: ['default', 'open', 'closed'],
@@ -443,6 +445,7 @@ Object.assign(SIZES, {
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   DashboardBands: 'packages/ui/src/components/Usage.tsx',
   PageControls: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  PageRecords: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   PageOptions: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   SettingsChoices: 'packages/ui/src/components/SettingsYou.tsx',
   MainDestination: 'packages/ui/src/panels/Workbench.tsx',
@@ -502,6 +505,7 @@ Object.assign(PATTERN_CONSUMER, { LeftColumn: 'packages/ui/src/components/Sideba
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   DashboardBands: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   PageControls: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  PageRecords: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   PageOptions: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   SettingsChoices: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   MainDestination: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -706,6 +710,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['FlowCanvas', 'flow-canvas', 'A lazy, controlled plan canvas: pan, zoom, selection, edits and read-only Run state slots'],
   ['FlowGraph', 'flow-graph', 'A Flow’s steps and rules drawn read-only, with the list that says the same'],
   ['FlowStepRow', 'flow-graph', 'Shared Flow and main Run Timeline step rows with kind, recorded state, time and run count'],
+  ['PageRecords', 'page-records', 'Responsive grouped records with aligned facts and isolated row actions'],
   ['PageControls', 'page-controls', 'Labelled page fields, complete explanations and shortcut keys'],
   ['PageOptions', 'page-options', 'Current page choices and read actions in the first body block'],
   ['SettingsChoices', 'settings-choices', 'Picture, accent and account ring choices with preserved radio behavior'],

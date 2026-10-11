@@ -3108,6 +3108,7 @@ export const SeatListBoard = () => {
 
 export const COMPOSITION_BOARDS: BoardSpec[] = [
   {id:'dashboard-bands',title:'Dashboard bands',about:'Long labels, unavailable values and empty source bands in both themes.',render:DashboardBandsBoard},
+  {id:'page-records',title:'Page records',about:'Content-width table and list rows, complete reasons and isolated actions.',render:() => <PageRecordsBoard />},
   {id:'page-controls',title:'Page controls',about:'Labelled fields, complete prose and semantic input measures.',render:() => <PageControlsBoard />},
   {id:'page-options',title:'Page options',about:'Current values, pending scope and long choices folded in the body.',render:() => <PageOptionsBoard />},
   {id:'settings-choices',title:'Settings choices',about:'Selected and unknown pictures, accent and account ring choices.',render:() => <SettingsChoicesBoard />},
@@ -3577,3 +3578,14 @@ export function DashboardBandsBoard() { return <div data-catalog-variants={DASHB
     ]} /><DashboardStats facts={[{id:'known',label:'Known reading',value:'42%'},{id:'unknown',label:'Unknown reading',value:'—'}]} /></Page>
   </Case>
 </div> }
+
+import { PageRecords } from '..'
+const PAGERECORDS_CATALOG_VARIANTS = ['default'] as const
+const PAGERECORDS_CATALOG_SIZES = ['default'] as const
+const PAGERECORDS_CATALOG_STATES = ['default','populated','long-title','folded-state'] as const
+export const PageRecordsBoard = () => <div data-catalog-variants={PAGERECORDS_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={PAGERECORDS_CATALOG_SIZES.join(' ')} data-catalog-states={PAGERECORDS_CATALOG_STATES.join(' ')}>
+ <Specimen measure="wide" caption="Grouped records and whole waiting reasons"><PageRecords label="Team" columns={[{id:'time',label:'Time',numeric:true},{id:'turns',label:'Turns',numeric:true}]}
+  groups={[{id:'/work/storefront',label:'Storefront · 2',rows:[{id:'review',title:'Review the checkout recovery with a long recorded title · 長い記録',description:'Waiting for a decision on whether to keep the original payment method.',values:{time:'47m',turns:'137'},state:<Chip tone="warning">Needs you</Chip>,open:()=>{},actions:<Button variant="quiet" size="sm">Hide</Button>},
+   {id:'cache',title:'Finish the usage cache',values:{time:'5h',turns:'92'},state:<Text role="meta">Ready to wrap</Text>,open:()=>{}}]}]}/></Specimen>
+ <Specimen measure="fit" caption="The same record below the content threshold"><div className="max-w-sm"><PageRecords label="Team" columns={[{id:'time',label:'Time',numeric:true}]} groups={[{id:'/work/billing',label:'Billing · 1',rows:[{id:'invoice',title:'Keep the invoice rounding change',compact:'Review accepted the invoice rounding change · 5h in this state · 46 turns',values:{time:'5h'},state:<Text role="meta">Settled</Text>,open:()=>{}}]}]}/></div></Specimen>
+</div>

@@ -1875,6 +1875,19 @@ Complete supporting notes that belong to a page group.
 
 Current choices, search and read actions in the first body block; long menu choices wrap within the page.
 
+### `PageRecordViews`
+
+`packages/ui/src/design/patterns/PageRecords.tsx`
+
+A record page's views belong in its first body row, using the shared tab switcher.
+
+### `PageRecords`
+
+`packages/ui/src/design/patterns/PageRecords.tsx`
+
+Records share a table above 600px of content, and whole earned sentences in list rows below it.
+Row actions and portalled menus never activate the record; the title is its keyboard button.
+
 ### `PaneColumn`
 
 `packages/ui/src/design/patterns/PaneColumn.tsx`

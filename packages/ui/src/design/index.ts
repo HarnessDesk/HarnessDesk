@@ -255,3 +255,4 @@ export { PageOptions, type PageOption } from './patterns/PageOptions'
 export { PictureChoices, AccentChoices, RingChoices } from './patterns/SettingsChoices'
 
 export { DashboardOverviewStats, DashboardBands, DashboardColumns, DashboardAccounts, DashboardAccountHead, DashboardAccountBody, DashboardAccountFoot, DashboardFigure, DashboardLanes, DashboardReadingNote, DashboardFact, DashboardMoney, DashboardTable, DashboardPlanName, DashboardPlanReading, DashboardAgentReading, DashboardStats, DashboardBurn, DashboardAccountActivity, type DashboardBand } from './patterns/DashboardBands'
+export { PageRecords, PageRecordViews, type RecordColumn, type PageRecord, type RecordGroup } from './patterns/PageRecords'
