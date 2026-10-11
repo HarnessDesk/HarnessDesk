@@ -110,3 +110,12 @@ test('FIX9 unavailable conversation keeps its notes in the reading column', asyn
     expect(boxes[1]!.y + boxes[1]!.height).toBeLessThanOrEqual(boxes[0]!.y)
   }
 })
+
+test('FIX9 confirmed sign out uses one phrase on the list and detail', async ({ page }) => {
+  await openFrame(page, 'frame-wall=settings-runtimes&frame-fix9-signout=1')
+  const row = page.locator('[data-slot="agent-row"]').filter({ hasText: 'Fixture agent' })
+  await expect(row).toContainText('Signed out')
+  await row.click()
+  await expect(page.getByText('Signed out', { exact: true }).first()).toBeVisible()
+  await expect(page.locator('body')).not.toContainText('Not signed in')
+})

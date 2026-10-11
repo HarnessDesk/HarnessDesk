@@ -368,6 +368,12 @@ export const FrameWall = () => {
         return request(method, params as never, options)
       }) as typeof next.transport.request
     }
+    if (destination.startsWith('settings') && query.get('frame-fix9-signout') === '1') {
+      const base = snapshot.runtimes[0]!
+      const info = { ...base, capabilities: { ...base.capabilities, account: true }, presentation: { ...base.presentation, name: 'Fixture agent' } }
+      Object.assign(snapshot, { runtimes: [info], activeRuntime: info.id, health: null, healthByRuntime: {}, usage: [],
+        accountsByRuntime: { [info.id]: { accounts: [], signInMethods: [{ id: 'browser', label: 'Sign in', flow: 'browser' }] } } })
+    }
     if (query.get('frame-settings-round4') === '1') {
       const base = snapshot.runtimes[0]!
       const names = ['Runtime 1', 'Runtime 2', 'Runtime 3', 'Runtime 4', 'Runtime 5', 'Runtime 6',

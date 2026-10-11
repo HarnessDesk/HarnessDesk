@@ -535,12 +535,12 @@ it.each([
   }],
 ])('does not claim sign-out for a runtime %s', async (_state, over) => {
   await mountList({ accountsByRuntime: {}, ...over })
-  expect(line('Gamma').textContent).not.toContain('Not signed in')
+  expect(line('Gamma').textContent).not.toContain('Signed out')
 })
 
 it('reports a confirmed sign-out and retains an anonymous sign-in', async () => {
   await mountList({ accountsByRuntime: { ...ROSTER.accountsByRuntime, beta: signedIn([{ anonymous: true }], []) } })
-  expect(line('Gamma').textContent).toContain('Not signed in')
+  expect(line('Gamma').textContent).toContain('Signed out')
   expect(line('Beta').textContent).toContain('Signed in')
 })
 
@@ -555,7 +555,7 @@ it("an agent's page says it has not answered yet, rather than that nobody is sig
   // Control: answered with no account is a real sign-out.
   await mountList()
   await act(async () => line('Gamma').click())
-  expect(document.body.textContent).toContain('Not signed in')
+  expect(document.body.textContent).toContain('Signed out')
   act(() => root.unmount())
   root = createRoot(container)
 
@@ -565,7 +565,7 @@ it("an agent's page says it has not answered yet, rather than that nobody is sig
   await act(async () => line('Gamma').click())
   expect(document.body.textContent).toContain('Not answered yet')
   expect(document.body.textContent).toContain('Its accounts show once it answers.')
-  expect(document.body.textContent).not.toContain('Not signed in')
+  expect(document.body.textContent).not.toContain('Signed out')
   expect(document.body.textContent).not.toContain('has no credential here yet')
 })
 
@@ -681,7 +681,7 @@ it("an agent's page claims no session would fail while another of its accounts i
   delete (accounts as Record<string, unknown>)['alpha#2']
   await mountList({ accountsByRuntime: accounts })
   await act(async () => line('Alpha').click())
-  expect(document.body.textContent).toContain('Not signed in')
+  expect(document.body.textContent).toContain('Signed out')
   expect(document.body.textContent).toContain('Another account has not answered yet.')
   expect(document.body.textContent).not.toContain('Signed out. Sign in to start a session.')
   expect(button('Sign in')).toBeTruthy()

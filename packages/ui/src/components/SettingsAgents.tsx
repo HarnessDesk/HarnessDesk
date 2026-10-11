@@ -482,7 +482,7 @@ const AgentRow = ({
           {snapshot.activeRuntime === info.id && <Chip tone="neutral" size="sm">Default</Chip>}
         </InlineParts>
       }
-      desc={who ?? (state === 'signin' ? 'Not signed in' : undefined)} truncateDesc
+      desc={who ?? (state === 'signin' ? 'Signed out' : undefined)} truncateDesc
       control={state === 'limit' || state === 'broken' ? <Chip state={state} /> : undefined}
       {...(signIn
         ? {
@@ -774,7 +774,7 @@ const AgentAccounts = ({
           <EmptyState variant="row" title="Unavailable" description="Its accounts show once it starts." />
         ) : rows.length === 0 && gateways.length === 0 && info.capabilities.account && status === undefined ? (
           /* Not answered yet (#986): the agent has not said who is signed in,
-             so "Not signed in" would be a guess. */
+             so "Signed out" would be a guess. */
           <EmptyState variant="row" title={READINESS_LABEL.unknown} description="Its accounts show once it answers." />
         ) : (
           rows.length === 0 &&
@@ -782,7 +782,7 @@ const AgentAccounts = ({
             <EmptyState variant="row"
               title={
                 info.capabilities.account
-                  ? 'Not signed in'
+                  ? 'Signed out'
                   : info.install?.signIn
                     ? 'Signs in on its own'
                     : 'No account needed'
