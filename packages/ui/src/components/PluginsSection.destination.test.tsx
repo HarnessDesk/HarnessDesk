@@ -1,4 +1,5 @@
 import { act } from 'react'
+import type { ReactElement } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 import { StoreProvider } from '../state/context'
@@ -11,6 +12,20 @@ import { MAIN_PAGE_ENTRIES } from '../app/main-page-entries'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 it('E7 registers Plugins as a main destination', () => {
   expect(MAIN_PAGE_ENTRIES.plugins).toBeTypeOf('function')
+})
+it('uses reading width for one plugin while keeping the Plugins list wide', () => {
+  const entry = MAIN_PAGE_ENTRIES.plugins!
+  const common = {
+    visit: vi.fn(),
+    replace: vi.fn(),
+    onSignIn: vi.fn(),
+    onNewTeam: vi.fn(),
+    libraryImportIntent: 0,
+  }
+  const detail = entry({ ...common, page: { kind: 'plugins', section: 'installed', id: 'plugin-one' } }) as ReactElement<{ width: string }>
+  const list = entry({ ...common, page: { kind: 'plugins', section: 'installed', id: null } }) as ReactElement<{ width: string }>
+  expect(detail.props.width).toBe('reading')
+  expect(list.props.width).toBe('wide')
 })
 it('E7 missing detail replaces only the active Plugins route without a visit', async () => {
   const store = new AppStore('ws://localhost:0/')

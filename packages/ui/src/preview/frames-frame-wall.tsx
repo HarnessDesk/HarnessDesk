@@ -36,6 +36,7 @@ import { teamRecordStore } from './frames-team-record'
 import { overviewTeamStore } from './team-overview-fixture'
 import { teamsPageStore } from './teams-page-fixture'
 import { usagePreviewStore } from './usage-fixture'
+import { libraryAuditFixtureStore } from './library-audit-fixture'
 
 /**
  * The frame wall: the real workbench and sidebar, with one destination in
@@ -191,6 +192,8 @@ export const FrameWall = () => {
       : destination==='plugins' ? pluginsDestinationStore(routeQuery)
       : destination==='changes-review'||destination==='navigation' && query.get('frame-review')==='1'
         ? frameDestinationStore(showing(reviewPageStore(scene), {kind:'conversation',session:PREVIEW_SESSION_KEY},PREVIEW_SESSION_KEY))
+      : destination === 'library' && (query.get('frame-library-state') === 'autopilot' || query.get('frame-library-state') === 'import')
+        ? frameDestinationStore(showing(libraryAuditFixtureStore(query.get('frame-library-state') as 'autopilot' | 'import'), { kind: 'conversation', session: PREVIEW_SESSION_KEY }, PREVIEW_SESSION_KEY))
       : frameDestinationStore(storeFor(destination))
     if (initial && !['dashboard','agents','agent','plugins'].includes(destination)) next.openDestination(initial)
     if (destination==='changes-review') next.openReview()

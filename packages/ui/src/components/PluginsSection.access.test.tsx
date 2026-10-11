@@ -166,6 +166,26 @@ it('uses sentence case for Active and keeps Built in as a title-line chip', () =
   expect([...container.querySelectorAll('[data-slot="page-explanation"]')].some(one => one.textContent?.includes('Built in'))).toBe(false)
 })
 
+it('states the built-in origin once for the built-in group and keeps varying origins on their rows', () => {
+  const local = {
+    ...plugin('local-helper', 'Local helper', {}),
+    identity: {
+      id: 'local-helper',
+      name: 'Local helper',
+      source: { kind: 'local', path: '/home/u/plugins/local-helper' },
+    },
+  } as unknown as PluginInstance
+  const builtins = [plugin('builtin-one', 'Builtin one', {}), plugin('builtin-two', 'Builtin two', {})]
+  mount([...builtins, local])
+
+  const note = container.querySelector('[data-slot="note"][data-plugin-origin-group="builtin"]')
+  expect(note?.textContent).toBe('Built in')
+  const rows = [...container.querySelectorAll<HTMLElement>('[data-plugin-id]')]
+  expect(rows.filter(row => ['builtin-one', 'builtin-two'].includes(row.dataset.pluginId ?? ''))).toHaveLength(2)
+  expect(rows.filter(row => ['builtin-one', 'builtin-two'].includes(row.dataset.pluginId ?? '')).every(row => !row.textContent?.includes('Built in'))).toBe(true)
+  expect(rows.find(row => row.dataset.pluginId === 'local-helper')?.textContent).toContain('Installed')
+})
+
 it('names a plugin and its tools on the wire in the code face at the meta step, behind a labelled switch', () => {
   const tool = {
     id: 'git/git_status',

@@ -186,9 +186,15 @@ const mount = async (
  * later cannot silently re-point these at the wrong one.
  */
 const showMatrix = async (): Promise<void> => {
-  const select = document.body.querySelector<HTMLSelectElement>('select[aria-label="How to show the library"]')!
-  expect(select).not.toBeNull()
-  await act(async () => { select.value = 'matrix'; select.dispatchEvent(new Event('change', { bubbles: true })) })
+  const trigger = document.body.querySelector<HTMLButtonElement>(
+    '[data-slot="popover-trigger"][title="How to show the library"]',
+  )!
+  expect(trigger).not.toBeNull()
+  await act(async () => trigger.click())
+  const matrix = [...document.body.querySelectorAll<HTMLElement>('[role="menuitemradio"]')]
+    .find((node) => node.textContent?.trim() === 'Matrix')
+  expect(matrix).not.toBeUndefined()
+  await act(async () => matrix?.click())
 }
 
 /**
@@ -305,7 +311,7 @@ it('the first body options own search, filter and view; the selected filter can 
   await mount(library([entry('good', ['reaches', 'reaches']), entry('empty', ['hollow', 'absent'])]))
   const options = document.body.querySelector('[data-slot="page-options"]')!
   expect(options.querySelector('[aria-label="Search library"]')).not.toBeNull()
-  expect(options.querySelector('[aria-label="How to show the library"]')).not.toBeNull()
+  expect(options.querySelector('[data-slot="popover-trigger"][title="How to show the library"]')).not.toBeNull()
   expect(options.contains(filterTrigger())).toBe(true)
   expect(document.body.querySelector('[data-slot="library-toolbar"]')).toBeNull()
   await openFilter()
@@ -317,6 +323,19 @@ it('the first body options own search, filter and view; the selected filter can 
   expect(cards()).toHaveLength(2)
   expect(filterTrigger().textContent).toBe('Everything')
   expect(document.activeElement).toBe(filterTrigger())
+})
+
+it('uses one menu trigger form for the view, filter and agent choices', async () => {
+  await mount(library([entry('good', ['reaches', 'reaches'])]))
+  const options = document.body.querySelector('[data-slot="page-options"]')!
+  const triggers = [...options.querySelectorAll<HTMLElement>('[data-slot="popover-trigger"]')]
+
+  expect(triggers.map((trigger) => trigger.getAttribute('title'))).toEqual([
+    'How to show the library',
+    'Filter the library',
+    'Declared by',
+  ])
+  expect(options.querySelectorAll('[data-slot="native-select"]')).toHaveLength(0)
 })
 
 it('opening a row shows every copy and who reads it', async () => {
@@ -1950,11 +1969,32 @@ it('says a repeated load state once and leaves different states on their own row
   const dialog = document.body.querySelector('[role="dialog"]')!
   const group = [...dialog.querySelectorAll('section')].find(one => one.querySelector('h3')?.textContent === 'Which agents load it')!
   const repeated = 'Installed where this agent does not look'
+  const grouped = 'Installed where these agents do not look'
   const rows = [...group.querySelectorAll<HTMLElement>('[role="listitem"]')]
   expect(rows).toHaveLength(12)
-  expect(group.textContent?.match(/Installed where this agent does not look/g)).toHaveLength(1)
+  expect(group.textContent?.match(new RegExp(grouped, 'g'))).toHaveLength(1)
+  expect(group.querySelector('[data-slot="note"][data-ink="muted"]')?.textContent).toBe(grouped)
   expect(rows.filter(one => one.textContent?.includes(repeated))).toHaveLength(0)
   expect(rows.find(one => one.textContent?.includes('Agent 12'))?.textContent).toContain('Loads it')
+})
+
+it('groups identical Why notes once and names the agents they cover', async () => {
+  const agents = Array.from({ length: 12 }, (_, index) => runtime(`agent-${index + 1}`, `Agent ${index + 1}`))
+  const reason = 'On disk, but not in any directory this agent reads — it did not report it.'
+  const reaches = agents.map((info, index) => ({
+    runtime: runtimeId(info.id),
+    state: index === 11 ? 'reaches' as const : 'unscanned' as const,
+    basis: 'scanned' as const,
+    ...(index < 3 ? { note: reason } : {}),
+  }))
+  const autopilot = entry('autopilot', reaches.map(reach => reach.state), { reach: reaches })
+  await mount({ ...library([autopilot]), runtimes: agents.map(info => runtimeId(info.id)), locations: [] }, undefined, {
+    runtimes: agents,
+  })
+  await act(async () => container.querySelector<HTMLTableRowElement>('[data-slot="skill-row"]')?.click())
+
+  const why = [...document.body.querySelectorAll('section')].find(one => one.querySelector('h3')?.textContent === 'Why')!
+  expect(why.querySelector('[role="list"]')?.textContent).toBe(`Agent 1, Agent 2, Agent 3 — ${reason}`)
 })
 
 
