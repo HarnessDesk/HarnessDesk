@@ -92,3 +92,21 @@ test('FIX9 Projects names an empty current project beside spend elsewhere', asyn
   await expect(page.getByText('Open a project to see its Team usage.', { exact: true })).toBeVisible()
 })
 
+
+test('FIX9 unavailable conversation keeps its notes in the reading column', async ({ page }) => {
+  for (const width of [1600, 1280]) {
+    await openFrame(page, 'frame-wall=conversation&frame-fix8-kept=1', width)
+    await page.getByRole('button', { name: 'Kept conversation', exact: true }).click()
+    await expect.soft(page.locator('[data-frame-region="top"]')).not.toContainText('Idle')
+    const transcript = page.locator('[data-live-transcript]')
+    const message = transcript.getByText('First kept message', { exact: true })
+    const note = transcript.getByText(/HarnessDesk’s copy/)
+    const refusal = page.locator('[data-slot="composer-dock"]').getByText(/Choose a working installation in Settings/)
+    const boxes = await Promise.all([message, note, refusal].map(locator => locator.boundingBox()))
+    for (const box of boxes.slice(1)) {
+      expect(Math.abs(box!.x - boxes[0]!.x)).toBeLessThanOrEqual(1)
+      expect(Math.abs(box!.width - boxes[0]!.width)).toBeLessThanOrEqual(1)
+    }
+    expect(boxes[1]!.y + boxes[1]!.height).toBeLessThanOrEqual(boxes[0]!.y)
+  }
+})

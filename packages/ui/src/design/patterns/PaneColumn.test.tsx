@@ -2,7 +2,7 @@ import { act, useRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { PaneColumn, useComposerHeightVar } from './PaneColumn'
+import { PaneColumn, ReadingMeasure, useComposerHeightVar } from './PaneColumn'
 
 /**
  * The column inset four screens shared with no owner: the reading column the
@@ -96,4 +96,11 @@ it('measures the dock and sets --composer-h on the root it is given', () => {
   } finally {
     if (originalHeight) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', originalHeight)
   }
+})
+
+it('caps and centers a transcript or composer notice on the reading measure', () => {
+  act(() => root.render(<ReadingMeasure>Kept copy</ReadingMeasure>))
+  const measure = container.firstElementChild as HTMLElement
+  expect(measure.style.maxWidth).toBe('var(--hd-column)')
+  expect(measure.style.marginInline).toBe('auto')
 })

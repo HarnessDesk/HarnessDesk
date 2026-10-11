@@ -56,7 +56,7 @@ import {
   MenuItem,
   MenuLabel,
   MenuToggle,
-  PaneColumn,
+  PaneColumn, ReadingMeasure,
   Popover,
   Separator,
   Spinner,
@@ -514,7 +514,7 @@ export const Conversation = ({
   useTopBar(pane?.paneId ?? '', {
     lead: sidebarPlacement(snapshot) !== 'column' ? <WindowControls /> : undefined,
     place: <HeaderTitle session={session} />,
-    state: session ? <Chip tone={STATUS_PILL_TONE[status]}>{STATUS_LABEL[status]}</Chip> : undefined,
+    state: session && !sessionCannotRun ? <Chip tone={STATUS_PILL_TONE[status]}>{STATUS_LABEL[status]}</Chip> : undefined,
     tools: <WorkTools draft={!session} />,
     terminal: true,
     more: session ? () => null : () => <MenuItem icon={<FolderOpenIcon size={16} />} label="Choose a project folder…" onSelect={onChooseProject} />,
@@ -555,9 +555,9 @@ export const Conversation = ({
             data-live-transcript
           >
             {session.worktreeWarning && <Banner tone="neutral" compact>{session.worktreeWarning}</Banner>}
-            {session.deskCopy && <Banner tone="neutral" compact>HarnessDesk’s copy — {snapshot.runtimes.find(entry => entry.id === session.runtime)?.presentation.name ?? 'The agent'}’s own record is unavailable.</Banner>}
             {!hasRealTurn && emptyState}
             <div ref={transcriptContent} data-transcript-content>
+            {session.deskCopy && <ReadingMeasure><Text as="div" role="prose" ink="secondary">HarnessDesk’s copy — {snapshot.runtimes.find(entry => entry.id === session.runtime)?.presentation.name ?? 'The agent'}’s own record is unavailable.</Text></ReadingMeasure>}
             {session.turns.map((turn, turnIndex) => {
               // The prompt, the work folded under how long it took, the
               // answer, then what changed on disk — the order a reader wants,
@@ -662,7 +662,7 @@ export const Conversation = ({
             left sitting there to be typed into and refused. */}
         {!composer ? null : folderGone && session ? (
           <FolderGone folder={session.cwd} said={folderGone} />
-        ) : sessionCannotRun ? (items.length > 0 && <PaneColumn inset="reading"><Text role="prose" ink="secondary">{unavailableSessionMessage}</Text></PaneColumn>) : (
+        ) : sessionCannotRun ? (items.length > 0 && <ComposerDock><ReadingMeasure><Text as="div" role="prose" ink="secondary">{unavailableSessionMessage}</Text></ReadingMeasure></ComposerDock>) : (
           <Composer onChooseProject={onChooseProject} />
         )}
       </ComposerDock>

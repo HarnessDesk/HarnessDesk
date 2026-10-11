@@ -1968,6 +1968,12 @@ typically the strip holding the bars and the composer together. A screen
 wires the two refs to its own markup; the observing and the `setProperty`
 call are this hook's alone.
 
+### `ReadingMeasure`
+
+`packages/ui/src/design/patterns/PaneColumn.tsx`
+
+A notice in the transcript or composer follows the same capped reading measure.
+
 ### `PlanCard`
 
 `packages/ui/src/design/patterns/PlanCard.tsx`

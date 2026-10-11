@@ -130,3 +130,10 @@ export const useComposerHeightVar = (root: RefObject<HTMLElement | null>): RefOb
   }, [])
   return dock
 }
+
+/** A notice in the transcript or composer follows the same capped reading measure. */
+export const ReadingMeasure = ({ style, ...props }: ComponentProps<'div'>) => <div
+  data-slot="reading-measure"
+  style={{ width: '100%', maxWidth: 'var(--hd-column)', marginInline: 'auto', ...style }}
+  {...props}
+/>
