@@ -46,6 +46,7 @@ import {
   Chip,
   CodeText,
   EmptyState,
+  Note,
   Row,
   RowValue,
   RowButton,
@@ -468,6 +469,8 @@ const PluginsBody = ({ section, id: openId, onSection, onPlugin: setOpenId }: Pl
   )
   const plugins = matching.filter((plugin) => !supersededIds.has(plugin.instanceId))
   const superseded = matching.filter((plugin) => supersededIds.has(plugin.instanceId))
+  const builtins = plugins.filter((plugin) => plugin.identity.source.kind === 'builtin')
+  const sourcedPlugins = plugins.filter((plugin) => plugin.identity.source.kind !== 'builtin')
   const marked = snapshot.plugins.some((plugin) => Boolean(PLUGIN_GLYPH[plugin.identity.id]))
 
   const open = openId ? (snapshot.plugins.find((plugin) => plugin.instanceId === openId) ?? null) : null
@@ -480,6 +483,25 @@ const PluginsBody = ({ section, id: openId, onSection, onPlugin: setOpenId }: Pl
 
   const runtime = useRuntime()
   const pluginToolsReach = runtime.capabilities.pluginTools
+  const pluginRow = (plugin: PluginInstance) => (
+    <RowButton
+      key={plugin.instanceId}
+      data-plugin-id={plugin.instanceId}
+      data-plugin-name={plugin.identity.name}
+      mark={marked ? pluginGlyph(plugin, 16) : undefined}
+      onClick={() => setOpenId(plugin.instanceId)}
+      kind="record"
+      title={plugin.identity.name}
+      {...(plugin.identity.description ? { desc: plugin.identity.description } : {})}
+      control={
+        <>
+          {plugin.state.type === 'failed' && <Chip state="broken" label="Failed" />}
+          {plugin.identity.source.kind !== 'builtin' && <RowValue>{originLabel(plugin)}</RowValue>}
+          <PluginToggle plugin={plugin} />
+        </>
+      }
+    />
+  )
 
   /* The host's answer for "here", fetched when the question changes.
      `capability/list` takes one kind, so "all kinds" is a fan-out — these are
@@ -581,34 +603,19 @@ const PluginsBody = ({ section, id: openId, onSection, onPlugin: setOpenId }: Pl
       {active && installing && <InstallPlugin onClose={() => setInstalling(false)} />}
 
       {tab === 'list' ? (
-        <Rows>
-          {plugins.length === 0 ? (
-            <EmptyState variant="row" title={query ? 'No plugin matches' : 'No plugins are loaded'} />
-          ) : (
-            plugins.map((plugin) => (
-              <RowButton
-                key={plugin.instanceId}
-                data-plugin-id={plugin.instanceId}
-                data-plugin-name={plugin.identity.name}
-                mark={marked ? pluginGlyph(plugin, 16) : undefined}
-                onClick={() => setOpenId(plugin.instanceId)}
-                kind="record"
-                title={plugin.identity.name}
-                {...(plugin.identity.description ? { desc: plugin.identity.description } : {})}
-                control={
-                  <>
-                    {plugin.state.type === 'failed' && <Chip state="broken" label="Failed" />}
-                    <RowValue>{originLabel(plugin)}</RowValue>
-                    <PluginToggle plugin={plugin} />
-                  </>
-                }
-              />
-            ))
+        <>
+          {builtins.length > 0 && <>
+            <Note ink="muted" data-plugin-origin-group="builtin">Built in</Note>
+            <Rows>{builtins.map(pluginRow)}</Rows>
+          </>}
+          {sourcedPlugins.length > 0 && <Rows>{sourcedPlugins.map(pluginRow)}</Rows>}
+          {plugins.length === 0 && superseded.length === 0 && (
+            <Rows><EmptyState variant="row" title={query ? 'No plugin matches' : 'No plugins are loaded'} /></Rows>
           )}
-          {superseded.map((plugin) => (
-            <SupersededRow key={plugin.instanceId} plugin={plugin} marked={marked} />
-          ))}
-        </Rows>
+          {superseded.length > 0 && (
+            <Rows>{superseded.map((plugin) => <SupersededRow key={plugin.instanceId} plugin={plugin} marked={marked} />)}</Rows>
+          )}
+        </>
       ) : (
         <>
           <PageExplanation>Everything plugins add right now.</PageExplanation>

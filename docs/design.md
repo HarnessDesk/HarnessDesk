@@ -585,6 +585,9 @@ A second line is earned by exactly three things:
 
 Everything else goes on hover, as `title`.
 
+When a fact is identical across every row in a group, say it once in a group
+note. Keep the fact on each row only when it varies between those rows.
+
 ### What fails the test
 
 **Restating the verb.** *Open workspace — "Make this the folder the app works
