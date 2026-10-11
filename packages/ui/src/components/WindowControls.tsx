@@ -21,8 +21,9 @@ import styles from './WindowControls.module.css'
 export const WindowControls = ({ sidebarRow = false }: { sidebarRow?: boolean }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const settings = snapshot.workbench.navigation.current.kind === 'settings'
   const shown = sidebarPlacement(snapshot) !== 'away'
-  const navigation = sidebarRow || snapshot.windowWidth >= FRAME.fold.sidebarFloats
+  const navigation = !settings && (sidebarRow || snapshot.windowWidth >= FRAME.fold.sidebarFloats)
   return (
     <span className={styles.group}>
       <Button
@@ -33,7 +34,7 @@ export const WindowControls = ({ sidebarRow = false }: { sidebarRow?: boolean })
       >
         <SidebarIcon size={14} />
       </Button>
-      {!shown && <Button
+      {!settings && !shown && <Button
         variant="ghost" size="icon-sm" className={`${styles.button} hd-no-drag`}
         onClick={() => window.dispatchEvent(new CustomEvent('harnessdesk:search'))}
         title="Search everything (⌘K)"

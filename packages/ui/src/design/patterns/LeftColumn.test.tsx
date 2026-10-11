@@ -34,13 +34,19 @@ test('a missing icon reserves its column; the only trailing action does not open
 
 test('the column top and seat bars meet without a separator hairline', () => {
   mount(<>
-    <LeftColumnTop shown back={false} forward={false} toggle={() => {}} goBack={() => {}}
+    <LeftColumnTop shown settings={false} back={false} forward={false} toggle={() => {}} goBack={() => {}}
       goForward={() => {}} search={<button aria-label="Search everything" />} />
     <LeftColumnSeat menu={<button>Seat</button>} settingsOpen={false} onSettings={() => {}} />
   </>)
   const bars = [...container.querySelectorAll<HTMLElement>('[data-slot="bar"]')]
   expect(bars).toHaveLength(2)
   expect(bars.map(bar => bar.getAttribute('data-rule'))).toEqual([null, null])
+})
+
+test('Settings keeps only the sidebar toggle in the column top row', () => {
+  mount(<LeftColumnTop shown settings back goBack={() => {}} forward goForward={() => {}}
+    toggle={() => {}} search={<button aria-label="Search everything" />} />)
+  expect([...container.querySelectorAll('button')].map(one => one.getAttribute('aria-label'))).toEqual(['Hide sidebar'])
 })
 
 test('a row menu is beside its opener and remains the only trailing control', () => {

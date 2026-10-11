@@ -97,8 +97,8 @@ describe('the handler behind the table', () => {
   it('and the two new ones reach the store verbs they exist for', () => {
     // A `case` alone would pass the check above while calling nothing, which
     // is exactly the dead command #254 warns about.
-    expect(appSource).toMatch(/case 'nav-back':\s*\n\s*void store\.navigateBack\(\)/)
-    expect(appSource).toMatch(/case 'nav-forward':\s*\n\s*void store\.navigateForward\(\)/)
+    expect(appSource).toMatch(/case 'nav-back':\s*\n\s*if \(snapshot\.workbench\.navigation\.current\.kind === 'settings'\) void store\.leaveSettings\(\)/)
+    expect(appSource).toMatch(/case 'nav-forward':\s*\n\s*if \(snapshot\.workbench\.navigation\.current\.kind !== 'settings'\) void store\.navigateForward\(\)/)
     // Controls: the source really was loaded, and the matcher can tell the
     // two verbs apart rather than passing on any `case` it finds.
     expect(appSource).toContain("case 'toggle-sidebar':")

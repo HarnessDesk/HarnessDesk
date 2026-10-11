@@ -1705,6 +1705,8 @@ export const Settings = ({ route, onRoute, onSignIn }: {
   const runtimeView: RuntimeSettingsView = route.kind === 'runtime' ? { kind: 'agent', runtime: route.runtime }
     : route.kind === 'account' ? { kind: 'account', runtime: route.runtime, key: route.key }
     : route.kind === 'add-runtime' ? { kind: 'add' } : { kind: 'list' }
+  const settingsTitle = route.kind === 'project' ? SETTINGS_LABELS.workspaces
+    : route.kind === 'skill' ? SETTINGS_LABELS.skills : SETTINGS_LABELS[section]
   const setRuntimeView = (view: RuntimeSettingsView): void => {
     if (view.kind === 'list') sectionRoute('runtimes')
     else if (view.kind === 'add') onRoute({ kind: 'add-runtime' })
@@ -1712,6 +1714,7 @@ export const Settings = ({ route, onRoute, onSignIn }: {
     else onRoute({ kind: 'account', runtime: view.runtime, key: view.key })
   }
   return <Page width="reading">
+    <h1 className="sr-only">{settingsTitle}</h1>
     {route.kind === 'section' && section !== 'runtimes' && section !== 'skills' && <DestinationBar place={SETTINGS_LABELS[section]}
       more={() => null} />}
     {section === 'profile' && <ProfileSection />}

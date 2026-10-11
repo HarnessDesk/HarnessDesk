@@ -13,13 +13,16 @@ afterEach(() => {
   for (const root of roots.splice(0)) act(() => root.unmount())
   for (const container of containers.splice(0)) container.remove()
 })
-const draw = (width: number, sidebarRow = false) => {
+const draw = (width: number, sidebarRow = false, settings = false) => {
   const container = document.createElement('div')
   document.body.append(container)
   containers.push(container)
   const root = createRoot(container)
   roots.push(root)
-  const snapshot = { ...emptySnapshot(), windowWidth: width, narrowWindow: width < FRAME.fold.sidebarFloats, sidebarCollapsed: true, navCanBack: true, navCanForward: true }
+  const base = emptySnapshot()
+  const snapshot = { ...base, windowWidth: width, narrowWindow: width < FRAME.fold.sidebarFloats, sidebarCollapsed: true,
+    navCanBack: true, navCanForward: true, workbench: settings ? { ...base.workbench, navigation: { ...base.workbench.navigation,
+      current: { kind: 'settings' as const, route: { kind: 'section' as const, section: 'general' as const, focus: null } } } } : base.workbench }
   const back = vi.fn(async () => {})
   const forward = vi.fn(async () => {})
   const store = { getSnapshot: () => snapshot, subscribe: () => () => {}, toggleSidebar: vi.fn(), navigateBack: back, navigateForward: forward } as unknown as AppStore
@@ -29,6 +32,11 @@ const draw = (width: number, sidebarRow = false) => {
 it('keeps Search beside the sidebar toggle when the narrow column is hidden', () => {
   const { container } = draw(720)
   expect([...container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['Show sidebar', 'Search everything'])
+})
+
+it.each([720, 1440])('keeps only the sidebar toggle in the Settings lead at %i', width => {
+  const { container } = draw(width, false, true)
+  expect([...container.querySelectorAll('button')].map(button => button.getAttribute('aria-label'))).toEqual(['Show sidebar'])
 })
 
 it('keeps Search in the window lead while a wide column is hidden', () => {

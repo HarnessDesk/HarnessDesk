@@ -199,7 +199,7 @@ one Team, and seven other destinations are drawn *over* the workbench by
 | A plugin page | Sessions | reading (R10.21; owner, 2026-10-10) | top bar | none |
 | Dashboard | Sessions | wide | top bar, its views as tabs | none |
 | Changes review | Sessions | wide (owner, 2026-10-10) | top bar | none |
-| Settings › a section | Settings nav | reading | top bar, `Settings ›` | none |
+| Settings › a section | Settings nav | reading | In Settings the bar carries only the column toggle: no title, no search, no history arrows; Back, Escape and ⌘[ leave Settings in one step (owner, 2026-10-11). | none |
 
 A page is a destination like a conversation: it goes through ⌘[ and ⌘], it
 is restored with the project, and opening a conversation from it (an Agent's

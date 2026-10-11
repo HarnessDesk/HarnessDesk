@@ -67,7 +67,8 @@ export const ShellOutlets = ({ activeOwner, hostOwner }: { activeOwner: string |
   if (!nodes) return null
   const scope = pane ? { paneId: pane.id, view: pane.view, sessionKey: pane.view.kind === 'conversation' ? pane.view.session : null } : null
   const top = nodes.top && renderShellSlot(activeOwner
-    ? <TopBarOutlet owner={activeOwner} fallback={{ place: 'New session', more: () => null }} />
+    ? <TopBarOutlet owner={activeOwner} fallback={activeOwner === 'destination:settings'
+      ? { place: '', more: () => null } : { place: 'New session', more: () => null }} />
     : <WorkTopBar />, nodes.top)
   const main = nodes.main && renderShellSlot(<ConnectionNotice />, nodes.main)
   return scope ? <PaneProvider scope={scope}>{top}{main}</PaneProvider> : <>{top}{main}</>

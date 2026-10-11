@@ -19,6 +19,9 @@ export const DestinationBar = ({ more = () => null, ...slots }: Omit<TopBarProps
   'more' | 'lead' | 'corner' | 'tools' | 'view' | 'rightColumnWidth'> & { readonly more?: TopBarProps['more'] }) => {
   const scope = useDestinationPage(), snapshot = useSnapshot()
   const away = sidebarPlacement(snapshot) !== 'column'
-  useTopBar(scope.owner, { ...slots, terminal: snapshot.workbench.navigation.current.kind === 'changes-review' && Boolean(snapshot.workbench.navigation.current.root), lead: away ? <WindowControls /> : undefined, corner: away, more }, scope.active)
+  const settings = snapshot.workbench.navigation.current.kind === 'settings'
+  useTopBar(scope.owner, settings
+    ? { place: '', more: () => null, terminal: false, lead: away ? <WindowControls /> : undefined, corner: away }
+    : { ...slots, terminal: snapshot.workbench.navigation.current.kind === 'changes-review' && Boolean(snapshot.workbench.navigation.current.root), lead: away ? <WindowControls /> : undefined, corner: away, more }, scope.active)
   return null
 }

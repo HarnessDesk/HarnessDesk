@@ -138,10 +138,11 @@ export const App = () => {
           store.toggleSidebar()
           return
         case 'nav-back':
-          void store.navigateBack()
+          if (snapshot.workbench.navigation.current.kind === 'settings') void store.leaveSettings()
+          else void store.navigateBack()
           return
         case 'nav-forward':
-          void store.navigateForward()
+          if (snapshot.workbench.navigation.current.kind !== 'settings') void store.navigateForward()
           return
         case 'show-changes':
           store.setDetailsTab('changes')
@@ -178,9 +179,10 @@ export const App = () => {
     const leavePage = (event: KeyboardEvent): void => {
       if (event.key !== 'Escape' || event.defaultPrevented) return
       const kind = store.getSnapshot().workbench.navigation.current.kind
-      if (kind !== 'library' && kind !== 'plugins' && kind !== 'dashboard' && kind !== 'changes-review') return
+      if (kind !== 'settings' && kind !== 'library' && kind !== 'plugins' && kind !== 'dashboard' && kind !== 'changes-review') return
       event.preventDefault()
-      store.returnToWork()
+      if (kind === 'settings') void store.leaveSettings()
+      else store.returnToWork()
     }
     window.addEventListener('keydown', leavePage)
     return () => window.removeEventListener('keydown', leavePage)

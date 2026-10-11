@@ -86,6 +86,7 @@ export const LeftColumnBody = forwardRef<HTMLDivElement, {
 LeftColumnBody.displayName = 'LeftColumnBody'
 export interface LeftColumnTopProps {
   readonly shown: boolean
+  readonly settings: boolean
   readonly back: boolean
   readonly forward: boolean
   readonly toggle: () => void
@@ -104,13 +105,13 @@ export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top c
       <Button variant="ghost" size="pattern" className={`${styles.topButton} hd-no-drag`}
         aria-label={props.shown ? 'Hide sidebar' : 'Show sidebar'} title={props.shown ? 'Hide the sidebar' : 'Show the sidebar'}
         onClick={props.toggle}><SidebarIcon size={16} /></Button>
-      <div className={`${styles.topActions} hd-no-drag`}>{props.search}</div>
-      <span data-left-history className={styles.history}>
+      {!props.settings && <div className={`${styles.topActions} hd-no-drag`}>{props.search}</div>}
+      {!props.settings && <span data-left-history className={styles.history}>
         <Button variant="ghost" size="pattern" className={`${styles.topButton} hd-no-drag`} disabled={!props.back}
           aria-label="Back" title="Back" onClick={props.goBack}><ArrowLeftIcon size={16} /></Button>
         <Button variant="ghost" size="pattern" className={`${styles.topButton} hd-no-drag`} disabled={!props.forward}
           aria-label="Forward" title="Forward" onClick={props.goForward}><ArrowRightIcon size={16} /></Button>
-      </span>
+      </span>}
     </div>
   </Bar>
 </div>

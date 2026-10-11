@@ -88,12 +88,14 @@ for (const kind of ['dashboard','agents','teams','library','plugins'] as const) 
     expect(store.getSnapshot().workbench.navigation.current.kind).toBe(kind)
   } finally { MAIN_PAGE_ENTRIES[kind]=previous }
 })
-it('page Escape remains on Settings while Command-W returns to retained work', async () => {
+it('Escape leaves Settings in one step while Command-W still returns to retained work', async () => {
   const store = routedStore('/synthetic/project')
   await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
-  act(() => document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})))
-  expect(store.getSnapshot().workbench.navigation.current.kind).toBe('settings')
+  const escape = new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})
+  act(() => window.dispatchEvent(escape))
+  expect(escape.defaultPrevented).toBe(true)
   await settle()
+  expect(store.getSnapshot().workbench.navigation.current.kind).toBe('work')
   act(() => document.dispatchEvent(new KeyboardEvent('keydown',{key:'w',metaKey:true,bubbles:true,cancelable:true})))
   await settle()
   expect(store.getSnapshot().workbench.navigation.current.kind).toBe('work')

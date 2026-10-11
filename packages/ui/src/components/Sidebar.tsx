@@ -146,6 +146,7 @@ export const Sidebar = ({
   const agentsBroken = anyBroken(agentsRoster)
   const pluginCount = livePlugins(snapshot.plugins).length
   const top = <LeftColumnTop shown={sidebarPlacement(snapshot) !== 'away'}
+    settings={Boolean(settings)}
     back={snapshot.navCanBack} forward={snapshot.navCanForward}
     toggle={() => store.toggleSidebar()} goBack={() => { void store.navigateBack() }}
     goForward={() => { void store.navigateForward() }}

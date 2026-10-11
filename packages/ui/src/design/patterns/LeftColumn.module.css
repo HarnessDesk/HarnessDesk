@@ -61,6 +61,9 @@
 .headSearch { flex: 1; min-width: 0; }
 .headSearch > [data-slot="search"] { width: 100%; }
 
+/* Back and search are separate blocks in Settings, with the normal short step between them. */
+[data-left-settings] > [data-left-head] { margin-block-start: var(--hd-space-1); }
+
 /* The first Settings group follows its search control with the normal section air. */
 [data-left-settings] > [data-left-group]:first-of-type .label { margin-block-start: var(--hd-space-5); }
 
