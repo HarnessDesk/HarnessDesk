@@ -1200,6 +1200,32 @@ test('a FIFO in a source skill bundle is refused without blocking planning', asy
   })
 })
 
+test('an unreadable source directory is refused rather than installed partially', async () => {
+  await withHome(async (home, libraryDir) => {
+    const sourcePath = join(home, '.codex/skills/commit')
+    const scriptsPath = join(sourcePath, 'scripts')
+    await skill(join(home, '.codex/skills'), 'commit', BODY)
+    await mkdir(scriptsPath)
+    await writeFile(join(scriptsPath, 'run.sh'), 'echo keep me\n')
+    await chmod(scriptsPath, 0o300)
+    try {
+      const context = { home, libraryDir }
+      const plan = await planLibrary([agent('claudecode')], [
+        { kind: 'installSkill', name: 'commit', sourcePath, targetRuntime: runtimeId('claudecode') },
+        { kind: 'authorSkill', name: 'next', content: BODY, targetRuntimes: [runtimeId('claudecode')] },
+      ], context)
+
+      assert.deepEqual(plan.ops.map((op) => op.action), ['refuse', 'create'])
+      assert.match(plan.ops[0]?.reason ?? '', /scripts.*could not be inspected/i)
+      assert.deepEqual((await applyLibrary(plan.ops, context)).map((op) => op.outcome), ['skipped', 'done'])
+      assert.equal(existsSync(join(home, '.claude/skills/commit')), false)
+      assert.equal(await readFile(join(home, '.claude/skills/next/SKILL.md'), 'utf8'), BODY)
+    } finally {
+      await chmod(scriptsPath, 0o700)
+    }
+  })
+})
+
 test('an oversized target refuses its operation while other planning intents proceed', async (t) => {
   for (const kind of ['installSkill', 'removeCopy', 'syncSkill', 'restoreCopy'] as const) {
     await t.test(kind, async () => {

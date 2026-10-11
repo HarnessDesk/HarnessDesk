@@ -150,12 +150,16 @@ const bundleExtras = (
 ): { readonly files: readonly string[] } | { readonly refused: string } => {
   const files: string[] = []
   let bytes = 0
+  const inspectionFailure = (path: string, error: unknown): string => {
+    const code = (error as NodeJS.ErrnoException).code
+    return `${path} could not be inspected${code ? ` (${code})` : ''}, so this bundle was not read.`
+  }
   const walk = (dir: string, prefix: string): string | null => {
     let names: string[]
     try {
       names = readdirSync(dir)
-    } catch {
-      return null
+    } catch (error) {
+      return inspectionFailure(prefix || basename(dir), error)
     }
     for (const name of names) {
       const relative = prefix === '' ? name : `${prefix}/${name}`
@@ -168,8 +172,8 @@ const bundleExtras = (
         // `creds -> ~/.aws/credentials` out of a bundle, or looping forever on
         // a cycle. lstat sees the link itself, and the guard below drops it.
         stats = lstatSync(path)
-      } catch {
-        continue
+      } catch (error) {
+        return inspectionFailure(relative, error)
       }
       if (stats.isSymbolicLink()) continue
       if (stats.isDirectory()) {
