@@ -2,12 +2,16 @@
 import { useState } from 'react'
 import { runtimeId, sessionId, sessionKey, type ConfigOption, type RuntimeInfo, type Session } from '@harnessdesk/protocol'
 
-import { AgentControl, ComposerTrack, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from '../components/ComposerControls'
+import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from '../components/ComposerControls'
 import { ContextUsage } from '../components/ContextUsage'
-import { ComposerGap, ComposerSend, ComposerTools, Button } from '../design'
+import { ComposerGap, ComposerSend, ComposerTrack, ComposerTools, Button } from '../design'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot } from '../state/store'
 import { previewStore } from './harness'
+
+export const COMPOSERTRACK_CATALOG_VARIANTS = ['default'] as const
+export const COMPOSERTRACK_CATALOG_SIZES = ['default'] as const
+export const COMPOSERTRACK_CATALOG_STATES = ['default', 'folded-state'] as const
 
 const optionsFor = (shape: number): ConfigOption[] => {
   const mode: ConfigOption = { id: 'mode', type: 'select', label: 'Mode', category: 'mode', currentValue: 'direct', choices: [{ value: 'direct', label: 'Direct' }, { value: 'plan', label: 'Plan' }] }

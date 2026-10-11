@@ -1,9 +1,9 @@
 import type { ConfigOption } from '@harnessdesk/protocol'
-import { Menu, MenuLabel, MenuNote, Popover, Text } from '../design'
+import { ComposerTrack, Menu, MenuLabel, MenuNote, Popover, Text } from '../design'
 import { optionsBySlot, type ComposerOptionSlot } from '../lib/composer-slots'
 import { selectedChoice, riskTone } from '../lib/options'
 import { PaneProvider, usePane, useSnapshot } from '../state/context'
-import { ComposerTrack, ModelControl, ModeControl, MoreControl, PermissionControl } from './ComposerControls'
+import { ModelControl, ModeControl, MoreControl, PermissionControl } from './ComposerControls'
 import { ModelIcon, ShieldIcon, SlidersIcon, ZapIcon } from './Icons'
 import type { RoomMember } from './RoomComposer'
 

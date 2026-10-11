@@ -8,7 +8,7 @@ import foundationTokens from '../design/foundation/tokens.css?raw'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { ComposerGap, ComposerTools } from '../design'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { ModelControl, PermissionControl } from './ComposerControls'
+import { ModeControl, ModelControl, PermissionControl } from './ComposerControls'
 
 /**
  * The composer's controls as the toolbar narrows.
@@ -26,7 +26,8 @@ vi.mock('../design', async (importOriginal) => ({ ...(await importOriginal<typeo
 let width = 1000
 const watching = new Set<Measured>()
 const tokenValue = (name: string): number => {
-  const match = foundationTokens.match(new RegExp(`${name}:\\s*([\\d.]+)px`))
+  const matches = [...foundationTokens.matchAll(new RegExp(`${name}:\\s*([\\d.]+)px`, 'g'))]
+  const match = /-wide$|-folded$/.test(name) ? matches.at(-1) : matches[0]
   if (!match) throw new Error(`Missing token ${name}`)
   return Number(match[1])
 }
@@ -142,6 +143,15 @@ const options: readonly ConfigOption[] = [
     type: 'boolean',
     currentValue: false,
   },
+  {
+    id: 'mode',
+    label: 'Mode',
+    description: 'How the agent works',
+    category: 'mode',
+    type: 'select',
+    currentValue: 'default',
+    choices: [{ value: 'default', label: 'Default' }],
+  },
 ] as unknown as readonly ConfigOption[]
 
 const draw = (at: number, layout: 'draft' | 'live' = 'draft', populatedExtension = false): void => {
@@ -167,6 +177,7 @@ const draw = (at: number, layout: 'draft' | 'live' = 'draft', populatedExtension
   const toolbar = (
     <ComposerTools data-composer-layout={layout} style={{ gap: `${toolbarGap}px` }}>
       <PermissionControl />
+      <ModeControl />
       <span data-composer-track="extension">{populatedExtension ? '◇' : null}</span>
       <ComposerGap />
       <ModelControl />
@@ -256,6 +267,24 @@ it('recomputes fold steps when one toolbar switches between draft and live at a 
   expect(model().textContent?.trim()).toBe('')
 })
 
+it('keeps the selected Mode fact whole at a 560px live toolbar width', () => {
+  draw(560, 'live')
+  const track = container.querySelector<HTMLElement>('[data-composer-track="mode"]')
+  expect(track?.querySelector('[data-slot="chip-words"] > span:not(.sr-only)')?.textContent).toBe('Default')
+})
+
+it('uses the Mode mark instead of a clipped initial after the fact folds', () => {
+  draw(300)
+  const track = container.querySelector<HTMLElement>('[data-composer-track="mode"]')
+  const chip = track?.querySelector<HTMLElement>('[data-slot="chip"]')
+  expect(track?.hasAttribute('data-folded')).toBe(true)
+  if (chip) {
+    expect(chip.title).toBe('Default')
+    expect(chip.querySelector('svg')).not.toBeNull()
+    expect(chip.querySelector('.sr-only')?.textContent).toBe('Default')
+  }
+})
+
 it('reserves the populated Extension track width even when the track is empty', () => {
   // Draft Model folds at 588px with the reserved Extension track, but at
   // 556px if the empty track is incorrectly counted as zero.
@@ -274,7 +303,7 @@ it('reserves the populated Extension track width even when the track is empty', 
  * after the selected choice values have had their room.
  */
 it('keeps every control’s words, the model’s among them, while there is room', () => {
-  draw(700)
+  draw(720)
   expect(triggers()).toHaveLength(2)
   for (const trigger of triggers()) expect(trigger.textContent?.trim()).not.toBe('')
   const permission = triggers().find((trigger) => /what the agent may do/i.test(trigger.title))

@@ -179,7 +179,7 @@ const boxedVariants = cva(
         'sidebar-nav': 'h-(--hd-btn-h-sm) gap-(--hd-space-0-5) p-0 text-(length:--hd-text-sm)',
         /* A small glyph with its own short label, for compact controls whose
            meaning should remain visible beside the mark. */
-        'icon-label': 'h-(--hd-btn-h-sm) gap-(--hd-space-0-5) p-0 text-(length:--hd-text-xs)',
+        'icon-label': 'h-(--hd-btn-h-sm) gap-(--hd-space-1-5) p-0 text-(length:--hd-text-xs)',
         icon: 'size-(--hd-btn-h) p-0',
         /* The floor, not a literal. This was `size-5` — 20px, four under the
            target the system declares and names twice (`--hd-target-min`,

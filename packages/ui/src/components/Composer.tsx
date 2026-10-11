@@ -24,6 +24,7 @@ import {
   ComposerDropHint,
   ComposerDock,
   ComposerGap,
+  ComposerTrack,
   ComposerSend,
   ComposerShell,
   ComposerText,
@@ -87,7 +88,7 @@ import {
   TeamIcon,
   TerminalIcon,
 } from './Icons'
-import { AgentControl, ComposerTrack, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from './ComposerControls'
+import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from './ComposerControls'
 import { ContextUsage } from './ContextUsage'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
 import { draftsOf, UNSCOPED_RECOVERY_KEY } from '../state/drafts'
@@ -1051,7 +1052,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     if (waiting > 0) {
       return `Adds to the ${waiting} message${waiting === 1 ? '' : 's'} already waiting`
     }
-    return 'Describe a task — / for commands, @ for files'
+    return 'Type a reply — / for commands, @ for files'
   }, [record, busy, canSteer, canType, awaitingConversation, session, snapshot.workspace, waiting])
 
   // Whether pressing send delivers now or hands the message to the queue.

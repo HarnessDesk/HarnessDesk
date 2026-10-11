@@ -564,9 +564,9 @@ These wide tracks name the selected values themselves. The earlier base tracks r
 | token | value |
 | --- | --- |
 | `--hd-composer-track-permissions-wide` | `132px` |
-| `--hd-composer-track-mode-wide` | `96px` |
-| `--hd-composer-track-context-wide` | `52px` |
-| `--hd-composer-track-context-folded` | `48px` |
+| `--hd-composer-track-mode-wide` | `68px` |
+| `--hd-composer-track-context-wide` | `60px` |
+| `--hd-composer-track-context-folded` | `56px` |
 | `--hd-composer-track-context-tight` | `24px` |
 
 ## When to use which
@@ -1242,6 +1242,12 @@ A comparison’s quiet result shelf, composed from Alert. Its fixed grid track k
 `packages/ui/src/design/patterns/ComparisonSummary.tsx`
 
 The reading page in the same Side by side body, once the person has merged.
+
+### `ComposerTrack`
+
+`packages/ui/src/design/patterns/ComposerTrack.tsx`
+
+A token-sized position in the composer toolbar.
 
 ### `ConfirmDialog`
 

@@ -172,7 +172,7 @@ describe('the canonical button', () => {
   it('keeps a compact icon label visible without redrawing the button at its caller', () => {
     const compact = buttonVariants({ size: 'icon-label' })
     expect(compact).toContain('h-(--hd-btn-h-sm)')
-    expect(compact).toContain('gap-(--hd-space-0-5)')
+    expect(compact).toContain('gap-(--hd-space-1-5)')
     expect(compact).toContain('p-0')
     expect(compact).toContain('text-(length:--hd-text-xs)')
   })

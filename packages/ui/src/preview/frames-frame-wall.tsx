@@ -11,7 +11,7 @@ import { sidebarGeometryFixture } from './sidebar-geometry-fixture'
 import { runTeamStore, equivalentRunFixture, type RunScene } from './run-view-fixture'
 import { sidebarStructureFixture } from './sidebar-structure-fixture'
 import { useEffect, useMemo, useState } from 'react'
-import { contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, turnId, type AcpRegistryAgentInfo, type CapabilityContribution, type UiContribution, type AgentItem, type BackgroundTask, type RuntimeId } from '@harnessdesk/protocol'
+import { contributionId, pluginInstanceId, GLOBAL_SCOPE, itemId, turnId, type AcpRegistryAgentInfo, type CapabilityContribution, type UiContribution, type AgentItem, type BackgroundTask, type ConfigOption, type RuntimeId } from '@harnessdesk/protocol'
 import { installPanelComponent } from '../slots/PanelBlocks'
 
 installPanelComponent()
@@ -251,6 +251,27 @@ export const FrameWall = () => {
           { value: 'default', label: 'Default' }, { value: 'plan', label: 'Plan' },
         ] },
       ] })
+    }
+    if (['draft', 'conversation'].includes(destination) && query.get('frame-composer-values') === '1') {
+      const composerValues: ConfigOption[] = [
+        { id: 'sandbox', type: 'select', category: '_permissions', label: 'Sandbox', currentValue: 'workspace-write', choices: [
+          { value: 'workspace-write', label: 'Workspace write' },
+        ] },
+        { id: 'mode', type: 'select', category: 'mode', label: 'Mode', currentValue: 'default', choices: [
+          { value: 'default', label: 'Default' },
+        ] },
+        { id: 'model', type: 'select', category: 'model', label: 'Model', currentValue: 'gpt-5.5', choices: [
+          { value: 'gpt-5.5', label: 'GPT-5.5' },
+        ] },
+        { id: 'reasoning_effort', type: 'select', category: 'thought_level', label: 'Reasoning effort', currentValue: 'medium', choices: [
+          { value: 'medium', label: 'medium' },
+        ] },
+      ]
+      if (destination === 'draft') Object.assign(snapshot, { draftOptions: composerValues })
+      else {
+        const session = snapshot.sessions.get(PREVIEW_SESSION_KEY)
+        if (session) Object.assign(snapshot, { sessions: new Map(snapshot.sessions).set(PREVIEW_SESSION_KEY, { ...session, options: composerValues }) })
+      }
     }
     // This explicit range state has recorded synthetic source facts. The
     // parent Team fixture still keeps its unavailable Changes reason.

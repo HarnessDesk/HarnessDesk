@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { ConfigOption, OptionChoice, RuntimeId, RuntimeInfo, SeatAttachmentsRecord, SelectOption } from '@harnessdesk/protocol'
 
-import { Button, Chip, Dialog, RowChoice, Text } from '../design'
+import { Button, Chip, ComposerTrack, Dialog, RowChoice, Text } from '../design'
 import { Badge } from '../design'
 import { runtimeLabel } from '../lib/accounts'
 import { CARRY_OPTIONS, type Carry } from '../lib/handoff'
@@ -188,72 +188,6 @@ const useComposerOptions = (): readonly ConfigOption[] | undefined => {
   if (session) return session.options
   return snapshot.draftOptions ?? undefined
 }
-
-export type ComposerTrackName =
-  | 'add'
-  | 'work-in'
-  | 'agent'
-  | 'permissions'
-  | 'mode'
-  | 'extension'
-  | 'more'
-  | 'context'
-  | 'model'
-  | 'send'
-
-const wideTrackClass: Record<ComposerTrackName, string> = {
-  add: sheet.trackAdd!,
-  'work-in': sheet.trackWorkIn!,
-  agent: sheet.trackAgent!,
-  permissions: sheet.trackPermissions!,
-  mode: sheet.trackMode!,
-  extension: sheet.trackExtension!,
-  more: sheet.trackMore!,
-  context: sheet.trackContext!,
-  model: sheet.trackModel!,
-  send: sheet.trackSend!,
-}
-
-const foldedTrackClass: Partial<Record<ComposerTrackName, string>> = {
-  'work-in': sheet.trackWorkInFolded!,
-  agent: sheet.trackAgentFolded!,
-  permissions: sheet.trackPermissionsFolded!,
-  mode: sheet.trackModeFolded!,
-  more: sheet.trackMoreFolded!,
-  model: sheet.trackModelFolded!,
-}
-
-const tightTrackClass: Partial<Record<ComposerTrackName, string>> = {
-  'work-in': sheet.trackWorkInTight!,
-  agent: sheet.trackAgentTight!,
-  permissions: sheet.trackPermissionsTight!,
-  mode: sheet.trackModeTight!,
-  more: sheet.trackMoreTight!,
-  model: sheet.trackModelTight!,
-}
-
-/** One named, token-sized position in the composer's toolbar. */
-export const ComposerTrack = ({
-  name,
-  folded = false,
-  tight = false,
-  children,
-}: {
-  name: ComposerTrackName
-  folded?: boolean
-  tight?: boolean
-  children?: ReactNode
-}) => (
-  <div
-    data-composer-track={name}
-    data-folded={folded || undefined}
-    data-tight={tight || undefined}
-    className={`${sheet.track} ${wideTrackClass[name]} ${folded ? foldedTrackClass[name] ?? '' : ''} ${tight ? tightTrackClass[name] ?? '' : ''}`}
-    style={name === 'context' ? { width: `var(--hd-composer-track-context-${tight ? 'tight' : folded ? 'folded' : 'wide'})` } : undefined}
-  >
-    {children}
-  </div>
-)
 
 const RefusedComposerControl = ({
   label,
@@ -493,7 +427,7 @@ export const PermissionControl = () => {
   const current = first?.type === 'select' ? currentLabel(first) : first?.label
 
   return (
-    <ComposerTrack name="permissions" folded={folded} tight={tight}>
+    <ComposerTrack name="permissions" folded={folded} tight={tight} contentSized={!folded && !tight}>
       <InToolbar refer={ref}>
         <Popover
           fullWidth
@@ -830,6 +764,7 @@ const RuntimeBuildNote = () => {
 /** The runtime's collaboration modes — plan first, act directly, whatever it offers. */
 export const ModeControl = () => {
   const { ref, folded, tight } = useNarrowToolbar('mode')
+  const live = Boolean(useActiveSession())
   const all = useComposerOptions()
   const modes = optionsBySlot(all).mode
   const mode = modes[0]
@@ -846,11 +781,20 @@ export const ModeControl = () => {
   }
   const current = mode.type === 'select' ? selectedChoice(mode) : undefined
   const label = mode.type === 'select' ? currentLabel(mode) : mode.label
+  const singleValue = mode.type === 'select' && mode.choices.length === 1
+  const showFoldedMark = singleValue && folded && !live
 
   return (
-    <ComposerTrack name="mode" folded={folded} tight={tight}>
+    <ComposerTrack name="mode" folded={folded} tight={tight} contentSized={singleValue && !tight && (!folded || live)}>
       <InToolbar refer={ref}>
-        {mode.type === 'select' && mode.choices.length === 1 ? <Chip tone="neutral">{label}</Chip> : <Popover
+        {singleValue ? (
+          tight ? null : showFoldedMark ? (
+            <Chip tone="neutral" title={label}>
+              <ZapIcon size={13} />
+              <span className="sr-only">{label}</span>
+            </Chip>
+          ) : <Chip tone="neutral">{label}</Chip>
+        ) : <Popover
           fullWidth
           tightTrigger={tight}
           title={folded ? `${label} — ${mode.description ?? mode.label}` : mode.description ?? mode.label}
