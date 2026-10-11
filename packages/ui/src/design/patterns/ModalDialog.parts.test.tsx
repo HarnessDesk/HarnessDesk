@@ -85,6 +85,21 @@ it('draws one title, description, body inset, and footer anatomy', () => {
   expect(modalSheet).toMatch(/\.footerActions\s*\{[^}]*flex-direction:\s*row-reverse/s)
 })
 
+it('takes every dialog width from its named size scale', () => {
+  const sizes = [
+    ['sm', 'w-[min(460px,100%)]'],
+    ['md', 'w-[min(520px,100%)]'],
+    ['lg', 'w-[min(560px,100%)]'],
+    ['xl', 'w-[min(620px,100%)]'],
+    ['wide', 'w-[min(860px,100%)]'],
+  ] as const
+  for (const [size, width] of sizes) {
+    act(() => root.render(<Dialog title={`Size ${size}`} size={size} onClose={() => {}} />))
+    const surface = document.body.querySelector('[role="dialog"]')
+    expect(surface?.className, `size=${size}`).toContain(width)
+  }
+})
+
 it('holds a head with lines under its name to their top, with the aside on the name line', () => {
   sheet(
     <DialogHead icon={<span data-testid="tile" />} title="code-review" aside={<span data-testid="kind">Skill</span>}>

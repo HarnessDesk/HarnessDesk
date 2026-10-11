@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 
-import { Button, Chip, CodeText, Dialog, EmptyState, Field, Input, MiddleTruncate, Note, Rows, Search, Text } from '../design'
+import { Button, Chip, CodeText, Dialog, EmptyState, Field, Input, Note, Rows, Search, Text } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { slugify } from '../lib/worktree-branch'
 import { BranchIcon, CheckIcon } from './Icons'
@@ -126,14 +126,10 @@ export const NewWorktree = ({
   return (
     <Dialog
       title="New worktree"
+      titleAside={<Chip tone="neutral" title={root}>{root.split('/').filter(Boolean).at(-1) ?? root}</Chip>}
       size="md"
       onClose={onClose}
-      description={
-        <span title={root}>
-          {!opened && <>Switches to this folder first · </>}
-          <CodeText><MiddleTruncate prefix="From">{root}</MiddleTruncate></CodeText>
-        </span>
-      }
+      description={!opened ? 'Switches to this folder first' : undefined}
       footer={
         <>
           <Button variant="default" disabled={busy || problem !== null} onClick={() => void create()}>
@@ -210,7 +206,7 @@ export const NewWorktree = ({
               <Text role="meta" className={styles.branchIcon}><BranchIcon size={13} /></Text>
               <span className={styles.branchName}>{entry.name}</span>
               {entry.current && <Chip tone="neutral">Current</Chip>}
-              {entry.name === base && <Text tone="brand"><CheckIcon size={13} /></Text>}
+              {entry.name === base && <Text role="row"><CheckIcon size={13} /></Text>}
             </Button>
           ))}
         </Rows>

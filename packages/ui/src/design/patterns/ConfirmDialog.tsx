@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef, type ReactNode } from 'react'
 
 import { Button } from '../ui/button'
+import { cn } from '../../lib/utils'
 import {
   AlertDialog,
   AlertDialogContent,
@@ -8,7 +9,7 @@ import {
   AlertDialogTitle,
 } from '../ui/alert-dialog'
 import styles from './ConfirmDialog.module.css'
-import { DialogBody, DialogFooter, DialogHead } from './ModalDialog'
+import { DIALOG_WIDTH, DialogBody, DialogFooter, DialogHead } from './ModalDialog'
 
 /**
  * "Are you sure?" — asked the same way every time.
@@ -104,7 +105,7 @@ export const ConfirmDialog = ({
          `cn` drops them here. A module rule saying the same would tie with
          them, and which won depended on the order a build loaded the sheets:
          the preview drew every confirm with a second 16px frame. */
-      className="flex max-h-(--hd-dialog-max-height) flex-col gap-0 overflow-hidden p-0"
+      className={cn(DIALOG_WIDTH.sm, 'flex max-h-(--hd-dialog-max-height) flex-col gap-0 overflow-hidden p-0')}
       initialFocus={false}
       aria-describedby={descriptionId}
     >

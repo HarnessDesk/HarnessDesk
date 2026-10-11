@@ -250,6 +250,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
     setChosen(null)
     setProblem(null)
   }
+  const continueShape = (): void => cardRefs.current[Math.min(activeCard, cardCount - 1)]?.click()
   const editPolicy = async (policy: FlowPolicy): Promise<void> => {
     const mine = ++sequence.current
     const renderMine = ++policySequence.current
@@ -306,7 +307,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
         ref={element => { cardRefs.current[index] = element }} aria-label={entry.name}
         title={entry.description ?? undefined} data-selected={activeCard === index ? '' : undefined}
         onFocus={() => setActiveCard(index)} onClick={() => void choose(entry)}>
-        <IconTile tint="blue" size="lg">{icon(entry.id)}</IconTile>
+        <IconTile size="lg">{icon(entry.id)}</IconTile>
         <span className={styles.cardCopy}><Text as="span" role="subject">{entry.name}</Text><Text as="span" role="muted">{entry.problem ?? shapeSummary(entry)}</Text></span>
         <ChevronIcon size={14} />
       </Button>
@@ -316,12 +317,16 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
   return (
     <Dialog title={chosen ? chosen.name : 'New Team'}
       titleAside={<Chip tone="neutral">{project}</Chip>}
-      description={!chosen ? 'Choose how the agents work together.' : undefined}
-      bodyPrelude={chosen && <Button variant="quiet" disabled={starting || policyPending} onClick={changeShape}>Change</Button>}
-      size={chosen ? 'xl' : 'wide'} onClose={onClose}
-      footer={chosen ? <><Button variant="default" disabled={!startable || !sentenceValid || briefReading || policyPending || starting} onClick={() => void start()}>{starting ? 'Starting…' : 'Start'}</Button><Button variant="secondary" disabled={starting} onClick={onClose}>Cancel</Button></> : undefined}
-      footerAside={chosen ? <Text role="meta">{chosen.id === 'comparison' ? 'You decide whether to merge the winner.' : `The Team opens under ${project} in the sidebar.`}</Text> : undefined}
-      footerNavigation={!chosen && <span className={styles.solo}><Text as="span" role="muted">Only need one agent?</Text><Button variant="quiet" onClick={() => { onClose(); store.newDraft() }}>New session ⌘N</Button></span>}
+      description={chosen
+        ? chosen.id === 'comparison' ? 'You decide whether to merge the winner.' : `The Team opens under ${project} in the sidebar.`
+        : 'Choose how the agents work together.'}
+      size="wide" onClose={onClose}
+      footer={chosen
+        ? <><Button variant="default" disabled={!startable || !sentenceValid || briefReading || policyPending || starting} onClick={() => void start()}>{starting ? 'Starting…' : 'Start'}</Button><Button variant="secondary" disabled={starting} onClick={onClose}>Cancel</Button></>
+        : <><Button variant="default" disabled={entries === null} onClick={continueShape}>Continue</Button><Button variant="secondary" onClick={onClose}>Cancel</Button></>}
+      footerNavigation={chosen
+        ? <Button variant="quiet" disabled={starting || policyPending} onClick={changeShape}>Back</Button>
+        : <span className={styles.solo}><Text as="span" role="muted">Only need one agent?</Text><Button variant="quiet" onClick={() => { onClose(); store.newDraft() }}>New session ⌘N</Button></span>}
     >
       {!chosen && <div onKeyDown={event => {
         if (event.key === 'ArrowDown' || event.key === 'ArrowRight' || event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
@@ -337,11 +342,11 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
         {unlisted !== null && <Banner tone="danger" title="These shapes could not be read">{unlisted}</Banner>}
         {group('This project', sections.project)}
         {group('Most used', sections.most)}
-        {group('More shapes', sections.more, showPlain && <Button variant="choice" size="panel" className={styles.card} data-stretched ref={element => { cardRefs.current[cards.length] = element }} onFocus={() => setActiveCard(cards.length)} onClick={() => setPlainTeam(true)}>
+        {group('More shapes', sections.more, showPlain && <Button variant="choice" size="panel" className={styles.card} data-stretched data-selected={activeCard === cards.length ? '' : undefined} ref={element => { cardRefs.current[cards.length] = element }} onFocus={() => setActiveCard(cards.length)} onClick={() => setPlainTeam(true)}>
           <IconTile tone="neutral" size="lg"><TeamIcon /></IconTile><span className={styles.cardCopy}><Text as="span" role="subject">Just a Team</Text><Text as="span" role="muted">A shared board for several agents; no fixed steps.</Text></span><ChevronIcon size={14} />
         </Button>)}
         {query && cards.length === 0 && !showPlain && <Note>No matching shapes.</Note>}
-        <Button variant="choice" size="panel" className={styles.card} data-stretched ref={element => { cardRefs.current[cardCount - 1] = element }} onFocus={() => setActiveCard(cardCount - 1)} onClick={() => setOwnShape(true)}>
+        <Button variant="choice" size="panel" className={styles.card} data-stretched data-selected={activeCard === cardCount - 1 ? '' : undefined} ref={element => { cardRefs.current[cardCount - 1] = element }} onFocus={() => setActiveCard(cardCount - 1)} onClick={() => setOwnShape(true)}>
           <IconTile tone="neutral" size="lg"><PlusIcon /></IconTile><span className={styles.cardCopy}><Text as="span" role="subject">Build your own</Text><Text as="span" role="muted">Steps and rules in an editor; see the file, then start or save it.</Text></span><ChevronIcon size={14} />
         </Button>
       </div>}

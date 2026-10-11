@@ -144,7 +144,7 @@ it('shows the branch the name will really become', async () => {
   expect(document.body.textContent).toContain('harnessdesk/fix-the-thing')
 })
 
-it('names the project in the header description', async () => {
+it('names the project in a header context chip with the full path on hover', async () => {
   const { store } = rig()
   const path = '/projects/checkouts/harness-desk/parser'
   await act(async () => {
@@ -155,12 +155,14 @@ it('names the project in the header description', async () => {
     )
   })
 
-  const description = document.querySelector<HTMLElement>('[data-slot="dialog-description"]')
-  expect(description?.textContent).toContain(path)
-  expect(description?.querySelector('[title]')?.getAttribute('title')).toBe(path)
+  const header = document.querySelector<HTMLElement>('[data-slot="dialog-head"]')
+  const chip = header?.querySelector<HTMLElement>('[data-slot="chip"]')
+  expect(chip?.textContent).toBe('parser')
+  expect(chip?.getAttribute('title')).toBe(path)
+  expect(header?.querySelector('[data-slot="dialog-description"]')?.textContent).toBe('Switches to this folder first')
 })
 
-it('middle-truncates the source path and keeps the project name intact', async () => {
+it('keeps the complete source path in the project chip title', async () => {
   const { store } = rig({ here: false })
   const path = '/work/checkouts/storefront'
   await act(async () => {
@@ -171,11 +173,11 @@ it('middle-truncates the source path and keeps the project name intact', async (
     )
   })
 
-  const description = document.querySelector<HTMLElement>('[data-slot="dialog-description"]')
-  const middle = description?.querySelector<HTMLElement>('[data-slot="middle-truncate"]')
-  expect(middle?.querySelector('[data-part="prefix"]')?.textContent).toBe('From')
-  expect(middle?.querySelector('.sr-only')?.textContent).toBe(path)
-  expect(middle?.querySelector('[data-part="tail"]')?.textContent).toBe('/storefront')
+  const header = document.querySelector<HTMLElement>('[data-slot="dialog-head"]')
+  const chip = header?.querySelector<HTMLElement>('[data-slot="chip"]')
+  expect(chip?.textContent).toBe('storefront')
+  expect(chip?.getAttribute('title')).toBe(path)
+  expect(header?.querySelector('[data-slot="dialog-description"]')?.textContent).toBe('Switches to this folder first')
 })
 
 it('uses the shared search glyph and a plain Search placeholder for branches', async () => {

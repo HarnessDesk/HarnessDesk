@@ -13,7 +13,7 @@ import {
 import { dialogStackClass, DialogFormScope } from './DialogForm'
 import styles from './ModalDialog.module.css'
 
-const WIDTH = {
+export const DIALOG_WIDTH = {
   sm: 'w-[min(460px,100%)] max-w-none sm:max-w-none',
   md: 'w-[min(520px,100%)] max-w-none sm:max-w-none',
   lg: 'w-[min(560px,100%)] max-w-none sm:max-w-none',
@@ -189,7 +189,7 @@ export const Dialog = ({
   titleAside?: ReactNode
   description?: ReactNode
   tone?: 'default' | 'destructive'
-  size?: keyof typeof WIDTH
+  size?: keyof typeof DIALOG_WIDTH
   tall?: boolean
   flush?: boolean
   onClose: () => void
@@ -221,7 +221,7 @@ export const Dialog = ({
            which cut Save as an Agent by 28px). `tall` states its own bound,
            and `cn` lets it replace the ceiling rather than tie with it. */
         className={cn(
-          WIDTH[size],
+          DIALOG_WIDTH[size],
           'flex max-h-[min(80vh,720px)] flex-col gap-0 overflow-hidden rounded-(--hd-surface-radius) bg-(--hd-surface-fill) p-0 text-(--hd-popover-foreground) shadow-(--hd-surface-shadow)',
           tall && 'h-[min(62vh,560px)] max-h-[min(62vh,560px)]',
         )}

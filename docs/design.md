@@ -1948,16 +1948,26 @@ The body has 24px padding on all four sides in every layout, including a list
 or a reading body. Context that needs more room, such as a breadcrumb, starts
 inside the body through `bodyPrelude` rather than forming another header band.
 
+Dialog widths use the named `size` scale on `Dialog`: `sm`, `md`, `lg`, `xl`
+and `wide`. A multi-step flow keeps the same size on every step, so its action
+edge stays in one place. New Team uses `wide` for both its picker and shape;
+New worktree uses `md`, and confirmations use the shared `sm` rung.
+
 Search fields use the shared `Search` component: its search glyph stays visible
 and its placeholder names the search plainly (`Search branches…`, not a
 colon-led instruction). The footer is one band with one shared minimum height.
 Actions sit at the right, with the secondary action before the primary from
 left to right; write the primary first because the actions slot paints in
 reverse order. A quiet navigation link may sit at the left. The frame contract
-checks the title size and weight, close inset, body padding, footer height and
-action order on New Team and every application dialog in the transcript
-preview. AppWindow, popups and the command palette keep their own surface
-contracts.
+checks the title size and weight, close inset, body padding, footer height,
+action order, action inset and named width for every dialog the preview opens.
+The New Team shape step has Cancel and Continue at the right; Continue opens the
+highlighted shape, and clicking a card does the same. Back occupies the quiet
+footer slot on its next step, and the one-line consequence sits in the header.
+Choice cards keep the neutral row and menu plates in resting, hovered and
+selected states. Their icon tiles and checks use neutral ink; the accent stays
+on the keyboard focus ring and primary action. AppWindow, popups and the
+command palette keep their own surface contracts.
 
 ## Command palette
 
