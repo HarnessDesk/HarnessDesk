@@ -4609,3 +4609,7 @@ test('Teams family owns no screen layout, measure or retired heads', () => {
 test('Library family owns no screen layout, measure or retired heads', () => {
   assert.deepEqual(pageLayoutFindings('library'), [])
 })
+
+test('Plugins family owns no screen layout, measure or retired heads', () => {
+  assert.deepEqual(pageLayoutFindings('plugins'), [])
+})

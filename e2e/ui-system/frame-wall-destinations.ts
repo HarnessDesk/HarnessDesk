@@ -157,6 +157,15 @@ export const E3_PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
   ...['overview','plans','spend','activity','projects'].map(view => ({id:`dashboard-${view}`,query:`frame-wall=dashboard&frame-view=${view}`,pageWidth:'wide' as const})),
   {id:'dashboard-scoped-plans',query:'frame-wall=dashboard&frame-view=plans&frame-scope=runtime',pageWidth:'wide'},
   {id:'dashboard-borrowed-plans',query:'frame-wall=dashboard&frame-view=plans&frame-scope=runtime&frame-borrowed=1',pageWidth:'wide'},
+/** E7 route witnesses; common preview replacement and old ids retire in Task 9. */
+export const E7_PLUGIN_PAGE_DESTINATIONS: readonly WallDestination[] = [
+  { id: 'plugins-installed', query: 'frame-wall=plugins&frame-plugin-page=installed', pageWidth: 'wide' },
+  { id: 'plugins-capabilities', query: 'frame-wall=plugins&frame-plugin-page=capabilities', pageWidth: 'wide' },
+  { id: 'plugins-capabilities-here-pending', query: 'frame-wall=plugins&frame-plugin-page=capabilities&frame-plugin-pending=1', pageWidth: 'wide', bodyChoice: { label: 'Where it applies', value: 'here' } },
+  { id: 'plugins-detail', query: 'frame-wall=plugins&frame-plugin-page=detail', pageWidth: 'wide' },
+  { id: 'plugins-failed', query: 'frame-wall=plugins&frame-plugin-page=failed', pageWidth: 'wide' },
+  { id: 'plugins-install', query: 'frame-wall=plugins&frame-plugin-page=installed', pageWidth: 'wide', popup: 'Add plugin' },
+  { id: 'plugins-configuration', query: 'frame-wall=plugins&frame-plugin-page=detail', pageWidth: 'wide' },
 ]
 
 export const PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
@@ -181,6 +190,7 @@ export const PAGE_WALL_DESTINATIONS: readonly WallDestination[] = [
   { id: 'settings-project', query: 'frame-wall=settings&frame-detail=project', pageWidth: 'reading' },
   { id: 'settings-skill', query: 'frame-wall=settings&frame-detail=skill', pageWidth: 'reading' },
   ...E3_PAGE_WALL_DESTINATIONS,
+  ...E7_PLUGIN_PAGE_DESTINATIONS,
 ]
 ;(WALL_DESTINATIONS as WallDestination[]).push(...PAGE_WALL_DESTINATIONS)
 
