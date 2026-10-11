@@ -1987,3 +1987,19 @@ fits. The Usage ring and its word use the chip gap
 (`--hd-space-1-5`), and both wide and folded tracks reserve enough room for the
 whole visible label. The `Composer fit:` frame contracts check these values at
 wide, narrow and folded widths in both themes.
+
+## Page section headings use their content edge
+
+A page section heading starts at the leading text edge of the page column it
+names. This applies to both `Section` and `SectionHead`, whether the next body
+is a `Rows` card, a table, a note, a chart or a plain action. Body insets stay
+with the body and never move its heading; section actions wrap below the name
+when the head is tight. In a multi-column layout, each column's headings share
+that column's leading text edge. The `FIX3 page section headings share one page
+text edge` frame contract checks the rendered destinations.
+
+A section's choices live in that section's head beside its name. Use the same
+`PageOptions` pattern across pages; do not put a section's choice rows in its
+body. The shared head wraps its action below the name when the available width
+is tight. The `FIX3 section choices live in the same page head across Dashboard
+tabs` frame contract checks that Dashboard sections keep their choices there.
