@@ -1,6 +1,6 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
-export type CatalogVariant = 'barless' | 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'section' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'summary' | 'start' | 'end'
-export type CatalogSize = 'stack' | 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'log-row' | 'bare' | 'composer' | 'sidebar-nav' | 'paragraphs'
+export type CatalogVariant = 'barless' | 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'section' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'summary' | 'start' | 'end' | 'bare'
+export type CatalogSize = 'stack' | 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'navigation-edge' | 'fill' | 'icon-circle' | 'log-row' | 'bare' | 'composer' | 'sidebar-nav' | 'paragraphs'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out' | 'editing' | 'empty-edit' | 'recoverable' | 'memory-only' | 'image-warning' | 'trailing-glyph-rest' | 'trailing-glyph-action' | 'working' | 'needs-you' | 'pinned' | 'worktree' | 'folder-gone' | 'long-title' | 'room-folded' | 'room-expanded' | 'more-sessions' | 'other-projects' | 'filtered' | 'menu-open' | 'folded-state' | 'nested-rail'
 
 export type CatalogEntry = {
@@ -162,7 +162,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
   'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
   'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist', 'FlowGraph', 'FlowCanvas', 'FlowStepRow',
-  'heat-grid', 'PlanCard', 'SidebarMenuState',
+  'heat-grid', 'PlanCard', 'SidebarMenuState', 'CommandPalette',
   'SettingsRowMenu', 'HeaderStatusGroup',
 ])
 
@@ -172,6 +172,7 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
     : undefined
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
+  CommandPalette: ['default'],
   InboxMenu: ['default'],
   SubjectActionsMenu: ['default'],
   InfoCard: ['default'],
@@ -214,7 +215,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   'group-label': ['default'],
   'hover-card': ['default'],
   'icon-tile': ['default'],
-  input: ['default', 'quiet', 'filled', 'chrome', 'code'],
+  input: ['default', 'quiet', 'bare', 'filled', 'chrome', 'code'],
   'input-group': ['default'],
   'key-value': ['default', 'panel', 'summary'],
   label: ['default'],
@@ -286,6 +287,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
+  CommandPalette: ['default'],
   InboxMenu: ['default'],
   SubjectActionsMenu: ['default'],
   InfoCard: ['default'],
@@ -416,7 +418,7 @@ Object.assign(SIZES, {
   SubjectActionsMenu: ['default'],
   InfoCard: ['default'],
   WideMenu: ['default'],
-  button: ['default', 'xs', 'sm', 'sidebar-nav', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'log-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'],
+  button: ['default', 'xs', 'sm', 'sidebar-nav', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'log-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'navigation-edge', 'fill', 'icon-circle'],
   card: ['default', 'compact'],
   input: ['default', 'compact', 'bare', 'row'],
   attachment: ['sm', 'default', 'lg'],
@@ -449,6 +451,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   HeaderStatusGroup: 'packages/ui/src/design/patterns/Popover.tsx',
   Settings: 'packages/ui/src/components/Settings.tsx',
   ModalDialog: 'packages/ui/src/components/Settings.tsx',
+  CommandPalette: 'packages/ui/src/components/CommandPalette.tsx',
   DialogForm: 'packages/ui/src/components/SaveAsAgent.tsx',
   ApprovalDialog: 'packages/ui/src/components/Approvals.tsx',
   ConfirmDialog: 'packages/ui/src/components/Settings.tsx',
@@ -485,6 +488,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
 Object.assign(PATTERN_CONSUMER, { LeftColumn: 'packages/ui/src/components/Sidebar.tsx' })
 
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  CommandPalette: 'packages/ui/src/preview/frames-transcript.tsx',
 
   SeatList: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   FixedShell: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -642,6 +646,7 @@ export const CANONICAL_UI_MODULES = [
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
+  ['CommandPalette', 'conversation', 'Fixed search surface, title-led results and a keyboard-hint footer'],
   ['InboxMenu', 'popup-inbox', 'Kept messages and their actions through the wide-menu contract'],
   ['SubjectActionsMenu', 'subject-actions', 'Existing action callbacks and Messages choices outside facts'],
   ['InfoCard', 'info-card', 'Facts only on hover or focus, suppressed while any menu is open'],

@@ -117,7 +117,7 @@ const mount = async (over: Partial<AppSnapshot> = {}): Promise<{
 }
 
 const type = (value: string): void => {
-  const field = container.querySelector('input')
+  const field = document.body.querySelector<HTMLInputElement>('[aria-label="Command palette"] input')
   if (!field) throw new Error('no palette input')
   act(() => {
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
@@ -127,7 +127,7 @@ const type = (value: string): void => {
 }
 
 const row = (label: string): HTMLButtonElement => {
-  const found = [...container.querySelectorAll<HTMLButtonElement>('[role="option"]')].find((node) =>
+  const found = [...document.body.querySelectorAll<HTMLButtonElement>('[aria-label="Command palette"] [role="option"]')].find((node) =>
     node.textContent?.includes(label),
   )
   if (!found) throw new Error(`no row reading “${label}”`)
@@ -184,5 +184,5 @@ it('Start with a team opens one front door through the host, closing the palette
 it('offers no team command with no project open — a context the front door has nothing to read', async () => {
   await mount()
   type('start with a team')
-  expect(container.querySelector('[role="option"]')).toBeNull()
+  expect(document.body.querySelector('[aria-label="Command palette"] [role="option"]')).toBeNull()
 })

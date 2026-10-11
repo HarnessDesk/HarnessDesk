@@ -72,6 +72,28 @@ it('mounts as a compact quiet filter without swallowing input events', () => {
   expect(onKeyDown).toHaveBeenCalledOnce()
 })
 
+it('mounts a bare search field with no icon or boxed input chrome', () => {
+  act(() => root.render(
+    <Search
+      value=""
+      onChange={() => {}}
+      placeholder="Search palette"
+      size="bare"
+      icon="none"
+      focusIndicator="caret"
+    />,
+  ))
+
+  const search = container.querySelector<HTMLElement>('[data-slot="search"]')
+  const input = container.querySelector<HTMLInputElement>('input[type="search"]')
+  expect(search?.dataset['size']).toBe('bare')
+  expect(search?.dataset['icon']).toBe('none')
+  expect(search?.querySelector('svg')).toBeNull()
+  expect(input?.dataset['variant']).toBe('bare')
+  expect(input?.dataset['size']).toBe('bare')
+  expect(input?.getAttribute('data-focus-indicator')).toBe('caret')
+})
+
 it('hands its input to an owning surface for initial focus', () => {
   const inputRef = { current: null as HTMLInputElement | null }
   act(() => root.render(

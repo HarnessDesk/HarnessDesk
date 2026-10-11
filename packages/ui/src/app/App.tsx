@@ -488,6 +488,7 @@ export const App = () => {
             openSettings: (section, focus) => openSettingsAt(section, focus ?? null),
             openUsage: () => openUsage(),
             openAgents,
+            openTeams: () => { setSettingsOpen(false); setSettingsFocus(null); setAgentsOpen(false); setUsageOpen(false); setTeamsOpen(true) },
             openFrontDoor,
           }}
         />

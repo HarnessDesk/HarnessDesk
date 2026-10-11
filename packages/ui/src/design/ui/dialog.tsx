@@ -82,6 +82,14 @@ const DialogContent = forwardRef<
     showCloseButton?: boolean
     portalled?: boolean
     overlayClassName?: string
+    /** Keeps tall content inside the dialog's shared viewport measure. */
+    viewportBounded?: boolean
+    /** Aligns a transient command surface to the viewport's upper edge. */
+    placement?: 'center' | 'top'
+    /** A dialog wider than the ordinary question surface. */
+    width?: 'default' | 'wide'
+    /** Adds the shared reading inset to a surface using its own layout. */
+    inset?: 'dialog'
     /**
      * A sheet rather than a prompt: it lays itself out and states its own
      * width, and this stands out of the way.
@@ -103,12 +111,15 @@ const DialogContent = forwardRef<
      */
     bleed?: boolean
   }
->(({ className, children, showCloseButton = true, portalled = true, overlayClassName, bleed = false, ...props }, ref) => {
+>(({ className, children, showCloseButton = true, portalled = true, overlayClassName, bleed = false, viewportBounded = false, placement = 'center', width = 'default', inset, ...props }, ref) => {
   const [inlineHost, setInlineHost] = useState<HTMLDivElement | null>(null)
   const content = (
     <>
     <DialogOverlay className={overlayClassName} />
-    <DialogPrimitive.Viewport className="fixed inset-0 z-(--hd-z-dialog) grid place-items-center p-4">
+    <DialogPrimitive.Viewport className={cn(
+      'fixed inset-0 z-(--hd-z-dialog) grid',
+      placement === 'top' ? 'place-items-start justify-items-center p-6' : 'place-items-center p-4',
+    )}>
       <DialogPrimitive.Popup
         ref={ref}
         data-slot="dialog-content"
@@ -117,6 +128,9 @@ const DialogContent = forwardRef<
           'bg-popover relative max-w-[calc(100%-2rem)] rounded-xl shadow-(--hd-surface-shadow)',
           SURFACE_FOCUS,
           bleed || 'grid w-full gap-4 p-(--hd-inset-dialog) sm:max-w-md',
+          bleed && inset === 'dialog' && 'p-(--hd-inset-dialog)',
+          viewportBounded && 'max-h-(--hd-dialog-max-height)',
+          width === 'wide' && 'sm:max-w-2xl',
           className,
         )}
         {...props}

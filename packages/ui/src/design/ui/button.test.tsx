@@ -160,6 +160,15 @@ describe('the canonical button', () => {
     expect(compact).toContain('text-(length:--hd-text-sm)')
   })
 
+  it('provides an edge-aligned navigation row without inset or border', () => {
+    const edge = buttonVariants({ variant: 'row', size: 'navigation-edge' })
+    expect(edge).toContain('min-h-(--hd-nav-h)')
+    expect(edge).toContain('gap-(--hd-nav-gap)')
+    expect(edge).toContain('p-0')
+    expect(edge).toContain('border-0')
+    expect(edge).toContain('text-(length:--hd-text-sm)')
+  })
+
   it('owns borderless and default-cursor row postures without a feature override', () => {
     const markup = renderToStaticMarkup(
       <Button variant="row" bordered={false} cursor="default">History row</Button>,

@@ -1,0 +1,103 @@
+.surface {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: min(640px, 100%);
+  overflow: hidden;
+}
+
+.search {
+  flex: 1;
+  min-width: 0;
+}
+
+.controls {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--hd-space-2);
+  min-width: 0;
+  margin-block: var(--hd-space-2);
+}
+
+.controls > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.controls [role='tablist'] {
+  max-width: 100%;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.separator {
+  flex: none;
+  margin-block: var(--hd-space-1);
+}
+
+.results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-inline: calc(-1 * var(--hd-space-1-5));
+}
+
+.results [data-menu-group] {
+  margin-block-start: var(--hd-space-2);
+}
+
+.result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--hd-space-2);
+  width: 100%;
+}
+
+.resultIcon {
+  flex: none;
+  display: inline-flex;
+}
+
+.resultTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resultMeta {
+  flex: none;
+  max-width: 46%;
+  margin-inline-start: auto;
+  overflow: hidden;
+  text-align: end;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.resultMatch {
+  flex: 0 0 calc(100% - var(--hd-space-6));
+  margin-inline-start: var(--hd-space-6);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--hd-space-2);
+}
+
+.keyHint {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--hd-space-1);
+  white-space: nowrap;
+}

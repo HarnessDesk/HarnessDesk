@@ -22,6 +22,7 @@ const inputVariants = cva(
       variant: {
         default: 'border-input bg-transparent dark:bg-input/30',
         quiet: 'border-transparent bg-transparent hover:bg-(--hd-hover) focus-visible:bg-(--hd-card)',
+        bare: 'border-0 bg-transparent shadow-none text-(--hd-foreground)',
         filled: 'border-(--hd-border) bg-(--hd-muted)',
         chrome: 'border-(--hd-border) bg-(--hd-card-raised)',
         code: 'border-(--hd-border-strong) bg-(--hd-card) font-mono tracking-wide',

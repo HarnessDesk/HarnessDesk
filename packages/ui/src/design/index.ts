@@ -202,6 +202,17 @@ export {
   useEscapeSurface,
   type DismissDetail,
 } from './patterns/Popover'
+export {
+  CommandPalettePanel,
+  CommandPaletteSearch,
+  CommandPaletteControls,
+  CommandPaletteDivider,
+  CommandPaletteResults,
+  CommandPaletteResult,
+  CommandPaletteEmpty,
+  CommandPaletteFooter,
+  CommandPaletteKeyHint,
+} from './patterns/CommandPalette'
 export * from './ui'
 export {
   ChannelMessage,

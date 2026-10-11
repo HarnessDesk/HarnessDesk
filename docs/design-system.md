@@ -1192,6 +1192,60 @@ steps — so a screen reader hears them as a sequence, not a set.
 
 Exact command text and its output, drawn as one readable plate.
 
+### `CommandPalettePanel`
+
+`packages/ui/src/design/patterns/CommandPalette.tsx`
+
+The fixed, viewport-bounded surface shared by the search palette.
+
+### `CommandPaletteSearch`
+
+`packages/ui/src/design/patterns/CommandPalette.tsx`
+
+Header search without a second box or icon inset inside the panel.
+
+### `CommandPaletteControls`
+
+`packages/ui/src/design/patterns/CommandPalette.tsx`
+
+Type tabs and their tool-output filter share one toolbar row.
+
+### `CommandPaletteDivider`
+
+`packages/ui/src/design/patterns/CommandPalette.tsx`
+
+Divider between the search controls, results and keyboard hints.
+
+### `CommandPaletteResults`
+
+`packages/ui/src/design/patterns/CommandPalette.tsx`
+
+Scrollable result list, inset to the panel's content edge.
+
+### `CommandPaletteResult`
+
+`packages/ui/src/design/patterns/CommandPalette.tsx`
+
+A title-led palette result with a trailing, right-aligned fact.
+
+### `CommandPaletteEmpty`
+
+`packages/ui/src/design/patterns/CommandPalette.tsx`
+
+An inline empty result state that stays on the list's reading edge.
+
+### `CommandPaletteFooter`
+
+`packages/ui/src/design/patterns/CommandPalette.tsx`
+
+The compact keyboard-hint footer below the result list.
+
+### `CommandPaletteKeyHint`
+
+`packages/ui/src/design/patterns/CommandPalette.tsx`
+
+A named action and the key that invokes it.
+
 ### `ComparisonDecision`
 
 `packages/ui/src/design/patterns/ComparisonDecision.tsx`
@@ -2269,4 +2323,4 @@ list only goes down, except when the audit learns to see something it was blind 
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 76 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 20 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2827 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `screenLayout` | 2804 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
