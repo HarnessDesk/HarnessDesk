@@ -4,7 +4,7 @@ import type { LedgerReport, RuntimeId, RuntimeInfo, UsageReport } from '@harness
 import { prefsForUsage } from '../../lib/accounts'
 import type { HeatMetric, HourMetric } from '../../lib/heat'
 import type { RunwaySummary } from '../../lib/usage'
-import { Button, ToggleGroup, ToggleGroupItem, Text, Section, DashboardColumns, DashboardAccounts } from '../../design'
+import { Button, PageOptions, Text, Section, DashboardColumns, DashboardAccounts } from '../../design'
 import { UsageActivity, type HeatView } from '../UsageActivity'
 import { Card, PIVOTS, Ranked, Spend, type Pivot, type SilentAgent, type TintOf } from './shared'
 import { OverviewStrip, stripChartMetric, type StripMetric } from './OverviewStrip'
@@ -116,7 +116,7 @@ export const OverviewView = ({
           <Text role="muted">Nothing is spent or low right now.</Text>
         )}
         <>
-          <Button variant="ghost" size="sm" onClick={onGoToPlans}>
+          <Button variant="link" size="content" onClick={onGoToPlans}>
             See all in Plans
           </Button>
           {scopedSilent.length > 0 && (
@@ -142,10 +142,7 @@ export const OverviewView = ({
             metric={stripChartMetric(stripMetric)}
           />
         } secondary={<Section title="Where it went" action={
-              <ToggleGroup type="single" aria-label="Group spend by" value={pivot}
-                onValueChange={next => { if (next) onPivotChange(next as Pivot) }}>
-                {PIVOTS.map(item => <ToggleGroupItem key={item.value} value={item.value}>{item.label}</ToggleGroupItem>)}
-              </ToggleGroup>
+              <PageOptions choices={[{id:'pivot',label:'Group spend by',value:pivot,items:PIVOTS,change:next=>onPivotChange(next as Pivot)}]} />
             }>
           <Ranked
             ledger={ledger}

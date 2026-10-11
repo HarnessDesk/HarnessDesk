@@ -85,8 +85,9 @@ const Stat = ({
         {/* Label above value: the reader knows what they are looking at before
             they look at it, and the figure is the thing the eye stops on. */}
         <div
+          data-slot="stat-label"
           className={cn(
-            'text-xs font-medium',
+            'flex min-h-(--hd-chip-h) flex-wrap items-center gap-(--hd-space-1-5) text-xs font-medium',
             variant === 'tinted' ? 'opacity-80' : 'text-(--hd-muted-foreground)',
           )}
         >

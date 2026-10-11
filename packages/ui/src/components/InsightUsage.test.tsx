@@ -291,6 +291,15 @@ it('replaces unknown amounts with one range warning and offers a shorter read', 
  expect(query.to-query.from).toBe(86400000)
 })
 
+it('shows the no-records gap as a neutral empty-state block', async () => {
+  const shown = { ...report(), gaps: ['No recorded usage was found for this scope.'] }
+  const store = { subscribe: () => () => {}, getSnapshot: (() => { const snapshot = emptySnapshot(); return () => snapshot })() } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} report={shown} /></StoreProvider>))
+  const empty = container.querySelector('[data-slot="empty-state"][data-variant="inline"]')
+  expect(empty?.textContent).toBe('No recorded usage was found for this scope.')
+  expect([...container.querySelectorAll('[data-slot="note"][data-tone="warn"]')].some(note => note.textContent === shown.gaps[0])).toBe(false)
+})
+
 it('reads Team names and range-scoped Run counts without showing the Goal brief', async () => {
  const base=report()
  const goal={id:'goal-1',sentence:'A very long instruction that should never become the row name',origin:{kind:'person'}} as never

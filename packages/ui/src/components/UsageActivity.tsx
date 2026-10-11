@@ -35,7 +35,7 @@ import {
   EmptyState,
   HeatGrid,
   HeatLegend,
-  Section, PageControls, DashboardStats, DashboardAgentReading,
+  Section, PageOptions, DashboardStats, DashboardAgentReading,
   Text,
   type HeatGridRow,
 } from '../design'
@@ -245,11 +245,10 @@ export const UsageActivity = ({
   const columns = view === 'year' ? 53 : AGENT_SPAN_DAYS
 
   return (
-    <Section title="When it ran" description={view !== 'hour' && busiestDow !== null ? `Busiest on ${WEEKDAY_NAMES[busiestDow]}s` : undefined}>
-      <PageControls choices={[
-        {id:'view',title:'Show by',value:view,options:VIEWS,change:next=>setView(next as HeatView)},
-        {id:'metric',title:'Measure',value:view === 'hour' ? hourMetric : dayMetric,options:view === 'hour' ? HOUR_METRICS : DAY_METRICS,change:next=>view === 'hour' ? setHourMetric(next as HourMetric) : setDayMetric(next as HeatMetric)},
-      ]} />
+    <Section title="When it ran" description={view !== 'hour' && busiestDow !== null ? `Busiest on ${WEEKDAY_NAMES[busiestDow]}s` : undefined} action={<PageOptions choices={[
+      {id:'view',label:'Show by',value:view,items:VIEWS,change:next=>setView(next as HeatView)},
+      {id:'metric',label:'Measure',value:view === 'hour' ? hourMetric : dayMetric,items:view === 'hour' ? HOUR_METRICS : DAY_METRICS,change:next=>view === 'hour' ? setHourMetric(next as HourMetric) : setDayMetric(next as HeatMetric)},
+    ]} />}>
       <ChartFrame>
         <ChartCard>
           <DashboardStats facts={view === 'hour' ? [

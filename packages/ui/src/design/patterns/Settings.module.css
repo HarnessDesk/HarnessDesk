@@ -782,30 +782,6 @@
   min-width: 0;
 }
 
-/* The head sits above the `.rows` card it names rather than inside it, so
-   without its own inset its text started at the page's own edge while the
-   card's rows started a border-width and a card-padding in. This puts the
-   label's first letter and the action's trailing edge on that same column —
-   a `Section`'s `SectionAction` already does this by living inside the
-   card's own padding; a `SectionHead` has to say it explicitly because it
-   draws outside the card.
-
-   Earned only when a card of rows is what the head is actually naming
-   (`:has(+ […])` reads the very next card or table container): a head over a
-   `Note`, a plain button, or ProjectTriggers' own body has no such card to
-   answer to, and the same inset put its label a row inset right of a body that
-   starts flush with the page instead. */
-.sectionHead:has(+ [data-slot='rows']),
-.sectionHead:has(+ [role='radiogroup']),
-.sectionHead:has(+ [data-slot='table-container']) {
-  padding-inline: calc(var(--hd-border-width) + var(--hd-table-edge));
-}
-
-/* Summary facts own the row inset rather than the table family's density. */
-.sectionHead:has(+ [data-slot='summary-list']) {
-  padding-inline: var(--hd-inset-row); /* desk: summary label inset 13 → 12; the same Summary edge is now painted inset and adds no content width */
-}
-
 .sectionHead:first-child {
   margin-top: 0;
 }

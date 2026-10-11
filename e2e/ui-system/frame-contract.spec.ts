@@ -430,6 +430,125 @@ const layoutDestinations = (() => {
   })
 })()
 
+test('FIX3 Dashboard figures share one treatment and value baseline', async ({ page }) => {
+  await openFrame(page, 'frame-wall=dashboard&frame-view=overview', 'light', 1440)
+  const facts = page.locator('[aria-label="What it cost, in brief"] [data-slot="stat"]')
+  await expect(facts).toHaveCount(4)
+  const geometry = await facts.evaluateAll(nodes => nodes.map(node => {
+    const value = [...node.querySelectorAll<HTMLElement>('*')].find(child => child.className.toString().includes('text-xl'))!
+    return { treatment: (node as HTMLElement).dataset['variant'], top: value.getBoundingClientRect().top }
+  }))
+  expect(new Set(geometry.map(item => item.treatment)).size, 'all four overview figures use one stat treatment').toBe(1)
+  expect(Math.max(...geometry.map(item => item.top)) - Math.min(...geometry.map(item => item.top)), 'all four values share a baseline').toBeLessThanOrEqual(1)
+})
+
+test('FIX3 Dashboard Plans link text starts on its section text edge', async ({ page }) => {
+  await openFrame(page, 'frame-wall=dashboard&frame-view=overview', 'light', 1440)
+  const geometry = await page.getByRole('button', { name: 'See all in Plans', exact: true }).evaluate(button => {
+    const range = document.createRange()
+    range.selectNodeContents(button)
+    const text = range.getBoundingClientRect()
+    const heading = document.querySelector('[aria-label="What is left"] [data-section-name]')!.getBoundingClientRect()
+    return { textLeft: text.left, headingLeft: heading.left }
+  })
+  expect(Math.abs(geometry.textLeft - geometry.headingLeft), 'link text aligns with the section name').toBeLessThanOrEqual(1)
+})
+
+test('FIX3 page section headings share one page text edge', async ({ page }) => {
+  const destinations = [
+    ['Settings', 'frame-wall=settings&frame-section=runtimes'],
+    ['Dashboard overview', 'frame-wall=dashboard&frame-view=overview'],
+    ['Dashboard plans', 'frame-wall=dashboard&frame-view=plans'],
+    ['Dashboard spend', 'frame-wall=dashboard&frame-view=spend'],
+    ['Dashboard activity', 'frame-wall=dashboard&frame-view=activity'],
+    ['Dashboard projects', 'frame-wall=dashboard&frame-view=projects'],
+    ['Agents', 'frame-wall=agents'],
+    ['Library', 'frame-wall=library'],
+    ['Plugins', 'frame-wall=plugins&frame-plugin-page=installed'],
+    ['Teams', 'frame-wall=teams&frame-filter=active'],
+    ['Review', 'frame-wall=changes-review'],
+  ] as const
+  for (const [name, query] of destinations) {
+    await openFrame(page, query, 'light', 1440)
+    const offsets = await page.locator('[data-section-head] h2, [data-slot="section-head"] h2').evaluateAll(headings =>
+      headings.filter(heading => heading.getClientRects().length).map(heading => {
+        const columns = heading.closest('[data-slot="dashboard-columns"]')
+        const column = columns && [...columns.children].findIndex(child => child.contains(heading))
+        return { group: columns ? `column-${column}` : 'page', left: Math.round(heading.getBoundingClientRect().left * 2) / 2 }
+      }),
+    )
+    for (const group of new Set(offsets.map(item => item.group))) {
+      const groupOffsets = offsets.filter(item => item.group === group).map(item => item.left)
+      expect(Math.max(...groupOffsets) - Math.min(...groupOffsets), `${name} ${group} headings share one text edge: ${groupOffsets.join(', ')}`).toBeLessThanOrEqual(1)
+    }
+  }
+})
+
+test('FIX3 partial spend qualifier sits beside its figure', async ({ page }) => {
+  await openFrame(page, 'frame-wall=dashboard&frame-view=spend', 'light', 1440)
+  const positions = await page.getByText('so far', { exact: true }).evaluate(node => {
+    const stat = node.closest('[data-slot="stat"]')!
+    const figure = stat.querySelector<HTMLElement>('[data-role="metric"]')!
+    return { figure: figure.getBoundingClientRect().toJSON(), qualifier: node.getBoundingClientRect().toJSON() }
+  })
+  expect(positions.qualifier.left, 'the qualifier follows the value').toBeGreaterThanOrEqual(positions.figure.right - 1)
+  expect(positions.qualifier.top, 'the qualifier shares the figure line').toBeLessThan(positions.figure.bottom)
+})
+
+test('FIX3 section choices live in the same page head across Dashboard tabs', async ({ page }) => {
+  for (const [tab, sections] of [
+    ['overview', ['Where it went']],
+    ['spend', ['What it cost', 'Where it went']],
+    ['activity', ['When it ran']],
+  ] as const) {
+    await openFrame(page, `frame-wall=dashboard&frame-view=${tab}`, 'light', 1440)
+    for (const title of sections) {
+      const section = page.locator(`[aria-label="${title}"]`)
+      const headOptions = section.locator('[data-slot="section-head"] [data-slot="page-options"]')
+      await expect(headOptions).toHaveCount(tab === 'spend' && title === 'What it cost' ? 2 : 1)
+      await expect(section.locator(':scope > [data-slot="rows"]')).toHaveCount(0)
+    }
+  }
+})
+
+test('FIX3 Plans status chips fit their words in the Status column', async ({ page }) => {
+  await openFrame(page, 'frame-wall=dashboard&frame-view=plans', 'light', 1440)
+  const status = page.locator('[data-dashboard-table="plans"] [data-slot="chip"]').filter({ hasText: 'Not reporting' }).first()
+  await expect(status).toBeVisible()
+  const fits = await status.evaluate(node => {
+    const text = node.querySelector('[data-slot="text"]') ?? node
+    return { label: text.textContent?.trim(), client: text.clientWidth, scroll: text.scrollWidth, column: node.closest('td')?.getBoundingClientRect().width ?? 0 }
+  })
+  expect(fits.label).toBe('Not reporting')
+  expect(fits.scroll).toBeLessThanOrEqual(fits.client + 1)
+  expect(fits.column, 'the Status column leaves room for the whole chip').toBeGreaterThanOrEqual(152)
+})
+
+test('FIX3 Projects warning spans the usage table', async ({ page }) => {
+  await openFrame(page, 'frame-wall=dashboard&frame-view=projects&amounts=unknown', 'light', 1440)
+  const warning = page.locator('[data-slot="alert"]').filter({ hasText: 'Amounts are unknown for this range' })
+  await expect(warning).toBeVisible()
+  const widths = await warning.evaluate(node => ({ warning: node.getBoundingClientRect().width, table: document.querySelector('[data-dashboard-table="insight"]')?.getBoundingClientRect().width ?? 0 }))
+  expect(Math.abs(widths.warning - widths.table), 'the range warning and attribution table share a section width').toBeLessThanOrEqual(1)
+})
+
+test('FIX3 heatmap cells follow weekday labels and keep a partial first week', async ({ page }) => {
+  for (const tab of ['activity', 'overview']) {
+    await openFrame(page, `frame-wall=dashboard&frame-view=${tab}`, 'light', 1440)
+    const geometry = await page.locator('[role="group"][aria-label*="this year"]').evaluate(grid => {
+      const labels = [...grid.querySelectorAll<HTMLElement>('[class*="header"]')]
+      const first = [...grid.querySelectorAll<HTMLElement>('[data-level], [data-state]')]
+        .filter(cell => cell.style.gridRow === '8').sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)[0]!
+      const blanks = [...grid.querySelectorAll<HTMLElement>('[aria-hidden="true"]')]
+        .filter(cell => !cell.hasAttribute('data-level') && !cell.hasAttribute('data-state') && cell.style.gridColumn === '2' && Number(cell.style.gridRow) >= 2 && Number(cell.style.gridRow) <= 8)
+      const labelEdge = Math.max(...labels.map(label => label.getBoundingClientRect().right + Number.parseFloat(getComputedStyle(label).marginRight)))
+      return { labelEdge, firstCell: first.getBoundingClientRect().left, leadingBlanks: blanks.length }
+    })
+    expect(geometry.firstCell, `${tab} cells start after the weekday labels`).toBeGreaterThanOrEqual(geometry.labelEdge)
+    expect(geometry.leadingBlanks, `${tab} leaves the partial first week blank before its weekend`).toBeGreaterThan(0)
+  }
+})
+
 test('shared heading and page or panel stacks hold across preview destinations', async ({ page }) => {
   test.setTimeout(120_000)
   const stackGap = await resolvedPx(page, '--hd-card-gap')

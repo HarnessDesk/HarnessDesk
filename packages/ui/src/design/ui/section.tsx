@@ -103,7 +103,7 @@ type PageSectionProps = Omit<React.ComponentProps<'section'>, 'title'> & {
   title: string
   description?: React.ReactNode
   action?: React.ReactNode
-  /** Match a row or card body without adding a second inset to that body. */
+  /** @deprecated Page section headings stay on their content edge. */
   inset?: 'row' | 'card'
   variant?: never
 }
@@ -131,6 +131,7 @@ const useInPageSection = (): boolean => useContext(InPageSection)
 const Section = (props: SectionProps) => {
   if (isPageSection(props)) {
     const { className, title, description, action, inset, children, ...rest } = props
+    void inset
     return (
       <section
         data-slot="section"
@@ -141,22 +142,9 @@ const Section = (props: SectionProps) => {
       >
         <div
           data-slot="section-head"
-          /* The head sits above the card it names rather than inside it, so
-             without an inset of its own its label started at the column's
-             edge while the card's border and `--hd-inset-row` put every row
-             a border-width and a card-padding in — a `SectionAction`'s own
-             `justify-self-end` line answers a different question (the card's
-             own header) and does not reach a page section's plain card.
-
-             Earned only when a `Rows` card is the very next thing the head
-             sits over (`has-[+…]` reads the next sibling): a section whose
-             body is a `Note` or a plain button — ProjectTriggers' own body,
-             say — has no such card to answer to, and the same inset put its
-             label a row inset right of a body that starts flush with the page. */
-          className={cn('flex min-w-0 flex-wrap items-end gap-(--hd-space-3)',
-            inset === 'row' ? 'px-(--hd-inset-row)' : inset === 'card' ? 'px-(--hd-inset-card)'
-              : 'has-[+[data-slot=rows]]:px-[calc(var(--hd-border-width)+var(--hd-table-edge))] has-[+[role=radiogroup]]:px-[calc(var(--hd-border-width)+var(--hd-table-edge))]',
-          )}
+          /* This is page furniture. A body's card or row inset belongs to
+             that body and never moves the heading away from the page edge. */
+          className="flex min-w-0 flex-wrap items-end gap-(--hd-space-3)"
         >
           <div className="flex min-w-0 flex-[1_1_20ch] flex-col gap-(--hd-space-0-5)">
             <GroupLabel as="h2" data-section-name="" className="min-w-0 truncate">{title}</GroupLabel>

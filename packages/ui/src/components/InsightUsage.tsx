@@ -168,6 +168,8 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
       retryHistory(value => value + 1)
     }}>{retrying ? 'Trying again…' : 'Try again'}</Button>}>Run counts are unavailable for some Teams.</Note>}
     {failedSources.length > 0 && <Rows>{failedSources.map(source => <Row key={source.id} title={source.label} desc={source.problem ?? undefined} control={<Chip tone="warning">Unavailable</Chip>} />)}</Rows>}
-    {report.gaps.filter(gap => gap !== scanGap).map(gap => <Note key={gap} tone="warn">{gap}</Note>)}
+    {report.gaps.filter(gap => gap !== scanGap).map(gap => gap === 'No recorded usage was found for this scope.'
+      ? <EmptyState key={gap} variant="inline" align="start" title={gap} />
+      : <Note key={gap} tone="warn">{gap}</Note>)}
   </>
 }
