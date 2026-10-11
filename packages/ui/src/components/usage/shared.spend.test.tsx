@@ -43,3 +43,12 @@ it('does not show zero spend for shorter periods containing unscanned days', () 
   expect(host.textContent).toContain('No usage recorded in this window')
   expect(host.textContent).not.toContain('unpriced')
 })
+
+it('states complete scan coverage once even when the recorded window is empty', () => {
+  const now = Date.parse('2026-10-10T12:00:00')
+  const ledger = { ...emptyLedger(30), totalCost: 0, coverage: { ...emptyLedger(30).coverage, daysCovered: 30,
+    coveredDays: Array.from({ length: 30 }, (_, back) => new Date(2026, 9, 10 - back).getTime()) } }
+  act(() => root.render(<Spend ledger={ledger} wideLedger={null} byId={new Map()} tintOf={() => 'blue'} scan={null} now={now} range={30} mode="bars" onModeChange={() => {}} onScan={() => {}} />))
+  expect(host.textContent?.match(/30 of 30 days scanned/g)).toHaveLength(1)
+  expect(host.textContent).toContain('No usage recorded in this window')
+})

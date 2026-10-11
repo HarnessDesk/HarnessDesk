@@ -71,6 +71,7 @@ test('FIX9 shorter spend figures distinguish unscanned days from quiet days', as
     await openFrame(page, `frame-wall=dashboard&frame-view=spend&frame-fix9-ledger=${state}`)
     const today = page.locator('[data-slot="stat"]').filter({ hasText: 'Today' })
     await expect(today).toContainText(state === 'mixed' ? 'Not read yet' : '$0')
+    if (state === 'zero') await expect(page.getByText('30 of 30 days scanned', { exact: true })).toHaveCount(1)
   }
 })
 

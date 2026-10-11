@@ -759,7 +759,7 @@ export const Spend = ({
           <ChartHead>
             <div>
               <ChartTitle figure>{headline}</ChartTitle>
-              {ledger && ledger.coverage.daysCovered < ledger.coverage.daysRequested && <ChartHint>{coverageLabel(ledger)}</ChartHint>}
+              {ledger && <ChartHint>{coverageLabel(ledger)}</ChartHint>}
               <ChartHint>
                 {metric === 'cost'
                   ? `Last ${ledger?.days ?? range} days — ${spendHint(ledger?.provenance)}`
@@ -841,22 +841,19 @@ export const Spend = ({
  * The chart foot's own sentence — worded for whichever metric is on screen,
  * because "Metered and list-price · 44 of 30,096 calls carry no public
  * price" is a claim about cost, and sitting it under a turns or tokens chart
- * qualifies a number the chart is not drawing. "Days scanned" is the one
- * clause true of every metric, so it is the only one every branch keeps.
+ * qualifies a number the chart is not drawing. Scan coverage belongs once
+ * beside the headline; the footer adds only the metric’s other accounting facts.
  */
 const coverageSentence = (ledger: LedgerReport | null, metric: ChartMetric): string => {
   if (!ledger) return 'Nothing has been scanned yet.'
-  const covered = ''
   if (metric === 'tokens') {
     const parts: string[] = []
     if (ledger.totalTokens !== null) parts.push(`${formatTokens(ledger.totalTokens)} tokens`)
-    if (covered) parts.push(covered)
     return parts.join(' · ')
   }
   if (metric === 'turns') {
     const coverage = agentCoverage(ledger.coverage, ledgerRuntimeIds(ledger))
     const parts: string[] = [`turns known for ${coverage.known} of ${coverage.total} agents`]
-    if (covered) parts.push(covered)
     return parts.join(' · ')
   }
   const parts: string[] = [provenanceLabel(ledger)]
@@ -867,7 +864,6 @@ const coverageSentence = (ledger: LedgerReport | null, metric: ChartMetric): str
       `${unpriced.toLocaleString()} of ${(priced + unpriced).toLocaleString()} calls carry no public price`,
     )
   }
-  if (covered) parts.push(covered)
   return parts.join(' · ')
 }
 
