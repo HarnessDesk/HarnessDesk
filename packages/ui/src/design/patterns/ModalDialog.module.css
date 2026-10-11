@@ -90,6 +90,10 @@
   min-width: 0;
 }
 
+.footerNavigation > [data-slot='button'] {
+  margin-inline-start: calc(-1 * var(--hd-space-3));
+}
+
 .footerAside {
   font-size: var(--hd-text-sm);
   color: var(--hd-muted-foreground);

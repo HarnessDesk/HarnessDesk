@@ -39,3 +39,67 @@ test('R12.1 composer labels keep their full text until the fold order takes over
     }
   }
 })
+
+const openInvestigation = async (page: Page, theme: 'light' | 'dark', width: number) => {
+  await openFrame(page, 'team-start=picker', theme, width)
+  await page.getByRole('button', { name: 'Investigation', exact: true }).click()
+  return page.getByRole('dialog')
+}
+
+test('R12.2 the New Team footer stays in place between steps', async ({ page }) => {
+  for (const theme of ['light', 'dark'] as const) for (const width of [1280, 720]) {
+    await openFrame(page, 'team-start=picker', theme, width)
+    const dialog = page.getByRole('dialog')
+    const geometry = async () => dialog.evaluate(element => {
+      const footer = element.querySelector<HTMLElement>('[data-slot="dialog-footer"]')!
+      return { top: element.getBoundingClientRect().top, height: element.getBoundingClientRect().height, footerTop: footer.getBoundingClientRect().top }
+    })
+    const picker = await geometry()
+    await page.getByRole('button', { name: 'Investigation', exact: true }).click()
+    const form = await geometry()
+    expect(form.height, `dialog height at ${width}px in ${theme}`).toBeCloseTo(picker.height, 1)
+    expect(form.footerTop, `footer position at ${width}px in ${theme}`).toBeCloseTo(picker.footerTop, 1)
+    expect(form.top, `dialog top at ${width}px in ${theme}`).toBeCloseTo(picker.top, 1)
+  }
+})
+
+test('R12.3 Back puts its text on the footer edge and its plate past it', async ({ page }) => {
+  for (const theme of ['light', 'dark'] as const) for (const width of [1280, 720]) {
+    const dialog = await openInvestigation(page, theme, width)
+    const alignment = await dialog.evaluate(element => {
+      const footer = element.querySelector<HTMLElement>('[data-slot="dialog-footer"]')!
+      const navigation = footer.querySelector<HTMLElement>('[data-slot="dialog-footer-navigation"]')!
+      const back = [...navigation.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Back')!
+      const range = document.createRange()
+      range.selectNodeContents(back)
+      return { text: range.getBoundingClientRect().left, edge: navigation.getBoundingClientRect().left, plate: back.getBoundingClientRect().left }
+    })
+    expect(Math.abs(alignment.text - alignment.edge), `Back text edge at ${width}px in ${theme}`).toBeLessThanOrEqual(1)
+    expect(alignment.plate, `Back plate should outdent at ${width}px in ${theme}`).toBeLessThan(alignment.edge)
+  }
+})
+
+test('R12.4 the New Team role name uses sentence case', async ({ page }) => {
+  for (const theme of ['light', 'dark'] as const) for (const width of [1280, 720]) {
+    const dialog = await openInvestigation(page, theme, width)
+    const role = dialog.locator('[aria-label="Who does what"] [data-slot="row-title"]').first()
+    await expect(role).toHaveText('Research')
+    await expect(role).not.toHaveText('research')
+  }
+})
+
+test('R12.5 Details uses the shared disclosure chevron', async ({ page }) => {
+  for (const theme of ['light', 'dark'] as const) for (const width of [1280, 720]) {
+    const dialog = await openInvestigation(page, theme, width)
+    const details = dialog.getByRole('button', { name: 'Details', exact: true })
+    await expect(details).toHaveAttribute('aria-expanded', 'false')
+    await expect(dialog.locator('details')).toHaveCount(0)
+    await expect(dialog.locator('[data-flow-details]')).toBeHidden()
+    const chevron = details.locator('[data-slot="disclosure-chevron"]')
+    await expect(chevron).toBeVisible()
+    await details.click()
+    await expect(details).toHaveAttribute('aria-expanded', 'true')
+    await expect(chevron).toHaveAttribute('data-open', '')
+    await expect(dialog.locator('[data-flow-details]')).toBeVisible()
+  }
+})

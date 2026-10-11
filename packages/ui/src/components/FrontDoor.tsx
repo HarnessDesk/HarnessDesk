@@ -320,12 +320,12 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
       description={chosen
         ? chosen.id === 'comparison' ? 'You decide whether to merge the winner.' : `The Team opens under ${project} in the sidebar.`
         : 'Choose how the agents work together.'}
-      size="wide" onClose={onClose}
+      size="wide" tall onClose={onClose}
       footer={chosen
         ? <><Button variant="default" disabled={!startable || !sentenceValid || briefReading || policyPending || starting} onClick={() => void start()}>{starting ? 'Starting…' : 'Start'}</Button><Button variant="secondary" disabled={starting} onClick={onClose}>Cancel</Button></>
         : <><Button variant="default" disabled={entries === null} onClick={continueShape}>Continue</Button><Button variant="secondary" onClick={onClose}>Cancel</Button></>}
       footerNavigation={chosen
-        ? <Button variant="quiet" disabled={starting || policyPending} onClick={changeShape}>Back</Button>
+        ? <Button variant="quiet" bordered={false} disabled={starting || policyPending} onClick={changeShape}>Back</Button>
         : <span className={styles.solo}><Text as="span" role="muted">Only need one agent?</Text><Button variant="quiet" onClick={() => { onClose(); store.newDraft() }}>New session ⌘N</Button></span>}
     >
       {!chosen && <div onKeyDown={event => {

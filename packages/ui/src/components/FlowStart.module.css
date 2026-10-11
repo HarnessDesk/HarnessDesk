@@ -34,5 +34,10 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--hd-space-4);
 }
-.details summary { cursor: pointer; }
-.details[open] summary { margin-bottom: var(--hd-space-3); }
+.details {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--hd-space-3);
+}
+.details [hidden] { display: none; }
