@@ -262,8 +262,8 @@ export const SideBySide = ({
   const focus = useCallback((key: SessionKey) => onChange((was) => focusTile(was, key)), [onChange])
   /*
    * Where each shown tile sits. The grid's tracks alternate tiles and one-
-   * hairline seams, and the system's Separator draws each seam — the screen
-   * places, it never paints. Every tile stays a direct child of the grid in
+   * pixel seams. The system's unpainted Separator retains their geometry
+   * under the no-column-line rule. Every tile stays a direct child of the grid in
    * tile order, whatever is shown: moving one into a row of its own would
    * remount it, and a remount loses a transcript's scroll and reloads a page.
    * A short last row's last tile spans to the grid's end.
@@ -424,7 +424,7 @@ export const SideBySide = ({
           )
         })}
         {seams.map((seam) => (
-          <Separator key={seam.key} orientation={seam.orientation} style={seam.style} />
+          <Separator key={seam.key} orientation={seam.orientation} painted={false} style={seam.style} />
         ))}
         <ComposerDock floating ref={composerRef} data-shared-composer="" data-decision={decision ? '' : undefined} hidden={!sharedComposer} className={styles.dock} onFocusCapture={() => setComposing(true)}>
           {sharedComposer && composer && (
