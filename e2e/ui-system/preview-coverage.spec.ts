@@ -129,6 +129,14 @@ const waitForLazyBoardToSettle = (page: Page, title: string): Promise<unknown> =
  * otherwise miss) against that map. Returns the full component list once (it
  * does not change page to page) and the set this page load covered.
  */
+const settleCoveragePage = async (page: Page): Promise<void> => {
+  await page.waitForFunction(() => (document.getElementById('root')?.childElementCount ?? 0) > 0)
+  await page.evaluate(async () => {
+    await document.fonts.ready
+    await new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())))
+  })
+}
+
 const collectCoverage = (page: Page): Promise<{ allComponents: readonly string[]; covered: readonly string[] }> =>
   page.evaluate(async () => {
     const mod = (await import('/src/preview/coverage-registry.ts')) as {
@@ -151,32 +159,31 @@ const collectCoverage = (page: Page): Promise<{ allComponents: readonly string[]
     const covered = new Set<string>()
     const isVisible = (element: Element): boolean =>
       element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && element.getClientRects().length > 0
-    const credit = (candidate: unknown): void => {
-      const components = refToComponents.get(candidate)
-      if (components) for (const component of components) covered.add(component)
-    }
-    // One visible leaf can share its complete fiber ancestry with thousands
-    // of other DOM elements. Visit each ancestry once for this page state:
-    // coverage remains reference-based, while a large preview stops doing
-    // the same work once per leaf.
+    // Earn a reference from a visible leaf once per page state. Unrelated
+    // DOM and ancestry already credited by a sibling need no geometry probe.
     const seenFibers = new Set<unknown>()
     for (const el of document.querySelectorAll('*')) {
-      if (!isVisible(el)) continue
       const key = Object.keys(el).find((k) => k.startsWith('__reactFiber$'))
       if (!key) continue
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const chain: any[] = []
+      const pending = new Set<string>()
+      const consider = (candidate: unknown): void => {
+        for (const name of refToComponents.get(candidate) ?? []) if (!covered.has(name)) pending.add(name)
+      }
       let fiber: any = (el as unknown as Record<string, unknown>)[key]
       while (fiber && !seenFibers.has(fiber)) {
-        seenFibers.add(fiber)
+        chain.push(fiber)
         const type = fiber.type
-        credit(type)
-        credit(fiber.elementType)
-        if (type && typeof type === 'object') {
-          credit(type.render) // forwardRef
-          credit(type.type) // memo
-        }
+        consider(type)
+        consider(fiber.elementType)
+        if (type && typeof type === 'object') { consider(type.render); consider(type.type) }
         fiber = fiber.return
       }
+      // Hidden leaves cannot earn new references; leave their ancestry for
+      // a visible sibling, including content mounted through a portal.
+      if (pending.size > 0 && !isVisible(el)) continue
+      for (const member of chain) seenFibers.add(member)
+      for (const name of pending) covered.add(name)
     }
     // A destination registers slots; the visible host renders them as a
     // sibling, so no DOM leaf has the registrar in its ancestry. Credit the
@@ -379,6 +386,35 @@ const sweepSelectsForCoverage = (
     return { covered: [...covered], delayedReveal }
   }, { delayedRevealProbe })
 
+test('coverage does not spend visibility probes on unrelated DOM leaves', async ({ page }) => {
+  await page.goto('/preview.html?frame-wall=conversation')
+  await expect(page.locator('[data-slot="composer"]:visible')).toBeVisible()
+  const before = await collectCoverage(page)
+  await page.evaluate(() => {
+    const island = document.createElement('div'); island.id = 'coverage-unrelated-dom'
+    for (let i = 0; i < 1000; i++) { const leaf = document.createElement('span'); leaf.textContent = 'Synthetic'; island.append(leaf) }
+    document.body.append(island)
+    const original = Element.prototype.checkVisibility
+    const probe = { original, calls: 0 }
+    ;(window as Window & { __coverageCostProbe?: typeof probe }).__coverageCostProbe = probe
+    Element.prototype.checkVisibility = function(options) {
+      if (this === island || island.contains(this)) probe.calls++
+      return original.call(this, options)
+    }
+  })
+  try {
+    const after = await collectCoverage(page)
+    expect([...after.covered].sort()).toEqual([...before.covered].sort())
+    expect(await page.evaluate(() => (window as Window & { __coverageCostProbe: { calls: number } }).__coverageCostProbe.calls)).toBe(0)
+  } finally {
+    await page.evaluate(() => {
+      const probe = (window as Window & { __coverageCostProbe: { original: typeof Element.prototype.checkVisibility } }).__coverageCostProbe
+      Element.prototype.checkVisibility = probe.original
+      document.getElementById('coverage-unrelated-dom')?.remove()
+    })
+  }
+})
+
 test('a published destination bar credits only its active visible registration', async ({ page }) => {
   await page.goto('/preview.html?frame-wall=library')
   await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar-title]')).toHaveText('Library')
@@ -460,7 +496,7 @@ test.describe('preview coverage', () => {
         await expect(board.locator('[data-slot="board-list"]')).toBeVisible()
       }
       if (query === '?team-frame=controls') await expect(page.getByRole('menuitem', {name:'Fill the window',exact:true})).toBeVisible()
-      await page.waitForTimeout(1200)
+      await settleCoveragePage(page)
       const result = await collectCoverage(page)
       allComponents = result.allComponents
       for (const file of result.covered) covered.add(file)
@@ -602,13 +638,13 @@ test.describe('preview coverage', () => {
     // own coverage. The empty page adds an inline frame but no unique dial.
     for (const query of ['', '?composer']) {
       await page.goto(`/preview.html${query}`)
-      await page.waitForTimeout(1200)
+      await settleCoveragePage(page)
       for (const component of (await sweepSelectsForCoverage(page)).covered) covered.add(component)
     }
 
     // -- design.html: every board the nav rail lists.
     await page.goto('/design.html')
-    await page.waitForTimeout(800)
+    await settleCoveragePage(page)
     {
       const result = await collectCoverage(page)
       for (const file of result.covered) covered.add(file)
