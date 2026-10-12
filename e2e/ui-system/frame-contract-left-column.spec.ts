@@ -1,9 +1,38 @@
 import { applyLeftColumnActions } from './left-column-actions'
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator } from '@playwright/test'
 import { FRAME } from '../../packages/ui/src/design/frame'
 import { WALL_THEMES, WALL_WIDTHS } from './frame-wall-destinations'
 import { openFrame, resolvedPx } from './frame-contract-helpers'
 
+
+
+// Opening rows share icon/text edges; foldable headings start at the icon edge.
+const expectColumnRowEdges = async (rows: Locator) => {
+  const values = await rows.evaluateAll(nodes => nodes.map(node => {
+    const button = node.querySelector<HTMLElement>('[data-slot="sidebar-menu-button"]')!
+    const icon = button.querySelector<HTMLElement>('[data-slot="sidebar-menu-icon"]')
+    const text = button.querySelector<HTMLElement>('[data-slot="sidebar-menu-label-content"]')!
+    const words = button.querySelector<HTMLElement>('[data-left-fold-name]')
+    const chevron = button.querySelector<SVGElement>('[data-slot="disclosure-chevron"]')
+    return { h: button.getBoundingClientRect().height, text: text.getBoundingClientRect().x,
+      icon: icon?.getBoundingClientRect().x ?? null, heading: button.hasAttribute('aria-expanded'),
+      gap: words && chevron ? chevron.getBoundingClientRect().left - words.getBoundingClientRect().right : null }
+  }))
+  for (const row of values) expect(row.h).toBe(FRAME.rail.rowHeight)
+  const opening = values.filter(row => !row.heading)
+  expect(opening.length).toBeGreaterThan(2)
+  for (const row of opening) expect(row.icon).not.toBeNull()
+  for (const field of ['text', 'icon'] as const) {
+    const xs = opening.map(row => row[field]!)
+    expect(Math.max(...xs) - Math.min(...xs)).toBeLessThanOrEqual(1)
+  }
+  for (const heading of values.filter(row => row.heading)) {
+    expect(heading.icon, 'a foldable heading has its disclosure after the name').toBeNull()
+    expect(Math.abs(heading.text - opening[0]!.icon!), 'heading starts on the icon edge').toBeLessThanOrEqual(1)
+    expect(heading.gap, 'disclosure follows the name at the written 6px gap').toBeCloseTo(6, 1)
+  }
+  return opening
+}
 
 // Contract runs measure the preview; the final wall owns images and recordings.
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
@@ -257,21 +286,11 @@ for (const theme of WALL_THEMES) {
     const column = page.locator('#sidebar-structure')
     const rows = column.locator('[data-left-row]:visible:not(:has([data-draggable]))')
     expect(await rows.count()).toBeGreaterThan(3)
-    const values = await rows.evaluateAll(nodes => nodes.map(node => {
-      const button = node.querySelector<HTMLElement>('[data-slot="sidebar-menu-button"]')!
-      const icon = button.querySelector<HTMLElement>('[data-slot="sidebar-menu-icon"]')!
-      const text = button.querySelector<HTMLElement>('[data-slot="sidebar-menu-label-content"]')!
-      return { h: button.getBoundingClientRect().height, text: text.getBoundingClientRect().x, icon: icon.getBoundingClientRect().x }
-    }))
-    for (const row of values) expect(row.h).toBe(FRAME.rail.rowHeight)
-    for (const field of ['text', 'icon'] as const) {
-      const xs = values.map(row => row[field])
-      expect(Math.max(...xs) - Math.min(...xs)).toBeLessThanOrEqual(1)
-    }
-    const labels = await column.locator('[data-left-group] > [data-slot="group-label"] [data-left-group-text]:visible')
+    const values = await expectColumnRowEdges(rows)
+    const labels = await column.locator('[data-left-group-text]:visible')
       .evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().x))
     for (const x of labels) expect(Math.abs(x - values[0].icon)).toBeLessThanOrEqual(1)
-    const groupType = await column.locator('[data-left-group] > [data-slot="group-label"] [data-left-group-text]:visible')
+    const groupType = await column.locator('[data-left-group-text]:visible')
       .evaluateAll(nodes => nodes.map(node => ({ size: parseFloat(getComputedStyle(node).fontSize), weight: parseInt(getComputedStyle(node).fontWeight, 10) })))
     for (const group of groupType) { expect(group.size).toBe(FRAME.rail.label); expect(group.weight).toBe(FRAME.rail.groupWeight) }
     await expect(column.locator('[data-nested="true"]')).toHaveCount(0)
@@ -362,18 +381,9 @@ for (const theme of WALL_THEMES) {
         else await expect(history).toBeVisible()
         const top = (await column.locator('[data-left-top] [data-slot="bar"]').boundingBox())!
         expect(top.height).toBe(FRAME.bar.height)
-        const geometry = await column.locator('[data-left-row]:not([data-left-project]):visible').evaluateAll(nodes => nodes.map(node => {
-          const button = node.querySelector<HTMLElement>('[data-slot="sidebar-menu-button"]')!
-          return { height: button.getBoundingClientRect().height,
-            text: button.querySelector<HTMLElement>('[data-slot="sidebar-menu-label-content"]')!.getBoundingClientRect().x,
-            icon: button.querySelector<HTMLElement>('[data-slot="sidebar-menu-icon"]')!.getBoundingClientRect().x }
-        }))
-        expect(geometry.length).toBeGreaterThan(2)
-        for (const row of geometry) expect(row.height).toBe(FRAME.rail.rowHeight)
-        for (const field of ['text', 'icon'] as const) {
-          const xs = geometry.map(row => row[field])
-          expect(Math.max(...xs) - Math.min(...xs)).toBeLessThanOrEqual(1)
-        }
+        const rows = column.locator('[data-left-row]:not([data-left-project]):visible')
+        expect(await rows.count()).toBeGreaterThan(2)
+        await expectColumnRowEdges(rows)
         const seat = column.locator('[data-left-seat]')
         expect((await seat.locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
         await expect(seat.getByRole('button', { name: 'Settings', exact: true }))
