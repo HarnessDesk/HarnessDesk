@@ -11,24 +11,26 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 
 
 for (const theme of WALL_THEMES) {
-  test(`B6 Team view controls keep one View x and no second toolbar in ${theme}`, async ({ page }) => {
-    await openFrame(page, 'frame-wall=team', theme)
-    const xs: number[] = []
-    for (const tab of ['overview', 'run', 'board', 'room', 'findings']) {
-      await selectFrameTab(page, tab)
-      const icon = page.locator('[data-topbar="view"]')
-      await expect(icon).toBeVisible()
-      xs.push((await icon.boundingBox())!.x)
-      await expect(page.locator('[data-slot="view-bar"]')).toHaveCount(0)
-      await expect(page.locator('[data-slot="run-header"]')).toHaveCount(0)
-    }
-    expect(Math.max(...xs) - Math.min(...xs)).toBeLessThanOrEqual(1)
-    await selectFrameTab(page, 'findings')
-    await page.getByRole('button', { name: 'View', exact: true }).click()
-    await page.getByRole('switch', { name: 'Open', exact: true }).click()
-    await expect(page.locator('[data-topbar="view"] [data-filtered="true"]')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Decide this run', exact: true })).toBeVisible()
-  })
+  test.describe(`B6 Team view controls keep one View x and no second toolbar in ${theme}`, () => {test.describe.configure({mode:'default'}); const xs:number[]=[];
+for (const tab of ['overview', 'run', 'board', 'room', 'findings']) test((`B6 Team view controls keep one View x and no second toolbar in ${theme}`)+': '+tab,async ({page}) => {
+await openFrame(page, 'frame-wall=team', theme)
+await selectFrameTab(page, tab)
+const icon = page.locator('[data-topbar="view"]')
+await expect(icon).toBeVisible()
+xs.push((await icon.boundingBox())!.x)
+await expect(page.locator('[data-slot="view-bar"]')).toHaveCount(0)
+await expect(page.locator('[data-slot="run-header"]')).toHaveCount(0)
+})
+test.afterAll(() => {expect(Math.max(...xs) - Math.min(...xs)).toBeLessThanOrEqual(1)})
+test((`B6 Team view controls keep one View x and no second toolbar in ${theme}`)+': Findings filter action',async ({page}) => {
+await openFrame(page, 'frame-wall=team', theme)
+await selectFrameTab(page, 'findings')
+await page.getByRole('button', { name: 'View', exact: true }).click()
+await page.getByRole('switch', { name: 'Open', exact: true }).click()
+await expect(page.locator('[data-topbar="view"] [data-filtered="true"]')).toBeVisible()
+await expect(page.getByRole('button', { name: 'Decide this run', exact: true })).toBeVisible()
+})
+})
 
   test(`B5 equivalent completed rounds stay folded and select their latest record in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team-run-equivalent', theme)

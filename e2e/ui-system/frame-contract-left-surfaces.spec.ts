@@ -11,13 +11,15 @@ useFrameContractEvidence()
 for (const theme of WALL_THEMES) {
   for (const width of WALL_WIDTHS) {
     for (const foundation of ['desk', 'studio'] as const) {
-      test(`D7 group names sit with icons and following groups use the spacing token at ${width} in ${theme}/${foundation}`, async ({ page }, testInfo) => {
-        await openFrame(page, 'frame-wall=left-work', theme, width)
-        await page.locator('body').evaluate((body, value) => { body.dataset.hdInterface = value }, foundation)
-        const column = page.locator('[data-left-column]:visible')
-        if (!await column.count()) await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
-        const token = await resolvedPx(page, '--hd-space-4')
-        const sessions = await column.evaluate(column => {
+      {
+
+for (const [item0, query] of (['frame-wall=settings', 'frame-wall=settings-middle']).entries()) test((`D7 group names sit with icons and following groups use the spacing token at ${width} in ${theme}/${foundation}`) + ' [item ' + [item0].join('-') + ']', async ({ page }, testInfo) => {
+await openFrame(page, 'frame-wall=left-work', theme, width)
+await page.locator('body').evaluate((body, value) => { body.dataset.hdInterface = value }, foundation)
+const column = page.locator('[data-left-column]:visible')
+if (!await column.count()) await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
+const token = await resolvedPx(page, '--hd-space-4')
+const sessions = await column.evaluate(column => {
           const inkX = (element: Element) => {
             const range = document.createRange()
             range.selectNodeContents(element)
@@ -46,13 +48,12 @@ for (const theme of WALL_THEMES) {
           }))
           return { firstIcon, names, gaps, rows, disclosures }
         })
-        const modes = []
-        for (const query of ['frame-wall=settings', 'frame-wall=settings-middle']) {
-          await openFrame(page, query, theme, width)
-          if (query === 'frame-wall=settings' && width === 720) await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
-          await page.locator('body').evaluate((body, value) => { body.dataset.hdInterface = value }, foundation)
-          const navigation = page.locator(query === 'frame-wall=settings' ? '[aria-label="Settings navigation"]' : '[data-left-settings]')
-          const groups = await navigation.locator('[data-left-group]').evaluateAll(groups => groups.map(group => {
+const modes = []
+await openFrame(page, query, theme, width)
+if (query === 'frame-wall=settings' && width === 720) await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
+await page.locator('body').evaluate((body, value) => { body.dataset.hdInterface = value }, foundation)
+const navigation = page.locator(query === 'frame-wall=settings' ? '[aria-label="Settings navigation"]' : '[data-left-settings]')
+const groups = await navigation.locator('[data-left-group]').evaluateAll(groups => groups.map(group => {
             const previousRow = group.previousElementSibling?.querySelector('[data-left-row]:last-child')
             const label = group.querySelector(':scope > [data-slot="group-label"]')!
             const name = label.querySelector('[data-left-group-text]')!
@@ -63,29 +64,30 @@ for (const theme of WALL_THEMES) {
               gap: previousRow ? label.getBoundingClientRect().top - previousRow.getBoundingClientRect().bottom : null,
               inset: label.getBoundingClientRect().top - group.getBoundingClientRect().top }
           }))
-          expect(groups.length).toBeGreaterThan(1)
-          modes.push({ query, groups })
-        }
-        await testInfo.attach('group-labels', { body: JSON.stringify({ width, theme, foundation, token, sessions, modes }, null, 2), contentType: 'application/json' })
-        expect(sessions.names.length).toBeGreaterThan(2)
-        for (const name of sessions.names) {
+expect(groups.length).toBeGreaterThan(1)
+modes.push({ query, groups })
+
+await testInfo.attach('group-labels', { body: JSON.stringify({ width, theme, foundation, token, sessions, modes }, null, 2), contentType: 'application/json' })
+expect(sessions.names.length).toBeGreaterThan(2)
+for (const name of sessions.names) {
           expect(name.x, `Sessions: ${name.label}`).toBe(sessions.firstIcon)
           expect(name.size).toBe(FRAME.rail.label)
           expect(name.weight).toBe(FRAME.rail.groupWeight)
         }
-        for (const group of sessions.gaps) expect(group.gap, `Sessions: ${group.label}`).toBe(token)
-        for (const disclosure of sessions.disclosures) expect(disclosure.arrowX - disclosure.nameRight, 'disclosure follows the name by the spacing token').toBe(6)
-        for (const row of sessions.rows) {
+for (const group of sessions.gaps) expect(group.gap, `Sessions: ${group.label}`).toBe(token)
+for (const disclosure of sessions.disclosures) expect(disclosure.arrowX - disclosure.nameRight, 'disclosure follows the name by the spacing token').toBe(6)
+for (const row of sessions.rows) {
           expect(row.height).toBe(FRAME.rail.rowHeight)
           expect(row.icon).toBe(FRAME.rail.icon)
           expect(row.gap).toBe(FRAME.rail.gap)
         }
-        for (const mode of modes) for (const group of mode.groups) {
+for (const mode of modes) for (const group of mode.groups) {
           expect(group.x, `${mode.query}: ${group.label}`).toBe(group.iconX)
           if (group.gap !== null) expect(group.gap, `${mode.query}: ${group.label}`).toBe(token)
           else expect(group.inset, 'the first group keeps its existing spacing').toBe(0)
         }
-      })
+})
+}
     }
   }
 }

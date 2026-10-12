@@ -35,88 +35,86 @@ for (const theme of ['light', 'dark'] as const) {
     }
   })
 
-  test(`native narrow Run Flow keeps its Steps and geometry in ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme })
-    // Native Flow content at the original 480–600px boundary keeps the same geometry floors.
-    for (const width of [480, 520, 560, 600]) {
-      await page.setViewportSize({ width, height: 700 })
-      await page.goto(`/preview.html?run-dock&theme=${theme}`)
-      const frame = page.locator('#run-dock-frame')
-      await selectTeamDestination(frame,'run')
-      await selectRunView(frame, 'Flow')
-      const main = frame.locator('[data-slot="workbench-main"]')
-      const canvas = main.locator('[data-slot="flow-canvas"]')
-      const list = main.locator('[data-slot="flow-list"]')
-      await expect(canvas.locator('.react-flow__node')).toHaveCount(4)
-      await expect.poll(() => zoomOf(canvas)).toBeLessThan(0.6)
-      if (process.env.FLOW_DOCK_FRAMES_DIR) {
+  {
+
+for (const [item0, width] of ([480, 520, 560, 600]).entries()) test((`native narrow Run Flow keeps its Steps and geometry in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+await page.emulateMedia({ colorScheme: theme })
+await page.setViewportSize({ width, height: 700 })
+await page.goto(`/preview.html?run-dock&theme=${theme}`)
+const frame = page.locator('#run-dock-frame')
+await selectTeamDestination(frame,'run')
+await selectRunView(frame, 'Flow')
+const main = frame.locator('[data-slot="workbench-main"]')
+const canvas = main.locator('[data-slot="flow-canvas"]')
+const list = main.locator('[data-slot="flow-list"]')
+await expect(canvas.locator('.react-flow__node')).toHaveCount(4)
+await expect.poll(() => zoomOf(canvas)).toBeLessThan(0.6)
+if (process.env.FLOW_DOCK_FRAMES_DIR) {
         await page.evaluate(async () => { await document.fonts.ready })
         expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
         await frame.screenshot({ path: path.join(process.env.FLOW_DOCK_FRAMES_DIR, `round5-run-dock-${width}-${theme}-${process.env.FLOW_DOCK_FRAME_PHASE ?? 'after'}.png`) })
       }
-      // The responsive native list keeps its readable alternative in main.
-      await expect.soft(list, `list at ${width}px`).toHaveAttribute('data-placement', 'below')
-      expect.soft(await list.locator('[data-step-row]').count(), `step rows at ${width}px`).toBeGreaterThan(0)
-      expect.soft((await list.locator('[data-step-row]').first().boundingBox())!.width, `step row at ${width}px`).toBeGreaterThan(200)
-      // The drawing has the whole pane, not a strip scaled to its width, and holds every step.
-      const drawn = (await canvas.boundingBox())!.height
-      expect.soft(drawn, `canvas at ${width}px`).toBeGreaterThan(300)
-      expect.soft((await main.locator('[data-slot="run-flow"]').boundingBox())!.height - drawn, `readable Steps at ${width}px`).toBeGreaterThan(0)
-      expect.soft(await canvas.evaluate(el => {
+await expect.soft(list, `list at ${width}px`).toHaveAttribute('data-placement', 'below')
+expect.soft(await list.locator('[data-step-row]').count(), `step rows at ${width}px`).toBeGreaterThan(0)
+expect.soft((await list.locator('[data-step-row]').first().boundingBox())!.width, `step row at ${width}px`).toBeGreaterThan(200)
+const drawn = (await canvas.boundingBox())!.height
+expect.soft(drawn, `canvas at ${width}px`).toBeGreaterThan(300)
+expect.soft((await main.locator('[data-slot="run-flow"]').boundingBox())!.height - drawn, `readable Steps at ${width}px`).toBeGreaterThan(0)
+expect.soft(await canvas.evaluate(el => {
         const clip = el.getBoundingClientRect()
         return [...el.querySelectorAll('.react-flow__node')].every(node => {
           const box = node.getBoundingClientRect()
           return box.top >= clip.top && box.bottom <= clip.bottom + 0.5 && box.left >= clip.left && box.right <= clip.right + 0.5
         })
       }), `steps at ${width}px`).toBe(true)
-      // A drawn minimap never covers the title, the tools or a step.
-      expect.soft(await minimapOverlaps(canvas), `minimap at ${width}px`).toEqual([])
-    }
-  })
+expect.soft(await minimapOverlaps(canvas), `minimap at ${width}px`).toEqual([])
 
-  test(`Timeline keeps every original round and unreached Step when Details is put away in ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme })
-    // The sidebar is a modal overlay below 1000px. Exercise its dismissal,
-    // then explicitly put away any dock admitted after the sidebar closes.
-    for (const width of [720, 780, 840]) {
-      await page.setViewportSize({ width, height: 800 })
-      await page.goto(`/preview.html?run-dock&theme=${theme}`)
-      const frame = page.locator('#run-dock-frame')
-      await frame.getByRole('button', { name: 'Show sidebar', exact: true }).click()
-      await expect(frame.locator('[data-slot="workbench-scrim"]')).toBeVisible()
-      await frame.locator('[data-slot="workbench-scrim"]').click()
-      await expect(frame.locator('[data-slot="workbench-scrim"]')).toBeHidden()
-      await selectTeamPage(frame,'run')
-      await selectRunView(frame, 'Flow')
-      await closeTeamDetails(frame)
-      const main = frame.locator('[data-slot="workbench-main"]')
-      const canvas = main.locator('[data-slot="flow-canvas"]')
-      const scroll = main.locator('[data-slot="run-scroll"]')
-      const rules = main.locator('[data-slot="flow-list"] section[aria-label="Rules"]')
-      await expect(rules).toHaveCount(1)
-      await expect(canvas.locator('.react-flow__node')).toHaveCount(4)
-      await selectRunView(frame, 'Timeline')
-      const list = main.locator('[data-slot="run-steps"]')
-      await expect(frame.locator('[data-slot="dock-panel"][data-edge="left"]'), `dock at ${width}px`).toHaveCount(0)
-      if (process.env.FLOW_DOCK_FRAMES_DIR) {
+
+})
+}
+
+  {
+
+for (const [item0, width] of ([720, 780, 840]).entries()) test((`Timeline keeps every original round and unreached Step when Details is put away in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+await page.emulateMedia({ colorScheme: theme })
+await page.setViewportSize({ width, height: 800 })
+await page.goto(`/preview.html?run-dock&theme=${theme}`)
+const frame = page.locator('#run-dock-frame')
+await frame.getByRole('button', { name: 'Show sidebar', exact: true }).click()
+await expect(frame.locator('[data-slot="workbench-scrim"]')).toBeVisible()
+await frame.locator('[data-slot="workbench-scrim"]').click()
+await expect(frame.locator('[data-slot="workbench-scrim"]')).toBeHidden()
+await selectTeamPage(frame,'run')
+await selectRunView(frame, 'Flow')
+await closeTeamDetails(frame)
+const main = frame.locator('[data-slot="workbench-main"]')
+const canvas = main.locator('[data-slot="flow-canvas"]')
+const scroll = main.locator('[data-slot="run-scroll"]')
+const rules = main.locator('[data-slot="flow-list"] section[aria-label="Rules"]')
+await expect(rules).toHaveCount(1)
+await expect(canvas.locator('.react-flow__node')).toHaveCount(4)
+await selectRunView(frame, 'Timeline')
+const list = main.locator('[data-slot="run-steps"]')
+await expect(frame.locator('[data-slot="dock-panel"][data-edge="left"]'), `dock at ${width}px`).toHaveCount(0)
+if (process.env.FLOW_DOCK_FRAMES_DIR) {
         await page.evaluate(async () => { await document.fonts.ready })
         expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
         await frame.screenshot({ path: path.join(process.env.FLOW_DOCK_FRAMES_DIR, `round6-run-put-away-${width}-${theme}-${process.env.FLOW_DOCK_FRAME_PHASE ?? 'after'}.png`) })
       }
-      // Timeline owns original recorded rounds and the unreached Step, with the same readable row floor.
-      await expect(list, `Timeline at ${width}px`).toBeVisible()
-      const rows = list.locator('[data-step-row][data-row]')
-      await expect(rows).toHaveCount(4)
-      expect.soft(await rows.count(), `step rows at ${width}px`).toBeGreaterThan(0)
-      expect.soft(await rows.first().evaluate(el => el.getBoundingClientRect().width), `step row at ${width}px`).toBeGreaterThan(200)
-      // The pane scrolls to the original rounds and unreached Step by wheel.
-      const area = (await scroll.boundingBox())!
-      await page.mouse.move(area.x + area.width / 2, area.y + area.height - 30)
-      await page.mouse.wheel(0, 2000)
-      await expect.poll(() => scroll.evaluate(el => el.scrollTop + el.clientHeight >= el.scrollHeight - 1), `end of the pane at ${width}px`).toBe(true)
-      await expect.soft(list.locator('[data-step-row="person"]'), `unreached Step at ${width}px`).toBeInViewport()
-    }
-  })
+await expect(list, `Timeline at ${width}px`).toBeVisible()
+const rows = list.locator('[data-step-row][data-row]')
+await expect(rows).toHaveCount(4)
+expect.soft(await rows.count(), `step rows at ${width}px`).toBeGreaterThan(0)
+expect.soft(await rows.first().evaluate(el => el.getBoundingClientRect().width), `step row at ${width}px`).toBeGreaterThan(200)
+const area = (await scroll.boundingBox())!
+await page.mouse.move(area.x + area.width / 2, area.y + area.height - 30)
+await page.mouse.wheel(0, 2000)
+await expect.poll(() => scroll.evaluate(el => el.scrollTop + el.clientHeight >= el.scrollHeight - 1), `end of the pane at ${width}px`).toBe(true)
+await expect.soft(list.locator('[data-step-row="person"]'), `unreached Step at ${width}px`).toBeInViewport()
+
+
+})
+}
 
   test(`Timeline keeps its original Steps while Details or Activity occupies the panel in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })

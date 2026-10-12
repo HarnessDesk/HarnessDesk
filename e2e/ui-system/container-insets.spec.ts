@@ -234,22 +234,23 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
 }
 
 for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720]) {
-  test(`dialog parts share the modal inset in ${theme} at ${width}px`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 900 })
-    await page.emulateMedia({ colorScheme: theme })
-    await page.addInitScript(() => {
+  {
+
+for (const [item0, [query, selectors]] of ([
+      ['cli-install', ['[data-slot="dialog-content"]']],
+      ['run-again=default', ['[data-slot="dialog-head"]', '[data-slot="modal-dialog-body"]', '[data-slot="dialog-footer"]']],
+      ['stop-run-dialog=default', ['[data-slot="dialog-head"]', '[data-slot="modal-dialog-body"]', '[data-slot="dialog-footer"]']],
+    ] as const).entries()) test((`dialog parts share the modal inset in ${theme} at ${width}px`) + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+await page.setViewportSize({ width, height: 900 })
+await page.emulateMedia({ colorScheme: theme })
+await page.addInitScript(() => {
       Object.assign(window, { __hdCliInstallDialog: {
         menuLabel: 'Install command-line tool…',
         request: { message: 'Install the command-line tool?', detail: 'The launcher goes in a folder you own.', buttons: ['Install', 'Cancel'] },
       } })
     })
-    for (const [query, selectors] of [
-      ['cli-install', ['[data-slot="dialog-content"]']],
-      ['run-again=default', ['[data-slot="dialog-head"]', '[data-slot="modal-dialog-body"]', '[data-slot="dialog-footer"]']],
-      ['stop-run-dialog=default', ['[data-slot="dialog-head"]', '[data-slot="modal-dialog-body"]', '[data-slot="dialog-footer"]']],
-    ] as const) {
-      await page.goto(`/preview.html?${query}&theme=${theme}`)
-      for (const selector of selectors) {
+await page.goto(`/preview.html?${query}&theme=${theme}`)
+for (const selector of selectors) {
         const part = page.locator(selector).last()
         await expect(part).toBeVisible()
         const reading = await part.evaluate(element => {
@@ -262,8 +263,10 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
         const visibleContent = (await page.evaluate(readInsets, [{ selector, tier: 'dialog' }]))[0]!.boxes.at(-1)!
         expect(visibleContent.insets?.every((value, side) => reading.scrolling && (side === 0 || side === 2) || value >= reading.tier - 2), `${query}: ${selector} content ${visibleContent.insets}`).toBe(true)
       }
-    }
-  })
+
+
+})
+}
 }
 
 test('the inset guard detects zero padding and content escaping otherwise correct padding', async ({ page }) => {

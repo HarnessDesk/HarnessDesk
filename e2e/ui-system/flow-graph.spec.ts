@@ -39,27 +39,33 @@ for (const theme of ['light', 'dark'] as const) {
       else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme', '')
     })
 
-    test('no label sits on a card or on another label, and no card on another, in any Flow', async ({ page }) => {
-      for (const scene of SCENES) {
-        await expect(page.locator(`#flow-graph-${scene} .react-flow__edge`)).not.toHaveCount(0)
-        const drawn = await measure(page, scene)
-        expect(drawn.steps.length, scene).toBeGreaterThan(1)
-        const clashes: string[] = []
-        for (const word of drawn.words) for (const step of drawn.steps) if (hit(word, step)) clashes.push(`${word.id} on ${step.id}`)
-        drawn.words.forEach((word, index) => drawn.words.slice(index + 1).forEach((other) => { if (hit(word, other)) clashes.push(`${word.id} on ${other.id}`) }))
-        drawn.steps.forEach((step, index) => drawn.steps.slice(index + 1).forEach((other) => { if (hit(step, other)) clashes.push(`${step.id} on ${other.id}`) }))
-        expect(clashes, scene).toEqual([])
-        const outside = [...drawn.steps, ...drawn.words].filter((one) => one.x < 0 || one.y < 0 || one.x + one.w > drawn.stage.w + 0.5 || one.y + one.h > drawn.stage.h + 0.5)
-        expect(outside.map((one) => one.id), `${scene} stays on its canvas`).toEqual([])
-      }
-    })
+    {
 
-    test('every arrowhead lands on the card its rule goes to', async ({ page }) => {
-      for (const scene of SCENES) {
-        await expect(page.locator(`#flow-graph-${scene} .react-flow__edge`)).not.toHaveCount(0)
-        const drawn = await measure(page, scene)
-        const card = new Map(drawn.steps.map((step) => [step.id, step]))
-        for (const tip of drawn.tips) {
+for (const [item0, scene] of (SCENES).entries()) test(('no label sits on a card or on another label, and no card on another, in any Flow') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+
+await expect(page.locator(`#flow-graph-${scene} .react-flow__edge`)).not.toHaveCount(0)
+const drawn = await measure(page, scene)
+expect(drawn.steps.length, scene).toBeGreaterThan(1)
+const clashes: string[] = []
+for (const word of drawn.words) for (const step of drawn.steps) if (hit(word, step)) clashes.push(`${word.id} on ${step.id}`)
+drawn.words.forEach((word, index) => drawn.words.slice(index + 1).forEach((other) => { if (hit(word, other)) clashes.push(`${word.id} on ${other.id}`) }))
+drawn.steps.forEach((step, index) => drawn.steps.slice(index + 1).forEach((other) => { if (hit(step, other)) clashes.push(`${step.id} on ${other.id}`) }))
+expect(clashes, scene).toEqual([])
+const outside = [...drawn.steps, ...drawn.words].filter((one) => one.x < 0 || one.y < 0 || one.x + one.w > drawn.stage.w + 0.5 || one.y + one.h > drawn.stage.h + 0.5)
+expect(outside.map((one) => one.id), `${scene} stays on its canvas`).toEqual([])
+
+
+})
+}
+
+    {
+
+for (const [item0, scene] of (SCENES).entries()) test(('every arrowhead lands on the card its rule goes to') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+
+await expect(page.locator(`#flow-graph-${scene} .react-flow__edge`)).not.toHaveCount(0)
+const drawn = await measure(page, scene)
+const card = new Map(drawn.steps.map((step) => [step.id, step]))
+for (const tip of drawn.tips) {
           const to = card.get(tip.to)!
           const outsideX = Math.max(to.x - tip.x, 0, tip.x - (to.x + to.w))
           const outsideY = Math.max(to.y - tip.y, 0, tip.y - (to.y + to.h))
@@ -68,8 +74,10 @@ for (const theme of ['light', 'dark'] as const) {
           expect(Math.hypot(outsideX, outsideY), `${scene} ${tip.edge} stops short`).toBeLessThanOrEqual(1.5)
           expect(Math.max(inside, 0), `${scene} ${tip.edge} runs into the card`).toBeLessThanOrEqual(1.5)
         }
-      }
-    })
+
+
+})
+}
 
     test('reads left to right, with a loop under the line, and a person closing the line under what handed it over', async ({ page }) => {
       const { steps } = await measure(page, 'blueprint')

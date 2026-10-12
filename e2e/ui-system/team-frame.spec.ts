@@ -135,17 +135,18 @@ for (const theme of ['light','dark'] as const) {
 
 
 for (const theme of ['light','dark'] as const) {
- test(`Team frame: keyboard focus stays visible in tabs and the folded destination menu in ${theme}`, async ({page}) => {
-  await page.emulateMedia({colorScheme:theme as 'light'|'dark'})
-  await page.goto(`/preview.html?team-frame=running&theme=${theme}`)
-  for(const width of [1440,720]) {
-   await page.setViewportSize({width,height:900})
-   const frame=page.locator('[data-frame-id="team-frame"]')
-   await selectTeamPage(frame,'overview')
-   const bar=teamBar(frame)
-   const tab=bar.locator('[data-team-page="overview"]:visible')
-   let focused: import('@playwright/test').Locator
-   if(await tab.count()) {
+ {
+
+for (const [item0, width] of ([1440,720]).entries()) test((`Team frame: keyboard focus stays visible in tabs and the folded destination menu in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({page}) => {
+await page.emulateMedia({colorScheme:theme as 'light'|'dark'})
+await page.goto(`/preview.html?team-frame=running&theme=${theme}`)
+await page.setViewportSize({width,height:900})
+const frame=page.locator('[data-frame-id="team-frame"]')
+await selectTeamPage(frame,'overview')
+const bar=teamBar(frame)
+const tab=bar.locator('[data-team-page="overview"]:visible')
+let focused: import('@playwright/test').Locator
+if(await tab.count()) {
     await tab.focus()
     await page.keyboard.press('ArrowRight')
     focused=bar.locator('[data-team-page="run"]:visible')
@@ -157,14 +158,15 @@ for (const theme of ['light','dark'] as const) {
     await page.keyboard.press('Home')
     focused=page.locator('[role="menu"] [data-team-page="overview"]:visible')
    }
-   await expect(focused).toBeFocused()
-   const ring=await focused.evaluate(node=>({width:parseFloat(getComputedStyle(node).outlineWidth),box:node.getBoundingClientRect().toJSON()}))
-   expect(ring.width).toBeGreaterThan(0)
-   expect(ring.box.x).toBeGreaterThanOrEqual(0)
-   expect(ring.box.x+ring.box.width).toBeLessThanOrEqual(width)
+await expect(focused).toBeFocused()
+const ring=await focused.evaluate(node=>({width:parseFloat(getComputedStyle(node).outlineWidth),box:node.getBoundingClientRect().toJSON()}))
+expect(ring.width).toBeGreaterThan(0)
+expect(ring.box.x).toBeGreaterThanOrEqual(0)
+expect(ring.box.x+ring.box.width).toBeLessThanOrEqual(width)
 
-  }
- })
+
+})
+}
  test(`Team frame: narrow members preserve faces and wrap work sentences in ${theme}`, async ({page}, testInfo) => {
   await page.setViewportSize({width:720,height:760})
   await page.emulateMedia({colorScheme:theme as 'light'|'dark'})
@@ -197,36 +199,42 @@ test('the Team title uses the fixed shell width and stays inside the bar', async
 })
 
 for (const theme of ['light', 'dark'] as const) {
- test(`Team frame: header and page tabs share one row on every page in ${theme}`, async ({page}) => {
-  await page.emulateMedia({colorScheme:theme})
-  await page.goto(`/preview.html?team-frame=running&theme=${theme}`)
-  const team=page.locator('[data-frame-id="team-frame"]')
-  for (const name of ['overview', 'run', 'board', 'room', 'findings']) {
-   await selectTeamPage(team,name)
-   const header=teamBar(team)
-   const title=(await header.locator('[data-topbar-title]').boundingBox())!
-   const tab=header.locator('[data-team-page="overview"]:visible')
-   const destination=await tab.count()?tab:header.getByTitle('Destination views',{exact:true})
-   const box=(await destination.boundingBox())!
-   expect(Math.abs(title.y+title.height/2-box.y-box.height/2),name).toBeLessThanOrEqual(1)
-  }
- })
+ {
 
- test(`Team frame: Details Seats retain their bounded reading width in ${theme}`, async ({page}) => {
-  await page.emulateMedia({colorScheme:theme})
-  for (const width of [1440,720]) {
-   await page.setViewportSize({width,height:900})
-   await page.goto(`/preview.html?team-frame=running&theme=${theme}`)
-   const members=await teamSeats(page.locator('[data-frame-id="team-frame"]'))
-   await expect(members).toBeVisible()
-   const box=(await members.boundingBox())!
-   if(width===1440) expect((await members.locator('xpath=ancestor::*[@data-slot="tool-body"]').boundingBox())!.width).toBe(FRAME.rightPanel.width)
-   expect(box.x).toBeGreaterThanOrEqual(0)
-   expect(box.x+box.width).toBeLessThanOrEqual(width)
-   expect(await members.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
-   await captureFrame(page,`after-members-${width}-${theme}`)
-  }
- })
+for (const [item0, name] of (['overview', 'run', 'board', 'room', 'findings']).entries()) test((`Team frame: header and page tabs share one row on every page in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({page}) => {
+await page.emulateMedia({colorScheme:theme})
+await page.goto(`/preview.html?team-frame=running&theme=${theme}`)
+const team=page.locator('[data-frame-id="team-frame"]')
+await selectTeamPage(team,name)
+const header=teamBar(team)
+const title=(await header.locator('[data-topbar-title]').boundingBox())!
+const tab=header.locator('[data-team-page="overview"]:visible')
+const destination=await tab.count()?tab:header.getByTitle('Destination views',{exact:true})
+const box=(await destination.boundingBox())!
+expect(Math.abs(title.y+title.height/2-box.y-box.height/2),name).toBeLessThanOrEqual(1)
+
+
+})
+}
+
+ {
+
+for (const [item0, width] of ([1440,720]).entries()) test((`Team frame: Details Seats retain their bounded reading width in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({page}) => {
+await page.emulateMedia({colorScheme:theme})
+await page.setViewportSize({width,height:900})
+await page.goto(`/preview.html?team-frame=running&theme=${theme}`)
+const members=await teamSeats(page.locator('[data-frame-id="team-frame"]'))
+await expect(members).toBeVisible()
+const box=(await members.boundingBox())!
+if(width===1440) expect((await members.locator('xpath=ancestor::*[@data-slot="tool-body"]').boundingBox())!.width).toBe(FRAME.rightPanel.width)
+expect(box.x).toBeGreaterThanOrEqual(0)
+expect(box.x+box.width).toBeLessThanOrEqual(width)
+expect(await members.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+await captureFrame(page,`after-members-${width}-${theme}`)
+
+
+})
+}
 }
 
 for(const theme of ['light','dark']) {

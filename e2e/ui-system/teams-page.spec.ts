@@ -121,31 +121,33 @@ for(const theme of ['light','dark'] as const) {
 }
 
 for(const theme of ['light','dark'] as const) {
- test(`Teams page: every production rig state renders in ${theme}`,async({page})=>{
-  await openTeams(page,theme)
-  await page.evaluate(()=>document.fonts.ready)
-  for(const scene of ['active','needs-you','settled','empty','pending','failed','narrow']) {
-   const frame=page.locator(`#teams-page-${scene}`)
-   const destination=frame.locator('[data-page-destination="teams"]:visible')
-   await expect(destination).toBeVisible()
-   const pageBox=destination.locator('[data-slot="page-records"]')
-   if(scene!=='empty') await expect(pageBox).toBeVisible()
-   if(scene!=='empty' && (await pageBox.boundingBox())!.width<600){
+ {
+
+for (const [item0, scene] of (['active','needs-you','settled','empty','pending','failed','narrow']).entries()) test((`Teams page: every production rig state renders in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({page}) => {
+await openTeams(page,theme)
+await page.evaluate(()=>document.fonts.ready)
+const frame=page.locator(`#teams-page-${scene}`)
+const destination=frame.locator('[data-page-destination="teams"]:visible')
+await expect(destination).toBeVisible()
+const pageBox=destination.locator('[data-slot="page-records"]')
+if(scene!=='empty') await expect(pageBox).toBeVisible()
+if(scene!=='empty' && (await pageBox.boundingBox())!.width<600){
     await expect(pageBox).toHaveAttribute('data-layout','narrow')
     await expect(frame.locator('[data-team-row][data-slot="list-row"]')).toHaveCount(3)
    }
-   if(scene==='pending')await expect(frame.getByText('Reading recorded usage…')).toBeVisible()
-   if(scene==='failed')await expect(frame.getByText('The Team usage record could not be read')).toBeVisible()
-   if(scene==='empty')await expect(frame.getByText('No active Teams')).toBeVisible()
-   await frame.locator(':scope > div').screenshot({path:`output/playwright/teams-page/${scene}-${theme}.png`})
-  }
-  const active=page.locator('#teams-page-active')
-  await active.getByRole('button',{name:'Ready to wrap · 2'}).click()
-  await active.screenshot({path:`output/playwright/teams-page/ready-open-${theme}.png`})
-  await active.locator('[data-team-row="team-4"]').getByTitle('More',{exact:true}).click()
-  await page.getByRole('menuitem',{name:'Hide',exact:true}).click()
-  await active.screenshot({path:`output/playwright/teams-page/hidden-${theme}.png`})
- })
+if(scene==='pending')await expect(frame.getByText('Reading recorded usage…')).toBeVisible()
+if(scene==='failed')await expect(frame.getByText('The Team usage record could not be read')).toBeVisible()
+if(scene==='empty')await expect(frame.getByText('No active Teams')).toBeVisible()
+await frame.locator(':scope > div').screenshot({path:`output/playwright/teams-page/${scene}-${theme}.png`})
+
+const active=page.locator('#teams-page-active')
+await active.getByRole('button',{name:'Ready to wrap · 2'}).click()
+await active.screenshot({path:`output/playwright/teams-page/ready-open-${theme}.png`})
+await active.locator('[data-team-row="team-4"]').getByTitle('More',{exact:true}).click()
+await page.getByRole('menuitem',{name:'Hide',exact:true}).click()
+await active.screenshot({path:`output/playwright/teams-page/hidden-${theme}.png`})
+})
+}
 }
 
 for (const theme of ['light','dark'] as const) {
@@ -183,77 +185,83 @@ for(const theme of ['light','dark'] as const) {
 }
 
 for(const theme of ['light','dark'] as const) {
- test(`Teams row readings remain hit targets and buttons keep one hover and focus mark in ${theme}`,async({page})=>{
-  await openTeams(page,theme)
-  for(const scene of ['active','narrow']) {
-   const row=page.locator(`#teams-page-${scene} [data-team-row="team-0"]`)
-   const open=row.getByRole('button',{name:'Open Review the checkout retry',exact:true})
-   await expect(open).toBeVisible()
-   await row.scrollIntoViewIfNeeded()
-   for(const titled of await row.locator('[title]').all()) {
+ {
+
+for (const [item0, scene] of (['active','narrow']).entries()) test((`Teams row readings remain hit targets and buttons keep one hover and focus mark in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({page}) => {
+await openTeams(page,theme)
+const row=page.locator(`#teams-page-${scene} [data-team-row="team-0"]`)
+const open=row.getByRole('button',{name:'Open Review the checkout retry',exact:true})
+await expect(open).toBeVisible()
+await row.scrollIntoViewIfNeeded()
+for(const titled of await row.locator('[title]').all()) {
     const report=await titled.evaluate(el=>{
      const box=el.getBoundingClientRect(),hit=document.elementFromPoint(box.x+box.width/2,box.y+box.height/2)
      return {reached:hit!==null && el.contains(hit),title:el.getAttribute('title'),hit:hit?.outerHTML.slice(0,200),box:{x:box.x,y:box.y,width:box.width,height:box.height}}
     })
     expect(report.reached,JSON.stringify(report)).toBe(true)
    }
-   await expect(row).not.toHaveAttribute('tabindex')
-   await expect(row.locator('[data-slot="list-row-trail"] > span:empty')).toHaveCount(0)
-   await expect(row.locator('[aria-label="Unread changes"]')).toBeVisible()
-   const point=await row.evaluate(e=>{
+await expect(row).not.toHaveAttribute('tabindex')
+await expect(row.locator('[data-slot="list-row-trail"] > span:empty')).toHaveCount(0)
+await expect(row.locator('[aria-label="Unread changes"]')).toBeVisible()
+const point=await row.evaluate(e=>{
     const detail=e.querySelector('[data-slot="team-detail"]')!
     const range=document.createRange();range.selectNodeContents(detail)
     const reading=range.getClientRects()[0]!
     const x=reading.x+reading.width/2,y=reading.y+reading.height/2
     return {x,y,reading:Boolean(document.elementFromPoint(x,y)?.closest('[data-slot="team-detail"]'))}
    })
-   expect(point.reading).toBe(true)
-   await page.mouse.click(point.x,point.y)
-   await returnToTeams(page,scene)
-   await expect(row.locator('[aria-label="Unread changes"]')).toHaveCount(0)
-   const box=await open.boundingBox()
-   expect(box!.height).toBeGreaterThanOrEqual(24)
-   expect(box!.width).toBeGreaterThanOrEqual(24)
-   await open.hover()
-   await expect(open).toHaveCSS('background-color','rgba(0, 0, 0, 0)')
-   const markBox=()=>open.evaluate(el=>{
+expect(point.reading).toBe(true)
+await page.mouse.click(point.x,point.y)
+await returnToTeams(page,scene)
+await expect(row.locator('[aria-label="Unread changes"]')).toHaveCount(0)
+const box=await open.boundingBox()
+expect(box!.height).toBeGreaterThanOrEqual(24)
+expect(box!.width).toBeGreaterThanOrEqual(24)
+await open.hover()
+await expect(open).toHaveCSS('background-color','rgba(0, 0, 0, 0)')
+const markBox=()=>open.evaluate(el=>{
     const mark=getComputedStyle(el,'::after')
     return {width:mark.width,height:mark.height}
    })
-   const beforePress=await markBox()
-   expect(parseFloat(beforePress.width)).toBeGreaterThan(box!.width)
-   await page.mouse.down()
-   expect(await markBox()).toEqual(beforePress)
-   expect(await open.evaluate(el=>({translate:getComputedStyle(el).translate,events:getComputedStyle(el,'::after').pointerEvents}))).toEqual({translate:'none',events:'none'})
-   await page.mouse.up()
-   await returnToTeams(page,scene)
-   await open.focus()
-   await page.keyboard.press('Tab')
-   await page.keyboard.press('Shift+Tab')
-   await expect(open).toBeFocused()
-   await expect(open).toHaveCSS('outline-style','none')
-   expect(await open.evaluate(el=>getComputedStyle(el,'::after').boxShadow)).not.toBe('none')
-   expect(await open.evaluate(el=>getComputedStyle(el,'::after').boxShadow)).toContain('inset')
-   await page.evaluate(()=>document.documentElement.dataset.focusInput='pointer')
-   await expect(open).toBeFocused()
-   expect(await open.evaluate(el=>getComputedStyle(el,'::after').boxShadow)).toBe('none')
-   await page.mouse.click(point.x,point.y)
-   await returnToTeams(page,scene)
-   await expect(row.locator('[aria-label="Unread changes"]')).toHaveCount(0)
-  }
- })
+const beforePress=await markBox()
+expect(parseFloat(beforePress.width)).toBeGreaterThan(box!.width)
+await page.mouse.down()
+expect(await markBox()).toEqual(beforePress)
+expect(await open.evaluate(el=>({translate:getComputedStyle(el).translate,events:getComputedStyle(el,'::after').pointerEvents}))).toEqual({translate:'none',events:'none'})
+await page.mouse.up()
+await returnToTeams(page,scene)
+await open.focus()
+await page.keyboard.press('Tab')
+await page.keyboard.press('Shift+Tab')
+await expect(open).toBeFocused()
+await expect(open).toHaveCSS('outline-style','none')
+expect(await open.evaluate(el=>getComputedStyle(el,'::after').boxShadow)).not.toBe('none')
+expect(await open.evaluate(el=>getComputedStyle(el,'::after').boxShadow)).toContain('inset')
+await page.evaluate(()=>document.documentElement.dataset.focusInput='pointer')
+await expect(open).toBeFocused()
+expect(await open.evaluate(el=>getComputedStyle(el,'::after').boxShadow)).toBe('none')
+await page.mouse.click(point.x,point.y)
+await returnToTeams(page,scene)
+await expect(row.locator('[aria-label="Unread changes"]')).toHaveCount(0)
+
+
+})
+}
 }
 
 
 for (const theme of ['light', 'dark'] as const) {
- test(`short Team openers keep a 24px target in both layouts in ${theme}`, async ({ page }) => {
-  await openTeams(page, theme)
-  for (const scene of ['active', 'narrow']) {
-   const opener = page.locator(`#teams-page-${scene} [data-team-row="team-0"]`).getByRole('button', { name: /^Open / })
-   await opener.locator('[data-role="subject"]').evaluate(node => { node.textContent = 'A' })
-   const box = (await opener.boundingBox())!
-   expect(box.width).toBeGreaterThanOrEqual(24)
-   expect(box.height).toBeGreaterThanOrEqual(24)
-  }
- })
+ {
+
+for (const [item0, scene] of (['active', 'narrow']).entries()) test((`short Team openers keep a 24px target in both layouts in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+await openTeams(page, theme)
+const opener = page.locator(`#teams-page-${scene} [data-team-row="team-0"]`).getByRole('button', { name: /^Open / })
+await opener.locator('[data-role="subject"]').evaluate(node => { node.textContent = 'A' })
+const box = (await opener.boundingBox())!
+expect(box.width).toBeGreaterThanOrEqual(24)
+expect(box.height).toBeGreaterThanOrEqual(24)
+
+
+})
+}
 }

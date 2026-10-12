@@ -5,25 +5,28 @@ import { closeTeamDetails, seatActions, selectTeamPage, teamBar, teamSeats } fro
 const members = teamSeats
 
 for (const theme of ['light','dark'] as const) {
- test(`Wrapped Team: the shell title and receipt keep their own measured edges in ${theme}`, async ({page}) => {
-  await page.emulateMedia({colorScheme:theme})
-  await page.goto(`/preview.html?team-record&theme=${theme}`)
-  for (const scene of ['wrapped','older','shared','unlinked','empty','narrow','person','running']) {
-   const frame=page.locator(`#team-record-${scene}`)
-   const bar=teamBar(frame)
-   const title=bar.locator('[data-topbar-title]')
-   const heading=frame.locator('[data-slot="goal-receipt"] [data-slot="section-name"]').first()
-   await expect(heading).toBeVisible()
-   const titleBox=await title.boundingBox()
-   const barBox=(await bar.locator('..').boundingBox())!
-   expect(titleBox,`${scene}: the pane title is visible`).not.toBeNull()
-   expect(titleBox!.width).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
-   expect(barBox.height).toBe(FRAME.bar.height)
-   expect(titleBox!.x).toBeGreaterThanOrEqual(barBox.x)
-   expect(titleBox!.x+titleBox!.width).toBeLessThanOrEqual(barBox.x+barBox.width)
-   expect((await heading.boundingBox())!.width).toBeGreaterThan(0)
-  }
- })
+ {
+
+for (const [item0, scene] of (['wrapped','older','shared','unlinked','empty','narrow','person','running']).entries()) test((`Wrapped Team: the shell title and receipt keep their own measured edges in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({page}) => {
+await page.emulateMedia({colorScheme:theme})
+await page.goto(`/preview.html?team-record&theme=${theme}`)
+const frame=page.locator(`#team-record-${scene}`)
+const bar=teamBar(frame)
+const title=bar.locator('[data-topbar-title]')
+const heading=frame.locator('[data-slot="goal-receipt"] [data-slot="section-name"]').first()
+await expect(heading).toBeVisible()
+const titleBox=await title.boundingBox()
+const barBox=(await bar.locator('..').boundingBox())!
+expect(titleBox,`${scene}: the pane title is visible`).not.toBeNull()
+expect(titleBox!.width).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+expect(barBox.height).toBe(FRAME.bar.height)
+expect(titleBox!.x).toBeGreaterThanOrEqual(barBox.x)
+expect(titleBox!.x+titleBox!.width).toBeLessThanOrEqual(barBox.x+barBox.width)
+expect((await heading.boundingBox())!.width).toBeGreaterThan(0)
+
+
+})
+}
  test(`Wrapped Team: Tab and Enter or Space open retained conversations in ${theme}`, async ({page}) => {
   await page.emulateMedia({colorScheme:theme})
   await page.goto(`/preview.html?team-record&theme=${theme}`)
@@ -173,49 +176,59 @@ for (const theme of ['light','dark'] as const) {
   await expect(sidebar.locator('button[data-slot="sidebar-menu-button"]').filter({hasText:'Writer conversation'})).toHaveCount(0)
   await expect(sidebar.locator('button[data-slot="sidebar-menu-button"]').filter({hasText:'Reviewer conversation'})).toHaveCount(0)
  })
- test(`Wrapped Team: Run detail keeps repeated Seats and unlinked usage in ${theme}`, async ({page}) => {
-  await page.emulateMedia({ colorScheme: theme })
-  await page.goto(`/preview.html?team-record&theme=${theme}`)
-  const shared=page.locator('#team-record-shared')
-  await selectTeamPage(shared,'run')
-  const inspector=shared.locator('[data-slot="run-inspector"]')
-  await expect(inspector).toHaveCount(0)
-  for(const [row,cost] of [['card-2-2','$0.21'],['card-3-3','$0.13']]) {
-   await shared.locator(`[data-step-row][data-row="${row}"]`).click()
-   await expect(inspector).toContainText(cost)
-   await expect(inspector).not.toContainText('Seat not recorded')
-   await expect(inspector.getByRole('button',{name:'Open the conversation',exact:true})).toBeVisible()
-  }
-  const unlinked=page.locator('#team-record-unlinked')
-  await selectTeamPage(unlinked,'run')
-  await unlinked.locator('[data-step-row][data-row="card-2-2"]').click()
-  await expect(unlinked.locator('[data-slot="run-inspector"]')).toContainText('$0.21')
-  await expect(unlinked.locator('[data-slot="run-inspector"]')).toContainText('Conversation not kept')
-  await expect(unlinked.getByRole('button',{name:'Open the conversation',exact:true})).toHaveCount(0)
- })
- test(`Wrapped Team: a question open when the Run ends keeps its place with its final action off in ${theme}`, async ({page}) => {
-  const reason='This Team is wrapped'
-  const dialog=page.locator('[data-slot="dialog-content"]')
-  const board=async(open:Locator)=>{ await selectTeamPage(open,'board') }
-  const cases:{name:string,action:string,ask:(open:Locator)=>Promise<void>}[]=[
+ {
+
+for (const [item0, [row,cost]] of ([['card-2-2','$0.21'],['card-3-3','$0.13']]).entries()) test((`Wrapped Team: Run detail keeps repeated Seats and unlinked usage in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({page}) => {
+await page.emulateMedia({ colorScheme: theme })
+await page.goto(`/preview.html?team-record&theme=${theme}`)
+const shared=page.locator('#team-record-shared')
+await selectTeamPage(shared,'run')
+const inspector=shared.locator('[data-slot="run-inspector"]')
+await expect(inspector).toHaveCount(0)
+await shared.locator(`[data-step-row][data-row="${row}"]`).click()
+await expect(inspector).toContainText(cost)
+await expect(inspector).not.toContainText('Seat not recorded')
+await expect(inspector.getByRole('button',{name:'Open the conversation',exact:true})).toBeVisible()
+
+const unlinked=page.locator('#team-record-unlinked')
+await selectTeamPage(unlinked,'run')
+await unlinked.locator('[data-step-row][data-row="card-2-2"]').click()
+await expect(unlinked.locator('[data-slot="run-inspector"]')).toContainText('$0.21')
+await expect(unlinked.locator('[data-slot="run-inspector"]')).toContainText('Conversation not kept')
+await expect(unlinked.getByRole('button',{name:'Open the conversation',exact:true})).toHaveCount(0)
+})
+}
+ {
+
+const questionCases = (page?: import('@playwright/test').Page) => {
+const dialog=page?.locator('[data-slot="dialog-content"]')!
+const board=async(open:Locator)=>{ await selectTeamPage(open,'board') }
+return [
    {name:'seating an Agent',action:'Seat Agent',ask:async open=>{ await (await members(open)).getByRole('button',{name:'Seat an Agent in this Team',exact:true}).click() }},
    {name:'adding work',action:'Add to board',ask:async open=>{ await board(open); await open.getByRole('button',{name:/^New job/}).click(); await dialog.getByLabel('What needs doing').fill('Check the retry budget') }},
    {name:'stopping a card',action:'Stop it',ask:async open=>{ await board(open); await open.getByRole('button',{name:'What to do with #1',exact:true}).click(); await page.getByRole('menuitem',{name:/^Stop it/}).click() }},
   ]
-  for (const one of cases) {
-   await page.emulateMedia({ colorScheme: theme })
-  await page.goto(`/preview.html?team-record&theme=${theme}`)
-   await one.ask(page.locator('#team-record-open'))
-   const action=dialog.getByRole('button',{name:one.action,exact:true})
-   await expect(action,`${one.name} is offered while the Team is open`).toBeEnabled()
-   await page.evaluate(()=>(window as unknown as {__hdWrapOpenTeam:()=>void}).__hdWrapOpenTeam())
-   await expect(action,`${one.name} is refused once the Team has wrapped`).toBeDisabled()
-   await expect(action).toHaveAttribute('title',reason)
-   await expect(dialog).toContainText(reason)
-   await dialog.getByRole('button',{name:'Cancel',exact:true}).click()
-   await expect(dialog).toHaveCount(0)
-  }
- })
+}
+for (const [item0, one] of questionCases().entries()) test((`Wrapped Team: a question open when the Run ends keeps its place with its final action off in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({page}) => {
+const reason='This Team is wrapped'
+const dialog=page.locator('[data-slot="dialog-content"]')
+const board=async(open:Locator)=>{ await selectTeamPage(open,'board') }
+const one=questionCases(page)[item0]!
+await page.emulateMedia({ colorScheme: theme })
+await page.goto(`/preview.html?team-record&theme=${theme}`)
+await one.ask(page.locator('#team-record-open'))
+const action=dialog.getByRole('button',{name:one.action,exact:true})
+await expect(action,`${one.name} is offered while the Team is open`).toBeEnabled()
+await page.evaluate(()=>(window as unknown as {__hdWrapOpenTeam:()=>void}).__hdWrapOpenTeam())
+await expect(action,`${one.name} is refused once the Team has wrapped`).toBeDisabled()
+await expect(action).toHaveAttribute('title',reason)
+await expect(dialog).toContainText(reason)
+await dialog.getByRole('button',{name:'Cancel',exact:true}).click()
+await expect(dialog).toHaveCount(0)
+
+
+})
+}
  test(`Wrapped Team: a kept conversation's menus refuse compaction and review, and say why, in ${theme}`, async ({page}) => {
   await page.emulateMedia({ colorScheme: theme })
   await page.goto(`/preview.html?team-record&theme=${theme}`)

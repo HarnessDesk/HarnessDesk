@@ -8,17 +8,16 @@ useFrameContractEvidence()
 
 // The retired window stopgap survives as navigation behavior on actual pages.
 for (const kind of ['settings', 'dashboard', 'agents', 'teams', 'library', 'plugins', 'changes-review']) {
-  test(`E9 owner page ${kind} leaves main through new-work shortcuts`, async ({ page }) => {
-    const open = async () => {
+  {for (const chord of ['Meta+n', 'Meta+Shift+n']) { test((`E9 owner page ${kind} leaves main through new-work shortcuts`) + ': '+chord, async ({page}) => {
+const open = async () => {
       await openFrame(page, 'frame-wall=navigation&frame-review=1', 'light')
       if (kind === 'changes-review') await page.evaluate(() => window.dispatchEvent(new CustomEvent('harnessdesk:review')))
       else await page.locator('[data-left-column]:visible').getByRole('button', {name: kind === 'settings' ? 'Settings' : kind[0]!.toUpperCase() + kind.slice(1), exact:true}).click()
       await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
     }
-    for (const chord of ['Meta+n', 'Meta+Shift+n']) {
-      await open()
-      await page.keyboard.press(chord)
-      if (chord === 'Meta+Shift+n') {
+await open()
+await page.keyboard.press(chord)
+if (chord === 'Meta+Shift+n') {
         await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
         await expect(page.getByRole('dialog', { name: 'New Team', exact: true })).toBeVisible()
         await page.keyboard.press('Escape')
@@ -27,51 +26,47 @@ for (const kind of ['settings', 'dashboard', 'agents', 'teams', 'library', 'plug
         await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(0)
         await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
       }
-    }
-  })
-  if (kind !== 'settings') test(`E9 owner page ${kind} every column door and work row navigates`, async ({ page }) => {
-    for (const label of ['Teams','Agents','Library','Plugins','Dashboard','Settings','New session','conversation']) {
-      if (label.toLowerCase() === kind) continue
-      await openFrame(page, 'frame-wall=navigation&frame-review=1', 'light')
-      const column = page.locator('[data-left-column]:visible')
-      if (kind === 'changes-review') await page.evaluate(() => window.dispatchEvent(new CustomEvent('harnessdesk:review')))
+})}}
+  if (kind !== 'settings') {for (const label of ['Teams','Agents','Library','Plugins','Dashboard','Settings','New session','conversation']) {if (label.toLowerCase() === kind) continue; test((`E9 owner page ${kind} every column door and work row navigates`) + ': '+label, async ({page}) => {
+
+
+await openFrame(page, 'frame-wall=navigation&frame-review=1', 'light')
+const column = page.locator('[data-left-column]:visible')
+if (kind === 'changes-review') await page.evaluate(() => window.dispatchEvent(new CustomEvent('harnessdesk:review')))
       else await column.getByRole('button', {name:kind[0]!.toUpperCase()+kind.slice(1),exact:true}).click()
-      await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
-      if (label === 'conversation') await column.locator('[data-region="session-row"] [data-slot="sidebar-menu-button"]').first().click()
+await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(1)
+if (label === 'conversation') await column.locator('[data-region="session-row"] [data-slot="sidebar-menu-button"]').first().click()
       else await column.getByRole('button', {name:label,exact:true}).click()
-      await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(0)
-      if (label === 'conversation' || label === 'New session') await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
+await expect(page.locator(`[data-page-destination="${kind}"]:visible`)).toHaveCount(0)
+if (label === 'conversation' || label === 'New session') await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)
       else await expect(page.locator(`[data-page-destination="${label.toLowerCase()}"]:visible`)).toHaveCount(1)
-    }
-  })
+})}}
 }
 
 // E9: the More door exists only while its destination has at least one row.
-test('E9 every destination More either stays absent or opens rows, and returns for actions', async ({ page }) => {
-  test.setTimeout(120_000)
-  await openFrame(page, 'frame-wall=navigation', 'light')
-  const column = page.locator('[data-left-column]:visible')
-  const more = page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')
-  await column.getByRole('button', { name: 'Dashboard', exact: true }).click()
-  await expect(page.locator('[data-page-destination="dashboard"]:visible')).toHaveCount(1)
-  await expect(more).toHaveCount(0)
-  await column.getByRole('button', { name: 'Library', exact: true }).click()
-  await expect(page.locator('[data-page-destination="library"]:visible')).toHaveCount(1)
-  await expect(more).toBeVisible()
-  await more.click()
-  await expect(page.getByRole('menu').locator('[role^="menuitem"], [role="switch"]')).toHaveCount(2)
-
-  const routes = [...new Set(PAGE_WALL_DESTINATIONS.map(destination => destination.query))]
-  for (const query of routes) {
-    await openFrame(page, query, 'light')
-    const trigger = page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')
-    if (await trigger.count()) {
+test('E9 every destination More either stays absent or opens rows, and returns for actions' + ': Dashboard-to-Library journey', async ({page}) => {
+await openFrame(page, 'frame-wall=navigation', 'light')
+const column = page.locator('[data-left-column]:visible')
+const more = page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')
+await column.getByRole('button', { name: 'Dashboard', exact: true }).click()
+await expect(page.locator('[data-page-destination="dashboard"]:visible')).toHaveCount(1)
+await expect(more).toHaveCount(0)
+await column.getByRole('button', { name: 'Library', exact: true }).click()
+await expect(page.locator('[data-page-destination="library"]:visible')).toHaveCount(1)
+await expect(more).toBeVisible()
+await more.click()
+await expect(page.getByRole('menu').locator('[role^="menuitem"], [role="switch"]')).toHaveCount(2)
+})
+{const routes = [...new Set(PAGE_WALL_DESTINATIONS.map(destination => destination.query))]
+for (const [item,query] of routes.entries()) test('E9 every destination More either stays absent or opens rows, and returns for actions' + ': route '+item,async ({page}) => {
+await openFrame(page, query, 'light')
+const trigger = page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')
+if (await trigger.count()) {
       await trigger.click()
       const rows = page.getByRole('menu').locator('[role^="menuitem"], [role="switch"]')
       expect(await rows.count(), `${query} opens a menu with at least one row`).toBeGreaterThan(0)
     }
-  }
-})
+})}
 
 // R10 nav4 owns these round-four navigation and Changes review contracts.
 test('R10 nav4 New Team keeps the Teams page behind the dialog from the top bar', async ({ page }) => {

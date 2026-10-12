@@ -9,16 +9,18 @@ import { openFrame } from './frame-contract-helpers'
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 
 
-test('R10.30 terminal occupies main while the right panel keeps its frame height', async ({ page }) => {
-  for (const width of [1440, 1100]) {
-    await openFrame(page, 'frame-wall=conversation&frame-terminal=1', 'light', width)
-    await page.locator('[data-work-tool="details"]').click()
-    const main = page.locator('[data-frame-region="main"]')
-    const right = page.locator('[data-frame-region="right"]')
-    const bottom = page.locator('[data-frame-region="bottom"]')
-    await expect(bottom.locator('[data-terminal-id]')).toBeVisible()
-    await expect(right).toBeVisible()
-    const geometry = await page.evaluate(() => {
+{
+
+for (const [item0, width] of ([1440, 1100]).entries()) test(('R10.30 terminal occupies main while the right panel keeps its frame height') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+
+await openFrame(page, 'frame-wall=conversation&frame-terminal=1', 'light', width)
+await page.locator('[data-work-tool="details"]').click()
+const main = page.locator('[data-frame-region="main"]')
+const right = page.locator('[data-frame-region="right"]')
+const bottom = page.locator('[data-frame-region="bottom"]')
+await expect(bottom.locator('[data-terminal-id]')).toBeVisible()
+await expect(right).toBeVisible()
+const geometry = await page.evaluate(() => {
       const box = (selector: string) => {
         const rect = document.querySelector<HTMLElement>(selector)!.getBoundingClientRect()
         return { x: rect.x, y: rect.y, right: rect.right, bottom: rect.bottom }
@@ -31,17 +33,19 @@ test('R10.30 terminal occupies main while the right panel keeps its frame height
         floating: document.querySelector('[data-slot="fixed-shell"]')!.getAttribute('data-panel-floats') === 'true',
       }
     })
-    expect(Math.abs(geometry.bottom.x - geometry.main.x), 'terminal starts with main').toBeLessThanOrEqual(1)
-    expect(Math.abs(geometry.bottom.right - geometry.main.right), 'terminal ends with main').toBeLessThanOrEqual(1)
-    if (width >= FRAME.fold.panelFloats) {
+expect(Math.abs(geometry.bottom.x - geometry.main.x), 'terminal starts with main').toBeLessThanOrEqual(1)
+expect(Math.abs(geometry.bottom.right - geometry.main.right), 'terminal ends with main').toBeLessThanOrEqual(1)
+if (width >= FRAME.fold.panelFloats) {
       expect(Math.abs(geometry.right.x - geometry.main.right), 'standing panel follows main').toBeLessThanOrEqual(1)
       expect(Math.abs(geometry.right.bottom - geometry.shell.bottom), 'standing panel reaches the shell bottom').toBeLessThanOrEqual(1)
     } else {
       expect(geometry.floating).toBe(true)
       expect(Math.abs(geometry.right.bottom - geometry.bottom.y), 'floating panel stops above terminal').toBeLessThanOrEqual(1)
     }
-  }
+
+
 })
+}
 
 for (const theme of WALL_THEMES) {
   test(`R5.5 message action reveal stays with the hovered message in ${theme}`, async ({ page }) => {

@@ -40,12 +40,16 @@ test('E5 Teams column background reaches the window top', async ({page}) => {
  })
  expect(colors.slice(0,2)).toEqual([colors[2],colors[2]])
 })
-test('E5 Teams omits empty More with or without a folder', async ({page}) => {
- for (const query of ['frame-wall=teams','frame-wall=teams&frame-no-folder=1']) {
-  await openFrame(page,query,'light')
-  await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')).toHaveCount(0)
- }
+{
+
+for (const [item0, query] of (['frame-wall=teams','frame-wall=teams&frame-no-folder=1']).entries()) test(('E5 Teams omits empty More with or without a folder') + ' [item ' + [item0].join('-') + ']', async ({page}) => {
+
+await openFrame(page,query,'light')
+await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar="more"] button')).toHaveCount(0)
+
+
 })
+}
 
 for (const theme of ['light','dark'] as const) for (const width of [2200,1440,1100,720]) {
  for (const filter of ['active','needs-you','settled']) test(`E5 Teams ${filter} ${width} ${theme}`,async({page})=>{

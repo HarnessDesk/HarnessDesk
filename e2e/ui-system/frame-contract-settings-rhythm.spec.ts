@@ -6,25 +6,24 @@ useFrameContractEvidence()
 
 
 
-test('FIX4 Settings sections follow the page and subgroup rhythm on every page', async ({ page }) => {
-  const sections = [
+{
+const sections = [
     'profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces',
     'history', 'storage', 'archive', 'runtimes', 'models', 'skills', 'extensions',
     'permissions', 'browser',
   ] as const
-  const violations: string[] = []
-
-  for (const section of sections) {
-    await openFrame(page, `frame-wall=settings&frame-section=${section}&frame-settings-round4=1`, 'light', 1440)
-    const destinationState = await page.evaluate(() => ({
+for (const [item0, section] of (sections).entries()) test(('FIX4 Settings sections follow the page and subgroup rhythm on every page') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+const violations: string[] = []
+await openFrame(page, `frame-wall=settings&frame-section=${section}&frame-settings-round4=1`, 'light', 1440)
+const destinationState = await page.evaluate(() => ({
       frame: document.querySelector<HTMLElement>('[data-frame-id="frame-wall"]')?.dataset.destination ?? null,
       pages: [...document.querySelectorAll<HTMLElement>('[data-page-destination]')]
         .map(node => ({ id: node.dataset.pageDestination ?? '', visible: node.getClientRects().length > 0 })),
     }))
-    expect(destinationState.frame, `${section} preview frame`).toBe('settings')
-    expect(destinationState.pages.some(page => page.id === 'settings' && page.visible),
+expect(destinationState.frame, `${section} preview frame`).toBe('settings')
+expect(destinationState.pages.some(page => page.id === 'settings' && page.visible),
       `${section} Settings page must be the visible destination: ${JSON.stringify(destinationState.pages)}`).toBe(true)
-    const measurements = await page.locator('[data-page-destination="settings"]').evaluate(scope => {
+const measurements = await page.locator('[data-page-destination="settings"]').evaluate(scope => {
       const page = scope.querySelector<HTMLElement>('[data-slot="page"]')!
       const gapBefore = (node: HTMLElement, container: HTMLElement): number | null => {
         let block = node
@@ -48,8 +47,7 @@ test('FIX4 Settings sections follow the page and subgroup rhythm on every page',
         }))
       return { heads, pageSections }
     })
-
-    for (const head of measurements.heads) {
+for (const head of measurements.heads) {
       if (head.gap !== null) {
         const level = head.parent ? 'subgroup' : 'page'
         const expected = level === 'subgroup' ? 24 : 32
@@ -58,15 +56,15 @@ test('FIX4 Settings sections follow the page and subgroup rhythm on every page',
         }
       }
     }
-    for (const pageSection of measurements.pageSections) {
+for (const pageSection of measurements.pageSections) {
       if (pageSection.gap !== null && Math.abs(pageSection.gap - 32) > 1) {
         violations.push(`${section}: section ${JSON.stringify(pageSection.title)} has ${pageSection.gap}px before it; expected 32px`)
       }
     }
-  }
 
-  expect(violations, 'every Settings page uses 32px between sections and 24px for a subgroup').toEqual([])
+expect(violations, 'every Settings page uses 32px between sections and 24px for a subgroup').toEqual([])
 })
+}
 
 test('FIX4 runtime names, versions and the default chip have their own gaps', async ({ page }) => {
   await openFrame(page, 'frame-wall=settings&frame-section=runtimes&frame-settings-round4=1', 'light', 1440)
@@ -129,17 +127,19 @@ test('FIX4 ceiling chips keep a chip gap and distinguish asked from held once pe
   await expect(section.locator('[data-slot="ceiling-group-note"]')).toHaveCount(0)
 })
 
-test('FIX4 Settings filters are standalone first fields on History, Runtimes, Skills and Extensions', async ({ page }) => {
-  for (const [section, label] of [
+{
+
+for (const [item0, [section, label]] of ([
     ['history', 'Search history titles'],
     ['runtimes', 'Search runtimes or accounts'],
     ['skills', 'Search skills'],
     ['extensions', 'Search plugins'],
-  ] as const) {
-    await openFrame(page, section === 'history' ? 'history=rows' : `frame-wall=settings&frame-section=${section}&frame-settings-round4=1`, 'light', 1440)
-    const field = page.getByRole('searchbox', { name: label, exact: true })
-    await expect(field, `${section} renders the search with its named data`).toBeVisible()
-    const fieldPlacement = await field.evaluate(input => {
+  ] as const).entries()) test(('FIX4 Settings filters are standalone first fields on History, Runtimes, Skills and Extensions') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+
+await openFrame(page, section === 'history' ? 'history=rows' : `frame-wall=settings&frame-section=${section}&frame-settings-round4=1`, 'light', 1440)
+const field = page.getByRole('searchbox', { name: label, exact: true })
+await expect(field, `${section} renders the search with its named data`).toBeVisible()
+const fieldPlacement = await field.evaluate(input => {
       const search = input.closest<HTMLElement>('[data-slot="search"]')!
       return {
         placeholder: (input as HTMLInputElement).placeholder,
@@ -148,11 +148,13 @@ test('FIX4 Settings filters are standalone first fields on History, Runtimes, Sk
         rowsCard: search.closest('[data-slot="rows"]') !== null,
       }
     })
-    expect(fieldPlacement.pageChild, `${section} search is its own page block`).toBe('page')
-    expect(fieldPlacement.borderedRow, `${section} has no repeated label row`).toBe(false)
-    expect(fieldPlacement.rowsCard, `${section} search is not inside a bordered card`).toBe(false)
-  }
+expect(fieldPlacement.pageChild, `${section} search is its own page block`).toBe('page')
+expect(fieldPlacement.borderedRow, `${section} has no repeated label row`).toBe(false)
+expect(fieldPlacement.rowsCard, `${section} search is not inside a bordered card`).toBe(false)
+
+
 })
+}
 
 test('FIX4 History import choices are one marked row card and filters read Agent and Project', async ({ page }) => {
   await openFrame(page, 'frame-wall=settings&frame-section=history&frame-settings-round4=1', 'light', 1440)

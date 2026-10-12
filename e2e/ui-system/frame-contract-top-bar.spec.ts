@@ -9,19 +9,20 @@ import { openFrame } from './frame-contract-helpers'
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 
 
-test('R10.11 short title keeps its state chip at the text gap', async ({ page }) => {
-  const cases = [
+{
+const cases = [
     { query: 'frame-wall=agents&frame-detail=agent&frame-agent-case=release-checker', title: 'Release checker', state: 'Edit' },
     { query: 'frame-wall=conversation&frame-short-title=1', title: 'Extract the address form', state: 'Idle' },
   ] as const
-  for (const one of cases) {
-    await openFrame(page, one.query, 'light', 1440)
-    const bar = page.locator('[data-slot="top-bar"]:visible')
-    const title = bar.locator('[data-topbar-title] [data-slot="text"]').last()
-    const state = bar.locator('[data-topbar="state"]')
-    await expect(title).toContainText(one.title)
-    await expect(state).toContainText(one.state)
-    const geometry = await title.evaluate(node => {
+for (const [item0, one] of (cases).entries()) test(('R10.11 short title keeps its state chip at the text gap') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+
+await openFrame(page, one.query, 'light', 1440)
+const bar = page.locator('[data-slot="top-bar"]:visible')
+const title = bar.locator('[data-topbar-title] [data-slot="text"]').last()
+const state = bar.locator('[data-topbar="state"]')
+await expect(title).toContainText(one.title)
+await expect(state).toContainText(one.state)
+const geometry = await title.evaluate(node => {
       const titleSlot = node.closest<HTMLElement>('[data-topbar-title]')!
       const stateSlot = titleSlot.parentElement?.parentElement?.querySelector<HTMLElement>('[data-topbar="state"]')
       const range = document.createRange()
@@ -33,11 +34,13 @@ test('R10.11 short title keeps its state chip at the text gap', async ({ page })
         stateLeft: stateSlot?.getBoundingClientRect().left ?? null,
       }
     })
-    expect(geometry.titleWidth).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
-    expect(geometry.stateLeft, `${one.title} exposes a state chip`).not.toBeNull()
-    expect(geometry.stateLeft! - geometry.inkRight, `${one.title} state gap`).toBeCloseTo(FRAME.bar.gap, 0)
-  }
+expect(geometry.titleWidth).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+expect(geometry.stateLeft, `${one.title} exposes a state chip`).not.toBeNull()
+expect(geometry.stateLeft! - geometry.inkRight, `${one.title} state gap`).toBeCloseTo(FRAME.bar.gap, 0)
+
+
 })
+}
 
 for (const theme of WALL_THEMES) for (const filter of ['All', 'Open', 'Blocking']) {
   test(`B11 native-width lead folds the Findings ${filter} verb last in ${theme}`, async ({ page }) => {
@@ -90,17 +93,19 @@ test.describe('B11a owner corrections', () => {
         await expect(bar.getByRole('button', { name: 'Toggle right panel', exact: true })).toHaveAttribute('aria-pressed', 'false')
       }
     })
-    test(`B11a owner bar edge and retained control geometry at ${width} in ${theme}`, async ({ page }) => {
-      for (const foundation of ['desk', 'studio'] as const) {
-        await openFrame(page, 'frame-wall=conversation', theme, width)
-        await page.locator('body').evaluate((body, value) => { body.dataset.hdInterface = value }, foundation)
-        const bar = page.locator('[data-slot="top-bar"]:visible')
-        const header = bar.locator('..')
-        await expect(header).not.toHaveAttribute('data-rule', 'bottom')
-        expect(await header.evaluate(node => getComputedStyle(node).borderBottomWidth)).toBe('0px')
-        expect((await header.boundingBox())!.height).toBe(FRAME.bar.height)
-        const toggle = bar.getByRole('button', { name: 'Toggle right panel', exact: true })
-        for (const open of [false, true, false]) {
+    {
+
+for (const [item0, foundation] of (['desk', 'studio'] as const).entries()) test((`B11a owner bar edge and retained control geometry at ${width} in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+
+await openFrame(page, 'frame-wall=conversation', theme, width)
+await page.locator('body').evaluate((body, value) => { body.dataset.hdInterface = value }, foundation)
+const bar = page.locator('[data-slot="top-bar"]:visible')
+const header = bar.locator('..')
+await expect(header).not.toHaveAttribute('data-rule', 'bottom')
+expect(await header.evaluate(node => getComputedStyle(node).borderBottomWidth)).toBe('0px')
+expect((await header.boundingBox())!.height).toBe(FRAME.bar.height)
+const toggle = bar.getByRole('button', { name: 'Toggle right panel', exact: true })
+for (const open of [false, true, false]) {
           if (open || await toggle.getAttribute('aria-pressed') === 'true') await toggle.click()
           await expect(toggle).toHaveAttribute('aria-pressed', String(open))
           await settleFrameBar(bar)
@@ -115,8 +120,10 @@ test.describe('B11a owner corrections', () => {
             expect(await tools.evaluate(node => getComputedStyle(node).borderLeftWidth)).toBe('0px')
           } else expect(await tools.evaluate(node => getComputedStyle(node).borderLeftWidth)).toBe('0px')
         }
-      }
-    })
+
+
+})
+}
   }
 })
 
@@ -351,42 +358,46 @@ for (const theme of WALL_THEMES) {
 }
 
 for (const theme of WALL_THEMES) {
-  test(`B11a bar order, switcher, pressed tools and continuous standing seam in ${theme}`, async ({ page }) => {
-    for (const width of [1440, 1100, 720]) {
-      await openFrame(page, 'frame-wall=team', theme, width)
-      const bar = page.locator('[data-slot="top-bar"]:visible')
-      await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
-      const order = await bar.evaluate(node => [...node.children].map(one => one.getAttribute('data-topbar')))
-      if (order.includes('state')) {
+  {
+
+for (const [item0, width] of ([1440, 1100, 720]).entries()) test((`B11a bar order, switcher, pressed tools and continuous standing seam in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+
+await openFrame(page, 'frame-wall=team', theme, width)
+const bar = page.locator('[data-slot="top-bar"]:visible')
+await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+const order = await bar.evaluate(node => [...node.children].map(one => one.getAttribute('data-topbar')))
+if (order.includes('state')) {
         expect(order.indexOf('place')).toBeLessThan(order.indexOf('state'))
         expect(order.indexOf('state')).toBeLessThan(order.indexOf('tabs'))
       }
-      expect(order.indexOf('place')).toBeLessThan(order.indexOf('tabs'))
-      expect(order.indexOf('tabs')).toBeLessThan(order.indexOf('spacer'))
-      const track = bar.locator('[data-slot="tabs-list"]')
-      if (await track.isVisible()) {
+expect(order.indexOf('place')).toBeLessThan(order.indexOf('tabs'))
+expect(order.indexOf('tabs')).toBeLessThan(order.indexOf('spacer'))
+const track = bar.locator('[data-slot="tabs-list"]')
+if (await track.isVisible()) {
         expect(await track.evaluate(node => { const style = getComputedStyle(node); return [style.paddingTop, style.gap, style.borderRadius] })).toEqual(['2px', '1px', '8px'])
         expect(await track.locator('[role="tab"]').first().evaluate(node => { const style = getComputedStyle(node); return [node.getBoundingClientRect().height, style.paddingLeft, style.borderRadius, style.fontSize] })).toEqual([24, '9px', '6px', '13px'])
         expect(await track.locator('[aria-selected="true"]').evaluate(node => getComputedStyle(node).boxShadow)).not.toBe('none')
       }
-      await bar.getByRole('button', { name: 'Details', exact: true }).click()
-      const tools = bar.locator('[data-topbar="tools"]')
-      const panel = page.locator('[data-slot="work-tools"]:visible')
-      await expect(panel).toBeVisible()
-      const pressed = bar.locator('[data-work-tool="details"]')
-      await expect(pressed).toHaveAttribute('aria-pressed', 'true')
-      expect(await pressed.evaluate(node => getComputedStyle(node).boxShadow)).toContain('inset')
-      expect(await tools.evaluate(node => getComputedStyle(node).borderLeftWidth)).toBe('0px')
-      if (width >= FRAME.fold.panelFloats) {
+await bar.getByRole('button', { name: 'Details', exact: true }).click()
+const tools = bar.locator('[data-topbar="tools"]')
+const panel = page.locator('[data-slot="work-tools"]:visible')
+await expect(panel).toBeVisible()
+const pressed = bar.locator('[data-work-tool="details"]')
+await expect(pressed).toHaveAttribute('aria-pressed', 'true')
+expect(await pressed.evaluate(node => getComputedStyle(node).boxShadow)).toContain('inset')
+expect(await tools.evaluate(node => getComputedStyle(node).borderLeftWidth)).toBe('0px')
+if (width >= FRAME.fold.panelFloats) {
         const top = (await tools.boundingBox())!, body = (await panel.boundingBox())!
         expect(top.x).toBe(body.x)
         expect(top.width).toBe(body.width)
         expect(top.y).toBe(0)
       }
-      await bar.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
-      expect(await tools.evaluate(node => getComputedStyle(node).borderLeftWidth)).toBe('0px')
-    }
-  })
+await bar.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
+expect(await tools.evaluate(node => getComputedStyle(node).borderLeftWidth)).toBe('0px')
+
+
+})
+}
 
   test(`B11a panel facts have one-line row density and Findings agrees with its tab in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team', theme)

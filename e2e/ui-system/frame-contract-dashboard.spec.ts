@@ -50,21 +50,25 @@ test('FIX3 partial spend qualifier sits beside its figure', async ({ page }) => 
   }
 })
 
-test('FIX3 section choices live in the same page head across Dashboard tabs', async ({ page }) => {
-  for (const [tab, sections] of [
+{
+
+for (const [item0, [tab, sections]] of ([
     ['overview', ['Where it went']],
     ['spend', ['What it cost', 'Where it went']],
     ['activity', ['When it ran']],
-  ] as const) {
-    await openFrame(page, `frame-wall=dashboard&frame-view=${tab}`, 'light', 1440)
-    for (const title of sections) {
+  ] as const).entries()) test(('FIX3 section choices live in the same page head across Dashboard tabs') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+
+await openFrame(page, `frame-wall=dashboard&frame-view=${tab}`, 'light', 1440)
+for (const title of sections) {
       const section = page.locator(`[aria-label="${title}"]`)
       const headOptions = section.locator('[data-slot="section-head"] [data-slot="page-options"]')
       await expect(headOptions).toHaveCount(tab === 'spend' && title === 'What it cost' ? 2 : 1)
       await expect(section.locator(':scope > [data-slot="rows"]')).toHaveCount(0)
     }
-  }
+
+
 })
+}
 
 test('FIX3 Plans status chips fit their words in the Status column', async ({ page }) => {
   await openFrame(page, 'frame-wall=dashboard&frame-view=plans', 'light', 1440)
@@ -87,11 +91,12 @@ test('FIX3 Projects warning spans the usage table', async ({ page }) => {
   expect(Math.abs(widths.warning - widths.table), 'the range warning and attribution table share a section width').toBeLessThanOrEqual(1)
 })
 
-test('FIX3 heatmap cells follow weekday labels and keep a partial first week', async ({ page }) => {
-  await page.clock.install({ time: WALL_TIME })
-  for (const tab of ['activity', 'overview']) {
-    await openFrame(page, `frame-wall=dashboard&frame-view=${tab}`, 'light', 1440)
-    const geometry = await page.locator('[role="group"][aria-label="Tokens or cost per day, last 12 months"]').evaluate(grid => {
+{
+
+for (const [item0, tab] of (['activity', 'overview']).entries()) test(('FIX3 heatmap cells follow weekday labels and keep a partial first week') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+await page.clock.install({ time: WALL_TIME })
+await openFrame(page, `frame-wall=dashboard&frame-view=${tab}`, 'light', 1440)
+const geometry = await page.locator('[role="group"][aria-label="Tokens or cost per day, last 12 months"]').evaluate(grid => {
       const labels = [...grid.querySelectorAll<HTMLElement>('[class*="header"]')]
       const first = [...grid.querySelectorAll<HTMLElement>('[data-level], [data-state]')]
         .filter(cell => cell.style.gridRow === '8').sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)[0]!
@@ -100,10 +105,12 @@ test('FIX3 heatmap cells follow weekday labels and keep a partial first week', a
       const labelEdge = Math.max(...labels.map(label => label.getBoundingClientRect().right + Number.parseFloat(getComputedStyle(label).marginRight)))
       return { labelEdge, firstCell: first.getBoundingClientRect().left, leadingBlanks: blanks.length }
     })
-    expect(geometry.firstCell, `${tab} cells start after the weekday labels`).toBeGreaterThanOrEqual(geometry.labelEdge)
-    expect(geometry.leadingBlanks, `${tab} leaves the partial first week blank before its weekend`).toBeGreaterThan(0)
-  }
+expect(geometry.firstCell, `${tab} cells start after the weekday labels`).toBeGreaterThanOrEqual(geometry.labelEdge)
+expect(geometry.leadingBlanks, `${tab} leaves the partial first week blank before its weekend`).toBeGreaterThan(0)
+
+
 })
+}
 
 test.describe('FIX4 Dashboard contracts', () => {
   test('Overview captions and figure labels share their text baseline', async ({ page }) => {
@@ -152,10 +159,12 @@ test.describe('FIX4 Dashboard contracts', () => {
     expect(geometry.paddingLeft, 'button padding keeps the figure text on its column edge').toBeCloseTo(inset, 1)
   })
 
-  test('four Overview figures never wrap into a lone final row', async ({ page }) => {
-    for (const width of [1100, 720]) {
-      await openFrame(page, 'frame-wall=dashboard&frame-view=overview', 'light', width)
-      const rows = await page.locator('[aria-label="What it cost, in brief"] [data-slot="stat-row"]').evaluate(row => {
+  {
+
+for (const [item0, width] of ([1100, 720]).entries()) test(('four Overview figures never wrap into a lone final row') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+
+await openFrame(page, 'frame-wall=dashboard&frame-view=overview', 'light', width)
+const rows = await page.locator('[aria-label="What it cost, in brief"] [data-slot="stat-row"]').evaluate(row => {
         const figures = [...row.querySelectorAll<HTMLElement>('[data-slot="stat"]')]
         const sorted = figures.map(figure => figure.getBoundingClientRect().top).sort((a, b) => a - b)
         const grouped: { top: number; count: number }[] = []
@@ -166,9 +175,11 @@ test.describe('FIX4 Dashboard contracts', () => {
         }
         return grouped.map(row => row.count)
       })
-      expect(rows.every(count => count >= 2) && (rows.length === 1 ? rows[0] === 4 : rows.length === 2 && rows.every(count => count === 2)), `four figures at ${width}px do not leave one alone`).toBe(true)
-    }
-  })
+expect(rows.every(count => count >= 2) && (rows.length === 1 ? rows[0] === 4 : rows.length === 2 && rows.every(count => count === 2)), `four figures at ${width}px do not leave one alone`).toBe(true)
+
+
+})
+}
 
   test('empty Activity uses no busiest day and its five figures have no lone row', async ({ page }) => {
     await openFrame(page, 'frame-wall=dashboard&frame-view=activity&frame-empty-usage=1', 'light', 720)

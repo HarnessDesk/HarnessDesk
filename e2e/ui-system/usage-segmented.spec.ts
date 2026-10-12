@@ -291,26 +291,27 @@ for (const [look, theme] of [
     expect(out.tone, 'out').toBe('danger')
   })
 
-  test(`${look} selected view row text meets AA in ${theme}`, async ({ page }, testInfo) => {
-    await stageAccounts(page)
-    await page.goto('/preview.html')
-    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
-    await page.getByRole('combobox', { name: 'interface', exact: true }).selectOption(look)
-    const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
-    // Plans carries the "N low" count in the warning tone, which has to read on
-    // the selected fill as well as the label does.
-    for (const view of ['Overview', 'Plans', 'Spend', 'Activity', 'Projects']) {
-      const row = dashboard.getByRole('tab',{name:new RegExp(`^${view}(?:\\s|$)`)})
-      await row.click()
-      await expect(row).toHaveAttribute('aria-selected', 'true')
-      const measurements = await inkOf(row)
-      await testInfo.attach(`selected-${view}`, { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' })
-      await row.screenshot({ path: testInfo.outputPath(`selected-${view}.png`) })
-      for (const measurement of measurements) {
+  {
+
+for (const [item0, view] of (['Overview', 'Plans', 'Spend', 'Activity', 'Projects']).entries()) test((`${look} selected view row text meets AA in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({ page }, testInfo) => {
+await stageAccounts(page)
+await page.goto('/preview.html')
+await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+await page.getByRole('combobox', { name: 'interface', exact: true }).selectOption(look)
+const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
+const row = dashboard.getByRole('tab',{name:new RegExp(`^${view}(?:\\s|$)`)})
+await row.click()
+await expect(row).toHaveAttribute('aria-selected', 'true')
+const measurements = await inkOf(row)
+await testInfo.attach(`selected-${view}`, { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' })
+await row.screenshot({ path: testInfo.outputPath(`selected-${view}.png`) })
+for (const measurement of measurements) {
         expect.soft(measurement.ratio, `${view}: ${measurement.text || 'icon'}`).toBeGreaterThanOrEqual(floorOf(measurement.part))
       }
-    }
-  })
+
+
+})
+}
 }
 
 test('selected view row ink waits for a child transition that the row does not carry', async ({ page }) => {

@@ -89,42 +89,45 @@ for (const theme of ['light','dark'] as const) {
 }
 
 for (const theme of ['light','dark'] as const) {
- test(`Team Overview: attention sentences wrap whole in ${theme}`, async ({page}) => {
-  await page.goto(`/preview.html?team-overview&theme=${theme}`)
-  for (const scene of ['running','narrow']) {
-   const attention=page.locator(`#team-overview-${scene} [aria-label="Needs you"]`)
-   const sentence=attention.locator('[data-slot="list-row-subtitle"]')
-   await expect(sentence).toHaveText(/choose whether to keep the original payment method/)
-   expect(await sentence.evaluate(e=>{
+ {
+
+for (const [item0, scene] of (['running','narrow']).entries()) test((`Team Overview: attention sentences wrap whole in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({page}) => {
+await page.goto(`/preview.html?team-overview&theme=${theme}`)
+const attention=page.locator(`#team-overview-${scene} [aria-label="Needs you"]`)
+const sentence=attention.locator('[data-slot="list-row-subtitle"]')
+await expect(sentence).toHaveText(/choose whether to keep the original payment method/)
+expect(await sentence.evaluate(e=>{
     const style=getComputedStyle(e)
     const range=document.createRange();range.selectNodeContents(e)
     const bounds=e.getBoundingClientRect()
     return {whiteSpace:style.whiteSpace,textOverflow:style.textOverflow,lines:range.getClientRects().length,fits:e.scrollWidth<=e.clientWidth&&e.scrollHeight<=e.clientHeight,inside:[...range.getClientRects()].every(r=>r.left>=bounds.left-1&&r.right<=bounds.right+1&&r.bottom<=bounds.bottom+1)}
    })).toMatchObject({whiteSpace:'normal',textOverflow:'clip',fits:true,inside:true})
-   if (scene==='narrow') expect(await sentence.evaluate(e=>e.getBoundingClientRect().height)).toBeGreaterThan(30)
-  }
- })
+if (scene==='narrow') expect(await sentence.evaluate(e=>e.getBoundingClientRect().height)).toBeGreaterThan(30)
+
+
+})
+}
 }
 
 for (const theme of ['light', 'dark'] as const) {
- test(`Team Overview: the Run strip keeps live status and clickable faces align in ${theme}`, async ({ page }) => {
-  await page.goto(`/preview.html?team-overview&theme=${theme}`)
-  await page.evaluate(() => document.fonts.ready)
-  for (const [scene, sentence] of [
+ {
+
+for (const [item0, [scene, sentence]] of ([
    ['running', 'Alpha is working'],
    ['needs-you', 'Beta is waiting for your approval'],
    ['stalled', 'Choose the target before this Run can continue'],
-  ]) {
-   const overview = page.locator(`#team-overview-live-${scene} [data-slot="team-overview"]`)
-   if (scene === 'stalled') {
+  ]).entries()) test((`Team Overview: the Run strip keeps live status and clickable faces align in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+await page.goto(`/preview.html?team-overview&theme=${theme}`)
+await page.evaluate(() => document.fonts.ready)
+const overview = page.locator(`#team-overview-live-${scene} [data-slot="team-overview"]`)
+if (scene === 'stalled') {
     // A stalled Run owns its refusal; Overview keeps the action that opens it.
     await expect(overview.locator('[data-slot="room-live-line"]')).toHaveCount(0)
     await expect(overview).not.toContainText(sentence!)
     await expect(page.locator(`#team-overview-live-${scene}`).getByRole('button', { name: 'Review stopped Run', exact: true })).toBeVisible()
    } else await expect(overview.locator('[aria-label="Run"] [data-slot="room-live-line"]')).toContainText(sentence!)
-   await expect(overview.locator('[data-slot="room-run-reason"]')).toHaveCount(0)
-   // Clickable names keep the whole cell centre; the role keeps the name's left edge.
-   for (const row of await overview.locator('[data-slot="table-row"][data-seat]').all()) {
+await expect(overview.locator('[data-slot="room-run-reason"]')).toHaveCount(0)
+for (const row of await overview.locator('[data-slot="table-row"][data-seat]').all()) {
     const delta = await row.evaluate(e => {
      const face = e.querySelector('[data-slot="icon-tile"]')!.getBoundingClientRect()
      const cell = e.querySelector('[data-slot="table-cell"]')!.getBoundingClientRect()
@@ -151,14 +154,16 @@ for (const theme of ['light', 'dark'] as const) {
      })).toBe(true)
     }
    }
-   if (scene === 'stalled') {
+if (scene === 'stalled') {
     const frame = page.locator(`#team-overview-live-${scene}`)
     await frame.getByRole('button', { name: 'Review stopped Run', exact: true }).click()
     await expect(frame.locator('[data-slot="run-view"]').first()).toContainText(sentence!)
     expect((await frame.textContent())?.split(sentence!)).toHaveLength(2)
    }
-  }
- })
+
+
+})
+}
 }
 
 for (const theme of ['light', 'dark'] as const) {

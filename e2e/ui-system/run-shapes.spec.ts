@@ -5,16 +5,17 @@ import { mkdir } from 'node:fs/promises'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
 const scenes = ['shapes', 'comparison', 'independent-review', 'alignment', 'investigation'] as const
 for (const theme of ['light', 'dark'] as const) {
-  test(`Run flow shapes and synthetic frames in ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme })
-    await page.setViewportSize({ width: 1440, height: 1440 })
-    for (const scene of scenes) {
-      await page.goto(`/preview.html?run-shapes=${scene}&theme=${theme}`)
-      const frame = page.locator('#run-shapes-frame')
-      await expect(runBar(frame)).toBeVisible()
-      await expect(frame.locator('[data-slot="run-header"]')).toHaveCount(0)
-      await page.evaluate(async () => { await document.fonts.ready })
-      if (process.env.SHAPES_PHASE !== 'before') {
+  {
+
+for (const [item0, scene] of (scenes).entries()) test((`Run flow shapes and synthetic frames in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+await page.emulateMedia({ colorScheme: theme })
+await page.setViewportSize({ width: 1440, height: 1440 })
+await page.goto(`/preview.html?run-shapes=${scene}&theme=${theme}`)
+const frame = page.locator('#run-shapes-frame')
+await expect(runBar(frame)).toBeVisible()
+await expect(frame.locator('[data-slot="run-header"]')).toHaveCount(0)
+await page.evaluate(async () => { await document.fonts.ready })
+if (process.env.SHAPES_PHASE !== 'before') {
         const story = frame.locator('[data-slot="workbench-main"] [data-slot="run-steps"]')
         const inspection = frame.locator('[data-slot="run-inspector"]')
         if (scene === 'comparison') {
@@ -61,32 +62,38 @@ for (const theme of ['light', 'dark'] as const) {
         }
         expect(await frame.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
       }
-      expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
-      if (process.env.SHAPES_FRAMES_DIR) {
+expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
+if (process.env.SHAPES_FRAMES_DIR) {
         await mkdir(process.env.SHAPES_FRAMES_DIR, { recursive: true })
         await frame.screenshot({ path: path.join(process.env.SHAPES_FRAMES_DIR, `${scene}-${theme}-${process.env.SHAPES_PHASE ?? 'after'}.png`) })
       }
-    }
-  })
-  test(`round geometry follows its column and lists beyond three in ${theme}`, async ({ page }) => {
-    test.skip(process.env.SHAPES_PHASE === 'before')
-    await page.emulateMedia({ colorScheme: theme })
-    for (const [width, count, columns] of [[1050, 2, 2], [1050, 3, 3], [1050, 4, 1], [420, 2, 1], [420, 3, 1]] as const) {
-      await page.setViewportSize({ width, height: 1100 })
-      await page.goto(`/preview.html?run-shapes=shapes&standalone&count=${count}&theme=${theme}`)
-      const cards = page.locator(`[data-slot="timeline-card-grid"][data-count="${count}"] [data-slot="timeline-card"]`)
-      await expect(cards).toHaveCount(count)
-      const first = (await cards.nth(0).boundingBox())!; const last = (await cards.nth(count - 1).boundingBox())!
-      if (columns === 1) expect(last.y).toBeGreaterThan(first.y)
+
+
+})
+}
+  {
+
+for (const [item0, [width, count, columns]] of ([[1050, 2, 2], [1050, 3, 3], [1050, 4, 1], [420, 2, 1], [420, 3, 1]] as const).entries()) test((`round geometry follows its column and lists beyond three in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+test.skip(process.env.SHAPES_PHASE === 'before')
+await page.emulateMedia({ colorScheme: theme })
+await page.setViewportSize({ width, height: 1100 })
+await page.goto(`/preview.html?run-shapes=shapes&standalone&count=${count}&theme=${theme}`)
+const cards = page.locator(`[data-slot="timeline-card-grid"][data-count="${count}"] [data-slot="timeline-card"]`)
+await expect(cards).toHaveCount(count)
+const first = (await cards.nth(0).boundingBox())!;
+const last = (await cards.nth(count - 1).boundingBox())!
+if (columns === 1) expect(last.y).toBeGreaterThan(first.y)
       else expect(last.y).toBe(first.y)
-      const reading = page.locator('[data-slot="run-reading"]')
-      expect(await reading.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
-      if (process.env.SHAPES_FRAMES_DIR && count === 3 && width === 420) {
+const reading = page.locator('[data-slot="run-reading"]')
+expect(await reading.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+if (process.env.SHAPES_FRAMES_DIR && count === 3 && width === 420) {
         expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
         await page.locator('#run-shapes-frame').screenshot({ path: path.join(process.env.SHAPES_FRAMES_DIR, `shapes-narrow-${theme}-after.png`) })
       }
-    }
-  })
+
+
+})
+}
 }
 
 for (const theme of ['light', 'dark'] as const) {

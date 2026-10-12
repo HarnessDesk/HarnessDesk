@@ -32,8 +32,9 @@ for (const theme of WALL_THEMES) for (const destination of ['settings', 'agents'
   })
 }
 
-test('FIX3 page section headings share one page text edge', async ({ page }) => {
-  const destinations = [
+{
+
+const destinations = [
     ['Settings', 'frame-wall=settings&frame-section=runtimes'],
     ['Dashboard overview', 'frame-wall=dashboard&frame-view=overview'],
     ['Dashboard plans', 'frame-wall=dashboard&frame-view=plans'],
@@ -46,21 +47,24 @@ test('FIX3 page section headings share one page text edge', async ({ page }) => 
     ['Teams', 'frame-wall=teams&frame-filter=active'],
     ['Review', 'frame-wall=changes-review'],
   ] as const
-  for (const [name, query] of destinations) {
-    await openFrame(page, query, 'light', 1440)
-    const offsets = await page.locator('[data-section-head] h2, [data-slot="section-head"] h2').evaluateAll(headings =>
+for (const [item0, [name, query]] of (destinations).entries()) test(('FIX3 page section headings share one page text edge') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+
+await openFrame(page, query, 'light', 1440)
+const offsets = await page.locator('[data-section-head] h2, [data-slot="section-head"] h2').evaluateAll(headings =>
       headings.filter(heading => heading.getClientRects().length).map(heading => {
         const columns = heading.closest('[data-slot="dashboard-columns"]')
         const column = columns && [...columns.children].findIndex(child => child.contains(heading))
         return { group: columns ? `column-${column}` : 'page', left: Math.round(heading.getBoundingClientRect().left * 2) / 2 }
       }),
     )
-    for (const group of new Set(offsets.map(item => item.group))) {
+for (const group of new Set(offsets.map(item => item.group))) {
       const groupOffsets = offsets.filter(item => item.group === group).map(item => item.left)
       expect(Math.max(...groupOffsets) - Math.min(...groupOffsets), `${name} ${group} headings share one text edge: ${groupOffsets.join(', ')}`).toBeLessThanOrEqual(1)
     }
-  }
+
+
 })
+}
 
 for (const destination of layoutDestinations) {
   test(`shared heading and page or panel stacks hold across preview destinations: ${destination.id}`, async ({ page }) => {

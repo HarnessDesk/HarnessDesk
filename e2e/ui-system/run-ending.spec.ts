@@ -30,27 +30,28 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(dial).toHaveValue('off')
   })
 
-  test(`real Flow endings retain their reasons and doors in ${theme}`, async ({ page }) => {
+  for (const scene of SCENES) test((`real Flow endings retain their reasons and doors in ${theme}`)+': '+scene,async ({ page }) => {
+
     const cleanup: (() => Promise<void>)[] = []
     const rig = await goalRig({ after: fn => { cleanup.push(fn) } })
     try {
-      for (const scene of SCENES) {
-        let source = FINAL
-        if (scene === 'unrouted') source = FINAL.replace('rules: []', 'rules:\n  - { id: again, on: person, when: { every: [done] }, then: { role: person, title: Again } }')
-        if (scene === 'rounds' || scene === 'without-progress') source = FINAL.replace('roles:', `budget: { rounds: ${scene === 'rounds' ? 1 : 10}, without-progress: 2 }\nroles:`).replace('rules: []', 'rules:\n  - { id: again, on: person, then: { role: person, title: Again } }')
-        if (scene === 'stalled') {
+
+let source = FINAL
+if (scene === 'unrouted') source = FINAL.replace('rules: []', 'rules:\n  - { id: again, on: person, when: { every: [done] }, then: { role: person, title: Again } }')
+if (scene === 'rounds' || scene === 'without-progress') source = FINAL.replace('roles:', `budget: { rounds: ${scene === 'rounds' ? 1 : 10}, without-progress: 2 }\nroles:`).replace('rules: []', 'rules:\n  - { id: again, on: person, then: { role: person, title: Again } }')
+if (scene === 'stalled') {
           rig.checkEvidenceFails = true
           source = 'version: 2\nname: Verify the change\nroles:\n  check: { kind: check, run: echo checked, exits: { "0": pass }, otherwise: fail }\nseed: { role: check, title: Verify it }\nrules: []\n'
         }
-        const dispose = scene === 'without-progress' ? rig.executions.onRoundClosed((id, n) => rig.executions.recordRoundClose(id, n, state => {
+const dispose = scene === 'without-progress' ? rig.executions.onRoundClosed((id, n) => rig.executions.recordRoundClose(id, n, state => {
           const decision = decideLoop({ closed: n, limit: 10, idle: state.idleRounds, idleLimit: 2, newProgress: n === 1,
             unresolvedRepairs: [], unresolved: 1, reviewComplete: false, freshGuards: false, pendingException: false })
           return { ...state, closedRounds: [...state.closedRounds, n], idleRounds: decision.idle,
             stopped: decision.next === 'person' ? { round: n, reason: decision.reason!, ceiling: decision.ceiling, budget: decision.budget! } : null }
         })) : () => {}
-        const run = await rig.flows.startGoal({ root: '/repo', sentence: 'Finish the change', source, sourcePath: null, compiled: rig.compile(source, []),
+const run = await rig.flows.startGoal({ root: '/repo', sentence: 'Finish the change', source, sourcePath: null, compiled: rig.compile(source, []),
           authorization: { sourceDigest: sourceDigest(source), commandDigest: sourceDigest(''), approvedAt: 1 } })
-        if (scene === 'person-stop' || scene === 'desk-stop') await rig.flows.stopRun(run.id, 'The Run was stopped. Its cards are kept.', scene === 'person-stop' ? 'person' : 'desk')
+if (scene === 'person-stop' || scene === 'desk-stop') await rig.flows.stopRun(run.id, 'The Run was stopped. Its cards are kept.', scene === 'person-stop' ? 'person' : 'desk')
         else if (scene !== 'stalled') {
           for (let n = 0; n < (scene === 'without-progress' ? 3 : 1); n += 1) {
             const card = rig.flows.executionOf(run.id)!.rounds.at(-1)!.cards[0]!
@@ -58,41 +59,42 @@ for (const theme of ['light', 'dark'] as const) {
             await rig.flows.flush()
           }
         }
-        await rig.flows.flush()
-        dispose()
-        const execution = rig.flows.executionOf(run.id)!
-        expect(execution.end?.kind).toBe(scene === 'person-stop' || scene === 'desk-stop' ? 'stopped' : scene === 'rounds' || scene === 'without-progress' ? 'budget' : scene)
-        await page.route('**/run-ending-rig.json', route => route.fulfill({ json: { execution, cards: rig.board(run.goal).intents, origin: 'Started by you' } }))
-        await page.emulateMedia({ colorScheme: theme })
-        await page.goto(`/preview.html?run-ending-rig&theme=${theme}`)
-        if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
+await rig.flows.flush()
+dispose()
+const execution = rig.flows.executionOf(run.id)!
+expect(execution.end?.kind).toBe(scene === 'person-stop' || scene === 'desk-stop' ? 'stopped' : scene === 'rounds' || scene === 'without-progress' ? 'budget' : scene)
+await page.route('**/run-ending-rig.json', route => route.fulfill({ json: { execution, cards: rig.board(run.goal).intents, origin: 'Started by you' } }))
+await page.emulateMedia({ colorScheme: theme })
+await page.goto(`/preview.html?run-ending-rig&theme=${theme}`)
+if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
         else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme', '')
-        const frame = page.locator('#run-ending-rig')
-        const ending = frame.locator('[data-slot="run-ending"]')
-        const attention = !['complete', 'person-stop', 'desk-stop'].includes(scene)
-        const banner = attention ? frame.locator('[data-slot="run-need"]') : ending
-        const titles = { complete: 'Nothing waits.', unrouted: 'Ended without a next step', 'person-stop': 'By you', 'desk-stop': 'By the desk', stalled: execution.reason!, rounds: 'Round budget reached', 'without-progress': 'Rounds without progress reached' }
-        await expect(banner).toContainText(titles[scene])
-        await expect(banner.locator('[data-tone="warning"]')).toHaveCount(['complete', 'person-stop', 'desk-stop'].includes(scene) ? 0 : 1)
-        await expect(ending.locator('[data-slot="chip"]')).toHaveCount(0)
-        await expect(frame.getByRole('button', { name: 'Details', exact: true })).toBeVisible()
-        await expect(ending.getByRole('button', { name: 'End', exact: true })).toHaveCount(0)
-        const door = scene === 'complete' ? 'Wrap' : scene === 'stalled' ? 'Review and run again…' : 'Run again…'
-        await expect(banner.getByRole('button', { name: door, exact: true })).toBeVisible()
-        if (scene === 'complete') await expect(banner).toContainText('Nothing waits.')
-        if (scene === 'unrouted') await expect(banner.getByRole('button', { name: 'Board', exact: true })).toBeVisible()
-        if (scene === 'rounds' || scene === 'without-progress') await expect(banner).toContainText(scene === 'rounds' ? '1 round used' : '2 rounds without progress')
-        await page.setViewportSize({ width: 390, height: 900 })
-        await banner.scrollIntoViewIfNeeded()
-        await expect(banner.getByRole('button', { name: door, exact: true })).toBeInViewport()
-        expect(await frame.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
-        expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
-        if (process.env.RUN_ENDING_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.RUN_ENDING_FRAMES_DIR, `${scene}-${theme}.png`) })
-        await page.unroute('**/run-ending-rig.json')
-        rig.checkEvidenceFails = false
-      }
+const frame = page.locator('#run-ending-rig')
+const ending = frame.locator('[data-slot="run-ending"]')
+const attention = !['complete', 'person-stop', 'desk-stop'].includes(scene)
+const banner = attention ? frame.locator('[data-slot="run-need"]') : ending
+const titles = { complete: 'Nothing waits.', unrouted: 'Ended without a next step', 'person-stop': 'By you', 'desk-stop': 'By the desk', stalled: execution.reason!, rounds: 'Round budget reached', 'without-progress': 'Rounds without progress reached' }
+await expect(banner).toContainText(titles[scene])
+await expect(banner.locator('[data-tone="warning"]')).toHaveCount(['complete', 'person-stop', 'desk-stop'].includes(scene) ? 0 : 1)
+await expect(ending.locator('[data-slot="chip"]')).toHaveCount(0)
+await expect(frame.getByRole('button', { name: 'Details', exact: true })).toBeVisible()
+await expect(ending.getByRole('button', { name: 'End', exact: true })).toHaveCount(0)
+const door = scene === 'complete' ? 'Wrap' : scene === 'stalled' ? 'Review and run again…' : 'Run again…'
+await expect(banner.getByRole('button', { name: door, exact: true })).toBeVisible()
+if (scene === 'complete') await expect(banner).toContainText('Nothing waits.')
+if (scene === 'unrouted') await expect(banner.getByRole('button', { name: 'Board', exact: true })).toBeVisible()
+if (scene === 'rounds' || scene === 'without-progress') await expect(banner).toContainText(scene === 'rounds' ? '1 round used' : '2 rounds without progress')
+await page.setViewportSize({ width: 390, height: 900 })
+await banner.scrollIntoViewIfNeeded()
+await expect(banner.getByRole('button', { name: door, exact: true })).toBeInViewport()
+expect(await frame.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
+if (process.env.RUN_ENDING_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.RUN_ENDING_FRAMES_DIR, `${scene}-${theme}.png`) })
+await page.unroute('**/run-ending-rig.json')
+rig.checkEvidenceFails = false
+
     } finally { for (const fn of cleanup.reverse()) await fn() }
-  })
+
+})
 
   test(`Run again previews recorded inputs, seat changes and both Runs in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
@@ -123,14 +125,15 @@ for (const theme of ['light', 'dark'] as const) {
     if (process.env.RUN_ENDING_FRAMES_DIR) await team.screenshot({ path: path.join(process.env.RUN_ENDING_FRAMES_DIR, `lineage-${theme}.png`) })
   })
 
-  test(`Run again loading, refusal and narrow form in ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme })
-    await page.setViewportSize({ width: 390, height: 900 })
-    for (const scene of ['pending', 'failed', 'superseded', 'empty', 'default']) {
-      await page.goto(`/preview.html?run-again=${scene}&theme=${theme}`)
-      const dialog = page.getByRole('dialog', { name: 'Run again', exact: true })
-      await expect(dialog).toBeVisible()
-      if (scene === 'default' || scene === 'empty') {
+  {
+
+for (const [item0, scene] of (['pending', 'failed', 'superseded', 'empty', 'default']).entries()) test((`Run again loading, refusal and narrow form in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+await page.emulateMedia({ colorScheme: theme })
+await page.setViewportSize({ width: 390, height: 900 })
+await page.goto(`/preview.html?run-again=${scene}&theme=${theme}`)
+const dialog = page.getByRole('dialog', { name: 'Run again', exact: true })
+await expect(dialog).toBeVisible()
+if (scene === 'default' || scene === 'empty') {
         await expect(dialog.getByLabel('Brief', { exact: true })).toHaveValue(scene === 'empty' ? '' : /Retry the checkout call/)
         await expect(dialog.getByRole('button', { name: 'Start', exact: true })).toBeEnabled()
       } else {
@@ -141,12 +144,14 @@ for (const theme of ['light', 'dark'] as const) {
           await expect(dialog.getByLabel('writer · Seat preference')).toHaveCount(0)
         }
       }
-      expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
-      await expect(dialog.getByRole('button', { name: 'Start', exact: true })).toBeInViewport()
-      expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
-      if (process.env.RUN_ENDING_FRAMES_DIR) await dialog.screenshot({ path: path.join(process.env.RUN_ENDING_FRAMES_DIR, `run-again-${scene}-${theme}.png`) })
-    }
-  })
+expect(await dialog.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+await expect(dialog.getByRole('button', { name: 'Start', exact: true })).toBeInViewport()
+expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
+if (process.env.RUN_ENDING_FRAMES_DIR) await dialog.screenshot({ path: path.join(process.env.RUN_ENDING_FRAMES_DIR, `run-again-${scene}-${theme}.png`) })
+
+
+})
+}
 
   test(`Run again preserves two Seat preferences in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })

@@ -98,19 +98,23 @@ for (const theme of WALL_THEMES) {
     await expect(model).toHaveAccessibleName(/GPT-5\.5.*medium/)
   })
 
-  test(`Composer fit: Usage ring carries its name without repeating the word in ${theme}`, async ({ page }) => {
-    for (const width of [1280, 720]) {
-      await openFrame(page, 'frame-wall=draft&frame-composer-values=1', theme, width)
-      const tools = page.locator('[data-slot="composer-tools"]:visible').last()
-      const usage = tools.locator('[data-composer-track="context"] button')
-      await expect(usage).toHaveAccessibleName('Usage')
-      await expect(usage).toHaveAttribute('title', 'Usage')
-      await expect(usage.locator('[data-slot="progress-ring"]')).toBeVisible()
-      await expect(usage.locator('[data-role="meta"]')).toHaveCount(0)
-      const overflow = await usage.evaluate(button => button.getBoundingClientRect().right - button.closest('[data-composer-track]')!.getBoundingClientRect().right)
-      expect(overflow, `the ring should fit its track at ${width}px`).toBeLessThanOrEqual(1)
-    }
-  })
+  {
+
+for (const [item0, width] of ([1280, 720]).entries()) test((`Composer fit: Usage ring carries its name without repeating the word in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+
+await openFrame(page, 'frame-wall=draft&frame-composer-values=1', theme, width)
+const tools = page.locator('[data-slot="composer-tools"]:visible').last()
+const usage = tools.locator('[data-composer-track="context"] button')
+await expect(usage).toHaveAccessibleName('Usage')
+await expect(usage).toHaveAttribute('title', 'Usage')
+await expect(usage.locator('[data-slot="progress-ring"]')).toBeVisible()
+await expect(usage.locator('[data-role="meta"]')).toHaveCount(0)
+const overflow = await usage.evaluate(button => button.getBoundingClientRect().right - button.closest('[data-composer-track]')!.getBoundingClientRect().right)
+expect(overflow, `the ring should fit its track at ${width}px`).toBeLessThanOrEqual(1)
+
+
+})
+}
 
   test(`Composer fit: folded Mode never shows a lone initial at 720 in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=draft&frame-composer-values=1', theme, 720)
