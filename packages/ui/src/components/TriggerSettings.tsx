@@ -3,7 +3,7 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import type { TriggerPreferences } from '@harnessdesk/protocol'
 
-import { KeyValue, KeyValueRow, Note, Row, RowInput, Rows, SectionHead, Switch } from '../design'
+import { KeyValue, KeyValueRow, Note, Row, RowInput, Rows, Section, Switch } from '../design'
 import { useStore } from '../state/context'
 
 /** One change to the machine's trigger preferences: the pause, the cap, or both. */
@@ -108,8 +108,7 @@ export const TriggerSettings = ({ focus = null }: { readonly focus?: string | nu
   }
 
   return (
-    <section ref={section} aria-label="Triggers on this Mac" tabIndex={-1}>
-      <SectionHead name="Triggers on this Mac" />
+    <Section ref={section} title="Triggers on this Mac" tabIndex={-1}>
       <Note>
         Stops when reported spend reaches the limit. Work already running can cost more before it stops.
       </Note>
@@ -162,6 +161,6 @@ export const TriggerSettings = ({ focus = null }: { readonly focus?: string | nu
           {prefs.chargedUsd === null && <Note>Today’s charged amount could not be vouched for; treated as unknown, never zero.</Note>}
         </>
       )}
-    </section>
+    </Section>
   )
 }

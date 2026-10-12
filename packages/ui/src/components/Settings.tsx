@@ -1449,7 +1449,7 @@ export const WorkspacesSection = ({focus=null,project,onProject}: {readonly focu
     <>
       <PageExplanation>Every folder HarnessDesk has opened, and each project’s own page. Forgetting one touches nothing on disk.</PageExplanation>
 
-      <SectionHead name={withCount('Folders', snapshot.workspaces.length)} />
+      <Section title={withCount('Folders', snapshot.workspaces.length)}>
       <Rows>
         {snapshot.workspaces.length === 0 && (
           <EmptyState variant="row" title="No folders opened yet" description="Open one from File › Open Folder, or ⌘O." />
@@ -1466,9 +1466,11 @@ export const WorkspacesSection = ({focus=null,project,onProject}: {readonly focu
           />
         ))}
       </Rows>
+      </Section>
       <WorktreeRows />
-      <SectionHead name="Lanes" />
-      <LaneSettings root={snapshot.workspace?.path} />
+      <Section title="Lanes">
+        <LaneSettings root={snapshot.workspace?.path} />
+      </Section>
       <TriggerSettings focus={focus} />
     </>
   )
@@ -1622,8 +1624,7 @@ const WorktreeRows = () => {
 
   if (managed.length === 0) return null
   return (
-    <>
-      <SectionHead name={withCount('Worktrees', managed.length)} />
+    <Section title={withCount('Worktrees', managed.length)}>
       <Note>
         Separate checkouts on their own branches, so agents can edit side by side. Branches are
         never deleted from here.
@@ -1643,7 +1644,7 @@ const WorktreeRows = () => {
         ))}
       </Rows>
       {destinationActive && removing && <RemoveWorktree worktree={removing} onClose={() => setRemoving(null)} />}
-    </>
+    </Section>
   )
 }
 
