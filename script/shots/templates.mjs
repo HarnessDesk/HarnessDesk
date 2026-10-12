@@ -67,7 +67,7 @@ try {
       }
       // The New Team menu uses the current project, restored from its visible
       // recent-project list. Reopening it here would mask the old-record bug.
-      await expect(page.getByRole('button', { name: 'storefront', exact: true })).toHaveAttribute('title', /^The folder this app is working in/)
+      await expect(page.locator('[data-left-column]').getByRole('button', { name: 'storefront', exact: true })).toHaveAttribute('title', /^The folder this app is working in/)
       await expect(page.getByRole('button', { name: 'More ways to start', exact: true })).toBeVisible()
       if (template === 'fix-and-review') {
         const branch = page.locator('[aria-label="Conversation facts"] [data-slot="summary-item"]')
@@ -177,8 +177,8 @@ try {
       const boardColumn = name => page.locator('[data-slot="board-column"]').filter({ has: page.getByRole('heading', { level: 3, name, exact: true }) })
       const repository = async () => {
         await page.getByRole('button', { name: 'Search everything', exact: true }).click()
-        await page.getByPlaceholder('Search sessions, files, agents, commands, actions…').fill('Show repository')
-        await page.getByRole('option', { name: /^Show repository/ }).click()
+        await page.getByRole('dialog', { name: 'Command palette', exact: true }).getByRole('searchbox').fill('Show Repository')
+        await page.getByRole('option', { name: /^Show Repository/ }).click()
       }
       const mergeFromRepository = async revision => {
         await repository()
@@ -370,7 +370,7 @@ try {
         assert.ok(comments[0].body.includes(`reviewed ${evidence.at(-1).publishedHead.slice(0, 12)} in round 2 and raised no findings.`))
         evidence.at(-1).reviewCommentUrl = comments[0].html_url
       }
-      await expect(page.getByText(template === 'comparison' ? 'Rounds 4 of 4' : 'Rounds 3 of 7', { exact: true })).toBeVisible()
+      await expect(page.getByText(template === 'comparison' ? 'Completed rounds 4 of 4' : 'Completed rounds 3 of 7', { exact: true })).toBeVisible()
       // The board settles before the final turn/activity event reaches the
       // sidebar. Capture the finished Goal only once both surfaces agree.
       await page.waitForFunction(({ goal, run }) => {
