@@ -265,7 +265,7 @@ export const Popover = ({
             // Base UI nests this portal beside the window's popup. Its
             // clipping ancestors therefore miss the window itself: a menu
             // near the bottom can open beyond it, under another surface.
-            collisionBoundary={trigger.current?.closest('[data-slot="app-window"]') ?? undefined}
+            collisionBoundary={trigger.current?.closest('[data-slot="app-window"], [data-slot="fixed-shell"]') ?? undefined}
             /* A row unfolded may flip to the row's other side, never off to a
                third one: short of room it scrolls under `--available-height`,
                the way Base UI's own dropdowns do. */
@@ -347,7 +347,7 @@ export const PopoverSurface = forwardRef<
           align="start"
           sideOffset={6}
           collisionPadding={8}
-          collisionBoundary={anchor.current?.closest('[data-slot="app-window"]') ?? undefined}
+          collisionBoundary={anchor.current?.closest('[data-slot="app-window"], [data-slot="fixed-shell"]') ?? undefined}
           className={styles.positioner}
         >
           <PopoverPopup render={surface} initialFocus={false} finalFocus={false} onMouseDown={event => event.preventDefault()} />
