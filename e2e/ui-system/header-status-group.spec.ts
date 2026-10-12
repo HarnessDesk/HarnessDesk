@@ -73,6 +73,18 @@ test('a phone header keeps room for slightly wider text metrics', async ({ page 
   expect(await bar.evaluate((node) => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(0)
 })
 
+test('a phone header keeps the same margin with wider font metrics', async ({ page }) => {
+  await page.setViewportSize({ width: 340, height: 800 })
+  await page.evaluate(() => document.fonts.ready)
+  await page.locator('body').evaluate(node => (node as HTMLElement).style.setProperty('--hd-font-family', 'monospace'))
+  const bar = page.locator('[data-frame-id="header-status-conversation"] header')
+  await bar.getByRole('group', { name: 'Conversation status', exact: true }).evaluate(node => {
+    const group = node as HTMLElement
+    group.style.paddingRight = '5px'
+  })
+  expect(await bar.evaluate(node => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(0)
+})
+
 test('every grouped header Tab stop has an unclipped focus ring', async ({ page }) => {
   const group = page.locator('header [role="group"][aria-label="Conversation status"]')
   const stops = 1 + await group.locator('button').count()
