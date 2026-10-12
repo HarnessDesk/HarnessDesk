@@ -146,7 +146,7 @@ const Section = (props: SectionProps) => {
              that body and never moves the heading away from the page edge.
              The description is a full-width flex item that cannot shrink
              beside the title, so it always starts below the heading. */
-          className="flex min-w-0 flex-wrap items-center gap-x-(--hd-space-3) gap-y-(--hd-space-0-5)"
+          className="flex min-w-0 flex-wrap items-end gap-x-(--hd-space-3) gap-y-(--hd-space-0-5)"
         >
           <GroupLabel as="h2" data-section-name="" className="min-w-0 flex-[1_1_20ch] truncate">{title}</GroupLabel>
           {action != null && (
