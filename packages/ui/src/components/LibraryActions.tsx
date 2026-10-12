@@ -879,6 +879,7 @@ export const LibraryHistory = ({
                 </Text>} desc={<>
               <Text role="meta" numeric>
                 {new Date(row.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                {' · '}
               </Text>
                 <Text role="meta" title={row.path} truncate dir="rtl">
                   <bdi dir="ltr">

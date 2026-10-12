@@ -576,3 +576,14 @@ it('E6 import composes dialog slots without a title icon and gives search a glyp
   expect(dialog.querySelector('[data-slot="dialog-subhead"]')).toBeNull()
   expect([...dialog.querySelectorAll('[data-slot="dialog-footer"] button')].map(button => button.textContent)).toEqual(['Preview', 'Cancel'])
 })
+
+it('separates a change time from its path so both facts remain readable', async () => {
+  const at = Date.UTC(2026, 8, 30, 9)
+  const path = `${HOME}/skills/review/SKILL.md`
+  const store = storeWith(async () => [{ kind: 'library/write', at, op: 'skill/update', name: 'Review', path, status: 'done', runtime: 'one' }])
+  await render(store, <LibraryHistory refreshedAt={0} home={HOME} onFlow={() => {}} />)
+  const desc = container.querySelector('[data-slot="row-desc"]')!
+  const date = new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  expect(desc.textContent).toBe(`${date} · ~/skills/review/SKILL.md`)
+  expect(desc.querySelector('[title]')?.getAttribute('title')).toBe(path)
+})
