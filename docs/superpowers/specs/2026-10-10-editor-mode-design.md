@@ -1,13 +1,15 @@
 # Editor mode: reading and editing the files a conversation works on
 
 *2026-10-10. Approved by the owner decision by decision, in the order listed
-at the end. Nothing here is built yet. It is built on the app frame
-(`docs/superpowers/specs/2026-10-09-app-frame-design.md`) after the frame's
-phase B (the shell and its panels) lands, on the frame branch.*
+at the end. Nothing here is built yet. Refreshed 2026-10-12 against `main` at
+`7851af482`, where the app frame
+(`docs/superpowers/specs/2026-10-09-app-frame-design.md`, phases B–E, #1586)
+has landed; Editor mode is built on that frame.*
 
 ## The problem
 
-Today a file opens in the right panel, 400 to 640 pixels wide, beside the
+Today a file opens in the right panel's Changes tool (its `file` and
+`preview` modes, `state/frame-tools.ts`), 400 to 640 pixels wide, beside the
 conversation. That is right for a glance and wrong for work: there is no file
 tree, no tabs worth the name, Markdown is read in one panel view
 (`PreviewPane`) and edited in another (`FilePane`), and an agent's changes to a
@@ -52,14 +54,28 @@ left column's top row**: window buttons, sidebar toggle, search, back, forward,
 then the switch at the column's right edge. The selected half is a raised
 pill on a grey track, not an accent fill. ⌘G toggles it from anywhere.
 
-To fit it, the left column's default width becomes **256** (the drag range
-stays 200 to 360) and the notifications bell moves from the top row to the
-seat row, before the gear. The frame owns those two changes and makes them in
-its phase D; Editor mode only adds the switch into the space left for it.
+The frame already made room for it: the column's default width is **256**
+(drag 200 to 360), the notifications bell is in the seat row before the gear,
+and the top row ends in empty space "reserved for a later switch". Editor mode
+adds the switch to `LeftColumnTop` (`design/patterns/LeftColumn.tsx`) as one
+more prop, and changes nothing else in the row.
 
 In a narrow column, back and forward fold away first, as the frame spec
 already says. Below a 1000-pixel window the column floats at the same width
 with the same top row, so the switch is always reachable.
+
+**Where the switch applies.** Editor mode is about a piece of work's files,
+and only a conversation has one folder of its own, so:
+
+- **On a conversation** the switch works.
+- **On every other destination** (a draft, a Team, the lists, an Agent,
+  Library, Plugins, Dashboard) it stays in place, greyed, with a title that
+  says it opens a conversation's files. A moot control is greyed, never
+  withdrawn, so the row never shifts.
+- **In Settings** it is hidden with search, back and forward, which the
+  frame already hides there.
+
+A Team's branch is a natural later extension; it is not in this design.
 
 ⌘G is "find next" in the editor's search keymap and in the VS Code keymap.
 The app's binding wins; find next stays on Enter in the search field and on
@@ -69,9 +85,9 @@ F3.
 
 - **Review** on a turn's "files changed" card opens Editor mode with the
   Explorer filtered to Changed and the first file open in its Changes view.
-- **Pop out** on a file shown in the right panel opens Editor mode on that
-  file. The file view in the panel and the one in Editor mode are the same
-  component, so nothing is lost on the way.
+- **Pop out** on a file shown in the Changes tool (its `file` or `preview`
+  mode) opens Editor mode on that file. The file view in the panel and the
+  one in Editor mode are the same component, so nothing is lost on the way.
 - **A file link in the transcript** opens the file in Editor mode at the
   linked line.
 
@@ -102,6 +118,12 @@ changes, exactly as Settings swaps it.
 A folder that is not a git repository has no Changed filter and no letters.
 
 ## Main: file tabs
+
+Main's subject is still the conversation, so the frame's tools keep
+following it: Details, Changes, Activity and Browser show the same
+conversation in both modes. The top bar's place reads
+`Conversation title › path/to/file`, and the conversation's crumb, being a
+link to its parent, switches back to Conversation mode.
 
 - **Opening.** A single click opens a *preview tab*, drawn in italics, which
   the next single click replaces. Editing it, or double-clicking, keeps it.
@@ -142,10 +164,12 @@ included. Details, Changes, Activity and Browser keep their icons and their
 places; the bar's tools are right-aligned, so adding one at the left of the
 group moves none of them.
 
-**This amends the frame's rule of four tools** ("none adds a fifth icon
-without a decision here"). It is that decision: a fifth tool, Conversation,
-present only in Editor mode. The frame's tool slots and their checks must
-allow it.
+**This amends the frame's rule of four tools** ("The right panel's tools are a
+fixed set of four icons", and "none adds a fifth icon without a decision
+here"). It is that decision: a fifth tool, Conversation, present only in
+Editor mode. In code, `WorkTool` (`state/frame-tools.ts`) gains
+`conversation`; the frame's slot checks admit it in Editor mode only; and the
+frame spec's two sentences are amended in the same change.
 
 ### Ask in chat
 
@@ -169,7 +193,7 @@ imports from inside it.
 | `DiffView` | `components/Diff.tsx`, `lib/diff` | transcript items, Approvals, Git, Changes review, Details, the plugin `diff` block |
 | `MergeView` | new, over `@codemirror/merge` | a file's Changes view, Compare on a conflict |
 | `MarkdownView` | `Markdown` and `lib/sanitize.ts` | a file's Preview, the right panel's preview |
-| `FileView` | `components/FilePane.tsx`, and `PreviewPane`'s Markdown part | Editor mode's tabs **and** the right panel's file view |
+| `FileView` | `components/FilePane.tsx`, and `PreviewPane`'s Markdown part | Editor mode's tabs **and** the Changes tool's `file` and `preview` modes |
 | `FileTabs` | new | Editor mode |
 | `Explorer` | new | Editor mode |
 
@@ -256,3 +280,8 @@ without switching to it.
    `@codemirror/merge`.
 8. **Plugin or module:** one built-in module; plugins extend it through
    `ctx.editor` and never draw it.
+
+Settled on the 2026-10-12 refresh, following the landed frame rather than a
+new owner decision: the switch is greyed away from a conversation and hidden
+in Settings; the conversation's crumb switches back; files stay the Changes
+tool's modes in Conversation mode.
