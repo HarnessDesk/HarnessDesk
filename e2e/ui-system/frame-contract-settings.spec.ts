@@ -74,11 +74,11 @@ test('FIX4 Settings sections follow the page and subgroup rhythm on every page',
 test('FIX4 runtime names, versions and the default chip have their own gaps', async ({ page }) => {
   await openFrame(page, 'frame-wall=settings&frame-section=runtimes&frame-settings-round4=1', 'light', 1440)
   for (const [name, version, hasDefault] of [
-    ['Windsurf', '1.0.0', false],
-    ['Codex', '0.149.0', true],
-    ['Claude', '1.0.0', false],
+    ['Runtime 6', '1.0.0', false],
+    ['Runtime 1', '0.149.0', true],
+    ['Runtime 2', '1.0.0', false],
   ] as const) {
-    const row = page.locator('[data-slot="agent-row"]').filter({ has: page.locator('[data-slot="runtime-name"]').filter({ hasText: name }) })
+    const row = page.locator('[data-slot="agent-row"]').filter({ has: page.getByText(name, { exact: true }) })
     await expect(row).toBeVisible()
     const geometry = await row.evaluate((node, expectedVersion) => {
       const runtimeName = node.querySelector<HTMLElement>('[data-slot="runtime-name"]')!
