@@ -44,13 +44,40 @@ green local run means a green pipeline.
 On pull requests, “Build, typecheck, test” always runs. It stands for the whole
 gate and is green only when each of four jobs that run side by side is: the
 Node tests, the Node end-to-end tests, the UI tests, and the checks. Browser
-integration selects one of three modes: `all` runs the eight shards for changes
+integration selects one of three modes: `all` runs the browser shards for changes
 to the UI, its transitive workspace dependencies (read from package manifests),
 browser specs/configuration, or shared root inputs. The shards are dealt by how
 long each spec file takes, not by how many tests it holds
 (`script/ci-browser-shards.mjs`, from `e2e/ui-system/durations.json`, which its
 `--refresh` rebuilds from the shards' CI logs), and each runs two browsers at
-once. `server` runs only specs that import packages outside those UI inputs, in
+once. A run gets as many shards as its work needs, one to sixteen, so a change
+that reaches one spec does not pay for sixteen runners.
+
+Two rules keep a pull request from running more than it can learn from:
+
+- **A change to the suite alone runs the specs it can reach.** The selector
+  follows imports, so a changed spec runs itself and a changed helper runs the
+  specs that import it, in both themes. A data file a spec reads at run time, a
+  deleted helper, or any change outside the suite cannot be traced and runs
+  every spec. Edits to `durations.json` open no browser: they only change how
+  specs are dealt.
+- **A pull request that touches the UI reads the geometry contracts in the light
+  theme.** The dark theme rewrites colours and nothing else, so a box measured
+  in it is the box measured in the light one. With `UI_SYSTEM_MATRIX=pr`
+  `playwright.ui-system.config.ts` skips the dark cases of the `frame-*` specs
+  that assert geometry; the specs that assert a colour (`COLOUR_SPECS` there, and
+  a gate test finds one that is missing) and every spec that is not a `frame-*`
+  spec read both. Pushes to `main` and runs started by hand read both themes
+  everywhere, so a dark-only regression is found when it lands and not before;
+  a pull request whose UI diff names a theme, or whose inputs are shared (the
+  lockfile, root configuration, assets, CI, the browser configuration), reads
+  both too. To reproduce either run on a branch, start CI by hand
+  (`gh workflow run ci.yml --ref <branch> -f matrix=full`, or `-f matrix=pr`;
+  GitHub offers a manual run only for a workflow that is on the default branch).
+  A pull request's times are `e2e/ui-system/durations.pr.json`, refreshed the
+  same way from a pull request's logs; a spec it does not list uses the full time.
+
+`server` runs only specs that import packages outside those UI inputs, in
 one Ubuntu job, for other package changes. The selector discovers those
 imports, including local helpers; the spec list needs no manual update. `none`
 skips both browser jobs for docs-only and unrelated script changes.

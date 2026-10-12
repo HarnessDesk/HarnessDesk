@@ -3,6 +3,8 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
+import { recordedSeconds, shardCount, specFiles } from './ci-browser-shards.mjs'
+
 // Shared inputs are written once and included in both job lists below.
 const SHARED = [
   /^package\.json$/, // Root scripts and tool dependencies define both installs/builds.
@@ -21,6 +23,11 @@ const SHARED = [
   /^script\/check-secrets\.mjs$/, // The shared frame audit imports its public-text checks.
   /^script\/lib\/desk\.mjs$/, // Imported by the frame audit; native smoke also uses it to launch the desk.
 ]
+
+// The recorded spec times only change how the specs are dealt to shards. The
+// plan's own tests (`script/ci-browser-plan.test.mjs`, in the gates job) check the
+// deal; no browser needs to open for it.
+const DEAL_ONLY = /^e2e\/ui-system\/durations(?:\.pr)?\.json$/
 
 const BROWSER = [
   ...SHARED,
@@ -61,6 +68,24 @@ export function uiPackages(root) {
   return inputs
 }
 
+const SOURCE = ['.ts', '.tsx', '.mts', '.cts', '.mjs', '.cjs', '.js', '.jsx']
+const IMPORT = /(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\(\s*)['"]([^'"\n]+)['"]/g
+
+// The source file a relative import names, or null for an asset (`./frame.png`).
+// A source file that is not there is an error and not a skip: a selection that
+// quietly lost an edge would run too little.
+const resolveHelper = (file, specifier) => {
+  const base = resolve(dirname(file), specifier)
+  const extension = extname(base)
+  const helper = [base, ...SOURCE.map(ext => `${base}${ext}`),
+    base.replace(/\.js$/, '.ts'), base.replace(/\.mjs$/, '.mts'), base.replace(/\.cjs$/, '.cts'),
+    ...SOURCE.map(ext => join(base, `index${ext}`))]
+    .find(candidate => existsSync(candidate) && SOURCE.includes(extname(candidate)))
+  if (helper) return helper
+  if (extension && !SOURCE.includes(extension)) return null
+  throw new Error(`Cannot resolve suite import: ${specifier}`)
+}
+
 // Literal static/dynamic imports and re-exports, including those in local
 // helpers. Over-selection (for example an import in a comment) is harmless;
 // no manual spec list can become stale when a spec starts reading host code.
@@ -72,24 +97,13 @@ export function serverSpecs(root, inputs) {
     if (seen.has(file)) return false
     seen.add(file)
     const source = readFileSync(file, 'utf8')
-    const imports = source.matchAll(/(?:\bfrom\s*|\bimport\s*(?:\(\s*)?|\brequire\s*\(\s*)['"]([^'"\n]+)['"]/g)
-    for (const [, specifier] of imports) {
+    for (const [, specifier] of source.matchAll(IMPORT)) {
       const path = specifier.startsWith('.') ? relative(root, resolve(dirname(file), specifier)) : specifier
       const pkg = path.match(/^(?:packages\/|@harnessdesk\/)([^/]+)/)?.[1]
       if (pkg && !inputs.has(pkg)) return true
       if (specifier.startsWith('.') && !pkg) {
-        const base = resolve(dirname(file), specifier)
-        const extensions = ['.ts', '.tsx', '.mts', '.cts', '.mjs', '.cjs', '.js', '.jsx']
-        const extension = extname(base)
-        const helper = [base, ...extensions.map(ext => `${base}${ext}`),
-          base.replace(/\.js$/, '.ts'), base.replace(/\.mjs$/, '.mts'), base.replace(/\.cjs$/, '.cts'),
-          ...extensions.map(ext => join(base, `index${ext}`))]
-          .find(candidate => existsSync(candidate) && extensions.includes(extname(candidate)))
-        if (!helper) {
-          if (extension && !extensions.includes(extension)) continue
-          throw new Error(`Cannot resolve suite import: ${specifier}`)
-        }
-        if (readsOutside(helper, seen)) return true
+        const helper = resolveHelper(file, specifier)
+        if (helper && readsOutside(helper, seen)) return true
       }
     }
     return false
@@ -98,21 +112,101 @@ export function serverSpecs(root, inputs) {
     .map(file => relative(root, file)).sort()
 }
 
+// The specs a change to files of the suite can reach: a changed spec itself, and
+// every spec that imports a changed helper, directly or through other helpers.
+// Null when the change cannot be traced to specs, and the caller runs them all:
+// a data file a spec reads at run time, or a helper that was deleted and so has
+// no importers left to find.
+export function affectedSpecs(root, changed) {
+  const suite = join(root, 'e2e/ui-system')
+  const files = directory => readdirSync(directory, { withFileTypes: true }).flatMap(entry =>
+    entry.isDirectory() ? files(join(directory, entry.name)) : [join(directory, entry.name)])
+  const importers = new Map()
+  for (const file of files(suite).filter(file => SOURCE.includes(extname(file)))) {
+    for (const [, specifier] of readFileSync(file, 'utf8').matchAll(IMPORT)) {
+      if (!specifier.startsWith('.')) continue
+      const helper = resolveHelper(file, specifier)
+      if (helper) importers.set(helper, new Set([...(importers.get(helper) ?? []), file]))
+    }
+  }
+  const queue = []
+  for (const path of changed) {
+    if (DEAL_ONLY.test(path)) continue
+    const file = join(root, path)
+    if (!existsSync(file)) {
+      if (/\.spec\.[cm]?[jt]sx?$/.test(path)) continue
+      return null
+    }
+    if (!SOURCE.includes(extname(file))) return null
+    queue.push(file)
+  }
+  const reached = new Set()
+  while (queue.length > 0) {
+    const file = queue.pop()
+    if (reached.has(file)) continue
+    reached.add(file)
+    queue.push(...(importers.get(file) ?? []))
+  }
+  return [...reached].filter(file => /\.spec\.[cm]?[jt]sx?$/.test(file) && file.startsWith(`${suite}/`))
+    .map(file => relative(root, file)).sort()
+}
+
+// What the browser job runs for this change, and how it is sized. A pull request
+// that only touches the suite runs the specs it can reach, all of their tests;
+// a pull request that touches the UI runs every spec, but reads the geometry
+// contracts in the light theme only, unless the diff itself is about themes
+// (`themeTouched`): `main` and a manual run read both everywhere. See
+// `playwright.ui-system.config.ts` for what the pull-request matrix leaves out.
+export function browserPlan(root, { browser, inputs, serverInputs, event, themeTouched, request }) {
+  const all = specFiles(root).map(spec => `e2e/ui-system/${spec}`)
+  let selected = null
+  if (browser === 'all' && event === 'pull_request' && inputs.length > 0 && inputs.every(path => path.startsWith('e2e/ui-system/'))) {
+    const reached = affectedSpecs(root, inputs)
+    if (reached) selected = [...new Set([...reached, ...(serverInputs ? serverSpecs(root, uiPackages(root)) : [])])].sort()
+  }
+  if (browser === 'all' && selected && selected.length === 0) browser = 'none'
+  // Anything that can change how every page renders reads both themes: a shared
+  // build input, the browser configuration that decides the matrix, the CI that
+  // runs it, and any edit to the suite itself (its author wrote a test to see it
+  // run, in the theme it names).
+  const broad = inputs.some(path => SHARED.some(pattern => pattern.test(path)) || path.startsWith('e2e/ui-system/') || /^playwright\.ui-system\.config\.ts$|^script\/ci-browser-shards\.mjs$/.test(path))
+  const matrix = request === 'pr' || request === 'full'
+    ? request
+    : event === 'pull_request' && inputs.length > 0 && selected === null && !themeTouched && !broad ? 'pr' : 'full'
+  const specs = selected ?? all
+  const count = browser === 'all'
+    ? shardCount(specs.map(spec => spec.slice('e2e/ui-system/'.length)), recordedSeconds(root, matrix))
+    : 0
+  return {
+    browser, matrix, count,
+    specs: selected ? JSON.stringify(selected) : 'all',
+    shards: JSON.stringify(Array.from({ length: Math.max(1, count) }, (_, index) => index + 1)),
+    summary: browser === 'all'
+      ? `Browser suite: ${selected ? `${selected.length} of ${all.length} specs` : `all ${all.length} specs`}, ${matrix === 'pr' ? 'pull-request' : 'full'} theme matrix, ${count} shard${count === 1 ? '' : 's'}.`
+      : `Browser suite: ${browser === 'server' ? 'server-facing specs only' : 'not needed for this change'}.`,
+  }
+}
+
 // NUL delimiters keep spaces/newlines literal; --no-renames includes both
 // paths of a moved input. Unreadable/empty/malformed paths run everything.
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const root = fileURLToPath(new URL('../', import.meta.url))
   const inputs = uiPackages(root)
   const specs = serverSpecs(root, inputs)
+  const event = process.env.GITHUB_EVENT_NAME
   let decision = { browser: 'all', native: true }
-  if (process.env.GITHUB_EVENT_NAME === 'pull_request') {
+  let browserInputs = []
+  let serverInputs = false
+  if (event === 'pull_request') {
     try {
       const raw = readFileSync(process.argv[2], 'utf8')
       const paths = raw.endsWith('\0') ? raw.slice(0, -1).split('\0') : []
       if (paths.length > 0 && paths.every(path => path.length > 0 && !path.startsWith('/') && !path.split('/').includes('..'))) {
-        const uiInput = path => BROWSER.some(pattern => pattern.test(path)) || inputs.has(path.match(/^packages\/([^/]+)\//)?.[1])
+        const uiInput = path => !DEAL_ONLY.test(path) && (BROWSER.some(pattern => pattern.test(path)) || inputs.has(path.match(/^packages\/([^/]+)\//)?.[1]))
+        browserInputs = paths.filter(uiInput)
+        serverInputs = paths.some(path => /^packages\/(?!desktop\/)[^/]+\//.test(path))
         decision = {
-          browser: paths.some(uiInput) ? 'all' : paths.some(path => /^packages\/(?!desktop\/)[^/]+\//.test(path)) ? 'server' : 'none',
+          browser: browserInputs.length > 0 ? 'all' : serverInputs ? 'server' : 'none',
           native: paths.some(path => NATIVE.some(pattern => pattern.test(path))),
         }
       }
@@ -120,5 +214,14 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       // A failed diff leaves no readable list. Non-PR events run everything.
     }
   }
-  process.stdout.write(`browser=${decision.browser}\nnative=${decision.native}\nserver_specs=${JSON.stringify(specs)}\n`)
+  const plan = browserPlan(root, {
+    browser: decision.browser, inputs: browserInputs, serverInputs, event,
+    themeTouched: process.env.UI_THEME_TOUCHED === 'true',
+    request: process.env.UI_SYSTEM_MATRIX_REQUEST ?? '',
+  })
+  process.stdout.write([
+    `browser=${plan.browser}`, `native=${decision.native}`, `server_specs=${JSON.stringify(specs)}`,
+    `browser_specs=${plan.specs}`, `matrix=${plan.matrix}`, `shard_count=${plan.count}`, `shards=${plan.shards}`,
+    `summary=${plan.summary}`, '',
+  ].join('\n'))
 }
