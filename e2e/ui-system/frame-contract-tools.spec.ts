@@ -208,6 +208,7 @@ for (const theme of WALL_THEMES) {
   test(`B8 Agents layout measures allocated rows and keeps names inside their column in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team', theme)
     await page.locator('[data-work-tool="details"]').click()
+    await expect(page.locator('[data-frame-region="right"]:visible')).toBeVisible()
     const overview = page.locator('[data-slot="team-overview"]')
     const seats = overview.locator('[aria-label="Seats"]')
     const allocated = (await seats.boundingBox())!.width
