@@ -1241,7 +1241,7 @@ export const SkillsSection = ({name,onSkill,onUse}: {readonly name:string|null;r
                   onClick={() => setOpenName(skill.name)}
                   mark={hasFaces ? <SkillMark skill={skill} tile="default" glyphSize={15} /> : undefined}
                   title={skillTitle(skill)}
-                  desc={<Text role="prose">{skill.shortDescription ?? skill.description}</Text>}
+                  desc={<Text role="prose" lines={2}>{skill.shortDescription ?? skill.description}</Text>}
                   control={
                     <>
                       <RowValue>{scope}</RowValue>

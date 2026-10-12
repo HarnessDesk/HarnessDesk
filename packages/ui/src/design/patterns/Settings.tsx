@@ -741,6 +741,8 @@ export type TextProps = Omit<HTMLAttributes<HTMLElement>, 'role'> & {
   weight?: keyof typeof TEXT_WEIGHT
   align?: 'start' | 'center' | 'end'
   truncate?: boolean
+  /** A list summary; its full sentence remains available in detail. */
+  lines?: 2 | 3
   /** Put the ellipsis at the beginning, so a path keeps the filename end. */
   truncateFrom?: 'start'
   /** Fade a navigation name at its edge without inventing an ellipsis glyph. */
@@ -761,6 +763,7 @@ export const Text = ({
   weight,
   align = 'start',
   truncate,
+  lines,
   truncateFrom,
   fade,
   numeric,
@@ -791,6 +794,7 @@ export const Text = ({
               : TEXT_ROLE_INK[role],
         align === 'center' ? 'text-center' : align === 'end' ? 'text-right' : 'text-left',
         (truncate || truncateFrom) && 'truncate',
+        lines === 2 ? 'line-clamp-2' : lines === 3 ? 'line-clamp-3' : false,
         truncateFrom === 'start' && '[direction:rtl] text-left',
         fade && 'overflow-hidden whitespace-nowrap [mask-image:var(--hd-fade)]',
         numeric && 'tabular-nums',
