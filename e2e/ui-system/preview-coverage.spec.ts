@@ -306,48 +306,48 @@ const sweepSelectsForCoverage = (
         for (const name of pending) covered.add(name)
       }
 
-    // A destination registers slots; the visible host renders them as a
-    // sibling, so no DOM leaf has the registrar in its ancestry. Credit the
-    // exact mounted reference only when its active scope has a visible host.
-    const registryEntry = (file: string) => mod.coverageRegistry.find(entry => entry.file === file)?.exports
-    const registrar = registryEntry('panels/destination-page.tsx')?.DestinationBar
-    const pageScope = registryEntry('panels/destination-page.tsx')?.DestinationPageScope
-    const outlet = registryEntry('panels/top-bar.tsx')?.TopBarOutlet
-    const owners = new Set<string>()
-    for (const bar of document.querySelectorAll('[data-slot="top-bar"]')) {
-      if (!isVisible(bar)) continue
-      const key = Object.keys(bar).find(name => name.startsWith('__reactFiber$'))
-      if (!key) continue
-      let fiber: any = (bar as unknown as Record<string, unknown>)[key]
-      while (fiber) {
-        if (fiber.type === outlet && typeof fiber.memoizedProps?.owner === 'string') owners.add(fiber.memoizedProps.owner)
-        fiber = fiber.return
+      // A destination registers slots; the visible host renders them as a
+      // sibling, so no DOM leaf has the registrar in its ancestry. Credit the
+      // exact mounted reference only when its active scope has a visible host.
+      const registryEntry = (file: string) => mod.coverageRegistry.find(entry => entry.file === file)?.exports
+      const registrar = registryEntry('panels/destination-page.tsx')?.DestinationBar
+      const pageScope = registryEntry('panels/destination-page.tsx')?.DestinationPageScope
+      const outlet = registryEntry('panels/top-bar.tsx')?.TopBarOutlet
+      const owners = new Set<string>()
+      for (const bar of document.querySelectorAll('[data-slot="top-bar"]')) {
+        if (!isVisible(bar)) continue
+        const key = Object.keys(bar).find(name => name.startsWith('__reactFiber$'))
+        if (!key) continue
+        let fiber: any = (bar as unknown as Record<string, unknown>)[key]
+        while (fiber) {
+          if (fiber.type === outlet && typeof fiber.memoizedProps?.owner === 'string') owners.add(fiber.memoizedProps.owner)
+          fiber = fiber.return
+        }
       }
-    }
-    const visited = new Set<unknown>()
-    const inspect = (first: any): void => {
-      for (let fiber = first; fiber; fiber = fiber.sibling) {
-        if (visited.has(fiber)) continue
-        visited.add(fiber)
-        if (fiber.stateNode instanceof Element) continue
-        if (fiber.type === registrar && fiber.child === null) {
-          let scope: any = null, host: Element | null = null
-          for (let parent = fiber.return; parent; parent = parent.return) {
-            if (parent.type === pageScope && scope === null) scope = parent.memoizedProps
-            if (parent.stateNode instanceof Element && host === null) host = parent.stateNode
-          }
-          if (scope?.active && owners.has(scope.owner) && host && isVisible(host)) {
-            for (let parent = fiber; parent; parent = parent.return) {
-              const names = refToComponents.get(parent.type)
-              if (names) for (const name of names) covered.add(name)
-              if (parent.type === pageScope) break
+      const visited = new Set<unknown>()
+      const inspect = (first: any): void => {
+        for (let fiber = first; fiber; fiber = fiber.sibling) {
+          if (visited.has(fiber)) continue
+          visited.add(fiber)
+          if (fiber.stateNode instanceof Element) continue
+          if (fiber.type === registrar && fiber.child === null) {
+            let scope: any = null, host: Element | null = null
+            for (let parent = fiber.return; parent; parent = parent.return) {
+              if (parent.type === pageScope && scope === null) scope = parent.memoizedProps
+              if (parent.stateNode instanceof Element && host === null) host = parent.stateNode
+            }
+            if (scope?.active && owners.has(scope.owner) && host && isVisible(host)) {
+              for (let parent = fiber; parent; parent = parent.return) {
+                const names = refToComponents.get(parent.type)
+                if (names) for (const name of names) covered.add(name)
+                if (parent.type === pageScope) break
+              }
             }
           }
+          inspect(fiber.child)
         }
-        inspect(fiber.child)
       }
-    }
-    for (const fiber of seenFibers as Set<any>) inspect(fiber.child)
+      for (const fiber of seenFibers as Set<any>) inspect(fiber.child)
     }
     // React receives the `change` synchronously, then may place an effect's
     // state-gated subtree in the next render. Two animation frames make that
@@ -440,7 +440,7 @@ test('coverage does not spend visibility probes on unrelated DOM leaves', async 
     document.body.append(island)
     const original = Element.prototype.checkVisibility
     const probe = { original, calls: 0 }
-    ;(window as Window & { __coverageCostProbe?: typeof probe }).__coverageCostProbe = probe
+      ; (window as Window & { __coverageCostProbe?: typeof probe }).__coverageCostProbe = probe
     Element.prototype.checkVisibility = function(options) {
       if (this === island || island.contains(this)) probe.calls++
       return original.call(this, options)
@@ -501,237 +501,255 @@ test.describe('preview coverage', () => {
 
   {
 
-for (const [item0, [property, value]] of ([['display', 'none'], ['opacity', '0']] as const).entries()) test(('a hidden or transparent preview wrapper earns no component coverage') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+    for (const [item0, [property, value]] of ([['display', 'none'], ['opacity', '0']] as const).entries()) test(`a hidden or transparent preview wrapper earns no component coverage [item ${[item0].join('-')}]`, async ({ page }) => {
 
-await page.goto('/preview.html')
-await page.locator('html').evaluate((node, style) => { ;(node as HTMLElement).style[style.property] = style.value }, { property, value })
-expect(await collectCoverage(page), `${property}: ${value}`).toMatchObject({ covered: [] })
-expect((await sweepSelectsForCoverage(page, { delayedRevealProbe: true })).covered, `${property}: ${value} dial sweep`).toEqual([])
+      await page.goto('/preview.html')
+      await page.locator('html').evaluate((node, style) => { ; (node as HTMLElement).style[style.property] = style.value }, { property, value })
+      expect(await collectCoverage(page), `${property}: ${value}`).toMatchObject({ covered: [] })
+      expect((await sweepSelectsForCoverage(page, { delayedRevealProbe: true })).covered, `${property}: ${value} dial sweep`).toEqual([])
 
 
-})
-}
+    })
+  }
 
   cataloguePageCases('every exported components/ and panels/ component renders in preview.html or design.html', getPage => {
-  const covered = new Set<string>()
-  let allComponents: readonly string[] = []
-  test.afterAll(async () => {
-const uncovered = allComponents.filter((component) => !covered.has(component) && !(component in EXEMPT))
-expect(uncovered, `Uncovered components (add a frame/dial in packages/ui/src/preview, or an EXEMPT entry): ${uncovered.join(', ')}`).toEqual([])
-const staleExemptions = Object.keys(EXEMPT).filter((component) => covered.has(component))
-expect(staleExemptions, `EXEMPT entries that now render (remove them from EXEMPT): ${staleExemptions.join(', ')}`).toEqual([])
-})
-test("coverage page 0", async () => { const page = getPage(); test.setTimeout(360_000);
-await page.goto('/design.html?view=team-start')
-await page.getByRole('button', { name: 'Picker', exact: true }).click()
-await expect(page.getByRole('dialog', { name: 'New Team', exact: true })).toBeVisible()
-const teamStartCoverage = await collectCoverage(page)
-expect(teamStartCoverage.covered).toContain('components/FrontDoor.tsx#FrontDoor')
-for (const component of teamStartCoverage.covered) covered.add(component)
-})
+    const covered = new Set<string>()
+    let allComponents: readonly string[] = []
+    test.afterAll(async () => {
+      const uncovered = allComponents.filter((component) => !covered.has(component) && !(component in EXEMPT))
+      expect(uncovered, `Uncovered components (add a frame/dial in packages/ui/src/preview, or an EXEMPT entry): ${uncovered.join(', ')}`).toEqual([])
+      const staleExemptions = Object.keys(EXEMPT).filter((component) => covered.has(component))
+      expect(staleExemptions, `EXEMPT entries that now render (remove them from EXEMPT): ${staleExemptions.join(', ')}`).toEqual([])
+    })
+    test(`coverage page 0`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/design.html?view=team-start')
+      await page.getByRole('button', { name: 'Picker', exact: true }).click()
+      await expect(page.getByRole('dialog', { name: 'New Team', exact: true })).toBeVisible()
+      const teamStartCoverage = await collectCoverage(page)
+      expect(teamStartCoverage.covered).toContain('components/FrontDoor.tsx#FrontDoor')
+      for (const component of teamStartCoverage.covered) covered.add(component)
+    })
 
-for (const [item, query] of (['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels', '?board-list', '?team-frame=controls', '?tile-browsers']).entries()) test(`coverage page 1: query ${item}`, async () => { const page = getPage(); test.setTimeout(360_000);
-await page.goto(`/preview.html${query}`)
-if (query === '?board-list') {
+    for (const [item, query] of (['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels', '?board-list', '?team-frame=controls', '?tile-browsers']).entries()) test(`coverage page 1: query ${item}`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto(`/preview.html${query}`)
+      if (query === '?board-list') {
         const board = page.locator('[data-frame-id="board-list-page"]')
         await board.locator('[data-slot="top-bar"]').getByRole('button', { name: 'View', exact: true }).click()
         await page.getByRole('menuitem', { name: 'List', exact: true }).click()
         await expect(board.locator('[data-slot="board-list"]')).toBeVisible()
       }
-if (query === '?team-frame=controls') await expect(page.getByRole('menuitem', {name:'Fill the window',exact:true})).toBeVisible()
-await settleCoveragePage(page)
-const result = await collectCoverage(page)
-allComponents = result.allComponents
-for (const file of result.covered) covered.add(file)
-})
-
-test("coverage page 2", async () => { const page = getPage(); test.setTimeout(360_000);
-await page.goto('/preview.html')
-await page.locator('[data-frame-id="coverage-answer-actions"]').getByRole('button', { name: 'Mark this response as good', exact: true }).click()
-await expect(page.locator('[data-frame-id="coverage-answer-actions"] [data-message-actions][data-sticky]')).toBeVisible()
-for (const component of (await collectCoverage(page)).covered) covered.add(component)
-})
-
-test("coverage page 3", async () => { const page = getPage(); test.setTimeout(360_000);
-await installFramePreviewFixture(page)
-})
-
-test("coverage page 4", async () => { const page = getPage(); test.setTimeout(360_000);
-await page.goto('/preview.html?frame-wall=conversation&frame-update=1')
-await expect(page.getByRole('button', { name: 'Relaunch to update', exact: true })).toBeVisible()
-for (const component of (await collectCoverage(page)).covered) covered.add(component)
-})
-
-for (const [item, scene] of (['comparison', 'investigation']).entries()) test(`coverage page 5: scene ${item}`, async () => { const page = getPage(); test.setTimeout(360_000);
-await page.goto(`/preview.html?run-shapes=${scene}`)
-await page.locator('#run-shapes-frame [data-step-row][data-row="card-1-1"] button').click()
-if (scene === 'comparison') await expect(page.locator('[data-slot="run-inspector"] [data-slot="timeline-card"]')).toHaveCount(2)
-      else await expect(page.locator('[data-slot="timeline-document-body"]')).toContainText('Investigation answer')
-for (const component of (await collectCoverage(page)).covered) covered.add(component)
-})
-
-test("coverage page 6", async () => { const page = getPage(); test.setTimeout(360_000);
-await page.goto('/preview.html?side-by-side')
-await expect(page.locator('[data-frame-id="side-by-side-two"] [data-shared-composer]')).toBeVisible()
-const sharedComposerCoverage = await collectCoverage(page)
-expect(sharedComposerCoverage.covered).toContain('components/RoomComposerOptions.tsx#RoomComposerOptions')
-for (const component of sharedComposerCoverage.covered) covered.add(component)
-})
-
-test("coverage page 7", async () => { const page = getPage(); test.setTimeout(360_000);
-await page.goto('/preview.html?comparison-verdict')
-await expect(page.locator('[data-frame-id="comparison-picked"] [data-slot="comparison-decision"]')).toContainText('The judge picked A')
-const verdictCoverage = await collectCoverage(page)
-expect(verdictCoverage.covered).toContain('components/ComparisonVerdict.tsx#ComparisonVerdict')
-expect(verdictCoverage.covered).toContain('components/ComparisonActions.tsx#ComparisonActions')
-for (const component of verdictCoverage.covered) covered.add(component)
-await page.locator('[data-frame-id="comparison-person"]').getByRole('button', { name: 'Pick an attempt…' }).click()
-const pick = page.getByRole('dialog', { name: 'Pick the better attempt' })
-await expect(pick.getByRole('radiogroup', { name: 'Attempts' })).toBeVisible()
-await expect(pick).toContainText('attempt-1')
-const personCoverage = await collectCoverage(page)
-expect(personCoverage.covered).toContain('components/PersonStepDialog.tsx#PersonStepDialog')
-for (const component of personCoverage.covered) covered.add(component)
-})
-
-test("coverage page 8", async () => { const page = getPage(); test.setTimeout(360_000);
-await page.goto('/preview.html?team-frame=trigger-runs')
-const triggerFrame = page.locator('[data-frame-id="team-frame"]')
-const triggerTeam = triggerFrame.locator('[data-slot="team-room"]')
-await selectTeamPage(triggerFrame, 'runs')
-await expect(triggerTeam.locator('[data-slot="team-runs"]')).toBeVisible()
-const triggerCoverage = await collectCoverage(page)
-expect(triggerCoverage.covered).toContain('components/TeamRuns.tsx#TeamRuns')
-for (const component of triggerCoverage.covered) covered.add(component)
-})
-
-test("coverage page 9", async () => { const page = getPage(); test.setTimeout(360_000);
-await page.goto('/preview.html?frame-wall=conversation&frame-details-case=active')
-await page.locator('[data-slot="top-bar"]:visible [data-work-tool="details"]').click()
-await expect(page.locator('[data-slot="tool-body"]:visible [aria-label="Conversation facts"]')).toBeVisible()
-const conversationDetailsCoverage = await collectCoverage(page)
-expect(conversationDetailsCoverage.covered).toContain('panels/work-details.tsx#ConversationDetails')
-expect(conversationDetailsCoverage.covered).toContain('components/Conversation.tsx#GitControl')
-for (const component of conversationDetailsCoverage.covered) covered.add(component)
-})
-
-test("coverage page 10", async () => { const page = getPage(); test.setTimeout(360_000);
-await page.goto('/preview.html?frame-wall=conversation&frame-tool=changes')
-await expect(page.locator('[data-slot="tool-body"]:visible').getByText('Changes', { exact: true })).toBeVisible()
-const workChangesCoverage = await collectCoverage(page)
-expect(workChangesCoverage.covered).toContain('components/WorkToolContents.tsx#WorkChangesView')
-for (const component of workChangesCoverage.covered) covered.add(component)
-})
-
-test("coverage page 11", async () => { const page = getPage(); test.setTimeout(360_000);
-await page.goto('/preview.html?frame-wall=team')
-const heldTeam = page.locator('[data-frame-id="frame-wall"]')
-await selectTeamPage(heldTeam, 'room')
-const heldComposer = heldTeam.locator('[data-slot="room-body"] [data-slot="composer"]:visible').first()
-const heldDraft = heldComposer.locator('textarea').first()
-await heldDraft.fill('Keep this coverage draft while messages are held.')
-await heldComposer.getByRole('button', { name: 'Send to', exact: true }).click()
-await page.getByRole('switch', { name: 'Board-only', exact: true }).click()
-await expect(heldComposer.getByText('Board-only', { exact: true })).toBeVisible()
-await expect(heldDraft).toHaveValue('Keep this coverage draft while messages are held.')
-await expect(heldDraft).toBeEnabled()
-const holdingCoverage = await collectCoverage(page)
-expect(holdingCoverage.covered).toContain('components/RoomMessaging.tsx#HoldingMessagesChip')
-for (const component of holdingCoverage.covered) covered.add(component)
-})
-
-test("coverage page 12", async () => { const page = getPage(); test.setTimeout(360_000);
-await page.goto('/preview.html?run-dock')
-const runFrame = page.locator('#run-dock-frame')
-await selectTeamPage(runFrame, 'run')
-await runFrame.locator('[data-row][data-kind="card"]').first().click()
-await expect(runFrame.locator('[data-slot="tool-body"]:visible [data-slot="run-inspector"]')).toBeVisible()
-for (const component of (await collectCoverage(page)).covered) covered.add(component)
-await closeTeamDetails(runFrame)
-await selectRunView(runFrame, 'Timeline')
-await expect(runFrame.locator('[data-slot="workbench-main"] [data-slot="run-steps"]')).toBeVisible()
-for (const component of (await collectCoverage(page)).covered) covered.add(component)
-})
-
-test("coverage page 13", async () => { const page = getPage(); test.setTimeout(360_000);
-await page.goto('/preview.html?storage=page')
-await expect(page.getByRole('button', { name: 'Review…', exact: true })).toBeVisible()
-const storageCoverage = await collectCoverage(page)
-expect(storageCoverage.covered).toContain('components/Storage.tsx#StorageSection')
-for (const component of storageCoverage.covered) covered.add(component)
-await page.getByRole('button', { name: 'Discard worktree…', exact: true }).first().click()
-await expect(page.getByRole('alertdialog', { name: 'Discard worktree?' })).toBeVisible()
-const discardCoverage = await collectCoverage(page)
-expect(discardCoverage.covered).toContain('components/DiscardWorktree.tsx#DiscardWorktree')
-for (const component of discardCoverage.covered) covered.add(component)
-})
-
-test("coverage page 14", async () => { const page = getPage(); test.setTimeout(360_000);
-await page.goto('/preview.html?history')
-await expect(page.locator('[data-frame-id="history-rows"]').getByRole('button', { name: 'Trace the slow startup', exact: true })).toBeVisible()
-await expect(page.locator('[data-frame-id="history-agent-done"]').getByRole('button', { name: 'Browse', exact: true })).toBeVisible()
-const historyCoverage = await collectCoverage(page)
-expect(historyCoverage.covered).toContain('components/History.tsx#HistorySection')
-expect(historyCoverage.covered).toContain('components/History.tsx#AgentHistory')
-for (const component of historyCoverage.covered) covered.add(component)
-expect(allComponents).toEqual(expect.arrayContaining([
-      'components/Settings.tsx#Settings',
-      'components/usage/ActivityView.tsx#ActivityView',
-      'panels/Workbench.tsx#Workbench',
-    ]))
-})
-
-test("coverage page 15", async () => { const page = getPage(); test.setTimeout(360_000);
-await page.goto('/preview.html?board-list')
-const boardFrame = page.locator('[data-frame-id="board-list-page"]')
-await boardFrame.locator('[data-slot="top-bar"]').getByRole('button', { name: 'View', exact: true }).click()
-await page.getByRole('menuitem', { name: 'List', exact: true }).click()
-await expect(boardFrame.getByRole('table', { name: 'Jobs', exact: true })).toBeVisible()
-for (const component of (await collectCoverage(page)).covered) covered.add(component)
-})
-
-for (const [item, query] of (['', '?composer']).entries()) test(`coverage page 16: query ${item}`, async () => { const page = getPage(); test.setTimeout(360_000);
-await page.goto(`/preview.html${query}`)
-await settleCoveragePage(page)
-for (const component of (await sweepSelectsForCoverage(page)).covered) covered.add(component)
-})
-
-test("coverage page: design inventory", async () => { const page = getPage(); test.setTimeout(360_000);
-await page.goto('/design.html')
-await settleCoveragePage(page)
-{
+      if (query === '?team-frame=controls') await expect(page.getByRole('menuitem', { name: 'Fill the window', exact: true })).toBeVisible()
+      await settleCoveragePage(page)
       const result = await collectCoverage(page)
+      allComponents = result.allComponents
       for (const file of result.covered) covered.add(file)
-    }
-const boardNav = page.getByRole('navigation').filter({ has: page.getByText('Design system', { exact: true }) })
-const boardControls = boardNav.locator(':scope > button')
-const boardLabels = [...new Set(await boardControls.allTextContents())]
-      .map((label) => label.trim())
-      .filter(Boolean)
-expect(boardLabels).toEqual(PAGE_ITEMS.boards)
-})
+    })
 
-for (const label of PAGE_ITEMS.boards) test(`coverage board: ${label}`, async () => {
-const page = getPage();
-if (new URL(page.url()).pathname !== '/design.html') { await page.goto('/design.html'); await settleCoveragePage(page) }
-const boardNav = page.getByRole('navigation').filter({ has: page.getByText('Design system', { exact: true }) });
-const board = boardNav.getByRole('button', { name: label, exact: true })
-await expect(board).toHaveCount(1)
-await board.click()
-const selected = boardNav.locator(':scope > button[data-selected="true"]')
-await expect(selected).toHaveCount(1)
-await expect(selected).toHaveText(label)
-const isProductSurface = await board.evaluate((button) => {
+    test(`coverage page 2`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html')
+      await page.locator('[data-frame-id="coverage-answer-actions"]').getByRole('button', { name: 'Mark this response as good', exact: true }).click()
+      await expect(page.locator('[data-frame-id="coverage-answer-actions"] [data-message-actions][data-sticky]')).toBeVisible()
+      for (const component of (await collectCoverage(page)).covered) covered.add(component)
+    })
+
+    test(`coverage page 3`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await installFramePreviewFixture(page)
+    })
+
+    test(`coverage page 4`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?frame-wall=conversation&frame-update=1')
+      await expect(page.getByRole('button', { name: 'Relaunch to update', exact: true })).toBeVisible()
+      for (const component of (await collectCoverage(page)).covered) covered.add(component)
+    })
+
+    for (const [item, scene] of (['comparison', 'investigation']).entries()) test(`coverage page 5: scene ${item}`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto(`/preview.html?run-shapes=${scene}`)
+      await page.locator('#run-shapes-frame [data-step-row][data-row="card-1-1"] button').click()
+      if (scene === 'comparison') await expect(page.locator('[data-slot="run-inspector"] [data-slot="timeline-card"]')).toHaveCount(2)
+      else await expect(page.locator('[data-slot="timeline-document-body"]')).toContainText('Investigation answer')
+      for (const component of (await collectCoverage(page)).covered) covered.add(component)
+    })
+
+    test(`coverage page 6`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?side-by-side')
+      await expect(page.locator('[data-frame-id="side-by-side-two"] [data-shared-composer]')).toBeVisible()
+      const sharedComposerCoverage = await collectCoverage(page)
+      expect(sharedComposerCoverage.covered).toContain('components/RoomComposerOptions.tsx#RoomComposerOptions')
+      for (const component of sharedComposerCoverage.covered) covered.add(component)
+    })
+
+    test(`coverage page 7`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?comparison-verdict')
+      await expect(page.locator('[data-frame-id="comparison-picked"] [data-slot="comparison-decision"]')).toContainText('The judge picked A')
+      const verdictCoverage = await collectCoverage(page)
+      expect(verdictCoverage.covered).toContain('components/ComparisonVerdict.tsx#ComparisonVerdict')
+      expect(verdictCoverage.covered).toContain('components/ComparisonActions.tsx#ComparisonActions')
+      for (const component of verdictCoverage.covered) covered.add(component)
+      await page.locator('[data-frame-id="comparison-person"]').getByRole('button', { name: 'Pick an attempt…' }).click()
+      const pick = page.getByRole('dialog', { name: 'Pick the better attempt' })
+      await expect(pick.getByRole('radiogroup', { name: 'Attempts' })).toBeVisible()
+      await expect(pick).toContainText('attempt-1')
+      const personCoverage = await collectCoverage(page)
+      expect(personCoverage.covered).toContain('components/PersonStepDialog.tsx#PersonStepDialog')
+      for (const component of personCoverage.covered) covered.add(component)
+    })
+
+    test(`coverage page 8`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?team-frame=trigger-runs')
+      const triggerFrame = page.locator('[data-frame-id="team-frame"]')
+      const triggerTeam = triggerFrame.locator('[data-slot="team-room"]')
+      await selectTeamPage(triggerFrame, 'runs')
+      await expect(triggerTeam.locator('[data-slot="team-runs"]')).toBeVisible()
+      const triggerCoverage = await collectCoverage(page)
+      expect(triggerCoverage.covered).toContain('components/TeamRuns.tsx#TeamRuns')
+      for (const component of triggerCoverage.covered) covered.add(component)
+    })
+
+    test(`coverage page 9`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?frame-wall=conversation&frame-details-case=active')
+      await page.locator('[data-slot="top-bar"]:visible [data-work-tool="details"]').click()
+      await expect(page.locator('[data-slot="tool-body"]:visible [aria-label="Conversation facts"]')).toBeVisible()
+      const conversationDetailsCoverage = await collectCoverage(page)
+      expect(conversationDetailsCoverage.covered).toContain('panels/work-details.tsx#ConversationDetails')
+      expect(conversationDetailsCoverage.covered).toContain('components/Conversation.tsx#GitControl')
+      for (const component of conversationDetailsCoverage.covered) covered.add(component)
+    })
+
+    test(`coverage page 10`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?frame-wall=conversation&frame-tool=changes')
+      await expect(page.locator('[data-slot="tool-body"]:visible').getByText('Changes', { exact: true })).toBeVisible()
+      const workChangesCoverage = await collectCoverage(page)
+      expect(workChangesCoverage.covered).toContain('components/WorkToolContents.tsx#WorkChangesView')
+      for (const component of workChangesCoverage.covered) covered.add(component)
+    })
+
+    test(`coverage page 11`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?frame-wall=team')
+      const heldTeam = page.locator('[data-frame-id="frame-wall"]')
+      await selectTeamPage(heldTeam, 'room')
+      const heldComposer = heldTeam.locator('[data-slot="room-body"] [data-slot="composer"]:visible').first()
+      const heldDraft = heldComposer.locator('textarea').first()
+      await heldDraft.fill('Keep this coverage draft while messages are held.')
+      await heldComposer.getByRole('button', { name: 'Send to', exact: true }).click()
+      await page.getByRole('switch', { name: 'Board-only', exact: true }).click()
+      await expect(heldComposer.getByText('Board-only', { exact: true })).toBeVisible()
+      await expect(heldDraft).toHaveValue('Keep this coverage draft while messages are held.')
+      await expect(heldDraft).toBeEnabled()
+      const holdingCoverage = await collectCoverage(page)
+      expect(holdingCoverage.covered).toContain('components/RoomMessaging.tsx#HoldingMessagesChip')
+      for (const component of holdingCoverage.covered) covered.add(component)
+    })
+
+    test(`coverage page 12`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?run-dock')
+      const runFrame = page.locator('#run-dock-frame')
+      await selectTeamPage(runFrame, 'run')
+      await runFrame.locator('[data-row][data-kind="card"]').first().click()
+      await expect(runFrame.locator('[data-slot="tool-body"]:visible [data-slot="run-inspector"]')).toBeVisible()
+      for (const component of (await collectCoverage(page)).covered) covered.add(component)
+      await closeTeamDetails(runFrame)
+      await selectRunView(runFrame, 'Timeline')
+      await expect(runFrame.locator('[data-slot="workbench-main"] [data-slot="run-steps"]')).toBeVisible()
+      for (const component of (await collectCoverage(page)).covered) covered.add(component)
+    })
+
+    test(`coverage page 13`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?storage=page')
+      await expect(page.getByRole('button', { name: 'Review…', exact: true })).toBeVisible()
+      const storageCoverage = await collectCoverage(page)
+      expect(storageCoverage.covered).toContain('components/Storage.tsx#StorageSection')
+      for (const component of storageCoverage.covered) covered.add(component)
+      await page.getByRole('button', { name: 'Discard worktree…', exact: true }).first().click()
+      await expect(page.getByRole('alertdialog', { name: 'Discard worktree?' })).toBeVisible()
+      const discardCoverage = await collectCoverage(page)
+      expect(discardCoverage.covered).toContain('components/DiscardWorktree.tsx#DiscardWorktree')
+      for (const component of discardCoverage.covered) covered.add(component)
+    })
+
+    test(`coverage page 14`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?history')
+      await expect(page.locator('[data-frame-id="history-rows"]').getByRole('button', { name: 'Trace the slow startup', exact: true })).toBeVisible()
+      await expect(page.locator('[data-frame-id="history-agent-done"]').getByRole('button', { name: 'Browse', exact: true })).toBeVisible()
+      const historyCoverage = await collectCoverage(page)
+      expect(historyCoverage.covered).toContain('components/History.tsx#HistorySection')
+      expect(historyCoverage.covered).toContain('components/History.tsx#AgentHistory')
+      for (const component of historyCoverage.covered) covered.add(component)
+      expect(allComponents).toEqual(expect.arrayContaining([
+        'components/Settings.tsx#Settings',
+        'components/usage/ActivityView.tsx#ActivityView',
+        'panels/Workbench.tsx#Workbench',
+      ]))
+    })
+
+    test(`coverage page 15`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?board-list')
+      const boardFrame = page.locator('[data-frame-id="board-list-page"]')
+      await boardFrame.locator('[data-slot="top-bar"]').getByRole('button', { name: 'View', exact: true }).click()
+      await page.getByRole('menuitem', { name: 'List', exact: true }).click()
+      await expect(boardFrame.getByRole('table', { name: 'Jobs', exact: true })).toBeVisible()
+      for (const component of (await collectCoverage(page)).covered) covered.add(component)
+    })
+
+    for (const [item, query] of (['', '?composer']).entries()) test(`coverage page 16: query ${item}`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto(`/preview.html${query}`)
+      await settleCoveragePage(page)
+      for (const component of (await sweepSelectsForCoverage(page)).covered) covered.add(component)
+    })
+
+    test("coverage page: design inventory", async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/design.html')
+      await settleCoveragePage(page)
+      {
+        const result = await collectCoverage(page)
+        for (const file of result.covered) covered.add(file)
+      }
+      const boardNav = page.getByRole('navigation').filter({ has: page.getByText('Design system', { exact: true }) })
+      const boardControls = boardNav.locator(':scope > button')
+      const boardLabels = [...new Set(await boardControls.allTextContents())]
+        .map((label) => label.trim())
+        .filter(Boolean)
+      expect(boardLabels).toEqual(PAGE_ITEMS.boards)
+    })
+
+    for (const label of PAGE_ITEMS.boards) test(`coverage board: ${label}`, async () => {
+      const page = getPage();
+      if (new URL(page.url()).pathname !== '/design.html') { await page.goto('/design.html'); await settleCoveragePage(page) }
+      const boardNav = page.getByRole('navigation').filter({ has: page.getByText('Design system', { exact: true }) });
+      const board = boardNav.getByRole('button', { name: label, exact: true })
+      await expect(board).toHaveCount(1)
+      await board.click()
+      const selected = boardNav.locator(':scope > button[data-selected="true"]')
+      await expect(selected).toHaveCount(1)
+      await expect(selected).toHaveText(label)
+      const isProductSurface = await board.evaluate((button) => {
         let heading = button.previousElementSibling
         while (heading?.tagName === 'BUTTON') heading = heading.previousElementSibling
         return heading?.textContent?.trim() === 'Product Surfaces'
       })
-if (isProductSurface) await waitForLazyBoardToSettle(page, label)
-const result = await collectCoverage(page)
-for (const file of result.covered) covered.add(file)
-if (label === 'Panels') expect(result.covered).toContain('panels/Workbench.tsx#Workbench')
-})
-})
+      if (isProductSurface) await waitForLazyBoardToSettle(page, label)
+      const result = await collectCoverage(page)
+      for (const file of result.covered) covered.add(file)
+      if (label === 'Panels') expect(result.covered).toContain('panels/Workbench.tsx#Workbench')
+    })
+  })
 
   test('preview shows the three board-tool permission card states and keeps grants quiet', async ({ page }) => {
     await page.goto('/preview.html?board-tool-approvals')
@@ -813,7 +831,7 @@ for (const theme of ['light', 'dark'] as const) {
     await dialog.getByRole('button', { name: 'Keep', exact: true }).click()
     await frame.getByRole('button', { name: 'Fix the project picker actions', exact: true }).click()
     const deletion = page.getByRole('menuitem', { name: /^Delete everywhere…(?:\s|$)/ })
-    await expect(deletion).toHaveAttribute('aria-disabled','true')
+    await expect(deletion).toHaveAttribute('aria-disabled', 'true')
     await expect(deletion).toHaveAttribute('title', 'Beta erases it for good, so delete it there')
   })
 }

@@ -67,12 +67,12 @@ for (const theme of ['light', 'dark'] as const) {
 
 {
 
-for (const [item0, route] of (['/design.html?view=head', '/preview.html']).entries()) test(('the catalogue and preview show the real text and controls in all four CJK scripts') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+  for (const [item0, route] of (['/design.html?view=head', '/preview.html']).entries()) test(`the catalogue and preview show the real text and controls in all four CJK scripts [item ${[item0].join('-')}]`, async ({ page }) => {
 
-await page.goto(route)
-const specimen = page.getByTestId('cjk-specimen')
-await expect(specimen).toBeVisible()
-for (const lang of ['zh-Hans', 'zh-Hant', 'ja', 'ko']) {
+    await page.goto(route)
+    const specimen = page.getByTestId('cjk-specimen')
+    await expect(specimen).toBeVisible()
+    for (const lang of ['zh-Hans', 'zh-Hant', 'ja', 'ko']) {
       const sample = specimen.locator(`[data-cjk-language="${lang}"]`)
       await expect(sample.locator('[data-cjk-sample]')).toBeVisible()
       await expect(sample.locator('[data-cjk-glyph]')).not.toHaveCount(0)
@@ -82,5 +82,5 @@ for (const lang of ['zh-Hans', 'zh-Hant', 'ja', 'ko']) {
     }
 
 
-})
+  })
 }

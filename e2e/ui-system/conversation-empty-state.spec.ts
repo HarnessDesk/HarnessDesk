@@ -57,17 +57,17 @@ for (const theme of ['light', 'dark'] as const) {
 for (const theme of ['light', 'dark'] as const) {
   {
 
-for (const [item0, scene] of (['opening', 'restore']).entries()) test((`an empty conversation still fills its reading area in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
-await page.setViewportSize({ width: 1100, height: 800 })
-await page.emulateMedia({ colorScheme: theme })
-await page.goto(`/preview.html?notices=conversation-${scene}-before`)
-const empty = page.locator('[data-slot="conversation-empty-state"]')
-await expect(empty).toBeVisible()
-const box = (await empty.boundingBox())!
-const readingHeight = await empty.locator('..').evaluate(el => el.clientHeight)
-expect(box.height).toBeGreaterThan(readingHeight * 0.75)
+    for (const [item0, scene] of (['opening', 'restore']).entries()) test(`an empty conversation still fills its reading area in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
+      await page.setViewportSize({ width: 1100, height: 800 })
+      await page.emulateMedia({ colorScheme: theme })
+      await page.goto(`/preview.html?notices=conversation-${scene}-before`)
+      const empty = page.locator('[data-slot="conversation-empty-state"]')
+      await expect(empty).toBeVisible()
+      const box = (await empty.boundingBox())!
+      const readingHeight = await empty.locator('..').evaluate(el => el.clientHeight)
+      expect(box.height).toBeGreaterThan(readingHeight * 0.75)
 
 
-})
-}
+    })
+  }
 }

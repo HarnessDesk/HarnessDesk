@@ -44,9 +44,9 @@ test('keyboard reaches the findings filters, a row’s detail, and back', async 
 
 {
 
-for (const [item0, width] of ([1440, 680]).entries()) test(('desktop and narrow layouts keep every sentence inside the pane') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+  for (const [item0, width] of ([1440, 680]).entries()) test(`desktop and narrow layouts keep every sentence inside the pane [item ${[item0].join('-')}]`, async ({ page }) => {
 
-for (const colorScheme of ['light', 'dark'] as const) {
+    for (const colorScheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme })
       await page.setViewportSize({ width, height: 900 })
       await page.goto('/preview.html')
@@ -84,7 +84,7 @@ for (const colorScheme of ['light', 'dark'] as const) {
     }
 
 
-})
+  })
 }
 
 for (const theme of ['light', 'dark'] as const) {

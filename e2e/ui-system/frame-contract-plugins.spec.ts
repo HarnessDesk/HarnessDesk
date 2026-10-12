@@ -97,15 +97,15 @@ test('E7 Plugins failed detail keeps its reason and guarded source actions', asy
 
 {
 
-for (const [item0, label] of (['Agents', 'Library', 'Dashboard', 'Settings']).entries()) test(('E7 Plugins every other normal column destination door navigates away') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+  for (const [item0, label] of (['Agents', 'Library', 'Dashboard', 'Settings']).entries()) test(`E7 Plugins every other normal column destination door navigates away [item ${[item0].join('-')}]`, async ({ page }) => {
 
-await openFrame(page, 'frame-wall=navigation', 'light')
-const column = page.locator('[data-left-column]:visible')
-await column.getByRole('button', { name: 'Plugins', exact: true }).click()
-await expect(page.locator('[data-page-destination="plugins"]:visible')).toHaveCount(1)
-await column.getByRole('button', { name: label, exact: true }).click()
-await expect(page.locator('[data-page-destination="plugins"]:visible')).toHaveCount(0)
+    await openFrame(page, 'frame-wall=navigation', 'light')
+    const column = page.locator('[data-left-column]:visible')
+    await column.getByRole('button', { name: 'Plugins', exact: true }).click()
+    await expect(page.locator('[data-page-destination="plugins"]:visible')).toHaveCount(1)
+    await column.getByRole('button', { name: label, exact: true }).click()
+    await expect(page.locator('[data-page-destination="plugins"]:visible')).toHaveCount(0)
 
 
-})
+  })
 }

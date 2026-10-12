@@ -65,9 +65,9 @@ test('History expands in place and always names an exact duplicate', async ({ pa
 
 {
 
-for (const [item0, width] of ([1280, 640]).entries()) test(('project trigger states fit light, dark and narrow layouts with no clipped sentence') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+  for (const [item0, width] of ([1280, 640]).entries()) test(`project trigger states fit light, dark and narrow layouts with no clipped sentence [item ${[item0].join('-')}]`, async ({ page }) => {
 
-for (const colorScheme of ['light', 'dark'] as const) {
+    for (const colorScheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme })
       await page.setViewportSize({ width, height: 900 })
       await page.goto('/preview.html')
@@ -87,5 +87,5 @@ for (const colorScheme of ['light', 'dark'] as const) {
     }
 
 
-})
+  })
 }

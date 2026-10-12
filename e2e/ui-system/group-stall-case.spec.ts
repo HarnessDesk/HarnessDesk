@@ -3,18 +3,18 @@ import { expect, test } from '@playwright/test'
 /** The Run owns its refusal; the other Team destinations lead there. */
 {
 
-for (const [themeItem, theme] of (['light', 'dark']).entries()) {
+  for (const [themeItem, theme] of (['light', 'dark']).entries()) {
 
-for (const [item0, name] of (['Overview', 'Board', 'Chat', 'Run']).entries()) test((('a stopped Team keeps its full reason on Run and a recovery link on the other pages') + ' [item ' + [themeItem].join('-') + ']') + ' [item ' + [item0].join('-') + ']', async ({ page }, info) => {
-await page.goto('/design.html?view=group')
-await page.evaluate(async () => { await document.fonts.ready })
-const wrap = page.locator('[data-testid="group-run-stalled-on-a-seat"]')
-await expect(wrap).toBeVisible()
-await wrap.scrollIntoViewIfNeeded()
-await expect(wrap.locator('header').filter({ hasText: 'Needs you' }).first()).toBeVisible()
-await page.evaluate(value => { document.body.toggleAttribute('data-hd-dark-theme', value === 'dark'); document.documentElement.style.colorScheme = value }, theme)
-await wrap.getByRole('tab', { name: new RegExp(`^${name}\\b`) }).click()
-if (name === 'Run') {
+    for (const [item0, name] of (['Overview', 'Board', 'Chat', 'Run']).entries()) test(`a stopped Team keeps its full reason on Run and a recovery link on the other pages [item ${[themeItem].join('-')}] [item ${[item0].join('-')}]`, async ({ page }, info) => {
+      await page.goto('/design.html?view=group')
+      await page.evaluate(async () => { await document.fonts.ready })
+      const wrap = page.locator('[data-testid="group-run-stalled-on-a-seat"]')
+      await expect(wrap).toBeVisible()
+      await wrap.scrollIntoViewIfNeeded()
+      await expect(wrap.locator('header').filter({ hasText: 'Needs you' }).first()).toBeVisible()
+      await page.evaluate(value => { document.body.toggleAttribute('data-hd-dark-theme', value === 'dark'); document.documentElement.style.colorScheme = value }, theme)
+      await wrap.getByRole('tab', { name: new RegExp(`^${name}\\b`) }).click()
+      if (name === 'Run') {
         const reason = wrap.locator('[data-slot="run-need"]')
         await expect(reason).toContainText('The Seat for card #1 could not be opened')
         await expect(reason).toContainText('card #2 was not started either')
@@ -29,10 +29,10 @@ if (name === 'Run') {
         await expect(wrap.locator('[data-slot="run-need"]')).toContainText('The Seat for card #1 could not be opened')
         await wrap.getByRole('tab', { name: new RegExp(`^${name}\\b`) }).click()
       }
-await expect(wrap).not.toContainText('wrap this Goal')
-await info.attach(`stopped-${name.toLowerCase()}-${theme}`, { body: await wrap.screenshot(), contentType: 'image/png' })
+      await expect(wrap).not.toContainText('wrap this Goal')
+      await info.attach(`stopped-${name.toLowerCase()}-${theme}`, { body: await wrap.screenshot(), contentType: 'image/png' })
 
 
-})
-}
+    })
+  }
 }

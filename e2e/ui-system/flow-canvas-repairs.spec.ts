@@ -96,33 +96,33 @@ for (const theme of ['light', 'dark'] as const) {
 
     {
 
-for (const [item0, width] of ([1280, 640, 390]).entries()) test(('poster tools yield to the plan while attribution remains') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+      for (const [item0, width] of ([1280, 640, 390]).entries()) test(`poster tools yield to the plan while attribution remains [item ${[item0].join('-')}]`, async ({ page }) => {
 
-await page.setViewportSize({ width, height: 900 })
-await page.goto(`/preview.html?site-run=poster&theme=${theme}`)
-const poster = page.locator('[data-slot="site-poster"]')
-await expect(poster.locator('.react-flow__node')).toHaveCount(6)
-await expect(poster.getByRole('button', { name: 'Fit plan' })).toHaveCount(0)
-await expect(poster.locator('.react-flow__minimap')).toHaveCount(0)
-await expect(poster.locator('.react-flow__attribution a')).toBeVisible()
+        await page.setViewportSize({ width, height: 900 })
+        await page.goto(`/preview.html?site-run=poster&theme=${theme}`)
+        const poster = page.locator('[data-slot="site-poster"]')
+        await expect(poster.locator('.react-flow__node')).toHaveCount(6)
+        await expect(poster.getByRole('button', { name: 'Fit plan' })).toHaveCount(0)
+        await expect(poster.locator('.react-flow__minimap')).toHaveCount(0)
+        await expect(poster.locator('.react-flow__attribution a')).toBeVisible()
 
 
-})
-}
+      })
+    }
 
     {
 
-for (const [item0, width] of ([1440, 1024, 700, 390]).entries()) test(('the shape column opens at a readable scale') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+      for (const [item0, width] of ([1440, 1024, 700, 390]).entries()) test(`the shape column opens at a readable scale [item ${[item0].join('-')}]`, async ({ page }) => {
 
-await page.setViewportSize({ width, height: 900 })
-await page.goto(`/preview.html?shape-graph&theme=${theme}`)
-const canvas = page.locator('#shape-graph [data-slot="flow-canvas"]')
-await expect(canvas.locator('.react-flow__node')).toHaveCount(6)
-await expect.poll(() => canvas.locator('.react-flow__viewport').evaluate(el => new DOMMatrixReadOnly(getComputedStyle(el).transform).a)).toBeGreaterThanOrEqual(0.8)
+        await page.setViewportSize({ width, height: 900 })
+        await page.goto(`/preview.html?shape-graph&theme=${theme}`)
+        const canvas = page.locator('#shape-graph [data-slot="flow-canvas"]')
+        await expect(canvas.locator('.react-flow__node')).toHaveCount(6)
+        await expect.poll(() => canvas.locator('.react-flow__viewport').evaluate(el => new DOMMatrixReadOnly(getComputedStyle(el).transform).a)).toBeGreaterThanOrEqual(0.8)
 
 
-})
-}
+      })
+    }
 
     test('a narrow Run reaches the last Step and Rules by wheel and restores the wide view', async ({ page }) => {
       const pane = await run(page, theme)
@@ -246,38 +246,38 @@ await expect.poll(() => canvas.locator('.react-flow__viewport').evaluate(el => n
 
     {
 
-for (const [item0, width] of ([1280, 720, 390]).entries()) test(('the need banner heads the Flow tab, above the drawing and on its left edge') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+      for (const [item0, width] of ([1280, 720, 390]).entries()) test(`the need banner heads the Flow tab, above the drawing and on its left edge [item ${[item0].join('-')}]`, async ({ page }) => {
 
-await page.setViewportSize({ width, height: 900 })
-await page.goto(`/preview.html?run-view&theme=${theme}`)
-const rig = page.locator('#run-view-team')
-if (width === 390) await selectTeamDestination(rig, 'run')
+        await page.setViewportSize({ width, height: 900 })
+        await page.goto(`/preview.html?run-view&theme=${theme}`)
+        const rig = page.locator('#run-view-team')
+        if (width === 390) await selectTeamDestination(rig, 'run')
         else await selectTeamPage(rig, 'run')
-await selectRunView(rig, 'Flow')
-const need = rig.locator('[data-slot="run-need"]')
-const canvas = rig.locator('[data-slot="flow-canvas"]')
-await expect(canvas.locator('.react-flow__node').first()).toBeVisible()
-if (process.env.FLOW_REPAIR_FRAMES_DIR) {
+        await selectRunView(rig, 'Flow')
+        const need = rig.locator('[data-slot="run-need"]')
+        const canvas = rig.locator('[data-slot="flow-canvas"]')
+        await expect(canvas.locator('.react-flow__node').first()).toBeVisible()
+        if (process.env.FLOW_REPAIR_FRAMES_DIR) {
           await mkdir(process.env.FLOW_REPAIR_FRAMES_DIR, { recursive: true })
           await page.evaluate(async () => { await document.fonts.ready })
           expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
           await rig.screenshot({ path: `${process.env.FLOW_REPAIR_FRAMES_DIR}/round6-run-banner-${width}-${theme}-${process.env.FLOW_REPAIR_FRAME_PHASE ?? 'after'}.png` })
         }
-await expect.soft(need, `banner at ${width}px`).toContainText('Ended without a next step')
-const banner = (await need.boundingBox())!
-const card = (await need.locator('> *').first().boundingBox())!
-const drawn = (await canvas.boundingBox())!
-expect.soft(card.width, `banner card at ${width}px`).toBeGreaterThan(200)
-expect.soft(Math.abs(banner.x - drawn.x), `banner left edge at ${width}px`).toBeLessThan(1.5)
-expect.soft(Math.abs(banner.width - drawn.width), `banner width at ${width}px`).toBeLessThan(1.5)
-expect.soft(banner.y + banner.height, `banner above the drawing at ${width}px`).toBeLessThanOrEqual(drawn.y + 0.5)
-expect.soft(drawn.height, `drawing at ${width}px`).toBeGreaterThan(width < 600 ? 100 : 200)
-const door = need.getByRole('button').first()
-await expect.soft(door, `banner action at ${width}px`).toBeInViewport()
+        await expect.soft(need, `banner at ${width}px`).toContainText('Ended without a next step')
+        const banner = (await need.boundingBox())!
+        const card = (await need.locator('> *').first().boundingBox())!
+        const drawn = (await canvas.boundingBox())!
+        expect.soft(card.width, `banner card at ${width}px`).toBeGreaterThan(200)
+        expect.soft(Math.abs(banner.x - drawn.x), `banner left edge at ${width}px`).toBeLessThan(1.5)
+        expect.soft(Math.abs(banner.width - drawn.width), `banner width at ${width}px`).toBeLessThan(1.5)
+        expect.soft(banner.y + banner.height, `banner above the drawing at ${width}px`).toBeLessThanOrEqual(drawn.y + 0.5)
+        expect.soft(drawn.height, `drawing at ${width}px`).toBeGreaterThan(width < 600 ? 100 : 200)
+        const door = need.getByRole('button').first()
+        await expect.soft(door, `banner action at ${width}px`).toBeInViewport()
 
 
-})
-}
+      })
+    }
 
     test('repair frames contain only the synthetic desk and poster', async ({ page }) => {
       const folder = process.env.FLOW_REPAIR_FRAMES_DIR

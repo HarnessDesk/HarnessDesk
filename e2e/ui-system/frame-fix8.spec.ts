@@ -12,34 +12,34 @@ const openFrame = async (page: Page, query: string, width = 1280, theme: 'light'
 
 {
 
-for (const [item0, theme] of (['light', 'dark'] as const).entries()) test(('kept conversation opens read-only after runtime failure') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+  for (const [item0, theme] of (['light', 'dark'] as const).entries()) test(`kept conversation opens read-only after runtime failure [item ${[item0].join('-')}]`, async ({ page }) => {
 
-await openFrame(page, 'frame-wall=conversation&frame-fix8-kept=1', 1280, theme)
-const row = page.getByRole('button', { name: 'Kept conversation', exact: true })
-await row.click()
-await expect(page.locator('[data-live-transcript]')).toContainText('First kept message')
-await expect(page.locator('textarea:visible')).toHaveCount(0)
-await expect(page.locator('[data-slot="notice-strip"]')).toHaveCount(0)
-await expect(page.locator('[data-slot="composer-dock"]').filter({ hasText: 'Choose a working installation in Settings.' }).last()).toContainText('Choose a working installation in Settings.')
-await expect(page.locator('[data-work-tool="activity"]')).toBeDisabled()
-await expect(page.locator('[data-work-tool="activity"]')).toHaveAttribute('title', /failed its version check/)
+    await openFrame(page, 'frame-wall=conversation&frame-fix8-kept=1', 1280, theme)
+    const row = page.getByRole('button', { name: 'Kept conversation', exact: true })
+    await row.click()
+    await expect(page.locator('[data-live-transcript]')).toContainText('First kept message')
+    await expect(page.locator('textarea:visible')).toHaveCount(0)
+    await expect(page.locator('[data-slot="notice-strip"]')).toHaveCount(0)
+    await expect(page.locator('[data-slot="composer-dock"]').filter({ hasText: 'Choose a working installation in Settings.' }).last()).toContainText('Choose a working installation in Settings.')
+    await expect(page.locator('[data-work-tool="activity"]')).toBeDisabled()
+    await expect(page.locator('[data-work-tool="activity"]')).toHaveAttribute('title', /failed its version check/)
 
 
-})
+  })
 }
 
 {
 
-for (const [item0, state] of (['failed', 'starting']).entries()) test(('draft composer distinguishes a failed runtime from one starting') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+  for (const [item0, state] of (['failed', 'starting']).entries()) test(`draft composer distinguishes a failed runtime from one starting [item ${[item0].join('-')}]`, async ({ page }) => {
 
-await openFrame(page, `frame-wall=draft&frame-fix8-readiness=${state}`)
-const textarea = page.locator('textarea:visible')
-await expect(textarea).toHaveAttribute('placeholder', state === 'starting'
+    await openFrame(page, `frame-wall=draft&frame-fix8-readiness=${state}`)
+    const textarea = page.locator('textarea:visible')
+    await expect(textarea).toHaveAttribute('placeholder', state === 'starting'
       ? 'Waiting for the runtime…' : 'The agent failed its version check. Choose a working installation in Settings.')
-await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Send', exact: true })).toBeDisabled()
 
 
-})
+  })
 }
 
 test('column filter keeps a matching conversation across repository worktrees', async ({ page }) => {
@@ -53,22 +53,22 @@ test('column filter keeps a matching conversation across repository worktrees', 
 
 {
 
-for (const [item0, width] of ([1100, 720]).entries()) for (const [item1, tool] of (['Changes', 'Details', 'Browser']).entries()) test(('right tools overlay the full main area below the wide breakpoint') + ' [item ' + [item0,item1].join('-') + ']', async ({ page }) => {
+  for (const [item0, width] of ([1100, 720]).entries()) for (const [item1, tool] of (['Changes', 'Details', 'Browser']).entries()) test(`right tools overlay the full main area below the wide breakpoint [item ${[item0, item1].join('-')}]`, async ({ page }) => {
 
-await openFrame(page, 'frame-wall=conversation', width)
-const main = page.locator('[data-frame-region="main"]:visible')
-const before = await main.boundingBox()
-await page.getByRole('button', { name: tool, exact: true }).first().click()
-const right = page.locator('[data-frame-region="right"]:visible')
-await expect(right).toBeVisible()
-const after = await main.boundingBox(), panel = await right.boundingBox()
-expect(after!.width).toBe(before!.width)
-expect(panel!.x).toBeGreaterThanOrEqual(after!.x)
-expect(panel!.x).toBeLessThan(after!.x + after!.width)
-expect(panel!.x + panel!.width).toBe(before!.x + before!.width)
+    await openFrame(page, 'frame-wall=conversation', width)
+    const main = page.locator('[data-frame-region="main"]:visible')
+    const before = await main.boundingBox()
+    await page.getByRole('button', { name: tool, exact: true }).first().click()
+    const right = page.locator('[data-frame-region="right"]:visible')
+    await expect(right).toBeVisible()
+    const after = await main.boundingBox(), panel = await right.boundingBox()
+    expect(after!.width).toBe(before!.width)
+    expect(panel!.x).toBeGreaterThanOrEqual(after!.x)
+    expect(panel!.x).toBeLessThan(after!.x + after!.width)
+    expect(panel!.x + panel!.width).toBe(before!.x + before!.width)
 
 
-})
+  })
 }
 
 test('dashboard without plan reports explains the absence once', async ({ page }) => {
@@ -125,17 +125,17 @@ test('stopping a waiting Team removes its command approval', async ({ page }) =>
 
 {
 
-for (const [item0, theme] of (['light', 'dark'] as const).entries()) test(('settled Team Receipt and Findings share the kept finding and count') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+  for (const [item0, theme] of (['light', 'dark'] as const).entries()) test(`settled Team Receipt and Findings share the kept finding and count [item ${[item0].join('-')}]`, async ({ page }) => {
 
-await openFrame(page, 'frame-wall=team-receipt&frame-fix8-receipt-finding=1', 1280, theme)
-await expect(page.getByRole('tab', { name: 'Findings 1', exact: true })).toBeVisible()
-await expect(page.getByRole('button', { name: /Missing null check on the checkout path/ })).toBeVisible()
-await page.getByRole('tab', { name: 'Findings 1', exact: true }).click()
-await expect(page.getByRole('region', { name: 'Findings', exact: true })).toContainText('Missing null check on the checkout path')
-await expect(page.getByText('No findings recorded', { exact: true })).toHaveCount(0)
+    await openFrame(page, 'frame-wall=team-receipt&frame-fix8-receipt-finding=1', 1280, theme)
+    await expect(page.getByRole('tab', { name: 'Findings 1', exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: /Missing null check on the checkout path/ })).toBeVisible()
+    await page.getByRole('tab', { name: 'Findings 1', exact: true }).click()
+    await expect(page.getByRole('region', { name: 'Findings', exact: true })).toContainText('Missing null check on the checkout path')
+    await expect(page.getByText('No findings recorded', { exact: true })).toHaveCount(0)
 
 
-})
+  })
 }
 
 test('command strip waits for approval before saying it is running', async ({ page }) => {
@@ -147,47 +147,47 @@ test('command strip waits for approval before saying it is running', async ({ pa
 
 {
 
-for (const [item0, width] of ([1280, 720]).entries()) test(('permission profile is grouped described and selectable at both widths') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+  for (const [item0, width] of ([1280, 720]).entries()) test(`permission profile is grouped described and selectable at both widths [item ${[item0].join('-')}]`, async ({ page }) => {
 
-await openFrame(page, 'frame-wall=draft&frame-fix8-permission-profile=1', width)
-await page.getByRole('button', { name: /Workspace write/ }).last().click()
-const menu = page.getByRole('menu')
-await expect(menu.getByText('Profiles', { exact: true })).toBeVisible()
-const row = menu.getByRole('menuitemradio', { name: 'ci Checks files using the project configuration.', exact: true })
-await expect(row).toHaveAttribute('aria-checked', 'false')
-const box = await row.boundingBox()
-expect(box!.x).toBeGreaterThanOrEqual(0)
-expect(box!.x + box!.width).toBeLessThanOrEqual(width)
-await row.click()
-await page.getByRole('button', { name: width === 720 ? 'ci — what the agent may do' : 'ci', exact: true }).click()
-await expect(page.getByRole('menuitemradio', { name: 'ci Checks files using the project configuration.', exact: true })).toHaveAttribute('aria-checked', 'true')
+    await openFrame(page, 'frame-wall=draft&frame-fix8-permission-profile=1', width)
+    await page.getByRole('button', { name: /Workspace write/ }).last().click()
+    const menu = page.getByRole('menu')
+    await expect(menu.getByText('Profiles', { exact: true })).toBeVisible()
+    const row = menu.getByRole('menuitemradio', { name: 'ci Checks files using the project configuration.', exact: true })
+    await expect(row).toHaveAttribute('aria-checked', 'false')
+    const box = await row.boundingBox()
+    expect(box!.x).toBeGreaterThanOrEqual(0)
+    expect(box!.x + box!.width).toBeLessThanOrEqual(width)
+    await row.click()
+    await page.getByRole('button', { name: width === 720 ? 'ci — what the agent may do' : 'ci', exact: true }).click()
+    await expect(page.getByRole('menuitemradio', { name: 'ci Checks files using the project configuration.', exact: true })).toHaveAttribute('aria-checked', 'true')
 
 
-})
+  })
 }
 
 {
 
-for (const [item0, theme] of (['light', 'dark'] as const).entries()) test(('accent leaves selection and on switches neutral in both themes') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+  for (const [item0, theme] of (['light', 'dark'] as const).entries()) test(`accent leaves selection and on switches neutral in both themes [item ${[item0].join('-')}]`, async ({ page }) => {
 
-await openFrame(page, 'frame-wall=settings&frame-section=appearance', 1280, theme)
-await page.getByRole('combobox', { name: 'Interface', exact: true }).selectOption('studio')
-const values = () => page.evaluate(() => {
+    await openFrame(page, 'frame-wall=settings&frame-section=appearance', 1280, theme)
+    await page.getByRole('combobox', { name: 'Interface', exact: true }).selectOption('studio')
+    const values = () => page.evaluate(() => {
       const style = getComputedStyle(document.body)
       return ['--hd-toggle-on', '--hd-toggle-knob-on', '--hd-sidebar-selected', '--hd-ring'].map(name => style.getPropertyValue(name).trim())
     })
-await page.getByRole('radio', { name: 'Violet', exact: true }).click()
-await expect(page.locator('body')).toHaveAttribute('data-hd-accent', 'violet')
-const violet = await values()
-await page.getByRole('radio', { name: 'Green', exact: true }).click()
-await expect(page.locator('body')).toHaveAttribute('data-hd-accent', 'green')
-const green = await values()
-expect(green.slice(0, 3)).toEqual(violet.slice(0, 3))
-expect(green[3]).not.toBe(violet[3])
-await expect(page.getByText('Focus rings and primary action highlights.', { exact: true })).toBeVisible()
+    await page.getByRole('radio', { name: 'Violet', exact: true }).click()
+    await expect(page.locator('body')).toHaveAttribute('data-hd-accent', 'violet')
+    const violet = await values()
+    await page.getByRole('radio', { name: 'Green', exact: true }).click()
+    await expect(page.locator('body')).toHaveAttribute('data-hd-accent', 'green')
+    const green = await values()
+    expect(green.slice(0, 3)).toEqual(violet.slice(0, 3))
+    expect(green[3]).not.toBe(violet[3])
+    await expect(page.getByText('Focus rings and primary action highlights.', { exact: true })).toBeVisible()
 
 
-})
+  })
 }
 
 test('palette shows one Agent door and refuses an unavailable explicit start', async ({ page }) => {

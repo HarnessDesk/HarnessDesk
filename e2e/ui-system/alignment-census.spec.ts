@@ -1,4 +1,4 @@
-import {cataloguePageCases, PAGE_ITEMS} from './catalogue-sweep'
+import { cataloguePageCases, PAGE_ITEMS } from './catalogue-sweep'
 import { readFileSync, writeFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 
@@ -16,25 +16,25 @@ const staged = new Map<string, string[]>()
 
 for (const theme of ['light', 'dark'] as const) {
 
-for (const [item0, shape] of (['comparison', 'fix-and-review']).entries()) test((`New Team role controls centre on their complete copy in ${theme}`) + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
-await page.emulateMedia({ colorScheme: theme })
-await page.goto(`/design.html?view=team-start`)
-await page.getByRole('button', { name: shape === 'comparison' ? 'Side by side' : 'Write and review', exact: true }).click()
-const dialog = page.getByRole('dialog').last()
-await expect(dialog.getByLabel(shape === 'comparison' ? 'What should both try?' : 'What should they do?')).toBeVisible()
-const rows = dialog.locator('section[aria-label="Who does what"] [data-slot="row"]')
-await expect(rows).toHaveCount(shape === 'comparison' ? 3 : 2)
-for (const row of await rows.all()) {
+  for (const [item0, shape] of (['comparison', 'fix-and-review']).entries()) test(`New Team role controls centre on their complete copy in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await page.goto(`/design.html?view=team-start`)
+    await page.getByRole('button', { name: shape === 'comparison' ? 'Side by side' : 'Write and review', exact: true }).click()
+    const dialog = page.getByRole('dialog').last()
+    await expect(dialog.getByLabel(shape === 'comparison' ? 'What should both try?' : 'What should they do?')).toBeVisible()
+    const rows = dialog.locator('section[aria-label="Who does what"] [data-slot="row"]')
+    await expect(rows).toHaveCount(shape === 'comparison' ? 3 : 2)
+    for (const row of await rows.all()) {
       // Shared Row centres the whole copy block, including an earned refusal
       // sentence. Measuring only its first line falsely nudges the controls.
       const label = (await row.locator('[data-slot="row-title"]').locator('..').boundingBox())!
       const control = (await row.locator('[data-slot="row-ctl"]').boundingBox())!
       expect(Math.abs(label.y + label.height / 2 - control.y - control.height / 2)).toBeLessThan(10)
     }
-expect(await dialog.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(false)
+    expect(await dialog.evaluate(el => el.scrollWidth > el.clientWidth)).toBe(false)
 
 
-})
+  })
 }
 
 if (UPDATE) writeOnceEveryTestPasses(test, () => writeFileSync(TABLE, `${JSON.stringify(wholeTable(staged), null, 2)}\n`))
@@ -270,11 +270,13 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     // A visible border/fill makes the button box its edge; a ghost button has no visible box, so align its glyph.
     const trailingEdge = visibleBox ? buttonRect.right : glyph.right
     if (Math.abs(columnRight - trailingEdge) >= 2 && surfaceRect.right - buttonRect.right <= 48) {
-      geometry.push({ check: 'trailing-glyph-off-column', target: descriptors(button),
+      geometry.push({
+        check: 'trailing-glyph-off-column', target: descriptors(button),
         label: button.getAttribute('aria-label') ?? button.getAttribute('title'),
         surface: descriptors(surface), row: descriptors(row), columnRight, trailingEdge,
         surfaceRight: surfaceRect.right, buttonRight: buttonRect.right, glyphRight: glyph.right,
-        rightInset, visibleBox, html: button.outerHTML })
+        rightInset, visibleBox, html: button.outerHTML
+      })
       record('trailing-glyph-off-column', button)
     }
   }
@@ -343,7 +345,7 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
     // from their ordinary padding edge, retaining any additional glyph offset.
     let cornerShift = 0
     if (header.matches('[data-corner], [data-slot="dock-panel-bar"]') &&
-        parseFloat(getComputedStyle(header).getPropertyValue('--titlebar-inset')) > 0) {
+      parseFloat(getComputedStyle(header).getPropertyValue('--titlebar-inset')) > 0) {
       const element = header as HTMLElement
       const padding = parseFloat(getComputedStyle(element).paddingLeft)
       const previous = element.style.getPropertyValue('--titlebar-inset')
@@ -357,9 +359,11 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
       }
     }
     if (headerText && bodyLeft !== null && Math.abs(headerText.left - cornerShift - bodyLeft) >= 2) {
-      geometry.push({ check: 'header-off-body', target: descriptors(header),
+      geometry.push({
+        check: 'header-off-body', target: descriptors(header),
         heading: heading.textContent, surface: descriptors(surface), headingLeft: headerText.left,
-        bodyLeft, cornerShift, html: header.outerHTML })
+        bodyLeft, cornerShift, html: header.outerHTML
+      })
       record('header-off-body', header)
     }
   }
@@ -372,82 +376,83 @@ const measure = async (page: import('@playwright/test').Page, rootSelector: stri
 }, { page: pageName, id: stableId, title })
 
 cataloguePageCases('the rendered frames and boards hold the alignment census ceiling', getPage => {
- const all: Record<Check, string[]> = {'lead-off-line':[], 'trailing-glyph-off-column':[], 'header-off-body':[]}
- const diagnostics = new Map<string,string>()
- for (const frame of PAGE_ITEMS.frames) test(`alignment census preview: ${frame.id}`, async () => {
- const page = getPage()
- if (new URL(page.url()).pathname !== '/preview.html') {await page.goto('/preview.html'); await settle(page)}
- const frames = await page.locator('#root > div > section').evaluateAll(nodes => nodes.filter(section=>section.querySelector(':scope > h2')&&section.querySelector(':scope > div')).map(section=>({selector:`[data-frame-id="${section.getAttribute('data-frame-id')}"] > div`,id:section.getAttribute('data-frame-id'),title:section.querySelector(':scope > h2')?.textContent?.trim()||`Frame ${section.getAttribute('data-frame-id')}` })))
- expect(frames.length, 'preview.html exposes its default frames without opening dials').toBeGreaterThan(10)
- for(const frame of frames) expect(frame.id,'each preview Frame has a stable data-frame-id').toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
- expect(frames).toEqual(PAGE_ITEMS.frames)
- const observed = await measure(page, frame.selector, 'preview.html', frame.id, frame.title)
-for (const [signature, title] of Object.entries(observed.diagnostics)) diagnostics.set(signature, title)
-for (const check of CHECKS) all[check].push(...observed.findings[check])
- })
- test('alignment census: mixed marked row-fold journey', async () => {const page=getPage();
-await page.goto('/design.html?view=row')
-await settle(page)
-const rowFoldCase = page.locator('[data-catalog-case="row-fold"][data-slot="rows"]')
-await expect(rowFoldCase.locator('[data-slot="row-folding"] > button [data-slot="row-mark"]'),
-    'the first folding row is marked').toHaveCount(1)
-await rowFoldCase.locator('[aria-label$="accounts under Codex"]').click()
-const revealedPlainRow = rowFoldCase.locator('[data-slot="row-folding"] + button')
-await expect(revealedPlainRow,
-    'the folding opener reveals the following row').toHaveCount(1)
-await expect(revealedPlainRow.locator('[data-slot="row-mark"]'),
-    'the revealed following row is unmarked').toHaveCount(0)
-})
- for (const [index, label] of PAGE_ITEMS.boards.entries()) test(`alignment census board: ${label}`, async () => {
- const page=getPage()
- if (new URL(page.url()).pathname !== '/design.html') {await page.goto('/design.html'); await settle(page)}
- const nav=page.getByRole('navigation').filter({has:page.getByText('Design system',{exact:true})}).locator(':scope > button'),boardCount=await nav.count()
- expect(boardCount,'design.html exposes boards through its own navigation').toBeGreaterThan(10)
- expect((await nav.allTextContents()).map(text=>text.replace(/\s+/g,' ').trim())).toEqual(PAGE_ITEMS.boards)
- const item = nav.nth(index)
-const title = (await item.innerText()).replace(/\s+/g, ' ').trim()
-await item.click()
-await page.locator('main h1').first().waitFor({ state: 'visible' })
-await settle(page)
-const actualTitle = (await page.locator('main h1').first().innerText()).replace(/\s+/g, ' ').trim()
-expect(actualTitle, `the ${title} navigation item opened its own board`).toBe(
+  const all: Record<Check, string[]> = { 'lead-off-line': [], 'trailing-glyph-off-column': [], 'header-off-body': [] }
+  const diagnostics = new Map<string, string>()
+  for (const frame of PAGE_ITEMS.frames) test(`alignment census preview: ${frame.id}`, async () => {
+    const page = getPage()
+    if (new URL(page.url()).pathname !== '/preview.html') { await page.goto('/preview.html'); await settle(page) }
+    const frames = await page.locator('#root > div > section').evaluateAll(nodes => nodes.filter(section => section.querySelector(':scope > h2') && section.querySelector(':scope > div')).map(section => ({ selector: `[data-frame-id="${section.getAttribute('data-frame-id')}"] > div`, id: section.getAttribute('data-frame-id'), title: section.querySelector(':scope > h2')?.textContent?.trim() || `Frame ${section.getAttribute('data-frame-id')}` })))
+    expect(frames.length, 'preview.html exposes its default frames without opening dials').toBeGreaterThan(10)
+    for (const frame of frames) expect(frame.id, 'each preview Frame has a stable data-frame-id').toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    expect(frames).toEqual(PAGE_ITEMS.frames)
+    const observed = await measure(page, frame.selector, 'preview.html', frame.id, frame.title)
+    for (const [signature, title] of Object.entries(observed.diagnostics)) diagnostics.set(signature, title)
+    for (const check of CHECKS) all[check].push(...observed.findings[check])
+  })
+  test('alignment census: mixed marked row-fold journey', async () => {
+    const page = getPage();
+    await page.goto('/design.html?view=row')
+    await settle(page)
+    const rowFoldCase = page.locator('[data-catalog-case="row-fold"][data-slot="rows"]')
+    await expect(rowFoldCase.locator('[data-slot="row-folding"] > button [data-slot="row-mark"]'),
+      'the first folding row is marked').toHaveCount(1)
+    await rowFoldCase.locator('[aria-label$="accounts under Codex"]').click()
+    const revealedPlainRow = rowFoldCase.locator('[data-slot="row-folding"] + button')
+    await expect(revealedPlainRow,
+      'the folding opener reveals the following row').toHaveCount(1)
+    await expect(revealedPlainRow.locator('[data-slot="row-mark"]'),
+      'the revealed following row is unmarked').toHaveCount(0)
+  })
+  for (const [index, label] of PAGE_ITEMS.boards.entries()) test(`alignment census board: ${label}`, async () => {
+    const page = getPage()
+    if (new URL(page.url()).pathname !== '/design.html') { await page.goto('/design.html'); await settle(page) }
+    const nav = page.getByRole('navigation').filter({ has: page.getByText('Design system', { exact: true }) }).locator(':scope > button'), boardCount = await nav.count()
+    expect(boardCount, 'design.html exposes boards through its own navigation').toBeGreaterThan(10)
+    expect((await nav.allTextContents()).map(text => text.replace(/\s+/g, ' ').trim())).toEqual(PAGE_ITEMS.boards)
+    const item = nav.nth(index)
+    const title = (await item.innerText()).replace(/\s+/g, ' ').trim()
+    await item.click()
+    await page.locator('main h1').first().waitFor({ state: 'visible' })
+    await settle(page)
+    const actualTitle = (await page.locator('main h1').first().innerText()).replace(/\s+/g, ' ').trim()
+    expect(actualTitle, `the ${title} navigation item opened its own board`).toBe(
       title === 'Foundation' ? 'Tokens' : title === 'Manifest' ? 'Coverage' : title,
     )
-await page.getByText('Mounting the screen…').waitFor({ state: 'hidden' })
-const boardRoot = page.locator('main > div').last()
-const stableId = await boardRoot.evaluate(element => {
+    await page.getByText('Mounting the screen…').waitFor({ state: 'hidden' })
+    const boardRoot = page.locator('main > div').last()
+    const stableId = await boardRoot.evaluate(element => {
       element.setAttribute('data-alignment-measure-root', '')
       return element.getAttribute('data-alignment-board-id')
     })
-expect(stableId, 'each explorer board exposes its registry id').toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
-const observed = await measure(page, '[data-alignment-measure-root]', 'design.html', stableId!, actualTitle)
-for (const [signature, title] of Object.entries(observed.diagnostics)) diagnostics.set(signature, title)
-for (const check of CHECKS) all[check].push(...observed.findings[check])
- })
- test.afterAll(async ({},testInfo) => {
-if (UPDATE) {
-    staged.clear()
-    for (const check of CHECKS) staged.set(check, all[check])
-    testInfo.annotations.push({ type: 'measured', description: CHECKS.map(check => `${check}: ${all[check].length} occurrences`).join(', ') })
-    return
-  }
-const table = recorded()
-const differences = CHECKS.flatMap(check => {
-    const actual = Object.fromEntries([...new Set(all[check])].sort().map(signature => [signature, 0])) as Record<string, number>
-    for (const signature of all[check]) actual[signature]++
-    const expected = table[check]?.signatures ?? {}
-    const newOnes = Object.entries(actual).filter(([signature, count]) => count > (expected[signature] ?? 0))
-      .map(([signature, count]) => `${check}: multiplicity rose ${expected[signature] ?? 0} → ${count} — ${diagnostics.get(signature) ?? 'visible title unavailable'}\n  ${signature}`)
-    const fixed = Object.entries(expected).filter(([signature, count]) => (actual[signature] ?? 0) < count)
-      .map(([signature, count]) => `${check}: fixed — re-record to lower the ceiling (${count} → ${actual[signature] ?? 0}) — ${diagnostics.get(signature) ?? 'visible title unavailable'}\n  ${signature}`)
-    const countError = table[check]?.count !== Object.values(expected).reduce((sum, count) => sum + count, 0)
-      ? [`${check}: recorded total ${table[check]?.count} does not match signature multiplicity ${Object.values(expected).reduce((sum, count) => sum + count, 0)}`] : []
-    return [...newOnes, ...fixed, ...countError]
+    expect(stableId, 'each explorer board exposes its registry id').toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
+    const observed = await measure(page, '[data-alignment-measure-root]', 'design.html', stableId!, actualTitle)
+    for (const [signature, title] of Object.entries(observed.diagnostics)) diagnostics.set(signature, title)
+    for (const check of CHECKS) all[check].push(...observed.findings[check])
   })
-for (const check of Object.keys(table)) if (!CHECKS.includes(check as Check)) differences.push(`${check}: recorded but no longer measured`)
-await testInfo.attach('alignment-census', { body: JSON.stringify(all, null, 2), contentType: 'application/json' })
-expect(differences.join('\n\n') || 'every recorded signature is still present and no new ones appeared').toBe('every recorded signature is still present and no new ones appeared')
-})
+  test.afterAll(async ({ }, testInfo) => {
+    if (UPDATE) {
+      staged.clear()
+      for (const check of CHECKS) staged.set(check, all[check])
+      testInfo.annotations.push({ type: 'measured', description: CHECKS.map(check => `${check}: ${all[check].length} occurrences`).join(', ') })
+      return
+    }
+    const table = recorded()
+    const differences = CHECKS.flatMap(check => {
+      const actual = Object.fromEntries([...new Set(all[check])].sort().map(signature => [signature, 0])) as Record<string, number>
+      for (const signature of all[check]) actual[signature]++
+      const expected = table[check]?.signatures ?? {}
+      const newOnes = Object.entries(actual).filter(([signature, count]) => count > (expected[signature] ?? 0))
+        .map(([signature, count]) => `${check}: multiplicity rose ${expected[signature] ?? 0} → ${count} — ${diagnostics.get(signature) ?? 'visible title unavailable'}\n  ${signature}`)
+      const fixed = Object.entries(expected).filter(([signature, count]) => (actual[signature] ?? 0) < count)
+        .map(([signature, count]) => `${check}: fixed — re-record to lower the ceiling (${count} → ${actual[signature] ?? 0}) — ${diagnostics.get(signature) ?? 'visible title unavailable'}\n  ${signature}`)
+      const countError = table[check]?.count !== Object.values(expected).reduce((sum, count) => sum + count, 0)
+        ? [`${check}: recorded total ${table[check]?.count} does not match signature multiplicity ${Object.values(expected).reduce((sum, count) => sum + count, 0)}`] : []
+      return [...newOnes, ...fixed, ...countError]
+    })
+    for (const check of Object.keys(table)) if (!CHECKS.includes(check as Check)) differences.push(`${check}: recorded but no longer measured`)
+    await testInfo.attach('alignment-census', { body: JSON.stringify(all, null, 2), contentType: 'application/json' })
+    expect(differences.join('\n\n') || 'every recorded signature is still present and no new ones appeared').toBe('every recorded signature is still present and no new ones appeared')
+  })
 })
 
 test('a frame title uses its bar edge and still detects a translated title', async ({ page }) => {
@@ -489,19 +494,19 @@ test('a page toolbar follows the pane gutter while its cards and centred facts k
   expect((await read()).findings['header-off-body']).toHaveLength(1)
 })
 
-for (const frameId of PAGE_ITEMS.placement) test(`placement frames are measured without exemptions: ${frameId}`, async ({page},testInfo) => {
-await page.goto('/preview.html?notice-placement')
-await settle(page)
-const frames = page.locator('[data-frame-id^="coverage-notice-"]')
-expect(await frames.count()).toBe(11)
-expect(await frames.evaluateAll(nodes=>nodes.map(node=>node.getAttribute('data-frame-id')))).toEqual(PAGE_ITEMS.placement)
-const frame=page.locator(`[data-frame-id="${frameId}"]`)
-const id = (await frame.getAttribute('data-frame-id'))!
-const notices = frame.locator('[data-slot="composer-notice"], [data-slot="notice-strip"]')
-await expect(notices).toHaveCount(1)
-const result = await measure(page, `[data-frame-id="${id}"] > div`, 'preview.html', id, id)
-await testInfo.attach(`${id}-geometry`, { body: JSON.stringify(result.geometry, null, 2), contentType: 'application/json' })
-for (const check of CHECKS) expect.soft(result.findings[check], `${id}: ${check} ${JSON.stringify(result.diagnostics)}`).toEqual([])
+for (const frameId of PAGE_ITEMS.placement) test(`placement frames are measured without exemptions: ${frameId}`, async ({ page }, testInfo) => {
+  await page.goto('/preview.html?notice-placement')
+  await settle(page)
+  const frames = page.locator('[data-frame-id^="coverage-notice-"]')
+  expect(await frames.count()).toBe(11)
+  expect(await frames.evaluateAll(nodes => nodes.map(node => node.getAttribute('data-frame-id')))).toEqual(PAGE_ITEMS.placement)
+  const frame = page.locator(`[data-frame-id="${frameId}"]`)
+  const id = (await frame.getAttribute('data-frame-id'))!
+  const notices = frame.locator('[data-slot="composer-notice"], [data-slot="notice-strip"]')
+  await expect(notices).toHaveCount(1)
+  const result = await measure(page, `[data-frame-id="${id}"] > div`, 'preview.html', id, id)
+  await testInfo.attach(`${id}-geometry`, { body: JSON.stringify(result.geometry, null, 2), contentType: 'application/json' })
+  for (const check of CHECKS) expect.soft(result.findings[check], `${id}: ${check} ${JSON.stringify(result.diagnostics)}`).toEqual([])
 })
 
 for (const [name, body] of [
@@ -535,7 +540,7 @@ test('a bare bar label shares a search lead while an icon tab shares its text', 
     element.setAttribute('data-slot', 'dock-panel-bar')
     element.querySelector('h2')!.setAttribute('data-slot', 'dock-panel-tab')
     element.querySelector('h2')!.insertAdjacentHTML('afterbegin', '<svg style="position:absolute; width:14px; height:14px"></svg>')
-    ;(element as HTMLElement).style.paddingLeft = '60px'
+      ; (element as HTMLElement).style.paddingLeft = '60px'
   })
   expect((await read()).findings['header-off-body']).toEqual([])
   await page.locator('h2').evaluate(element => { (element as HTMLElement).style.marginLeft = '8px' })
@@ -544,18 +549,18 @@ test('a bare bar label shares a search lead while an icon tab shares its text', 
 
 {
 
-for (const [item0, slot] of (['list-row-lead', 'row-mark', 'row-face', 'row-choice-mark', 'table-cell-lead']).entries()) test(('row-family leads centre on the row, and a first-line regression is caught') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+  for (const [item0, slot] of (['list-row-lead', 'row-mark', 'row-face', 'row-choice-mark', 'table-cell-lead']).entries()) test(`row-family leads centre on the row, and a first-line regression is caught [item ${[item0].join('-')}]`, async ({ page }) => {
 
-await page.setContent(`<main id="root"><div ${slot === 'list-row-lead' ? 'data-slot="list-row"' : ''} style="display:flex;align-items:center;gap:12px;height:100px">
+    await page.setContent(`<main id="root"><div ${slot === 'list-row-lead' ? 'data-slot="list-row"' : ''} style="display:flex;align-items:center;gap:12px;height:100px">
       <span data-slot="${slot}" style="display:flex;width:32px;height:32px"><svg width="20" height="20"></svg></span>
       <div style="line-height:20px">A title<br>A second line<br>A wrapping sentence</div>
     </div></main>`)
-expect((await measure(page, '#root', 'fixture', slot, slot)).findings['lead-off-line']).toEqual([])
-await page.locator(`[data-slot="${slot}"]`).evaluate(el => { (el as HTMLElement).style.transform = 'translateY(-12px)' })
-expect((await measure(page, '#root', 'fixture', slot, slot)).findings['lead-off-line']).toHaveLength(1)
+    expect((await measure(page, '#root', 'fixture', slot, slot)).findings['lead-off-line']).toEqual([])
+    await page.locator(`[data-slot="${slot}"]`).evaluate(el => { (el as HTMLElement).style.transform = 'translateY(-12px)' })
+    expect((await measure(page, '#root', 'fixture', slot, slot)).findings['lead-off-line']).toHaveLength(1)
 
 
-})
+  })
 }
 
 // An entry's own name is not a heading over its trailing reading.
