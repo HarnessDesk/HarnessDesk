@@ -287,21 +287,22 @@ for (const theme of WALL_THEMES) {
 
 test('D6 active Settings column owns the gear and keyboard focus', async ({ page }) => {
   await openFrame(page, 'frame-wall=settings', 'light')
-  const modal = page.locator('[data-slot="app-window"]:visible')
+  const modal = page.locator('[data-slot="fixed-shell"]:visible')
   const column = modal.locator('[data-left-column]:visible')
   await expect(column).toHaveCount(1)
   await expect(column.locator('[data-left-seat] button[aria-label="Settings"]')).toHaveAttribute('aria-pressed', 'true')
   await column.getByRole('button', { name: 'Appearance', exact: true }).focus()
   await page.keyboard.press('ArrowDown')
   await expect(column.getByRole('button', { name: 'Notifications', exact: true })).toBeFocused()
-  await expect(page.locator('[data-frame-region="left"] [data-left-column]:visible')).toHaveCount(0)
+  await expect(page.locator('[data-frame-region="left"] [data-left-column]:visible')).toHaveCount(1)
+  await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
 })
 
 for (const theme of WALL_THEMES) {
   for (const width of [1440, 1100, 720]) {
     test(`D6 Settings is a visible aligned mode at ${width} in ${theme}`, async ({ page }) => {
       await openFrame(page, 'frame-wall=settings-navigation', theme, width)
-      const modal = page.locator('[data-slot="app-window"]:visible')
+      const modal = page.locator('[data-slot="fixed-shell"]:visible')
       let column = modal.locator('[data-left-column]:visible')
       if (await column.count() === 0) {
         await modal.getByRole('button', { name: 'Show sidebar', exact: true }).click()
@@ -309,7 +310,7 @@ for (const theme of WALL_THEMES) {
       column = modal.locator('[data-left-column]:visible')
       await expect(column).toHaveCount(1)
       const top = column.locator('[data-left-top] [data-slot="bar"]')
-      const main = modal.locator('[data-shell-host="top"] [data-slot="bar"]')
+      const main = modal.locator('[data-frame-region="top"]')
       const topBox = (await top.boundingBox())!, mainBox = (await main.boundingBox())!
       expect(topBox.height).toBe(FRAME.bar.height)
       expect(Math.abs(topBox.y + topBox.height - mainBox.y - mainBox.height)).toBeLessThanOrEqual(1)
@@ -339,17 +340,22 @@ for (const theme of WALL_THEMES) {
       await expect(column.getByRole('button', { name: 'General', exact: true })).toHaveCount(0)
       await column.getByRole('searchbox', { name: 'Search settings' }).fill('')
       await column.getByRole('button', { name: 'Appearance', exact: true }).click()
+      if (width < FRAME.fold.sidebarFloats) {
+        await expect(column).toHaveCount(0)
+        await modal.getByRole('button', { name: 'Show sidebar', exact: true }).click()
+      }
       await expect(column.getByRole('button', { name: 'Appearance', exact: true })).toHaveAttribute('aria-current', 'page')
       await column.getByRole('button', { name: 'Settings', exact: true }).click()
       await expect(column.getByRole('button', { name: 'Appearance', exact: true })).toHaveAttribute('aria-current', 'page')
       await column.locator('[data-left-settings]').getByRole('button', { name: 'Back', exact: true }).click()
-      await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
+      await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(0)
+      await expect(page.locator('[data-slot="fixed-shell"]:visible')).toHaveCount(1)
     })
   }
   for (const destination of ['library', 'plugins']) {
     test(`D6 ${destination} keeps its Sessions door in ${theme}`, async ({ page }) => {
       await openFrame(page, `frame-wall=${destination}`, theme)
-      const column = page.locator('[data-slot="app-window"]:visible [data-left-column]:visible')
+      const column = page.locator('[data-slot="fixed-shell"]:visible [data-left-column]:visible')
       const label = destination === 'library' ? 'Library' : 'Plugins'
       await expect(column.getByRole('button', { name: label, exact: true })).toHaveAttribute('aria-current', 'page')
       await expect(column.locator('[data-left-seat]').getByRole('button', { name: 'Settings', exact: true }))
@@ -360,7 +366,7 @@ for (const theme of WALL_THEMES) {
 }
 test('D6 Escape closes the Settings float before the window and restores its lead focus', async ({ page }) => {
   await openFrame(page, 'frame-wall=settings-navigation', 'light', 720)
-  const modal = page.locator('[data-slot="app-window"]:visible')
+  const modal = page.locator('[data-slot="fixed-shell"]:visible')
   const show = modal.getByRole('button', { name: 'Show sidebar', exact: true })
   await show.click()
   const column = modal.locator('[data-left-column]:visible')
@@ -372,11 +378,12 @@ test('D6 Escape closes the Settings float before the window and restores its lea
   await expect(modal.locator('[data-left-column]:visible')).toHaveCount(0)
   await expect(show).toBeFocused()
   await page.keyboard.press('Escape')
-  await expect(page.locator('[data-slot="app-window"]:visible')).toHaveCount(0)
+  await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(0)
+  await expect(modal).toHaveCount(1)
 })
 test('D6 float keeps portalled account actions and traps its boundary', async ({ page }) => {
   await openFrame(page, 'frame-wall=settings-navigation', 'light', 720)
-  const modal = page.locator('[data-slot="app-window"]:visible')
+  const modal = page.locator('[data-slot="fixed-shell"]:visible')
   const show = modal.getByRole('button', { name: 'Show sidebar', exact: true })
   await show.click()
   const column = modal.locator('[data-left-column]:visible')
@@ -385,16 +392,18 @@ test('D6 float keeps portalled account actions and traps its boundary', async ({
   await gear.focus(); await page.keyboard.press('Tab'); await expect(hide).toBeFocused()
   await page.keyboard.press('Shift+Tab'); await expect(gear).toBeFocused()
   await column.locator('[data-left-seat] [data-slot="popover-trigger"]:not(:has([data-slot="inbox-button"]))').click()
-  await page.locator('[data-layout="profile"]:visible').click()
-  await expect(column).toBeVisible()
+  await page.getByRole('menuitem').and(page.locator('[title="Your name and picture. Nothing syncs between machines."]')).click()
+  await expect(column).toHaveCount(0)
   await expect(modal.locator('input[aria-label="Your name"]')).toBeVisible()
+  await show.click()
+  await expect(column).toBeVisible()
   await column.locator('[data-left-seat] [data-slot="popover-trigger"]:not(:has([data-slot="inbox-button"]))').click()
   await page.keyboard.press('Escape')
   await expect(column).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(column).toBeHidden(); await expect(show).toBeFocused()
   await show.click()
-  await modal.locator('[data-app-window-left-frame]').click({ position: { x: 500, y: 150 } })
+  await modal.locator('[data-slot="workbench-scrim"]').click({ position: { x: 500, y: 150 } })
   await expect(column).toBeHidden(); await expect(modal).toBeVisible()
 })
 
@@ -402,9 +411,11 @@ for (const theme of WALL_THEMES) {
   test(`D8 Settings page title has no redundant Settings crumb in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=settings-general', theme)
     await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1)
-    const place = page.locator('[data-slot="top-bar"]:visible [data-topbar="place"]')
+    const place = page.locator('[data-frame-region="top"] [data-topbar="place"]')
     await expect(place.locator('button')).toHaveCount(0)
-    await expect(place.locator('[data-topbar-title]')).toContainText('General')
+    await expect(place.locator('[data-topbar-title]')).toHaveText('')
+    await expect(page.locator('[data-page-destination="settings"]:visible').getByRole('heading', { name: 'General', exact: true })).toBeVisible()
+    await expectSettingsChrome(page, 1440)
   })
 }
 
