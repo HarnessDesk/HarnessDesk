@@ -1,7 +1,8 @@
-import { act } from 'react'
+import { act, useRef, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 import css from './MainDestination.module.css?raw'
+import { PopoverSurface } from './Popover'
 import { DestinationBody, MainDestination } from './MainDestination'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -34,4 +35,23 @@ it('retained native work keeps its layout box while hidden outside the clipped d
   expect(css).toMatch(/\.work\[data-hidden\]\s*\{[^}]*visibility:\s*hidden/)
   expect(css).toMatch(/\.work\[data-hidden\]\s*\{[^}]*pointer-events:\s*none/)
   expect(css).toMatch(/\.work\[data-hidden\]\s*\{[^}]*transform:\s*translateX\(-101%\)/)
+})
+
+it('dismisses an anchored recipient picker when its retained work becomes inactive', async () => {
+  const Work = () => {
+    const anchor = useRef<HTMLTextAreaElement>(null)
+    const [open, setOpen] = useState(true)
+    return <><textarea ref={anchor} defaultValue="Remember this draft @" />
+      {open && <PopoverSurface anchor={anchor} role="listbox" onDismiss={() => setOpen(false)}>Recipients</PopoverSurface>}
+    </>
+  }
+  const draw = (page: boolean) => act(async () => root.render(<MainDestination page={page} work={<Work />} pages={<input aria-label="Search settings" />} />))
+  await draw(false)
+  const draft = host.querySelector('textarea')!
+  expect(document.body.querySelector('[role="listbox"]')).not.toBeNull()
+  await draw(true)
+  expect(document.body.querySelector('[role="listbox"]')).toBeNull()
+  expect(host.querySelector('textarea')).toBe(draft)
+  expect(draft.value).toBe('Remember this draft @')
+  expect(host.querySelector('[data-slot="retained-work"]')?.hasAttribute('data-hidden')).toBe(true)
 })
