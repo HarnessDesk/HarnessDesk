@@ -53,13 +53,9 @@ export const contrastRatio = (foreground: string, background: string): number =>
 }
 
 export const layoutDestinations = (() => {
-  const seen = new Set<string>()
   return WALL_DESTINATIONS.filter(destination => {
     if (destination.surface === 'pattern' || destination.id.startsWith('popup-') || destination.query.includes('popup=')) return false
     if (destination.popup || destination.leftPopup || destination.hover || destination.focus || destination.plan || destination.infoTarget || destination.infoFocus || destination.contextInfo || destination.memberInfo || destination.account || destination.inbox || destination.undo || destination.git || destination.select || destination.composerAdd) return false
-    const key = [new URLSearchParams(destination.query).get('frame-wall'), destination.query.includes('layout-registry=1') ? 'layout-registry' : '', destination.tab, destination.viewChoice, destination.tool, destination.holdMessages].join('|')
-    if (seen.has(key)) return false
-    seen.add(key)
     return true
   })
 })()
