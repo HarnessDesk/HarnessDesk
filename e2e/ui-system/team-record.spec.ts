@@ -97,7 +97,11 @@ for (const theme of ['light','dark'] as const) {
     const group = head.nextElementSibling!
     const content = group.querySelector('[data-slot="row-mark"], [data-slot="row-title"], dt')
     if (!content) return true
-    return Math.abs(head.querySelector('[data-slot="section-name"]')!.getBoundingClientRect().left - content.getBoundingClientRect().left) < 2
+    const heading = head.querySelector('[data-slot="section-name"]')!
+    const item = content.closest('[data-slot="row"], [data-slot="summary-item"]')
+    const bodyInset = item ? parseFloat(getComputedStyle(item).paddingLeft) + parseFloat(getComputedStyle(item).borderLeftWidth) : 0
+    return Math.abs(heading.getBoundingClientRect().left - head.parentElement!.getBoundingClientRect().left) < 2
+      && Math.abs(content.getBoundingClientRect().left - (item ?? group).getBoundingClientRect().left - bodyInset) < 2
    })
    return { left: rect.left - outer.left, right: outer.right - rect.right, aligned }
   })
@@ -176,15 +180,15 @@ for (const theme of ['light','dark'] as const) {
   await selectTeamPage(shared,'run')
   const inspector=shared.locator('[data-slot="run-inspector"]')
   await expect(inspector).toHaveCount(0)
-  for(const [title,cost] of [['Review the change','$0.21'],['Review the retry budget again','$0.13']]) {
-   await shared.locator('[data-slot="run-view"]').getByRole('button',{name:new RegExp(title)}).click()
+  for(const [row,cost] of [['card-2-2','$0.21'],['card-3-3','$0.13']]) {
+   await shared.locator(`[data-step-row][data-row="${row}"]`).click()
    await expect(inspector).toContainText(cost)
    await expect(inspector).not.toContainText('Seat not recorded')
    await expect(inspector.getByRole('button',{name:'Open the conversation',exact:true})).toBeVisible()
   }
   const unlinked=page.locator('#team-record-unlinked')
   await selectTeamPage(unlinked,'run')
-  await unlinked.locator('[data-slot="run-view"]').getByRole('button',{name:/Review the change/}).click()
+  await unlinked.locator('[data-step-row][data-row="card-2-2"]').click()
   await expect(unlinked.locator('[data-slot="run-inspector"]')).toContainText('$0.21')
   await expect(unlinked.locator('[data-slot="run-inspector"]')).toContainText('Conversation not kept')
   await expect(unlinked.getByRole('button',{name:'Open the conversation',exact:true})).toHaveCount(0)
@@ -219,8 +223,8 @@ for (const theme of ['light','dark'] as const) {
   await (await members(frame)).locator('[data-slot="list-row"]').filter({has:page.getByRole('button',{name:'Actions for Alpha',exact:true})}).click()
   await closeTeamDetails(frame)
   await teamBar(frame).getByRole('button',{name:'More',exact:true}).click()
-  const compact=page.getByRole('button',{name:/^Compact now/})
-  await expect(compact).toBeDisabled()
+  const compact=page.getByRole('menuitem',{name:/^Compact now/})
+  await expect(compact).toHaveAttribute('aria-disabled','true')
   await expect(compact).toHaveAttribute('title','This Team is wrapped')
   await expect(compact).toContainText('This Team is wrapped')
   await page.keyboard.press('Escape')

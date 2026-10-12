@@ -11,3 +11,13 @@ export const selectRunView = async (frame: Locator, value: 'Timeline' | 'Flow'):
 }
 
 export const stopRun = (frame: Locator): Locator => runBar(frame).getByRole('button', { name: 'Stop run…', exact: true })
+
+/** The phone bar moves its complete verb into More. */
+export const clickStopRun = async (frame: Locator): Promise<void> => {
+  const direct = stopRun(frame)
+  if (await direct.isVisible()) await direct.click()
+  else {
+    await runBar(frame).getByRole('button', { name: 'More', exact: true }).click()
+    await frame.page().getByRole('menuitem', { name: /^Stop run…/ }).click()
+  }
+}

@@ -1,3 +1,4 @@
+import { addStandaloneRunRecords } from './run-record-fixture'
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import path from 'node:path'
 
@@ -49,8 +50,9 @@ const geometry = (row: Locator) => row.evaluate((el) => {
 
 for (const theme of ['light', 'dark'] as const) {
   test(`a check that ran twice reads under its row, and offers Run again… clear of its own words, in ${theme}`, async ({ page }) => {
+    await addStandaloneRunRecords(page)
     await open(page, theme)
-    for (const id of ['run-view-attempts', 'run-view-narrow']) {
+    for (const id of ['run-retained-attempts', 'run-retained-narrow']) {
       const view = page.locator(`#${id} [data-slot="run-view"]`)
       const row = view.locator('[data-row="check-2-2"]')
       await expect(row).toBeVisible()
@@ -64,7 +66,7 @@ for (const theme of ['light', 'dark'] as const) {
       expect(g.rowOverflows).toBe(false)
     }
 
-    const view = page.locator('#run-view-attempts [data-slot="run-view"]')
+    const view = page.locator('#run-retained-attempts [data-slot="run-view"]')
     expect(await view.locator('[data-kind]').evaluateAll((rows) => rows.map((one) => one.getAttribute('data-kind'))))
       .toEqual(['start', 'brief', 'round', 'card', 'round', 'check', 'attempt', 'attempt', 'round', 'card', 'findings', 'round', 'card'])
     const [one, two] = ['attempt-2-2-1', 'attempt-2-2-2'].map((id) => view.locator(`[data-row="${id}"]`))
@@ -79,8 +81,18 @@ for (const theme of ['light', 'dark'] as const) {
     // They are lines of the story, not rows to press.
     await one.click()
     await expect(view.locator('[aria-current="true"]')).toHaveCount(0)
-    await frame(page.locator('#run-view-attempts'), 'timeline-attempts', theme)
-    await frame(page.locator('#run-view-narrow'), 'timeline-narrow', theme)
+    await frame(page.locator('#run-retained-attempts'), 'timeline-attempts', theme)
+    await frame(page.locator('#run-retained-narrow'), 'timeline-narrow', theme)
+    // The compact app story keeps the same results reachable through Details.
+    const compact = page.locator('#run-view-attempts')
+    await compact.locator('[data-row="check-2-2"] button').click()
+    const details = compact.locator('[data-slot="run-inspector"]')
+    await expect(details.locator('[data-attempt]')).toHaveCount(2)
+    await expect(details.locator('[data-attempt="1"]')).toContainText('Failed')
+    await expect(details.locator('[data-attempt="2"]')).toContainText('Passed')
+    await expect(details.getByRole('button', { name: 'Run again…', exact: true })).toBeVisible()
+    expect(await details.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+
   })
 
   test(`an ended Run omits check retry, while a running check keeps its explained disabled action, in ${theme}`, async ({ page }) => {
@@ -92,7 +104,7 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(view.getByRole('button', { name: 'Run again…', exact: true })).toHaveCount(fresh)
       const door = view.locator(id === 'run-view-settled' ? '[data-slot="run-need"]' : '[data-slot="run-ending"]')
       await expect(door.getByRole('button', { name: 'Run again…', exact: true })).toHaveCount(fresh)
-      if (id === 'run-view-settled') await expect(view.locator('[data-slot="run-ending"] button')).toHaveCount(1)
+      if (id === 'run-view-settled') await expect(view.locator('[data-slot="run-ending"]')).toHaveCount(0)
     }
     for (const [scene, state] of [['check-refused', 'settled'], ['check-stopped', 'stopped']] as const) {
       const refused = page.locator(`#run-inspector-${scene} [data-slot="run-inspector"]`)
@@ -145,8 +157,12 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(inspector).toContainText('Verify the repair')
     await expect(inspector).toContainText('Reading attempts…')
     await expect(inspector).not.toContainText('No earlier attempts')
-    await expect(view.locator('[data-row="attempt-2-2-1"]')).toContainText('Failed')
-    await expect(view.locator('[data-row="attempt-2-2-2"]')).toContainText('Passed')
+    await view.locator('[data-row="check-2-2"] button').click()
+    await expect(inspector.locator('[data-attempt="1"]')).toContainText('Failed')
+    await expect(inspector.locator('[data-attempt="2"]')).toContainText('Passed')
+    await view.locator('[data-row="check-5-5"] button').click()
+    await expect(inspector).toContainText('Reading attempts…')
+    await expect(inspector).not.toContainText('No earlier attempts')
     await frame(frameOf, 'inspector-new-check-reading', theme)
   })
 

@@ -1,3 +1,4 @@
+import { runBar } from './run-frame-actions'
 import { expect, test } from '@playwright/test'
 import path from 'node:path'
 
@@ -59,12 +60,13 @@ for (const theme of ['light', 'dark'] as const) {
     // The frame no longer pushes main away or mounts local return buttons.
     await narrow.locator('[data-work-panel-toggle]').click()
     await expect(narrow.locator('[data-preview-tool-placement]')).toHaveCount(0)
-    await narrow.locator('[data-row="start"]').click()
+    await runBar(narrow).getByRole('button', { name: 'Details', exact: true }).click()
     await expect(narrow.locator('[data-slot="run-scroll"]')).toBeVisible()
-    await expect(narrow.locator('[data-slot="run-inspector"]')).toContainText('Brief')
+    await expect(narrow.locator('[data-slot="run-inspector"]')).toContainText('Cap the attempts.')
+    await expect(narrow.locator('[data-slot="run-inspector"]')).toContainText('Keep the retry bounded and the last failure visible.')
     await expect(narrow.getByRole('button', { name: 'Run timeline', exact: true })).toHaveCount(0)
     await expect(narrow.getByRole('button', { name: 'Run details', exact: true })).toHaveCount(0)
-    const body = narrow.locator('[data-slot="inspector-body"]')
+    const body = narrow.locator('[data-slot="tool-body"]')
     expect(await body.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
     await page.setViewportSize({ width: 390, height: 900 })
     await expect(frame.locator('[data-slot="run-inspector"]')).toBeVisible()

@@ -11,7 +11,8 @@ for (const theme of ['light', 'dark'] as const) {
     else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme', '')
     const running = page.locator('#run-view-running [data-slot="run-view"]')
     await expect(running).toBeVisible()
-    expect(await running.locator('[data-kind]').evaluateAll(rows => rows.map(row => row.getAttribute('data-kind')))).toEqual(['start', 'brief', 'round', 'card', 'round', 'check', 'round', 'card', 'findings', 'round', 'card'])
+    expect(await running.locator('[data-kind]').evaluateAll(rows => rows.map(row => row.getAttribute('data-kind')))).toEqual(['card', 'check', 'card', 'card'])
+    await expect(running.locator('[data-row="start"], [data-row="brief"], [data-kind="round"]')).toHaveCount(0)
     const selected = running.locator('[data-row="card-3-3"]')
     await selected.click()
     await expect(selected).toHaveAttribute('aria-current', 'true')
@@ -21,7 +22,7 @@ for (const theme of ['light', 'dark'] as const) {
       el.append(probe)
       const expected = getComputedStyle(probe).backgroundColor
       probe.remove()
-      return { fill: getComputedStyle(el).backgroundColor, expected }
+      return { fill: getComputedStyle(el.querySelector('[data-slot="timeline-summary"]')!).backgroundColor, expected }
     })
     expect(colors.fill).toBe(colors.expected)
     const narrow = page.locator('#run-view-narrow [data-slot="run-view"]')
@@ -29,14 +30,18 @@ for (const theme of ['light', 'dark'] as const) {
     expect(geometry.width).toBeLessThan(400)
     expect(geometry.scroll).toBeLessThanOrEqual(geometry.width + 1)
     expect(geometry.overflowing).toBe(false)
-    // Wrapped timeline copy shares the whole row centre with its lead.
-    const leadDeltas = await narrow.locator('[data-row]:has([data-slot="list-row-lead"])').evaluateAll(rows => rows.map(row => {
-      const lead = row.querySelector('[data-slot="list-row-lead"]')!.getBoundingClientRect()
-      const bounds = row.getBoundingClientRect()
-      return Math.abs((lead.top + lead.bottom - bounds.top - bounds.bottom) / 2)
+    // The flat Timeline's indicator shares the first title line's centre.
+    const leadDeltas = await narrow.locator('[data-step-row]').evaluateAll(rows => rows.map(row => {
+      const lead = row.querySelector('[data-slot="timeline-indicator"]')!.getBoundingClientRect()
+      const title = row.querySelector('[data-slot="timeline-heading"] button [data-slot="text"]')!
+      const range = document.createRange(); range.selectNodeContents(title)
+      const line = [...range.getClientRects()].find(rect => rect.height > 0)!
+      return Math.abs((lead.top + lead.bottom - line.top - line.bottom) / 2)
     }))
+    expect(leadDeltas.length).toBe(5)
     expect(leadDeltas.every(delta => delta < 1.5)).toBe(true)
-    await expect(narrow.getByText('Editing src/checkout/retry.ts')).toBeVisible()
+    await narrow.locator('[data-row="card-4-4"] button').click()
+    await expect(page.locator('#run-view-narrow [data-slot="run-inspector"]')).toContainText('Editing src/checkout/retry.ts')
     await expect(page.locator('#run-view-settled')).toContainText('Ended without a next step')
     await expect(stopRun(page.locator('#run-view-stopped'))).toBeDisabled()
     await expect(stopRun(page.locator('#run-view-stopped'))).toHaveAttribute('title', 'This Run is not running')
@@ -46,10 +51,16 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.locator('#run-view-pending')).toContainText('Reading checks and findings')
     await expect(page.locator('#run-view-failed')).toContainText('Some Run details could not be read')
     await expect(page.locator('#run-view-empty')).toContainText('No rounds have opened yet')
-    await expect(page.locator('#run-view-findings [data-kind="findings"]')).toContainText('2 findings')
-    await expect(page.locator('#run-view-findings [data-kind="findings"]')).toContainText('Repair accepted by reviewer')
-    await expect(page.locator('#run-view-findings [data-row="round-3"]')).toContainText('1 of 1 answered')
+    const findingsFrame = page.locator('#run-view-findings')
+    await findingsFrame.locator('[data-row="card-3-3"] button').click()
+    const findings = findingsFrame.locator('[data-slot="run-inspector"] [aria-label="Findings"]')
+    await expect(findings.getByText('The retry loop needs a ceiling', { exact: true })).toHaveCount(1)
+    await expect(findings.getByText('Keep the last failure visible', { exact: true })).toHaveCount(1)
+    await expect(findings).toContainText('Repair accepted by reviewer')
+    await expect(findingsFrame.locator('[data-slot="run-inspector"] [aria-label="Round 3"]')).toContainText('1 of 1 answered')
     const many = page.locator('#run-view-many [data-slot="run-scroll"]')
+    await expect(many).toContainText('Taken 20')
+    await page.locator('#run-view-many').evaluate(node => { (node as HTMLElement).style.height = '160px' })
     expect(await many.evaluate(el => el.scrollHeight > el.clientHeight)).toBe(true)
     const rig = page.locator('#run-view-team')
     await selectTeamPage(rig,'run')
@@ -86,16 +97,19 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.setViewportSize({ width: 390, height: 900 })
     await page.goto(`/preview.html?run-view&theme=${theme}`)
-    const findings = page.locator('#run-view-damaged-findings [data-kind="findings"]')
-    await expect(findings).toContainText('Unreadable · The finding history has a missing sequence.')
+    const frame = page.locator('#run-view-damaged-findings')
+    await frame.locator('[data-row="card-3-3"] button').click()
+    const findings = frame.locator('[data-slot="run-inspector"] [aria-label="Findings"]')
+    await expect(findings).toContainText('Unreadable')
+    await expect(findings).toContainText('The finding history has a missing sequence.')
     await expect(findings).toContainText('Repair claimed · awaiting review')
     await expect(findings).toContainText('Repair accepted by reviewer')
-    const detail = findings.locator('[data-slot="run-detail"]')
+    const detail = findings
     expect(await detail.evaluate(el => ({ clipped: el.scrollHeight > el.clientHeight + 1,
       overflow: el.scrollWidth > el.clientWidth + 1 }))).toEqual({ clipped: false, overflow: false })
   })
 
-  test(`selected Run chips retain readable ink and a visible boundary in ${theme}`, async ({ page }) => {
+  test(`selected Run chips retain readable ink and a visible boundary in ${theme}`, async ({ page }, testInfo) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?run-view&theme=${theme}`)
     const selected = page.locator('#run-view-many [data-row="card-3-3"]')
@@ -128,11 +142,12 @@ for (const theme of ['light', 'dark'] as const) {
       }
       const style = getComputedStyle(chip)
       const fill = ground(chip)
-      const rowFill = ground(row)
+      const rowFill = ground(row.querySelector('[data-slot="timeline-summary"]') ?? row)
       const edgeColor = style.boxShadow.match(/(?:rgba?|color)\([^)]*\)/)?.[0]
-      return { ink: contrast(over(rgba(style.color), fill), fill),
+      return { color: style.color, background: style.backgroundColor, shadow: style.boxShadow, fill, rowFill, ink: contrast(over(rgba(style.color), fill), fill),
         boundary: Math.max(contrast(fill, rowFill), edgeColor ? contrast(over(rgba(edgeColor), rowFill), rowFill) : 1) }
     })
+    await testInfo.attach('selected chip contrast', { body: JSON.stringify(ratios), contentType: 'application/json' })
     expect(ratios.ink).toBeGreaterThanOrEqual(4.5)
     expect(ratios.boundary).toBeGreaterThanOrEqual(3)
   })
@@ -146,27 +161,27 @@ for (const theme of ['light', 'dark'] as const) {
     const measure = await running.locator('[data-slot="run-reading"]').evaluate(el => {
       const box = el.getBoundingClientRect()
       const scroll = el.closest('[data-slot="run-scroll"]')!.getBoundingClientRect()
-      const rowElement = el.querySelector('[data-kind="round"]')!
+      const rowElement = el.querySelector('[data-step-row]')!
       const row = rowElement.getBoundingClientRect()
-      const meta = rowElement.querySelector('[data-slot="timeline-meta"]')!.getBoundingClientRect()
+      const meta = rowElement.querySelector('[data-slot="timeline-detail"]')!.getBoundingClientRect()
       const title = rowElement.querySelector('[data-slot="timeline-heading"]')!.getBoundingClientRect()
       return { width: box.width, column: Number.parseFloat(getComputedStyle(el).getPropertyValue('--hd-column')),
-        gutter: row.left - box.left, centre: (box.left + box.right - scroll.left - scroll.right) / 2,
-        metaAboveTitle: meta.bottom <= title.top }
+        gutter: title.left - box.left, centre: (box.left + box.right - scroll.left - scroll.right) / 2,
+        metaBelowTitle: meta.top >= title.bottom }
     })
     expect(measure.width).toBe(measure.column)
     expect(measure.gutter).toBe(32)
     expect(Math.abs(measure.centre)).toBeLessThan(1)
-    expect(measure.metaAboveTitle).toBe(true)
-    await expect(running.locator('[data-row="round-4"] [data-slot="timeline-meta"]')).toContainText('so far')
-    await expect(running.locator('[data-row="round-2"] [data-slot="timeline-meta"]')).toHaveCount(0)
+    expect(measure.metaBelowTitle).toBe(true)
+    await expect(running.locator('[data-row="card-4-4"] [data-slot="run-time"]')).toContainText('so far')
+    await expect(running.locator('[data-row="check-2-2"] [data-slot="run-time"]')).not.toContainText('so far')
     const stalled = page.locator('#run-view-stalled')
     const needBox = await stalled.locator('[data-slot="run-need"]').boundingBox()
     const readingBox = await stalled.locator('[data-slot="run-reading"]').boundingBox()
     expect(needBox!.x).toBe(readingBox!.x)
     expect(needBox!.width).toBe(readingBox!.width)
     await expect(stalled.locator('[data-slot="run-need"] button')).toHaveCount(1)
-    await expect(stalled.locator('[data-slot="run-ending"]')).not.toContainText('The desk stopped')
+    await expect(stalled.locator('[data-slot="run-ending"]')).toHaveCount(0)
     const workspace = page.locator('#run-view-flow')
     await selectRunView(workspace, 'Timeline')
     const header = runBar(workspace)
@@ -209,8 +224,8 @@ for (const theme of ['light', 'dark'] as const) {
     }
     await selectRunView(flow, 'Timeline')
     const check = flow.locator('[data-row="check-2-2"]')
-    await expect(check).toContainText(shown)
-    await expect(check.locator('[title]').filter({ hasText: shown })).toHaveAttribute('title', raw)
+    await expect(check).toContainText('Verify')
+    await expect(check).toHaveAttribute('data-step-row', 'verify')
     await check.click()
     await expect(flow.locator('[data-slot="run-inspector"]')).toContainText(shown)
     await expect(flow.locator('[data-slot="run-inspector"] [title]').filter({ hasText: shown })).toHaveAttribute('title', raw)
@@ -240,10 +255,11 @@ for (const theme of ['light', 'dark'] as const) {
   test(`Timeline rings align with the first title line and motion respects the person in ${theme}`, async ({ page }) => {
     await page.goto(`/preview.html?run-view&theme=${theme}`)
     const timeline = page.locator('#run-view-running [data-slot="timeline"]')
-    await expect(timeline.locator(':scope > [data-slot="timeline-item"]')).toHaveCount(6)
+    await expect(timeline.locator(':scope > [data-slot="timeline-item"]')).toHaveCount(5)
     expect(await timeline.evaluate(el => [...el.children].every(child => child.tagName === 'LI'))).toBe(true)
-    for (const row of ['start', 'brief', 'round-1', 'round-2', 'round-3', 'round-4']) {
-      await expect(timeline.locator(`:scope > [data-slot="timeline-item"] [data-row="${row}"]`)).toHaveCount(1)
+    await expect(timeline.locator(':scope > [data-slot="timeline-section"]')).toHaveCount(2)
+    for (const row of ['card-1-1', 'check-2-2', 'card-3-3', 'card-4-4']) {
+      await expect(timeline.locator(`:scope > [data-slot="timeline-item"][data-row="${row}"]`)).toHaveCount(1)
     }
     const alignment = await timeline.locator('[data-slot="timeline-item"]').evaluateAll(items => items.map(item => {
       const ring = item.querySelector('[data-slot="timeline-indicator"]')!.getBoundingClientRect()
@@ -257,16 +273,12 @@ for (const theme of ['light', 'dark'] as const) {
     const rails = await timeline.evaluate(el => {
       const children = [...el.children]
       const items = children.filter(child => child.getAttribute('data-slot') === 'timeline-item')
-      return items.slice(0, -1).flatMap((item, index) => {
-        const next = items[index + 1]!
-        const segments = children.slice(children.indexOf(item), children.indexOf(next))
-        return segments.map((segment, position) => {
-          const rail = segment.querySelector(':scope > [data-slot="timeline-rail"]')!.getBoundingClientRect()
-          const section = segments[position + 1]
-          const ring = next.querySelector('[data-slot="timeline-indicator"]')!.getBoundingClientRect()
-          const target = section ? section.getBoundingClientRect().top : (ring.top + ring.bottom) / 2
-          return Math.abs(rail.bottom - target)
-        })
+      return items.slice(0, -1).flatMap(item => {
+        const rail = item.querySelector(':scope > [data-slot="timeline-rail"]')!
+        if (getComputedStyle(rail).display === 'none') return []
+        const line = rail.getBoundingClientRect(), box = item.getBoundingClientRect()
+        const indicator = item.querySelector('[data-slot="timeline-indicator"]')!.getBoundingClientRect()
+        return [Math.abs(line.bottom - box.bottom), Math.abs(line.top - indicator.bottom - 2)]
       })
     })
     expect(rails.every(delta => delta < 1)).toBe(true)
@@ -275,17 +287,19 @@ for (const theme of ['light', 'dark'] as const) {
     expect(await active.evaluate(el => getComputedStyle(el).animationName)).not.toBe('none')
     await page.emulateMedia({ reducedMotion: 'reduce' })
     expect(await active.evaluate(el => getComputedStyle(el).animationName)).toBe('none')
-    await expect(page.locator('#run-view-stalled [data-row="round-4"]').locator('..').locator('..')).toHaveAttribute('data-state', 'warning')
-    await expect(page.locator('#run-view-failed-check [data-row="round-4"]').locator('..').locator('..')).toHaveAttribute('data-state', 'danger')
-    const retried = page.locator('#run-view-attempts [data-row="round-2"]').locator('..').locator('..')
+    await expect(page.locator('#run-view-stalled [data-row="check-4-4"]')).toHaveAttribute('data-state', 'warning')
+    await expect(page.locator('#run-view-failed-check [data-row="check-4-4"]')).toHaveAttribute('data-state', 'danger')
+    const retried = page.locator('#run-view-attempts [data-row="check-2-2"]')
     await expect(retried).toHaveAttribute('data-state', 'done')
-    await expect(retried.locator('[data-kind="check"]')).toContainText('Passed')
-    await expect(retried.locator('[data-row="attempt-2-2-1"]')).toContainText('Failed')
-    const stopped = page.locator('#run-view-stopped-mid-round [data-row="round-4"]').locator('..').locator('..')
+    await expect(retried.locator('[data-slot="chip"][data-tone="success"]')).toHaveText('Pass')
+    await retried.locator('button').click()
+    await expect(page.locator('#run-view-attempts [data-slot="run-inspector"] [data-attempt="1"]')).toContainText('Failed')
+    const stopped = page.locator('#run-view-stopped-mid-round [data-row="card-4-4"]')
     await expect(stopped).toHaveAttribute('data-state', 'pending')
-    await expect(stopped).toContainText('0 of 1 answered')
-    await expect(stopped.locator('[data-kind="card"]')).toContainText('Waiting')
-    const waiting = page.locator('#run-view-waiting-evidence [data-row="round-4"]').locator('..').locator('..')
+    await expect(stopped).toContainText('Stopped')
+    await stopped.locator('button').click()
+    await expect(page.locator('#run-view-stopped-mid-round [data-slot="run-inspector"] [aria-label="Round 4"]')).toContainText('0 of 1 answered')
+    const waiting = page.locator('#run-view-waiting-evidence [data-row="card-4-4"]')
     await expect(waiting).toHaveAttribute('data-state', 'warning')
     await expect(page.locator('#run-view-waiting-evidence [data-slot="run-need"]')).toContainText('Waiting for 2 open blocking findings')
     const borders = await timeline.locator(':scope > li').evaluateAll(items => items.map(item => getComputedStyle(item).borderTopWidth))

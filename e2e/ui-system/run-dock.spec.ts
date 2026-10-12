@@ -1,4 +1,4 @@
-import { selectRunView } from './run-frame-actions'
+import { runBar, selectRunView } from './run-frame-actions'
 import { expect, test } from '@playwright/test'
 import path from 'node:path'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
@@ -105,7 +105,7 @@ for (const theme of ['light', 'dark'] as const) {
       }
       // Timeline owns original recorded rounds and the unreached Step, with the same readable row floor.
       await expect(list, `Timeline at ${width}px`).toBeVisible()
-      const rows = list.locator('[data-row][data-kind="round"]')
+      const rows = list.locator('[data-step-row][data-row]')
       await expect(rows).toHaveCount(4)
       expect.soft(await rows.count(), `step rows at ${width}px`).toBeGreaterThan(0)
       expect.soft(await rows.first().evaluate(el => el.getBoundingClientRect().width), `step row at ${width}px`).toBeGreaterThan(200)
@@ -167,11 +167,11 @@ for (const theme of ['light', 'dark'] as const) {
     // Switching representations neither admits a Steps tool nor discards selection.
     await selectRunView(frame, 'Timeline')
     const timelineSteps = main.locator('[data-slot="run-steps"]')
-    for (const round of [1, 2, 3, 4]) await expect(timelineSteps.locator(`[data-row="round-${round}"]`)).toHaveCount(1)
+    for (const id of ['card-1-1', 'check-2-2', 'card-3-3', 'card-4-4']) await expect(timelineSteps.locator(`[data-row="${id}"]`)).toHaveCount(1)
     await expect(frame.locator('[data-slot="tool-body"] [data-slot="run-steps"]')).toHaveCount(0)
-    await expect(timelineSteps.locator('[aria-current="true"]')).toHaveCount(0)
-    await timelineSteps.locator('[data-row="round-4"] button').first().click()
-    await expect(timelineSteps.locator('[data-row="round-4"]')).toHaveAttribute('aria-current', 'true')
+    await expect(timelineSteps.locator('[data-step-row][data-selected="true"]')).toHaveCount(0)
+    await timelineSteps.locator('[data-row="card-4-4"] button').first().click()
+    await expect(timelineSteps.locator('[data-row="card-4-4"]')).toHaveAttribute('data-selected', 'true')
     await selectRunView(frame, 'Flow')
     const steps = main.locator('[data-slot="flow-list"]')
     await expect(steps.locator('[data-step-row]')).toHaveCount(4)
@@ -186,8 +186,8 @@ for (const theme of ['light', 'dark'] as const) {
     await expect((await teamDetails(frame)).locator('[data-slot="run-inspector"]')).toHaveCount(0)
     await expect((await teamDetails(frame)).getByText('Seats', {exact:true})).toBeVisible()
     await selectRunView(frame, 'Timeline')
-    await main.locator('[data-row="round-3"]').click()
-    await expect(timelineSteps.locator('[data-row="round-3"]')).toHaveAttribute('aria-current', 'true')
+    await main.locator('[data-row="card-3-3"]').click()
+    await expect(timelineSteps.locator('[data-row="card-3-3"]')).toHaveAttribute('data-selected', 'true')
     await selectRunView(frame, 'Flow')
     await expect(flowNode).toHaveAttribute('data-selected', 'true')
     await closeTeamDetails(frame)
@@ -222,11 +222,11 @@ for (const theme of ['light', 'dark'] as const) {
     if (opensOnFlow) await frame.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
     await expect(main).toBeVisible()
     await selectRunView(frame, 'Timeline')
-    await main.locator('[data-row="round-1"]').click()
+    await runBar(frame).getByRole('button', { name: 'Details', exact: true }).click()
     await expect(details).toBeVisible()
     await expect(details).toContainText('Seats')
     await expect(details.locator('[data-slot="run-inspector"]')).toHaveCount(0)
-    await expect(main.locator('[data-row="round-1"]')).toHaveAttribute('aria-current', 'true')
+    await expect(main.locator('[data-step-row][data-selected="true"]')).toHaveCount(0)
     await closeTeamDetails(frame)
     await frame.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
     await expect(details).toBeVisible()
@@ -250,7 +250,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(details).toBeVisible()
     await closeTeamDetails(frame)
     await expect(main).toBeVisible()
-    await expect(main.locator('[data-row="round-1"]')).toBeVisible()
+    await expect(main.locator('[data-row="card-1-1"]')).toBeVisible()
   })
 
   test(`an older Run omits unrecorded facts and the narrow window uses the same dock in ${theme}`, async ({ page }) => {
@@ -262,9 +262,13 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(frame.locator('[data-slot="dock-panel"][data-edge="left"]')).toHaveCount(0)
     await frame.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
     const inspector = frame.locator('[data-slot="tool-body"]:visible')
-    await expect(inspector.locator('[data-slot="summary-item"]').filter({hasText:/^Budget/})).toContainText('Not recorded')
-    await expect(inspector.locator('[data-slot="summary-item"]').filter({hasText:/^No progress/})).toContainText('Not recorded')
-    await expect(inspector.locator('[data-slot="summary-item"]').filter({hasText:/^Seat cost/})).toContainText('Not recorded')
+    await expect(inspector.locator('[data-slot="summary-item"]').filter({hasText:/^Budget/})).toHaveCount(0)
+    await expect(inspector).toContainText('budget')
+    await expect(inspector.locator('[data-slot="summary-item"]').filter({hasText:/^No progress/})).toHaveCount(0)
+    await expect(inspector).toContainText('no-progress limit')
+    await expect(inspector.locator('[data-slot="summary-item"]').filter({hasText:/^Seat cost/})).toHaveCount(0)
+    await expect(inspector).toContainText('Seat costs')
+    await expect(inspector).toContainText('Not recorded for this Run:')
     await expect(inspector.getByText('Seats',{exact:true})).toBeVisible()
     await expect(inspector.locator('[data-slot="card"]')).toHaveCount(0)
     expect(await inspector.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)

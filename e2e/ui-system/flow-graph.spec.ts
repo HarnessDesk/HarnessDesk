@@ -216,6 +216,7 @@ for (const theme of ['light', 'dark'] as const) {
     test('the Run View menu offers Flow and its Details action reads the current file', async ({ page }) => {
       const frame = page.locator('#flow-graph-run')
       const run = frame.locator('[data-slot="run-view"]')
+      const details = frame.locator('[data-preview-tool-placement]')
       await expect(runBar(frame)).toBeVisible()
       await expect(frame.locator('[data-slot="run-workspace"]')).toHaveAttribute('data-view', 'flow')
       await expect(frame.locator('[data-slot="run-flow-head"]')).toHaveClass('sr-only')
@@ -224,7 +225,7 @@ for (const theme of ['light', 'dark'] as const) {
 
       // The Flow has the whole pane, so the drawing shows at an ordinary width; the inspector returns with the timeline.
       const workspace = page.locator('#flow-graph-run [data-slot="run-workspace"]')
-      await expect(workspace.locator('[data-slot="run-inspector"]')).toHaveCount(0)
+      await expect(details).toHaveCount(0)
       await expect(workspace.locator('[data-slot="flow-drawing"]')).toBeVisible()
       const pane = (await workspace.boundingBox())!
       const drawing = (await workspace.locator('[data-slot="flow-drawing"]').boundingBox())!
@@ -233,15 +234,16 @@ for (const theme of ['light', 'dark'] as const) {
       await selectRunView(frame, 'Timeline')
       await expect(run.locator('[aria-label="Run timeline"]')).toBeVisible()
       await expect(run.locator('[data-slot="run-flow"]')).toHaveCount(0)
-      await frame.locator('[data-row="start"]').click()
-      await expect(workspace.locator('[data-slot="run-inspector"]')).toBeVisible()
+      await runBar(frame).getByRole('button', { name: 'Details', exact: true }).click()
+      await expect(details.locator('[aria-label="Team Run facts"]')).toBeVisible()
       await selectRunView(frame, 'Flow')
       await expect(run.locator('[data-slot="run-flow"]')).toBeVisible()
-      await expect(workspace.locator('[data-slot="run-inspector"]')).toHaveCount(0)
+      await runBar(frame).getByRole('button', { name: 'Details', exact: true }).click()
+      await expect(details).toHaveCount(0)
 
       await selectRunView(frame, 'Timeline')
-      await frame.locator('[data-row="start"]').click()
-      const summary = frame.locator('[data-slot="run-inspector"]')
+      await runBar(frame).getByRole('button', { name: 'Details', exact: true }).click()
+      const summary = details.locator('[aria-label="Team Run facts"]')
       await expect(summary).toContainText('Build and review')
       await expect(summary).toContainText('3f9a1c')
       const open = summary.getByRole('button', { name: 'Flow file', exact: true })

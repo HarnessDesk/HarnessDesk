@@ -50,7 +50,7 @@ for (const theme of ['light', 'dark']) {
         await advance(page, scene!)
         await expect(state(page, step!)).toHaveAttribute('data-state', expected!)
         await expect(page.locator('#flow-overlay-live [data-slot="run-workspace"]')).toHaveAttribute('data-view', 'flow')
-        if (scene === 'answered' || scene === 'evidence-wait') await expect(state(page, 'you')).not.toContainText('Needs you')
+        if (scene === 'answered' || scene === 'evidence-wait') await expect(state(page, 'you')).not.toContainText('Waiting for you')
         if (scene === 'evidence-wait') await expect(state(page, 'you').locator('[data-slot="flow-state"]')).toHaveText('Waiting')
         if (scene === 'check-again') await expect(state(page, 'check')).toContainText('×2')
         if (scene === 'review') {
@@ -139,8 +139,18 @@ for (const theme of ['light', 'dark']) {
       await expect(state(page, 'check')).toHaveAttribute('data-selected', 'true')
       await choose(page, 'Timeline')
       const timeline = page.locator('#flow-overlay-live [aria-label="Run timeline"]')
-      const selected = timeline.locator('[aria-current="true"]')
-      await expect(selected).toHaveCount(6)
+      const visits = timeline.locator('[data-step-row="check"]')
+      for (const visit of await visits.all()) await expect(visit).toHaveAttribute('data-selected', 'true')
+      // The redesign shows one row per visit instead of separate round,
+      // card and attempt rows. Keep the same six recorded selections: each
+      // visit represents its round and card, and a repeated check retains
+      // all of its attempts in the displayed run count.
+      const records = await visits.evaluateAll(rows => rows.reduce((total, row) => {
+        const runs = Number(/(\d+) runs?/.exec(row.textContent ?? '')?.[1])
+        return total + 2 + (runs > 1 ? runs : 0)
+      }, 0))
+      expect(records).toBe(6)
+      expect(await timeline.locator('[data-step-row][data-selected="true"]').evaluateAll(rows => rows.every(row => row.getAttribute('data-step-row') === 'check'))).toBe(true)
       await timeline.locator('[data-row="card-3-31"]').click()
       await choose(page, 'Flow')
       await expect(state(page, 'review')).toHaveAttribute('data-selected', 'true')
@@ -203,11 +213,11 @@ for (const theme of ['light', 'dark']) {
       await expect(fix).not.toContainText('Edit')
       expect(await graph(page).evaluate(root => root.scrollWidth <= root.clientWidth + 1)).toBe(true)
       await advance(page, 'you')
-      await expect(graph(page).locator('[data-step-row="you"]')).toContainText('Needs you')
+      await expect(graph(page).locator('[data-step-row="you"]')).toContainText('Waiting for you')
       await graph(page).locator('[data-step-row="you"]').focus()
       await page.keyboard.press('Enter')
       await choose(page, 'Timeline')
-      await expect(page.locator('#flow-overlay-live [data-row="round-8"]')).toHaveAttribute('aria-current', 'true')
+      await expect(page.locator('#flow-overlay-live [data-step-row="you"][data-row]')).toHaveAttribute('aria-current', 'true')
     })
   })
 }
