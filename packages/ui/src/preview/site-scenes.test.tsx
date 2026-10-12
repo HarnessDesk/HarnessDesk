@@ -189,7 +189,7 @@ it('supplies a busy, consistent year and six correctly classified demo accounts'
   const week = periodTotals(stackDaily(ledger, NOW), [7])[0]!
   // Last seven days includes today; its still-running bucket makes this partial.
   expect(week.cost).toBeCloseTo(6_218.8, 1)
-  expect(week.cost).toBeCloseTo(data.ledger(7, 'runtime').totalCost, 1)
+  expect(data.ledger(7, 'runtime').totalCost).toEqual(expect.closeTo(week.cost, 1))
   expect(week.partial).toBe(true)
   expect(week.change).toBeNull()
   expect(ledger.daily.filter(row => row.day === Math.max(...ledger.daily.map(day => day.day))).reduce((sum, row) => sum + row.cost, 0)).toBeCloseTo(138.4, 1)
