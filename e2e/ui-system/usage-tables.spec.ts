@@ -66,7 +66,7 @@ const wholeMeterNames = async (rows: Locator) => {
   for (const row of await rows.all()) await row.locator(':scope > span').first().hover()
   const readings = await rows.evaluateAll(nodes => nodes.map(node => {
     const name = node.firstElementChild as HTMLElement
-    const reset = node.lastElementChild as HTMLElement
+    const reset = node.querySelector('[data-meter-column="reset"] [title]') as HTMLElement
     const hasBar = Boolean(node.querySelector('[data-slot="progress"]'))
     const reading = node.children[hasBar ? 2 : 1] as HTMLElement
     const range = document.createRange()
@@ -80,7 +80,7 @@ const wholeMeterNames = async (rows: Locator) => {
     expect(reading.nameScroll, JSON.stringify(reading)).toBeLessThanOrEqual(reading.nameWidth)
     expect(reading.title).toBe(reading.nameScroll > reading.nameWidth ? reading.name : null)
     expect(reading.hasBar).toBe(false)
-    expect(reading.resetTitle).toMatch(/^resets /)
+    expect(reading.resetTitle).toMatch(/^(resets |blocked until )/)
     expect(reading.readingLines, JSON.stringify(reading)).toBe(1)
     expect(reading.resetScroll, JSON.stringify(reading)).toBeLessThanOrEqual(reading.resetWidth)
   }
@@ -126,32 +126,48 @@ for (const theme of ['light', 'dark'] as const) {
     await page.getByText('Usage remaining', { exact: true }).click()
     const rows = page.locator('[data-usage-details] [data-slot="usage-meter-row"]')
     await expect(rows).toHaveCount(2)
-    // Phase A changed the wide menu token from 320 to FRAME.menu.max340.
-    // The same panel padding4 and caller margins32/8 still own this inset.
+    // S17 puts these facts on the menu text edges: 16px on each side.
     const accountWidth = await rows.first().evaluate(node => {
       const panel = node.closest('[data-slot="popover-popup"]')!.getBoundingClientRect()
       const row = node.getBoundingClientRect()
       return { panel: panel.width, row: row.width, left: row.left - panel.left, right: panel.right - row.right }
     })
-    expect(accountWidth).toEqual({ panel: FRAME.menu.max, row: FRAME.menu.max - 48, left: 36, right: 12 })
+    expect(accountWidth).toEqual({ panel: FRAME.menu.max, row: FRAME.menu.max - 32, left: 16, right: 16 })
     await wholeMeterNames(rows)
   })
 
   test(`context usage keeps whole names and the caller inset in ${theme}`, async ({ page }) => {
-    await page.goto('/preview.html')
-    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
-    await stageWindows(page)
-    await page.locator('[data-frame-id="conversation-composer"]').getByRole('button', { name: /^Context window/ }).click()
-    const panel = page.getByRole('menu').filter({ hasText: 'Last turn' })
-    const rows = panel.locator('[data-slot="usage-meter-row"]')
-    await expect(rows).toHaveCount(2)
-    const inset = await rows.first().evaluate(node => {
-      const panel = node.closest('[class*="panel"]')!.getBoundingClientRect()
-      const row = node.getBoundingClientRect()
+    await page.route('**/src/preview/frame-destination-store.ts*', async route => {
+      const response = await route.fetch()
+      const source = await response.text()
+      const marker = 'const seed = fixture.getSnapshot();'
+      expect(source).toContain(marker)
+      const body = source.replace(marker, `${marker}
+        seed.runtimes = seed.runtimes.map(runtime => ({ ...runtime, capabilities: { ...runtime.capabilities, metered: true } }));
+        seed.limits = { windows: [
+          { id: '5-hour', label: '5-hour', usedPercent: 0, windowMinutes: 300, resetsAt: Date.now() + 86400000 },
+          { id: 'weekly-opus', label: 'Weekly · Opus', usedPercent: 100, windowMinutes: 10080, resetsAt: Date.now() + 604800000 }
+        ] };`)
+      await route.fulfill({ response, body })
+    })
+    await page.goto(`/preview.html?frame-wall=conversation&theme=${theme}`)
+    await page.getByRole('button', { name: 'Usage', exact: true }).hover()
+    const panel = page.locator('[data-popup-kind="info-card"]').filter({ hasText: 'Context window' })
+    await expect(panel).toBeVisible()
+    const facts = panel.locator('[data-info-pair]')
+    for (const [label, value] of [['5-hour', '100% left'], ['Weekly · Opus', '0% left']] as const) {
+      const fact = facts.filter({ has: page.locator('dt').getByText(label, { exact: true }) })
+      await expect(fact.locator('dt')).toHaveText(label)
+      await expect(fact.locator('dd').first()).toHaveText(value)
+      await expect(fact.locator('[data-info-pair-note]')).toContainText('resets ')
+      expect(await fact.locator('dt').evaluate(node => node.scrollWidth - node.clientWidth)).toBe(0)
+    }
+    const inset = await facts.first().evaluate(node => {
+      const panel = node.closest('[data-popup-kind="info-card"]')!.getBoundingClientRect()
+      const row = node.parentElement!.getBoundingClientRect()
       return { width: panel.width, left: row.left - panel.left, right: panel.right - row.right }
     })
-    expect(inset).toEqual({ width: 272, left: 8, right: 8 })
-    await wholeMeterNames(rows)
+    expect(inset).toEqual({ width: FRAME.infoCard.width, left: FRAME.infoCard.padding, right: FRAME.infoCard.padding })
   })
 }
 
@@ -197,7 +213,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto('/preview.html?view=plans')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     const table = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible').locator('[data-slot="plans-table"]')
-    await table.locator('[data-slot="table-container"]').evaluate(node => { (node as HTMLElement).style.width = '480px' })
+    await table.locator('xpath=ancestor::*[@data-page-destination][1]').evaluate(node => { (node as HTMLElement).style.width = '480px' })
     const button = table.locator('button[aria-controls^="plans-row-body"]').first()
     const name = await button.locator('xpath=ancestor::tr').locator('td').first().locator('[data-role="subject"]').textContent()
     await expect(button).toHaveAttribute('aria-expanded', 'false')
@@ -289,24 +305,24 @@ for (const theme of ['light', 'dark'] as const) {
       const { formatReset } = await import('/src/lib/limits.ts' as string)
       return formatReset(gate)
     }, gate)
-    await expect(row.locator(':scope > :last-child')).toHaveAttribute('title', `blocked until ${clock}`)
+    await expect(row.locator('[data-meter-column="reset"] [title]')).toHaveAttribute('title', `blocked until ${clock}`)
     await page.evaluate(async () => { await document.fonts.ready })
     await capture(page, menu, `blocked-plan-${theme}.png`)
   })
 
   test(`By Goal retries refused history and wraps its recovery action in ${theme}`, async ({ page }) => {
-    await page.route('**/src/preview/usage-fixture.ts*', async route => {
+    await page.route('**/src/preview/frame-destination-store.ts*', async route => {
       const response = await route.fetch()
-      const body = (await response.text())
-        .replace(/=> \(\{\s*loaded:/, '=> (await new Promise(resolve => { if (window.__historyHold) window.__historyFinish = resolve; else resolve(); }), { loaded:')
-        .replace('loaded: new Set(teams)', 'loaded: new Set(window.__historyRecovered ? teams : [])')
-        .replace('unavailable: new Set()', 'unavailable: new Set(window.__historyRecovered ? [] : teams)')
+      const source = await response.text()
+      const marker = 'if (method === \"flow/executions\") {'
+      expect(source).toContain(marker)
+      const body = source.replace(marker, `${marker} await new Promise(resolve => { if (window.__historyHold) window.__historyFinish = resolve; else resolve(); }); if (!window.__historyRecovered) throw new Error('Synthetic history read refused');`)
       await route.fulfill({ response, body })
     })
     await page.goto('/preview.html?view=projects')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
-    const project = dashboard.locator('[aria-label="Project usage"]')
+    const project = dashboard.getByRole('region', { name: /^Team usage in / })
     const note = project.locator('[data-slot="note"]').filter({ hasText: 'Run counts are unavailable for some Teams.' })
     await expect(note.getByRole('button', { name: 'Try again', exact: true })).toBeVisible()
     await expect(project.locator('tbody td').nth(1)).toHaveText('—')

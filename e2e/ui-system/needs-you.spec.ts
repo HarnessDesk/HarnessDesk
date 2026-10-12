@@ -68,7 +68,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(row.locator('[data-slot="approval-code"]').nth(1)).toHaveText('npm login')
     const folder = row.locator('[data-slot="approval-meta"][data-kind="folder"]')
     await expect(folder).toBeVisible()
-    const expectedFolder = await page.evaluate(async () => { const modulePath = '/src/preview/needs-you-fixture.ts'; const fixture = await import(/* @vite-ignore */ modulePath); const item = fixture.needsYouModel('approval').needsYou[0]; return fixture.needsYouAnswers('approval').approvalDoor(item.approval, item.sessionKey).detail.folder })
+    const expectedFolder = await page.evaluate(async () => { const modulePath = '/src/preview/needs-you-fixture.ts'; const fixture = await import(/* @vite-ignore */ modulePath); const item = fixture.needsYouModel('stdin').needsYou[0]; return fixture.needsYouAnswers('stdin').approvalDoor(item.approval, item.sessionKey).detail.folder })
     await expect(folder).toHaveAttribute('title', expectedFolder)
     await expect(row).toContainText('storefront')
     expect(await within(row)).toEqual({ stray: 0, scrolls: false })

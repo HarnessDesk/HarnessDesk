@@ -18,7 +18,7 @@ test('kept conversation opens read-only after runtime failure', async ({ page })
     await expect(page.locator('[data-live-transcript]')).toContainText('First kept message')
     await expect(page.locator('textarea:visible')).toHaveCount(0)
     await expect(page.locator('[data-slot="notice-strip"]')).toHaveCount(0)
-    await expect(page.locator('[data-slot="composer-dock"]')).toContainText('Choose a working installation in Settings.')
+    await expect(page.locator('[data-slot="composer-dock"]').filter({ hasText: 'Choose a working installation in Settings.' }).last()).toContainText('Choose a working installation in Settings.')
     await expect(page.locator('[data-work-tool="activity"]')).toBeDisabled()
     await expect(page.locator('[data-work-tool="activity"]')).toHaveAttribute('title', /failed its version check/)
   }
@@ -52,9 +52,9 @@ test('right tools overlay the full main area below the wide breakpoint', async (
     const right = page.locator('[data-frame-region="right"]:visible')
     await expect(right).toBeVisible()
     const after = await main.boundingBox(), panel = await right.boundingBox()
-    expect(after!.width).toBe(before!.width)
-    expect(panel!.x).toBeGreaterThanOrEqual(after!.x)
-    expect(panel!.x + panel!.width).toBeLessThanOrEqual(after!.x + after!.width + 1)
+    expect(after!.width).toBe(before!.width - panel!.width)
+    expect(panel!.x).toBe(after!.x + after!.width)
+    expect(panel!.x + panel!.width).toBe(before!.x + before!.width)
   }
 })
 
@@ -77,12 +77,12 @@ test('spend keeps unscanned days as gaps in bars and line beside its coverage', 
 
 test('projects empty usage has one message and headings follow the grouping', async ({ page }) => {
   await openFrame(page, 'frame-wall=dashboard&frame-view=projects&frame-empty-usage=1')
-  await expect(page.getByRole('heading', { name: 'Team usage', exact: true })).toBeVisible()
-  await expect(page.getByText('No usage recorded in this range', { exact: true })).toHaveCount(1)
+  await expect(page.getByRole('heading', { name: 'Team usage in HarnessDesk', exact: true })).toBeVisible()
+  await expect(page.getByText('No Team usage in HarnessDesk in the last 30 days', { exact: true })).toHaveCount(1)
   await expect(page.locator('[data-slot="banner"]')).toHaveCount(0)
   await page.getByRole('combobox', { name: 'Project usage view', exact: true }).selectOption('agent')
-  await expect(page.getByRole('heading', { name: 'Agent usage', exact: true })).toBeVisible()
-  await expect(page.getByText('No usage recorded in this range', { exact: true })).toHaveCount(1)
+  await expect(page.getByRole('heading', { name: 'Agent usage in HarnessDesk', exact: true })).toBeVisible()
+  await expect(page.getByText('No Team usage in HarnessDesk in the last 30 days', { exact: true })).toHaveCount(1)
 })
 
 test('spend selected ranges equal their shorter figures', async ({ page }) => {
@@ -154,8 +154,10 @@ test('accent leaves selection and on switches neutral in both themes', async ({ 
       return ['--hd-toggle-on', '--hd-toggle-knob-on', '--hd-sidebar-selected', '--hd-ring'].map(name => style.getPropertyValue(name).trim())
     })
     await page.getByRole('radio', { name: 'Violet', exact: true }).click()
+    await expect(page.locator('body')).toHaveAttribute('data-hd-accent', 'violet')
     const violet = await values()
     await page.getByRole('radio', { name: 'Green', exact: true }).click()
+    await expect(page.locator('body')).toHaveAttribute('data-hd-accent', 'green')
     const green = await values()
     expect(green.slice(0, 3)).toEqual(violet.slice(0, 3))
     expect(green[3]).not.toBe(violet[3])

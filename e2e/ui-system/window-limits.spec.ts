@@ -109,13 +109,13 @@ test('sidebar stands at exactly 1000 and floats at 999 independently of requeste
   await page.setViewportSize({ width: 1000, height: 900 })
   await expect(shell(page)).toHaveAttribute('data-left-floats', 'false')
   await expect(shell(page)).toHaveAttribute('data-panel-floats', 'true')
-  await widthRestsAt(main(page), 1000 - SIDEBAR, 'standing sidebar share')
+  await widthRestsAt(main(page), 1000 - SIDEBAR - FRAME.rightPanel.max, 'standing sidebar share')
   await page.setViewportSize({ width: 999, height: 900 })
   await expect(shell(page)).toHaveAttribute('data-left-floats', 'true')
   await expect(page.getByRole('dialog', { name: 'Sidebar' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
   await expect(page.getByRole('dialog', { name: 'Sidebar' })).toBeVisible()
-  await widthRestsAt(main(page), 999, 'floating sidebar takes no column')
+  await widthRestsAt(main(page), 999 - FRAME.rightPanel.max, 'floating sidebar takes no column')
 })
 
 test('right folds at 1280 independently of sidebar and restores requested width after passive clamping', async ({ page }) => {

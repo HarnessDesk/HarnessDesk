@@ -46,12 +46,12 @@ for (const theme of themes) for (const width of widths) {
     await openSettings(page, 'runtimes', theme, width)
     await expect(page.getByRole('heading', { name: 'Needs attention · 1' })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Ready · 11' })).toBeVisible()
-    await expect(page.getByRole('heading', { name: 'Process cost' })).toBeVisible()
-    await expect(page.getByText('Not signed in', { exact: true })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Process resources' })).toBeVisible()
+    await expect(page.getByText('Signed out', { exact: true })).toBeVisible()
 
     const headings = await page.locator('[data-slot="section-name"]').allTextContents()
     expect(headings.indexOf('Needs attention · 1')).toBeLessThan(headings.indexOf('Ready · 11'))
-    expect(headings.indexOf('Ready · 11')).toBeLessThan(headings.indexOf('Process cost'))
+    expect(headings.indexOf('Ready · 11')).toBeLessThan(headings.indexOf('Process resources'))
   })
 
   test(`R11.17 notifications state what the muted row contains at ${width} in ${theme}`, async ({ page }) => {
