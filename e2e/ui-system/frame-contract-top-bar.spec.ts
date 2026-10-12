@@ -295,8 +295,17 @@ for (const theme of WALL_THEMES) {
       expect(Math.round(box)).toBe(FRAME.bar.height)
     }
     await expect(rows.first().locator('[data-slot="bar-divider"]')).toHaveCount(0)
-    await expect(rows.first().locator('[data-topbar="more"]')).toBeVisible()
+    await expect(rows.first().locator('[data-topbar="more"] button')).toHaveCount(0)
     await expect(rows.first().locator('[data-team-page="findings"]')).toBeVisible()
+    // The empty probe has no subject actions; real work owns Terminal in More.
+    await openFrame(page, 'frame-wall=conversation', theme)
+    await expect(rows.first().locator('[data-topbar="more"]')).toBeVisible()
+    const more = rows.first().getByRole('button', { name: 'More', exact: true })
+    await more.click()
+    await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(1)
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('menu')).toHaveCount(0)
+    await expect(more).toBeFocused()
   })
 }
 
