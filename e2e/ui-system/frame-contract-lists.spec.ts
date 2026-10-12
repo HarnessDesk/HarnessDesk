@@ -63,9 +63,11 @@ test('Lists R9 Agents show each seat mark and the shortened source path', async 
   })))
   expect(faceKinds.every(face => (face.runtime || face.avatar) && !face.generic)).toBe(true)
 
-  const source = agents.locator('section[aria-label="In HarnessDesk"] [data-slot="middle-truncate"]')
-  await expect(source).toContainText('HarnessDesk/.harnessdesk/agents')
-  expect(await source.getAttribute('title')).toMatch(/HarnessDesk\/\.harnessdesk\/agents$/)
+  const root = '/work/storefront'
+  const project = root.split('/').at(-1)!
+  const source = agents.locator(`section[aria-label="In ${project}"] [data-slot="middle-truncate"]`)
+  await expect(source).toContainText(`${project}/.harnessdesk/agents`)
+  await expect(source).toHaveAttribute('title', `${root}/.harnessdesk/agents`)
 })
 
 test('Lists R9 Library filter and skill detail use group-level facts', async ({ page }) => {
