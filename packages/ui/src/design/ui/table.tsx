@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 const Table = ({
   className,
   containerClassName,
+  viewport,
   variant = 'default',
   inset,
   density = variant === 'panel' ? 'compact' : 'comfortable',
@@ -16,18 +17,23 @@ const Table = ({
   density?: 'comfortable' | 'compact'
   rows?: 'default' | 'bare'
   containerClassName?: string
+  /** Bounded page scroll owner, including its ref, events and data attributes. */
+  viewport?: React.ComponentProps<'div'> & { [attribute: `data-${string}`]: unknown }
   variant?: 'default' | 'framed' | 'panel'
   /** The table and its replacement list keep the same row-content edge. */
   inset?: 'row'
 }) => (
   <div
+    {...viewport}
     data-slot="table-container"
     data-variant={variant}
     className={cn(
       'relative w-full overflow-x-auto',
+      viewport && 'max-h-(--hd-table-page-max-height) overflow-auto',
       variant === 'framed' && 'rounded-(--hd-radius) shadow-(--hd-hairline)',
       variant === 'panel' && 'rounded-(--hd-radius-sm) border border-(--hd-border)',
       containerClassName,
+      viewport?.className,
     )}
   >
     <table
@@ -205,7 +211,7 @@ const TableCell = ({
   >
     {lead != null ? (
       <div className="flex min-w-0 items-center gap-(--hd-table-lead-gap)">
-        <span data-slot="table-cell-lead" className="inline-flex size-(--hd-table-face) shrink-0 items-center justify-center overflow-hidden rounded-(--hd-table-face-radius) has-[[data-slot=avatar-stack]]:w-auto has-[[data-slot=avatar-stack]]:overflow-visible has-[[data-slot=face-badge]]:overflow-visible [&>*:not([data-slot=avatar-stack])]:size-full [&>*:not([data-slot=avatar-stack])]:rounded-[inherit]">{lead}</span>
+        <span data-slot="table-cell-lead" className="inline-flex size-(--hd-table-face) shrink-0 items-center justify-center overflow-hidden rounded-(--hd-table-face-radius) has-[[data-slot=avatar-stack]]:w-auto has-[[data-slot=avatar-stack]]:overflow-visible has-[[data-slot=face-badge]]:overflow-visible [&>*:not([data-slot=avatar-stack]):not([data-slot=series-dot])]:size-full [&>*:not([data-slot=avatar-stack]):not([data-slot=series-dot])]:rounded-[inherit]">{lead}</span>
         {children}
       </div>
     ) : children}

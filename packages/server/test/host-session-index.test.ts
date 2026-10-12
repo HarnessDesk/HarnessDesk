@@ -605,3 +605,51 @@ test('a Team preview promotes on its turn while staying out of the sidebar', asy
     assert.equal(db.prepare('SELECT team_id FROM sessions WHERE id=?').get(external.id)?.team_id, room.id)
   } finally { db.close() }
 })
+
+test('reading an existing conversation does not promote it in project recency', async t => {
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const root = tempDir('hd-index-read-recency-')
+  const runtime = new FakeRuntime()
+  const old = { runtime: runtime.info.id, id: sessionId('fourth-conversation'), cwd: root,
+    title: 'Fourth conversation', preview: null, createdAt: 10, updatedAt: 100,
+    status: { type: 'notLoaded' as const }, repo: null }
+  const newer = { ...old, id: sessionId('newer-conversation'), title: 'Newer conversation', updatedAt: 200 }
+  runtime.history.push(old, newer)
+  runtime.readSession = async id => {
+    const source = runtime.history.find(row => row.id === id)
+    if (!source) throw new Error('Unknown synthetic conversation')
+    return { ...source, createdAt: Date.now(), updatedAt: Date.now(), turns: [], itemsLoaded: true }
+  }
+  const seed = new SessionIndex(join(root, 'sessions.sqlite'))
+  seed.upsert(old)
+  seed.upsert(newer)
+  seed.close()
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  host.register(runtime)
+
+  const before = await host.call('session/index', {})
+  await host.call('session/read', { runtime: runtime.info.id, sessionId: old.id })
+  const after = await host.call('session/index', {})
+
+  assert.deepEqual(after.data.map(row => row.id), before.data.map(row => row.id))
+  assert.equal(after.data.find(row => row.id === old.id)?.updatedAt, old.updatedAt)
+})
+
+test('reading a held body retains its creation time instead of sparse index or replay timing', async t => {
+  const root = tempDir('hd-index-held-time-')
+  const runtime = new FakeRuntime()
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library'), catalogRefreshMs: 0 })
+  t.after(() => host.dispose())
+  host.register(runtime)
+  await host.start()
+  const opened = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } })
+  const record = host.registry.get(runtime.info.id, opened.id)!
+  record.session = { ...record.session, itemsLoaded: true, createdAt: 10, updatedAt: 100 }
+  runtime.readSession = async () => ({ ...record.session, createdAt: 500, updatedAt: 500 })
+  const read = await host.call('session/read', { runtime: runtime.info.id, sessionId: opened.id })
+  assert.equal(read.createdAt, 10)
+  assert.equal(read.updatedAt, 100)
+})

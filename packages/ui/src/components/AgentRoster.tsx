@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 
 import type { AgentEntry, AgentOrigin, AuthoringPending } from '@harnessdesk/protocol'
 
@@ -13,11 +13,12 @@ import {
 import { shortPath } from '../lib/paths'
 import { projectRootOf } from '../lib/projects'
 import { useSnapshot, useStore } from '../state/context'
-import { AgentIcon } from './Icons'
+import { DestinationBar, useDestinationPage } from '../panels/destination-page'
+import { AgentFace } from './AgentFace'
 import { AgentNew } from './AgentNew'
 import { AgentPage } from './AgentPage'
 import { CeilingChip } from './CeilingChip'
-import { Button, Chip, EmptyState, IconTile, Note, PageHead, Row, RowButton, RowValue, Rows, Section } from '../design'
+import { Button, Chip, EmptyState, MiddleTruncate, Note, PageExplanation, Row, RowButton, RowValue, Rows, Section } from '../design'
 
 /**
  * The Agents window's overview: who does the work.
@@ -39,39 +40,39 @@ const EMPTY: Readonly<Record<AgentOrigin, string>> = {
   user: 'None of your own yet',
   builtin: 'None ship with this build',
 }
-
 /** The checkout actually read, never the main checkout a linked worktree belongs to. */
-const footnote = (origin: AgentOrigin, folder: string | null, home: string | null): string => {
+const footnote = (origin: AgentOrigin, folder: string | null, home: string | null): ReactNode => {
   if (origin === 'builtin') return 'Ships with HarnessDesk, and changes only when HarnessDesk does.'
-  const where = folder ? shortPath(`${folder}/agents`, home) : 'the Agents folder'
-  if (origin === 'user') return `Read from ${where} — yours, on this Mac only.`
-  return `Read from ${where}, and committed with the code: everyone who clones it has these.`
+  const fullPath = folder ? `${folder}/agents` : null
+  const where = fullPath ? shortPath(fullPath, home) : 'the Agents folder'
+  if (origin === 'user') {
+    if (!fullPath) return `Read from ${where} — yours, on this Mac only.`
+    return <>
+      <span>Read from</span>
+      <MiddleTruncate title={fullPath} aria-label={fullPath}>{where}</MiddleTruncate>
+      <span>— yours, on this Mac only.</span>
+    </>
+  }
+  if (!folder) return `Read from ${where}, and committed with the code: everyone who clones it has these.`
+  const suffix = where.split(/[\\/]/u).filter(Boolean).slice(-3).join('/')
+  return <>
+    <span>Read from</span>
+    <MiddleTruncate prefix="…/" title={fullPath ?? undefined} aria-label={fullPath ?? undefined}>{suffix}</MiddleTruncate>
+    <span>, and committed with the code: everyone who clones it has these.</span>
+  </>
 }
 
 export const AgentsRosterSection = ({
-  focus = null,
-  onLeave = () => {},
-  onFocus,
+  focus, onFocus,
 }: {
-  /** An Agent to open on — *Open <Agent> in Settings*, the refusal sheet's *Edit seats for this Mac*, the rail. */
-  readonly focus?: string | null
-  /** Closes the Agents window, for what an Agent's page opens behind it. */
-  readonly onLeave?: () => void
-  /**
-   * Tells the caller which Agent is open now, so the rail this section is
-   * shown beside (`AgentsWindow`) can keep its own selection in step with a
-   * row pressed here, or with *Back*. Optional: this section owns its own
-   * open/closed state either way, which is what makes it — and this file's
-   * own tests — usable with no window around it at all.
-   */
-  readonly onFocus?: (id: string | null) => void
+  readonly focus: string | null
+  readonly onFocus: (id: string | null) => void
 }) => {
   const snapshot = useSnapshot()
-  const [open, setOpen] = useState<string | null>(focus)
+  const { active } = useDestinationPage()
+  const open = focus, setOpen = onFocus
   const [creating, setCreating] = useState(false)
-  useEffect(() => {
-    setOpen(focus)
-  }, [focus])
+  useEffect(() => { if (!active) setCreating(false) }, [active])
 
   const agents = snapshot.agents ?? []
   const project = projectName(snapshot.workspace)
@@ -89,20 +90,15 @@ export const AgentsRosterSection = ({
         entry={opened}
         onBack={() => {
           setOpen(null)
-          onFocus?.(null)
         }}
-        onLeave={onLeave}
       />
     )
   }
 
   return (
     <>
-      <PageHead
-        title="Agents"
-        blurb="Who does the work: a brief, the most it may do, and the seats it prefers."
-        actions={<Button variant="default" onClick={() => setCreating(true)}>New Agent…</Button>}
-      />
+      <DestinationBar place="Agents" verb={{ label: 'New Agent…', run: () => setCreating(true) }} />
+      <PageExplanation>Who does the work: a brief, the most it may do, and the seats it prefers.</PageExplanation>
       <AuthoringPendingSection />
       {ORDER.filter((origin) => origin !== 'project' || snapshot.workspace !== null).map((origin) => {
         const heading = originWords(origin, project)
@@ -112,45 +108,70 @@ export const AgentsRosterSection = ({
         const shadowed = agents.flatMap((winner) =>
           winner.shadows.filter((one) => one.origin === origin).map((one) => ({ winner, path: one.path })),
         )
+        const ceilingCounts = new Map<string, number>()
+        for (const entry of rows) {
+          if (!entry.definition) continue
+          const plan = snapshot.agentPlans.get(entry.id)
+          if (!plan || !seatTaken(plan)) continue
+          const ceiling = plan.ceiling ?? { level: entry.definition.ceiling, hold: 'asked' as const }
+          const key = `${ceiling.level}:${ceiling.hold}`
+          ceilingCounts.set(key, (ceilingCounts.get(key) ?? 0) + 1)
+        }
+        const mostCommon = [...ceilingCounts].sort((left, right) => right[1] - left[1])
+        const sharedCeiling = mostCommon[0] && mostCommon[0][1] > 1 && mostCommon[0][1] > (mostCommon[1]?.[1] ?? 0)
+          ? mostCommon[0][0]
+          : null
         return (
           <Section key={origin} title={heading}>
             <Rows>
               {rows.length === 0 && shadowed.length === 0 && <EmptyState variant="row" title={EMPTY[origin]} />}
-              {rows.map((entry) => (
-                <AgentRow
+              {rows.map((entry) => {
+                const plan = snapshot.agentPlans.get(entry.id)
+                const candidate = seatTaken(plan)
+                const ceiling = entry.definition
+                  ? plan?.ceiling ?? { level: entry.definition.ceiling, hold: 'asked' as const }
+                  : null
+                const hideCeiling = Boolean(sharedCeiling && plan && candidate && ceiling && `${ceiling.level}:${ceiling.hold}` === sharedCeiling)
+                return <AgentRow
                   key={entry.id}
                   entry={entry}
+                  hideCeiling={hideCeiling}
                   onOpen={() => {
                     setOpen(entry.id)
-                    onFocus?.(entry.id)
                   }}
                 />
-              ))}
+              })}
               {shadowed.map(({ winner, path }) => (
                 <Row
                   key={path}
+                  reserveChevronSlot
                   kind="record"
-                  face={<IconTile shape="face"><AgentIcon size={16} /></IconTile>}
+                  face={<AgentFace entry={winner} />}
                   title={agentName(winner)}
                   desc={`Shadowed by ${winner.origin === 'user' ? 'yours' : `the one in ${project ?? 'this project'}`}, which does the same job. This copy is not used.`}
                   /* A copy that is not used, said as a fact rather than a
                      warning — the way a superseded plugin's row says it. */
-                  control={<RowValue>Shadowed</RowValue>}
+                  control={<Chip tone="neutral">Shadowed</Chip>}
                 />
               ))}
             </Rows>
-            <Note ink="muted" inset="row">{footnote(origin, origin === 'user' ? snapshot.stateDir : projectFolder, snapshot.home)}</Note>
+            <Note
+              ink="muted"
+              inset="row"
+              {...((origin === 'project' && projectFolder) || (origin === 'user' && snapshot.stateDir) ? { layout: 'inline' as const } : {})}
+            >
+              {footnote(origin, origin === 'user' ? snapshot.stateDir : projectFolder, snapshot.home)}
+            </Note>
           </Section>
         )
       })}
-      {creating && (
+      {active && creating && (
         <AgentNew
           root={projectRootOf(snapshot.workspace) ?? undefined}
           onClose={() => setCreating(false)}
           onCreated={(entry) => {
             setCreating(false)
             setOpen(entry.id)
-            onFocus?.(entry.id)
           }}
         />
       )}
@@ -158,10 +179,12 @@ export const AgentsRosterSection = ({
   )
 }
 
-import { flagWords } from '../lib/ceilings'
-
 /** One Agent in force, or one whose file will not parse — each a way into its page. */
-export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readonly onOpen: () => void }) => {
+export const AgentRow = ({ entry, onOpen, hideCeiling = false }: {
+  readonly entry: AgentEntry
+  readonly onOpen: () => void
+  readonly hideCeiling?: boolean
+}) => {
   const snapshot = useSnapshot()
   const definition = entry.definition
   if (!definition) {
@@ -169,7 +192,7 @@ export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readon
     return (
       <RowButton
         kind="record"
-        face={<IconTile shape="face"><AgentIcon size={16} /></IconTile>}
+        face={<AgentFace entry={entry} />}
         title={entry.id}
         desc={problem ? `${problem.at} — ${problem.text}` : 'Its file could not be read.'}
         control={<Chip state="broken" label="Will not parse" />}
@@ -180,20 +203,18 @@ export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readon
   const plan = snapshot.agentPlans.get(entry.id)
   const seat = seatTaken(plan)
   const reason = plan ? firstReason(plan) : null
-  const flag = flagWords(definition)
-  const description = [definition.description, flag].filter((part): part is string => Boolean(part)).join(' ')
-  const desc = [description, seat?.label, !seat && reason].filter(Boolean).join(' · ')
+  const desc = [definition.description, seat?.label, !seat && reason].filter(Boolean).join(' · ')
   const ceiling = plan?.ceiling ?? { level: definition.ceiling, hold: 'asked' as const }
   return (
     <RowButton
       kind="record"
-      face={<IconTile shape="face"><AgentIcon size={16} /></IconTile>}
+      face={<AgentFace entry={entry} />}
       title={definition.name}
       {...(desc ? { desc } : {})}
       control={
         !seat && plan ? <Chip tone="warning">Can't seat here</Chip>
           : !plan ? <RowValue>{snapshot.agentPlansFailed ? 'Its seats could not be checked' : 'Checking seats…'}</RowValue>
-          : <CeilingChip ceiling={ceiling} />
+          : !hideCeiling && <CeilingChip ceiling={ceiling} />
       }
       onClick={onOpen}
     />
@@ -210,11 +231,13 @@ export const AgentRow = ({ entry, onOpen }: { readonly entry: AgentEntry; readon
  */
 const AuthoringPendingSection = () => {
   const store = useStore()
+  const { active } = useDestinationPage()
   const [pending, setPending] = useState<readonly AuthoringPending[] | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!active) return
     let live = true
     store.authoringPending().then(
       (next) => {
@@ -227,7 +250,7 @@ const AuthoringPendingSection = () => {
     return () => {
       live = false
     }
-  }, [store])
+  }, [active, store])
 
   if (!pending || pending.length === 0) return null
 
@@ -282,14 +305,14 @@ const AuthoringPendingSection = () => {
             title={placeWords(one)}
             desc={one.message}
             control={
-              <span className="flex gap-(--hd-space-2)">
+              <>
                 <Button size="sm" variant="outline" disabled={busyId === one.id} onClick={() => void resume(one.id)}>
                   {busyId === one.id ? 'Resuming…' : 'Resume'}
                 </Button>
                 <Button size="sm" variant="ghost" disabled={busyId === one.id} onClick={() => void discard(one.id)}>
                   Discard
                 </Button>
-              </span>
+              </>
             }
           />
         ))}

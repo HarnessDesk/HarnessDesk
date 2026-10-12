@@ -1,4 +1,9 @@
-import { useRef, useState } from 'react'
+import { StoreProvider } from '../state/context'
+import type { ComponentProps } from 'react'
+import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
+import { RunFramePreview } from './RunFramePreview'
+import { previewStore } from './harness'
+import { useMemo, useRef, useState } from 'react'
 import { sessionKey, type FlowExecution } from '@harnessdesk/protocol'
 import { StopRunDialog, StopRunFailure, type StopRunSeat } from '../components/StopRunDialog'
 import { RunWorkspace } from '../components/RunWorkspace'
@@ -8,6 +13,11 @@ import { Button, NativeSelect } from '../design'
 import { Boundary } from './boundary'
 import { runFixture } from './run-view-fixture'
 import { overviewInput, overviewModel } from './team-overview-fixture'
+
+const CatalogueRunWorkspace = (props: ComponentProps<typeof RunWorkspace>) => {
+  const store = useMemo(previewStore, [])
+  return <StoreProvider store={store}><RunFramePreview {...props} /></StoreProvider>
+}
 
 export const STOP_RUN_STATES = ['running', 'empty', 'pending', 'failed', 'cleanup', 'stopping', 'stopped', 'resumed', 'restopped', 'narrow'] as const
 export type StopRunScene = typeof STOP_RUN_STATES[number]
@@ -79,7 +89,7 @@ export const StopRunExample = ({ scene = 'running' }: { scene?: StopRunScene }) 
     <TeamOverview model={model} timeline={timeline} runName="Build and review" onStop={ask} />
     {scene === 'stopping' && live && <span hidden><Button onClick={() => setLive(false)} data-finish-turn>Finish the fixture turn</Button></span>}
     <div className="flex h-144 min-w-0 flex-col">
-      <RunWorkspace model={timeline} number={1} selectedRow={selectedRow} onSelect={setSelectedRow} onStop={ask}
+      <CatalogueRunWorkspace model={timeline} number={1} selectedRow={selectedRow} onSelect={setSelectedRow} onStop={ask}
         inspector={{ input, seats: [{ id: 'seat-0', name: 'Alpha' }], onAbandon: async () => {}, onStop: ask }} />
     </div>
     {asking && <StopRunDialog seats={scene === 'empty' ? [] : SEATS} failure={failure}

@@ -139,6 +139,15 @@ try {
   assert.equal(relaunch.dark, chosenTheme === 'dark', 'the persisted theme was not applied to the native renderer root')
   assert.ok(relaunch.dragRegions > 0, 'the native window has no draggable chrome')
   assert.ok(relaunch.noDragControls > 0, 'controls inside native chrome are not marked clickable')
+  if (await desk.cdp.eval(`${STORE}.getSnapshot().workbench.navigation.current.kind === 'settings'`)) {
+    assert.equal(relaunch.searchNamed, false, 'Settings must omit the work search under the frame contract')
+    const lead = await desk.cdp.json(`(() => [...document.querySelectorAll('[data-left-top] button, [data-topbar="lead"] button')]
+      .filter(one => one.getBoundingClientRect().height > 0).map(one => one.getAttribute('aria-label')))()`)
+    assert.equal(lead.length, 1, 'Settings native chrome must retain only the column toggle')
+    assert.match(lead[0] ?? '', /^(Show|Hide) sidebar$/, 'the native column toggle must retain its accessible name')
+    await desk.cdp.eval(`${STORE}.returnToWork()`)
+    relaunch = await waitForSnapshot(readRelaunch, current => current.searchNamed)
+  }
   assert.equal(relaunch.searchNamed, true, 'the native sidebar search lost its accessible name')
   assert.match(relaunch.title, /HarnessDesk/)
   assert.deepEqual(

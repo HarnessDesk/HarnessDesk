@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useDestinationActive } from '../panels/destination-page'
+import { useEffect, useRef, useState } from 'react'
 
 import type { AuthoringDocument, FlowEntry, FlowOrigin } from '@harnessdesk/protocol'
 
@@ -37,6 +38,12 @@ const LAYERS: readonly { readonly origin: FlowOrigin; readonly label: string }[]
  * from here.
  */
 export const ProjectFlows = ({ root, current }: ProjectFlowsProps) => {
+  const destinationActive = useDestinationActive()
+
+  const activeRead=useRef(destinationActive)
+  activeRead.current=destinationActive
+  const epoch = useRef(0)
+  useEffect(() => { epoch.current++; return () => { epoch.current++ } }, [destinationActive, root])
   const store = useStore()
   const [entries, setEntries] = useState<readonly FlowEntry[] | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
@@ -45,6 +52,8 @@ export const ProjectFlows = ({ root, current }: ProjectFlowsProps) => {
   const [editProblem, setEditProblem] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!destinationActive) return
+
     let live = true
     setProblem(null)
     store.flowCatalog(root).then(
@@ -58,21 +67,29 @@ export const ProjectFlows = ({ root, current }: ProjectFlowsProps) => {
     return () => {
       live = false
     }
-  }, [store, root])
+  }, [destinationActive, store, root])
 
   const reload = (): void => {
-    void store.flowCatalog(root).then(setEntries, () => {})
+    if (!activeRead.current) return
+    const generation=epoch.current
+    void store.flowCatalog(root).then(value => { if (epoch.current===generation) setEntries(value) }, () => {})
   }
 
   const openEditor = async (id: string): Promise<void> => {
+    if (!activeRead.current) return
+    const generation=epoch.current
     setEditProblem(null)
     try {
-      setEditing(await store.readAuthoring({ kind: 'flow', origin: 'project', id, root }))
+      const document=await store.readAuthoring({ kind: 'flow', origin: 'project', id, root })
+      if (epoch.current===generation) setEditing(document)
     } catch (error) {
-      setEditProblem(error instanceof Error ? error.message : String(error))
+      if (epoch.current===generation) setEditProblem(error instanceof Error ? error.message : String(error))
     }
   }
+  useEffect(() => { if (!destinationActive) { setDialog(null); setEditing(null) } }, [destinationActive])
 
+
+  const activation=epoch.current
   return (
     <Section
       title="Flows"
@@ -98,22 +115,23 @@ export const ProjectFlows = ({ root, current }: ProjectFlowsProps) => {
         ]
       })}
       {!current && entries && entries.length > 0 && <Note>Open this project to start its flow.</Note>}
-      {dialog && (
+      {destinationActive && dialog && (
         <FlowUpdate
           root={root}
           id={dialog.id}
           mode={dialog.mode}
           onClose={() => setDialog(null)}
-          onApplied={reload}
+          onApplied={()=>{if(epoch.current===activation)reload()}}
         />
       )}
-      {editing && (
+      {destinationActive && editing && (
         <ShapeEditor
           root={root}
           context={{ kind: 'project', root }}
           document={editing}
           onClose={() => setEditing(null)}
           onStarted={(execution) => {
+            if (!activeRead.current || epoch.current!==activation) return
             setEditing(null)
             store.openGoal(execution.goal)
           }}

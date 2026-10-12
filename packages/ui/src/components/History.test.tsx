@@ -1,9 +1,11 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-import { NO_CAPABILITIES, runtimeId, sessionId, type HistoryImportState, type HistorySummary, type RuntimeInfo } from '@harnessdesk/protocol'
+import { NO_CAPABILITIES, runtimeId, sessionId, sessionKey, type HistoryImportState, type HistorySummary, type RuntimeInfo, type Session } from '@harnessdesk/protocol'
+import { DestinationPageScope } from '../panels/destination-page'
 import { StoreProvider } from '../state/context'
 import { AppStore, emptySnapshot } from '../state/store'
+import '../panels/builtins'
 import { AgentHistory, HistorySection } from './History'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -26,7 +28,7 @@ const input = (label: string, value: string) => act(() => {
 const mount = async (state: HistoryImportState | null = done, agent = false, rows = [row('Imported')]) => {
   const snapshot = { ...emptySnapshot(), runtimes: [info], historyImports: { [info.id]: state } }
   request = vi.fn(async (method: string) => method === 'history/list' ? { data: rows, nextCursor: null } : null)
-  own = { getSnapshot: () => snapshot, subscribe: () => () => {}, loadHistoryImport: vi.fn(async () => {}), transport: { request }, openSession: vi.fn(async () => {}) } as unknown as AppStore
+  own = { getSnapshot: () => snapshot, subscribe: () => () => {}, loadHistoryImport: vi.fn(async () => {}), transport: { request }, openSession: vi.fn(async () => true), showViewIn: vi.fn() } as unknown as AppStore
   await act(async () => root.render(<StoreProvider store={own}>{agent ? <AgentHistory info={info} onBrowse={onBrowse} /> : <HistorySection onOpen={onOpen} onOpenAgent={onOpenAgent} />}</StoreProvider>))
 }
 beforeEach(() => { box = document.createElement('div'); document.body.append(box); root = createRoot(box); onBrowse = vi.fn(); onOpen = vi.fn(); onOpenAgent = vi.fn() })
@@ -41,7 +43,7 @@ it('queries titles and hidden rows on the host and opens a preview', async () =>
   await act(async () => box.querySelector<HTMLButtonElement>('[role="switch"]')!.click())
   expect(request).toHaveBeenLastCalledWith('history/list', { pageSize: 100, includeHidden: true, query: '100%_' })
   await act(async () => button('Imported').click())
-  expect(own.openSession).toHaveBeenCalledWith(sessionId('Imported'), { runtime: info.id, preview: true })
+  expect(own.openSession).toHaveBeenCalledWith(sessionId('Imported'), { runtime: info.id, preview: true, reveal: false, preserveLayoutOnReadFailure: true })
   expect(onOpen).toHaveBeenCalled()
 })
 
@@ -51,9 +53,9 @@ it('sends agent and project filters, then pages when scrolled near the end', asy
     const select = box.querySelector<HTMLSelectElement>(`select[aria-label="${label}"]`)!
     select.value = value; select.dispatchEvent(new Event('change', { bubbles: true }))
   })
-  await choose('History agent', info.id)
+  await choose('Agent', info.id)
   expect(request).toHaveBeenLastCalledWith('history/list', { pageSize: 100, includeHidden: false, runtimes: [info.id] })
-  await choose('History project', '/preview/project')
+  await choose('Project', '/preview/project')
   expect(request).toHaveBeenLastCalledWith('history/list', { pageSize: 100, includeHidden: false, runtimes: [info.id], repoRoot: '/preview/project' })
   request.mockResolvedValueOnce({ data: Array.from({ length: 100 }, (_, i) => row(`Row ${i}`)), nextCursor: 'next' })
   input('Search history titles', 'Row')
@@ -68,12 +70,18 @@ it('sends agent and project filters, then pages when scrolled near the end', asy
   expect(request).toHaveBeenLastCalledWith('history/list', { pageSize: 100, includeHidden: false, runtimes: [info.id], repoRoot: '/preview/project', query: 'Row', cursor: 'next' })
 })
 
-it('points an empty import to its agent page and shows Archived on one line', async () => {
+it('leads an empty history page with import choices and keeps search for imported rows', async () => {
   await mount(null, false, [])
+  expect(box.querySelector('[data-slot="empty-state"]')?.textContent).toContain('Nothing imported yet')
   expect(box.textContent).toContain('Import history from an agent’s settings page.')
+  expect(box.querySelector('input[aria-label="Search history titles"]')).toBeNull()
+  expect(box.querySelector('select[aria-label="Agent"]')).toBeNull()
+  expect(box.querySelector('select[aria-label="Project"]')).toBeNull()
+  expect(box.querySelector('[aria-label="Show hidden"]')).toBeNull()
   act(() => button('Alpha').click())
   expect(onOpenAgent).toHaveBeenCalledWith(info.id)
   await mount(done, false, [row('Filed', { archived: true })])
+  expect(box.querySelector('input[aria-label="Search history titles"]')).not.toBeNull()
   expect(box.textContent).toContain('Archived')
   expect(box.querySelector('[data-slot="row-desc"]')).toBeNull()
 })
@@ -217,10 +225,13 @@ it.each(['trash', 'erase', false] as const)('uses the declared delete dispositio
   const actions = box.querySelector<HTMLButtonElement>('[aria-label="Imported actions"]')
   expect(actions).not.toBeNull()
   await act(async () => actions!.click())
-  const deletion = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(el => el.textContent === 'Delete everywhere…')!
+  const deletion = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .find(el => el.querySelector('[data-menu-label]')?.textContent === 'Delete everywhere…')!
   expect(deletion.getAttribute('aria-disabled') === 'true').toBe(disposition !== 'trash')
   if (disposition !== 'trash') {
-    expect(deletion.title).toBe(disposition === 'erase' ? 'Alpha erases it for good, so delete it there' : 'Alpha keeps no way to delete one.')
+    const reason = disposition === 'erase' ? 'Alpha erases it for good, so delete it there' : 'Alpha keeps no way to delete one.'
+    expect(deletion.title).toBe(reason)
+    expect(deletion.querySelector('[data-menu-hint]')?.textContent).toBe(reason)
   } else {
     await act(async () => deletion.click())
     expect(document.body.textContent).toContain('Delete "Imported" everywhere?')
@@ -237,4 +248,54 @@ it('omits Hide for a row already hidden', async () => {
   await act(async () => box.querySelector<HTMLButtonElement>('[aria-label="Hidden import actions"]')!.click())
   expect([...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].some(el => el.textContent === 'Hide from HarnessDesk')).toBe(false)
   expect(document.body.textContent).toContain('Delete everywhere…')
+})
+
+const pendingSession = () => {
+  let resolve!: (value: Session) => void, reject!: (error: Error) => void
+  const promise=new Promise<Session>((yes,no)=>{resolve=yes;reject=no})
+  return {promise,resolve,reject}
+}
+it.each(['refused','success','refresh','hidden'] as const)('a real history read %s preserves destination until a successful current click',async(outcome)=>{
+  const store=new AppStore('ws://localhost:0/'),pending=pendingSession()
+  const imported:Session={...row('Imported'),status:{type:'idle'},turns:[],itemsLoaded:true}
+  Object.assign(store.getSnapshot(),{runtimes:[info]})
+  store.openDestination({kind:'settings',route:{kind:'section',section:'history',focus:null}})
+  const selected=store.getSnapshot().workbench.navigation.current
+  const listing=vi.spyOn(store.transport,'request').mockImplementation((async(method:string)=>{
+    if(method==='history/list')return {data:[row('Imported')],nextCursor:null}
+    if(method==='session/read')return pending.promise
+    if(method==='session/resume')return imported
+    return null
+  }) as never)
+  const render=(active:boolean)=>act(async()=>root.render(<StoreProvider store={store}><DestinationPageScope owner="destination:settings" active={active}><HistorySection onOpen={onOpen} onOpenAgent={onOpenAgent}/></DestinationPageScope></StoreProvider>))
+  await render(true)
+  act(()=>button('Imported').click())
+  expect(store.getSnapshot().workbench.navigation.current).toBe(selected)
+  expect(onOpen).not.toHaveBeenCalled()
+  if(outcome==='refresh')await act(async()=>window.dispatchEvent(new Event('focus')))
+  if(outcome==='hidden'){await render(false);store.openDestination({kind:'settings',route:{kind:'section',section:'general',focus:null}})}
+  await act(async()=>outcome==='refused'?pending.reject(new Error('Read refused')):pending.resolve(imported))
+  if(outcome==='success'||outcome==='refresh'){
+    expect(store.getSnapshot().notices.map(one=>one.message)).toEqual([])
+    expect(listing).toHaveBeenCalledWith('session/resume',{runtime:info.id,sessionId:sessionId('Imported')})
+    expect(store.getSnapshot().workbench.navigation.current).toEqual({kind:'work',view:{kind:'conversation',session:sessionKey(info.id,'Imported')}})
+    expect(onOpen).toHaveBeenCalledTimes(1)
+  }else{
+    expect(store.getSnapshot().workbench.navigation.current.kind).toBe('settings')
+    expect(onOpen).not.toHaveBeenCalled()
+  }
+  expect(listing).toHaveBeenCalledWith('session/read',{runtime:info.id,sessionId:sessionId('Imported')})
+})
+
+it('retains the chosen agent and scroll when its destination leaves and returns',async()=>{
+  await mount(done,false,Array.from({length:100},(_,i)=>row(`Row ${i}`)))
+  const render=(active:boolean)=>act(async()=>root.render(<StoreProvider store={own}><DestinationPageScope owner="destination:settings" active={active}><HistorySection onOpen={onOpen} onOpenAgent={onOpenAgent}/></DestinationPageScope></StoreProvider>))
+  await render(true)
+  await act(async()=>{const select=box.querySelector<HTMLSelectElement>('select[aria-label="Agent"]')!;select.value=info.id;select.dispatchEvent(new Event('change',{bubbles:true}))})
+  const viewport=box.querySelector<HTMLElement>('[data-history-scroll]')!;viewport.scrollTop=1200
+  await act(async()=>viewport.dispatchEvent(new Event('scroll',{bubbles:true})))
+  await render(false);await render(true)
+  expect(box.querySelector<HTMLSelectElement>('select[aria-label="Agent"]')!.value).toBe(info.id)
+  expect(box.querySelector('[data-history-scroll]')).toBe(viewport);expect(viewport.scrollTop).toBe(1200)
+  expect(request.mock.calls.filter(call=>call[0]==='history/list').at(-1)).toEqual(['history/list',{pageSize:100,includeHidden:false,runtimes:[info.id]}])
 })

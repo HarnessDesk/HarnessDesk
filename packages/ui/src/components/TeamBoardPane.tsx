@@ -11,7 +11,7 @@ import {
   type TeamPeerInfo,
 } from '@harnessdesk/protocol'
 
-import { ChangeStats, Chip, Dialog, Dot, Field, Input, Note, Segmented, TableCell, TableRow, Text } from '../design'
+import { ChangeStats, Chip, Dialog, Dot, Field, Input, Note, SummaryItem, SummaryList, TableCell, TableRow, Text } from '../design'
 import { teamBoardLayout } from '../lib/team-board-layout'
 import { TeamBoardList, JOB_COLUMN_CLASS, type JobColumn } from './TeamBoardList'
 import { chipOf, ciVerdict, isCurrent, standingWords } from '../lib/evidence'
@@ -23,7 +23,8 @@ import { namedGoalRun } from '../lib/goal-run'
 import { shortSha } from '../lib/git-refs'
 import { stepWords } from '../lib/run-timeline'
 import type { AppSnapshot } from '../state/store'
-import { useSnapshot, useStore } from '../state/context'
+import { usePane, useSnapshot, useStore } from '../state/context'
+import { useTopBarView } from '../panels/top-bar'
 import { AddWork } from './AddWork'
 import { PersonStepDialog } from './PersonStepDialog'
 import { EvidenceChips } from './EvidenceChips'
@@ -41,14 +42,11 @@ import {
   HandoffIcon,
   MoreIcon,
   PlusIcon,
-  TeamIcon,
 } from './Icons'
 import {
   Board,
   BoardCard,
   BoardColumn,
-  BOARD_COLUMN_MIN_WIDTH,
-  BOARD_RAIL_WIDTH,
   Banner,
   BannerAction,
   Button,
@@ -61,7 +59,6 @@ import {
   Popover,
   ToolPane,
   ToolPaneBody,
-  ViewBar,
   type Tint,
 } from '../design'
 
@@ -251,29 +248,17 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
   const [preferredView, setView] = useState<'board' | 'list'>('board')
   const paneRef = useRef<HTMLElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
-  const boardRef = useRef<HTMLDivElement>(null)
-  const [paneSize, setPaneSize] = useState<{ width: number; contentWidth: number; gap: number } | null>(null)
-  const [openedColumns, setOpenedColumns] = useState<ReadonlySet<string>>(() => new Set())
-  const layout = teamBoardLayout(paneSize?.width ?? Infinity, paneSize?.contentWidth ?? Infinity, openedColumns, paneSize?.gap ?? 12)
+  const [paneWidth, setPaneWidth] = useState<number | null>(null)
+  const layout = teamBoardLayout(paneWidth ?? Infinity)
   const view = layout.compact ? 'list' : preferredView
   useEffect(() => {
     const pane = paneRef.current
     const body = bodyRef.current
     if (!pane || !body) return
     const measure = () => {
-      // The body reserves its scrollbar gutter, so changing layout cannot
-      // change the width that chose it. Read resolved CSS lengths so a
-      // foundation may express spacing in rem or calc() as well as px.
       const width = body.clientWidth
       if (width <= 0) return
-      const style = getComputedStyle(body)
-      const contentWidth = width - parseFloat(style.paddingInlineStart) - parseFloat(style.paddingInlineEnd)
-      const board = boardRef.current
-      setPaneSize(previous => {
-        const gap = board ? parseFloat(getComputedStyle(board).columnGap) : previous?.gap ?? 12
-        return previous?.width === width && previous.contentWidth === contentWidth && previous.gap === gap
-          ? previous : { width, contentWidth, gap }
-      })
+      setPaneWidth(previous => previous === width ? previous : width)
     }
     measure()
     if (typeof ResizeObserver === 'undefined') {
@@ -563,73 +548,23 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
         )}
   </> : null
 
+  const owner = usePane()?.paneId ?? ''
+  useTopBarView(owner, {
+    verb: { label: 'New job', icon: <PlusIcon />, disabled: record ? RECORD_REASON : false, run: openAdd },
+    view: { content: close => <Menu close={close}>
+      <MenuItem label="Board" disabled={layout.compact && 'Board needs at least 600px of content width'} onSelect={() => { setView('board'); close() }} />
+      <MenuItem label="List" onSelect={() => { setView('list'); close() }} />
+    </Menu> },
+    more: [
+      { label: 'Hand out', disabled: record ? RECORD_REASON : openCards === 0 ? 'There are no open cards' : !(peers?.some(peer => !peer.busy)) ? 'No member is idle' : false, run: () => setHanding(true) },
+      { label: 'Start with a team', disabled: record ? RECORD_REASON : !emptyGoal || intents.length > 0 ? 'This Team already has work' : false, run: () => setStartingTeam(true) },
+    ],
+  }, Boolean(owner))
+
   return (
-    /* A container, because this board is no longer only ever a pane of its
-       own: it is also the right half of the team room, where the width is
-       whatever the room's rail left over. The header's tally is the first
-       thing to go — the columns are counted anyway — and the button that adds
-       work keeps its label to the last. */
+    /* The measured body owns Board/List admission independently of the shell's
+       width, so a narrow Board can retain its compact list geometry. */
     <ToolPane ref={paneRef} variant="integrated" className="@container/board">
-      {/* The state of the work, not its name: the tab above already says
-          "Board". List summaries share the table text edge; columns keep
-          the canvas gutter below the view row. */}
-      <ViewBar
-        contentInset={view === 'list' ? 'reading-table' : 'page'}
-        aria-label="Board"
-        summary={
-          `${byColumn.get('todo')?.length ?? 0} to do · ${
-            byColumn.get('working')?.length ?? 0
-          } working · ${byColumn.get('needs')?.length ?? 0} need you`
-        }
-        actions={
-          /* Top-bar actions stay outlined: a filled button belongs with the
-             work itself. The Ready column keeps its contextual title-and-
-             Enter shortcut, while the header holds the board-wide verbs. */
-          <div className="flex items-center gap-1.5">
-            {/* Offered only when both halves exist — a button that opens a
-                dialog to say "nothing to hand out" is a button that lies about
-                being useful. */}
-            {openCards > 0 && (peers?.some((peer) => !peer.busy) ?? false) && (
-              <Button
-                disabled={record}
-                size="sm"
-                variant="outline"
-                aria-label="Hand out the open cards"
-                title={record ? RECORD_REASON : "Hand out the open cards, one per idle member"}
-                onClick={() => setHanding(true)}
-              >
-                <HandoffIcon />
-                Hand out
-              </Button>
-            )}
-            {emptyGoal && intents.length === 0 && (
-              <Button size="sm" variant="secondary" disabled={record} title={record ? RECORD_REASON : undefined} onClick={() => setStartingTeam(true)}>
-                <TeamIcon />Start with a team
-              </Button>
-            )}
-            <Button
-              size="sm"
-              /* The visible label leads the accessible one, because below
-                 `26rem` the span is hidden and the glyph carries the button
-                 alone — so it needs a name, and a name that *replaces* the
-                 visible one breaks speech control and WCAG 2.5.3: "click New
-                 job" has to match what is announced. */
-              aria-label="New job — add work with files, dependencies and a goal"
-              disabled={record}
-              title={record ? RECORD_REASON : "Add work with files, dependencies and a goal. Work added here can be claimed by one conversation at a time, with its files owned while the claim lives."}
-              variant="outline"
-              onClick={openAdd}
-            >
-              <PlusIcon />
-              {/* The label goes at the narrowest width and the glyph carries
-                  it, which is the one thing a pane header can give up without
-                  losing the action. `@container/board` is on the pane. */}
-              <span className="hidden @[26rem]/board:inline">New job</span>
-            </Button>
-            <Segmented label="Board view" value={view} options={[{ value: 'board', label: 'Board', disabled: layout.compact && 'Board needs at least 600px of content width' }, { value: 'list', label: 'List' }]} onChange={setView} />
-          </div>
-        }
-      />
       <ToolPaneBody ref={bodyRef} bleed={view === 'list'} inset="dense" className="[scrollbar-gutter:stable]">
         {notices && (view === 'list' ? <PaneColumn inset="reading" className="flex flex-col gap-2">{notices}</PaneColumn> : notices)}
         {/* The goals on this board, above the work. A Room is permanent and a
@@ -671,28 +606,12 @@ export const TeamBoardPane = ({ room }: { room: string }) => {
               onAct={(verb, outcome) => verb === 'block' ? setStopping(intent) : act(intent.id, verb, undefined, outcome)} />
           )} />
         ) : (
-          <Board ref={boardRef} wrap derived className="items-stretch" data-layout={layout.lanes ? 'lanes' : 'columns'}
-            style={{ gridTemplateColumns: layout.lanes
-              ? `repeat(2, minmax(${BOARD_COLUMN_MIN_WIDTH}px, 1fr))${layout.folded.includes('ready') ? ` ${BOARD_RAIL_WIDTH}px` : ''}`
-              : ['needs', 'working', 'review', 'todo', 'ready'].map(id => layout.folded.includes(id as FactColumn) ? `${BOARD_RAIL_WIDTH}px` : `minmax(${BOARD_COLUMN_MIN_WIDTH}px, 1fr)`).join(' ') }}>
+          <Board derived className="items-stretch" data-layout="columns">
             {['needs', 'working', 'review', 'todo', 'ready', 'aside'].flatMap(id => shown.filter(column => column.id === id)).map((column) => {
               const cards = byColumn.get(column.id) ?? []
-              const withoutColumn = new Set(openedColumns)
-              withoutColumn.delete(column.id)
-              const canFold = openedColumns.has(column.id) && teamBoardLayout(
-                paneSize?.width ?? Infinity, paneSize?.contentWidth ?? Infinity, withoutColumn, paneSize?.gap ?? 12,
-              ).folded.includes(column.id)
               return (
                 <BoardColumn key={column.id} title={column.title} count={cards.length} tint={column.tint}
-                  data-column={column.id} collapsed={layout.folded.includes(column.id)}
-                  style={column.id === 'aside' ? { gridColumn: '1 / -1' }
-                    : layout.lanes && layout.folded.includes(column.id) ? { gridColumn: 3, gridRow: '1 / span 2' } : undefined}
-                  onCollapsedChange={layout.folded.includes(column.id) || canFold ? collapsed => setOpenedColumns(previous => {
-                    const next = new Set(previous)
-                    if (collapsed) next.delete(column.id)
-                    else next.add(column.id)
-                    return next
-                  }) : undefined}>
+                  data-column={column.id}>
                   {cards.map((intent) => (
                     <IntentCard
                       key={intent.id}
@@ -1035,7 +954,7 @@ const IntentCard = ({
   const menuVerbs = verbs.filter(one => !listColumns || record || one !== primary)
   const actions = (
         menuVerbs.length > 0 || checkItems.length > 0 || onAssign ? (
-          <Popover label={<MoreIcon size={14} />} title={`What to do with #${intent.id}`} align="right">
+          <Popover label={<MoreIcon size={14} />} title={`What to do with #${intent.id}`} align="right" icons="none">
             {(close) => (
               <Menu close={close}>
                 {onAssign ? <MenuItem label="Give this to…" disabled={record ? RECORD_REASON : false} onSelect={onAssign} /> : null}
@@ -1175,7 +1094,6 @@ const IntentCard = ({
             <SessionHoverCard
               session={session ?? null}
               className="flex min-w-0 flex-1 items-center gap-1.5"
-              actions={[{ label: 'Open', primary: true, onSelect: onOpenHolder }]}
             >
               <IconTile size="sm" shape="face" tint={holderTint}>
                 {runtime ? (

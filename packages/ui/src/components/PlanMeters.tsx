@@ -1,4 +1,4 @@
-import { useHeaderStatusGroup, HeaderStatusReading, Button, Progress, UsageMeterRow, Separator, Text, type Tone } from '../design'
+import { Button, Progress, Text, type Tone } from '../design'
 import { useEffect, useMemo, useState } from 'react'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
@@ -7,13 +7,13 @@ import { describeStrip, type StripMeter, type StripRest } from '../lib/plan-stri
 import { describeLane, formatAge, formatMoney } from '../lib/usage'
 import { useActiveSession, useSnapshot } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
-import { RosterIcon, SignInIcon, UsageIcon } from './Icons'
-import { Menu, MenuLabel, MenuNote, Popover } from '../design'
+import { RosterIcon, SignInIcon } from './Icons'
+import { WideMenu, Popover } from '../design'
 import styles from './PlanMeters.module.css'
 
 /**
- * The strip in the header: this conversation's agent, and one token for the
- * rest of the roster.
+ * Retained plan-meter catalogue specimen: this conversation's agent and the
+ * rest of the roster. The live shell uses the same facts in the seat menu.
  *
  * The screen answers "where do I stand" when you go and ask it. This answers
  * the question nobody thinks to ask — *is the agent I am about to use still
@@ -36,7 +36,6 @@ export const PlanMeters = ({
   /** The one thing that stops a session from starting at all, offered here. */
   onSignIn: (runtime: RuntimeId) => void
 }) => {
-  const grouped = useHeaderStatusGroup()
   const snapshot = useSnapshot()
   const session = useActiveSession()
   const [now, setNow] = useState(() => Date.now())
@@ -86,23 +85,20 @@ export const PlanMeters = ({
         <Meter view={anchor.meter} now={now} onOpen={() => onOpen(anchor.meter.runtime)} />
       )}
       {anchor?.kind === 'signIn' && (
-        <HeaderStatusReading label="Account" detail={`${anchor.info.presentation.name} needs sign-in`}>
           <Button
             type="button"
             variant="primary" size="chip" className={`${styles.signInChip} truncate`}
             onClick={() => onSignIn(anchor.info.id)}
             aria-label={`Sign in to ${anchor.info.presentation.name}`}
-            title={grouped ? undefined : `${anchor.info.presentation.name} has no account here — sign in to use it`}
+            title={`${anchor.info.presentation.name} has no account here — sign in to use it`}
           >
             <SignInIcon size={12} />
             {anchor.info.presentation.name}
           </Button>
-        </HeaderStatusReading>
       )}
       {/* An agent that is out and is not this conversation's is the one piece
           of roster news worth its own space: the token can say how many are
-          out, but not which. Dropped first when the header narrows, because
-          the token beside it already carries the count. */}
+          out, but not which. The token beside it carries the roster count. */}
       {promoted.map((meter) => (
         <Meter
           key={`${meter.runtime}:${meter.report.account ?? ''}`}
@@ -131,20 +127,16 @@ const Meter = ({
   promoted?: boolean
   onOpen: () => void
 }) => (
-  <HeaderStatusReading
-    label={promoted ? "Other agent limit" : "Plan usage"}
-    detail={meterTitle(view)}
-    value={`${view.lane.title}, ${view.lane.remainingPercent}% left${view.lane.remainingPercent === 0 ? ' · out of quota' : ''}${view.lane.shortCountdown ? ` · resets in ${view.lane.shortCountdown}` : ''}`}
-    note={view.account ? `${view.name} · ${view.account}` : view.name}
-    notePath
-  >
     <Popover
+      panelWidth="wide" icons="all"
       title={meterTitle(view)}
+      aria-label={meterTitle(view)}
       drop="down"
       align="right"
       label={
         <span
           data-slot="plan-meter"
+          data-plan-popup={promoted ? 'promoted' : 'anchor'}
           className={styles.meter}
           data-tone={promoted ? 'neutral' : toneOf(view.tone)}
           {...(view.low ? { 'data-low': '' } : {})}
@@ -166,58 +158,20 @@ const Meter = ({
           {promoted ? (
             <Text role="meta" numeric>{view.figure}</Text>
           ) : (
-            <Text className={styles.figure} role="meta" tone={toneOf(view.tone)} numeric>{view.figure}</Text>
+            <Text role="meta" tone={toneOf(view.tone)} numeric>{view.figure}</Text>
           )}
         </span>
       }
     >
-      {(close) => (
-        <Menu close={close}>
-          <div className={styles.panel}>
-            <Button
-              type="button"
-              variant="row" size="row" className={styles.panelHead}
-              onClick={() => {
-                close()
-                onOpen()
-              }}
-            >
-              <RuntimeMark runtime={view.info} size={14} />
-              <Text role="subject" truncate className={styles.panelName}>{view.name}</Text>
-              <Text role="subject" tone="brand">Open</Text>
-            </Button>
-            {(view.report.plan || view.report.account) && (
-              <MenuNote>
-                {[view.report.plan, view.report.account].filter(Boolean).join(' · ')}
-              </MenuNote>
-            )}
-            <div className={styles.lanes}>
-              {view.report.lanes.map((raw) => {
-                const lane = describeLane(raw, now, view.report.lanes)
-                return (
-                  <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.gatedUntil === null ? lane.resetCountdown : `blocked ${lane.gatedFor ?? '—'}`} countdownTitle={lane.gatedUntil !== null ? `blocked until ${lane.gatedClock}` : lane.resetClock ? `resets ${lane.resetClock}` : undefined} tone={toneOf(lane.tone)} standalone />
-                )
-              })}
-            </div>
-            <Separator />
-            <MenuNote>
-              <span className={styles.foot}>
-              {view.report.spend?.todayCost !== undefined && view.report.spend?.todayCost !== null && (
-                <>
-                  <span>{formatMoney(view.report.spend.todayCost, view.report.spend.currency)} today</span>
-                  <span>·</span>
-                </>
-              )}
-              <span>{view.report.source.label}</span>
-              <span>·</span>
-              <span>{formatAge(view.report.fetchedAt, now)}</span>
-              </span>
-            </MenuNote>
-          </div>
-        </Menu>
-      )}
+      {close => <WideMenu close={close} title={view.name}
+        items={[{ id: 'open', label: view.name, icon: <RuntimeMark runtime={view.info} size={16} />, badge: view.report.plan || undefined, hint: view.report.account || undefined, trailing: 'Open', onSelect: onOpen }]}
+        facts={view.report.lanes.map(raw => {
+          const lane = describeLane(raw, now, view.report.lanes)
+          return { id: lane.id, name: lane.title, percent: lane.remainingPercent, countdown: lane.gatedUntil === null ? lane.resetCountdown : `blocked ${lane.gatedFor ?? '—'}`, countdownTitle: lane.gatedUntil !== null ? `blocked until ${lane.gatedClock}` : lane.resetClock ? `resets ${lane.resetClock}` : undefined, tone: toneOf(lane.tone) }
+        })}
+        footer={[view.report.spend?.todayCost != null ? `${formatMoney(view.report.spend.todayCost, view.report.spend.currency)} today` : null, view.report.source.label, formatAge(view.report.fetchedAt, now)].filter(Boolean).join(' · ')}
+      />}
     </Popover>
-  </HeaderStatusReading>
 )
 
 /**
@@ -237,77 +191,27 @@ const Rest = ({
   now: number
   onOpen: (runtime: RuntimeId) => void
 }) => (
-  <HeaderStatusReading label="Other agents" detail={rest.title}>
     <Popover
+      panelWidth="wide" icons="all"
       title={rest.title}
       drop="down"
       align="right"
       tone="calm"
       label={
-        <span data-slot="plan-meter" className={styles.rest} data-tone="neutral" aria-label={rest.title}>
+        <span data-slot="plan-meter" data-plan-popup="rest" className={styles.rest} data-tone="neutral" aria-label={rest.title}>
           <Text role="meta" tone="neutral"><RosterIcon size={13} /></Text>
-          <Text role="meta" tone="neutral" numeric className={styles.figure}>{rest.figure}</Text>
+          <Text role="meta" tone="neutral" numeric>{rest.figure}</Text>
         </span>
       }
     >
-      {(close) => (
-        <Menu close={close}>
-          <div className={styles.panel}>
-            <MenuLabel>{rest.title}</MenuLabel>
-            <div className={styles.roster}>
-              {rest.meters.map((meter) => (
-                <Button
-                  key={`${meter.runtime}:${meter.report.account ?? ''}`}
-                  type="button"
-                  variant="row" size="row" className="w-full"
-                  data-tone={meter.tone}
-                  onClick={() => {
-                    close()
-                    onOpen(meter.runtime)
-                  }}
-                >
-                  <UsageMeterRow name={<span className="flex min-w-0 items-center gap-(--hd-space-1-5)"><RuntimeMark runtime={meter.info} size={14} /><span className="flex min-w-0 items-center gap-(--hd-space-1-5)"><span className="truncate">{meter.name}</span>{meter.account && <Text role="meta" truncate>{meter.account}</Text>}</span></span>} label={`${meter.name}${meter.account ? ` · ${meter.account}` : ''} — what is left`} percent={meter.lane.remainingPercent} countdown={meter.lane.resetCountdown} countdownTitle={meter.lane.resetClock ? `resets ${meter.lane.resetClock}` : undefined} tone={toneOf(meter.tone)} standalone />
-                </Button>
-              ))}
-              {/* The agents with no bar. They are why the count and the bars can
-                  disagree, so the panel has to hold them or the count looks wrong. */}
-              {rest.asides.map((aside) => (
-                <Button
-                  key={aside.runtime}
-                  type="button"
-                  variant="row" size="row" className="w-full"
-                  data-quiet=""
-                  onClick={() => {
-                    close()
-                    onOpen(aside.runtime)
-                  }}
-                >
-                  {/* The same row as an agent with a reading, its reason in the
-                      reading's columns, so every name and every bar line up. */}
-                  <UsageMeterRow
-                    name={<span className="flex min-w-0 items-center gap-(--hd-space-1-5)"><RuntimeMark runtime={aside.info} size={14} /><span className="truncate">{aside.info.presentation.name}</span></span>}
-                    label={`${aside.info.presentation.name} — ${aside.detail}`}
-                    percent={null}
-                    countdown=""
-                    note={aside.detail}
-                  />
-                </Button>
-              ))}
-            </div>
-            <Separator />
-            <MenuNote>
-              <span className={styles.foot}>
-                <UsageIcon size={12} />
-                <span>Every plan, and what it cost — ⌘U</span>
-                <span>·</span>
-                <span>{formatAge(oldest(rest, now), now)}</span>
-              </span>
-            </MenuNote>
-          </div>
-        </Menu>
-      )}
+      {close => <WideMenu close={close} title={rest.title}
+        items={[
+          ...rest.meters.map(meter => ({ id: `${meter.runtime}:${meter.report.account ?? ''}`, label: meter.name, icon: <RuntimeMark runtime={meter.info} size={16} />, hint: meter.account || undefined, meter: { id: meter.lane.id, name: meter.lane.title, label: `${meter.name}${meter.account ? ` · ${meter.account}` : ''} — what is left`, percent: meter.lane.remainingPercent, countdown: meter.lane.resetCountdown, countdownTitle: meter.lane.resetClock ? `resets ${meter.lane.resetClock}` : undefined, tone: toneOf(meter.tone) }, onSelect: () => onOpen(meter.runtime) })),
+          ...rest.asides.map(aside => ({ id: String(aside.runtime), label: aside.info.presentation.name, icon: <RuntimeMark runtime={aside.info} size={16} />, meter: { id: String(aside.runtime), name: 'Plan', percent: null, countdown: '', note: aside.detail }, onSelect: () => onOpen(aside.runtime) })),
+        ]}
+        footer={`Every plan, and what it cost — ⌘U · ${formatAge(oldest(rest, now), now)}`}
+      />}
     </Popover>
-  </HeaderStatusReading>
 )
 
 /** The stalest reading behind the token, which is what its age is worth. */

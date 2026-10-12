@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { NativeSelect } from '../design'
-import { TeamRoomPane } from '../components/TeamRoomPane'
+import { TeamFramePreview } from './TeamFramePreview'
 import { shortcutFor } from '../lib/shortcuts'
 import { MountProvider } from '../panels/mount'
 import { KeyboardHereContext, StoreProvider, useSnapshot, useStore } from '../state/context'
@@ -87,7 +87,7 @@ const SideBySideRoomFrame = ({
           {/* Standalone rooms use the same focus owner as an undocked Team. */}
           <MountProvider scope={{ area: 'main', id: 'team-room', view }}>
             <FocusedWhileInside>
-              <TeamRoomPane room={PREVIEW_ROOM} />
+              <TeamFramePreview room={PREVIEW_ROOM} view={view} />
             </FocusedWhileInside>
           </MountProvider>
         </StoreProvider>

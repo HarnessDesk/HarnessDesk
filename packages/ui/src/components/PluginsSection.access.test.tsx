@@ -6,7 +6,7 @@ import { NO_PERMISSIONS, type PluginInstance, type PluginPermissions, type Runti
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { PluginsSection } from './PluginsSection'
+import { PluginsTestPage } from '../test/plugins-test-page'
 
 /**
  * The Access list, as the person actually reads it (#288).
@@ -75,7 +75,7 @@ const mount = (plugins: PluginInstance[]) => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <PluginsSection />
+        <PluginsTestPage />
       </StoreProvider>,
     )
   })
@@ -155,7 +155,38 @@ it('a plugin holding nothing still says so', () => {
   expect(container.textContent).toContain('Nothing beyond running in the plugin host')
 })
 
-it('names a plugin and its tools on the wire in the code face at the meta step, behind a labelled switch', () => {
+it('uses sentence case for Active and keeps Built in as a title-line chip', () => {
+  mount([plugin('android', 'Android', {})])
+  open('Android')
+
+  const stateRow = [...container.querySelectorAll<HTMLElement>('[data-slot="row"]')]
+    .find(row => row.querySelector('[data-slot="row-title"]')?.textContent?.includes('Active'))!
+  expect(stateRow.querySelector('[data-slot="row-title"]')?.textContent).toContain('Active')
+  expect(stateRow.querySelector('[data-slot="row-title-chip"]')?.textContent).toBe('Built in')
+  expect([...container.querySelectorAll('[data-slot="page-explanation"]')].some(one => one.textContent?.includes('Built in'))).toBe(false)
+})
+
+it('states the built-in origin once for the built-in group and keeps varying origins on their rows', () => {
+  const local = {
+    ...plugin('local-helper', 'Local helper', {}),
+    identity: {
+      id: 'local-helper',
+      name: 'Local helper',
+      source: { kind: 'local', path: '/home/u/plugins/local-helper' },
+    },
+  } as unknown as PluginInstance
+  const builtins = [plugin('builtin-one', 'Builtin one', {}), plugin('builtin-two', 'Builtin two', {})]
+  mount([...builtins, local])
+
+  const note = container.querySelector('[data-slot="note"][data-plugin-origin-group="builtin"]')
+  expect(note?.textContent).toBe('Built in')
+  const rows = [...container.querySelectorAll<HTMLElement>('[data-plugin-id]')]
+  expect(rows.filter(row => ['builtin-one', 'builtin-two'].includes(row.dataset.pluginId ?? ''))).toHaveLength(2)
+  expect(rows.filter(row => ['builtin-one', 'builtin-two'].includes(row.dataset.pluginId ?? '')).every(row => !row.textContent?.includes('Built in'))).toBe(true)
+  expect(rows.find(row => row.dataset.pluginId === 'local-helper')?.textContent).toContain('Installed')
+})
+
+it('uses a scannable tool label and moves its technical name into that line behind the switch', () => {
   const tool = {
     id: 'git/git_status',
     owner: 'git',
@@ -170,19 +201,20 @@ it('names a plugin and its tools on the wire in the code face at the meta step, 
   mount([{ ...plugin('git', 'Git', {}), contributions: [tool] } as unknown as PluginInstance])
   open('Git')
 
-  // The identifier is the meta role holding the code face.
-  const wire = (text: string): Element | undefined =>
-    [...container.querySelectorAll('[data-slot="text"][data-role="meta"] > [data-slot="code-text"]')].find((node) => node.textContent === text)
-  expect(wire('git')).toBeTruthy()
+  const row = container.querySelector('section[aria-label="Tools"] [data-slot="row"]')!
+  expect(row.querySelector('[data-slot="row-title"]')?.textContent).toBe('Git status')
+  expect(row.querySelector('[data-slot="row-desc"]')?.textContent).toBe('Show the working tree status.')
+  const toggle = container.querySelector('[aria-label="Show tool names"]')!
+  expect(toggle.closest('[data-slot="row"]')?.querySelector('[data-slot="row-title"]')?.textContent).toBe('Tool names')
+  act(() => (toggle as HTMLElement).click())
+  expect(row.querySelector('[data-slot="row-title"]')?.textContent).toBe('git/git_status')
+  expect(row.querySelector('[data-slot="row-desc"]')?.textContent).toBe('Show the working tree status.')
+})
 
-  // The switch is labelled by the muted words beside it, and the label is the control's.
-  const toggle = container.querySelector('[aria-label="Show tool names"]')
-  const label = toggle?.closest('label')
-  expect(label?.getAttribute('data-slot')).toBe('text')
-  expect(label?.getAttribute('data-role')).toBe('muted')
-  expect(label?.getAttribute('data-ink')).toBe('muted')
-  expect(label?.textContent).toContain('Tool names')
-  expect(wire('git/git_status')).toBeUndefined()
-  act(() => (label as HTMLElement).click())
-  expect(wire('git/git_status')).toBeTruthy()
+it('E7 plugin detail names Plugins as its parent crumb in the main bar', () => {
+  mount([plugin('quiet', 'Quiet', {})])
+  open('Quiet')
+  expect(container.querySelector('[data-topbar-title]')?.textContent).toContain('Quiet')
+  expect([...container.querySelectorAll('[data-topbar="place"] button')].find(button => button.textContent === 'Plugins ›')).toBeTruthy()
+  expect(container.querySelector('[data-slot="top-bar"] [role="tab"]')).toBeNull()
 })

@@ -11,7 +11,7 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('one foundation perturbation reaches unrelated surfaces, portals, and adapters', async ({ page }) => {
-  const button = page.getByTestId('prop-button')
+  const button = page.getByTestId('prop-composer').getByRole('button', { name: 'Send', exact: true })
   const settings = page.getByTestId('prop-settings')
   const composer = page.getByTestId('prop-composer').locator('[data-slot="composer"]')
   const board = page.getByTestId('prop-board').locator('[data-slot="board-column"]')
@@ -31,6 +31,7 @@ test('one foundation perturbation reaches unrelated surfaces, portals, and adapt
   await page.evaluate(() => {
     const style = document.body.style
     style.setProperty('--hd-btn-h', '42px')
+    style.setProperty('--hd-btn-h-sm', '42px')
     style.setProperty('--hd-space-3', '24px')
     style.setProperty('--hd-radius', '2px')
     style.setProperty('--hd-radius-lg', '3px')
@@ -94,7 +95,7 @@ test('one foundation perturbation reaches unrelated surfaces, portals, and adapt
   // `[class*="_group_"]` is `MenuAccountGroup`'s own outer element — the same
   // CSS-module substring convention e2e/ui-system already reads elsewhere
   // (e.g. code-block.spec.ts's `[class*="_rowTitle_"]`).
-  const unheadedGroup = popup.locator('[class*="_group_"]:not([data-heading])')
+  const unheadedGroup = popup.locator('div:has(> [role="menuitem"][aria-expanded="false"]):not([role="group"])')
   await expect(unheadedGroup).toHaveCount(1)
   const folded = unheadedGroup.locator('[role="menuitem"][aria-current="true"]')
   await expect(folded).toHaveCount(1)
@@ -104,8 +105,8 @@ test('one foundation perturbation reaches unrelated surfaces, portals, and adapt
   // apart, exactly as `tagOf` in components/Sidebar.tsx would.
   const antigravity = popup.getByRole('group', { name: 'Antigravity' })
   await expect(antigravity.getByRole('menuitem')).toHaveCount(2)
-  await expect(antigravity.locator('[data-identity="dev@example.com · Pro"]')).toContainText('example.com')
-  await expect(antigravity.locator('[data-identity="dev@acme.dev · Pro"]')).toContainText('acme.dev')
+  await expect(antigravity.locator('[data-identity="dev@example.com · Pro"]').locator('xpath=ancestor::*[@role="menuitem"]')).toContainText('example.com')
+  await expect(antigravity.locator('[data-identity="dev@acme.dev · Pro"]').locator('xpath=ancestor::*[@role="menuitem"]')).toContainText('acme.dev')
   // #993/#995: the readiness word — a listed account-less row whose one fact
   // is what is wrong ("Unavailable") draws it in the figure slot as a word,
   // in prose type, not as a numeric reading.

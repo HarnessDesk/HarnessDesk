@@ -1,8 +1,8 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { runtimeId } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey } from '@harnessdesk/protocol'
 
 import { runtimeTint } from '../lib/accounts'
 import { StoreProvider } from '../state/context'
@@ -31,6 +31,16 @@ const ROWS: readonly AuditRow[] = [
   { at: noon, runtime: 'codex', sessionId: 's1', kind: 'turn/completed' },
   { at: noon - DAY, runtime: 'codex', sessionId: 's2', kind: 'turn/completed' },
 ]
+
+it('leaves empty audit counts and the workspace name out of the footer', async () => {
+  const snapshot = { ...emptySnapshot(), workspace: { name: 'Sample workspace' } } as unknown as ReturnType<typeof emptySnapshot>
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, loadAudit: async () => [] } as unknown as AppStore
+  const onFoot = vi.fn()
+  await act(async () => root.render(<StoreProvider store={store}>
+    <Activity query="" onFoot={onFoot} />
+  </StoreProvider>))
+  expect(onFoot).toHaveBeenLastCalledWith('', '')
+})
 
 it('heads each day of the log with the inspector’s one group line', async () => {
   const snapshot = emptySnapshot()
@@ -87,4 +97,24 @@ it('keeps the event glyph a plain square when the agent cannot be named, so it i
   expect(tile).not.toBeNull()
   expect(tile?.className).not.toContain('rounded-(--hd-face-radius)')
   expect(tile?.className).toContain('rounded-(--hd-radius-sm)')
+})
+
+
+it('filters the mounted session, sorts newest first and sanitizes agent text', async () => {
+  const snapshot = emptySnapshot()
+  const rows: readonly AuditRow[] = [
+    { at: noon - 1000, runtime: 'fixture-agent', sessionId: 'one', kind: 'library/write', name: 'Older', op: 'skill/update' },
+    { at: noon, runtime: 'fixture-agent', sessionId: 'two', kind: 'library/write', name: 'Other session', op: 'skill/update' },
+    { at: noon + 1000, runtime: 'fixture-agent', sessionId: 'one', kind: 'library/write', name: '\u001b[31mNewest\u001b[0m', op: 'skill/update' },
+  ]
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, loadAudit: async () => rows } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}>
+    <Activity query="" sessionKeys={[sessionKey(runtimeId('fixture-agent'), sessionId('one'))]} onFoot={() => {}} />
+  </StoreProvider>))
+  const text = container.textContent!
+  expect(text).not.toContain('Other session')
+  expect(text.indexOf('Newest')).toBeLessThan(text.indexOf('Older'))
+  expect(text).not.toContain('\u001b')
+  expect(text).not.toContain('fixture-agent')
+  expect(text).toContain('Agent')
 })

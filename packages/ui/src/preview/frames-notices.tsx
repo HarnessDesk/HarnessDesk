@@ -1,3 +1,5 @@
+import { TopBarProvider } from '../panels/top-bar'
+import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 import { useEffect, useMemo, useRef } from 'react'
 import { reduceSession, type AgentEvent } from '@harnessdesk/protocol'
 import { AppStore, type AppSnapshot } from '../state/store'
@@ -12,7 +14,7 @@ import { Sidebar } from '../components/Sidebar'
 import { PREVIEW_SESSION_KEY, store as fixture } from './harness'
 import { emptyWorkbench } from '../state/workbench'
 
-const config: AgentEvent = { type: 'notice', level: 'warning', message: 'Ignored configuration settings', kind: 'runtime:config', detail: { summary: 'Ignored configuration settings', settings: ['profiles.local.forced_login_method', 'profiles.local.base_url'], file: '/Users/user/.codex/config.toml', details: 'These settings are ignored.' } } as AgentEvent
+const config: AgentEvent = { type: 'notice', level: 'warning', message: 'Ignored configuration settings', kind: 'runtime:config', detail: { summary: 'Ignored configuration settings', settings: ['profiles.local.forced_login_method', 'profiles.local.base_url'], file: '/workspace/.agent/config.toml', details: 'These settings are ignored.' } } as AgentEvent
 const depreciation: AgentEvent = { type: 'notice', level: 'info', message: 'A setting you use is being retired', kind: 'runtime:deprecation', detail: { summary: 'A setting you use is being retired', settings: [], details: 'Use the current setting on your next configuration change.' } } as AgentEvent
 const compacted: AgentEvent = { type: 'notice', level: 'info', sessionId: 's1', kind: 'conversation:compacted', message: 'Context was compacted to make room for more of this conversation.' } as AgentEvent
 
@@ -43,7 +45,7 @@ export const NoticesFrame = () => {
     const session = conversationScene && afterScene
       ? reduceSession(emptyConversation, { type: 'notice', sessionId: original.id, class: 'conversation', level: 'warning', message: 'A tool was unavailable when this conversation opened.', id: 'notice-preview-1' })
       : emptyConversation
-    Object.assign(own.getSnapshot(), { ...base, home: conversationScene ? '/workspace' : '/Users/user', inbox: [], agentNotices: [], notices: [], health: { state: 'ready' }, workbench, layout: workbench.main, sessions: new Map([[PREVIEW_SESSION_KEY, session]]), activeSessionKey: PREVIEW_SESSION_KEY, preferencesLoaded: false } satisfies Partial<AppSnapshot>)
+    Object.assign(own.getSnapshot(), { ...base, home: conversationScene ? '/workspace' : '/workspace', inbox: [], agentNotices: [], notices: [], health: { state: 'ready' }, workbench, layout: workbench.main, sessions: new Map([[PREVIEW_SESSION_KEY, session]]), activeSessionKey: PREVIEW_SESSION_KEY, preferencesLoaded: false } satisfies Partial<AppSnapshot>)
     const surface = window as unknown as { noticeReveals: unknown[] }
     surface.noticeReveals = []
     own.transport.request = (async (method: string, params: unknown) => {
@@ -80,7 +82,7 @@ export const NoticesFrame = () => {
   return <StoreProvider store={store}>
     <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
       <div data-frame-id={`notices-${scene}`} className="h-screen bg-background">
-        {scene === 'settings' ? <div className="min-h-full overflow-y-auto"><PaneColumn inset="reading"><NotificationsSection /></PaneColumn></div> : <Workbench sidebar={<Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />} />}
+        {scene === 'settings' ? <div className="min-h-full overflow-y-auto"><PaneColumn inset="reading"><NotificationsSection /></PaneColumn></div> : <TopBarProvider><ShellHostsProvider><Workbench sidebar={<Sidebar onOpenSettings={() => {}} onOpenPlugins={() => {}} onOpenAgents={() => {}} onOpenTeams={() => {}} onOpenUsage={() => {}} onBrowseFolders={() => {}} onSignIn={() => {}} onSearch={() => {}} />} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>}
         <Notices />
         <Toaster />
       </div>

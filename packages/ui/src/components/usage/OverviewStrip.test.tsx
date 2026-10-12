@@ -60,6 +60,6 @@ describe('OverviewStrip Value cell', () => {
     const valueButton = host.querySelector<HTMLButtonElement>('button[aria-pressed="true"]')
     expect(valueButton?.textContent?.startsWith('Value')).toBe(true)
     expect(valueButton?.getAttribute('title')).toBe(`Value (${phrase}). Switch the chart below to cost per day`)
-    if (provenance === 'unknown') expect(valueButton?.textContent).toContain('unpriced')
+    if (provenance === 'unknown') expect(valueButton?.textContent).toContain('—')
   })
 })

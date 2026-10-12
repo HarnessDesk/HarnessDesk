@@ -308,6 +308,8 @@ export interface FlowExecutionPort {
    * outlives it. Absent, nothing is interrupted.
    */
   interrupt?(seat: SeatRecord): Promise<void>
+  /** A released seat cannot retain a decision waiting for a person. */
+  settleApprovals?(seat: SeatRecord, reason: string): Promise<void>
   /** The lane a Seat was given, or null when it has none. */
   laneOf(seat: SeatRecord): Lane | null
   /** Puts a Seat back on the model and effort it was opened on and says what it is running. */
@@ -2373,6 +2375,9 @@ export class FlowExecutions {
       const record = this.#port.seatOf(id)
       const claim = record ? this.#claimOf(goal, record, cards) : null
       if (interrupt && record) {
+        await this.#port.settleApprovals?.(record, this.#get(runId).state === 'stopped' ? 'Run stopped' : 'Seat released').catch((error: unknown) => {
+          this.#port.log('a flow Seat’s approvals could not be settled', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
+        })
         await this.#port.interrupt?.(record).catch((error: unknown) => {
           this.#port.log('a flow Seat’s turn could not be interrupted', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
         })

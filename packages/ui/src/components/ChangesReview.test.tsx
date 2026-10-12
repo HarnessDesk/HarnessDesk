@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { ChangesReview } from './ChangesReview'
+import { DestinationPageScope } from '../panels/destination-page'
+import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
 
 /**
  * The review workspace: the tree grouped by folder with its ± counts, and
@@ -16,6 +18,7 @@ import { ChangesReview } from './ChangesReview'
 
 let container: HTMLDivElement
 let root: Root
+let mountedStore: AppStore
 
 beforeEach(() => {
   container = document.createElement('div')
@@ -64,7 +67,7 @@ const answer = async (method: string): Promise<unknown> => {
 }
 const request = vi.fn(answer)
 
-const mount = (onClose: () => void): void => {
+const mount = (selectWork: () => boolean, active = true, reviewRoot = "/w"): void => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     workspace: { path: '/w', name: 'w' } as AppSnapshot['workspace'],
@@ -75,11 +78,18 @@ const mount = (onClose: () => void): void => {
     transport: { request },
     openFile: vi.fn(),
     notice: vi.fn(),
+    selectWork,
   } as unknown as AppStore
+  mountedStore = store
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <ChangesReview onClose={onClose} />
+        <TopBarProvider>
+          <DestinationPageScope owner="destination:changes-review" active={active}>
+            <ChangesReview root={reviewRoot} returnTo={{ kind: 'conversation', session: null }} />
+          </DestinationPageScope>
+          <TopBarOutlet owner="destination:changes-review" fallback={{ place: 'Fallback', more: () => null }} />
+        </TopBarProvider>
       </StoreProvider>,
     )
   })
@@ -93,8 +103,24 @@ const flush = async (): Promise<void> => {
 }
 
 describe('the review workspace', () => {
+  it('replaces the filter, view tabs and file index when the tree has no changes', async () => {
+    request.mockImplementation(async (method: string) => method === 'git/status'
+      ? { ...STATUS, files: [] }
+      : { diff: '' })
+    try {
+      mount(() => true)
+      await flush()
+
+      expect(container.textContent).toContain('No changes yet')
+      expect(container.querySelector('[aria-label="Filter files"]')).toBeNull()
+      expect(container.querySelector('[role="tab"]')).toBeNull()
+      expect(container.querySelector('[data-slot="summary-list"]')).toBeNull()
+      expect(container.querySelector('[data-slot="review-index"]')).toBeNull()
+    } finally { request.mockImplementation(answer) }
+  })
+
   it('groups the tree by folder and counts each file', async () => {
-    mount(() => {})
+    mount(() => true)
     await flush()
     const text = container.textContent ?? ''
     expect(text).toContain('docs')
@@ -112,7 +138,7 @@ describe('the review workspace', () => {
   })
 
   it('parts one hunk from the next with the app\u2019s hairline, and never above the first', async () => {
-    mount(() => {})
+    mount(() => true)
     await flush()
     const hunks = [...container.querySelectorAll('section')].filter((node) => node.querySelector(':scope > [data-slot="patch-header"][data-level="hunk"]'))
     // docs/guide.md (listed first, by folder) has one hunk, src/a.ts two.
@@ -121,34 +147,128 @@ describe('the review workspace', () => {
     expect(rules).toEqual([false, false, true])
   })
 
-  it('revise-this-hunk quotes the hunk into the composer and closes', async () => {
-    const onClose = vi.fn()
-    const composed: string[] = []
+  it('revise selects its captured work before requesting an acknowledged composer handover', async () => {
+    const order: string[] = [], composed: string[] = []
+    const select = vi.fn(() => { order.push('select-work'); return true })
     const listen = (event: Event): void => {
-      composed.push((event as CustomEvent<string>).detail)
+      const detail = (event as CustomEvent<{text:string;onReceived:()=>void}>).detail
+      order.push('compose'); composed.push(detail.text); detail.onReceived?.()
     }
     window.addEventListener('harnessdesk:compose', listen)
     try {
-      mount(onClose)
+      mount(select)
       await flush()
-      const revise = [...container.querySelectorAll('button')].filter((button) =>
-        button.textContent?.includes('Revise this hunk'),
-      )
-      // One action per hunk: two in src/a.ts, one in docs/guide.md.
-      expect(revise.length).toBe(3)
-      act(() => {
-        revise[0]?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
-      })
-      expect(composed.length).toBe(1)
+      const revise = [...container.querySelectorAll('button')].filter(button => button.textContent?.includes('Revise this hunk'))
+      expect(revise).toHaveLength(3)
+      await act(async () => revise[0]!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
+      expect(order).toEqual(['select-work', 'compose'])
+      expect(select).toHaveBeenCalledTimes(1)
       expect(composed[0]).toContain('Please revise this hunk of docs/guide.md')
       expect(composed[0]).toContain('@@ -1 +1,2 @@')
       expect(composed[0]).toContain('+there')
       expect(composed[0]).not.toContain('diff --git')
-      expect(onClose).toHaveBeenCalledTimes(1)
-    } finally {
-      window.removeEventListener('harnessdesk:compose', listen)
-    }
+      expect(request.mock.calls.every(([method]) => method === 'git/status' || method === 'git/diff')).toBe(true)
+    } finally { window.removeEventListener('harnessdesk:compose', listen) }
   })
+
+  it('uses its captured folder instead of the current workspace', async () => {
+    request.mockClear()
+    mount(() => true, true, '/captured')
+    await flush()
+    expect(request.mock.calls).toEqual([['git/status', { root: '/captured' }], ['git/diff', { root: '/captured' }]])
+  })
+
+  it('an inactive review does not read its folder', async () => {
+    request.mockClear()
+    mount(() => true, false)
+    await flush()
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it('renders the canvas, body file index and shared section heads without a window or a redundant return action', async () => {
+    mount(() => true)
+    await flush()
+    expect(container.querySelector('[data-slot="app-window"]')).toBeNull()
+    expect(container.querySelector('[data-slot="page"][data-width="canvas"]')).not.toBeNull()
+    expect(container.textContent).not.toContain(['Back', 'to', 'app'].join(' '))
+    expect(container.querySelector('[data-slot="section-head"]')).not.toBeNull()
+    expect(container.querySelectorAll('[data-review-file]')).toHaveLength(2)
+    expect(container.querySelector('[data-slot="summary-list"]')?.textContent).toContain('2 files · +3 −1')
+  })
+
+  it('reports a missing composer receipt after selecting work without sending a turn', async () => {
+    const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => { queueMicrotask(() => callback(0)); return 1 })
+    try {
+      mount(() => true); await flush()
+      const revise = [...container.querySelectorAll<HTMLButtonElement>('button')].find(button=>button.textContent==='Revise this hunk…')!
+      await act(async()=>{ revise.click(); await new Promise(resolve=>setTimeout(resolve,0)) })
+      expect(mountedStore.notice).toHaveBeenCalledWith('warning', 'The message box did not take it — click into the conversation and try again.')
+      expect(request.mock.calls.every(([method])=>method==='git/status'||method==='git/diff')).toBe(true)
+    } finally { frame.mockRestore() }
+  })
+
+  it('late failed reads from a hidden review do not clear its captured data', async () => {
+    mount(() => true); await flush()
+    const rejects: Array<(error: Error) => void> = []
+    request.mockImplementation(() => new Promise((_resolve, reject) => rejects.push(reject)))
+    const render = (active: boolean, reviewRoot: string) => <StoreProvider store={mountedStore}><TopBarProvider>
+      <DestinationPageScope owner="destination:changes-review" active={active}>
+        <ChangesReview root={reviewRoot} returnTo={{kind:'conversation',session:null}} />
+      </DestinationPageScope>
+      <TopBarOutlet owner="destination:changes-review" fallback={{place:'Fallback',more:()=>null}} />
+    </TopBarProvider></StoreProvider>
+    try {
+      await act(async () => root.render(render(false, '/w')))
+      await act(async () => root.render(render(true, '/w')))
+      expect(rejects).toHaveLength(2)
+      await act(async () => root.render(render(false, '/w')))
+      await act(async () => rejects.forEach(reject => reject(new Error('Synthetic late read'))))
+      expect(container.textContent).toContain('2 files · +3 −1')
+      expect(container.querySelectorAll('[data-review-file]')).toHaveLength(2)
+    } finally { request.mockImplementation(answer) }
+  })
+
+  it('never exposes an earlier folder’s file actions while a different folder is loading', async () => {
+    mount(() => true); await flush()
+    request.mockImplementation(() => new Promise(() => {}))
+    try {
+      await act(async () => root.render(<StoreProvider store={mountedStore}><TopBarProvider>
+        <DestinationPageScope owner="destination:changes-review" active>
+          <ChangesReview root="/other" returnTo={{kind:'conversation',session:null}} />
+        </DestinationPageScope>
+      </TopBarProvider></StoreProvider>))
+      expect(container.querySelectorAll('[data-review-file]')).toHaveLength(0)
+      expect([...container.querySelectorAll('button')].some(button => button.textContent === 'Open')).toBe(false)
+      expect(container.textContent).not.toContain('Revise this hunk')
+    } finally { request.mockImplementation(answer) }
+  })
+
+  it('never offers a working-tree hunk as a staged hunk while the staged read is pending', async () => {
+    request.mockImplementation(async (method:string)=>method==='git/status' ? {...STATUS, files:STATUS.files.map(file=>({...file,staged:true}))} : {diff:TREE_DIFF})
+    try {
+      mount(()=>true);await flush()
+      request.mockImplementation((method:string)=>method==='git/status' ? Promise.resolve({...STATUS, files:STATUS.files.map(file=>({...file,staged:true}))}) : new Promise(()=>{}))
+      const views=container.querySelector<HTMLButtonElement>('[title="Destination views"]')
+      if(views) await act(async()=>views.click())
+      const staged=document.querySelector<HTMLButtonElement>('[data-team-page="staged"]')!
+      expect(staged).toBeTruthy();await act(async()=>staged.click())
+      expect(container.querySelectorAll('[data-level="hunk"]')).toHaveLength(0)
+      expect(container.textContent).not.toContain('Revise this hunk')
+    } finally {request.mockImplementation(answer)}
+  })
+
+  it('a refused work selection leaves the quote in review', async () => {
+    const select = vi.fn(() => false), compose = vi.fn()
+    window.addEventListener('harnessdesk:compose', compose)
+    try {
+      mount(select); await flush()
+      const revise = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('Revise this hunk'))!
+      await act(async () => revise.click())
+      expect(select).toHaveBeenCalledTimes(1)
+      expect(compose).not.toHaveBeenCalled()
+    } finally { window.removeEventListener('harnessdesk:compose', compose) }
+  })
+
 })
 
 describe('which view a file is in (#180)', () => {
@@ -168,14 +288,16 @@ describe('which view a file is in (#180)', () => {
         : { diff: '' },
     )
     try {
-      mount(() => {})
+      mount(() => true)
       await flush()
       const working = container.textContent ?? ''
       expect(working).toContain('both.txt')
       expect(working).toContain('conflict.txt')
       expect(working).not.toContain('ready.txt')
 
-      const tab = [...container.querySelectorAll('[role="tab"]')].find((node) => node.textContent?.trim() === 'Staged')
+      const views = container.querySelector<HTMLButtonElement>('[title="Destination views"]')
+      if (views) await act(async () => views.click())
+      const tab = document.querySelector<HTMLButtonElement>('[data-team-page="staged"]')
       expect(tab, 'the Staged tab').toBeTruthy()
       act(() => {
         tab?.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }))

@@ -1,3 +1,4 @@
+import { CurrentPagePreview } from './page-preview'
 import { StoreProvider } from '../state/context'
 import { capabilityListsStore } from './capability-lists-fixture'
 import { useState } from 'react'
@@ -100,9 +101,9 @@ export const SettingsFrames = () => {
         )}
       </Boundary>
       {dialog === 'plugins' && (
-        <Frame id="settings-plugins" title="Settings › Plugins">
-          <div className="max-h-[560px] overflow-y-auto p-4">
-            <PluginsSection />
+        <Frame id="settings-plugins" title="Plugins">
+          <div className="h-[560px]">
+            <CurrentPagePreview page={{kind:'plugins',section:'installed',id:null}} />
           </div>
         </Frame>
       )}
@@ -120,12 +121,12 @@ export const SettingsFrames = () => {
         </div>
       </Frame>
       <Frame id="settings-extensions" title="Settings › Extensions">
-        <div className="max-h-[560px] overflow-y-auto p-4">
+        <div className="h-[560px]">
           <StoreProvider store={listsStore}><ExtensionsSection /></StoreProvider>
         </div>
       </Frame>
       <Frame id="settings-ceilings" title="Settings › Ceilings">
-        <div className="max-h-[560px] overflow-y-auto p-4">
+        <div className="h-[560px]">
           <CeilingsSection />
         </div>
       </Frame>

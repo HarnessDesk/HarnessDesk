@@ -21,19 +21,18 @@ import {
   Field,
   FormStack,
   Input,
-  ListRows,
-  SectionHead,
   Separator,
   Text,
   TextMark,
   Textarea,
 } from '../design'
-import { Checkbox, DisclosureChevron, EmptyState, Fieldset, Segmented } from '../design'
+import { Checkbox, DisclosureChevron, EmptyState, Fieldset } from '../design'
 import { RuntimeMark } from './BrandIcons'
 import { shortPath } from '../lib/paths'
 import { DiffView } from './Diff'
-import { AlertIcon, CheckIcon, CrossIcon, ImportIcon, PlusIcon, TodoPendingIcon } from './Icons'
-import styles from './LibraryActions.module.css'
+import { AlertIcon, CheckIcon, CrossIcon, TodoPendingIcon } from './Icons'
+import { ChoiceList, Row, Rows, RowChoice, Section, Toolbar, PageControls } from '../design'
+import { useDestinationActive } from '../panels/destination-page'
 
 /**
  * The library's verbs: install, import, resolve, author, remove.
@@ -81,7 +80,7 @@ export type LibraryFlow =
  */
 export const installSource = (entry: LibraryEntry): LibraryCopy | null => {
   const loadable = entry.copies.filter((copy) => !copy.hollow)
-  return loadable.find((copy) => copy.readBy.length > 0) ?? loadable[0] ?? null
+  return loadable.find((copy) => copy.readBy.length> 0) ?? loadable[0] ?? null
 }
 
 /**
@@ -137,8 +136,8 @@ const Mark = ({ op, result }: { op: LibraryPlannedOp; result?: LibraryOpResult }
     <TextMark
       role="row"
       {...(state === 'done' ? { tone: 'success' as const } : state === 'failed' || state === 'refuse' ? { tone: 'warning' as const } : {})}
-    >
-      <span data-operation={state} className={state === 'skipped' ? 'opacity-60' : undefined}>
+   >
+      <span data-operation={state}>
         {state === 'refuse' ? <AlertIcon size={12} />
           : state === 'done' ? <CheckIcon size={12} />
             : state === 'failed' ? <CrossIcon size={12} />
@@ -175,6 +174,7 @@ export const PlanDialog = ({
   onApplied: () => void
 }) => {
   const store = useStore()
+  const active = useDestinationActive()
   const [plan, setPlan] = useState<LibraryPlan | null>(null)
   const [failed, setFailed] = useState<string | null>(null)
   const [open, setOpen] = useState<string | null>(null)
@@ -182,6 +182,7 @@ export const PlanDialog = ({
   const [results, setResults] = useState<readonly LibraryOpResult[] | null>(null)
 
   useEffect(() => {
+    if (!active) return
     let cancelled = false
     store.transport
       .request('library/plan', { intents, ...(cwd ? { cwd } : {}) })
@@ -194,7 +195,7 @@ export const PlanDialog = ({
     return () => {
       cancelled = true
     }
-  }, [store, intents, cwd])
+  }, [active, store, intents, cwd])
 
   const runnable = useMemo(
     () => (plan?.ops ?? []).filter((op) => RUNNABLE.has(op.action)),
@@ -225,7 +226,6 @@ export const PlanDialog = ({
   return (
     <Dialog
       title={title}
-      icon={<ImportIcon size={16} />}
       /*
        * `xl`, and deliberately not `tall`.
        *
@@ -241,18 +241,18 @@ export const PlanDialog = ({
        */
       size="xl"
       onClose={onClose}
-      subhead={
+      bodyPrelude={
         results ? (
-          <Text as="p" role="muted" className={styles.summary} data-testid="apply-summary">
+          <Text as="p" role="muted" data-testid="apply-summary">
             {done} {done === 1 ? 'change' : 'changes'} made
-            {failedCount > 0 ? `, ${failedCount} failed` : ''}
-            {results.length - done - failedCount > 0
+            {failedCount> 0 ? `, ${failedCount} failed` : ''}
+            {results.length - done - failedCount> 0
               ? `, ${results.length - done - failedCount} skipped`
               : ''}
             .
           </Text>
         ) : plan ? (
-          <Text as="p" role="muted" className={styles.summary}>
+          <Text as="p" role="muted">
             {runnable.length === 0
               ? 'Nothing to change — every row says why.'
               : `${runnable.length} ${runnable.length === 1 ? 'change' : 'changes'}, previewed below. Nothing has happened yet.`}
@@ -270,7 +270,7 @@ export const PlanDialog = ({
               variant="default"
               disabled={busy || !plan || runnable.length === 0}
               onClick={() => void apply()}
-            >
+           >
               {busy
                 ? 'Applying…'
                 : `Apply ${runnable.length} ${runnable.length === 1 ? 'change' : 'changes'}`}
@@ -281,15 +281,15 @@ export const PlanDialog = ({
           </>
         )
       }
-    >
+   >
       {failed !== null ? (
         <ActionError>{failed}</ActionError>
       ) : !plan ? (
-        <Text as="p" role="muted" className={styles.loading}>Working out exactly what would change…</Text>
+        <Text as="p" role="muted">Working out exactly what would change…</Text>
       ) : plan.ops.length === 0 ? (
-        <EmptyState variant="inline" className={styles.loading} title="Nothing to do." />
+        <EmptyState variant="inline" title="Nothing to do." />
       ) : (
-        <div role="list" className="flex flex-col">
+        <Rows role="list">
           {plan.ops.map((op, index) => {
             const result = resultOf(op.id)
             const expandable = op.preview !== undefined && op.preview !== ''
@@ -297,61 +297,44 @@ export const PlanDialog = ({
               <div key={op.id} role="listitem" data-action={op.action}>
                 <Button
                   type="button"
-                  variant="row" size="row" className={styles.opHead}
+                  variant="row" size="row"
                   onClick={() => expandable && setOpen((current) => (current === op.id ? null : op.id))}
                   aria-expanded={open === op.id}
                   disabled={!expandable}
-                >
-                  <Mark op={op} {...(result ? { result } : {})} />
-                  <Text role="row">{op.name}</Text>
-                  <Text
-                    role="meta"
-                    ink="secondary"
-                    className={styles.opVerb}
-                    truncate={op.action !== 'refuse'}
-                    {...(op.action === 'refuse' ? { tone: 'warning' as const } : {})}
-                    title={verbOf(op, columns)}
-                  >
-                    {verbOf(op, columns)}
-                  </Text>
-                  {op.targetPath !== undefined && op.targetPath !== '' && (
-                    <Text role="meta" className={styles.opPath} title={op.targetPath} truncate align="end" dir="rtl">
-                      <bdi dir="ltr"><CodeText as="code" size="inherit">{shortPath(op.targetPath, home)}</CodeText></bdi>
-                    </Text>
-                  )}
-                  {expandable && (
-                    <DisclosureChevron open={open === op.id} className={styles.opChev} />
-                  )}
+               >
+                  <Row title={op.name} mark={<Mark op={op} {...(result ? { result } : {})} />}
+                    desc={<Text role="meta" {...(op.action === 'refuse' ? { tone: 'warning' as const } : {})} title={verbOf(op, columns)}>{verbOf(op, columns)}</Text>}
+                    control={<>{op.targetPath && <CodeText as="code" title={op.targetPath}>{shortPath(op.targetPath, home)}</CodeText>}{expandable && <DisclosureChevron open={open === op.id} />}</>} />
                 </Button>
                 {result?.outcome === 'failed' && <ActionError>{result.detail}</ActionError>}
                 {open === op.id && op.preview && (
-                  <div className={styles.opBody}>
+                  <FormStack>
                     <DiffView diff={op.preview} wrap />
-                    {op.extraFiles && op.extraFiles.length > 0 && (
-                      <Text as="p" role="meta" ink="secondary" className={styles.opFiles}>
+                    {op.extraFiles && op.extraFiles.length> 0 && (
+                      <Text as="p" role="meta" ink="secondary">
                         Also carries {op.extraFiles.length}{' '}
                         {op.extraFiles.length === 1 ? 'bundle file' : 'bundle files'}:{' '}
                         <CodeText as="code">{op.extraFiles.slice(0, 4).join(', ')}</CodeText>
-                        {op.extraFiles.length > 4 ? '…' : ''}
+                        {op.extraFiles.length> 4 ? '…' : ''}
                       </Text>
                     )}
                     {op.backup && (
-                      <Text as="p" role="meta" ink="secondary" className={styles.opFiles}>
+                      <Text as="p" role="meta" ink="secondary">
                         The current copy is backed up before this happens.
                       </Text>
                     )}
                     {result?.backupPath && (
-                      <Text as="p" role="meta" ink="secondary" className={styles.opFiles}>
+                      <Text as="p" role="meta" ink="secondary">
                         Backed up to <CodeText as="code">{result.backupPath}</CodeText>
                       </Text>
                     )}
-                  </div>
+                  </FormStack>
                 )}
                 {index < plan.ops.length - 1 && <Separator />}
               </div>
             )
           })}
-        </div>
+        </Rows>
       )}
     </Dialog>
   )
@@ -369,10 +352,7 @@ export const PlanDialog = ({
  * to full ink, a twenty-five-fold step, which is the signature of a control
  * that was drawn rather than chosen.
  *
- * It is now the system's `Segmented` — the same control as the page's kind
- * and view switches above it — so it is visible at rest, keyboard-navigable
- * as a radio group, and carries each agent's own mark — which is how every
- * other surface in the app names an agent.
+ * The shared choice rows supply the marks, selection and keyboard behavior.
  *
  * **Nothing here is disabled**, and that is a fix rather than an oversight.
  * The other side's choice used to be greyed out in each picker, which reads
@@ -394,25 +374,9 @@ const AgentPick = ({
   onChange: (next: RuntimeId) => void
   label: string
 }) => (
-  /* A second press on the chosen agent is ignored by the segmented control
-     itself, which is what stops a picker whose whole job is to hold a choice
-     from being emptied by a stray click. */
-  <Segmented<RuntimeId | ''>
-    label={label}
-    value={value ?? ''}
-    options={columns.map((column) => ({
-      value: column.id,
-      label: (
-        <>
-          {column.info && <RuntimeMark runtime={column.info} size={13} />}
-          {column.label}
-        </>
-      ),
-    }))}
-    onChange={(next) => {
-      if (next !== '') onChange(next)
-    }}
-  />
+  <ChoiceList<RuntimeId | ''> label={label} value={value ?? ''}
+    options={columns.map(column => ({ value: column.id, title: <Toolbar>{column.info && <RuntimeMark runtime={column.info} size={13} />}<span>{column.label}</span></Toolbar> }))}
+    onChange={next => { if (next !== '') onChange(next) }} />
 )
 
 /**
@@ -450,6 +414,7 @@ export const ImportDialog = ({
     if (next === source) setSource(target)
     setTarget(next)
   }
+  const [query, setQuery] = useState('')
   const [excluded, setExcluded] = useState<ReadonlySet<string>>(new Set())
 
   const candidates = useMemo(() => {
@@ -472,7 +437,7 @@ export const ImportDialog = ({
         const loadable = entry.copies.filter((copy) => !copy.hollow)
         // Disagreeing copies have no one truth to carry; the row's Resolve
         // flow settles that first, so the bulk import never picks silently.
-        if (new Set(loadable.map((copy) => copy.digest)).size > 1) return false
+        if (new Set(loadable.map((copy) => copy.digest)).size> 1) return false
         const copy = sourceCopy(entry, source)
         return copy !== null && !copy.readOnly
       }
@@ -480,6 +445,7 @@ export const ImportDialog = ({
     })
   }, [library, source, target])
 
+  const shown = candidates.filter(entry => `${entry.title ?? entry.name} ${entry.description ?? ''}`.toLowerCase().includes(query.trim().toLowerCase()))
   const picked = candidates.filter((entry) => !excluded.has(`${entry.kind}:${entry.name}`))
 
   const go = () => {
@@ -515,22 +481,10 @@ export const ImportDialog = ({
   return (
     <Dialog
       title="Import between agents"
-      icon={<ImportIcon size={16} />}
+      description="Pick where to import from, and which agent should get it. Nothing changes until a preview is confirmed."
       size="lg"
       tall
       onClose={onClose}
-      subhead={
-        <div className={styles.pickPair}>
-          <div className={styles.pickCol}>
-            <Text role="muted">From</Text>
-            <AgentPick columns={columns} value={source} onChange={pickSource} label="Import from" />
-          </div>
-          <div className={styles.pickCol}>
-            <Text role="muted">To</Text>
-            <AgentPick columns={columns} value={target} onChange={pickTarget} label="Import into" />
-          </div>
-        </div>
-      }
       footer={
         <>
           <Button variant="default" disabled={picked.length === 0} onClick={go}>
@@ -541,21 +495,21 @@ export const ImportDialog = ({
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
         </>
       }
-    >
+   >
+      <PageControls search={{ label: 'Search imports', placeholder: 'Search imports', value: query, change: setQuery }} />
+      <Fieldset legend="From"><AgentPick columns={columns} value={source} onChange={pickSource} label="Import from" /></Fieldset>
+      <Fieldset legend="To"><AgentPick columns={columns} value={target} onChange={pickTarget} label="Import into" /></Fieldset>
       {source === null || target === null ? (
-        <Text as="p" role="muted" className={styles.loading}>
-          Pick where to import from, and which agent should get it. Nothing changes until a
-          preview is confirmed.
-        </Text>
+        null
       ) : candidates.length === 0 ? (
-        <Text as="p" role="muted" className={styles.loading}>
+        <Text as="p" role="muted">
           {library.locations.some((one) => one.runtime === target)
             ? 'Nothing to import — everything the source loads already reaches the target, or cannot be carried faithfully (those rows say so in the table).'
             : `Nothing can be carried to ${columns.find((one) => one.id === target)?.label ?? 'this agent'} yet — this build does not know where it keeps skills or servers.`}
         </Text>
       ) : (
         <>
-          <div className={styles.bulk}>
+          <Toolbar>
             <Button variant="secondary" size="sm" onClick={() => setExcluded(new Set())}>
               All
             </Button>
@@ -564,12 +518,12 @@ export const ImportDialog = ({
               onClick={() =>
                 setExcluded(new Set(candidates.map((entry) => `${entry.kind}:${entry.name}`)))
               }
-            >
+           >
               None
             </Button>
-          </div>
-          <div className={styles.candidates} role="list">
-            {candidates.map((entry, index) => {
+          </Toolbar>
+          <Rows role="list">
+            {shown.map((entry, index) => {
               const key = `${entry.kind}:${entry.name}`
               const on = !excluded.has(key)
               return (
@@ -582,7 +536,7 @@ export const ImportDialog = ({
                   {/* The name is the label, and so the box's name; the kind and
                       the description stand beside it, outside the words that
                       name what is imported. */}
-                  <div className={styles.candidate}>
+                  <Row title={
                     <Checkbox
                       checked={on}
                       onCheckedChange={() =>
@@ -595,20 +549,14 @@ export const ImportDialog = ({
                       }
                       label={<Text role="navigation">{entry.title ?? entry.name}</Text>}
                     />
-                    {entry.kind === 'mcp' && (
-                      <Chip tone="neutral" size="sm" variant="outline">MCP</Chip>
-                    )}
-                    {entry.description && (
-                      <Text role="meta" truncate className={styles.candidateDesc}>
-                        {entry.description}
-                      </Text>
-                    )}
-                  </div>
-                  {index < candidates.length - 1 && <Separator />}
+                  } titleChip={entry.kind === 'mcp' ? <Chip tone="neutral" size="sm" variant="outline">MCP</Chip> : undefined}
+                    desc={entry.description ?? undefined} />
+
+                  {index < shown.length - 1 && <Separator />}
                 </div>
               )
             })}
-          </div>
+          </Rows>
         </>
       )}
     </Dialog>
@@ -657,7 +605,6 @@ export const ResolveDialog = ({
   return (
     <Dialog
       title={`Resolve ${entry.title ?? entry.name}`}
-      icon={<AlertIcon size={16} />}
       size="lg"
       onClose={onClose}
       footer={
@@ -668,39 +615,23 @@ export const ResolveDialog = ({
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
         </>
       }
-    >
-      <Text as="p" role="muted" className={styles.blurb}>
+   >
+      <Text as="p" role="muted">
         The copies of this skill disagree, so which one an agent runs depends on scan order. Pick
         the copy that should win; every other copy is rewritten to match it, and each one replaced
         is backed up first.
       </Text>
-      <div className={styles.choices} role="radiogroup" aria-label="The copy that should win">
+      <Rows role="radiogroup" aria-label="The copy that should win">
         {loadable.map((copy) => (
-            <Button
-              key={copy.path}
-              type="button"
-              role="radio"
-              aria-checked={winner === copy.path}
-              variant="choice" size="row" className={styles.choice}
-              data-on={winner === copy.path ? '' : undefined}
-              onClick={() => setWinner(copy.path)}
-            >
-              <CodeText as="code">{shortPath(copy.path, home)}</CodeText>
-              <Text role="meta" className={styles.choiceNote}>
-                {copy.readBy.length === 0
-                  ? 'Read by nobody'
-                  : `Read by ${copy.readBy
-                      .map((id) => columns.find((one) => one.id === id)?.label ?? id)
-                      .join(', ')}`}
-              </Text>
-            </Button>
+            <RowChoice key={copy.path} selected={winner === copy.path} onClick={() => setWinner(copy.path)}
+              title={<CodeText as="code">{shortPath(copy.path, home)}</CodeText>}
+              desc={copy.readBy.length === 0 ? 'Read by nobody' : `Read by ${copy.readBy.map(id => columns.find(one => one.id === id)?.label ?? id).join(', ')}`} />
         ))}
-      </div>
-      {hollow.length > 0 && (
+      </Rows>
+      {hollow.length> 0 && (
         /* A checkbox for the same reason the import candidates are: this
            is part of a plan being composed, not a setting taking effect. */
         <Checkbox
-          className={`${styles.hollowLine} flex`}
           checked={cleanHollow}
           onCheckedChange={(next) => setCleanHollow(next === true)}
           label={
@@ -731,7 +662,7 @@ export const AuthorDialog = ({
 
   const slug = name.trim().toLowerCase().replace(/\s+/g, '-')
   const validName = /^[a-z0-9][a-z0-9._-]*$/.test(slug)
-  const ready = validName && description.trim() !== '' && body.trim() !== '' && targets.size > 0
+  const ready = validName && description.trim() !== '' && body.trim() !== '' && targets.size> 0
 
   const go = () => {
     const content = `---\nname: ${slug}\ndescription: ${description.trim()}\n---\n\n${body.trim()}\n`
@@ -743,7 +674,6 @@ export const AuthorDialog = ({
   return (
     <Dialog
       title="New skill"
-      icon={<PlusIcon size={16} />}
       /*
        * `xl` and a six-row body, so the form fits without the dialog
        * scrolling. It is not only about room: the first field is autofocused,
@@ -763,14 +693,14 @@ export const AuthorDialog = ({
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
         </>
       }
-    >
+   >
       <FormStack>
         <Field
           label="Name"
           error={name.trim() !== '' && !validName
             ? 'Letters, digits, dots and dashes — it becomes a directory name.'
             : undefined}
-        >
+       >
           {(control) => (
             <Input
               {...control}
@@ -784,7 +714,7 @@ export const AuthorDialog = ({
         <Field
           label="Description"
           hint="Every agent carries this line on every turn — it is how the skill gets chosen, and what it costs."
-        >
+       >
           {(control) => (
             <Input
               {...control}
@@ -813,7 +743,7 @@ export const AuthorDialog = ({
             nothing on screen said which of the four words was the thing to
             press. A box is visible before it is ticked. */}
         <Fieldset legend="Install for">
-          <div className={styles.targets}>
+          <FormStack>
             {columns.map((column) => (
               <Checkbox
                 key={column.id}
@@ -832,7 +762,7 @@ export const AuthorDialog = ({
                 }
               />
             ))}
-          </div>
+          </FormStack>
         </Fieldset>
       </FormStack>
     </Dialog>
@@ -895,10 +825,12 @@ export const LibraryHistory = ({
   onFlow: (flow: LibraryFlow) => void
 }) => {
   const store = useStore()
+  const active = useDestinationActive()
   const [rows, setRows] = useState<readonly HistoryRow[] | null>(null)
   const [all, setAll] = useState(false)
 
   useEffect(() => {
+    if (!active) return
     let cancelled = false
     store.transport
       .request('audit/query', { sinceDays: 90 })
@@ -923,41 +855,38 @@ export const LibraryHistory = ({
             })),
         )
       })
-      .catch(() => setRows([]))
+      .catch(() => { if (!cancelled) setRows([]) })
     return () => {
       cancelled = true
     }
-  }, [store, refreshedAt])
+  }, [active, store, refreshedAt])
 
   if (rows === null || rows.length === 0) return null
   const shown = all ? rows : rows.slice(0, 6)
 
   return (
-    <section className={styles.history} aria-label="Changes made from here">
-      <SectionHead name="Changes made from here" />
-      <ListRows className={styles.historyRows} role="list">
+    <Section title="Changes made from here" inset="row">
+      <Rows role="list">
         {shown.map((row, index) => (
           <div key={`${row.at}-${index}`} role="listitem">
-            <div className={styles.historyRow}>
-              <Text role="meta" numeric className={styles.historyWhen}>
-                {new Date(row.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
-              </Text>
-              <span className={styles.historyWhat}>
-                <Text
+            <Row layout="record" kind="record" title={<Text
                   role="navigation"
                   {...(row.status === 'failed' ? { tone: 'warning' as const } : {})}
-                >
+               >
                   {row.status === 'failed'
                     ? `Failed to ${HISTORY_TRY[row.op] ?? row.op} ${row.name}${row.detail ? ` — ${row.detail}` : ''}`
                     : `${HISTORY_VERB[row.op] ?? row.op} ${row.name}`}
-                </Text>
-                <Text role="meta" className={styles.historyPath} title={row.path} truncate dir="rtl">
+                </Text>} desc={<>
+              <Text role="meta" numeric>
+                {new Date(row.at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+                {' · '}
+              </Text>
+                <Text role="meta" title={row.path} truncate dir="rtl">
                   <bdi dir="ltr">
                     <CodeText as="code" size="inherit">{shortPath(row.path, home)}</CodeText>
                   </bdi>
                 </Text>
-              </span>
-              {row.backupPath !== undefined && row.status === 'done' && (
+              </>} control={row.backupPath !== undefined && row.status === 'done' ? (
                 <Button variant="outline"
                   size="sm"
                   title={`Restore what this change filed at ${row.backupPath}`}
@@ -975,20 +904,19 @@ export const LibraryHistory = ({
                       ],
                     })
                   }
-                >
+               >
                   Restore…
                 </Button>
-              )}
-            </div>
+              ) : undefined} />
           </div>
         ))}
-      </ListRows>
-      {rows.length > shown.length && (
+      </Rows>
+      {rows.length> shown.length && (
         <Button variant="secondary" size="sm" onClick={() => setAll(true)}>
           Show all {rows.length}
         </Button>
       )}
-    </section>
+    </Section>
   )
 }
 

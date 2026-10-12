@@ -388,10 +388,11 @@ export const streaksFor = (cells: readonly HeatCell[], metric: HeatMetric): Stre
 
 /** The day with the most, or null when nothing was found in view. */
 export const busiestDay = (cells: readonly HeatCell[], metric: HeatMetric): HeatCell | null =>
-  cells.reduce<HeatCell | null>(
-    (best, cell) => (best === null || metricValue(cell, metric) > metricValue(best, metric) ? cell : best),
-    null,
-  )
+  cells.reduce<HeatCell | null>((best, cell) => {
+    const value = metricValue(cell, metric)
+    if (value <= 0) return best
+    return best === null || value > metricValue(best, metric) ? cell : best
+  }, null)
 
 /** 0 (Monday) .. 6 (Sunday), or null when nothing was spent in view. */
 export const busiestWeekday = (cells: readonly HeatCell[], metric: HeatMetric): number | null => {

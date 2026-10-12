@@ -239,12 +239,16 @@
   align-items: center;
   gap: var(--hd-space-0-5);
   white-space: nowrap;
-  opacity: 0.55; /* desk: .6 → .55, one resting value for both rows */
+  opacity: 0; /* desk: 0.55 → 0, controls appear on their message's interaction */
   transition: opacity var(--hd-duration-fast) var(--hd-ease); /* desk: canonical One UI System scale */
 }
 
 .actions:hover,
 .actions:focus-within,
+[data-slot='message']:hover [data-message-actions],
+[data-slot='message']:focus-within [data-message-actions],
+[data-turn]:not([data-part]):has([data-part='answer'] [data-slot='message']:hover) [data-turn-tail] [data-message-actions],
+[data-turn]:not([data-part]):has([data-part='answer'] [data-slot='message']:focus-within) [data-turn-tail] [data-message-actions],
 .actions[data-sticky] {
   opacity: 1;
 }

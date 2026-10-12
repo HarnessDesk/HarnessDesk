@@ -13,7 +13,8 @@ import { createInlineBrowserEngine } from './browser-engine.mjs'
 import { downloadOutcome, remember, uniqueName } from './downloads.mjs'
 import { respondToCrash } from './crash-policy.mjs'
 import { MARK, drawTrayMeter } from './meter.mjs'
-import { attachAppUpdates } from './app-updates.mjs'
+import { attachAppUpdates, attachAppUpdateBridge } from './app-updates.mjs'
+import { loadMainWindow } from './main-window.mjs'
 import { MENU_LABEL, createCommandLineTool, targetOf } from './cli-install.mjs'
 import { decide, relevant } from './notifications.mjs'
 import { createIntakeNotifier } from './intake-notifications.mjs'
@@ -105,6 +106,7 @@ let logger = null
 let extensions = null
 /** The app menu's update item — `app-updates.mjs` decides what it says. */
 let updateMenuItem = null
+const appUpdateBridge = attachAppUpdateBridge({ ipcMain, currentWindow: () => mainWindow, currentMenu: () => updateMenuItem })
 
 if (!app.requestSingleInstanceLock()) {
   // A second launch should focus the window that already exists, not race it
@@ -252,12 +254,7 @@ const createWindow = async (url) => {
   window.on('resize', debounce(persist, 400))
   window.on('move', debounce(persist, 400))
   window.on('close', persist)
-  window.on('closed', () => {
-    mainWindow = null
-  })
-
-  await window.loadURL(url)
-  return window
+  return loadMainWindow({ window, url, currentWindow: () => mainWindow, setCurrentWindow: value => { mainWindow = value } })
 }
 
 const debounce = (fn, ms) => {
@@ -281,7 +278,7 @@ const showMainWindow = async () => {
     return
   }
   const url = sessionUrl()
-  if (url) mainWindow = await createWindow(url)
+  if (url) await createWindow(url)
 }
 
 /**
@@ -835,12 +832,13 @@ const start = async () => {
     onMenu: (item) => {
       updateMenuItem = item
       buildMenu()
+      appUpdateBridge.publish()
     },
     showDialog: showMessage,
     log: (message, data) => logger?.info(message, data),
   })
 
-  mainWindow = await createWindow(sessionUrl())
+  await createWindow(sessionUrl())
   // Native UI-system verification opens the real auxiliary window without
   // scripting macOS's global menu bar (which would require controlling the
   // user's accessibility session). It is the same function the About menu

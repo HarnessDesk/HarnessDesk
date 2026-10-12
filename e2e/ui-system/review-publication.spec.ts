@@ -1,3 +1,4 @@
+import { selectRunView } from './run-frame-actions'
 import { expect, test } from '@playwright/test'
 import path from 'node:path'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
@@ -17,21 +18,22 @@ for (const theme of ['light', 'dark'] as const) {
   test(`Publication states and their doors fit the Run in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?review-publication&theme=${theme}`)
-    await expect(page.locator('#review-publication-posted [data-slot="run-header"]')).toContainText('Posted to #128')
+    await expect(page.locator('#review-publication-posted [aria-label="Team Run facts"]')).toContainText('Posted to #128')
     if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
     else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme', '')
     // This route mounts only the synthetic publication frames, so the rig's full-document audit applies.
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     for (const [state, words, canPost] of states) {
       const frame = page.locator(`#review-publication-${state}`)
-      const header = frame.locator('[data-slot="run-header"]')
-      await expect(header).toContainText(words)
+      await selectRunView(frame, 'Timeline')
+      const facts = frame.locator('[aria-label="Team Run facts"]')
+      await expect(facts).toContainText(words)
       if (['local', 'partial', 'uncertain', 'refused'].includes(state)) await expect(frame.locator('[data-slot="run-need"]')).toBeVisible()
-      const round = frame.locator('[data-row="findings-3"]')
+      const round = frame.locator('[data-row="card-3-3"]')
       await expect(round).toContainText(words)
       const ending = frame.locator('[data-slot="run-ending"]')
       await expect(ending.locator('[data-slot="chip-words"]')).toHaveCount(0)
-      await expect(header.locator('[data-slot="chip-words"]').filter({ hasText: words })).toHaveCount(1)
+      await expect(facts.locator('[data-slot="summary-item"]').filter({hasText:/^Publication/})).toContainText(words)
       const waitingReason = {
         partial: 'One review still waits for you.',
         uncertain: 'The desk did not receive confirmation.',
@@ -39,11 +41,10 @@ for (const theme of ['light', 'dark'] as const) {
         refused: 'The pull request moved past this review.',
       }[state]
       if (waitingReason) {
-        await expect(ending).not.toContainText('Needs you')
+        await expect(ending).toHaveCount(0)
         await expect(frame.locator('[data-slot="run-need"] [data-tone="warning"]')).toHaveCount(1)
         await expect(frame.locator('[data-slot="run-need"]')).toContainText(waitingReason)
-        await expect(ending).not.toContainText(waitingReason)
-        await expect(ending).not.toContainText('Nothing waits.')
+        await expect(frame.locator('[data-slot="run-need"]')).not.toContainText('Nothing waits.')
       } else {
         await expect(ending).not.toContainText('Settled')
         await expect(ending.locator('[data-tone="warning"]')).toHaveCount(0)
@@ -59,13 +60,16 @@ for (const theme of ['light', 'dark'] as const) {
       if (process.env.REVIEW_PUBLICATION_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.REVIEW_PUBLICATION_FRAMES_DIR, `${state}-${theme}.png`) })
     }
     const none = page.locator('#review-publication-none')
-    await expect(none.locator('[data-slot="run-header"]')).not.toContainText(/Posted|Waiting to post|Kept on the desk|Not confirmed/)
+    await selectRunView(none, 'Timeline')
+    await expect(none.locator('[aria-label="Team Run facts"]')).not.toContainText(/Posted|Waiting to post|Kept on the desk|Not confirmed/)
     const emptyRelease = page.locator('#review-publication-empty-release')
-    await expect(emptyRelease.locator('[data-slot="run-header"]')).not.toContainText(/Needs you|Not posted|Kept on the desk/)
+    await selectRunView(emptyRelease, 'Timeline')
+    await expect(emptyRelease.locator('[aria-label="Team Run facts"]')).not.toContainText(/Needs you|Not posted|Kept on the desk/)
     await expect(emptyRelease.locator('[data-row="check-2-2"]')).not.toContainText(/Not posted|Kept on the desk/)
     const missing = page.locator('#review-publication-missing-round')
-    await expect(missing.locator('[data-slot="run-header"]')).toContainText('Posted to #128')
-    await expect(missing.locator('[data-row="findings-3"]')).not.toContainText('Posted to #128')
+    await selectRunView(missing, 'Timeline')
+    await expect(missing.locator('[aria-label="Team Run facts"]')).toContainText('Posted to #128')
+    await expect(missing.locator('[data-row="card-3-3"]')).not.toContainText('Posted to #128')
     if (process.env.REVIEW_PUBLICATION_FRAMES_DIR) {
       await none.screenshot({ path: path.join(process.env.REVIEW_PUBLICATION_FRAMES_DIR, `none-${theme}.png`) })
       await emptyRelease.screenshot({ path: path.join(process.env.REVIEW_PUBLICATION_FRAMES_DIR, `empty-release-${theme}.png`) })
@@ -94,8 +98,11 @@ for (const theme of ['light', 'dark'] as const) {
     await confirmation.getByRole('button', { name: 'Post to #128', exact: true }).click()
     await expect(local.getByRole('button', { name: 'Post to pull request', exact: true })).toBeDisabled()
     const narrow = page.locator('#review-publication-narrow')
+    await selectRunView(narrow, 'Timeline')
+    await narrow.locator('[data-work-panel-toggle]').click()
+    await expect(narrow.locator('[data-preview-tool-placement]')).toHaveCount(0)
     await narrow.locator('[data-row="card-3-3"]').click()
-    await expect(narrow.locator('[data-slot="run-scroll"]')).toBeHidden()
+    await expect(narrow.locator('[data-slot="run-scroll"]')).toBeVisible()
     const detail = narrow.locator('[data-slot="run-inspector"]')
     await expect(detail.getByRole('button', { name: 'Post to pull request', exact: true })).toBeEnabled()
     expect(await detail.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)

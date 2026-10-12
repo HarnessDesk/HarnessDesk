@@ -74,3 +74,25 @@ it('keeps full nicknames when shortened names collide across Agents or custom na
  expect(seatDisplayName(a.record,a.nickname,a.runtimeName,[a,{nickname:'Model A · High'}])).toBe(a.nickname)
  expect(seatDisplayName(a.record,a.nickname,a.runtimeName,[a])).toBe('Model A · High')
 })
+
+it('keeps stopped Seats beside active membership, with one row per conversation', () => {
+ const stopped = record('a','one')
+ const view = { ...goal([]), pastMembers: [stopped] }
+ expect(teamSeats(view,team(),run).map(one=>[one.record.id,one.role])).toEqual([['a','writer']])
+})
+
+it('keeps live seats first and a live repeated conversation wins over its stopped record', () => {
+ const live=record('live','one'), stopped={...record('old','one'),closed:{at:4,why:'released'}}, past={...record('past','two'),closed:{at:3,why:'released'}}
+ const view={...goal([live]),pastMembers:[past,stopped]}
+ const seats=teamSeats(view,team(),run)
+ expect(seats.map(one=>one.record.id)).toEqual(['live','past'])
+ expect(seats[1]?.record.closed?.at).toBe(3)
+})
+
+it('keeps the latest Seat facts for repeated live and stopped conversations', () => {
+ const live=record('live-first','one'), latest=record('live-latest','one')
+ const past={...record('past-first','two'),closed:{at:2,why:'released'}}
+ const pastLatest={...record('past-latest','two'),closed:{at:3,why:'released'}}
+ const seats=teamSeats({...goal([live,latest]),pastMembers:[past,pastLatest]},team(),run)
+ expect(seats.map(one=>one.record.id)).toEqual(['live-latest','past-latest'])
+})

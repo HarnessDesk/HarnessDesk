@@ -137,7 +137,18 @@ export const turnMethods = {
     if (ctx.ceilings.answerHeld(params.approvalId, params.decision)) return null
     // A question whose turn its deadline already stopped: the answer reopens the Seat rather than going into that turn.
     if (await ctx.questions.answerStopped(params.runtime, params.sessionId, params.approvalId, params.decision)) return null
-    await (await ctx.sessions.live(params)).respondToApproval(makeApprovalId(params.approvalId), params.decision)
+    const sessionId = makeSessionId(params.sessionId), approvalId = makeApprovalId(params.approvalId)
+    const assertPending = (): void => {
+      if (!ctx.registry.hasApproval(params.runtime, sessionId, approvalId)) {
+        throw new Error(`No approval is pending with id ${params.approvalId}`)
+      }
+    }
+    // Stop can settle the host's copy even when the agent keeps its request.
+    assertPending()
+    const live = await ctx.sessions.live(params)
+    // Reopening may have overlapped the settlement; never send a stale decision.
+    assertPending()
+    await live.respondToApproval(approvalId, params.decision)
     return null
   },
 } satisfies MethodsUnder<'turn/' | 'tasks/' | 'approval/'>

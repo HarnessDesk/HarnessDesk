@@ -8,6 +8,12 @@ test('evidence chips show their whole fact on one line, inside a 202px board car
 
   const frame = page.getByRole('heading', { name: 'Board — what the desk observed' }).locator('..')
   await frame.locator('[data-slot="tool-pane"]').evaluate(el => { el.style.width = '1164px' })
+  // The frame redesign intentionally keeps default canvas columns at 280px.
+  // Exercise BoardColumn's supported explicit width at its 220px fit floor.
+  await expect(frame.locator('[data-slot="board-column"]').first()).toHaveCSS('width', '280px')
+  await frame.locator('[data-slot="board-column"]').evaluateAll(columns => {
+    for (const column of columns) (column as HTMLElement).style.width = '220px'
+  })
   const card = frame.locator('[data-slot="board-card"]').filter({ hasText: 'Cap the backoff and add jitter' })
   const evidence = card.getByRole('button', { name: /What the desk observed on #2:/ })
 

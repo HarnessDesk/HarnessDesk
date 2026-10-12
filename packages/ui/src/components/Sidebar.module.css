@@ -1,255 +1,42 @@
 /* The sidebar owns only placement. Visible roles come from the design system. */
-.sidebar {
-  --panel-max: 320px;
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  min-height: 0;
-  min-width: 0;
-}
-
-.header {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-}
-
-.content {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  min-width: 0;
-  gap: var(--hd-space-0);
-  flex-direction: column;
-  overflow-x: hidden;
-  overflow-y: auto;
-  container: sidebar-content / inline-size;
-}
-
-.footer {
-  display: flex;
-  flex: none;
-  flex-direction: column;
-  gap: var(--hd-space-1);
-}
-
-.workspaceName {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.brandMark,
-.navIcon,
 .groupChevron,
 .accountMeta {
   flex: none;
 }
 
-.brandMark {
-  display: inline-grid;
-  place-items: center;
-  margin-right: var(--hd-space-2);
-}
 
-.nav {
-  flex: none;
-}
-
-.nav > * + * {
-  margin-top: var(--hd-space-0-5);
-}
-
-.navRow,
-.accountRow,
-.youName {
+.accountRow {
   display: flex;
   align-items: center;
 }
 
-.navRow {
-  gap: var(--hd-space-2); /* desk: 2px → 8px, keep the start action distinct from its adjacent menu. */
-}
 
-.newSession {
-  flex: 1;
-  min-width: 0;
-}
 
-.newSession,
 .accountRow {
   width: 100%;
 }
 
-.navSecondary {
-  flex: none;
-  width: var(--hd-icon-target); /* desk: 26px → 24px, the shared target the trailing rail steps by. */
-  margin-right: calc(var(--hd-sidebar-end-header-inset) - var(--hd-bar-pad) - var(--hd-space-1-5)); /* desk: 2px → 12px, the header control ends on the sidebar's end rail. */
-}
-
-.groupLabel,
-.filterBadge {
-  display: inline-flex;
-  align-items: center;
-  min-width: 0;
-}
-
-.groupLabel {
-  gap: var(--hd-space-1);
-}
-
-@container sidebar-content (max-width: 15rem) {
-  :global([data-filtered]) .projectName {
-    display: none;
-  }
-}
-
-.filterBadge {
-  gap: var(--hd-space-0-5);
-}
-
-.filter {
-  position: relative;
-  display: flex;
-  align-items: center;
-  flex: none;
-  width: var(--hd-target-min);
-  margin-left: auto;
-  container-type: inline-size;
-}
-
-:global([data-slot='navigation-group-header'][data-filtering]) .filter {
-  flex: 1 1 auto;
-  width: auto;
-  min-width: var(--hd-target-min);
-}
-
-.filterInput,
-.renameInput {
-  width: 100%;
-  min-width: 0;
-}
-
-.listControls {
-  margin-inline-start: calc(-1 * var(--hd-space-1-5));
-  position: relative;
-  display: inline-flex; /* desk: flex → inline-flex, the controls occupy only their trailing rail. */
-}
-
-.filterState {
-  position: absolute;
-  top: 1px;
-  right: 1px;
-  pointer-events: none;
-}
-
-.groupHead,
-.rowWrap {
-  position: relative;
-}
-
-.groupHead {
-  width: 100%;
-  margin-top: var(--hd-space-1);
-}
-
-.nested > * + * {
-  margin-top: var(--hd-space-0-5);
-}
-
-.groupBlank {
-  margin: var(--hd-space-1) var(--hd-space-2) var(--hd-space-2) var(--hd-space-8);
-}
-
-.headerActions {
-  display: flex;
-  align-items: center;
-  flex: none;
-  gap: calc(var(--hd-sidebar-end-action-step) - var(--hd-icon-target));
-  margin-inline-end: calc(var(--hd-sidebar-end-rail) + var(--hd-space-2) - var(--hd-bar-pad));
-}
-
-.listAddButton {
-  flex: none;
-  width: var(--hd-icon-target);
-}
-
-.headerDisplayAction {
-  margin-inline-end: calc(-1 * var(--hd-space-1-5));
-}
-
-.triage {
-  margin: 0 0 var(--hd-space-2);
-}
-
-.triage > [data-slot='separator'] {
-  margin-top: var(--hd-space-1-5);
-}
 
 .accountRow {
   gap: var(--hd-space-2);
 }
 
-.accountName,
-.youText {
+.accountName {
   flex: 1;
   min-width: 0;
   display: flex;
 }
 
-.accountName,
-.youName {
+.accountName {
   gap: var(--hd-space-1-5);
 }
 
-.accountName {
-  flex: 1;
-  min-width: 0;
-}
 
-.youText {
-  flex-direction: column;
-}
-
-.accountLabel,
-.youLabel {
+.accountLabel {
   min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
 }
 
 .seatTrigger {
   flex: none;
   display: flex;
 }
-
-.accountMenuCaret {
-  margin-left: var(--hd-space-1-5);
-}
-
-.accountMenuMeta {
-  flex: none;
-}
-
-.usageDetails {
-  margin: 0 var(--hd-space-2) var(--hd-space-1-5) var(--hd-space-8);
-}
-
-/* The lanes stand a row's pitch apart the way the dashboard's own lanes are
-   spaced — by the gap between them, not a height each row claims. */
-.usageLanes {
-  display: flex;
-  flex-direction: column;
-  gap: var(--hd-space-2);
-  margin-block: var(--hd-space-1);
-}
-
-
-.accountMenuConfirmActions {
-  display: flex;
-  gap: var(--hd-space-1-5);
-  justify-content: flex-end;
-}
-
-/* @design-owners SessionTree */

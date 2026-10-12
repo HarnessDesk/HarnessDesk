@@ -10,6 +10,8 @@ export interface TeamListInput {
  readonly goal: GoalView | null
  readonly execution: FlowExecution | null
  readonly overview: ReturnType<typeof teamOverview>
+ /** The ended Run still owns a live original turn, as the timeline reads it. */
+ readonly stopping?: boolean
  readonly total?: { readonly money: number | null; readonly turns: number | null }
 }
 export interface TeamsPrefs {
@@ -17,7 +19,7 @@ export interface TeamsPrefs {
  readonly seen: Readonly<Record<string, string>>
 }
 export type TeamFilter = 'active' | 'needs-you' | 'settled'
-export type TeamListState = SeatRow['state'] | 'settled' | 'wrapped' | 'wrapping' | 'stopped'
+export type TeamListState = SeatRow['state'] | 'settled' | 'wrapped' | 'wrapping' | 'stopped' | 'stopping'
 export interface TeamListRow {
  readonly id: string
  readonly project: string
@@ -48,7 +50,7 @@ const firstTime = (values: readonly (number | null | undefined)[]): number | nul
  return known.length ? Math.min(...known) : null
 }
 
-export const teamListRow = ({team,goal,execution,overview,total}: TeamListInput, prefs: TeamsPrefs = emptyPrefs): TeamListRow => {
+export const teamListRow = ({team,goal,execution,overview,total,stopping}: TeamListInput, prefs: TeamsPrefs = emptyPrefs): TeamListRow => {
  const seats = overview.seats
  const wrapped = goal?.goal.state === 'wrapped'
  const waiting = overview.needsYou[0]
@@ -60,8 +62,8 @@ export const teamListRow = ({team,goal,execution,overview,total}: TeamListInput,
  const settled = !needs && workingSeats.length === 0 && !unfinished && !goal?.waitingOn?.length &&
   execution?.state !== 'running' && execution?.state !== 'stalled' &&
   (goal ? goal.activity === 'ready-to-wrap' : execution?.state === 'settled')
- const state: TeamListState = wrapped ? 'wrapped' : needs ? 'needs-you' : unreadSeats.length ? 'unread'
-  : goal?.goal.state === 'wrapping' ? 'wrapping' : workingSeats.length ? 'working' : execution?.state === 'stopped' ? 'stopped'
+ const state: TeamListState = wrapped ? 'wrapped' : execution?.state === 'stopped' && stopping ? 'stopping' : needs ? 'needs-you' : unreadSeats.length ? 'unread'
+  : goal?.goal.state === 'wrapping' ? 'wrapping' : execution?.state === 'stopped' ? 'stopped' : workingSeats.length ? 'working'
    : settled ? 'settled' : 'idle'
  const ready = settled && !wrapped && state === 'settled'
  const active = !wrapped && !ready
@@ -92,7 +94,7 @@ export const teamListRow = ({team,goal,execution,overview,total}: TeamListInput,
   total:total ?? round?.total ?? {money:null,turns:null},active,ready,change,
   unread:prefs.seen[team.id] !== change,hidden:ready && prefs.hidden[team.id] === change}
 }
-const precedence: Record<TeamListState,number> = {'needs-you':0,unread:1,working:2,wrapping:2,idle:3,stopped:3,settled:4,wrapped:5}
+const precedence: Record<TeamListState,number> = {'needs-you':0,unread:1,working:2,wrapping:2,stopping:2,idle:3,stopped:3,settled:4,wrapped:5}
 const grouped = (rows: readonly TeamListRow[]): TeamListGroup[] => {
  const groups = new Map<string,TeamListRow[]>()
  for (const row of rows) groups.set(row.project,[...(groups.get(row.project) ?? []),row])

@@ -12,9 +12,7 @@ export {
   PanelFilter,
   PanelFooter,
   PanelFrame,
-  PanelPill,
   PanelRow,
-  PanelTools,
   RowTime,
   RunDot,
 } from '../design'

@@ -3,6 +3,22 @@
   padding: var(--hd-space-4) 0;
   list-style: none;
 }
+.section {
+  position: relative;
+  list-style: none;
+}
+.section > .rail {
+  top: 0;
+}
+.section:has(+ [data-has-meta]) > .rail {
+  bottom: calc(0px - var(--hd-line-xs) - var(--hd-space-1) - var(--hd-line) / 2);
+}
+.section:has(+ .section) > .rail {
+  bottom: 0;
+}
+.section:not(:has(~ .item)) > .rail {
+  display: none;
+}
 .item {
   --timeline-title-centre: calc(var(--hd-line) / 2);
   position: relative;
@@ -12,7 +28,7 @@
 .item[data-has-meta] {
   --timeline-title-centre: calc(var(--hd-line-xs) + var(--hd-space-1) + var(--hd-line) / 2);
 }
-.item:last-child {
+.item:not(:has(~ .item)) {
   padding-block-end: 0;
 }
 .rail {
@@ -26,10 +42,17 @@
 .item:has(+ [data-has-meta]) > .rail {
   bottom: calc(0px - var(--hd-line-xs) - var(--hd-space-1) - var(--hd-line) / 2);
 }
-.item:has(+ [data-state="done"]) > .rail {
+.item:has(+ .section) > .rail {
+  bottom: 0;
+}
+
+.item:has(+ [data-state="done"]) > .rail,
+.item:has(+ .section + [data-state="done"]) > .rail,
+.section:has(+ [data-state="done"]) > .rail,
+.section:has(+ .section + [data-state="done"]) > .rail {
   background: var(--hd-foreground);
 }
-.item:last-child > .rail {
+.item:not(:has(~ .item)) > .rail {
   display: none;
 }
 .indicator {
@@ -120,3 +143,19 @@
     animation: none;
   }
 }
+
+/* desk: 12 → 20, the drawing's flat Run state dot; other timelines retain their register. */
+.flat > .indicator { width: var(--hd-space-5); height: var(--hd-space-5); inset-inline-start: calc(var(--hd-space-5) / 2); }
+.flat > .rail { inset-inline-start: calc((var(--hd-space-5) - var(--hd-border-width)) / 2); background: var(--hd-border); }
+.flat[data-state="done"] > .indicator { background: var(--hd-secondary-foreground); border-color: var(--hd-secondary-foreground); }
+.flat { padding-block-end: var(--hd-space-4); }
+
+/* Flat steps own only their outgoing segment. Group labels and a group's last
+   step have no rail; the segment starts after the 20px dot and its 2px gap. */
+.timeline:has(> .flat) > .section > .rail { display: none; }
+.item.flat > .rail {
+  inset-inline-start: calc(var(--hd-space-5) / 2 - var(--hd-border-width));
+  top: calc(var(--hd-space-5) + var(--hd-space-0-5));
+  bottom: 0;
+}
+.flat:has(+ .section) > .rail { display: none; }

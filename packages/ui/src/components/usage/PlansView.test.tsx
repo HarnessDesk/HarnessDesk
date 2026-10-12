@@ -31,10 +31,10 @@ it('falls back to All when a selected shape no longer has any accounts', () => {
   draw([{ ...base, billing: { kinds: ['free'] } }])
   act(() => [...container.querySelectorAll('button')].find(button => button.textContent === 'Free · 1')!.click())
   draw([base])
-  expect(container.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe('All · 1')
+  expect(container.querySelector('[data-pressed]')?.textContent).toBe('All · 1')
   expect(container.textContent).not.toContain('No account matches this filter')
   draw([{ ...base, billing: { kinds: ['free'] } }, base])
-  expect(container.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe('All · 2')
+  expect(container.querySelector('[data-pressed]')?.textContent).toBe('All · 2')
  } finally { act(() => root.unmount()); container.remove() }
 })
 

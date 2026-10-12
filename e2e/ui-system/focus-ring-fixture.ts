@@ -71,6 +71,6 @@ export async function mountFocusFixture(page: Page) {
 export const ringOf = (page: Page) => page.evaluate(() => {
   const node = document.activeElement as HTMLElement
   const style = getComputedStyle(node)
-  return { outline: style.outlineStyle, shadow: style.boxShadow, border: style.borderColor,
+  return { outline: style.outlineStyle, shadow: /^(?:rgba\(0, 0, 0, 0\) 0px 0px 0px 0px(?:, )?)+$/.test(style.boxShadow) ? 'none' : style.boxShadow, border: style.borderColor,
     visible: node.matches(':focus-visible'), ring: getComputedStyle(document.body).getPropertyValue('--hd-ring').trim() }
 })

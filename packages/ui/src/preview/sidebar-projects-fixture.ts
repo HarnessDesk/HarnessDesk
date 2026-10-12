@@ -246,6 +246,39 @@ export const sidebarProjectsFixture = (base: AppSnapshot): AppSnapshot => {
   }
 }
 
+/** Four Storefront conversations in their real Recency-sorted project order. */
+export const sidebarStorefrontRecencyFixture = (base: AppSnapshot): AppSnapshot => {
+  const root = '/work/storefront'
+  const workspace = workspaceAt(root, repoAt(root))
+  const history = [
+    { id: 'storefront-one', runtime: CODEX, title: 'Review the checkout plan', cwd: root, repo: repoAt(root), ago: 1 },
+    { id: 'storefront-two', runtime: CODEX, title: 'Inspect basket validation', cwd: root, repo: repoAt(root), ago: 2 },
+    { id: 'storefront-three', runtime: CODEX, title: 'Adjust retry handling', cwd: root, repo: repoAt(root), ago: 3 },
+    { id: 'storefront-four', runtime: CODEX, title: 'Check payment edge cases', cwd: root, repo: repoAt(root), ago: 4 },
+  ].map(row)
+  const sessions = new Map(history.map(summary => {
+    const session: Session = {
+      id: summary.id, runtime: summary.runtime, cwd: root, title: summary.title, preview: summary.preview,
+      status: { type: 'idle' }, createdAt: summary.createdAt, updatedAt: summary.updatedAt, turns: [], itemsLoaded: true,
+    }
+    return [sessionKey(session.runtime, session.id), session] as const
+  }))
+  return {
+    ...base,
+    history,
+    historyIdentity: history,
+    foldersGone: new Map(),
+    sessions,
+    activeSessionKey: null,
+    workspace,
+    workspaces: [workspace],
+    teams: new Map(),
+    goals: new Map(),
+    flowExecutions: new Map(),
+    listPrefs: { ...base.listPrefs, sort: 'recency', pinned: [], pinnedSessions: [], collapsed: [], forgottenFolders: [], othersOpen: true },
+  }
+}
+
 /** The search result is older than the first loaded page but belongs here. */
 export const sidebarProjectsUnloadedSearchFixture = (
   base: AppSnapshot,

@@ -7,6 +7,7 @@ import { GroupLabel } from './group-label'
 import { KeyValueRow, SummaryItem, SummaryList } from './key-value'
 import { SectionHead } from '../patterns/Settings'
 import { Section } from './section'
+import { Checklist, ChecklistItem } from '../patterns/Checklist'
 
 /*
  * The page grammar: a `Section` that owns its spacing, a `GroupLabel` that is
@@ -59,16 +60,26 @@ it('a titled Section is a named region with a group label over its content', () 
   expect(section.lastElementChild?.textContent).toBe('the card')
 })
 
-it('a Section owns its spacing: 8px from head to card, 32px between sections, and no child margin', () => {
+it('a Section owns its spacing: the stack gap inside, 32px between sections, and no child margin', () => {
   const section = draw(<Section title="File"><p>card</p></Section>)
   const own = classes(section)
-  expect(own).toContain('gap-(--hd-space-2)')
+  expect(own).toContain('gap-(--hd-card-gap)')
   expect(own).toContain('mt-(--hd-space-8)')
   expect(own).toContain('first:mt-0')
   // A card's or a note's own margin cannot reopen the gap the section decided.
   expect(own).toContain('*:my-0!')
-  // The head sits on its card: a taller action grows upward.
+  // The label stays on its content edge; taller actions grow upward.
   expect(classes(section.querySelector('[data-slot="section-head"]'))).toContain('items-end')
+})
+
+it('keeps the section title and controls on one head row while the title truncates', () => {
+  const section = draw(<Section title="A title that may be longer than the available measure" action={<Button>Actions</Button>} />)
+  const heading = section.querySelector('[data-slot="section-head"]')
+  const name = heading?.querySelector('[data-section-name]')
+  const action = heading?.querySelector('[data-slot="section-action"]')
+  expect(heading?.className).toContain('flex-wrap')
+  expect(name?.className).toContain('truncate')
+  expect(action?.textContent).toBe('Actions')
 })
 
 it('a Section action sits in the head, after the label', () => {
@@ -89,6 +100,11 @@ it('an untitled Section is still the boxed region it was', () => {
   expect(section.dataset['variant']).toBe('quiet')
   expect(section.hasAttribute('aria-label')).toBe(false)
   expect(section.querySelector('[data-slot="section-head"]')).toBeNull()
+})
+
+it('panel sections use the shared stack gap between their blocks', () => {
+  const section = draw(<Section variant="panel"><p>first block</p><p>second block</p></Section>)
+  expect(classes(section)).toContain('gap-(--hd-card-gap)')
 })
 
 it('GroupLabel is 13px, secondary ink and sentence case, and never uppercases', () => {
@@ -170,28 +186,20 @@ it('a SummaryList composes inside a Section with no margin of its own', () => {
   expect(classes(wrap).some((one) => /^-?m[tbyxlr]?-/.test(one))).toBe(false)
 })
 
-it('a section head\'s row inset is earned over rows or choices, not a Note or a button body', () => {
-  const overRows = draw(
-    <Section title="Backup">
-      <div data-slot="rows">card</div>
-    </Section>,
-  )
-  const overNote = draw(
-    <Section title="Triggers">
-      <p>Read from the committed file. Nothing runs until you arm it.</p>
-    </Section>,
-  )
-  // The class is conditional (`has-[+…]`), present on both heads; only its
-  // own `:has()` decides whether it resolves to a padding, which jsdom does
-  // not lay out — `e2e/ui-system/page-grammar.spec.ts` measures that part in
-  // the real engine. This pins the selector the condition is keyed on.
-  const insetClass = 'has-[+[data-slot=rows]]:px-[calc(var(--hd-border-width)+var(--hd-table-edge))]'
-  const overChoices = draw(<Section title="Review mode"><div role="radiogroup">choices</div></Section>)
-  expect(classes(overChoices.querySelector('[data-slot="section-head"]'))).toContain('has-[+[role=radiogroup]]:px-[calc(var(--hd-border-width)+var(--hd-table-edge))]')
-  expect(classes(overRows.querySelector('[data-slot="section-head"]'))).toContain(insetClass)
-  expect(classes(overNote.querySelector('[data-slot="section-head"]'))).toContain(insetClass)
-  // The Note itself never grows the `rows` slot the class is keyed on.
-  expect(overNote.querySelector('[data-slot="rows"]')).toBeNull()
+it('page section headings keep one content edge across body kinds', () => {
+  const bodies = [
+    draw(<Section title="Rows"><div data-slot="rows">card</div></Section>),
+    draw(<Section title="Choices"><div role="radiogroup">choices</div></Section>),
+    draw(<Section title="Note"><p>Read from the committed file.</p></Section>),
+    draw(<Section title="Action"><button>Open</button></Section>),
+  ]
+  const heads = bodies.map(body => body.querySelector('[data-slot="section-head"]'))
+  expect(heads.every(Boolean)).toBe(true)
+  expect(new Set(heads.map(head => head?.getAttribute('class'))).size).toBe(1)
+  for (const head of heads) {
+    expect(classes(head)).not.toContain('has-[+[data-slot=rows]]:px-[calc(var(--hd-border-width)+var(--hd-table-edge))]')
+    expect(classes(head)).not.toContain('has-[+[role=radiogroup]]:px-[calc(var(--hd-border-width)+var(--hd-table-edge))]')
+  }
 })
 
 it('a SectionHead inside a titled Section heads a group of it: an h3, where alone it is an h2', () => {
@@ -208,4 +216,42 @@ it('a SectionHead inside a titled Section heads a group of it: an h3, where alon
   expect(alone?.tagName).toBe('H2')
   expect(grouped?.tagName).toBe('H3')
   expect(page.querySelector('section[aria-label="Approvals"] [data-slot="group-label"]')?.tagName).toBe('H2')
+})
+
+it('panel facts keep a fixed key column without a card or narrow stacked keys', () => {
+  const wrap = draw(<SummaryList surface="panel"><SummaryItem label="Context" numeric note="Recorded by the last completed turn.">12,480 tokens</SummaryItem></SummaryList>)
+  const list = wrap.querySelector('dl')!
+  expect(list.dataset['surface']).toBe('panel')
+  expect(list.style.getPropertyValue('--summary-key')).toBe('92px')
+  expect(list.className).toContain('bg-transparent')
+  expect(list.className).toContain('px-(--hd-inset-row)')
+  expect(list.className).toContain('gap-x-(--hd-bar-gap)')
+  expect(list.className).not.toContain('@max-md')
+  const item = wrap.querySelector('[data-slot="summary-item"]')!
+  expect(item.className).toContain('grid-cols-subgrid')
+  expect(item.className).toContain('py-(--hd-space-2)')
+  expect(item.className).toContain('border-b-(length:--hd-border-width)')
+  expect(item.className).not.toContain('p-(--hd-inset-row)')
+  expect(item.className).not.toContain('gap-x-')
+  expect(wrap.querySelector('dt')?.className).not.toContain('col-span-full')
+  expect(wrap.querySelector('[data-slot="summary-value"]')?.className).toContain('text-left')
+})
+
+it('ToolBody composes the shared tool inset, group head and prose boundaries', async () => {
+  const { ToolBody, ToolSection, ToolProse } = await import('../patterns/ToolBody')
+  draw(<ToolBody><ToolSection label="Plan"><ToolProse>No plan yet.</ToolProse></ToolSection></ToolBody>)
+  const scroll = container.querySelector('[data-slot="tool-scroll"]')!
+  expect(scroll.getAttribute('data-inset')).toBe('tool')
+  expect(scroll.className).toContain('py-(--hd-inset-row)')
+  const head = container.querySelector('[data-slot="group-label"][data-group-surface="tool"]')!
+  expect(head.getAttribute('data-group-surface')).toBe('tool')
+  expect(head.className).toContain('px-(--hd-inset-row)')
+  expect(container.querySelector('[data-slot="tool-prose"]')?.className).toContain('px-(--hd-space-4)')
+})
+
+it('a panel Checklist requests the shared edge without changing default lists', () => {
+  draw(<><Checklist surface="panel"><ChecklistItem state="active">Review changes</ChecklistItem></Checklist><Checklist><ChecklistItem state="pending">Keep transcript spacing</ChecklistItem></Checklist></>)
+  const lists = container.querySelectorAll('[data-slot="checklist"]')
+  expect(lists[0]?.getAttribute('data-surface')).toBe('panel')
+  expect(lists[1]?.getAttribute('data-surface')).toBe('default')
 })

@@ -799,10 +799,10 @@ export const pricedNote = (
   provenance: SpendSummary['provenance'] | undefined,
 ): string => {
   if (unpriced === 1) {
-    return 'One of these rows includes a model with no public price, so its cost is lower than shown.'
+    return 'One of these rows includes a model with no public price, so the real cost is higher than shown.'
   }
   if (unpriced > 1) {
-    return `${unpriced} of these rows include models with no public price, so their cost is lower than shown.`
+    return `${unpriced} of these rows include models with no public price, so the real cost is higher than shown.`
   }
   switch (provenance) {
     case 'vendorMetered':
@@ -837,5 +837,5 @@ export const provenanceLabel = (spend: Pick<SpendSummary, 'provenance'>): string
 export const coverageLabel = (spend: Pick<SpendSummary, 'coverage'>): string | null => {
   const coverage = spend.coverage
   if (!coverage) return null
-  return `${coverage.daysCovered} of ${coverage.daysRequested} days scanned`
+  return `${coverage.daysCovered} of ${coverage.daysRequested} days with usage`
 }

@@ -350,6 +350,11 @@ describe('the composer while a turn is running', () => {
     expect(textarea().placeholder).toBe('Type the next message — ↵ queues it, ⌘↵ adds it to this turn')
   })
 
+  it('uses reply wording for an idle conversation', () => {
+    mount({ busy: false })
+    expect(textarea().placeholder).toBe('Type a reply — / for commands, @ for files')
+  })
+
   it('puts the draft back when the message did not get anywhere', async () => {
     calls.queue.mockImplementationOnce(async () => false)
     mount({ busy: true })

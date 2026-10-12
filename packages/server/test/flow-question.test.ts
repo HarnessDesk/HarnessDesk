@@ -391,13 +391,37 @@ test('an answer is refused, the question kept, when the Seat that asked it has b
 
 test('an answer no run is waiting for any more is refused, never sent into the turn that is over', E2E, async (t) => {
   const a = await stoppedOnAQuestion(t)
+  const before = a.sent.length
   await a.d.host.flowsPlane.stopRun(a.run.id)
   assert.equal((await runOf(a)).state, 'stopped')
-  await assert.rejects(answerIt(a), /no longer waiting on the answer/)
-  assert.deepEqual(a.session.decisions, [], 'nothing reached the agent’s own request')
-  // Dismissing it is still the person's to do.
-  await answerIt(a, { type: 'cancel' })
+  assert.deepEqual(a.session.decisions, [{ type: 'cancel' }], 'Stop closes the agent’s own request')
+  await assert.rejects(answerIt(a), /^Error: No approval is pending with id qu-base$/)
+  assert.deepEqual(a.session.decisions, [{ type: 'cancel' }], 'the stale answer never reaches the agent’s own request')
+  // Stop has already dismissed it; a stale dismissal cannot reach the agent either.
+  await assert.rejects(answerIt(a, { type: 'cancel' }), /^Error: No approval is pending with id qu-base$/)
   assert.equal(hasQuestion(a), false)
+  assert.equal(a.sent.length, before, 'no new turn carries the stale answer')
+  assert.equal((await runOf(a)).state, 'stopped', 'the stale answer cannot resume the Run')
+})
+
+test('a question abandoned by Stop cannot be answered even when its runtime could not cancel the request', E2E, async (t) => {
+  const a = await stoppedOnAQuestion(t)
+  const before = a.sent.length
+  const respond = a.session.respondToApproval.bind(a.session)
+  a.session.respondToApproval = async () => { throw new Error('Scripted cancellation failure') }
+  try {
+    await a.d.host.flowsPlane.stopRun(a.run.id)
+  } finally {
+    a.session.respondToApproval = respond
+  }
+  assert.equal((await runOf(a)).state, 'stopped')
+  assert.equal(hasQuestion(a), false, 'Stop settles the host’s question even when cancellation fails')
+  assert.deepEqual(resolutions(a.d.pushed), [{ outcome: 'abandoned', reason: 'Run stopped' }])
+  await assert.rejects(answerIt(a), /^Error: No approval is pending with id qu-base$/)
+  await assert.rejects(answerIt(a, { type: 'cancel' }), /^Error: No approval is pending with id qu-base$/)
+  assert.deepEqual(a.session.decisions, [], 'neither an answer nor a dismissal reaches the retained runtime request')
+  assert.equal(a.sent.length, before, 'no new turn carries the stale answer')
+  assert.equal((await runOf(a)).state, 'stopped', 'the stale answer cannot resume the Run')
 })
 
 test('this machine’s wait is the one set: until a person is back sets no deadline at all', E2E, async (t) => {

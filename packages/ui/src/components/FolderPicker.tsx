@@ -72,44 +72,46 @@ export const FolderPicker = ({ onClose }: { onClose: () => void }) => {
 
   useEffect(() => browse(), [browse])
 
+  const location = (
+    <Breadcrumb aria-label="Location" title={listing?.path}>
+      <BreadcrumbList className={styles.crumbs}>
+        {listing ? (
+          crumbsOf(listing.path).map((crumb, index, all) => (
+            // A separator is its own `<li>`, a sibling of the crumb's — the
+            // same shape every other Breadcrumb caller uses (see
+            // `boards-compositions.tsx`). Nested inside the crumb's `<li>`
+            // it was an `<li>` inside an `<li>`, which React and the DOM
+            // both refuse; this component had never been mounted anywhere
+            // to catch it.
+            <Fragment key={crumb.path}>
+              {index > 1 && <BreadcrumbSeparator>/</BreadcrumbSeparator>}
+              <BreadcrumbItem>
+                {index === all.length - 1 ? (
+                  <BreadcrumbPage>{crumb.name}</BreadcrumbPage>
+                ) : (
+                  <Button type="button" variant="row" size="row" onClick={() => browse(crumb.path)}>
+                    {crumb.name}
+                  </Button>
+                )}
+              </BreadcrumbItem>
+            </Fragment>
+          ))
+        ) : (
+          <BreadcrumbItem><BreadcrumbPage>…</BreadcrumbPage></BreadcrumbItem>
+        )}
+      </BreadcrumbList>
+    </Breadcrumb>
+  )
+
   return (
     <Dialog
       title="Choose a project folder"
-      icon={<FolderIcon size={16} />}
+      description="Click a folder to enter it; open the one you are in."
       size="lg"
       tall
       flush
       onClose={onClose}
-      subhead={
-        <Breadcrumb aria-label="Location" title={listing?.path}>
-          <BreadcrumbList className={styles.crumbs}>
-          {listing ? (
-            crumbsOf(listing.path).map((crumb, index, all) => (
-              // A separator is its own `<li>`, a sibling of the crumb's — the
-              // same shape every other Breadcrumb caller uses (see
-              // `boards-compositions.tsx`). Nested inside the crumb's `<li>`
-              // it was an `<li>` inside an `<li>`, which React and the DOM
-              // both refuse; this component had never been mounted anywhere
-              // to catch it.
-              <Fragment key={crumb.path}>
-                {index > 1 && <BreadcrumbSeparator>/</BreadcrumbSeparator>}
-                <BreadcrumbItem>
-                  {index === all.length - 1 ? (
-                    <BreadcrumbPage>{crumb.name}</BreadcrumbPage>
-                  ) : (
-                    <Button type="button" variant="row" size="row" onClick={() => browse(crumb.path)}>
-                      {crumb.name}
-                    </Button>
-                  )}
-                </BreadcrumbItem>
-              </Fragment>
-            ))
-          ) : (
-            <BreadcrumbItem><BreadcrumbPage>…</BreadcrumbPage></BreadcrumbItem>
-          )}
-          </BreadcrumbList>
-        </Breadcrumb>
-      }
+      bodyPrelude={location}
       footer={
         <>
           <Button
@@ -126,7 +128,6 @@ export const FolderPicker = ({ onClose }: { onClose: () => void }) => {
           <Button variant="secondary" onClick={onClose}>Cancel</Button>
         </>
       }
-      footerAside="Click a folder to enter it; open the one you are in."
     >
       <NavigationList className={styles.list}>
         {loading && <EmptyState variant="inline" title="Loading…" />}

@@ -92,7 +92,7 @@ const VARIANTS = {
   secondary:
     'bg-(--hd-btn-fill) text-(--hd-foreground) hover:bg-(--hd-hover) aria-expanded:bg-(--hd-hover) [[data-slot=dialog-footer]:has([data-filled])_&]:bg-transparent [[data-slot=dialog-footer]:has([data-filled])_&]:text-(--hd-secondary-foreground) [[data-slot=dialog-footer]:has([data-filled])_&]:hover:bg-(--hd-hover) [[data-slot=dialog-footer]:has([data-filled])_&]:hover:text-(--hd-foreground)',
   ghost:
-    'hover:bg-(--hd-hover) hover:text-(--hd-foreground) data-[refused]:opacity-45 aria-expanded:bg-(--hd-hover) aria-expanded:text-(--hd-foreground) data-[swatch]:data-[on]:shadow-[0_0_0_2px_var(--hd-card),0_0_0_4px_var(--hd-ring)]',
+    'hover:bg-(--hd-hover) hover:text-(--hd-foreground) data-[refused]:opacity-45 aria-expanded:bg-(--hd-hover) aria-expanded:text-(--hd-foreground) data-[swatch]:data-[on]:shadow-[0_0_0_2px_var(--hd-card),0_0_0_4px_var(--hd-border-strong)]',
   /* A control that floats over content needs its own ground so its edge
      does not disappear into whatever happens to scroll beneath it. */
   floating:
@@ -116,10 +116,9 @@ const VARIANTS = {
     'justify-start text-left bg-transparent hover:bg-(--hd-hover) data-[selected]:bg-(--hd-active) data-[active]:bg-(--hd-active) data-[open]:bg-(--hd-active) data-[on]:bg-(--hd-active) data-[current]:bg-(--hd-active) aria-checked:bg-(--hd-active) data-[insert=into]:bg-(--hd-accent-dim) data-[insert=into]:shadow-[inset_0_0_0_1px_var(--hd-accent)]',
   navigation:
     'justify-start text-left bg-transparent text-(--hd-sidebar-foreground) hover:bg-(--hd-sidebar-hover) data-[active]:bg-(--hd-sidebar-selected) data-[current]:bg-(--hd-sidebar-selected) data-[open]:bg-(--hd-sidebar-selected) data-[selected]:bg-(--hd-sidebar-selected) data-[active]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[current]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[open]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[current]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[open]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[selected]:[&_[data-slot=text]]:text-[var(--hd-sidebar-selected-foreground,var(--hd-foreground))] data-[active]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] data-[current]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] data-[open]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] data-[selected]:[&_[data-role=meta]]:text-[var(--hd-sidebar-selected-muted-foreground,var(--hd-muted-foreground))] data-[insert=before]:shadow-[inset_0_2px_0_0_var(--hd-primary)] data-[insert=after]:shadow-[inset_0_-2px_0_0_var(--hd-primary)]',
-  /* A chosen option is filled whichever way its caller says so:
-     `data-selected`, `data-on`, or the radio's own `aria-checked`.
-     Hover takes the plain hover fill, so pointing at an option never
-     reads as having chosen it. */
+  /* Choice cards use the same quiet plates as rows and menus. Selection
+     keeps the neutral active ground; hover uses the neutral hover ground.
+     Neither state changes the border to an accent. */
   /* Unlike `ghost`/`floating`'s whole-control `data-[refused]:opacity-45`,
      a refused choice keeps its reason in the same control — measured
      at ~1.9:1 in light mode when the whole row faded with it, well
@@ -128,7 +127,7 @@ const VARIANTS = {
      own `data-role`) fade; nothing marked `data-role=muted` — the
      reason — is touched, so it keeps its ink. */
   choice:
-    'justify-start text-left border-(--hd-btn-border) bg-(--hd-card) text-(--hd-foreground) hover:border-(--hd-accent) hover:bg-(--hd-hover) data-[selected]:border-(--hd-accent) data-[selected]:bg-(--hd-accent-dim) data-[on]:border-(--hd-ring) data-[on]:bg-(--hd-accent-dim) aria-checked:border-(--hd-ring) aria-checked:bg-(--hd-accent-dim) data-[hard]:data-[on]:border-(--hd-danger) data-[hard]:data-[on]:bg-(--hd-danger-dim) data-[refused]:[&_[data-slot=icon-tile]]:opacity-45 data-[refused]:[&_[data-role=row]]:opacity-45',
+    'justify-start text-left border-(--hd-btn-border) bg-(--hd-card) text-(--hd-foreground) hover:bg-(--hd-hover) data-[selected]:bg-(--hd-active) data-[on]:bg-(--hd-active) aria-checked:bg-(--hd-active) data-[hard]:data-[on]:border-(--hd-danger) data-[hard]:data-[on]:bg-(--hd-danger-dim) data-[refused]:[&_[data-slot=icon-tile]]:opacity-45 data-[refused]:[&_[data-role=row]]:opacity-45',
   quiet:
     'bg-transparent text-(--hd-secondary-foreground) hover:bg-(--hd-hover) hover:text-(--hd-foreground) aria-expanded:bg-(--hd-hover) aria-pressed:bg-(--hd-hover) data-[on]:bg-(--hd-active) data-[on]:text-(--hd-foreground) data-[active]:bg-(--hd-accent-dim) data-[active]:text-(--hd-accent) data-[live]:bg-(--hd-success-dim) data-[live]:text-(--hd-success-ink)',
   muted:
@@ -170,12 +169,16 @@ const boxedVariants = cva(
            compact, but its actual box was a control a finger could miss.
            The floor, not the padding: `--hd-target-min` sets the height,
            the tight `px-1.5`/`text-xs` keep the compact look. */
+        wrap: 'h-auto min-h-(--hd-btn-h) p-(--hd-btn-padding) whitespace-normal has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2',
         xs: "h-(--hd-target-min) gap-1 px-1.5 text-xs [&_svg:not([class*='size-'])]:size-3",
         sm: 'h-(--hd-btn-h-sm) gap-1 p-(--hd-btn-padding-sm) text-(length:--hd-btn-text-sm) has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5',
         /* A labelled destination in the sidebar's three-item rail. The row
            keeps the 13px navigation type and 24px hit target, with no outer
            inset so all three names fit together at the rail's narrow width. */
         'sidebar-nav': 'h-(--hd-btn-h-sm) gap-(--hd-space-0-5) p-0 text-(length:--hd-text-sm)',
+        /* A small glyph with its own short label, for compact controls whose
+           meaning should remain visible beside the mark. */
+        'icon-label': 'h-(--hd-btn-h-sm) gap-(--hd-space-1-5) p-0 text-(length:--hd-text-xs)',
         icon: 'size-(--hd-btn-h) p-0',
         /* The floor, not a literal. This was `size-5` — 20px, four under the
            target the system declares and names twice (`--hd-target-min`,
@@ -230,6 +233,9 @@ const boxedVariants = cva(
            person asked to be comfortable is the exception: its rows carry a
            second line and keep the air around it. */
         navigation: 'h-auto min-h-(--hd-nav-h) gap-(--hd-nav-gap) rounded-(--hd-nav-radius) p-(--hd-nav-padding) text-(length:--hd-text-sm) leading-(--hd-line-sm) font-normal data-[density=comfortable]:py-2 data-[density=compact]:py-1',
+        /* A result plate pulls back in its list so the padded contents sit on
+           the shared content edge without a transparent border shifting it. */
+        'navigation-edge': 'h-auto min-h-(--hd-nav-h) gap-(--hd-nav-gap) rounded-(--hd-nav-radius) px-(--hd-space-2-5) border-0 text-(length:--hd-text-sm) leading-(--hd-line-sm) font-normal whitespace-normal',
         fill: 'h-full w-full p-0',
         'icon-circle': 'size-(--hd-btn-h) rounded-full p-0',
       },
@@ -328,6 +334,8 @@ type ButtonProps = Omit<ButtonPrimitive.Props, 'className'> & {
   stretched?: boolean
   /** Whether this button paints its own hover fill. Set false when an interactive parent owns the hover surface. */
   hoverFill?: boolean
+  /** Fill a figure cell while keeping its text on the column edge and its hover plate inset. */
+  edgePlate?: boolean
   /**
    * A colour that is itself the choice — an accent to pick. The button is
    * filled with it and keeps it under the pointer; the ring that marks the one
@@ -350,6 +358,7 @@ const Button = ({
   quietHover = false,
   stretched = false,
   hoverFill = !stretched,
+  edgePlate = false,
   swatch,
   edge,
   edgeGlyph = 16,
@@ -372,6 +381,7 @@ const Button = ({
       stretched && "static min-w-(--hd-target-min) text-left active:translate-none after:absolute after:inset-0 after:pointer-events-none after:content-[''] in-[:root:not([data-focus-input=pointer])]:focus-visible:after:shadow-[inset_0_0_0_var(--hd-ring-width)_var(--hd-ring-muted)]",
       cursor === 'default' && 'cursor-default',
       !hoverFill && 'hover:bg-transparent',
+      edgePlate && 'h-full w-full -mx-(--hd-space-2) px-(--hd-space-2) items-start justify-start text-left whitespace-normal',
       quietHover && 'not-data-[trouble]:hover:text-(--hd-secondary-foreground)',
       swatch !== undefined && 'bg-(--swatch) bg-clip-border hover:bg-(--swatch)',
       edgeSize && (edge === 'end' ? 'me-(--edge-pull)' : 'ms-(--edge-pull)'),

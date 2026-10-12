@@ -1,9 +1,22 @@
+import type { ComponentProps } from 'react'
+import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
+import { RunFramePreview } from './RunFramePreview'
+import { previewStore } from './harness'
 import { useMemo, useState } from 'react'
 import { TeamRunView } from '../components/TeamRunView'
 import { StoreProvider } from '../state/context'
 import { RunWorkspace } from '../components/RunWorkspace'
 import { runTimeline } from '../lib/run-timeline'
 import { runFixture, runTeamStore } from './run-view-fixture'
+
+const CatalogueRunWorkspace = (props: ComponentProps<typeof RunWorkspace>) => {
+  const store = useMemo(previewStore, [])
+  return <StoreProvider store={store}><RunFramePreview {...props} /></StoreProvider>
+}
+const CatalogueTeamRunView = (props: ComponentProps<typeof TeamRunView>) => <TopBarProvider>
+  <TopBarOutlet owner="" fallback={{ place: 'Recorded Run', more: () => null }} />
+  <TeamRunView {...props} />
+</TopBarProvider>
 
 export const RUN_INSPECTOR_STATES = ['run', 'card', 'check', 'check-attempts', 'check-refused', 'check-stopped', 'check-running', 'attempts-reading', 'attempts-failed', 'attempts-incomplete', 'attempts-new-check-reading', 'person', 'findings', 'findings-reading', 'findings-failed', 'empty', 'pending', 'failed', 'narrow'] as const
 export type InspectorScene = typeof RUN_INSPECTOR_STATES[number]
@@ -38,9 +51,9 @@ export const RunInspectorExample = ({ scene }: { scene: InspectorScene }) => {
       'Finish this with complete_claim and an outcome of exactly one of: approved, request-changes.',
       'Finish this with complete_claim\'s split as well: the agreed split of files for the "writer" round, one list of path patterns for each of its 2 cards, in card order, no two overlapping. Each of those cards will own only its own list.',
     ].join('\n\n'), handoff: card.id === 1 ? 'Added three attempts with a bounded backoff. The checkout test covers the last failure.' : card.id === 2 ? 'The check passed; this package was not handed to the reviewer.' : card.id === 3 ? 'The retry loop needs a ceiling. Keep the last failure visible to the person.' : null, dependsOn: card.id === 3 ? [1] : [] })) }
-  const initial = scene === 'card' || unread ? 'card-3-3' : newCheckScene ? 'check-5-5' : scene === 'check' || scene === 'check-refused' || scene === 'check-stopped' || scene === 'check-running' || attemptsScene ? 'check-2-2' : scene === 'person' ? 'person-4-4' : scene === 'findings' ? 'findings-3' : null
+  const initial = scene === 'card' || unread ? 'card-3-3' : newCheckScene ? 'check-5-5' : scene === 'check' || scene === 'check-refused' || scene === 'check-stopped' || scene === 'check-running' || attemptsScene ? 'check-2-2' : scene === 'person' ? 'person-4-4' : scene === 'findings' ? 'findings-3' : ['run', 'empty', 'pending', 'failed'].includes(scene) ? 'run' : null
   const [selected, setSelected] = useState<string | null>(initial)
-  return <RunWorkspace model={runTimeline(input)} number={1} selectedRow={selected} onSelect={setSelected}
+  return <CatalogueRunWorkspace model={runTimeline(input)} number={1} selectedRow={selected} onSelect={setSelected}
     pending={scene === 'pending' || scene === 'findings-reading'}
     problem={scene === 'failed' ? 'Review details could not be read.' : scene === 'findings-failed' ? 'The desk did not answer. Check the connection and try again.' : null}
     inspector={{ input, findingsRead: unread, ...(attemptsRead ? { attemptsRead } : {}), publication: { round: 3, state: 'local', reason: 'Posting is off for this Team.', pr: null, cards: [3] },
@@ -50,8 +63,8 @@ export const RunInspectorExample = ({ scene }: { scene: InspectorScene }) => {
 const RunInspectorTeamExample = () => {
   const store = useMemo(runTeamStore, [])
   const fixture = runFixture('complete')
-  const [selected, setSelected] = useState<string | null>(null)
-  return <StoreProvider store={store}><TeamRunView execution={fixture.execution} origin="Started by you" onOpenSeat={() => {}}
+  const [selected, setSelected] = useState<string | null>('run')
+  return <StoreProvider store={store}><CatalogueTeamRunView execution={fixture.execution} origin="Started by you" onOpenSeat={() => {}}
     model={runTimeline(fixture)} number={1} selectedRow={selected} onSelect={setSelected} /></StoreProvider>
 }
 // A check's attempts and the control after them need more than a pane's height to be seen whole; every other scene keeps the usual one.

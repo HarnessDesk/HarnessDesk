@@ -122,7 +122,7 @@ const ComposerTools = ({ className, ...props }: React.ComponentProps<'div'>) => 
   <div
     data-slot="composer-tools"
     data-surface=""
-    className={cn('flex min-w-0 items-center gap-1.5 pt-1 pr-2 pb-2 pl-2.5', className)}
+    className={cn('flex min-w-0 items-center gap-1 pt-1 pr-2 pb-2 pl-2.5', className)}
     {...props}
   />
 )
@@ -164,7 +164,7 @@ const ComposerSend = ({ className, ...props }: React.ComponentProps<'button'>) =
          Composer.module.css was written to prevent. A different hue is what
          makes "this will go when the turn ends" read as a state rather than
          as an unavailable button. */
-      'inline-grid size-7.5 shrink-0 place-items-center rounded-full bg-(--hd-solid) text-(--hd-solid-foreground)',
+      'inline-grid size-(--hd-composer-send-size) shrink-0 place-items-center rounded-full bg-(--hd-solid) text-(--hd-solid-foreground)',
       'transition-[background,transform] hover:bg-(--hd-solid-hover) active:scale-90',
       'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-(--hd-solid)',
       'data-[when=later]:bg-[color-mix(in_srgb,var(--hd-accent)_22%,transparent)]',

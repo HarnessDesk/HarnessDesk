@@ -1,6 +1,7 @@
 import { isRecordConversation, RECORD_REASON } from '../lib/team-record'
 import {
   useCallback,
+  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -8,9 +9,10 @@ import {
   useState,
   type DragEvent,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react'
 
-import { currentTurn, isBusy, sessionKey, type FileMatch, type RuntimeId, type UserContent } from '@harnessdesk/protocol'
+import { currentTurn, isBusy, sessionKey, type ContextChipIcon, type FileMatch, type RuntimeId, type UserContent } from '@harnessdesk/protocol'
 
 import {
   Attachment as AttachmentTile,
@@ -22,6 +24,7 @@ import {
   ComposerDropHint,
   ComposerDock,
   ComposerGap,
+  ComposerTrack,
   ComposerSend,
   ComposerShell,
   ComposerText,
@@ -31,15 +34,13 @@ import {
   Input,
   Lightbox,
   Popover,
-  PopoverGroupLabel,
-  PopoverOption,
-  PopoverOptionBody,
-  PopoverOptionHint,
-  PopoverOptionLabel,
-  PopoverOptionMark,
+  Menu,
+  MenuItem,
+  MenuLabel,
   Text,
 } from '../design'
 import { ComposerNotices, NoticeStripOutlet } from './Notices'
+import { HoldingMessagesChip, RoomMessagesHeld } from './RoomMessaging'
 import { ComposerNoticeStack } from '../design'
 import { mainNoticeHost } from '../state/workbench'
 import { availableCommands, matchCommands, type CommandDefinition } from '../state/commands'
@@ -57,6 +58,7 @@ import {
   useQueue,
   useRuntime,
   useSessionKey,
+  usePane,
   useSnapshot,
   useStore,
 } from '../state/context'
@@ -65,24 +67,44 @@ import { Slot } from '../slots/registry'
 import {
   AlertIcon,
   AtIcon,
+  BriefIcon,
+  CameraIcon,
   CrossIcon,
+  DiffIcon,
   FileIcon,
   FolderOpenIcon,
   HandoffIcon,
   ImageIcon,
+  IssueIcon,
+  HistoryIcon,
   NoteIcon,
   PaperclipIcon,
   PlusIcon,
+  ResourceIcon,
   SendIcon,
   SlashIcon,
   SparkIcon,
   StopIcon,
+  TeamIcon,
+  TerminalIcon,
 } from './Icons'
-import { AgentControl, ComposerTrack, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from './ComposerControls'
+import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl, PlaceControl } from './ComposerControls'
 import { ContextUsage } from './ContextUsage'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
-import { draftsOf, UNSCOPED_RECOVERY_KEY } from '../state/drafts'
+import { draftsOf, NEW_SESSION_DRAFT_KEY, UNSCOPED_RECOVERY_KEY } from '../state/drafts'
 import styles from './Composer.module.css'
+
+const contextChipIcon = (icon: ContextChipIcon | undefined, form: 'instructions' | 'resource' | undefined): ReactNode => {
+  switch (icon) {
+    case 'image': return <CameraIcon size={16} />
+    case 'diff': return <DiffIcon size={16} />
+    case 'issue': return <IssueIcon size={16} />
+    case 'check': return <HistoryIcon size={16} />
+    case 'terminal': return <TerminalIcon size={16} />
+    case 'team': return <TeamIcon size={16} />
+    default: return form === 'instructions' ? <BriefIcon size={16} /> : <ResourceIcon size={16} />
+  }
+}
 
 /**
  * The composer.
@@ -166,6 +188,7 @@ const notePreview = (note: { readonly name: string; readonly text?: string }): s
 /** What a `harnessdesk:compose` event may hand the focused composer. */
 interface ComposeDetail {
   readonly text: string
+  readonly paneId?: string
   readonly replace?: boolean
   readonly attachments?: readonly {
     readonly name: string
@@ -186,9 +209,11 @@ type Trigger =
 
 export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) => {
   const store = useStore()
+  const messagesHeld = useContext(RoomMessagesHeld)
   const snapshot = useSnapshot()
   const session = useActiveSession()
   const key = useSessionKey()
+  const pane = usePane()
   const record = isRecordConversation(snapshot.goals.values(), key)
   const focused = useIsFocusedPane()
   const mount = useMount()
@@ -197,10 +222,11 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   const filePicker = useRef<HTMLInputElement>(null)
 
   const drafts = draftsOf(store)
-  const [text, setText] = useState(() => (key ? (drafts.live(key)?.text ?? '') : ''))
-  const [attachments, setAttachments] = useState<Attachment[]>(() => (key ? [...(drafts.live(key)?.attachments ?? [])] : []))
+  const draftKey = key ?? NEW_SESSION_DRAFT_KEY
+  const [text, setText] = useState(() => drafts.live(draftKey)?.text ?? '')
+  const [attachments, setAttachments] = useState<Attachment[]>(() => [...(drafts.live(draftKey)?.attachments ?? [])])
   const [imageReloadWarning, setImageReloadWarning] = useState(
-    () => key ? drafts.live(key)?.imagesWillBeLostOnReload === true : false,
+    () => drafts.live(draftKey)?.imagesWillBeLostOnReload === true,
   )
   /* Which conversation's draft `text` holds, and whether this composer is
      still drawn: words are only ever saved to — or put back into — the
@@ -221,8 +247,8 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
   useLayoutEffect(() => {
     const imagesWillBeLostOnReload =
       imageReloadWarning || attachments.some((attachment) => attachment.kind === 'image')
-    if (key && draftOf.current === key) {
-      drafts.setLive(key, { text, attachments, imagesWillBeLostOnReload })
+    if (draftOf.current === key) {
+      drafts.setLive(draftKey, { text, attachments, imagesWillBeLostOnReload })
     }
   }, [drafts, key, text, attachments, imageReloadWarning])
   useLayoutEffect(() => {
@@ -979,6 +1005,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       const raw = (event as CustomEvent<string | ComposeDetail>).detail
       const detail = typeof raw === 'string' ? { text: raw, replace: false } : raw
       if (!detail || typeof detail.text !== 'string') return
+      if (detail.paneId !== undefined && detail.paneId !== pane?.paneId) return
       // The receipt, first: a sender retrying each frame stops the moment
       // this composer says it has the message.
       detail.onReceived?.()
@@ -1009,12 +1036,14 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       window.removeEventListener('harnessdesk:compose', onCompose)
       window.removeEventListener('harnessdesk:recoverable-draft', onRecoverable)
     }
-  }, [focused, key, store])
+  }, [focused, key, pane?.paneId, store])
 
   const placeholder = useMemo(() => {
     if (record) return RECORD_REASON
     if (!session && !canType) {
-      return snapshot.workspace ? 'Waiting for the runtime…' : 'Choose a project folder to begin'
+      if (!snapshot.workspace) return 'Choose a project folder to begin'
+      if (snapshot.health?.state === 'unavailable') return [snapshot.health.message, snapshot.health.remediation ?? 'Choose a working installation in Settings.'].join(' ')
+      return 'Waiting for the runtime…'
     }
     if (awaitingConversation) return 'Opening the conversation — you can keep typing'
     if (!session) return 'Describe a task to start a session — / for commands, @ for files'
@@ -1026,8 +1055,8 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
     if (waiting > 0) {
       return `Adds to the ${waiting} message${waiting === 1 ? '' : 's'} already waiting`
     }
-    return 'Describe a task — / for commands, @ for files'
-  }, [record, busy, canSteer, canType, awaitingConversation, session, snapshot.workspace, waiting])
+    return 'Type a reply — / for commands, @ for files'
+  }, [record, busy, canSteer, canType, awaitingConversation, session, snapshot.workspace, snapshot.health, waiting])
 
   // Whether pressing send delivers now or hands the message to the queue.
   // A running turn is the usual reason; a queue held behind a stopped turn
@@ -1202,6 +1231,8 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
           </ComposerChips>
         )}
 
+        {messagesHeld && <ComposerChips><HoldingMessagesChip /></ComposerChips>}
+
         <ComposerText
           ref={textarea}
           value={text}
@@ -1238,103 +1269,18 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
             }}
           />
           <ComposerTrack name="add">
-          <Popover title="Add" fullWidth drop="up" align="left" label={<PlusIcon size={14} />}>
-            {(close) => (
-              <>
-                <PopoverOption
-                  disabled={!acceptsImages}
-                  // The other ways in ride on hover: they are a shortcut for
-                  // the row, not a thing to know before taking it. The refusal
-                  // stays on screen below — a disabled control cannot be
-                  // relied on to show a tooltip at all.
-                  title={acceptsImages ? 'Or paste, or drop them here.' : `${agentName} does not accept images.`}
-                  onClick={() => {
-                    filePicker.current?.click()
-                    close()
-                  }}
-                >
-                  <PopoverOptionMark>
-                    <ImageIcon size={13} />
-                  </PopoverOptionMark>
-                  <PopoverOptionBody>
-                    <PopoverOptionLabel>Attach images…</PopoverOptionLabel>
-                    {!acceptsImages && (
-                      <PopoverOptionHint>{agentName} does not accept images.</PopoverOptionHint>
-                    )}
-                  </PopoverOptionBody>
-                </PopoverOption>
-                <PopoverOption
-                  onClick={() => {
-                    onChange(text.length > 0 && !text.endsWith(' ') ? `${text} @` : `${text}@`)
-                    textarea.current?.focus()
-                    close()
-                  }}
-                >
-                  <PopoverOptionMark>
-                    <AtIcon size={13} />
-                  </PopoverOptionMark>
-                  <PopoverOptionBody>
-                    <PopoverOptionLabel>Add a file — @</PopoverOptionLabel>
-                  </PopoverOptionBody>
-                </PopoverOption>
-                <PopoverOption
-                  onClick={() => {
-                    onChange('/')
-                    textarea.current?.focus()
-                    close()
-                  }}
-                >
-                  <PopoverOptionMark>
-                    <SlashIcon size={13} />
-                  </PopoverOptionMark>
-                  <PopoverOptionBody>
-                    <PopoverOptionLabel>Slash commands — /</PopoverOptionLabel>
-                  </PopoverOptionBody>
-                </PopoverOption>
-                {chipProviders.length > 0 && (
-                  <>
-                    <PopoverGroupLabel>Add context</PopoverGroupLabel>
-                    {chipProviders.map((provider) => (
-                      <PopoverOption
-                        key={provider.id}
-                        onClick={() => {
-                          close()
-                          if (provider.chip?.prompt) setRefPrompt(provider)
-                          else addContext(provider)
-                        }}
-                      >
-                        <PopoverOptionMark>
-                          <PaperclipIcon size={13} />
-                        </PopoverOptionMark>
-                        <PopoverOptionBody>
-                          <PopoverOptionLabel>
-                            {provider.label}
-                            {provider.chip?.prompt ? '…' : ''}
-                          </PopoverOptionLabel>
-                          {provider.chip?.description && (
-                            <PopoverOptionHint>{provider.chip.description}</PopoverOptionHint>
-                          )}
-                        </PopoverOptionBody>
-                      </PopoverOption>
-                    ))}
-                    <PopoverGroupLabel>Project</PopoverGroupLabel>
-                  </>
-                )}
-                <PopoverOption
-                  onClick={() => {
-                    onChooseProject()
-                    close()
-                  }}
-                >
-                  <PopoverOptionMark>
-                    <FolderOpenIcon size={13} />
-                  </PopoverOptionMark>
-                  <PopoverOptionBody>
-                    <PopoverOptionLabel>Change project folder…</PopoverOptionLabel>
-                  </PopoverOptionBody>
-                </PopoverOption>
-              </>
-            )}
+          <Popover title="Add" fullWidth drop="up" align="left" icons="all" label={<PlusIcon size={14} />}>
+            {close => <Menu close={close}>
+              <MenuItem icon={<ImageIcon size={16} />} label="Attach images…" title="Or paste, or drop them here." disabled={acceptsImages ? false : `${runtime.presentation.name} does not accept images.`} onSelect={() => filePicker.current?.click()} />
+              <MenuItem icon={<AtIcon size={16} />} label="Add a file" shortcut="@" onSelect={() => { onChange(text.length > 0 && !text.endsWith(' ') ? `${text} @` : `${text}@`); textarea.current?.focus() }} />
+              <MenuItem icon={<SlashIcon size={16} />} label="Slash commands" shortcut="/" onSelect={() => { onChange('/'); textarea.current?.focus() }} />
+              {chipProviders.length > 0 && <>
+                <MenuLabel>Add context</MenuLabel>
+                {chipProviders.map(provider => <MenuItem key={provider.id} icon={contextChipIcon(provider.chip?.icon, provider.form)} label={`${provider.label}${provider.chip?.prompt ? '…' : ''}`} title={provider.chip?.description} onSelect={() => { if (provider.chip?.prompt) setRefPrompt(provider); else addContext(provider) }} />)}
+                <MenuLabel>Project</MenuLabel>
+              </>}
+              <MenuItem icon={<FolderOpenIcon size={16} />} label="Change project folder…" onSelect={onChooseProject} />
+            </Menu>}
           </Popover>
           </ComposerTrack>
           {/* Where it runs, first: the one decision here that cannot be

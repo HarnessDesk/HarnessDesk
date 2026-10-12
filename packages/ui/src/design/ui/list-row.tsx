@@ -124,7 +124,7 @@ const ListRow = ({
        row looks different. */
     {...(selected ? { 'aria-current': 'true' as const } : {})}
     className={cn(
-      'flex items-center',
+      'flex items-center text-left',
       as === 'button' && 'w-full text-left',
       size === 'sm' ? 'gap-2 rounded-(--hd-radius-sm) px-2 py-1.5' : cn('gap-(--hd-table-lead-gap) px-(--hd-table-edge)', density === 'compact' ? (wrapTitle || wrapSubtitle ? 'py-(--hd-inset-dense)' : 'py-px') : 'py-(--hd-inset-row)'), /* desk: compact wrapping inset 1px → dense (8px), so full sentences keep air above and below. */
       size === 'default' && (lead != null || subtitle != null || meta != null ? 'min-h-(--hd-table-row-min)' : 'min-h-(--hd-table-row-min-bare)'),
@@ -205,7 +205,7 @@ const ListRow = ({
             'text-(--hd-muted-foreground)',
             size === 'sm' ? 'text-xs' : 'mt-(--hd-table-line-gap)',
             size === 'default' && (wrapSubtitle ? 'text-(length:--hd-table-sentence-size)' : 'text-(length:--hd-table-fact-size)'),
-            wrapSubtitle ? 'whitespace-normal [overflow-wrap:anywhere]' : 'truncate',
+            wrapSubtitle ? 'whitespace-normal [overflow-wrap:normal]' : 'truncate',
             density === 'compact' && 'leading-(--hd-line-xs)',
           )}
         >

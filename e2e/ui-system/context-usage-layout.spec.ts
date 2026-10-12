@@ -22,61 +22,40 @@ Object.assign(previewSession, {
   })
 }
 
-test('the context panel keeps a reading and its note inline, then wraps the note whole at the row end', async ({ page }) => {
+test('the context information plate keeps fact columns aligned and its note whole below them', async ({ page }) => {
   await stageContextUsage(page)
-  await page.goto('/preview.html?composer')
-
-  const composer = page.locator('[data-preview="composer"]')
-  await composer.getByRole('button', { name: 'Context window 70% full — 180K of 258K tokens' }).click()
-  const panel = page.getByRole('menu').filter({ hasText: 'Last turn' })
-  const reading = panel.locator('[class*="rowReading"]').filter({ hasText: 'cold cache' })
+  await page.goto('/preview.html?frame-wall=conversation')
+  const composer = page.locator('[data-frame-id="frame-wall"] [data-slot="composer-dock"]')
+  await composer.locator('[data-info-source="context"]').focus()
+  const panel = page.locator('[data-popup-kind="info-card"]').filter({ hasText: 'cold cache' })
+  const reading = panel.locator('[data-info-pair]').filter({ hasText: 'cold cache' })
   await expect(reading).toHaveCount(1)
-
-  const inline = await reading.evaluate((node) => {
-    const reading = node as HTMLElement
-    const value = reading.querySelector<HTMLElement>('[data-role="value"]')!
-    const note = reading.querySelector<HTMLElement>('[data-role="meta"]')!
-    const row = reading.getBoundingClientRect()
-    const valueBox = value.getBoundingClientRect()
-    const noteBox = note.getBoundingClientRect()
-    return {
-      // The two Text variants use adjacent line-height tokens, so their box
-      // tops differ slightly while their rendered baselines share one line.
-      sameLine: Math.abs(valueBox.top - noteBox.top) <= 4,
-      gap: noteBox.left - valueBox.right,
-      rightInset: row.right - noteBox.right,
-    }
+  const inline = await reading.evaluate(node => {
+    const label = node.querySelector('dt')!.getBoundingClientRect()
+    const value = node.querySelector('dd:not([data-info-pair-note])')!.getBoundingClientRect()
+    const note = node.querySelector('[data-info-pair-note]')!.getBoundingClientRect()
+    return { sameLine: Math.abs(label.top - value.top) <= 4,
+      gap: value.left - label.right, textEdgeDelta: Math.abs(note.left - label.left), below: note.top >= value.bottom - 1 }
   })
   expect(inline.sameLine).toBe(true)
   expect(inline.gap).toBeGreaterThan(0)
-  expect(inline.rightInset).toBeLessThanOrEqual(1)
-
-  // A narrow row is the browser-level proof of the wrap rule: the cache
-  // verdict moves below the number as one piece, and its own auto margin
-  // holds it against the row's right edge. jsdom has no layout engine, so the
-  // component test cannot make either assertion.
-  const wrapped = await reading.evaluate((node) => {
-    const reading = node as HTMLElement
-    reading.style.width = '76px'
-    const value = reading.querySelector<HTMLElement>('[data-role="value"]')!
-    const note = reading.querySelector<HTMLElement>('[data-role="meta"]')!
-    const row = reading.getBoundingClientRect()
-    const valueBox = value.getBoundingClientRect()
-    const noteBox = note.getBoundingClientRect()
-    const range = document.createRange()
-    range.selectNodeContents(note)
-    return {
-      below: noteBox.top >= valueBox.bottom - 1,
-      rightInset: row.right - noteBox.right,
-      noteWidth: noteBox.width,
-      scrollWidth: note.scrollWidth,
-      // A range includes overlapping boxes for the note span and its text.
-      // Count distinct rendered line tops rather than DOM boxes.
-      visualLines: new Set([...range.getClientRects()].map((rect) => Math.round(rect.top * 100))).size,
-    }
+  expect(inline.textEdgeDelta).toBeLessThanOrEqual(1)
+  expect(inline.below).toBe(true)
+  // The frame information plate deliberately spans a note across its fact
+  // columns. At the same narrow measure the whole cache verdict still fits.
+  const wrapped = await reading.evaluate(node => {
+    const note = node.querySelector<HTMLElement>('[data-info-pair-note]')!
+    note.style.width = '76px'
+    const label = node.querySelector('dt')!.getBoundingClientRect()
+    const value = node.querySelector('dd:not([data-info-pair-note])')!.getBoundingClientRect()
+    const box = note.getBoundingClientRect()
+    const range = document.createRange(); range.selectNodeContents(note)
+    return { below: box.top >= value.bottom - 1, textEdgeDelta: Math.abs(box.left - label.left),
+      noteWidth: box.width, scrollWidth: note.scrollWidth,
+      visualLines: new Set([...range.getClientRects()].map(rect => Math.round(rect.top * 100))).size }
   })
   expect(wrapped.below).toBe(true)
-  expect(wrapped.rightInset).toBeLessThanOrEqual(1)
+  expect(wrapped.textEdgeDelta).toBeLessThanOrEqual(1)
   expect(Math.abs(wrapped.scrollWidth - wrapped.noteWidth)).toBeLessThanOrEqual(1)
   expect(wrapped.visualLines).toBe(1)
 })

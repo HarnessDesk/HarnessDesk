@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import type { FindingRunView, FlowExecution, TriggerGoalStatus, TriggerPreferences, TriggerView } from '@harnessdesk/protocol'
-import { ActionError, Button, Chip, EmptyState, PageHead, PanelFilter, PanelFooter, PanelPill, PaneColumn, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
+import { ActionError, Button, Chip, EmptyState, Menu, MenuLabel, MenuToggle, SummaryItem, SummaryList, PanelFilter, PanelFooter, PaneColumn, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, Text } from '../design'
 import { elapsedSince } from '../lib/clock'
 import { formatMeterUsd, originSubject, triggerGroupingWords } from '../lib/intake'
 import { sanitizeHtml } from '../lib/sanitize'
 import { formatAge } from '../lib/usage'
 import type { FindingsListState } from '../lib/findings'
-import { useSnapshot, useStore } from '../state/context'
+import { usePane, useSnapshot, useStore } from '../state/context'
+import { useTopBarView } from '../panels/top-bar'
 import { ChevronIcon } from './Icons'
 import { formatDuration } from './TurnTail'
 
@@ -164,20 +165,24 @@ export const TeamRuns = ({ runs, findings, ledger, origin, trigger, problem, onO
   const prefs = trigger.prefs
   const daily = prefs ? `${prefs.chargedUsd === null || prefs.day !== today ? 'Unknown spend' : formatMeterUsd(prefs.chargedUsd)} of ${formatMeterUsd(prefs.dailyUsd)} daily cap` : 'Daily cap unavailable'
   const facts = `${runs.length} ${runs.length === 1 ? 'Run' : 'Runs'} · ${todayCount} today (UTC) · ${daily}${ordered[0] ? ` · Last started ${started(ordered[0])}` : ''}`
+  const owner = usePane()?.paneId ?? ''
+  useTopBarView(owner, {
+    view: { narrowed: filter !== 'All' || query.trim() !== '', content: close => <Menu close={close}>
+      <MenuLabel>Filter Runs</MenuLabel>
+      <PanelFilter value={query} placeholder="Filter Runs" onChange={setQuery} />
+      {['All', 'Running', 'Needs you', 'Settled', 'Stopped'].map(state => <MenuToggle key={state}
+        label={state} checked={filter === state} value={state === 'All' ? runs.length : runs.filter(run => stateOf(run) === state).length}
+        onChange={() => { setFilter(state); close() }} />)}
+    </Menu> },
+    more: [
+      { label: prefs?.paused ? 'Resume every trigger' : 'Pause every trigger', disabled: !prefs ? 'Trigger preferences are unavailable' : trigger.busy ? 'A trigger change is in progress' : false, run: () => { void trigger.pause() } },
+      { label: 'Edit the trigger', run: onEdit },
+    ],
+  }, active && Boolean(owner))
   return <PaneColumn ref={viewport} inset="reading" page data-slot="team-runs" className="@container/runs flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto">
-    <PageHead title="Runs" blurb={facts} actions={<>
-      <Button variant="outline" disabled={!prefs || trigger.busy}
-        onClick={() => void trigger.pause()}>{prefs?.paused ? 'Resume every trigger' : 'Pause every trigger'}</Button>
-      <Button variant="outline" onClick={onEdit}>Edit the trigger</Button>
-    </>} />
+    <SummaryList aria-label="Runs summary"><SummaryItem label="Runs">{facts}</SummaryItem></SummaryList>
     <Text role="meta" as="p">Pausing stops watching every source and holds all work started by triggers on this Mac, interrupting its turns and checks. Resuming continues that work and reads what arrived meanwhile; interrupted checks wait for you to run them again.</Text>
     {(problem || trigger.problem) && <ActionError>{problem ?? trigger.problem}</ActionError>}
-    <div className="flex flex-wrap items-center gap-2">
-      <div className="min-w-0 basis-48"><PanelFilter value={query} placeholder="Filter Runs" onChange={setQuery} /></div>
-      {['All', 'Running', 'Needs you', 'Settled', 'Stopped'].map(state => <PanelPill key={state} pressed={filter === state} onClick={() => setFilter(state)}>
-        {state} <Text role="meta" numeric>{state === 'All' ? runs.length : runs.filter(run => stateOf(run) === state).length}</Text>
-      </PanelPill>)}
-    </div>
     <div className="min-w-0">
       <Table variant="framed" inset="row" aria-label="Runs" className="table-auto">
         <TableHeader><TableRow>

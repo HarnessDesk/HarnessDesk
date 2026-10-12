@@ -104,6 +104,25 @@ it('names the whole path in title while it is cut, and nothing once it fits', ()
   expect(line.hasAttribute('title')).toBe(false)
 })
 
+it('preserves an explicit full title when a shortened path is cut', () => {
+  const full = '/private/tmp/synthetic-parent/checkout/storefront/.harnessdesk/agents'
+  const line = draw(<MiddleTruncate title={full} prefix="…/">storefront/.harnessdesk/agents</MiddleTruncate>)
+  const head = line.querySelector('[data-part="head"]')!
+  const tail = line.querySelector('[data-part="tail"]')!
+  sized(head, 300, 120)
+  sized(tail, 100, 80)
+
+  act(() => { line.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) })
+
+  expect(line.getAttribute('title')).toBe(full)
+})
+
+it('keeps middle-truncated paths content-sized instead of growing into inline notes', () => {
+  const line = draw(<MiddleTruncate>storefront/.harnessdesk/agents</MiddleTruncate>)
+  expect(line.className).not.toContain('flex-1')
+  expect(line.className).toContain('min-w-0')
+})
+
 it('keeps the panel variant compact and left-aligned', () => {
   const list = draw(
     <KeyValue variant="panel">
@@ -127,6 +146,15 @@ it('reads the whole path once, and keeps the visible halves selectable', () => {
     expect(part.getAttribute('aria-hidden')).toBe('true')
     expect(part.className).not.toContain('select-none')
   }
+})
+
+it('keeps a short prefix beside the path without including it in the accessible path', () => {
+  const path = '/work/checkouts/storefront'
+  const line = draw(<MiddleTruncate prefix="From">{path}</MiddleTruncate>)
+
+  expect(line.querySelector('[data-part="prefix"]')?.textContent).toBe('From')
+  expect(line.querySelector('.sr-only')?.textContent).toBe(path)
+  expect(line.querySelector('[data-part="tail"]')?.textContent).toBe('/storefront')
 })
 
 it('answers a copy that touches the path with the whole path', () => {
@@ -167,4 +195,12 @@ it('keeps an accounting note out of the shared key column', () => {
   const line = list.querySelector('[data-slot="key-value-note"]')!
   expect(line.textContent).toBe(note)
   expect(line.closest('[data-slot="key-value-row"]')).toBeTruthy()
+})
+
+it.each(['Edited worktrees.ts', 'very filename.ts'])('keeps the word boundary visible when truncating %s', text => {
+  const line = draw(<MiddleTruncate>{text}</MiddleTruncate>)
+  const visible = [...line.querySelectorAll('[data-part]')].map(one => one.textContent ?? '')
+  expect(visible.some(one => one.startsWith('\u00a0') || one.endsWith('\u00a0'))).toBe(true)
+  expect(visible.join('').replaceAll('\u00a0', ' ')).toBe(text)
+  expect(line.querySelector('.sr-only')?.textContent).toBe(text)
 })

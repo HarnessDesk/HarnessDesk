@@ -58,6 +58,11 @@ it('says itself whole on hover while it is cut, and nothing once it fits', () =>
   expect(container.querySelector('button')?.getAttribute('title')).toBe('New sessions run as Codex')
 })
 
+it('provides the one-line ellipsis when the caller asks it to truncate', () => {
+  act(() => root.render(<Clipped truncate>HarnessDesk</Clipped>))
+  expect(container.querySelector('span')?.className).toContain('truncate')
+})
+
 it.each(['row', 'button'] as const)('a record %s says its cut title whole on hover', (kind) => {
   const name = 'Review the workspace settings with a title that distinguishes this conversation'
   act(() => root.render(kind === 'row'

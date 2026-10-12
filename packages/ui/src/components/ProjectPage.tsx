@@ -1,3 +1,7 @@
+import { useDestinationActive } from '../panels/destination-page'
+import { PageExplanation, MenuItem } from '../design'
+import { FolderOpenIcon, TrashIcon } from './Icons'
+import { DestinationBar } from '../panels/destination-page'
 import { useEffect, useState } from 'react'
 
 import type { AgentEntry, GoalId, GoalView } from '@harnessdesk/protocol'
@@ -6,18 +10,14 @@ import { agentName, ceilingWords, projectName } from '../lib/agents'
 import { shortPath } from '../lib/paths'
 import { useShell } from '../panels/views'
 import { useSnapshot, useStore } from '../state/context'
-import { FolderIcon } from './Icons'
+
 import { MemoryCitation } from './MemoryCitation'
 import { ProjectChecks } from './ProjectChecks'
 import { ProjectFlows } from './ProjectFlows'
 import { ProjectProvenance } from './ProjectProvenance'
 import { ProjectTriggers } from './ProjectTriggers'
 import {
-  BackLink,
-  Button,
   Chip,
-  DetailHead,
-  DetailMark,
   EmptyState,
   NativeSelect,
   Note,
@@ -40,6 +40,8 @@ import {
  * pages, because the Agents window holds the open project's roster.
  */
 export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly onBack: () => void }) => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const shell = useShell()
   const snapshot = useSnapshot()
@@ -56,6 +58,8 @@ export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly 
   const name = listed ? (projectName(listed) ?? listed.name) : (root.split('/').filter(Boolean).at(-1) ?? root)
 
   useEffect(() => {
+    if (!destinationActive) return
+
     let live = true
     setProblem(null)
     store.agentsIn(root).then(
@@ -70,9 +74,11 @@ export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly 
       live = false
     }
     // The roster moving under any of its roots (`agent/changed`) is a reason to read again.
-  }, [store, root, snapshot.agents])
+  }, [destinationActive, store, root, snapshot.agents])
 
   useEffect(() => {
+    if (!destinationActive) return
+
     if (!memoryOpen) return
     let live = true
     store.transport.request('goal/list', { root }).then(
@@ -80,7 +86,7 @@ export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly 
       () => { if (live) setOpenGoals([]) },
     )
     return () => { live = false }
-  }, [store, root, memoryOpen])
+  }, [destinationActive, store, root, memoryOpen])
 
   // Where the host reads them: the top of the checkout, which the first one found names exactly.
   const folder = agents?.[0]
@@ -89,40 +95,15 @@ export const ProjectPage = ({ root, onBack }: { readonly root: string; readonly 
 
   return (
     <>
-      <BackLink to="Workspaces" onClick={onBack} />
-      <DetailHead
-        mark={
-          <DetailMark>
-            <FolderIcon size={22} />
-          </DetailMark>
-        }
-        name={name}
-        owner={shortPath(root, snapshot.home)}
-        actions={
-          current ? (
-            <Chip state="ready" label="Current" />
-          ) : (
-            <>
-              <Button variant="outline" onClick={() => void store.openWorkspace(root)}>
-                Open
-              </Button>
-              {listed && (
-                <Button
-                  variant="ghost"
-                  title="Drop it from the list. The folder is untouched."
-                  onClick={() => {
-                    void store.forgetWorkspace(root)
-                    onBack()
-                  }}
-                >
-                  Forget
-                </Button>
-              )}
-            </>
-          )
-        }
-      />
-
+      <DestinationBar place={name} parents={[
+        { label: 'Settings', run: () => store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'general', focus: null } }) },
+        { label: 'Workspaces', run: onBack },
+      ]} state={current ? <Chip state="ready" label="Current" /> : undefined} more={close => <>
+        {!current && <MenuItem icon={<FolderOpenIcon size={16} />} label="Open" onSelect={() => { void store.openWorkspace(root); close() }} />}
+        {!current && listed && <MenuItem icon={<TrashIcon size={16} />} label="Forget" title="Drop it from the list. The folder is untouched."
+          onSelect={() => { void store.forgetWorkspace(root); onBack(); close() }} />}
+      </>} />
+      <PageExplanation>{shortPath(root, snapshot.home)}</PageExplanation>
       <Section
         title="Agents"
         description={`Its own, read from ${shortPath(folder, snapshot.home)} and committed with its code; here they come first, over yours and the ones that ship.`}

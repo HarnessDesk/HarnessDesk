@@ -1,3 +1,4 @@
+import type { ComponentProps } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { WAITING_FINDINGS, type FlowPreview, type FlowRunOptions } from '@harnessdesk/protocol'
 import type { RunTimelineInput } from '../lib/run-timeline'
@@ -5,24 +6,29 @@ import { Button, NativeSelect } from '../design'
 import { runTimeline } from '../lib/run-timeline'
 import { RunAgain } from '../components/RunAgain'
 import { RetryCheck } from '../components/RetryCheck'
-import { RunFlow } from '../components/RunFlow'
-import { RunView, type RunViewTab } from '../components/RunView'
-import { TeamRoomPane } from '../components/TeamRoomPane'
-import { TeamRunView } from '../components/TeamRunView'
+import { RunFlow, RunFlowFile } from '../components/RunFlow'
+import { type RunViewTab } from '../components/RunView'
+import { RunWorkspace } from '../components/RunWorkspace'
+import { RunFramePreview } from './RunFramePreview'
+import { TeamFramePreview } from './TeamFramePreview'
 import { StoreProvider } from '../state/context'
 import { Boundary } from './boundary'
 import { RUN_VIEW_STATES, runFixture, runModel, runTeamStore, type RunScene } from './run-view-fixture'
+
+const CatalogueRunWorkspace = (props: ComponentProps<typeof RunWorkspace>) => <RunFramePreview {...props} />
 
 /** One store for every example on a page: *Open the file* reads the catalogue through it, as the app does. */
 let shared: ReturnType<typeof runTeamStore> | undefined
 const sharedStore = () => (shared ??= runTeamStore())
 
 export const RunExample = ({ scene, input }: { scene: RunScene; input?: RunTimelineInput }) => {
+  const exampleStore = useMemo(() => runTeamStore(), [])
   const [selected, setSelected] = useState<string | null>(null)
-  const execution = useMemo(() => input?.execution ?? runFixture(scene).execution, [scene, input])
+  const source = useMemo(() => input ?? runFixture(scene), [scene, input])
+  const execution = source.execution
   const [again, setAgain] = useState(false)
   const [retry, setRetry] = useState(false)
-  return <StoreProvider store={sharedStore()}><RunView execution={execution} model={input ? runTimeline(input) : runModel(scene)} number={1} selectedRow={selected} onSelect={setSelected}
+  return <StoreProvider store={exampleStore}><CatalogueRunWorkspace inspector={{input:source,seats:[],flowFile:<RunFlowFile root="/repo" name={execution.document.flow.name} compact />}} execution={execution} model={input ? runTimeline(input) : runModel(scene)} number={1} selectedRow={selected} onSelect={setSelected}
     doing={new Map([['seat-0', 'Editing src/checkout/retry.ts']])}
     pending={scene === 'pending'} problem={scene === 'failed' ? 'Check evidence is unavailable.' : null}
     onRunAgain={() => setAgain(true)} onWrap={() => setSelected('end')} onBoard={() => setSelected('end')} onReviewCheck={() => setRetry(true)}
@@ -33,14 +39,14 @@ export const RunExample = ({ scene, input }: { scene: RunScene; input?: RunTimel
 }
 /** The Run as the app mounts it: the timeline with the inspector beside it, and the Flow when it is chosen. */
 export const RunWorkspaceExample = ({ scene = 'running', view: first = 'timeline' }: { scene?: RunScene; view?: RunViewTab }) => {
-  const source = useMemo(() => runFixture(scene), [scene])
-  const store = useMemo(() => scene === 'live-polish' ? runTeamStore(scene) : sharedStore(), [scene])
-  const [selected, setSelected] = useState<string | null>(null)
-  const [view, setView] = useState<RunViewTab>(first)
-  return <StoreProvider store={store}><TeamRunView execution={source.execution} origin="Started by you" onOpenSeat={() => {}}
-    model={runModel(scene)} number={1} selectedRow={selected} onSelect={setSelected}
-    drawFlow view={view} onView={setView} /></StoreProvider>
+  const store = useMemo(() => {
+    const fixture = runTeamStore(scene)
+    fixture.requestTeamFrame('overview-team', 'run', first)
+    return fixture
+  }, [scene, first])
+  return <StoreProvider store={store}><TeamFramePreview room="overview-team" view={{ kind: 'room', room: 'overview-team', framePage: 'run' }} /></StoreProvider>
 }
+
 export const RunViewBoard = () => <div className="flex flex-col gap-4">{RUN_VIEW_STATES.map(scene =>
   <section key={scene} data-catalog-state={scene} className={scene === 'narrow' ? 'flex h-144 max-w-sm flex-col' : 'flex h-144 flex-col'}><RunExample scene={scene} /></section>)}
   <section data-catalog-state="flow" className="flex h-144 flex-col"><RunWorkspaceExample view="flow" /></section></div>
@@ -64,9 +70,9 @@ export const RunViewFrames = () => {
     <section id="run-view-stopped-mid-round" className="flex h-144 flex-col"><RunExample scene="stopped" input={stopped} /></section>
     <section id="run-view-waiting-evidence" className="flex h-144 flex-col"><RunExample scene="running" input={waiting} /></section>
     <section id="run-view-live-polish-flow" className="flex h-224 flex-col"><RunWorkspaceExample scene="live-polish" view="flow" /></section>
-    <section id="run-view-live-polish-team" className="h-144"><StoreProvider store={polish}><TeamRoomPane room="overview-team" /></StoreProvider></section>
+    <section id="run-view-live-polish-team" className="h-144"><StoreProvider store={polish}><TeamFramePreview room="overview-team" /></StoreProvider></section>
     <section id="run-view-flow" className="flex h-144 flex-col"><RunWorkspaceExample view="flow" /></section>
-    <section id="run-view-team" className="h-144"><StoreProvider store={store}><TeamRoomPane room="overview-team" /></StoreProvider></section>
+    <section id="run-view-team" className="h-144"><StoreProvider store={store}><TeamFramePreview room="overview-team" /></StoreProvider></section>
   </div>
 }
 

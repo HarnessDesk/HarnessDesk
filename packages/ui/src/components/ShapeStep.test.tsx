@@ -111,3 +111,27 @@ it('removing one seat leaves the rest of the list exactly as it was', async () =
 
   expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ seats: [{ runtime: 'claude-code', effort: 'high' }] }))
 })
+
+
+it('searches six seats by presentation name and keeps existing model and effort when adding', async () => {
+  const runtimes = Array.from({ length: 6 }, (_, at) => ({
+    id: `agent-${at}`, presentation: { name: at === 5 ? '发布前检查' : `Agent ${at}` },
+  })) as unknown as readonly RuntimeInfo[]
+  const role = ROLE({ seats: [{ runtime: 'agent-0', model: 'review-model', effort: 'high' }] })
+  const onChange = vi.fn()
+  act(() => root.render(<ShapeStep role={role} agents={[]} runtimes={runtimes} onChange={onChange} />))
+  act(() => menuButton('Add a seat').click())
+  await settle()
+  const input = document.querySelector<HTMLInputElement>('input[aria-label="Search Agents"]')!
+  expect(input).not.toBeNull()
+  const filter = (value: string) => act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  filter('missing')
+  expect(document.body.textContent).toContain('No Agents match.')
+  filter('发布')
+  expect(document.querySelectorAll('[role="menuitem"]')).toHaveLength(1)
+  act(() => menuItem('发布前检查').click())
+  expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ seats: [...role.seats, { runtime: 'agent-5' }] }))
+})

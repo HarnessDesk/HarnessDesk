@@ -1,7 +1,10 @@
+import { CheckIcon } from './Icons'
+import { DestinationBar, useDestinationActive } from '../panels/destination-page'
+import { PageExplanation, PageControls, PageOptions, MenuItem, Toolbar } from '../design'
 import { AgentHistory } from './History'
 import { RuntimeResources } from './RuntimeResources'
 import { RuntimeFace } from './RuntimeFace'
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import type {
   Account,
@@ -54,23 +57,21 @@ import type { AppSnapshot } from '../state/store'
 import { RuntimeMark } from './BrandIcons'
 import {
   AgentIcon,
-  CheckIcon,
   PlusIcon,
   SignInIcon,
   SignOutIcon,
 } from './Icons'
 import {
   AccountMark,
+  RingChoices,
   IconTile,
+  InlineParts,
   SettingsRowMenu,
-  BackLink,
   Button,
   Card,
   CardViewport,
   Chip,
   CodeText,
-  DetailMark,
-  DetailHead,
   Field,
   FormStack,
   Input,
@@ -78,7 +79,6 @@ import {
   Search,
   NativeSelect,
   Textarea,
-  PageHead,
   PlanCard,
   UsageMeterRow,
   Row,
@@ -87,7 +87,6 @@ import {
   Rows,
   Section,
   SectionHead,
-  Segmented,
   SummaryItem,
   SummaryList,
   Switch,
@@ -95,7 +94,6 @@ import {
 } from '../design'
 import { useOptionConfirm } from './OptionConfirm'
 import { Dialog, ConfirmDialog, EmptyState } from '../design'
-import styles from './SettingsAgents.module.css'
 
 /**
  * Runtimes — the agent programs HarnessDesk starts — and the accounts under them.
@@ -106,6 +104,7 @@ import styles from './SettingsAgents.module.css'
  * it — detail is never a dialog here.
  */
 
+export type RuntimeSettingsView = View
 type View =
   | { readonly kind: 'list' }
   | { readonly kind: 'add' }
@@ -217,7 +216,7 @@ export const UsageSection = ({ limits, name }: { limits: RateLimits | null; name
     <>
       <SectionHead name="Usage" />
       {view?.blocked && (
-        <Text role="muted" as="p" tone="danger" className="mb-2">
+        <Text role="muted" as="p" tone="danger" >
           {view.blocked.title} — {view.blocked.detail}
         </Text>
       )}
@@ -291,25 +290,27 @@ export const PlanSection = ({
   report: UsageReport | undefined
   isKey: boolean
 }) => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const [state, setState] = useState<PlanRead | null>(null)
 
+  const generation = useRef(0)
+  const activeRead = useRef(destinationActive)
+  activeRead.current = destinationActive
+  const lifetime=useRef(0),wasActive=useRef(destinationActive)
+  if(wasActive.current!==destinationActive){wasActive.current=destinationActive;lifetime.current++}
+  useEffect(()=>{activeRead.current=destinationActive;return()=>{activeRead.current=false;lifetime.current++}},[])
   const load = useCallback(async (): Promise<void> => {
+    if (!activeRead.current) return
+    const epoch = ++generation.current
     const read = await store.readPlan({ runtime, account, plan: report?.plan ?? null })
-    setState(read)
+    if (activeRead.current && generation.current === epoch) setState(read)
   }, [store, runtime, account, report?.plan])
-
   useEffect(() => {
-    let cancelled = false
-    void load().catch(() => undefined)
-    return () => {
-      cancelled = true
-    }
-    // `cancelled` guards nothing here (there is nothing async to race after
-    // unmount besides the `setState` above, which React already tolerates),
-    // kept for parity with every other effect in this file that fetches.
-    void cancelled
-  }, [load])
+    if (destinationActive) void load().catch(() => undefined)
+    return () => { generation.current++ }
+  }, [destinationActive, load])
 
   if (!account) return null
 
@@ -317,26 +318,30 @@ export const PlanSection = ({
   const showBudget = isKey || (report?.billing?.kinds.includes('metered') ?? false) || budget !== null
 
   return (
-    <PlanCard
+    <PlanCard active={destinationActive}
       entry={state?.entry ?? null}
       suggestion={state?.suggestion ?? null}
       refusal={state?.refusal ?? null}
       showBudget={showBudget}
       onSetFee={async (amount, currency, period) => {
+        const owner=lifetime.current
         await store.setPlan({ runtime, account, fee: { amount, currency, period } })
-        await load()
+        if (activeRead.current && lifetime.current===owner) await load()
       }}
       onClearFee={async () => {
+        const owner=lifetime.current
         await store.setPlan({ runtime, account, fee: null })
-        await load()
+        if (activeRead.current && lifetime.current===owner) await load()
       }}
       onSetBudget={async (amount, currency) => {
+        const owner=lifetime.current
         await store.setPlan({ runtime, account, budget: { amount, currency } })
-        await load()
+        if (activeRead.current && lifetime.current===owner) await load()
       }}
       onClearBudget={async () => {
+        const owner=lifetime.current
         await store.setPlan({ runtime, account, budget: null })
-        await load()
+        if (activeRead.current && lifetime.current===owner) await load()
       }}
     />
   )
@@ -351,26 +356,7 @@ const RingPicker = ({
   info: RuntimeInfo
   value: Tint
   onChange: (tint: Tint) => void
-}) => (
-  <span className={styles.rings} role="radiogroup" aria-label="Ring colour">
-    {TINTS.map((tint) => (
-      <AccountMark
-        as="button"
-        key={tint}
-        role="radio"
-        aria-checked={tint === value}
-        aria-label={tint}
-        className={styles.ring}
-        data-tint={tint}
-        {...(tint === value ? { 'data-on': '' } : {})}
-        onClick={() => onChange(tint)}
-      >
-        <RuntimeMark runtime={info} size={14} />
-      </AccountMark>
-    ))}
-  </span>
-)
-
+}) => <RingChoices value={value} values={TINTS} mark={<RuntimeMark runtime={info} size={14} />} change={onChange} />
 
 /**
  * Why an agent will not start, in three parts rather than one paragraph.
@@ -395,7 +381,7 @@ const HealthBlock = ({ health }: { health: Unavailable }) => {
       {...(detail || remediation
         ? {
             desc: (
-              <span className="mt-1.5 flex flex-col gap-2">
+              <FormStack>
                 {/* Bounded, as a panel's code block is: the card keeps its
                     corners while the lines scroll inside it. */}
                 {detail && (
@@ -412,7 +398,7 @@ const HealthBlock = ({ health }: { health: Unavailable }) => {
                     <Prose text={remediation} />
                   </span>
                 )}
-              </span>
+              </FormStack>
             ),
           }
         : {})}
@@ -421,7 +407,6 @@ const HealthBlock = ({ health }: { health: Unavailable }) => {
 }
 
 /* --- the list ------------------------------------------------------------ */
-
 
 /**
  * One agent on the list, as one line: its mark, its name and build, who it is
@@ -491,13 +476,13 @@ const AgentRow = ({
       kind="record"
       face={<RuntimeFace runtime={info} />}
       title={
-        <span className={styles.headName} title={info.presentation.tagline}>
-          <span data-slot="runtime-name" className="truncate">{info.presentation.name}</span>
-          {build && <Text role="muted" ink="muted" numeric>{build}</Text>}
+        <InlineParts title={info.presentation.tagline}>
+          <span data-slot="runtime-name">{info.presentation.name}</span>
+          {build && <Text role="muted" ink="muted" numeric data-runtime-version="">{build}</Text>}
           {snapshot.activeRuntime === info.id && <Chip tone="neutral" size="sm">Default</Chip>}
-        </span>
+        </InlineParts>
       }
-      desc={who ?? (state === 'signin' ? 'Not signed in' : undefined)} truncateDesc
+      desc={who ?? (state === 'signin' ? 'Signed out' : undefined)} truncateDesc
       control={state === 'limit' || state === 'broken' ? <Chip state={state} /> : undefined}
       {...(signIn
         ? {
@@ -545,6 +530,9 @@ const AgentAccounts = ({
   onOpenAccount: (runtime: RuntimeId, key: string) => void
   onSignIn: (runtime: RuntimeId) => void
 }) => {
+  const destinationActive = useDestinationActive()
+  const capture=useActiveLifetime(destinationActive)
+
   const store = useStore()
   const snapshot = useSnapshot()
   const [addingGateway, setAddingGateway] = useState(false)
@@ -592,6 +580,7 @@ const AgentAccounts = ({
    * has always described honestly.
    */
   const addAccount = async (): Promise<void> => {
+    const owns=capture()
     if (!info.slot?.canAdd) {
       if (needsField) onSignIn(info.id)
       else await store.signInAgent(info.id)
@@ -610,12 +599,13 @@ const AgentAccounts = ({
     try {
       const added = await store.addAccount(info.id)
       if (!added) return
-      if (needsField) onSignIn(added)
+      if (needsField) { if (owns()) onSignIn(added) }
       else await store.signInAgent(added)
     } finally {
       setAdding(false)
     }
   }
+  useEffect(() => { if (!destinationActive) { setAddingGateway(false); setAdding(false); setRemoving(null) } }, [destinationActive])
 
   return (
     <>
@@ -707,7 +697,7 @@ const AgentAccounts = ({
                   {/* Said, not implied: a bare "48%" reads as spent to half the
                       people who see it, and the meters this comes from fill
                       with what is left. */}
-                  {left !== null && <Text role="muted" ink="muted" numeric className="whitespace-nowrap">{left}% left</Text>}
+                  {left !== null && <Text role="muted" ink="muted" numeric >{left}% left</Text>}
                 </>
               }
             />
@@ -784,7 +774,7 @@ const AgentAccounts = ({
           <EmptyState variant="row" title="Unavailable" description="Its accounts show once it starts." />
         ) : rows.length === 0 && gateways.length === 0 && info.capabilities.account && status === undefined ? (
           /* Not answered yet (#986): the agent has not said who is signed in,
-             so "Not signed in" would be a guess. */
+             so "Signed out" would be a guess. */
           <EmptyState variant="row" title={READINESS_LABEL.unknown} description="Its accounts show once it answers." />
         ) : (
           rows.length === 0 &&
@@ -792,7 +782,7 @@ const AgentAccounts = ({
             <EmptyState variant="row"
               title={
                 info.capabilities.account
-                  ? 'Not signed in'
+                  ? 'Signed out'
                   : info.install?.signIn
                     ? 'Signs in on its own'
                     : 'No account needed'
@@ -808,7 +798,7 @@ const AgentAccounts = ({
                   answering.length > 0 ? (
                     `${answering.length === 1 ? 'Another account has' : 'Other accounts have'} not answered yet.`
                   ) : (
-                    `${info.presentation.name} has no credential here yet, so a session sent to it would not start.`
+                    'Signed out. Sign in to start a session.'
                   )
                 ) : info.install?.signIn ? (
                   <Prose
@@ -844,8 +834,8 @@ const AgentAccounts = ({
         )}
       </Rows>
 
-      {addingGateway && <GatewayDialog info={info} onClose={() => setAddingGateway(false)} />}
-      {removing && (
+      {destinationActive && addingGateway && <GatewayDialog info={info} onClose={() => setAddingGateway(false)} />}
+      {destinationActive && removing && (
         <ConfirmDialog
           title={`Remove this ${info.presentation.name} account?`}
           confirmLabel="Remove account"
@@ -968,7 +958,19 @@ const GatewayDialog = ({ info, onClose }: { info: RuntimeInfo; onClose: () => vo
  * An agent of the user's own: a name and a command. A child for the same
  * reason as the gateway dialog — closing it forgets what was typed.
  */
+/** Async continuations belong to the activation that submitted them. */
+const useActiveLifetime = (active: boolean) => {
+  const lifetime=useRef({active,mounted:true,generation:0})
+  if(lifetime.current.active!==active) { lifetime.current.active=active;lifetime.current.generation++ }
+  useEffect(()=>{lifetime.current.mounted=true;return()=>{lifetime.current.mounted=false;lifetime.current.generation++}},[])
+  return () => {
+    const generation=lifetime.current.generation
+    return () => lifetime.current.mounted && lifetime.current.active && lifetime.current.generation===generation
+  }
+}
+
 const CustomAgentDialog = ({ onAdded, onClose }: { onAdded: () => void; onClose: () => void }) => {
+  const capture=useActiveLifetime(useDestinationActive())
   const store = useStore()
   const [name, setName] = useState('')
   const [command, setCommand] = useState('')
@@ -979,6 +981,7 @@ const CustomAgentDialog = ({ onAdded, onClose }: { onAdded: () => void; onClose:
 
   const add = async (): Promise<void> => {
     if (!ready) return
+    const owns=capture()
     setBusy(true)
     setError(null)
     try {
@@ -996,7 +999,7 @@ const CustomAgentDialog = ({ onAdded, onClose }: { onAdded: () => void; onClose:
         setError('HarnessDesk could not add it. Check that the command starts.')
         return
       }
-      onAdded()
+      if (owns()) onAdded()
     } catch (thrown) {
       setError(thrown instanceof Error ? thrown.message : String(thrown))
     } finally {
@@ -1058,7 +1061,6 @@ const CustomAgentDialog = ({ onAdded, onClose }: { onAdded: () => void; onClose:
   )
 }
 
-
 /**
  * The agents this build can register without a text editor.
  *
@@ -1068,6 +1070,9 @@ const CustomAgentDialog = ({ onAdded, onClose }: { onAdded: () => void; onClose:
  * because a greyed button with no sentence is a dead end.
  */
 export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () => void }) => {
+  const destinationActive = useDestinationActive()
+  const capture=useActiveLifetime(destinationActive)
+
   const store = useStore()
   const [templates, setTemplates] = useState<readonly AgentTemplateInfo[] | null>(null)
   const [registry, setRegistry] = useState<AcpRegistryCatalogInfo | null>(null)
@@ -1076,6 +1081,8 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
   const [customOpen, setCustomOpen] = useState(false)
 
   useEffect(() => {
+    if (!destinationActive) return
+
     let cancelled = false
     void store.agentCatalog().then((loaded) => {
       if (!cancelled) setTemplates(loaded)
@@ -1086,23 +1093,25 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
     return () => {
       cancelled = true
     }
-  }, [store])
+  }, [destinationActive, store])
 
   const add = async (key: string): Promise<void> => {
+    const owns=capture()
     setBusy(key)
     try {
       const added = await store.addAgent({ template: key })
-      if (added) setTemplates(await store.agentCatalog())
+      if (added && owns()) { const next=await store.agentCatalog();if(owns())setTemplates(next) }
     } finally {
       setBusy(null)
     }
   }
 
   const addFromRegistry = async (id: string): Promise<void> => {
+    const owns=capture()
     setBusy(id)
     try {
       const added = await store.addAgent({ registry: { id } })
-      if (added) setRegistry(await store.acpRegistry())
+      if (added && owns()) { const next=await store.acpRegistry();if(owns())setRegistry(next) }
     } finally {
       setBusy(null)
     }
@@ -1111,14 +1120,12 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
   const registryListed = registryOrder(registry?.agents ?? []).filter((agent) =>
     registryMatches(agent, registryQuery),
   )
+  useEffect(() => { if (!destinationActive) { setCustomOpen(false) } }, [destinationActive])
 
   return (
     <>
-      <BackLink to="Runtimes" onClick={onBack} />
-      <PageHead
-        title="Add a runtime"
-        blurb="A runtime keeps its own account, configuration and history; adding it here only tells HarnessDesk how to start it."
-      />
+      <DestinationBar place="Add a runtime" parents={[{ label: 'Runtimes', run: onBack }]} />
+      <PageExplanation>A runtime keeps its own account, configuration and history; adding it here only tells HarnessDesk how to start it.</PageExplanation>
       <Rows>
         {(templates ?? []).map((template) => (
           <Row
@@ -1202,66 +1209,22 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
           because forty rows is where scanning stops working. */}
       <SectionHead name="From the ACP registry" />
       {(registry?.agents.length ?? 0) > 8 && (
-        <Search
-          className={styles.pageSearch}
-          value={registryQuery}
-          placeholder="Search the registry"
-          label="Search the ACP registry"
-          onChange={setRegistryQuery}
-        />
+        <PageControls search={{label:"Search the ACP registry",placeholder:"Search the registry",value:registryQuery,change:setRegistryQuery}}/>
       )}
       {/* A catalogue of forty is a grid of compact cells, not forty rows —
           each carries its sentence in full, and a blocked entry's sentence is
           the reason, so nothing is grey without saying why. A binary entry's
           button reads Download, because that is what the click does. */}
       {registryListed.length > 0 && (
-        <div className={styles.registryGrid}>
-          {registryListed.map((agent) => {
-            const line = registrySentence(agent)
-            return (
-              <Card
-                key={agent.id}
-                variant="plate"
-                spacing="compact"
-                className={`${styles.registryCell} flex-row`}
-                {...(agent.available ? {} : { 'data-blocked': '' })}
-              >
-                <IconTile shape="face" tint={runtimeTint(agent.id as RuntimeId, {}, {})}>
-                  <RuntimeMark
-                    runtime={{ id: agent.id, presentation: { name: agent.name } }}
-                    size={16}
-                  />
-                </IconTile>
-                <span className={styles.registryCellText}>
-                  <Text role={agent.available ? 'row' : 'muted'} ink={agent.available ? undefined : 'muted'} className={styles.registryCellName}>
-                    {agent.name}
-                    {agent.run === 'binary' && agent.integrity === 'none' && !agent.installed && (
-                      <Chip tone="neutral" size="sm" className={styles.unverifiedBadge}
-                        title="The registry publishes no checksum for this build, so the download cannot be verified."
-                      >
-                        Unverified
-                      </Chip>
-                    )}
-                  </Text>
-                  {line && <Text role="meta" className={styles.registryCellLine}>{line}</Text>}
-                </span>
-                {agent.registered ? (
-                  <RowValue>Added</RowValue>
-                ) : agent.available ? (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={busy !== null}
-                    onClick={() => void addFromRegistry(agent.id)}
-                  >
-                    <PlusIcon size={13} />
-                    {registryAddLabel(agent, busy === agent.id)}
-                  </Button>
-                ) : null}
-              </Card>
-            )
-          })}
-        </div>
+        <Rows>
+          {registryListed.map(agent => <Row key={agent.id} kind="record"
+            mark={<IconTile shape="face" tint={runtimeTint(agent.id as RuntimeId,{}, {})}><RuntimeMark runtime={{id:agent.id,presentation:{name:agent.name}}} size={16}/></IconTile>}
+            title={agent.name} desc={registrySentence(agent)}
+            titleChip={agent.run==='binary' && agent.integrity==='none' && !agent.installed
+              ? <Chip tone="neutral" size="sm" title="The registry publishes no checksum for this build, so the download cannot be verified.">Unverified</Chip>:undefined}
+            control={agent.registered?<RowValue>Added</RowValue>:agent.available?<Button size="sm" variant="outline" disabled={busy!==null}
+              onClick={()=>void addFromRegistry(agent.id)}><PlusIcon size={13}/>{registryAddLabel(agent,busy===agent.id)}</Button>:undefined}/>) }
+        </Rows>
       )}
       {registry === null && (
         <Rows>
@@ -1294,8 +1257,8 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
           }
         />
       </Rows>
-      {customOpen && (
-        <CustomAgentDialog onAdded={onDone} onClose={() => setCustomOpen(false)} />
+      {destinationActive && customOpen && (
+        <CustomAgentDialog onAdded={() => { setCustomOpen(false); onDone() }} onClose={() => setCustomOpen(false)} />
       )}
     </>
   )
@@ -1314,6 +1277,8 @@ const AccountDetail = ({
   onBack: () => void
   onSignIn: (runtime: RuntimeId) => void
 }) => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const snapshot = useSnapshot()
   const key = accountKey(info.id, account)
@@ -1338,6 +1303,8 @@ const AccountDetail = ({
     prefs?.pinLaneId && usageOptions.some((option) => option.value === prefs.pinLaneId) ? prefs.pinLaneId : ''
 
   useEffect(() => {
+    if (!destinationActive) return
+
     let cancelled = false
     void store.limitsFor(info.id).then((loaded) => {
       if (!cancelled) setLimits(loaded)
@@ -1345,30 +1312,20 @@ const AccountDetail = ({
     return () => {
       cancelled = true
     }
-  }, [store, info.id, account.label])
+  }, [destinationActive, store, info.id, account.label])
 
   const planLabel = account.kind === 'externalKey' ? null : (account.planType ?? limits?.planType ?? null)
   const isKey = account.kind === 'apiKey' || account.kind === 'externalKey'
+  useEffect(() => { if (!destinationActive) { setConfirmingSignOut(false) } }, [destinationActive])
 
   return (
     <>
       {/* Back to the agent it belongs to, which is where its accounts are listed. */}
-      <BackLink to={info.presentation.name} onClick={onBack} />
-      <DetailHead
-        mark={
-          <AccountMark
-            size="lg"
-            badge={runtimeAccountBadge(info, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs, account)}
-            data-tint={tintOf(key, snapshot.accountPrefs)}
-          >
-            <RuntimeMark runtime={info} size={20} />
-          </AccountMark>
-        }
-        name={accountName(account, prefs, info.presentation.name)}
-        owner={info.presentation.name}
-        blurb={accountIdentity(account)}
-        actions={<Chip state={state} />}
-      />
+<DestinationBar place={accountName(account, prefs, info.presentation.name)} mark={<RuntimeMark runtime={info} size={16} />}
+  parents={[{ label: 'Settings', run: () => store.askSettings('general') },
+    { label: 'Runtimes', run: () => store.askSettings('runtimes') }, { label: info.presentation.name, run: onBack }]}
+  state={<Chip state={state} />} />
+<PageExplanation>{accountIdentity(account)}</PageExplanation>
 
       {/* Three ways the desk shows this account, in one card: the name and ring
           it wears, and the limit it leads with. The limit was a one-row card
@@ -1380,7 +1337,7 @@ const AccountDetail = ({
             desc="How the sidebar, the composer and the menu bar refer to this account."
             control={
               <Input
-                className={styles.nameField}
+                measure="name"
                 value={name}
                 placeholder={accountName(account, undefined, info.presentation.name)}
                 aria-label="Account name"
@@ -1465,10 +1422,10 @@ const AccountDetail = ({
             {snapshot.activeRuntime === info.id ? (
               /* The chip is the account's readiness as the default, the same
                  reading the list and the agent's page give (#131). */
-              <span className="inline-flex flex-wrap items-center gap-x-(--hd-space-2)">
+              <Text as="span" role="row">
                 Start on this account
                 <Chip state={defaultChipState(info, snapshot)} label="Default" />
-              </span>
+              </Text>
             ) : (
               'Start on another account'
             )}
@@ -1480,7 +1437,7 @@ const AccountDetail = ({
 
       <PlanSection runtime={info.id} account={account.label.trim()} report={report} isKey={isKey} />
 
-      {confirmingSignOut && (
+      {destinationActive && confirmingSignOut && (
         <ConfirmDialog
           title={info.slot?.removable ? `Remove ${accountName(account, prefs, info.presentation.name)}?` : `Sign out of ${accountName(account, prefs, info.presentation.name)}?`}
           confirmLabel={info.slot?.removable ? 'Remove account' : 'Sign out'}
@@ -1558,15 +1515,10 @@ const OptionRows = ({
                   ))}
                 </NativeSelect>
               ) : (
-                <Segmented
-                  label={option.label}
-                  value={String(option.currentValue)}
-                  options={option.choices.map((choice) => ({
+                <PageOptions choices={[{id:option.label,label:option.label,value:String(option.currentValue),items:option.choices.map((choice) => ({
                     value: String(choice.value),
                     label: choice.label,
-                  }))}
-                  onChange={(value) => ask(option, value, () => onSet(option.id, value))}
-                />
+                  })),change:next => ask(option, next, () => onSet(option.id, next))}]}/>
               )
             }
           />
@@ -1602,11 +1554,15 @@ export const NewSessionDefaults = ({
   /** The row shown when there is nothing to pre-set. */
   empty?: string
 }) => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const snapshot = useSnapshot()
   const [options, setOptions] = useState<readonly ConfigOption[] | null>(null)
 
   useEffect(() => {
+    if (!destinationActive) return
+
     let cancelled = false
     void store.newSessionDefaultsFor(info.id).then((loaded) => {
       if (!cancelled) setOptions(loaded)
@@ -1614,7 +1570,7 @@ export const NewSessionDefaults = ({
     return () => {
       cancelled = true
     }
-  }, [store, info.id, snapshot.healthByRuntime[info.id]?.state])
+  }, [destinationActive, store, info.id, snapshot.healthByRuntime[info.id]?.state])
 
   const pick = (id: string, value: OptionValue): void => {
     void store.setNewSessionDefault(info.id, id, value).then(setOptions)
@@ -1627,10 +1583,10 @@ export const NewSessionDefaults = ({
       <SectionHead
         name={
           mark ? (
-            <span className={styles.sectionMark}>
+            <Text as="span" role="row">
               {mark}
               {heading}
-            </span>
+            </Text>
           ) : (
             heading
           )
@@ -1662,11 +1618,16 @@ export const NewSessionDefaults = ({
  * run on the person's behalf except the desk's own download.
  */
 const InstallSection = ({ info }: { info: RuntimeInfo }) => {
+  const destinationActive = useDestinationActive()
+  const capture=useActiveLifetime(destinationActive)
+
   const store = useStore()
   const [install, setInstall] = useState<InstallInfo | null>(info.install ?? null)
   const [busy, setBusy] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!destinationActive) return
+
     let cancelled = false
     void store.installsFor(info.id).then((loaded) => {
       if (!cancelled && loaded) setInstall(loaded)
@@ -1674,11 +1635,13 @@ const InstallSection = ({ info }: { info: RuntimeInfo }) => {
     return () => {
       cancelled = true
     }
-  }, [store, info.id])
+  }, [destinationActive, store, info.id])
 
   useEffect(() => {
+    if (!destinationActive) return
+
     if (info.install) setInstall(info.install)
-  }, [info.install])
+  }, [destinationActive, info.install])
 
   if (!install) return null
 
@@ -1693,11 +1656,12 @@ const InstallSection = ({ info }: { info: RuntimeInfo }) => {
   }
 
   const update = async (): Promise<void> => {
+    const owns=capture()
     setBusy('update')
     try {
-      if (await store.updateAgent(info.id)) {
+      if (await store.updateAgent(info.id) && owns()) {
         const next = await store.installsFor(info.id)
-        if (next) setInstall(next)
+        if (next && owns()) setInstall(next)
       }
     } finally {
       setBusy(null)
@@ -1863,6 +1827,9 @@ const AgentDetail = ({
   onSignIn: (runtime: RuntimeId) => void
   onBrowseHistory: (id: string) => void
 }) => {
+  const destinationActive = useDestinationActive()
+  const capture=useActiveLifetime(destinationActive)
+
   const store = useStore()
   const snapshot = useSnapshot()
   const siblings = agentGroups(snapshot.runtimes).find((entry) => agentKey(entry.info) === agentKey(info))?.siblings ?? [info]
@@ -1872,10 +1839,14 @@ const AgentDetail = ({
   const [confirmingRemove, setConfirmingRemove] = useState(false)
 
   useEffect(() => {
+    if (!destinationActive) return
+
     void store.transport.request('runtime/warm', { runtime: info.id }).catch(() => {})
-  }, [store, info.id])
+  }, [destinationActive, store, info.id])
 
   useEffect(() => {
+    if (!destinationActive) return
+
     let cancelled = false
     void store.healthFor(info.id).then((loaded) => {
       if (!cancelled) setHealth(loaded)
@@ -1886,45 +1857,27 @@ const AgentDetail = ({
     return () => {
       cancelled = true
     }
-  }, [store, info.id, snapshot.healthByRuntime[info.id]?.state])
+  }, [destinationActive, store, info.id, snapshot.healthByRuntime[info.id]?.state])
 
   const update = describeUpdate(info)
   const build = describeVersion(info)?.replace(`${info.presentation.name} `, '') ?? null
 
   const setOption = async (id: string, value: OptionValue): Promise<void> => {
+    const owns=capture()
     await store.setOptionFor(info.id, id, value)
-    setOptions(await store.optionsFor(info.id))
+    if (owns()) { const next=await store.optionsFor(info.id);if(owns())setOptions(next) }
   }
+  useEffect(() => { if (!destinationActive) { setConfirmingRemove(false) } }, [destinationActive])
 
   return (
     <>
-      <BackLink to="Runtimes" onClick={onBack} />
-      <DetailHead
-        mark={
-          <DetailMark shape="face" badge={runtimeAccountBadge(info, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs)}>
-            <RuntimeMark runtime={info} size={22} />
-          </DetailMark>
-        }
-        name={info.presentation.name}
-        owner={build ?? undefined}
-        blurb={info.presentation.tagline}
-        actions={
-          active ? (
-            /* The snapshot's health, not this page's one-shot read: the chip is
-               only drawn for the default, whose health the store keeps current
-               as `runtime/healthChanged` arrives. `health` below still answers
-               "why will it not start", which is a different question. */
-            <Chip state={defaultChipState(info, snapshot)} label="Default" />
-          ) : (
-            /* Never disabled for a down agent: choosing one is how it is
-               restarted, which is what its own health advises. */
-            <Button variant="outline" onClick={() => void store.selectRuntime(info.id)}>
-              <CheckIcon size={14} />
-              Use for new sessions
-            </Button>
-          )
-        }
-      />
+<DestinationBar place={info.presentation.name} mark={<RuntimeMark runtime={info} size={16} />}
+  parents={[{ label: 'Settings', run: () => store.askSettings('general') }, { label: 'Runtimes', run: onBack }]} />
+      <Rows><Row title={info.presentation.name} control={snapshot.activeRuntime === info.id
+        ? <Chip state={defaultChipState(info, snapshot)} label="Default" />
+        : <Button variant="outline" size="sm" onClick={() => void store.selectRuntime(info.id)}>Use for new sessions</Button>} /></Rows>
+{build && <Text role="meta">{build}</Text>}
+{info.presentation.tagline && <PageExplanation>{info.presentation.tagline}</PageExplanation>}
 
       {health?.state === 'unavailable' && (
         <>
@@ -1999,15 +1952,16 @@ const AgentDetail = ({
           </Rows>
         </>
       )}
-      {confirmingRemove && (
+      {destinationActive && confirmingRemove && (
         <ConfirmDialog
           title={`Remove ${info.presentation.name}?`}
           confirmLabel="Remove agent"
           tone="destructive"
           onCancel={() => setConfirmingRemove(false)}
           onConfirm={() => {
+            const owns=capture()
             void store.removeAgent(info.id).then((removed) => {
-              if (removed) onBack()
+              if (removed && owns()) onBack()
             })
           }}
         >
@@ -2021,36 +1975,30 @@ const AgentDetail = ({
 
 /* --- the page ------------------------------------------------------------ */
 
-
 export const RuntimesSection = ({
   onSignIn,
-  focus = null,
+  view, onView,
   onBrowseHistory = () => {},
 }: {
   onSignIn: (runtime: RuntimeId) => void
-  /** The thing inside the page to open, once — the refusal sheet's "Add Codex", "Open Cursor in Settings". */
-  focus?: string | null
+  view:RuntimeSettingsView
+  onView:(view:RuntimeSettingsView)=>void
   onBrowseHistory?: (id: string) => void
 }) => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const snapshot = useSnapshot()
-  const [view, setView] = useState<View>({ kind: 'list' })
+  const setView=onView
   const [query, setQuery] = useState('')
 
   useEffect(() => {
+    if (!destinationActive) return
+
     void store.loadAccounts()
-  }, [store])
+  }, [destinationActive, store])
 
-  // Opened on a thing inside the page — the refusal sheet's "Add Codex", its
-  // "Open Cursor in Settings" — rather than on the list.
-  useEffect(() => {
-    if (focus === 'add') setView({ kind: 'add' })
-    else if (focus && snapshot.runtimes.some((entry) => entry.id === focus)) {
-      setView({ kind: 'agent', runtime: focus as RuntimeId })
-    }
-  }, [focus, snapshot.runtimes])
-
-  const back = (): void => setView({ kind: 'list' })
+  const back = useCallback((): void => setView({ kind: 'list' }), [setView])
   const openAccount = (runtime: RuntimeId, key: string): void => setView({ kind: 'account', runtime, key })
 
   const groups = useMemo(() => agentGroups(snapshot.runtimes), [snapshot.runtimes])
@@ -2125,30 +2073,21 @@ export const RuntimesSection = ({
 
   return (
     <>
-      <PageHead
-        title="Runtimes"
-        blurb="What your Agents run on: the agent programs HarnessDesk can start, and the accounts each is signed in as."
-        actions={
-          <Button variant="default" onClick={() => setView({ kind: 'add' })}>
-            <PlusIcon size={14} />
-            Add a runtime
-          </Button>
-        }
-      />
-
-      <RuntimeResources />
+      <DestinationBar place="Runtimes" parents={[{ label: 'Settings', run: () => store.askSettings('general') }]}
+  verb={{ label: 'Add a runtime', run: () => setView({ kind: 'add' }) }} />
+      {snapshot.workbench.navigation.current.kind === 'settings' && groups.length > 0 && <Toolbar>
+        <Button variant="outline" size="sm" onClick={() => setView({ kind: 'add' })}>
+          <PlusIcon size={13} />Add a runtime
+        </Button>
+      </Toolbar>}
+<PageExplanation>What your Agents run on: the agent programs HarnessDesk can start, and the accounts each is signed in as.</PageExplanation>
 
       {/* Two agents fit on a screen and need no help being found; the filters
           arrive with the third, which is where scrolling starts. */}
       {groups.length > 2 && (
-        <div className={styles.filters}>
-          <Search
-            className={styles.pageSearch}
-            value={query}
-            placeholder="Search runtimes or accounts"
-            onChange={setQuery}
-          />
-        </div>
+        <>
+          <PageControls search={{label:"Search runtimes or accounts",placeholder:"Search runtimes or accounts",value:query,change:setQuery}}/>
+        </>
       )}
 
       {listed.length === 0 ? (
@@ -2201,6 +2140,7 @@ export const RuntimesSection = ({
           </div>
         ))
       )}
+      <RuntimeResources />
     </>
   )
 }

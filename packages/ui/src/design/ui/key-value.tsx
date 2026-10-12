@@ -1,4 +1,6 @@
 import type * as React from 'react'
+import { createContext, useContext, type CSSProperties } from 'react'
+import { FRAME } from '../frame'
 
 import { cn } from '@/lib/utils'
 
@@ -46,19 +48,22 @@ export const splitPath = (text: string): readonly [head: string, tail: string] =
 
 type MiddleTruncateProps = Omit<React.ComponentProps<'span'>, 'children'> & {
   children: string
+  /** A short visible label that shares the available line width with the path. */
+  prefix?: React.ReactNode
 }
 
-const MiddleTruncate = ({ children, className, ...props }: MiddleTruncateProps) => {
+const MiddleTruncate = ({ children, className, prefix, title: suppliedTitle, ...props }: MiddleTruncateProps) => {
   const [head, tail] = splitPath(children)
   const long = graphemes(head).length > 3
   return (
     <span
       data-slot="middle-truncate"
-      className={cn('inline-flex min-w-0 max-w-full overflow-hidden whitespace-nowrap align-bottom', className)}
+      className={cn('inline-flex min-w-0 max-w-full gap-0 overflow-hidden whitespace-nowrap align-bottom', className)}
       onMouseEnter={(event) => {
         const node = event.currentTarget
         const cut = [...node.querySelectorAll('[data-part]')].some((part) => part.scrollWidth > part.clientWidth)
-        if (cut) node.title = children
+        if (suppliedTitle !== undefined) node.title = suppliedTitle
+        else if (cut) node.title = children
         else node.removeAttribute('title')
       }}
       onCopy={(event) => {
@@ -68,23 +73,28 @@ const MiddleTruncate = ({ children, className, ...props }: MiddleTruncateProps) 
         // `intersectsNode`, not `containsNode(…, true)`: a selection wholly
         // inside the path does not "partially contain" the path itself.
         const ranges = Array.from({ length: selection.rangeCount }, (_, index) => selection.getRangeAt(index))
-        if (!ranges.some((range) => range.intersectsNode(node))) return
+        const pathParts = node.querySelectorAll('[data-part="head"], [data-part="tail"]')
+        if (![...pathParts].some(part => ranges.some(range => range.intersectsNode(part)))) return
         event.clipboardData.setData('text/plain', children)
         event.preventDefault()
       }}
       {...props}
+      {...(suppliedTitle !== undefined ? { title: suppliedTitle } : {})}
     >
       {/* Out of the selection, so a copy that starts before the path does not
           take it twice. */}
       <span className="sr-only select-none">{children}</span>
+      {prefix != null && <span aria-hidden="true" data-part="prefix" className="shrink-0">{prefix}</span>}
       {/* Only the head gives way, so the name stays whole while there is any
           head left to give — and the head keeps enough of itself (`~/…`) to
           show that something was cut. A name wider than all of that is the
           one case where the tail ellipsises too. */}
+      {/* Flex text trims edge spaces. Keep a name's word boundary visible;
+          accessible text and copying still use the original string. */}
       {head !== '' && (
-        <span aria-hidden="true" data-part="head" className={cn('truncate', long ? 'min-w-6' : 'min-w-0')}>{head}</span>
+        <span aria-hidden="true" data-part="head" className={cn('truncate', long ? 'min-w-6' : 'min-w-0')}>{head.replace(/ +$/, spaces => '\u00a0'.repeat(spaces.length))}</span>
       )}
-      <span aria-hidden="true" data-part="tail" className={cn('shrink-0 truncate', long ? 'max-w-[calc(100%-1.5rem)]' : 'max-w-full')}>{tail}</span>
+      <span aria-hidden="true" data-part="tail" className={cn('shrink-0 truncate', long ? 'max-w-[calc(100%-1.5rem)]' : 'max-w-full')}>{tail.replace(/^ +/, spaces => '\u00a0'.repeat(spaces.length))}</span>
     </span>
   )
 }
@@ -215,6 +225,8 @@ const KeyValueRow = ({
  * settings card — the `Rows` ground, edge, corner and hairline, read from the
  * same `--hd-card-*` tokens — for a page that has five facts about one object
  * and used to spend five labelled one-row cards on them.
+ * The edge is painted inside the card, so its row inset remains the content
+ * edge without a border width changing the shared reading alignment.
  *
  * Each `SummaryItem` is a row of three columns shared by the whole card: the
  * key, muted, in a column as wide as the widest key; the value, left-aligned
@@ -232,87 +244,45 @@ const KeyValueRow = ({
  * value, and the action keeps the row's end beside the value, as a wrapped
  * `Row` control does.
  */
-const SummaryList = ({ className, children, ...props }: React.ComponentProps<'dl'>) => (
+const SummarySurface = createContext<'card' | 'panel'>('card')
+const SummaryList = ({ className, children, surface = 'card', style, ...props }:
+  React.ComponentProps<'dl'> & { surface?: 'card' | 'panel' }) => <SummarySurface.Provider value={surface}>
   <div data-slot="summary-list" className={cn('@container/summary min-w-0', className)}>
-    <dl
-      data-slot="summary-card"
-      className={cn(
-        'group/summary m-0 grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] overflow-hidden',
-        'text-(length:--hd-text-sm) leading-(--hd-line-sm)',
-        'rounded-[var(--hd-card-radius,var(--hd-radius-lg))] border-(length:--hd-border-width) border-[color:var(--hd-card-border,var(--hd-border))] bg-[var(--hd-card-fill,var(--hd-card))]',
-        '@max-md/summary:grid-cols-[minmax(0,1fr)_auto]',
-      )}
-      {...props}
-    >
-      {children}
-    </dl>
+    <dl data-slot="summary-card" data-surface={surface}
+      style={{ ...style, ...(surface === 'panel' ? { '--summary-key': `${FRAME.summaryKey.panel}px` } : {}) } as CSSProperties}
+      className={cn('group/summary m-0 grid min-w-0 overflow-hidden text-(length:--hd-text-sm) leading-(--hd-line-sm)',
+        surface === 'panel'
+          ? 'grid-cols-[var(--summary-key)_minmax(0,1fr)_auto] gap-x-(--hd-bar-gap) px-(--hd-inset-row) border-0 bg-transparent'
+          : 'grid-cols-[auto_minmax(0,1fr)_auto] rounded-[var(--hd-card-radius,var(--hd-radius-lg))] border-0 shadow-[inset_0_0_0_var(--hd-border-width)_var(--hd-card-border,var(--hd-border))] bg-[var(--hd-card-fill,var(--hd-card))] @max-md/summary:grid-cols-[minmax(0,1fr)_auto]')}
+      {...props}>{children}</dl>
   </div>
-)
-
+</SummarySurface.Provider>
 /* The text's padding when the card holds an action: half of what a small
    button stands above a line of text, so the line sits on the button's centre. */
 const ON_ACTION_LINE =
   'group-has-[[data-slot=summary-action]]/summary:py-[calc((var(--hd-btn-h-sm)_-_var(--hd-line-sm))_/_2)]'
 
-const SummaryItem = ({
-  className,
-  label,
-  children,
-  note,
-  action,
-  numeric = false,
-  kind = 'text',
-  ...props
-}: Omit<React.ComponentProps<'div'>, 'children'> & {
-  label: React.ReactNode
-  children: React.ReactNode
-  /** One sentence under the value: what it means, or why it is so. */
-  note?: React.ReactNode
-  /** A small button or a ⋯ menu that acts on this one fact. */
-  action?: React.ReactNode
-  /** A count, a total, money: right-aligned on tabular figures. */
-  numeric?: boolean
-  /** `path` gives up the middle of a string value rather than its end. */
-  kind?: 'text' | 'path'
-}) => (
-  <div
-    data-slot="summary-item"
-    {...(numeric ? { 'data-numeric': '' } : {})}
+const SummaryItem = ({ className, label, children, note, action, numeric = false, kind = 'text', ...props }:
+  Omit<React.ComponentProps<'div'>, 'children'> & {
+    label: React.ReactNode; children: React.ReactNode; note?: React.ReactNode; action?: React.ReactNode
+    numeric?: boolean; kind?: 'text' | 'path'
+  }) => {
+  const panel = useContext(SummarySurface) === 'panel'
+  return <div data-slot="summary-item" {...(numeric ? { 'data-numeric': '' } : {})}
     {...(kind === 'path' ? { 'data-kind': 'path' } : {})}
-    className={cn(
-      'col-span-full grid grid-cols-subgrid gap-x-(--hd-space-6) gap-y-(--hd-space-0-5) p-(--hd-inset-row)',
-      'border-b-(length:--hd-border-width) border-[color:var(--hd-card-divider,var(--hd-border))] last:border-b-0',
-      className,
-    )}
-    {...props}
-  >
-    <dt className={cn(KEY_CLASS, 'min-w-20 @max-md/summary:col-span-full @max-md/summary:pb-0!', ON_ACTION_LINE)}>{label}</dt>
+    className={cn('col-span-full grid grid-cols-subgrid gap-y-(--hd-space-0-5)',
+      panel ? 'py-(--hd-space-2) border-b-(length:--hd-border-width) border-(--hd-border) last:border-b-0' : 'p-(--hd-inset-row) gap-x-(--hd-space-6) border-b-(length:--hd-border-width) border-[color:var(--hd-card-divider,var(--hd-border))] last:border-b-0', className)} {...props}>
+    <dt className={cn(KEY_CLASS, !panel && 'min-w-20 @max-md/summary:col-span-full @max-md/summary:pb-0!', !panel && ON_ACTION_LINE)}>{label}</dt>
     <dd className="col-span-2 m-0 grid min-w-0 grid-cols-subgrid">
-      <div
-        data-slot="summary-value"
-        className={cn(
-          'min-w-0 break-words text-(--hd-foreground)',
-          numeric ? 'text-right tabular-nums' : 'text-left',
-          /* With no action of its own, the value takes the action's column
-             too, so a figure lines up with the ends of the actions above it. */
-          action == null && 'col-span-2',
-          ON_ACTION_LINE,
-        )}
-      >
+      <div data-slot="summary-value" className={cn('min-w-0 break-words text-(--hd-foreground)',
+        numeric ? panel ? 'text-left tabular-nums' : 'text-right tabular-nums' : 'text-left',
+        action == null && 'col-span-2', !panel && ON_ACTION_LINE)}>
         {valueOf(children, kind)}
-        {note != null && (
-          <p data-slot="summary-note" className="m-0 mt-(--hd-space-0-5) text-left text-(--hd-secondary-foreground)">
-            {note}
-          </p>
-        )}
+        {note != null && <p data-slot="summary-note" className="m-0 mt-(--hd-space-0-5) text-left text-(--hd-secondary-foreground)">{note}</p>}
       </div>
-      {action != null && (
-        <div data-slot="summary-action" className="col-start-2 flex min-w-0 items-start justify-end gap-(--hd-space-2)">
-          {action}
-        </div>
-      )}
+      {action != null && <div data-slot="summary-action" className="col-start-2 flex min-w-0 items-start justify-end gap-(--hd-space-2)">{action}</div>}
     </dd>
   </div>
-)
+}
 
 export { KeyValue, KeyValueRow, MiddleTruncate, SummaryItem, SummaryList }

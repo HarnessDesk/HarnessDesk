@@ -1,4 +1,4 @@
-import { Children, type ComponentProps, type ReactNode } from 'react'
+import { Children, createContext, useContext, type ComponentProps, type ReactNode } from 'react'
 
 import { AlertIcon, InfoIcon, ShieldOffIcon } from '../../components/Icons'
 import { PopoverGroupLabel } from './Popover'
@@ -7,6 +7,7 @@ import { Button } from '../ui/button'
 import { IconTile } from '../ui/icon-tile'
 import { Progress } from '../ui/progress'
 import type { Tint } from '../ui/tone'
+import { InfoCardBody, type InfoFact, type InfoNote } from './InfoCard'
 
 /**
  * Who an agent is, in one card.
@@ -78,6 +79,7 @@ export type AgentCardAction = {
   readonly onSelect: () => void
   /** At most one. The verb a reader who opened this card most likely wants. */
   readonly primary?: boolean
+  readonly disabled?: boolean | string
 }
 
 /**
@@ -158,6 +160,7 @@ export type AgentCardSubject = {
     readonly name: string
     /** Drawn by the caller as the shared ceiling chip; this pattern owns no ceiling vocabulary. */
     readonly ceiling: ReactNode
+    readonly ceilingText: string
     readonly description?: string | null
     /** "In storefront", "Yours", "Built in". */
     readonly origin?: string | null
@@ -198,7 +201,7 @@ export type AgentCardSubject = {
     /** The band's heading, and the control's accessible name: "Messages". */
     readonly label: string
     readonly value: string
-    readonly options: readonly { readonly value: string; readonly label: string }[]
+    readonly options: readonly { readonly value: string; readonly label: string; readonly disabled?: boolean | string }[]
     readonly onChange: (next: string) => void
   } | null
   readonly actions?: readonly AgentCardAction[]
@@ -291,7 +294,11 @@ export const CardBand = ({ label, children, className }: { label?: string; child
   </div>
 )
 
+export const AgentCardModeContext = createContext<'full' | 'facts'>('full')
+
 export const AgentCard = ({ subject }: { subject: AgentCardSubject }) => {
+  const mode = useContext(AgentCardModeContext)
+  if (mode === 'facts') return <InfoCardBody title={subject.name} rows={agentFacts(subject)} notes={agentNotes(subject)} meter={subject.meter ? { label: subject.meter.label, value: subject.meter.left, max: subject.meter.of, tone: subject.meter.tone, reading: subject.meter.reading } : undefined} />
   const { agent = null, running, meter, on, cautions = [], choice = null, actions = [] } = subject
   /* Earned, band by band. `running` can arrive as an object with every field
      empty — a session the renderer has never opened knows the harness and
@@ -527,3 +534,21 @@ export const MemberName = ({
     </span>}
   </span>
 )
+
+export const agentFacts = (subject: AgentCardSubject): InfoFact[] => [
+  ...(subject.also ? [{ id: 'also', label: 'Also', value: subject.also }] : []),
+  ...(subject.identity ? [{ id: 'identity', label: 'Account', value: subject.identity, kind: 'path' as const }] : []),
+  ...(subject.agent ? [{ id: 'agent', label: 'Agent', value: subject.agent.name }, { id: 'ceiling', label: 'Ceiling', value: subject.agent.ceilingText }, ...(subject.agent.origin ? [{ id: 'origin', label: 'Origin', value: subject.agent.origin }] : []), ...(subject.agent.seat ? [{ id: 'seat', label: 'Seated on', value: subject.agent.seat }] : [])] : []),
+  ...(subject.running?.model ? [{ id: 'model', label: 'Model', value: subject.running.model }] : []),
+  ...(subject.running?.version ? [{ id: 'version', label: 'Version', value: subject.running.version }] : []),
+  ...(subject.running?.state ? [{ id: 'state', label: 'State', value: subject.running.state }] : []),
+  ...(subject.meter ? [{ id: 'meter', label: subject.meter.label, value: subject.meter.reading }] : []),
+  ...(subject.on?.title ? [{ id: 'task', label: 'On', value: `${subject.on.taskId ? `${subject.on.taskId} · ` : ''}${subject.on.title}` }] : []),
+  ...(subject.on?.where ? [{ id: 'where', label: 'Folder', value: subject.on.where, kind: 'path' as const }] : []),
+  ...(subject.choice ? [{ id: 'choice', label: subject.choice.label, value: subject.choice.options.find(option => option.value === subject.choice!.value)?.label ?? subject.choice.value }] : []),
+]
+export const agentNotes = (subject: AgentCardSubject): InfoNote[] => [
+  ...(subject.agent?.description ? [subject.agent.description] : []),
+  ...(subject.agent?.passedOver ?? []).map(line => `Passed over ${line}`),
+  ...(subject.cautions ?? []).map(caution => ({ text: caution.text, tone: caution.tone === 'quiet' ? 'neutral' as const : caution.tone })),
+]

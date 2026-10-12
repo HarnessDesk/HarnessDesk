@@ -1,5 +1,10 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Locator } from '@playwright/test'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
+
+const chooseBoardView = async (pane: Locator, label: 'Board' | 'List') => {
+  await pane.locator('[data-slot="top-bar"]').getByRole('button', { name: 'View', exact: true }).click()
+  await pane.page().getByRole('menuitem', { name: label, exact: true }).click()
+}
 
 for (const theme of ['light', 'dark'] as const) {
   for (const evidence of ['pending', 'failed']) {
@@ -23,10 +28,10 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html?board-list')
     const pane = page.locator('[data-frame-id="board-list-page"]')
-    await pane.getByRole('radio', { name: 'List', exact: true }).click()
+    await chooseBoardView(pane, 'List')
     const table = pane.getByRole('table', { name: 'Jobs' })
     await expect(table.locator('tbody tr')).toHaveCount(4)
-    await expect(pane.getByRole('button', { name: 'All 4', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(pane.getByRole('tab', { name: 'All 4', exact: true })).toHaveAttribute('aria-selected', 'true')
     await expect(table.locator('tbody tr').first()).toContainText('Choose the target')
     await page.evaluate(() => document.fonts.ready)
     const geometry = await pane.evaluate(root => {
@@ -34,7 +39,7 @@ for (const theme of ['light', 'dark'] as const) {
       const rect = table.getBoundingClientRect()
       const pane = root.getBoundingClientRect()
       return {
-        titleEdge: root.querySelector('[data-slot=view-bar] > div')!.getBoundingClientRect().left,
+        titleEdge: root.querySelector('tbody td')!.getBoundingClientRect().left + parseFloat(getComputedStyle(root.querySelector('tbody td')!).paddingLeft),
         jobEdge: root.querySelector('thead th')!.getBoundingClientRect().left + parseFloat(getComputedStyle(root.querySelector('thead th')!).paddingLeft),
         head: root.querySelector('thead')!.getBoundingClientRect().height,
         rows: [...root.querySelectorAll('tbody tr')].map(row => row.getBoundingClientRect().height),
@@ -68,14 +73,14 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(reveal).toHaveCSS('opacity', '0')
     await table.locator('tbody tr').first().hover({ position: { x: 10, y: 10 } })
     await expect(reveal).toHaveCSS('opacity', '1')
-    await pane.locator('[data-slot=view-bar]').click({ position: { x: 150, y: 22 } })
+    await table.getByRole('columnheader').first().click()
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.HD_BOARD_LIST_FRAMES) {
       await pane.screenshot({ path: `${process.env.HD_BOARD_LIST_FRAMES}/list-${theme}.png` })
     }
-    await pane.getByRole('button', { name: 'Needs you 2', exact: true }).click()
+    await pane.getByRole('tab', { name: 'Needs you 2', exact: true }).click()
     await expect(table.locator('tbody tr')).toHaveCount(2)
-    await pane.getByRole('button', { name: 'All 4', exact: true }).click()
+    await pane.getByRole('tab', { name: 'All 4', exact: true }).click()
     await pane.getByRole('searchbox', { name: 'Filter jobs', exact: true }).fill('Retry the checkout')
     await expect(table.locator('tbody tr')).toHaveCount(1)
     await pane.getByRole('searchbox', { name: 'Filter jobs', exact: true }).fill('no matching job')
@@ -88,7 +93,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.getByRole('switch', { name: 'Changes', exact: true }).click()
     await expect(table.getByRole('columnheader', { name: 'Changes', exact: true })).toHaveCount(0)
     await page.keyboard.press('Escape')
-    await pane.getByRole('radio', { name: 'Board', exact: true }).click()
+    await chooseBoardView(pane, 'Board')
     await expect(pane.locator('[data-slot="board-card"]')).toHaveCount(4)
     if (process.env.HD_BOARD_LIST_FRAMES) {
       await pane.screenshot({ path: `${process.env.HD_BOARD_LIST_FRAMES}/board-${theme}.png` })
@@ -107,7 +112,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html?board-list&evidence=none')
     const pane = page.locator('[data-frame-id="board-list-page"]')
-    await pane.getByRole('radio', { name: 'List', exact: true }).click()
+    await chooseBoardView(pane, 'List')
     const stopped = pane.locator('[data-job="2"]').getByRole('button', { name: 'Put back in play', exact: true })
     const finished = pane.locator('[data-job="1"]').getByRole('button', { name: 'Put back in play', exact: true })
     const stoppedLeft = (await stopped.boundingBox())!.x
@@ -122,7 +127,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html?board-list&evidence=none')
     const pane = page.locator('[data-frame-id="board-list-page"]')
-    await pane.getByRole('radio', { name: 'List', exact: true }).click()
+    await chooseBoardView(pane, 'List')
     await page.evaluate(() => document.fonts.ready)
     if (process.env.HD_BOARD_LIST_FRAMES) {
       await pane.screenshot({ path: `${process.env.HD_BOARD_LIST_FRAMES}/list-900-${theme}.png` })
@@ -163,7 +168,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme: theme })
       await page.goto('/preview.html?board-list')
       const pane = page.locator('[data-frame-id="board-list-page"]')
-      await pane.getByRole('radio', { name: 'List', exact: true }).click()
+      await chooseBoardView(pane, 'List')
       await page.evaluate(() => document.fonts.ready)
       const frame = pane.locator('[data-slot="table-container"]')
       const bounds = await frame.boundingBox()
@@ -189,7 +194,7 @@ for (const theme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme: theme })
       await page.goto(`/preview.html?board-list&evidence=${evidence}`)
       const pane = page.locator('[data-frame-id="board-list-page"]')
-      await pane.getByRole('radio', { name: 'List', exact: true }).click()
+      await chooseBoardView(pane, 'List')
       const banner = pane.getByRole(evidence === 'failed' ? 'alert' : 'status')
       await expect(banner).toBeVisible()
       const left = (await banner.boundingBox())!.x
@@ -205,7 +210,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html?board-list&assignee=long')
     const pane = page.locator('[data-frame-id="board-list-page"]')
-    await pane.getByRole('radio', { name: 'List', exact: true }).click()
+    await chooseBoardView(pane, 'List')
     await page.evaluate(() => document.fonts.ready)
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.HD_BOARD_WIDTH_FRAMES) await pane.screenshot({ path: `${process.env.HD_BOARD_WIDTH_FRAMES}/assignee-900-${theme}.png` })

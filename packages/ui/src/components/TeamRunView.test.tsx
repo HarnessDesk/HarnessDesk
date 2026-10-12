@@ -1,3 +1,4 @@
+import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
 import { act, type ComponentProps } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
@@ -20,8 +21,8 @@ it('Try again retries the inspector’s failed review read and clears its warnin
   const container = document.createElement('div')
   const root = createRoot(container)
   try {
-    await act(async () => root.render(<StoreProvider store={store}><TeamRunView execution={execution} origin={null} onOpenSeat={() => {}}
-      model={runTimeline({ ...fixture, execution })} number={1} selectedRow={null} onSelect={() => {}} onRetry={retryTimeline} /></StoreProvider>))
+    await act(async () => root.render(<StoreProvider store={store}><TopBarProvider><TopBarOutlet owner="" fallback={{place:"Recorded Run",more:()=>null}} /><TeamRunView execution={execution} origin={null} onOpenSeat={() => {}}
+      model={runTimeline({ ...fixture, execution })} number={1} selectedRow={null} onSelect={() => {}} onRetry={retryTimeline} /></TopBarProvider></StoreProvider>))
     expect(container.textContent).toContain('Review details could not be read.')
     const retry = [...container.querySelectorAll('button')].find(button => button.textContent === 'Try again')!
     await act(async () => retry.click())
@@ -48,30 +49,30 @@ const mount = async (store: AppStore, props: Partial<ComponentProps<typeof TeamR
   const container = document.createElement('div')
   const root = createRoot(container)
   /** Renders the view again with other props, as a Run that moves to another Goal would. */
-  const show = (next: Partial<ComponentProps<typeof TeamRunView>> = {}) => act(async () => root.render(<StoreProvider store={store}><TeamRunView execution={fixture.execution} origin={null} onOpenSeat={() => {}}
-    model={runTimeline(fixture)} number={1} selectedRow="card-3-3" onSelect={() => {}} {...props} {...next} /></StoreProvider>))
+  const show = (next: Partial<ComponentProps<typeof TeamRunView>> = {}) => act(async () => root.render(<StoreProvider store={store}><TopBarProvider><TopBarOutlet owner="" fallback={{place:"Recorded Run",more:()=>null}} /><TeamRunView execution={fixture.execution} origin={null} onOpenSeat={() => {}}
+    model={runTimeline(fixture)} number={1} selectedRow="card-3-3" onSelect={() => {}} {...props} {...next} /></TopBarProvider></StoreProvider>))
   await show()
   return { container, show, close: () => act(() => root.unmount()) }
 }
 const sectionText = (container: HTMLElement, title: string): string =>
   [...container.querySelectorAll('section')].find(one => one.textContent?.startsWith(title))?.textContent ?? ''
 
-it('totals each recorded Seat once in the Run header rather than borrowing the Goal total', async () => {
+it('totals each recorded Seat once in the standalone Run summary rather than borrowing the Goal total', async () => {
   const store = storeWith(snapshot => ({ runtimes: snapshot.runtimes.map(runtime => ({ ...runtime,
     capabilities: { ...runtime.capabilities, metered: true } })) }))
-  const view = await mount(store)
+  const view = await mount(store, {selectedRow:"run"})
   try {
-    expect(view.container.querySelector('[data-slot="run-facts"]')!.textContent).toContain('Seat cost $0.85')
+    expect(view.container.querySelector('[data-slot="run-inspector"]')!.textContent).toContain('$0.85')
   } finally { view.close() }
 })
 
-it('qualifies the header cost when a Run Seat has no recorded usage', async () => {
+it('qualifies the standalone summary cost when a Run Seat has no recorded usage', async () => {
   const fixture = runFixture('complete')
   const execution = { ...fixture.execution, rounds: fixture.execution.rounds.map((round, index) =>
     index === 0 ? { ...round, seats: [...round.seats, 'unrecorded-seat'] } : round) }
-  const view = await mount(storeWith(), { execution, model: runTimeline({ ...fixture, execution }) })
+  const view = await mount(storeWith(), { execution, selectedRow:"run", model: runTimeline({ ...fixture, execution }) })
   try {
-    expect(view.container.querySelector('[data-slot="run-facts"]')!.textContent).toContain('Seat cost 96 turns · Partial')
+    expect(view.container.querySelector('[data-slot="run-inspector"]')!.textContent).toContain('96 turns · Partial')
   } finally { view.close() }
 })
 
@@ -297,18 +298,20 @@ it('does not call a card’s findings none while more of them remain to be read'
 })
 
 const flowing = { flow: <p data-testid="the-flow">The drawing</p> }
-const choice = (container: HTMLElement, name: string): HTMLButtonElement =>
-  [...container.querySelectorAll<HTMLButtonElement>('[role="radiogroup"][aria-label="Show the Run as"] [role="radio"]')].find(one => one.textContent === name)!
+const choice = (container: HTMLElement, name: string): { click: () => Promise<void> } => ({click: async () => {
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="view"] button')!.click())
+  await act(async () => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent === name)!.click())
+}})
 it('gives the Flow the whole pane: the inspector steps aside on the Flow tab and returns with the timeline', async () => {
   const view = await mount(storeWith(), flowing)
   try {
     expect(view.container.querySelector('[data-slot="run-inspector"]')).not.toBeNull()
-    expect(view.container.textContent).toContain('Run details')
-    await act(async () => choice(view.container, 'Flow').click())
+    expect(view.container.querySelector('[data-slot="run-header"]')).toBeNull()
+    await choice(view.container, 'Flow').click()
     expect(view.container.querySelector('[data-testid="the-flow"]')).not.toBeNull()
     expect(view.container.querySelector('[data-slot="run-inspector"]')).toBeNull()
-    expect(view.container.textContent).toContain('Run details')
-    await act(async () => choice(view.container, 'Timeline').click())
+    expect(view.container.querySelector('[data-slot="run-header"]')).toBeNull()
+    await choice(view.container, 'Timeline').click()
     expect(view.container.querySelector('[data-testid="the-flow"]')).toBeNull()
     expect(view.container.querySelector('[data-slot="run-inspector"]')).not.toBeNull()
   } finally { view.close() }
@@ -326,7 +329,7 @@ it('answers to a caller that chooses the tab, and keeps the pane its own while i
   try {
     expect(view.container.querySelector('[data-testid="the-flow"]')).not.toBeNull()
     expect(view.container.querySelector('[data-slot="run-inspector"]')).toBeNull()
-    await act(async () => choice(view.container, 'Timeline').click())
+    await choice(view.container, 'Timeline').click()
     expect(onView).toHaveBeenCalledWith('timeline')
     // The caller has not moved the tab, so neither has the pane.
     expect(view.container.querySelector('[data-testid="the-flow"]')).not.toBeNull()
@@ -366,8 +369,8 @@ const mountScene = async (scene: 'running' | 'person', store: AppStore, props: P
   const container = document.createElement('div')
   document.body.append(container)
   const root = createRoot(container)
-  await act(async () => root.render(<StoreProvider store={store}><TeamRunView execution={fixture.execution} origin={null} onOpenSeat={() => {}}
-    model={runTimeline(fixture)} number={1} selectedRow={scene === 'person' ? 'person-4-4' : 'card-4-4'} onSelect={() => {}} {...props} /></StoreProvider>))
+  await act(async () => root.render(<StoreProvider store={store}><TopBarProvider><TopBarOutlet owner="" fallback={{place:"Recorded Run",more:()=>null}} /><TeamRunView execution={fixture.execution} origin={null} onOpenSeat={() => {}}
+    model={runTimeline(fixture)} number={1} selectedRow={scene === 'person' ? 'person-4-4' : 'card-4-4'} onSelect={() => {}} {...props} /></TopBarProvider></StoreProvider>))
   return { container, close: () => { act(() => root.unmount()); container.remove() } }
 }
 const press = (label: string, within: ParentNode = document.body) =>

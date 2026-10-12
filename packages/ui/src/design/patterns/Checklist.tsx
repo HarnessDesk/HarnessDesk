@@ -35,15 +35,17 @@ export const Checklist = ({
   className,
   label,
   ordered = false,
+  surface = 'default',
 }: {
   children: ReactNode
   className?: string
   label?: string
   ordered?: boolean
+  surface?: 'default' | 'panel'
 }) => {
   const List = ordered ? 'ol' : 'ul'
   return (
-    <List className={cn(styles.list, className)} data-slot="checklist" {...(label ? { 'aria-label': label } : {})}>
+    <List className={cn(styles.list, className)} data-slot="checklist" data-surface={surface} {...(label ? { 'aria-label': label } : {})}>
       {children}
     </List>
   )

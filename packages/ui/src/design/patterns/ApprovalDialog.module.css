@@ -203,8 +203,7 @@
 }
 
 .shortcut {
-  opacity: 0.7;
-  font-size: var(--hd-text-xs);
+  margin-inline-start: var(--hd-space-1);
 }
 
 @container hd-approval (max-width: 460px) {

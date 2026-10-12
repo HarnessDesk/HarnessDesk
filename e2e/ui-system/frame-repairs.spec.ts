@@ -4,6 +4,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 import { FRAME } from '../../packages/ui/src/design/frame'
 import { WALL_THEMES, WALL_TIME, WALL_WIDTHS } from './frame-wall-destinations'
+import { selectTeamDestination } from './team-frame-actions'
 
 const openTeam = async (page: Page, theme: 'light' | 'dark', width: number, tab: string) => {
   await page.clock.setFixedTime(WALL_TIME)
@@ -14,7 +15,9 @@ const openTeam = async (page: Page, theme: 'light' | 'dark', width: number, tab:
   await page.route('**/src/preview/frames-frame-wall.tsx*', async route => {
     const response = await route.fetch()
     const source = await response.text()
-    const body = source.replace(/overviewTeamStore\(["']running["']\)/g, `(() => {
+    // Target the actual team route. Replacing a separate running fixture
+    // helper leaves the displayed Team without the round under test.
+    const body = source.replace(/(case ["']team["']:\s*return showing\()overviewTeamStore\([^\n]*?\)(?=,)/, `$1(() => {
       const store = overviewTeamStore("findings-and-posting");
       const snapshot = store.getSnapshot();
       for (const [id, run] of snapshot.flowExecutions) snapshot.flowExecutions.set(id, { ...run,
@@ -26,7 +29,7 @@ const openTeam = async (page: Page, theme: 'light' | 'dark', width: number, tab:
     await route.fulfill({ response, body })
   })
   await page.goto(`/preview.html?frame-wall=team&theme=${theme}`)
-  await page.locator(`[data-team-page="${tab}"]`).first().click()
+  await selectTeamDestination(page.locator('[data-slot="fixed-shell"]'), tab)
   await page.evaluate(() => document.fonts.ready)
 }
 

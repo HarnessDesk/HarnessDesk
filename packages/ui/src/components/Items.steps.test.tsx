@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import type { AgentItem } from '@harnessdesk/protocol'
+import { itemId, type AgentItem } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
@@ -149,4 +149,14 @@ describe('step sentences', () => {
     expect(titles()[0]?.closest('button')?.title).toBe('src/checkout/retry.ts')
     expect(titles()[2]?.closest('button')?.title).toBe('src/checkout/retry.ts')
   })
+})
+
+it('uses past tense for a completed directory listing and present tense while it runs', () => {
+  const command = { id: itemId('listing-state'), type: 'command' as const, command: 'ls -la', cwd: '/w/storefront',
+    origin: 'agent' as const, actions: [{ type: 'listFiles' as const, command: 'ls -la', path: '/w/storefront' }] }
+  render([{ ...command, status: 'inProgress' } as AgentItem])
+  expect(container.textContent).toContain('Listing files in storefront')
+  expect(container.textContent).not.toContain('Listed')
+  render([{ ...command, status: 'completed', exitCode: 0 } as AgentItem])
+  expect(container.textContent).toContain('Listed files in storefront')
 })

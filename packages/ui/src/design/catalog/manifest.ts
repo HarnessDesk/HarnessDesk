@@ -1,6 +1,6 @@
 export type CatalogCategory = 'Foundation' | 'Primitives' | 'Patterns' | 'Product Surfaces' | 'Boundary'
-export type CatalogVariant = 'barless' | 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'section' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'summary' | 'start' | 'end'
-export type CatalogSize = 'stack' | 'default' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'fill' | 'icon-circle' | 'log-row' | 'bare' | 'composer' | 'sidebar-nav' | 'paragraphs'
+export type CatalogVariant = 'barless' | 'default' | 'secondary' | 'outline' | 'ghost' | 'floating' | 'danger' | 'destructive' | 'link' | 'soft' | 'solid' | 'vertical' | 'horizontal' | 'single' | 'multiple' | 'light' | 'dark' | 'row' | 'navigation' | 'choice' | 'quiet' | 'muted' | 'warning' | 'reveal' | 'subtle' | 'primary' | 'action' | 'filled' | 'chrome' | 'code' | 'editor' | 'inline' | 'composer' | 'border' | 'separator' | 'card' | 'plain' | 'panel' | 'integrated' | 'flush' | 'framed' | 'bordered' | 'tinted' | 'line' | 'section' | 'remaining' | 'ring' | 'stack' | 'sticky' | 'workbench' | 'page' | 'summary' | 'start' | 'end' | 'bare'
+export type CatalogSize = 'stack' | 'default' | 'wrap' | 'xs' | 'sm' | 'lg' | 'compact' | 'icon' | 'icon-xs' | 'icon-sm' | 'icon-label' | 'icon-lg' | 'content' | 'content-min' | 'inline-link' | 'pattern' | 'chip' | 'inline' | 'panel' | 'row' | 'navigation' | 'navigation-edge' | 'fill' | 'icon-circle' | 'log-row' | 'bare' | 'composer' | 'sidebar-nav' | 'paragraphs'
 export type CatalogState = 'default' | 'hover' | 'focus-visible' | 'disabled' | 'checked' | 'unchecked' | 'indeterminate' | 'selected' | 'unselected' | 'open' | 'closed' | 'loading' | 'empty' | 'populated' | 'error' | 'success' | 'warning' | 'active' | 'inactive' | 'collapsed' | 'expanded' | 'stale' | 'unknown' | 'derived' | 'draft' | 'merged' | 'passed' | 'failed' | 'running' | 'skipped' | 'timed out' | 'editing' | 'empty-edit' | 'recoverable' | 'memory-only' | 'image-warning' | 'trailing-glyph-rest' | 'trailing-glyph-action' | 'working' | 'needs-you' | 'pinned' | 'worktree' | 'folder-gone' | 'long-title' | 'room-folded' | 'room-expanded' | 'more-sessions' | 'other-projects' | 'filtered' | 'menu-open' | 'folded-state' | 'nested-rail'
 
 export type CatalogEntry = {
@@ -22,6 +22,10 @@ export type CatalogEntry = {
 type ModuleSeed = readonly [name: string, exampleId: string, purpose: string]
 
 const EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  'popup-inbox': 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  'subject-actions': 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  'info-card': 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  'wide-menu': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   'app-frame': 'packages/ui/src/design/explorer/boards-compositions.tsx',
   button: 'packages/ui/src/design/explorer/boards.tsx',
   control: 'packages/ui/src/design/explorer/boards.tsx',
@@ -54,6 +58,7 @@ const EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   propagation: 'packages/ui/src/design/explorer/Explorer.tsx',
   tools: 'packages/ui/src/design/explorer/Explorer.tsx',
   'tool-pane': 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  'popup-menu': 'packages/ui/src/design/explorer/boards-compositions.tsx',
 }
 
 const PRIMITIVE_CONSUMER: Readonly<Record<string, string>> = {
@@ -108,7 +113,7 @@ const TABLE_CONSUMERS = [
 const KEY_VALUE_CONSUMERS = [
   'packages/ui/src/components/TeamRoomPane.tsx',
   'packages/ui/src/components/TriggerSettings.tsx',
-  'packages/ui/src/components/ContextUsage.tsx',
+  'packages/ui/src/components/AgentAttachments.tsx',
   'packages/ui/src/components/GitPane.tsx',
 ] as const
 
@@ -155,9 +160,9 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'radio-group', 'resize-handle', 'scroll-area', 'select', 'separator', 'sortable-list',
   'spark', 'stepper', 'timeline', 'timeline-cards', 'table', 'toast', 'tool-pane', 'tooltip',
   'Settings', 'ModalDialog', 'DialogForm', 'ApprovalDialog', 'ConfirmDialog', 'Lightbox', 'Menu',
-  'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'PublicationCard', 'ActionError', 'AppWindow', 'Change', 'RefusedAction',
+  'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'TerminalShellTabs', 'PublicationCard', 'ActionError', 'Change', 'RefusedAction',
   'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist', 'FlowGraph', 'FlowCanvas', 'FlowStepRow',
-  'heat-grid', 'PlanCard', 'SidebarMenuState',
+  'heat-grid', 'PlanCard', 'SidebarMenuState', 'CommandPalette',
   'SettingsRowMenu', 'HeaderStatusGroup',
 ])
 
@@ -167,8 +172,26 @@ const compoundCoverageExemption = (name: string, exampleId: string): string | un
     : undefined
 
 const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
+  CommandPalette: ['default'],
+  SignInRail: ['default'],
+  DashboardBands: ['light', 'dark'],
+  LibraryMatrix: ['default'],
+  PageControls: ['default'],
+  PageRecords: ['default'],
+  PageOptions: ['default'],
+  SettingsChoices: ['default'],
+  MainDestination: ['light', 'dark'],
+  InboxMenu: ['default'],
+  SubjectActionsMenu: ['default'],
+  InfoCard: ['default'],
+  WideMenu: ['default'],
+
+  TopBar: ['light', 'dark'],
+  SeatList: ['light', 'dark'],
+  FixedShell: ['light', 'dark'],
+  ToolBody: ['light', 'dark'],
+  ToolFooter: ['light', 'dark'],
   Page: ['light', 'dark'],
-  ViewBar: ['light', 'dark'],
   GitComparisonDialogs: ['default'],
   ComparisonNotice: ['default'],
   ComparisonDecision: ['default'],
@@ -200,7 +223,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   'group-label': ['default'],
   'hover-card': ['default'],
   'icon-tile': ['default'],
-  input: ['default', 'quiet', 'filled', 'chrome', 'code'],
+  input: ['default', 'quiet', 'bare', 'filled', 'chrome', 'code'],
   'input-group': ['default'],
   'key-value': ['default', 'panel', 'summary'],
   label: ['default'],
@@ -246,9 +269,9 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   CodeBlock: ['default'],
   CopyButton: ['default'],
   DockPanel: ['default', 'workbench'],
+  TerminalShellTabs: ['default'],
   PublicationCard: ['default'],
   ActionError: ['default'],
-  AppWindow: ['default'],
   Change: ['default'],
   RefusedAction: ['default'],
   InspectorPanel: ['default'],
@@ -267,11 +290,32 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   UsageMeterRow: ['default', 'barless'],
   SidebarMenuState: ['default'],
   SettingsRowMenu: ['default'],
+  LeftColumn: ['light', 'dark'],
+  ComposerTrack: ['default'],
+  'menu-row': ['default'],
 }
 
 const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
+  CommandPalette: ['default'],
+  SignInRail: ['default'],
+  DashboardBands: ['default', 'empty', 'unknown', 'long-title'],
+  LibraryMatrix: ['populated', 'empty', 'long-title'],
+  PageControls: ['default', 'disabled'],
+  PageRecords: ['default', 'populated', 'long-title', 'folded-state'],
+  PageOptions: ['default', 'loading', 'folded-state'],
+  SettingsChoices: ['populated', 'unknown', 'selected'],
+  MainDestination: ['default', 'open', 'closed'],
+  InboxMenu: ['default'],
+  SubjectActionsMenu: ['default'],
+  InfoCard: ['default'],
+  WideMenu: ['default'],
+
+  SeatList: ['default', 'populated', 'disabled', 'long-title'],
+  FixedShell: ['default', 'open', 'closed', 'folded-state'],
+  ToolBody: ['default', 'empty', 'populated', 'editing'],
+  ToolFooter: ['default', 'empty', 'populated'],
+  TopBar: ['default', 'disabled', 'filtered', 'folded-state', 'long-title'],
   Page: ['default'],
-  ViewBar: ['default'],
   GitComparisonDialogs: ['default'],
   ComparisonNotice: ['default', 'needs-you', 'empty'],
   ComparisonDecision: ['default', 'disabled'],
@@ -344,13 +388,13 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   Menu: ['closed', 'open', 'selected', 'disabled'],
   Popover: ['closed', 'open'],
   DockPanel: ['expanded', 'collapsed'],
+  TerminalShellTabs: ['default'],
   ChannelMessage: ['default', 'loading', 'success', 'error'],
   AgentCard: ['default', 'active', 'inactive', 'loading'],
   CodeBlock: ['default', 'error'],
   CopyButton: ['default'],
   PublicationCard: ['default', 'open', 'draft', 'merged', 'closed', 'passed', 'failed', 'running', 'skipped', 'timed out'],
   ActionError: ['error'],
-  AppWindow: ['default'],
   Change: ['default', 'selected', 'warning', 'error'],
   RefusedAction: ['disabled', 'focus-visible'],
   InspectorPanel: ['default', 'selected', 'empty', 'running'],
@@ -378,6 +422,9 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   PlanCard: ['empty', 'derived', 'populated', 'warning', 'error'],
   UsageMeterRow: ['default', 'warning', 'error', 'unknown'],
   SettingsRowMenu: ['closed', 'open'],
+  LeftColumn: ['default', 'selected', 'disabled', 'long-title'],
+  ComposerTrack: ['default', 'folded-state'],
+  'menu-row': ['default'],
 }
 
 const DEFAULT_SIZE = ['default'] as const
@@ -385,7 +432,11 @@ const SIZES: Record<string, readonly CatalogSize[]> = Object.fromEntries(
   Object.keys(VARIANTS).map((name) => [name, DEFAULT_SIZE]),
 )
 Object.assign(SIZES, {
-  button: ['default', 'xs', 'sm', 'sidebar-nav', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'log-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'fill', 'icon-circle'],
+  InboxMenu: ['default'],
+  SubjectActionsMenu: ['default'],
+  InfoCard: ['default'],
+  WideMenu: ['default'],
+  button: ['default', 'wrap', 'xs', 'sm', 'sidebar-nav', 'icon-label', 'icon', 'icon-xs', 'icon-sm', 'content', 'content-min', 'inline-link', 'log-row', 'pattern', 'chip', 'inline', 'panel', 'row', 'navigation', 'navigation-edge', 'fill', 'icon-circle'],
   card: ['default', 'compact'],
   input: ['default', 'compact', 'bare', 'row'],
   attachment: ['sm', 'default', 'lg'],
@@ -396,18 +447,37 @@ Object.assign(SIZES, {
   textarea: ['default', 'compact', 'composer', 'paragraphs'],
   'toggle-group': ['default', 'sm', 'lg'],
   sidebar: ['sm', 'default', 'lg'],
+  LeftColumn: ['default'],
 } satisfies Partial<Record<string, readonly CatalogSize[]>>)
 
 const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
+  SignInRail: 'packages/ui/src/components/SignIn.tsx',
+  DashboardBands: 'packages/ui/src/components/Usage.tsx',
+  LibraryMatrix: 'packages/ui/src/components/Library.tsx',
+  PageControls: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  PageRecords: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  PageOptions: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  SettingsChoices: 'packages/ui/src/components/SettingsYou.tsx',
+  MainDestination: 'packages/ui/src/panels/Workbench.tsx',
+  InboxMenu: 'packages/ui/src/design/patterns/Notices.tsx',
+  SubjectActionsMenu: 'packages/ui/src/components/TeamRoomPane.tsx',
+  InfoCard: 'packages/ui/src/components/ContextUsage.tsx',
+  WideMenu: 'packages/ui/src/components/PlanMeters.tsx',
+
+  SeatList: 'packages/ui/src/components/TeamRoomPane.tsx',
+  FixedShell: 'packages/ui/src/panels/Workbench.tsx',
+  ToolBody: 'packages/ui/src/panels/work-details.tsx',
+  ToolFooter: 'packages/ui/src/panels/Workbench.tsx',
+  TopBar: 'packages/ui/src/panels/top-bar.tsx',
   Page: 'packages/ui/src/components/GoalFindings.tsx',
-  ViewBar: 'packages/ui/src/components/GoalFindings.tsx',
   GitComparisonDialogs: 'packages/ui/src/components/ComparisonActions.tsx',
   ComparisonNotice: 'packages/ui/src/components/ComparisonVerdict.tsx',
   ComparisonDecision: 'packages/ui/src/components/ComparisonActions.tsx',
   ComparisonSummary: 'packages/ui/src/components/TeamRoomPane.tsx',
-  HeaderStatusGroup: 'packages/ui/src/components/Conversation.tsx',
+  HeaderStatusGroup: 'packages/ui/src/design/patterns/Popover.tsx',
   Settings: 'packages/ui/src/components/Settings.tsx',
   ModalDialog: 'packages/ui/src/components/Settings.tsx',
+  CommandPalette: 'packages/ui/src/components/CommandPalette.tsx',
   DialogForm: 'packages/ui/src/components/SaveAsAgent.tsx',
   ApprovalDialog: 'packages/ui/src/components/Approvals.tsx',
   ConfirmDialog: 'packages/ui/src/components/Settings.tsx',
@@ -419,9 +489,9 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   CodeBlock: 'packages/ui/src/components/Items.tsx',
   CopyButton: 'packages/ui/src/components/MessageActions.tsx',
   DockPanel: 'packages/ui/src/panels/Workbench.tsx',
+  TerminalShellTabs: 'packages/ui/src/panels/Workbench.tsx',
   PublicationCard: 'packages/ui/src/components/Publication.tsx',
   ActionError: 'packages/ui/src/components/BranchSwitcher.tsx',
-  AppWindow: 'packages/ui/src/components/AppWindow.tsx',
   Change: 'packages/ui/src/components/GitPane.tsx',
   RefusedAction: 'packages/ui/src/components/ComposerControls.tsx',
   InspectorPanel: 'packages/ui/src/components/Panel.tsx',
@@ -437,9 +507,29 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   UsageMeterRow: 'packages/ui/src/components/SettingsAgents.tsx',
   SidebarMenuState: 'packages/ui/src/components/SessionTree.tsx',
   SettingsRowMenu: 'packages/ui/src/components/Settings.tsx',
+  LeftColumn: 'packages/ui/src/preview/frames-left-column.tsx',
 }
 
+// Append the production adoption without rewriting the shared seed registry.
+Object.assign(PATTERN_CONSUMER, { LeftColumn: 'packages/ui/src/components/Sidebar.tsx' })
+Object.assign(PATTERN_CONSUMER, { ComposerTrack: 'packages/ui/src/components/ComposerControls.tsx' })
+
 const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
+  CommandPalette: 'packages/ui/src/preview/frames-transcript.tsx',
+  SignInRail: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  DashboardBands: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  LibraryMatrix: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  PageControls: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  PageRecords: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  PageOptions: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  SettingsChoices: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  MainDestination: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+
+  SeatList: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  FixedShell: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  ToolBody: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  ToolFooter: 'packages/ui/src/design/explorer/boards-compositions.tsx',
+  TopBar: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   GitComparisonDialogs: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   ComparisonNotice: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   ComparisonDecision: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -451,6 +541,7 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
      playground, which drove the same model with coloured rectangles standing
      in for every feature. */
   DockPanel: 'packages/ui/src/panels/Workbench.tsx',
+  TerminalShellTabs: 'packages/ui/src/panels/Workbench.tsx',
   ApprovalDialog: 'packages/ui/src/design/explorer/boards.tsx',
   Notices: 'packages/ui/src/design/explorer/boards.tsx',
   Checklist: 'packages/ui/src/design/explorer/boards.tsx',
@@ -466,7 +557,6 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   CopyButton: 'packages/ui/src/design/explorer/boards.tsx',
   PublicationCard: 'packages/ui/src/design/explorer/boards.tsx',
   ActionError: 'packages/ui/src/design/explorer/boards.tsx',
-  AppWindow: 'packages/ui/src/design/explorer/boards.tsx',
   Change: 'packages/ui/src/design/explorer/boards.tsx',
   RefusedAction: 'packages/ui/src/design/explorer/boards.tsx',
   InspectorPanel: 'packages/ui/src/design/explorer/boards-compositions.tsx',
@@ -476,7 +566,9 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   PlanCard: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   UsageMeterRow: 'packages/ui/src/design/explorer/boards-compositions.tsx',
   SettingsRowMenu: 'packages/ui/src/design/explorer/boards.tsx',
+  LeftColumn: 'packages/ui/src/design/explorer/boards-compositions.tsx',
 }
+Object.assign(PATTERN_EXAMPLE_CONSUMER, { ComposerTrack: 'packages/ui/src/preview/composer-slots-content.tsx' })
 
 const variantsFor = (name: string): readonly CatalogVariant[] => {
   const variants = VARIANTS[name]
@@ -585,9 +677,22 @@ export const CANONICAL_UI_MODULES = [
   ['tone', 'foundation', 'Typed semantic tone mapping'],
   ['heat-grid', 'chart', 'Calendar heatmap: quartile levels, a keyboard-walked cursor, its own tooltip'],
   ['tooltip', 'adopted', 'Accessible hover and focus help'],
+  ['menu-row', 'popup-menu', 'Shared row presentation used by Menu and vendored adapters'],
 ] as const satisfies readonly ModuleSeed[]
 
 export const CANONICAL_PATTERN_MODULES = [
+  ['CommandPalette', 'conversation', 'Fixed search surface, title-led results and a keyboard-hint footer'],
+  ['DashboardBands', 'dashboard-bands', 'Recorded plan, spend and activity readings through canonical page blocks'],
+  ['MainDestination', 'main-destination', 'Retained work and visited pages share one main region'],
+  ['InboxMenu', 'popup-inbox', 'Kept messages and their actions through the wide-menu contract'],
+  ['SubjectActionsMenu', 'subject-actions', 'Existing action callbacks and Messages choices outside facts'],
+  ['InfoCard', 'info-card', 'Facts only on hover or focus, suppressed while any menu is open'],
+  ['WideMenu', 'wide-menu', 'Search, long names, aligned usage and footer in one bounded surface'],
+  ['SeatList', 'seat-list', 'SeatList presentation owned by the fixed shell'],
+  ['FixedShell', 'fixed-shell', 'FixedShell presentation owned by the fixed shell'],
+  ['ToolBody', 'tool-body', 'ToolBody presentation owned by the fixed shell'],
+  ['ToolFooter', 'tool-footer', 'ToolFooter presentation owned by the fixed shell'],
+  ['TopBar', 'top-bar', 'TopBar presentation owned by the fixed shell'],
   ['GitComparisonDialogs', 'git-comparison-dialogs', 'Shared merge and revision-diff questions for Changes and Side by side'],
   ['ComparisonDecision', 'comparison-decision', 'A recorded comparison recommendation and the person merge, compare and keep actions'],
   ['ComparisonSummary', 'comparison-summary', 'The confirmed merge receipt in the Side by side reading column'],
@@ -608,9 +713,9 @@ export const CANONICAL_PATTERN_MODULES = [
   ['CodeBlock', 'code', 'Verbatim command and output plate'],
   ['CopyButton', 'code', 'The one copy control'],
   ['DockPanel', 'panels', 'Docked panel chrome and actions'],
+  ['TerminalShellTabs', 'panels', 'Persistent shell tabs and panel actions'],
   ['PublicationCard', 'conversation', 'Published plan and artifact card'],
   ['ActionError', 'banner', 'Failure and reason for an action just taken'],
-  ['AppWindow', 'app-window', 'Full-window destination chrome and plates'],
   ['Change', 'git', 'File state, change counts and patch anatomy'],
   ['RefusedAction', 'propagation', 'Keyboard-reachable disabled-action explanation'],
   ['InspectorPanel', 'tool-pane', 'Right-hand inspector anatomy'],
@@ -620,12 +725,19 @@ export const CANONICAL_PATTERN_MODULES = [
   ['Checklist', 'checklist', 'An agent plan: steps to do, under way and done'],
   ['FlowCanvas', 'flow-canvas', 'A lazy, controlled plan canvas: pan, zoom, selection, edits and read-only Run state slots'],
   ['FlowGraph', 'flow-graph', 'A Flow’s steps and rules drawn read-only, with the list that says the same'],
-  ['FlowStepRow', 'flow-graph', 'Shared Flow and Run dock step rows with kind, recorded state, time and run count'],
+  ['FlowStepRow', 'flow-graph', 'Shared Flow and main Run Timeline step rows with kind, recorded state, time and run count'],
+  ['SignInRail', 'sign-in-rail', 'Sign-in navigation on the shared sidebar ground'],
+  ['PageRecords', 'page-records', 'Responsive grouped records with aligned facts and isolated row actions'],
+  ['PageControls', 'page-controls', 'Labelled page fields, complete explanations and shortcut keys'],
+  ['LibraryMatrix', 'library-matrix', 'Availability columns, inline copies and per-agent catalogue costs'],
+  ['PageOptions', 'page-options', 'Current page choices and read actions in the first body block'],
+  ['SettingsChoices', 'settings-choices', 'Picture, accent and account ring choices with preserved radio behavior'],
   ['Page', 'app-frame', 'The page template at its reading, wide and canvas measures'],
-  ['ViewBar', 'app-frame', 'A view summary and its actions at the page gutter'],
   ['PaneColumn', 'conversation', 'The reading column\'s inset, shared by the transcript and the room stream, plus the bars strip, the jobs strip and the rail'],
   ['PlanCard', 'plan-card', 'A plan\'s price and a key or metered account\'s monthly budget, set once from a suggested price'],
   ['UsageMeterRow', 'usage-meter-row', 'A shared name, remaining meter, percentage and reset countdown'],
+  ['LeftColumn', 'left-column', 'One column row, group edge, top and seat in both modes'],
+  ['ComposerTrack', 'composer', 'Content-sized selected-value tracks that fold with the composer toolbar'],
 ] as const satisfies readonly ModuleSeed[]
 
 /**
@@ -692,7 +804,7 @@ export const CATALOG_ENTRIES: readonly CatalogEntry[] = [
     states: ['default', 'selected', 'populated', 'empty', 'loading', 'error', 'disabled'],
     examples: ['packages/ui/src/preview/frames-run-inspector.tsx', 'packages/ui/src/preview/frames-review-publication.tsx'],
     consumers: ['packages/ui/src/components/RunWorkspace.tsx'],
-    coverageExemption: 'RunInspector has no CVA contract; recorded content and pushed detail geometry are checked in run-inspector.spec.ts, and a check\'s attempts and refused Run again… in run-check-again.spec.ts.',
+    coverageExemption: 'RunInspector has no CVA contract; recorded content and standalone detail geometry are checked in run-inspector.spec.ts, and a check\'s attempts and refused Run again… in run-check-again.spec.ts.',
     visual: true,
   },
   {
@@ -833,20 +945,6 @@ export const CATALOG_ENTRIES: readonly CatalogEntry[] = [
     examples: ['packages/ui/src/design/explorer/boards-compositions.tsx'],
     consumers: ['packages/ui/src/panels/Workbench.tsx'],
     coverageExemption: 'WindowControls is a specialized app-chrome component with no CVA contract; its shown and counted panel states are on the panel-controls board.',
-    visual: true,
-  },
-  {
-    id: 'component.PanelActions',
-    category: 'Patterns',
-    implementationPath: 'packages/ui/src/panels/PanelActions.tsx',
-    purpose: 'Docked view movement and split feasibility',
-    exampleId: 'panel-controls',
-    variants: ['default'],
-    sizes: ['default'],
-    states: ['default', 'disabled'],
-    examples: ['packages/ui/src/design/explorer/boards-compositions.tsx'],
-    consumers: ['packages/ui/src/panels/Workbench.tsx'],
-    coverageExemption: 'PanelActions is a specialized workbench component with no CVA contract; its split refusal function and production MenuItem props are on the panel-controls board.',
     visual: true,
   },
   ...PRODUCT_SURFACES.map(([id, exampleId, purpose, implementationPath, catalogOnly, consumer, surface]): CatalogEntry => ({

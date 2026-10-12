@@ -1,4 +1,8 @@
-import { act } from 'react'
+import { installTopBarTestLayout } from '../test/top-bar-layout'
+import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
+import { act, useState, type ReactNode } from 'react'
+import { DestinationPageScope } from '../panels/destination-page'
+import { flushSync } from 'react-dom'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
@@ -23,6 +27,8 @@ import { AgentsRosterSection } from './AgentRoster'
  * and their state on this Mac, what it hands back, and its brief — with
  * starting it, customizing it and removing it.
  */
+installTopBarTestLayout()
+
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let container: HTMLDivElement
@@ -42,7 +48,7 @@ const agent = (id: string, name: string, origin: AgentEntry['origin'], over: Par
   origin,
   path:
     origin === 'user'
-      ? `/Users/dev/.harnessdesk/agents/${id}/AGENT.md`
+      ? `/home/dev/.harnessdesk/agents/${id}/AGENT.md`
       : origin === 'project'
         ? `/w/storefront/.harnessdesk/agents/${id}/AGENT.md`
         : `/app/agents/${id}/AGENT.md`,
@@ -145,11 +151,11 @@ const PLANS = new Map<string, SeatPlan>([
   ],
 ])
 
-const COPY: AgentEntry = { ...ROSTER[2]!, origin: 'user', path: '/Users/dev/.harnessdesk/agents/judge/AGENT.md' }
+const COPY: AgentEntry = { ...ROSTER[2]!, origin: 'user', path: '/home/dev/.harnessdesk/agents/judge/AGENT.md' }
 
 const SEATING: MachineSeating = {
   revision: 1,
-  path: '/Users/dev/.harnessdesk/seating.json',
+  path: '/home/dev/.harnessdesk/seating.json',
   entries: [{ id: 'code-reviewer', seats: [{ runtime: 'codex' }, { runtime: 'claude-code' }] }],
   problems: [],
 }
@@ -162,8 +168,8 @@ const snapshotFor = (seating: MachineSeating): AppSnapshot =>
   ({
     ...emptySnapshot(),
     status: 'open',
-    home: '/Users/dev',
-    stateDir: '/Users/dev/.harnessdesk',
+    home: '/home/dev',
+    stateDir: '/home/dev/.harnessdesk',
     workspace: { path: '/w/storefront', name: 'storefront', lastOpenedAt: 1 },
     runtimes: [{ id: runtimeId('claude-code'), capabilities: {}, presentation: { name: 'Claude' } } as unknown as RuntimeInfo],
     agents: ROSTER,
@@ -178,6 +184,7 @@ const storeFor = (snapshot: AppSnapshot, overrides: Record<string, unknown> = {}
     getSnapshot: () => snapshot,
     loadAgents: vi.fn(async () => {}),
     openFile: vi.fn(),
+    returnToWork: vi.fn(),
     revealAgent: vi.fn(async () => {}),
     customizeAgent: vi.fn(async () => COPY),
     trashAgent: vi.fn(async () => {}),
@@ -226,15 +233,23 @@ const storeFor = (snapshot: AppSnapshot, overrides: Record<string, unknown> = {}
     ...overrides,
   }) as unknown as AppStore
 
+const AgentTestScope = ({ children, active = true }: { readonly children: ReactNode; readonly active?: boolean }) => <TopBarProvider>
+  <DestinationPageScope owner="destination:agents" active={active}>{children}</DestinationPageScope>
+  <TopBarOutlet owner="destination:agents" fallback={{ place: 'Agents', more: () => null }} />
+</TopBarProvider>
+const RosterTest = ({ focus = null }: { readonly focus?: string | null }) => {
+  const [selected, setSelected] = useState(focus)
+  return <AgentsRosterSection focus={selected} onFocus={setSelected} />
+}
 const mount = ({ seating = SEATING, ...props }: { readonly focus?: string; readonly seating?: MachineSeating } = {}) => {
-  const onLeave = vi.fn()
   const snapshot = snapshotFor(seating)
   const store = storeFor(snapshot)
+  const onLeave = vi.mocked(store.returnToWork)
   act(() => {
     root.render(
-      <StoreProvider store={store}>
-        <AgentsRosterSection {...props} onLeave={onLeave} />
-      </StoreProvider>,
+      <StoreProvider store={store}><AgentTestScope>
+        <RosterTest key={props.focus ?? 'roster'} {...props} />
+      </AgentTestScope></StoreProvider>,
     )
   })
   return { store, onLeave }
@@ -242,11 +257,22 @@ const mount = ({ seating = SEATING, ...props }: { readonly focus?: string; reado
 
 const button = (label: string): HTMLButtonElement => {
   const found = [...document.body.querySelectorAll('button')].find((one) => one.textContent?.trim() === label)
-  if (!found) throw new Error(`no button reading “${label}”`)
-  return found
+  if (found) return found
+  const more = document.querySelector<HTMLButtonElement>('[data-topbar="more"] button')
+  if (more) flushSync(() => more.click())
+  const item = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent?.trim() === label)
+  if (!item) throw new Error(`no action reading “${label}”`)
+  return item as HTMLButtonElement
 }
-const hasButton = (label: string): boolean =>
-  [...document.body.querySelectorAll('button')].some((one) => one.textContent?.trim() === label)
+const hasButton = (label: string): boolean => {
+  if ([...document.body.querySelectorAll('button')].some(one => one.textContent?.trim() === label)) return true
+  const more = document.querySelector<HTMLButtonElement>('[data-topbar="more"] button')
+  if (!more) return false
+  flushSync(() => more.click())
+  const exists = [...document.querySelectorAll('[role="menuitem"]')].some(one => one.textContent?.trim() === label)
+  act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
+  return exists
+}
 const rowFor = (name: string): HTMLButtonElement => {
   const found = [...container.querySelectorAll('button')].find((one) => one.textContent?.startsWith(name))
   if (!found) throw new Error(`no roster row for ${name}`)
@@ -265,7 +291,7 @@ it('opens from its roster row, names its file, and opens or reveals it', () => {
   const { store, onLeave } = mount()
   act(() => rowFor('Judge').click())
   expect(container.querySelector('[data-slot="page-title"]')).toBeNull()
-  expect(hasButton('Agents')).toBe(true)
+  expect(hasButton('Agents ›')).toBe(true)
   const text = container.textContent ?? ''
   expect(text).toContain('Judge does the work.')
   expect(text).toContain('HarnessDesk › agents/judge/AGENT.md')
@@ -287,8 +313,8 @@ it('names a project Agent’s File relative to the project, since the header alr
 it('opens on the Agent Settings was asked for, and goes back to the roster', () => {
   mount({ focus: 'scout' })
   expect(container.textContent).toContain('Scout does the work.')
-  act(() => button('Agents').click())
-  expect(container.querySelector('[data-slot="page-title"]')?.textContent).toBe('Agents')
+  act(() => button('Agents ›').click())
+  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Agents')
 })
 
 it('says its ceiling and lists each seat with its state here and the fix for one that fails', () => {
@@ -345,18 +371,19 @@ it('opens on the brief’s first paragraph, and opens the rest in the editor', (
   expect(onLeave).toHaveBeenCalled()
 })
 
-it('starts a conversation as it, and leaves the window once one is open', async () => {
+it('starts a conversation as it without a second return-to-work after store selection', async () => {
   const { store, onLeave } = mount({ focus: 'judge' })
   act(() => button('Start a conversation as Judge').click())
   await settle()
   expect(store.startAsAgent).toHaveBeenCalledWith('judge')
-  expect(onLeave).toHaveBeenCalled()
+  expect(onLeave).not.toHaveBeenCalled()
 })
 
 it('customizes a built-in into yours or the project’s, then opens the copy', async () => {
   const { store, onLeave } = mount({ focus: 'judge' })
   expect(hasButton('Remove…')).toBe(false)
   act(() => button('Customize…').click())
+  expect(document.querySelector('[data-slot="dialog-footer-actions"] button')?.hasAttribute('data-filled')).toBe(true)
   const choices = [...document.body.querySelectorAll('[role="radio"]')].map((one) => one.textContent ?? '')
   expect(choices[0]).toContain('For storefront')
   expect(choices[1]).toContain('For you')
@@ -366,6 +393,23 @@ it('customizes a built-in into yours or the project’s, then opens the copy', a
   expect(store.customizeAgent).toHaveBeenCalledWith('judge', 'builtin', 'user')
   expect(store.openFile).toHaveBeenCalledWith(COPY.path)
   expect(onLeave).toHaveBeenCalled()
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+})
+
+it.each([
+  ['judge', 'Customize…'],
+  ['judge', 'Add a seat…'],
+  ['scout', 'Remove…'],
+] as const)('dismisses %s %s on page deactivation and keeps it closed on return', async (id, action) => {
+  const store = storeFor(snapshotFor(SEATING))
+  const render = (active: boolean) => act(async () => root.render(<StoreProvider store={store}><AgentTestScope active={active}><AgentPage entry={ROSTER.find(entry => entry.id === id)!} onBack={() => {}} /></AgentTestScope></StoreProvider>))
+  await render(true)
+  await act(async () => button(action).click())
+  expect(document.querySelector('[role="dialog"], [role="alertdialog"]')).not.toBeNull()
+  await render(false)
+  expect(document.querySelector('[role="dialog"], [role="alertdialog"]')).toBeNull()
+  await render(true)
+  expect(document.querySelector('[role="dialog"], [role="alertdialog"]')).toBeNull()
 })
 
 it('removes one of yours to the Trash, after asking, and goes back to the roster', async () => {
@@ -374,14 +418,12 @@ it('removes one of yours to the Trash, after asking, and goes back to the roster
   act(() => button('Move to Trash').click())
   await settle()
   expect(store.trashAgent).toHaveBeenCalledWith('scout', 'user')
-  expect(container.querySelector('[data-slot="page-title"]')?.textContent).toBe('Agents')
+  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Agents')
 })
 
-it('Remove… lives in its own Danger section at the foot of the page, never alone under the title, and its confirm is explicitly destructive', async () => {
+it('Remove… lives in More and its confirm is explicitly destructive', async () => {
   mount({ focus: 'scout' })
-  expect(section('Danger')).toContain('Remove…')
-  // The button that reads "Remove…" is the Danger section's own, not a loose one under the head.
-  expect(button('Remove…').closest('section[aria-label="Danger"]')).not.toBeNull()
+  // More owns the destructive action; confirmation keeps its existing refusal guards.
 
   act(() => button('Remove…').click())
   expect(document.body.querySelector('[role="alertdialog"] [data-tone]')?.getAttribute('data-tone')).toBe('destructive')
@@ -631,9 +673,9 @@ it('a seat carried from the keyboard keeps its focus across a slow write, and is
   })
   act(() => {
     root.render(
-      <StoreProvider store={store}>
-        <AgentsRosterSection focus="code-reviewer" onLeave={() => {}} />
-      </StoreProvider>,
+      <StoreProvider store={store}><AgentTestScope>
+        <RosterTest focus="code-reviewer" />
+      </AgentTestScope></StoreProvider>,
     )
   })
   await settle()
@@ -732,14 +774,14 @@ it('two pages editing one Agent refuse the stale page, reload it, and show the r
     root.render(
       <>
         <div data-page="first">
-          <StoreProvider store={firstStore}>
-            <AgentPage entry={ROSTER[0]!} onBack={() => {}} onLeave={() => {}} />
-          </StoreProvider>
+          <StoreProvider store={firstStore}><AgentTestScope>
+            <AgentPage entry={ROSTER[0]!} onBack={() => {}} />
+          </AgentTestScope></StoreProvider>
         </div>
         <div data-page="stale">
-          <StoreProvider store={staleStore}>
-            <AgentPage entry={ROSTER[0]!} onBack={() => {}} onLeave={() => {}} />
-          </StoreProvider>
+          <StoreProvider store={staleStore}><AgentTestScope>
+            <AgentPage entry={ROSTER[0]!} onBack={() => {}} />
+          </AgentTestScope></StoreProvider>
         </div>
       </>,
     )
@@ -773,6 +815,7 @@ it('adds a seat chosen in words to the end of this Mac’s list', async () => {
   act(() => button('Add a seat…').click())
   await settle()
   expect(store.modelsFor).toHaveBeenCalledWith('claude-code')
+  expect(document.querySelector('[data-slot="dialog-footer-actions"] button')?.hasAttribute('data-filled')).toBe(true)
   choose('Model', 'opus-5')
   choose('Effort', 'high')
   act(() => button('Add seat').click())
@@ -876,7 +919,7 @@ it('only an editable flagged Agent offers Update…, and it opens from the Ceili
   })
   const snapshot = { ...snapshotFor(SEATING), agents: [explicit], agentPlans: new Map() } as AppSnapshot
   const store = storeFor(snapshot)
-  act(() => root.render(<StoreProvider store={store}><AgentPage entry={explicit} onBack={() => {}} onLeave={() => {}} /></StoreProvider>))
+  act(() => root.render(<StoreProvider store={store}><AgentTestScope><AgentPage entry={explicit} onBack={() => {}} /></AgentTestScope></StoreProvider>))
   expect(section('Ceiling')).not.toContain('Update…')
 })
 
@@ -916,9 +959,9 @@ it('a successful update removes the flag, and project navigation closes an old p
     }),
   })
   act(() => root.render(
-    <StoreProvider store={store}>
-      <AgentsRosterSection focus="code-reviewer" />
-    </StoreProvider>,
+    <StoreProvider store={store}><AgentTestScope>
+      <RosterTest focus="code-reviewer" />
+    </AgentTestScope></StoreProvider>,
   ))
 
   act(() => button('Update…').click())
@@ -967,7 +1010,7 @@ it('a migrated Agent’s ceiling offers Edit… beside the legacy Update…, thr
   }))
   const applyAuthoringSave = vi.fn(async () => ({ state: 'applied', written: [migrated.path], message: 'Saved.' }))
   const store = storeFor(snapshot, { previewAgentEdit, applyAuthoringSave })
-  act(() => root.render(<StoreProvider store={store}><AgentPage entry={migrated} onBack={() => {}} onLeave={() => {}} /></StoreProvider>))
+  act(() => root.render(<StoreProvider store={store}><AgentTestScope><AgentPage entry={migrated} onBack={() => {}} /></AgentTestScope></StoreProvider>))
 
   // Nothing to update: this Agent already reads `ceiling:`.
   expect(section('Ceiling')).not.toContain('Update…')
@@ -1007,7 +1050,7 @@ it('Seats’ own Edit… opens the same authoring path for prefer, and a legacy-
       ? { token: 'prefer-tok', edits: [{ path: ROSTER[0]!.path, before: 'prefer: []', after: 'prefer: [claude-code]' }], issues: [], resuming: false }
       : { token: null, edits: [], issues: [{ at: 'ceiling', text: 'This Agent still says permission:, which is read differently from a ceiling.', fix: 'Update it to a ceiling from the Agent page first, then change it here.' }], resuming: false })
   const store = storeFor(snapshotFor(SEATING), { previewAgentEdit })
-  act(() => root.render(<StoreProvider store={store}><AgentsRosterSection focus="code-reviewer" /></StoreProvider>))
+  act(() => root.render(<StoreProvider store={store}><AgentTestScope><RosterTest focus="code-reviewer" /></AgentTestScope></StoreProvider>))
 
   const editSeats = await vi.waitFor(() => {
     const found = [...container.querySelectorAll<HTMLButtonElement>('section[aria-label="Seats"] button')].find((one) => one.textContent?.trim() === 'Edit…')
@@ -1058,12 +1101,13 @@ const higher = (ceiling: 'edit' | 'merge', holds: readonly string[], unheld: 'se
     } as unknown as RuntimeInfo],
   } as unknown as AppSnapshot
   const store = storeFor(snapshot, { loadUnheldCeilings: vi.fn(async () => unheld) })
-  const onLeave = vi.fn()
+  const onLeave = vi.mocked(store.returnToWork)
   act(() => {
     root.render(
-      <StoreProvider store={store}>
-        <AgentPage entry={entry} onBack={() => {}} onLeave={onLeave} />
-      </StoreProvider>,
+      <StoreProvider store={store}><AgentTestScope>
+        <AgentPage entry={entry} onBack={() => {}} />
+
+      </AgentTestScope></StoreProvider>,
     )
   })
   return { store, onLeave }
@@ -1091,7 +1135,7 @@ it('an Agent above edit can be started at a higher ceiling by choice, says how e
   act(() => confirmButton().click())
   await settle()
   expect(store.startAsAgent).toHaveBeenCalledWith('judge', { ceiling: 'merge' })
-  expect(onLeave).toHaveBeenCalled()
+  expect(onLeave).not.toHaveBeenCalled()
 })
 
 it('a level its runtime can only be asked to keep says so, and is offered only while this Mac seats such a ceiling', async () => {

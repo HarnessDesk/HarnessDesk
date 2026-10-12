@@ -27,7 +27,7 @@ export interface RoundCardsContext {
   readonly selectedRow: string | null
   readonly selectedRows?: readonly string[] | undefined
   readonly onSelect: (id: string) => void
-  readonly onAgain: (row: RunTimelineRow) => void
+  readonly onAgain?: (row: RunTimelineRow) => void
   /** What a working card's Seat is doing now, held while it is between lines. */
   readonly doingOf: (row: RunTimelineRow) => string | null
 }
@@ -36,7 +36,7 @@ const short = (revision: string): string => revision.slice(0, 7)
 const QUIET = ['Done', 'Abandoned', 'Stopped', 'Waiting', 'Result unavailable']
 
 /** A document the card committed, once the checkout has said what it was; nothing is drawn before then or when it was not one. */
-const CommittedDocumentBlock = ({ change }: { change: RunChange }) => {
+export const CommittedDocumentBlock = ({ change }: { change: RunChange }) => {
   const found = useCommittedDocument(change)
   return found === null ? null : <TimelineDocument icon={<FileIcon size={13} aria-hidden />} path={sanitizeText(found.path)}
     meta={<>committed at <CodeText>{short(change.revision)}</CodeText> · {new TextEncoder().encode(found.text).length} bytes</>}>
@@ -65,11 +65,11 @@ const Card = ({ row, attempts, context }: { row: RunTimelineRow; attempts: reado
   }
 
   if (row.kind === 'check') {
-    const again = row.retryRefusal === null && row.card !== null
+    const again = Boolean(context.onAgain) && row.retryRefusal === null && row.card !== null
     const facts = [status, time, publication].filter(Boolean)
     return <TimelineCard {...props} lead={<IconTile size="sm"><CheckIcon /></IconTile>}
       name={<span title={sanitizeText(row.title)}>{sanitizeText(commandShown(row.title, home))}</span>} meta={row.on ? `on ${row.on}` : undefined}
-      actions={again ? <Button variant="link" size="xs" onClick={() => context.onAgain(row)}>Run again…</Button> : undefined}
+      actions={again ? <Button variant="link" size="xs" onClick={() => context.onAgain?.(row)}>Run again…</Button> : undefined}
       footer={facts.length ? <>{facts.map((fact, index) => <Fragment key={index}>{fact}</Fragment>)}</> : undefined}>
       {attempts.length ? <div className="flex flex-col gap-1">{attempts.map(one => <span key={one.id} data-row={one.id} data-kind="attempt" className="flex flex-wrap items-center gap-2">
         <Text role="meta">{sanitizeText(one.title)}</Text>

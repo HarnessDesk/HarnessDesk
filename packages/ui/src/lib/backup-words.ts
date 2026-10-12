@@ -24,12 +24,12 @@ const unreadableIn = (backup: BackupFile): number =>
 
 export const exportedSentence = (backup: BackupFile): string => {
   const left = unreadableIn(backup)
-  return `Exported ${count(backup.agents.length, 'runtime')}, ${count(backup.agentFolders?.length ?? 0, 'Agent')} of yours, ${count(backup.transcripts.length, 'conversation')} and ${count(recordsIn(backup), 'record')} of what the desk observed.${left > 0 ? ` ${count(left, 'record')} this build cannot read ${left === 1 ? 'was' : 'were'} left out.` : ''}`
+  return `Exported ${count(backup.agents.length, 'runtime')}, ${count(backup.agentFolders?.length ?? 0, 'Agent')} of yours, ${count(backup.transcripts.length, 'conversation')} and ${count(recordsIn(backup), 'record')} of seats and work evidence.${left > 0 ? ` ${count(left, 'record')} this build cannot read ${left === 1 ? 'was' : 'were'} left out.` : ''}`
 }
 
 export const restoredSentence = (report: BackupReport): string => {
   const here =
     report.agents.skipped + report.transcripts.skipped + report.agentFolders.skipped + report.evidence.duplicate
   const { refused, failed } = report.evidence
-  return `Restored ${count(report.agents.restored, 'runtime')}, ${count(report.agentFolders.restored, 'Agent')}, ${count(report.seating.restored, 'seat choice')}, ${count(report.preferences, 'preference')}, ${count(report.transcripts.restored, 'conversation')} and ${count(report.evidence.restored, 'record')} of what the desk observed.${here > 0 ? ` ${here} already here or newer, left alone.` : ''}${refused > 0 ? ` ${count(refused, 'record')} refused: this desk could not read ${refused === 1 ? 'it' : 'them'}, or a backup may not write ${refused === 1 ? 'it' : 'them'} here.` : ''}${failed > 0 ? ` ${count(failed, 'record')} could not be written.` : ''}`
+  return `Restored ${count(report.agents.restored, 'runtime')}, ${count(report.agentFolders.restored, 'Agent')}, ${count(report.seating.restored, 'seat choice')}, ${count(report.preferences, 'preference')}, ${count(report.transcripts.restored, 'conversation')} and ${count(report.evidence.restored, 'record')} of seats and work evidence.${here > 0 ? ` ${here} already here or newer, left alone.` : ''}${refused > 0 ? ` ${count(refused, 'record')} refused: this desk could not read ${refused === 1 ? 'it' : 'them'}, or a backup may not write ${refused === 1 ? 'it' : 'them'} here.` : ''}${failed > 0 ? ` ${count(failed, 'record')} could not be written.` : ''}`
 }

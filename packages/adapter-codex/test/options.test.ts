@@ -518,3 +518,12 @@ test('reasoning levels and speed tiers declare no model status', () => {
     assert.ok(options.every((option) => option.modelStatus === undefined))
   }
 })
+
+test('permission profiles from configuration have a named group and keep their state', () => {
+  const option = byId(sessionOptions({ ...state, permissions: 'ci' }, catalog), 'permissions')
+  assert.ok(option.type === 'select')
+  assert.equal(option.currentValue, 'ci')
+  const profile = option.choices.find(choice => choice.value === 'ci')!
+  assert.equal(profile.group, 'Profiles')
+  assert.equal(profile.description, 'From the project')
+})

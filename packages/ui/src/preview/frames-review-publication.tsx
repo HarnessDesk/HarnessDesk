@@ -1,16 +1,20 @@
+import type { ComponentProps } from 'react'
+import { RunFramePreview } from './RunFramePreview'
 import { useMemo, useState } from 'react'
 import type { FindingPublicationsView, FindingRunView } from '@harnessdesk/protocol'
 import { RunWorkspace } from '../components/RunWorkspace'
 import { FindingRoundStatus } from '../components/FindingRoundStatus'
 import { TeamOverview } from '../components/TeamOverview'
 import { TeamsWindow } from '../components/TeamsWindow'
-import { AppWindowMode } from '../components/AppWindow'
+import { PagePreview } from './page-preview'
 import { runTimeline } from '../lib/run-timeline'
 import { teamOverview } from '../lib/team-overview'
 import { StoreProvider } from '../state/context'
 import { previewStore } from './harness'
 import { runFixture, runTeamStore } from './run-view-fixture'
 import { overviewInput } from './team-overview-fixture'
+
+const CatalogueRunWorkspace = (props: ComponentProps<typeof RunWorkspace>) => <RunFramePreview {...props} facts />
 
 export const REVIEW_PUBLICATION_STATES = ['posted', 'pending', 'partial', 'uncertain', 'local', 'kept', 'unbound', 'none', 'empty-release', 'missing-round', 'refused', 'narrow'] as const
 type Scene = typeof REVIEW_PUBLICATION_STATES[number]
@@ -61,7 +65,7 @@ const fixture = (scene: Scene) => {
 export const ReviewPublicationExample = ({ scene }: { scene: Scene }) => {
   const { input, store } = useMemo(() => fixture(scene), [scene])
   const [selected, setSelected] = useState<string | null>(scene === 'narrow' ? null : scene === 'empty-release' ? 'check-2-2' : 'card-3-3')
-  return <StoreProvider store={store}><RunWorkspace model={runTimeline(input)} number={1} selectedRow={selected} onSelect={setSelected}
+  return <StoreProvider store={store}><CatalogueRunWorkspace model={runTimeline(input)} number={1} selectedRow={selected} onSelect={setSelected}
     inspector={{ input, seats: [{ id: 'seat-1', name: 'Beta', cost: { unit: 'turns', value: 4, estimated: false }, onOpen: () => {} }],
       reviewActions: { goal: input.execution.goal, run: input.execution.id, stamp: input.findingRun.stamp } }} /></StoreProvider>
 }
@@ -83,7 +87,7 @@ const PublicationSurfaces = ({ prefix }: { prefix?: string }) => {
     <section id={prefix ? `${prefix}-overview` : undefined} data-catalog-state="overview"><TeamOverview model={overview} runReason={input.findingRun.reason} /></section>
     <section id={prefix ? `${prefix}-summary` : undefined} data-catalog-state="summary"><FindingRoundStatus view={input.findingRun} /></section>
     <section id={prefix ? `${prefix}-teams` : undefined} data-catalog-state="teams" className="relative h-144" style={{ transform: 'translateZ(0)' }}>
-      <StoreProvider store={store}><AppWindowMode.Provider value="embedded"><TeamsWindow initialFilter="needs-you" onClose={() => {}} /></AppWindowMode.Provider></StoreProvider>
+      <div className="h-full"><PagePreview fixture={store} page={{kind:'teams',filter:'needs-you'}} /></div>
     </section>
   </>
 }

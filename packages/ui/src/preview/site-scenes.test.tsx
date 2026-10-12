@@ -15,11 +15,14 @@ let root: Root
 let host: HTMLDivElement
 const message = (data: unknown) => window.dispatchEvent(new MessageEvent('message', { data }))
 const press = async (name: string, scope: ParentNode = host) => {
-  const control = [...scope.querySelectorAll<HTMLElement>('[role="radio"], button')]
+  const control = [...scope.querySelectorAll<HTMLElement>('[role="radio"], [role="tab"], button')]
     .find(node => (node.textContent ?? '').trim() === name || node.getAttribute('aria-label') === name)
-  expect(control, name).toBeDefined()
-  await act(async () => control!.click())
-  return control!
+  if (control) { await act(async () => control.click()); return control }
+  const option = [...scope.querySelectorAll<HTMLOptionElement>('select option')].find(node => node.textContent?.trim() === name)
+  expect(option, name).toBeDefined()
+  const select = option!.parentElement as HTMLSelectElement
+  await act(async () => { select.value = option!.value; select.dispatchEvent(new Event('change', {bubbles:true})) })
+  return select
 }
 
 beforeEach(() => {
@@ -55,7 +58,7 @@ it.each(['light', 'dark'] as const)('boots focused Spend in %s and changes the c
   const before = host.innerHTML
   await press('Line')
   expect(host.innerHTML).not.toBe(before)
-  expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe('Line')
+  expect([...host.querySelectorAll('[role="radio"][aria-checked="true"], select option:checked')].find(node => ['Line','Bars','By agent'].includes(node.textContent ?? ''))?.textContent).toBe('Line')
   await press('7d')
   expect(host.textContent).toContain('Last 7 days')
   await act(async () => message({ type: 'theme', value: theme === 'light' ? 'dark' : 'light' }))
@@ -90,7 +93,7 @@ it.each(['light', 'dark'] as const)('boots focused Activity in %s and changes to
   expect(host.innerHTML).not.toBe(before)
   expect(host.querySelector('[aria-label="Tokens or cost per day, per agent, last 13 weeks"]')).not.toBeNull()
   await act(async () => { message({ type: 'visible', value: false }); vi.advanceTimersByTime(60_000) })
-  expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe('By agent')
+  expect([...host.querySelectorAll('[role="radio"][aria-checked="true"], select option:checked')].find(node => ['Line','Bars','By agent'].includes(node.textContent ?? ''))?.textContent).toBe('By agent')
   await press('Cost')
   expect(host.textContent).not.toContain('141.6B')
 })
@@ -111,13 +114,13 @@ it('changes the chart, breakdown, range, account detail and activity through rea
   const before = host.innerHTML
   await press('Line')
   expect(host.innerHTML).not.toBe(before)
-  expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe('Line')
-  await press('by model')
-  expect(host.textContent).toContain('claude-opus-5-5')
+  expect([...host.querySelectorAll('[role="radio"][aria-checked="true"], select option:checked')].find(node => ['Line','Bars','By agent'].includes(node.textContent ?? ''))?.textContent).toBe('Line')
   const breakdown = host.querySelector('section[aria-label="Where it went"]')!
+  await press('By model', breakdown)
+  expect(breakdown.textContent).toContain('claude-opus-5-5')
   expect([...breakdown.querySelectorAll('th')].map(node => node.textContent)).toEqual(['Name', 'Share'])
   expect(breakdown.textContent).toContain('Other · 34')
-  await press('by project')
+  await press('By project', breakdown)
   expect(breakdown.textContent).toContain('storefront')
   expect(breakdown.textContent).not.toContain('claude-opus-5-5')
   await press('7d')
@@ -129,18 +132,20 @@ it('changes the chart, breakdown, range, account detail and activity through rea
   expect(host.textContent).toContain('Pro')
   expect(host.textContent).toContain('Value')
   expect(host.textContent).toContain('runs out')
-  await press('By hour')
-  expect(host.querySelector('[aria-label="Tokens or calls by local weekday and hour, this year"]')).not.toBeNull()
-  await press('Calls')
-  expect(host.textContent).toContain('calls this year')
-  await press('By agent')
+  const activity = host.querySelector('section[aria-label="When it ran"]')!
+  await press('By hour', activity)
+  expect(activity.querySelector('[aria-label="Tokens or calls by local weekday and hour, last 12 months"]')).not.toBeNull()
+  await press('Calls', activity)
+  expect(activity.textContent).toContain('Calls, last 12 months')
+  await press('By agent', activity)
   expect(host.querySelector('[aria-label="Tokens or cost per day, per agent, last 13 weeks"]')).not.toBeNull()
 })
 
 it('omits the cost footer and every unscanned year hatch', async () => {
   await act(async () => root.render(<SiteScene name="dashboard" />))
   const cost = host.querySelector('section[aria-label="What it cost"]')!
-  expect(cost.textContent).not.toContain('days scanned')
+  expect(cost.querySelector('[data-slot="chart-foot"]')).toBeNull()
+  expect(cost.querySelector('[data-slot="chart-hint"]')?.textContent).toBe('30 of 30 days with usage')
   expect(cost.textContent).not.toContain('Rescan')
   const year = host.querySelector('section[aria-label="When it ran"]')!
   expect(year.querySelector('[data-state="not-scanned"]')).toBeNull()
@@ -152,10 +157,16 @@ it.each([undefined, 'reduce'] as const)('stays interactive without auto-cycling,
   await press('Line')
   await act(async () => { message({ type: 'visible', value: true }); vi.advanceTimersByTime(20_000) })
   await act(async () => { message({ type: 'visible', value: false }); vi.advanceTimersByTime(60_000) })
-  expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe('Line')
+  expect([...host.querySelectorAll('[role="radio"][aria-checked="true"], select option:checked')].find(node => ['Line','Bars','By agent'].includes(node.textContent ?? ''))?.textContent).toBe('Line')
   await press('Bars')
-  expect(host.querySelector('[role="radio"][aria-checked="true"]')?.textContent).toBe('Bars')
+  expect([...host.querySelectorAll('[role="radio"][aria-checked="true"], select option:checked')].find(node => ['Line','Bars','By agent'].includes(node.textContent ?? ''))?.textContent).toBe('Bars')
   expect(host.querySelector('[data-scene-pointer]')).toBeNull()
+})
+
+it('keeps synthetic usage accounts in distinct placeholder domains', () => {
+  const accounts = dashboardData(NOW).store.getSnapshot().usage.slice(0, 2).map(report => report.account)
+  expect(accounts.every(account => account?.endsWith('@example.com') === true)).toBe(true)
+  expect(new Set(accounts).size === accounts.length).toBe(true)
 })
 
 it('supplies a busy, consistent year and six correctly classified demo accounts', () => {
@@ -165,19 +176,22 @@ it('supplies a busy, consistent year and six correctly classified demo accounts'
     'Claude Code', 'Cursor', 'Codex', 'Gemini CLI', 'Cline', 'OpenCode', 'Antigravity CLI', 'DeepSeek',
   ])
   expect(snapshot.usage.map(report => report.account)).toEqual([
-    'shane@harnessdesk.app', 'olivia@harnessdesk.app', 'review@example.com', 'studio@example.com', null, 'api@example.com',
+    'dev@example.com', 'assistant@example.com', 'review@example.com', 'studio@example.com', null, 'api@example.com',
   ])
   const rows = planRows(snapshot.usage, NOW)
   expect(rows.map(row => row.status)).toEqual(['low', 'ready', 'ready', 'ready', 'ready', 'ready'])
   expect(Object.fromEntries(rows.map(row => [row.report.account ?? 'signed-in', row.view.hero?.remainingPercent ?? null]))).toEqual({
-    'shane@harnessdesk.app': 22, 'olivia@harnessdesk.app': 64, 'review@example.com': 93,
+    'dev@example.com': 22, 'assistant@example.com': 64, 'review@example.com': 93,
     'studio@example.com': 88, 'signed-in': 100, 'api@example.com': null,
   })
   const ledger = data.ledger(30, 'runtime')
   expect(ledger.totalCost).toBeCloseTo(27_418, 0)
   const week = periodTotals(stackDaily(ledger, NOW), [7])[0]!
-  expect(week.cost).toBeCloseTo(6_925.4, 1)
-  expect(week.change).toBeCloseTo(13.4, 1)
+  // Last seven days includes today; its still-running bucket makes this partial.
+  expect(week.cost).toBeCloseTo(6_218.8, 1)
+  expect(data.ledger(7, 'runtime').totalCost).toEqual(expect.closeTo(week.cost, 1))
+  expect(week).not.toHaveProperty('partial')
+  expect(week).not.toHaveProperty('change')
   expect(ledger.daily.filter(row => row.day === Math.max(...ledger.daily.map(day => day.day))).reduce((sum, row) => sum + row.cost, 0)).toBeCloseTo(138.4, 1)
   const year = data.ledger(365, 'runtime')
   expect(year.totalTokens).toBeCloseTo(141_600_000_000, -1)
@@ -226,14 +240,14 @@ it('gives every weekday work in every month, with lighter weekends and a gradual
 it('renders Activity facts and its busiest weekday from the fictional year', async () => {
   const cells = buildYearGrid(dashboardData(NOW).ledger(365, 'runtime'), NOW).weeks.flat().filter(cell => cell !== null)
   await act(async () => root.render(<SiteScene name="dashboard-activity" />))
-  const facts = host.querySelector('[data-slot="chart-card"]')!
-  expect(facts.children[0]?.textContent).toBe(`${formatTokens(cells.reduce((sum, cell) => sum + cell.tokens, 0))}this year`)
-  expect(facts.children[1]?.textContent).toBe(`${cells.filter(cell => cell.tokens > 0).length}active of 365 scanned`)
+  const facts = host.querySelectorAll('[data-slot="chart-card"] [data-slot="stat"]')
+  expect(facts[0]?.textContent).toBe(`Last 12 months${formatTokens(cells.reduce((sum, cell) => sum + cell.tokens, 0))}`)
+  expect(facts[1]?.textContent).toBe(`Active days${cells.filter(cell => cell.tokens > 0).length}365 days scanned`)
   const streak = streaksFor(cells, 'tokens')
-  expect(facts.children[2]?.textContent).toBe(`${streak.current} daysstreak · best ${streak.best}`)
+  expect(facts[2]?.textContent).toBe(`Streak · best ${streak.best}${streak.current} days`)
   expect(host.textContent).toContain(`Busiest on ${WEEKDAY_NAMES[busiestWeekday(cells, 'tokens')!]}s`)
   const peak = busiestDay(cells, 'tokens')!
-  expect(facts.children[3]?.textContent).toBe(`${formatTokens(peak.tokens)}${dayLabelLong(peak.day)}`)
+  expect(facts[3]?.textContent).toBe(`${dayLabelLong(peak.day)}${formatTokens(peak.tokens)}`)
   expect(leadingAgent(cells, 'tokens')).toBe('claude')
-  expect(facts.children[4]?.textContent).toBe('Claude Codedid the most')
+  expect(facts[4]?.textContent).toBe('Did the most' + dashboardData(NOW).store.getSnapshot().runtimes[0]!.presentation.name)
 })

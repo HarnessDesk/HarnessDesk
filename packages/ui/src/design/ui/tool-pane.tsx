@@ -69,7 +69,6 @@ const ToolPaneHeader = ({
   corner = false,
   variant = 'default',
   hint,
-  size = 'default',
   contentInset,
   ...props
 }: Omit<React.ComponentProps<'header'>, 'title'> & {
@@ -84,8 +83,6 @@ const ToolPaneHeader = ({
   /** Leave room for the native window controls when this pane owns the corner. */
   corner?: boolean
   variant?: 'default' | 'window'
-  /** The larger single-row toolbar uses the scale's 48px step. */
-  size?: 'default' | 'lg'
   /** Align the title with board text, a reading page, receipt content, or a framed table. */
   contentInset?: 'board' | 'page' | 'reading' | 'reading-table'
   hint?: string
@@ -103,7 +100,7 @@ const ToolPaneHeader = ({
          one off the bar in the panel beside it, which was 47 by the same
          arithmetic. */
       'flex shrink-0 items-center gap-(--hd-bar-gap) border-b border-(--hd-border)',
-      size === 'lg' ? 'h-(--hd-space-12)' : 'h-(--hd-bar-h)',
+      'h-(--hd-bar-h)',
       variant === 'default' && 'px-(--hd-bar-pad)',
       variant === 'window' && 'pr-3 pl-4',
       corner && 'pl-[max(var(--hd-space-4),var(--titlebar-inset,0px))]',
@@ -157,14 +154,14 @@ const ToolPaneBody = ({
   ...props
 }: React.ComponentProps<'div'> & {
   bleed?: boolean
-  /** `dense`: a canvas gutter (Board, graph, diff); `page`: the reading-page gutter. */
-  inset?: 'dense' | 'page'
+  /** `dense`: the canvas gutter; `page`: the reading gutter; `tool`: flat panel sections. */
+  inset?: 'dense' | 'page' | 'tool'
 }) => (
   <div
     data-slot="tool-pane-body"
     {...(bleed ? { 'data-bleed': '' } : {})}
     data-inset={inset}
-    className={cn('min-h-0 flex-1 overflow-auto', bleed ? 'p-0' : inset === 'page' ? 'p-(--hd-page-gutter)' : 'p-(--hd-inset-dense)', className)}
+    className={cn('min-h-0 flex flex-col gap-(--hd-card-gap) flex-1 overflow-auto', bleed ? 'p-0' : inset === 'tool' ? 'py-(--hd-inset-row)' : inset === 'page' ? 'p-(--hd-page-gutter)' : 'p-(--hd-inset-dense)', className)}
     {...props}
   />
 )
@@ -421,9 +418,6 @@ const ToolPaneToolGroup = ({ className, ...props }: React.ComponentProps<'div'>)
   />
 )
 
-const ToolPaneReading = ({ className, ...props }: React.ComponentProps<'div'>) => (
-  <div data-slot="tool-pane-reading" className={cn('max-w-3xl px-6 py-4', className)} {...props} />
-)
 
 /**
  * The strip of tabs a tool pane can carry.
@@ -509,7 +503,6 @@ export {
   ToolPaneHeaderDivider,
   ToolPaneMessage,
   ToolPaneNotice,
-  ToolPaneReading,
   ToolPaneStage,
   ToolPaneTab,
   ToolPaneTabIcon,

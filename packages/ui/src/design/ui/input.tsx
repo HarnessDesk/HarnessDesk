@@ -22,9 +22,15 @@ const inputVariants = cva(
       variant: {
         default: 'border-input bg-transparent dark:bg-input/30',
         quiet: 'border-transparent bg-transparent hover:bg-(--hd-hover) focus-visible:bg-(--hd-card)',
+        bare: 'border-0 bg-transparent shadow-none text-(--hd-foreground)',
         filled: 'border-(--hd-border) bg-(--hd-muted)',
         chrome: 'border-(--hd-border) bg-(--hd-card-raised)',
         code: 'border-(--hd-border-strong) bg-(--hd-card) font-mono tracking-wide',
+      },
+      measure: {
+        auto: '',
+        name: 'w-(--hd-field-name-width) max-w-full',
+        path: 'w-(--hd-field-path-width) max-w-full',
       },
       size: {
         default: 'h-(--hd-field-h)',
@@ -37,7 +43,7 @@ const inputVariants = cva(
         row: 'h-auto min-h-(--hd-nav-h) px-1.5 py-1 text-(length:--hd-text-sm) leading-(--hd-line-sm)',
       },
     },
-    defaultVariants: { variant: 'default', size: 'default' },
+    defaultVariants: { variant: 'default', size: 'default', measure: 'auto' },
   },
 )
 
@@ -45,9 +51,10 @@ type InputVariants = VariantProps<typeof inputVariants>
 type InputProps = Omit<React.ComponentProps<'input'>, 'size'> & {
   variant?: NonNullable<InputVariants['variant']>
   controlSize?: NonNullable<InputVariants['size']>
+  measure?: NonNullable<InputVariants['measure']>
 }
 
-const Input = ({ className, type, hidden, variant = 'default', controlSize = 'default', ...props }: InputProps) => (
+const Input = ({ className, type, hidden, variant = 'default', controlSize = 'default', measure = 'auto', ...props }: InputProps) => (
   <input
     type={type ?? 'text'}
     hidden={hidden}
@@ -55,7 +62,7 @@ const Input = ({ className, type, hidden, variant = 'default', controlSize = 'de
     data-variant={variant}
     data-size={controlSize}
     spellCheck={false}
-    className={cn(inputVariants({ variant, size: controlSize }), hidden && 'hidden', className)}
+    className={cn(inputVariants({ variant, size: controlSize, measure }), hidden && 'hidden', className)}
     {...props}
   />
 )

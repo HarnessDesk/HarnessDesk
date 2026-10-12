@@ -214,7 +214,7 @@ const button = (label: string): HTMLButtonElement => {
 
 /** What the pane's header says, and every hint it says on hover. */
 const headerStrip = (): { readonly text: string; readonly tooltips: readonly string[] } => {
-  const header = document.body.querySelector('header')
+  const header = document.body.querySelector('[data-slot="tool-section"][aria-label="Repository history"]')
   if (!header) throw new Error('no header')
   return {
     // `ltr` wraps the subtitle in bidi marks; the path itself is what matters.
@@ -409,7 +409,7 @@ it('writes the repository path with a tilde', async () => {
   expect(tooltips).toContain('~/work/storefront')
   expect(tooltips.some((hint) => hint.includes('/home/u'))).toBe(false)
   // The folder is still the folder — only the prefix was rewritten.
-  expect(text).toContain('History — storefront')
+  expect(text).toContain('Repository history')
 })
 
 it('leaves a repository outside home written in full', async () => {
@@ -483,13 +483,9 @@ const DIRTY: GitStatus = {
 it('the toolbar carries the client verbs, counting work to commit and push', async () => {
   await mount({ log: [commit('aaaa1111111', 'tip')], status: DIRTY })
   const bar = document.body.querySelector('[role="toolbar"]')!
-  expect(bar.textContent).toContain('Commit')
-  expect(bar.textContent).toContain('Pull')
-  expect(bar.textContent).toContain('Push')
-  expect(bar.textContent).toContain('Fetch')
-  expect(bar.textContent).toContain('Branch')
-  expect(bar.textContent).toContain('Merge')
-  expect(bar.textContent).toContain('Stash')
+  expect(bar.getAttribute('aria-label')).toBe('Repository actions')
+  expect([...bar.querySelectorAll('button')].map(one => one.getAttribute('aria-label')))
+    .toEqual(['Commit', 'Pull', 'Push', 'Fetch', 'Branch', 'Merge', 'Stash', 'Worktrees'])
   // Two dirty files on Commit, two commits ahead on Push — SourceTree's counts.
   const commitBtn = [...bar.querySelectorAll('button')].find((node) => node.textContent?.includes('Commit'))!
   expect(commitBtn.textContent).toContain('2')
@@ -553,6 +549,10 @@ it('a branch row answers with the SourceTree menu, and delete asks in red first'
   await rightClick(row)
 
   const menu = document.querySelector('[role="menu"]')!
+  expect(menu.getAttribute('data-popup-kind')).toBe('wide-menu')
+  expect(menu.getAttribute('data-menu-icons')).toBe('all')
+  expect(menu.querySelector('[title="On the branch\'s forge, in the browser."]')?.querySelector('[data-menu-hint]')).toBeNull()
+  expect(menu.querySelector('[title="On the branch\'s forge, in the browser."]')).not.toBeNull()
   expect(menu.textContent).toContain('Check out feat/graph')
   expect(menu.textContent).toContain('Merge feat/graph into main')
   expect(menu.textContent).toContain('Rebase main onto feat/graph')
@@ -602,6 +602,8 @@ it('the commit menu offers the git verbs, and cherry-pick refuses a merge', asyn
   )!
   await rightClick(row)
   const menu = document.querySelector('[role="menu"]')!
+  expect(menu.closest('[data-popup-kind]')?.getAttribute('data-menu-icons')).toBe('all')
+  expect([...menu.querySelectorAll<HTMLElement>('[data-menu-row]')].every(item => item.querySelector('[data-menu-icon]'))).toBe(true)
   expect(menu.textContent).toContain('Check out this commit…')
   expect(menu.textContent).toContain('Tag this commit…')
   expect(menu.textContent).toContain('Reset main to this commit…')
@@ -1415,4 +1417,26 @@ it('uses tabular figures for commit dates and normal text for author names', asy
   const cells = container.querySelector('[aria-selected]')!.querySelectorAll('[role="gridcell"]')
   expect(cells[3]?.querySelector('.tabular-nums')).not.toBeNull()
   expect(cells[4]?.querySelector('.tabular-nums')).toBeNull()
+})
+
+it('keeps branch context actions reachable from compact history', async () => {
+  const observer = globalThis.ResizeObserver
+  vi.stubGlobal('ResizeObserver', class {
+    constructor(private callback: (entries: unknown[]) => void) {}
+    observe(element: HTMLElement) {
+      if (element.querySelector('[role="grid"][aria-label="Commits"]')) this.callback([{ contentRect: { width: 320 } }])
+    }
+    unobserve() {}
+    disconnect() {}
+  })
+  try {
+    await mount({ log: [commit('aaaa1111111', 'tip')] })
+    const toggle = container.querySelector<HTMLButtonElement>('[aria-label="Switch the refs rail"]')
+    expect(toggle).not.toBeNull()
+    await act(async () => toggle!.click())
+    const branch = document.querySelector<HTMLElement>('[data-git-ref="main"]')
+    expect(branch).not.toBeNull()
+    await rightClick(branch!)
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain('main')
+  } finally { vi.stubGlobal('ResizeObserver', observer) }
 })

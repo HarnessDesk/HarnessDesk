@@ -54,7 +54,7 @@ export const PersonStepDialog = ({ room, intent, role, mode, onClose }: {
   return (
       <Dialog
         title={intent.title}
-        subhead={reviewDialog.mode === 'review' ? 'Choose the attempt this step answers for.' : 'Choose the answer for this step.'}
+        description={reviewDialog.mode === 'review' ? 'Choose the attempt this step answers for.' : 'Choose the answer for this step.'}
         flush
         onClose={onClose}
         footer={(

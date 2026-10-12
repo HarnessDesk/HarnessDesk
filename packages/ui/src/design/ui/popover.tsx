@@ -3,7 +3,6 @@ import * as React from 'react'
 
 import { DialogFormContext } from '@/lib/dialog-form'
 import { cn } from '@/lib/utils'
-import { floatingMotion } from './motion'
 
 /* Vendored from shadcn/ui (popover); z-index from the app's layer names. */
 
@@ -42,30 +41,5 @@ const PopoverPopup = React.forwardRef<
 ))
 PopoverPopup.displayName = 'PopoverPopup'
 
-const PopoverContent = ({
-  className,
-  align = 'center',
-  sideOffset = 4,
-  side = 'bottom',
-  ...props
-}: React.ComponentProps<typeof PopoverPrimitive.Popup> &
-  Pick<React.ComponentProps<typeof PopoverPrimitive.Positioner>, 'align' | 'side' | 'sideOffset'>) => (
-  <DialogFormContext.Provider value={false}>
-  <PopoverPrimitive.Portal>
-    <PopoverPrimitive.Positioner align={align} side={side} sideOffset={sideOffset} className="z-(--hd-z-popover)">
-      <PopoverPrimitive.Popup
-        data-slot="popover-content"
-        className={cn(
-          floatingMotion,
-          'bg-popover text-popover-foreground w-72 rounded-lg border p-4 shadow-md',
-          SURFACE_FOCUS,
-          className,
-        )}
-        {...props}
-      />
-    </PopoverPrimitive.Positioner>
-  </PopoverPrimitive.Portal>
-  </DialogFormContext.Provider>
-)
 
-export { Popover, PopoverTrigger, PopoverPortal, PopoverPositioner, PopoverPopup, PopoverContent }
+export { Popover, PopoverTrigger, PopoverPortal, PopoverPositioner, PopoverPopup }

@@ -1,3 +1,4 @@
+import { selectRunView } from '../ui-system/run-frame-actions'
 import { chromium, expect, test } from '@playwright/test'
 import { readdir, readFile } from 'node:fs/promises'
 
@@ -16,7 +17,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1280, 390])
     // The Run link on the Overview works without the rail at narrow widths.
     await page.getByRole('button', { name: 'Write, review, land', exact: true }).click()
     for (const round of [3, 6]) await expect(page.locator(`[data-kind="card"][data-row^="card-${round}-"]`).filter({ hasText: 'Posted to #42' })).toHaveCount(2)
-    await page.getByRole('radio', { name: 'Flow', exact: true }).click()
+    await selectRunView(page.locator('[data-slot="site-run-demo"]'), 'Flow')
     await expect(page.locator('[data-slot="flow-graph"]')).toBeVisible()
     await expect(page.locator('[data-step-row="you"]')).toHaveAttribute('data-state', 'done')
     await expect(page.locator('[data-step-row="you"]')).toContainText('Merged')

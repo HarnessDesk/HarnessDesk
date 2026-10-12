@@ -336,19 +336,6 @@
       "recorded": "2026-09-06",
       "claims": [
         {
-          "id": "room-holds-one-member-per-page",
-          "says": "a room lists 138 Cursor conversations on its rail",
-          "held": true,
-          "observed": {
-            "onRail": 138,
-            "header": "Gemini /has not used the boardGemini 2 /abouthas not used the boardGemini 3 /access-deniedhas not used the boardGemini 4"
-          },
-          "pinnedBy": [
-            "a room keeps its members across an agent restart, and a post still reaches them",
-            "a room is a row under its project, and its members hang off it"
-          ]
-        },
-        {
           "id": "every-member-handed-its-page",
           "says": "138 members are handed their pages in one hand-out, every copy delivered",
           "held": true,

@@ -1,16 +1,16 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useDestinationActive } from '../panels/destination-page'
+import { PageExplanation, PageControls } from '../design'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import type { RuntimeId, RuntimeInfo, SessionId, SessionSummary, WorktreeChanges } from '@harnessdesk/protocol'
 
 import { folderName } from '../lib/projects'
 import { sessionLabel } from '../lib/sessions'
 import { useSnapshot, useStore } from '../state/context'
-import { RuntimeMark } from './BrandIcons'
 import { DeleteSession } from './DeleteSession'
 import { ArchiveIcon, FolderIcon, SearchIcon, UndoIcon } from './Icons'
-import { BoardMenuButton, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, Button, EmptyState, Note, PageDescription, PageHead, Row, Rows, Search, SectionHead, Chip } from '../design'
+import { BoardMenuButton, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, Button, EmptyState, Note, Row, Rows, Search, Section, Chip } from '../design'
 import { DiscardWorktree } from './DiscardWorktree'
-import styles from './Archive.module.css'
 
 /**
  * The archive: everything taken out of the session list, and the two things
@@ -39,6 +39,8 @@ import styles from './Archive.module.css'
  * greyed for agents that cannot do it. Same pairing as the session row.
  */
 export const ArchiveSection = () => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const snapshot = useSnapshot()
   const [sessions, setSessions] = useState<readonly SessionSummary[]>([])
@@ -51,7 +53,12 @@ export const ArchiveSection = () => {
   const runtimes = snapshot.runtimes
 
   /** Read every local page; native archive reconciliation runs in the host. */
+  const generation=useRef(0)
+  const activeRead=useRef(destinationActive)
+  activeRead.current=destinationActive
   const load = useCallback(async () => {
+    if (!activeRead.current) return
+    const epoch=++generation.current
     setLoading(true)
     try {
       const rows: SessionSummary[] = []
@@ -61,22 +68,26 @@ export const ArchiveSection = () => {
           runtimes: runtimes.map(runtime => runtime.id), archived: 'only', pageSize: 500,
           ...(cursor ? { cursor } : {}),
         })
+        if (!activeRead.current || generation.current!==epoch) return
         rows.push(...page.data)
         cursor = page.nextCursor ?? undefined
       } while (cursor)
       setSessions(rows)
       setUnreachable([])
     } catch {
-      setUnreachable(['The archive'])
+      if (activeRead.current && generation.current===epoch) setUnreachable(['The archive'])
 
     } finally {
-      setLoading(false)
+      if (activeRead.current && generation.current===epoch) setLoading(false)
     }
   }, [runtimes, store])
 
   useEffect(() => {
+    if (!destinationActive) return
+
     void load()
-  }, [load, snapshot.historyIdentity])
+    return () => { generation.current++ }
+  }, [destinationActive, load, snapshot.historyIdentity])
 
   const needle = query.trim().toLowerCase()
   const shown = useMemo(() => {
@@ -104,48 +115,30 @@ export const ArchiveSection = () => {
     if (await store.unarchiveSession(summary.id as SessionId, summary.runtime as RuntimeId) === false) return
     setSessions(current => current.filter(row => row.id !== summary.id || row.runtime !== summary.runtime))
   }
+  useEffect(() => { if (!destinationActive) { setDiscarding(null); setDeleting(null) } }, [destinationActive])
 
   return (
     <>
-      <PageHead
-        title="Archive"
-        blurb="Conversations taken out of the list. Nothing here has been deleted; restore one and it goes back where it was."
-      />
+      <PageExplanation>Conversations taken out of the list. Nothing here has been deleted; restore one and it goes back where it was.</PageExplanation>
 
       {unreachable.length > 0 && (
-        <PageDescription>
+        <Note>
           The archive could not be read. <Button variant="outline" size="sm" onClick={() => void load()}>Try again</Button>
-        </PageDescription>
+        </Note>
       )}
 
-      {loading && <PageDescription>Reading the archive…</PageDescription>}
+      {loading && <Note>Reading the archive…</Note>}
 
       {!loading && sessions.length > 0 && (
-        <Search
-          className={styles.search}
-          value={query}
-          placeholder="Search the archive"
-          label="Search archived conversations"
-          onChange={setQuery}
-        />
+        <PageControls search={{label:"Search archived conversations",placeholder:"Search the archive",value:query,change:setQuery}}/>
       )}
 
       {!loading && shown.length === 0 && <Empty query={query.trim()} />}
 
       {!loading &&
         groups.map(({ runtime, rows }) => (
-          <section key={runtime.id}>
-            <SectionHead
-              name={
-                <>
-                  <span className={styles.mark}>
-                    <RuntimeMark runtime={runtime} size={13} />
-                  </span>
-                  {runtime.presentation.name} · {rows.length}
-                </>
-              }
-            />
-            <Note ink="muted" className={styles.note}>{blurbFor(runtime)}</Note>
+          <Section key={runtime.id} title={`${runtime.presentation.name} · ${rows.length}`}>
+            <Note ink="muted" >{blurbFor(runtime)}</Note>
             <Rows>
               {rows.map((summary) => {
                 const deletable = runtime.capabilities.deleteHistory === 'trash'
@@ -170,15 +163,11 @@ export const ArchiveSection = () => {
                           <UndoIcon size={13} />
                           Restore
                         </Button>
-                        <DropdownMenu>
+                        <DropdownMenu icons="none">
                           <DropdownMenuTrigger render={<BoardMenuButton aria-label={`${sessionLabel(summary.title, summary.preview)} actions`} />} />
                           <DropdownMenuContent align="end">
-                            {summary.worktree?.state === 'kept' && <DropdownMenuItem onClick={() => setDiscarding(summary)}>Discard worktree…</DropdownMenuItem>}
-                            <DropdownMenuItem variant="destructive"
-                              disabled={!deletable}
-                              title={deletable ? undefined : runtime.capabilities.deleteHistory === 'erase' ? `${runtime.presentation.name} erases it for good, so delete it there` : `${runtime.presentation.name} keeps no way to delete one.`}
-                              closeOnClick={deletable}
-                              onClick={() => { if (deletable) setDeleting(summary) }}>Delete everywhere…</DropdownMenuItem>
+                            {summary.worktree?.state === 'kept' && <DropdownMenuItem onClick={() => setDiscarding(summary)} label={"Discard worktree…"} />}
+                            <DropdownMenuItem variant="destructive" disabled={!deletable} title={deletable ? undefined : runtime.capabilities.deleteHistory === 'erase' ? `${runtime.presentation.name} erases it for good, so delete it there` : `${runtime.presentation.name} keeps no way to delete one.`} closeOnClick={deletable} onClick={() => { if (deletable) setDeleting(summary) }} label={"Delete everywhere…"} />
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </>
@@ -187,11 +176,11 @@ export const ArchiveSection = () => {
                 )
               })}
             </Rows>
-          </section>
+          </Section>
         ))}
 
-      {discarding && <DiscardWorktree summary={discarding} onClose={() => { setDiscarding(null); void load() }} />}
-      {deleting && (
+      {destinationActive && discarding && <DiscardWorktree summary={discarding} onClose={() => { setDiscarding(null); void load() }} />}
+      {destinationActive && deleting && (
         <DeleteSession
           summary={deleting}
           onClose={() => {
@@ -255,18 +244,21 @@ const blurbFor = (runtime: RuntimeInfo): string =>
     ? `${runtime.presentation.name} keeps this archive itself, so a conversation archived here is archived in its own window too.`
     : `${runtime.presentation.name} has no archive of its own, so HarnessDesk keeps the mark. The conversation is untouched and still listed in ${runtime.presentation.name}’s own window.`
 
-
 const inventoryTitle = (changes: WorktreeChanges): string =>
   `${changes.modified} modified, ${changes.untracked} untracked files; ${changes.ignoredCount} ignored entries`
 
 const KeptChip = ({ summary }: { summary: SessionSummary }) => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const [title, setTitle] = useState('The worktree stayed. Review it before discarding.')
   useEffect(() => {
+    if (!destinationActive) return
+
     let cancelled = false
     void store.transport.request('worktree/changes', { path: summary.worktree!.path })
       .then(changes => { if (!cancelled) setTitle(inventoryTitle(changes)) }).catch(() => {})
     return () => { cancelled = true }
-  }, [store, summary.worktree?.path])
+  }, [destinationActive, store, summary.worktree?.path])
   return <Chip tone="warning" size="sm" title={title}>Worktree kept</Chip>
 }

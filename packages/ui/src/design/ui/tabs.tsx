@@ -3,6 +3,7 @@ import { cva, type VariantProps } from 'class-variance-authority'
 import type * as React from 'react'
 
 import { cn } from '@/lib/utils'
+import { switcherTrack, switcherItem } from './switcher'
 
 /**
  * Vendored from shadcn/ui — the **Base UI** tabs, not the Radix ones.
@@ -68,12 +69,7 @@ const tabsListVariants = cva(
         /* The enclosed control: a filled track with the active tab lifted out
            of it. Reads as one object, so it belongs where it sits *beside*
            things — a card header, a toolbar. */
-        default:
-          /* `p-px`: the tab inside is `h-full`, so this padding is the only
-             thing deciding how tall the pressable part is — 2 a side put it
-             at 22, under the target floor, and 1 puts it on the floor with
-             the strip unmoved. */
-          'rounded-(--hd-radius-sm) bg-(--hd-muted) p-px group-data-[orientation=horizontal]/tabs:h-(--hd-control-h)',
+        default: switcherTrack,
         line: 'gap-1 rounded-none bg-transparent group-data-[orientation=horizontal]/tabs:h-(--hd-control-h)',
         /* Page sections: no track, an indicator under the active tab. Belongs
            where the tabs sit *above* what they switch — a pane, a page — and
@@ -118,8 +114,6 @@ const TabsTrigger = ({ className, icon, iconOnly = false, count, children, ...pr
       '[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*=size-])]:size-4',
       'group-data-[orientation=vertical]/tabs:w-full group-data-[orientation=vertical]/tabs:justify-start',
       'group-data-[orientation=horizontal]/tabs:h-full',
-      /* Enclosed: the active tab becomes a raised card on the track. */
-      'group-data-[variant=default]/tabs-list:data-active:bg-(--hd-card) group-data-[variant=default]/tabs-list:data-active:text-(--hd-foreground) group-data-[variant=default]/tabs-list:data-active:shadow-(--hd-shadow-sm)',
       /* Line: no fill at all, so the indicator is the only signal. */
       'group-[:is([data-variant=line],[data-variant=section])]/tabs-list:data-active:bg-transparent group-[:is([data-variant=line],[data-variant=section])]/tabs-list:data-active:text-(--hd-foreground)',
       /* The indicator, drawn as an ::after so it costs no layout and cannot
@@ -130,6 +124,7 @@ const TabsTrigger = ({ className, icon, iconOnly = false, count, children, ...pr
       'group-[:is([data-variant=line],[data-variant=section])]/tabs-list:data-active:after:opacity-100',
       icon && 'shrink-0 px-0 focus-visible:outline-offset-[calc(-1*var(--hd-ring-width))]',
       iconOnly && 'w-(--hd-control-h)',
+      switcherItem,
       className,
     )}
     {...props}
@@ -142,7 +137,7 @@ const TabsTrigger = ({ className, icon, iconOnly = false, count, children, ...pr
         {icon}
         {count !== undefined && <span data-slot="tabs-count" className="absolute top-0 right-0 min-w-(--hd-space-3) rounded-(--hd-radius-full) bg-(--hd-muted-foreground) px-(--hd-space-0-5) text-xs leading-none text-(--hd-background)">{count}</span>}
       </span>}
-    </> : children}
+    </> : <>{children}{count !== undefined && <span data-slot="switcher-count">{count}</span>}</>}
   </TabsPrimitive.Tab>
 )
 

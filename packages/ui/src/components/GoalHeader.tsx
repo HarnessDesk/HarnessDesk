@@ -10,7 +10,7 @@ import { useStore } from '../state/context'
  * A Goal's body: what it is waiting on, and why it cannot be wrapped.
  *
  * The title, its state chip and the Wrap action used to live here too, in a
- * `DetailHead` stacked over the room's own header — two rows naming the same
+ * `subject heading` stacked over the room's own header — two rows naming the same
  * Goal, one of them running its full folder across two lines. Both moved into
  * that single row (`TeamRoomPane`'s own bar, the one every Goal or room page
  * now has), which is where the design already put a conversation's title,

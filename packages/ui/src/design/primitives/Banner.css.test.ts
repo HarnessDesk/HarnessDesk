@@ -34,6 +34,11 @@ describe('banner centring', () => {
     expect(blockAfter('.frame {')).toMatch(/container:\s*hd-banner\s*\/\s*inline-size/)
   })
 
+  it('fills its parent when a wider page block owns the banner measure', () => {
+    expect(blockAfter(".frame[data-measure='container'] {")).toMatch(/width:\s*100%/)
+    expect(blockAfter(".frame[data-measure='container'] .banner {")).toMatch(/width:\s*100%/)
+  })
+
   it('moves non-compact actions below the copy when the card is narrow', () => {
     expect(css).toMatch(/@container hd-banner \(max-width:\s*400px\)\s*\{[\s\S]*?\.banner:not\(\[data-compact\]\)\s*\{[^}]*flex-wrap:\s*wrap/s)
     const actions = blockAfter('.banner:not([data-compact]) .actions {')

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test, type TestContext } from 'node:test'
@@ -356,4 +356,27 @@ test('a relocated agent source refreshes instead of claiming its record is gone'
   assert.equal(reopened.deskCopy, false)
   assert.deepEqual(reopened.turns, original.turns)
   assert.equal(r.reads(), 2)
+})
+
+for (const storage of ['database', 'legacy'] as const) test(`a failed runtime opens its kept ${storage} transcript without starting`, async t => {
+  const r = await rig(t, false)
+  const kept: Session = { id: sessionId('kept'), runtime: r.runtime.info.id, cwd: '/work/storefront',
+    createdAt: 1, updatedAt: 20, itemsLoaded: true, status: { type: 'idle' }, turns: [turn('kept-turn', 'First kept message')] }
+  const file = join(r.dir, 'transcripts', String(kept.runtime), 'kept.json')
+  if (storage === 'legacy') {
+    await mkdir(join(r.dir, 'transcripts', String(kept.runtime)), { recursive: true })
+    await writeFile(file, JSON.stringify({ ...kept, version: 1, savedAt: 20 }))
+  } else {
+    const store = new TranscriptStore(join(r.dir, 'transcripts'))
+    try { store.record(kept); await store.flush() } finally { await store.close() }
+  }
+  let starts = 0
+  r.runtime.health = () => ({ state: 'unavailable', reason: 'unreadable', message: 'The agent failed its version check.' })
+  r.runtime.start = async () => { starts++; throw new Error('The agent failed its version check.') }
+  r.runtime.readSession = async () => { throw new Error('Cannot read from the agent') }
+  const recovered = await r.host.call('session/read', { runtime: kept.runtime, sessionId: kept.id })
+  assert.deepEqual(recovered.turns, kept.turns)
+  assert.equal(recovered.deskCopy, true)
+  assert.equal(starts, 0)
+  if (storage === 'legacy') assert.deepEqual(JSON.parse(await readFile(file, 'utf8')).turns, kept.turns)
 })

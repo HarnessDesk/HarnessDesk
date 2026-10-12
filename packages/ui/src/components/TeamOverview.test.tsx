@@ -60,13 +60,12 @@ it.each(['start','end'] as const)('keeps a stopped duration unknown when its %s 
  act(()=>vi.advanceTimersByTime(120_000))
  expect(time()).toBe('—')
 })
-it('offers Stop run… in the running Overview strip and withdraws it when the Run ends',()=>{
+it('keeps Stop run… out of the Overview body in every Run state',()=>{
  const onStop=vi.fn()
  act(()=>root.render(<TeamOverview runRules={[{id:'after-review'},{id:'to-referee'}]} model={overviewModel('running')} onStop={onStop} />))
  const stop=[...box.querySelectorAll<HTMLButtonElement>('[aria-label="Run"] button')].find(one=>one.textContent==='Stop run…')
- expect(stop).toBeDefined()
- act(()=>stop!.click())
- expect(onStop).toHaveBeenCalledOnce()
+ expect(stop).toBeUndefined()
+ expect(onStop).not.toHaveBeenCalled()
  act(()=>root.render(<TeamOverview runRules={[{id:'after-review'},{id:'to-referee'}]} model={overviewModel('done')} onStop={onStop} />))
  expect(box.textContent).not.toContain('Stop run…')
 })
@@ -246,6 +245,15 @@ it('wraps the Agent work sentence in compact rows while names still truncate',()
  expect(box.querySelector('[data-role="subject"]')?.classList.contains('truncate')).toBe(true)
 })
 
+it.each(['packages/checkout/very-long-retry-budget-handler.ts', 'packages/checkout with spaces/very long handler.ts'])('keeps an edited path %s on one line in compact Agent rows',pathName=>{
+ vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({width:320} as DOMRect)
+ const path=`Edited ${pathName}`
+ render([row('Alpha',{state:'working',doing:path})])
+ const work=box.querySelector('[data-slot="seat-doing"]')!
+ expect(work.classList.contains('truncate')).toBe(true)
+ expect(work.querySelector('[data-slot="middle-truncate"] .sr-only')?.textContent).toBe(path)
+})
+
 it('wraps a compact Agent role line as well as its work sentence',()=>{
  vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockReturnValue({width:320} as DOMRect)
  render([row('Beta',{role:'Reviewer'})])
@@ -264,6 +272,37 @@ it('puts compact Agent facts on the name line so its second line has room to rea
 it('calls the frozen Flow budget Rounds, including its agent and person steps', () => {
  const model = overviewModel('done')
  act(() => root.render(<TeamOverview model={{ ...model, run: { ...model.run!, reviewRounds: { used: 4, of: 4 } } }} />))
- expect(box.textContent).toContain('Rounds 4 of 4')
+ expect(box.textContent).toContain('Completed rounds 4 of 4')
  expect(box.textContent).not.toContain('Reviews 4 of 4')
+})
+
+it('chooses Agents layout from the allocation inside the reading inset at the unchanged 800 boundary', () => {
+ let resize!:ResizeObserverCallback, measured:Element|null=null
+ vi.mocked(HTMLElement.prototype.getBoundingClientRect).mockImplementation(function(this:HTMLElement) {
+  return {width:this.matches('[aria-label="Seats"]')?752:800} as DOMRect
+ })
+ const observer={observe:(target:Element)=>{measured=target},unobserve:()=>{},disconnect:()=>{}}
+ vi.stubGlobal('ResizeObserver',class {
+  constructor(callback:ResizeObserverCallback){resize=callback}
+  observe=observer.observe
+  unobserve=observer.unobserve
+  disconnect=observer.disconnect
+ })
+ try {
+  const onOpen=vi.fn()
+  const seats=[row('Alpha',{card:{id:1,title:'Fix signup'},state:'working',doing:'Reading the retry',cost:{value:2,unit:'turns',estimated:false}}),row('Beta',{card:{id:2,title:'Review signup'},state:'working',doing:'Reviewing the retry'})]
+  act(()=>root.render(<TeamOverview model={{run:null,needsYou:[],seats}} onOpen={onOpen}/>))
+  expect(box.querySelector('[data-slot="team-overview"]')?.getAttribute('data-layout')).toBe('narrow')
+  expect(box.querySelector('[data-slot="table"]')).toBeNull()
+  expect(measured).toBe(box.querySelector('[aria-label="Seats"]'))
+  act(()=>box.querySelector<HTMLButtonElement>('[aria-label="Open Alpha"]')!.click())
+  expect(onOpen).toHaveBeenCalledWith('Alpha')
+  act(()=>resize([{target:measured!,contentRect:{width:800}} as ResizeObserverEntry],observer as unknown as ResizeObserver))
+  expect(box.querySelector('[data-slot="team-overview"]')?.getAttribute('data-layout')).toBe('table')
+  expect([...box.querySelectorAll('th')].map(one=>one.textContent)).toEqual(['Agent','Card','Round','State','Now','Time','Cost','Open conversation'])
+  expect(box.querySelector('[data-seat="Alpha"]')?.textContent).toContain('#1 · Fix signup')
+  expect(box.querySelector('[data-seat="Beta"]')?.textContent).toContain('#2 · Review signup')
+  act(()=>box.querySelector<HTMLButtonElement>('[aria-label="Open Beta"]')!.click())
+  expect(onOpen).toHaveBeenCalledWith('Beta')
+ } finally {vi.unstubAllGlobals()}
 })

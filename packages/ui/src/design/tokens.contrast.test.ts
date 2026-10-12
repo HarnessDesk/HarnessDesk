@@ -329,15 +329,15 @@ describe('the selected navigation row is readable', () => {
        literal, and every accent but the default drew the wrong colour. The
        snapshot records one accent, so a ratio can never catch that — identity
        with the brand can. */
-    it(`is the brand itself, so the accent dial reaches it (${face})`, () => {
+    it(`is neutral, so the accent dial leaves selection alone (${face})`, () => {
       const fill = faceOf(resolved, face).get('--hd-sidebar-selected')
-      const brand = faceOf(resolved, face).get('--hd-primary')
+      const brand = faceOf(resolved, face).get('--hd-solid')
       expect(fill, `${face}: no --hd-sidebar-selected`).toBeDefined()
-      expect(fill, 'the selected fill must resolve to --hd-primary, not a copy of it').toBe(brand)
+      expect(fill, 'the selected fill must resolve to the neutral solid').toBe(brand)
 
       const ink = faceOf(resolved, face).get('--hd-sidebar-selected-foreground')
-      const brandInk = faceOf(resolved, face).get('--hd-primary-foreground')
-      expect(ink, 'the selected ink must be the brand\'s own foreground').toBe(brandInk)
+      const brandInk = faceOf(resolved, face).get('--hd-solid-foreground')
+      expect(ink, 'the selected ink must be the neutral solid foreground').toBe(brandInk)
     })
 
     it(`keeps its metadata at ${UI}:1 on the fill (${face})`, () => {

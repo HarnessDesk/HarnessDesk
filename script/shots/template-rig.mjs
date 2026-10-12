@@ -34,7 +34,19 @@ class TemplateRuntime extends CodexRuntime {
 /** The shipped templates, actual Host, fake agent processes and a local forge. */
 export async function createTemplateRig({ home, work, template = 'comparison' }) {
   const previous = { path: process.env.PATH, home: process.env.HARNESSDESK_HOME }
+  const identityKeys = ['GIT_AUTHOR_NAME', 'GIT_AUTHOR_EMAIL', 'GIT_COMMITTER_NAME', 'GIT_COMMITTER_EMAIL']
+  const previousIdentity = Object.fromEntries(identityKeys.map(key => [key, process.env[key]]))
+  const restoreEnvironment = () => {
+    for (const [key, value] of Object.entries({ PATH: previous.path, HARNESSDESK_HOME: previous.home, ...previousIdentity })) {
+      if (value === undefined) delete process.env[key]
+      else process.env[key] = value
+    }
+  }
+  // Inherited identity overrides the seed's local placeholder config. Remove
+  // it only inside this isolated fixture process so ordinary git config wins.
+  for (const key of identityKeys) delete process.env[key]
   process.env.HARNESSDESK_HOME = home
+  try {
   execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], {
     env: { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: work, HD_SHOTS_NATIVE_CODEX: '1' }, stdio: 'pipe',
   })
@@ -90,7 +102,8 @@ console.log('Retry attempt passed')
     try { return { stdout: execFileSync(executable, args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }), stderr: '', exitCode: 0 } }
     catch (error) { return { stdout: String(error.stdout ?? ''), stderr: String(error.stderr ?? ''), exitCode: typeof error.status === 'number' ? error.status : 1 } }
   }
-  const logger = new Logger('shots-templates', { level: 'error', console: false })
+  const logFile = join(home, 'template-host.ndjson')
+  const logger = new Logger('shots-templates', { level: 'warn', console: false, file: logFile })
   const extensions = new ExtensionKernel()
   const host = new Host({ logger, state: new StateStore(stateFile), extensions, catalogRefreshMs: 0, libraryHome: join(home, 'person'), evidence: { gh }, forge: { gh } })
   setTeamEngine(host.teamPlane)
@@ -108,13 +121,13 @@ console.log('Retry attempt passed')
   const errors = []
   for (const runtime of runtimes) { host.register(runtime); runtime.subscribe(event => { if (event.type === 'turn/completed' && event.turn?.error) errors.push(event.turn.error) }) }
   const dispose = async () => {
-    await host.dispose()
-    await extensions.dispose()
-    setTeamEngine(null)
-    setForgeEngine(null)
-    for (const [key, value] of Object.entries({ PATH: previous.path, HARNESSDESK_HOME: previous.home })) {
-      if (value === undefined) delete process.env[key]
-      else process.env[key] = value
+    try {
+      await host.dispose()
+      await extensions.dispose()
+    } finally {
+      setTeamEngine(null)
+      setForgeEngine(null)
+      restoreEnvironment()
     }
   }
   try {
@@ -122,6 +135,7 @@ console.log('Retry attempt passed')
     await extensions.load(gitPlugin)
     await host.start()
     for (const runtime of runtimes) await runtime.start()
-    return { host, logger, repo, errors, stateFile, git, release: name => writeFileSync(join(gates, name), ''), dispose }
+    return { host, logger, logFile, repo, errors, stateFile, git, release: name => writeFileSync(join(gates, name), ''), dispose }
   } catch (error) { await dispose(); throw error }
+  } catch (error) { restoreEnvironment(); throw error }
 }

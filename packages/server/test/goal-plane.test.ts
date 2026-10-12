@@ -674,3 +674,32 @@ test('a Run completed by its person does not keep its finished attempts in Team 
   proof.port.executions = () => [execution, { ...next, state: 'settled', end: { kind: 'unrouted', card: 3, outcome: 'merged' } }]
   assert.equal((await proof.plane.view('g1')).activity, 'needs-you', 'an unrouted ending still waits')
 })
+
+test('a stopped Seat remains readable as history without becoming a live member', async () => {
+  const proof = await rig()
+  const stopped = seat('researcher', { closed: { at: 5, why: 'released' }, role: 'researcher', seatLabel: 'Researcher' })
+  proof.seats.push(stopped)
+  proof.port.executions = () => [{ id: 'current', state: 'stopped', rounds: [{ seats: [stopped.id] }] } as unknown as FlowExecution]
+  const view = await proof.plane.view('g1')
+  assert.deepEqual(view.members, [])
+  assert.deepEqual((view as typeof view & { pastMembers?: readonly SeatRecord[] }).pastMembers, [stopped])
+  assert.deepEqual(view.board.members, [])
+})
+
+test('past members belong only to the selected current Run, while earlier stopped Seats remain history', async () => {
+  const proof = await rig()
+  const earlier = seat('earlier', { closed: { at: 2, why: 'released' } })
+  const latest = seat('latest', { closed: { at: 5, why: 'released' } })
+  const restored = seat('restored', { closed: { at: 5, why: 'released' }, restored: { at: 5 } })
+  proof.seats.push(earlier, latest, restored, seat('live'))
+  const old = { id: 'old', state: 'stopped', rounds: [{ seats: [earlier.id] }] } as unknown as FlowExecution
+  const next = { id: 'next', state: 'stopped', rounds: [{ seats: [latest.id, restored.id] }] } as unknown as FlowExecution
+  proof.port.executions = () => [old, next]
+  const view = await proof.plane.view('g1')
+  assert.deepEqual(view.pastMembers, [latest])
+  assert.deepEqual(view.members.map(member => member.id), ['live'])
+  const document = proof.store.read('g1')
+  await proof.store.save({ ...document, goal: { ...document.goal, revision: document.goal.revision + 1 },
+    flowReservation: { run: 'old', operation: 'start' } }, document.goal.revision)
+  assert.deepEqual((await proof.plane.view('g1')).pastMembers, [earlier], 'a reserved Run owns the roster selection')
+})

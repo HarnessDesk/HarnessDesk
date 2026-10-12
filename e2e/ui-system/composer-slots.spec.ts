@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import expectedFolds from './composer-slot-record.json' with { type: 'json' }
 
 const shapes = ['Assistant A', 'Assistant B', 'Assistant C', 'Assistant D']
 const slots = ['add', 'work-in', 'agent', 'permissions', 'mode', 'extension', 'more', 'context', 'model', 'send']
@@ -6,17 +7,34 @@ const slots = ['add', 'work-in', 'agent', 'permissions', 'mode', 'extension', 'm
 const aligned = (page: Page, width: string, layout: 'draft' | 'live') => page.evaluate(({ width, layout, shapes, slots }) => {
   const testedSlots = layout === 'draft' ? slots : slots.filter((slot) => slot !== 'work-in')
   const positions: Record<string, number[]> = Object.fromEntries(testedSlots.map((slot) => [slot, []]))
+  let naturalWidths = true, separated = true
   for (const shape of shapes) {
     const section = document.querySelector<HTMLElement>(`[data-composer-width="${width}"] [data-composer-shape="${shape}"]`)
     const toolbar = section?.querySelector<HTMLElement>(`[data-composer-layout="${layout}"]`)
     if (!toolbar) return { aligned: false, positions }
     for (const slot of testedSlots) {
       const track = toolbar.querySelector<HTMLElement>(`[data-composer-track="${slot}"]`)
-      if (track) positions[slot]?.push(Math.round(track.getBoundingClientRect().left))
+      if (!track) return { aligned: false, positions }
+      positions[slot]?.push(Math.round(track.getBoundingClientRect().left))
+      if (['permissions', 'mode'].includes(slot) && !track.hasAttribute('data-folded')) {
+        const intrinsic = track.cloneNode(true) as HTMLElement
+        intrinsic.style.width = 'max-content'
+        intrinsic.style.position = 'absolute'
+        intrinsic.style.visibility = 'hidden'
+        toolbar.append(intrinsic)
+        naturalWidths &&= Math.abs(track.getBoundingClientRect().width - intrinsic.getBoundingClientRect().width) <= 1
+        intrinsic.remove()
+      }
+      const previous = track.previousElementSibling
+      if (previous && previous.matches('[data-composer-track]'))
+        separated &&= track.getBoundingClientRect().left >= previous.getBoundingClientRect().right + 3
     }
   }
   return {
-    aligned: Object.values(positions).every((xs) => xs.length === shapes.length && new Set(xs).size === 1),
+    // R12.1 permits natural selected-value widths. Outer anchors still line
+    // up across shapes; every natural track must fit its content exactly.
+    aligned: Object.entries(positions).every(([slot, xs]) => xs.length === shapes.length
+      && (['mode', 'extension'].includes(slot) || new Set(xs).size === 1)) && naturalWidths && separated,
     positions,
   }
 }, { width, layout, shapes, slots })
@@ -40,30 +58,6 @@ const boxGeometry = (page: Page) => page.evaluate(() => {
   }
 })
 
-const expectedFolds = {
-  composer: {
-    draft: ['agent', 'work-in', 'more'],
-    // Live folds Agent below 738px once the reserved Extension track is counted.
-    live: ['agent'],
-    tight: false,
-  },
-  '560': {
-    draft: ['agent', 'work-in', 'more', 'mode', 'permissions', 'model'],
-    live: ['agent', 'more', 'mode', 'permissions'],
-    tight: false,
-  },
-  '360': {
-    draft: ['agent', 'work-in', 'more', 'mode', 'permissions', 'model'],
-    live: ['agent', 'more', 'mode', 'permissions', 'model'],
-    tight: true,
-  },
-  '320': {
-    draft: ['agent', 'work-in', 'more', 'mode', 'permissions', 'model'],
-    live: ['agent', 'more', 'mode', 'permissions', 'model'],
-    tight: true,
-  },
-} as const
-
 type ComposerWidth = keyof typeof expectedFolds
 
 const foldsMatch = (page: Page, width: ComposerWidth) => page.evaluate(({ width, shapes, slots, expected }) => {
@@ -72,13 +66,13 @@ const foldsMatch = (page: Page, width: ComposerWidth) => page.evaluate(({ width,
     const selector = '[data-composer-width="' + width + '"] [data-composer-shape="' + shape + '"] [data-composer-layout="' + layout + '"]'
     const toolbar = document.querySelector<HTMLElement>(selector)
     if (!toolbar) return false
-    const expectedFolded = folds[layout]
+    const expectedFolded = folds[layout].folded
     const checkedSlots = layout === 'draft' ? slots : slots.filter((slot) => slot !== 'work-in')
     return checkedSlots.every((slot) => {
       const track = toolbar.querySelector<HTMLElement>('[data-composer-track="' + slot + '"]')
       if (!track) return false
       const shouldFold = expectedFolded.includes(slot as never)
-      const shouldTight = folds.tight && ['agent', 'work-in', 'more', 'mode', 'permissions', 'model'].includes(slot)
+      const shouldTight = folds[layout].tight.includes(slot as never)
       return track.hasAttribute('data-folded') === shouldFold && track.hasAttribute('data-tight') === shouldTight
     })
   }))
@@ -167,6 +161,35 @@ test('composer slots keep their tracks aligned across agent shapes', async ({ pa
   await switchCase.locator('[data-layout-switch]').click()
   await expect.poll(() => switchCaseModelFolded(page)).toBe(true)
 
+  // Pin this mutation fixture between its trailing padding and total padding below the real More fold boundary.
+  // The frame foundation changed the track measures; the production fold
+  // algorithm and the 18px border-box mutation stay under test unchanged.
+  await page.evaluate(() => document.fonts.ready)
+  const contentCase = page.locator('[data-composer-width-extension-case]')
+  // The full fixture choices fill the supported content-sized tracks.
+  // Pin this fixture's folder so an incorrect fold cannot hide in a shortened name.
+  await contentCase.locator('[data-composer-track="work-in"]').evaluate(node => { (node as HTMLElement).style.flexShrink = '0' })
+  // Exercise the nominal wide floors as well as content-sized labels. Short
+  // values can otherwise conceal an incorrect fold in spare track width.
+  const wideTracks = { add:'add', 'work-in':'work-in', agent:'agent', permissions:'permissions-wide', mode:'mode-wide', extension:'extension', more:'more', context:'context-wide', model:'model', send:'send' }
+  await page.addStyleTag({ content: Object.entries(wideTracks).map(([track, token]) => `[data-composer-width-extension-case] [data-composer-track="${track}"]:not([data-folded]):not([data-tight]) { min-width:var(--hd-composer-track-${token}); }`).join('\n') })
+  let low = 400, high = 1400
+  await contentCase.evaluate((node, value) => { (node as HTMLElement).style.width = `${value}px` }, high)
+  await expect.poll(async () => (await composerWidthFoldIsStable(page)).moreFolded).toBe(false)
+  while (high - low > 1) {
+    const width = Math.floor((low + high) / 2)
+    await contentCase.evaluate((node, value) => { (node as HTMLElement).style.width = `${value}px` }, width)
+    await expect.poll(async () => (await composerWidthFoldIsStable(page)).width).toBe(width)
+    await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))))
+    if ((await composerWidthFoldIsStable(page)).moreFolded) low = width
+    else high = width
+  }
+  const probeOffset = await contentCase.locator('[data-slot="composer-tools"]').evaluate(node => {
+    const style = getComputedStyle(node), left = parseFloat(style.paddingLeft), right = parseFloat(style.paddingRight)
+    return Math.ceil((left + 2 * right) / 2)
+  })
+  await contentCase.evaluate((node, value) => { (node as HTMLElement).style.width = `${value}px` }, high - probeOffset)
+  await expect.poll(async () => (await composerWidthFoldIsStable(page)).moreFolded).toBe(true)
   const stableBefore = await composerWidthFoldIsStable(page)
   expect(stableBefore).toMatchObject({ moreFolded: true, overflow: false })
   await page.evaluate(() => { document.body.dataset.foldThresholdProbe = 'theme-change' })
@@ -183,7 +206,7 @@ test('composer slots keep their tracks aligned across agent shapes', async ({ pa
 
   // Mutation: make the body-attribute path receive a width 18px wider, as if
   // it used the toolbar's border box rather than its content box. That crosses
-  // More's 728px draft threshold while only 718px fits in this toolbar.
+  // More's measured draft threshold, with the overflow beyond its end padding.
   const contentBoxToolbar = page.locator('[data-composer-width-extension-case] [data-slot="composer-tools"]')
   await contentBoxToolbar.evaluate((node) => {
     const toolbar = node as HTMLElement
@@ -199,6 +222,10 @@ test('composer slots keep their tracks aligned across agent shapes', async ({ pa
     })
     document.body.dataset.foldThresholdProbe = 'border-box-mutation'
   })
+  await test.info().attach('content-box mutation geometry', { body: JSON.stringify(await contentBoxToolbar.evaluate(node => ({
+    client:node.clientWidth,scroll:node.scrollWidth,gap:getComputedStyle(node).columnGap,
+    tracks:[...node.querySelectorAll<HTMLElement>('[data-composer-track]')].map(track=>({name:track.dataset.composerTrack,width:track.getBoundingClientRect().width,min:getComputedStyle(track).minWidth,shrink:getComputedStyle(track).flexShrink,folded:track.hasAttribute('data-folded')}))
+  })),null,2),contentType:'application/json' })
   await expect.poll(async () => composerWidthFoldIsStable(page)).toMatchObject({ moreFolded: false, overflow: true })
   await contentBoxToolbar.evaluate((node) => {
     delete (node as HTMLElement & { getBoundingClientRect?: () => DOMRect }).getBoundingClientRect
@@ -208,10 +235,15 @@ test('composer slots keep their tracks aligned across agent shapes', async ({ pa
 
   const extensionCase = page.locator('[data-extension-width-case] [data-composer-layout="draft"]').last()
   await expect.poll(async () => extensionCaseMatches(page)).toMatchObject({ valid: true, overflow: false })
+  const extensionWindow = page.locator('[data-extension-width-case]')
+  await extensionWindow.evaluate(node => { (node as HTMLElement).style.width = '320px' })
+  await expect.poll(async () => extensionCaseMatches(page)).toMatchObject({ valid: true, overflow: false })
   const extensionTrack = extensionCase.locator('[data-composer-track="extension"]')
   await extensionTrack.evaluate((node) => { (node as HTMLElement).style.width = 'var(--hd-composer-track-model)' })
   expect(await extensionCaseMatches(page), 'a widened populated Extension must break its aligned, overflow-free layout').toMatchObject({ valid: false, overflow: true })
   await extensionTrack.evaluate((node) => { (node as HTMLElement).style.removeProperty('width') })
+  await expect.poll(async () => extensionCaseMatches(page)).toMatchObject({ valid: true, overflow: false })
+  await extensionWindow.evaluate(node => { (node as HTMLElement).style.removeProperty('width') })
   await expect.poll(async () => extensionCaseMatches(page)).toMatchObject({ valid: true, overflow: false })
 
   expect(await boxGeometry(page), 'preview boxes must match their width labels and composer token').toMatchObject({ valid: true })
@@ -271,7 +303,10 @@ test('composer slots keep their tracks aligned across agent shapes', async ({ pa
   await expect(page.locator('[data-empty-more-case]')).toContainText('More — no options · Extension — no actions · Context — No usage yet')
   await expect(emptySlots.locator('[data-composer-track="more"] button')).toHaveCount(0)
   await expect(emptySlots.locator('[data-composer-track="extension"] button')).toHaveCount(0)
-  await expect(emptySlots.locator('[data-composer-track="context"] button')).toHaveAttribute('aria-label', 'No usage yet')
+  const emptyUsage = emptySlots.locator('[data-composer-track="context"] button')
+  await expect(emptyUsage).toHaveAttribute('aria-label', 'Usage')
+  await expect(emptyUsage).toHaveAttribute('title', 'Usage')
+  await expect(emptyUsage.locator('[data-slot="progress-ring"]')).toHaveAttribute('aria-label', 'No usage yet')
   await expect(page.locator('[data-extension-width-case] h3')).toContainText('Extension — empty and populated')
   expect(await labelsUntruncated(page, 'composer', 'live'), 'live labels at the real composer width').toBe(true)
   expect(await contextRingsUnclipped(page), 'context ring must fit its track at every width').toBe(true)

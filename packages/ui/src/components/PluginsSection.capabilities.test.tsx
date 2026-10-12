@@ -12,7 +12,7 @@ import { NO_PERMISSIONS } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { PluginsSection } from './PluginsSection'
+import { PluginsTestPage } from '../test/plugins-test-page'
 
 /**
  * The capability inventory: everything plugins contribute, findable.
@@ -134,11 +134,11 @@ const makeStore = (
   } as unknown as AppStore
 }
 
-const mount = (store: AppStore) => {
+const mount = (store: AppStore, section: 'installed' | 'capabilities' = 'installed', active = true) => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <PluginsSection />
+        <PluginsTestPage section={section} active={active} />
       </StoreProvider>,
     )
   })
@@ -333,4 +333,35 @@ it('keeps mixed and superseded plugin glyphs when search matches only an outside
   setValue(container.querySelector('input')!, 'Outside helper')
   expect(container.querySelectorAll('[data-slot="row-mark"] svg')).toHaveLength(1)
   expect(container.querySelector('[data-slot="row-mark"] .lucide-puzzle')).toBeTruthy()
+})
+
+it('E7 restored capabilities renders the controlled section in the main bar', () => {
+  mount(makeStore(runtime('fixture', 'Fixture agent', true)), 'capabilities')
+  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Plugins')
+  expect(container.querySelector('[aria-label="Search capabilities"]')).toBeTruthy()
+  expect(container.querySelector('[data-slot="top-bar"] [role="tab"][aria-selected="true"]')?.textContent).toContain('Capabilities')
+})
+
+it('E7 inactive Plugins suspends host scope reads', async () => {
+  const asked: Asked[] = []
+  const store = makeStore(runtime('fixture', 'Fixture agent', true), { answers: [], asked })
+  mount(store, 'capabilities', false)
+  const where = container.querySelector<HTMLSelectElement>('select[aria-label="Where it applies"]')!
+  setValue(where, 'here')
+  await act(async () => {})
+  expect(asked).toEqual([])
+  mount(store, 'capabilities', true)
+  await act(async () => {})
+  expect(asked.map(one => one.kind)).toHaveLength(7)
+})
+
+it('E7 leaving Plugins dismisses its install dialog instead of retaining a portal', () => {
+  const store = makeStore(runtime('fixture', 'Fixture agent', true))
+  mount(store)
+  act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Add plugin"]')!.click())
+  expect(document.querySelector('[role="dialog"]')).toBeTruthy()
+  mount(store, 'installed', false)
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+  mount(store)
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
 })

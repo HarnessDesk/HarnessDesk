@@ -120,6 +120,7 @@ it('a blank draft writes nothing while typing, and cancels with no calls at all'
 
   act(() => choice('A blank Agent').click())
   await settle()
+  expect(document.querySelector('[data-slot="dialog-footer-actions"] button')?.hasAttribute('data-filled')).toBe(true)
   await type(input('Name'), 'New helper')
   await type(input('Brief'), 'Help out.')
   await settle()
@@ -181,6 +182,7 @@ it('a template copies through agent/copy once, before any edit — no synthesize
   const { onCreated } = mount(store)
 
   // The template row is the default choice when builtins exist; confirm it directly.
+  expect(document.querySelector('[data-slot="dialog-footer-actions"] button')?.hasAttribute('data-filled')).toBe(true)
   act(() => button('Copy and open').click())
   await settle()
 

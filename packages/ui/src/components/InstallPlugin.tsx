@@ -6,14 +6,14 @@ import {
   CodeText,
   Dialog,
   Input,
+  Field,
+  Rows,
+  Row,
   Note,
-  Section,
-  SectionBody,
   Text,
 } from '../design'
 import { useStore } from '../state/context'
-import { AlertIcon, FolderIcon, PluginIcon } from './Icons'
-import styles from './InstallPlugin.module.css'
+import { AlertIcon, FolderIcon } from './Icons'
 
 /**
  * Installing a plugin.
@@ -78,7 +78,6 @@ export const InstallPlugin = ({ onClose }: { onClose: () => void }) => {
   return (
     <Dialog
       title="Install a plugin"
-      icon={<PluginIcon size={16} />}
       size="md"
       onClose={onClose}
       footer={
@@ -97,17 +96,22 @@ export const InstallPlugin = ({ onClose }: { onClose: () => void }) => {
               Back
             </Button>
           </>
-        ) : undefined
+        ) : <>
+          <Button variant="default" disabled={busy || specifier.trim().length === 0} onClick={() => void look()}>
+            {busy ? 'Reading…' : 'Continue'}
+          </Button>
+          <Button variant="secondary" onClick={onClose}>Cancel</Button>
+        </>
       }
     >
       {!inspected ? (
         <>
-          <Text as="p" role="muted" className={styles.blurb}>
+          <Text as="p" role="muted">
             A folder on this machine, or a package on npm. Its manifest is read and shown to you
             before anything is installed or run.
           </Text>
-          <div className={styles.ask}>
-            <Input
+          <Field label="Plugin folder or package">{control =>
+            <Input {...control}
               placeholder="/path/to/plugin  or  @scope/plugin-name"
               value={specifier}
               autoFocus
@@ -116,11 +120,8 @@ export const InstallPlugin = ({ onClose }: { onClose: () => void }) => {
                 if (event.key === 'Enter') void look()
               }}
             />
-            <Button variant="default" disabled={busy || specifier.trim().length === 0} onClick={() => void look()}>
-              {busy ? 'Reading…' : 'Continue'}
-            </Button>
-          </div>
-          <Note className={styles.note} ink="muted" icon={<FolderIcon size={13} />}>
+          }</Field>
+          <Note ink="muted" icon={<FolderIcon size={13} />}>
             A plugin folder needs a <CodeText as="code" size="inherit">harnessdesk.plugin.json</CodeText> at
             its root.
           </Note>
@@ -128,32 +129,23 @@ export const InstallPlugin = ({ onClose }: { onClose: () => void }) => {
       ) : (
         <>
           <Text as="div" role="subject">{inspected.name}</Text>
-          <Text as="p" role="muted" className={styles.blurb}>
+          <Text as="p" role="muted">
             {inspected.description ?? 'No description provided.'}
             {inspected.version ? ` · v${inspected.version}` : ''}
           </Text>
 
-          <Section variant="quiet" className={styles.grant}>
-            <SectionBody spacing="compact">
-              <Text as="div" role="muted">This plugin will be able to</Text>
-              <div className={styles.permissions} role="list">
-                {inspected.permissions.map((line) => (
-                  <div className={styles.permission} role="listitem" key={line}>
-                    <Text aria-hidden="true" role="muted">•</Text>
-                    <Text role="muted">{line}</Text>
-                  </div>
-                ))}
-              </div>
-            </SectionBody>
-          </Section>
+          <Rows>
+            <Row title="This plugin will be able to" />
+            {inspected.permissions.map((line, index) => <Row key={`${index}:${line}`} title={line} />)}
+          </Rows>
 
-          <Note className={styles.note} ink="muted" icon={<AlertIcon size={13} />}>
+          <Note ink="muted" icon={<AlertIcon size={13} />}>
             Plugins run in the HarnessDesk plugin host. Permissions are enforced at every call,
             but a plugin is still code from its author — install ones you would be willing to run.
           </Note>
 
           {inspected.alreadyInstalled && (
-            <Note className={styles.note} ink="muted">
+            <Note ink="muted">
               A plugin with this id is already installed and will be replaced.
             </Note>
           )}
@@ -161,7 +153,7 @@ export const InstallPlugin = ({ onClose }: { onClose: () => void }) => {
       )}
 
       {error && (
-        <ActionError className="mt-2">{error}</ActionError>
+        <ActionError>{error}</ActionError>
       )}
     </Dialog>
   )

@@ -26,11 +26,11 @@ const reading = (runtime: string, account: string | null, plan: string | null, n
   source: { kind: 'runtime', label: 'from its own API' }, fetchedAt: now - 60_000, staleAfterMs: 600_000, error: null,
 })
 export const sceneUsage = (now: number): UsageReport[] => [
-  { ...reading('codex', 'shane@harnessdesk.app', 'Pro', now),
+  { ...reading('codex', 'dev@example.com', 'Pro', now),
     lanes: [lane('weekly', 'Weekly', 78, 10_080, now + 5 * DAY)],
     spend: { currency: 'USD', todayCost: 16.8, todayTokens: 14_500_000, windowCost: 3148, windowTokens: 2_930_000_000, windowDays: 30, provenance: 'listPrice', coverage: null },
     billing: { kinds: ['windows'], fee: { amount: 200, currency: 'USD', period: 'month', source: 'user' } } },
-  { ...reading('cursor', 'olivia@harnessdesk.app', 'Pro', now),
+  { ...reading('cursor', 'assistant@example.com', 'Pro', now),
     lanes: [lane('plan', 'Plan', 36, null, now + 25 * DAY)],
     billing: { kinds: ['allowance'] } },
   { ...reading('codex', 'review@example.com', 'Pro', now),

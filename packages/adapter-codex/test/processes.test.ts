@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict'
+import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
@@ -14,6 +17,7 @@ import { CodexProcesses } from '../src/processes.js'
  */
 
 const FAKE = fileURLToPath(new URL('./fixtures/fake-codex.mjs', import.meta.url))
+const LOCAL_CWD = process.cwd()
 
 const started = async (t: { after(fn: () => Promise<void>): void }): Promise<CodexRuntime> => {
   const runtime = new CodexRuntime({ binaryPath: FAKE, clientName: 'harnessdesk-test' })
@@ -123,7 +127,7 @@ test('a fast exit wins even when the startup check finds no running command', as
 
 test('stdin reaches the process and its output streams back until it exits', async (t) => {
   const runtime = await started(t)
-  const process = await runtime.processes.spawn({ cwd: '/w', command: ['cat'], tty: false })
+  const process = await runtime.processes.spawn({ cwd: LOCAL_CWD, command: ['cat'], tty: false })
   const output = collect(process)
   let exit: number | null = null
   process.onExit((code) => (exit = code))
@@ -137,7 +141,7 @@ test('stdin reaches the process and its output streams back until it exits', asy
 
 test('a resize is delivered to the running process', async (t) => {
   const runtime = await started(t)
-  const process = await runtime.processes.spawn({ cwd: '/w', command: ['cat'], tty: true, size: { rows: 24, cols: 80 } })
+  const process = await runtime.processes.spawn({ cwd: LOCAL_CWD, command: ['cat'], tty: true, size: { rows: 24, cols: 80 } })
   const output = collect(process)
   await process.resize({ rows: 40, cols: 120 })
   await waitFor(() => output.join('').includes('[resized 40x120]'), 'the resize')
@@ -147,9 +151,51 @@ test('a resize is delivered to the running process', async (t) => {
 test('a command that cannot start is a spawn error, not a dead process', async (t) => {
   const runtime = await started(t)
   await assert.rejects(
-    () => runtime.processes.spawn({ cwd: '/w', command: ['/definitely/not/a/binary'], tty: false }),
+    () => runtime.processes.spawn({ cwd: LOCAL_CWD, command: ['/definitely/not/a/binary'], tty: false }),
     /failed to spawn/,
   )
+})
+
+test('command/exec starts in the requested folder and reports a missing folder refusal', async (t) => {
+  const runtime = await started(t)
+  const requested = mkdtempSync(join(tmpdir(), 'harnessdesk-terminal-cwd-'))
+  t.after(() => rmSync(requested, { recursive: true, force: true }))
+
+  const runPwd = async (cwd: string): Promise<string> => {
+    const child = await runtime.processes.spawn({
+      cwd,
+      command: [process.execPath, '-e', 'process.stdout.write(process.cwd())'],
+      tty: false,
+    })
+    const output = collect(child)
+    let exit: number | null = null
+    child.onExit((code) => { exit = code })
+    await waitFor(() => exit !== null, 'pwd command exit')
+    assert.equal(exit, 0)
+    return output.join('')
+  }
+
+  assert.equal(await runPwd(requested), realpathSync(requested))
+  await assert.rejects(runtime.processes.spawn({ cwd: join(requested, 'missing'), command: ['pwd'], tty: false }), /failed to spawn/)
+})
+
+test('the adapter forwards the requested cwd and surfaces the server’s refusal unchanged', async t => {
+  const requested = mkdtempSync(join(tmpdir(), 'harnessdesk-terminal-folder-'))
+  t.after(() => rmSync(requested, { recursive: true, force: true }))
+  for (const cwd of [requested, join(requested, 'missing')]) {
+    const fake = controlled()
+    const spawning = fake.processes.spawn({ cwd, command: ['cat'], tty: false })
+    assert.equal(fake.calls.find(call => call.method === 'command/exec')?.params['cwd'], cwd)
+    if (cwd === requested) {
+      fake.ready.resolve({})
+      await spawning
+      fake.exit.resolve({ exitCode: 0, stdout: '', stderr: '' })
+    } else {
+      const refusal = new Error('failed to spawn: missing cwd')
+      fake.exit.reject(refusal)
+      await assert.rejects(spawning, error => error === refusal)
+    }
+  }
 })
 
 test('a terminal for a session runs under that session\'s permission profile', async (t) => {
@@ -159,7 +205,7 @@ test('a terminal for a session runs under that session\'s permission profile', a
   // response arrives as an immediate exit with stderr, which the adapter
   // reports as a process that exited rather than one that failed to spawn.
   const process = await runtime.processes.spawn({
-    cwd: '/w',
+    cwd: LOCAL_CWD,
     command: ['touch', '/w/x'],
     tty: false,
     session: session.id,
@@ -172,7 +218,7 @@ test('a terminal for a session runs under that session\'s permission profile', a
 
 test('a finished process reports its exit to a listener that subscribes late', async (t) => {
   const runtime = await started(t)
-  const process = await runtime.processes.spawn({ cwd: '/w', command: ['true'], tty: false })
+  const process = await runtime.processes.spawn({ cwd: LOCAL_CWD, command: ['true'], tty: false })
   // The claim is about a listener that was not there when the process exited,
   // so the exit has to be established without subscribing to one — `onExit`
   // is the very thing under test, and a listener standing at exit time would
@@ -200,7 +246,7 @@ test('output printed before anyone listens is delivered, not dropped', async (t)
   // A fast command can print before that; every byte must still arrive.
   const runtime = await started(t)
   const process = await runtime.processes.spawn({
-    cwd: '/w',
+    cwd: LOCAL_CWD,
     command: ['/bin/sh', '-c', 'echo said-before-listeners && sleep 0.3'],
     tty: false,
   })
@@ -209,7 +255,7 @@ test('output printed before anyone listens is delivered, not dropped', async (t)
 
   // Even a process that has already exited hands its words to the first listener.
   const gone = await runtime.processes.spawn({
-    cwd: '/w',
+    cwd: LOCAL_CWD,
     command: ['/bin/sh', '-c', 'echo exited-unheard'],
     tty: false,
   })
@@ -227,7 +273,7 @@ test('output that arrives after the exec response still reaches a listener', asy
   // bytes are the process's output, and `#pending`'s contract promises the
   // first listener gets them "even after exit".
   const runtime = await started(t)
-  const gone = await runtime.processes.spawn({ cwd: '/w', command: ['emit-after-exit'], tty: false })
+  const gone = await runtime.processes.spawn({ cwd: LOCAL_CWD, command: ['emit-after-exit'], tty: false })
   // Attached while it is still running, which is what Terminals does.
   const late = collect(gone)
   let exit: number | null = null
@@ -236,11 +282,11 @@ test('output that arrives after the exec response still reaches a listener', asy
 
   // A later exec releases the exec response; wait for the exit to be seen, so
   // the delta that follows is unambiguously after the process finished.
-  await runtime.processes.spawn({ cwd: '/w', command: ['true'], tty: false })
+  await runtime.processes.spawn({ cwd: LOCAL_CWD, command: ['true'], tty: false })
   await waitFor(() => exit !== null, 'the exec response')
   assert.deepEqual(late, [])
 
   // The next one releases the trailing delta.
-  await runtime.processes.spawn({ cwd: '/w', command: ['true'], tty: false })
+  await runtime.processes.spawn({ cwd: LOCAL_CWD, command: ['true'], tty: false })
   await waitFor(() => late.join('').includes('after-the-response'), 'output emitted after the exec response')
 })

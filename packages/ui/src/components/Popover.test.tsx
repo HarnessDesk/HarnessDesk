@@ -2,7 +2,7 @@ import { act, type ComponentType, type ReactNode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { Popover, buttonVariants, dismissOverlays } from '../design'
+import { Menu, MenuItem, Popover, buttonVariants, dismissOverlays } from '../design'
 
 /**
  * The popover's contract, exercised through the DOM. Chiefly: a menu is not a
@@ -32,11 +32,7 @@ const render = (): void => {
   act(() => {
     root.render(
       <Popover label="Menu" title="Conversation">
-        {(close) => (
-          <button type="button" onClick={close}>
-            Compact now
-          </button>
-        )}
+        {close => <Menu close={close}><MenuItem label="Compact now" onSelect={close} /></Menu>}
       </Popover>,
     )
   })
@@ -55,6 +51,13 @@ const click = (el: Element): void => {
 }
 
 describe('Popover', () => {
+  it('accepts a stable accessible name while retaining its visible audience and description', () => {
+    act(() => root.render(<Popover aria-label="Send to" label={<span>Everyone</span>} title="This message reaches everyone in the Team">{() => null}</Popover>))
+    expect(trigger().getAttribute('aria-label')).toBe('Send to')
+    expect(trigger().textContent).toBe('Everyone')
+    expect(trigger().title).toBe('This message reaches everyone in the Team')
+  })
+
   it('draws a trigger dressed as a button the way the button draws: its classes merged, so an outline keeps its edge', () => {
     act(() => {
       root.render(
@@ -240,7 +243,7 @@ describe('the trigger’s accessible name', () => {
     const root = createRoot(host)
     act(() => {
       root.render(
-        <Popover label={label} title="/Users/me/code/app/.claude/worktrees/wt">
+        <Popover label={label} title="/home/dev/workspace/app">
           {() => <span />}
         </Popover>,
       )
@@ -255,7 +258,7 @@ describe('the trigger’s accessible name', () => {
   it('is the hover text when the trigger is a glyph, which has no name of its own', () => {
     const { aria, text } = nameOf(<svg aria-hidden />)
     expect(text.trim()).toBe('')
-    expect(aria).toBe('/Users/me/code/app/.claude/worktrees/wt')
+    expect(aria).toBe('/home/dev/workspace/app')
   })
 
   it('is left to the visible words when the trigger has any — even inside a fragment', () => {

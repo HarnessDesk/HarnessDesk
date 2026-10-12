@@ -22,6 +22,10 @@
   min-width: 0;
 }
 
+.list[data-surface='panel'] .item {
+  padding-inline: var(--hd-inset-row);
+}
+
 .mark {
   display: inline-grid;
   flex: none;

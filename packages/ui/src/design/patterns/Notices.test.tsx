@@ -2,6 +2,8 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
+import { InboxMenu } from './InboxMenu'
+
 import noticeCss from './Notices.module.css?raw'
 
 const { toast } = vi.hoisted(() => {
@@ -224,4 +226,44 @@ it('an Undo deadline dismisses the toast even when its ordinary duration is paus
     vi.advanceTimersByTime(8_000)
     expect(toast.dismiss).toHaveBeenCalledWith('undo')
   } finally { vi.useRealTimers() }
+})
+
+it('the bell offers notification actions through the wide menu and closes once', async () => {
+  const opened = vi.fn()
+  const readAll = vi.fn()
+  const cleared = vi.fn()
+  const followed = vi.fn()
+  await act(async () => root.render(<InboxPanel messages={[{ id: 'decision', title: 'Storefront review needs a decision', body: 'The checkout is kept.', read: false, actions: [{ label: 'Open findings', onSelect: followed }] }]} onOpen={opened} onMarkAllRead={readAll} onClear={cleared} />))
+  const click = async (match: (node: HTMLElement) => boolean) => {
+    const node = [...document.querySelectorAll<HTMLElement>('button,[role^="menuitem"]')].find(match)
+    expect(node).toBeTruthy()
+    await act(async () => { node!.click() })
+  }
+  const bell = (node: HTMLElement) => node.getAttribute('title') === 'Inbox, 1 unread'
+  const label = (words: string) => (node: HTMLElement) => node.querySelector('[data-menu-label]')?.textContent === words
+  await click(bell)
+  expect(document.querySelector('[data-popup-kind="wide-menu"]')).not.toBeNull()
+  await click(label('Storefront review needs a decisionUnread'))
+  expect(opened).toHaveBeenCalledTimes(1)
+  expect(opened).toHaveBeenCalledWith('decision')
+  await click(label('Storefront review needs a decisionUnread'))
+  await click(label('Storefront review needs a decisionUnread'))
+  expect(opened).toHaveBeenCalledTimes(1)
+  await click(label('Open findings'))
+  expect(followed).toHaveBeenCalledTimes(1)
+  await click(bell)
+  await click(label('Mark all read'))
+  expect(readAll).toHaveBeenCalledTimes(1)
+  await click(label('Clear the inbox'))
+  expect(cleared).toHaveBeenCalledTimes(1)
+})
+
+
+it('the canonical Inbox menu retains a complete title when title-only guidance expands', async () => {
+  const title = 'A background warning contains the whole instruction: check the configuration before the next run.'
+  await act(async () => root.render(<InboxMenu close={() => {}} messages={[{ id: 'title-only', title }]} />))
+  expect(host.querySelector('[data-part="inbox-full-title"]')).toBeNull()
+  await act(async () => host.querySelector<HTMLElement>('[role="menuitem"]')!.click())
+  expect(host.querySelector('[data-part="inbox-full-title"]')?.textContent).toBe(title)
+  expect((host.textContent ?? '').split(title)).toHaveLength(2)
 })

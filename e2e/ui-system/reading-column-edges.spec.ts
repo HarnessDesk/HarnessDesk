@@ -17,7 +17,7 @@ const edges = (page: Page) =>
     // `[data-part]` is the turn's own wrapper and carries no cap of its own;
     // its child (`ItemView`'s own root) is what actually sits in the reading
     // column, the same element `conversation-map.spec.ts` reads.
-    const prompt = document.querySelector('[data-live-transcript] [data-part] > *') as HTMLElement | null
+    const prompt = document.querySelector('[data-frame-id="conversation-composer"] [data-live-transcript] [data-part] > *') as HTMLElement | null
     const conversation = prompt?.closest('[class*="_conversation_"]') as HTMLElement | null
     const composer = conversation?.querySelector('[data-slot="composer"]') as HTMLElement | null
     if (!prompt) throw new Error('no turn in the live transcript')
@@ -42,8 +42,8 @@ for (const width of [500, 700, 900, 1400]) {
     // What is measured, rather than a fixed wait for it: the read below throws
     // if the turn or the composer is not mounted yet, and a slow machine is
     // exactly when 400ms was not enough.
-    await expect(page.locator('[data-live-transcript] [data-part] > *').first()).toBeVisible()
-    await expect(page.locator('[data-slot="composer"]').first()).toBeVisible()
+    await expect(page.locator('[data-frame-id="conversation-composer"] [data-live-transcript] [data-part] > *').first()).toBeVisible()
+    await expect(page.locator('[data-frame-id="conversation-composer"] [data-slot="composer"]').first()).toBeVisible()
 
     const { promptLeft, promptRight, composerLeft, composerRight } = await edges(page)
     expect(Math.abs(promptLeft - composerLeft), 'left edge').toBeLessThanOrEqual(1)

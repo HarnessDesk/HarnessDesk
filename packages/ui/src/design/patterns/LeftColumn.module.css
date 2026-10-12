@@ -1,0 +1,82 @@
+.column { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 0; }
+.footer { flex: none; }
+.body { flex: 1; min-height: 0; min-width: 0; overflow-x: hidden; overflow-y: auto; scrollbar-width: none; }
+.body::-webkit-scrollbar { display: none; }
+.hidden { display: none; }
+.group { min-width: 0; padding: 0; }
+/* The drawing's group rhythm is shared by both interfaces. */
+.group + .group { padding-block-start: var(--hd-space-4); }
+.label { font-weight: var(--hd-weight-medium); display: block; padding-inline-start: var(--hd-space-2); margin-block: var(--hd-space-2); }
+.row { position: relative; height: var(--hd-left-row-h); min-width: 0; }
+.row .button { box-sizing: border-box; border: 0; padding-block: 0; height: var(--hd-left-row-h); min-height: var(--hd-left-row-h); padding-inline: var(--hd-space-2); gap: var(--hd-space-2); border-radius: var(--hd-nav-radius); font-size: var(--hd-text-sm); line-height: var(--hd-line-sm); font-weight: var(--hd-weight-normal); }
+.row .button[data-active='true'] { background: var(--hd-selected); color: var(--hd-foreground); }
+.button [data-slot='sidebar-menu-label'] { padding-inline-end: var(--hd-icon-target); }
+.button [data-slot='sidebar-menu-icon'] { width: var(--hd-space-4); height: var(--hd-space-4); }
+.button [data-slot='sidebar-menu-icon'] svg { width: var(--hd-space-4); height: var(--hd-space-4); }
+.trailing { pointer-events: none; position: absolute; inset-inline-end: var(--hd-space-2); top: 50%; translate: 0 -50%; width: var(--hd-icon-target); height: var(--hd-icon-target); display: grid; place-items: center; }
+.mark, .action { grid-area: 1 / 1; }
+.action { display: inline-flex; align-items: center; justify-content: center; width: var(--hd-icon-target); height: var(--hd-icon-target); border-radius: var(--hd-radius-sm); visibility: hidden; opacity: 0; pointer-events: none; }
+.row:is(:hover, :focus-within:not(:has(.button[aria-expanded])), :has(:focus-visible)) .action, .action[aria-expanded='true'] { visibility: visible; opacity: 1; pointer-events: auto; }
+.row:is(:hover, :focus-within:not(:has(.button[aria-expanded])), :has(:focus-visible)):has(.action) .mark, .row:has(.action[aria-expanded='true']) .mark { visibility: hidden; }
+.head { display: flex; align-items: center; gap: var(--hd-space-2); min-height: var(--hd-left-row-h); }
+.headLabel { flex: 1; min-width: 0; }
+.headControls { display: flex; align-items: center; gap: var(--hd-space-0-5); min-width: 0; }
+.top { container: left-column-top / inline-size; }
+.lead, .history, .topActions { display: flex; align-items: center; gap: var(--hd-space-0-5); }
+.lead { flex: 1; min-width: 0; }
+.topActions { flex: none; }
+.topActions button { flex: none; width: var(--hd-frame-icon-button); height: var(--hd-frame-icon-button); }
+.topButton { flex: none; padding: 0; display: inline-flex; align-items: center; justify-content: center; width: var(--hd-frame-icon-button); height: var(--hd-frame-icon-button); border-radius: var(--hd-radius-sm); }
+@container left-column-top (width < 240px) { .history { display: none; } }
+.seat { height: 100%; display: flex; align-items: center; gap: var(--hd-bar-gap); width: 100%; min-width: 0; }
+.seatMenu { flex: 1; min-width: 0; }
+.topButton[aria-pressed='true'] { background: var(--hd-selected); }
+
+.menuAction { pointer-events: auto; display: inline-flex; align-items: center; justify-content: center; width: var(--hd-icon-target); height: var(--hd-icon-target); padding: 0; border: 0; border-radius: var(--hd-radius-sm); background: transparent; color: var(--hd-secondary-foreground); }
+.menuAction:hover, .menuAction[data-open] { background: var(--hd-hover); }
+
+.list { min-width: 0; }
+.row > input { width: 100%; height: 100%; min-height: 0; }
+
+.row[data-current] .button { color: var(--hd-foreground); font-weight: var(--hd-weight-medium); }
+.row[data-insert='before'] { box-shadow: inset 0 var(--hd-border-width) var(--hd-ring); }
+.row[data-insert='after'] { box-shadow: inset 0 calc(-1 * var(--hd-border-width)) var(--hd-ring); }
+.row[data-insert='into'] { outline: var(--hd-border-width) solid var(--hd-ring); }
+
+.navigation { flex: none; }
+.projectsHead { display: flex; align-items: center; gap: var(--hd-space-0-5); }
+.projectsLabel { display: block; min-width: 0; }
+.projectsHead > [data-slot='navigation-group-label'] { flex: 1; min-width: 0; }
+.filtered { display: inline-flex; align-items: center; gap: var(--hd-space-0-5); }
+.projectFilter { flex: none; width: var(--hd-icon-target); min-width: 0; }
+.projectFilter > [data-slot='search'] { width: 100%; }
+.projectsHead[data-filtering] .projectFilter { flex: 1; width: auto; }
+.projectsHead[data-filtering] > [data-slot='navigation-group-label'], .projectsHead[data-filtering] .filtered { display: none; }
+
+.options { display: inline-flex; align-items: center; position: relative; }
+.options > [data-slot='dot'] { position: absolute; inset-block-start: 0; inset-inline-end: 0; pointer-events: none; }
+.empty { white-space: normal; }
+.inset { padding-inline: var(--hd-space-2); }
+
+.headSearch { flex: 1; min-width: 0; }
+.headSearch > [data-slot="search"] { width: 100%; }
+
+/* Back and search are separate blocks in Settings, with the normal short step between them. */
+[data-left-settings] > [data-left-head] { margin-block-start: var(--hd-space-1); }
+
+/* The first Settings group follows its search control with the normal section air. */
+[data-left-settings] > [data-left-group]:first-of-type .label { margin-block-start: var(--hd-space-5); }
+
+/* Header controls centre a line inside their target; the air belongs to the
+   label, not the top of that larger target. */
+.head:has([data-left-group-text]) { padding-block-start: calc(var(--hd-space-4) - (var(--hd-icon-target) - var(--hd-line-sm)) / 2); }
+/* Foldable group names start at the ordinary icon edge. The disclosure follows
+   the visible name, inside the label's reserved space beside the end action. */
+.row[data-left-project] { margin-block-start: calc(var(--hd-space-4) - (var(--hd-left-row-h) - var(--hd-line-sm)) / 2); }
+.button[aria-expanded] { color: var(--hd-secondary-foreground); font-weight: var(--hd-weight-medium); }
+.button[aria-expanded] [data-slot='sidebar-menu-label-content'] { display: flex; width: fit-content; max-width: 100%; align-items: center; gap: var(--hd-space-1-5); }
+.foldName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.disclosure { flex: none; visibility: hidden; }
+.button[aria-expanded='false'] .disclosure, .row:hover .disclosure, .row:has(:focus-visible) .disclosure { visibility: visible; }
+/* The pinned band's hairline is already part of the following group's air. */
+.body [data-sidebar-band='pinned'] + [data-project-root] .row[data-left-project] { margin-block-start: calc(var(--hd-space-4) - (var(--hd-left-row-h) - var(--hd-line-sm)) / 2 - var(--hd-border-width)); }

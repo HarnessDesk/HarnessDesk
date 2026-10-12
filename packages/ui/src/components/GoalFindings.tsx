@@ -14,19 +14,21 @@ import {
   RowButton,
   Rows,
   Switch,
-  Tabs,
-  TabsList,
-  TabsTrigger,
+  Menu,
+  MenuToggle,
+  SummaryList,
+  SummaryItem,
   ToolPane,
   ToolPaneBody,
   ToolPaneEmptyState,
   ToolPaneMessage,
-  ViewBar,
 } from '../design'
 import { ReviewIcon } from './Icons'
-import { blockingWords, FILTER_LABEL, goalHasBoundPr, lifecycleTone, lifecycleWords, type FindingFilter } from '../lib/findings'
+import { emptyFindingsState, blockingWords, FILTER_LABEL, goalHasBoundPr, lifecycleTone, lifecycleWords, type FindingFilter } from '../lib/findings'
+import { runPublication } from '../lib/review-publication'
 import { goalRunLabel, goalRunOf, goalRunsOf } from '../lib/goal-run'
-import { useSnapshot, useStore } from '../state/context'
+import { usePane, useSnapshot, useStore } from '../state/context'
+import { useTopBarView } from '../panels/top-bar'
 import { FindingDecision } from './FindingDecision'
 import { FindingDetail } from './FindingDetail'
 import { FindingPublications } from './FindingPublications'
@@ -47,7 +49,6 @@ type OpenedFinding = Readonly<{ finding: string; originRun: string | null }>
 export const GoalFindings = ({ goal }: { readonly goal: string }) => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const state = snapshot.findings.get(goal)
   const [opened, setOpened] = useState<OpenedFinding | null>(null)
   const [deciding, setDeciding] = useState(false)
   const [publicationPending, setPublicationPending] = useState<boolean | null>(null)
@@ -55,6 +56,14 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
 
   const goalView = snapshot.goals.get(goal)
   const record = isRecord(goalView)
+  const [recordFilter, setRecordFilter] = useState<FindingFilter>('all')
+  const frozen = record ? goalView?.receipt?.findings?.findings : undefined
+  const open = frozen?.filter(one => !one.lifecycle.confirmed) ?? []
+  const blocking = open.filter(one => (one.activeBlocking ?? one.blocking) && !one.inactiveReason)
+  const state = frozen ? { ...emptyFindingsState(recordFilter),
+    rows: recordFilter === 'open' ? open : recordFilter === 'blocking' ? blocking : frozen,
+    totals: { all: frozen.length, open: open.length, blocking: blocking.length },
+  } : snapshot.findings.get(goal)
   /* The same run the room's header reads, among those keeping findings (#890),
      unless the person chose an earlier one to read as history. */
   const live = goalRunOf(goal, goalView, snapshot.flowExecutions, (one) => Boolean(one.findings))
@@ -74,8 +83,9 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
   const goalOpen = goalView !== undefined && goalView.goal.state === 'open'
 
   useEffect(() => {
-    void store.loadFindings(goal, 'all')
-  }, [store, goal])
+    setRecordFilter('all')
+    if (!frozen) void store.loadFindings(goal, 'all')
+  }, [store, goal, frozen])
 
   useEffect(() => {
     if (run) void store.loadFindingRun(goal, run.id)
@@ -88,7 +98,8 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
   const filter = state?.filter ?? 'all'
   const setFilter = (next: FindingFilter): void => {
     if (next === filter) return
-    void store.loadFindings(goal, next)
+    if (frozen) setRecordFilter(next)
+    else void store.loadFindings(goal, next)
   }
 
   const boundPr = goalHasBoundPr(snapshot.boardEvidence.get(goal))
@@ -110,45 +121,35 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
 
   const rows = state?.rows ?? []
   const loadingFirstPage = !state || (state.loading && rows.length === 0)
+  const noFindings = Boolean(state && !loadingFirstPage && !state.problem && !state.error && state.next === null
+    && state.totals?.all === 0 && rows.length === 0 && (runView?.open ?? 0) === 0 && (runView?.blocking ?? 0) === 0)
+  const hasCountedFindings = rows.length > 0 || (state?.totals?.all ?? 0) > 0
   // Other runs' open findings stay decidable, each against its own run.
   const fromEarlier = run
     ? rows.filter((one) => one.origin.goal === goal && one.origin.run !== run.id && runs.some((other) => other.id === one.origin.run) &&
       one.lifecycle.state === 'open' && !one.lifecycle.confirmed).length
     : 0
 
+  const owner = usePane()?.paneId ?? ''
+  const refusal = record ? RECORD_REASON : runView?.undecidable ?? (!runView || (runView.reason === null && runView.blocking === 0)
+    ? 'This Run has no decision waiting' : false)
+  useTopBarView(owner, {
+    verb: { label: 'Decide this run', disabled: refusal, run: () => setDeciding(true) },
+    view: { narrowed: filter !== 'all', content: close => <Menu close={close}>
+      {FILTERS.map(one => <MenuToggle key={one} label={FILTER_LABEL[one]} checked={filter === one}
+        onChange={() => { setFilter(one); close() }} />)}
+    </Menu> },
+  }, Boolean(owner))
+
   return (
     <ToolPane variant="integrated" aria-label="Findings">
-      {/* The tab above says "Findings"; this row says what they are. */}
-      <ViewBar
-        aria-label="Findings"
-        summary={state?.totals ? `${state.totals.open} open · ${state.totals.blocking} blocking of ${state.totals.all}` : undefined}
-        actions={
-          <>
-            {/* The view's own verb, at its own width, beside the view's filter —
-                not a bar across the page under the facts it acts on. */}
-            {runView && (runView.reason !== null || runView.blocking > 0) && (
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={record || runView.undecidable !== null}
-                title={record ? RECORD_REASON : runView.undecidable ?? undefined}
-                onClick={() => setDeciding(true)}
-              >
-                Decide this run
-              </Button>
-            )}
-          <Tabs value={filter} onValueChange={(next) => setFilter(next as FindingFilter)}>
-            <TabsList aria-label="Filter findings">
-              {FILTERS.map((one) => (
-                <TabsTrigger key={one} value={one}>{FILTER_LABEL[one]}</TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
-          </>
-        }
-      />
       <ToolPaneBody bleed>
         <Page width="reading">
+        {hasCountedFindings && <SummaryList aria-label="Findings summary">
+          <SummaryItem label="Open">{state?.totals?.open ?? 'Not recorded'}</SummaryItem>
+          <SummaryItem label="Blocking">{state?.totals?.blocking ?? 'Not recorded'}</SummaryItem>
+          <SummaryItem label="All">{state?.totals?.all ?? 'Not recorded'}</SummaryItem>
+        </SummaryList>}
         {runs.length > 1 && run && (
           <NativeSelect aria-label="Run" value={run.id} onChange={(event) => setChosen(event.target.value)}>
             {runs.map((one, index) => (
@@ -156,13 +157,18 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
             ))}
           </NativeSelect>
         )}
-        {runView && (
+        {runView && !record && !noFindings && (
           <>
             <FindingRoundStatus view={runView} publicationOn={confirmedPublication} />
             {runView.undecidable && <Note>{runView.undecidable}</Note>}
             {!runView.undecidable && <FindingPublications goal={goal} run={runView.run} stamp={runView.stamp} />}
           </>
         )}
+        {record && <Note>This Team is wrapped. Its findings are kept as history.</Note>}
+        {record && runView && <Note>
+          {runPublication(runView, confirmedPublication)?.label}
+          {runView.reason ? ` — ${runView.reason}` : ''}
+        </Note>}
         {boundPr ? (
           /* A setting is a settings row: its switch keeps the row's end. */
           <Rows>
@@ -179,13 +185,13 @@ export const GoalFindings = ({ goal }: { readonly goal: string }) => {
               }
             />
           </Rows>
-        ) : (
-          <Note>Local findings — no pull request is bound to this Team yet.</Note>
-        )}
+        ) : !noFindings ? (
+          <Note>{record ? 'Local findings — no pull request was bound to this Team.' : 'Local findings — no pull request is bound to this Team yet.'}</Note>
+        ) : null}
         {publicationError && (
           <Banner tone="danger" title="This preference could not be saved">{publicationError}</Banner>
         )}
-        {fromEarlier > 0 && (
+        {!record && fromEarlier > 0 && (
           <Note>
             {`${fromEarlier} open finding${fromEarlier === 1 ? ' here was' : 's here were'} raised by another run of this Team. Open one to decide it yourself; it is decided against the run that raised it.`}
           </Note>

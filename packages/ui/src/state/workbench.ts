@@ -1,9 +1,13 @@
+import { destinationOf, readDestinationHistory, type DestinationHistory } from './destinations'
+import { FRAME } from '../design/frame'
+import { supportsFixedTool, toolOf, chooseTool, readToolIntents, type ToolIntent } from './frame-tools'
 import type { UiArea } from '@harnessdesk/protocol'
 
 import {
   close as closePane,
   emptyLayout,
   findPane,
+  focusedPane,
   focus as focusPane,
   onlyMainViews,
   openView,
@@ -121,17 +125,21 @@ export const VIEW_DRAG_TYPE = 'application/x-harnessdesk-view'
  * split tree inside `main` keeps fractions for the opposite reason — two
  * documents side by side share the space they are given.
  */
-const LIMITS: Record<DockId, { readonly min: number; readonly max: number; readonly start: number }> = {
-  sidebar: { min: 200, max: 520, start: 240 },
-  right: { min: 280, max: 900, start: 460 },
-  bottom: { min: 80, max: 600, start: 220 },
+const LIMITS = {
+  sidebar: { min: FRAME.sidebar.min, max: FRAME.sidebar.max, start: FRAME.sidebar.width },
+  right: { min: FRAME.rightPanel.min, max: FRAME.rightPanel.max, start: FRAME.rightPanel.width },
+  bottom: { min: FRAME.bottomPanel.min, max: Number.POSITIVE_INFINITY, start: FRAME.bottomPanel.height },
+} satisfies Record<DockId, { min: number; max: number; start: number }>
+
+/** Bottom geometry follows the live viewport; 900 preserves pure callers. */
+export const dockLimits = (area: DockId, windowHeight = 900): { min: number; max: number } => ({
+  min: LIMITS[area].min,
+  max: area === 'bottom' ? Math.max(FRAME.bottomPanel.min, Math.floor(windowHeight / 2)) : LIMITS[area].max,
+})
+const clampSize = (area: DockId, size: number, windowHeight = 900): number => {
+  const limits = dockLimits(area, windowHeight)
+  return Math.min(limits.max, Math.max(limits.min, Math.round(Number.isFinite(size) ? size : LIMITS[area].start)))
 }
-
-/** The bounds a dock's size is held inside, for a handle that wants to draw them. */
-export const dockLimits = (area: DockId): { readonly min: number; readonly max: number } => LIMITS[area]
-
-const clampSize = (area: DockId, size: number): number =>
-  Math.min(LIMITS[area].max, Math.max(LIMITS[area].min, Math.round(size)))
 
 // ------------------------------------------------------------------- views
 
@@ -255,6 +263,10 @@ export interface Zoom {
  */
 
 export interface Workbench {
+  readonly navigation: DestinationHistory
+  readonly frameTools: Readonly<Record<string, ToolIntent>>
+  readonly toolOwners: Readonly<Record<MountedId, string>>
+  readonly frameSubjects: Readonly<Record<string, { paneId: PaneId; view: PaneView }>>
   /** The stack below the session tree: extra sections, and plugin views. */
   readonly sidebar: Dock
   /** The split tree. Unchanged from `layout.ts`; this is the editor grid. */
@@ -289,14 +301,24 @@ export const emptyDock = (area: DockId): Dock => ({
   collapsed: false,
 })
 
-export const emptyWorkbench = (): Workbench => ({
-  sidebar: emptyDock('sidebar'),
-  main: emptyLayout(),
-  right: emptyDock('right'),
-  bottom: emptyDock('bottom'),
-  zoom: null,
-  focus: null,
-})
+export const navigationFor = (main: Layout): DestinationHistory => {
+  const view = focusedPane(main).view
+  return { current: destinationOf(view.kind === 'conversation' || view.kind === 'room' ? view : { kind: 'conversation', session: null }), back: [], forward: [] }
+}
+
+export const emptyWorkbench = (): Workbench => {
+  const main = emptyLayout()
+  return {
+    navigation: navigationFor(main),
+    frameTools: {}, toolOwners: {}, frameSubjects: {},
+    sidebar: emptyDock('sidebar'),
+    main,
+    right: emptyDock('right'),
+    bottom: emptyDock('bottom'),
+    zoom: null,
+    focus: null,
+  }
+}
 
 // ------------------------------------------------------------------ reading
 
@@ -309,6 +331,51 @@ export const stacks = (node: DockNode): readonly DockStack[] =>
 /** Every view a dock holds, in reading order. */
 export const dockViews = (dock: Dock): readonly Mounted[] =>
   stacks(dock.root).flatMap((stack) => stack.views)
+
+export const fixedSubject = (main: Layout): string | null => {
+  const pane = findPane(main, main.focused)
+  const view = pane?.view
+  return view?.kind === 'room' ? `team:${view.room}` : view?.kind === 'conversation'
+    ? view.session === null ? `draft:${pane!.id}` : `session:${view.session}` : null
+}
+export const normalizeFixedWorkbench = (before: Workbench, retireRunSteps = false): {
+  workbench: Workbench; legacyRoutes: readonly PaneView[]
+} => {
+  const subject = fixedSubject(before.main)
+  const seen = new Set<string>()
+  const mounted = [before.right, before.bottom, before.sidebar].flatMap(dockViews).filter(one => {
+    if (seen.has(one.id)) return false
+    seen.add(one.id); return true
+  })
+  // Old docked transcripts remain retained compatibility payloads; migration never closes a session.
+  const tools = mounted.filter(one => toolOf(one.view.kind) !== null || one.view.kind === 'conversation' || (!retireRunSteps && one.view.kind === 'run-steps'))
+  const terminal = mounted.filter(one => one.view.kind === 'terminal')
+  const legacyRoutes = mounted.filter(one => one.view.kind === 'board' || (retireRunSteps && one.view.kind === 'run-steps')).map(one => one.view)
+  const makeStack = (previous: Dock, entries: readonly Mounted[]): Dock => {
+    const old = stacks(previous.root).find(one => one.views.length > 0)
+    const active = entries.find(one => one.id === old?.active)?.id ?? entries.at(-1)?.id ?? null
+    return { ...previous, root: { kind: 'stack', id: old?.id ?? emptyStack().id, views: entries, active } }
+  }
+  const owners = { ...before.toolOwners }
+  if (subject) for (const one of tools) if (owners[one.id] === undefined) owners[one.id] = subject
+  const frameTools = { ...before.frameTools }
+  if (subject && frameTools[subject] === undefined) {
+    const shown = (['right', 'bottom', 'sidebar'] as const).flatMap(area =>
+      visibleViews(before[area]).map(active => ({ area, active })))
+      .find(({ active }) => supportsFixedTool(active.view) && owners[active.id] === subject)
+    const activeArea = shown?.area
+    const active = shown?.active
+    const tool = active && toolOf(active.view.kind)
+    if (tool && active) frameTools[subject] = {
+      ...chooseTool(undefined, tool, active.view.kind), open: activeArea !== undefined && !before[activeArea].collapsed,
+    }
+  }
+  return { legacyRoutes, workbench: {
+    ...before, sidebar: { ...before.sidebar, root: emptyStack() },
+    right: makeStack(before.right, tools), bottom: makeStack(before.bottom, terminal),
+    zoom: before.zoom?.area === 'main' ? before.zoom : null, focus: null, frameTools, toolOwners: owners, frameSubjects: subject ? { ...before.frameSubjects, [subject]: { paneId: before.main.focused, view: findPane(before.main, before.main.focused)!.view } } : before.frameSubjects,
+  } }
+}
 
 /**
  * The view a stack is showing, falling back to the first so a stale id cannot
@@ -372,9 +439,11 @@ export const mountedView = (workbench: Workbench, id: MountedId): Mounted | null
 export const findView = (
   workbench: Workbench,
   view: PaneView,
+  owner?: string,
 ): { readonly area: DockId; readonly mounted: Mounted } | { readonly area: 'main'; readonly pane: PaneId } | null => {
   for (const area of DOCKS) {
-    const found = dockViews(workbench[area]).find((entry) => sameView(entry.view, view))
+    const found = dockViews(workbench[area]).find((entry) => sameView(entry.view, view)
+      && (owner === undefined || workbench.toolOwners[entry.id] === owner))
     if (found) return { area, mounted: found }
   }
   const pane = panes(workbench.main.root).find((entry) => sameView(entry.view, view))
@@ -442,8 +511,8 @@ const reveal = (workbench: Workbench, area: AreaId): Workbench =>
  * scroll position, draft and focus, and the second would lose every time; the
  * rule `layout.ts` already holds for panes holds across the whole workbench.
  */
-export const dock = (workbench: Workbench, area: DockId, view: PaneView): Workbench => {
-  const existing = findView(workbench, view)
+export const dock = (workbench: Workbench, area: DockId, view: PaneView, owner?: string): Workbench => {
+  const existing = findView(workbench, view, owner)
   /*
    * Already docked in this area: bring it forward *where it is*.
    *
@@ -791,8 +860,8 @@ export const focusedMount = (workbench: Workbench): string =>
 export const focusView = (workbench: Workbench, id: MountedId | null): Workbench =>
   id === null || areaOf(workbench, id) !== null ? { ...workbench, focus: id } : workbench
 
-export const resizeDock = (workbench: Workbench, area: DockId, size: number): Workbench =>
-  patchDock(workbench, area, { ...workbench[area], size: clampSize(area, size) })
+export const resizeDock = (workbench: Workbench, area: DockId, size: number, windowHeight = 900): Workbench =>
+  patchDock(workbench, area, { ...workbench[area], size: clampSize(area, size, windowHeight) })
 
 /**
  * Collapses a dock to its tab strip.
@@ -801,8 +870,16 @@ export const resizeDock = (workbench: Workbench, area: DockId, size: number): Wo
  * browser's pages must all survive being put away and taken out again, which is
  * the difference between collapsing a panel and closing one.
  */
-export const collapseDock = (workbench: Workbench, area: DockId, collapsed: boolean): Workbench =>
-  settle(patchDock(workbench, area, { ...workbench[area], collapsed }))
+export const collapseDock = (workbench: Workbench, area: DockId, collapsed: boolean): Workbench => {
+  const subject = area === 'right' ? fixedSubject(workbench.main) : null
+  const intent = subject === null ? undefined : workbench.frameTools[subject]
+  // Staged legacy inspectors still collapse their dock directly. Keep their
+  // existing intent coherent with that command without creating a new one.
+  const next = subject !== null && intent
+    ? { ...workbench, frameTools: { ...workbench.frameTools, [subject]: { ...intent, open: !collapsed } } }
+    : workbench
+  return settle(patchDock(next, area, { ...next[area], collapsed }))
+}
 
 /** Collapses a dock if it is open, opens it if it is not — the one control on a toggle. */
 export const toggleDock = (workbench: Workbench, area: DockId): Workbench =>
@@ -905,6 +982,14 @@ export const drawnInDock = (state: Parameters<typeof sidebarPlacement>[0], kind:
   DOCKS.some((area) => {
     const held = state.workbench[area]
     if (held.collapsed || !areaVisible(state.workbench, area)) return false
+    if (area === 'right') {
+      if (!rightPanelDrawn(state.workbench)) return false
+      const subject = fixedSubject(state.workbench.main)
+      const intent = subject ? state.workbench.frameTools[subject] : undefined
+      // Canonical Details hides the retained legacy PanelArea, including Steps.
+      const pane = findPane(state.workbench.main, state.workbench.main.focused)
+      if (intent?.tool === 'details' && (intent.mode === 'details' || pane?.view.kind === 'room' && intent.mode === 'run-details')) return false
+    }
     if (area === 'sidebar' && sidebarPlacement(state) === 'away') return false
     return visibleViews(held).some((entry) => entry.view.kind === kind)
   })
@@ -931,12 +1016,14 @@ export const unzoom = (workbench: Workbench): Workbench =>
 export const zoomedArea = (workbench: Workbench, area: AreaId): boolean => workbench.zoom?.area === area
 
 /** Whether the right panel draws a panel at all, rather than only its drop zone. */
-export const rightPanelDrawn = (workbench: Workbench): boolean =>
-  dockViews(workbench.right).length > 0 && areaVisible(workbench, 'right') && !workbench.right.collapsed
+export const rightPanelDrawn = (workbench: Workbench): boolean => {
+  const subject = fixedSubject(workbench.main)
+  return subject !== null && workbench.frameTools[subject]?.open === true && areaVisible(workbench, 'right')
+}
 
 /**
  * Whether the sidebar has to give up its column: a window under
- * `NARROW_WINDOW`, or one where it, a drawn right panel and `MIN_READING` do
+ * `FRAME.fold.sidebarFloats`, or one where it, a drawn right panel and `MIN_READING` do
  * not fit side by side.
  *
  * The sidebar's own width counts even while its column is put away, so
@@ -944,20 +1031,25 @@ export const rightPanelDrawn = (workbench: Workbench): boolean =>
  * seam mid-drag cannot cross it under the pointer. A zoom answers visibility
  * by itself and is left out.
  */
-export const sidebarCannotHaveColumn = (workbench: Workbench, windowWidth: number): boolean =>
-  windowWidth < NARROW_WINDOW ||
-  (workbench.zoom === null &&
-    rightPanelDrawn(workbench) &&
-    workbench.sidebar.size + workbench.right.size + MIN_READING + 2 * SEAM > windowWidth)
+export const sidebarCannotHaveColumn = (_workbench: Workbench, windowWidth: number): boolean =>
+  windowWidth < FRAME.fold.sidebarFloats
 
-/**
- * Whether the right panel leaves less than the reading width beside it and
- * therefore covers the whole main area —
- * the one rule `Workbench` hides and inerts the middle by, and the corner and
- * the notice strip follow (#1179).
- */
+/** A fixed nonmodal float leaves main usable below the equality boundary. */
 export const rightPanelOverlays = (workbench: Workbench, windowWidth: number): boolean =>
-  windowWidth - workbench.right.size - SEAM < MIN_READING && rightPanelDrawn(workbench) && areaVisible(workbench, 'main')
+  windowWidth < FRAME.fold.panelFloats && rightPanelDrawn(workbench)
+
+/** The reading floor yields only enough to keep the tool's minimum usable. */
+const frameReadingFloor = (windowWidth: number, standingSidebar = 0, seam = 1): number =>
+  Math.min(FRAME.main.min, Math.max(0, windowWidth - standingSidebar - FRAME.rightPanel.min - 2 * seam))
+/** Requested preferences survive viewport changes; only drawing is clamped. */
+export const effectiveRightWidth = (workbench: Workbench, windowWidth: number, standingSidebar: number): number => {
+  if (!rightPanelDrawn(workbench)) return 0
+  const max = Math.max(0, windowWidth - standingSidebar - frameReadingFloor(windowWidth, standingSidebar, SEAM) - 2 * SEAM)
+  return Math.max(0, Math.min(workbench.right.size, FRAME.rightPanel.max, max, Math.max(0, windowWidth - standingSidebar - FRAME.page.canvasGutter)))
+}
+export const effectiveBottomHeight = (workbench: Workbench, windowHeight: number): number =>
+  windowHeight < FRAME.bottomPanel.min * 2 || workbench.bottom.collapsed || terminals(workbench).length === 0 || !areaVisible(workbench, 'bottom')
+    ? 0 : Math.min(Math.max(workbench.bottom.size, FRAME.bottomPanel.min), Math.floor(windowHeight / 2))
 
 /**
  * The area the strip above the panes rides (`NoticeStripOutlet`): the one
@@ -974,7 +1066,6 @@ export const rightPanelOverlays = (workbench: Workbench, windowWidth: number): b
 export const noticeArea = (workbench: Workbench, windowWidth: number): 'main' | 'right' | 'bottom' | 'sidebar' => {
   const zoom = workbench.zoom
   if (zoom !== null && zoom.area !== 'main') return zoom.area
-  if (rightPanelOverlays(workbench, windowWidth)) return 'right'
   return 'main'
 }
 
@@ -1007,11 +1098,6 @@ export const focusedComposerVisible = (workbench: Workbench, windowWidth: number
   const id = focusedMount(workbench)
   const area = areaOfMount(workbench, id)
   if (!areaVisible(workbench, area)) return false
-  // A right panel drawn over the whole main area makes the
-  // conversation behind it unreachable — `inert` in `Workbench.tsx` — even
-  // though `areaVisible` still calls `main` on screen, since nothing there is
-  // zoomed. That is a second way to be covered `areaVisible` does not know.
-  if (area === 'main' && rightPanelOverlays(workbench, windowWidth)) return false
   const view = area === 'main' ? findPane(workbench.main, id)?.view : mountedView(workbench, id)?.view
   if (!view) return false
   return view.kind === 'room' || (view.kind === 'conversation' && view.session !== null)
@@ -1104,16 +1190,8 @@ export const areaVisible = (workbench: Workbench, area: AreaId): boolean => {
  * same rule), so its tab strip, not the hidden conversation's header, is the
  * row under the buttons.
  */
-export const cornerArea = (workbench: Workbench, sidebarShown: boolean, windowWidth = Number.POSITIVE_INFINITY): AreaId =>
-  sidebarShown
-    ? 'sidebar'
-    : rightPanelOverlays(workbench, windowWidth)
-      ? 'right'
-      : areaVisible(workbench, 'main')
-        ? 'main'
-        : areaVisible(workbench, 'right') && dockViews(workbench.right).length > 0
-          ? 'right'
-          : 'bottom'
+export const cornerArea = (_workbench: Workbench, sidebarShown: boolean, _windowWidth = Number.POSITIVE_INFINITY): AreaId =>
+  sidebarShown ? 'sidebar' : 'main'
 
 // ---------------------------------------------------------- narrow windows
 
@@ -1130,7 +1208,7 @@ export const cornerArea = (workbench: Workbench, sidebarShown: boolean, windowWi
  * So below it the sidebar floats over the conversation instead of standing
  * beside it.
  */
-export const NARROW_WINDOW = 720
+export const NARROW_WINDOW = FRAME.fold.sidebarFloats
 
 /**
  * The narrowest conversation that stands beside anything.
@@ -1141,7 +1219,7 @@ export const NARROW_WINDOW = 720
  * conversation (`rightPanelOverlays`) — navigation before the thing being
  * consulted, and that before the work. See docs/decisions.md.
  */
-export const MIN_READING = 400
+export const MIN_READING = FRAME.main.min
 
 /**
  * The divider between two columns, which is taken from one of them. Measured
@@ -1198,7 +1276,7 @@ export const sidebarPlacement = (state: {
  * find their panes where they left them, not an empty window with a note about
  * a new layout engine. A malformed document costs the layout, never the window.
  */
-export const readWorkbench = (raw: unknown): Workbench | null => {
+export const readWorkbench = (raw: unknown, windowHeight = 900): Workbench | null => {
   if (typeof raw !== 'object' || raw === null) return null
   const record = raw as Record<string, unknown>
 
@@ -1216,14 +1294,34 @@ export const readWorkbench = (raw: unknown): Workbench | null => {
      from one that vanished and only one of those is a bug they would report. */
   const main = onlyMainViews(read)
 
-  return settle({
-    sidebar: readDock('sidebar', record['sidebar']),
+  const toolOwners: Record<string, string> = typeof record.toolOwners === 'object' && record.toolOwners !== null && !Array.isArray(record.toolOwners)
+    ? Object.fromEntries(Object.entries(record.toolOwners).filter((entry): entry is [string, string] => typeof entry[1] === 'string')) : {}
+
+  const frameSubjects: Record<string, { paneId: PaneId; view: PaneView }> = {}
+  if (typeof record.frameSubjects === 'object' && record.frameSubjects !== null && !Array.isArray(record.frameSubjects)) {
+    for (const [key, raw] of Object.entries(record.frameSubjects)) {
+      if (typeof raw !== 'object' || raw === null) continue
+      const one = raw as Record<string, unknown>
+      if (typeof one.view !== 'object' || one.view === null) continue
+      const rawView = one.view as Record<string, unknown>
+      if (rawView.kind !== 'conversation' && rawView.kind !== 'room') continue
+      const view = readView(rawView)
+      if (typeof one.paneId !== 'string' || !view || view.kind !== rawView.kind) continue
+      const scope = { root: { kind: 'pane' as const, id: one.paneId, view }, focused: one.paneId, expanded: null }
+      if (fixedSubject(scope) === key) frameSubjects[key] = { paneId: one.paneId, view }
+    }
+  }
+
+  return {
+    navigation: readDestinationHistory(record['navigation'], navigationFor(main).current),
+    frameTools: readToolIntents(record.frameTools), toolOwners, frameSubjects,
+    sidebar: readDock('sidebar', record['sidebar'], windowHeight),
     main,
-    right: readDock('right', record['right']),
-    bottom: readDock('bottom', record['bottom']),
+    right: readDock('right', record['right'], windowHeight),
+    bottom: readDock('bottom', record['bottom'], windowHeight),
     zoom: readZoom(record['zoom']),
     focus: typeof record['focus'] === 'string' ? record['focus'] : null,
-  })
+  }
 }
 
 /**
@@ -1233,13 +1331,13 @@ export const readWorkbench = (raw: unknown): Workbench | null => {
  * that is exactly what it was. Nobody loses their panels to the upgrade, and
  * the migration is one branch rather than a version field.
  */
-const readDock = (area: DockId, raw: unknown): Dock => {
+const readDock = (area: DockId, raw: unknown, windowHeight: number): Dock => {
   if (typeof raw !== 'object' || raw === null) return emptyDock(area)
   const record = raw as Record<string, unknown>
   const root = readDockNode(record['root']) ?? readStack(record) ?? emptyStack()
   return prunedDock({
     root,
-    size: clampSize(area, typeof record['size'] === 'number' ? record['size'] : LIMITS[area].start),
+    size: clampSize(area, typeof record['size'] === 'number' ? record['size'] : LIMITS[area].start, windowHeight),
     collapsed: record['collapsed'] === true,
   })
 }
@@ -1307,4 +1405,13 @@ const readZoom = (raw: unknown): Zoom | null => {
   const area = AREAS.find((entry) => entry === record['area'])
   if (!area) return null
   return { area, scope: record['scope'] === 'window' ? 'window' : 'content' }
+}
+
+/** Refresh an existing remembered Team payload without creating or changing resource ownership. */
+export const replaceTeamPayload = (before: Workbench, id: string, view: Extract<PaneView, { kind: 'room' }>): Workbench => {
+  const next = replaceView(before, id, view)
+  const subject = `team:${view.room}`
+  const held = before.frameSubjects[subject]
+  if (!held || held.paneId !== id || held.view.kind !== 'room' || held.view.room !== view.room) return next
+  return { ...next, frameSubjects: { ...next.frameSubjects, [subject]: { ...held, view } } }
 }

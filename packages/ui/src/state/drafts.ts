@@ -59,6 +59,8 @@ const WRITE_DELAY_MS = 250
 const MEMORY_ONLY = ' Not saved for a reload — it stays only while this window is open.'
 /** Recoveries from a refused first send have no conversation to own them yet. */
 export const UNSCOPED_RECOVERY_KEY = '\u0000new-session' as SessionKey
+/** The live composer for an unstarted conversation; separate from recoverable drafts. */
+export const NEW_SESSION_DRAFT_KEY = '\u0000new-session-live' as SessionKey
 
 const empty = (draft: Draft): boolean =>
   draft.text.trim() === '' && draft.attachments.length === 0 && !draft.imagesWillBeLostOnReload

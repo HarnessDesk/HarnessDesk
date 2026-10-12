@@ -299,7 +299,7 @@ for (const [key, count] of Object.entries(baseline)) {
 }
 lines.push('')
 
-const text = `${lines.join('\n').replace(/\n{3,}/g, '\n\n')}\n`
+const text = `${lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`
 
 /* Everything below is the command; above is importable. A test that had to
    run the generator to reach one pure function would be a test of the

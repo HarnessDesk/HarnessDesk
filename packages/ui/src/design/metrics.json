@@ -200,12 +200,12 @@
     "radius": 8
   },
   "badge/tabs-list/variant/default": {
-    "h": 26,
+    "h": 28,
     "text": 14,
     "weight": "400",
     "line": 20,
-    "pad": "1 1 1 1",
-    "radius": 6
+    "pad": "2 2 2 2",
+    "radius": 8
   },
   "badge/tabs-list/variant/line": {
     "h": 26,
@@ -303,6 +303,14 @@
     "pad": "0 0 0 0",
     "radius": 33554400
   },
+  "button/button/size/icon-label": {
+    "h": 28,
+    "text": 12,
+    "weight": "500",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 8
+  },
   "button/button/size/icon-sm": {
     "h": 28,
     "text": 13,
@@ -351,6 +359,14 @@
     "pad": "0 8 0 8",
     "radius": 10
   },
+  "button/button/size/navigation-edge": {
+    "h": 30,
+    "text": 13,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 10 0 10",
+    "radius": 10
+  },
   "button/button/size/panel": {
     "h": 47,
     "text": 13,
@@ -389,6 +405,14 @@
     "weight": "500",
     "line": 20,
     "pad": "0 10 0 10",
+    "radius": 8
+  },
+  "button/button/size/wrap": {
+    "h": 30,
+    "text": 13,
+    "weight": "500",
+    "line": 13,
+    "pad": "0 12 0 12",
     "radius": 8
   },
   "button/button/size/xs": {
@@ -615,6 +639,14 @@
     "pad": "4 6 4 6",
     "radius": 8
   },
+  "control/input/variant/bare": {
+    "h": 30,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 10 0 10",
+    "radius": 8
+  },
   "control/input/variant/chrome": {
     "h": 30,
     "text": 14,
@@ -783,6 +815,22 @@
     "pad": "0 0 0 0",
     "radius": 0
   },
+  "info-card/div/variant/default": {
+    "h": 30,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "left-column/button/size/default": {
+    "h": 20,
+    "text": 14,
+    "weight": "500",
+    "line": 20,
+    "pad": "0 8 0 8",
+    "radius": 0
+  },
   "list/avatar/size/default": {
     "h": 24,
     "text": 14,
@@ -807,6 +855,22 @@
     "pad": "16 16 16 16",
     "radius": 16
   },
+  "popup-inbox/div/variant/default": {
+    "h": 28,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "popup-menu/div/variant/default": {
+    "h": 26,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
   "readings/key-value/variant/default": {
     "h": 116,
     "text": 14,
@@ -824,7 +888,7 @@
     "radius": 0
   },
   "readings/summary-card/variant/summary": {
-    "h": 280,
+    "h": 278,
     "text": 13,
     "weight": "400",
     "line": 20,
@@ -832,10 +896,10 @@
     "radius": 14
   },
   "row/page-title-case/size/page": {
-    "h": 26,
-    "text": 20,
-    "weight": "600",
-    "line": 28,
+    "h": 17,
+    "text": 13,
+    "weight": "500",
+    "line": 20,
     "pad": "0 0 0 0",
     "radius": 0
   },
@@ -856,7 +920,7 @@
     "radius": 10
   },
   "section/section/variant/page": {
-    "h": 185,
+    "h": 197,
     "text": 14,
     "weight": "400",
     "line": 20,
@@ -864,7 +928,7 @@
     "radius": 0
   },
   "section/section/variant/panel": {
-    "h": 117,
+    "h": 121,
     "text": 14,
     "weight": "400",
     "line": 20,
@@ -912,7 +976,7 @@
     "radius": 10
   },
   "stat/stat/variant/bordered": {
-    "h": 102,
+    "h": 108,
     "text": 14,
     "weight": "400",
     "line": 20,
@@ -920,7 +984,7 @@
     "radius": 10
   },
   "stat/stat/variant/plain": {
-    "h": 102,
+    "h": 108,
     "text": 14,
     "weight": "400",
     "line": 20,
@@ -928,12 +992,20 @@
     "radius": 0
   },
   "stat/stat/variant/tinted": {
-    "h": 102,
+    "h": 108,
     "text": 14,
     "weight": "400",
     "line": 20,
     "pad": "16 16 16 16",
     "radius": 10
+  },
+  "subject-actions/div/variant/default": {
+    "h": 26,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
   },
   "tables/list-row/size/comfortable": {
     "h": 66,
@@ -983,28 +1055,28 @@
     "pad": "0 0 0 0",
     "radius": 0
   },
-  "team-bar/tool-pane-header/size/default": {
-    "h": 48,
+  "team-bar/bar/size/default": {
+    "h": 40,
     "text": 14,
     "weight": "400",
     "line": 20,
-    "pad": "0 12 0 24",
+    "pad": "0 8 1 8",
     "radius": 0
   },
-  "team-bar/tool-pane-header/size/lg": {
-    "h": 48,
+  "team-bar/bar/size/lg": {
+    "h": 40,
     "text": 14,
     "weight": "400",
     "line": 20,
-    "pad": "0 12 0 24",
+    "pad": "0 8 1 8",
     "radius": 0
   },
-  "team-bar/tool-pane-header/size/sm": {
-    "h": 48,
+  "team-bar/bar/size/sm": {
+    "h": 40,
     "text": 14,
     "weight": "400",
     "line": 20,
-    "pad": "0 12 0 24",
+    "pad": "0 8 1 8",
     "radius": 0
   },
   "tile/icon-tile/size/default": {
@@ -1081,6 +1153,14 @@
   },
   "usage-meter-row/div/variant/default": {
     "h": 128,
+    "text": 14,
+    "weight": "400",
+    "line": 20,
+    "pad": "0 0 0 0",
+    "radius": 0
+  },
+  "wide-menu/div/variant/default": {
+    "h": 26,
     "text": 14,
     "weight": "400",
     "line": 20,

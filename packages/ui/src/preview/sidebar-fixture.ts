@@ -35,7 +35,7 @@ const CLAUDE = runtimeId('claude')
  * apart the board strip silently stopped rendering — nothing threw, the line
  * was simply never there.
  */
-export const PREVIEW_ROOT = '/Users/shane/code/HarnessDesk'
+export const PREVIEW_ROOT = '/work/HarnessDesk'
 
 const HOME = PREVIEW_ROOT
 
@@ -45,7 +45,7 @@ export const previewAccounts: Record<string, AccountStatus> = {
   [CODEX]: { signedIn: true, accounts: [account('shane@harnessdesk.app')] },
   // Keep the longest realistic account visible in the seat menu as a width
   // specimen; its usage row is the matching request-based fixture below.
-  [CURSOR]: { signedIn: true, accounts: [account('Shane-Cursor'), account('legacy-cursor@harnessdesk.app')] },
+  [CURSOR]: { signedIn: true, accounts: [account('reviewer@example.com'), account('legacy-account-with-a-long-label@example.com')] },
   [CLAUDE]: { signedIn: true, accounts: [account('shane@harnessdesk.app')] },
 } as unknown as Record<string, AccountStatus>
 
@@ -93,7 +93,7 @@ export const previewUsage: UsageReport[] = [
     credits: null,
     spend: null,
     reached: null,
-    source: { kind: 'file', label: "from Claude Code's own cache" },
+    source: { kind: 'file', label: "from the agent's own cache" },
     fetchedAt: Date.now() - 4 * 60_000,
     staleAfterMs: 600_000,
     error: null,
@@ -127,20 +127,20 @@ export const previewUsage: UsageReport[] = [
      * of them sorted first with its account named nowhere.
      */
     runtime: CLAUDE,
-    account: 'olivia@harnessdesk.app',
+    account: 'jane@example.com',
     plan: 'Pro',
     lanes: [lane('session', 'Session', 12, 300, 0.31), lane('weekly', 'Weekly', 44, 10_080, 0.55)],
     credits: null,
     spend: null,
     reached: null,
-    source: { kind: 'file', label: "from Claude Code's own cache" },
+    source: { kind: 'file', label: "from the agent's own cache" },
     fetchedAt: Date.now() - 2 * 60_000,
     staleAfterMs: 600_000,
     error: null,
   },
   {
     runtime: CURSOR,
-    account: 'Shane-Cursor',
+    account: 'reviewer@example.com',
     plan: 'Pro',
     // Near its plan limit so the real sidebar's Dashboard attention badge is
     // present beside the destination, not only on the Dashboard screen.
@@ -148,7 +148,7 @@ export const previewUsage: UsageReport[] = [
     credits: { remaining: 10.66, used: 39.34, unit: 'USD' },
     spend: null,
     reached: null,
-    source: { kind: 'api', label: 'from cursor.com' },
+    source: { kind: 'api', label: 'from its own API' },
     fetchedAt: Date.now() - 90_000,
     staleAfterMs: 600_000,
     error: null,
@@ -159,7 +159,7 @@ export const previewUsage: UsageReport[] = [
     // has no percent to give it at all, so its figure is the legacy requests
     // lane instead — see `packages/server/src/usage/cursor.ts`.
     runtime: CURSOR,
-    account: 'legacy-cursor@harnessdesk.app',
+    account: 'legacy-account-with-a-long-label@example.com',
     plan: 'Pro',
     lanes: [
       lane('requests', 'Requests', (313 / 500) * 100, 30 * 1_440, 0.4, {
@@ -178,7 +178,7 @@ export const previewUsage: UsageReport[] = [
     credits: null,
     spend: null,
     reached: null,
-    source: { kind: 'api', label: 'from cursor.com' },
+    source: { kind: 'api', label: 'from its own API' },
     fetchedAt: Date.now() - 90_000,
     staleAfterMs: 600_000,
     error: null,
@@ -200,7 +200,7 @@ export const previewUsage: UsageReport[] = [
     // runway bar (balance ÷ a recent daily draw, against 30 days) has
     // something to plot rather than reading as "no history yet".
     runtime: CODEX,
-    account: 'balance@harnessdesk.app',
+    account: 'balance@example.com',
     plan: null,
     lanes: [],
     credits: { remaining: 8.8, unit: 'USD' },
@@ -230,7 +230,7 @@ export const previewUsage: UsageReport[] = [
     // Key: a metered account with a person's own budget set — the bar reads
     // what is left of that budget, never a vendor limit.
     runtime: CLAUDE,
-    account: 'key@harnessdesk.app',
+    account: 'key@example.com',
     plan: null,
     lanes: [],
     credits: null,
@@ -258,7 +258,7 @@ export const previewUsage: UsageReport[] = [
     // Free: local, no window and no balance to run out of — tokens and turns
     // are the whole story, and the table draws no bar at all for it.
     runtime: CURSOR,
-    account: 'free-tier@harnessdesk.app',
+    account: 'free-tier@example.com',
     plan: 'Hobby',
     lanes: [],
     credits: null,
@@ -286,7 +286,7 @@ export const previewUsage: UsageReport[] = [
     // has never answered `runtime/account` (`silentAgentsOf`, which this
     // fixture's three registered runtimes are all past).
     runtime: CODEX,
-    account: 'unused@harnessdesk.app',
+    account: 'unused@example.com',
     plan: null,
     lanes: [],
     credits: null,
@@ -302,7 +302,7 @@ export const previewUsage: UsageReport[] = [
     // continue" rather than a reset — a balance does not come back on its
     // own the way a window does.
     runtime: CLAUDE,
-    account: 'spent-balance@harnessdesk.app',
+    account: 'spent-balance@example.com',
     plan: null,
     lanes: [],
     credits: { remaining: -2.15, unit: 'USD' },
@@ -318,7 +318,7 @@ export const previewUsage: UsageReport[] = [
     // Key, no budget set: "No limit" rather than a bar with nothing to
     // measure against — the vendor sets no cap on a metered key at all.
     runtime: CURSOR,
-    account: 'key-no-budget@harnessdesk.app',
+    account: 'key-no-budget@example.com',
     plan: null,
     lanes: [],
     credits: null,
@@ -540,7 +540,7 @@ export const previewHistory: SessionSummary[] = [
       { title: 'Pin the flaky inventory test after reconciling every retry branch', cwd: worktree('dupe-accounts-91c2'), branch: 'fix/dupe-accounts', ago: 4 },
       { title: 'Add fixtures for the refund path before extending the checkout matrix', cwd: worktree('worktree-mgmt-4f10'), branch: 'feat/worktrees', ago: 26 },
       { title: 'Draft the 2.5 migration notes after reviewing the sidebar target behavior', cwd: worktree('settings-audit-77aa'), branch: 'chore/settings-audit', ago: 90 },
-      { title: 'Codex Clade DeepSeek — Research', cwd: worktree('research-2b41'), branch: 'docs/research', ago: 150, runtime: CURSOR },
+      { title: 'Research the agent hand-off', cwd: worktree('research-2b41'), branch: 'docs/research', ago: 150, runtime: CURSOR },
       { title: '[done] Agents icon to circle-gauge', cwd: worktree('agents-icon-7e7e24'), branch: 'claude/agents-icon', ago: 260 },
       { title: 'Panel system', cwd: HOME, branch: 'feat/panel-system', ago: 400 },
       { title: 'Delegation plane', cwd: HOME, branch: 'feat/runtime-frontier', ago: 520 },
@@ -549,17 +549,17 @@ export const previewHistory: SessionSummary[] = [
     0,
   ),
   ...seed(
-    '/Users/shane/code/harnessdesk-site',
+    '/work/harnessdesk-site',
     [
-      { title: 'Hero recording over the recorded wire', cwd: '/Users/shane/code/harnessdesk-site', branch: 'main', ago: 1200 },
-      { title: 'Launch checklist', cwd: '/Users/shane/code/harnessdesk-site', branch: 'main', ago: 2000 },
+      { title: 'Hero recording over the recorded wire', cwd: '/work/harnessdesk-site', branch: 'main', ago: 1200 },
+      { title: 'Launch checklist', cwd: '/work/harnessdesk-site', branch: 'main', ago: 2000 },
     ],
     20,
   ),
   ...seed(
-    '/Users/shane/code/harnessdesk-mobile',
+    '/work/harnessdesk-mobile',
     [
-      { title: 'Approvals are the product', cwd: '/Users/shane/code/harnessdesk-mobile', branch: 'main', ago: 3000, runtime: CURSOR },
+      { title: 'Approvals are the product', cwd: '/work/harnessdesk-mobile', branch: 'main', ago: 3000, runtime: CURSOR },
     ],
     40,
   ),
@@ -569,8 +569,8 @@ export const previewWorkspace = { path: HOME, name: 'HarnessDesk', lastOpenedAt:
 
 export const previewWorkspaces = [
   previewWorkspace,
-  { path: '/Users/shane/code/harnessdesk-site', name: 'harnessdesk-site', lastOpenedAt: minutes(1200) },
-  { path: '/Users/shane/code/harnessdesk-mobile', name: 'harnessdesk-mobile', lastOpenedAt: minutes(3000) },
+  { path: '/work/harnessdesk-site', name: 'harnessdesk-site', lastOpenedAt: minutes(1200) },
+  { path: '/work/harnessdesk-mobile', name: 'harnessdesk-mobile', lastOpenedAt: minutes(3000) },
 ]
 
 /**
@@ -660,12 +660,12 @@ export const previewTurns = [
         type: 'command',
         command: 'git worktree list --porcelain',
         durationMs: 80_000,
-        cwd: '/Users/shane/code/harnessdesk',
+        cwd: '/work/harnessdesk',
         origin: 'agent',
         status: 'completed',
         actions: [{ type: 'unknown', command: 'git worktree list --porcelain' }],
         output:
-          'worktree /Users/shane/code/harnessdesk\nHEAD 5a1253e9c0\nbranch refs/heads/main\n\nworktree /Users/shane/.claude/worktrees/dupe-accounts-91c2\nHEAD 8f21ab04d1\nbranch refs/heads/fix/dupe-accounts\n\nworktree /Users/shane/.claude/worktrees/settings-audit-77aa\nHEAD 1c07de5520\nbranch refs/heads/chore/settings-audit\n',
+          'worktree /work/harnessdesk\nHEAD 5a1253e9c0\nbranch refs/heads/main\n\nworktree /work/.claude/worktrees/dupe-accounts-91c2\nHEAD 8f21ab04d1\nbranch refs/heads/fix/dupe-accounts\n\nworktree /work/.claude/worktrees/settings-audit-77aa\nHEAD 1c07de5520\nbranch refs/heads/chore/settings-audit\n',
         exitCode: 0,
       }),
       item('i4', {
@@ -751,8 +751,8 @@ export const previewSession = {
   /* `ContextUsage`'s own ring, in the composer: a context window most of the
      way full, so the ring reads as something other than empty. */
   usage: {
-    total: { totalTokens: 84_000, inputTokens: 80_000, cachedInputTokens: 60_000 },
-    last: { totalTokens: 9_000, inputTokens: 8_500, cachedInputTokens: 6_000 },
+    total: { totalTokens: 84_000, inputTokens: 80_000, cachedInputTokens: 60_000, outputTokens: 4_000, reasoningOutputTokens: 0 },
+    last: { totalTokens: 9_000, inputTokens: 8_500, cachedInputTokens: 6_000, outputTokens: 500, reasoningOutputTokens: 0 },
     contextUsed: 96_000,
     contextWindow: 128_000,
   },

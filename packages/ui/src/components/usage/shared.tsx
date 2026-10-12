@@ -2,7 +2,6 @@ import { type ReactNode, useMemo } from 'react'
 
 import type { AccountStatus, LedgerReport, LedgerRow, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 
-import { cn } from '@/lib/utils'
 import { burnWord } from '../../lib/burn'
 import { prefsForUsage, type AccountPrefs, type AccountPrefsMap } from '../../lib/accounts'
 import { formatTokens } from '../../lib/context-usage'
@@ -53,15 +52,14 @@ import {
   Button,
   Card as SurfaceCard,
   CardContent,
-  CardFooter,
-  CardHeader,
   Chip,
   EmptyState,
   UsageMeterRow,
   IconTile,
   Table, TableHeader, TableHead, TableBody, TableRow, TableCell,
-  SectionHead,
-  Segmented,
+  Section,
+  PageOptions,
+  DashboardAccounts, DashboardAccountHead, DashboardAccountBody, DashboardAccountFoot, DashboardFigure, DashboardLanes, DashboardReadingNote, DashboardFact, DashboardTable, DashboardStats, DashboardBurn,
   Separator,
   Text,
   ToolbarGap,
@@ -89,20 +87,19 @@ import {
   type Tint,
 } from '../../design'
 import { Menu, MenuItem, MenuSeparator, Popover } from '../../design'
-import styles from './usage.module.css'
 
 /**
  * Pieces shared by more than one Dashboard view: `Usage.tsx` (the shell) holds
- * the data loading and the rail; `components/usage/*View.tsx` each mount a
+ * the data loading and destination controls; `components/usage/*View.tsx` each mount a
  * subset of what is drawn here. Nothing on this page decides what is true —
  * that is `lib/usage.ts`, tested without a browser — this file only draws it,
  * and only the parts more than one view draws the same way.
  */
 
 export const PIVOTS = [
-  { value: 'runtime', label: 'by agent' },
-  { value: 'model', label: 'by model' },
-  { value: 'project', label: 'by project' },
+  { value: 'runtime', label: 'By agent' },
+  { value: 'model', label: 'By model' },
+  { value: 'project', label: 'By project' },
 ] as const
 
 export type Pivot = (typeof PIVOTS)[number]['value']
@@ -125,112 +122,6 @@ export const tintsForRoster = (runtimes: readonly RuntimeInfo[]): TintOf => {
   const map = new Map(ids.map((id, index) => [id, tints[index] as Tint]))
   return (runtime: string): Tint => map.get(runtime) ?? tintFor(runtime)
 }
-
-export const BandHead = ({
-  name,
-  note,
-  action,
-  className,
-}: {
-  name: string
-  note?: ReactNode
-  action?: ReactNode
-  className?: string
-}) => (
-  <SectionHead
-    sticky
-    level="heading"
-    className={`${styles.bandHead}${className ? ` ${className}` : ''}`}
-    name={name}
-    description={note}
-    action={
-      <>
-        <ToolbarGap />
-        {action}
-      </>
-    }
-  />
-)
-
-/* --- the header's account scope --------------------------------------------- */
-
-/**
- * "All accounts ▾", in every view's header, beside the title.
- *
- * The rail used to be the scope — clicking an account there is what every
- * band on the page read. Now the rail lists views, so the scope moved to the
- * one place common to all five: the header. Built on the same `Popover` +
- * `Menu` a card's own "…" already draws, not a new select — a second control
- * that means "choose one of these" would be a second thing to learn.
- */
-export const ScopeControl = ({
-  everyReport,
-  byId,
-  scope,
-  onScope,
-}: {
-  everyReport: readonly UsageReport[]
-  byId: ReadonlyMap<RuntimeId, RuntimeInfo>
-  scope: RuntimeId | null
-  onScope: (scope: RuntimeId | null) => void
-}) => {
-  const scopedInfo = scope === null ? null : (byId.get(scope) ?? null)
-  // One row per runtime, not per account: scope is `RuntimeId | null`, and a
-  // runtime with two accounts (`everyReport` carries one row per account)
-  // used to draw two rows that both checked once picked (review of #1057,
-  // item 5). First occurrence keeps `everyReport`'s own order — already
-  // urgency-sorted — rather than re-sorting by name.
-  const runtimes = useMemo(() => {
-    const seen = new Set<RuntimeId>()
-    const ordered: UsageReport[] = []
-    for (const report of everyReport) {
-      if (seen.has(report.runtime)) continue
-      seen.add(report.runtime)
-      ordered.push(report)
-    }
-    return ordered
-  }, [everyReport])
-  return (
-    <Popover
-      label={
-        <>
-          {scopedInfo ? scopedInfo.presentation.name : 'All accounts'}
-          <CaretIcon size={12} />
-        </>
-      }
-      title="Scope the dashboard to one account"
-      triggerVariant={{ variant: 'outline' }}
-      align="left"
-    >
-      {(close) => (
-        <Menu close={close}>
-          <MenuItem
-            icon={<UsageIcon size={14} />}
-            label="All accounts"
-            selected={scope === null}
-            onSelect={() => onScope(null)}
-          />
-          {runtimes.length > 0 && <MenuSeparator />}
-          {runtimes.map((report) => {
-            const info = byId.get(report.runtime) ?? null
-            const name = info?.presentation.name ?? String(report.runtime)
-            return (
-              <MenuItem
-                key={report.runtime}
-                icon={info ? <RuntimeMark runtime={info} size={14} /> : <UsageIcon size={14} />}
-                label={name}
-                selected={scope === report.runtime}
-                onSelect={() => onScope(report.runtime)}
-              />
-            )
-          })}
-        </Menu>
-      )}
-    </Popover>
-  )
-}
-
-/* --- who needs looking at first ------------------------------------------- */
 
 // `reportNeedsAttention` lives in `lib/usage.ts` now — the one rule the
 // Plans table's own status chip reads too (review of #1069, B2) — and is
@@ -324,7 +215,7 @@ export const Card = ({
   const balance = balanceOf(report.credits)
   const state = stateOf(report, borrowed ? describeReport(report, { now, maxLanes: 0 }) : view)
   const hero = view.hero
-  const agent = info?.presentation.name ?? String(report.runtime)
+  const agent = info?.presentation.name ?? 'Agent'
 
   // The headline. It is not a second number: it is whichever row of the table
   // below has least left, promoted — which is why the word beside it is only
@@ -359,33 +250,17 @@ export const Card = ({
     <SurfaceCard
       as="article"
       variant={hero || balance || money ? 'default' : 'muted'}
-      className={styles.card}
     >
-      {/* `CardHeader`'s own `grid`/`grid-rows-[auto_auto]` (design/ui/card.tsx)
-          beats `.cardHead { display: flex }` in the cascade once the frame
-          beside it (`PlanFrame.tsx`) widened the header enough to make the
-          collision visible — the mark centred alone and the chips stretched
-          wide. Utilities here, not the CSS module, are what tell
-          tailwind-merge to drop `CardHeader`'s grid classes (review of
-          #1069, N9). */}
-      <CardHeader className={cn(styles.cardHead, 'flex items-center gap-(--hd-space-1-5)')}>
-        {info && (
-          <Text role="muted" className={styles.cardMark}>
-            <RuntimeMark runtime={info} size={15} />
-          </Text>
-        )}
-        <Text role="subject" truncate className={styles.cardName}>{drawn.account ?? agent}</Text>
-        {drawn.account && <Text role="meta" truncate className={styles.cardAgent}>{agent}</Text>}
-        <ToolbarGap />
-        {shapeChip}
-        <Chip state={state} {...(plan ? { label: plan } : {})} />
-      </CardHeader>
+      {/* The canonical card inset holds the recorded heading and its state. */}
+      <DashboardAccountHead mark={info ? <RuntimeMark runtime={info} size={15} /> : undefined}
+        name={drawn.account ?? agent} agent={drawn.account ? agent : undefined}
+        states={<>{shapeChip}<Chip state={state} {...(plan ? { label: plan } : {})} /></>} />
 
       {moneyRow}
 
-      <CardContent className={styles.cardBody}>
-        <div className={styles.hero}>
-          <div className={styles.heroFigure}>
+      <DashboardAccountBody>
+        <DashboardLanes>
+          <DashboardFigure>
             <Text role="figure" tone={hero ? usageReadingTone(hero.tone) : balance || money ? undefined : 'neutral'}>{figure}</Text>
             <Text role="muted" truncate>{word}</Text>
             <ToolbarGap />
@@ -398,25 +273,24 @@ export const Card = ({
               one: an account address, an agent name, a badge and a plan chip
               on one 320px line truncated the agent to "Cur…". */}
             {hero?.burn?.forecast && <LanePace lane={hero} />}
-          </div>
+          </DashboardFigure>
         {/* No lane, no meter: an empty track under a balance or a month's spend
             reads as "nothing left", which is the opposite of what those cards
             are saying. */}
           {hero && (
             <>
               <SegmentMeter
-                className={styles.heroMeter}
                 percent={hero.known ? (hero.remainingPercent ?? 0) : null}
                 tone={paletteTone(hero.tone)}
                 label={`${hero.title} — what is left`}
               />
-              {resetOf(hero) && <Text as="div" role="meta" className={styles.resetLine}>{resetOf(hero)}</Text>}
+              {resetOf(hero) && <Text as="div" role="meta">{resetOf(hero)}</Text>}
             </>
           )}
-        </div>
+        </DashboardLanes>
 
         {view.all.length > 0 && (
-          <div className={styles.lanes}>
+          <DashboardLanes>
             <Separator />
           {view.all.map((lane) => (
             <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.resetCountdown} countdownTitle={lane.resetClock ? `resets ${lane.resetClock}` : undefined} tone={paletteTone(lane.tone)} />
@@ -426,27 +300,22 @@ export const Card = ({
               +{view.overflow} more {view.overflow === 1 ? 'limit' : 'limits'} reported
             </Text>
           )}
-          </div>
+          </DashboardLanes>
         )}
 
         {note && (
-          <Text as="div" role="muted" tone={note.tone ? paletteTone(note.tone) : 'neutral'} className={styles.cardWord}>
-            <span className={styles.cardWordIcon}>{noteGlyph(note.tone)}</span>
-            <span>{note.text}</span>
-          </Text>
+          <DashboardReadingNote glyph={noteGlyph(note.tone)} text={<Text role="muted" tone={note.tone ? paletteTone(note.tone) : 'neutral'}>{note.text}</Text>} />
         )}
-      </CardContent>
+      </DashboardAccountBody>
 
-      <CardFooter className={styles.cardFoot} {...(view.stale ? { 'data-stale': '' } : {})}>
-        <Text role="meta" truncate className={styles.cardSource}>{report.source.label}</Text>
-        {hero && <Text role="meta" tone={view.stale ? 'warning' : 'neutral'} className={styles.cardAge}>· {view.age}</Text>}
-        <ToolbarGap />
-        <Popover
+      <DashboardAccountFoot source={report.source.label} stale={view.stale}
+        age={hero ? <Text role="meta" tone={view.stale ? 'warning' : 'neutral'}>· {view.age}</Text> : undefined}
+        actions={        <Popover
           label={<MoreIcon size={14} />}
           title={`What to do about ${agent}`}
           triggerClassName={buttonVariants({ variant: 'muted', size: 'icon-xs' })}
           align="right"
-        >
+         icons="all">
           {(close) => (
             <Menu close={close}>
               <MenuItem
@@ -462,8 +331,7 @@ export const Card = ({
               />
             </Menu>
           )}
-        </Popover>
-      </CardFooter>
+        </Popover>} />
     </SurfaceCard>
   )
 }
@@ -541,22 +409,16 @@ export const Runway = ({
   })
   if (cards.length === 0) return null
   return (
-    <section className={styles.band} aria-label="Will it last">
-      <BandHead
-        name="Will it last"
-        note="What is left against an even burn to the reset. Above the dashed line is headroom; below it is borrowing from the rest of the window."
-      />
-      <div className={styles.burnRow}>
-        {cards.map(({ lane, account, report }) => (
+    <Section title="Will it last" description="What is left against an even burn to the reset. Above the dashed line is headroom; below it is borrowing from the rest of the window.">
+      <DashboardAccounts accounts={cards.map(({ lane, account, report }) => (
           <BurnCard
             key={`${report.runtime}:${report.account ?? ''}:${lane.id}`}
             lane={lane}
             account={account}
             now={now}
           />
-        ))}
-      </div>
-    </section>
+        ))} />
+    </Section>
   )
 }
 
@@ -578,24 +440,23 @@ const BurnCard = ({
     <ChartFrame>
       <ChartCard>
         <ChartHead>
-          <div className={styles.burnName}>
+          <>
             <ChartTitle>{lane.title}</ChartTitle>
             <ChartHint>
               {windowLength(burn.windowMs)} window
               {account ? ` · ${account}` : ''}
             </ChartHint>
-          </div>
+          </>
           <ChartTools>
             <LanePace lane={lane} />
           </ChartTools>
         </ChartHead>
 
-        <div className={styles.burnBody}>
-          <div className={styles.burnStats}>
-            <div className={styles.heroFigure}>
+        <DashboardBurn readings={<>
+            <DashboardFigure>
               <Text role="figure">{Math.round(burn.left)}%</Text>
               <Text role="muted">left</Text>
-            </div>
+            </DashboardFigure>
             <StatLine label="Resets in" value={formatCountdown(untilReset) ?? 'any moment'} />
             {/* "after reset" rather than a blank: the row is the answer to
                 "will this run dry", and a row that disappears when the answer
@@ -613,9 +474,7 @@ const BurnCard = ({
               }
               danger={burn.runsOut}
             />
-          </div>
-
-          <div className={styles.burnPlot}>
+          </>} plot={<>
             <BurnDown
               elapsed={burn.elapsed}
               left={burn.left}
@@ -632,8 +491,7 @@ const BurnCard = ({
               end={burnAxisLabel(burn.resetsAt, burn.windowMs)}
               now={burn.elapsed}
             />
-          </div>
-        </div>
+          </>} />
       </ChartCard>
     </ChartFrame>
   )
@@ -648,12 +506,7 @@ const StatLine = ({
   value: string
   danger?: boolean
 }) => (
-  <div className={styles.statLine}>
-    <Text role="meta">{label}</Text>
-    <Text role="row" tone={danger ? 'danger' : 'neutral'} numeric>
-      {value}
-    </Text>
-  </div>
+  <DashboardFact label={label} value={<Text role="row" tone={danger ? 'danger' : 'neutral'} numeric>{value}</Text>} />
 )
 
 /**
@@ -840,11 +693,12 @@ export const Spend = ({
   // figure on this page uses, rather than a number that is quietly only
   // part of the truth.
   const turnsPartial = metric === 'turns' && ledger !== null && ledger.totals?.turns === undefined
+  const noRecordedUsage = ledger !== null && ledger.daily.length === 0 && (ledger.totalTokens ?? 0) === 0
   const headline =
     ledger === null
       ? '—'
       : metric === 'cost' && ledger.totalCost === null
-        ? 'unpriced'
+        ? '—'
         : turnsPartial
           ? '—'
           : format(series.total)
@@ -899,27 +753,13 @@ export const Spend = ({
   const todayIndex = buckets.length - 1
 
   return (
-    <section className={styles.band} aria-label={words.title}>
-      <BandHead
-        name={words.title}
-        action={
-          <div className={styles.costControls}>
-            <Segmented
-              label="Bars or line"
-              options={MODE_OPTIONS}
-              value={mode}
-              onChange={(next) => onModeChange(next as 'bars' | 'line')}
-            />
-            {rangeControl}
-          </div>
-        }
-      />
-
+    <Section title={words.title} action={<PageOptions choices={[{id:'mode',label:'Bars or line',value:mode,items:MODE_OPTIONS,change:next=>onModeChange(next as 'bars' | 'line') }]} read={rangeControl} />}>
       <ChartFrame>
-        <ChartCard className={styles.costHead}>
+        <ChartCard >
           <ChartHead>
             <div>
               <ChartTitle figure>{headline}</ChartTitle>
+              {ledger && <ChartHint>{coverageLabel(ledger)}</ChartHint>}
               <ChartHint>
                 {metric === 'cost'
                   ? `Last ${ledger?.days ?? range} days — ${spendHint(ledger?.provenance)}`
@@ -935,31 +775,13 @@ export const Spend = ({
               />
             )}
           </ChartHead>
-          <div className={styles.periods}>
-            {periods.map((period) => (
-              <div key={period.days} className={styles.period}>
-                <Text role="meta">{period.label}</Text>
-                <Text role="metric">{format(period.cost)}</Text>
-                {period.partial ? (
-                  <Text role="meta">so far</Text>
-                ) : (
-                  !turnsPartial &&
-                  period.change !== null && (
-                    <Delta
-                      value={Math.round(period.change)}
-                      better="down"
-                      caption={`vs the ${period.days} days before`}
-                      tone={metric === 'cost' ? undefined : 'neutral'}
-                    />
-                  )
-                )}
-              </div>
-            ))}
-          </div>
+          <DashboardStats facts={periods.map(period => ({id:String(period.days),label:period.label,value:period.unknown ? 'Not read yet' : format(period.cost),
+            qualifier:!period.unknown && period.daysRead < period.days ? `· ${period.daysRead} of ${period.days} days with history` : !period.unknown ? 'so far' : undefined,
+          }))} />
         </ChartCard>
 
-        <ChartCard className={styles.costPlot}>
-          {series.peak > 0 || previous.total > 0 ? (
+        {series.peak > 0 || previous.total > 0 ? (
+          <ChartCard>
             <>
               <DayColumns
                 buckets={buckets}
@@ -985,31 +807,32 @@ export const Spend = ({
                 </ChartKeys>
               )}
             </>
-          ) : (
+          </ChartCard>
+        ) : (
+          <ChartCard>
             <EmptyState
               tight
-              className={styles.chartEmpty}
               title={
                 scan?.running
                   ? 'Reading transcripts'
                   : metric === 'cost'
-                    ? 'No priced usage in this window yet'
+                    ? noRecordedUsage ? 'No usage recorded in this window' : 'No priced usage in this window'
                     : `${words.empty} in this window`
               }
               description={scan?.running ? `${scan.filesDone} of ${scan.filesTotal} files` : undefined}
             />
-          )}
-        </ChartCard>
+          </ChartCard>
+        )}
 
         {showFooter && <ChartFoot>
-          <Text role="meta" className={styles.costWord}>{coverageSentence(ledger, metric)}</Text>
+          <Text role="meta">{noRecordedUsage ? null : coverageSentence(ledger, metric)}</Text>
           <ToolbarGap />
           <Button size="sm" variant="ghost" disabled={scan?.running} onClick={onScan}>
             {scan?.running ? `Scanning ${scan.filesDone}/${scan.filesTotal}` : 'Rescan'}
           </Button>
         </ChartFoot>}
       </ChartFrame>
-    </section>
+    </Section>
   )
 }
 
@@ -1017,22 +840,19 @@ export const Spend = ({
  * The chart foot's own sentence — worded for whichever metric is on screen,
  * because "Metered and list-price · 44 of 30,096 calls carry no public
  * price" is a claim about cost, and sitting it under a turns or tokens chart
- * qualifies a number the chart is not drawing. "Days scanned" is the one
- * clause true of every metric, so it is the only one every branch keeps.
+ * qualifies a number the chart is not drawing. Scan coverage belongs once
+ * beside the headline; the footer adds only the metric’s other accounting facts.
  */
 const coverageSentence = (ledger: LedgerReport | null, metric: ChartMetric): string => {
   if (!ledger) return 'Nothing has been scanned yet.'
-  const covered = coverageLabel(ledger)
   if (metric === 'tokens') {
     const parts: string[] = []
     if (ledger.totalTokens !== null) parts.push(`${formatTokens(ledger.totalTokens)} tokens`)
-    if (covered) parts.push(covered)
     return parts.join(' · ')
   }
   if (metric === 'turns') {
     const coverage = agentCoverage(ledger.coverage, ledgerRuntimeIds(ledger))
     const parts: string[] = [`turns known for ${coverage.known} of ${coverage.total} agents`]
-    if (covered) parts.push(covered)
     return parts.join(' · ')
   }
   const parts: string[] = [provenanceLabel(ledger)]
@@ -1043,7 +863,6 @@ const coverageSentence = (ledger: LedgerReport | null, metric: ChartMetric): str
       `${unpriced.toLocaleString()} of ${(priced + unpriced).toLocaleString()} calls carry no public price`,
     )
   }
-  if (covered) parts.push(covered)
   return parts.join(' · ')
 }
 
@@ -1103,16 +922,15 @@ export const Ranked = ({
   return (
     <>
       <SegmentMeter
-        className={styles.distribution}
         label="Where it went, by share"
         parts={rows
           .map((row, index) => ({ key: row.key, tint: tintAt(index, row), value: row.cost ?? 0 }))
           .filter((part) => part.value > 0)}
       />
 
-      <Table variant="framed" density={compact ? 'compact' : 'comfortable'} className="table-fixed">
+      <DashboardTable kind="ranked" compact={compact}>
         <TableHeader><TableRow>
-          <TableHead className={compact ? 'w-2/3' : 'w-1/2'}>Name</TableHead>
+          <TableHead>Name</TableHead>
           {!compact && pivot === 'runtime' && <TableHead numeric>Change</TableHead>}
           <TableHead numeric>Share</TableHead>
           {!compact && <><TableHead numeric>Tokens</TableHead><TableHead numeric>Cost</TableHead></>}
@@ -1124,7 +942,7 @@ export const Ranked = ({
           const change = row.key === OTHER_KEY ? null : rankedChange(row.cost, previous?.complete ? (previous.totals.get(row.key as RuntimeId) ?? null) : null)
           // A runtime breakdown totals all its accounts, so its face has no account initial.
           return <TableRow key={row.key}>
-            <TableCell lead={pivot === 'runtime' && row.key !== OTHER_KEY ? <IconTile shape="face" size={compact ? 'sm' : 'default'} tint={tintAt(index, row)}><RuntimeMark runtime={info ?? byId.get(row.key as RuntimeId) ?? fallbackInfo(row.key)} /></IconTile> : <span className="inline-flex items-center justify-center"><SeriesDot tint={tintAt(index, row)} /></span>}>
+            <TableCell lead={pivot === 'runtime' && row.key !== OTHER_KEY ? <IconTile shape="face" size={compact ? 'sm' : 'default'} tint={tintAt(index, row)}><RuntimeMark runtime={info ?? byId.get(row.key as RuntimeId) ?? fallbackInfo(row.key)} /></IconTile> : <SeriesDot tint={tintAt(index, row)} />}>
               <Text role="subject" truncate title={label}>{label}</Text>
             </TableCell>
             {!compact && pivot === 'runtime' && <TableCell numeric>{change === null ? <Text role="meta">—</Text> : <Delta value={Math.round(change)} better="down" />}</TableCell>}
@@ -1135,7 +953,7 @@ export const Ranked = ({
             </>}
           </TableRow>
         })}</TableBody>
-      </Table>
+      </DashboardTable>
       <Text as="div" role="meta">
         {pricedNote(unpriced, ledger.provenance)}
       </Text>
@@ -1156,7 +974,7 @@ export const AsleepAlert = ({
   silent: SilentAgent
   onSignIn?: (runtime: RuntimeId) => void
 }) => (
-  <Alert className={styles.callout} tone="neutral">
+  <Alert tone="neutral">
     <SignInIcon size={18} />
     <AlertContent>
       <AlertTitle>{silent.info.presentation.name} has nothing to report</AlertTitle>

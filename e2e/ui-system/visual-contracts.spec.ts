@@ -1,31 +1,29 @@
+import { FRAME } from '../../packages/ui/src/design/frame'
 import { expect, test } from '@playwright/test'
 
 test('real sidebar footer fills its column and its menu is painted and clickable', async ({ page }) => {
   await page.goto('/preview.html')
-  const trigger = page.locator('button[class*="accountRow"]')
+  const trigger = page.locator('[data-frame-id="sidebar-column"] button[class*="accountRow"]')
   await trigger.scrollIntoViewIfNeeded()
   // Exercise a wide sidebar as well as its usual width: a shrink-to-label
   // wrapper can look almost right at the minimum width and fail on resize.
   for (const width of [260, 480]) {
     await trigger.evaluate((node, width) => {
-      const sidebar = node.closest('[class*="sidebar_"]')
+      const sidebar = node.closest('[data-left-column]')
       if (!sidebar?.parentElement) throw new Error('sidebar frame missing')
       sidebar.parentElement.style.width = `${width}px`
     }, width)
     const gap = await trigger.evaluate(node => {
-      const footer = node.parentElement!.parentElement!
-      // The row is the seat and the inbox bell beside it: the seat opens the
-      // row, the bell closes it, and together they fill the column.
-      const end = footer.lastElementChild!.getBoundingClientRect()
+      const footer = node.closest('[data-region="sidebar-footer"]')!
+      // The seat and its Settings gear fill the footer inside the bar inset.
+      const end = footer.querySelector('[data-left-seat] button[aria-label="Settings"]')!.getBoundingClientRect()
       const box = footer.getBoundingClientRect(), seat = node.getBoundingClientRect()
       const row = { left: seat.left, right: end.right }
       // The column states one inset for every row it holds; the footer row is
       // one of them, so read the number rather than repeating it here — a
       // literal would have to be edited every time the column is re-spaced,
       // and the claim is "level with its neighbours", not "four pixels".
-      // `--hd-rail-inset` is `PaneColumn`'s own token (foundation/tokens.css)
-      // now, not a variable the sidebar scopes for itself.
-      const rail = parseFloat(getComputedStyle(node.closest('[class*="sidebar_"]')!).getPropertyValue('--hd-rail-inset'))
+      const rail = parseFloat(getComputedStyle(node.closest('[data-left-column]')!).getPropertyValue('--hd-bar-pad'))
       return { left: row.left - box.left, right: box.right - row.right, rail }
     })
     expect(gap.right).toBeCloseTo(gap.left, 0)
@@ -73,15 +71,15 @@ for (const height of [900, 520]) {
     })
     await page.setViewportSize({ width: 1440, height })
     await page.goto('/preview.html')
-    const trigger = page.locator('button[class*="accountRow"]')
+    const trigger = page.locator('[data-frame-id="sidebar-column"] button[class*="accountRow"]')
     await expect(trigger).toBeAttached()
     // Put this existing preview frame at the viewport's bottom edge, just
     // like the production sidebar; do not alter the menu or its positioning.
-    await trigger.evaluate(node => {
-      const frame = node.closest('[class*="sidebar_"]')?.parentElement
+    await trigger.evaluate((node, width) => {
+      const frame = node.closest('[data-left-column]')?.parentElement
       if (!frame) throw new Error('sidebar frame missing')
-      Object.assign(frame.style, { position: 'fixed', top: '8px', left: '8px', width: '240px', height: 'calc(100vh - 8px)' })
-    })
+      Object.assign(frame.style, { position: 'fixed', top: '8px', left: '8px', width: `${width}px`, height: 'calc(100vh - 8px)' })
+    }, FRAME.sidebar.width)
     const theme = page.getByRole('combobox', { name: 'theme', exact: true })
     await theme.selectOption('light')
     await trigger.click()
@@ -89,6 +87,7 @@ for (const height of [900, 520]) {
     await expect(popup).toBeVisible()
     const compact = await popup.boundingBox()
     expect(compact).not.toBeNull()
+    const compactContent = await popup.evaluate(node => node.scrollHeight)
     await theme.selectOption('dark')
     await expect(popup).toBeVisible()
     await theme.selectOption('light')
@@ -100,10 +99,12 @@ for (const height of [900, 520]) {
     })).toBe(true)
     const expanded = await popup.evaluate(node => {
       const box = node.getBoundingClientRect()
-      return { top: box.top, bottom: box.bottom, height: box.height, clientHeight: node.clientHeight, scrollHeight: node.scrollHeight }
+      return { top: box.top, bottom: box.bottom, height: box.height, clientHeight: node.clientHeight, scrollHeight: node.scrollHeight, maxHeight: parseFloat(getComputedStyle(node).maxHeight) }
     })
     await testInfo.attach('dynamic-menu-layout', { body: JSON.stringify({ compact, expanded }, null, 2), contentType: 'application/json' })
-    expect(expanded.height).toBeGreaterThan(compact!.height + 100)
+    expect(expanded.scrollHeight, 'expansion adds the account rows before viewport clamping').toBeGreaterThan(compactContent + 100)
+    expect(expanded.height).toBeGreaterThan(compact!.height)
+    expect(expanded.height, 'the natural menu fills its content up to its available-height limit').toBeCloseTo(Math.min(expanded.scrollHeight, expanded.maxHeight), 0)
     expect(expanded.top).toBeLessThan(compact!.y)
     expect(expanded.scrollHeight).toBeGreaterThan(expanded.clientHeight)
     const settings = popup.getByRole('menuitem', { name: /^Settings/ })

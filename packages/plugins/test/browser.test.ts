@@ -12,10 +12,10 @@ import { browserPlugin } from '../src/browser.js'
  * says back, not what a browser does.
  */
 const withBrowser = (browser: Record<string, unknown>) => {
-  const tools = new Map<string, { execute: (args: unknown) => Promise<unknown>; description?: string }>()
+  const tools = new Map<string, { execute: (args: unknown) => Promise<unknown>; description?: string; title?: string }>()
   const ctx = {
     tools: {
-      register: (tool: { name: string; description?: string; execute: (args: unknown) => Promise<unknown> }) =>
+      register: (tool: { name: string; title?: string; description?: string; execute: (args: unknown) => Promise<unknown> }) =>
         tools.set(tool.name, tool),
     },
     context: { register: () => {} },
@@ -24,6 +24,29 @@ const withBrowser = (browser: Record<string, unknown>) => {
   browserPlugin.plugin.apply(ctx as never)
   return tools
 }
+
+test('browser tools publish short human titles beside their descriptions', () => {
+  const tools = withBrowser({})
+  assert.deepEqual(
+    [...tools].map(([name, tool]) => [name, tool.title]),
+    [
+      ['browser_open', 'Open a page'],
+      ['browser_screenshot', 'Screenshot'],
+      ['browser_read_page', 'Read the page'],
+      ['browser_click', 'Click'],
+      ['browser_pointer', 'Pointer'],
+      ['browser_key', 'Press a key'],
+      ['browser_type', 'Type'],
+      ['browser_fill', 'Fill a form'],
+      ['browser_page', 'The page itself'],
+      ['browser_console', 'Read the console'],
+      ['browser_network', 'Read network activity'],
+      ['browser_evaluate', 'Run page script'],
+      ['browser_cdp', 'Use browser protocol'],
+      ['browser_close', 'Close the browser'],
+    ],
+  )
+})
 
 test('a page handed to the default browser is reported as such, and never screenshotted', async () => {
   let looked = 0

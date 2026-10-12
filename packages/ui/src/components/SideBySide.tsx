@@ -174,18 +174,22 @@ export const SideBySide = ({
     const grid = gridRef.current
     const dock = composerRef.current
     if (!grid || !dock) return
-    const chromeRows = (): Element[][] => [...grid.querySelectorAll('[data-mode="browser"]')].map(body => {
-      const bars = [...(body.querySelector('[data-slot="tool-pane"]')?.children ?? [])]
+    const chromeRows = (): Element[][] => [...grid.querySelectorAll('[data-mode="browser"]')].flatMap(body => {
+      const pane = body.querySelector('[data-slot="tool-pane"]')
+      if (!pane) return []
+      const bars = [...pane.children]
         .filter(child => child.getAttribute('data-slot') !== 'tool-pane-body')
-      return body.previousElementSibling ? [body.previousElementSibling, ...bars] : bars
+      return [body.previousElementSibling ? [body.previousElementSibling, ...bars] : bars]
     })
     const measure = (): void => {
       const tokens = getComputedStyle(grid)
       // The embedded browser has a tile header, slim address bar and footer.
       // Keep a usable page below them even before its live surface mounts.
-      const chrome = 2 * parseFloat(tokens.getPropertyValue('--hd-bar-h')) + parseFloat(tokens.getPropertyValue('--hd-control-h'))
-      const browserTile = Math.max(chrome || 0, ...chromeRows().map(rows =>
-        rows.reduce((height, row) => height + row.getBoundingClientRect().height, 0))) + 80
+      const fallbackChrome = 2 * parseFloat(tokens.getPropertyValue('--hd-bar-h')) + parseFloat(tokens.getPropertyValue('--hd-control-h'))
+      const mountedChrome = chromeRows().map(rows =>
+        rows.reduce((height, row) => height + row.getBoundingClientRect().height, 0))
+      const chrome = mountedChrome.length ? Math.max(...mountedChrome) : fallbackChrome || 0
+      const browserTile = chrome + 80
       setRoom(was => {
         // Hiding the shared dock for the fallback must not immediately bring
         // the cramped grid back. Retain its clearance until it is shown again.
@@ -258,8 +262,8 @@ export const SideBySide = ({
   const focus = useCallback((key: SessionKey) => onChange((was) => focusTile(was, key)), [onChange])
   /*
    * Where each shown tile sits. The grid's tracks alternate tiles and one-
-   * hairline seams, and the system's Separator draws each seam — the screen
-   * places, it never paints. Every tile stays a direct child of the grid in
+   * pixel seams. The system's unpainted Separator retains their geometry
+   * under the no-column-line rule. Every tile stays a direct child of the grid in
    * tile order, whatever is shown: moving one into a row of its own would
    * remount it, and a remount loses a transcript's scroll and reloads a page.
    * A short last row's last tile spans to the grid's end.
@@ -379,21 +383,19 @@ export const SideBySide = ({
                   }}>
                   {state.modes[key] === 'browser' ? <CommentIcon size={14} /> : <GlobeIcon size={14} />}
                 </Button></span>
-                <DropdownMenu>
+                <DropdownMenu icons="none">
                   <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon-sm" aria-label={`${nickname} actions`} title="Tile actions"><MoreIcon size={14} /></Button>} />
                   <DropdownMenuContent align="end">
                     <DropdownMenuItem aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${nickname}`} onClick={event => {
                       event.stopPropagation()
                       onChange(was => expandTile(was, isExpanded ? null : key))
-                    }}>{isExpanded ? 'Return to the grid' : 'Expand tile'}</DropdownMenuItem>
-                    <DropdownMenuItem onClick={(event) => { event.stopPropagation(); onOpenMember(key) }}>Open conversation</DropdownMenuItem>
+                    }} label={isExpanded ? 'Return to the grid' : 'Expand tile'} />
+                    <DropdownMenuItem onClick={(event) => { event.stopPropagation(); onOpenMember(key) }} label={"Open conversation"} />
                     <DropdownMenuItem onClick={(event) => {
                       event.stopPropagation()
                       onChange((was) => pinTile(was, key, !was.pinned.includes(key)))
-                    }}>
-                      {state.pinned.includes(key) ? 'Unpin' : 'Pin to the grid'}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={(event) => { event.stopPropagation(); onChange((was) => removeTile(was, key)) }}>Take off the grid</DropdownMenuItem>
+                    }} label={state.pinned.includes(key) ? 'Unpin' : 'Pin to the grid'} />
+                    <DropdownMenuItem onClick={(event) => { event.stopPropagation(); onChange((was) => removeTile(was, key)) }} label={"Take off the grid"} />
                   </DropdownMenuContent>
                 </DropdownMenu>
               </Bar>
@@ -422,7 +424,7 @@ export const SideBySide = ({
           )
         })}
         {seams.map((seam) => (
-          <Separator key={seam.key} orientation={seam.orientation} style={seam.style} />
+          <Separator key={seam.key} orientation={seam.orientation} painted={false} style={seam.style} />
         ))}
         <ComposerDock floating ref={composerRef} data-shared-composer="" data-decision={decision ? '' : undefined} hidden={!sharedComposer} className={styles.dock} onFocusCapture={() => setComposing(true)}>
           {sharedComposer && composer && (

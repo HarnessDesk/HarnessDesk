@@ -1,9 +1,19 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { StoreProvider } from '../state/context'
+import type { ComponentProps } from 'react'
+import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
+import { RunFramePreview } from './RunFramePreview'
+import { previewStore } from './harness'
+import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import type { FlowExecution, Intent } from '@harnessdesk/protocol'
 import { AbandonCard } from '../components/AbandonCard'
 import { RunWorkspace } from '../components/RunWorkspace'
 import { runTimeline } from '../lib/run-timeline'
 import { runFixture } from './run-view-fixture'
+
+const CatalogueRunWorkspace = (props: ComponentProps<typeof RunWorkspace>) => {
+  const store = useMemo(previewStore, [])
+  return <StoreProvider store={store}><RunFramePreview {...props} /></StoreProvider>
+}
 
 /**
  * A Run's controls, drawn by the production inspector and the production
@@ -68,7 +78,7 @@ export const RunControlExample = ({ scene }: { scene: RunControlScene }) => {
       detail: person ? 'Decide whether the retry change ships, once the review is in.' : 'Add the retry ceiling to the checkout call.' } : card) }
   const selectedRow = check ? 'check-2-2' : person ? 'person-4-4' : 'card-4-4'
   const workspace = (
-    <RunWorkspace model={runTimeline(input)} number={1} selectedRow={selectedRow} onSelect={() => {}}
+    <CatalogueRunWorkspace model={runTimeline(input)} number={1} selectedRow={selectedRow} onSelect={() => {}}
       inspector={{ input, findingsRead: undefined,
         seats: [{ id: 'seat-0', name: 'Alpha', cost: { unit: 'turns', value: 4, estimated: false }, onOpen: () => {} }],
         onAbandon: async () => {}, onAnswer: async () => {}, onOpenBoard: () => {} }} />

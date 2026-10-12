@@ -4,6 +4,7 @@ import type { AgentEntry, AgentNotesView } from '@harnessdesk/protocol'
 
 import { Banner, Button, ConfirmDialog, Row, Rows, SectionHead } from '../design'
 import { useStore } from '../state/context'
+import { useDestinationActive } from '../panels/destination-page'
 import { Markdown } from './Markdown'
 
 /**
@@ -16,11 +17,13 @@ import { Markdown } from './Markdown'
  * already using the notes it read at open.
  */
 export const AgentNotes = ({ entry }: { readonly entry: AgentEntry }) => {
+  const active = useDestinationActive()
   const store = useStore()
   const [view, setView] = useState<AgentNotesView | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
+  useEffect(() => { if (!active) setConfirming(false) }, [active])
 
   useEffect(() => {
     let live = true
@@ -50,7 +53,7 @@ export const AgentNotes = ({ entry }: { readonly entry: AgentEntry }) => {
           />
         )}
       </Rows>
-      {confirming && view.text !== null && view.digest && (
+      {active && confirming && view.text !== null && view.digest && (
         <ConfirmDialog
           title="Clear this Agent’s notes?"
           confirmLabel="Clear notes"

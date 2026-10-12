@@ -9,7 +9,7 @@ import { PaneProvider, StoreProvider, useSnapshot } from '../state/context'
 import { MountProvider } from '../panels/mount'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import type { Notice as StoreNotice } from '../state/snapshot'
-import { emptyWorkbench, type Workbench } from '../state/workbench'
+import { emptyWorkbench, fixedSubject, type Workbench } from '../state/workbench'
 import type { PaneView } from '../state/layout'
 import { afterDismiss, emptyNoticePolicy, withKept, withMuted, withoutKept, withSurface, type NoticeIdentity } from '../lib/notice-policy'
 import { kept as keptInInbox, type InboxEntry } from '../lib/inbox'
@@ -184,8 +184,8 @@ const mountNarrowOverlay = (): ReturnType<typeof makeStore> => {
     root.render(
       <StoreProvider store={store}>
         <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
-          {/* The narrow layout gives the strip to the right panel while the
-              covered main conversation remains mounted and focused. */}
+          {/* Phase B's narrow right panel is nonmodal: the focused main
+              composer remains available and owns its notice. */}
           <NoticeStripOutlet host />
           <PaneProvider scope={{ paneId: 'focused-pane' as never, view: { kind: 'conversation', session }, sessionKey: session }}>
             <ComposerNotices />
@@ -266,12 +266,12 @@ it('leaves the plain × alone until it has been earned', () => {
   expect(menuItem('Stop showing this')).toBeNull()
 })
 
-it('never offers to silence a dropped connection', () => {
+it('leaves connection notices to the main shell without persisting a silence', () => {
   const store = mount({
     status: 'reconnecting',
     noticePolicy: { records: { link: { count: 9, at: Date.now() } }, muted: [], seen: [], surfaces: {}, kept: [] },
   })
-  expect(container.textContent).toContain('Reconnecting to HarnessDesk')
+  expect(container.textContent).not.toContain('Reconnecting to HarnessDesk')
 
   act(() => dismiss()?.click())
   expect(menuItem('Stop showing this')).toBeNull()
@@ -409,8 +409,10 @@ const workbenchFocusedOn = (paneId: string, view: PaneView): Workbench => ({
 
 const narrowOverlayOnFocusedComposer = (view: PaneView): Workbench => {
   const workbench = workbenchFocusedOn('focused-pane', view)
+  const subject = fixedSubject(workbench.main)!
   return {
     ...workbench,
+    frameTools: { [subject]: { open: true, tool: 'activity', mode: 'activity' } },
     right: {
       ...workbench.right,
       root: {
@@ -468,12 +470,12 @@ it('a standing condition shows on the composer that is focused, and on no other 
   expect(container.querySelector('[data-testid="beside"]')?.textContent).toBe('')
 })
 
-it('puts a composer notice in the strip when a narrow window covers its focused composer', () => {
+it('keeps a composer notice on its focused composer beside the narrow nonmodal right panel', () => {
   const store = mountNarrowOverlay()
 
   expect(container.querySelectorAll('[data-slot="composer-notice"], [data-slot="notice-strip"]')).toHaveLength(1)
-  expect(container.querySelector('[data-slot="notice-strip"]')).not.toBeNull()
-  expect(container.querySelector('[data-slot="composer-notice"]')).toBeNull()
+  expect(container.querySelector('[data-slot="notice-strip"]')).toBeNull()
+  expect(container.querySelector('[data-slot="composer-notice"]')).not.toBeNull()
   expect(container.textContent).toContain('will run out before it refills')
   expect(store.policy().seen).toEqual([])
 })
@@ -573,8 +575,8 @@ it('falls back to the strip when the focused mount is not a composer that can be
   expect(container.querySelectorAll('[data-slot="composer-notice"], [data-slot="notice-strip"]')).toHaveLength(0)
 })
 
-it('a NoticeStripOutlet whose caller says it is not the layout’s host draws nothing, even carrying the same dropped link', () => {
-  const store = makeStore({ status: 'reconnecting' })
+it('a NoticeStripOutlet whose caller says it is not the layout’s host draws nothing, even carrying the same standing condition', () => {
+  const store = makeStore({ health: { state: 'unavailable', reason: 'notInstalled', message: 'Agent unavailable' } })
   act(() => {
     root.render(
       <StoreProvider store={store}>
@@ -590,7 +592,7 @@ it('a NoticeStripOutlet whose caller says it is not the layout’s host draws no
     )
   })
   expect(container.querySelector('[data-testid="not-host"]')?.textContent).toBe('')
-  expect(container.querySelector('[data-testid="host"]')?.textContent).toContain('Reconnecting to HarnessDesk')
+  expect(container.querySelector('[data-testid="host"]')?.textContent).toContain('Agent unavailable')
 })
 
 it('a room’s composer speaks for its own seats, not the window’s active session', () => {
@@ -778,7 +780,7 @@ it('does not write the composer registry when a pane scope object changes for an
 })
 
 it('does not count a hidden composer and strip outlet as visible mounts', () => {
-  const store = makeStore({ status: 'reconnecting' })
+  const store = makeStore({ health: { state: 'unavailable', reason: 'notInstalled', message: 'Agent unavailable' } })
   act(() => root.render(
     <StoreProvider store={store}>
       <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>

@@ -1,3 +1,4 @@
+import { useDestinationActive } from '../panels/destination-page'
 import { useEffect, useId, useRef, useState } from 'react'
 
 import { DEFAULT_LANE_PREFERENCES, lanePreferences, type LanePreferences } from '@harnessdesk/protocol'
@@ -19,6 +20,8 @@ type Field = keyof LanePreferences
  * another's, and Escape in a field clears its own.
  */
 export const LaneSettings = ({ root }: { readonly root?: string }) => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const snapshot = useSnapshot()
   const stored = snapshot.lanePreferences ?? DEFAULT_LANE_PREFERENCES
@@ -39,7 +42,9 @@ export const LaneSettings = ({ root }: { readonly root?: string }) => {
   const sequence = useRef(0)
   if (inFlight.current === 0) requested.current = stored
 
-  useEffect(() => { void store.loadLanePreferences() }, [store])
+  useEffect(() => {
+    if (!destinationActive) return
+ void store.loadLanePreferences() }, [destinationActive, store])
 
   const settle = (field: Field, text: string | null): void =>
     setProblems((was) => {

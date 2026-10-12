@@ -222,16 +222,15 @@ describe('listing conversations before anything opens them', () => {
  * fails with the reopen and nothing is painted — there is no pane to carry the
  * state and no transcript to call read-only.
  *
- * The news has nowhere else to go, so it is still said. Once for the folder,
- * though, not once per conversation: one deleted worktree with three members
- * in it is one piece of news, which is the whole of the original complaint.
+ * If the runtime is unavailable and the index is all the desk has, that
+ * identity stays selected without pretending its preview is a transcript.
  */
 describe('when the transcript could not be read either', () => {
   beforeEach(() => {
     refusals['session/resume'] = folderGone()
   })
 
-  it('says it once for the folder, however many conversations it took', async () => {
+  it('keeps indexed identities inline without a toast when the runtime is unavailable', async () => {
     /* The sidebar row is where the folder is written down when nothing was
        painted — so the list is loaded the way the app loads it, and only then
        do the reads start failing. */
@@ -255,9 +254,13 @@ describe('when the transcript could not be read either', () => {
       await store.openSession(sessionId(id), { runtime: RUNTIME })
     }
 
-    expect(store.getSnapshot().notices).toHaveLength(1)
-    expect(store.getSnapshot().notices[0]?.message).toContain('folder no longer exists')
-    // And every row that folder took is marked, from the one refusal.
+    expect(store.getSnapshot().notices).toEqual([])
+    for (const id of ['s-1', 's-2', 's-3']) {
+      expect(store.getSnapshot().sessions.get(sessionKey(RUNTIME, sessionId(id)))).toMatchObject({
+        id: sessionId(id), runtime: RUNTIME, cwd: GONE, status: { type: 'idle' }, turns: [], itemsLoaded: false,
+      })
+    }
+    // The indexed folder carries the useful reason beside each retained identity.
     expect(store.getSnapshot().foldersGone.get(GONE)).toBe(SAID)
   })
 })

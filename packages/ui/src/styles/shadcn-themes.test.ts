@@ -122,3 +122,11 @@ describe('the Faces dial', () => {
     expect(tokens).toMatch(/--hd-face-radius-lg:\s*var\(--hd-radius\);/)
   })
 })
+
+it('selection and on switches use neutral foundation values in every interface', () => {
+  expect(/--hd-toggle-on:\s*var\(--hd-solid\)/.test(tokens)).toBe(true)
+  expect(/--hd-toggle-knob-on:\s*var\(--hd-solid-foreground\)/.test(tokens)).toBe(true)
+  const studio = tokens.slice(tokens.indexOf("body[data-hd-interface='studio']"))
+  expect(/--hd-sidebar-selected:\s*var\(--hd-solid\)/.test(studio)).toBe(true)
+  expect(studio).not.toMatch(/--hd-sidebar-selected:\s*var\(--hd-primary\)/)
+})
