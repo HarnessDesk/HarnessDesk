@@ -62,9 +62,9 @@ export const FlowStepRow = ({ step, run, subtitle, selected, faces, faceTints, n
   const elapsed = run?.since != null && (run.state === 'working' || run.state === 'waiting') ? Math.max(0, now - run.since) : 0
   const duration = run?.durationMs == null ? null : formatDuration(run.durationMs + elapsed)
   if (timeline) {
-    const state = !run || run.state === 'future' ? 'pending' : run.state === 'done' ? 'done' : run.state === 'working' ? 'active' : run.state === 'waiting' || run.state === 'blocked' ? 'warning' : 'pending'
+    const state = !run || run.state === 'future' ? 'pending' : run.state === 'done' ? toneOf(stateOf(run)) === 'danger' ? 'danger' : toneOf(stateOf(run)) === 'warning' ? 'warning' : 'done' : run.state === 'working' ? 'active' : run.state === 'waiting' || run.state === 'blocked' ? 'warning' : 'pending'
     const meta = [run?.state === 'future' ? null : subtitle, run?.seats.map(id => seatNames?.get(id)?.name ?? wordOf(id)).join(', '),
-      run?.state !== 'future' ? `${duration ?? 'Time not recorded'}${repeated && duration ? ' each' : ''}` : null,
+      run?.state !== 'future' ? <span data-slot="run-time">{duration ?? 'Time not recorded'}{duration && (run?.state === 'working' || run?.state === 'waiting') ? ' so far' : ''}{repeated && duration ? ' each' : ''}</span> : null,
       run?.state !== 'future' ? run?.runs == null ? 'Run count unavailable' : `${run.runs} ${run.runs === 1 ? 'run' : 'runs'}` : null].filter(Boolean)
     return <TimelineItem flat state={state} data-row={rowId} data-kind={rowKind} data-round-group={roundGroup} data-step-row={step.id} data-flow-state={run?.state} data-selected={selected || undefined}
       title={<span className="flex min-w-0 items-center gap-2"><span className="min-w-0 truncate">{sanitizeText(step.name)}</span><Chip size="sm" tint={tint}>{ROLE_KIND_WORDS[step.kind]}</Chip></span>}

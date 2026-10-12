@@ -80,3 +80,22 @@ it.each([
     expect(state.getAttribute('data-tone')).toBe(tone)
   } finally { act(() => root.unmount()) }
 })
+
+it('marks a recorded failed check as failed on the flat Timeline', () => {
+  const container = document.createElement('div'), root = createRoot(container)
+  try {
+    act(() => root.render(<FlowStepRow timeline step={model.steps[1]!} run={{ ...run, line: 'fail' }} />))
+    expect(container.querySelector('[data-slot="timeline-item"]')?.getAttribute('data-state')).toBe('danger')
+    expect(container.querySelector('[data-slot="timeline-indicator"]')?.getAttribute('aria-label')).toBe('Failed')
+  } finally { act(() => root.unmount()) }
+})
+it('qualifies advancing Timeline time and keeps a stopped duration fixed', () => {
+  const container = document.createElement('div'), root = createRoot(container)
+  try {
+    act(() => root.render(<FlowStepRow timeline step={model.steps[0]!} run={{ ...run, state: 'working', durationMs: 0, since: 1000 }} now={61_000} />))
+    expect(container.querySelector('[data-slot="run-time"]')?.textContent).toBe('1m so far')
+    act(() => root.render(<FlowStepRow timeline step={model.steps[0]!} run={{ ...run, state: 'stopped', since: 1000 }} now={1_000_000} />))
+    expect(container.querySelector('[data-slot="run-time"]')?.textContent).toBe('14m')
+    expect(container.textContent).not.toContain('so far')
+  } finally { act(() => root.unmount()) }
+})

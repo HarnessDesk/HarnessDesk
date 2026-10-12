@@ -77,6 +77,7 @@ export const RunSteps = ({ input, selectedRow, selectedStep, faces, faceTints, a
   const primary = (one: typeof normalized[number]) => rows.find(row => row.round === one.round.n && ['card', 'check', 'person'].includes(row.kind))
   const runOf = (one: typeof normalized[number]) => {
     const row = primary(one)
+    if (row?.kind === 'check' && row.attention) return { ...one.run, line: row.status ?? one.run.line }
     return row?.pick ? { ...one.run, line: 'Picked' } : row?.publication ? { ...one.run, line: row.publication.label } : one.run
   }
   const select = (one: typeof normalized[number]) => timeline ? primary(one)?.id ?? `round-${one.round.n}` : `round-${one.round.n}`

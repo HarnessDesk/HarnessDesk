@@ -278,3 +278,12 @@ it('Timeline selection follows every visit to the selected Flow step and preserv
     expect(select).toHaveBeenCalledWith('card-4-4')
   } finally { act(() => root.unmount()) }
 })
+
+it('keeps a check interrupted by the desk distinct from a finished check on the Timeline', () => {
+  const input = runFixture('stalled'), container = document.createElement('div'), root = createRoot(container)
+  try {
+    act(() => root.render(<RunSteps timeline input={input} selectedRow={null} onSelect={vi.fn()} />))
+    expect(container.querySelector('[data-row="check-4-4"]')?.getAttribute('data-state')).toBe('warning')
+    expect(container.querySelector('[data-row="check-2-2"]')?.getAttribute('data-state')).toBe('done')
+  } finally { act(() => root.unmount()) }
+})
