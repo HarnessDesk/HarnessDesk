@@ -484,7 +484,7 @@ try {
           const name = row.querySelector('[class*="acctName"]')?.getBoundingClientRect()
           if (meter && (meter.width < box.width / 2 || meter.top - name.bottom < 3)) faults.push('Dashboard meter lost its grid track')
         }
-        for (const option of document.querySelectorAll(':is(section, [role="dialog"])[aria-label="Settings"] [data-slot="toggle-group-item"]')) {
+        for (const option of document.querySelectorAll('[data-page-destination="settings"]:not([hidden]) [data-slot="toggle-group-item"]')) {
           if (!visible(option)) continue
           const box = option.getBoundingClientRect(), css = getComputedStyle(option)
           const range = document.createRange()
@@ -899,25 +899,11 @@ rules:
     return roomId
   }
 
-  /**
-   * Leave the Dashboard, if it is up.
-   *
-   * It is a full-window overlay, not a pane, so `openGitHistory` and
-   * `openBrowser` happily open *behind* it and change nothing on screen. The
-   * first take of the git scene was a photograph of the Dashboard, filed under
-   * `git-dark.png` — and because that run predated the ledger stub, it was a
-   * photograph of the real machine's real spend, under a name that said it was
-   * something else. A picture that is wrong about what it shows is worse than
-   * no picture, because it is evidence.
-   */
+  /** Return retained main pages to work before staging the next destination. */
   const leaveOverlay = async () => {
-    // Scene changes must dismiss floating menus as well as full-screen pages.
-    // Otherwise the expanded account menu survives into the hover photographs.
     await cdp.eval(`document.dispatchEvent(new CustomEvent('hd:dismiss-overlays', { detail: { returnFocus: true } })); true`)
     await sleep(200)
-    for (let remaining = 0; remaining < 4; remaining += 1) {
-      if (!await click('Back to app')) break
-    }
+    await cdp.eval(`${STORE}.returnToWork(); true`)
     await sleep(600)
   }
 
@@ -1379,11 +1365,17 @@ rules:
     } },
 
     /** The repository pane, expanded: a real, tangled graph over real git objects. */
-    git: { leaveOverlay: true, expect: 'History', run: async () => {
+    git: { leaveOverlay: true, expect: 'Repository history', run: async () => {
       await cdp.eval(`${STORE}.openGitHistory(${q(REPO)}); true`)
       await sleep(2200)
       await expandPaneOf()
       await sleep(400)
+    }, verify: async () => {
+      await waitForSnapshot(() => cdp.eval(`(() => {
+        const grid = document.querySelector('[role="grid"][aria-label="Commits"]')
+        const box = grid?.getBoundingClientRect()
+        return Boolean(box?.width && box?.height && grid.querySelector('[role="row"][aria-rowindex="2"]'))
+      })()`), Boolean)
     } },
 
     /** CodeMirror behind the canonical editor theme bridge. */
@@ -1782,14 +1774,20 @@ rules:
     } },
   }
 
-  // The review sweep records every Settings destination, including the rich
-  // rows that a single Appearance frame cannot exercise.
+  // Historical scene names follow the frame destination they now open.
+  // Retained hidden pages never count as the visible destination.
   for (const section of ['profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'runtimes', 'models', 'skills', 'library', 'plugins', 'permissions', 'browser']) {
     SCENES[`settings-${section}`] = { leaveOverlay: true, run: async () => {
       await cdp.eval(`${STORE}.askSettings(${q(section)}); true`)
       await sleep(1200)
-      if (!await cdp.eval(`Boolean(document.querySelector(':is(section, [role="dialog"])[aria-label="Settings"]')) && !document.querySelector(':is(section, [role="dialog"])[aria-label="Dashboard"]')`)) {
-        throw new Error('Settings did not become the visible window for ' + section)
+      const destination = section === 'library' ? 'library' : section === 'plugins' ? 'plugins' : 'settings'
+      if (!await cdp.eval(`(() => {
+        const page = document.querySelector('[data-page-destination="${destination}"]:not([hidden])')
+        const dashboard = document.querySelector('[data-page-destination="dashboard"]:not([hidden])')
+        const box = page?.getBoundingClientRect()
+        return Boolean(box?.width && box?.height && !dashboard)
+      })()`)) {
+        throw new Error(destination + ' did not become the visible destination for ' + section)
       }
       if (section === 'runtimes') {
         // Keep an account in the frame so header and nested-row containment
@@ -2521,8 +2519,8 @@ rules:
     await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...spot, button: 'left', clickCount: 1 })
     await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...spot, button: 'left', clickCount: 1 })
     await sleep(1200)
-    if (!await cdp.eval(`Boolean(document.querySelector('[class*="detailHead"]'))`)) {
-      throw new Error('the agent page did not draw its detail head')
+    if (!await cdp.eval(`Boolean(document.querySelector('[data-page-destination="settings"]:not([hidden])')) && Boolean(document.querySelector('[data-slot="top-bar"] [data-topbar-title]'))`)) {
+      throw new Error('the agent page did not draw its destination bar')
     }
   } }
 
@@ -2546,8 +2544,8 @@ rules:
     await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...spot, button: 'left', clickCount: 1 })
     await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...spot, button: 'left', clickCount: 1 })
     await sleep(1200)
-    if (!await cdp.eval(`Boolean(document.querySelector('[class*="detailHead"]'))`)) {
-      throw new Error('the account page did not draw its detail head')
+    if (!await cdp.eval(`Boolean(document.querySelector('[data-page-destination="settings"]:not([hidden])')) && Boolean(document.querySelector('[data-slot="top-bar"] [data-topbar-title]'))`)) {
+      throw new Error('the account page did not draw its destination bar')
     }
   } }
 
@@ -2697,22 +2695,29 @@ rules:
       if (!(await click('Agents'))) throw new Error('no Agents row in the sidebar')
       await sleep(1400)
       await cdp.eval(`(() => {
-        const dialog = document.querySelector('[role="dialog"][aria-label="Agents"]')
-        const scroller = [...(dialog?.querySelectorAll('*') ?? [])]
-          .find((node) => node.scrollHeight > node.clientHeight + 300)
+        const dialog = document.querySelector('[data-page-destination="agents"]:not([hidden])')
+        const scroller = [dialog, ...(dialog?.querySelectorAll('*') ?? [])]
+          .find((node) => node && node.scrollHeight > node.clientHeight + 300)
         if (!scroller) return false
         scroller.scrollTop = scroller.scrollHeight
         scroller.dispatchEvent(new Event('scroll', { bubbles: true }))
         return true
       })()`)
       await sleep(500)
+    }, verify: async () => {
+      await waitForSnapshot(() => cdp.eval(`(() => {
+        const row = [...document.querySelectorAll('[data-page-destination="agents"]:not([hidden]) [data-slot="row-desc"]')]
+          .find(node => node.textContent.startsWith('Shadowed by the one in storefront'))
+        const box = row?.getBoundingClientRect()
+        return Boolean(box?.width && box?.height && box.top >= 0 && box.bottom <= innerHeight)
+      })()`), Boolean)
     } },
 
     /** An Agent's page: its file, its ceiling, its own seats muted, and this Mac's. */
     'agent-page': { leaveOverlay: true, expect: 'On this Mac', run: async () => {
       await openStorefront()
       if (!(await click('Agents'))) throw new Error('no Agents row in the sidebar')
-      if (!(await click('Code reviewer', '[role="dialog"][aria-label="Agents"]'))) throw new Error('no Code reviewer in the Agents window')
+      if (!(await click('Code reviewer', '[data-page-destination="agents"]:not([hidden])'))) throw new Error('no Code reviewer in the Agents window')
       await sleep(1400)
     } },
 
