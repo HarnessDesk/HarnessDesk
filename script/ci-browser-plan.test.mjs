@@ -26,7 +26,7 @@ test('recording either browser baseline stays serial even on CI with a worker ov
 test('every spec runs on exactly one shard, however many shards there are', () => {
   const specs = specFiles(root)
   assert.ok(specs.length > 50, 'the suite is found')
-  for (const total of [1, 2, 3, 6, 8, 12]) {
+  for (const total of [1, 2, 3, 6, 8, 12, 16]) {
     const dealt = plan(specs, recordedSeconds(root), total).flatMap(shard => shard.specs)
     assert.deepEqual([...dealt].sort(), specs, `${total} shards`)
   }
