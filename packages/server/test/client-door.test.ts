@@ -141,6 +141,22 @@ test('refusal order and hello version are independent of off-surface params', as
   await assert.rejects(window.call('client/subscribe', { topics: [] }), { code: 'clientDoorOnly' })
 })
 
+test('the client hello exposes library reads and the door refuses its write methods', async t => {
+  const { door } = await rig(t)
+  const peer = await Peer.open(door.socketPath)
+  t.after(() => peer.socket.close())
+  const hello = await peer.hello()
+  assert.equal(hello.ok, true)
+  for (const method of ['library/read', 'library/definition', 'library/usage']) {
+    assert.ok(hello.result.methods.includes(method), method)
+  }
+  for (const method of ['library/plan', 'library/apply']) {
+    assert.equal(hello.result.methods.includes(method), false, method)
+    const result = await peer.call(method, {})
+    assert.equal(result.error.code, 'notOnClientSurface', method)
+  }
+})
+
 const source = `version: 2
 name: Demo
 roles:

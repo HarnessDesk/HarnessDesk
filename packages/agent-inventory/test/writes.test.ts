@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { execFileSync } from 'node:child_process'
+import { chmod, lstat, mkdir, mkdtemp, readdir, readFile, rm, symlink, truncate, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -10,12 +11,13 @@ import { runtimeId, type LibraryPlannedOp } from '@harnessdesk/protocol'
 import { digestOf } from '../src/digest.js'
 import {
   applyLibrary,
+  bundleDigest,
   decodeMcpEntry,
   planLibrary,
   unifiedDiff,
   type WriteAgent,
 } from '../src/index.js'
-import { activeLockCountForTest, isSafeSkillRelativePath } from '../src/writes.js'
+import { activeLockCountForTest, isSafeSkillRelativePath, MAX_BUNDLE_FILES } from '../src/writes.js'
 
 /**
  * The write path.
@@ -94,7 +96,7 @@ test('install carries a bundle’s extra files, not just the definition', async 
     const source = join(home, '.codex/skills/commit')
     await skill(join(home, '.codex/skills'), 'commit', BODY)
     await mkdir(join(source, 'scripts'), { recursive: true })
-    await writeFile(join(source, 'scripts/run.sh'), '#!/bin/sh\necho ok\n')
+    await writeFile(join(source, 'scripts/run.sh'), '#!/bin/sh\necho ok\n', { mode: 0o755 })
 
     const plan = await planLibrary([agent('codex'), agent('claudecode')], [
       { kind: 'installSkill', name: 'commit', sourcePath: source, targetRuntime: runtimeId('claudecode') },
@@ -104,6 +106,84 @@ test('install carries a bundle’s extra files, not just the definition', async 
     await applyLibrary(plan.ops, { libraryDir, home })
     const copied = await readFile(join(home, '.claude/skills/commit/scripts/run.sh'), 'utf8')
     assert.match(copied, /echo ok/)
+    assert.equal((await lstat(join(home, '.claude/skills/commit/scripts/run.sh'))).mode & 0o777, 0o755)
+  })
+})
+
+test('bundle A: an edited installed script is refused, then resolved with a backup', async () => {
+  await withHome(async (home, libraryDir) => {
+    const source = join(home, '.codex/skills/commit')
+    const target = join(home, '.claude/skills/commit')
+    const context = { libraryDir, home }
+    const agents = [agent('codex'), agent('claudecode')]
+    const intent = { kind: 'installSkill' as const, name: 'commit', sourcePath: source, targetRuntime: runtimeId('claudecode') }
+    await skill(join(home, '.codex/skills'), 'commit', BODY)
+    await mkdir(join(source, 'scripts'))
+    await writeFile(join(source, 'scripts/run.sh'), 'echo original\n')
+    const installed = await applyLibrary((await planLibrary(agents, [intent], context)).ops, context)
+    assert.equal(installed[0]?.outcome, 'done')
+
+    await writeFile(join(target, 'scripts/run.sh'), 'echo my edit\n')
+    await writeFile(join(source, 'SKILL.md'), EDITED)
+    await writeFile(join(source, 'scripts/run.sh'), 'echo updated\n')
+    const blocked = await planLibrary(agents, [intent], context)
+    assert.equal(blocked.ops[0]?.action, 'refuse')
+    assert.match(blocked.ops[0]?.reason ?? '', /edited since/i)
+    assert.equal((await applyLibrary(blocked.ops, context))[0]?.outcome, 'skipped')
+    assert.equal(await readFile(join(target, 'scripts/run.sh'), 'utf8'), 'echo my edit\n')
+
+    const resolved = await planLibrary(agents, [{ kind: 'syncSkill', name: 'commit', sourcePath: source, targetPaths: [target] }], context)
+    assert.equal(resolved.ops[0]?.backup, true)
+    const applied = await applyLibrary(resolved.ops, context)
+    assert.equal(applied[0]?.outcome, 'done')
+    assert.equal(await readFile(join(applied[0]!.backupPath!, 'scripts/run.sh'), 'utf8'), 'echo my edit\n')
+    assert.equal(await readFile(join(target, 'scripts/run.sh'), 'utf8'), 'echo updated\n')
+  })
+})
+
+test('bundle B: changing only a source script plans and applies an update', async () => {
+  await withHome(async (home, libraryDir) => {
+    const source = join(home, '.codex/skills/commit')
+    const target = join(home, '.claude/skills/commit')
+    const context = { libraryDir, home }
+    const agents = [agent('codex'), agent('claudecode')]
+    const intent = { kind: 'installSkill' as const, name: 'commit', sourcePath: source, targetRuntime: runtimeId('claudecode') }
+    await skill(join(home, '.codex/skills'), 'commit', BODY)
+    await mkdir(join(source, 'scripts'))
+    await writeFile(join(source, 'scripts/run.sh'), 'echo original\n')
+    assert.equal((await applyLibrary((await planLibrary(agents, [intent], context)).ops, context))[0]?.outcome, 'done')
+
+    await writeFile(join(source, 'scripts/run.sh'), 'echo updated\n')
+    const update = await planLibrary(agents, [intent], context)
+    assert.equal(update.ops[0]?.action, 'update')
+    assert.match(update.ops[0]?.reason ?? '', /scripts\/run\.sh/)
+    assert.equal(update.ops[0]?.backup, false)
+    assert.equal((await applyLibrary(update.ops, context))[0]?.outcome, 'done')
+    assert.equal(await readFile(join(target, 'scripts/run.sh'), 'utf8'), 'echo updated\n')
+  })
+})
+
+test('bundle C: a script changed after preview fails alone without writing or backing up', async () => {
+  await withHome(async (home, libraryDir) => {
+    const source = join(home, '.codex/skills/commit')
+    const target = join(home, '.claude/skills/commit')
+    const context = { libraryDir, home }
+    const agents = [agent('codex'), agent('claudecode')]
+    const intent = { kind: 'installSkill' as const, name: 'commit', sourcePath: source, targetRuntime: runtimeId('claudecode') }
+    await skill(join(home, '.codex/skills'), 'commit', BODY)
+    await mkdir(join(source, 'scripts'))
+    await writeFile(join(source, 'scripts/run.sh'), 'echo original\n')
+    assert.equal((await applyLibrary((await planLibrary(agents, [intent], context)).ops, context))[0]?.outcome, 'done')
+    await writeFile(join(source, 'SKILL.md'), EDITED)
+    await writeFile(join(source, 'scripts/run.sh'), 'echo previewed\n')
+    const plan = await planLibrary(agents, [intent, { kind: 'authorSkill', name: 'review', content: BODY, targetRuntimes: [runtimeId('claudecode')] }], context)
+    await writeFile(join(source, 'scripts/run.sh'), 'echo unseen\n')
+    const applied = await applyLibrary(plan.ops, context)
+    assert.deepEqual(applied.map((op) => op.outcome), ['failed', 'done'])
+    assert.equal(applied[0]?.detail, 'The source changed since the preview — plan again.')
+    assert.equal(applied[0]?.backupPath, undefined)
+    assert.equal(await readFile(join(target, 'scripts/run.sh'), 'utf8'), 'echo original\n')
+    assert.equal(await readFile(join(target, 'SKILL.md'), 'utf8'), BODY)
   })
 })
 
@@ -738,6 +818,7 @@ test('manifest save does not follow preexisting temp symlink and overwrite outsi
       action: 'create',
       targetPath: join(home, '.claude/skills/demo'),
       guardDigest: null,
+      guardBundle: null,
       backup: false,
       content: '---\nname: demo\n---\ntext\n',
     }
@@ -906,6 +987,11 @@ test('skill extra files refuses Windows backslash path traversal (#458)', async 
         'scripts/run.sh',
       ],
       guardDigest: null,
+      guardBundle: null,
+      sourceBundle: bundleDigest([
+        { path: 'SKILL.md', bytes: Buffer.from(BODY) },
+        { path: 'scripts/run.sh', bytes: Buffer.from('#!/bin/sh\necho hi') },
+      ]),
       backup: false,
     }
     const results = await applyLibrary([forged], { libraryDir, home })
@@ -917,5 +1003,567 @@ test('skill extra files refuses Windows backslash path traversal (#458)', async 
     assert.equal(existsSync(join(targetPath, '..\\secret.txt')), false)
     assert.equal(existsSync(join(targetPath, 'C:\\secret.txt')), false)
     assert.equal(existsSync(join(targetPath, '\\\\server\\share\\secret.txt')), false)
+  })
+})
+
+test('the shared bundle digest keeps attachment approvals pinned to the same bytes', () => {
+  assert.equal(bundleDigest([
+    { path: 'scripts/run.sh', bytes: Buffer.from('#!/bin/sh\necho one\n') },
+    { path: 'SKILL.md', bytes: Buffer.from('---\nname: demo\n---\nDo the thing.\n') },
+  ]), '90c5cc6bc70e7a9bb761c3f5e2c8b1400b5aea4227a65530d6e66913c185aa0a')
+})
+
+test('new or removed source extras after preview are refused before creating a target', async (t) => {
+  for (const change of ['added', 'removed'] as const) {
+    await t.test(change, async () => {
+      await withHome(async (home, libraryDir) => {
+        const sourcePath = join(home, '.codex/skills/commit')
+        await skill(join(home, '.codex/skills'), 'commit', BODY)
+        await writeFile(join(sourcePath, 'notes.txt'), 'original')
+        const context = { home, libraryDir }
+        const plan = await planLibrary([agent('claudecode')], [{ kind: 'installSkill', name: 'commit', sourcePath, targetRuntime: runtimeId('claudecode') }], context)
+        if (change === 'added') await writeFile(join(sourcePath, 'unseen.txt'), 'unseen')
+        else await rm(join(sourcePath, 'notes.txt'))
+        const result = (await applyLibrary(plan.ops, context))[0]!
+        assert.equal(result.detail, 'The source changed since the preview — plan again.')
+        assert.equal(existsSync(join(home, '.claude/skills/commit')), false)
+      })
+    })
+  }
+})
+
+test('a flat skill is guarded as a one-file bundle, including when already in its own root', async () => {
+  await withHome(async (home, libraryDir) => {
+    const sourcePath = join(home, '.claude/skills/commit.md')
+    await mkdir(join(home, '.claude/skills'), { recursive: true })
+    await writeFile(sourcePath, BODY)
+    const plan = await planLibrary([agent('claudecode')], [{ kind: 'installSkill', name: 'commit', sourcePath, targetRuntime: runtimeId('claudecode') }], { home, libraryDir })
+    assert.equal(plan.ops[0]?.action, 'skip')
+    assert.equal(plan.ops[0]?.targetPath, sourcePath)
+    assert.equal(plan.ops[0]?.guardBundle, bundleDigest([{ path: 'SKILL.md', bytes: Buffer.from(BODY) }]))
+  })
+})
+
+test('skill writes without a bundle guard require a new plan', async () => {
+  await withHome(async (home, libraryDir) => {
+    const targetPath = join(home, '.claude/skills/commit')
+    const results = await applyLibrary([{ id: 'old-plan', kind: 'skill', name: 'commit', action: 'create', targetPath, content: BODY, guardDigest: null, backup: false }], { home, libraryDir })
+    assert.equal(results[0]?.detail, 'Plan again.')
+    assert.equal(existsSync(targetPath), false)
+  })
+})
+
+test('a target script changed after preview fails before removal or replacement', async () => {
+  await withHome(async (home, libraryDir) => {
+    const targetPath = join(home, '.claude/skills/commit')
+    await skill(join(home, '.claude/skills'), 'commit', BODY)
+    await mkdir(join(targetPath, 'scripts'))
+    await writeFile(join(targetPath, 'scripts/run.sh'), 'echo original\n')
+    const plan = await planLibrary([agent('claudecode')], [{ kind: 'removeCopy', name: 'commit', path: targetPath }], { home, libraryDir })
+    await writeFile(join(targetPath, 'scripts/run.sh'), 'echo my edit\n')
+    const result = (await applyLibrary(plan.ops, { home, libraryDir }))[0]!
+    assert.equal(result.detail, 'The target changed since the preview — plan again.')
+    assert.equal(result.backupPath, undefined)
+    assert.equal(await readFile(join(targetPath, 'scripts/run.sh'), 'utf8'), 'echo my edit\n')
+  })
+})
+
+test('legacy ownership vouches for a lone definition, but keeps a backup of untracked extras', async () => {
+  await withHome(async (home, libraryDir) => {
+    const sourcePath = join(home, '.codex/skills/commit')
+    const targetPath = join(home, '.claude/skills/commit')
+    await skill(join(home, '.codex/skills'), 'commit', EDITED)
+    await skill(join(home, '.claude/skills'), 'commit', BODY)
+    await mkdir(libraryDir, { recursive: true })
+    await writeFile(join(libraryDir, 'manifest.json'), JSON.stringify({ version: 1, entries: [{ kind: 'skill', name: 'commit', path: targetPath, digest: digestOf(BODY), at: 1 }] }))
+    const context = { home, libraryDir }
+    const agents = [agent('codex'), agent('claudecode')]
+    const install = { kind: 'installSkill' as const, name: 'commit', sourcePath, targetRuntime: runtimeId('claudecode') }
+    assert.equal((await planLibrary(agents, [install], context)).ops[0]?.action, 'update')
+    await writeFile(join(targetPath, 'notes.txt'), 'my notes')
+    assert.equal((await planLibrary(agents, [install], context)).ops[0]?.action, 'refuse')
+    const plan = await planLibrary(agents, [{ kind: 'syncSkill', name: 'commit', sourcePath, targetPaths: [targetPath] }], context)
+    assert.equal(plan.ops[0]?.backup, true)
+    const result = (await applyLibrary(plan.ops, context))[0]!
+    assert.equal(result.outcome, 'done')
+    assert.equal(await readFile(join(result.backupPath!, 'notes.txt'), 'utf8'), 'my notes')
+  })
+})
+
+test('an update records retained files as owned, and reports at most five changed names', async () => {
+  await withHome(async (home, libraryDir) => {
+    const sourcePath = join(home, '.codex/skills/commit')
+    const targetPath = join(home, '.claude/skills/commit')
+    const context = { home, libraryDir }
+    const agents = [agent('codex'), agent('claudecode')]
+    const intent = { kind: 'installSkill' as const, name: 'commit', sourcePath, targetRuntime: runtimeId('claudecode') }
+    await skill(join(home, '.codex/skills'), 'commit', BODY)
+    for (let i = 0; i < 7; i++) await writeFile(join(sourcePath, `note-${i}.txt`), 'original')
+    await applyLibrary((await planLibrary(agents, [intent], context)).ops, context)
+    for (let i = 0; i < 7; i++) await writeFile(join(sourcePath, `note-${i}.txt`), 'updated')
+    let plan = await planLibrary(agents, [intent], context)
+    assert.equal(plan.ops[0]?.reason, 'Bundle files differ: note-0.txt, note-1.txt, note-2.txt, note-3.txt, note-4.txt and 2 more.')
+    assert.equal((await applyLibrary(plan.ops, context))[0]?.outcome, 'done')
+    await rm(join(sourcePath, 'note-6.txt'))
+    await writeFile(join(sourcePath, 'SKILL.md'), EDITED)
+    plan = await planLibrary(agents, [intent], context)
+    assert.equal((await applyLibrary(plan.ops, context))[0]?.outcome, 'done')
+    assert.equal(await readFile(join(targetPath, 'note-6.txt'), 'utf8'), 'updated')
+    await writeFile(join(sourcePath, 'SKILL.md'), BODY)
+    assert.equal((await planLibrary(agents, [intent], context)).ops[0]?.action, 'update')
+  })
+})
+
+test('writes refuse retained-plus-incoming bundles over a cap before touching the target', async (t) => {
+  for (const cap of ['files', 'bytes'] as const) {
+    for (const phase of ['plan', 'update', 'create'] as const) {
+      await t.test(`${cap} at ${phase}`, async () => {
+        await withHome(async (home, libraryDir) => {
+          const sourcePath = join(home, '.codex/skills/commit')
+          const targetPath = join(home, '.claude/skills/commit')
+          const context = { home, libraryDir }
+          const agents = [agent('codex'), agent('claudecode')]
+          const intent = { kind: 'installSkill' as const, name: 'commit', sourcePath, targetRuntime: runtimeId('claudecode') }
+          await skill(join(home, '.codex/skills'), 'commit', BODY)
+          if (cap === 'files') {
+            for (let i = 0; i < MAX_BUNDLE_FILES; i++) await writeFile(join(sourcePath, `note-${i}.txt`), 'original')
+          } else {
+            await writeFile(join(sourcePath, 'retained.txt'), Buffer.alloc(10 * 1024 * 1024, 'a'))
+          }
+          const initial = (await planLibrary(agents, [intent], context)).ops[0]!
+          assert.equal((await applyLibrary([initial], context))[0]?.outcome, 'done')
+          const before = new Map(await Promise.all((await readdir(targetPath)).map(async (path) =>
+            [path, await readFile(join(targetPath, path))] as const)))
+          const manifestBefore = await readFile(join(libraryDir, 'manifest.json'), 'utf8')
+          await rm(join(sourcePath, cap === 'files' ? 'note-0.txt' : 'retained.txt'))
+          await writeFile(join(sourcePath, 'incoming.txt'), cap === 'files' ? 'incoming' : Buffer.alloc(10 * 1024 * 1024, 'b'))
+          if (cap === 'bytes') await writeFile(join(sourcePath, 'extra.txt'), 'x')
+          await writeFile(join(sourcePath, 'SKILL.md'), EDITED)
+          const reason = cap === 'files' ? /more than 200 files/ : /more than 20 MB/
+          if (phase === 'plan') {
+            // Both entry points preserve files no longer shipped by the source.
+            const plan = await planLibrary(agents, [intent,
+              { kind: 'syncSkill', name: 'commit', sourcePath, targetPaths: [targetPath] },
+            ], context)
+            assert.deepEqual(plan.ops.map((op) => op.action), ['refuse', 'refuse'])
+            for (const op of plan.ops) {
+              assert.equal(op.targetPath, targetPath)
+              assert.match(op.reason ?? '', reason)
+            }
+          } else {
+            // Apply must rederive the cap even if an over-limit op crosses the wire.
+            const extraFiles = (await readdir(sourcePath)).filter((path) => path !== 'SKILL.md')
+            const files = await Promise.all(['SKILL.md', ...extraFiles].map(async (path) =>
+              ({ path, bytes: await readFile(join(sourcePath, path)) })))
+            const op: LibraryPlannedOp = { ...initial, action: phase, content: EDITED,
+              guardDigest: digestOf(BODY), guardBundle: initial.sourceBundle!,
+              extraFiles, sourceBundle: bundleDigest(files), backup: true }
+            const result = (await applyLibrary([op], context))[0]!
+            assert.equal(result.outcome, 'failed')
+            assert.match(result.detail ?? '', reason)
+            assert.equal(result.backupPath, undefined)
+          }
+          assert.deepEqual((await readdir(targetPath)).sort(), [...before.keys()].sort())
+          for (const [path, bytes] of before) assert.deepEqual(await readFile(join(targetPath, path)), bytes)
+          assert.equal(await readFile(join(libraryDir, 'manifest.json'), 'utf8'), manifestBefore)
+          assert.equal(existsSync(join(libraryDir, 'backups')), false)
+        })
+      })
+    }
+  }
+})
+
+test('updates at a bundle cap count incoming replacements once and keep unshipped files', async (t) => {
+  for (const cap of ['files', 'bytes'] as const) {
+    await t.test(cap, async () => {
+      await withHome(async (home, libraryDir) => {
+        const sourcePath = join(home, '.codex/skills/commit')
+        const targetPath = join(home, '.claude/skills/commit')
+        const context = { home, libraryDir }
+        const agents = [agent('codex'), agent('claudecode')]
+        const intent = { kind: 'installSkill' as const, name: 'commit', sourcePath, targetRuntime: runtimeId('claudecode') }
+        await skill(join(home, '.codex/skills'), 'commit', BODY)
+        if (cap === 'files') {
+          for (let i = 0; i < MAX_BUNDLE_FILES; i++) await writeFile(join(sourcePath, `note-${i}.txt`), 'original')
+        } else {
+          await writeFile(join(sourcePath, 'note-0.txt'), Buffer.alloc(10 * 1024 * 1024, 'a'))
+          await writeFile(join(sourcePath, 'note-1.txt'), Buffer.alloc(10 * 1024 * 1024, 'a'))
+        }
+        assert.equal((await applyLibrary((await planLibrary(agents, [intent], context)).ops, context))[0]?.outcome, 'done')
+        const retained = await readFile(join(targetPath, 'note-0.txt'))
+        await rm(join(sourcePath, 'note-0.txt'))
+        const incoming = cap === 'files' ? Buffer.from('updated') : Buffer.alloc(10 * 1024 * 1024, 'b')
+        await writeFile(join(sourcePath, 'note-1.txt'), incoming)
+        await writeFile(join(sourcePath, 'SKILL.md'), EDITED)
+        const plan = await planLibrary(agents, [intent], context)
+        assert.equal(plan.ops[0]?.action, 'update')
+        assert.equal((await applyLibrary(plan.ops, context))[0]?.outcome, 'done')
+        assert.equal(await readFile(join(targetPath, 'SKILL.md'), 'utf8'), EDITED)
+        assert.deepEqual(await readFile(join(targetPath, 'note-0.txt')), retained)
+        assert.deepEqual(await readFile(join(targetPath, 'note-1.txt')), incoming)
+      })
+    })
+  }
+})
+
+test('preview cap accounting excludes incoming paths that apply will skip', async (t) => {
+  for (const cap of ['files', 'bytes'] as const) {
+    await t.test(cap, async () => {
+      await withHome(async (home, libraryDir) => {
+        const sourcePath = join(home, '.codex/skills/commit')
+        const targetPath = join(home, '.claude/skills/commit')
+        const context = { home, libraryDir }
+        const agents = [agent('codex'), agent('claudecode')]
+        const intent = { kind: 'installSkill' as const, name: 'commit', sourcePath, targetRuntime: runtimeId('claudecode') }
+        await skill(join(home, '.codex/skills'), 'commit', BODY)
+        if (cap === 'files') {
+          for (let i = 0; i < MAX_BUNDLE_FILES; i++) await writeFile(join(sourcePath, `note-${i}.txt`), 'original')
+        } else {
+          await writeFile(join(sourcePath, 'note-0.txt'), Buffer.alloc(10 * 1024 * 1024, 'a'))
+          await writeFile(join(sourcePath, 'note-1.txt'), Buffer.alloc(10 * 1024 * 1024, 'a'))
+        }
+        assert.equal((await applyLibrary((await planLibrary(agents, [intent], context)).ops, context))[0]?.outcome, 'done')
+        const retained = await readFile(join(targetPath, 'note-0.txt'))
+        await rm(join(sourcePath, 'note-0.txt'))
+        const incoming = cap === 'files' ? Buffer.from('updated') : Buffer.alloc(10 * 1024 * 1024, 'b')
+        await writeFile(join(sourcePath, 'note-1.txt'), incoming)
+        await writeFile(join(sourcePath, '..\\ignored.txt'), 'ignored')
+        await writeFile(join(sourcePath, 'SKILL.md'), EDITED)
+        const plan = await planLibrary(agents, [intent,
+          { kind: 'syncSkill', name: 'commit', sourcePath, targetPaths: [targetPath] },
+        ], context)
+        assert.deepEqual(plan.ops.map((op) => op.action), ['update', 'update'])
+        assert.equal((await applyLibrary([plan.ops[0]!], context))[0]?.outcome, 'done')
+        assert.equal(await readFile(join(targetPath, 'SKILL.md'), 'utf8'), EDITED)
+        assert.deepEqual(await readFile(join(targetPath, 'note-0.txt')), retained)
+        assert.deepEqual(await readFile(join(targetPath, 'note-1.txt')), incoming)
+        assert.equal(existsSync(join(targetPath, '..\\ignored.txt')), false)
+        assert.equal(existsSync(join(home, '.claude/skills/ignored.txt')), false)
+        assert.equal((await readdir(targetPath)).length, cap === 'files' ? MAX_BUNDLE_FILES + 1 : 3)
+      })
+    })
+  }
+})
+
+test('a source file arriving between the preview list and digest is refused before writing', async () => {
+  await withHome(async (home, libraryDir) => {
+    const sourcePath = join(home, '.codex/skills/commit')
+    await skill(join(home, '.codex/skills'), 'commit', BODY)
+    await writeFile(join(sourcePath, 'notes.txt'), 'original')
+    const script = `
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      import { planLibrary, applyLibrary } from ${JSON.stringify(new URL('../src/index.js', import.meta.url).href)};
+      const [home, libraryDir, sourcePath] = process.argv.slice(1);
+      const readdir = fs.readdirSync;
+      fs.readdirSync = (path, ...args) => {
+        const names = readdir(path, ...args);
+        if (path === sourcePath) {
+          fs.writeFileSync(sourcePath + '/unseen.txt', 'unseen');
+          fs.readdirSync = readdir;
+          syncBuiltinESMExports();
+        }
+        return names;
+      };
+      syncBuiltinESMExports();
+      const context = { home, libraryDir };
+      const plan = await planLibrary([{ id: 'claudecode', brand: 'claudecode' }], [
+        { kind: 'installSkill', name: 'commit', sourcePath, targetRuntime: 'claudecode' },
+        { kind: 'authorSkill', name: 'next', content: ${JSON.stringify(BODY)}, targetRuntimes: ['claudecode'] },
+      ], context);
+      console.log(JSON.stringify({ plan, results: await applyLibrary(plan.ops, context) }));
+    `
+    const { plan, results } = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', script, home, libraryDir, sourcePath], {
+      timeout: 5000, encoding: 'utf8',
+    })) as { plan: { ops: LibraryPlannedOp[] }; results: { outcome: string; detail?: string }[] }
+    assert.deepEqual(plan.ops[0]?.extraFiles, ['notes.txt'])
+    assert.equal(plan.ops[0]?.sourceBundle, bundleDigest([
+      { path: 'SKILL.md', bytes: Buffer.from(BODY) },
+      { path: 'notes.txt', bytes: Buffer.from('original') },
+      { path: 'unseen.txt', bytes: Buffer.from('unseen') },
+    ]))
+    assert.deepEqual(results.map((op) => op.outcome), ['failed', 'done'])
+    assert.equal(results[0]?.detail, 'The source changed since the preview — plan again.')
+    assert.equal(existsSync(join(home, '.claude/skills/commit')), false)
+    assert.equal(existsSync(join(libraryDir, 'backups')), false)
+    assert.equal(await readFile(join(home, '.claude/skills/next/SKILL.md'), 'utf8'), BODY)
+  })
+})
+
+test('supporting-file updates replace destination links without touching their referents', async (t) => {
+  for (const timing of ['before preview', 'after preview']) {
+    await t.test(timing, async () => {
+      await withHome(async (home, libraryDir) => {
+        const sourcePath = join(home, '.codex/skills/commit')
+        const targetPath = join(home, '.claude/skills/commit')
+        const outside = join(home, 'outside.sh')
+        const context = { home, libraryDir }
+        const agents = [agent('claudecode')]
+        const intent = { kind: 'installSkill' as const, name: 'commit', sourcePath, targetRuntime: runtimeId('claudecode') }
+        await skill(join(home, '.codex/skills'), 'commit', BODY)
+        assert.equal((await applyLibrary((await planLibrary(agents, [intent], context)).ops, context))[0]?.outcome, 'done')
+        await chmod(join(targetPath, 'SKILL.md'), 0o600)
+        await writeFile(outside, 'keep these bytes', { mode: 0o600 })
+        await mkdir(join(sourcePath, 'scripts'))
+        await mkdir(join(targetPath, 'scripts'))
+        await writeFile(join(sourcePath, 'scripts/run.sh'), 'echo updated\n', { mode: 0o755 })
+        await writeFile(join(sourcePath, 'SKILL.md'), EDITED)
+        const link = () => symlink(outside, join(targetPath, 'scripts/run.sh'))
+        if (timing === 'before preview') await link()
+        const plan = await planLibrary(agents, [intent], context)
+        assert.equal(plan.ops[0]?.action, 'update')
+        if (timing === 'after preview') await link()
+        const result = (await applyLibrary(plan.ops, context))[0]!
+        assert.equal(await readFile(outside, 'utf8'), 'keep these bytes')
+        assert.equal((await lstat(outside)).mode & 0o777, 0o600)
+        assert.equal(result.outcome, 'done')
+        assert.equal((await lstat(join(targetPath, 'scripts/run.sh'))).isSymbolicLink(), false)
+        assert.equal(await readFile(join(targetPath, 'scripts/run.sh'), 'utf8'), 'echo updated\n')
+        assert.equal((await lstat(join(targetPath, 'scripts/run.sh'))).mode & 0o777, 0o755)
+        assert.equal((await lstat(join(targetPath, 'SKILL.md'))).mode & 0o777, 0o600)
+        assert.deepEqual(await readdir(join(targetPath, 'scripts')), ['run.sh'])
+      })
+    })
+  }
+})
+
+test('supporting-file updates refuse linked destination directories before writing', async () => {
+  await withHome(async (home, libraryDir) => {
+    const sourcePath = join(home, '.codex/skills/commit')
+    const targetPath = join(home, '.claude/skills/commit')
+    const outside = join(home, 'outside')
+    const context = { home, libraryDir }
+    const agents = [agent('claudecode')]
+    const intent = { kind: 'installSkill' as const, name: 'commit', sourcePath, targetRuntime: runtimeId('claudecode') }
+    await skill(join(home, '.codex/skills'), 'commit', BODY)
+    await applyLibrary((await planLibrary(agents, [intent], context)).ops, context)
+    await mkdir(outside)
+    await writeFile(join(outside, 'run.sh'), 'keep these bytes')
+    await symlink(outside, join(targetPath, 'scripts'))
+    await mkdir(join(sourcePath, 'scripts'))
+    await writeFile(join(sourcePath, 'scripts/run.sh'), 'echo updated\n')
+    await writeFile(join(sourcePath, 'SKILL.md'), EDITED)
+    const plan = await planLibrary(agents, [intent], context)
+    assert.equal(plan.ops[0]?.action, 'update')
+    const result = (await applyLibrary(plan.ops, context))[0]!
+    assert.equal(await readFile(join(outside, 'run.sh'), 'utf8'), 'keep these bytes')
+    assert.equal(result.outcome, 'failed')
+    assert.match(result.detail ?? '', /link/i)
+    assert.equal(await readFile(join(targetPath, 'SKILL.md'), 'utf8'), BODY)
+  })
+})
+
+test('a FIFO in a source skill bundle is refused without blocking planning', async () => {
+  await withHome(async (home, libraryDir) => {
+    const sourcePath = join(home, '.codex/skills/commit')
+    await skill(join(home, '.codex/skills'), 'commit', BODY)
+    execFileSync('mkfifo', [join(sourcePath, 'pipe')])
+    const script = `
+      import { planLibrary } from ${JSON.stringify(new URL('../src/index.js', import.meta.url).href)};
+      const [home, libraryDir, sourcePath] = process.argv.slice(1);
+      const plan = await planLibrary([{ id: 'claudecode', brand: 'claudecode' }], [
+        { kind: 'installSkill', name: 'commit', sourcePath, targetRuntime: 'claudecode' },
+        { kind: 'authorSkill', name: 'next', content: ${JSON.stringify(BODY)}, targetRuntimes: ['claudecode'] },
+      ], { home, libraryDir });
+      console.log(JSON.stringify(plan.ops));
+    `
+    const ops = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', script, home, libraryDir, sourcePath], {
+      timeout: 5000, encoding: 'utf8',
+    })) as LibraryPlannedOp[]
+    assert.deepEqual(ops.map((op) => op.action), ['refuse', 'create'])
+    assert.match(ops[0]?.reason ?? '', /pipe.*not a regular file/i)
+    assert.equal(existsSync(join(home, '.claude/skills/commit')), false)
+  })
+})
+
+test('an unreadable source directory is refused rather than installed partially', async () => {
+  await withHome(async (home, libraryDir) => {
+    const sourcePath = join(home, '.codex/skills/commit')
+    const scriptsPath = join(sourcePath, 'scripts')
+    await skill(join(home, '.codex/skills'), 'commit', BODY)
+    await mkdir(scriptsPath)
+    await writeFile(join(scriptsPath, 'run.sh'), 'echo keep me\n')
+    await chmod(scriptsPath, 0o300)
+    try {
+      const context = { home, libraryDir }
+      const plan = await planLibrary([agent('claudecode')], [
+        { kind: 'installSkill', name: 'commit', sourcePath, targetRuntime: runtimeId('claudecode') },
+        { kind: 'authorSkill', name: 'next', content: BODY, targetRuntimes: [runtimeId('claudecode')] },
+      ], context)
+
+      assert.deepEqual(plan.ops.map((op) => op.action), ['refuse', 'create'])
+      assert.match(plan.ops[0]?.reason ?? '', /scripts.*could not be inspected/i)
+      assert.deepEqual((await applyLibrary(plan.ops, context)).map((op) => op.outcome), ['skipped', 'done'])
+      assert.equal(existsSync(join(home, '.claude/skills/commit')), false)
+      assert.equal(await readFile(join(home, '.claude/skills/next/SKILL.md'), 'utf8'), BODY)
+    } finally {
+      await chmod(scriptsPath, 0o700)
+    }
+  })
+})
+
+test('an oversized target refuses its operation while other planning intents proceed', async (t) => {
+  for (const kind of ['installSkill', 'removeCopy', 'syncSkill', 'restoreCopy'] as const) {
+    await t.test(kind, async () => {
+      await withHome(async (home, libraryDir) => {
+        const sourcePath = join(home, '.codex/skills/commit')
+        const targetPath = join(home, '.claude/skills/commit')
+        const backupPath = join(libraryDir, 'backups/commit')
+        await skill(join(home, '.codex/skills'), 'commit', EDITED)
+        await skill(join(home, '.claude/skills'), 'commit', BODY)
+        await skill(join(libraryDir, 'backups'), 'commit', EDITED)
+        await writeFile(join(targetPath, 'large.txt'), '')
+        await truncate(join(targetPath, 'large.txt'), 21 * 1024 * 1024)
+        const intent = kind === 'installSkill' ? { kind, name: 'commit', sourcePath, targetRuntime: runtimeId('claudecode') }
+          : kind === 'removeCopy' ? { kind, name: 'commit', path: targetPath }
+          : kind === 'syncSkill' ? { kind, name: 'commit', sourcePath, targetPaths: [targetPath] }
+          : { kind, name: 'commit', backupPath, targetPath }
+        const context = { home, libraryDir }
+        const plan = await planLibrary([agent('claudecode')], [intent,
+          { kind: 'authorSkill', name: 'next', content: BODY, targetRuntimes: [runtimeId('claudecode')] },
+        ], context)
+        assert.deepEqual(plan.ops.map((op) => op.action), ['refuse', 'create'])
+        assert.match(plan.ops[0]?.reason ?? '', /more than 20 MB/i)
+        assert.equal(plan.ops[0]?.targetPath, targetPath)
+        assert.equal(plan.ops[0]?.guardBundle, undefined)
+        assert.equal(plan.ops[0]?.sourceBundle, undefined)
+        assert.equal(new Set(plan.ops.map((op) => op.id)).size, 2)
+        assert.deepEqual((await applyLibrary(plan.ops, context)).map((op) => op.outcome), ['skipped', 'done'])
+        assert.equal(await readFile(join(targetPath, 'SKILL.md'), 'utf8'), BODY)
+      })
+    })
+  }
+})
+
+test('an oversized skill definition refuses removal while the next intent proceeds', async (t) => {
+  for (const flat of [true, false]) {
+    await t.test(flat ? 'flat file' : 'bundle definition', async () => {
+      await withHome(async (home, libraryDir) => {
+        const targetPath = join(home, flat ? '.claude/skills/commit.md' : '.claude/skills/commit')
+        const definitionPath = flat ? targetPath : join(targetPath, 'SKILL.md')
+        await mkdir(join(home, '.claude/skills'), { recursive: true })
+        if (!flat) await mkdir(targetPath)
+        await writeFile(definitionPath, BODY)
+        await truncate(definitionPath, 21 * 1024 * 1024)
+        const context = { home, libraryDir }
+        const plan = await planLibrary([agent('claudecode')], [
+          { kind: 'removeCopy', name: 'commit', path: targetPath },
+          { kind: 'authorSkill', name: 'next', content: BODY, targetRuntimes: [runtimeId('claudecode')] },
+        ], context)
+        assert.deepEqual(plan.ops.map((op) => op.action), ['refuse', 'create'])
+        assert.equal(plan.ops[0]?.targetPath, targetPath)
+        assert.match(plan.ops[0]?.reason ?? '', /more than 20 MB/i)
+        assert.equal(plan.ops[0]?.guardBundle, undefined)
+        assert.deepEqual((await applyLibrary(plan.ops, context)).map((op) => op.outcome), ['skipped', 'done'])
+        assert.equal((await lstat(definitionPath)).size, 21 * 1024 * 1024)
+        assert.equal((await readFile(definitionPath)).subarray(0, Buffer.byteLength(BODY)).toString(), BODY)
+        assert.equal(existsSync(join(libraryDir, 'backups')), false)
+        assert.equal(await readFile(join(home, '.claude/skills/next/SKILL.md'), 'utf8'), BODY)
+      })
+    })
+  }
+})
+
+test('an oversized flat definition cannot be removed by an operation claiming no definition', async () => {
+  await withHome(async (home, libraryDir) => {
+    const targetPath = join(home, '.claude/skills/commit.md')
+    await mkdir(join(home, '.claude/skills'), { recursive: true })
+    await writeFile(targetPath, BODY)
+    await truncate(targetPath, 21 * 1024 * 1024)
+    const context = { home, libraryDir }
+    const next = await planLibrary([agent('claudecode')], [
+      { kind: 'authorSkill', name: 'next', content: BODY, targetRuntimes: [runtimeId('claudecode')] },
+    ], context)
+    const results = await applyLibrary([
+      { id: 'unreadable-flat', kind: 'skill', name: 'commit', action: 'remove', targetPath,
+        guardDigest: null, guardBundle: null, backup: false },
+      ...next.ops,
+    ], context)
+    assert.deepEqual(results.map((op) => op.outcome), ['failed', 'done'])
+    assert.match(results[0]?.detail ?? '', /more than 20 MB/i)
+    assert.equal(results[0]?.backupPath, undefined)
+    assert.equal((await lstat(targetPath)).size, 21 * 1024 * 1024)
+    assert.equal((await readFile(targetPath)).subarray(0, Buffer.byteLength(BODY)).toString(), BODY)
+    assert.equal(existsSync(join(libraryDir, 'backups')), false)
+  })
+})
+
+test('a source file swapped for a FIFO at open fails alone without blocking apply', async () => {
+  await withHome(async (home, libraryDir) => {
+    const sourcePath = join(home, '.codex/skills/commit')
+    const note = join(sourcePath, 'notes.txt')
+    await skill(join(home, '.codex/skills'), 'commit', BODY)
+    await writeFile(note, 'original')
+    const plan = await planLibrary([agent('claudecode')], [
+      { kind: 'installSkill', name: 'commit', sourcePath, targetRuntime: runtimeId('claudecode') },
+      { kind: 'authorSkill', name: 'next', content: BODY, targetRuntimes: [runtimeId('claudecode')] },
+    ], { home, libraryDir })
+    const script = `
+      import fs from 'node:fs';
+      import { execFileSync } from 'node:child_process';
+      import { syncBuiltinESMExports } from 'node:module';
+      import { applyLibrary } from ${JSON.stringify(new URL('../src/index.js', import.meta.url).href)};
+      const [home, libraryDir, note, ops] = process.argv.slice(1);
+      const open = fs.openSync;
+      fs.openSync = (path, ...args) => {
+        if (path === note) {
+          fs.unlinkSync(note);
+          execFileSync('mkfifo', [note]);
+          fs.openSync = open;
+          syncBuiltinESMExports();
+        }
+        return open(path, ...args);
+      };
+      syncBuiltinESMExports();
+      console.log(JSON.stringify(await applyLibrary(JSON.parse(ops), { home, libraryDir })));
+    `
+    const results = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', script, home, libraryDir, note, JSON.stringify(plan.ops)], {
+      timeout: 5000, encoding: 'utf8',
+    })) as { outcome: string; detail?: string }[]
+    assert.deepEqual(results.map((op) => op.outcome), ['failed', 'done'])
+    assert.equal(results[0]?.detail, 'The source changed since the preview — plan again.')
+    assert.equal(existsSync(join(home, '.claude/skills/commit')), false)
+  })
+})
+
+test('a source file growing during the read is byte-bounded and fails before writing', async () => {
+  await withHome(async (home, libraryDir) => {
+    const sourcePath = join(home, '.codex/skills/commit')
+    const note = join(sourcePath, 'notes.txt')
+    await skill(join(home, '.codex/skills'), 'commit', BODY)
+    await writeFile(note, 'original')
+    const plan = await planLibrary([agent('claudecode')], [
+      { kind: 'installSkill', name: 'commit', sourcePath, targetRuntime: runtimeId('claudecode') },
+    ], { home, libraryDir })
+    const script = `
+      import fs from 'node:fs';
+      import { syncBuiltinESMExports } from 'node:module';
+      import { applyLibrary } from ${JSON.stringify(new URL('../src/index.js', import.meta.url).href)};
+      const [home, libraryDir, note, ops] = process.argv.slice(1);
+      const open = fs.openSync, read = fs.readSync;
+      let noteFd;
+      fs.openSync = (path, ...args) => {
+        const fd = open(path, ...args);
+        if (path === note) noteFd = fd;
+        return fd;
+      };
+      fs.readSync = (fd, ...args) => {
+        const count = read(fd, ...args);
+        if (fd === noteFd) {
+          fs.truncateSync(note, 21 * 1024 * 1024);
+          fs.readSync = read;
+          syncBuiltinESMExports();
+        }
+        return count;
+      };
+      syncBuiltinESMExports();
+      console.log(JSON.stringify(await applyLibrary(JSON.parse(ops), { home, libraryDir })));
+    `
+    const results = JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', script, home, libraryDir, note, JSON.stringify(plan.ops)], {
+      timeout: 5000, encoding: 'utf8',
+    })) as { outcome: string; detail?: string }[]
+    assert.equal(results[0]?.outcome, 'failed')
+    assert.equal(results[0]?.detail, 'The source changed since the preview — plan again.')
+    assert.equal(existsSync(join(home, '.claude/skills/commit')), false)
   })
 })

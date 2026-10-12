@@ -5,6 +5,7 @@ import { homedir } from 'node:os'
 import { basename, dirname, join, sep } from 'node:path'
 
 import {
+  bundleDigest,
   canonicalMcp,
   digestOf,
   dialectFor,
@@ -218,21 +219,7 @@ export async function readBundle(root: string): Promise<BundleRead> {
  * library's cosmetic 16-hex `digestOf`: this digest gates a person's trust
  * decision, not a display column.
  */
-export function bundleDigest(files: readonly BundleFile[]): string {
-  const hash = createHash('sha256')
-  for (const file of [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))) {
-    const path = Buffer.from(file.path, 'utf8')
-    const pathLength = Buffer.alloc(4)
-    pathLength.writeUInt32BE(path.length)
-    const byteLength = Buffer.alloc(4)
-    byteLength.writeUInt32BE(file.bytes.length)
-    hash.update(pathLength)
-    hash.update(path)
-    hash.update(byteLength)
-    hash.update(file.bytes)
-  }
-  return hash.digest('hex')
-}
+export { bundleDigest }
 
 /**
  * An MCP server's one identity: full SHA-256 over `canonicalMcp(spec)` — the
