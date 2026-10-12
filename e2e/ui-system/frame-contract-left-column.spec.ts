@@ -374,10 +374,11 @@ for (const theme of WALL_THEMES) {
         }, width)
         const column = page.locator('[data-left-column]:visible')
         await expect(column).toHaveCount(1)
-        const region = destination === 'settings-navigation' ? page.locator('[data-app-window-left]:visible') : column
+        const region = column
         await expect.poll(async () => Math.abs((await region.boundingBox())!.width - width)).toBeLessThanOrEqual(1)
         const history = column.locator('[data-left-history]')
-        if (width < 240) await expect(history).toBeHidden()
+        if (destination === 'settings-navigation') await expect(history).toHaveCount(0)
+        else if (width < 240) await expect(history).toBeHidden()
         else await expect(history).toBeVisible()
         const top = (await column.locator('[data-left-top] [data-slot="bar"]').boundingBox())!
         expect(top.height).toBe(FRAME.bar.height)
@@ -399,7 +400,8 @@ for (const theme of WALL_THEMES) {
     await openFrame(page, 'frame-wall=conversation', theme, 720)
     await page.locator('[data-slot="top-bar"]').getByRole('button', { name: 'Show sidebar', exact: true }).click()
     await page.locator('[data-left-column]:visible [data-left-seat]').getByRole('button', { name: 'Settings', exact: true }).click()
-    const modal = page.locator('[data-slot="app-window"]:visible')
+    const modal = page.locator('[data-slot="fixed-shell"]:visible')
+    await modal.getByRole('button', { name: 'Show sidebar', exact: true }).click()
     const column = modal.locator('[data-left-column]:visible')
     await expect(column).toBeVisible()
     await column.locator('[data-left-seat] [data-slot="popover-trigger"]:not(:has([data-slot="inbox-button"]))').click()
@@ -409,7 +411,8 @@ for (const theme of WALL_THEMES) {
     await expect(column).toBeHidden()
     await expect(modal.getByRole('button', { name: 'Show sidebar', exact: true })).toBeFocused()
     await page.keyboard.press('Escape')
-    await expect(modal).toHaveCount(0)
+    await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(0)
+    await expect(modal).toHaveCount(1)
   })
 }
 
