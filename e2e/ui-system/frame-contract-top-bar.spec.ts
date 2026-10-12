@@ -306,6 +306,12 @@ for (const theme of WALL_THEMES) {
     await page.keyboard.press('Escape')
     await expect(page.getByRole('menu')).toHaveCount(0)
     await expect(more).toBeFocused()
+    await more.click()
+    const popup = page.locator('[data-slot="popover-popup"]:visible')
+    await expect(popup).toHaveCSS('-webkit-app-region', 'no-drag')
+    await page.getByRole('menuitemradio', { name: /Terminal/ }).click()
+    await expect(page.locator('[data-frame-region="bottom"]:visible')).toBeVisible()
+    await expect(page.getByRole('menu')).toHaveCount(0)
   })
 }
 

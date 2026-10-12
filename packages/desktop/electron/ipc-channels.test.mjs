@@ -105,16 +105,20 @@ test('a screenshot can only be taken of a tab the pane itself named', () => {
 const ui = join(here, '..', '..', 'ui', 'src')
 
 test('floating panels opt out of the window-drag region', () => {
-  for (const [file, rule] of [
-    ['design/patterns/Popover.module.css', '.panel'],
-    ['design/patterns/Menu.module.css', '.surface'],
-  ]) {
-    const css = readFileSync(join(ui, file), 'utf8')
-    const from = css.indexOf(rule)
-    assert.ok(from !== -1, `${file} has no ${rule}`)
-    const block = css.slice(from, css.indexOf('}', from))
-    assert.match(block, /-webkit-app-region:\s*no-drag/, `${file} ${rule} must be no-drag`)
-  }
+  // S17 moved both floating plates to the shared popup contract.
+  const file = 'design/ui/popup.css', rule = '[data-popup-kind]'
+  const css = readFileSync(join(ui, file), 'utf8')
+  const from = css.indexOf(rule)
+  assert.ok(from !== -1, `${file} has no ${rule}`)
+  const block = css.slice(from, css.indexOf('}', from))
+  assert.match(block, /-webkit-app-region:\s*no-drag/, `${file} ${rule} must be no-drag`)
+  const popover = readFileSync(join(ui, 'design/patterns/Popover.tsx'), 'utf8')
+  assert.match(popover, /<PopoverPopup[\s\S]{0,200}data-popup-kind=/, 'the portalled Popover plate uses the checked contract')
+  assert.match(popover, /data-slot="popover-surface"[\s\S]{0,100}data-popup-kind=/, 'the inline Popover plate uses the checked contract')
+  const menu = readFileSync(join(ui, 'design/patterns/Menu.tsx'), 'utf8')
+  assert.match(menu, /className=\{styles.surface\}[\s\S]{0,100}data-popup-kind=/, 'the context-menu plate uses the checked contract')
+  assert.match(readFileSync(join(ui, 'design/index.ts'), 'utf8'), /import '\.\/ui\/popup.css'/, 'the shared contract is loaded by the public design entrypoint')
+
 })
 
 test('the browser pane puts its tab strip in a no-drag box', () => {
