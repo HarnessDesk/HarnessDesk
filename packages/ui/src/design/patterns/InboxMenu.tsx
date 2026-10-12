@@ -25,7 +25,7 @@ export const InboxMenu = ({ messages, onOpen, onMarkAllRead, onClear, now = Date
     {groups.map(group => <Fragment key={group.name}>
       <MenuLabel>{group.name}</MenuLabel>
       {group.items.map(message => <Fragment key={message.id}>
-        <MenuItem label={message.title} expanded={expanded.has(message.id)} keepOpen
+        <MenuItem label={expanded.has(message.id) ? <span data-part="inbox-full-title">{message.title}</span> : message.title} expanded={expanded.has(message.id)} keepOpen
           badge={!message.read ? <Chip size="sm" tone="brand">Unread</Chip> : undefined}
           value={[message.count && message.count > 1 ? `×${message.count}` : '', message.at === undefined ? '' : new Date(message.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })].filter(Boolean).join(' · ')}
           title={!message.read ? 'Mark read and expand message' : expanded.has(message.id) ? 'Collapse message' : 'Expand message'}
@@ -34,7 +34,6 @@ export const InboxMenu = ({ messages, onOpen, onMarkAllRead, onClear, now = Date
             setExpanded(current => { const next = new Set(current); if (next.has(message.id)) next.delete(message.id); else next.add(message.id); return next })
           }} />
         {expanded.has(message.id) && <>
-          <MenuNote tone={message.tone}><span data-part="inbox-full-title">{message.title}</span></MenuNote>
           {message.from && <MenuNote tone={message.tone}>{message.from}</MenuNote>}
           {message.body && <MenuNote tone={message.tone}>{message.body}</MenuNote>}
           {message.file && <MenuNote tone={message.tone}>In <MiddleTruncate>{message.file}</MiddleTruncate></MenuNote>}

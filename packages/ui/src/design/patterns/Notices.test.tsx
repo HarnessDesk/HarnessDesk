@@ -265,5 +265,5 @@ it('the canonical Inbox menu retains a complete title when title-only guidance e
   expect(host.querySelector('[data-part="inbox-full-title"]')).toBeNull()
   await act(async () => host.querySelector<HTMLElement>('[role="menuitem"]')!.click())
   expect(host.querySelector('[data-part="inbox-full-title"]')?.textContent).toBe(title)
-  expect(host.querySelector('[data-part="inbox-full-title"]')?.closest('[data-menu-note]')).not.toBeNull()
+  expect((host.textContent ?? '').split(title)).toHaveLength(2)
 })
