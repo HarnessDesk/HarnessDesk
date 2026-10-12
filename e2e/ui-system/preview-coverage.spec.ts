@@ -266,27 +266,30 @@ const sweepSelectsForCoverage = (
       // page state and can reveal a different mounted subtree.
       const seenFibers = new Set<unknown>()
       for (const el of document.querySelectorAll('*')) {
-        if (!isVisible(el)) continue
-        const key = Object.keys(el).find((k) => k.startsWith('__reactFiber$'))
+        const key = Object.keys(el).find(k => k.startsWith('__reactFiber$'))
         if (!key) continue
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        // Visibility is expensive on a page containing every specimen. Only
+        // a reference not already earned can add coverage in this dial state.
+        const chain: any[] = []
+        const pending = new Set<string>()
         let fiber: any = (el as unknown as Record<string, unknown>)[key]
+        const consider = (candidate: unknown): void => {
+          for (const name of refToComponents.get(candidate) ?? []) if (!covered.has(name)) pending.add(name)
+        }
         while (fiber && !seenFibers.has(fiber)) {
-          seenFibers.add(fiber)
+          chain.push(fiber)
           const type = fiber.type
-          const credit = (candidate: unknown): void => {
-            const components = refToComponents.get(candidate)
-            if (components) for (const component of components) covered.add(component)
-          }
-          credit(type)
-          credit(fiber.elementType)
-          if (type && typeof type === 'object') {
-            credit(type.render)
-            credit(type.type)
-          }
+          consider(type)
+          consider(fiber.elementType)
+          if (type && typeof type === 'object') { consider(type.render); consider(type.type) }
           fiber = fiber.return
         }
+        // Hidden leaves never earn new ancestors: a visible sibling may do so.
+        if (pending.size > 0 && !isVisible(el)) continue
+        for (const member of chain) seenFibers.add(member)
+        for (const name of pending) covered.add(name)
       }
+
     // A destination registers slots; the visible host renders them as a
     // sibling, so no DOM leaf has the registrar in its ancestry. Credit the
     // exact mounted reference only when its active scope has a visible host.
@@ -423,6 +426,7 @@ test.describe('preview coverage', () => {
       // this a regression for both ordinary descendants and portal content.
       await page.locator('html').evaluate((node, style) => { ;(node as HTMLElement).style[style.property] = style.value }, { property, value })
       expect(await collectCoverage(page), `${property}: ${value}`).toMatchObject({ covered: [] })
+      expect((await sweepSelectsForCoverage(page, { delayedRevealProbe: true })).covered, `${property}: ${value} dial sweep`).toEqual([])
     }
   })
 
@@ -583,6 +587,15 @@ test.describe('preview coverage', () => {
       'components/usage/ActivityView.tsx#ActivityView',
       'panels/Workbench.tsx#Workbench',
     ]))
+
+    // The Board's canonical list is a view choice, not a preview select.
+    // Exercise that real door so its component earns visible DOM coverage.
+    await page.goto('/preview.html?board-list')
+    const boardFrame = page.locator('[data-frame-id="board-list-page"]')
+    await boardFrame.locator('[data-slot="top-bar"]').getByRole('button', { name: 'View', exact: true }).click()
+    await page.getByRole('menuitem', { name: 'List', exact: true }).click()
+    await expect(boardFrame.getByRole('table', { name: 'Jobs', exact: true })).toBeVisible()
+    for (const component of (await collectCoverage(page)).covered) covered.add(component)
 
     // Normal and composer frames expose different dials. Sweep both, rather
     // than the final `?empty` page alone: a composer-only sheet must earn its
