@@ -140,18 +140,20 @@ for (const theme of WALL_THEMES) {
     await expect(destinationPage).toBeVisible()
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(editor).toBeHidden()
-    await expect(terminal).toBeVisible()
+    await expect(terminal).toBeHidden()
+    await expect(page.locator('[data-slot="fixed-shell"]')).toHaveAttribute('data-bottom-open', 'false')
     await expect(terminal).toHaveAttribute('data-terminal-id', terminalId!)
     const bar = page.locator('[data-slot="top-bar"]:visible')
     await expect(bar.locator('[data-work-tool]')).toHaveCount(0)
     await expect(page.locator('[data-slot="work-tools"]')).toBeHidden()
-    await expect(bar.getByRole('button', { name: 'More', exact: true })).toHaveCount(1)
+    await expect(bar.getByRole('button', { name: 'More', exact: true })).toHaveCount(0)
     await destinationPage.getByRole('button', { name: /Code reviewer / }).click()
     const more = bar.getByRole('button', { name: 'More', exact: true })
+    await expect(more).toHaveCount(1)
     await more.focus()
     await page.keyboard.press('Enter')
     await expect(page.getByRole('menu')).toBeVisible()
-    await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(1)
+    await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(0)
     await page.keyboard.press('Escape')
     await expect(page.getByRole('menu')).toHaveCount(0)
     await expect(destinationPage).toBeVisible()
@@ -177,15 +179,18 @@ for (const theme of WALL_THEMES) {
     await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Browser', exact: true }).click()
     const address = page.getByRole('textbox', { name: 'Address', exact: true })
     await expect(address).toHaveAttribute('placeholder', 'Enter a URL or query')
-    const fit = await address.evaluate((input: HTMLInputElement) => {
-      const style = getComputedStyle(input)
-      const canvas = document.createElement('canvas')
-      const context = canvas.getContext('2d')!
-      context.font = style.font
-      const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
-      return { text: context.measureText(input.placeholder).width, room: input.clientWidth - padding }
-    })
-    expect(fit.text).toBeLessThanOrEqual(fit.room)
+    for (const width of [1100, 720]) {
+      await page.setViewportSize({ width, height: 900 })
+      const fit = await address.evaluate((input: HTMLInputElement) => {
+        const style = getComputedStyle(input)
+        const canvas = document.createElement('canvas')
+        const context = canvas.getContext('2d')!
+        context.font = style.font
+        const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+        return { text: context.measureText(input.placeholder).width, room: input.clientWidth - padding }
+      })
+      expect(fit.text).toBeLessThanOrEqual(fit.room)
+    }
   })
 }
 
@@ -243,7 +248,12 @@ for (const theme of WALL_THEMES) {
       expect(Math.abs(panel.y - bar.y - FRAME.bar.height)).toBeLessThanOrEqual(1)
       expect(panel.x).toBeGreaterThanOrEqual(0)
       expect(panel.x + panel.width).toBeLessThanOrEqual(width)
-      if (width < FRAME.fold.panelFloats) expect(panel.width).toBe(FRAME.rightPanel.width)
+      if (width < FRAME.fold.panelFloats) {
+        const sidebar = width < FRAME.fold.sidebarFloats ? 0 : FRAME.sidebar.width
+        expect(panel.width).toBe(Math.min(FRAME.rightPanel.width, Math.max(FRAME.rightPanel.min, width - sidebar - FRAME.main.min - 2)))
+        expect(panel.width).toBeGreaterThanOrEqual(FRAME.rightPanel.min)
+        expect((await main.boundingBox())!.x + (await main.boundingBox())!.width).toBeLessThanOrEqual(panel.x)
+      }
     })
   }
   test(`B8 terminal height and seam default are measured in ${theme}`, async ({ page }) => {

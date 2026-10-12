@@ -1041,8 +1041,8 @@ export const rightPanelOverlays = (workbench: Workbench, windowWidth: number): b
 /** Requested preferences survive viewport changes; only drawing is clamped. */
 export const effectiveRightWidth = (workbench: Workbench, windowWidth: number, standingSidebar: number): number => {
   if (!rightPanelDrawn(workbench)) return 0
-  const max = Math.max(0, windowWidth - standingSidebar - frameReadingFloor(windowWidth, SEAM) - 2 * SEAM)
-  return Math.max(0, Math.min(workbench.right.size, FRAME.rightPanel.max, max))
+  const max = Math.max(0, windowWidth - standingSidebar - frameReadingFloor(windowWidth, standingSidebar, SEAM) - 2 * SEAM)
+  return Math.max(0, Math.min(workbench.right.size, FRAME.rightPanel.max, max, Math.max(0, windowWidth - standingSidebar - FRAME.page.canvasGutter)))
 }
 export const effectiveBottomHeight = (workbench: Workbench, windowHeight: number): number =>
   windowHeight < FRAME.bottomPanel.min * 2 || workbench.bottom.collapsed || terminals(workbench).length === 0 || !areaVisible(workbench, 'bottom')

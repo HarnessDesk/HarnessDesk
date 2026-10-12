@@ -175,8 +175,11 @@ window's bottom (owner, 2026-10-10).
   docks in the left column. Double-clicking a seam restores its default.
 - **The frame folds on its own:** at 1280 and wider every region stands;
   from 1000 to 1279 an opened right panel floats in a reserved column beside
-  main. Its effective width is capped to keep main's 480px reading floor; the
-  requested width returns when there is room. Below 1000 the left column also floats, opened from
+  main. Its effective width is capped to keep main's 480px reading floor down
+  to the tool's 320px minimum. Below that, main stays clear of the reserved
+  floating panel while its reading floor yields; the panel stays at least
+  320px unless the viewport itself is narrower. The requested width returns
+  when there is room. Below 1000 the left column also floats, opened from
   the top bar's lead slot. No fold reserves a status-bar row: both standing
   and floating columns, main and the terminal reach the window's bottom
   (owner, 2026-10-10).
@@ -454,8 +457,9 @@ dropdown, `Popover` + `Menu`, and the branch flyout all render the one menu.
 
 ### Windows that are not wide
 
-As the frame's fixed rules say: below 1280 an opened right panel floats over
-main; below 1000 the left column floats too; the top bar folds by its title's
+As the frame's fixed rules say: below 1280 an opened right panel floats in
+a reserved column beside main, keeping its tool minimum even when main's
+reading floor must yield; below 1000 the left column floats too; the top bar folds by its title's
 room. The left column's Settings mode floats the same way.
 
 ## Tokens

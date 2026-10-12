@@ -2,8 +2,9 @@
   --frame-left: 0px;
   --frame-right: 0px;
   --frame-right-size: 0px;
+  --frame-main-min: min(var(--frame-reading-min), max(0px, calc(var(--frame-window-width) - var(--frame-left) - var(--frame-right-min) - var(--hd-border-width) - var(--hd-border-width))));
   /* The grid and top bar inherit one pixel projection, including live left drags. */
-  --frame-right-effective: max(0px, min(var(--frame-right-drag, var(--frame-right-size)), var(--frame-right-max), calc(var(--frame-window-width) - var(--frame-left) - var(--frame-main-min) - var(--hd-border-width) - var(--hd-border-width))));
+  --frame-right-effective: max(0px, min(var(--frame-right-drag, var(--frame-right-size)), var(--frame-right-max), calc(var(--frame-window-width) - var(--frame-left) - var(--frame-canvas-gutter)), calc(var(--frame-window-width) - var(--frame-left) - var(--frame-main-min) - var(--hd-border-width) - var(--hd-border-width))));
   --frame-bottom: 0px;
   --frame-left-open: 0px;
   --frame-right-open: 0px;

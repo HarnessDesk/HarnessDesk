@@ -109,7 +109,7 @@ test('sidebar stands at exactly 1000 and floats at 999 independently of requeste
   await page.setViewportSize({ width: 1000, height: 900 })
   await expect(shell(page)).toHaveAttribute('data-left-floats', 'false')
   await expect(shell(page)).toHaveAttribute('data-panel-floats', 'true')
-  await widthRestsAt(main(page), MIN_READING + 2 * SEAM, 'standing sidebar keeps the reading floor')
+  await widthRestsAt(main(page), 1000 - SIDEBAR - FRAME.rightPanel.min, 'standing sidebar yields only at the tool minimum')
   await page.setViewportSize({ width: 999, height: 900 })
   await expect(shell(page)).toHaveAttribute('data-left-floats', 'true')
   await expect(page.getByRole('dialog', { name: 'Sidebar' })).toHaveCount(0)
