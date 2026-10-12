@@ -7,10 +7,9 @@ import type { RuntimeId, RuntimeInfo, SessionId, SessionSummary, WorktreeChanges
 import { folderName } from '../lib/projects'
 import { sessionLabel } from '../lib/sessions'
 import { useSnapshot, useStore } from '../state/context'
-import { RuntimeMark } from './BrandIcons'
 import { DeleteSession } from './DeleteSession'
 import { ArchiveIcon, FolderIcon, SearchIcon, UndoIcon } from './Icons'
-import { BoardMenuButton, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, Button, EmptyState, Note, Row, Rows, Search, SectionHead, Chip } from '../design'
+import { BoardMenuButton, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, Button, EmptyState, Note, Row, Rows, Search, Section, Chip } from '../design'
 import { DiscardWorktree } from './DiscardWorktree'
 
 /**
@@ -138,17 +137,7 @@ export const ArchiveSection = () => {
 
       {!loading &&
         groups.map(({ runtime, rows }) => (
-          <section key={runtime.id}>
-            <SectionHead
-              name={
-                <>
-                  <span>
-                    <RuntimeMark runtime={runtime} size={13} />
-                  </span>
-                  {runtime.presentation.name} · {rows.length}
-                </>
-              }
-            />
+          <Section key={runtime.id} title={`${runtime.presentation.name} · ${rows.length}`}>
             <Note ink="muted" >{blurbFor(runtime)}</Note>
             <Rows>
               {rows.map((summary) => {
@@ -187,7 +176,7 @@ export const ArchiveSection = () => {
                 )
               })}
             </Rows>
-          </section>
+          </Section>
         ))}
 
       {destinationActive && discarding && <DiscardWorktree summary={discarding} onClose={() => { setDiscarding(null); void load() }} />}
