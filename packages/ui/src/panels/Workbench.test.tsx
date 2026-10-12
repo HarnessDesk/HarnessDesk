@@ -1247,3 +1247,27 @@ it('keeps the live seam size until a deferred store publication paints its commi
   expect(shell.style.getPropertyValue('--frame-left-size')).toBe('300px')
   expect(shell.style.getPropertyValue('--frame-left-drag')).toBe('')
 })
+
+
+it('cycles Tab at both floating sidebar boundaries without taking portalled focus', () => {
+  const { store } = rig(start => ({ ...start, sidebar: { ...start.sidebar, shown: true } }), { windowWidth: 720, narrowWindow: true, sidebarFloating: true })
+  const rectangles = vi.spyOn(HTMLElement.prototype, 'getClientRects').mockReturnValue([{}] as unknown as DOMRectList)
+  try {
+    act(() => root.render(<StoreProvider store={store}><Workbench sidebar={<>
+      <button data-focus="first">First</button><button disabled>Unavailable</button>
+      <button style={{ display: 'none' }}>Hidden</button><button data-focus="last">Last</button>
+    </>} /></StoreProvider>))
+    const first = container.querySelector<HTMLElement>('[data-focus="first"]')!
+    const last = container.querySelector<HTMLElement>('[data-focus="last"]')!
+    const tab = (shiftKey = false): KeyboardEvent => {
+      const event = new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true })
+      document.activeElement!.dispatchEvent(event)
+      return event
+    }
+    last.focus(); expect(tab().defaultPrevented).toBe(true); expect(document.activeElement).toBe(first)
+    expect(tab(true).defaultPrevented).toBe(true); expect(document.activeElement).toBe(last)
+    const portal = document.createElement('button'); document.body.appendChild(portal)
+    try { portal.focus(); expect(tab().defaultPrevented).toBe(false); expect(document.activeElement).toBe(portal) }
+    finally { portal.remove() }
+  } finally { rectangles.mockRestore() }
+})

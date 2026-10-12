@@ -451,7 +451,25 @@ const useFloatingSidebar = (
       // The surface, as a dialog does, rather than the first row in it: landing
       // on a row means a stray Return opens a conversation nobody chose.
       sidebar.current?.focus({ preventScroll: true })
+      const cycleFocus = (event: KeyboardEvent): void => {
+        const surface = sidebar.current
+        const active = document.activeElement
+        // Portalled menus own their keys; wrap only the sidebar's own boundary.
+        if (event.key !== 'Tab' || event.defaultPrevented || !surface || !surface.contains(active)) return
+        const controls = [...surface.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], [tabindex]')]
+          .filter(element => element.tabIndex >= 0 && !element.matches(':disabled')
+            && !element.closest('[inert], [hidden]') && element.getClientRects().length > 0
+            && getComputedStyle(element).display !== 'none' && getComputedStyle(element).visibility !== 'hidden')
+        const first = controls[0], last = controls.at(-1)
+        if (!first || !last) { event.preventDefault(); surface.focus(); return }
+        if (active === surface || (event.shiftKey ? active === first : active === last)) {
+          event.preventDefault()
+          ;(event.shiftKey ? last : first).focus({ preventScroll: true })
+        }
+      }
+      document.addEventListener('keydown', cycleFocus)
       return () => {
+        document.removeEventListener('keydown', cycleFocus)
         for (const element of covered) element.removeAttribute('inert')
       }
     }
