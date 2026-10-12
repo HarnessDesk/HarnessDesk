@@ -10,6 +10,7 @@ import { RetryCheck } from '../components/RetryCheck'
 import { RunFlow, RunFlowFile } from '../components/RunFlow'
 import { type RunViewTab } from '../components/RunView'
 import { RunWorkspace } from '../components/RunWorkspace'
+import { RunFramePreview } from './RunFramePreview'
 import { TeamFramePreview } from './TeamFramePreview'
 import { TeamRunView } from '../components/TeamRunView'
 import { StoreProvider } from '../state/context'
@@ -20,22 +21,20 @@ const CatalogueTeamRunView = (props: ComponentProps<typeof TeamRunView>) => <Top
   <TopBarOutlet owner="" fallback={{ place: 'Recorded Run', more: () => null }} />
   <TeamRunView {...props} />
 </TopBarProvider>
-const CatalogueRunWorkspace = (props: ComponentProps<typeof RunWorkspace>) => <TopBarProvider>
-  <TopBarOutlet owner="" fallback={{ place: 'Recorded Run', more: () => null }} />
-  <RunWorkspace {...props} />
-</TopBarProvider>
+const CatalogueRunWorkspace = (props: ComponentProps<typeof RunWorkspace>) => <RunFramePreview {...props} />
 
 /** One store for every example on a page: *Open the file* reads the catalogue through it, as the app does. */
 let shared: ReturnType<typeof runTeamStore> | undefined
 const sharedStore = () => (shared ??= runTeamStore())
 
 export const RunExample = ({ scene, input }: { scene: RunScene; input?: RunTimelineInput }) => {
+  const exampleStore = useMemo(() => runTeamStore(), [])
   const [selected, setSelected] = useState<string | null>(null)
   const source = useMemo(() => input ?? runFixture(scene), [scene, input])
   const execution = source.execution
   const [again, setAgain] = useState(false)
   const [retry, setRetry] = useState(false)
-  return <StoreProvider store={sharedStore()}><CatalogueRunWorkspace inspector={{input:source,seats:[],flowFile:<RunFlowFile root="/repo" name={execution.document.flow.name} compact />}} execution={execution} model={input ? runTimeline(input) : runModel(scene)} number={1} selectedRow={selected} onSelect={setSelected}
+  return <StoreProvider store={exampleStore}><CatalogueRunWorkspace inspector={{input:source,seats:[],flowFile:<RunFlowFile root="/repo" name={execution.document.flow.name} compact />}} execution={execution} model={input ? runTimeline(input) : runModel(scene)} number={1} selectedRow={selected} onSelect={setSelected}
     doing={new Map([['seat-0', 'Editing src/checkout/retry.ts']])}
     pending={scene === 'pending'} problem={scene === 'failed' ? 'Check evidence is unavailable.' : null}
     onRunAgain={() => setAgain(true)} onWrap={() => setSelected('end')} onBoard={() => setSelected('end')} onReviewCheck={() => setRetry(true)}
