@@ -36,7 +36,7 @@ test('E9 review is opened as a page with a clear label', async ({ page }) => {
 })
 
 test('R10 nav4 Changes review uses page top gutter and Escape returns to work', async ({ page }) => {
-  await openFrame(page, 'frame-wall=conversation', 'light')
+  await openFrame(page, 'frame-wall=navigation&frame-review=1', 'light')
   await page.locator('[data-work-tool="changes"]:visible').click()
   await page.getByRole('button', { name: 'Open review', exact: true }).click()
   const review = page.locator('[data-page-destination="changes-review"]:visible')
