@@ -938,8 +938,8 @@ const RowDesc = ({ truncate, children }: { truncate: boolean; children: ReactNod
 const RowTitle = ({ kind, title, chip }: { kind: 'setting' | 'record'; title: ReactNode; chip?: ReactNode }) => (
   <span className={cx(styles.rowTitle, Boolean(chip) && styles.rowTitleWithChip)} data-slot="row-title">
     {kind === 'record'
-      ? <Clipped className={cx(styles.rowClippedTitle, Boolean(chip) && styles.rowTitleName)}>{title}</Clipped>
-      : chip ? <span className={styles.rowTitleName}>{title}</span> : title}
+      ? <Clipped data-slot={chip ? 'row-title-name' : undefined} className={cx(styles.rowClippedTitle, Boolean(chip) && styles.rowTitleName)}>{title}</Clipped>
+      : chip ? <span data-slot="row-title-name" className={styles.rowTitleName}>{title}</span> : title}
     {chip ? <span className={styles.rowTitleChip} data-slot="row-title-chip">{chip}</span> : null}
   </span>
 )
@@ -949,6 +949,7 @@ const RowTitle = ({ kind, title, chip }: { kind: 'setting' | 'record'; title: Re
  * its full sentence in `desc`, where it wraps as an earned second line.
  */
 export const Row = ({
+  unavailable = false,
   layout = 'default',
   reserveChevronSlot = false,
   mark,
@@ -962,6 +963,8 @@ export const Row = ({
   className,
   ...props
 }: {
+  /** Unavailable record identity is quiet; its reason, state and editing controls remain readable. */
+  unavailable?: boolean
   /** Record titles stay whole; narrow rows put metadata and state below. */
   layout?: 'default' | 'record'
   /** Keep the trailing control in the same column as row buttons without showing a drill-in mark. */
@@ -980,7 +983,7 @@ export const Row = ({
   control?: ReactNode
   className?: string
 } & Omit<HTMLAttributes<HTMLDivElement>, 'title'>) => (
-  <div className={cx(styles.row, layout === 'record' && styles.rowRecord, className)} data-slot="row" data-kind={kind} {...props}>
+  <div className={cx(styles.row, layout === 'record' && styles.rowRecord, className)} data-slot="row" data-kind={kind} data-unavailable={unavailable || undefined} {...props}>
     {face ? <span className={styles.rowFace} data-slot="row-face">{face}</span> : mark ? <span className={styles.rowMark} data-slot="row-mark">{mark}</span> : null}
     <span className={styles.rowText}>
       <RowTitle kind={kind} title={title} chip={titleChip} />
@@ -1261,8 +1264,9 @@ export const Face = ({
  * one-line ellipsis; the caller's class supplies width and minimum-size
  * constraints.
  */
-export const Clipped = ({ className, title, truncate = false, children }: { readonly className?: string; readonly title?: string; readonly truncate?: boolean; readonly children: ReactNode }) => (
+export const Clipped = ({ className, title, truncate = false, children, ...props }: Omit<HTMLAttributes<HTMLSpanElement>, 'children'> & { readonly truncate?: boolean; readonly children: ReactNode }) => (
   <span
+    {...props}
     className={cx(className, truncate && 'truncate')}
     title={title}
     onMouseEnter={(event) => {

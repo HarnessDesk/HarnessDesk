@@ -280,16 +280,9 @@ const RoutesRows = () => {
             kind="record"
 
             mark={<RouteIcon size={15} />}
-            title={
-              <>
-                <span data-slot="endpoint-name">{route.name}</span>
-                {route.usable === false && (
-                  <Chip tone="neutral" size="sm" >
-                    Not available
-                  </Chip>
-                )}
-              </>
-            }
+            unavailable={route.usable === false}
+            title={<span data-slot="endpoint-name">{route.name}</span>}
+            titleChip={route.usable === false ? <Chip tone="neutral" size="sm">Not available</Chip> : undefined}
             desc={<>
               {route.endpoint}{route.model ? ` · ${route.model}` : ''}
               {route.usable === false && route.reason && (

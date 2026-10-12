@@ -1540,3 +1540,7 @@
 .metaListMuted { color: var(--hd-muted-foreground); }
 
 .avatarMenu { width: var(--hd-space-4); height: var(--hd-space-4); }
+
+/* A record can be unavailable to an agent while remaining editable here. */
+.row[data-unavailable] > .rowMark,
+.row[data-unavailable] [data-slot="row-title-name"] { opacity: 0.55; }
