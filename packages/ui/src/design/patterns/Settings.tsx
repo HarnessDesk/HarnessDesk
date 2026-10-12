@@ -365,7 +365,8 @@ export const Search = ({
       onBlur={onBlur}
       onKeyDown={event => {
         onKeyDown?.(event)
-        if (!event.defaultPrevented && event.key === 'Escape' && !event.nativeEvent.isComposing && value !== '') {
+        if (!event.defaultPrevented && event.key === 'Escape' && !event.nativeEvent.isComposing && value !== '' &&
+          !event.currentTarget.closest('[data-popup-kind="menu"], [data-popup-kind="wide-menu"], [role="menu"]')) {
           event.preventDefault()
           onChange('')
         }
