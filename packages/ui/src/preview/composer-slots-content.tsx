@@ -31,10 +31,13 @@ const optionsFor = (shape: number): ConfigOption[] => {
 
 const SHAPES = ['Assistant A', 'Assistant B', 'Assistant C', 'Assistant D'] as const
 
-const SlotToolbar = ({ shape, live, extensionAction = false }: { shape: number; live: boolean; extensionAction?: boolean }) => {
+const SlotToolbar = ({ shape, live, extensionAction = false, contentBoxProbe = false }: { shape: number; live: boolean; extensionAction?: boolean; contentBoxProbe?: boolean }) => {
   const runtime = { id: runtimeId(`preview-${shape}`), name: SHAPES[shape], capabilities: { metered: false }, presentation: { name: SHAPES[shape] } } as unknown as RuntimeInfo
   const key = sessionKey(runtime.id, sessionId(`composer-slots-${shape}`))
-  const options = optionsFor(shape)
+  const options = optionsFor(shape).map(option => contentBoxProbe && option.type === 'select' && ['mode', '_permissions'].includes(option.category ?? '')
+    ? { ...option, choices: option.choices.map(choice => choice.value === option.currentValue
+      ? { ...choice, label: option.category === 'mode' ? 'Direct conversation mode' : 'Ask before editing the workspace' } : choice) }
+    : option)
   const session = {
     id: sessionId(`composer-slots-${shape}`), runtime: runtime.id, cwd: '/workspace', status: { type: 'idle' },
     createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true, options,
@@ -42,7 +45,7 @@ const SlotToolbar = ({ shape, live, extensionAction = false }: { shape: number; 
   const snapshot: AppSnapshot = {
     ...emptySnapshot(), runtimes: [runtime], activeRuntime: runtime.id,
     ...(live ? { sessions: new Map([[key, session]]), activeSessionKey: key } : { draftOptions: options }),
-    workspace: { path: '/workspace', name: 'Workspace' } as AppSnapshot['workspace'],
+    workspace: { path: contentBoxProbe ? '/workspace/project-with-a-detailed-folder-name' : '/workspace', name: contentBoxProbe ? 'project-with-a-detailed-folder-name' : 'Workspace' } as AppSnapshot['workspace'],
   }
   const state = previewStore(snapshot)
   const toolbar = (
@@ -93,7 +96,7 @@ const ExtensionWidthCase = () => (
 
 const ComposerWidthExtensionCase = () => (
   <section data-composer-width-extension-case className="grid w-(--hd-column) max-w-full">
-    <SlotToolbar shape={0} live={false} extensionAction />
+    <SlotToolbar shape={0} live={false} extensionAction contentBoxProbe />
   </section>
 )
 
