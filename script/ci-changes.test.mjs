@@ -6,6 +6,8 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import { themeInputs } from './ci-changes.mjs'
+
 const script = fileURLToPath(new URL('./ci-changes.mjs', import.meta.url))
 const check = (paths, expected, event = 'pull_request', env = {}) => {
   const directory = mkdtempSync(join(tmpdir(), 'ci-changes-'))
@@ -187,6 +189,19 @@ for (const path of ['pnpm-lock.yaml', 'package.json', '.github/workflows/ci.yml'
   test(`${path} reads both themes`, () => assert.equal(plan(['packages/ui/src/App.tsx', path]).matrix, 'full'))
 }
 
+// A declaration added inside an existing `body[data-hd-dark-theme]` block says neither "dark" nor "theme" in its own line.
+for (const path of ['packages/ui/src/design/foundation/tokens.css', 'packages/ui/src/styles/app.css', 'packages/ui/vite.config.ts', 'packages/ui/tsconfig.json', 'packages/ui/package.json']) {
+  test(`${path} reads both themes, whatever the lines of the diff say`, () => assert.equal(plan([path]).matrix, 'full'))
+}
+
+test('a stylesheet that names a theme before or after the change reads both themes', () => {
+  const root = fileURLToPath(new URL('../', import.meta.url))
+  const popup = ['packages/ui/src/design/ui/popup.css'] // says neither word today
+  assert.equal(themeInputs(root, popup, () => null), false, 'a stylesheet that is neither')
+  assert.equal(themeInputs(root, popup, () => 'body[data-hd-dark-theme] { --x: 1 }'), true, 'it named a theme before the change and the change took the word out')
+  assert.equal(themeInputs(root, ['packages/ui/src/components/Row.tsx'], () => 'dark'), false, 'only stylesheets are read for the word')
+})
+
 test('main and a run on demand read both themes of every spec', () => {
   for (const event of ['push', 'workflow_dispatch']) {
     const run = plan(['packages/ui/src/App.tsx'], {}, event)
@@ -217,6 +232,12 @@ test('a changed helper runs every spec that imports it, and only those', () => {
   assert.ok(specs.every(spec => /\.spec\.ts$/.test(spec)))
   assert.ok(specs.includes('e2e/ui-system/frame-contract-popup-menus.spec.ts'))
   assert.ok(!specs.includes('e2e/ui-system/row-box.spec.ts'))
+})
+
+test('a helper a spec loads by URL or by name, and not by an import, still runs that spec', () => {
+  // `write-once.spec.ts` spawns a child that loads `write-once.ts` from `new URL('./write-once', import.meta.url)`.
+  const run = plan(['e2e/ui-system/write-once.ts'])
+  assert.ok(JSON.parse(run.browser_specs).includes('e2e/ui-system/write-once.spec.ts'), run.browser_specs)
 })
 
 test('a changed helper reaches the specs that import it through another helper', () => {

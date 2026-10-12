@@ -56,8 +56,9 @@ that reaches one spec does not pay for sixteen runners.
 Two rules keep a pull request from running more than it can learn from:
 
 - **A change to the suite alone runs the specs it can reach.** The selector
-  follows imports, so a changed spec runs itself and a changed helper runs the
-  specs that import it, in both themes. A data file a spec reads at run time, a
+  follows imports, `new URL('./helper', import.meta.url)` loads and any spec that
+  names a helper, so a changed spec runs itself and a changed helper runs the
+  specs that use it, in both themes. A data file a spec reads at run time, a
   deleted helper, or any change outside the suite cannot be traced and runs
   every spec. Edits to `durations.json` open no browser: they only change how
   specs are dealt.
@@ -69,9 +70,11 @@ Two rules keep a pull request from running more than it can learn from:
   a gate test finds one that is missing) and every spec that is not a `frame-*`
   spec read both. Pushes to `main` and runs started by hand read both themes
   everywhere, so a dark-only regression is found when it lands and not before;
-  a pull request whose UI diff names a theme, or whose inputs are shared (the
-  lockfile, root configuration, assets, CI, the browser configuration), reads
-  both too. To reproduce either run on a branch, start CI by hand
+  a pull request whose UI diff names a theme, that edits a stylesheet which
+  names one anywhere (a declaration added inside the dark block does not say so
+  itself), the foundation, the shared styles or the UI's build configuration, or
+  whose inputs are shared (the lockfile, root configuration, assets, CI, the
+  browser configuration), reads both too. To reproduce either run on a branch, start CI by hand
   (`gh workflow run ci.yml --ref <branch> -f matrix=full`, or `-f matrix=pr`;
   GitHub offers a manual run only for a workflow that is on the default branch).
   A pull request's times are `e2e/ui-system/durations.pr.json`, refreshed the

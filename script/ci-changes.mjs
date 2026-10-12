@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { dirname, extname, join, relative, resolve } from 'node:path'
+import { execFileSync } from 'node:child_process'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
+import { basename, dirname, extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { recordedSeconds, shardCount, specFiles } from './ci-browser-shards.mjs'
@@ -86,6 +87,19 @@ const resolveHelper = (file, specifier) => {
   throw new Error(`Cannot resolve suite import: ${specifier}`)
 }
 
+const URL_IMPORT = /new\s+URL\(\s*['"](\.[^'"\n]*)['"]\s*,\s*import\.meta\.url\s*\)/g
+
+// The source file a path names, or null: unlike an import, a URL may name a folder or a data file.
+const findSource = (file, specifier) => {
+  const base = resolve(dirname(file), specifier)
+  return [base, ...SOURCE.map(ext => `${base}${ext}`)].find(candidate => existsSync(candidate) && statSync(candidate).isFile() && SOURCE.includes(extname(candidate))) ?? null
+}
+
+const mentions = (text, helper) => {
+  const stem = basename(helper, extname(helper))
+  return stem.length >= 4 && new RegExp(`(?<![\\w-])${stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\w-])`).test(text)
+}
+
 // Literal static/dynamic imports and re-exports, including those in local
 // helpers. Over-selection (for example an import in a comment) is harmless;
 // no manual spec list can become stale when a spec starts reading host code.
@@ -122,11 +136,25 @@ export function affectedSpecs(root, changed) {
   const files = directory => readdirSync(directory, { withFileTypes: true }).flatMap(entry =>
     entry.isDirectory() ? files(join(directory, entry.name)) : [join(directory, entry.name)])
   const importers = new Map()
-  for (const file of files(suite).filter(file => SOURCE.includes(extname(file)))) {
-    for (const [, specifier] of readFileSync(file, 'utf8').matchAll(IMPORT)) {
+  const edge = (helper, file) => importers.set(helper, new Set([...(importers.get(helper) ?? []), file]))
+  const sources = files(suite).filter(file => SOURCE.includes(extname(file)))
+  const helpers = sources.filter(file => !/\.spec\.[cm]?[jt]sx?$/.test(file))
+  for (const file of sources) {
+    const text = readFileSync(file, 'utf8')
+    for (const [, specifier] of text.matchAll(IMPORT)) {
       if (!specifier.startsWith('.')) continue
       const helper = resolveHelper(file, specifier)
-      if (helper) importers.set(helper, new Set([...(importers.get(helper) ?? []), file]))
+      if (helper) edge(helper, file)
+    }
+    // A file named by `new URL('./helper', import.meta.url)` is loaded at run time, by a child process or a worker.
+    for (const [, specifier] of text.matchAll(URL_IMPORT)) {
+      const helper = findSource(file, specifier)
+      if (helper) edge(helper, file)
+    }
+    // A file that names a helper any other way (a path built by hand, a name in a string) is taken to use it:
+    // a scan that missed an edge would run too little, one that found a stray edge runs a spec too many.
+    for (const helper of helpers) {
+      if (helper !== file && mentions(text, helper)) edge(helper, file)
     }
   }
   const queue = []
@@ -151,13 +179,37 @@ export function affectedSpecs(root, changed) {
     .map(file => relative(root, file)).sort()
 }
 
+// How the dark theme is made is not always in the lines of a diff: a declaration
+// added inside an existing `body[data-hd-dark-theme]` block names neither word.
+// So a stylesheet that says "dark" or "theme" anywhere, before or after the
+// change, reads both themes, and so does everything under the foundation and the
+// shared styles, whatever the diff says.
+const THEME_PATH = /^packages\/ui\/src\/(?:design\/foundation\/|styles\/)/
+// The UI's own build and compiler configuration decides how everything renders.
+const UI_BUILD = /^packages\/ui\/(?!src\/|site-demo\/)/
+
+const textAtBase = (root, path) => {
+  try {
+    return execFileSync('git', ['show', `HEAD^1:${path}`], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 })
+  } catch {
+    return null
+  }
+}
+
+export function themeInputs(root, inputs, baseText = textAtBase) {
+  const says = text => text !== null && text !== undefined && /dark|theme/i.test(text)
+  return inputs.some(path => THEME_PATH.test(path)
+    || (path.startsWith('packages/ui/') && path.endsWith('.css')
+      && (says(existsSync(join(root, path)) ? readFileSync(join(root, path), 'utf8') : null) || says(baseText(root, path)))))
+}
+
 // What the browser job runs for this change, and how it is sized. A pull request
 // that only touches the suite runs the specs it can reach, all of their tests;
 // a pull request that touches the UI runs every spec, but reads the geometry
 // contracts in the light theme only, unless the diff itself is about themes
 // (`themeTouched`): `main` and a manual run read both everywhere. See
 // `playwright.ui-system.config.ts` for what the pull-request matrix leaves out.
-export function browserPlan(root, { browser, inputs, serverInputs, event, themeTouched, request }) {
+export function browserPlan(root, { browser, inputs, serverInputs, event, themeTouched, request, baseText = textAtBase }) {
   const all = specFiles(root).map(spec => `e2e/ui-system/${spec}`)
   let selected = null
   if (browser === 'all' && event === 'pull_request' && inputs.length > 0 && inputs.every(path => path.startsWith('e2e/ui-system/'))) {
@@ -169,10 +221,10 @@ export function browserPlan(root, { browser, inputs, serverInputs, event, themeT
   // build input, the browser configuration that decides the matrix, the CI that
   // runs it, and any edit to the suite itself (its author wrote a test to see it
   // run, in the theme it names).
-  const broad = inputs.some(path => SHARED.some(pattern => pattern.test(path)) || path.startsWith('e2e/ui-system/') || /^playwright\.ui-system\.config\.ts$|^script\/ci-browser-shards\.mjs$/.test(path))
+  const broad = inputs.some(path => SHARED.some(pattern => pattern.test(path)) || UI_BUILD.test(path) || path.startsWith('e2e/ui-system/') || /^playwright\.ui-system\.config\.ts$|^script\/ci-browser-shards\.mjs$/.test(path))
   const matrix = request === 'pr' || request === 'full'
     ? request
-    : event === 'pull_request' && inputs.length > 0 && selected === null && !themeTouched && !broad ? 'pr' : 'full'
+    : event === 'pull_request' && inputs.length > 0 && selected === null && !themeTouched && !broad && !themeInputs(root, inputs, baseText) ? 'pr' : 'full'
   const specs = selected ?? all
   const count = browser === 'all'
     ? shardCount(specs.map(spec => spec.slice('e2e/ui-system/'.length)), recordedSeconds(root, matrix))
