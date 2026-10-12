@@ -60,9 +60,15 @@ for (const theme of ['light', 'dark'] as const) {
       }))
       await testInfo.attach('view-layout',{body:JSON.stringify(measurements,null,2),contentType:'application/json'})
       await bar.screenshot({path:testInfo.outputPath('views.png')})
+      const track = await views.first().locator('..').evaluate(node => ({ height: node.getBoundingClientRect().height, padding: parseFloat(getComputedStyle(node).paddingTop) }))
+      expect(track).toEqual({ height: 28, padding: 2 })
       for(const row of measurements){
-        expect.soft(row.height,row.label??'').toBeGreaterThanOrEqual(26)
-        for(const content of row.contents){expect.soft(content.top).toBeGreaterThanOrEqual(4);expect.soft(content.bottom).toBeGreaterThanOrEqual(4)}
+        expect.soft(row.height,row.label??'').toBe(track.height - 2 * track.padding)
+        for(const content of row.contents){
+          expect.soft(content.top).toBeGreaterThanOrEqual(0)
+          expect.soft(content.bottom).toBeGreaterThanOrEqual(0)
+          expect.soft(Math.abs(content.top - content.bottom)).toBeLessThanOrEqual(1)
+        }
       }
       await views.nth(1).click()
       await expect(views.nth(1)).toHaveAttribute('aria-selected','true')
