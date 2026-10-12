@@ -158,7 +158,7 @@ type ChipBaseProps = {
 export type ChipProps = ChipBaseProps & (
   | { state: Readiness; tone?: never; tint?: never; emphasis?: never }
   | { state?: never; tone: Tone; tint?: never; emphasis?: boolean }
-  | { state?: never; tone?: never; tint: Tint; emphasis?: never }
+  | { state?: never; tone?: never; tint: Tint; emphasis?: boolean }
 )
 
 const READINESS_TONE: Record<Readiness, Tone> = {

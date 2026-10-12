@@ -67,7 +67,7 @@ export const FlowStepRow = ({ step, run, subtitle, selected, faces, faceTints, n
       run?.state !== 'future' ? <span data-slot="run-time">{duration ?? 'Time not recorded'}{duration && (run?.state === 'working' || run?.state === 'waiting') ? ' so far' : ''}{repeated && duration ? ' each' : ''}</span> : null,
       run?.state !== 'future' ? run?.runs == null ? 'Run count unavailable' : `${run.runs} ${run.runs === 1 ? 'run' : 'runs'}` : null].filter(Boolean)
     return <TimelineItem flat state={state} data-row={rowId} data-kind={rowKind} data-round-group={roundGroup} data-step-row={step.id} data-flow-state={run?.state} data-selected={selected || undefined}
-      title={<span className="flex min-w-0 items-center gap-2"><span className="min-w-0 truncate">{sanitizeText(step.name)}</span><Chip size="sm" tint={tint}>{ROLE_KIND_WORDS[step.kind]}</Chip></span>}
+      title={<span className="flex min-w-0 items-center gap-2"><span className="min-w-0 truncate">{sanitizeText(step.name)}</span><Chip size="sm" tint={tint} variant={selected ? 'outline' : 'default'} emphasis={selected}>{ROLE_KIND_WORDS[step.kind]}</Chip></span>}
       detail={<Text role="meta">{meta.map((part, index) => <span key={index}>{index > 0 && ' · '}{part}</span>)}</Text>}
       actions={run && <RunStateChip state={stateOf(run)} />} selected={selected} onSelect={onSelect ? () => onSelect(step.id) : undefined} />
   }
@@ -80,7 +80,7 @@ export const FlowStepRow = ({ step, run, subtitle, selected, faces, faceTints, n
         members={seats.map(id => ({ id, tint: faceTints?.get(id) ?? 'violet', mark: faces?.get(id) ?? <AgentIcon /> }))} /></span>
       : <span data-slot="flow-faces"><IconTile shape="face" size="default" tint={faceTints?.get(seats[0]!) ?? 'violet'}>{faces?.get(seats[0]!) ?? <AgentIcon />}</IconTile></span>
       : <IconTile shape={step.kind === 'check' ? 'square' : 'face'} tint={tint}><Mark /></IconTile>}
-    title={<span className="flex min-w-0 flex-wrap items-center gap-2"><span className="min-w-0 truncate" title={sanitizeText(step.name)}>{sanitizeText(step.name)}</span><Chip size="sm" tint={tint}>{ROLE_KIND_WORDS[step.kind]}</Chip></span>}
+    title={<span className="flex min-w-0 flex-wrap items-center gap-2"><span className="min-w-0 truncate" title={sanitizeText(step.name)}>{sanitizeText(step.name)}</span><Chip size="sm" tint={tint} variant={selected ? 'outline' : 'default'} emphasis={selected}>{ROLE_KIND_WORDS[step.kind]}</Chip></span>}
     subtitle={subtitle} wrapSubtitle
     trail={run ? <span className="flex flex-col items-end gap-1">
       <RunStateChip state={stateOf(run)} />
