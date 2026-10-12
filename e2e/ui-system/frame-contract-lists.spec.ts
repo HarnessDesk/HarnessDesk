@@ -82,8 +82,8 @@ test('Lists R9 Library filter and skill detail use group-level facts', async ({ 
   const dialog = page.getByRole('dialog')
   const group = dialog.locator('section').filter({ has: page.getByRole('heading', { name: 'Which agents load it', exact: true }) })
   await expect(group.getByRole('listitem')).toHaveCount(3)
-  await expect(group).toContainText('Installed where this agent does not look')
-  expect(await group.locator('text=Installed where this agent does not look').count()).toBe(1)
+  await expect(group).toContainText('Installed where these agents do not look')
+  expect(await group.locator('text=Installed where these agents do not look').count()).toBe(1)
 })
 
 test('Lists R9 Plugins show Active and Built in on the state row', async ({ page }) => {
