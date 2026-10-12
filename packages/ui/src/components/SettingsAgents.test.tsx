@@ -1,5 +1,7 @@
 import { RuntimesTestPage as RuntimesSection } from '../test-support/settings-page'
 import { act } from 'react'
+import { previewStore } from '../preview/harness'
+import { frameDestinationStore } from '../preview/frame-destination-store'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
@@ -1334,4 +1336,19 @@ it('a successful current custom add visits its owner once',async()=>{
   await act(async()=>root.render(<StoreProvider store={store}><AddAgents onBack={()=>{}} onDone={onDone}/></StoreProvider>))
   act(()=>button('Set up…')!.click());type(byLabel('Name'),'Synthetic Agent');type(byLabel('Command'),'synthetic-agent')
   await act(async()=>button('Add runtime')!.click());expect(onDone).toHaveBeenCalledTimes(1)
+})
+
+
+it('keeps Add a runtime reachable in a populated Settings body with a quiet bar', async () => {
+  const store = frameDestinationStore(previewStore())
+  store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'runtimes', focus: null } })
+  store.agentCatalog = async () => []
+  store.acpRegistry = async () => ({ agents: [], fetchedAt: 1 })
+  await act(async () => root.render(<StoreProvider store={store}><RuntimesSection onSignIn={() => {}} /></StoreProvider>))
+  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('')
+  const add = button('Add a runtime')
+  expect(add, 'a populated runtime list still has its entry action outside the quiet bar').toBeDefined()
+  expect(add!.closest('[data-slot="top-bar"]')).toBeNull()
+  await act(async () => add!.click())
+  expect(container.textContent).toContain('From the ACP registry')
 })

@@ -1,6 +1,6 @@
 import { CheckIcon } from './Icons'
 import { DestinationBar, useDestinationActive } from '../panels/destination-page'
-import { PageExplanation, PageControls, PageOptions, MenuItem } from '../design'
+import { PageExplanation, PageControls, PageOptions, MenuItem, Toolbar } from '../design'
 import { AgentHistory } from './History'
 import { RuntimeResources } from './RuntimeResources'
 import { RuntimeFace } from './RuntimeFace'
@@ -2074,6 +2074,11 @@ export const RuntimesSection = ({
     <>
       <DestinationBar place="Runtimes" parents={[{ label: 'Settings', run: () => store.askSettings('general') }]}
   verb={{ label: 'Add a runtime', run: () => setView({ kind: 'add' }) }} />
+      {snapshot.workbench.navigation.current.kind === 'settings' && groups.length > 0 && <Toolbar>
+        <Button variant="outline" size="sm" onClick={() => setView({ kind: 'add' })}>
+          <PlusIcon size={13} />Add a runtime
+        </Button>
+      </Toolbar>}
 <PageExplanation>What your Agents run on: the agent programs HarnessDesk can start, and the accounts each is signed in as.</PageExplanation>
 
       {/* Two agents fit on a screen and need no help being found; the filters
