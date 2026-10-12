@@ -13,6 +13,8 @@ for (const width of [720]) for (let group = 0; group < Math.ceil(B6_WORK_DESTINA
     test(`B6 lead follows window state on work destinations group ${group + 1} at ${width} in ${theme}`, async ({ page }) => {
       await openFrame(page, 'frame-wall=conversation', theme, width)
       if (width === 1440) await page.getByRole('button', { name: 'Hide sidebar', exact: true }).click()
+      // The shell can collapse before its registered lead is republished.
+      await expectLead(windowBar(page), width, false, true)
       const referenceX = (await windowBar(page).locator('[data-topbar="place"]').boundingBox())!.x
       const titleXs: number[] = [referenceX]
       for (const destination of B6_WORK_DESTINATIONS.slice(group * 9, (group + 1) * 9)) {
@@ -27,7 +29,7 @@ for (const width of [720]) for (let group = 0; group < Math.ceil(B6_WORK_DESTINA
           { message: `${destination.id} title floor` }).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
         titleXs.push((await bar.locator('[data-topbar="place"]').boundingBox())!.x)
       }
-      expect(Math.max(...titleXs) - Math.min(...titleXs)).toBeLessThanOrEqual(1)
+      expect(Math.max(...titleXs) - Math.min(...titleXs), JSON.stringify({ referenceX, titleXs })).toBeLessThanOrEqual(1)
     })
   }
 }
