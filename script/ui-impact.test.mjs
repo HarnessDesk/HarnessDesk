@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { IMPORT, SOURCE, suiteGraph, unobservedSpecs, walk } from './ci-imports.mjs'
-import { MAP_VERSION, expectedCounts, exportsData, impactedSpecs, mergeRecords, readMap, repoPath, uiFiles, uiGlobbers, uiImporters } from './ui-impact.mjs'
+import { MAP_VERSION, environmentAt, expectedCounts, exportsData, impactedSpecs, mergeRecords, readMap, repoPath, uiExternalImports, uiFiles, uiGlobbers, uiImporters } from './ui-impact.mjs'
 
 const real = fileURLToPath(new URL('../', import.meta.url))
 
@@ -377,6 +377,13 @@ test('a module hands data to its importers when it exports a value that is not a
     ['export class Store {}', false],
     ['const hidden = [1]\nexport function read() { return hidden }', false],
     ["export const a = () => 1\nexport const B = 'two'", true],
+    ["const LABEL = 'Broken'\nexport { LABEL }\nexport function unrelated() {}", true],
+    ["export const LABEL = ('Broken')", true],
+    ["export * from './a'", true],
+    ["export { a } from './a'", true],
+    ['export class Store { static limit = 3 }', true],
+    ['export const Foo = (\n  a: string,\n) => a', false],
+    ['export const Foo = ({\n  a,\n}) => a', false],
   ]) assert.equal(exportsData(text), expected, text)
 })
 
@@ -450,4 +457,72 @@ test('every stylesheet of the UI names, by @import or url(), files that are in t
     }
   }
   assert.deepEqual(missing, [])
+})
+
+test('a stylesheet that is not scoped to a module reaches everything that loaded it, wherever the bundler took it in', () => {
+  const root = fixture({
+    'packages/ui/src/z.css': "@import './inner.css';\n",
+    'packages/ui/src/inner.css': '.node { visibility: hidden }\n',
+    'packages/ui/src/scoped.module.css': '.a { color: red }\n',
+    'packages/ui/src/leaky.module.css': ':global(.node) { color: red }\n',
+  })
+  try {
+    // `x` ran in `a` only, `y` in both; the sheets were loaded by both specs, and x imports them all.
+    const x = root + '/packages/ui/src/x.tsx'
+    writeFileSync(x, "import './z.css'\nimport './scoped.module.css'\nimport './leaky.module.css'\nexport const X = () => 1\n")
+    const map = mergeRecords(root, [
+      record('e2e/ui-system/a.spec.ts', { loaded: [...everything, '/src/scoped.module.css', '/src/leaky.module.css'], ran: ['/src/x.tsx'] }),
+      record('e2e/ui-system/b.spec.ts', { loaded: [...everything, '/src/scoped.module.css', '/src/leaky.module.css'], ran: ['/src/y.tsx'] }),
+    ])
+    const sheet = path => root + '/' + path
+    const globalSheet = path => path.endsWith('.css') && (!path.endsWith('.module.css') || /:global\b/.test(readFileSync(sheet(path), 'utf8')))
+    const specs = path => impactedSpecs(map, [path], context(root, map, { globalSheet })).specs
+    assert.deepEqual(specs('packages/ui/src/scoped.module.css'), ['a.spec.ts'], 'a sheet of one module is that module\'s')
+    assert.deepEqual(specs('packages/ui/src/leaky.module.css'), ['a.spec.ts', 'b.spec.ts'], ':global reaches whatever loaded the sheet')
+    assert.deepEqual(specs('packages/ui/src/z.css'), ['a.spec.ts', 'b.spec.ts'], 'a plain sheet is global')
+    assert.deepEqual(specs('packages/ui/src/inner.css'), ['a.spec.ts', 'b.spec.ts'], 'also when it has no script of its own and is taken in by another')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a unit test that imports a module says nothing of the specs that loaded it', () => {
+  const root = fixture({ 'packages/ui/src/shared.test.ts': "import { LIMIT } from './shared'\nLIMIT\n" })
+  try {
+    const map = mergeRecords(root, [
+      record('e2e/ui-system/a.spec.ts', { loaded: [...everything, '/src/shared.test.ts'], ran: ['/src/x.tsx'] }),
+      record('e2e/ui-system/b.spec.ts', { loaded: everything, ran: ['/src/y.tsx'] }),
+    ])
+    // `shared.ts` ran nowhere, and is imported by x, y and the test: x and y answer, the test does not.
+    assert.deepEqual(impactedSpecs(map, ['packages/ui/src/shared.ts'], context(root, map)).specs, ['a.spec.ts', 'b.spec.ts'])
+    // Imported by nothing but a test, it is what the specs that loaded it saw.
+    writeFileSync(join(root, 'packages/ui/src/x.tsx'), 'export const X = () => 1\n')
+    writeFileSync(join(root, 'packages/ui/src/y.tsx'), 'export const Y = () => 1\n')
+    const alone = impactedSpecs(map, ['packages/ui/src/shared.ts'], context(root, map, { importers: path => uiImporters(root).get(path) }))
+    assert.deepEqual(alone.specs, ['a.spec.ts', 'b.spec.ts'], 'by loaded coverage')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a file outside the UI that its source imports is found, and one only its tests import is not', () => {
+  const root = fixture({
+    'shared-ui.ts': 'export const OUTSIDE = 1\n',
+    'packages/ui/src/uses-outside.ts': "import { OUTSIDE } from '../../../shared-ui'\nexport const read = () => OUTSIDE\n",
+    'tests-only.ts': 'export const T = 1\n',
+    'packages/ui/src/only.test.ts': "import { T } from '../../../tests-only'\nT\n",
+  })
+  try {
+    assert.deepEqual([...uiExternalImports(root)], ['shared-ui.ts'])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the setup a map was recorded in covers the pages and configuration of the UI, not only the ones named', () => {
+  const environment = environmentAt(real)
+  for (const path of ['package.json', 'pnpm-lock.yaml', 'tsconfig.base.json', 'packages/ui/vite.config.ts', 'packages/ui/preview.html', 'packages/ui/narrow-overlay.html', 'packages/protocol', 'script/ui-impact']) {
+    assert.match(environment[path] ?? '', /^[0-9a-f]{40}$/, path)
+  }
+  assert.ok(!('packages/ui/src' in environment) && !('packages/ui/site-demo' in environment), 'the source is tracked file by file')
 })

@@ -143,7 +143,7 @@ export function specsNaming(graph, path, texts = suiteTexts(graph)) {
 // Specs whose tests open pages of their own, which the recorder never sees (it watches the page a test is
 // given): they cannot be planned from a record, so they always run.
 export function unobservedSpecs(root, graph = suiteGraph(root)) {
-  const opens = /\.new(?:Page|Context)\s*\(|\.launch\s*\(/
+  const opens = /\.new(?:Page|Context)\s*\(|\.launch\s*\(|waitForEvent\(\s*['"](?:popup|page)['"]|\.on(?:ce)?\(\s*['"](?:popup|page)['"]/
   const holding = graph.sources.filter(file => opens.test(readFileSync(file, 'utf8')))
   return specsReaching(graph, holding).map(file => relative(graph.suite, file)).sort()
 }

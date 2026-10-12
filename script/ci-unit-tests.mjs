@@ -7,12 +7,12 @@
 //
 //   node script/ci-unit-tests.mjs <changed paths, NUL separated>
 //   → mode=all | related | none, files=<paths relative to packages/ui>, summary=…
-import { existsSync, readFileSync, readdirSync } from 'node:fs'
-import { extname, join, relative, resolve } from 'node:path'
+import { existsSync, readFileSync, statSync } from 'node:fs'
+import { dirname, extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { SOURCE, walk } from './ci-imports.mjs'
-import { queriedImporters } from './ui-impact.mjs'
+import { IMPORT, SOURCE, walk } from './ci-imports.mjs'
+import { queriedImporters, uiSource } from './ui-impact.mjs'
 
 const UI = 'packages/ui/'
 const TRACKED = /^packages\/ui\/(?:src|site-demo)\//
@@ -23,16 +23,59 @@ const SETUP = /(?:^|\/)(?:setup-tests\.[cm]?[jt]s|vitest[^/]*\.[cm]?[jt]s)$/
 const TEST = /\.test\.[cm]?[jt]sx?$/
 const MOST = 300
 
-// The tests that read the tree by themselves, from the file system or by a
-// pattern: a new or deleted file changes what they see without being a dependency
-// of anything, so they run with every selection.
+// The file system, or a pattern over files that are not the images of `assets/` (which every change to them
+// already runs the whole suite for).
+const readsTree = text => /\bfrom\s+['"](?:node:)?fs(?:\/promises)?['"]/.test(text)
+  || [...text.matchAll(/import\.meta\.glob\s*[<(]([\s\S]{0,240})/g)].some(([, pattern]) => !/assets\//.test(pattern) || /(?:components|panels|src)\//.test(pattern))
+
+// What a file of the UI imports from the UI's own source, to the end of the chain.
+const closure = (root, start, edges = new Map()) => {
+  const seen = new Set()
+  const queue = [start]
+  while (queue.length > 0) {
+    const file = queue.pop()
+    if (seen.has(file) || !existsSync(join(root, file))) continue
+    seen.add(file)
+    if (!edges.has(file)) {
+      const from = join(root, file)
+      const found = []
+      for (const [, specifier] of readFileSync(from, 'utf8').matchAll(IMPORT)) {
+        const clean = specifier.replace(/[?#].*$/, '')
+        const base = clean.startsWith('@/') ? join(root, 'packages/ui/src', clean.slice(2)) : clean.startsWith('.') ? resolve(dirname(from), clean) : null
+        const target = base && [base, ...SOURCE.map(ext => `${base}${ext}`), ...SOURCE.map(ext => join(base, `index${ext}`))].find(candidate => existsSync(candidate) && statSync(candidate).isFile())
+        if (target && uiSource(relative(root, target))) found.push(relative(root, target))
+      }
+      edges.set(file, found)
+    }
+    queue.push(...edges.get(file))
+  }
+  return seen
+}
+
+// The tests that read the tree by themselves, from the file system or by a pattern, in their own text or in
+// a helper's: a new or deleted file changes what they see without being a dependency of anything, so they run
+// with every selection.
 export function treeReaders(root) {
   const source = join(root, 'packages/ui/src')
   if (!existsSync(source)) return []
-  return walk(source).filter(file => TEST.test(file) && SOURCE.includes(extname(file))).filter(file => {
-    const text = readFileSync(file, 'utf8')
-    return /\bfrom\s+['"](?:node:)?fs(?:\/promises)?['"]|import\.meta\.glob\s*[<(]/.test(text)
-  }).map(file => relative(join(root, UI), file)).sort()
+  const edges = new Map()
+  const reads = new Map()
+  const reading = file => {
+    if (!reads.has(file)) reads.set(file, readsTree(readFileSync(join(root, file), 'utf8')))
+    return reads.get(file)
+  }
+  return walk(source).map(file => relative(root, file)).filter(file => TEST.test(file) && SOURCE.includes(extname(file)))
+    .filter(file => [...closure(root, file, edges)].some(reading)).map(file => relative(join(root, UI), join(root, file))).sort()
+}
+
+// Every file the test setup imports, to the end of the chain: Vitest does not follow these edges, and a test
+// may lean on any of them without importing it.
+export function setupFiles(root) {
+  const found = new Set()
+  for (const entry of ['packages/ui/src/setup-tests.ts']) {
+    if (existsSync(join(root, entry))) for (const file of closure(root, entry)) found.add(file)
+  }
+  return found
 }
 
 export function unitPlan(root, { event, paths }) {
@@ -40,8 +83,10 @@ export function unitPlan(root, { event, paths }) {
   if (event !== 'pull_request') return all('this is not a pull request')
   // The paths go to a command line: one that cannot be quoted plainly is not worth the risk.
   if (!paths || paths.length === 0 || paths.some(path => path.length === 0 || path.startsWith('/') || path.split('/').includes('..') || /[^\w./@+-]/.test(path))) return all('the changed files are unknown')
+  const setup = setupFiles(root)
   const files = []
   for (const path of paths) {
+    if (setup.has(path)) return all(`${path} is part of the test setup`)
     if (IGNORED.some(pattern => pattern.test(path))) continue
     if (!TRACKED.test(path)) return all(`${path} is read outside the UI's own source`)
     if (SETUP.test(path)) return all(`${path} sets up every test`)

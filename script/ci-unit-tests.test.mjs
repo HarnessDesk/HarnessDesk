@@ -1,13 +1,13 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { walk } from './ci-imports.mjs'
-import { treeReaders, unitPlan } from './ci-unit-tests.mjs'
+import { setupFiles, treeReaders, unitPlan } from './ci-unit-tests.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const plan = (paths, event = 'pull_request') => unitPlan(root, { event, paths })
@@ -23,7 +23,8 @@ test('a change to a component runs the tests that depend on it, and the ones tha
 test('the tests that read the tree themselves are the ones that glob or use the file system', () => {
   const readers = treeReaders(root)
   assert.ok(readers.includes('src/app/settings-routes.test.ts'))
-  assert.ok(readers.includes('src/lib/avatars.test.ts'))
+  assert.ok(readers.includes('src/design/faces.census.test.ts'), 'a pattern over the source')
+  assert.ok(!readers.includes('src/lib/avatars.test.ts'), 'the images of assets/ already run everything')
   assert.ok(readers.every(file => file.endsWith('.test.ts') || file.endsWith('.test.tsx')))
 })
 
@@ -85,4 +86,27 @@ test('a file imported with a query reaches its importers, which Vitest does not 
   // The review's own example: a colour taken out of the editor's stylesheet is checked by a test that reads it with `?raw`.
   const editor = plan(['packages/ui/src/styles/editor.css'])
   assert.ok(editor.files.some(file => /editor-tokens\.test\.ts$/.test(file)), editor.files.join(' '))
+})
+
+test('a test that reads the tree through a helper is a reader, and so is one that imports the setup\'s helpers', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ci-unit-readers-'))
+  try {
+    const put = (path, text) => {
+      mkdirSync(join(dir, path, '..'), { recursive: true })
+      writeFileSync(join(dir, path), text)
+    }
+    put('packages/ui/src/sheet.test.ts', "import { readSheet } from './test-support/read-sheet'\nreadSheet()\n")
+    put('packages/ui/src/test-support/read-sheet.ts', "import { readFileSync } from 'node:fs'\nexport const readSheet = () => readFileSync('x.css', 'utf8')\n")
+    put('packages/ui/src/plain.test.ts', "import { x } from './plain'\nx()\n")
+    put('packages/ui/src/plain.ts', 'export const x = () => 1\n')
+    put('packages/ui/src/setup-tests.ts', "import './test-support/pointer'\n")
+    put('packages/ui/src/test-support/pointer.ts', 'export {}\n')
+    assert.deepEqual(treeReaders(dir), ['src/sheet.test.ts'])
+    assert.deepEqual([...setupFiles(dir)].sort(), ['packages/ui/src/setup-tests.ts', 'packages/ui/src/test-support/pointer.ts'])
+    // Vitest does not follow the setup's imports: an edit to one of them is an edit to every test.
+    assert.equal(unitPlan(dir, { event: 'pull_request', paths: ['packages/ui/src/test-support/pointer.ts'] }).mode, 'all')
+    assert.equal(unitPlan(dir, { event: 'pull_request', paths: ['packages/ui/src/plain.ts'] }).mode, 'related')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

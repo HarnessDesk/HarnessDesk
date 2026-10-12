@@ -59,8 +59,13 @@ test('the native smoke runner runs native smoke and no browser spec', () =>
 test('empty input runs everything', () => check([], ['all', true]))
 test('unreadable input runs everything', () => check(null, ['all', true]))
 test('push to main runs everything even for docs', () => check(['docs/architecture.md'], ['all', true], 'push'))
-test('NUL input preserves filenames with spaces and newlines', () =>
-  check(['docs/line\nbreak.md', 'docs/a b.md'], ['none', false]))
+test('NUL input preserves filenames with spaces', () =>
+  check(['docs/a b.md', 'docs/b c.md'], ['none', false]))
+// A name with a newline would write a second line into the step's outputs: it is not a name to plan from.
+test('a filename with a control character runs everything', () => {
+  check(['docs/line\nbreak.md', 'docs/a b.md'], ['all', true])
+  check(['docs/tab\there.md'], ['all', true])
+})
 test('a mixed change runs each affected suite', () =>
   check(['docs/architecture.md', 'packages/desktop/electron/main.mjs', 'e2e/ui-system/row-box.spec.ts'], ['all', true]))
 
@@ -368,4 +373,19 @@ test('a map that cannot be read changes nothing about what a pull request runs',
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
+})
+
+test('a summary never carries a newline into the outputs, whatever a path is called', () => {
+  const map = impactMap()
+  const run = planWith(['packages/ui/src/components/BringHome.tsx'], { ...current(map), baseFiles: () => ({ ...current(map).baseFiles(), 'packages/ui/src/new\nbrowser=none.ts': 'a'.repeat(40) }) })
+  assert.equal(run.specs, 'all')
+  assert.doesNotMatch(run.summary, /[\n\r]/)
+  assert.match(run.summary, /new browser=none\.ts was added to the base branch/)
+})
+
+test('a file outside the UI that its source imports is a browser input, and one only its tests import is not', () => {
+  const run = (paths) => plan(paths)
+  // `packages/ui/src/design/frame.ts` is the UI's; the shared constants it imports from other packages are theirs.
+  assert.equal(run(['docs/architecture.md']).browser, 'none')
+  assert.equal(run(['packages/desktop/electron/main.mjs']).browser, 'none', 'imported by a unit test of the UI and by no source of it')
 })

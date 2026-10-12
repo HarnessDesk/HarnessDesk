@@ -26,15 +26,8 @@ const CSS_IMPORT = /@import\s+(?:url\(\s*)?['"]([^'"\n]+)['"]/g
 const CSS_URL = /url\(\s*['"]?(\.[^'")\s]+)['"]?\s*\)/g
 const TEST_FILE = /\.test\.[cm]?[jt]sx?$/
 
-// What the recorded coverage depends on besides the UI's own files: the browser and the dev server's
-// configuration, the dependencies, the pages, the recording build, and the workspace packages the
-// preview loads. A change to any of them since the map was recorded makes the map a record of another
-// setup.
-const ENVIRONMENT = [
-  'playwright.ui-system.config.ts', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml',
-  'packages/ui/package.json', 'packages/ui/vite.config.ts', 'packages/ui/tsconfig.json',
-  'packages/ui/preview.html', 'packages/ui/index.html', 'packages/ui/design.html', 'script/ui-impact',
-]
+// The files at the root of the repository that decide how the preview is built and run.
+const ROOT_SETUP = /^(?:package\.json|pnpm-[\w.-]+|tsconfig[\w.-]*\.json|[\w-]+\.config\.[cm]?[jt]s|\.npmrc|\.node-version|\.nvmrc)$/
 
 export const uiSource = path => UI_ROOTS.some(prefix => path.startsWith(`${prefix}/`))
 const isScript = path => SOURCE.includes(extname(path))
@@ -95,6 +88,16 @@ export function uiImporters(root, files = Object.keys(uiFiles(root))) {
   return importers
 }
 
+// The files outside the UI's own source that its source imports (a constant shared with another package's
+// source, a helper at the root): a change to one reaches the preview without being a file of the UI.
+export function uiExternalImports(root) {
+  const external = new Set()
+  for (const [key, importers] of uiImporters(root)) {
+    if (!uiSource(key) && !key.includes('node_modules/') && [...importers].some(importer => !TEST_FILE.test(importer))) external.add(key)
+  }
+  return external
+}
+
 // The files that are imported with a query (`./editor.css?raw`, `?url`, `?inline`) and who imports them, by the
 // path of the file without the query. Vitest looks for a changed file under the id it was imported by, query
 // included, so an edit to such a file reaches no test through it; the importers are the ones to ask about.
@@ -113,33 +116,49 @@ export function queriedImporters(root, files = Object.keys(uiFiles(root))) {
   return importers
 }
 
-// Whether a module hands data to the modules that import it, which they read when
-// they run and not when this module's functions do: `export const LABEL = 'Ready'`
-// changes what a component renders that never calls anything of the module's. A
-// constant that is a function (an arrow, a component wrapper) does not count.
+// Whether a module hands data to the modules that import it, which they read when they run and not when
+// this module's functions do: `export const LABEL = 'Ready'` changes what a component renders that never
+// calls anything of the module's. Only a module whose every export is plainly a function (or a type) is
+// free of it; re-exports, names exported apart from their declaration, class statics, parenthesised values
+// and anything the scan cannot tell are data.
 export function exportsData(text) {
-  const functionLike = /^(?:async\s+)?(?:function\b|class\b|\(|<|[A-Za-z_$][\w$]*\s*=>|(?:React\.)?(?:forwardRef|memo|lazy)\b|cva\()/
+  const functionLike = /^(?:async\s+)?(?:function\b|class\b|\((?:[^)]*\)\s*(?::[^=]+)?=>|[{\[]\s*$|\s*$)|<|[A-Za-z_$][\w$]*\s*=>|(?:React\.)?(?:forwardRef|memo|lazy)\b|cva\()/
   for (const match of text.matchAll(/^export\s+(?:const|let|var)\s+[\w$]+[^=\n]*=\s*(.*)$/gm)) {
     if (!functionLike.test(match[1])) return true
   }
-  return /^export\s+default\s+(?!(?:async\s+)?(?:function|class)\b|\(|[A-Za-z_$][\w$]*\s*=>)/m.test(text) || /^export\s+(?:const\s+)?enum\b/m.test(text)
+  if (/^export\s+(?:\*|\{)/m.test(text)) return true // `export { a }`, `export * from`, `export { a } from`: a name, not a declaration
+  if (/^export\s+default\s+(?!(?:async\s+)?(?:function|class)\b|\(|[A-Za-z_$][\w$]*\s*=>)/m.test(text)) return true
+  if (/^export\s+(?:const\s+)?enum\b/m.test(text)) return true
+  return /\bstatic\b/.test(text) && /^export\s+(?:default\s+)?class\b/m.test(text)
 }
 
 const compress = (indexes, total) => (total > 0 && indexes.length === total ? 'all' : indexes)
 const expand = (value, total) => (value === 'all' ? Array.from({ length: total }, (_, index) => index) : value)
 
-// The fingerprint of the setup a map was recorded in: the version of each of these
-// paths in a revision (a file's blob or a folder's tree), by git.
+// The fingerprint of the setup a map was recorded in: the version, in a revision, of the browser and
+// dev-server configuration, the dependencies, every file of the UI outside the source (its pages and
+// configuration), the recording build and the workspace packages the preview loads (a file's blob, a
+// folder's tree), by git.
 export function environmentAt(root, revision = 'HEAD') {
-  const paths = [...ENVIRONMENT, ...[...uiPackages(root)].filter(name => name !== 'ui').map(name => `packages/${name}`)]
-  const environment = {}
-  for (const path of paths) {
+  const git = args => {
     try {
-      environment[path] = execFileSync('git', ['rev-parse', '--verify', '--quiet', `${revision}:${path}`], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+      return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 16 * 1024 * 1024 })
     } catch {
-      environment[path] = ''
+      return ''
     }
   }
+  const children = (folder, keep) => git(['ls-tree', '-z', revision, folder === '' ? '.' : `${folder}/`]).split('\0')
+    .flatMap(line => {
+      const match = /^\d+ (?:blob|tree) ([0-9a-f]{40})\t(.+)$/s.exec(line)
+      return match && keep(match[2].split('/').pop()) ? [[match[2], match[1]]] : []
+    })
+  const environment = {}
+  for (const [path, version] of [
+    ...children('', name => ROOT_SETUP.test(name)),
+    ...children('packages/ui', name => !/^(?:src|site-demo|dist|node_modules|output)$/.test(name)),
+    ...[...uiPackages(root)].filter(name => name !== 'ui').map(name => [`packages/${name}`, git(['rev-parse', '--verify', '--quiet', `${revision}:packages/${name}`]).trim()]),
+    ...['script/ui-impact'].map(path => [path, git(['rev-parse', '--verify', '--quiet', `${revision}:${path}`]).trim()]),
+  ]) environment[path] = version
   return environment
 }
 
@@ -231,7 +250,8 @@ export function readMap(file) {
 //   exists           whether a file is there now
 //   globbers         the modules that load files by a pattern (`uiGlobbers`)
 //   dataExports      whether a module hands data to its importers (`exportsData` of its text)
-export function impactedSpecs(map, paths, { allSpecs, specHash, baseFiles, baseEnvironment = () => map.environment, importers, nodeSpecs = () => [], exists = () => true, globbers = () => [], dataExports = () => false }) {
+//   globalSheet      whether a stylesheet is not scoped to one module (a plain .css, or a :global selector)
+export function impactedSpecs(map, paths, { allSpecs, specHash, baseFiles, baseEnvironment = () => map.environment, importers, nodeSpecs = () => [], exists = () => true, globbers = () => [], dataExports = () => false, globalSheet = () => false }) {
   const total = map.specs.length
   const selected = new Set()
   const index = new Map(map.specs.map((name, position) => [name, position]))
@@ -245,12 +265,23 @@ export function impactedSpecs(map, paths, { allSpecs, specHash, baseFiles, baseE
     visiting.add(path)
     const ran = expand(entry.ran, total)
     const loaded = expand(entry.loaded, total)
-    const parents = importers(path)
-    const viaParents = () => [...(parents ?? [])].flatMap(parent => reaching(parent, visiting))
+    // A test of the UI's units never ran in a browser: it is no importer to ask.
+    const parents = new Set([...(importers(path) ?? [])].filter(parent => !TEST_FILE.test(parent)))
+    const viaParents = () => [...parents].flatMap(parent => reaching(parent, visiting))
     if (ran.length > 0) return dataExports(path) ? [...ran, ...viaParents()] : ran
     if (loaded.length === 0 && isScript(path)) return []
-    if (!parents || parents.size === 0) return loaded
+    // A sheet that is not scoped to a module of its own reaches everything that loaded it, wherever it was taken in.
+    if (!isScript(path) && globalSheet(path)) return loadedAnywhere(path, new Set())
+    if (parents.size === 0) return loaded
     return viaParents()
+  }
+  const loadedAnywhere = (path, visiting) => {
+    const entry = map.files[path]
+    if (!entry || visiting.has(path)) return []
+    visiting.add(path)
+    const own = expand(entry.loaded, total)
+    if (own.length > 0) return own
+    return [...(importers(path) ?? [])].filter(parent => !TEST_FILE.test(parent)).flatMap(parent => loadedAnywhere(parent, visiting))
   }
   const reach = path => {
     for (const position of reaching(path, new Set())) selected.add(map.specs[position])
@@ -329,6 +360,10 @@ export function impactPlan(root, paths, { map, baseFiles = () => filesAtBase(roo
     dataExports: path => {
       const file = join(root, path)
       return !existsSync(file) || (isScript(path) && exportsData(readFileSync(file, 'utf8')))
+    },
+    globalSheet: path => {
+      const file = join(root, path)
+      return path.endsWith('.css') && (!existsSync(file) || !path.endsWith('.module.css') || /:global\b/.test(readFileSync(file, 'utf8')))
     },
   })
 }

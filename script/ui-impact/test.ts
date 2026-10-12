@@ -76,6 +76,8 @@ export const test = real.test.extend<{ impactRecorder: void }, { impactSink: Map
       // A page that is about to be replaced is read first, while its scripts are still alive.
       await cdp.send('Page.enable')
       cdp.on('Page.frameStartedNavigating', () => { reads.push(read()) })
+      // A second page of this test (a popup, a window the page opened) is one the recorder does not watch.
+      page.context().on('page', other => { if (other !== page) failed = true })
     } catch {
       failed = true
     }
@@ -86,8 +88,9 @@ export const test = real.test.extend<{ impactRecorder: void }, { impactSink: Map
       await cdp.send('Profiler.stopPreciseCoverage').catch(() => undefined)
     }
     seen.tests += 1
-    // A test that ended as it was meant to (a failure that was expected, or a skip) taught nothing wrong.
-    if (failed || (testInfo.status !== testInfo.expectedStatus && testInfo.status !== 'skipped')) seen.unclean += 1
+    // A test that ended as it was meant to (a failure that was expected) taught nothing wrong. One that skipped
+    // itself while running did not run what it would have run elsewhere.
+    if (failed || testInfo.status === 'skipped' || testInfo.status !== testInfo.expectedStatus) seen.unclean += 1
     impactSink.set(file, seen)
   }, { auto: true }],
 })

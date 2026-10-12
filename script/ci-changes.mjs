@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 import { recordedSeconds, shardCount, specFiles } from './ci-browser-shards.mjs'
 import { IMPORT, SOURCE, SPEC, resolveHelper, specsReaching, suiteGraph, uiPackages } from './ci-imports.mjs'
-import { impactPlan, readMap, uiSource } from './ui-impact.mjs'
+import { impactPlan, readMap, uiExternalImports, uiSource } from './ui-impact.mjs'
 
 export { uiPackages }
 
@@ -119,6 +119,10 @@ export function themeInputs(root, inputs, baseText = textAtBase) {
       && (says(existsSync(join(root, path)) ? readFileSync(join(root, path), 'utf8') : null) || says(baseText(root, path)))))
 }
 
+// Text that goes into a line of the step's outputs: a file name can hold a newline, and a newline
+// in an output is a second output.
+const oneLine = text => String(text).replace(/[\u0000-\u001f\u007f]+/g, ' ')
+
 // What the browser job runs for this change, and how it is sized. A pull request
 // that only touches the suite runs the specs it can reach, all of their tests.
 // One that touches the UI's own source runs the specs in which that source ran,
@@ -136,7 +140,7 @@ export function browserPlan(root, { browser, inputs, serverInputs, event, themeT
   if (browser === 'all' && event === 'pull_request' && inputs.length > 0 && uiInputs.every(uiSource) && (uiInputs.length === 0 || impact)) {
     const reached = suiteInputs.length > 0 ? affectedSpecs(root, suiteInputs) : []
     const touched = uiInputs.length > 0 ? impactPlan(root, uiInputs, impact) : { specs: [] }
-    if (uiInputs.length > 0 && touched.specs === null) basis = touched.reason
+    if (uiInputs.length > 0 && touched.specs === null) basis = oneLine(touched.reason)
     if (reached && touched.specs) {
       selected = [...new Set([...reached, ...touched.specs.map(spec => `e2e/ui-system/${spec}`), ...(serverInputs ? serverSpecs(root, uiPackages(root)) : [])])].sort()
       if (uiInputs.length > 0) basis = `the specs that ran the changed UI source (map of ${(impact.map.commit || 'main').slice(0, 9)})`
@@ -181,8 +185,10 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     try {
       const raw = readFileSync(process.argv[2], 'utf8')
       const paths = raw.endsWith('\0') ? raw.slice(0, -1).split('\0') : []
-      if (paths.length > 0 && paths.every(path => path.length > 0 && !path.startsWith('/') && !path.split('/').includes('..'))) {
-        const uiInput = path => !DEAL_ONLY.test(path) && (BROWSER.some(pattern => pattern.test(path)) || inputs.has(path.match(/^packages\/([^/]+)\//)?.[1]))
+      // A name with a control character in it is not one to plan from: run everything.
+      if (paths.length > 0 && paths.every(path => path.length > 0 && !path.startsWith('/') && !path.split('/').includes('..') && !/[\u0000-\u001f\u007f]/.test(path))) {
+        const external = uiExternalImports(root)
+        const uiInput = path => !DEAL_ONLY.test(path) && (BROWSER.some(pattern => pattern.test(path)) || inputs.has(path.match(/^packages\/([^/]+)\//)?.[1]) || external.has(path))
         browserInputs = paths.filter(uiInput)
         serverInputs = paths.some(path => /^packages\/(?!desktop\/)[^/]+\//.test(path) && !inputs.has(path.match(/^packages\/([^/]+)\//)?.[1]))
         decision = {
