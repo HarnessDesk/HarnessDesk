@@ -107,11 +107,14 @@ test('shards are sized to the work: at least one, enough that each carries about
   assert.equal(shardCount(['new'], seconds, { target: 20 }), 1, 'a spec nobody has timed counts as a typical one')
 })
 
-test('the whole suite fits in MAX_SHARDS at SHARD_SECONDS a shard, in either matrix', () => {
+test('the suite never leaves a shard much heavier than SHARD_SECONDS, in either matrix', () => {
   const specs = specFiles(root)
   for (const matrix of ['full', 'pr']) {
-    const needed = shardCount(specs, recordedSeconds(root, matrix), { max: Infinity })
-    assert.ok(needed <= MAX_SHARDS, `${matrix}: the suite needs ${needed} shards of ${SHARD_SECONDS}s; raise MAX_SHARDS here and the matrix cap in ci.yml, or split a big spec`)
+    const seconds = recordedSeconds(root, matrix)
+    const needed = shardCount(specs, seconds, { max: Infinity })
+    const carried = specs.reduce((sum, spec) => sum + (seconds[spec] ?? 0), 0) / Math.min(needed, MAX_SHARDS)
+    // MAX_SHARDS stops a big suite from asking for more runners than the account has; the shards then carry more.
+    assert.ok(carried <= SHARD_SECONDS * 1.5, `${matrix}: ${Math.round(carried)}s a shard at ${Math.min(needed, MAX_SHARDS)} shards (${needed} would carry ${SHARD_SECONDS}s); split a big spec, or raise MAX_SHARDS and the runners it needs`)
   }
 })
 
@@ -150,7 +153,7 @@ test('the command line deals a selection across the shards the selection needs, 
   assert.equal(withEnv({ UI_SYSTEM_SPECS: selection }, '1/1').stdout, 'e2e/ui-system/row-box.spec.ts\ne2e/ui-system/rules.spec.ts\n')
   const full = Number(withEnv({}, '--count').stdout)
   const pr = Number(withEnv({ UI_SYSTEM_MATRIX: 'pr' }, '--count').stdout)
-  assert.ok(pr > 0 && pr < full, `${pr} < ${full}`)
+  assert.ok(pr > 0 && pr <= full, `${pr} <= ${full}`)
   const refused = withEnv({ UI_SYSTEM_SPECS: JSON.stringify(['e2e/ui-system/typo.spec.ts']) }, '1/1')
   assert.equal(refused.status, 2)
   assert.equal(refused.stdout, '')

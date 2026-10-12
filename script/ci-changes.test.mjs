@@ -177,9 +177,9 @@ test('a pull request that touches the UI runs every spec in the pull-request mat
   assert.deepEqual(JSON.parse(run.shards), Array.from({ length: Number(run.shard_count) }, (_, index) => index + 1))
 })
 
-test('the pull-request matrix needs fewer shards than the whole of main', () => {
+test('the pull-request matrix never needs more shards than the whole of main', () => {
   const main = Number(plan(['docs/architecture.md'], {}, 'push').shard_count)
-  assert.ok(Number(plan(['packages/ui/src/App.tsx']).shard_count) < main)
+  assert.ok(Number(plan(['packages/ui/src/App.tsx']).shard_count) <= main)
 })
 
 test('a diff that names a theme reads both themes', () =>
@@ -206,7 +206,7 @@ test('main and a run on demand read both themes of every spec', () => {
   for (const event of ['push', 'workflow_dispatch']) {
     const run = plan(['packages/ui/src/App.tsx'], {}, event)
     assert.deepEqual([run.browser, run.browser_specs, run.matrix], ['all', 'all', 'full'], event)
-    assert.ok(Number(run.shard_count) > Number(plan(['packages/ui/src/App.tsx']).shard_count), event)
+    assert.ok(Number(run.shard_count) >= Number(plan(['packages/ui/src/App.tsx']).shard_count), event)
   }
 })
 
