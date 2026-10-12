@@ -62,11 +62,10 @@ test('FIX3 page section headings share one page text edge', async ({ page }) => 
   }
 })
 
-test('shared heading and page or panel stacks hold across preview destinations', async ({ page }) => {
-  test.setTimeout(120_000)
-  const stackGap = await resolvedPx(page, '--hd-card-gap')
-  for (const destination of layoutDestinations) {
+for (const destination of layoutDestinations) {
+  test(`shared heading and page or panel stacks hold across preview destinations: ${destination.id}`, async ({ page }) => {
     await openFrame(page, destination.query, 'light', 1440)
+    const stackGap = await resolvedPx(page, '--hd-card-gap')
     await applyFrameActions(page, destination)
     if (destination.id === 'settings-runtimes-add') {
       await page.getByRole('button', { name: 'Add a runtime', exact: true }).click()
@@ -114,10 +113,13 @@ test('shared heading and page or panel stacks hold across preview destinations',
       return [...new Set(failures)]
     }, stackGap)
     expect(issues, `${destination.id} violates a shared layout rule`).toEqual([])
-  }
 
-  await openFrame(page, 'frame-wall=dashboard', 'light', 720)
-  const dashboardIssues = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('[data-section-head]')].flatMap(head => {
+  })
+}
+
+test('shared heading and page or panel stacks: Dashboard at 720', async ({ page }) => {
+await openFrame(page, 'frame-wall=dashboard', 'light', 720)
+const dashboardIssues = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('[data-section-head]')].flatMap(head => {
     const name = head.querySelector<HTMLElement>('[data-slot="section-name"]')
     const action = head.querySelector<HTMLElement>('[data-slot="section-action"]')
     if (!name || !action || !name.getClientRects().length || !action.getClientRects().length) return []
@@ -125,15 +127,18 @@ test('shared heading and page or panel stacks hold across preview destinations',
     return one.left < two.right && two.left < one.right && one.top < two.bottom && two.top < one.bottom
       ? [`${name.textContent?.trim() ?? 'section'} overlaps its control`] : []
   }))
-  expect(dashboardIssues, 'Dashboard section headings must remain clear of their controls when narrow').toEqual([])
+expect(dashboardIssues, 'Dashboard section headings must remain clear of their controls when narrow').toEqual([])
+})
 
-  await openFrame(page, 'frame-wall=settings-runtimes&layout-registry=1', 'light', 1440)
-  await page.getByRole('button', { name: 'Add a runtime', exact: true }).click()
-  const search = page.locator('[data-slot="search"]').filter({ has: page.getByRole('searchbox', { name: 'Search the ACP registry' }) })
-  await expect(search).toBeVisible()
-  const searchBottom = (await search.boundingBox())!.y + (await search.boundingBox())!.height
-  const firstRegistryRows = page.locator('[data-page-destination="settings"]:visible [data-slot="rows"]:visible').filter({has:page.getByText('Runtime 01',{exact:true})})
-  await expect(firstRegistryRows).toBeVisible()
-  const firstRegistryBox = (await firstRegistryRows.boundingBox())!
-  expect(firstRegistryBox.y - searchBottom).toBeGreaterThanOrEqual(stackGap - 0.5)
+test('shared heading and page or panel stacks: registry search gap', async ({ page }) => {
+await openFrame(page, 'frame-wall=settings-runtimes&layout-registry=1', 'light', 1440)
+const stackGap = await resolvedPx(page, '--hd-card-gap')
+await page.getByRole('button', { name: 'Add a runtime', exact: true }).click()
+const search = page.locator('[data-slot="search"]').filter({ has: page.getByRole('searchbox', { name: 'Search the ACP registry' }) })
+await expect(search).toBeVisible()
+const searchBottom = (await search.boundingBox())!.y + (await search.boundingBox())!.height
+const firstRegistryRows = page.locator('[data-page-destination="settings"]:visible [data-slot="rows"]:visible').filter({has:page.getByText('Runtime 01',{exact:true})})
+await expect(firstRegistryRows).toBeVisible()
+const firstRegistryBox = (await firstRegistryRows.boundingBox())!
+expect(firstRegistryBox.y - searchBottom).toBeGreaterThanOrEqual(stackGap - 0.5)
 })

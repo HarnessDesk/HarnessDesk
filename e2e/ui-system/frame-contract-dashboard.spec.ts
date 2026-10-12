@@ -208,9 +208,8 @@ test.describe('FIX4 Dashboard contracts', () => {
     expect(options).toEqual(['By team', 'By agent'])
   })
 
-  test('section headings and controls share a center line on every preview page', async ({ page }) => {
-    test.setTimeout(120_000)
-    for (const destination of layoutDestinations) {
+  for (const destination of layoutDestinations) {
+    test(`section headings and controls share a center line on every preview page: ${destination.id}`, async ({ page }) => {
       await openFrame(page, destination.query, 'light', 1440)
       await applyFrameActions(page, destination)
       const offsets = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('[data-section-head], [data-slot="section-head"]')].flatMap(head => {
@@ -220,8 +219,9 @@ test.describe('FIX4 Dashboard contracts', () => {
         return [{ name: name.textContent?.trim() ?? 'section', difference: Math.abs(name.getBoundingClientRect().bottom - action.getBoundingClientRect().bottom) }]
       }))
       for (const offset of offsets) expect(offset.difference, `${destination.id} ${offset.name} title/control centers`).toBeLessThanOrEqual(1)
-    }
-  })
+
+    })
+  }
 
   test('empty Spend plot message stays inside its ChartCard', async ({ page }) => {
     await openFrame(page, 'frame-wall=dashboard&frame-view=spend&frame-empty-usage=1', 'light', 1440)
