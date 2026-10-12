@@ -136,10 +136,13 @@ for (const theme of WALL_THEMES) {
     await expect(destinationPage).toBeVisible()
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(editor).toBeHidden()
-    await expect(terminal).toBeVisible()
+    await expect(terminal).toBeHidden()
+    await expect(terminal).toHaveAttribute('data-terminal-id', terminalId!)
     const bar = page.locator('[data-slot="top-bar"]:visible')
     await expect(bar.locator('[data-work-tool]')).toHaveCount(0)
     await expect(page.locator('[data-slot="work-tools"]')).toBeHidden()
+    await expect(bar.getByRole('button', { name: 'More', exact: true })).toHaveCount(0)
+    await destinationPage.getByRole('button', { name: /Code reviewer / }).click()
     const more = bar.getByRole('button', { name: 'More', exact: true })
     await more.focus()
     await page.keyboard.press('Enter')
@@ -300,7 +303,7 @@ for (const theme of WALL_THEMES) {
     await openFrame(page, 'frame-wall=conversation&frame-tool=tasks', theme)
     const main = page.locator('[data-slot="workbench-main"]')
     await expect(main).toBeVisible()
-    await expect(page.locator('[data-slot="inspector-panel"]:visible')).toBeVisible()
+    await expect(page.locator('[data-slot="work-tools"]:visible')).toBeVisible()
     expect((await main.boundingBox())!.width).toBeGreaterThanOrEqual(FRAME.main.min)
   })
 }
@@ -362,7 +365,7 @@ for (const theme of WALL_THEMES) {
       await expect(details.locator('[data-slot="summary-card"]').first()).toHaveAttribute('data-surface', 'panel')
       const firstTool = (await top.locator('[data-work-tool="details"]').boundingBox())!
       const panel = (await details.boundingBox())!
-      expect(firstTool.x - panel.x).toBe(FRAME.bar.pad + 1)
+      expect(firstTool.x - panel.x).toBe(FRAME.bar.pad)
       const more = (await top.getByRole('button', { name: 'More', exact: true }).boundingBox())!
       expect(more.x + more.width + FRAME.bar.pad).toBe(1440)
       const keys = details.locator('[data-slot="summary-item"] dt')
@@ -389,10 +392,10 @@ for (const theme of WALL_THEMES) {
     await page.mouse.move(start - 40, 400, { steps: 6 })
     await expect.poll(async () => Math.round((await details.boundingBox())!.width)).toBe(Math.round(panelBefore.width) + 40)
     const painted = (await details.boundingBox())!
-    expect((await first.boundingBox())!.x - painted.x).toBe(FRAME.bar.pad + 1)
+    expect((await first.boundingBox())!.x - painted.x).toBe(FRAME.bar.pad)
     expect((await more.boundingBox())!.x).toBe(moreBefore.x)
     await page.mouse.up()
-    expect((await first.boundingBox())!.x - (await details.boundingBox())!.x).toBe(FRAME.bar.pad + 1)
+    expect((await first.boundingBox())!.x - (await details.boundingBox())!.x).toBe(FRAME.bar.pad)
   })
 }
 
