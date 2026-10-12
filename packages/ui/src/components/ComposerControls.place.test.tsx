@@ -99,6 +99,9 @@ it('shows the selected project folder beside the folder icon', () => {
   })
 
   expect(trigger()?.textContent).toContain('storefront')
+  const glyphs = [...trigger()!.querySelectorAll('svg')]
+  expect(glyphs.length).toBeGreaterThan(0)
+  expect(glyphs.every(glyph => Number(glyph.getAttribute('width')) >= 12)).toBe(true)
 })
 
 it('keeps the full path on hover while the long folder label can truncate', () => {

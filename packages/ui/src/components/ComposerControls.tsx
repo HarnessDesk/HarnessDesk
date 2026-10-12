@@ -64,7 +64,7 @@ import sheet from './ComposerControls.module.css'
  * never heard of lands in "More" with a working menu.
  */
 
-const Chevron = () => <ChevronIcon size={11} style={{ transform: 'rotate(90deg)' }} />
+const Chevron = ({ size = 11 }: { size?: number }) => <ChevronIcon size={size} style={{ transform: 'rotate(90deg)' }} />
 
 const FOLD_ORDER = ['agent', 'more', 'context', 'mode', 'permissions', 'model'] as const
 type FoldableTrack = (typeof FOLD_ORDER)[number]
@@ -1284,7 +1284,7 @@ export const PlaceControl = () => {
               ? <Text role="row" tone="brand" className={sheet.word}>{word}</Text>
               : <Text role="row" truncate title={workspace.path} className={sheet.word}>{word}</Text>}
             {tagged && <Badge variant="secondary">worktree</Badge>}
-            <Chevron />
+            <Chevron size={12} />
           </>
         }
          panelWidth="wide" icons="none">

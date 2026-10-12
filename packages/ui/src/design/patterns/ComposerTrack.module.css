@@ -6,6 +6,9 @@
   overflow: hidden;
 }
 
+/* The folder name may yield, but its glyphs retain their measured size. */
+.track :global(svg) { flex-shrink: 0; }
+
 .trackAdd { width: var(--hd-composer-track-add); }
 .trackWorkIn { width: var(--hd-composer-track-work-in); }
 .trackWorkInFolded { width: var(--hd-composer-track-work-in-folded); }
