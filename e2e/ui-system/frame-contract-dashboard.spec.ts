@@ -1,6 +1,8 @@
 import { expectPageJourney } from './frame-page-contract'
 import { expect, test } from '@playwright/test'
 import { FRAME } from '../../packages/ui/src/design/frame'
+import { PREVIEW_ROOT } from '../../packages/ui/src/preview/sidebar-fixture'
+import { WALL_TIME } from './frame-wall-destinations'
 import { applyFrameActions } from './frame-actions'
 import { openFrame, resolvedPx, layoutDestinations } from './frame-contract-helpers'
 
@@ -35,13 +37,17 @@ test('FIX3 Dashboard Plans link text starts on its section text edge', async ({ 
 
 test('FIX3 partial spend qualifier sits beside its figure', async ({ page }) => {
   await openFrame(page, 'frame-wall=dashboard&frame-view=spend', 'light', 1440)
-  const positions = await page.getByText('so far', { exact: true }).evaluate(node => {
+  const qualifiers = page.locator('[data-page-destination="dashboard"]:visible').getByText('so far', { exact: true })
+  await expect(qualifiers).toHaveCount(2)
+  for (const node of await qualifiers.all()) {
+  const positions = await node.evaluate(node => {
     const stat = node.closest('[data-slot="stat"]')!
     const figure = stat.querySelector<HTMLElement>('[data-role="metric"]')!
     return { figure: figure.getBoundingClientRect().toJSON(), qualifier: node.getBoundingClientRect().toJSON() }
   })
   expect(positions.qualifier.left, 'the qualifier follows the value').toBeGreaterThanOrEqual(positions.figure.right - 1)
   expect(positions.qualifier.top, 'the qualifier shares the figure line').toBeLessThan(positions.figure.bottom)
+  }
 })
 
 test('FIX3 section choices live in the same page head across Dashboard tabs', async ({ page }) => {
@@ -82,9 +88,10 @@ test('FIX3 Projects warning spans the usage table', async ({ page }) => {
 })
 
 test('FIX3 heatmap cells follow weekday labels and keep a partial first week', async ({ page }) => {
+  await page.clock.install({ time: WALL_TIME })
   for (const tab of ['activity', 'overview']) {
     await openFrame(page, `frame-wall=dashboard&frame-view=${tab}`, 'light', 1440)
-    const geometry = await page.locator('[role="group"][aria-label*="this year"]').evaluate(grid => {
+    const geometry = await page.locator('[role="group"][aria-label="Tokens or cost per day, last 12 months"]').evaluate(grid => {
       const labels = [...grid.querySelectorAll<HTMLElement>('[class*="header"]')]
       const first = [...grid.querySelectorAll<HTMLElement>('[data-level], [data-state]')]
         .filter(cell => cell.style.gridRow === '8').sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)[0]!
@@ -171,7 +178,7 @@ test.describe('FIX4 Dashboard contracts', () => {
       y: Math.round(figure.getBoundingClientRect().top),
     })))
     expect(stats).toHaveLength(5)
-    expect(stats[3]?.label, 'zero activity uses the busiest day label, not the range start date').toBe('busiest day')
+    expect(stats[3]?.label, 'zero activity uses the busiest day label, not the range start date').toBe('Busiest day')
     expect(stats[3]?.value, 'zero activity has no busiest day or zero figure').toBe('—')
     const rows = new Map<number, number>()
     for (const stat of stats) rows.set(stat.y, (rows.get(stat.y) ?? 0) + 1)
@@ -180,20 +187,25 @@ test.describe('FIX4 Dashboard contracts', () => {
 
   test('empty Projects keeps amount warning and attribution copy in one section surface', async ({ page }) => {
     await openFrame(page, 'frame-wall=dashboard&frame-view=projects&frame-empty-usage=1', 'light', 1440)
-    const section = page.locator('[data-slot="section"][aria-label="Project usage"]')
-    const warning = section.locator('[data-slot="alert"]')
-    await expect(warning).toContainText('Amounts are unknown for this range')
-    await expect(warning).toContainText('Recorded usage has no goal attribution.')
-    await expect(section.locator('[data-slot="rows"], [data-dashboard-table="insight"]')).toHaveCount(0)
-    const width = await warning.evaluate(node => node.getBoundingClientRect().width)
-    expect(width, 'the one empty-state surface uses the Dashboard measure').toBeCloseTo(await resolvedPx(page, '--hd-column'), 1)
+    const project = PREVIEW_ROOT.split('/').at(-1)!
+    const section = page.getByRole('region', { name: `Team usage in ${project}`, exact: true })
+    await expect(section.getByText(`No Team usage in ${project} in the last 30 days`, { exact: true })).toBeVisible()
+    await expect(section.locator('[data-slot="alert"], [data-slot="rows"], [data-dashboard-table="insight"]')).toHaveCount(0)
+    await expect(section.getByRole('button', { name: 'Last 24 hours', exact: true })).toHaveCount(0)
+    const geometry = await section.evaluate(node => {
+      const page = node.closest('[data-slot="page"]')!
+      const css = getComputedStyle(page)
+      return { width: node.getBoundingClientRect().width, content: page.getBoundingClientRect().width - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight) }
+    })
+    expect(geometry.width, 'the empty section fills the page content').toBeCloseTo(geometry.content, 1)
+    expect(geometry.width).toBeLessThanOrEqual(FRAME.page.wide)
   })
 
   test('Projects view select uses sentence case', async ({ page }) => {
     await openFrame(page, 'frame-wall=dashboard&frame-view=projects&frame-empty-usage=1', 'light', 1440)
     const select = page.getByRole('combobox', { name: 'Project usage view' })
     const options = await select.locator('option').evaluateAll(nodes => nodes.map(node => node.textContent?.trim()))
-    expect(options).toEqual(['By team', 'By Agent'])
+    expect(options).toEqual(['By team', 'By agent'])
   })
 
   test('section headings and controls share a center line on every preview page', async ({ page }) => {
@@ -205,7 +217,7 @@ test.describe('FIX4 Dashboard contracts', () => {
         const name = head.querySelector<HTMLElement>('[data-section-name], [data-slot="section-name"]')
         const action = head.querySelector<HTMLElement>('[data-slot="section-action"]')
         if (!name || !action || !name.getClientRects().length || !action.getClientRects().length) return []
-        return [{ name: name.textContent?.trim() ?? 'section', difference: Math.abs(name.getBoundingClientRect().top + name.getBoundingClientRect().height / 2 - action.getBoundingClientRect().top - action.getBoundingClientRect().height / 2) }]
+        return [{ name: name.textContent?.trim() ?? 'section', difference: Math.abs(name.getBoundingClientRect().bottom - action.getBoundingClientRect().bottom) }]
       }))
       for (const offset of offsets) expect(offset.difference, `${destination.id} ${offset.name} title/control centers`).toBeLessThanOrEqual(1)
     }
@@ -213,7 +225,7 @@ test.describe('FIX4 Dashboard contracts', () => {
 
   test('empty Spend plot message stays inside its ChartCard', async ({ page }) => {
     await openFrame(page, 'frame-wall=dashboard&frame-view=spend&frame-empty-usage=1', 'light', 1440)
-    const empty = page.getByText('No priced usage in this window yet', { exact: true })
+    const empty = page.getByText('No usage recorded in this window', { exact: true })
     await expect(empty).toBeVisible()
     await expect(empty.locator('xpath=ancestor::*[@data-slot="chart-card"]')).toHaveCount(1)
   })
