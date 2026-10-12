@@ -1418,3 +1418,25 @@ it('uses tabular figures for commit dates and normal text for author names', asy
   expect(cells[3]?.querySelector('.tabular-nums')).not.toBeNull()
   expect(cells[4]?.querySelector('.tabular-nums')).toBeNull()
 })
+
+it('keeps branch context actions reachable from compact history', async () => {
+  const observer = globalThis.ResizeObserver
+  vi.stubGlobal('ResizeObserver', class {
+    constructor(private callback: (entries: unknown[]) => void) {}
+    observe(element: HTMLElement) {
+      if (element.querySelector('[role="grid"][aria-label="Commits"]')) this.callback([{ contentRect: { width: 320 } }])
+    }
+    unobserve() {}
+    disconnect() {}
+  })
+  try {
+    await mount({ log: [commit('aaaa1111111', 'tip')] })
+    const toggle = container.querySelector<HTMLButtonElement>('[aria-label="Switch the refs rail"]')
+    expect(toggle).not.toBeNull()
+    await act(async () => toggle!.click())
+    const branch = document.querySelector<HTMLElement>('[data-git-ref="main"]')
+    expect(branch).not.toBeNull()
+    await rightClick(branch!)
+    expect(document.querySelector('[role="menu"]')?.textContent).toContain('main')
+  } finally { vi.stubGlobal('ResizeObserver', observer) }
+})

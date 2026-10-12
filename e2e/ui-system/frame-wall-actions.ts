@@ -35,17 +35,9 @@ export const openWallDestination = async (page: Page, destination: WallActions):
     if (destination.gitRef) {
       await page.getByRole('menuitem', { name: 'History', exact: true }).click()
       await page.getByRole('grid', { name: 'Commits', exact: true }).waitFor({ state: 'visible' })
-      if (await page.getByRole('button', { name: 'Switch the refs rail', exact: true }).count() === 0) {
-        const viewport = page.viewportSize()!
-        if (viewport.width < FRAME.fold.panelFloats) await page.setViewportSize({ ...viewport, width: 1440 })
-        const seam = (await page.getByRole('separator', { name: 'Resize the right panel', exact: true }).boundingBox())!
-        await page.mouse.move(seam.x + seam.width / 2, seam.y + seam.height / 2)
-        await page.mouse.down()
-        await page.mouse.move(seam.x - FRAME.rightPanel.max, seam.y + seam.height / 2, { steps: 8 })
-        await page.mouse.up()
-        await expect.poll(async () => (await page.locator('[data-frame-region="right"]').boundingBox())?.width).toBe(FRAME.rightPanel.max)
-        await page.setViewportSize(viewport)
-        await expect(page.getByRole('button', { name: 'Switch the refs rail', exact: true })).toBeVisible()
+      if (await page.locator('[data-git-ref="main"]').count() === 0) {
+        await page.getByRole('button', { name: 'Switch the refs rail', exact: true }).click()
+        await expect(page.locator('[data-git-ref="main"]')).toBeVisible()
       }
       await page.locator('[data-git-ref="main"]').click({ button: 'right' })
     }

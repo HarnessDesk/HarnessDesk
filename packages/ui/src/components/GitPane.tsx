@@ -36,7 +36,7 @@ import { withCount } from '../lib/with-count'
 import { cn } from '../lib/utils'
 import { useActiveSession, usePane, useSnapshot, useStore } from '../state/context'
 import { useMount } from '../panels/mount'
-import { ActionError, Alert, Badge, Card, CardContent, ChangeStats, Chip, CodeText, Dialog, DisclosureChevron, Dot, EmptyState, FileState, KeyValue, ListRowDetail, ToolPaneBar, ToolPaneBody, KeyValueRow, Note, PatchHeader, PopoverGroupLabel, ResizeHandle, Separator, TableHeader, Text, ToolbarGap } from '../design'
+import { ActionError, Alert, Badge, Card, CardContent, ChangeStats, Chip, CodeText, Dialog, DisclosureChevron, Dot, EmptyState, FileState, KeyValue, ListRowDetail, ToolPaneBar, ToolPaneBody, KeyValueRow, Note, PatchHeader, Popover, PopoverGroupLabel, ResizeHandle, Separator, TableHeader, Text, ToolbarGap } from '../design'
 import { Button, buttonVariants, Input, NativeSelect, RefusedAction, Search, Segmented, Switch } from '../design'
 import { DiffView } from './Diff'
 import {
@@ -763,6 +763,13 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
   return (
     <div className={styles.frame} ref={frame}>
       <ToolSection label="Repository history"><SummaryList surface="panel"><SummaryItem label="Folder" kind="path" title={sanitizeText(shown)}>{sanitizeText(shown)}</SummaryItem></SummaryList><ToolBodyControls>
+        {!fit.rail && refsSummary && <Popover label={<SidebarIcon size={14} />} title="Switch the refs rail">
+          {close => <RefsRail refs={refsSummary} worktrees={worktrees} error={railError}
+            onJump={sha => { jumpTo(sha); close() }}
+            onCheckout={branch => { void checkout(branch); close() }}
+            onSelectSha={sha => { select(sha); close() }}
+            onMenu={(target, event) => { close(); onRailMenu(target, event) }} />}
+        </Popover>}
         {fit.rail && (
           <Button
             variant={railOpen ? 'secondary' : 'ghost'}
