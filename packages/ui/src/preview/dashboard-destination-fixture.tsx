@@ -58,7 +58,7 @@ export const dashboardDestinationStore = ({ view = 'overview', scope = null, bor
     if (method === 'insight/usage') {
       const report = await fixture.readUsageInsight(params as InsightQuery)
       const latest = fixture.getSnapshot()
-      Object.assign(snapshot,{goals:latest.goals,flowExecutions:latest.flowExecutions})
+      Object.assign(store.getSnapshot(),{goals:latest.goals,flowExecutions:latest.flowExecutions})
       if (emptyUsage) {
         const unknown = (metric: typeof report.totals.usd) => ({ ...metric, value: null, quality: 'unknown' as const, coverage: 'none' as const, sourceIds: [], missing: [] })
         return {

@@ -13,6 +13,9 @@ export const frameDestinationStore = (fixture: AppStore): AppStore => {
   const current = destinationOf(view.kind === 'conversation' || view.kind === 'room' ? view : { kind: 'conversation', session: null })
   Object.assign(store.getSnapshot(), seed, { workbench: { ...seed.workbench, navigation: { current, back: [], forward: [] } } })
   const fixtureRequest = fixture.transport.request.bind(fixture.transport)
+  // Capture after the scene applies its initial facts; keep the full index
+  // when the store replaces its displayed first page with a smaller slice.
+  let indexedHistory: AppSnapshot['history'] | null = null
   store.transport.request = (async (method: HostMethodName, params: HostParams<HostMethodName>) => {
     if (method === 'session/read' || method === 'session/resume') {
       const query = params as { runtime: RuntimeId; sessionId: SessionId }
@@ -23,7 +26,7 @@ export const frameDestinationStore = (fixture: AppStore): AppStore => {
     if (method === 'session/index') {
       const query = params as HostParams<'session/index'>
       if (query.archived === 'only') return fixtureRequest(method, params as never)
-      const rows = [...seed.history].filter(row => !row.archived && (!query.runtimes || query.runtimes.includes(row.runtime))).sort(sessionIndexCompare)
+      const rows = [...(indexedHistory ??= store.getSnapshot().history)].filter(row => !row.archived && (!query.runtimes || query.runtimes.includes(row.runtime))).sort(sessionIndexCompare)
       const start = query.cursor ? rows.findIndex(row => sessionIndexCursorOf(row) === query.cursor) + 1 : 0
       const data = rows.slice(start, start + (query.pageSize ?? 50))
       return { data, nextCursor: start + data.length < rows.length && data.length ? sessionIndexCursorOf(data[data.length - 1]!) : null }
@@ -62,19 +65,20 @@ export const frameDestinationStore = (fixture: AppStore): AppStore => {
     }
     if (method === 'flow/executions') {
       const { team, project, active } = params as HostParams<'flow/executions'>
-      const runs = [...seed.flowExecutions.values()]
+      const current = store.getSnapshot()
+      const runs = [...current.flowExecutions.values()]
       const continued = new Set(runs.map(run => run.continues).filter(Boolean))
       return runs.filter(run => (!team || run.goal === team)
-        && (!project || seed.goals.get(run.goal)?.goal.root === project)
+        && (!project || current.goals.get(run.goal)?.goal.root === project)
         && (active === false || !continued.has(run.id) && (run.state === 'running' || run.state === 'stalled')))
         .map(run => { const round = run.rounds.at(-1); return {
           id: run.id, team: run.goal, flow: run.document.flow.name, state: run.state,
           round: round?.n ?? null, role: round?.role ?? null, reason: run.reason,
-          startedAt: seed.goals.get(run.goal)?.goal.createdAt ?? 0,
+          startedAt: current.goals.get(run.goal)?.goal.createdAt ?? 0,
         } })
     }
     if (method === 'flow/execution') {
-      const run = seed.flowExecutions.get((params as HostParams<'flow/execution'>).run)
+      const run = store.getSnapshot().flowExecutions.get((params as HostParams<'flow/execution'>).run)
       if (!run) throw new Error('Synthetic Run is unavailable')
       return run
     }
