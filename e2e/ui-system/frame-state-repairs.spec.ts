@@ -28,7 +28,7 @@ for (const theme of ['light', 'dark'] as const) {
     await capture(page, `conversation-floating-${width}-${theme}`)
   })
 
-  test(`Settings keeps the terminal visible and native work sized in ${theme}`, async ({ page }) => {
+  test(`Settings hides the terminal and keeps native work sized in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=navigation&frame-terminal=1', theme)
     const work = page.locator('[data-slot="retained-work"]')
     const terminal = page.locator('[data-frame-region="bottom"] [data-terminal-id]').first()
@@ -44,8 +44,8 @@ for (const theme of ['light', 'dark'] as const) {
     const retained = await work.evaluate(node => ({ display: getComputedStyle(node).display, width: node.getBoundingClientRect().width, height: node.getBoundingClientRect().height }))
     expect(retained.display).not.toBe('none')
     expect(retained.width).toBeGreaterThanOrEqual(before!.width)
-    expect(retained.height).toBe(before!.height)
-    await expect(terminal).toBeVisible()
+    expect(retained.height).toBe(before!.height + await terminal.evaluate(node => node.closest('[data-frame-region="bottom"]')!.getBoundingClientRect().height))
+    await expect(terminal).toBeHidden()
     await expect(terminal).toHaveAttribute('data-retention-witness', 'frame-repair')
     await expect(terminal).toHaveAttribute('data-terminal-id', id!)
     await capture(page, `settings-terminal-${theme}`)
@@ -56,7 +56,7 @@ for (const theme of ['light', 'dark'] as const) {
   })
 }
 
-for (const theme of ['light', 'dark'] as const) test(`Agents More closes the retained terminal in ${theme}`, async ({ page }) => {
+for (const theme of ['light', 'dark'] as const) test(`Agents More omits the retained terminal in ${theme}`, async ({ page }) => {
   await openFrame(page, 'frame-wall=conversation&frame-terminal=1', theme)
   const terminal = page.locator('[data-terminal-id]')
   await expect(terminal).toBeVisible()
@@ -65,11 +65,10 @@ for (const theme of ['light', 'dark'] as const) test(`Agents More closes the ret
   await destination.getByRole('button', { name: /Code reviewer / }).click()
   await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'More', exact: true }).click()
   const toggle = page.getByRole('menuitemradio', { name: /Terminal/ })
-  await expect(toggle).toHaveCount(1)
-  await expect(toggle).toHaveAttribute('aria-checked', 'true')
-  await expect(terminal).toBeVisible()
+  await expect(toggle).toHaveCount(0)
+  await expect(terminal).toBeHidden()
   await capture(page, `agents-terminal-menu-${theme}`)
-  await toggle.click()
-  await expect(terminal).toHaveCount(0)
+  await page.keyboard.press('Escape')
+  await expect(terminal).toHaveCount(1)
   await expect(destination).toBeVisible()
 })

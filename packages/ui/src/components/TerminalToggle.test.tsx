@@ -4,11 +4,13 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { runtimeId } from '@harnessdesk/protocol'
 
+import { Menu } from '../design'
+
 import { StoreProvider } from '../state/context'
 import type { TerminalView } from '../state/layout'
 import { dock, dockViews } from '../state/workbench'
 import { AppStore, emptySnapshot, type AppSnapshot } from '../state/store'
-import { TerminalToggle, toggleTerminal } from './TerminalToggle'
+import { TerminalToggle, TerminalMenuItem, toggleTerminal } from './TerminalToggle'
 
 /**
  * The terminal button at the app foot is an on/off switch.
@@ -179,15 +181,22 @@ it('actual cancellation closes arriving PTYs without attaching or changing the w
   } finally { request.mockRestore(); vi.unstubAllGlobals() }
 })
 
-it('the keyboard toggle closes retained shells on Settings without creating a new one', () => {
+it('the keyboard toggle preserves retained shells on folderless pages', () => {
   const store = mount([docked()], false)
   Object.assign(store.getSnapshot().workbench, { navigation: { current: { kind: 'settings', route: { kind: 'section', section: 'general', focus: null } }, back: [], forward: [] } })
   act(() => toggleTerminal(store))
-  expect([opened, closed]).toEqual([0, 1])
+  expect([opened, closed]).toEqual([0, 0])
 })
 it('the keyboard toggle does not create a shell from a page borrowing retained work', () => {
   const store = mount([])
   Object.assign(store.getSnapshot().workbench, { navigation: { current: { kind: 'dashboard', view: 'overview', scope: null }, back: [], forward: [] } })
   act(() => toggleTerminal(store))
   expect([opened, closed]).toEqual([0, 0])
+})
+
+it('More omits Terminal on folderless pages even with retained shells', () => {
+  const store = mount([docked()], false)
+  Object.assign(store.getSnapshot().workbench, { navigation: { current: { kind: 'agents' }, back: [], forward: [] } })
+  act(() => root.render(<StoreProvider store={store}><Menu close={() => {}}><TerminalMenuItem close={() => {}} /></Menu></StoreProvider>))
+  expect(container.querySelector('[role="menuitemradio"]')).toBeNull()
 })

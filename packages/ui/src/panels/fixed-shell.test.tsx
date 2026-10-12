@@ -772,3 +772,22 @@ it('a page keeps remembered work, Browser, terminal and the shared notice host m
   expect(shell.getAttribute('data-right-open')).toBe('true')
   expect(store.getSnapshot().activeSessionKey).toBe(PREVIEW_SESSION_KEY)
 })
+
+it('folderless pages hide the terminal without changing its shells or saved height', async () => {
+  const store = mountWork(true)
+  await act(async () => store.openTerminal())
+  const terminal = container.querySelector('[data-terminal-id]')!
+  const before = store.getSnapshot().workbench
+  Object.assign(before, { navigation: { current: { kind: 'agents' }, back: [], forward: [] } })
+  act(() => root.render(<StoreProvider store={store}><Workbench sidebar={<div />} pageActive /></StoreProvider>))
+  const shell = container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+  expect(shell.dataset.bottomOpen).toBe('false')
+  expect(shell.style.getPropertyValue('--frame-bottom-size')).toBe('0px')
+  expect(container.querySelector('[data-terminal-id]')).toBe(terminal)
+  expect(store.getSnapshot().workbench.bottom).toBe(before.bottom)
+  Object.assign(before, { navigation: { current: { kind: 'work', view: { kind: 'conversation', session: PREVIEW_SESSION_KEY } }, back: [], forward: [] } })
+  act(() => root.render(<StoreProvider store={store}><Workbench sidebar={<div />} /></StoreProvider>))
+  expect(shell.dataset.bottomOpen).toBe('true')
+  expect(container.querySelector('[data-terminal-id]')).toBe(terminal)
+  expect(store.getSnapshot().workbench.bottom).toBe(before.bottom)
+})
