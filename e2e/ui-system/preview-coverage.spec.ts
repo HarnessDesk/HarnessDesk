@@ -415,6 +415,16 @@ const sweepSelectsForCoverage = (
 test('a dial sweep visits only changed specimens after its initial inventory', async ({ page }) => {
   await page.goto('/preview.html')
   await settleCoveragePage(page)
+  // Measure the synthetic dial independently of live preview timers and effects.
+  await page.evaluate(() => {
+    const unrelated = document.createElement('div')
+    for (let index = 0; index < 1000; index++) {
+      const leaf = document.createElement('span')
+      leaf.textContent = 'Synthetic'
+      unrelated.append(leaf)
+    }
+    document.body.replaceChildren(unrelated)
+  })
   const result = await sweepSelectsForCoverage(page, { delayedRevealProbe: true })
   expect(result.delayedReveal).toBe(true)
   expect(result.stateElementsVisited).toBeLessThanOrEqual(10)
