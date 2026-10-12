@@ -52,9 +52,10 @@ test('sidebar navigation names stay regular and truncate at their trailing edge'
   expect(style.overflow).toBe('ellipsis')
 })
 
-test('sidebar destinations use the frame label scale and have no wordmark', async ({ page }) => {
+test('sidebar destinations use the frame label scale and retain the approved wordmark', async ({ page }) => {
   await page.goto('/preview.html')
-  const rows = page.locator('[aria-label="Main sections"] [data-slot="sidebar-menu-button"]')
+  const sidebar = page.locator('[data-frame-id="sidebar-column"] [data-left-column]')
+  const rows = sidebar.locator('[aria-label="Main sections"] [data-slot="sidebar-menu-button"]')
   await expect(rows).toHaveCount(5)
   expect(await rows.evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label'))))
     .toEqual(['Teams', 'Agents', 'Library', 'Plugins', 'Dashboard'])
@@ -63,12 +64,12 @@ test('sidebar destinations use the frame label scale and have no wordmark', asyn
     return { size: css.fontSize, weight: css.fontWeight }
   }))
   expect(styles).toEqual(Array.from({ length: 5 }, () => ({ size: `${FRAME.rail.label}px`, weight: '400' })))
-  await expect(page.locator('[data-region="sidebar-header"] [data-role="wordmark"]')).toHaveCount(0)
+  await expect(sidebar.locator('[data-region="sidebar-header"] [data-role="wordmark"]')).toHaveCount(1)
 })
 
 test('a healthy account reading keeps plain ink rather than success ink', async ({ page }) => {
   await page.goto('/preview.html')
-  await page.locator('button[class*="accountRow"]').click()
+  await page.locator('[data-frame-id="sidebar-column"] button[class*="accountRow"]').click()
 
   // The account menu's own reading, not the first one anywhere on the page:
   // which one comes first depends on the window's width and on what else the
@@ -94,7 +95,7 @@ test('a healthy account reading keeps plain ink rather than success ink', async 
 
 test('the accounts menu opens above its row, left-aligned with it, at the foundation\'s wide width', async ({ page }) => {
   await page.goto('/preview.html')
-  const trigger = page.locator('button[class*="accountRow"]')
+  const trigger = page.locator('[data-frame-id="sidebar-column"] button[class*="accountRow"]')
   // Where the row sits in the app: at the foot of the window.
   await trigger.evaluate((node) => node.scrollIntoView({ block: 'end' }))
   await trigger.click()
@@ -119,24 +120,26 @@ test('the accounts menu opens above its row, left-aligned with it, at the founda
   expect(edges.menu.width).toBeCloseTo(edges.wide, 0)
 })
 
-test('a settings group label is smaller than its page title', async ({ page }) => {
+test('Settings group labels and destinations use the named frame type pairs', async ({ page }) => {
   await page.goto('/preview.html?frame-wall=settings-navigation')
-  const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
+  const settings = page.locator('[data-frame-id="frame-wall"]')
 
-  const title = settings.locator('[data-slot="top-bar"] [data-topbar-title] > [data-role="subject"]')
-  const label = settings.locator('[data-left-group-text]').filter({ hasText: 'General' })
+  const title = settings.locator('[data-left-row]').filter({ hasText: /^General$/ }).locator('[data-slot="sidebar-menu-label-content"]')
+  const label = settings.locator('[data-left-group-text]').filter({ hasText: 'Preferences' })
   await expect(title).toBeVisible()
   await expect(label).toBeVisible()
   const sizes = await Promise.all([
     title.evaluate(node => parseFloat(getComputedStyle(node).fontSize)),
     label.evaluate(node => parseFloat(getComputedStyle(node).fontSize)),
   ])
-  expect(sizes[1]).toBeLessThan(sizes[0])
+  expect(sizes).toEqual([13,13])
+  await expect(title).toHaveCSS('font-weight','400')
+  await expect(label).toHaveCSS('font-weight','500')
 })
 
-test('a page title computes the frame bar type', async ({ page }) => {
-  await page.goto('/preview.html?frame-wall=settings-navigation')
-  const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
+test('a destination title computes the frame bar type', async ({ page }) => {
+  await page.goto('/preview.html?frame-wall=library')
+  const settings = page.locator('[data-frame-id="frame-wall"]')
 
   const title = settings.locator('[data-slot="top-bar"] [data-topbar-title] > [data-role="subject"]')
   await expect(title).toBeVisible()

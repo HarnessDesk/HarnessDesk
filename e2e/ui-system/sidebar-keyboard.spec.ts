@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test'
 
 test('the sidebar list is one keyboard stop with row navigation and row menus', async ({ page }) => {
   await page.goto('/preview.html')
-  const tree = page.locator('[data-region="session-tree"]')
+  const tree = page.locator('[data-frame-id="sidebar-column"] [data-region="session-tree"]')
   const rows = tree.locator('[data-slot="sidebar-menu-button"]')
   await expect(rows.first()).toBeVisible()
   await expect.poll(() => rows.evaluateAll((entries) => entries.filter((entry) => (entry as HTMLElement).tabIndex === 0).length)).toBe(1)

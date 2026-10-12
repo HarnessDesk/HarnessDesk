@@ -371,10 +371,26 @@ test('worktree and gone-folder priority facts survive hover, focus and an open m
   await testInfo.attach('priority-facts.json', { body: JSON.stringify(measurements), contentType: 'application/json' })
 })
 
-test('AppWindow count and state marks occupy adjacent target slots on the shared rail', async ({ page }) => {
+test('sidebar count and state marks occupy adjacent target slots on the shared rail', async ({ page }) => {
   test.setTimeout(120_000)
-  await page.goto('/design.html?view=app-window')
-  const nav = page.getByRole('navigation', { name: 'Window navigation' })
+  await page.route('**/src/design/explorer/main.tsx*', async route => {
+    const response = await route.fetch(), source = await response.text()
+    const reactUrl = /from "([^"\n]*\/react\.js[^"\n]*)"/.exec(source)?.[1]
+    if (!reactUrl) throw new Error('explorer React import was not found')
+    await route.fulfill({ response, body: `${source}
+      import railReact from ${JSON.stringify(reactUrl)};
+      import { SidebarMenu, SidebarMenuItem, SidebarMenuButton, SidebarMenuBadge, Dot, Text } from '/src/design/index.ts';
+      const railHost = document.createElement('div'); railHost.setAttribute('data-count-state-rail', ''); document.body.append(railHost);
+      const rh = railReact.createElement;
+      createRoot(railHost).render(rh('div', { style: { display: 'grid', gridTemplateColumns: '260px minmax(0,1fr)' } },
+        rh('div', null, rh(SidebarMenu, { 'aria-label': 'Count and state rail' }, rh(SidebarMenuItem, { trailingMarks: 2 },
+          rh(SidebarMenuButton, { label: 'Agents' }),
+          rh(SidebarMenuBadge, { style: { insetInlineEnd: 'calc(var(--sidebar-menu-end-rail) + var(--hd-sidebar-end-action-step))' } }, rh(Text, { role: 'meta' }, '5')),
+          rh(SidebarMenuBadge, null, rh(Dot, { state: 'limit' })) ))), rh('div')));
+    ` })
+  })
+  await page.goto('/design.html?view=sidebar')
+  const nav = page.getByRole('list', { name: 'Count and state rail' })
   const sidebar = nav.locator('xpath=parent::*')
   const frame = sidebar.locator('xpath=parent::*')
   const row = nav.getByRole('button', { name: 'Agents' }).locator('xpath=ancestor::li[@data-slot="sidebar-menu-item"][1]')
@@ -385,8 +401,9 @@ test('AppWindow count and state marks occupy adjacent target slots on the shared
 
   for (const width of [200, 220, 260, 320]) {
     await frame.evaluate((node, next) => { (node as HTMLElement).style.gridTemplateColumns = `${next}px minmax(0, 1fr)` }, width)
+    await row.scrollIntoViewIfNeeded()
     const sidebarBox = await box(sidebar)
-    const column = sidebarBox.x + sidebarBox.width - 32
+    const column = await row.evaluate(node => { const badge = node.querySelector('[data-slot="sidebar-menu-badge"]')!; const style = getComputedStyle(badge); const origin = node.getBoundingClientRect(); return origin.right - parseFloat(getComputedStyle(node.querySelectorAll('[data-slot="sidebar-menu-badge"]')[1]!).insetInlineEnd) - parseFloat(style.width) / 2 })
     expect(await marks.count()).toBe(2)
     const count = marks.nth(0).locator('[data-role="meta"]')
     const dot = marks.nth(1).locator('[data-slot="dot"]')
@@ -567,21 +584,21 @@ test('real section headers start at the shared icon edge', async ({ page }) => {
       const rowX = (await box(group.locator('[data-slot="sidebar-menu-icon"]').first())).x
       expect.soft(Math.abs(x - rowX), `${await header.textContent()} at ${width}px`).toBeLessThanOrEqual(1)
     }
-    // Other projects is a disclosure row, so it keeps the ordinary text slot.
+    // Foldable group names begin at the ordinary icon edge; their disclosure follows the name.
     const other = sidebar.getByRole('button', { name: 'Other projects', exact: true }).locator('[data-slot="sidebar-menu-label-content"]')
     const otherX = await other.evaluate(node => { const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect().x })
-    expect.soft(Math.abs(otherX - textX), `Other projects at ${width}px`).toBeLessThanOrEqual(1)
+    expect.soft(Math.abs(otherX - iconX), `Other projects at ${width}px`).toBeLessThanOrEqual(1)
   }
-  await page.goto('/design.html?view=app-window')
-  const nav = page.getByRole('navigation', { name: 'Window navigation' })
-  const navFrame = nav.locator('xpath=parent::*').locator('xpath=parent::*')
+  await page.goto('/preview.html?frame-wall=settings')
+  const nav = page.getByRole('navigation', { name: 'Settings navigation' })
+  const navFrame = nav.locator('[data-left-group]').first().locator('xpath=ancestor::div[@data-region="sidebar-content"][1]')
   for (const width of [200, 220, 260, 320, 520]) {
-    await navFrame.evaluate((node, next) => { (node as HTMLElement).style.gridTemplateColumns = `${next}px minmax(0, 1fr)` }, width)
-    for (const group of await nav.locator('[data-slot="sidebar-group"]').all()) {
-      const header = group.locator(':scope > [data-slot="group-label"]')
+    await navFrame.evaluate((node, next) => { (node as HTMLElement).style.width = `${next}px` }, width)
+    for (const group of await nav.locator('[data-left-group]').all()) {
+      const header = group.locator('[data-left-group-text]')
       const icon = group.locator('[data-slot="sidebar-menu-icon"]').first()
       const x = await header.evaluate((node) => { const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect().x })
-      expect.soft(Math.abs(x - (await box(icon)).x), `AppWindow ${await header.textContent()} at ${width}px`).toBeLessThanOrEqual(1)
+      expect.soft(Math.abs(x - (await box(icon)).x), `Settings ${await header.textContent()} at ${width}px`).toBeLessThanOrEqual(1)
     }
   }
 })
@@ -724,9 +741,9 @@ for (const theme of ['light', 'dark'] as const) {
         const label = node.querySelector('[data-slot="sidebar-menu-label-content"]')!.getBoundingClientRect()
         const trail = node.querySelector('[data-left-trailing]')!.getBoundingClientRect()
         const bounds = button.getBoundingClientRect()
-        const icon = node.querySelector('[data-slot="sidebar-menu-icon"]')!.getBoundingClientRect()
+        const icon = node.querySelector('[data-slot="sidebar-menu-icon"]')?.getBoundingClientRect()
         return { name: node.querySelector('[data-slot="sidebar-menu-label-content"]')!.textContent, title: button.title, height: bounds.height,
-          project: node.hasAttribute('data-left-project'), icon: icon.x, label: label.x, trail: trail.x + trail.width / 2, target: trail.width,
+          project: node.hasAttribute('data-left-project'), fold: button.hasAttribute('aria-expanded'), icon: icon?.x ?? null, iconWidth: icon?.width ?? null, label: label.x, trail: trail.x + trail.width / 2, target: trail.width,
           marks: node.querySelectorAll('[data-left-mark]').length }
       }))
       expect(rows.length).toBeGreaterThan(9)
@@ -735,8 +752,9 @@ for (const theme of ['light', 'dark'] as const) {
       for (const row of rows) {
         expect(row.height).toBe(FRAME.rail.rowHeight)
         expect(row.target).toBe(24)
-        expect(Math.abs(row.label - (row.project ? ordinary.icon : ordinary.label))).toBeLessThanOrEqual(1)
-        expect(Math.abs(row.icon - (row.project ? ordinary.icon - FRAME.rail.icon : ordinary.icon))).toBeLessThanOrEqual(1)
+        expect(Math.abs(row.label - (row.fold ? ordinary.icon : ordinary.label))).toBeLessThanOrEqual(1)
+        if (row.fold) expect(row.icon).toBeNull()
+        else { expect(row.iconWidth).toBe(FRAME.rail.icon); expect(Math.abs(row.icon! - ordinary.icon!)).toBeLessThanOrEqual(1) }
         expect(Math.abs(row.trail - rows[0]!.trail)).toBeLessThanOrEqual(1)
         expect(row.marks).toBeLessThanOrEqual(1)
         expect(row.title.length).toBeGreaterThan(0)

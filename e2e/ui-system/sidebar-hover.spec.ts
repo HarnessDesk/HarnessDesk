@@ -2,7 +2,7 @@ import { expect, test, type Locator, type Page } from '@playwright/test'
 import { FRAME } from '../../packages/ui/src/design/frame'
 
 const sidebar = (page: Page) => page.locator('[data-frame-id="sidebar-column"] [data-left-column]')
-const workspace = (page: Page) => page.locator('[data-project-root] [data-left-row]').filter({
+const workspace = (page: Page) => sidebar(page).locator('[data-project-root] [data-left-row]').filter({
   has: page.locator('button[data-draggable][aria-label="HarnessDesk"]'),
 })
 

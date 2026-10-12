@@ -10,11 +10,11 @@ for (const theme of ['light', 'dark'] as const) {
    await page.evaluate(() => document.fonts.ready)
    const frame = page.locator('#teams-page-active')
    if (stage === 'before') {
-    await expect(frame.getByRole('button', { name: 'Needs you', exact: true })).toBeVisible()
+    await expect(frame.getByRole('tab', { name: /^Needs you(?:\s|$)/ })).toBeVisible()
     await expect(frame.locator('[data-team-row]')).toHaveCount(2)
     await expect(frame.locator('[data-team-row]').filter({hasText:'Needs you'})).toHaveCount(2)
    } else {
-    await expect(frame.getByRole('button', { name: 'Needs you', exact: true })).toBeVisible()
+    await expect(frame.getByRole('tab', { name: /^Needs you(?:\s|$)/ })).toBeVisible()
     await expect(frame.getByText('Stopped', { exact: true })).toBeVisible()
     await frame.getByRole('button', { name: 'Ready to wrap · 1', exact: true }).click()
     await expect(frame.locator('[data-team-row="team-0"]')).toBeVisible()

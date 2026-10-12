@@ -44,7 +44,7 @@ for (const theme of ['light', 'dark'] as const) {
       }
       expect(measured.draggable).toBe('drag')
       expect(measured.noDrag).toBe(true)
-      await expect(sidebar.locator('[data-role="wordmark"]')).toHaveCount(0)
+      await expect(sidebar.locator('[data-role="wordmark"]')).toHaveCount(1)
       const history = sidebar.locator('[data-left-history]')
       if (width < 240) await expect(history).toBeHidden()
       else await expect(history).toBeVisible()
@@ -53,7 +53,7 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(search).toHaveAttribute('aria-keyshortcuts', 'Meta+K')
       const bell = sidebar.locator('[data-slot="inbox-button"]').locator('..')
       await bell.click()
-      const popup = page.locator('[data-slot="inbox-list"]:visible').locator('xpath=ancestor::*[@data-slot="popover-popup"]')
+      const popup = page.getByRole('menu').filter({ has: page.getByRole('menuitem', { name: /Review ready/ }) }).locator('xpath=ancestor::*[@data-slot="popover-popup"]')
       await expect(popup).toBeVisible()
       await expect(popup).toHaveAttribute('data-side', 'top')
       const bounds = (await popup.boundingBox())!
@@ -67,7 +67,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.setViewportSize({ width: 720, height: 520 })
     await sidebar.scrollIntoViewIfNeeded()
     await sidebar.locator('[data-slot="inbox-button"]').locator('..').click()
-    const popup = page.locator('[data-slot="inbox-list"]:visible').locator('xpath=ancestor::*[@data-slot="popover-popup"]')
+    const popup = page.getByRole('menu').filter({ has: page.getByRole('menuitem', { name: /Review ready/ }) }).locator('xpath=ancestor::*[@data-slot="popover-popup"]')
     await expect(popup).toBeVisible()
     const bounds = (await popup.boundingBox())!
     expect(bounds.x).toBeGreaterThanOrEqual(0)

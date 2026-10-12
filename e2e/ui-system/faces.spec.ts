@@ -33,7 +33,7 @@ import { expect, test, type Page } from '@playwright/test'
  * the rule on purpose and must be caught.
  */
 
-const PREVIEW_READY = '[data-region="session-row"] [data-slot="sidebar-menu-button"]'
+const PREVIEW_READY = '[data-frame-id="sidebar-column"] [data-left-column] [data-left-row] [data-slot="sidebar-menu-button"]'
 
 type Surface = {
   /** What draws it, in the words a review would use. */
@@ -323,21 +323,29 @@ for (const theme of ['light','dark'] as const) {
 }
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`runtime and Agent detail heads follow Faces in ${theme}`, async ({ page }) => {
+  test(`Agent bar faces follow Faces while provider marks retain their own geometry in ${theme}`, async ({ page }) => {
     await open(page, '/preview.html', PREVIEW_READY)
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('runtimes')
     await page.locator('[data-frame-id="settings-sheet"] [data-slot="agent-row"]').first().click()
     await page.getByRole('combobox', { name: 'agents focus', exact: true }).selectOption('code-reviewer')
     const corners: Record<string, string[]> = { square: [], round: [] }
+    let providerDrawing: string | null = null
     for (const faces of ['square', 'round'] as const) {
       await page.getByRole('combobox', { name: 'faces', exact: true }).selectOption(faces)
-      for (const frame of ['settings-sheet', 'agents-roster']) {
-        const head = page.locator(`[data-frame-id="${frame}"] [class*="_detailHead_"]`)
-        const mark = head.locator('[data-shape="face"]')
-        await expect(mark).toHaveCount(1)
-        corners[faces]!.push(await mark.evaluate(el => getComputedStyle(el).borderTopLeftRadius))
-      }
+      await expect(page.locator('[data-frame-id="settings-sheet"] [data-topbar-mark]')).toHaveCount(0)
+      const provider = page.locator('[data-frame-id="settings-sheet"] [data-page-destination="settings"]:visible [data-slot="row-face"] svg').first()
+      await expect(provider).toHaveCount(1)
+      await expect(provider).toHaveCSS('border-radius', '0px')
+      const glyph = (await provider.boundingBox())!
+      expect(glyph.width).toBe(14)
+      expect(glyph.height).toBe(14)
+      const drawing = await provider.innerHTML()
+      if (providerDrawing === null) providerDrawing = drawing
+      else expect(drawing).toBe(providerDrawing)
+      const mark = page.locator('[data-frame-id="agents-roster"] [data-topbar-mark] [data-shape="face"]')
+      await expect(mark).toHaveCount(1)
+      corners[faces]!.push(await mark.evaluate(el => getComputedStyle(el).borderTopLeftRadius))
       expect((await faceReport(page, [])).findings).toEqual([])
     }
     for (const [index, corner] of corners.square!.entries()) expect(corners.round![index]).not.toBe(corner)
