@@ -1271,3 +1271,21 @@ it('cycles Tab at both floating sidebar boundaries without taking portalled focu
     finally { portal.remove() }
   } finally { rectangles.mockRestore() }
 })
+
+for (const kind of ['settings', 'dashboard', 'agents', 'teams', 'library', 'plugins'] as const) it(`keeps a retained terminal visible on ${kind} and opens another shell in its own folder`, () => {
+  const destination = {
+    settings: { kind: 'settings', route: { kind: 'section', section: 'general', focus: null } },
+    dashboard: { kind: 'dashboard', view: 'overview', scope: null }, agents: { kind: 'agents', id: null },
+    teams: { kind: 'teams', filter: 'active' }, library: { kind: 'library', section: 'skill' },
+    plugins: { kind: 'plugins', section: 'installed', id: null },
+  }[kind] as Model['navigation']['current']
+  const harness = rig(start => ({ ...dock(start, 'bottom', { kind: 'terminal', terminalId: 'kept-pty', runtime: 'fixture' as never, cwd: '/synthetic/shell' }),
+    navigation: { ...start.navigation, current: destination } }))
+  act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={null} pageActive pages={<div>Page</div>} /></StoreProvider>))
+  expect(container.querySelector('[data-slot="fixed-shell"]')?.getAttribute('data-bottom-open')).toBe('true')
+  expect(container.querySelector('[data-testid="view-terminal"]')?.closest('[inert]')).toBeNull()
+  const button = container.querySelector<HTMLButtonElement>('[title="New shell in /synthetic/shell"]')!
+  expect(button).not.toBeNull()
+  act(() => button.click())
+  expect(harness.actions.openTerminal).toHaveBeenCalledWith({ cwd: '/synthetic/shell' })
+})

@@ -59,19 +59,19 @@ test('FIX9 empty spend has one statement and coverage once', async ({ page }) =>
     const cost = page.getByRole('region', { name: 'What it cost', exact: true })
     await expect(cost.locator('[data-slot="chart-title"]').first()).toHaveText('—')
     await expect(cost).toContainText('No usage recorded in this window')
-    await expect(cost.getByText('0 of 30 days scanned', { exact: true })).toHaveCount(1)
-    await expect(cost.locator('[data-slot="chart-foot"]')).not.toContainText('days scanned')
+    await expect(cost.getByText('0 of 30 days with usage', { exact: true })).toHaveCount(1)
+    await expect(cost.locator('[data-slot="chart-foot"]')).not.toContainText('days with usage')
     await expect(cost).not.toContainText('unpriced')
     if (view === 'overview') await expect(page.getByRole('button', { name: /^Value/ })).not.toContainText('unpriced')
   }
 })
 
-test('FIX9 shorter spend figures distinguish unscanned days from quiet days', async ({ page }) => {
+test('FIX9 shorter spend figures keep quiet days known after the earliest retained row', async ({ page }) => {
   for (const state of ['mixed', 'zero']) {
     await openFrame(page, `frame-wall=dashboard&frame-view=spend&frame-fix9-ledger=${state}`)
     const today = page.locator('[data-slot="stat"]').filter({ hasText: 'Today' })
-    await expect(today).toContainText(state === 'mixed' ? 'Not read yet' : '$0')
-    if (state === 'zero') await expect(page.getByText('30 of 30 days scanned', { exact: true })).toHaveCount(1)
+    await expect(today).toContainText('$0')
+    if (state === 'zero') await expect(page.getByText('30 of 30 days with usage', { exact: true })).toHaveCount(1)
   }
 })
 

@@ -290,3 +290,24 @@ it('waits on a command approval and describes running only after it is allowed',
   draw()
   expect(container.querySelector('[data-slot="turn-work-live"]')?.textContent).toBe('Listing files')
 })
+
+
+it('an ACP permission waits in both the live line and its tool row, scoped by runtime', () => {
+  const key = sessionKey(runtimeId('fixture'), sessionId('session-one'))
+  const tool: AgentItem = { id: itemId('permission-tool'), type: 'toolCall', tool: 'bash', args: {command:'ls -la'},
+    source: {kind:'builtin'}, status:'inProgress' } as AgentItem
+  const turn: Turn = {id:turnId('permission-turn'),status:'inProgress',startedAt:Date.now()-3000,items:[tool]}
+  const snapshot = {...emptySnapshot(), activeSessionKey:key, approvals:[{key, approval:{
+    id:approvalId('permission'),type:'permission' as const,summary:'Allow this tool',sessionId:sessionId('session-one'),itemId:tool.id,turnId:turn.id,requestedAt:1,options:[],
+  }}]}
+  const store = {subscribe:()=>()=>{},getSnapshot:()=>snapshot} as unknown as AppStore
+  const draw = () => act(() => root.render(<StoreProvider store={store}><TurnWork turn={turn} work={[tool]} root="/work" /></StoreProvider>))
+  draw()
+  expect(container.querySelector('[data-slot="turn-work-live"]')?.textContent).toBe('Waiting for approval')
+  expect(container.textContent).toContain('Waiting for approval ·')
+  expect(container.querySelector('[aria-label="Running"]')).toBeNull()
+  expect(container.textContent).not.toContain('Working for')
+  snapshot.approvals = [{...snapshot.approvals[0]!,key:sessionKey(runtimeId('other-fixture'),sessionId('session-one'))}]
+  draw()
+  expect(container.textContent).not.toContain('Waiting for approval')
+})

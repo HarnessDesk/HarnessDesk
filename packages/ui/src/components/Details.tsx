@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 
 import { currentTurn, type GitStatus } from '@harnessdesk/protocol'
 
+import { handOverToComposer } from '../lib/compose'
 import { countChanges, splitByFile } from '../lib/diff'
-import { useActiveSession, useSnapshot, useStore } from '../state/context'
+import { useActiveSession, usePane, useSnapshot, useStore } from '../state/context'
 import { downloadMarkdown, exportFilename, sessionToMarkdown } from '../lib/export-session'
 import { inView } from '../lib/git-view'
 import { Activity } from './Activity'
@@ -242,6 +243,7 @@ const Changes = ({
   onEmptyChange: (empty: boolean) => void
 }) => {
   const store = useStore()
+  const pane = usePane()
   const snapshot = useSnapshot()
   const session = useActiveSession()
   /*
@@ -365,11 +367,10 @@ const Changes = ({
 
   /** Puts a request about one file into the focused composer — a review comment the agent will act on. */
   const revise = (path: string): void => {
-    window.dispatchEvent(
-      new CustomEvent('harnessdesk:compose', {
-        detail: `Please revise your change to ${path}: `,
-      }),
-    )
+    if (pane) store.focusPane(pane.paneId.split(':')[0]!)
+    void handOverToComposer({ paneId: pane?.paneId, text: `Please revise your change to ${path}: ` }).then(received => {
+      if (!received) store.notice('warning', 'The message box did not take it — click into the conversation and try again.')
+    })
   }
   const absolute = (path: string): string => (path.startsWith('/') || !root ? path : `${root}/${path}`)
 

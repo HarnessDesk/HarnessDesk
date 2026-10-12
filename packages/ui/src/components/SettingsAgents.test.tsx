@@ -1336,6 +1336,7 @@ it('a successful current custom add visits its owner once',async()=>{
   await act(async()=>root.render(<StoreProvider store={store}><AddAgents onBack={()=>{}} onDone={onDone}/></StoreProvider>))
   act(()=>button('Set up…')!.click());type(byLabel('Name'),'Synthetic Agent');type(byLabel('Command'),'synthetic-agent')
   await act(async()=>button('Add runtime')!.click());expect(onDone).toHaveBeenCalledTimes(1)
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
 })
 
 

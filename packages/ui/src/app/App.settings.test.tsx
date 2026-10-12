@@ -27,7 +27,7 @@ vi.mock('../components/Settings', async importOriginal => {
   return { ...await importOriginal<object>(), Settings: ({ route }: {route:SettingsRoute}) => {
     const shell = useShell(), active = useDestinationActive()
     return <div><output data-settings-route>{JSON.stringify(route)}</output><output data-active>{String(active)}</output>
-      <button onClick={() => shell.openAgents('fixture-reviewer')}>Open its Agent</button><button onClick={shell.reviewImports}>Review imports</button></div>
+      <input aria-label="Search settings" defaultValue="" /><button onClick={() => shell.openAgents('fixture-reviewer')}>Open its Agent</button><button onClick={shell.reviewImports}>Review imports</button></div>
   }}
 })
 vi.mock('../components/AgentsWindow', () => ({ AgentsWindow: ({focus}:{focus:string|null}) => <output data-agent-focus>{focus ?? 'Agent overview'}</output> }))
@@ -216,4 +216,38 @@ for (const kind of ['library','plugins','dashboard'] as const) it(`Escape return
     expect(store.getSnapshot().workbench.navigation.current.kind).toBe('work')
     expect(escape.defaultPrevented).toBe(true)
   } finally { MAIN_PAGE_ENTRIES[kind] = previous }
+})
+
+for (const editable of ['input', 'textarea', 'contenteditable'] as const) it(`Escape leaves nonempty ${editable} editing on the page`, async () => {
+  const store = routedStore('/synthetic/project')
+  await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
+  const field = document.createElement(editable === 'contenteditable' ? 'div' : editable)
+  if (editable === 'contenteditable') { field.setAttribute('contenteditable', 'true'); field.textContent = 'Edited query' }
+  else (field as HTMLInputElement).value = 'Edited query'
+  container.append(field)
+  const before = store.getSnapshot().workbench.navigation
+  const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+  act(() => field.dispatchEvent(escape)); await settle()
+  expect(store.getSnapshot().workbench.navigation).toBe(before)
+  expect(escape.defaultPrevented).toBe(false)
+})
+it('Escape during IME composition does not leave the page', async () => {
+  const store = routedStore('/synthetic/project')
+  await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
+  const before = store.getSnapshot().workbench.navigation
+  const escape = new KeyboardEvent('keydown', { key: 'Escape', isComposing: true, bubbles: true, cancelable: true })
+  act(() => window.dispatchEvent(escape)); await settle()
+  expect(store.getSnapshot().workbench.navigation).toBe(before)
+})
+
+it('Escape from an inactive retained editor still leaves Settings', async () => {
+  const store = routedStore('/synthetic/project')
+  await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
+  await settle()
+  const retained = container.querySelector<HTMLInputElement>('[data-slot="retained-work"] input')!
+  expect(retained.value).not.toBe('')
+  expect(retained.closest('[inert]')).not.toBeNull()
+  const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
+  act(() => retained.dispatchEvent(escape)); await settle()
+  expect(store.getSnapshot().workbench.navigation.current.kind).toBe('work')
 })

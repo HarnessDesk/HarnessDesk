@@ -128,15 +128,26 @@ const mount = (focus: string | null = null, active = true) => {
   } as unknown as AppStore
   const onClose = vi.fn()
   const onFocus = vi.fn()
-  act(() => {
+  const render = (shown: boolean) => act(() => {
     root.render(
       <StoreProvider store={store}>
-        <TopBarProvider><DestinationPageScope owner="destination:agents" active={active}><AgentsWindow focus={focus} onFocus={onFocus} /></DestinationPageScope><TopBarOutlet owner="destination:agents" fallback={{ place: 'Agents', more: () => null }} /></TopBarProvider>
+        <TopBarProvider><DestinationPageScope owner="destination:agents" active={shown}><AgentsWindow focus={focus} onFocus={onFocus} /></DestinationPageScope><TopBarOutlet owner="destination:agents" fallback={{ place: 'Agents', more: () => null }} /></TopBarProvider>
       </StoreProvider>,
     )
   })
-  return { store, onClose, onFocus }
+  render(active)
+  return { store, onClose, onFocus, render }
 }
+
+it('dismisses New Agent when the retained page deactivates and does not reopen it on return', async () => {
+  const { render } = mount()
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent === 'New Agent…')!.click())
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+  render(false)
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+  render(true)
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+})
 
 it('reads the roster once, on opening', () => {
   const { store } = mount()

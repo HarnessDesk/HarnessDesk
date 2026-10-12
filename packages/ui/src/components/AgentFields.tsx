@@ -18,6 +18,7 @@ import {
   DropdownMenuTrigger, Field, FormStack, Input, MenuNote, MenuSearch, Note, Row, RowChoice, Rows, Section, Text, Textarea,
 } from '../design'
 import { useSnapshot, useStore } from '../state/context'
+import { useDestinationActive } from '../panels/destination-page'
 import { MoveDownIcon, MoveUpIcon, PlusIcon, TrashIcon } from './Icons'
 import { DiffView } from './Diff'
 
@@ -62,7 +63,9 @@ const LABEL: Readonly<Record<FieldKey, string>> = {
 }
 
 export const AgentFields = ({ document, entry, busy, onEdit, onOpenFile }: AgentFieldsProps) => {
+  const active = useDestinationActive()
   const [editing, setEditing] = useState<FieldKey | null>(null)
+  useEffect(() => { if (!active) setEditing(null) }, [active])
   const definition = entry.definition
   if (!definition) return null
   const editable = entry.origin !== 'builtin'
@@ -95,7 +98,7 @@ export const AgentFields = ({ document, entry, busy, onEdit, onOpenFile }: Agent
           {row('produces', wordList(definition.produces))}
         </Rows>
       </Section>
-      {editing && (
+      {active && editing && (
         <FieldEditDialog
           fieldKey={editing}
           target={target}
@@ -257,11 +260,11 @@ export const FieldEditDialog = ({
       onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" disabled={busy} onClick={onClose}>
-            Cancel
-          </Button>
           <Button variant="default" disabled={busy || !preview?.token} onClick={() => void save()}>
             {busy ? 'Saving…' : 'Save'}
+          </Button>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>
+            Cancel
           </Button>
         </>
       }
@@ -445,11 +448,11 @@ export const PreferFieldDialog = ({
       onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" disabled={busy} onClick={onClose}>
-            Cancel
-          </Button>
           <Button variant="default" disabled={busy || !preview?.token} onClick={() => void save()}>
             {busy ? 'Saving…' : 'Save'}
+          </Button>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>
+            Cancel
           </Button>
         </>
       }

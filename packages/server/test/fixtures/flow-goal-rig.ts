@@ -198,7 +198,7 @@ export interface GoalRig {
 
 export const goalRig = async (
   t: { after(fn: () => Promise<void>): void },
-  options: { readonly mutate?: TeamPort['mutate']; readonly releaseStallMs?: number; readonly publicationChanged?: (goal: string) => void; readonly reviewTarget?: FlowExecutionPort['reviewTarget']; readonly fetchBase?: FlowExecutionPort['fetchBase']; readonly checkoutAt?: FlowExecutionPort['checkoutAt']; readonly dropBase?: (root: string, run: string) => Promise<void> } = {},
+  options: { readonly mutate?: TeamPort['mutate']; readonly releaseStallMs?: number; readonly publicationChanged?: (goal: string) => void; readonly reviewTarget?: FlowExecutionPort['reviewTarget']; readonly fetchBase?: FlowExecutionPort['fetchBase']; readonly checkoutAt?: FlowExecutionPort['checkoutAt']; readonly dropBase?: (root: string, run: string) => Promise<void>; readonly settleApprovals?: FlowExecutionPort['settleApprovals'] } = {},
 ): Promise<GoalRig> => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-flow-goal-'))
   const peers: TeamPeer[] = []
@@ -387,6 +387,7 @@ export const goalRig = async (
       rig.onOrder?.(seat)
     },
     busy: (seat) => rig.busySeats.has(String(seat.id)),
+    ...(options.settleApprovals ? { settleApprovals: options.settleApprovals } : {}),
     interrupt: async (seat) => {
       rig.events.push(`interrupt:${seat.id}`)
       if (rig.turnsEndLater) setTimeout(() => rig.busySeats.delete(String(seat.id)), rig.turnEndDelayMs)

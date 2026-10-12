@@ -233,8 +233,8 @@ const storeFor = (snapshot: AppSnapshot, overrides: Record<string, unknown> = {}
     ...overrides,
   }) as unknown as AppStore
 
-const AgentTestScope = ({ children }: { readonly children: ReactNode }) => <TopBarProvider>
-  <DestinationPageScope owner="destination:agents" active>{children}</DestinationPageScope>
+const AgentTestScope = ({ children, active = true }: { readonly children: ReactNode; readonly active?: boolean }) => <TopBarProvider>
+  <DestinationPageScope owner="destination:agents" active={active}>{children}</DestinationPageScope>
   <TopBarOutlet owner="destination:agents" fallback={{ place: 'Agents', more: () => null }} />
 </TopBarProvider>
 const RosterTest = ({ focus = null }: { readonly focus?: string | null }) => {
@@ -383,6 +383,7 @@ it('customizes a built-in into yours or the project’s, then opens the copy', a
   const { store, onLeave } = mount({ focus: 'judge' })
   expect(hasButton('Remove…')).toBe(false)
   act(() => button('Customize…').click())
+  expect(document.querySelector('[data-slot="dialog-footer-actions"] button')?.hasAttribute('data-filled')).toBe(true)
   const choices = [...document.body.querySelectorAll('[role="radio"]')].map((one) => one.textContent ?? '')
   expect(choices[0]).toContain('For storefront')
   expect(choices[1]).toContain('For you')
@@ -392,6 +393,23 @@ it('customizes a built-in into yours or the project’s, then opens the copy', a
   expect(store.customizeAgent).toHaveBeenCalledWith('judge', 'builtin', 'user')
   expect(store.openFile).toHaveBeenCalledWith(COPY.path)
   expect(onLeave).toHaveBeenCalled()
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+})
+
+it.each([
+  ['judge', 'Customize…'],
+  ['judge', 'Add a seat…'],
+  ['scout', 'Remove…'],
+] as const)('dismisses %s %s on page deactivation and keeps it closed on return', async (id, action) => {
+  const store = storeFor(snapshotFor(SEATING))
+  const render = (active: boolean) => act(async () => root.render(<StoreProvider store={store}><AgentTestScope active={active}><AgentPage entry={ROSTER.find(entry => entry.id === id)!} onBack={() => {}} /></AgentTestScope></StoreProvider>))
+  await render(true)
+  await act(async () => button(action).click())
+  expect(document.querySelector('[role="dialog"], [role="alertdialog"]')).not.toBeNull()
+  await render(false)
+  expect(document.querySelector('[role="dialog"], [role="alertdialog"]')).toBeNull()
+  await render(true)
+  expect(document.querySelector('[role="dialog"], [role="alertdialog"]')).toBeNull()
 })
 
 it('removes one of yours to the Trash, after asking, and goes back to the roster', async () => {
@@ -797,6 +815,7 @@ it('adds a seat chosen in words to the end of this Mac’s list', async () => {
   act(() => button('Add a seat…').click())
   await settle()
   expect(store.modelsFor).toHaveBeenCalledWith('claude-code')
+  expect(document.querySelector('[data-slot="dialog-footer-actions"] button')?.hasAttribute('data-filled')).toBe(true)
   choose('Model', 'opus-5')
   choose('Effort', 'high')
   act(() => button('Add seat').click())

@@ -346,7 +346,7 @@ into a tool or a page; none adds a fifth icon without a decision here.
 | --- | --- |
 | The faces and the members popover | Details › Seats: a row per seat (name; Agent, model and ceiling; a state chip), + to seat an Agent; a row's menu opens its conversation, watches it beside, messages it, sets its messages to Accept, Hold or Refuse, or takes it out of the Team |
 | Side by side, both a tab and a toggle | Chat's View menu, one place |
-| Hold messages | the Chat composer's Send to menu, with a Holding messages chip in the composer while it is on |
+| Board-only | the Chat composer's Send to menu, with a Board-only chip while agents cannot message each other |
 | The pull request button | Details' Pull request row, and ⋯ › Open pull request |
 | The trigger chips, "at a1b2c3d on main" | Details (Started by, At) |
 | Wrap…, Fill the window | ⋯ |

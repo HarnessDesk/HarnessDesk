@@ -218,13 +218,43 @@ describe('the review workspace', () => {
       <TopBarOutlet owner="destination:changes-review" fallback={{place:'Fallback',more:()=>null}} />
     </TopBarProvider></StoreProvider>
     try {
-      await act(async () => root.render(render(true, '/next')))
+      await act(async () => root.render(render(false, '/w')))
+      await act(async () => root.render(render(true, '/w')))
       expect(rejects).toHaveLength(2)
-      await act(async () => root.render(render(false, '/next')))
+      await act(async () => root.render(render(false, '/w')))
       await act(async () => rejects.forEach(reject => reject(new Error('Synthetic late read'))))
       expect(container.textContent).toContain('2 files · +3 −1')
       expect(container.querySelectorAll('[data-review-file]')).toHaveLength(2)
     } finally { request.mockImplementation(answer) }
+  })
+
+  it('never exposes an earlier folder’s file actions while a different folder is loading', async () => {
+    mount(() => true); await flush()
+    request.mockImplementation(() => new Promise(() => {}))
+    try {
+      await act(async () => root.render(<StoreProvider store={mountedStore}><TopBarProvider>
+        <DestinationPageScope owner="destination:changes-review" active>
+          <ChangesReview root="/other" returnTo={{kind:'conversation',session:null}} />
+        </DestinationPageScope>
+      </TopBarProvider></StoreProvider>))
+      expect(container.querySelectorAll('[data-review-file]')).toHaveLength(0)
+      expect([...container.querySelectorAll('button')].some(button => button.textContent === 'Open')).toBe(false)
+      expect(container.textContent).not.toContain('Revise this hunk')
+    } finally { request.mockImplementation(answer) }
+  })
+
+  it('never offers a working-tree hunk as a staged hunk while the staged read is pending', async () => {
+    request.mockImplementation(async (method:string)=>method==='git/status' ? {...STATUS, files:STATUS.files.map(file=>({...file,staged:true}))} : {diff:TREE_DIFF})
+    try {
+      mount(()=>true);await flush()
+      request.mockImplementation((method:string)=>method==='git/status' ? Promise.resolve({...STATUS, files:STATUS.files.map(file=>({...file,staged:true}))}) : new Promise(()=>{}))
+      const views=container.querySelector<HTMLButtonElement>('[title="Destination views"]')
+      if(views) await act(async()=>views.click())
+      const staged=document.querySelector<HTMLButtonElement>('[data-team-page="staged"]')!
+      expect(staged).toBeTruthy();await act(async()=>staged.click())
+      expect(container.querySelectorAll('[data-level="hunk"]')).toHaveLength(0)
+      expect(container.textContent).not.toContain('Revise this hunk')
+    } finally {request.mockImplementation(answer)}
   })
 
   it('a refused work selection leaves the quote in review', async () => {

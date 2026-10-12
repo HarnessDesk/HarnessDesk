@@ -145,7 +145,7 @@ it('omits the cost footer and every unscanned year hatch', async () => {
   await act(async () => root.render(<SiteScene name="dashboard" />))
   const cost = host.querySelector('section[aria-label="What it cost"]')!
   expect(cost.querySelector('[data-slot="chart-foot"]')).toBeNull()
-  expect(cost.querySelector('[data-slot="chart-hint"]')?.textContent).toBe('30 of 30 days scanned')
+  expect(cost.querySelector('[data-slot="chart-hint"]')?.textContent).toBe('30 of 30 days with usage')
   expect(cost.textContent).not.toContain('Rescan')
   const year = host.querySelector('section[aria-label="When it ran"]')!
   expect(year.querySelector('[data-state="not-scanned"]')).toBeNull()
@@ -190,8 +190,8 @@ it('supplies a busy, consistent year and six correctly classified demo accounts'
   // Last seven days includes today; its still-running bucket makes this partial.
   expect(week.cost).toBeCloseTo(6_218.8, 1)
   expect(data.ledger(7, 'runtime').totalCost).toEqual(expect.closeTo(week.cost, 1))
-  expect(week.partial).toBe(true)
-  expect(week.change).toBeNull()
+  expect(week).not.toHaveProperty('partial')
+  expect(week).not.toHaveProperty('change')
   expect(ledger.daily.filter(row => row.day === Math.max(...ledger.daily.map(day => day.day))).reduce((sum, row) => sum + row.cost, 0)).toBeCloseTo(138.4, 1)
   const year = data.ledger(365, 'runtime')
   expect(year.totalTokens).toBeCloseTo(141_600_000_000, -1)

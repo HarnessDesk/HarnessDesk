@@ -1401,13 +1401,21 @@ export class Host {
         const record = this.registry.get(runtime, id)
         if (!record) return
         for (const approval of [...record.approvals.values()]) {
-          // Let the agent abandon its outstanding request, then publish the settlement
-          // even when it cannot answer or omits its own resolution event.
-          await record.live?.respondToApproval(approval.id, { type: 'cancel' }).catch(() => {})
-          if (record.approvals.has(String(approval.id))) this.#onEvent(runtime, {
+          // Revoke before asking the runtime: a delayed reply must neither
+          // leave Allow usable nor hold up interruption of this or later Seats.
+          this.#onEvent(runtime, {
             type: 'approval/resolved', sessionId: id, approvalId: approval.id,
             resolution: { outcome: 'abandoned', reason },
           })
+          this.#abandonedApprovals.add(`${runtime}\u0000${id}\u0000${approval.id}`)
+          if (this.#abandonedApprovals.size > 2000) this.#abandonedApprovals.delete(this.#abandonedApprovals.values().next().value!)
+          const answer = this.#heldAnswers.get(String(approval.id))
+          if (answer) {
+            this.#heldAnswers.delete(String(approval.id))
+            answer('refused')
+          } else {
+            void Promise.resolve().then(() => record.live?.respondToApproval(approval.id, { type: 'cancel' })).catch(() => {})
+          }
         }
       },
       // A trigger's run interrupts each Seat it lets go, closed or not: no turn it started outlives it.
@@ -5821,6 +5829,8 @@ export class Host {
   }
 
   readonly #heldAnswers = new Map<string, (answer: 'allowed' | 'refused' | 'unanswered') => void>()
+  /** Recent Stop settlements: a delayed runtime reply cannot replace abandonment. */
+  readonly #abandonedApprovals = new Set<string>()
 
   #conversationName(runtime: string, sessionId: string): string {
     const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
@@ -5865,7 +5875,7 @@ export class Host {
       })
     })
     this.#heldAnswers.delete(String(id))
-    this.#onEvent(record.runtime, {
+    if (record.approvals.has(String(id))) this.#onEvent(record.runtime, {
       type: 'approval/resolved',
       sessionId: record.session.id,
       approvalId: id,
@@ -6472,7 +6482,7 @@ export class Host {
     // A held body owns its timing; index rows can be sparse lifecycle metadata.
     const held = this.registry.get(session.runtime, session.id)?.session
     const timing = held?.itemsLoaded ? held : indexed
-    return timing ? { ...session, createdAt: session.createdAt, updatedAt: timing.updatedAt } : session
+    return timing ? { ...session, ...(held?.itemsLoaded ? { createdAt: held.createdAt } : {}), updatedAt: timing.updatedAt } : session
   }
 
   async #cacheRead(session: Session, source: SessionSource | null): Promise<Session> {
@@ -7508,6 +7518,11 @@ export class Host {
   }
 
   #foldEvent(runtime: RuntimeId, event: AgentEvent): void {
+    if (event.type === 'approval/requested') {
+      this.#abandonedApprovals.delete(`${runtime}\u0000${event.approval.sessionId}\u0000${event.approval.id}`)
+    } else if (event.type === 'approval/resolved' && this.#abandonedApprovals.has(`${runtime}\u0000${event.sessionId}\u0000${event.approvalId}`)) {
+      return
+    }
     if (event.type === 'notice') {
       event = { ...event, id: event.id ?? `notice-${randomBytes(8).toString('hex')}`, at: event.at ?? Date.now() }
       const rawCounts = this.#state.state.preferences['runtimeNoticeCounts']

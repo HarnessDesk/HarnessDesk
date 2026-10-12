@@ -720,7 +720,7 @@ export const TeamRoomPane = ({
       tint: runtime ? runtimeTint(runtime as RuntimeId, snapshot.accountsByRuntime, snapshot.accountPrefs) : 'blue' }]
   })), [goal, team, flowExecution, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs])
   const members = useMemo(() => {
-    return seats.map(seat => {
+    return seats.filter(seat => !seat.record.closed).map(seat => {
       const peer = peers?.find(one => sessionKey(one.runtime, one.sessionId) === seat.key)
       if (peer) return peer
       const runtime = snapshot.runtimes.find(one => one.id === seat.record.session.runtime)
@@ -1084,6 +1084,8 @@ export const TeamRoomPane = ({
   const seatRows: SeatListRow[] = allSeats.map(seat => {
     const member = seat.key ? roster.find(one => one.key === seat.key) : undefined
     const key = seat.key
+    const stopped = seat.record.closed != null
+    const stoppedReason = stopped ? 'This Seat is stopped. Open its conversation to read the kept history.' : undefined
     const refusal = key === null ? 'Conversation not kept' : member?.unavailable
     return {
       id: seat.record.id, selected: open === key, name: member?.displayName ?? seat.name,
@@ -1095,14 +1097,14 @@ export const TeamRoomPane = ({
         member.title && member.title !== member.peer.nickname && (member.title !== member.onTask?.title || member.peer.inbound !== 'accept' || !member.canUseBoard) ? member.title : null,
         !member.here && member.onTask ? 'not open — a message opens it' : null,
       ].filter(Boolean).map(one => ` · ${one}`).join('') : seat.role ?? 'Recorded Seat',
-      state: member && snapshot.approvals.some(one => one.key === member.key) ? 'Needs you' : member?.busy ? 'Working' : member?.done ? 'Done' : member && !member.here ? 'Not open' : 'Idle',
+      state: stopped ? 'Stopped' : member && snapshot.approvals.some(one => one.key === member.key) ? 'Needs you' : member?.busy ? 'Working' : member?.done ? 'Done' : member && !member.here ? 'Not open' : 'Idle',
       open: () => { if (key) show(key) }, watch: () => { if (key) watch(key) },
       message: () => { if (key) { show('room'); setAddressedSeat(key) } },
       inbound: member?.peer.inbound ?? 'accept', setInbound: mode => { if (key) setInbound(key, mode) },
       remove: () => { if (key) leave(key) }, refusal,
-      watchRefusal: record ? RECORD_REASON : key && !canPlace(grid, key) ? 'No tile is free; unpin one first' : undefined,
-      messageRefusal: record ? RECORD_REASON : undefined, mutationRefusal: record ? RECORD_REASON : undefined,
-      removeRefusal: !goal ? 'This compatibility room is read-only' : undefined,
+      watchRefusal: stoppedReason ?? (record ? RECORD_REASON : key && !canPlace(grid, key) ? 'No tile is free; unpin one first' : undefined),
+      messageRefusal: stoppedReason ?? (record ? RECORD_REASON : undefined), mutationRefusal: stoppedReason ?? (record ? RECORD_REASON : undefined),
+      removeRefusal: stoppedReason ?? (!goal ? 'This compatibility room is read-only' : undefined),
     }
   })
   const filteredSeats = filter.trim() ? seatRows.filter(one => `${one.name} ${one.detail}`.toLowerCase().includes(filter.trim().toLowerCase())) : seatRows

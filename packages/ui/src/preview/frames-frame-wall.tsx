@@ -363,11 +363,11 @@ export const FrameWall = () => {
         const days = (params as { days: number }).days, runtime = snapshot.activeRuntime!
         const today = new Date(); today.setHours(0, 0, 0, 0)
         const day = (back: number) => new Date(today.getFullYear(), today.getMonth(), today.getDate() - back).getTime()
-        const coveredDays = [1, 3, 4, 6].filter(back => back < days).map(day)
+        const coveredDays = [3, 4, 6].filter(back => back < days).map(day)
         const daily = [3, 4, 6].filter(back => back < days).map((back, index) => ({ day: day(back), runtime, cost: [10.01, 9.03, 4.05][index]!, tokens: 10 }))
         const totalCost = daily.reduce((sum, row) => sum + row.cost, 0)
         return { days, currency: 'USD', totalCost, totalTokens: daily.length * 10, provenance: 'metered',
-          coverage: { priced: daily.length, unpriced: 0, unmetered: 0, estimated: 0, daysCovered: coveredDays.length, daysRequested: days, coveredDays },
+          coverage: { priced: daily.length, unpriced: 0, unmetered: 0, estimated: 0, daysCovered: coveredDays.length, daysRequested: days, coveredDays, earliestDay: day(6) },
           daily, rows: [{ key: 'recorded', label: 'Recorded work', runtime, cost: totalCost, tokens: daily.length * 10, hasUnpriced: false }], scannedAt: Date.now() }
       }) as typeof next.transport.request
     }

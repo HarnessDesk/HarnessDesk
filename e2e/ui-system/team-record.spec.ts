@@ -121,7 +121,7 @@ for (const theme of ['light','dark'] as const) {
   await selectTeamPage(frame,'room')
   await frame.getByRole('button',{name:'Send to',exact:true}).click()
   {
-   const hold=page.getByRole('switch',{name:/^Hold messages(?:\s|$)/})
+   const hold=page.getByRole('switch',{name:/^Board-only(?:\s|$)/})
    await expect(hold).toHaveAttribute('aria-disabled','true')
    await expect(hold).toHaveAttribute('title','This Team is wrapped')
    await expect(hold).toContainText('This Team is wrapped')

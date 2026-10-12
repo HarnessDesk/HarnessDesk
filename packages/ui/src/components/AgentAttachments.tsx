@@ -4,6 +4,7 @@ import type { AgentAttachmentsView, AgentEntry, AttachmentEditPreview, Attachmen
 
 import { Banner, Button, CodeText, ConfirmDialog, Dialog, FormStack, Note, Checkbox, Row, Rows, SectionHead, SummaryItem } from '../design'
 import { useSnapshot, useStore } from '../state/context'
+import { useDestinationActive } from '../panels/destination-page'
 import { DiffView } from './Diff'
 
 /**
@@ -32,12 +33,18 @@ export const AgentAttachments = ({
   readonly entry: AgentEntry
   readonly onProblem?: (problem: string | null) => void
 }) => {
+  const active = useDestinationActive()
   const store = useStore()
   const snapshot = useSnapshot()
   const [view, setView] = useState<AgentAttachmentsView | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [reviewing, setReviewing] = useState(false)
+  useEffect(() => {
+    if (active) return
+    setEditing(false)
+    setReviewing(false)
+  }, [active])
 
   useEffect(() => {
     let live = true
@@ -97,7 +104,7 @@ export const AgentAttachments = ({
       {entry.definition?.runtimeServers !== undefined && <SummaryItem label="Native servers">
         {entry.definition.runtimeServers.length === 0 ? 'None' : entry.definition.runtimeServers.join(', ')}
       </SummaryItem>}
-      {editing && (
+      {active && editing && (
         <AttachmentEditDialog
           entry={entry}
           view={view}
@@ -105,7 +112,7 @@ export const AgentAttachments = ({
           onSaved={(next) => { setView(next); setEditing(false) }}
         />
       )}
-      {reviewing && snapshot.workspace && (
+      {active && reviewing && snapshot.workspace && (
         <AttachmentReviewDialog entry={entry} root={snapshot.workspace.path} onClose={() => setReviewing(false)} />
       )}
     </>
@@ -173,8 +180,8 @@ const AttachmentEditDialog = ({
       onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" disabled={busy} onClick={onClose}>Cancel</Button>
           <Button variant="default" disabled={busy || !preview} onClick={save}>{busy ? 'Writing…' : 'Save'}</Button>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>Cancel</Button>
         </>
       }
     >

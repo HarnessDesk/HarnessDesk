@@ -31,6 +31,8 @@ import type {
   WebSearchItem,
 } from '@harnessdesk/protocol'
 
+import { sessionUnavailable } from '../lib/session-unavailable'
+import { waitsForApproval } from '../lib/approval-wait'
 import { stripAnsi } from '../lib/ansi'
 import {
   ActionError,
@@ -116,7 +118,7 @@ import {
   ToolIcon,
 } from './Icons'
 import { surfaceFor } from '../lib/notice-policy'
-import { useActiveSession, useSnapshot, useStore } from '../state/context'
+import { useActiveSession, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { isAgentMessageSource, splitContextContent, wrapContext } from '../lib/context-envelope'
 import { drawsAsImage, isRenderableImageUrl, unshownImage } from '../lib/images'
 import { Markdown } from './Markdown'
@@ -371,13 +373,14 @@ const useCopyFailed = () => {
 
 const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined }) => {
   const when = sentAt(at)
+  const unavailable = sessionUnavailable(useSnapshot(), useActiveSession())
   const copyFailed = useCopyFailed()
   return (
     <MessageFooter align="end" className="gap-(--hd-space-0-5)">
       {when && <Text as="span" role="meta" numeric className="mr-(--hd-space-1-5)">{when}</Text>}
       <span data-message-actions="user" className={styles.actions}>
         <CopyButton text={text} label="Copy this message" onError={copyFailed} />
-        <Button
+        {!unavailable && <Button
           variant="quiet" size="icon-xs" edge="end" edgeGlyph={13}
           title="Edit — puts this message in the composer"
           aria-label="Edit this message"
@@ -386,7 +389,7 @@ const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined 
           }
         >
           <PencilIcon size={13} />
-        </Button>
+        </Button>}
       </span>
     </MessageFooter>
   )
@@ -785,9 +788,8 @@ const Command = ({ item, root }: { item: CommandItem; root?: string }) => {
   const labels = useContext(StepPathLabels)
   const described = describeCommand(item, root, labels)
   const snapshot = useSnapshot()
-  const session = useActiveSession()
-  const waiting = item.status === 'inProgress' && snapshot.approvals.some(({ approval }) => approval.type === 'command'
-    && approval.itemId === item.id && (!session || approval.sessionId === session.id))
+  const key = useSessionKey()
+  const waiting = item.status === 'inProgress' && waitsForApproval(snapshot.approvals, key, [item])
   const folder = folderShown(item.cwd, snapshot.home, item.cwd)
   const listing = item.actions.length === 1 && item.actions[0]?.type === 'listFiles'
   const sentence = waiting ? `Waiting for approval · ${listing ? `List files in ${folder}` : shellCommandOf(item.command)}`
@@ -804,7 +806,7 @@ const Command = ({ item, root }: { item: CommandItem; root?: string }) => {
           {formatDuration(item.durationMs)}
         </>
       }
-      status={effectiveItemStatus(item)}
+      status={waiting ? undefined : effectiveItemStatus(item)}
       defaultOpen={item.status === 'inProgress'}
       bareBody
     >
@@ -1096,6 +1098,8 @@ const VERB_ICON: Record<ToolCallVerb, typeof ToolIcon> = {
 const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
   const copyFailed = useCopyFailed()
   const snapshot = useSnapshot()
+  const key = useSessionKey()
+  const waiting = item.status === 'inProgress' && waitsForApproval(snapshot.approvals, key, [item])
   const labels = useContext(StepPathLabels)
   const sentences = useMemo(() => toolSentences(snapshot.contributions), [snapshot.contributions])
   const described = describedTitle(item)
@@ -1169,7 +1173,8 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
     (detail?.kind === 'command' && SHELL_TOOLS.test(bare) && /^[a-z]+$/.test(bare))
   const wire = saysOnlyTheVerb ? null : wireNameOf(item.tool)
   // An MCP tool's server is the one word that says whose tool ran.
-  const label = described ?? (item.source.kind === 'mcp' ? `${item.source.server} · ${said}` : said)
+  const recordedLabel = described ?? (item.source.kind === 'mcp' ? `${item.source.server} · ${said}` : said)
+  const label = waiting ? `Waiting for approval · ${recordedLabel}` : recordedLabel
   // A call the lookup has no grammar for carries no object in its sentence,
   // so its one telling argument — the page, the query — stands beside it.
   const argument = !described && !detail ? headlineArg(item.args, root) : null
@@ -1208,7 +1213,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
           formatDuration(item.durationMs)
         )
       }
-      status={effectiveItemStatus(item)}
+      status={waiting ? undefined : effectiveItemStatus(item)}
       defaultOpen={Boolean(change) || item.status === 'inProgress'}
       bareBody={Boolean(change) || Boolean(command) || recordsCommand}
     >

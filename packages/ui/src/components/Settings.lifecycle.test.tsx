@@ -54,6 +54,29 @@ it('a real Settings custom add cannot reopen its destination after Work is selec
   }finally{act(()=>root.unmount());box.remove()}
 })
 
+it('a custom add after visiting Add a runtime closes its dialog and returns to the current runtime list', async () => {
+  const box = document.createElement('div'); document.body.append(box)
+  const root = createRoot(box), store = frameDestinationStore(previewStore())
+  const add = vi.spyOn(store, 'addAgent').mockResolvedValue(runtimeId('synthetic-added'))
+  store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'runtimes', focus: null } })
+  const button = (label: string) => [...document.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent?.trim() === label)!
+  try {
+    await act(async () => root.render(<StoreProvider store={store}><TopBarProvider><MainPages onNewTeam={() => {}} libraryImportIntent={0} onSignIn={() => {}} /></TopBarProvider></StoreProvider>))
+    await act(async () => { button('Add a runtime').click(); await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
+    await act(async () => button('Set up…').click())
+    for (const [label, value] of [['Name', 'Synthetic Agent'], ['Command', 'synthetic-agent']]) act(() => {
+      const id = [...document.querySelectorAll('label')].find(node => node.textContent?.trim() === label)!.htmlFor
+      const field = document.getElementById(id) as HTMLInputElement
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, value)
+      field.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await act(async () => { button('Add runtime').click(); await new Promise<void>(resolve => requestAnimationFrame(() => resolve())) })
+    expect(add).toHaveBeenCalledTimes(1)
+    expect(store.getSnapshot().workbench.navigation.current).toEqual({ kind: 'settings', route: { kind: 'section', section: 'runtimes', focus: null } })
+    expect(document.querySelector('[role="dialog"]')).toBeNull()
+  } finally { act(() => root.unmount()); box.remove() }
+})
+
 it('ignores an old browser discovery after hide and reactivation',async()=>{
   const box=document.createElement('div');document.body.append(box);const root=createRoot(box),store=previewStore()
   let resolve!:(value:readonly {name:string;path:string}[])=>void
