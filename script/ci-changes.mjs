@@ -5,8 +5,10 @@ import { dirname, extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { recordedSeconds, shardCount, specFiles } from './ci-browser-shards.mjs'
-import { IMPORT, SOURCE, SPEC, resolveHelper, specsReaching, suiteGraph } from './ci-imports.mjs'
+import { IMPORT, SOURCE, SPEC, resolveHelper, specsReaching, suiteGraph, uiPackages } from './ci-imports.mjs'
 import { impactPlan, readMap, uiSource } from './ui-impact.mjs'
+
+export { uiPackages }
 
 // Shared inputs are written once and included in both job lists below.
 const SHARED = [
@@ -48,33 +50,6 @@ const NATIVE = [
   /^script\/lib\//, // Native launch helpers and temporary-directory cleanup.
 ]
 
-// Resolve the UI's transitive workspace inputs from manifests, so adding a
-// workspace dependency cannot silently leave it outside full browser coverage.
-export function uiPackages(root) {
-  const manifests = new Map(readdirSync(join(root, 'packages'), { withFileTypes: true })
-    .filter(entry => entry.isDirectory())
-    .map(entry => {
-      const manifest = JSON.parse(readFileSync(join(root, 'packages', entry.name, 'package.json'), 'utf8'))
-      return [manifest.name, { directory: entry.name, manifest }]
-    }))
-  const inputs = new Set()
-  const visit = name => {
-    const entry = manifests.get(name)
-    if (!entry) throw new Error(`Unknown workspace input: ${name}`)
-    if (inputs.has(entry.directory)) return
-    inputs.add(entry.directory)
-    const dependencies = { ...entry.manifest.dependencies, ...entry.manifest.devDependencies, ...entry.manifest.optionalDependencies }
-    for (const [dependency, version] of Object.entries(dependencies)) {
-      if (String(version).startsWith('workspace:')) visit(dependency)
-    }
-  }
-  visit('@harnessdesk/ui')
-  return inputs
-}
-
-// Literal static/dynamic imports and re-exports, including those in local
-// helpers. Over-selection (for example an import in a comment) is harmless;
-// no manual spec list can become stale when a spec starts reading host code.
 export function serverSpecs(root, inputs) {
   const suite = join(root, 'e2e/ui-system')
   const files = directory => readdirSync(directory, { withFileTypes: true }).flatMap(entry =>

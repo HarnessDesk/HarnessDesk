@@ -46,32 +46,48 @@ export const test = real.test.extend<{ impactRecorder: void }, { impactSink: Map
   impactRecorder: [async ({ page, impactSink }, use, testInfo) => {
     const file = path.relative(process.cwd(), testInfo.file).split(path.sep).join('/')
     const seen = impactSink.get(file) ?? { tests: 0, unclean: 0, loaded: new Set<string>(), ran: new Set<string>() }
-    const cdp = await page.context().newCDPSession(page)
+    // Anything that stops the browser from answering makes this test's record unusable, and the spec
+    // with it: a record that cannot be trusted must not look like a record of a page that ran nothing.
+    let failed = false
+    const reads: Promise<void>[] = []
     // Each read starts the browser's record afresh, so every read adds to what the test has seen.
+    let cdp: Awaited<ReturnType<ReturnType<typeof page.context>['newCDPSession']>> | undefined
     const read = async () => {
-      const { result } = await cdp.send('Profiler.takePreciseCoverage').catch(() => ({ result: [] as Script[] }))
-      for (const script of result as Script[]) {
-        let key: string
-        try {
-          const url = new URL(script.url)
-          if (!/^https?:$/.test(url.protocol)) continue
-          key = decodeURIComponent(url.pathname)
-        } catch { continue }
-        seen.loaded.add(key)
-        if (ranOwnCode(script)) seen.ran.add(key)
+      try {
+        const { result } = await cdp!.send('Profiler.takePreciseCoverage')
+        for (const script of result as Script[]) {
+          let key: string
+          try {
+            const url = new URL(script.url)
+            if (!/^https?:$/.test(url.protocol)) continue
+            key = decodeURIComponent(url.pathname)
+          } catch { continue }
+          seen.loaded.add(key)
+          if (ranOwnCode(script)) seen.ran.add(key)
+        }
+      } catch {
+        failed = true
       }
     }
-    await cdp.send('Profiler.enable')
-    await cdp.send('Profiler.startPreciseCoverage', { callCount: false, detailed: false })
-    // A page that is about to be replaced is read first, while its scripts are still alive.
-    await cdp.send('Page.enable')
-    cdp.on('Page.frameStartedNavigating', () => { void read() })
+    try {
+      cdp = await page.context().newCDPSession(page)
+      await cdp.send('Profiler.enable')
+      await cdp.send('Profiler.startPreciseCoverage', { callCount: false, detailed: false })
+      // A page that is about to be replaced is read first, while its scripts are still alive.
+      await cdp.send('Page.enable')
+      cdp.on('Page.frameStartedNavigating', () => { reads.push(read()) })
+    } catch {
+      failed = true
+    }
     await use()
-    await read()
-    await cdp.send('Profiler.stopPreciseCoverage').catch(() => undefined)
+    if (cdp && !failed) {
+      reads.push(read())
+      await Promise.all(reads)
+      await cdp.send('Profiler.stopPreciseCoverage').catch(() => undefined)
+    }
     seen.tests += 1
     // A test that ended as it was meant to (a failure that was expected, or a skip) taught nothing wrong.
-    if (testInfo.status !== testInfo.expectedStatus && testInfo.status !== 'skipped') seen.unclean += 1
+    if (failed || (testInfo.status !== testInfo.expectedStatus && testInfo.status !== 'skipped')) seen.unclean += 1
     impactSink.set(file, seen)
   }, { auto: true }],
 })

@@ -12,6 +12,7 @@ import { extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { SOURCE, walk } from './ci-imports.mjs'
+import { queriedImporters } from './ui-impact.mjs'
 
 const UI = 'packages/ui/'
 const TRACKED = /^packages\/ui\/(?:src|site-demo)\//
@@ -50,7 +51,13 @@ export function unitPlan(root, { event, paths }) {
   if (files.length === 0) return { mode: 'none', files: [], summary: 'UI unit tests: none, the change is not read by one.' }
   if (files.length > MOST) return all(`${files.length} files changed`)
   const readers = treeReaders(root)
-  const run = [...new Set([...files, ...readers])].sort()
+  // A file imported with a query reaches its importers, which Vitest does not follow itself.
+  const queried = queriedImporters(root)
+  const reached = new Set(files.map(file => `packages/ui/${file}`))
+  for (const path of reached) {
+    for (const importer of queried.get(path) ?? []) reached.add(importer)
+  }
+  const run = [...new Set([...[...reached].map(path => path.slice(UI.length)), ...readers])].sort()
   return { mode: 'related', files: run, summary: `UI unit tests: those that depend on ${files.length} changed file${files.length === 1 ? '' : 's'}, and ${readers.length} that read the tree.` }
 }
 

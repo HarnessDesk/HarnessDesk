@@ -91,11 +91,17 @@ the specs ran:
   cache. A pull request reads that map: a changed file runs the specs that ran
   it, a stylesheet or a constant (nothing in it runs) runs the specs that ran
   whoever imports it, and a file added or deleted also runs the specs that ran
-  the modules that load files by a pattern. A spec the map has not seen,
-  or whose own code or helpers have changed since, always runs. Anything the map
-  cannot speak for runs every spec: no map, a file that changed on the base
-  branch since the map was recorded, a file outside the UI's source, a change to
-  shared inputs. `main` always runs everything, so a miss is found there and fixed
+  the modules that load files by a pattern. A module that hands data to its
+  importers (`export const LABEL = …`) also runs the specs in which they ran, and
+  a stylesheet the bundler took into another (`@import`, `url()`) is followed to
+  whoever imports that. A spec the map has not seen, or whose own code or helpers
+  have changed since, always runs, and so does a spec that opens pages of its own
+  (the recorder sees only the page a test is given) or whose recording was not
+  complete (`playwright test --list` says how many tests it has). Anything the
+  map cannot speak for runs every spec: no map, a file that changed on the base
+  branch since the map was recorded, a change to the setup it was recorded in
+  (the browser configuration, dependencies, the pages, the workspace packages the
+  preview loads), a file outside the UI's source, a change to shared inputs. `main` always runs everything, so a miss is found there and fixed
   forward. To see what a change would run, with a map downloaded from a run
   (`ui-impact-map`): `node script/ui-impact.mjs select --map ui-impact-map.json --fresh <paths>`.
   The recording is `script/ui-impact/test.ts`, a build of `@playwright/test` the

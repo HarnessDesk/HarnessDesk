@@ -227,7 +227,9 @@ test('a full run records what each spec ran, and only a pull request that runs p
   assert.ok(changes.includes('      record: ${{ steps.paths.outputs.record }}'))
   const browser = job('ui-system-browser')
   assert.ok(browser.includes('RECORD: ${{ needs.changes.outputs.record }}'))
-  assert.match(browser, /^          if \[ "\$RECORD" = "true" \]; then\n            UI_IMPACT_DIR="\$PWD\/output\/ui-impact" pnpm test:ui-system --tsconfig script\/ui-impact\/tsconfig\.json "\$\{specs\[@\]\}"$/m)
+  assert.match(browser, /^          if \[ "\$RECORD" = "true" \]; then\n            mkdir -p output\/ui-impact\n            UI_IMPACT_DIR="\$PWD\/output\/ui-impact" pnpm test:ui-system --tsconfig script\/ui-impact\/tsconfig\.json "\$\{specs\[@\]\}"$/m)
+  // The tests each spec has are listed beside the records, so a partial record is told from a complete one.
+  assert.match(browser, /pnpm test:ui-system --list --reporter=json "\$\{specs\[@\]\}" > "output\/ui-impact\/expected-\$UI_IMPACT_SHARD\.json"/)
   assert.match(browser, /- uses: actions\/upload-artifact@\S+\n        if: success\(\) && needs\.changes\.outputs\.record == 'true'\n        with:\n          name: ui-impact-\$\{\{ matrix\.shard \}\}\n          path: output\/ui-impact\//)
 })
 

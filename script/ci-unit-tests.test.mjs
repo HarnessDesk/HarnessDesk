@@ -74,3 +74,15 @@ test('the command line reads a list of paths separated by NUL and prints the pla
     rmSync(directory, { recursive: true, force: true })
   }
 })
+
+test('a file imported with a query reaches its importers, which Vitest does not follow', () => {
+  // `Approvals.css.test.ts` reads `ApprovalDialog.module.css?raw`, and `BrandIcons.tsx` reads `mark.svg?raw`.
+  const sheet = plan(['packages/ui/src/design/patterns/ApprovalDialog.module.css'])
+  assert.equal(sheet.mode, 'related')
+  assert.ok(sheet.files.includes('src/components/Approvals.css.test.ts'), sheet.files.join(' '))
+  const mark = plan(['packages/ui/src/assets/brand/mark.svg'])
+  assert.ok(mark.files.includes('src/components/BrandIcons.tsx'), 'the module is asked about, and Vitest finds the tests that depend on it')
+  // The review's own example: a colour taken out of the editor's stylesheet is checked by a test that reads it with `?raw`.
+  const editor = plan(['packages/ui/src/styles/editor.css'])
+  assert.ok(editor.files.some(file => /editor-tokens\.test\.ts$/.test(file)), editor.files.join(' '))
+})

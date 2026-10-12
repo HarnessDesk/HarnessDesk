@@ -6,8 +6,8 @@ import { dirname, extname, join, relative } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { IMPORT, SOURCE, walk } from './ci-imports.mjs'
-import { MAP_VERSION, impactedSpecs, mergeRecords, readMap, repoPath, uiFiles, uiGlobbers, uiImporters } from './ui-impact.mjs'
+import { IMPORT, SOURCE, suiteGraph, unobservedSpecs, walk } from './ci-imports.mjs'
+import { MAP_VERSION, expectedCounts, exportsData, impactedSpecs, mergeRecords, readMap, repoPath, uiFiles, uiGlobbers, uiImporters } from './ui-impact.mjs'
 
 const real = fileURLToPath(new URL('../', import.meta.url))
 
@@ -33,6 +33,12 @@ const write = (root, files) => {
 const fixture = (extra = {}) => {
   const root = mkdtempSync(join(tmpdir(), 'ui-impact-'))
   write(root, { ...tree, ...extra })
+  return root
+}
+const fixtureWithout = path => {
+  const root = fixture()
+  rmSync(join(root, 'e2e/ui-system/b.spec.ts'), { force: true })
+  rmSync(join(root, path), { force: true })
   return root
 }
 const record = (file, { tests = 2, unclean = 0, loaded, ran }) => ({ [file]: { tests, unclean, loaded, ran } })
@@ -315,4 +321,133 @@ test('adding or deleting a file reaches the specs that ran a module which loads 
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+test('a stylesheet the bundler took into another has no script of its own, and still reaches whoever imports the other', () => {
+  const root = fixture({
+    'packages/ui/src/z.css': "@import './inner.css';\n.x { background: url(./font.woff2) }\n",
+    'packages/ui/src/inner.css': '.inner { color: red }\n',
+    'packages/ui/src/font.woff2': 'binary',
+  })
+  try {
+    const map = recorded(root)
+    // The run saw `z.css` as a script and neither of the two files it names.
+    for (const path of ['packages/ui/src/inner.css', 'packages/ui/src/font.woff2']) {
+      assert.deepEqual(map.files[path].loaded, [], path)
+      assert.deepEqual(impactedSpecs(map, [path], context(root, map)).specs, ['a.spec.ts'], path)
+    }
+    // A script nobody loaded still reaches no one.
+    assert.deepEqual(impactedSpecs(map, ['packages/ui/src/types.ts'], context(root, map)).specs, [])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a module that hands data to its importers reaches the specs in which they ran, not only the ones that called it', () => {
+  const root = fixture()
+  try {
+    const map = mergeRecords(root, [
+      record('e2e/ui-system/a.spec.ts', { loaded: everything, ran: ['/src/x.tsx', '/src/shared.ts'] }),
+      record('e2e/ui-system/b.spec.ts', { loaded: everything, ran: ['/src/y.tsx'] }),
+    ])
+    const shared = 'packages/ui/src/shared.ts'
+    assert.deepEqual(impactedSpecs(map, [shared], context(root, map)).specs, ['a.spec.ts'], 'by its functions alone')
+    assert.deepEqual(impactedSpecs(map, [shared], context(root, map, { dataExports: () => true })).specs, ['a.spec.ts', 'b.spec.ts'], 'and by what its importers read')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a module hands data to its importers when it exports a value that is not a function', () => {
+  for (const [text, expected] of [
+    ["export const LABEL = 'Ready'", true],
+    ['export const ITEMS = [1, 2]', true],
+    ['export const limits: Limits = { max: 3 }', true],
+    ['export default { a: 1 }', true],
+    ['export enum Kind { A }', true],
+    ['export const Foo = ({ a }) => a', false],
+    ['export const Foo = (a: string) => a', false],
+    ['export const Foo = async (a) => a', false],
+    ['export const Foo = a => a', false],
+    ['export const Foo = <T,>(a: T) => a', false],
+    ['export const Foo = forwardRef<HTMLDivElement, Props>((props, ref) => null)', false],
+    ['export const Foo = memo(function Foo() { return null })', false],
+    ['export const variants = cva("a", { variants: {} })', false],
+    ['export function foo() {}\nexport default function Foo() {}', false],
+    ['export class Store {}', false],
+    ['const hidden = [1]\nexport function read() { return hidden }', false],
+    ["export const a = () => 1\nexport const B = 'two'", true],
+  ]) assert.equal(exportsData(text), expected, text)
+})
+
+test('a spec is in the map only if every test it has was recorded, and it opens no page the recorder cannot see', () => {
+  const root = fixture()
+  try {
+    const records = [
+      record('e2e/ui-system/a.spec.ts', { tests: 2, loaded: everything, ran: everything }),
+      record('e2e/ui-system/b.spec.ts', { tests: 2, loaded: everything, ran: everything }),
+    ]
+    assert.deepEqual(mergeRecords(root, records, { expected: { 'a.spec.ts': 2, 'b.spec.ts': 3 } }).specs, ['a.spec.ts'], 'b has a test that left no record')
+    assert.deepEqual(mergeRecords(root, records, { expected: {} }).specs, [], 'nothing is known to be whole')
+    assert.deepEqual(mergeRecords(root, records, { expected: { 'a.spec.ts': 2, 'b.spec.ts': 2 }, unobserved: ['a.spec.ts'] }).specs, ['b.spec.ts'])
+    assert.deepEqual(mergeRecords(root, records, { environment: { 'package.json': 'abc' } }).environment, { 'package.json': 'abc' })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the specs that open pages of their own are found through the helpers that open them', () => {
+  const root = fixture({
+    'e2e/ui-system/opens.ts': 'export const open = async browser => browser.newPage()\n',
+    'e2e/ui-system/b.spec.ts': "import { open } from './opens'\nopen()\n",
+  })
+  try {
+    assert.deepEqual(unobservedSpecs(root), ['b.spec.ts'])
+    assert.deepEqual(unobservedSpecs(fixtureWithout('e2e/ui-system/opens.ts')), [])
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a change to the setup the map was recorded in ends the map', () => {
+  const root = fixture()
+  try {
+    const map = { ...recorded(root), environment: { 'package.json': 'a'.repeat(40), 'packages/protocol': 'b'.repeat(40) } }
+    const same = impactedSpecs(map, ['packages/ui/src/x.tsx'], context(root, map, { baseEnvironment: () => ({ ...map.environment }) }))
+    assert.deepEqual(same.specs, ['a.spec.ts'])
+    const moved = impactedSpecs(map, ['packages/ui/src/x.tsx'], context(root, map, { baseEnvironment: () => ({ ...map.environment, 'packages/protocol': 'c'.repeat(40) }) }))
+    assert.equal(moved.specs, null)
+    assert.match(moved.reason, /packages\/protocol has changed on the base branch since the map/)
+    assert.match(impactedSpecs(map, [], context(root, map, { baseEnvironment: () => null })).reason, /setup of the base branch cannot be read/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('a test file is no input of a browser, wherever its version stands', () => {
+  const root = fixture()
+  try {
+    const map = recorded(root)
+    const moved = impactedSpecs(map, ['packages/ui/src/x.test.tsx'], context(root, map, { baseFiles: () => baseOf(map, files => { files['packages/ui/src/x.test.tsx'] = 'f'.repeat(40) }) }))
+    assert.deepEqual(moved, { specs: [], reason: null })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('the tests of each spec come from the listing of the run', () => {
+  const listing = { suites: [{ file: 'e2e/ui-system/a.spec.ts', specs: [{ tests: [{}] }, { tests: [{}, {}] }], suites: [{ specs: [{ tests: [{}] }] }] }, { file: 'e2e/ui-system/b.spec.ts', specs: [] }] }
+  assert.deepEqual(expectedCounts([listing, { suites: [{ file: 'e2e/ui-system/c.spec.ts', specs: [{ tests: [{}] }] }] }]), { 'a.spec.ts': 4, 'c.spec.ts': 1 })
+})
+
+test('every stylesheet of the UI names, by @import or url(), files that are in the tree', () => {
+  const missing = []
+  for (const path of Object.keys(uiFiles(real)).filter(path => path.endsWith('.css'))) {
+    const text = readFileSync(join(real, path), 'utf8')
+    for (const [, specifier] of [...text.matchAll(/@import\s+(?:url\(\s*)?['"]([^'"\n]+)['"]/g), ...text.matchAll(/url\(\s*['"]?(\.[^'")\s]+)['"]?\s*\)/g)]) {
+      if (!specifier.startsWith('.')) continue
+      if (!existsSync(join(dirname(join(real, path)), specifier.replace(/[?#].*$/, '')))) missing.push(`${path}: ${specifier}`)
+    }
+  }
+  assert.deepEqual(missing, [])
 })

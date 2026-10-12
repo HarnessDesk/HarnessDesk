@@ -476,7 +476,10 @@ jobs:
           # An empty deal must never accidentally run the entire suite.
           test "${#specs[@]}" -gt 0
           if [ "$RECORD" = "true" ]; then
+            mkdir -p output/ui-impact
             UI_IMPACT_DIR="$PWD/output/ui-impact" pnpm test:ui-system --tsconfig script/ui-impact/tsconfig.json "${specs[@]}"
+            # How many tests each of these specs has: a record with fewer is partial, and its spec is not planned from it.
+            pnpm test:ui-system --list --reporter=json "${specs[@]}" > "output/ui-impact/expected-$UI_IMPACT_SHARD.json"
           else
             pnpm test:ui-system "${specs[@]}"
           fi

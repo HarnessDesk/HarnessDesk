@@ -287,7 +287,7 @@ const impactMap = () => {
 const planWith = (inputs, impact, over = {}) => browserPlan(real, {
   browser: 'all', inputs, serverInputs: false, event: 'pull_request', themeTouched: false, request: '', baseText: () => null, impact, ...over,
 })
-const current = map => ({ map, baseFiles: () => Object.fromEntries(Object.entries(map.files).map(([path, entry]) => [path, entry.blob])) })
+const current = map => ({ map, baseFiles: () => Object.fromEntries(Object.entries(map.files).map(([path, entry]) => [path, entry.blob])), baseEnvironment: () => map.environment })
 
 test('a change to the UI runs the specs in which that source ran, in the light theme', () => {
   const map = impactMap()
@@ -309,7 +309,7 @@ test('a file that has moved on since the map was recorded runs every spec, and t
   const map = impactMap()
   const base = current(map).baseFiles()
   base['packages/ui/src/components/BringHome.tsx'] = 'f'.repeat(40)
-  const run = planWith(['packages/ui/src/components/BringHome.tsx'], { map, baseFiles: () => base })
+  const run = planWith(['packages/ui/src/components/BringHome.tsx'], { ...current(map), baseFiles: () => base })
   assert.equal(run.specs, 'all')
   assert.match(run.summary, /Not narrowed: .*BringHome\.tsx has changed on the base branch since the map was recorded/)
 })

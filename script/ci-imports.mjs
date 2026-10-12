@@ -43,6 +43,12 @@ export const findSource = (file, specifier) => {
     .find(candidate => existsSync(candidate) && statSync(candidate).isFile() && SOURCE.includes(extname(candidate))) ?? null
 }
 
+// The file a URL names, whatever it is: a data file a spec reads is as much a part of it as a helper it imports.
+export const findFile = (file, specifier) => {
+  const target = resolve(dirname(file), specifier)
+  return existsSync(target) && statSync(target).isFile() ? target : null
+}
+
 // Whether a file names a helper any way at all: a path built by hand, a name in a
 // string. A scan that missed an edge would run too little, one that found a stray
 // edge runs a spec too many.
@@ -73,7 +79,7 @@ export function suiteGraph(root) {
       if (helper) edge(helper, file)
     }
     for (const [, specifier] of text.matchAll(URL_IMPORT)) {
-      const helper = findSource(file, specifier)
+      const helper = findFile(file, specifier)
       if (helper) edge(helper, file)
     }
     for (const helper of helpers) {
@@ -117,4 +123,51 @@ export function specsReaching(graph, files) {
     queue.push(...(graph.importers.get(file) ?? []))
   }
   return [...reached].filter(file => SPEC.test(file) && file.startsWith(`${graph.suite}/`))
+}
+
+// The text of every source file of the suite, by path.
+export function suiteTexts(graph) {
+  return new Map(graph.sources.map(file => [file, readFileSync(file, 'utf8')]))
+}
+
+// The specs that name a data file (a `.json` they read, a stylesheet they parse) anywhere in their own
+// text or a helper's, by the file's name: a spec that reads one by a path built by hand has no import
+// to follow, and the name is all that ties it to the file.
+export function specsNaming(graph, path, texts = suiteTexts(graph)) {
+  const name = basename(path)
+  if (SOURCE.includes(extname(path)) || name.length < 6) return []
+  const naming = [...texts].filter(([, text]) => text.includes(name)).map(([file]) => file)
+  return specsReaching(graph, naming).map(file => relative(graph.suite, file))
+}
+
+// Specs whose tests open pages of their own, which the recorder never sees (it watches the page a test is
+// given): they cannot be planned from a record, so they always run.
+export function unobservedSpecs(root, graph = suiteGraph(root)) {
+  const opens = /\.new(?:Page|Context)\s*\(|\.launch\s*\(/
+  const holding = graph.sources.filter(file => opens.test(readFileSync(file, 'utf8')))
+  return specsReaching(graph, holding).map(file => relative(graph.suite, file)).sort()
+}
+
+// The workspace packages the UI is built from, resolved from the manifests, so adding a
+// workspace dependency cannot silently leave it outside full browser coverage.
+export function uiPackages(root) {
+  const manifests = new Map(readdirSync(join(root, 'packages'), { withFileTypes: true })
+    .filter(entry => entry.isDirectory())
+    .map(entry => {
+      const manifest = JSON.parse(readFileSync(join(root, 'packages', entry.name, 'package.json'), 'utf8'))
+      return [manifest.name, { directory: entry.name, manifest }]
+    }))
+  const inputs = new Set()
+  const visit = name => {
+    const entry = manifests.get(name)
+    if (!entry) throw new Error(`Unknown workspace input: ${name}`)
+    if (inputs.has(entry.directory)) return
+    inputs.add(entry.directory)
+    const dependencies = { ...entry.manifest.dependencies, ...entry.manifest.devDependencies, ...entry.manifest.optionalDependencies }
+    for (const [dependency, version] of Object.entries(dependencies)) {
+      if (String(version).startsWith('workspace:')) visit(dependency)
+    }
+  }
+  visit('@harnessdesk/ui')
+  return inputs
 }

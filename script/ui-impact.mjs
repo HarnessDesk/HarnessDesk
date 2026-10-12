@@ -18,15 +18,26 @@ import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-import { IMPORT, SOURCE, URL_IMPORT, blobSha, specHashes, specsReaching, suiteGraph, walk } from './ci-imports.mjs'
+import { IMPORT, SOURCE, URL_IMPORT, blobSha, specHashes, specsNaming, specsReaching, suiteGraph, suiteTexts, uiPackages, unobservedSpecs, walk } from './ci-imports.mjs'
 
-export const MAP_VERSION = 1
+export const MAP_VERSION = 2
 const UI_ROOTS = ['packages/ui/src', 'packages/ui/site-demo']
 const CSS_IMPORT = /@import\s+(?:url\(\s*)?['"]([^'"\n]+)['"]/g
-
+const CSS_URL = /url\(\s*['"]?(\.[^'")\s]+)['"]?\s*\)/g
 const TEST_FILE = /\.test\.[cm]?[jt]sx?$/
 
+// What the recorded coverage depends on besides the UI's own files: the browser and the dev server's
+// configuration, the dependencies, the pages, the recording build, and the workspace packages the
+// preview loads. A change to any of them since the map was recorded makes the map a record of another
+// setup.
+const ENVIRONMENT = [
+  'playwright.ui-system.config.ts', 'package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml',
+  'packages/ui/package.json', 'packages/ui/vite.config.ts', 'packages/ui/tsconfig.json',
+  'packages/ui/preview.html', 'packages/ui/index.html', 'packages/ui/design.html', 'script/ui-impact',
+]
+
 export const uiSource = path => UI_ROOTS.some(prefix => path.startsWith(`${prefix}/`))
+const isScript = path => SOURCE.includes(extname(path))
 
 // The file in the repository a module of the preview came from, or null for
 // anything that is not the UI's own source: the dev server's own modules,
@@ -63,16 +74,17 @@ const resolveUi = (root, file, specifier) => {
     .find(candidate => existsSync(candidate) && statSync(candidate).isFile()) ?? null
 }
 
-// Who imports whom among the UI's files: scripts and stylesheets, by the path
-// each is written under. A specifier that names nothing in the tree is left out;
-// `ui-impact.test.mjs` checks that none of the UI's own does.
+// Who imports whom among the UI's files: scripts and stylesheets, by the path each is
+// written under, and the files a stylesheet names (`@import`, `url(...)`). A specifier
+// that names nothing in the tree is left out; `ui-impact.test.mjs` checks that none of
+// the UI's own does.
 export function uiImporters(root, files = Object.keys(uiFiles(root))) {
   const importers = new Map()
   for (const path of files) {
     const extension = extname(path)
     if (!SOURCE.includes(extension) && extension !== '.css') continue
     const text = readFileSync(join(root, path), 'utf8')
-    const specifiers = [...text.matchAll(IMPORT), ...text.matchAll(URL_IMPORT), ...(extension === '.css' ? text.matchAll(CSS_IMPORT) : [])].map(match => match[1])
+    const specifiers = [...text.matchAll(IMPORT), ...text.matchAll(URL_IMPORT), ...(extension === '.css' ? [...text.matchAll(CSS_IMPORT), ...text.matchAll(CSS_URL)] : [])].map(match => match[1])
     for (const specifier of specifiers) {
       const target = resolveUi(root, join(root, path), specifier)
       if (!target) continue
@@ -83,14 +95,62 @@ export function uiImporters(root, files = Object.keys(uiFiles(root))) {
   return importers
 }
 
+// The files that are imported with a query (`./editor.css?raw`, `?url`, `?inline`) and who imports them, by the
+// path of the file without the query. Vitest looks for a changed file under the id it was imported by, query
+// included, so an edit to such a file reaches no test through it; the importers are the ones to ask about.
+export function queriedImporters(root, files = Object.keys(uiFiles(root))) {
+  const importers = new Map()
+  for (const path of files) {
+    if (!SOURCE.includes(extname(path))) continue
+    for (const [, specifier] of readFileSync(join(root, path), 'utf8').matchAll(IMPORT)) {
+      if (!/[?#]/.test(specifier)) continue
+      const target = resolveUi(root, join(root, path), specifier)
+      if (!target) continue
+      const key = relative(root, target)
+      importers.set(key, new Set([...(importers.get(key) ?? []), path]))
+    }
+  }
+  return importers
+}
+
+// Whether a module hands data to the modules that import it, which they read when
+// they run and not when this module's functions do: `export const LABEL = 'Ready'`
+// changes what a component renders that never calls anything of the module's. A
+// constant that is a function (an arrow, a component wrapper) does not count.
+export function exportsData(text) {
+  const functionLike = /^(?:async\s+)?(?:function\b|class\b|\(|<|[A-Za-z_$][\w$]*\s*=>|(?:React\.)?(?:forwardRef|memo|lazy)\b|cva\()/
+  for (const match of text.matchAll(/^export\s+(?:const|let|var)\s+[\w$]+[^=\n]*=\s*(.*)$/gm)) {
+    if (!functionLike.test(match[1])) return true
+  }
+  return /^export\s+default\s+(?!(?:async\s+)?(?:function|class)\b|\(|[A-Za-z_$][\w$]*\s*=>)/m.test(text) || /^export\s+(?:const\s+)?enum\b/m.test(text)
+}
+
 const compress = (indexes, total) => (total > 0 && indexes.length === total ? 'all' : indexes)
 const expand = (value, total) => (value === 'all' ? Array.from({ length: total }, (_, index) => index) : value)
 
-// One map from the records of every worker of every shard of a full run. A spec
-// is in the map only if every test of it that was recorded passed: a spec that is
-// missing, or was recorded in part, runs on every pull request until a clean run
-// puts it back.
-export function mergeRecords(root, records, { commit = '' } = {}) {
+// The fingerprint of the setup a map was recorded in: the version of each of these
+// paths in a revision (a file's blob or a folder's tree), by git.
+export function environmentAt(root, revision = 'HEAD') {
+  const paths = [...ENVIRONMENT, ...[...uiPackages(root)].filter(name => name !== 'ui').map(name => `packages/${name}`)]
+  const environment = {}
+  for (const path of paths) {
+    try {
+      environment[path] = execFileSync('git', ['rev-parse', '--verify', '--quiet', `${revision}:${path}`], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()
+    } catch {
+      environment[path] = ''
+    }
+  }
+  return environment
+}
+
+// One map from the records of every worker of every shard of a full run. A spec is
+// in the map only if every test it has was recorded, and every one passed: a spec that
+// is missing, or was recorded in part, or opens pages of its own that the recorder never
+// sees, runs on every pull request until a clean run puts it back.
+//
+//   expected      how many tests each spec has (`playwright test --list`); without it no spec is complete
+//   environment   the setup the run was made in (`environmentAt`)
+export function mergeRecords(root, records, { commit = '', expected = null, environment = {}, unobserved = [] } = {}) {
   const seen = new Map()
   for (const record of records) {
     for (const [file, entry] of Object.entries(record)) {
@@ -104,7 +164,9 @@ export function mergeRecords(root, records, { commit = '' } = {}) {
     }
   }
   const hashes = specHashes(root)
-  const specs = [...seen].filter(([name, total]) => total.tests > 0 && total.unclean === 0 && name in hashes).map(([name]) => name).sort()
+  const complete = (name, total) => total.tests > 0 && total.unclean === 0 && name in hashes && !unobserved.includes(name)
+    && (expected === null || expected[name] === total.tests)
+  const specs = [...seen].filter(([name, total]) => complete(name, total)).map(([name]) => name).sort()
   const files = Object.fromEntries(Object.entries(uiFiles(root)).map(([path, blob]) => [path, { blob, loaded: [], ran: [] }]))
   specs.forEach((name, index) => {
     const total = seen.get(name)
@@ -119,14 +181,14 @@ export function mergeRecords(root, records, { commit = '' } = {}) {
     entry.loaded = compress(entry.loaded, specs.length)
     entry.ran = compress(entry.ran, specs.length)
   }
-  return { version: MAP_VERSION, commit, specs, hashes: specs.map(name => hashes[name]), files }
+  return { version: MAP_VERSION, commit, environment, specs, hashes: specs.map(name => hashes[name]), files }
 }
 
 // The modules that pick up other files by a pattern (`import.meta.glob`): adding or
 // deleting a file the pattern matches changes what they load without a change to
 // any importer, so such a change reaches the specs that ran them.
 export function uiGlobbers(root, files = Object.keys(uiFiles(root))) {
-  return files.filter(path => SOURCE.includes(extname(path)) && !TEST_FILE.test(path)
+  return files.filter(path => isScript(path) && !TEST_FILE.test(path)
     && /import\.meta\.glob\s*[<(]/.test(readFileSync(join(root, path), 'utf8'))).sort()
 }
 
@@ -136,6 +198,7 @@ export function readMap(file) {
     const map = JSON.parse(readFileSync(file, 'utf8'))
     const ok = map && map.version === MAP_VERSION && Array.isArray(map.specs) && Array.isArray(map.hashes)
       && map.hashes.length === map.specs.length && map.files && typeof map.files === 'object' && map.specs.length > 0
+      && map.environment && typeof map.environment === 'object'
     return ok ? map : null
   } catch {
     return null
@@ -145,24 +208,30 @@ export function readMap(file) {
 // The specs a change to these files of the UI can reach, as `{ specs, reason }`
 // with `specs: null` when it cannot be told and the whole suite should run.
 //
-// A file is reached by the specs in which some function of it ran. A file in which
-// none ever ran (a stylesheet, a constant, a type, an image) is reached through
-// whoever imports it, since that is where its values go. A file nobody imports that
-// was loaded is reached by every spec that loaded it.
+// A file is reached by the specs in which some function of it ran. A module that
+// also hands data to its importers (`exportsData`) is reached by the specs in which
+// they ran. A file in which none ever ran (a stylesheet, a constant, a type, an
+// image, a font) is reached through whoever imports it, since that is where its
+// values go; so is one that only the browser's bundler can have taken in
+// (a stylesheet another one `@import`s has no script of its own). A script nobody
+// loaded is reached by no one.
 //
 // The map was recorded on a commit of `main`, and a pull request is made against a
 // later one. What `main` changed in between is read from the files of the base
 // branch: a file that was changed there is treated as if this change had touched it
-// too, and one that was added there, or removed, is not in the map's picture at all.
+// too, one that was added there, or removed, is not in the map's picture at all, and
+// a change to the setup the map was recorded in ends the map.
 //
-//   allSpecs    every spec there is now
-//   specHash    the id of a spec as it is now (`specHashes`)
-//   baseFiles   the UI's files on the branch the change is made against, as { path: blob }, or null
-//   importers   who imports a file, among the UI's files
-//   nodeSpecs   the specs that name a file from their own code (a constant they import)
-//   exists      whether a file is there now
-//   globbers    the modules that load files by a pattern (`uiGlobbers`)
-export function impactedSpecs(map, paths, { allSpecs, specHash, baseFiles, importers, nodeSpecs = () => [], exists = () => true, globbers = () => [] }) {
+//   allSpecs         every spec there is now
+//   specHash         the id of a spec as it is now (`specHashes`)
+//   baseFiles        the UI's files on the branch the change is made against, as { path: blob }, or null
+//   baseEnvironment  the setup on that branch (`environmentAt`), or null
+//   importers        who imports a file, among the UI's files
+//   nodeSpecs        the specs that name a file from their own code (a constant they import, a data file they read)
+//   exists           whether a file is there now
+//   globbers         the modules that load files by a pattern (`uiGlobbers`)
+//   dataExports      whether a module hands data to its importers (`exportsData` of its text)
+export function impactedSpecs(map, paths, { allSpecs, specHash, baseFiles, baseEnvironment = () => map.environment, importers, nodeSpecs = () => [], exists = () => true, globbers = () => [], dataExports = () => false }) {
   const total = map.specs.length
   const selected = new Set()
   const index = new Map(map.specs.map((name, position) => [name, position]))
@@ -175,21 +244,28 @@ export function impactedSpecs(map, paths, { allSpecs, specHash, baseFiles, impor
     if (!entry || visiting.has(path)) return []
     visiting.add(path)
     const ran = expand(entry.ran, total)
-    if (ran.length > 0) return ran
     const loaded = expand(entry.loaded, total)
-    if (loaded.length === 0) return []
     const parents = importers(path)
+    const viaParents = () => [...(parents ?? [])].flatMap(parent => reaching(parent, visiting))
+    if (ran.length > 0) return dataExports(path) ? [...ran, ...viaParents()] : ran
+    if (loaded.length === 0 && isScript(path)) return []
     if (!parents || parents.size === 0) return loaded
-    return [...parents].flatMap(parent => reaching(parent, visiting))
+    return viaParents()
   }
   const reach = path => {
     for (const position of reaching(path, new Set())) selected.add(map.specs[position])
     for (const name of nodeSpecs(path)) selected.add(name)
   }
+  const environment = baseEnvironment()
+  if (!environment) return { specs: null, reason: 'the setup of the base branch cannot be read' }
+  for (const [path, version] of Object.entries(map.environment)) {
+    if (environment[path] !== version) return { specs: null, reason: `${path} has changed on the base branch since the map was recorded` }
+  }
   const base = baseFiles()
   if (!base) return { specs: null, reason: 'the base branch cannot be read' }
   const changed = new Set(paths)
   for (const path of paths) {
+    if (TEST_FILE.test(path)) continue
     const entry = map.files[path]
     if (entry === undefined && base[path] !== undefined) return { specs: null, reason: `${path} is on the base branch but not in the map` }
     if (entry !== undefined && entry.blob !== base[path]) return { specs: null, reason: `${path} has changed on the base branch since the map was recorded` }
@@ -208,7 +284,7 @@ export function impactedSpecs(map, paths, { allSpecs, specHash, baseFiles, impor
     }
   }
   // Adding or deleting a file changes what a module that loads files by a pattern sees.
-  if (paths.some(path => base[path] === undefined || !exists(path))) {
+  if (paths.some(path => !TEST_FILE.test(path) && (base[path] === undefined || !exists(path)))) {
     for (const globber of globbers()) {
       for (const position of reaching(globber, new Set())) selected.add(map.specs[position])
     }
@@ -232,27 +308,49 @@ const filesAtBase = root => {
 }
 
 // `impactedSpecs` for a repository on disk, with a pull request's base as git has it
-// (`baseFiles` says otherwise to a caller that knows better).
-export function impactPlan(root, paths, { map, baseFiles = () => filesAtBase(root) }) {
+// (`baseFiles` and `baseEnvironment` say otherwise to a caller that knows better).
+export function impactPlan(root, paths, { map, baseFiles = () => filesAtBase(root), baseEnvironment = () => environmentAt(root, 'HEAD^1') }) {
   const graph = suiteGraph(root)
+  const texts = suiteTexts(graph)
   const hashes = specHashes(root, graph)
   const importers = uiImporters(root)
   return impactedSpecs(map, paths, {
     allSpecs: Object.keys(hashes),
     specHash: name => hashes[name],
     baseFiles,
+    baseEnvironment,
     importers: path => importers.get(path),
-    nodeSpecs: path => specsReaching(graph, [join(root, path)]).map(file => relative(graph.suite, file)),
+    nodeSpecs: path => [...new Set([
+      ...specsReaching(graph, [join(root, path)]).map(file => relative(graph.suite, file)),
+      ...specsNaming(graph, path, texts),
+    ])],
     exists: path => existsSync(join(root, path)),
     globbers: () => uiGlobbers(root),
+    dataExports: path => {
+      const file = join(root, path)
+      return !existsSync(file) || (isScript(path) && exportsData(readFileSync(file, 'utf8')))
+    },
   })
 }
 
-function collect(paths) {
+// How many tests each spec has, from the JSON of `playwright test --list --reporter=json`.
+export function expectedCounts(listings) {
+  const counts = {}
+  const walkSuite = (suite, file) => {
+    for (const spec of suite.specs ?? []) counts[file] = (counts[file] ?? 0) + (spec.tests ?? []).length
+    for (const child of suite.suites ?? []) walkSuite(child, file)
+  }
+  for (const listing of listings) {
+    for (const suite of listing.suites ?? []) walkSuite(suite, suite.file.replace(/^e2e\/ui-system\//, ''))
+  }
+  return counts
+}
+
+function collect(paths, pattern) {
   return paths.flatMap(path => {
     if (!existsSync(path)) return []
     return statSync(path).isDirectory() ? walk(path) : [path]
-  }).filter(file => /(?:^|\/)worker-[^/]*\.json$/.test(file))
+  }).filter(file => pattern.test(file))
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -272,15 +370,18 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const out = option('--out')
     const commit = option('--commit') ?? ''
     const minimum = Number(option('--minimum') ?? 0.9)
-    const records = collect(args).map(file => JSON.parse(readFileSync(file, 'utf8')))
-    const map = mergeRecords(root, records, { commit })
-    const all = Object.keys(specHashes(root)).length
-    if (records.length === 0 || map.specs.length < all * minimum) {
-      process.stderr.write(`ui-impact: ${map.specs.length} of ${all} specs recorded cleanly from ${records.length} files; not writing a map\n`)
+    const records = collect(args, /(?:^|\/)worker-[^/]*\.json$/).map(file => JSON.parse(readFileSync(file, 'utf8')))
+    const listings = collect(args, /(?:^|\/)expected-[^/]*\.json$/).map(file => JSON.parse(readFileSync(file, 'utf8')))
+    const graph = suiteGraph(root)
+    const unobserved = unobservedSpecs(root, graph)
+    const map = mergeRecords(root, records, { commit, expected: listings.length > 0 ? expectedCounts(listings) : {}, environment: environmentAt(root), unobserved })
+    const all = Object.keys(specHashes(root, graph)).length
+    if (records.length === 0 || listings.length === 0 || map.specs.length < (all - unobserved.length) * minimum) {
+      process.stderr.write(`ui-impact: ${map.specs.length} of ${all} specs recorded completely from ${records.length} records and ${listings.length} listings; not writing a map\n`)
       process.exit(2)
     }
     if (out) writeFileSync(out, `${JSON.stringify(map)}\n`)
-    process.stderr.write(`ui-impact: ${map.specs.length} of ${all} specs, ${Object.keys(map.files).length} files\n`)
+    process.stderr.write(`ui-impact: ${map.specs.length} of ${all} specs (${unobserved.length} open pages of their own and always run), ${Object.keys(map.files).length} files\n`)
   } else if (command === 'select') {
     const mapFile = option('--map')
     const fresh = flag('--fresh')
@@ -289,7 +390,7 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       process.stderr.write('ui-impact: no map\n')
       process.exit(2)
     }
-    const result = impactPlan(root, args, { map, ...(fresh ? { baseFiles: () => Object.fromEntries(Object.entries(map.files).map(([path, entry]) => [path, entry.blob])) } : {}) })
+    const result = impactPlan(root, args, { map, ...(fresh ? { baseFiles: () => Object.fromEntries(Object.entries(map.files).map(([path, entry]) => [path, entry.blob])), baseEnvironment: () => map.environment } : {}) })
     const of = Object.keys(specHashes(root)).length
     process.stdout.write(`${JSON.stringify({ of, count: result.specs?.length ?? null, ...result })}\n`)
   } else {
