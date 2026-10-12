@@ -187,8 +187,11 @@ it('supplies a busy, consistent year and six correctly classified demo accounts'
   const ledger = data.ledger(30, 'runtime')
   expect(ledger.totalCost).toBeCloseTo(27_418, 0)
   const week = periodTotals(stackDaily(ledger, NOW), [7])[0]!
-  expect(week.cost).toBeCloseTo(6_925.4, 1)
-  expect(week.change).toBeCloseTo(13.4, 1)
+  // Last seven days includes today; its still-running bucket makes this partial.
+  expect(week.cost).toBeCloseTo(6_218.8, 1)
+  expect(week.cost).toBeCloseTo(data.ledger(7, 'runtime').totalCost, 1)
+  expect(week.partial).toBe(true)
+  expect(week.change).toBeNull()
   expect(ledger.daily.filter(row => row.day === Math.max(...ledger.daily.map(day => day.day))).reduce((sum, row) => sum + row.cost, 0)).toBeCloseTo(138.4, 1)
   const year = data.ledger(365, 'runtime')
   expect(year.totalTokens).toBeCloseTo(141_600_000_000, -1)
