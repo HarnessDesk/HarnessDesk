@@ -26,11 +26,13 @@ for (const theme of ['light', 'dark'] as const) {
     const scroll = await transcript.evaluate(el => el.scrollTop)
     await terminal.evaluate(el => { el.dataset.retentionWitness = 'terminal' })
     const terminalId = await terminal.getAttribute('data-terminal-id')
+    const height = await page.locator('[data-frame-region="bottom"]').evaluate(node => node.getBoundingClientRect().height)
     await page.keyboard.press('Meta+,')
     await expect(page.locator('[data-page-destination="settings"]')).toBeVisible()
     await expect(work).toBeHidden()
     await expect(work).toHaveAttribute('inert', '')
-    await expect(terminal).toBeVisible()
+    await expect(terminal).toBeHidden()
+    await expect(page.locator('[data-slot="fixed-shell"]')).toHaveAttribute('data-bottom-open', 'false')
     await expect(terminal).toHaveAttribute('data-terminal-id', terminalId!)
     await expect(terminal).toHaveAttribute('data-retention-witness', 'terminal')
     await page.evaluate(()=>window.dispatchEvent(new CustomEvent('harnessdesk:preview-connection',{detail:'reconnecting'})))
@@ -45,13 +47,16 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(transcript).toHaveAttribute('data-retention-witness', 'transcript')
     expect(await transcript.evaluate(el => el.scrollTop)).toBe(scroll)
     await expect(terminal).toBeVisible()
+    expect(await page.locator('[data-frame-region="bottom"]').evaluate(node => node.getBoundingClientRect().height)).toBe(height)
     await page.keyboard.press('Meta+]')
     await expect(page.locator('[data-page-destination="settings"]')).toBeVisible()
-    // The retained terminal keeps focus and owns Escape for the shell.
-    // Leave Settings from its page field, rather than sending a shell key.
+    // The hidden terminal cannot own the page's Escape.
+    await expect(terminal).toBeHidden()
     await page.getByRole('searchbox', { name: 'Search settings' }).focus()
     await page.keyboard.press('Escape')
     await expect(work).toBeVisible()
     await expect(terminal).toHaveAttribute('data-retention-witness', 'terminal')
+    await expect(terminal).toBeVisible()
+    expect(await page.locator('[data-frame-region="bottom"]').evaluate(node => node.getBoundingClientRect().height)).toBe(height)
   })
 }
