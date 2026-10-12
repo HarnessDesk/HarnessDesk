@@ -161,7 +161,7 @@ export const frameDestinationStore = (fixture: AppStore): AppStore => {
     if (method === 'lane/list') return seed.lanes
     if (method === 'trigger/preferences') return fixture.triggerPreferences()
     if (method === 'history/status') return seed.historyImports[query.runtime] ?? null
-    if (method === 'history/list') return fixtureRequest(method, params as never)
+    if (method === 'history/list') return await fixtureRequest(method, params as never) ?? { data: [], nextCursor: null }
     if (method === 'credentials/list') return fixture.listCredentials()
     if (method === 'runtime/hooks') return fixture.loadHooks()
     if (method === 'runtime/mcp/list') return fixture.loadMcpServers()

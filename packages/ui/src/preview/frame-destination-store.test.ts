@@ -140,6 +140,11 @@ it('page imported history retains the fixture transport list and filter', async 
   await expect(store.transport.request('history/list', { query: 'checkout' })).resolves.toEqual(observed)
 })
 
+it('page imported history answers an unseeded collection with an empty page', async () => {
+  const store = frameDestinationStore(previewStore())
+  await expect(store.transport.request('history/list', { pageSize: 100, includeHidden: false })).resolves.toEqual({ data: [], nextCursor: null })
+})
+
 it('page defaults acknowledge a valid synthetic choice without changing the declared choices', async () => {
   const fixture = previewStore(), store = frameDestinationStore(fixture), runtime = fixture.getSnapshot().activeRuntime!
   const before = await store.transport.request('runtime/sessionDefaults', { runtime })
