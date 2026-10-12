@@ -1,3 +1,5 @@
+import { RunRoundCards, CommittedDocumentBlock } from './RunRoundCards'
+import { mayBeDocument } from '../state/committed-document'
 import { ToolProse, ToolSection } from '../design'
 import { AgentIcon, PullRequestIcon } from './Icons'
 import { openExternal } from '../lib/desktop'
@@ -18,6 +20,9 @@ export interface RunInspectorProps {
   teamState?: GoalState | undefined
   input: RunTimelineInput
   selectedRow: string | null
+  /** Select another recorded card in the same step without dispatching work. */
+  onSelect?: (row: string) => void
+  doing?: ReadonlyMap<string, string | null>
   seats: readonly InspectorSeat[]
   faces?: ReadonlyMap<string, ReactNode>
   faceTints?: ReadonlyMap<string, Tint>
@@ -94,9 +99,10 @@ const detailWords = (detail: string | null | undefined): string | null => {
 }
 
 /** Recorded detail only. No transcript copies, dispatch controls or guessed results. */
-export const RunInspector = ({ inspectionOnly = false, home, teamState, input, selectedRow, seats, onAbandon, onStop, onAnswer, onOpenBoard, publication, reviewActions, findingsRead, attemptsRead, faces, faceTints, pullRequest, flowFile }: RunInspectorProps) => {
+export const RunInspector = ({ inspectionOnly = false, home, teamState, input, selectedRow, onSelect, doing, seats, onAbandon, onStop, onAnswer, onOpenBoard, publication, reviewActions, findingsRead, attemptsRead, faces, faceTints, pullRequest, flowFile }: RunInspectorProps) => {
   const { execution, cards, evidence } = input
-  const selected = runTimeline(input).rows.find(row => row.id === selectedRow)
+  const model = runTimeline(input)
+  const selected = model.rows.find(row => row.id === selectedRow)
   const round = execution.rounds.find(one => one.n === selected?.round)
   const card = cards.find(one => one.id === selected?.card)
   const role = execution.document.flow.roles.find(one => one.id === round?.role)
@@ -182,6 +188,16 @@ export const RunInspector = ({ inspectionOnly = false, home, teamState, input, s
   return <div data-slot="run-inspector" className="min-h-0 min-w-0 flex-1">
     <ToolSection label={sanitizeText(title)}>
       {card && selected?.status && <ToolProse>{sanitizeText(selected.status)}</ToolProse>}
+      {round && <Section title={`Round ${round.n}`}><Words>{model.rows.find(row => row.kind === 'round' && row.round === round.n)?.detail ?? 'Progress not recorded'}</Words></Section>}
+      {round && onSelect && (round.cards.length > 1 || selected?.pick) && <Section title="Recorded cards"><RunRoundCards
+        rows={model.rows.filter(row => row.round === round.n && ['card', 'check', 'person'].includes(row.kind))}
+        attempts={model.rows.filter(row => row.round === round.n && row.kind === 'attempt')}
+        context={{ home, now: Date.now(), needsYou: model.header.needsYou, faces, selectedRow, onSelect,
+          seatNames: new Map(seats.map(one => [one.id, { name: one.name, detail: one.override ?? null }])),
+          seatOfCard: id => model.rows.find(row => row.card === id && row.seat)?.seat ?? null,
+          doingOf: row => row.seat ? doing?.get(row.seat) ?? null : null }} /></Section>}
+      {selected?.working && selected.seat && doing?.get(selected.seat) && <Section title="Activity"><Words>{doing.get(selected.seat)!}</Words></Section>}
+      {selected && mayBeDocument(selected.change) && round?.cards.length === 1 && !selected.pick && <Section title="Committed document"><CommittedDocumentBlock change={selected.change} /></Section>}
       {body}
     </ToolSection>
   </div>

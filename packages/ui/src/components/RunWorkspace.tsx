@@ -26,14 +26,14 @@ export const RunWorkspace = ({ inspector, ...view }: WorkspaceProps) => {
       <MenuItem label="Flow" disabled={!view.flow && 'The recorded Flow is unavailable'} onSelect={() => { selectView('flow'); close() }} />
     </Menu> },
   })
-  useLayoutEffect(() => dock?.publish(owner, { inspector: { ...inspector, selectedRow: view.selectedRow } }),
-    [dock, owner, inspector, view.selectedRow])
+  useLayoutEffect(() => dock?.publish(owner, { inspector: { ...inspector, selectedRow: view.selectedRow, onSelect: view.onSelect, doing: view.doing } }),
+    [dock, owner, inspector, view.selectedRow, view.onSelect, view.doing])
   const { summary } = runSeatCosts(inspector.input.execution, inspector.seats)
   return <div data-slot="run-workspace" data-view={tab} className={styles.workspace}>
     <RunView {...view} execution={inspector.input.execution} cost={summary === null ? 'Cost not recorded' : `Seat cost ${summary}`}
       view={tab} onView={selectView} stepsInput={inspector.input} attemptsRead={inspector.attemptsRead} faceTints={inspector.faceTints}
       onSelect={id => { view.onSelect(id); if (owner) store.chooseWorkTool('details', 'run-details') }}
       onDetails={() => { view.onSelect('run'); if (owner) store.chooseWorkTool('details', 'run-details') }}
-      timelineDetail={!owner && view.selectedRow ? <RunInspector {...inspector} selectedRow={view.selectedRow} /> : undefined} />
+      timelineDetail={!owner && view.selectedRow ? <RunInspector {...inspector} onSelect={view.onSelect} doing={view.doing} selectedRow={view.selectedRow} /> : undefined} />
   </div>
 }

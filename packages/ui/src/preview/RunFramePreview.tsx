@@ -35,7 +35,7 @@ const RunFrameBody = ({ facts, ...props }: Props) => {
   const details = intent?.open && intent.tool === 'details'
   useWorkDetails(owner, <ToolBody>
     {facts && <ToolSection label="Run"><TeamRunFacts input={props.inspector.input} number={props.number} at={null} /></ToolSection>}
-    <RunInspector {...props.inspector} selectedRow={props.selectedRow} inspectionOnly={Boolean(facts)} />
+    <RunInspector {...props.inspector} onSelect={props.onSelect} doing={props.doing} selectedRow={props.selectedRow} inspectionOnly={Boolean(facts)} />
   </ToolBody>)
   return <div ref={measured.ref} className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
     <TopBarOutlet owner={owner} rightColumnWidth={details && standing ? FRAME.rightPanel.width : undefined} fallback={{ place: 'Recorded Run', tools: <WorkTools />, more: () => null }} />

@@ -2,9 +2,11 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
 import { runTimeline } from '../lib/run-timeline'
-import { shapeFixture } from '../preview/run-shapes-fixture'
+import { DOCUMENT_DIFF, shapeFixture } from '../preview/run-shapes-fixture'
 import { RunView } from './RunView'
 import { RunInspector } from './RunInspector'
+import { StoreProvider } from '../state/context'
+import { runTeamStore } from '../preview/run-view-fixture'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const mount = (element: React.ReactNode) => {
   const container = document.createElement('div'); document.body.append(container)
@@ -64,4 +66,36 @@ it('lists attempts and their pick states in Run details', () => {
   const view = mount(<RunInspector input={input} seats={seats} selectedRow={null} />)
   try { expect(view.container.textContent).toContain('Attempt A'); expect(view.container.textContent).toContain('Picked'); expect(view.container.textContent).toContain('Not kept') }
   finally { view.close() }
+})
+
+it('exposes every recorded card in a selected parallel round with a real selection callback', () => {
+  const input = shapeFixture('comparison'), onSelect = vi.fn()
+  const view = mount(<RunInspector input={input} seats={[]} selectedRow="check-2-3" onSelect={onSelect} teamState="wrapped" />)
+  try {
+    const choices = view.container.querySelectorAll('[data-slot="timeline-card"]')
+    expect(choices).toHaveLength(2)
+    expect(choices[0]?.textContent).toContain('on Attempt A')
+    expect(choices[0]?.textContent).toContain('Passed')
+    expect(choices[1]?.textContent).toContain('on Attempt B')
+    expect(choices[1]?.textContent).toContain('Failed')
+    act(() => choices[1]!.querySelector<HTMLButtonElement>('button')!.click())
+    expect(onSelect).toHaveBeenCalledWith('check-2-4')
+    expect(view.container.querySelectorAll('button')).not.toContainEqual(expect.objectContaining({ textContent: 'Run again…' }))
+  } finally { view.close() }
+})
+
+it('reads the committed investigation answer from the selected card in Details', async () => {
+  const input = shapeFixture('investigation'), store = runTeamStore(), reads = vi.fn(async (method: string) => {
+    if (method === 'git/diffRange') return { diff: DOCUMENT_DIFF }
+    if (method === 'git/fileAtRevision') return { text: '# Investigation answer\n\nKeep the session store behind a flag.\n', bytes: 65 }
+    throw new Error('Unexpected synthetic read')
+  })
+  const fixture = new Proxy(store, { get(target, key) { return key === 'transport' ? { request: reads } : Reflect.get(target, key) } })
+  const container = document.createElement('div'), root = createRoot(container)
+  try {
+    await act(async () => root.render(<StoreProvider store={fixture}><RunInspector input={input} seats={[]} selectedRow="card-1-1" /></StoreProvider>))
+    expect(container.querySelector('[data-slot="timeline-document"]')?.textContent).toContain('docs/answer.md')
+    expect(container.querySelector('[data-slot="timeline-document-body"]')?.textContent).toContain('Investigation answer')
+    expect(reads).toHaveBeenCalledWith('git/fileAtRevision', { root: '/repo', sha: 'a'.repeat(40), path: 'docs/answer.md' })
+  } finally { act(() => root.unmount()) }
 })
