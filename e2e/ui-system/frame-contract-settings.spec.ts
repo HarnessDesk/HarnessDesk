@@ -139,7 +139,7 @@ test('FIX4 Settings filters are standalone first fields on History, Runtimes, Sk
     ['skills', 'Search skills'],
     ['extensions', 'Search plugins'],
   ] as const) {
-    await openFrame(page, `frame-wall=settings&frame-section=${section}&frame-settings-round4=1`, 'light', 1440)
+    await openFrame(page, section === 'history' ? 'history=rows' : `frame-wall=settings&frame-section=${section}&frame-settings-round4=1`, 'light', 1440)
     const field = page.getByRole('searchbox', { name: label, exact: true })
     await expect(field, `${section} renders the search with its named data`).toBeVisible()
     const fieldPlacement = await field.evaluate(input => {
@@ -159,11 +159,13 @@ test('FIX4 Settings filters are standalone first fields on History, Runtimes, Sk
 
 test('FIX4 History import choices are one marked row card and filters read Agent and Project', async ({ page }) => {
   await openFrame(page, 'frame-wall=settings&frame-section=history&frame-settings-round4=1', 'light', 1440)
-  const empty = page.locator('[data-slot="empty-state"][data-variant="inline"]')
+  const empty = page.locator('[data-page-destination="settings"]:visible [data-slot="empty-state"]')
   await expect(empty).toBeVisible()
   expect(await empty.innerText()).toContain('Import history from an agent’s settings page.')
-  await expect(page.getByRole('combobox', { name: 'Agent', exact: true })).toBeVisible()
-  await expect(page.getByRole('combobox', { name: 'Project', exact: true })).toBeVisible()
+  await expect(empty).toContainText('Nothing imported yet')
+  await expect(page.getByRole('searchbox', { name: 'Search history titles', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('combobox', { name: 'Agent', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('combobox', { name: 'Project', exact: true })).toHaveCount(0)
   const card = empty.locator('[data-slot="rows"]')
   const importRows = card.locator(':scope > button[data-kind="record"]')
   await expect(importRows).toHaveCount(6)
@@ -171,6 +173,11 @@ test('FIX4 History import choices are one marked row card and filters read Agent
     await expect(row.locator('[data-slot="row-mark"]')).toBeVisible()
     expect(await row.locator('svg').count(), 'each import row has a trailing chevron').toBeGreaterThan(0)
   }
+  // R11.18 hides filters only while there is nothing to search.
+  await openFrame(page, 'history=rows', 'light', 1440)
+  await expect(page.getByRole('searchbox', { name: 'Search history titles', exact: true })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Agent', exact: true })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Project', exact: true })).toBeVisible()
 })
 
 test('R10 nav4 Settings Back and Meta bracket leave in one step while Forward is ignored there', async ({ page }) => {
