@@ -215,7 +215,7 @@ export const Workbench = ({ sidebar, suspended = false, pages, pageActive = fals
   const frameStyle = {
     '--frame-left-size': `${standingSidebar}px`, '--frame-left': 'var(--frame-left-drag, var(--frame-left-size))',
     '--frame-left-open': `${workbench.sidebar.size}px`,
-    '--frame-right-size': pageActive || rightPanelOverlay || !rightPanelDrawn(workbench) ? '0px' : `${workbench.right.size}px`, '--frame-right': 'var(--frame-right-effective)',
+    '--frame-right-size': pageActive || !rightPanelDrawn(workbench) ? '0px' : `${workbench.right.size}px`, '--frame-right': 'var(--frame-right-effective)',
     '--frame-right-open': pageActive ? '0px' : `${rightWidth || retainedRight}px`, '--frame-right-retained': `${retainedRight}px`,
     '--frame-bottom-size': `${bottomHeight}px`, '--frame-bottom': 'var(--frame-bottom-drag, var(--frame-bottom-size))',
     '--frame-bottom-retained': `${Math.max(FRAME.bottomPanel.min, Math.min(workbench.bottom.size, Math.floor(snapshot.windowHeight / 2)))}px`,

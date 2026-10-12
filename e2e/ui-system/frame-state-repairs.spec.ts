@@ -11,7 +11,7 @@ const capture = async (page: Page, name: string) => {
 }
 
 for (const theme of ['light', 'dark'] as const) {
-  for (const width of [1100, 720]) test(`floating right panel keeps main geometry at ${width} in ${theme}`, async ({ page }) => {
+  for (const width of [1100, 720]) test(`floating right panel reserves main reading space at ${width} in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation', theme, width)
     const main = page.locator('[data-frame-region="main"]')
     const before = await main.boundingBox()
@@ -20,10 +20,11 @@ for (const theme of ['light', 'dark'] as const) {
     const right = page.locator('[data-frame-region="right"]')
     await expect(right).toBeVisible()
     const after = await main.boundingBox(), panel = await right.boundingBox()
-    expect(after!.width).toBe(before!.width)
+    expect(after!.width).toBeGreaterThanOrEqual(480)
+    expect(after!.width + panel!.width).toBe(before!.width)
     expect(after!.x).toBe(before!.x)
-    expect(panel!.x).toBeGreaterThanOrEqual(after!.x)
-    expect(panel!.x + panel!.width).toBe(after!.x + after!.width)
+    expect(panel!.x).toBe(after!.x + after!.width)
+    expect(panel!.x + panel!.width).toBe(before!.x + before!.width)
     await capture(page, `conversation-floating-${width}-${theme}`)
   })
 

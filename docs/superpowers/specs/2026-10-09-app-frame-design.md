@@ -174,8 +174,9 @@ window's bottom (owner, 2026-10-10).
 - **Only seams drag.** A view is never dragged between regions, and nothing
   docks in the left column. Double-clicking a seam restores its default.
 - **The frame folds on its own:** at 1280 and wider every region stands;
-  from 1000 to 1279 an opened right panel floats over the right of main
-  instead of narrowing it; below 1000 the left column also floats, opened from
+  from 1000 to 1279 an opened right panel floats in a reserved column beside
+  main. Its effective width is capped to keep main's 480px reading floor; the
+  requested width returns when there is room. Below 1000 the left column also floats, opened from
   the top bar's lead slot. No fold reserves a status-bar row: both standing
   and floating columns, main and the terminal reach the window's bottom
   (owner, 2026-10-10).

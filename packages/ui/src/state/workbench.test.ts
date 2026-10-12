@@ -502,6 +502,13 @@ describe('protecting the reading column', () => {
     expect(rightPanelOverlays(right(640), width)).toBe(true)
     expect(sidebarCannotHaveColumn(right(640), width)).toBe(width < 1000)
   })
+  test.each([1279, 1100, 1000, 999, 720])('a floating panel at %i reserves the reading floor and remembers its requested width', width => {
+    const work = right(640)
+    const sidebar = width < 1000 ? 0 : 256
+    expect(effectiveRightWidth(work, width, sidebar)).toBe(width - sidebar - 480 - 2 * SEAM)
+    expect(work.right.size).toBe(640)
+    expect(effectiveRightWidth(work, 1440, 256)).toBe(640)
+  })
   test('hidden caches consume no room and widening restores preferences', () => {
     const work = right(640), subject = fixedSubject(work.main)!
     const hidden = { ...work, frameTools: { [subject]: { tool: 'changes' as const, mode: 'changes' as const, open: false } } }
