@@ -53,11 +53,11 @@
 
 /* An inline typing picker floats above its composer's containing block. */
 .panel[data-limit='trigger']:not([data-anchor]) {
-  position: absolute;
-  right: 0;
-  bottom: calc(100% + var(--hd-space-1-5));
-  left: 0;
-  z-index: var(--hd-z-popover);
+  position: absolute; /* desk: spec S17 moves menu rows and plates into shared popup primitives; the inline typing picker keeps its composer anchor. */
+  right: 0; /* desk: spec S17 moves menu rows and plates into shared popup primitives; the inline typing picker keeps its composer anchor. */
+  bottom: calc(100% + var(--hd-space-1-5)); /* desk: spec S17 moves menu rows and plates into shared popup primitives; the inline typing picker keeps its composer anchor. */
+  left: 0; /* desk: spec S17 moves menu rows and plates into shared popup primitives; the inline typing picker keeps its composer anchor. */
+  z-index: var(--hd-z-popover); /* desk: spec S17 moves menu rows and plates into shared popup primitives; the inline typing picker keeps its composer anchor. */
 }
 
 /* Risk tone. The permission control is the one place in the composer where a

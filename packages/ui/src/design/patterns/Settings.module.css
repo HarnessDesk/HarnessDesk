@@ -1186,7 +1186,7 @@
 }
 
 .rowChev:empty {
-  width: var(--hd-space-4);
+  width: var(--hd-space-4); /* desk: spec S16 moves detail headings and Back into DestinationBar; only a row's chevron slot remains here. */
 }
 
 .detailMark {
@@ -1421,7 +1421,7 @@
   display: inline-grid;
   place-items: center;
   width: 16px;
-  color: var(--hd-foreground);
+  color: var(--hd-foreground); /* desk: AUDIT-6 R13.14, a chosen row uses neutral ink. */
 }
 
 /* An empty row is a sentence about the card, not one more item in it: its
