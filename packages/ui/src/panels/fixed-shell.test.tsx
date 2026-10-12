@@ -750,7 +750,7 @@ it('a page keeps remembered work, Browser, terminal and the shared notice host m
       </DestinationPageScope></DestinationBody>} />
   </StoreProvider>))
   draw(true)
-  expect(container.querySelector('[data-slot="retained-work"]')?.hasAttribute('hidden')).toBe(true)
+  expect(container.querySelector('[data-slot="retained-work"]')?.hasAttribute('data-hidden')).toBe(true)
   expect(container.querySelector('[data-slot="retained-work"]')?.hasAttribute('inert')).toBe(true)
   const shell = container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
   expect(shell.getAttribute('data-right-open')).toBe('false')
@@ -765,7 +765,7 @@ it('a page keeps remembered work, Browser, terminal and the shared notice host m
   expect(store.getSnapshot().workbench.frameTools).toBe(before.frameTools)
   expect(store.getSnapshot().workbench.bottom).toBe(before.bottom)
   draw(false)
-  expect(container.querySelector('[data-slot="retained-work"]')?.hasAttribute('hidden')).toBe(false)
+  expect(container.querySelector('[data-slot="retained-work"]')?.hasAttribute('data-hidden')).toBe(false)
   expect(container.querySelector('[data-slot="workbench-main"] [data-pane-id]')).toBe(workPane)
   expect(container.querySelector('[data-slot="tool-pane"]')).toBe(browser)
   expect(container.querySelector('[data-frame-region="bottom"] [data-terminal-id]')).toBe(terminal)
