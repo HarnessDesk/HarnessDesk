@@ -547,6 +547,8 @@ These only exist because no vendor owns the desk:
   and records every change in `audit.ndjson`. Skill writes compare and guard the
   whole bundle, including scripts and references; apply writes the source bytes
   it checked, and an edited supporting file requires a backup to replace.
+  Updates check the retained-plus-incoming bundle limits at preview and before
+  writing; apply also checks that the source file list matches the preview.
 - **One history, one search** across every backend, grouped by repository so
   a project is one row whichever agent worked in it.
 - **One permission policy and one audit log.**
