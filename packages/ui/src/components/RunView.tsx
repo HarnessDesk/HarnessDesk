@@ -188,7 +188,7 @@ export const RunView = ({ home, model, execution, stepsInput, attemptsRead, face
         {showing === 'flow' ? flow : <div data-slot="run-reading" className={styles.reading}><div data-slot="run-steps">
         {pending && <Text role="meta" as="div">Reading checks and findings…</Text>}
         {problem && <Banner tone="warning" title="Some Run details could not be read">{words(problem)}{onRetry && <Button variant="link" size="inline-link" onClick={onRetry}>Try again</Button>}</Banner>}
-        {stepsInput && header.end && !needsYou && <div data-slot="run-ending"><Banner title={words(ending?.title ?? 'Run ended')} actions={endActions()}>
+        {stepsInput && header.end && !needsYou && <div data-slot="run-ending"><Banner title={!ending || ['Settled', 'Stopped', 'Needs you', 'Stopped by you', 'Stopped by the desk'].includes(ending.title) ? undefined : words(ending.title)} actions={endActions()}>
           {[ending?.detail ? words(runReasonWords(ending.detail, execution?.document.flow.rules)) : null, header.end.kind === 'stopped' ? header.end.by === 'person' ? 'By you' : 'By the desk' : null].filter(Boolean).join(' · ')}
         </Banner></div>}
         <Timeline aria-label="Run timeline">

@@ -603,3 +603,15 @@ it('folds equivalent visits into one flat row and selects its latest recorded ro
     expect(timeline.querySelectorAll('[data-slot="timeline-records"]')).toHaveLength(0)
   } finally { act(() => root.unmount()) }
 })
+
+it.each(['complete', 'stopped', 'stalled'] as const)('the compact %s ending retains reasons without repeating the bar state', scene => {
+  const input = runFixture(scene)
+  const { container, done } = withFlow({ model: runTimeline(input), execution: input.execution, stepsInput: input })
+  try {
+    const ending = container.querySelector('[data-slot="run-ending"]')
+    expect(ending?.textContent ?? '').not.toContain(scene === 'complete' ? 'Settled' : scene === 'stopped' ? 'Stopped' : 'Needs you')
+    if (scene === 'complete') expect(ending?.textContent).toContain('Nothing waits.')
+    if (scene === 'stopped') expect(ending?.textContent).toContain('By you')
+    if (scene === 'stalled') expect(container.querySelector('[data-slot="run-need"]')).not.toBeNull()
+  } finally { done() }
+})
