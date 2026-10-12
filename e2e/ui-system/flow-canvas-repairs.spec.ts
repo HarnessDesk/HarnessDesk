@@ -94,8 +94,10 @@ for (const theme of ['light', 'dark'] as const) {
       expect(stops).toBe(0)
     })
 
-    test('poster tools yield to the plan while attribution remains', async ({ page }) => {
-      for (const width of [1280, 640, 390]) {
+    {
+
+      for (const [item0, width] of ([1280, 640, 390]).entries()) test(`poster tools yield to the plan while attribution remains [item ${[item0].join('-')}]`, async ({ page }) => {
+
         await page.setViewportSize({ width, height: 900 })
         await page.goto(`/preview.html?site-run=poster&theme=${theme}`)
         const poster = page.locator('[data-slot="site-poster"]')
@@ -103,18 +105,24 @@ for (const theme of ['light', 'dark'] as const) {
         await expect(poster.getByRole('button', { name: 'Fit plan' })).toHaveCount(0)
         await expect(poster.locator('.react-flow__minimap')).toHaveCount(0)
         await expect(poster.locator('.react-flow__attribution a')).toBeVisible()
-      }
-    })
 
-    test('the shape column opens at a readable scale', async ({ page }) => {
-      for (const width of [1440, 1024, 700, 390]) {
+
+      })
+    }
+
+    {
+
+      for (const [item0, width] of ([1440, 1024, 700, 390]).entries()) test(`the shape column opens at a readable scale [item ${[item0].join('-')}]`, async ({ page }) => {
+
         await page.setViewportSize({ width, height: 900 })
         await page.goto(`/preview.html?shape-graph&theme=${theme}`)
         const canvas = page.locator('#shape-graph [data-slot="flow-canvas"]')
         await expect(canvas.locator('.react-flow__node')).toHaveCount(6)
         await expect.poll(() => canvas.locator('.react-flow__viewport').evaluate(el => new DOMMatrixReadOnly(getComputedStyle(el).transform).a)).toBeGreaterThanOrEqual(0.8)
-      }
-    })
+
+
+      })
+    }
 
     test('a narrow Run reaches the last Step and Rules by wheel and restores the wide view', async ({ page }) => {
       const pane = await run(page, theme)
@@ -236,9 +244,10 @@ for (const theme of ['light', 'dark'] as const) {
       for (const index of [0, 1]) expect(Math.max(...offsets.map(one => one[index]!)) - Math.min(...offsets.map(one => one[index]!))).toBeLessThan(1.5)
     })
 
-    test('the need banner heads the Flow tab, above the drawing and on its left edge', async ({ page }) => {
-      // The Flow tab lays its column out as a flex box for the drawing; the banner shares that column and was a second item beside it, 0px wide.
-      for (const width of [1280, 720, 390]) {
+    {
+
+      for (const [item0, width] of ([1280, 720, 390]).entries()) test(`the need banner heads the Flow tab, above the drawing and on its left edge [item ${[item0].join('-')}]`, async ({ page }) => {
+
         await page.setViewportSize({ width, height: 900 })
         await page.goto(`/preview.html?run-view&theme=${theme}`)
         const rig = page.locator('#run-view-team')
@@ -258,19 +267,17 @@ for (const theme of ['light', 'dark'] as const) {
         const banner = (await need.boundingBox())!
         const card = (await need.locator('> *').first().boundingBox())!
         const drawn = (await canvas.boundingBox())!
-        // It has the drawing's own width and left edge, so the page keeps one edge...
         expect.soft(card.width, `banner card at ${width}px`).toBeGreaterThan(200)
         expect.soft(Math.abs(banner.x - drawn.x), `banner left edge at ${width}px`).toBeLessThan(1.5)
         expect.soft(Math.abs(banner.width - drawn.width), `banner width at ${width}px`).toBeLessThan(1.5)
-        // ...above the drawing, never beside it, which keeps the rest of the pane.
         expect.soft(banner.y + banner.height, `banner above the drawing at ${width}px`).toBeLessThanOrEqual(drawn.y + 0.5)
-        // (A narrow pane fits the drawing to its width, so it is short there by design.)
         expect.soft(drawn.height, `drawing at ${width}px`).toBeGreaterThan(width < 600 ? 100 : 200)
-        // Its actions are on screen to use.
         const door = need.getByRole('button').first()
         await expect.soft(door, `banner action at ${width}px`).toBeInViewport()
-      }
-    })
+
+
+      })
+    }
 
     test('repair frames contain only the synthetic desk and poster', async ({ page }) => {
       const folder = process.env.FLOW_REPAIR_FRAMES_DIR

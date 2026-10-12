@@ -177,7 +177,11 @@ export const App = () => {
   // keep their departure key after those controls have released it.
   useEffect(() => {
     const leavePage = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape' || event.defaultPrevented) return
+      if (event.key !== 'Escape' || event.defaultPrevented || event.isComposing) return
+      const target = event.target
+      const editing = target instanceof HTMLElement && !target.closest('[inert], [hidden], [data-hidden]')
+      if (editing && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) && target.value) return
+      if (editing && target.closest('[contenteditable="true"]')?.textContent) return
       const kind = store.getSnapshot().workbench.navigation.current.kind
       if (kind !== 'settings' && kind !== 'library' && kind !== 'plugins' && kind !== 'dashboard' && kind !== 'changes-review') return
       event.preventDefault()
@@ -273,7 +277,7 @@ export const App = () => {
   useEffect(() => {
     const bridge = desktop()
     const offShow = bridge?.onBrowserShow?.(({ url, profile }) =>
-      store.openBrowser(url === 'about:blank' ? undefined : url, { profile })) ?? (() => {})
+      store.openBrowser(url === 'about:blank' ? undefined : url, { profile, driven: true })) ?? (() => {})
     const offClose = bridge?.onBrowserClose?.(({ profile }) => store.closeBrowser(profile)) ?? (() => {})
     const offFocus = bridge?.onBrowserFocus?.(({ profile, request }) => {
       store.focusDrivenBrowserTab(profile)

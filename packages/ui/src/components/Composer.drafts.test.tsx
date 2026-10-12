@@ -451,17 +451,17 @@ describe('a message whose send fails goes back to the conversation it was writte
   })
 })
 
-it('shows room Holding messages on the own composer and retains its individual draft when released', () => {
+it('shows room Board-only on the own composer and retains its individual draft when released', () => {
   draw(one)
   type('Review the retry budget')
   draw(one, true)
   const chip = container.querySelector('[data-slot="composer-chip"]')
-  expect(chip?.textContent).toBe('Holding messages')
-  expect(chip?.getAttribute('title')).toBe('Messages are held. Release them in Send to.')
+  expect(chip?.textContent).toBe('Board-only')
+  expect(chip?.getAttribute('title')).toBe('Agents cannot message each other. Change Board-only in Send to.')
   expect(textarea().value).toBe('Review the retry budget')
   expect(textarea().disabled).toBe(false)
   expect(container.querySelector('[aria-label="Send to"]')).toBeNull()
   draw(one)
-  expect(container.textContent).not.toContain('Holding messages')
+  expect(container.textContent).not.toContain('Board-only')
   expect(textarea().value).toBe('Review the retry budget')
 })

@@ -104,8 +104,10 @@ for (const theme of WALL_THEMES) {
     await expect(answerActions).toHaveCSS('opacity', '1')
   })
 
-  test(`Frame floating Details panel leaves main content and Send clear at 1100 and 720 in ${theme}`, async ({ page }) => {
-    for (const width of [1100, 720]) {
+  {
+
+    for (const [item0, width] of ([1100, 720]).entries()) test(`Frame floating Details panel leaves main content and Send clear at 1100 and 720 in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
+
       await openFrame(page, 'frame-wall=conversation', theme, width)
       const top = page.locator('[data-slot="top-bar"]:visible')
       await top.getByRole('button', { name: 'Details', exact: true }).click()
@@ -121,8 +123,10 @@ for (const theme of WALL_THEMES) {
         const box = (await content.boundingBox())!
         expect(box.x + box.width, `${await content.getAttribute('data-slot') ?? 'main content'} must stop before the float`).toBeLessThanOrEqual(panelX + 1)
       }
-    }
-  })
+
+
+    })
+  }
 
   test(`Frame Details caveats use the Run note column and type in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=draft', theme)
@@ -152,20 +156,23 @@ for (const theme of WALL_THEMES) {
     expect(planStyle.color).toBe(planStyle.secondaryColor)
   })
 
-  test(`Frame empty right panel tools have no rest-state footer facts in ${theme}`, async ({ page }) => {
-    for (const tool of ['changes', 'agents', 'activity', 'trajectory'] as const) {
+  {
+
+    for (const [item0, tool] of (['changes', 'agents', 'activity', 'trajectory'] as const).entries()) test(`Frame empty right panel tools have no rest-state footer facts in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
+
       await openFrame(page, `frame-wall=conversation&frame-tool=${tool}`, theme)
       const footer = page.locator('[data-slot="tool-footer"]:visible, [data-slot="content-footer"]:visible')
       const footerText = (await footer.allTextContents()).join(' ')
       expect(footerText).not.toMatch(/0 started|0 files(?:\s*·\s*against main)?|0 events|0 sessions|0m measured/i)
-    }
-    await openFrame(page, 'frame-wall=conversation', theme)
-    const top = page.locator('[data-slot="top-bar"]:visible')
-    await top.getByRole('button', { name: 'Browser', exact: true }).click()
-    const browserFooter = page.locator('[data-slot="tool-footer"]:visible, [data-slot="content-footer"]:visible')
-    const browserFooterText = (await browserFooter.allTextContents()).join(' ')
-    expect(browserFooterText).not.toMatch(/Idle|Never your own browser profile/i)
-  })
+
+      await openFrame(page, 'frame-wall=conversation', theme)
+      const top = page.locator('[data-slot="top-bar"]:visible')
+      await top.getByRole('button', { name: 'Browser', exact: true }).click()
+      const browserFooter = page.locator('[data-slot="tool-footer"]:visible, [data-slot="content-footer"]:visible')
+      const browserFooterText = (await browserFooter.allTextContents()).join(' ')
+      expect(browserFooterText).not.toMatch(/Idle|Never your own browser profile/i)
+    })
+  }
 
   test(`Frame usage ring is named once in its empty popover in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=draft', theme)

@@ -34,14 +34,18 @@ for (const theme of WALL_THEMES) {
     await expect(column.locator('[data-left-seat]').locator('..')).not.toHaveAttribute('data-rule', 'top')
   })
 
-  test(`D8 column scrolling has no permanent scrollbar in normal and Settings mode in ${theme}`, async ({ page }) => {
-    for (const mode of ['conversation', 'settings-navigation'] as const) {
+  {
+
+    for (const [item0, mode] of (['conversation', 'settings-navigation'] as const).entries()) test(`D8 column scrolling has no permanent scrollbar in normal and Settings mode in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
+
       await openFrame(page, `frame-wall=${mode}`, theme)
       const body = page.locator('[data-left-column]:visible [data-region="sidebar-content"]:visible').first()
       await expect(body).toBeVisible()
       expect(await body.evaluate(node => getComputedStyle(node).scrollbarWidth)).toBe('none')
-    }
-  })
+
+
+    })
+  }
 
   test(`D8 project heading controls share the rows trailing edge in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=left-work', theme)

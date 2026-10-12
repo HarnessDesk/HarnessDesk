@@ -64,7 +64,7 @@ const spent: UsageReport = {
   error: null,
 } as unknown as UsageReport
 
-const mount = async (over: Partial<AppSnapshot>): Promise<void> => {
+const mount = async (over: Partial<AppSnapshot>): Promise<AppStore> => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -98,7 +98,30 @@ const mount = async (over: Partial<AppSnapshot>): Promise<void> => {
       </StoreProvider>,
     )
   })
+  return store
 }
+
+it.each([true, false])('keeps the runtime default choice in the Settings body with a quiet bar (default=%s)', async (isDefault) => {
+  const workbench = emptySnapshot().workbench
+  const store = await mount({
+    activeRuntime: isDefault ? CLAUDE : runtimeId('another'),
+    accountsByRuntime: { [CLAUDE]: signedIn },
+    workbench: { ...workbench, navigation: { ...workbench.navigation, current: { kind: 'settings', route: { kind: 'section', section: 'runtimes', focus: null } } } },
+  })
+  await click(agentName(), 'the runtime row')
+  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('')
+  if (isDefault) {
+    const defaultChip = [...container.querySelectorAll('[data-slot="chip"]')].find(node => node.textContent === 'Default')
+    expect(defaultChip).toBeDefined()
+    expect(defaultChip?.closest('[data-slot="top-bar"]')).toBeNull()
+  } else {
+    const use = [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent === 'Use for new sessions')
+    expect(use).toBeDefined()
+    expect(use?.closest('[data-slot="top-bar"]')).toBeNull()
+    await click(use, 'the default action')
+    expect(store.selectRuntime).toHaveBeenCalledWith(CLAUDE)
+  }
+})
 
 /** The Default chip's state, wherever on the current screen it is. */
 const chip = (): string => {

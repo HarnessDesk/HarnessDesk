@@ -763,7 +763,7 @@ export const RoomComposer = ({
               )}
               </>}
               <MenuSeparator />
-              <MenuToggle icon={tileLabels ? undefined : null} label="Hold messages" checked={!messaging} disabled={record ? RECORD_REASON : messagingReason}
+              <MenuToggle icon={tileLabels ? undefined : null} label="Board-only" title="Agents cannot message each other; claims and signals continue." checked={!messaging} disabled={record ? RECORD_REASON : messagingReason}
                 onChange={() => { void onMessaging(); close() }} />
             </Menu>
           )}

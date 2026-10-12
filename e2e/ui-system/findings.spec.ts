@@ -42,8 +42,10 @@ test('keyboard reaches the findings filters, a row’s detail, and back', async 
   await expect(openRow).toBeFocused()
 })
 
-test('desktop and narrow layouts keep every sentence inside the pane', async ({ page }) => {
-  for (const width of [1440, 680]) {
+{
+
+  for (const [item0, width] of ([1440, 680]).entries()) test(`desktop and narrow layouts keep every sentence inside the pane [item ${[item0].join('-')}]`, async ({ page }) => {
+
     for (const colorScheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme })
       await page.setViewportSize({ width, height: 900 })
@@ -80,8 +82,10 @@ test('desktop and narrow layouts keep every sentence inside the pane', async ({ 
       expect(dialogOverflow, `dialog at ${width}px, ${colorScheme}`).toBeLessThanOrEqual(1)
       await page.keyboard.press('Escape')
     }
-  }
-})
+
+
+  })
+}
 
 for (const theme of ['light', 'dark'] as const) {
   test(`narrow findings reserve a full title line and keep literal ids and lifecycle in ${theme}`, async ({ page }) => {

@@ -18,11 +18,13 @@ const pendingFor = (store: AppStore) => {
 const publish = (pending: PendingTerminal) => pending.listeners.forEach(listener => listener())
 /** Menu and keyboard share one pending intent, including a second press during startup. */
 export const toggleTerminal = (store: AppStore): void => {
-  if (!terminalCwdForSnapshot(store.getSnapshot())) return
+  const snapshot = store.getSnapshot()
+  if (snapshot.workbench.navigation.current.kind !== 'work' && !terminalCwdForSnapshot(snapshot)) return
   const pending = pendingFor(store)
   if (terminals(store.getSnapshot().workbench).length > 0 || pending.operation !== null) {
     pending.operation = null; publish(pending); store.closeTerminalDock(); return
   }
+  if (!terminalCwdForSnapshot(store.getSnapshot())) return
   const operation = Symbol('terminal-open')
   pending.operation = operation; publish(pending)
   void store.openTerminal().finally(() => {

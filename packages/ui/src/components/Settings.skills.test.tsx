@@ -53,12 +53,14 @@ const SKILLS: SkillInfo[] = [
 
 const mount = (skills: SkillInfo[] = SKILLS): { onUse: ReturnType<typeof vi.fn> } => {
   const info = runtime()
+  const initial = emptySnapshot()
   const snapshot: AppSnapshot = {
-    ...emptySnapshot(),
+    ...initial,
     status: 'open',
     activeRuntime: info.id,
     runtimes: [info],
     skills,
+    workbench: { ...initial.workbench, navigation: { ...initial.workbench.navigation, current: { kind: 'settings', route: { kind: 'section', section: 'skills', focus: null } } } },
   }
   const store = {
     subscribe: () => () => {},
@@ -107,6 +109,8 @@ it('opening a skill shows the full text, the identifier, and Use in composer', (
   const use = [...container.querySelectorAll('button')].find(
     (button) => button.textContent === 'Use in composer',
   )
+  expect(use).toBeDefined()
+  expect(use?.closest('[data-slot="top-bar"]')).toBeNull()
   act(() => use?.click())
   window.removeEventListener('harnessdesk:compose', listener)
 
@@ -181,10 +185,10 @@ it('mixed marked, unmarked and broken icons keep a 15px fallback glyph', () => {
   }
   const marked = [...container.querySelectorAll('button')].find(row => row.textContent?.includes('Marked'))!
   act(() => marked.click())
-  expect(container.querySelector('[data-slot="icon-tile"]')?.classList.contains('size-6')).toBe(true)
+  expect(container.querySelector('[data-topbar-mark]')).toBeNull()
 })
 
-it('keeps the fallback glyph at 15px in the list and 16px in the destination bar', () => {
+it('keeps the fallback glyph at 15px in the list and the Settings bar quiet on detail', () => {
   mount([
     { name: 'generic', description: 'A generic mark.', enabled: true },
     { name: 'marked', description: 'A named mark.', enabled: true, brandColor: '#7a5af8' },
@@ -192,7 +196,5 @@ it('keeps the fallback glyph at 15px in the list and 16px in the destination bar
   const row = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('Generic'))!
   expect(row.querySelector('[data-slot="row-mark"] svg')?.getAttribute('width')).toBe('15')
   act(() => row.click())
-  const detailGlyph = container.querySelector('[data-topbar-mark] svg')
-  expect(detailGlyph?.getAttribute('width')).toBe('16')
-  expect(detailGlyph?.getAttribute('height')).toBe('16')
+  expect(container.querySelector('[data-topbar-mark]')).toBeNull()
 })

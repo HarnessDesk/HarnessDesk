@@ -4,6 +4,7 @@ import type { TopBarProps } from '../design'
 import { useTopBar } from './top-bar'
 import { useSnapshot } from '../state/context'
 import { sidebarPlacement } from '../state/workbench'
+import { terminalCwdForSnapshot } from '../lib/terminal-scope'
 import { WindowControls } from '../components/WindowControls'
 const PageContext = createContext<{ readonly owner: string; readonly active: boolean } | null>(null)
 export const DestinationPageScope = ({ owner, active, children }: {
@@ -22,6 +23,6 @@ export const DestinationBar = ({ more = () => null, ...slots }: Omit<TopBarProps
   const settings = snapshot.workbench.navigation.current.kind === 'settings'
   useTopBar(scope.owner, settings
     ? { place: '', more: () => null, terminal: false, lead: away ? <WindowControls /> : undefined, corner: away }
-    : { ...slots, terminal: snapshot.workbench.navigation.current.kind === 'changes-review' && Boolean(snapshot.workbench.navigation.current.root), lead: away ? <WindowControls /> : undefined, corner: away, more }, scope.active)
+    : { ...slots, terminal: Boolean(terminalCwdForSnapshot(snapshot)), lead: away ? <WindowControls /> : undefined, corner: away, more }, scope.active)
   return null
 }

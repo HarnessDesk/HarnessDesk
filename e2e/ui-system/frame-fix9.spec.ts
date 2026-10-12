@@ -17,8 +17,10 @@ test('FIX9 kept history remains readable after reopening', async ({ page }) => {
   await expect(page.locator('[data-slot="composer-dock"]:has(> [data-slot="pane-column"][data-inset="bars"])')).toContainText('Choose a working installation in Settings.')
 })
 
-test('FIX9 wrapped findings use the receipt and ask nothing of a person', async ({ page }) => {
-  for (const theme of ['light', 'dark'] as const) {
+{
+
+  for (const [item0, theme] of (['light', 'dark'] as const).entries()) test(`FIX9 wrapped findings use the receipt and ask nothing of a person [item ${[item0].join('-')}]`, async ({ page }) => {
+
     await openFrame(page, 'frame-wall=team-receipt&frame-fix9-findings=1', 1280, theme)
     await page.getByRole('tab', { name: 'Findings 5', exact: true }).click()
     const pane = page.getByRole('region', { name: 'Findings', exact: true })
@@ -29,8 +31,10 @@ test('FIX9 wrapped findings use the receipt and ask nothing of a person', async 
     await expect(pane).toContainText('The run was stopped before this was posted')
     await expect(pane).not.toContainText('yet')
     await expect(pane).not.toContainText('Goal')
-  }
-})
+
+
+  })
+}
 
 test('FIX9 stopped Team keeps its Researcher and explains round counts', async ({ page }) => {
   await openFrame(page, 'frame-wall=team&frame-fix9-stop=1')
@@ -53,27 +57,35 @@ test('FIX9 command card waits for approval and names its folder', async ({ page 
   await expect(transcript).not.toContainText('/work/storefront')
 })
 
-test('FIX9 empty spend has one statement and coverage once', async ({ page }) => {
-  for (const view of ['overview', 'spend']) {
+{
+
+  for (const [item0, view] of (['overview', 'spend']).entries()) test(`FIX9 empty spend has one statement and coverage once [item ${[item0].join('-')}]`, async ({ page }) => {
+
     await openFrame(page, `frame-wall=dashboard&frame-view=${view}&frame-empty-usage=1`)
     const cost = page.getByRole('region', { name: 'What it cost', exact: true })
     await expect(cost.locator('[data-slot="chart-title"]').first()).toHaveText('—')
     await expect(cost).toContainText('No usage recorded in this window')
-    await expect(cost.getByText('0 of 30 days scanned', { exact: true })).toHaveCount(1)
-    await expect(cost.locator('[data-slot="chart-foot"]')).not.toContainText('days scanned')
+    await expect(cost.getByText('0 of 30 days with usage', { exact: true })).toHaveCount(1)
+    await expect(cost.locator('[data-slot="chart-foot"]')).not.toContainText('days with usage')
     await expect(cost).not.toContainText('unpriced')
     if (view === 'overview') await expect(page.getByRole('button', { name: /^Value/ })).not.toContainText('unpriced')
-  }
-})
 
-test('FIX9 shorter spend figures distinguish unscanned days from quiet days', async ({ page }) => {
-  for (const state of ['mixed', 'zero']) {
+
+  })
+}
+
+{
+
+  for (const [item0, state] of (['mixed', 'zero']).entries()) test(`FIX9 shorter spend figures keep quiet days known after the earliest retained row [item ${[item0].join('-')}]`, async ({ page }) => {
+
     await openFrame(page, `frame-wall=dashboard&frame-view=spend&frame-fix9-ledger=${state}`)
     const today = page.locator('[data-slot="stat"]').filter({ hasText: 'Today' })
-    await expect(today).toContainText(state === 'mixed' ? 'Not read yet' : '$0')
-    if (state === 'zero') await expect(page.getByText('30 of 30 days scanned', { exact: true })).toHaveCount(1)
-  }
-})
+    await expect(today).toContainText('$0')
+    if (state === 'zero') await expect(page.getByText('30 of 30 days with usage', { exact: true })).toHaveCount(1)
+
+
+  })
+}
 
 test('FIX9 hourly tokens name the subset and the missing amount', async ({ page }) => {
   await openFrame(page, 'frame-wall=dashboard&frame-view=activity&frame-fix9-hours=1')
@@ -94,8 +106,10 @@ test('FIX9 Projects names an empty current project beside spend elsewhere', asyn
 })
 
 
-test('FIX9 unavailable conversation keeps its notes in the reading column', async ({ page }) => {
-  for (const width of [1600, 1280]) {
+{
+
+  for (const [item0, width] of ([1600, 1280]).entries()) test(`FIX9 unavailable conversation keeps its notes in the reading column [item ${[item0].join('-')}]`, async ({ page }) => {
+
     await openFrame(page, 'frame-wall=conversation&frame-fix8-kept=1', width)
     await page.getByRole('button', { name: 'Kept conversation', exact: true }).click()
     await expect.soft(page.locator('[data-frame-region="top"]')).not.toContainText('Idle')
@@ -109,8 +123,10 @@ test('FIX9 unavailable conversation keeps its notes in the reading column', asyn
       expect(Math.abs(box!.width - boxes[0]!.width)).toBeLessThanOrEqual(1)
     }
     expect(boxes[1]!.y + boxes[1]!.height).toBeLessThanOrEqual(boxes[0]!.y)
-  }
-})
+
+
+  })
+}
 
 test('FIX9 confirmed sign out uses one phrase on the list and detail', async ({ page }) => {
   await openFrame(page, 'frame-wall=settings-runtimes&frame-fix9-signout=1')
@@ -136,8 +152,10 @@ test('FIX9 spend grouping uses sentence case', async ({ page }) => {
   await expect(options).toContainText('By project')
 })
 
-test('FIX9 floating Changes uses overlay elevation', async ({ page }) => {
-  for (const width of [1100, 720]) {
+{
+
+  for (const [item0, width] of ([1100, 720]).entries()) test(`FIX9 floating Changes uses overlay elevation [item ${[item0].join('-')}]`, async ({ page }) => {
+
     await openFrame(page, 'frame-wall=conversation', width)
     await page.getByRole('button', { name: 'Changes', exact: true }).first().click()
     const panel = page.locator('[data-frame-region="right"]:visible')
@@ -147,11 +165,15 @@ test('FIX9 floating Changes uses overlay elevation', async ({ page }) => {
     })
     expect(shadows[0]).not.toBe('none')
     expect(shadows[0]).toBe(shadows[1])
-  }
-})
 
-test('FIX9 theme thumbnails use neutral selection across accents', async ({ page }) => {
-  for (const theme of ['light', 'dark'] as const) {
+
+  })
+}
+
+{
+
+  for (const [item0, theme] of (['light', 'dark'] as const).entries()) test(`FIX9 theme thumbnails use neutral selection across accents [item ${[item0].join('-')}]`, async ({ page }) => {
+
     await openFrame(page, 'frame-wall=settings&frame-section=appearance', 1280, theme)
     await page.getByRole('combobox', { name: 'Interface', exact: true }).selectOption('studio')
     await expect(page.locator('body')).toHaveAttribute('data-hd-interface', 'studio')
@@ -166,8 +188,10 @@ test('FIX9 theme thumbnails use neutral selection across accents', async ({ page
     const green = await rows.evaluateAll(elements => elements.map(element => getComputedStyle(element).fill))
     expect(green).toEqual(violet)
     expect(green).toEqual(neutral)
-  }
-})
+
+
+  })
+}
 
 test('FIX9 unavailable Findings names its refusal without an internal noun', async ({ page }) => {
   await openFrame(page, 'frame-wall=team&frame-fix9-no-findings=1')

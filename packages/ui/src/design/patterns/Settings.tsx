@@ -363,7 +363,14 @@ export const Search = ({
       title={title}
       onFocus={onFocus}
       onBlur={onBlur}
-      onKeyDown={onKeyDown}
+      onKeyDown={event => {
+        onKeyDown?.(event)
+        if (!event.defaultPrevented && event.key === 'Escape' && !event.nativeEvent.isComposing && value !== '' &&
+          !event.currentTarget.closest('[data-popup-kind="menu"], [data-popup-kind="wide-menu"], [role="menu"]')) {
+          event.preventDefault()
+          onChange('')
+        }
+      }}
       onChange={(event) => onChange(event.target.value)}
     />
     {clear && value ? (

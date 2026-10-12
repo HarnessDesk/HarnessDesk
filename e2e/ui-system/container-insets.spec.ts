@@ -109,23 +109,25 @@ const readInsets = (contracts: readonly { selector: string; tier: string; inline
     const inlineMinimum = parseFloat(getComputedStyle(probe).paddingLeft)
     probe.remove()
     const expectedPadding = [blockInset ?? minimum, inlineMinimum, blockInset ?? minimum, inlineMinimum]
-    return { selector, minimum, expectedPadding, boxes: [...document.querySelectorAll(selector)].filter(visible).map(element => {
-      const css = getComputedStyle(element), box = element.getBoundingClientRect(), content = contents(element)
-      return {
-        label: element.textContent?.slice(0, 100),
-        height: box.height,
-        rowFloor: element.matches('[data-slot="list-row"][data-hd-table="compact"]')
-          ? parseFloat(css.getPropertyValue(element.querySelector('[data-slot="list-row-subtitle"], [data-slot="list-row-lead"]') ? '--hd-table-row-min' : '--hd-table-row-min-bare'))
-          : null,
-        padding: [css.paddingTop, css.paddingRight, css.paddingBottom, css.paddingLeft].map(parseFloat),
-        insets: content.length ? [
-          Math.min(...content.map(rect => rect.top)) - box.top,
-          box.right - Math.max(...content.map(rect => rect.right)),
-          box.bottom - Math.max(...content.map(rect => rect.bottom)),
-          Math.min(...content.map(rect => rect.left)) - box.left,
-        ] : null,
-      }
-    }) }
+    return {
+      selector, minimum, expectedPadding, boxes: [...document.querySelectorAll(selector)].filter(visible).map(element => {
+        const css = getComputedStyle(element), box = element.getBoundingClientRect(), content = contents(element)
+        return {
+          label: element.textContent?.slice(0, 100),
+          height: box.height,
+          rowFloor: element.matches('[data-slot="list-row"][data-hd-table="compact"]')
+            ? parseFloat(css.getPropertyValue(element.querySelector('[data-slot="list-row-subtitle"], [data-slot="list-row-lead"]') ? '--hd-table-row-min' : '--hd-table-row-min-bare'))
+            : null,
+          padding: [css.paddingTop, css.paddingRight, css.paddingBottom, css.paddingLeft].map(parseFloat),
+          insets: content.length ? [
+            Math.min(...content.map(rect => rect.top)) - box.top,
+            box.right - Math.max(...content.map(rect => rect.right)),
+            box.bottom - Math.max(...content.map(rect => rect.bottom)),
+            Math.min(...content.map(rect => rect.left)) - box.left,
+          ] : null,
+        }
+      })
+    }
   })
 }
 
@@ -137,7 +139,8 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
       const response = await route.fetch(), source = await response.text()
       const reactUrl = /from "([^"\n]*\/react\.js[^"\n]*)"/.exec(source)?.[1]
       if (!reactUrl) throw new Error('preview React import missing')
-      await route.fulfill({ response, body: `${source}
+      await route.fulfill({
+        response, body: `${source}
         import insetReact from ${JSON.stringify(reactUrl)};
         import { SummaryList as InsetSummary, SummaryItem as InsetFact, AgentCard as InsetAgentCard, ApprovalDialog as InsetApproval, ApprovalReason as InsetReason, ApprovalCode as InsetCode } from '/src/design/index.ts';
         import { ListRow as InsetListRow, Row as InsetRow, Rows as InsetRows, IconTile as InsetTile, Button as InsetButton } from '/src/design/index.ts';
@@ -234,20 +237,23 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
 }
 
 for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720]) {
-  test(`dialog parts share the modal inset in ${theme} at ${width}px`, async ({ page }) => {
-    await page.setViewportSize({ width, height: 900 })
-    await page.emulateMedia({ colorScheme: theme })
-    await page.addInitScript(() => {
-      Object.assign(window, { __hdCliInstallDialog: {
-        menuLabel: 'Install command-line tool…',
-        request: { message: 'Install the command-line tool?', detail: 'The launcher goes in a folder you own.', buttons: ['Install', 'Cancel'] },
-      } })
-    })
-    for (const [query, selectors] of [
+  {
+
+    for (const [item0, [query, selectors]] of ([
       ['cli-install', ['[data-slot="dialog-content"]']],
       ['run-again=default', ['[data-slot="dialog-head"]', '[data-slot="modal-dialog-body"]', '[data-slot="dialog-footer"]']],
       ['stop-run-dialog=default', ['[data-slot="dialog-head"]', '[data-slot="modal-dialog-body"]', '[data-slot="dialog-footer"]']],
-    ] as const) {
+    ] as const).entries()) test(`dialog parts share the modal inset in ${theme} at ${width}px [item ${[item0].join('-')}]`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 })
+      await page.emulateMedia({ colorScheme: theme })
+      await page.addInitScript(() => {
+        Object.assign(window, {
+          __hdCliInstallDialog: {
+            menuLabel: 'Install command-line tool…',
+            request: { message: 'Install the command-line tool?', detail: 'The launcher goes in a folder you own.', buttons: ['Install', 'Cancel'] },
+          }
+        })
+      })
       await page.goto(`/preview.html?${query}&theme=${theme}`)
       for (const selector of selectors) {
         const part = page.locator(selector).last()
@@ -262,8 +268,10 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
         const visibleContent = (await page.evaluate(readInsets, [{ selector, tier: 'dialog' }]))[0]!.boxes.at(-1)!
         expect(visibleContent.insets?.every((value, side) => reading.scrolling && (side === 0 || side === 2) || value >= reading.tier - 2), `${query}: ${selector} content ${visibleContent.insets}`).toBe(true)
       }
-    }
-  })
+
+
+    })
+  }
 }
 
 test('the inset guard detects zero padding and content escaping otherwise correct padding', async ({ page }) => {
@@ -281,7 +289,7 @@ test('the inset guard detects zero padding and content escaping otherwise correc
   expect(zero.boxes[0]!.insets![3]).toBeLessThan(zero.minimum - 2)
   await page.locator('#surface').evaluate(element => {
     (element as HTMLElement).style.padding = 'var(--hd-inset-row)'
-    ;(element.firstElementChild as HTMLElement).style.marginLeft = 'calc(-1 * var(--hd-inset-row))'
+      ; (element.firstElementChild as HTMLElement).style.marginLeft = 'calc(-1 * var(--hd-inset-row))'
   })
   const escaped = (await page.evaluate(readInsets, policy))[0]!
   expect(escaped.boxes[0]!.padding).toEqual([12, 12, 12, 12])
@@ -318,14 +326,16 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
         const range = document.createRange(); range.selectNodeContents(node)
         return Math.round((node.matches('[data-slot=table-head]') ? range.getBoundingClientRect().left : node.getBoundingClientRect().left) - element.getBoundingClientRect().left)
       }
-      return { run: start(run.closest('[data-slot="card"]') ?? run), labels: [needs, seats].map(section => start(section.querySelector('[data-slot="group-label"]')!)),
+      return {
+        run: start(run.closest('[data-slot="card"]') ?? run), labels: [needs, seats].map(section => start(section.querySelector('[data-slot="group-label"]')!)),
         bodies: [needs, seats].map(section => {
           const content = section.querySelector('[data-slot="list-row-lead"], [data-slot="list-row-title"], [data-slot="table-head"]')!
           const row = content.closest('[data-slot="list-row"], [data-slot="table-head"]')!
           // Page headings stay on the page edge; a row's content retains
           // its own inset. Compare that row's container edge, not its text.
           return start(content) - (content.matches('[data-slot="table-head"]') ? parseFloat(getComputedStyle(content).paddingLeft) : content.getBoundingClientRect().left - row.getBoundingClientRect().left)
-        }) }
+        })
+      }
     })
     for (const edge of [...layout.labels, ...layout.bodies]) expect(Math.abs(edge - layout.run)).toBeLessThanOrEqual(1)
     const emptyOverview = page.locator('#team-overview-no-seats [data-slot="team-overview"]')
@@ -339,9 +349,11 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
       const text = range.getBoundingClientRect(), bounds = empty.getBoundingClientRect()
       const style = getComputedStyle(head), headBounds = head.getBoundingClientRect()
       const bodyStyle = getComputedStyle(empty.parentElement!)
-      return { label: label.getBoundingClientRect().left, text: text.left - parseFloat(bodyStyle.paddingLeft),
+      return {
+        label: label.getBoundingClientRect().left, text: text.left - parseFloat(bodyStyle.paddingLeft),
         right: headBounds.right - parseFloat(style.paddingRight), bodyRight: bounds.right + parseFloat(bodyStyle.paddingRight),
-        gutter: section.getBoundingClientRect().left - element.getBoundingClientRect().left }
+        gutter: section.getBoundingClientRect().left - element.getBoundingClientRect().left
+      }
     })
     expect(emptyEdges.gutter).toBe(24)
     expect(Math.abs(emptyEdges.text - emptyEdges.label)).toBeLessThanOrEqual(1)

@@ -2,8 +2,10 @@ import { expect, test } from '@playwright/test'
 import { applyPageFrameActions } from './frame-page-actions'
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`final Library matrix keeps every column visible in ${theme}`, async ({ page }) => {
-    for (const width of [1440, 1100, 720]) {
+  {
+
+    for (const [item0, width] of ([1440, 1100, 720]).entries()) test(`final Library matrix keeps every column visible in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
+
       await page.setViewportSize({ width, height: 900 })
       await page.goto(`/preview.html?frame-wall=library&theme=${theme}`)
       await applyPageFrameActions(page, { pageWidth: 'wide', bodyChoice: { label: 'How to show the library', value: 'matrix', item: 'Matrix' } })
@@ -21,6 +23,8 @@ for (const theme of ['light', 'dark'] as const) {
       await applyPageFrameActions(page, { expandLibraryEntry: true })
       expect(await container.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
-    }
-  })
+
+
+    })
+  }
 }

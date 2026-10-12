@@ -9,8 +9,10 @@ import { openFrame } from './frame-contract-helpers'
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 
 
-test('R10.30 terminal occupies main while the right panel keeps its frame height', async ({ page }) => {
-  for (const width of [1440, 1100]) {
+{
+
+  for (const [item0, width] of ([1440, 1100]).entries()) test(`R10.30 terminal occupies main while the right panel keeps its frame height [item ${[item0].join('-')}]`, async ({ page }) => {
+
     await openFrame(page, 'frame-wall=conversation&frame-terminal=1', 'light', width)
     await page.locator('[data-work-tool="details"]').click()
     const main = page.locator('[data-frame-region="main"]')
@@ -40,8 +42,10 @@ test('R10.30 terminal occupies main while the right panel keeps its frame height
       expect(geometry.floating).toBe(true)
       expect(Math.abs(geometry.right.bottom - geometry.bottom.y), 'floating panel stops above terminal').toBeLessThanOrEqual(1)
     }
-  }
-})
+
+
+  })
+}
 
 for (const theme of WALL_THEMES) {
   test(`R5.5 message action reveal stays with the hovered message in ${theme}`, async ({ page }) => {
@@ -137,6 +141,7 @@ for (const theme of WALL_THEMES) {
     await expect(page.getByRole('dialog')).toHaveCount(0)
     await expect(editor).toBeHidden()
     await expect(terminal).toBeHidden()
+    await expect(page.locator('[data-slot="fixed-shell"]')).toHaveAttribute('data-bottom-open', 'false')
     await expect(terminal).toHaveAttribute('data-terminal-id', terminalId!)
     const bar = page.locator('[data-slot="top-bar"]:visible')
     await expect(bar.locator('[data-work-tool]')).toHaveCount(0)
@@ -144,6 +149,7 @@ for (const theme of WALL_THEMES) {
     await expect(bar.getByRole('button', { name: 'More', exact: true })).toHaveCount(0)
     await destinationPage.getByRole('button', { name: /Code reviewer / }).click()
     const more = bar.getByRole('button', { name: 'More', exact: true })
+    await expect(more).toHaveCount(1)
     await more.focus()
     await page.keyboard.press('Enter')
     await expect(page.getByRole('menu')).toBeVisible()
@@ -173,15 +179,18 @@ for (const theme of WALL_THEMES) {
     await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Browser', exact: true }).click()
     const address = page.getByRole('textbox', { name: 'Address', exact: true })
     await expect(address).toHaveAttribute('placeholder', 'Enter a URL or query')
-    const fit = await address.evaluate((input: HTMLInputElement) => {
-      const style = getComputedStyle(input)
-      const canvas = document.createElement('canvas')
-      const context = canvas.getContext('2d')!
-      context.font = style.font
-      const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
-      return { text: context.measureText(input.placeholder).width, room: input.clientWidth - padding }
-    })
-    expect(fit.text).toBeLessThanOrEqual(fit.room)
+    for (const width of [1100, 720]) {
+      await page.setViewportSize({ width, height: 900 })
+      const fit = await address.evaluate((input: HTMLInputElement) => {
+        const style = getComputedStyle(input)
+        const canvas = document.createElement('canvas')
+        const context = canvas.getContext('2d')!
+        context.font = style.font
+        const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+        return { text: context.measureText(input.placeholder).width, room: input.clientWidth - padding }
+      })
+      expect(fit.text).toBeLessThanOrEqual(fit.room)
+    }
   })
 }
 
@@ -199,6 +208,7 @@ for (const theme of WALL_THEMES) {
   test(`B8 Agents layout measures allocated rows and keeps names inside their column in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team', theme)
     await page.locator('[data-work-tool="details"]').click()
+    await expect(page.locator('[data-frame-region="right"]:visible')).toBeVisible()
     const overview = page.locator('[data-slot="team-overview"]')
     const seats = overview.locator('[aria-label="Seats"]')
     const allocated = (await seats.boundingBox())!.width
@@ -239,7 +249,12 @@ for (const theme of WALL_THEMES) {
       expect(Math.abs(panel.y - bar.y - FRAME.bar.height)).toBeLessThanOrEqual(1)
       expect(panel.x).toBeGreaterThanOrEqual(0)
       expect(panel.x + panel.width).toBeLessThanOrEqual(width)
-      if (width < FRAME.fold.panelFloats) expect(panel.width).toBe(FRAME.rightPanel.width)
+      if (width < FRAME.fold.panelFloats) {
+        const sidebar = width < FRAME.fold.sidebarFloats ? 0 : FRAME.sidebar.width
+        expect(panel.width).toBe(Math.min(FRAME.rightPanel.width, Math.max(FRAME.rightPanel.min, width - sidebar - FRAME.main.min - 2)))
+        expect(panel.width).toBeGreaterThanOrEqual(FRAME.rightPanel.min)
+        expect((await main.boundingBox())!.x + (await main.boundingBox())!.width).toBeLessThanOrEqual(panel.x)
+      }
     })
   }
   test(`B8 terminal height and seam default are measured in ${theme}`, async ({ page }) => {

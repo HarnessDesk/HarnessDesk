@@ -980,7 +980,7 @@ it('board-only is one press from Chat Send to, and says which way it is set', as
   await render(store)
 
   sendTo()
-  const toggle = menuRow('Hold messages')
+  const toggle = menuRow('Board-only')
   if (!toggle) throw new Error('no messaging switch')
   act(() => toggle.click())
   expect(store.teamMessaging).toHaveBeenCalledWith(ROOM, false)
@@ -3035,7 +3035,7 @@ it('says so when the host will not take the board-only switch', async () => {
   await render(refusing)
 
   sendTo()
-  const toggle = menuRow('Hold messages')
+  const toggle = menuRow('Board-only')
   if (!toggle) throw new Error('no messaging switch')
   await act(async () => {
     toggle.click()
@@ -3046,7 +3046,7 @@ it('says so when the host will not take the board-only switch', async () => {
   expect(alert?.textContent).toContain('The host did not take the change')
   // And the switch still reads as it really is, rather than as it was pressed.
   sendTo()
-  expect(menuRow('Hold messages').getAttribute('aria-checked')).toBe('false')
+  expect(menuRow('Board-only').getAttribute('aria-checked')).toBe('false')
 })
 
 /**
@@ -4232,7 +4232,7 @@ it('a wrapped Team keeps receipt Seats and its Run readable while dispatching ve
  expect(memberList().querySelector('[title="Conversation not kept"]')).toBeTruthy()
  act(()=>row('Chat').click());await act(async()=>{})
  sendTo()
- const hold = menuRow('Hold messages')
+ const hold = menuRow('Board-only')
  expect(hold.getAttribute('aria-disabled')).toBe('true');expect(hold.title).toBe('This Team is wrapped');expect(hold.textContent).toContain('This Team is wrapped')
  act(()=>audience().click())
  const pick=async(label:string)=>{const button=[...container.querySelectorAll<HTMLButtonElement>('[data-team-page]')].find(one=>(label==='Run'?one.textContent?.startsWith(label):one.textContent===label));expect(button).toBeTruthy();act(()=>button!.click());await act(async()=>{})}
@@ -4438,8 +4438,8 @@ it('explains why a Team has no Run to open', async () => {
 it('keeps held board messages checked in Chat Send to', async () => {
  const {store}=rig(undefined,undefined,{messaging:false},GOAL); await render(store)
  act(()=>row('Chat').click());await act(async()=>{})
- sendTo(); expect(menuRow('Hold messages').getAttribute('aria-checked')).toBe('true')
- expect(container.querySelector('[data-slot="composer-chip"]')?.textContent).toBe('Holding messages')
+ sendTo(); expect(menuRow('Board-only').getAttribute('aria-checked')).toBe('true')
+ expect(container.querySelector('[data-slot="composer-chip"]')?.textContent).toBe('Board-only')
 })
 
 it('Details lists retained members including unavailable conversations', async () => {
@@ -4673,4 +4673,22 @@ it('names the disabled Findings tab without an internal Team noun', async () => 
   await render(rig().store)
   const findings = row('Findings')
   expect(findings.getAttribute('title')).toBe('This Team has no findings')
+})
+
+
+it('stopped Seats stay readable while their agent actions and composer recipients are refused', async () => {
+ const stopped={id:'stopped-seat',session:{runtime:'codex',sessionId:'c1'},agent:{name:'Writer'},openedAt:1,closed:2,role:'writer'}
+ const {store}=rig(undefined,undefined,{}, {...GOAL,pastMembers:[stopped]} as unknown as GoalView)
+ await render(store)
+ expect(row('Writer').textContent).toContain('Stopped')
+ seatMenu(row('Writer'))
+ for(const label of ['Message','Watch beside','Remove from Team']) {
+   const action=[...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one=>one.textContent?.startsWith(label))
+   expect(action,label).toBeTruthy()
+   expect(action!.getAttribute('aria-disabled')).toBe('true')
+ }
+ act(()=>row('Writer').querySelector<HTMLButtonElement>('button[title^="Actions for "]')!.click())
+ act(()=>row('Chat').click());await act(async()=>{})
+ sendTo()
+ expect([...document.querySelectorAll('[role="switch"]')].some(one=>one.textContent?.includes('Codex'))).toBe(false)
 })

@@ -120,7 +120,6 @@ export const stackDailyMetric = (
   // is unknown. A finite day is the first one on record, and only the days
   // before it (that carry no spend) are unknown.
   const earliest = ledger.coverage?.earliestDay
-  const coveredDays = ledger.coverage?.coveredDays ? new Set(ledger.coverage.coveredDays) : null
 
   const start = midnight(now)
   const days: StackedDay[] = []
@@ -133,7 +132,7 @@ export const stackDailyMetric = (
     const dayTotal = parts.reduce((sum, part) => sum + part, 0)
     if (dayTotal > peak) peak = dayTotal
     total += dayTotal
-    let unknown = coveredDays ? !coveredDays.has(day) : !bucket && earliest !== undefined && (earliest === null || day < earliest)
+    let unknown = !bucket && earliest !== undefined && (earliest === null || day < earliest)
     // A turns day whose every runtime that actually spent that day is
     // turn-unknown has no honest total at all — not "0 turns", which a
     // turn-known day with genuinely nothing done would also read as. Only
@@ -154,20 +153,9 @@ export interface PeriodTotal {
   /** "Today", "Last 7 days" — what the figure covers, in the band's own words. */
   readonly label: string
   readonly cost: number
-  /**
-   * True when the window ends on a day that is still running, and so cannot
-   * honestly be compared with a finished one.
-   */
-  readonly partial: boolean
-  /**
-   * Change against the period of the same length immediately before it, as a
-   * percentage. Null on a partial window, when the earlier period is not
-   * wholly in the window, or when it was zero — a rise from nothing has no
-   * percentage.
-   */
-  readonly change: number | null
   /** No day in this figure has been read. */
   readonly unknown: boolean
+  /** Days at or after the earliest retained usage record. */
   readonly daysRead: number
 }
 
@@ -177,10 +165,10 @@ export interface PeriodTotal {
  * Derived entirely from the days already loaded: no wider scan, no second
  * request, and a period longer than the window is simply not offered rather
  * than being silently truncated into a smaller number wearing a bigger label.
- * A change is only computed where the *whole* earlier period is also loaded.
  *
  * All ranges include today, matching the host query and selected figure.
- * A running day is marked "so far" and has no comparison percentage.
+ * These inclusive ranges are still running. Their caller labels them "so far";
+ * comparisons belong to previousPeriod, which checks both windows.
  */
 export const periodTotals = (
   series: StackedSeries,
@@ -199,8 +187,6 @@ export const periodTotals = (
         unknown: series.days.at(-1)?.unknown ?? true,
         daysRead: series.days.at(-1)?.unknown === false ? 1 : 0,
         cost: totals[totals.length - 1] ?? 0,
-        partial: true,
-        change: null,
       })
       continue
     }
@@ -212,8 +198,6 @@ export const periodTotals = (
       unknown: series.days.slice(-span).every(day => day.unknown),
       daysRead: series.days.slice(-span).filter(day => !day.unknown).length,
       cost: recent,
-      partial: true,
-      change: null,
     })
   }
   return out
@@ -234,8 +218,7 @@ export const periodTotals = (
  * `complete` is false when the older half is not wholly loaded — a ledger
  * that only reaches back `range * 1.4` days has an honest current period and
  * a previous one that is not comparable, and `change` is null in exactly that
- * case, the same rule `periodTotals` already keeps for a period longer than
- * what is loaded.
+ * case. A gap in the current half also prevents a percentage comparison.
  */
 export interface PreviousPeriod {
   readonly total: number
@@ -254,7 +237,8 @@ export const previousPeriod = (
   const end = Math.max(0, wide.days.length - range)
   const start = Math.max(0, end - range)
   const daily = wide.days.slice(start, end)
-  const complete = daily.length === range && daily.every((day) => !day.unknown)
+  const complete = daily.length === range && wide.days.slice(-range).length === range
+    && daily.every(day => !day.unknown) && wide.days.slice(-range).every(day => !day.unknown)
   const total = sum(daily.map((day) => day.total))
   const change = !complete || total === 0 ? null : ((currentTotal - total) / total) * 100
   return { total, daily, complete, change }

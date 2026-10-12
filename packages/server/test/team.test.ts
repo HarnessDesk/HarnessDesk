@@ -700,7 +700,7 @@ test('board-only mode stops messages and says who can turn them back on', async 
 
   assert.match(
     await team.send({ to: 'Auth refactor', text: 'psst' }, codex),
-    /^Refused: this board is in board-only mode/,
+    /^Refused: this board is in board-only mode.*Send to/,
   )
   // Claims still work: board-only means quieter, not weaker.
   await team.addIntent({ title: 'Still works' }, codex)

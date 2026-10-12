@@ -1038,13 +1038,14 @@ export const sidebarCannotHaveColumn = (_workbench: Workbench, windowWidth: numb
 export const rightPanelOverlays = (workbench: Workbench, windowWidth: number): boolean =>
   windowWidth < FRAME.fold.panelFloats && rightPanelDrawn(workbench)
 
+/** The reading floor yields only enough to keep the tool's minimum usable. */
+const frameReadingFloor = (windowWidth: number, standingSidebar = 0, seam = 1): number =>
+  Math.min(FRAME.main.min, Math.max(0, windowWidth - standingSidebar - FRAME.rightPanel.min - 2 * seam))
 /** Requested preferences survive viewport changes; only drawing is clamped. */
 export const effectiveRightWidth = (workbench: Workbench, windowWidth: number, standingSidebar: number): number => {
   if (!rightPanelDrawn(workbench)) return 0
-  const max = windowWidth < FRAME.fold.panelFloats
-    ? Math.max(0, windowWidth - FRAME.page.canvasGutter)
-    : Math.max(FRAME.rightPanel.min, windowWidth - standingSidebar - FRAME.main.min - 2 * SEAM)
-  return Math.max(0, Math.min(workbench.right.size, FRAME.rightPanel.max, max))
+  const max = Math.max(0, windowWidth - standingSidebar - frameReadingFloor(windowWidth, standingSidebar, SEAM) - 2 * SEAM)
+  return Math.max(0, Math.min(workbench.right.size, FRAME.rightPanel.max, max, Math.max(0, windowWidth - standingSidebar - FRAME.page.canvasGutter)))
 }
 export const effectiveBottomHeight = (workbench: Workbench, windowHeight: number): number =>
   windowHeight < FRAME.bottomPanel.min * 2 || workbench.bottom.collapsed || terminals(workbench).length === 0 || !areaVisible(workbench, 'bottom')

@@ -1137,11 +1137,10 @@ const SkillPage = ({
   return (
     <>
       <DestinationBar place={skillTitle(skill)} mark={<SkillMark skill={skill} tile="sm" glyphSize={16}/>}
-        parents={[{label:'Settings',run:()=>store.askSettings('general')},{label:listLabel,run:onBack}]}
-        verb={{label:'Use in composer',run:()=>{onUse();void handOverToComposer({text:`@${skill.name} `})}}}/>
+        parents={[{label:'Settings',run:()=>store.askSettings('general')},{label:listLabel,run:onBack}]}/>
       <PageExplanation>{`${runtime.presentation.name}${scope?` · ${scope}`:''}`}</PageExplanation>
       {skill.shortDescription && <PageExplanation>{skill.shortDescription}</PageExplanation>}
-      <Rows><Row title={skillTitle(skill)} control={<SkillToggle skill={skill}/>}/></Rows>
+      <Rows><Row title={skillTitle(skill)} control={<><SkillToggle skill={skill}/><Button variant="outline" size="sm" onClick={() => { onUse(); void handOverToComposer({text:`@${skill.name} `}) }}>Use in composer</Button></>}/></Rows>
 
       {skill.description && skill.description !== skill.shortDescription && (
         <>

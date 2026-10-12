@@ -249,7 +249,13 @@ for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) for (con
   test(`C3 dropdown ${mode} at ${width} in ${theme}`, async ({ page }) => {
     await openFrame(page, `frame-wall=conversation&popup=dropdown-${mode}`, theme, width)
     await page.getByRole('button', { name: 'Frame dropdown', exact: true }).click()
-    await expectMenuGeometry(page.locator('[data-popup-kind="menu"]:visible').last())
+    const menu = page.locator('[data-popup-kind="menu"]:visible').last()
+    await expect(menu).not.toHaveAttribute('data-starting-style', '')
+    await menu.evaluate(async node => {
+      await Promise.all(node.getAnimations().map(animation => animation.finished.catch(() => {})))
+    })
+    expect(await menu.evaluate(node => getComputedStyle(node).scale)).toMatch(/^(?:none|1)$/)
+    await expectMenuGeometry(menu)
     await page.keyboard.press('Escape')
     await expect(page.getByRole('button', { name: 'Frame dropdown', exact: true })).toBeFocused()
   })

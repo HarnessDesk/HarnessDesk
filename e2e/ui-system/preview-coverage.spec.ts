@@ -1,3 +1,4 @@
+import { cataloguePageCases, PAGE_ITEMS } from './catalogue-sweep'
 import { installFramePreviewFixture } from './frame-preview-fixture'
 import { teamDetails, selectTeamPage, closeTeamDetails } from './team-frame-actions'
 import { selectRunView } from './run-frame-actions'
@@ -249,7 +250,7 @@ const collectCoverage = (page: Page): Promise<{ allComponents: readonly string[]
 const sweepSelectsForCoverage = (
   page: Page,
   { delayedRevealProbe = false }: { delayedRevealProbe?: boolean } = {},
-): Promise<{ covered: readonly string[]; delayedReveal: boolean | null }> =>
+): Promise<{ covered: readonly string[]; delayedReveal: boolean | null; stateElementsVisited: number }> =>
   page.evaluate(async ({ delayedRevealProbe }) => {
     const mod = (await import('/src/preview/coverage-registry.ts')) as {
       coverageRegistry: readonly { file: string; exports: Readonly<Record<string, unknown>> }[]
@@ -268,11 +269,19 @@ const sweepSelectsForCoverage = (
     const covered = new Set<string>()
     const isVisible = (element: Element): boolean =>
       element.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }) && element.getClientRects().length > 0
-    const collect = (): void => {
+    let collections = 0, stateElementsVisited = 0
+    const collect = (roots: readonly ParentNode[] = [document]): void => {
+      collections++
       // Keep this set local to a collection: each dial value is a distinct
       // page state and can reveal a different mounted subtree.
       const seenFibers = new Set<unknown>()
-      for (const el of document.querySelectorAll('*')) {
+      const elements = new Set<Element>()
+      for (const root of roots) {
+        if (root instanceof Element) elements.add(root)
+        for (const element of root.querySelectorAll('*')) elements.add(element)
+      }
+      for (const el of elements) {
+        if (collections > 1) stateElementsVisited++
         const key = Object.keys(el).find(k => k.startsWith('__reactFiber$'))
         if (!key) continue
         // Visibility is expensive on a page containing every specimen. Only
@@ -297,48 +306,48 @@ const sweepSelectsForCoverage = (
         for (const name of pending) covered.add(name)
       }
 
-    // A destination registers slots; the visible host renders them as a
-    // sibling, so no DOM leaf has the registrar in its ancestry. Credit the
-    // exact mounted reference only when its active scope has a visible host.
-    const registryEntry = (file: string) => mod.coverageRegistry.find(entry => entry.file === file)?.exports
-    const registrar = registryEntry('panels/destination-page.tsx')?.DestinationBar
-    const pageScope = registryEntry('panels/destination-page.tsx')?.DestinationPageScope
-    const outlet = registryEntry('panels/top-bar.tsx')?.TopBarOutlet
-    const owners = new Set<string>()
-    for (const bar of document.querySelectorAll('[data-slot="top-bar"]')) {
-      if (!isVisible(bar)) continue
-      const key = Object.keys(bar).find(name => name.startsWith('__reactFiber$'))
-      if (!key) continue
-      let fiber: any = (bar as unknown as Record<string, unknown>)[key]
-      while (fiber) {
-        if (fiber.type === outlet && typeof fiber.memoizedProps?.owner === 'string') owners.add(fiber.memoizedProps.owner)
-        fiber = fiber.return
+      // A destination registers slots; the visible host renders them as a
+      // sibling, so no DOM leaf has the registrar in its ancestry. Credit the
+      // exact mounted reference only when its active scope has a visible host.
+      const registryEntry = (file: string) => mod.coverageRegistry.find(entry => entry.file === file)?.exports
+      const registrar = registryEntry('panels/destination-page.tsx')?.DestinationBar
+      const pageScope = registryEntry('panels/destination-page.tsx')?.DestinationPageScope
+      const outlet = registryEntry('panels/top-bar.tsx')?.TopBarOutlet
+      const owners = new Set<string>()
+      for (const bar of document.querySelectorAll('[data-slot="top-bar"]')) {
+        if (!isVisible(bar)) continue
+        const key = Object.keys(bar).find(name => name.startsWith('__reactFiber$'))
+        if (!key) continue
+        let fiber: any = (bar as unknown as Record<string, unknown>)[key]
+        while (fiber) {
+          if (fiber.type === outlet && typeof fiber.memoizedProps?.owner === 'string') owners.add(fiber.memoizedProps.owner)
+          fiber = fiber.return
+        }
       }
-    }
-    const visited = new Set<unknown>()
-    const inspect = (first: any): void => {
-      for (let fiber = first; fiber; fiber = fiber.sibling) {
-        if (visited.has(fiber)) continue
-        visited.add(fiber)
-        if (fiber.stateNode instanceof Element) continue
-        if (fiber.type === registrar && fiber.child === null) {
-          let scope: any = null, host: Element | null = null
-          for (let parent = fiber.return; parent; parent = parent.return) {
-            if (parent.type === pageScope && scope === null) scope = parent.memoizedProps
-            if (parent.stateNode instanceof Element && host === null) host = parent.stateNode
-          }
-          if (scope?.active && owners.has(scope.owner) && host && isVisible(host)) {
-            for (let parent = fiber; parent; parent = parent.return) {
-              const names = refToComponents.get(parent.type)
-              if (names) for (const name of names) covered.add(name)
-              if (parent.type === pageScope) break
+      const visited = new Set<unknown>()
+      const inspect = (first: any): void => {
+        for (let fiber = first; fiber; fiber = fiber.sibling) {
+          if (visited.has(fiber)) continue
+          visited.add(fiber)
+          if (fiber.stateNode instanceof Element) continue
+          if (fiber.type === registrar && fiber.child === null) {
+            let scope: any = null, host: Element | null = null
+            for (let parent = fiber.return; parent; parent = parent.return) {
+              if (parent.type === pageScope && scope === null) scope = parent.memoizedProps
+              if (parent.stateNode instanceof Element && host === null) host = parent.stateNode
+            }
+            if (scope?.active && owners.has(scope.owner) && host && isVisible(host)) {
+              for (let parent = fiber; parent; parent = parent.return) {
+                const names = refToComponents.get(parent.type)
+                if (names) for (const name of names) covered.add(name)
+                if (parent.type === pageScope) break
+              }
             }
           }
+          inspect(fiber.child)
         }
-        inspect(fiber.child)
       }
-    }
-    for (const fiber of seenFibers as Set<any>) inspect(fiber.child)
+      for (const fiber of seenFibers as Set<any>) inspect(fiber.child)
     }
     // React receives the `change` synchronously, then may place an effect's
     // state-gated subtree in the next render. Two animation frames make that
@@ -366,25 +375,60 @@ const sweepSelectsForCoverage = (
       return { select, reveal }
     })() : null
     collect()
+    // Only the dial's specimen and DOM changed by its effect can earn new
+    // references after the initial inventory. Portals are included by observing
+    // additions and attribute changes anywhere in the document.
+    const changed = new Set<Element>()
+    const observe = (records: MutationRecord[]): void => {
+      for (const record of records) {
+        if (record.type === 'attributes' && record.target instanceof Element) changed.add(record.target)
+        if (record.type === 'characterData' && record.target.parentElement) changed.add(record.target.parentElement)
+        for (const node of record.addedNodes) if (node instanceof Element) changed.add(node)
+      }
+    }
+    const observer = new MutationObserver(observe)
+    observer.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true })
     const selects = probe ? [probe.select] : [...document.querySelectorAll('select')]
     for (const select of selects) {
       const values = [...select.options].map((option) => option.value)
       const neutral = values[0]
       for (const value of values) {
+        changed.clear()
         setValue(select, value)
         await settle()
-        collect()
+        observe(observer.takeRecords())
+        const specimen = select.closest('[data-frame-id]') ?? (select.parentElement === document.body ? select : select.parentElement ?? select)
+        collect([specimen, ...changed].filter(element => element.isConnected))
       }
       if (select.value !== neutral && neutral !== undefined) {
         setValue(select, neutral)
         await settle()
       }
     }
+    observer.disconnect()
     const delayedReveal = probe ? !probe.reveal.hidden : null
     probe?.select.remove()
     probe?.reveal.remove()
-    return { covered: [...covered], delayedReveal }
+    return { covered: [...covered], delayedReveal, stateElementsVisited }
   }, { delayedRevealProbe })
+
+test('a dial sweep visits only changed specimens after its initial inventory', async ({ page }) => {
+  await page.goto('/preview.html')
+  await settleCoveragePage(page)
+  // Measure the synthetic dial independently of live preview timers and effects.
+  await page.evaluate(() => {
+    const unrelated = document.createElement('div')
+    for (let index = 0; index < 1000; index++) {
+      const leaf = document.createElement('span')
+      leaf.textContent = 'Synthetic'
+      unrelated.append(leaf)
+    }
+    document.body.replaceChildren(unrelated)
+  })
+  const result = await sweepSelectsForCoverage(page, { delayedRevealProbe: true })
+  expect(result.delayedReveal).toBe(true)
+  expect(result.stateElementsVisited).toBeLessThanOrEqual(10)
+})
 
 test('coverage does not spend visibility probes on unrelated DOM leaves', async ({ page }) => {
   await page.goto('/preview.html?frame-wall=conversation')
@@ -396,7 +440,7 @@ test('coverage does not spend visibility probes on unrelated DOM leaves', async 
     document.body.append(island)
     const original = Element.prototype.checkVisibility
     const probe = { original, calls: 0 }
-    ;(window as Window & { __coverageCostProbe?: typeof probe }).__coverageCostProbe = probe
+      ; (window as Window & { __coverageCostProbe?: typeof probe }).__coverageCostProbe = probe
     Element.prototype.checkVisibility = function(options) {
       if (this === island || island.contains(this)) probe.calls++
       return original.call(this, options)
@@ -455,39 +499,40 @@ test.describe('preview coverage', () => {
     expect(result.delayedReveal).toBe(true)
   })
 
-  test('a hidden or transparent preview wrapper earns no component coverage', async ({ page }) => {
-    for (const [property, value] of [['display', 'none'], ['opacity', '0']] as const) {
+  {
+
+    for (const [item0, [property, value]] of ([['display', 'none'], ['opacity', '0']] as const).entries()) test(`a hidden or transparent preview wrapper earns no component coverage [item ${[item0].join('-')}]`, async ({ page }) => {
+
       await page.goto('/preview.html')
-      // Dialog portals sit beside #root. Hiding the document element makes
-      // this a regression for both ordinary descendants and portal content.
-      await page.locator('html').evaluate((node, style) => { ;(node as HTMLElement).style[style.property] = style.value }, { property, value })
+      await page.locator('html').evaluate((node, style) => { ; (node as HTMLElement).style[style.property] = style.value }, { property, value })
       expect(await collectCoverage(page), `${property}: ${value}`).toMatchObject({ covered: [] })
       expect((await sweepSelectsForCoverage(page, { delayedRevealProbe: true })).covered, `${property}: ${value} dial sweep`).toEqual([])
-    }
-  })
 
-  test('every exported components/ and panels/ component renders in preview.html or design.html', async ({ page }) => {
-    // It visits every dial of both pages; on the hosted runner that now takes
-    // about three minutes, and at 180s it failed two runs in three with
-    // nothing wrong (#1140). Sharding is the lasting fix.
-    test.setTimeout(360_000)
+
+    })
+  }
+
+  cataloguePageCases('every exported components/ and panels/ component renders in preview.html or design.html', getPage => {
     const covered = new Set<string>()
     let allComponents: readonly string[] = []
+    test.afterAll(async () => {
+      const uncovered = allComponents.filter((component) => !covered.has(component) && !(component in EXEMPT))
+      expect(uncovered, `Uncovered components (add a frame/dial in packages/ui/src/preview, or an EXEMPT entry): ${uncovered.join(', ')}`).toEqual([])
+      const staleExemptions = Object.keys(EXEMPT).filter((component) => covered.has(component))
+      expect(staleExemptions, `EXEMPT entries that now render (remove them from EXEMPT): ${staleExemptions.join(', ')}`).toEqual([])
+    })
+    test(`coverage page 0`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/design.html?view=team-start')
+      await page.getByRole('button', { name: 'Picker', exact: true }).click()
+      await expect(page.getByRole('dialog', { name: 'New Team', exact: true })).toBeVisible()
+      const teamStartCoverage = await collectCoverage(page)
+      expect(teamStartCoverage.covered).toContain('components/FrontDoor.tsx#FrontDoor')
+      for (const component of teamStartCoverage.covered) covered.add(component)
+    })
 
-    await page.goto('/design.html?view=team-start')
-    await page.getByRole('button', { name: 'Picker', exact: true }).click()
-    await expect(page.getByRole('dialog', { name: 'New Team', exact: true })).toBeVisible()
-    const teamStartCoverage = await collectCoverage(page)
-    expect(teamStartCoverage.covered).toContain('components/FrontDoor.tsx#FrontDoor')
-    for (const component of teamStartCoverage.covered) covered.add(component)
-
-    // -- preview.html: the page's own frames, then every dial's every option.
-    // `?composer`, `?empty`, `?board-tool-approvals` and `?notice-placement` gate
-    // frames the plain page never draws — a composer with a picture, a queue,
-    // and the pane with no session at all; the board's tool approvals; whole
-    // windows whose Workbench draws the notice's fallback host; compact
-    // inspectors include the Seat record and its attachments — so each is visited too.
-    for (const query of ['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels', '?board-list', '?team-frame=controls', '?tile-browsers']) {
+    for (const [item, query] of (['', '?composer', '?empty', '?board-tool-approvals', '?notice-placement', '?compact-panels', '?board-list', '?team-frame=controls', '?tile-browsers']).entries()) test(`coverage page 1: query ${item}`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
       await page.goto(`/preview.html${query}`)
       if (query === '?board-list') {
         const board = page.locator('[data-frame-id="board-list-page"]')
@@ -495,171 +540,202 @@ test.describe('preview coverage', () => {
         await page.getByRole('menuitem', { name: 'List', exact: true }).click()
         await expect(board.locator('[data-slot="board-list"]')).toBeVisible()
       }
-      if (query === '?team-frame=controls') await expect(page.getByRole('menuitem', {name:'Fill the window',exact:true})).toBeVisible()
+      if (query === '?team-frame=controls') await expect(page.getByRole('menuitem', { name: 'Fill the window', exact: true })).toBeVisible()
       await settleCoveragePage(page)
       const result = await collectCoverage(page)
       allComponents = result.allComponents
       for (const file of result.covered) covered.add(file)
-    }
+    })
 
-    await page.goto('/preview.html')
-    await page.locator('[data-frame-id="coverage-answer-actions"]').getByRole('button', { name: 'Mark this response as good', exact: true }).click()
-    await expect(page.locator('[data-frame-id="coverage-answer-actions"] [data-message-actions][data-sticky]')).toBeVisible()
-    for (const component of (await collectCoverage(page)).covered) covered.add(component)
-    await installFramePreviewFixture(page)
-    await page.goto('/preview.html?frame-wall=conversation&frame-update=1')
-    await expect(page.getByRole('button', { name: 'Relaunch to update', exact: true })).toBeVisible()
-    for (const component of (await collectCoverage(page)).covered) covered.add(component)
-    for (const scene of ['comparison', 'investigation']) {
+    test(`coverage page 2`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html')
+      await page.locator('[data-frame-id="coverage-answer-actions"]').getByRole('button', { name: 'Mark this response as good', exact: true }).click()
+      await expect(page.locator('[data-frame-id="coverage-answer-actions"] [data-message-actions][data-sticky]')).toBeVisible()
+      for (const component of (await collectCoverage(page)).covered) covered.add(component)
+    })
+
+    test(`coverage page 3`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await installFramePreviewFixture(page)
+    })
+
+    test(`coverage page 4`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?frame-wall=conversation&frame-update=1')
+      await expect(page.getByRole('button', { name: 'Relaunch to update', exact: true })).toBeVisible()
+      for (const component of (await collectCoverage(page)).covered) covered.add(component)
+    })
+
+    for (const [item, scene] of (['comparison', 'investigation']).entries()) test(`coverage page 5: scene ${item}`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
       await page.goto(`/preview.html?run-shapes=${scene}`)
       await page.locator('#run-shapes-frame [data-step-row][data-row="card-1-1"] button').click()
       if (scene === 'comparison') await expect(page.locator('[data-slot="run-inspector"] [data-slot="timeline-card"]')).toHaveCount(2)
       else await expect(page.locator('[data-slot="timeline-document-body"]')).toContainText('Investigation answer')
       for (const component of (await collectCoverage(page)).covered) covered.add(component)
-    }
+    })
 
-    // The catalogue's standalone grids omit the shared composer. The real
-    // Team preview mounts its recipient settings under the shared dock.
-    await page.goto('/preview.html?side-by-side')
-    await expect(page.locator('[data-frame-id="side-by-side-two"] [data-shared-composer]')).toBeVisible()
-    const sharedComposerCoverage = await collectCoverage(page)
-    expect(sharedComposerCoverage.covered).toContain('components/RoomComposerOptions.tsx#RoomComposerOptions')
-    for (const component of sharedComposerCoverage.covered) covered.add(component)
+    test(`coverage page 6`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?side-by-side')
+      await expect(page.locator('[data-frame-id="side-by-side-two"] [data-shared-composer]')).toBeVisible()
+      const sharedComposerCoverage = await collectCoverage(page)
+      expect(sharedComposerCoverage.covered).toContain('components/RoomComposerOptions.tsx#RoomComposerOptions')
+      for (const component of sharedComposerCoverage.covered) covered.add(component)
+    })
 
-    // Comparison frames mount the recorded verdict; its person scene opens
-    // the same real attempt dialog as the Board, with synthetic candidates.
-    await page.goto('/preview.html?comparison-verdict')
-    await expect(page.locator('[data-frame-id="comparison-picked"] [data-slot="comparison-decision"]')).toContainText('The judge picked A')
-    const verdictCoverage = await collectCoverage(page)
-    expect(verdictCoverage.covered).toContain('components/ComparisonVerdict.tsx#ComparisonVerdict')
-    expect(verdictCoverage.covered).toContain('components/ComparisonActions.tsx#ComparisonActions')
-    for (const component of verdictCoverage.covered) covered.add(component)
-    await page.locator('[data-frame-id="comparison-person"]').getByRole('button', { name: 'Pick an attempt…' }).click()
-    const pick = page.getByRole('dialog', { name: 'Pick the better attempt' })
-    await expect(pick.getByRole('radiogroup', { name: 'Attempts' })).toBeVisible()
-    await expect(pick).toContainText('attempt-1')
-    const personCoverage = await collectCoverage(page)
-    expect(personCoverage.covered).toContain('components/PersonStepDialog.tsx#PersonStepDialog')
-    for (const component of personCoverage.covered) covered.add(component)
+    test(`coverage page 7`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?comparison-verdict')
+      await expect(page.locator('[data-frame-id="comparison-picked"] [data-slot="comparison-decision"]')).toContainText('The judge picked A')
+      const verdictCoverage = await collectCoverage(page)
+      expect(verdictCoverage.covered).toContain('components/ComparisonVerdict.tsx#ComparisonVerdict')
+      expect(verdictCoverage.covered).toContain('components/ComparisonActions.tsx#ComparisonActions')
+      for (const component of verdictCoverage.covered) covered.add(component)
+      await page.locator('[data-frame-id="comparison-person"]').getByRole('button', { name: 'Pick an attempt…' }).click()
+      const pick = page.getByRole('dialog', { name: 'Pick the better attempt' })
+      await expect(pick.getByRole('radiogroup', { name: 'Attempts' })).toBeVisible()
+      await expect(pick).toContainText('attempt-1')
+      const personCoverage = await collectCoverage(page)
+      expect(personCoverage.covered).toContain('components/PersonStepDialog.tsx#PersonStepDialog')
+      for (const component of personCoverage.covered) covered.add(component)
+    })
 
-    // A trigger Team mounts its history only after the Runs tab opens.
-    await page.goto('/preview.html?team-frame=trigger-runs')
-    const triggerFrame = page.locator('[data-frame-id="team-frame"]')
-    const triggerTeam = triggerFrame.locator('[data-slot="team-room"]')
-    await selectTeamPage(triggerFrame, 'runs')
-    await expect(triggerTeam.locator('[data-slot="team-runs"]')).toBeVisible()
-    const triggerCoverage = await collectCoverage(page)
-    expect(triggerCoverage.covered).toContain('components/TeamRuns.tsx#TeamRuns')
-    for (const component of triggerCoverage.covered) covered.add(component)
+    test(`coverage page 8`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?team-frame=trigger-runs')
+      const triggerFrame = page.locator('[data-frame-id="team-frame"]')
+      const triggerTeam = triggerFrame.locator('[data-slot="team-room"]')
+      await selectTeamPage(triggerFrame, 'runs')
+      await expect(triggerTeam.locator('[data-slot="team-runs"]')).toBeVisible()
+      const triggerCoverage = await collectCoverage(page)
+      expect(triggerCoverage.covered).toContain('components/TeamRuns.tsx#TeamRuns')
+      for (const component of triggerCoverage.covered) covered.add(component)
+    })
 
-    // Conversation facts and its real folder action now live in Details.
-    await page.goto('/preview.html?frame-wall=conversation&frame-details-case=active')
-    await page.locator('[data-slot="top-bar"]:visible [data-work-tool="details"]').click()
-    await expect(page.locator('[data-slot="tool-body"]:visible [aria-label="Conversation facts"]')).toBeVisible()
-    const conversationDetailsCoverage = await collectCoverage(page)
-    expect(conversationDetailsCoverage.covered).toContain('panels/work-details.tsx#ConversationDetails')
-    expect(conversationDetailsCoverage.covered).toContain('components/Conversation.tsx#GitControl')
-    for (const component of conversationDetailsCoverage.covered) covered.add(component)
+    test(`coverage page 9`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?frame-wall=conversation&frame-details-case=active')
+      await page.locator('[data-slot="top-bar"]:visible [data-work-tool="details"]').click()
+      await expect(page.locator('[data-slot="tool-body"]:visible [aria-label="Conversation facts"]')).toBeVisible()
+      const conversationDetailsCoverage = await collectCoverage(page)
+      expect(conversationDetailsCoverage.covered).toContain('panels/work-details.tsx#ConversationDetails')
+      expect(conversationDetailsCoverage.covered).toContain('components/Conversation.tsx#GitControl')
+      for (const component of conversationDetailsCoverage.covered) covered.add(component)
+    })
 
-    // Changes is the real work tool, opened on the same synthetic conversation.
-    await page.goto('/preview.html?frame-wall=conversation&frame-tool=changes')
-    await expect(page.locator('[data-slot="tool-body"]:visible').getByText('Changes', { exact: true })).toBeVisible()
-    const workChangesCoverage = await collectCoverage(page)
-    expect(workChangesCoverage.covered).toContain('components/WorkToolContents.tsx#WorkChangesView')
-    for (const component of workChangesCoverage.covered) covered.add(component)
+    test(`coverage page 10`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?frame-wall=conversation&frame-tool=changes')
+      await expect(page.locator('[data-slot="tool-body"]:visible').getByText('Changes', { exact: true })).toBeVisible()
+      const workChangesCoverage = await collectCoverage(page)
+      expect(workChangesCoverage.covered).toContain('components/WorkToolContents.tsx#WorkChangesView')
+      for (const component of workChangesCoverage.covered) covered.add(component)
+    })
 
-    // Hold is a real Send-to action; its chip appears only after that choice.
-    await page.goto('/preview.html?frame-wall=team')
-    const heldTeam = page.locator('[data-frame-id="frame-wall"]')
-    await selectTeamPage(heldTeam, 'room')
-    const heldComposer = heldTeam.locator('[data-slot="room-body"] [data-slot="composer"]:visible').first()
-    const heldDraft = heldComposer.locator('textarea').first()
-    await heldDraft.fill('Keep this coverage draft while messages are held.')
-    await heldComposer.getByRole('button', { name: 'Send to', exact: true }).click()
-    await page.getByRole('switch', { name: 'Hold messages', exact: true }).click()
-    await expect(heldComposer.getByText('Holding messages', { exact: true })).toBeVisible()
-    await expect(heldDraft).toHaveValue('Keep this coverage draft while messages are held.')
-    await expect(heldDraft).toBeEnabled()
-    const holdingCoverage = await collectCoverage(page)
-    expect(holdingCoverage.covered).toContain('components/RoomMessaging.tsx#HoldingMessagesChip')
-    for (const component of holdingCoverage.covered) covered.add(component)
+    test(`coverage page 11`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?frame-wall=team')
+      const heldTeam = page.locator('[data-frame-id="frame-wall"]')
+      await selectTeamPage(heldTeam, 'room')
+      const heldComposer = heldTeam.locator('[data-slot="room-body"] [data-slot="composer"]:visible').first()
+      const heldDraft = heldComposer.locator('textarea').first()
+      await heldDraft.fill('Keep this coverage draft while messages are held.')
+      await heldComposer.getByRole('button', { name: 'Send to', exact: true }).click()
+      await page.getByRole('switch', { name: 'Board-only', exact: true }).click()
+      await expect(heldComposer.getByText('Board-only', { exact: true })).toBeVisible()
+      await expect(heldDraft).toHaveValue('Keep this coverage draft while messages are held.')
+      await expect(heldDraft).toBeEnabled()
+      const holdingCoverage = await collectCoverage(page)
+      expect(holdingCoverage.covered).toContain('components/RoomMessaging.tsx#HoldingMessagesChip')
+      for (const component of holdingCoverage.covered) covered.add(component)
+    })
 
-    // The Run supplies its sibling inspectors only after its real Team view mounts.
-    await page.goto('/preview.html?run-dock')
-    const runFrame = page.locator('#run-dock-frame')
-    await selectTeamPage(runFrame, 'run')
-    await runFrame.locator('[data-row][data-kind="card"]').first().click()
-    await expect(runFrame.locator('[data-slot="tool-body"]:visible [data-slot="run-inspector"]')).toBeVisible()
-    for (const component of (await collectCoverage(page)).covered) covered.add(component)
-    await closeTeamDetails(runFrame)
-    await selectRunView(runFrame, 'Timeline')
-    await expect(runFrame.locator('[data-slot="workbench-main"] [data-slot="run-steps"]')).toBeVisible()
-    for (const component of (await collectCoverage(page)).covered) covered.add(component)
+    test(`coverage page 12`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?run-dock')
+      const runFrame = page.locator('#run-dock-frame')
+      await selectTeamPage(runFrame, 'run')
+      await runFrame.locator('[data-row][data-kind="card"]').first().click()
+      await expect(runFrame.locator('[data-slot="tool-body"]:visible [data-slot="run-inspector"]')).toBeVisible()
+      for (const component of (await collectCoverage(page)).covered) covered.add(component)
+      await closeTeamDetails(runFrame)
+      await selectRunView(runFrame, 'Timeline')
+      await expect(runFrame.locator('[data-slot="workbench-main"] [data-slot="run-steps"]')).toBeVisible()
+      for (const component of (await collectCoverage(page)).covered) covered.add(component)
+    })
 
-    await page.goto('/preview.html?storage=page')
-    await expect(page.getByRole('button', { name: 'Review…', exact: true })).toBeVisible()
-    const storageCoverage = await collectCoverage(page)
-    expect(storageCoverage.covered).toContain('components/Storage.tsx#StorageSection')
-    for (const component of storageCoverage.covered) covered.add(component)
-    await page.getByRole('button', { name: 'Discard worktree…', exact: true }).first().click()
-    await expect(page.getByRole('alertdialog', { name: 'Discard worktree?' })).toBeVisible()
-    const discardCoverage = await collectCoverage(page)
-    expect(discardCoverage.covered).toContain('components/DiscardWorktree.tsx#DiscardWorktree')
-    for (const component of discardCoverage.covered) covered.add(component)
+    test(`coverage page 13`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?storage=page')
+      await expect(page.getByRole('button', { name: 'Review…', exact: true })).toBeVisible()
+      const storageCoverage = await collectCoverage(page)
+      expect(storageCoverage.covered).toContain('components/Storage.tsx#StorageSection')
+      for (const component of storageCoverage.covered) covered.add(component)
+      await page.getByRole('button', { name: 'Discard worktree…', exact: true }).first().click()
+      await expect(page.getByRole('alertdialog', { name: 'Discard worktree?' })).toBeVisible()
+      const discardCoverage = await collectCoverage(page)
+      expect(discardCoverage.covered).toContain('components/DiscardWorktree.tsx#DiscardWorktree')
+      for (const component of discardCoverage.covered) covered.add(component)
+    })
 
-    await page.goto('/preview.html?history')
-    await expect(page.locator('[data-frame-id="history-rows"]').getByRole('button', { name: 'Trace the slow startup', exact: true })).toBeVisible()
-    await expect(page.locator('[data-frame-id="history-agent-done"]').getByRole('button', { name: 'Browse', exact: true })).toBeVisible()
-    const historyCoverage = await collectCoverage(page)
-    expect(historyCoverage.covered).toContain('components/History.tsx#HistorySection')
-    expect(historyCoverage.covered).toContain('components/History.tsx#AgentHistory')
-    for (const component of historyCoverage.covered) covered.add(component)
+    test(`coverage page 14`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?history')
+      await expect(page.locator('[data-frame-id="history-rows"]').getByRole('button', { name: 'Trace the slow startup', exact: true })).toBeVisible()
+      await expect(page.locator('[data-frame-id="history-agent-done"]').getByRole('button', { name: 'Browse', exact: true })).toBeVisible()
+      const historyCoverage = await collectCoverage(page)
+      expect(historyCoverage.covered).toContain('components/History.tsx#HistorySection')
+      expect(historyCoverage.covered).toContain('components/History.tsx#AgentHistory')
+      for (const component of historyCoverage.covered) covered.add(component)
+      expect(allComponents).toEqual(expect.arrayContaining([
+        'components/Settings.tsx#Settings',
+        'components/usage/ActivityView.tsx#ActivityView',
+        'panels/Workbench.tsx#Workbench',
+      ]))
+    })
 
-    // Fail closed if an import-glob/configuration change silently empties the
-    // inventory. These representatives prove we are still checking a root
-    // component, a nested component, and a recursively discovered panel.
-    expect(allComponents).toEqual(expect.arrayContaining([
-      'components/Settings.tsx#Settings',
-      'components/usage/ActivityView.tsx#ActivityView',
-      'panels/Workbench.tsx#Workbench',
-    ]))
+    test(`coverage page 15`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/preview.html?board-list')
+      const boardFrame = page.locator('[data-frame-id="board-list-page"]')
+      await boardFrame.locator('[data-slot="top-bar"]').getByRole('button', { name: 'View', exact: true }).click()
+      await page.getByRole('menuitem', { name: 'List', exact: true }).click()
+      await expect(boardFrame.getByRole('table', { name: 'Jobs', exact: true })).toBeVisible()
+      for (const component of (await collectCoverage(page)).covered) covered.add(component)
+    })
 
-    // The Board's canonical list is a view choice, not a preview select.
-    // Exercise that real door so its component earns visible DOM coverage.
-    await page.goto('/preview.html?board-list')
-    const boardFrame = page.locator('[data-frame-id="board-list-page"]')
-    await boardFrame.locator('[data-slot="top-bar"]').getByRole('button', { name: 'View', exact: true }).click()
-    await page.getByRole('menuitem', { name: 'List', exact: true }).click()
-    await expect(boardFrame.getByRole('table', { name: 'Jobs', exact: true })).toBeVisible()
-    for (const component of (await collectCoverage(page)).covered) covered.add(component)
-
-    // Normal and composer frames expose different dials. Sweep both, rather
-    // than the final `?empty` page alone: a composer-only sheet must earn its
-    // own coverage. The empty page adds an inline frame but no unique dial.
-    for (const query of ['', '?composer']) {
+    for (const [item, query] of (['', '?composer']).entries()) test(`coverage page 16: query ${item}`, async () => {
+      const page = getPage(); test.setTimeout(360_000);
       await page.goto(`/preview.html${query}`)
       await settleCoveragePage(page)
       for (const component of (await sweepSelectsForCoverage(page)).covered) covered.add(component)
-    }
+    })
 
-    // -- design.html: every board the nav rail lists.
-    await page.goto('/design.html')
-    await settleCoveragePage(page)
-    {
-      const result = await collectCoverage(page)
-      for (const file of result.covered) covered.add(file)
-    }
-    const boardNav = page.getByRole('navigation').filter({ has: page.getByText('Design system', { exact: true }) })
-    const boardControls = boardNav.locator(':scope > button')
-    const boardLabels = [...new Set(await boardControls.allTextContents())]
-      .map((label) => label.trim())
-      .filter(Boolean)
-    for (const label of boardLabels) {
+    test("coverage page: design inventory", async () => {
+      const page = getPage(); test.setTimeout(360_000);
+      await page.goto('/design.html')
+      await settleCoveragePage(page)
+      {
+        const result = await collectCoverage(page)
+        for (const file of result.covered) covered.add(file)
+      }
+      const boardNav = page.getByRole('navigation').filter({ has: page.getByText('Design system', { exact: true }) })
+      const boardControls = boardNav.locator(':scope > button')
+      const boardLabels = [...new Set(await boardControls.allTextContents())]
+        .map((label) => label.trim())
+        .filter(Boolean)
+      expect(boardLabels).toEqual(PAGE_ITEMS.boards)
+    })
+
+    for (const label of PAGE_ITEMS.boards) test(`coverage board: ${label}`, async () => {
+      const page = getPage();
+      if (new URL(page.url()).pathname !== '/design.html') { await page.goto('/design.html'); await settleCoveragePage(page) }
+      const boardNav = page.getByRole('navigation').filter({ has: page.getByText('Design system', { exact: true }) });
       const board = boardNav.getByRole('button', { name: label, exact: true })
       await expect(board).toHaveCount(1)
       await board.click()
-      // The design navigator has exactly one active board. Confirm the click
-      // selected this board before attributing its mounted exports to it.
       const selected = boardNav.locator(':scope > button[data-selected="true"]')
       await expect(selected).toHaveCount(1)
       await expect(selected).toHaveText(label)
@@ -672,18 +748,7 @@ test.describe('preview coverage', () => {
       const result = await collectCoverage(page)
       for (const file of result.covered) covered.add(file)
       if (label === 'Panels') expect(result.covered).toContain('panels/Workbench.tsx#Workbench')
-    }
-
-    const uncovered = allComponents.filter((component) => !covered.has(component) && !(component in EXEMPT))
-
-    expect(uncovered, `Uncovered components (add a frame/dial in packages/ui/src/preview, or an EXEMPT entry): ${uncovered.join(', ')}`).toEqual([])
-
-    // The guard on the guard: an EXEMPT entry that has since become reachable
-    // is a stale claim, not a harmless one — it hides the day a fix or a new
-    // dial actually covered the file, and the next person to read EXEMPT
-    // trusts a reason that no longer holds.
-    const staleExemptions = Object.keys(EXEMPT).filter((component) => covered.has(component))
-    expect(staleExemptions, `EXEMPT entries that now render (remove them from EXEMPT): ${staleExemptions.join(', ')}`).toEqual([])
+    })
   })
 
   test('preview shows the three board-tool permission card states and keeps grants quiet', async ({ page }) => {
@@ -766,7 +831,7 @@ for (const theme of ['light', 'dark'] as const) {
     await dialog.getByRole('button', { name: 'Keep', exact: true }).click()
     await frame.getByRole('button', { name: 'Fix the project picker actions', exact: true }).click()
     const deletion = page.getByRole('menuitem', { name: /^Delete everywhere…(?:\s|$)/ })
-    await expect(deletion).toHaveAttribute('aria-disabled','true')
+    await expect(deletion).toHaveAttribute('aria-disabled', 'true')
     await expect(deletion).toHaveAttribute('title', 'Beta erases it for good, so delete it there')
   })
 }

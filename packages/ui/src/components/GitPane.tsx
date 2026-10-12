@@ -24,6 +24,7 @@ import type {
   GitWorktree,
 } from '@harnessdesk/protocol'
 
+import { handOverToComposer } from '../lib/compose'
 import { laneWindow, layoutGraph, type GraphRow, type LaneWindow } from '../lib/git-graph'
 import { CommitProvenance, CommitSeatLabels, useProvenanceBatch } from './CommitProvenance'
 import { GitGraph } from './GitGraph'
@@ -33,9 +34,9 @@ import { openExternal } from '../lib/desktop'
 import { shortPath } from '../lib/paths'
 import { withCount } from '../lib/with-count'
 import { cn } from '../lib/utils'
-import { useActiveSession, useSnapshot, useStore } from '../state/context'
+import { useActiveSession, usePane, useSnapshot, useStore } from '../state/context'
 import { useMount } from '../panels/mount'
-import { ActionError, Alert, Badge, Card, CardContent, ChangeStats, Chip, CodeText, Dialog, DisclosureChevron, Dot, EmptyState, FileState, KeyValue, ListRowDetail, ToolPaneBar, ToolPaneBody, KeyValueRow, Note, PatchHeader, PopoverGroupLabel, ResizeHandle, Separator, TableHeader, Text, ToolbarGap } from '../design'
+import { ActionError, Alert, Badge, Card, CardContent, ChangeStats, Chip, CodeText, Dialog, DisclosureChevron, Dot, EmptyState, FileState, KeyValue, ListRowDetail, ToolPaneBar, ToolPaneBody, KeyValueRow, Note, PatchHeader, Popover, PopoverGroupLabel, ResizeHandle, Separator, TableHeader, Text, ToolbarGap } from '../design'
 import { Button, buttonVariants, Input, NativeSelect, RefusedAction, Search, Segmented, Switch } from '../design'
 import { DiffView } from './Diff'
 import {
@@ -200,6 +201,7 @@ export const GitPane = () => {
 
 const GitPaneBody = ({ root }: { root: string | null }) => {
   const store = useStore()
+  const pane = usePane()
   const snapshot = useSnapshot()
   const session = useActiveSession()
   const folder = root?.split('/').filter(Boolean).at(-1) ?? ''
@@ -425,7 +427,10 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
   )
 
   const compose = (text: string): void => {
-    window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: text }))
+    if (pane) store.focusPane(pane.paneId.split(':')[0]!)
+    void handOverToComposer({ paneId: pane?.paneId, text }).then(received => {
+      if (!received) store.notice('warning', 'The message box did not take it — click into the conversation and try again.')
+    })
   }
 
   const checkout = useCallback(
@@ -758,6 +763,13 @@ const GitPaneBody = ({ root }: { root: string | null }) => {
   return (
     <div className={styles.frame} ref={frame}>
       <ToolSection label="Repository history"><SummaryList surface="panel"><SummaryItem label="Folder" kind="path" title={sanitizeText(shown)}>{sanitizeText(shown)}</SummaryItem></SummaryList><ToolBodyControls>
+        {!fit.rail && refsSummary && <Popover label={<SidebarIcon size={14} />} title="Switch the refs rail">
+          {close => <RefsRail refs={refsSummary} worktrees={worktrees} error={railError}
+            onJump={sha => { jumpTo(sha); close() }}
+            onCheckout={branch => { void checkout(branch); close() }}
+            onSelectSha={sha => { select(sha); close() }}
+            onMenu={(target, event) => { close(); onRailMenu(target, event) }} />}
+        </Popover>}
         {fit.rail && (
           <Button
             variant={railOpen ? 'secondary' : 'ghost'}

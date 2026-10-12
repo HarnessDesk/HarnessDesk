@@ -1,3 +1,5 @@
+import { emptySnapshot } from '../state/store'
+import { dock } from '../state/workbench'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
@@ -26,7 +28,7 @@ it('withdraws an inactive page claim and restores it on the next visit', () => {
   const store = previewStore()
   const render = (active: boolean) => act(() => root.render(<StoreProvider store={store}><TopBarProvider>
     <DestinationPageScope owner="destination:library" active={active}><DestinationBar place="Library" /></DestinationPageScope>
-    <DestinationPageScope owner="destination:agents" active={false}><DestinationBar place="Agents" /></DestinationPageScope>
+    <DestinationPageScope owner="destination:agents" active={false}><DestinationBar place="Agents" more={() => <span>Page actions</span>} /></DestinationPageScope>
     <Claim /><TopBarOutlet owner="destination:library" fallback={{place:'Fallback',more:()=>null}} />
   </TopBarProvider></StoreProvider>))
   render(true)
@@ -49,4 +51,32 @@ for (const width of [720,1440]) it(`uses the existing work lead and corner polic
   expect(labels).toEqual(width===720 ? ['Show sidebar','Search everything'] : ['Show sidebar','Search everything','Back','Forward'])
   expect(host.querySelector('[data-slot="bar"]')?.hasAttribute('data-corner')).toBe(true)
   expect(host.querySelectorAll('[data-work-tool], [data-topbar="view"] button')).toHaveLength(0)
+})
+
+it('folderless page More omits retained terminals while Settings keeps its quiet bar', async () => {
+  const base = emptySnapshot()
+  const store = previewStore({ workbench: dock(base.workbench, 'bottom', { kind: 'terminal', terminalId: 'retained-pty', runtime: 'fixture' as never, cwd: '/synthetic/shell' }) })
+  store.patch({ workbench: { ...store.getSnapshot().workbench, navigation: { ...base.workbench.navigation, current: { kind: 'agents', id: null } } } })
+  const render = (owner: string) => act(() => root.render(<StoreProvider store={store}><TopBarProvider>
+    <DestinationPageScope owner={owner} active><DestinationBar place="Agents" more={() => <span>Page actions</span>} /></DestinationPageScope>
+    <TopBarOutlet owner={owner} fallback={{ place: 'Fallback', more: () => null }} />
+  </TopBarProvider></StoreProvider>))
+  render('destination:agents')
+  const more = host.querySelector<HTMLButtonElement>('[data-topbar="more"] button')
+  expect(more).not.toBeNull()
+  await act(async () => more!.click())
+  expect(document.querySelectorAll('[role="menuitemradio"]')).toHaveLength(0)
+  expect(document.querySelector('[role="menu"]')?.textContent).not.toContain('Terminal')
+  expect(document.querySelector('[role="menu"]')?.textContent).toContain('Page actions')
+  await act(async () => more!.click())
+  act(() => store.patch({ workbench: { ...store.getSnapshot().workbench, navigation: { ...base.workbench.navigation,
+    current: { kind: 'settings', route: { kind: 'section', section: 'general', focus: null } } } } }))
+  render('destination:settings')
+  expect(host.querySelector('[data-topbar="more"] button')).toBeNull()
+  act(() => store.patch({ workbench: { ...store.getSnapshot().workbench, navigation: { ...base.workbench.navigation,
+    current: { kind: 'changes-review', root: '/synthetic/review', returnTo: { kind: 'conversation', session: null } } } } }))
+  render('destination:changes-review')
+  await act(async () => host.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
+  expect(document.querySelector('[role="menuitemradio"]')?.textContent).toContain('Terminal')
+  expect(document.querySelector('[role="menuitemradio"]')?.getAttribute('aria-checked')).toBe('true')
 })

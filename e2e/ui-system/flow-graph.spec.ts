@@ -39,8 +39,10 @@ for (const theme of ['light', 'dark'] as const) {
       else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme', '')
     })
 
-    test('no label sits on a card or on another label, and no card on another, in any Flow', async ({ page }) => {
-      for (const scene of SCENES) {
+    {
+
+      for (const [item0, scene] of (SCENES).entries()) test(`no label sits on a card or on another label, and no card on another, in any Flow [item ${[item0].join('-')}]`, async ({ page }) => {
+
         await expect(page.locator(`#flow-graph-${scene} .react-flow__edge`)).not.toHaveCount(0)
         const drawn = await measure(page, scene)
         expect(drawn.steps.length, scene).toBeGreaterThan(1)
@@ -51,11 +53,15 @@ for (const theme of ['light', 'dark'] as const) {
         expect(clashes, scene).toEqual([])
         const outside = [...drawn.steps, ...drawn.words].filter((one) => one.x < 0 || one.y < 0 || one.x + one.w > drawn.stage.w + 0.5 || one.y + one.h > drawn.stage.h + 0.5)
         expect(outside.map((one) => one.id), `${scene} stays on its canvas`).toEqual([])
-      }
-    })
 
-    test('every arrowhead lands on the card its rule goes to', async ({ page }) => {
-      for (const scene of SCENES) {
+
+      })
+    }
+
+    {
+
+      for (const [item0, scene] of (SCENES).entries()) test(`every arrowhead lands on the card its rule goes to [item ${[item0].join('-')}]`, async ({ page }) => {
+
         await expect(page.locator(`#flow-graph-${scene} .react-flow__edge`)).not.toHaveCount(0)
         const drawn = await measure(page, scene)
         const card = new Map(drawn.steps.map((step) => [step.id, step]))
@@ -68,8 +74,10 @@ for (const theme of ['light', 'dark'] as const) {
           expect(Math.hypot(outsideX, outsideY), `${scene} ${tip.edge} stops short`).toBeLessThanOrEqual(1.5)
           expect(Math.max(inside, 0), `${scene} ${tip.edge} runs into the card`).toBeLessThanOrEqual(1.5)
         }
-      }
-    })
+
+
+      })
+    }
 
     test('reads left to right, with a loop under the line, and a person closing the line under what handed it over', async ({ page }) => {
       const { steps } = await measure(page, 'blueprint')
@@ -194,8 +202,10 @@ for (const theme of ['light', 'dark'] as const) {
       const centre = await canvas.evaluate(root => {
         const surface = root.getBoundingClientRect()
         const boxes = [...root.querySelectorAll('.react-flow__node')].map(el => el.getBoundingClientRect())
-        return { x: (Math.min(...boxes.map(box => box.left)) + Math.max(...boxes.map(box => box.right))) / 2 - (surface.left + surface.width / 2),
-          y: (Math.min(...boxes.map(box => box.top)) + Math.max(...boxes.map(box => box.bottom))) / 2 - (surface.top + surface.height / 2) }
+        return {
+          x: (Math.min(...boxes.map(box => box.left)) + Math.max(...boxes.map(box => box.right))) / 2 - (surface.left + surface.width / 2),
+          y: (Math.min(...boxes.map(box => box.top)) + Math.max(...boxes.map(box => box.bottom))) / 2 - (surface.top + surface.height / 2)
+        }
       })
       expect(Math.abs(centre.x)).toBeLessThan(1)
       expect(Math.abs(centre.y)).toBeLessThan(1)

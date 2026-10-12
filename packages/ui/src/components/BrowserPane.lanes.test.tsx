@@ -129,5 +129,8 @@ test('a tile has only the slim address bar while a full pane keeps its toolbar',
     render(false)
     expect(container.querySelector('[data-slot="tool-controls"]')).not.toBeNull()
     expect(container.querySelector('[aria-label="Annotate the page"]')).not.toBeNull()
+    const addressBar = container.querySelector('[data-slot="tool-pane-bar"][data-variant="address"]')!
+    expect(addressBar.querySelectorAll('button')).toHaveLength(5)
+    for (const button of addressBar.querySelectorAll('button')) expect(button.className).toContain('size-(--hd-icon-target)')
   } finally { act(() => root.unmount()); container.remove() }
 })

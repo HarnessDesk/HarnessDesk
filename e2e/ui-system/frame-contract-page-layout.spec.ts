@@ -32,7 +32,8 @@ for (const theme of WALL_THEMES) for (const destination of ['settings', 'agents'
   })
 }
 
-test('FIX3 page section headings share one page text edge', async ({ page }) => {
+{
+
   const destinations = [
     ['Settings', 'frame-wall=settings&frame-section=runtimes'],
     ['Dashboard overview', 'frame-wall=dashboard&frame-view=overview'],
@@ -46,7 +47,8 @@ test('FIX3 page section headings share one page text edge', async ({ page }) => 
     ['Teams', 'frame-wall=teams&frame-filter=active'],
     ['Review', 'frame-wall=changes-review'],
   ] as const
-  for (const [name, query] of destinations) {
+  for (const [item0, [name, query]] of (destinations).entries()) test(`FIX3 page section headings share one page text edge [item ${[item0].join('-')}]`, async ({ page }) => {
+
     await openFrame(page, query, 'light', 1440)
     const offsets = await page.locator('[data-section-head] h2, [data-slot="section-head"] h2').evaluateAll(headings =>
       headings.filter(heading => heading.getClientRects().length).map(heading => {
@@ -59,8 +61,10 @@ test('FIX3 page section headings share one page text edge', async ({ page }) => 
       const groupOffsets = offsets.filter(item => item.group === group).map(item => item.left)
       expect(Math.max(...groupOffsets) - Math.min(...groupOffsets), `${name} ${group} headings share one text edge: ${groupOffsets.join(', ')}`).toBeLessThanOrEqual(1)
     }
-  }
-})
+
+
+  })
+}
 
 for (const destination of layoutDestinations) {
   test(`shared heading and page or panel stacks hold across preview destinations: ${destination.id}`, async ({ page }) => {
@@ -118,8 +122,8 @@ for (const destination of layoutDestinations) {
 }
 
 test('shared heading and page or panel stacks: Dashboard at 720', async ({ page }) => {
-await openFrame(page, 'frame-wall=dashboard', 'light', 720)
-const dashboardIssues = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('[data-section-head]')].flatMap(head => {
+  await openFrame(page, 'frame-wall=dashboard', 'light', 720)
+  const dashboardIssues = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('[data-section-head]')].flatMap(head => {
     const name = head.querySelector<HTMLElement>('[data-slot="section-name"]')
     const action = head.querySelector<HTMLElement>('[data-slot="section-action"]')
     if (!name || !action || !name.getClientRects().length || !action.getClientRects().length) return []
@@ -127,18 +131,18 @@ const dashboardIssues = await page.evaluate(() => [...document.querySelectorAll<
     return one.left < two.right && two.left < one.right && one.top < two.bottom && two.top < one.bottom
       ? [`${name.textContent?.trim() ?? 'section'} overlaps its control`] : []
   }))
-expect(dashboardIssues, 'Dashboard section headings must remain clear of their controls when narrow').toEqual([])
+  expect(dashboardIssues, 'Dashboard section headings must remain clear of their controls when narrow').toEqual([])
 })
 
 test('shared heading and page or panel stacks: registry search gap', async ({ page }) => {
-await openFrame(page, 'frame-wall=settings-runtimes&layout-registry=1', 'light', 1440)
-const stackGap = await resolvedPx(page, '--hd-card-gap')
-await page.getByRole('button', { name: 'Add a runtime', exact: true }).click()
-const search = page.locator('[data-slot="search"]').filter({ has: page.getByRole('searchbox', { name: 'Search the ACP registry' }) })
-await expect(search).toBeVisible()
-const searchBottom = (await search.boundingBox())!.y + (await search.boundingBox())!.height
-const firstRegistryRows = page.locator('[data-page-destination="settings"]:visible [data-slot="rows"]:visible').filter({has:page.getByText('Runtime 01',{exact:true})})
-await expect(firstRegistryRows).toBeVisible()
-const firstRegistryBox = (await firstRegistryRows.boundingBox())!
-expect(firstRegistryBox.y - searchBottom).toBeGreaterThanOrEqual(stackGap - 0.5)
+  await openFrame(page, 'frame-wall=settings-runtimes&layout-registry=1', 'light', 1440)
+  const stackGap = await resolvedPx(page, '--hd-card-gap')
+  await page.getByRole('button', { name: 'Add a runtime', exact: true }).click()
+  const search = page.locator('[data-slot="search"]').filter({ has: page.getByRole('searchbox', { name: 'Search the ACP registry' }) })
+  await expect(search).toBeVisible()
+  const searchBottom = (await search.boundingBox())!.y + (await search.boundingBox())!.height
+  const firstRegistryRows = page.locator('[data-page-destination="settings"]:visible [data-slot="rows"]:visible').filter({ has: page.getByText('Runtime 01', { exact: true }) })
+  await expect(firstRegistryRows).toBeVisible()
+  const firstRegistryBox = (await firstRegistryRows.boundingBox())!
+  expect(firstRegistryBox.y - searchBottom).toBeGreaterThanOrEqual(stackGap - 0.5)
 })

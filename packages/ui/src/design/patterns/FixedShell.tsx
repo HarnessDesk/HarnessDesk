@@ -20,7 +20,7 @@ export interface FixedShellProps extends Omit<HTMLAttributes<HTMLDivElement>, 'c
 /** Five stable regions: folding and closing affect geometry, never body identity. */
 export const FixedShell = forwardRef<HTMLDivElement, FixedShellProps>(({ viewportWidth, left, top, main, right, bottom,
   leftFloating, panelFloating, leftOpen, rightOpen, bottomOpen, children, className, style, ...props }, ref) => <WorkbenchCanvas {...props} ref={ref}
-    style={{ '--frame-window-width': `${viewportWidth}px`, '--frame-main-min': `${FRAME.main.min}px`, '--frame-right-max': `${FRAME.rightPanel.max}px`, ...style } as CSSProperties}
+    style={{ '--frame-window-width': `${viewportWidth}px`, '--frame-reading-min': `${FRAME.main.min}px`, '--frame-right-min': `${FRAME.rightPanel.min}px`, '--frame-canvas-gutter': `${FRAME.page.canvasGutter}px`, '--frame-right-max': `${FRAME.rightPanel.max}px`, ...style } as CSSProperties}
     data-slot="fixed-shell" data-left-floats={leftFloating} data-panel-floats={panelFloating}
     data-left-open={leftOpen} data-right-open={rightOpen} data-bottom-open={bottomOpen} className={`${styles.shell} ${className ?? ''}`}>
   {children}

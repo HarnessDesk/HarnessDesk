@@ -3041,7 +3041,7 @@ export class Team {
         }
       }
       audit('refused-board-only')
-      return 'Refused: this board is in board-only mode — claims and signals, no messages. The user can turn messaging on from the Team panel.'
+      return 'Refused: this board is in board-only mode — claims and signals, no messages. The user can turn messaging on in Chat’s Send to menu.'
     }
     const text = (args.text ?? '').trim()
     if (text === '') {

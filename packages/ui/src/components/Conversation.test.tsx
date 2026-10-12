@@ -7,7 +7,7 @@ import { wrapContext, reduceSession, runtimeId, sessionId, sessionKey, turnId, i
 
 import { seatAgentKey } from '../lib/agents'
 import { PaneProvider, StoreProvider } from '../state/context'
-import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { AppStore, emptySnapshot, type AppSnapshot } from '../state/store'
 import { Conversation } from './Conversation'
 import styles from './Conversation.module.css'
 import { TopBarProvider, TopBarOutlet, WorkDetailsOutlet } from '../panels/top-bar'
@@ -912,4 +912,46 @@ it('a failed runtime keeps the transcript and replaces the composer with one act
   expect(container.querySelector('textarea')).toBeNull()
   expect(container.textContent?.split(reason).length).toBe(2)
   expect(container.textContent).toContain('Choose a working installation in Settings.')
+})
+
+
+it('member Memory and Undo target their scoped conversation when the main view is a Team', async () => {
+  const one=session()
+  const fixture=rig(one,new Map(),{activeSessionKey:null,runtimes:[{
+    id:'codex',name:'Fixture',presentation:{name:'Fixture'},capabilities:{memory:true,undo:true,compaction:true},
+  }] as unknown as AppSnapshot['runtimes']}).store
+  const store=Object.assign(new AppStore('ws://localhost:0/'),fixture)
+  const wire=vi.spyOn(store.transport,'request').mockResolvedValue(null as never)
+  render(store)
+  const click=async (label:string) => {
+    const button=[...document.querySelectorAll<HTMLElement>('button,[role="menuitem"]')].find(node=>node.getAttribute('aria-label')===label || node.textContent?.trim().startsWith(label))
+    expect(button,label).toBeTruthy()
+    await act(async()=>button!.click())
+  }
+  await click('More')
+  await act(async()=>document.querySelector<HTMLElement>('[role="switch"]')!.click())
+  expect(wire).toHaveBeenCalledWith('session/memory',{runtime:'codex',sessionId:'s-1',enabled:true})
+  await click('More'); await click('Undo the last turn'); await click('Undo turn')
+  expect(wire).toHaveBeenCalledWith('session/rollback',{runtime:'codex',sessionId:'s-1',turns:1})
+})
+
+it('failed-runtime history refuses live agent verbs and keeps copy without edit or commit', async () => {
+  const reason='The agent could not start.'
+  const one=session({turns:[{id:turnId('kept'),status:'completed',items:[
+    {id:itemId('question'),type:'userMessage',content:[{type:'text',text:'Kept question'}]},
+    {id:itemId('answer'),type:'assistantMessage',text:'Kept answer'},
+  ]}]})
+  const {store}=rig(one,new Map(),{healthByRuntime:{codex:{state:'unavailable',reason:'unreadable',message:reason}},
+    runtimes:[{id:'codex',name:'Fixture',presentation:{name:'Fixture'},capabilities:{memory:true,undo:true,compaction:true,review:true}}] as unknown as AppSnapshot['runtimes']})
+  render(store)
+  expect(container.querySelector<HTMLButtonElement>('[aria-label="Ask the agent to try again"]')?.disabled).toBe(true)
+  expect(container.querySelector('[aria-label="Edit this message"]')).toBeNull()
+  await act(async()=>container.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click())
+  for(const label of ['Compact now','Undo the last turn','Remember this conversation']) {
+    const row=[...document.querySelectorAll<HTMLElement>('[data-menu-row]')].find(node=>node.textContent?.includes(label))
+    expect(row,label).toBeTruthy()
+    expect(row?.getAttribute('aria-disabled') === 'true' || row?.hasAttribute('disabled')).toBe(true)
+    expect(row?.getAttribute('title')).toContain(reason)
+  }
+  expect([...document.querySelectorAll('[data-menu-row]')].some(node=>node.textContent?.includes('Commit the changes'))).toBe(false)
 })

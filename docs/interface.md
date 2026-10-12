@@ -1350,7 +1350,7 @@ wrapping subtitle. Its task or message refusal shares that subtitle, so the
 work stays readable without adding a separate third line.
 Empty Board and Chat content keeps one quiet sentence in the reading column.
 The Board toolbar keeps **New job**; an empty Goal also offers **Start with a team** there.
-Board-only Chat keeps the consequence of its messaging mode on screen.
+Board-only Chat keeps the consequence of its messaging mode on screen: agents cannot message each other, while claims and signals continue. Chat’s Send to menu changes the mode; refused messages are never queued for release.
 
 What needs you can be answered from its row. A tool's request for approval
 offers the agent's own choices. The command and its working folder, files a

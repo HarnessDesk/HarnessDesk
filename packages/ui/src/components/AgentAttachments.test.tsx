@@ -7,6 +7,7 @@ import type { AgentAttachmentsView, AgentEntry } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { AgentAttachments } from './AgentAttachments'
+import { DestinationPageScope } from '../panels/destination-page'
 
 /**
  * Task 5's editable replacement for the old read-only Skills row: an empty
@@ -76,6 +77,18 @@ const emptyView: AgentAttachmentsView = {
   support: [],
 }
 
+it('dismisses a retained allowlist editor on hide and does not restore it on return', async () => {
+  const store = storeFor(emptyView)
+  const render = (active: boolean) => act(async () => root.render(<StoreProvider store={store}><DestinationPageScope owner="destination:agents" active={active}><AgentAttachments entry={ENTRY} /></DestinationPageScope></StoreProvider>))
+  await render(true)
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent === 'Edit…')!.click())
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+  await render(false)
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+  await render(true)
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+})
+
 it('defaults are not none: an empty allowlist reads "Runtime defaults"', async () => {
   const store = storeFor(emptyView)
   act(() => root.render(<StoreProvider store={store}><AgentAttachments entry={ENTRY} /></StoreProvider>))
@@ -113,6 +126,7 @@ it('editing calls preview then write only — never an approve or a start call',
   expect(editButton).toBeTruthy()
   act(() => editButton!.click())
   await settle()
+  expect(document.querySelector('[data-slot="dialog-footer-actions"] button')?.hasAttribute('data-filled')).toBe(true)
 
   const checkbox = document.body.querySelector('input[type="checkbox"], [role="checkbox"]') as HTMLElement | null
   expect(checkbox).toBeTruthy()

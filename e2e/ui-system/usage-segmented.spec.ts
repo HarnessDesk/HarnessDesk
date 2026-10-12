@@ -49,31 +49,31 @@ for (const theme of ['light', 'dark'] as const) {
       await page.goto('/preview.html')
       await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
       const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
-      const frame=page.locator('[data-frame-id="dashboard-overview"]')
-      const bar=frame.locator('[data-slot="top-bar"]:visible')
-      const views=dashboard.getByRole('tab')
+      const frame = page.locator('[data-frame-id="dashboard-overview"]')
+      const bar = frame.locator('[data-slot="top-bar"]:visible')
+      const views = dashboard.getByRole('tab')
       await expect(views.first()).toBeVisible()
       expect(await views.count()).toBe(5)
-      const measurements=await views.evaluateAll(nodes=>nodes.map(node=>{
-        const box=node.getBoundingClientRect()
-        return {label:node.textContent,height:box.height,contents:[...node.children].map(child=>{const rect=child.getBoundingClientRect();return {top:rect.top-box.top,bottom:box.bottom-rect.bottom}})}
+      const measurements = await views.evaluateAll(nodes => nodes.map(node => {
+        const box = node.getBoundingClientRect()
+        return { label: node.textContent, height: box.height, contents: [...node.children].map(child => { const rect = child.getBoundingClientRect(); return { top: rect.top - box.top, bottom: box.bottom - rect.bottom } }) }
       }))
-      await testInfo.attach('view-layout',{body:JSON.stringify(measurements,null,2),contentType:'application/json'})
-      await bar.screenshot({path:testInfo.outputPath('views.png')})
+      await testInfo.attach('view-layout', { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' })
+      await bar.screenshot({ path: testInfo.outputPath('views.png') })
       const track = await views.first().locator('..').evaluate(node => ({ height: node.getBoundingClientRect().height, padding: parseFloat(getComputedStyle(node).paddingTop) }))
       expect(track).toEqual({ height: 28, padding: 2 })
-      for(const row of measurements){
-        expect.soft(row.height,row.label??'').toBe(track.height - 2 * track.padding)
-        for(const content of row.contents){
+      for (const row of measurements) {
+        expect.soft(row.height, row.label ?? '').toBe(track.height - 2 * track.padding)
+        for (const content of row.contents) {
           expect.soft(content.top).toBeGreaterThanOrEqual(0)
           expect.soft(content.bottom).toBeGreaterThanOrEqual(0)
           expect.soft(Math.abs(content.top - content.bottom)).toBeLessThanOrEqual(1)
         }
       }
       await views.nth(1).click()
-      await expect(views.nth(1)).toHaveAttribute('aria-selected','true')
-      await expect.poll(()=>views.nth(1).evaluate(node=>getComputedStyle(node).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
-      await expect(views.first()).toHaveAttribute('aria-selected','false')
+      await expect(views.nth(1)).toHaveAttribute('aria-selected', 'true')
+      await expect.poll(() => views.nth(1).evaluate(node => getComputedStyle(node).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
+      await expect(views.first()).toHaveAttribute('aria-selected', 'false')
     })
 
     test(`permission segments contain unequal labels at ${width}px in ${theme}`, async ({ page }, testInfo) => {
@@ -93,9 +93,11 @@ for (const theme of ['light', 'dark'] as const) {
           const select = node as HTMLSelectElement, css = getComputedStyle(select), box = select.getBoundingClientRect()
           const context = document.createElement('canvas').getContext('2d')!
           context.font = `${css.fontWeight} ${css.fontSize} ${css.fontFamily}`
-          return { text: context.measureText(select.selectedOptions[0]!.text).width,
+          return {
+            text: context.measureText(select.selectedOptions[0]!.text).width,
             available: box.width - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight),
-            height: box.height, font: css.fontSize, overflow: select.scrollWidth > select.clientWidth }
+            height: box.height, font: css.fontSize, overflow: select.scrollWidth > select.clientWidth
+          }
         })
         await testInfo.attach('permission choice layout', { body: JSON.stringify(measurement), contentType: 'application/json' })
         expect(measurement.text).toBeLessThanOrEqual(measurement.available)
@@ -173,7 +175,7 @@ async function stageAccounts(page: Page) {
 async function inkOf(account: Locator, within = 10_000) {
   return account.evaluate(async (node, within) => {
     const deadline = performance.now() + within
-    for (;;) {
+    for (; ;) {
       // Paused and endless animations never finish; only the rest can settle.
       const moving = document.getAnimations().filter(animation =>
         animation.playState === 'running' && animation.effect?.getComputedTiming().endTime !== Infinity)
@@ -241,24 +243,26 @@ for (const [look, theme] of [
     const firstBand = dashboard.getByRole('heading', { name: 'What is left', exact: true })
     await expect(firstBand).toBeVisible()
 
-    const column=dashboard.locator('[data-slot="page"][data-width="wide"]')
-    const measurement=await column.evaluate(node=>{
-      const style=getComputedStyle(node), box=node.getBoundingClientRect()
-      const parent=node.parentElement!.getBoundingClientRect()
-      const figures=[...node.querySelectorAll<HTMLElement>('[data-role="figure"]')].map(figure=>({reading:figure.textContent,color:getComputedStyle(figure).color}))
-      return {gutter:[style.paddingTop,style.paddingLeft,style.paddingRight].map(parseFloat),
-        width:box.width-parseFloat(style.paddingLeft)-parseFloat(style.paddingRight),available:parent.width,
-        danger:style.getPropertyValue('--hd-danger-ink').trim(),warning:style.getPropertyValue('--hd-warning-ink').trim(),figures}
+    const column = dashboard.locator('[data-slot="page"][data-width="wide"]')
+    const measurement = await column.evaluate(node => {
+      const style = getComputedStyle(node), box = node.getBoundingClientRect()
+      const parent = node.parentElement!.getBoundingClientRect()
+      const figures = [...node.querySelectorAll<HTMLElement>('[data-role="figure"]')].map(figure => ({ reading: figure.textContent, color: getComputedStyle(figure).color }))
+      return {
+        gutter: [style.paddingTop, style.paddingLeft, style.paddingRight].map(parseFloat),
+        width: box.width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight), available: parent.width,
+        danger: style.getPropertyValue('--hd-danger-ink').trim(), warning: style.getPropertyValue('--hd-warning-ink').trim(), figures
+      }
     })
-    await testInfo.attach('dashboard-reading-layout',{body:JSON.stringify(measurement,null,2),contentType:'application/json'})
-    expect(measurement.gutter).toEqual([FRAME.page.gutter,FRAME.page.gutter,FRAME.page.gutter])
-    expect(measurement.width).toBeCloseTo(Math.min(FRAME.page.wide,measurement.available-2*FRAME.page.gutter),0)
+    await testInfo.attach('dashboard-reading-layout', { body: JSON.stringify(measurement, null, 2), contentType: 'application/json' })
+    expect(measurement.gutter).toEqual([FRAME.page.gutter, FRAME.page.gutter, FRAME.page.gutter])
+    expect(measurement.width).toBeCloseTo(Math.min(FRAME.page.wide, measurement.available - 2 * FRAME.page.gutter), 0)
     await expect(dashboard.locator('[data-slot="page-head"], [data-slot="app-window-nav"]')).toHaveCount(0)
-    expect(measurement.figures.find(figure=>figure.reading==='0%')?.color).toBe(measurement.danger)
-    expect(measurement.figures.find(figure=>figure.reading==='10%')?.color).toBe(measurement.warning)
+    expect(measurement.figures.find(figure => figure.reading === '0%')?.color).toBe(measurement.danger)
+    expect(measurement.figures.find(figure => figure.reading === '10%')?.color).toBe(measurement.warning)
     // Overview lists accounts needing attention; Plans carries every account.
     // Left keeps neutral healthy text; its continuous bar carries the status tone.
-    await dashboard.getByRole('tab',{name:/^Plans(?:\s|$)/}).click()
+    await dashboard.getByRole('tab', { name: /^Plans(?:\s|$)/ }).click()
     const plansTable = dashboard.getByRole('table')
     await expect(plansTable).toBeVisible()
     // Left is the third column, with the continuous meter and percent.
@@ -291,16 +295,15 @@ for (const [look, theme] of [
     expect(out.tone, 'out').toBe('danger')
   })
 
-  test(`${look} selected view row text meets AA in ${theme}`, async ({ page }, testInfo) => {
-    await stageAccounts(page)
-    await page.goto('/preview.html')
-    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
-    await page.getByRole('combobox', { name: 'interface', exact: true }).selectOption(look)
-    const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
-    // Plans carries the "N low" count in the warning tone, which has to read on
-    // the selected fill as well as the label does.
-    for (const view of ['Overview', 'Plans', 'Spend', 'Activity', 'Projects']) {
-      const row = dashboard.getByRole('tab',{name:new RegExp(`^${view}(?:\\s|$)`)})
+  {
+
+    for (const [item0, view] of (['Overview', 'Plans', 'Spend', 'Activity', 'Projects']).entries()) test(`${look} selected view row text meets AA in ${theme} [item ${[item0].join('-')}]`, async ({ page }, testInfo) => {
+      await stageAccounts(page)
+      await page.goto('/preview.html')
+      await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+      await page.getByRole('combobox', { name: 'interface', exact: true }).selectOption(look)
+      const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
+      const row = dashboard.getByRole('tab', { name: new RegExp(`^${view}(?:\\s|$)`) })
       await row.click()
       await expect(row).toHaveAttribute('aria-selected', 'true')
       const measurements = await inkOf(row)
@@ -309,8 +312,10 @@ for (const [look, theme] of [
       for (const measurement of measurements) {
         expect.soft(measurement.ratio, `${view}: ${measurement.text || 'icon'}`).toBeGreaterThanOrEqual(floorOf(measurement.part))
       }
-    }
-  })
+
+
+    })
+  }
 }
 
 test('selected view row ink waits for a child transition that the row does not carry', async ({ page }) => {
@@ -318,9 +323,9 @@ test('selected view row ink waits for a child transition that the row does not c
     body{background:white;color:rgb(36,36,36)}button{background:white;color:rgb(95,95,95)}
     button[aria-selected=true]{color:rgb(36,36,36)}button span{transition:color 100ms;transition-delay:30s}
   </style><button role="tab" aria-selected="false"><span>Spend</span></button>`)
-  const parts='span'
-  const account=page.getByRole('tab',{name:'Spend',exact:true})
-  await account.evaluate(node=>node.addEventListener('click',()=>node.setAttribute('aria-selected','true')))
+  const parts = 'span'
+  const account = page.getByRole('tab', { name: 'Spend', exact: true })
+  await account.evaluate(node => node.addEventListener('click', () => node.setAttribute('aria-selected', 'true')))
   const inks = () => account.locator(parts).evaluateAll(nodes => nodes.map(node => getComputedStyle(node).color))
   // Nothing moves once this returns, so what follows is the ink the row rests on.
   await inkOf(account)

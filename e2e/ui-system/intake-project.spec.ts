@@ -63,8 +63,10 @@ test('History expands in place and always names an exact duplicate', async ({ pa
   await expect(section.getByText('Already recorded')).toBeVisible()
 })
 
-test('project trigger states fit light, dark and narrow layouts with no clipped sentence', async ({ page }) => {
-  for (const width of [1280, 640]) {
+{
+
+  for (const [item0, width] of ([1280, 640]).entries()) test(`project trigger states fit light, dark and narrow layouts with no clipped sentence [item ${[item0].join('-')}]`, async ({ page }) => {
+
     for (const colorScheme of ['light', 'dark'] as const) {
       await page.emulateMedia({ colorScheme })
       await page.setViewportSize({ width, height: 900 })
@@ -83,5 +85,7 @@ test('project trigger states fit light, dark and narrow layouts with no clipped 
       })
       expect(overflow, `at ${width}px, ${colorScheme}`).toBeLessThanOrEqual(1)
     }
-  }
-})
+
+
+  })
+}

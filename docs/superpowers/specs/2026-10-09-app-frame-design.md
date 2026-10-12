@@ -174,8 +174,12 @@ window's bottom (owner, 2026-10-10).
 - **Only seams drag.** A view is never dragged between regions, and nothing
   docks in the left column. Double-clicking a seam restores its default.
 - **The frame folds on its own:** at 1280 and wider every region stands;
-  from 1000 to 1279 an opened right panel floats over the right of main
-  instead of narrowing it; below 1000 the left column also floats, opened from
+  from 1000 to 1279 an opened right panel floats in a reserved column beside
+  main. Its effective width is capped to keep main's 480px reading floor down
+  to the tool's 320px minimum. Below that, main stays clear of the reserved
+  floating panel while its reading floor yields; the panel stays at least
+  320px unless the viewport itself is narrower. The requested width returns
+  when there is room. Below 1000 the left column also floats, opened from
   the top bar's lead slot. No fold reserves a status-bar row: both standing
   and floating columns, main and the terminal reach the window's bottom
   (owner, 2026-10-10).
@@ -346,7 +350,7 @@ into a tool or a page; none adds a fifth icon without a decision here.
 | --- | --- |
 | The faces and the members popover | Details › Seats: a row per seat (name; Agent, model and ceiling; a state chip), + to seat an Agent; a row's menu opens its conversation, watches it beside, messages it, sets its messages to Accept, Hold or Refuse, or takes it out of the Team |
 | Side by side, both a tab and a toggle | Chat's View menu, one place |
-| Hold messages | the Chat composer's Send to menu, with a Holding messages chip in the composer while it is on |
+| Board-only | the Chat composer's Send to menu, with a Board-only chip while agents cannot message each other |
 | The pull request button | Details' Pull request row, and ⋯ › Open pull request |
 | The trigger chips, "at a1b2c3d on main" | Details (Started by, At) |
 | Wrap…, Fill the window | ⋯ |
@@ -453,8 +457,9 @@ dropdown, `Popover` + `Menu`, and the branch flyout all render the one menu.
 
 ### Windows that are not wide
 
-As the frame's fixed rules say: below 1280 an opened right panel floats over
-main; below 1000 the left column floats too; the top bar folds by its title's
+As the frame's fixed rules say: below 1280 an opened right panel floats in
+a reserved column beside main, keeping its tool minimum even when main's
+reading floor must yield; below 1000 the left column floats too; the top bar folds by its title's
 room. The left column's Settings mode floats the same way.
 
 ## Tokens

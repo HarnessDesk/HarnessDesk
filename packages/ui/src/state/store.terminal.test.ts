@@ -42,3 +42,15 @@ it('opens a conversation terminal in that conversation’s worktree', async () =
 
   expect(store.transport.request).toHaveBeenCalledWith('terminal/open', expect.objectContaining({ cwd: WORKTREE, sessionId: ID }))
 })
+
+it('new default terminals do not borrow the retained conversation scope on pages', async () => {
+  await store.selectRuntime(RUNTIME)
+  await store.openWorkspace(PROJECT)
+  await store.openSession(ID, { runtime: RUNTIME })
+  store.setWindowSize(1280, 800)
+  store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'general', focus: null } })
+  await store.openTerminal()
+  expect(store.transport.request).not.toHaveBeenCalledWith('terminal/open', expect.anything())
+  await store.openTerminal({ cwd: '/synthetic/retained-shell' })
+  expect(store.transport.request).toHaveBeenCalledWith('terminal/open', expect.objectContaining({ cwd: '/synthetic/retained-shell' }))
+})

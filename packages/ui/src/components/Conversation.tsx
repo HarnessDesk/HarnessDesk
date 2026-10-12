@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
+import { sessionUnavailable } from '../lib/session-unavailable'
 import { allItems, currentTurn, isBusy, isNoticeTurn, openingOfContent, type RuntimeId, type Session } from '@harnessdesk/protocol'
 
 import {
@@ -300,17 +301,19 @@ const ConversationMenu = ({ owner, folderActions }: { owner?: string; folderActi
   const [confirmUndo, setConfirmUndo] = useState(false)
   const [saving, setSaving] = useState(false)
   const pane = usePane()
+  const unavailable = sessionUnavailable(snapshot, session)
+  const refusal = record ? RECORD_REASON : unavailable
   const memoryOn = session?.memory === true
   const several = snapshot.layout.root.kind === 'split'
   const menuBody = (close: () => void) => <>
     {capabilities.memory && <MenuToggle icon={<BrainIcon size={16} />} label="Remember this conversation"
-      title={`Let ${runtime.presentation.name} carry what it learns here into new ones.`} checked={memoryOn}
-      onChange={() => { void store.setMemoryMode(!memoryOn); close() }} />}
+      title={refusal ?? `Let ${runtime.presentation.name} carry what it learns here into new ones.`} disabled={refusal ?? false} checked={memoryOn}
+      onChange={() => { void store.setMemoryMode(!memoryOn, key); close() }} />}
     {capabilities.compaction && <MenuItem icon={<CompactIcon size={16} />} label="Compact now"
-      title="Summarise older turns to free up context." disabled={record ? RECORD_REASON : false}
+      title="Summarise older turns to free up context." disabled={record ? RECORD_REASON : sessionUnavailable(snapshot, session) ?? false}
       onSelect={() => void store.compact(key)} />}
     {capabilities.undo && <MenuItem icon={<UndoIcon size={16} />} label="Undo the last turn"
-      hint="Files are left as they are." onSelect={() => setConfirmUndo(true)} />}
+      hint="Files are left as they are." disabled={refusal ?? false} onSelect={() => setConfirmUndo(true)} />}
     <MenuItem icon={<AgentIcon size={16} />} label="Save as an Agent…"
       title="This seat, a brief and a ceiling, under a name to start again." onSelect={() => setSaving(true)} />
     {folderActions?.(close)}
@@ -327,7 +330,7 @@ const ConversationMenu = ({ owner, folderActions }: { owner?: string; folderActi
   useTopBarMore(owner ?? pane?.paneId ?? '', menuBody, Boolean(session && pane))
   return <>
     {confirmUndo && <ConfirmDialog title="Undo the last turn?" confirmLabel="Undo turn" cancelLabel="Keep" onCancel={() => setConfirmUndo(false)}
-      onConfirm={() => { void store.rollback(1); setConfirmUndo(false) }}>
+      onConfirm={() => { void store.rollback(1, key); setConfirmUndo(false) }}>
       Drops it from history. Files it changed on disk are not reverted.
     </ConfirmDialog>}
     {saving && session && <SaveAsAgentDialog session={session} onClose={() => setSaving(false)} />}
@@ -830,11 +833,11 @@ export const GitControl = ({
                 icon={<ReviewIcon size={16} />}
                 label="Review uncommitted changes"
                 title="On a side thread, leaving this one as it is."
-                disabled={record ? RECORD_REASON : false}
+                disabled={record ? RECORD_REASON : sessionUnavailable(snapshot, session) ?? false}
                 onSelect={() => void store.review({ type: 'uncommitted', delivery: 'detached' }, key)}
               />
             )}
-            {session && (
+            {session && !sessionUnavailable(snapshot, session) && (
               <MenuItem
                 icon={<CommitIcon size={16} />}
                 label="Commit the changes"

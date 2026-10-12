@@ -63,7 +63,7 @@ test('flow/start-goal accepts optional lineage, and keeps output metadata host-o
 })
 
 test('flow/preview and flow/start-goal reject a caller-supplied authority field outright', () => {
-  const forgedFields = ['compiled', 'ceiling', 'evidence', 'commands', 'origin', 'authorization']
+  const forgedFields = ['compiled', 'ceiling', 'evidence', 'commands', 'origin', 'authorization', 'attachments']
   for (const field of forgedFields) {
     assert.throws(
       () => request('flow/preview', { root: '/work/repo', source: 'version: 2', [field]: {} }),

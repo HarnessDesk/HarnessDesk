@@ -8,3 +8,20 @@ import { createHash } from 'node:crypto'
  */
 export const digestOf = (text: string): string =>
   createHash('sha256').update(text.trim()).digest('hex').slice(0, 16)
+
+/** Full bundle identity, shared by Library writes and attachment approvals. */
+export function bundleDigest(files: readonly { readonly path: string; readonly bytes: Uint8Array }[]): string {
+  const hash = createHash('sha256')
+  for (const file of [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))) {
+    const path = Buffer.from(file.path, 'utf8')
+    const pathLength = Buffer.alloc(4)
+    pathLength.writeUInt32BE(path.length)
+    const byteLength = Buffer.alloc(4)
+    byteLength.writeUInt32BE(file.bytes.length)
+    hash.update(pathLength)
+    hash.update(path)
+    hash.update(byteLength)
+    hash.update(file.bytes)
+  }
+  return hash.digest('hex')
+}

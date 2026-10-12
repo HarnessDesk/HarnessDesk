@@ -1271,3 +1271,43 @@ it('cycles Tab at both floating sidebar boundaries without taking portalled focu
     finally { portal.remove() }
   } finally { rectangles.mockRestore() }
 })
+
+for (const kind of ['settings', 'dashboard', 'agents', 'teams', 'library', 'plugins'] as const) it(`hides a retained terminal on folderless ${kind} and restores its shells and height`, () => {
+  const destination = {
+    settings: { kind: 'settings', route: { kind: 'section', section: 'general', focus: null } },
+    dashboard: { kind: 'dashboard', view: 'overview', scope: null }, agents: { kind: 'agents', id: null },
+    teams: { kind: 'teams', filter: 'active' }, library: { kind: 'library', section: 'skill' },
+    plugins: { kind: 'plugins', section: 'installed', id: null },
+  }[kind] as Model['navigation']['current']
+  const harness = rig(start => dock(start, 'bottom', { kind: 'terminal', terminalId: 'kept-pty', runtime: 'fixture' as never, cwd: '/synthetic/shell' }))
+  render(harness.store)
+  const before = harness.store.getSnapshot().workbench.bottom
+  const terminal = container.querySelector('[data-testid="view-terminal"]')!
+  const shell = container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
+  const height = shell.style.getPropertyValue('--frame-bottom-size')
+  Object.assign(harness.store.getSnapshot().workbench.navigation, { current: destination })
+  act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={null} pageActive pages={<div>Page</div>} /></StoreProvider>))
+  expect(shell.dataset.bottomOpen).toBe('false')
+  expect(shell.style.getPropertyValue('--frame-bottom-size')).toBe('0px')
+  expect(terminal.closest('[inert]')).not.toBeNull()
+  expect(container.querySelector('[data-testid="view-terminal"]')).toBe(terminal)
+  expect(harness.store.getSnapshot().workbench.bottom).toBe(before)
+  Object.assign(harness.store.getSnapshot().workbench.navigation, { current: { kind: 'work', view: { kind: 'conversation', session: null } } })
+  render(harness.store)
+  expect(shell.dataset.bottomOpen).toBe('true')
+  expect(shell.style.getPropertyValue('--frame-bottom-size')).toBe(height)
+  expect(container.querySelector('[data-testid="view-terminal"]')).toBe(terminal)
+  expect(terminal.closest('[inert]')).toBeNull()
+  const button = container.querySelector<HTMLButtonElement>('[title="New shell in /synthetic/shell"]')!
+  expect(button).not.toBeNull()
+  act(() => button.click())
+  expect(harness.actions.openTerminal).toHaveBeenCalledWith({ cwd: '/synthetic/shell' })
+})
+
+it('keeps the terminal visible on a review page with its own folder', () => {
+  const harness = rig(start => ({ ...dock(start, 'bottom', { kind: 'terminal', terminalId: 'review-pty', runtime: 'fixture' as never, cwd: '/synthetic/shell' }),
+    navigation: { ...start.navigation, current: { kind: 'changes-review', root: '/synthetic/review', returnTo: { kind: 'conversation', session: null } } } }))
+  act(() => root.render(<StoreProvider store={harness.store}><Workbench sidebar={null} pageActive pages={<div>Review</div>} /></StoreProvider>))
+  expect(container.querySelector('[data-slot="fixed-shell"]')?.getAttribute('data-bottom-open')).toBe('true')
+  expect(container.querySelector('[data-testid="view-terminal"]')?.closest('[inert]')).toBeNull()
+})

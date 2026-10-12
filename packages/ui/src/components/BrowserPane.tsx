@@ -1579,7 +1579,7 @@ const BrowserPaneContent = () => {
         </Popover>
       </ToolBodyControls>}
       <ToolPaneBar as="form" variant={mount.embedded ? "address-slim" : "address"} onSubmit={go}>
-        <Button variant="ghost"
+        <Button variant="ghost" size="icon-xs"
           type="button"
           onClick={() => act((element) => element.goBack())}
           disabled={!arrows.back}
@@ -1588,7 +1588,7 @@ const BrowserPaneContent = () => {
         >
           <ArrowLeftIcon size={14} />
         </Button>
-        <Button variant="ghost"
+        <Button variant="ghost" size="icon-xs"
           type="button"
           onClick={() => act((element) => element.goForward())}
           disabled={!arrows.forward}
@@ -1597,7 +1597,7 @@ const BrowserPaneContent = () => {
         >
           <ArrowRightIcon size={14} />
         </Button>
-        <Button variant="ghost"
+        <Button variant="ghost" size="icon-xs"
           type="button"
           onClick={() => act((element) => (busy ? element.stop() : element.reload()))}
           title={busy ? 'Stop loading' : 'Reload'}
@@ -1638,6 +1638,7 @@ const BrowserPaneContent = () => {
         <Popover
           label={<DeviceGlyph size={14} />}
           title={`Size: ${spec.label}`}
+          tightTrigger triggerVariant={{ variant: 'ghost', size: 'icon-xs' }}
           align="right"
          icons="none">
           {(close) => (
@@ -1661,7 +1662,7 @@ const BrowserPaneContent = () => {
         {/* Point at the thing you mean. Both incumbents have this; ours puts
             it beside the device sizes, because it is the same kind of switch
             — a way of looking at the page rather than a place to go. */}
-        <Button variant={annotating ? 'secondary' : 'ghost'}
+        <Button variant={annotating ? 'secondary' : 'ghost'} size="icon-xs"
           type="button"
           onClick={() => setAnnotate(annotating ? null : 'comment')}
           disabled={!inline || tab.url === BLANK}

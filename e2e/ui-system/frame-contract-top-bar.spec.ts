@@ -9,12 +9,13 @@ import { openFrame } from './frame-contract-helpers'
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 
 
-test('R10.11 short title keeps its state chip at the text gap', async ({ page }) => {
+{
   const cases = [
     { query: 'frame-wall=agents&frame-detail=agent&frame-agent-case=release-checker', title: 'Release checker', state: 'Edit' },
     { query: 'frame-wall=conversation&frame-short-title=1', title: 'Extract the address form', state: 'Idle' },
   ] as const
-  for (const one of cases) {
+  for (const [item0, one] of (cases).entries()) test(`R10.11 short title keeps its state chip at the text gap [item ${[item0].join('-')}]`, async ({ page }) => {
+
     await openFrame(page, one.query, 'light', 1440)
     const bar = page.locator('[data-slot="top-bar"]:visible')
     const title = bar.locator('[data-topbar-title] [data-slot="text"]').last()
@@ -36,8 +37,10 @@ test('R10.11 short title keeps its state chip at the text gap', async ({ page })
     expect(geometry.titleWidth).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
     expect(geometry.stateLeft, `${one.title} exposes a state chip`).not.toBeNull()
     expect(geometry.stateLeft! - geometry.inkRight, `${one.title} state gap`).toBeCloseTo(FRAME.bar.gap, 0)
-  }
-})
+
+
+  })
+}
 
 for (const theme of WALL_THEMES) for (const filter of ['All', 'Open', 'Blocking']) {
   test(`B11 native-width lead folds the Findings ${filter} verb last in ${theme}`, async ({ page }) => {
@@ -90,8 +93,10 @@ test.describe('B11a owner corrections', () => {
         await expect(bar.getByRole('button', { name: 'Toggle right panel', exact: true })).toHaveAttribute('aria-pressed', 'false')
       }
     })
-    test(`B11a owner bar edge and retained control geometry at ${width} in ${theme}`, async ({ page }) => {
-      for (const foundation of ['desk', 'studio'] as const) {
+    {
+
+      for (const [item0, foundation] of (['desk', 'studio'] as const).entries()) test(`B11a owner bar edge and retained control geometry at ${width} in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
+
         await openFrame(page, 'frame-wall=conversation', theme, width)
         await page.locator('body').evaluate((body, value) => { body.dataset.hdInterface = value }, foundation)
         const bar = page.locator('[data-slot="top-bar"]:visible')
@@ -115,8 +120,10 @@ test.describe('B11a owner corrections', () => {
             expect(await tools.evaluate(node => getComputedStyle(node).borderLeftWidth)).toBe('0px')
           } else expect(await tools.evaluate(node => getComputedStyle(node).borderLeftWidth)).toBe('0px')
         }
-      }
-    })
+
+
+      })
+    }
   }
 })
 
@@ -351,8 +358,10 @@ for (const theme of WALL_THEMES) {
 }
 
 for (const theme of WALL_THEMES) {
-  test(`B11a bar order, switcher, pressed tools and continuous standing seam in ${theme}`, async ({ page }) => {
-    for (const width of [1440, 1100, 720]) {
+  {
+
+    for (const [item0, width] of ([1440, 1100, 720]).entries()) test(`B11a bar order, switcher, pressed tools and continuous standing seam in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
+
       await openFrame(page, 'frame-wall=team', theme, width)
       const bar = page.locator('[data-slot="top-bar"]:visible')
       await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
@@ -385,8 +394,10 @@ for (const theme of WALL_THEMES) {
       }
       await bar.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
       expect(await tools.evaluate(node => getComputedStyle(node).borderLeftWidth)).toBe('0px')
-    }
-  })
+
+
+    })
+  }
 
   test(`B11a panel facts have one-line row density and Findings agrees with its tab in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team', theme)
@@ -394,12 +405,15 @@ for (const theme of WALL_THEMES) {
     await bar.getByRole('button', { name: 'Details', exact: true }).click()
     const panel = page.locator('[data-slot="tool-body"]:visible')
     const facts = panel.locator('[data-slot="summary-item"]:not(:has([data-slot="summary-action"]))')
+    await expect(panel).toBeVisible()
+    await expect(facts.first()).toBeVisible()
     const rows = await facts.evaluateAll(nodes => nodes.filter(node => !node.querySelector('[data-slot="summary-note"]')).map(node => node.getBoundingClientRect().height))
     expect(rows.length).toBeGreaterThan(2)
     expect(rows.every(height => height >= 36 && height <= 38)).toBe(true)
     await bar.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
     await selectFrameTab(page, 'findings')
     await expect(bar.locator('[data-team-page="findings"]')).toContainText('3')
+    await expect(page.locator('[aria-label="Findings summary"]')).toBeVisible()
     expect(await page.locator('[aria-label="Findings summary"] [data-slot="summary-item"]').evaluateAll(nodes => nodes.map(node => [node.querySelector('dt')?.textContent, node.querySelector('[data-slot="summary-value"]')?.textContent]))).toEqual([['Open', '3'], ['Blocking', '3'], ['All', '3']])
     await expect(page.locator('[data-slot="workbench-main"]')).not.toContainText('No findings recorded')
   })

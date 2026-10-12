@@ -11,23 +11,26 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 
 
 for (const theme of WALL_THEMES) {
-  test(`B6 Team view controls keep one View x and no second toolbar in ${theme}`, async ({ page }) => {
-    await openFrame(page, 'frame-wall=team', theme)
-    const xs: number[] = []
-    for (const tab of ['overview', 'run', 'board', 'room', 'findings']) {
+  test.describe(`B6 Team view controls keep one View x and no second toolbar in ${theme}`, () => {
+    test.describe.configure({ mode: 'default' }); const xs: number[] = [];
+    for (const tab of ['overview', 'run', 'board', 'room', 'findings']) test(`B6 Team view controls keep one View x and no second toolbar in ${theme}: ${tab}`, async ({ page }) => {
+      await openFrame(page, 'frame-wall=team', theme)
       await selectFrameTab(page, tab)
       const icon = page.locator('[data-topbar="view"]')
       await expect(icon).toBeVisible()
       xs.push((await icon.boundingBox())!.x)
       await expect(page.locator('[data-slot="view-bar"]')).toHaveCount(0)
       await expect(page.locator('[data-slot="run-header"]')).toHaveCount(0)
-    }
-    expect(Math.max(...xs) - Math.min(...xs)).toBeLessThanOrEqual(1)
-    await selectFrameTab(page, 'findings')
-    await page.getByRole('button', { name: 'View', exact: true }).click()
-    await page.getByRole('switch', { name: 'Open', exact: true }).click()
-    await expect(page.locator('[data-topbar="view"] [data-filtered="true"]')).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Decide this run', exact: true })).toBeVisible()
+    })
+    test.afterAll(() => { expect(Math.max(...xs) - Math.min(...xs)).toBeLessThanOrEqual(1) })
+    test(`B6 Team view controls keep one View x and no second toolbar in ${theme}: Findings filter action`, async ({ page }) => {
+      await openFrame(page, 'frame-wall=team', theme)
+      await selectFrameTab(page, 'findings')
+      await page.getByRole('button', { name: 'View', exact: true }).click()
+      await page.getByRole('switch', { name: 'Open', exact: true }).click()
+      await expect(page.locator('[data-topbar="view"] [data-filtered="true"]')).toBeVisible()
+      await expect(page.getByRole('button', { name: 'Decide this run', exact: true })).toBeVisible()
+    })
   })
 
   test(`B5 equivalent completed rounds stay folded and select their latest record in ${theme}`, async ({ page }) => {
@@ -143,6 +146,8 @@ for (const theme of WALL_THEMES) {
     await expect(page.locator('[data-team-page="side-by-side"]')).toHaveCount(0)
     await page.locator('[data-work-tool="details"]').click()
     const details = page.locator('[data-slot="tool-body"]:visible')
+    await expect(details).toBeVisible()
+    await expect(details.locator('[data-slot="tool-section"] > [data-slot="group-label"]').first()).toContainText('Run')
     const headings = await details.locator('[data-slot="tool-section"] > [data-slot="group-label"]').evaluateAll(nodes => nodes.map(node => node.textContent))
     expect(headings[0]).toContain('Run')
     expect(headings[1]).toContain('Seats')
@@ -171,11 +176,11 @@ for (const theme of WALL_THEMES) {
     const input = composer.locator('textarea').first()
     await input.fill('Check the retry budget')
     await page.getByRole('button', { name: 'Send to', exact: true }).click()
-    await page.getByRole('switch', { name: 'Hold messages', exact: true }).click()
-    await expect(composer.getByText('Holding messages', { exact: true })).toBeVisible()
+    await page.getByRole('switch', { name: 'Board-only', exact: true }).click()
+    await expect(composer.getByText('Board-only', { exact: true })).toBeVisible()
     await expect(input).toHaveValue('Check the retry budget')
     await expect(input).toBeEnabled()
-    await expect(page.locator('[data-slot="top-bar"]').getByRole('button', { name: /Hold messages/ })).toHaveCount(0)
+    await expect(page.locator('[data-slot="top-bar"]').getByRole('button', { name: /Board-only/ })).toHaveCount(0)
     expect(Math.round((await page.locator('[data-slot="top-bar"]').locator('..').boundingBox())!.height)).toBe(FRAME.bar.height)
   })
 }
@@ -184,20 +189,20 @@ for (const theme of WALL_THEMES) {
   test(`B4a Side by side shares Hold with the controlled Chat draft in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=team', theme)
     await selectFrameTab(page, 'room')
-    const input=page.locator('[data-slot="room-body"] [data-slot="composer"]:visible textarea').first()
+    const input = page.locator('[data-slot="room-body"] [data-slot="composer"]:visible textarea').first()
     await input.fill('Check the retry budget')
-    await page.getByRole('button',{name:'Send to',exact:true}).click()
-    await page.getByRole('switch',{name:'Hold messages',exact:true}).click()
-    await page.getByRole('button',{name:'View',exact:true}).click()
-    await page.getByRole('menuitemradio',{name:'Side by side',exact:true}).click()
-    const shared=page.locator('[data-shared-composer]:visible')
-    await expect(shared.getByText('Holding messages',{exact:true})).toBeVisible()
+    await page.getByRole('button', { name: 'Send to', exact: true }).click()
+    await page.getByRole('switch', { name: 'Board-only', exact: true }).click()
+    await page.getByRole('button', { name: 'View', exact: true }).click()
+    await page.getByRole('menuitemradio', { name: 'Side by side', exact: true }).click()
+    const shared = page.locator('[data-shared-composer]:visible')
+    await expect(shared.getByText('Board-only', { exact: true })).toBeVisible()
     await expect(shared.locator('textarea')).toHaveValue('Check the retry budget')
     await expect(shared.locator('textarea')).toBeEnabled()
-    await shared.getByRole('button',{name:'Send to',exact:true}).click()
-    await expect(page.getByRole('switch',{name:'Hold messages',exact:true})).toHaveAttribute('aria-checked','true')
-    await page.getByRole('switch',{name:'Hold messages',exact:true}).click()
-    await expect(shared.getByText('Holding messages',{exact:true})).toHaveCount(0)
+    await shared.getByRole('button', { name: 'Send to', exact: true }).click()
+    await expect(page.getByRole('switch', { name: 'Board-only', exact: true })).toHaveAttribute('aria-checked', 'true')
+    await page.getByRole('switch', { name: 'Board-only', exact: true }).click()
+    await expect(shared.getByText('Board-only', { exact: true })).toHaveCount(0)
     await expect(shared.locator('textarea')).toHaveValue('Check the retry budget')
   })
 }

@@ -122,6 +122,17 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
   const [everyTime, setEveryTime] = useState(false)
   const [attachmentsProblem, setAttachmentsProblem] = useState<string | null>(null)
   const [startingHigher, setStartingHigher] = useState(false)
+  useEffect(() => {
+    if (active) return
+    setCustomizing(false)
+    setRemoving(false)
+    setAdding(false)
+    setUpdatingCeiling(false)
+    setEditingCeiling(false)
+    setEditingPrefer(false)
+    setEveryTime(false)
+    setStartingHigher(false)
+  }, [active])
   const definition = entry.definition
   // Offered only for an Agent whose own ceiling reaches past the default a seating starts at (#897).
   const canStartHigher = definition !== null && (definition.ceiling === 'publish' || definition.ceiling === 'merge')
@@ -345,26 +356,27 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
         </>
       )}
 
-      {startingHigher && definition && (
+      {active && startingHigher && definition && (
         <StartHigher
           entry={entry}
           onClose={() => setStartingHigher(false)}
         />
       )}
 
-      {customizing && definition && (
+      {active && customizing && definition && (
         <CustomizeDialog
           entry={entry}
           targets={targets}
           onClose={() => setCustomizing(false)}
           onCopied={(copy) => {
+            setCustomizing(false)
             store.openFile(copy.path)
             store.returnToWork()
           }}
         />
       )}
 
-      {adding && definition && (
+      {active && adding && definition && (
         <AddSeatDialog
           entry={entry}
           expected={snapshot.seating?.entries.find((one) => one.id === entry.id)?.seats ?? null}
@@ -373,11 +385,11 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
         />
       )}
 
-      {updatingCeiling && definition && canUpdateCeiling && (
+      {active && updatingCeiling && definition && canUpdateCeiling && (
         <CeilingUpdate entry={entry} onClose={() => setUpdatingCeiling(false)} />
       )}
 
-      {editingCeiling && definition && agentDocument && (
+      {active && editingCeiling && definition && agentDocument && (
         <FieldEditDialog
           fieldKey="ceiling"
           target={agentDocument.target as Extract<WritableAuthoringTarget, { readonly kind: 'agent' }>}
@@ -392,7 +404,7 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
         />
       )}
 
-      {editingPrefer && definition && agentDocument && (
+      {active && editingPrefer && definition && agentDocument && (
         <PreferFieldDialog
           entry={entry}
           target={agentDocument.target as Extract<WritableAuthoringTarget, { readonly kind: 'agent' }>}
@@ -407,7 +419,7 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
         />
       )}
 
-      {removing && folder && entry.origin !== 'builtin' && (
+      {active && removing && folder && entry.origin !== 'builtin' && (
         <RemoveDialog
           entry={entry}
           name={name}
@@ -417,7 +429,7 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
         />
       )}
 
-      {everyTime && snapshot.agentsProject && (
+      {active && everyTime && snapshot.agentsProject && (
         <TriggerCreate
           root={snapshot.agentsProject}
           opens={{ agent: entry.id }}
@@ -764,11 +776,11 @@ const AddSeatDialog = ({
       onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" disabled={busy} onClick={onClose}>
-            Cancel
-          </Button>
           <Button variant="default" disabled={busy || !runtime || models === null} onClick={() => void add()}>
             {busy ? 'Adding…' : 'Add seat'}
+          </Button>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>
+            Cancel
           </Button>
         </>
       }
@@ -876,11 +888,11 @@ const CustomizeDialog = ({
       onClose={onClose}
       footer={
         <>
-          <Button variant="secondary" disabled={busy} onClick={onClose}>
-            Cancel
-          </Button>
           <Button variant="default" disabled={busy || greyed(to)} onClick={() => void copy()}>
             {busy ? 'Copying…' : 'Copy and open'}
+          </Button>
+          <Button variant="secondary" disabled={busy} onClick={onClose}>
+            Cancel
           </Button>
         </>
       }

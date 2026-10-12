@@ -8,15 +8,16 @@ import { windowBar, expectLead, expectQuietSettings, nonworkGroups } from './fra
 useFrameContractEvidence()
 
 for (const theme of WALL_THEMES) for (const width of [720]) for (const [group, destinations] of nonworkGroups.entries()) {
-  test(`B10 nonwork place hierarchy and lead follow window state at ${width} in ${theme}${group === 0 ? '' : ` group ${group + 1}`}`, async ({ page }) => {
-    const hidden = width === 1440 ? '&frame-sidebar-hidden=1' : ''
-    await openFrame(page, `frame-wall=conversation${hidden}`, theme, width)
-    const referenceX = (await windowBar(page).locator('[data-topbar="place"]').boundingBox())!.x
-    const measured: { destination: string; origin: number; childX: number; titleWidth: number }[] = []
-    for (const destination of destinations) {
+  {
+
+    for (const [item0, destination] of (destinations).entries()) test(`B10 nonwork place hierarchy and lead follow window state at ${width} in ${theme}${group === 0 ? '' : ` group ${group + 1}`} [item ${[item0].join('-')}]`, async ({ page }) => {
+      const hidden = width === 1440 ? '&frame-sidebar-hidden=1' : ''
+      await openFrame(page, `frame-wall=conversation${hidden}`, theme, width)
+      const referenceX = (await windowBar(page).locator('[data-topbar="place"]').boundingBox())!.x
+      const measured: { destination: string; origin: number; childX: number; titleWidth: number }[] = []
       await openFrame(page, `${destination.query}${hidden}`, theme, width)
       const bar = windowBar(page)
-      if (destination.id === 'agent') await expect(bar.locator('[data-topbar-title] > [data-slot="text"]')).toHaveText('Code reviewer')
+      if (destination.id === 'e4-agent-detail') await expect(bar.locator('[data-topbar-title] > [data-slot="text"]')).toHaveText('Code reviewer')
       const settings = await page.locator('[data-page-destination="settings"]:visible').count() === 1
       await expectLead(bar, width, settings, true)
       await expect(bar.locator('[data-work-tool]')).toHaveCount(0)
@@ -32,7 +33,8 @@ for (const theme of WALL_THEMES) for (const width of [720]) for (const [group, d
         expect(Math.abs(origin - referenceX), `${destination.id} place origin`).toBeLessThanOrEqual(1)
         measured.push({ destination: destination.id, origin, childX: title.x, titleWidth: title.width })
       }
-    }
-    await test.info().attach('nonwork-place-measurements', { body: JSON.stringify(measured, null, 2), contentType: 'application/json' })
-  })
+
+      await test.info().attach('nonwork-place-measurements', { body: JSON.stringify(measured, null, 2), contentType: 'application/json' })
+    })
+  }
 }

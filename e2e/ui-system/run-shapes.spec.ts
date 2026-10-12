@@ -5,10 +5,11 @@ import { mkdir } from 'node:fs/promises'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
 const scenes = ['shapes', 'comparison', 'independent-review', 'alignment', 'investigation'] as const
 for (const theme of ['light', 'dark'] as const) {
-  test(`Run flow shapes and synthetic frames in ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme })
-    await page.setViewportSize({ width: 1440, height: 1440 })
-    for (const scene of scenes) {
+  {
+
+    for (const [item0, scene] of (scenes).entries()) test(`Run flow shapes and synthetic frames in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: theme })
+      await page.setViewportSize({ width: 1440, height: 1440 })
       await page.goto(`/preview.html?run-shapes=${scene}&theme=${theme}`)
       const frame = page.locator('#run-shapes-frame')
       await expect(runBar(frame)).toBeVisible()
@@ -56,7 +57,7 @@ for (const theme of ['light', 'dark'] as const) {
           await story.locator('[data-row="card-1-1"] button').click()
           await expect(inspection.locator('[data-slot="timeline-document"]')).toContainText('docs/answer.md')
           await expect(inspection.locator('[data-slot="timeline-document-body"]')).toContainText('Investigation answer')
-          await expect(frame.locator('[aria-label="Team Run facts"] [data-slot="summary-item"]').filter({hasText:/^Answer at/})).toContainText('aaaaaaa')
+          await expect(frame.locator('[aria-label="Team Run facts"] [data-slot="summary-item"]').filter({ hasText: /^Answer at/ })).toContainText('aaaaaaa')
           await expect(frame.getByRole('button', { name: /Pull request/ })).toHaveCount(0)
         }
         expect(await frame.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
@@ -66,17 +67,21 @@ for (const theme of ['light', 'dark'] as const) {
         await mkdir(process.env.SHAPES_FRAMES_DIR, { recursive: true })
         await frame.screenshot({ path: path.join(process.env.SHAPES_FRAMES_DIR, `${scene}-${theme}-${process.env.SHAPES_PHASE ?? 'after'}.png`) })
       }
-    }
-  })
-  test(`round geometry follows its column and lists beyond three in ${theme}`, async ({ page }) => {
-    test.skip(process.env.SHAPES_PHASE === 'before')
-    await page.emulateMedia({ colorScheme: theme })
-    for (const [width, count, columns] of [[1050, 2, 2], [1050, 3, 3], [1050, 4, 1], [420, 2, 1], [420, 3, 1]] as const) {
+
+
+    })
+  }
+  {
+
+    for (const [item0, [width, count, columns]] of ([[1050, 2, 2], [1050, 3, 3], [1050, 4, 1], [420, 2, 1], [420, 3, 1]] as const).entries()) test(`round geometry follows its column and lists beyond three in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
+      test.skip(process.env.SHAPES_PHASE === 'before')
+      await page.emulateMedia({ colorScheme: theme })
       await page.setViewportSize({ width, height: 1100 })
       await page.goto(`/preview.html?run-shapes=shapes&standalone&count=${count}&theme=${theme}`)
       const cards = page.locator(`[data-slot="timeline-card-grid"][data-count="${count}"] [data-slot="timeline-card"]`)
       await expect(cards).toHaveCount(count)
-      const first = (await cards.nth(0).boundingBox())!; const last = (await cards.nth(count - 1).boundingBox())!
+      const first = (await cards.nth(0).boundingBox())!;
+      const last = (await cards.nth(count - 1).boundingBox())!
       if (columns === 1) expect(last.y).toBeGreaterThan(first.y)
       else expect(last.y).toBe(first.y)
       const reading = page.locator('[data-slot="run-reading"]')
@@ -85,8 +90,10 @@ for (const theme of ['light', 'dark'] as const) {
         expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
         await page.locator('#run-shapes-frame').screenshot({ path: path.join(process.env.SHAPES_FRAMES_DIR, `shapes-narrow-${theme}-after.png`) })
       }
-    }
-  })
+
+
+    })
+  }
 }
 
 for (const theme of ['light', 'dark'] as const) {
@@ -102,7 +109,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto(`/preview.html?run-shapes=comparison&theme=${theme}`)
     const frame = page.locator('#run-shapes-frame')
     await expect(runBar(frame)).toBeVisible()
-      await expect(frame.locator('[data-slot="run-header"]')).toHaveCount(0)
+    await expect(frame.locator('[data-slot="run-header"]')).toHaveCount(0)
     await page.evaluate(async () => { await document.fonts.ready })
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.CHECK_LABEL_FRAMES_DIR) {

@@ -1,4 +1,4 @@
-import { sessionKey, type GoalId, type InsightReport, type RuntimeId, type TeamSignal, type FlowExecution, type FindingRunView } from '@harnessdesk/protocol'
+import { sessionKey, type GoalId, type InsightReport, type RuntimeId, type TeamSignal, type FlowExecution, type FindingRunView, type SeatRecord } from '@harnessdesk/protocol'
 import type { ClientSnapshot } from './snapshot.js'
 import { teamOverview, type TeamOverviewInput, type TeamOverviewSeat } from './team-overview.js'
 
@@ -17,9 +17,15 @@ export function teamOverviewInputOf(snapshot: ClientSnapshot, team: GoalId, extr
   const board = snapshot.boards.find(one => one.id === view?.board.id || one.id === team) ?? view?.board
   const runtimeCapabilities = new Map<string, { metered: boolean }>(extras.runtimes.map(one => [one.id, { metered: one.metered }]))
   const execution = snapshot.runs.filter(one => one.goal === team).sort((a, b) => (b.startedAt ?? 0) - (a.startedAt ?? 0))[0]
+  const records = new Map<string, SeatRecord>()
+  for (const record of [...(view?.members ?? []), ...(view?.pastMembers ?? [])]) {
+    const key = sessionKey(record.session.runtime, record.session.sessionId)
+    const held = records.get(key)
+    if (!held || record.closed == null || held.closed != null) records.set(key, record)
+  }
   return {
     team,
-    seats: (extras.seats ?? [...new Map([...(view?.pastMembers ?? []), ...(view?.members ?? [])].map(record => [sessionKey(record.session.runtime, record.session.sessionId), record])).values()].map((record): TeamOverviewSeat => ({
+    seats: (extras.seats ?? [...records.values()].map((record): TeamOverviewSeat => ({
       record,
       name: board?.nicknames?.[sessionKey(record.session.runtime, record.session.sessionId)] ?? record.agent?.name ?? record.seatLabel ?? 'Agent',
       runtime: runtimeCapabilities.has(record.session.runtime) ? { capabilities: runtimeCapabilities.get(record.session.runtime)! } : null,
