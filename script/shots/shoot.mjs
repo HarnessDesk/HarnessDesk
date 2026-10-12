@@ -2053,7 +2053,7 @@ rules:
     await waitForSnapshot(() => cdp.eval(`!document.querySelector('[role="tooltip"]')`), Boolean)
     // Hover-only actions have no box until their row is entered.
     const rowPoint = await cdp.json(`(() => {
-      const node = document.querySelector(${q(selector)})?.closest('[data-slot="sidebar-menu-item"]')
+      const node = document.querySelector(${q(selector)})?.closest('[data-left-row]')
       if (!node) throw new Error('missing hover row')
       const rect = node.getBoundingClientRect()
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
@@ -2070,10 +2070,10 @@ rules:
     let previousGeometry
     await waitForSnapshot(() => cdp.json(`(() => {
       const target = document.querySelector(${q(selector)})
-      const row = target?.closest('[data-slot="sidebar-menu-item"]')
+      const row = target?.closest('[data-left-row]')
       if (!target || !row) throw new Error('missing hover target')
-      const actions = [...row.querySelectorAll(':scope > [data-slot="sidebar-menu-action"], :scope > div > [data-slot="sidebar-menu-action"]')]
-      const marks = [...row.querySelectorAll(':scope > [data-slot="sidebar-menu-badge"], :scope > div > [data-slot="sidebar-menu-badge"]')]
+      const actions = [...row.querySelectorAll('[data-slot="sidebar-menu-action"]')]
+      const marks = [...row.querySelectorAll('[data-left-mark]')]
       const moving = document.getAnimations().some(animation =>
         animation.playState === 'running' && animation.effect?.getComputedTiming().endTime !== Infinity)
       return {
@@ -2086,12 +2086,12 @@ rules:
       return settled
     })
   }
-  const workspaceHoverAction = '[data-slot="sidebar-menu-item"]:has(> [data-slot="sidebar-menu-button"][aria-expanded]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]'
+  const workspaceHoverAction = '[data-left-row][data-left-project] [data-slot="sidebar-menu-action"][aria-label^="New session in "]'
   SCENES['workspace-hover'] = { leaveOverlay: true, hover: workspaceHoverAction, run: async () => {
     await stageSidebarMarks()
     await hover(workspaceHoverAction)
   } }
-  const sessionHoverAction = '[data-region="session-row"] [data-slot="sidebar-menu-item"]:has(> [data-slot="sidebar-menu-badge"][aria-label^="Worktree "]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]'
+  const sessionHoverAction = '[data-region="session-row"] [data-left-row]:has([data-left-mark][aria-label^="Worktree "]) [data-slot="sidebar-menu-action"][aria-haspopup="menu"]'
   SCENES['session-hover'] = { leaveOverlay: true, hover: sessionHoverAction, run: async () => {
     await stageSidebarMarks()
     await hover(sessionHoverAction)
