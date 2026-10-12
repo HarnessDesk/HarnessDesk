@@ -1,7 +1,7 @@
 import { forwardRef, type ReactNode, type HTMLAttributes, type CSSProperties } from 'react'
 import { WorkbenchCanvas, WorkbenchRail, DockPanel } from './DockPanel'
 import styles from './FixedShell.module.css'
-import { FRAME } from '../frame'
+import { FRAME, frameReadingFloor } from '../frame'
 
 export interface FixedShellProps extends Omit<HTMLAttributes<HTMLDivElement>, 'children'> {
   readonly viewportWidth: number
@@ -20,7 +20,7 @@ export interface FixedShellProps extends Omit<HTMLAttributes<HTMLDivElement>, 'c
 /** Five stable regions: folding and closing affect geometry, never body identity. */
 export const FixedShell = forwardRef<HTMLDivElement, FixedShellProps>(({ viewportWidth, left, top, main, right, bottom,
   leftFloating, panelFloating, leftOpen, rightOpen, bottomOpen, children, className, style, ...props }, ref) => <WorkbenchCanvas {...props} ref={ref}
-    style={{ '--frame-window-width': `${viewportWidth}px`, '--frame-main-min': `${FRAME.main.min}px`, '--frame-right-max': `${FRAME.rightPanel.max}px`, ...style } as CSSProperties}
+    style={{ '--frame-window-width': `${viewportWidth}px`, '--frame-main-min': `${frameReadingFloor(viewportWidth)}px`, '--frame-right-max': `${FRAME.rightPanel.max}px`, ...style } as CSSProperties}
     data-slot="fixed-shell" data-left-floats={leftFloating} data-panel-floats={panelFloating}
     data-left-open={leftOpen} data-right-open={rightOpen} data-bottom-open={bottomOpen} className={`${styles.shell} ${className ?? ''}`}>
   {children}

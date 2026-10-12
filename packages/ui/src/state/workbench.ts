@@ -1,5 +1,5 @@
 import { destinationOf, readDestinationHistory, type DestinationHistory } from './destinations'
-import { FRAME } from '../design/frame'
+import { FRAME, frameReadingFloor } from '../design/frame'
 import { supportsFixedTool, toolOf, chooseTool, readToolIntents, type ToolIntent } from './frame-tools'
 import type { UiArea } from '@harnessdesk/protocol'
 
@@ -1041,7 +1041,7 @@ export const rightPanelOverlays = (workbench: Workbench, windowWidth: number): b
 /** Requested preferences survive viewport changes; only drawing is clamped. */
 export const effectiveRightWidth = (workbench: Workbench, windowWidth: number, standingSidebar: number): number => {
   if (!rightPanelDrawn(workbench)) return 0
-  const max = Math.max(0, windowWidth - standingSidebar - FRAME.main.min - 2 * SEAM)
+  const max = Math.max(0, windowWidth - standingSidebar - frameReadingFloor(windowWidth, SEAM) - 2 * SEAM)
   return Math.max(0, Math.min(workbench.right.size, FRAME.rightPanel.max, max))
 }
 export const effectiveBottomHeight = (workbench: Workbench, windowHeight: number): number =>

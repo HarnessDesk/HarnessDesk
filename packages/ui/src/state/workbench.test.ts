@@ -509,6 +509,11 @@ describe('protecting the reading column', () => {
     expect(work.right.size).toBe(640)
     expect(effectiveRightWidth(work, 1440, 256)).toBe(640)
   })
+  test.each([480, 360])('an open tool remains drawable at %i when the viewport cannot fit the reading floor', width => {
+    const work = right(640)
+    expect(effectiveRightWidth(work, width, 0)).toBe(width - FRAME.page.canvasGutter)
+    expect(work.right.size).toBe(640)
+  })
   test('hidden caches consume no room and widening restores preferences', () => {
     const work = right(640), subject = fixedSubject(work.main)!
     const hidden = { ...work, frameTools: { [subject]: { tool: 'changes' as const, mode: 'changes' as const, open: false } } }
