@@ -398,7 +398,6 @@ export const S17_ICON_POLICY: Readonly<Record<string, 'all' | 'none'>> = {
   'popup-disabled-rows': 'all',
   'popup-select-disabled': 'none',
   'popup-menu-none': 'none',
-  'popup-disabled-rows': 'all',
   'popup-composer-add': 'all',
   'popup-conversation-more': 'all',
   'popup-wide-menu': 'none',
