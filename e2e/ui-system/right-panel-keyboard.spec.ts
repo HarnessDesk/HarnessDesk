@@ -54,7 +54,7 @@ test('terminal: Escape then Tab moves focus from xterm to the panel controls', a
   await page.goto('/narrow-overlay.html?view=terminal')
   const terminal = page.locator('.xterm textarea').first()
   await expect(terminal).toBeVisible()
-  const hint = page.locator('[data-slot="tool-pane-bar"]')
+  const hint = page.locator('[data-terminal-shell-tabs]')
   await expect(hint).toHaveAttribute('title', /Escape.*Tab.*1\.5 seconds/i)
   const describedBy = await terminal.getAttribute('aria-describedby')
   expect(describedBy).toBeTruthy()

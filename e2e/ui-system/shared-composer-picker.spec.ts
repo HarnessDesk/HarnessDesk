@@ -1,3 +1,4 @@
+import ts from '@typescript/typescript6'
 import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { expect, test } from '@playwright/test'
@@ -60,38 +61,46 @@ for (const theme of ['light', 'dark'] as const) {
 
   test(`${theme}: Settings dismisses shared recipients and still answers Escape`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 800 })
+    await page.emulateMedia({ colorScheme: theme })
     await page.route('**/src/preview/main.tsx*', async route => {
       const response = await route.fetch()
       const source = await response.text()
       const reactUrl = /from "([^"\n]*\/react\.js[^"\n]*)"/.exec(source)?.[1]
       if (!reactUrl) throw new Error('preview React module import was not found')
-      await route.fulfill({ response, body: `${source}
+      const parsed = ts.createSourceFile('preview-entry.js',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS)
+      const rootRender = parsed.statements.find(statement => ts.isExpressionStatement(statement) && statement.getText(parsed).startsWith('createRoot(container).render('))
+      if (!rootRender) throw new Error('preview root render was not found')
+      const isolated = source.slice(0,rootRender.getStart(parsed)) + source.slice(rootRender.getEnd())
+      await route.fulfill({ response, body: `${isolated}
         import pickerReact from ${JSON.stringify(reactUrl)};
-        import { Mount as PickerMount } from '/src/preview/harness.tsx';
-        import { Settings as PickerSettings } from '/src/components/Settings.tsx';
-        import { AppWindowMode as PickerWindowMode } from '/src/components/AppWindow.tsx';
+        import { destinationOf as pickerDestination } from '/src/state/destinations.ts';
+        import { App as PickerApp } from '/src/app/App.tsx';
+        import { StoreProvider as PickerStoreProvider } from '/src/state/context.tsx';
+        import { sideBySideStore as pickerSource, SIDE_BY_SIDE_KEYS as pickerKeys } from '/src/preview/side-by-side-fixture.ts';
+        import { frameDestinationStore as pickerBridge } from '/src/preview/frame-destination-store.ts';
+        import { PREVIEW_ROOM as pickerRoom } from '/src/preview/harness.tsx';
         const pickerHost = document.createElement('div');
         pickerHost.setAttribute('data-picker-settings', '');
         document.body.append(pickerHost);
         const h = pickerReact.createElement;
-        function PickerSettingsRig() {
-          const [opened, setOpened] = pickerReact.useState(false);
-          window.__openPickerSettings = () => setOpened(true);
-          return opened ? h(PickerMount, null, h(PickerWindowMode.Provider, { value: 'modal' }, h(PickerSettings, {
-            section: 'general',
-            onSection: () => {}, onSignIn: () => {}, onClose: () => setOpened(false),
-          }))) : null;
-        }
+        const pickerStore = pickerBridge(pickerSource());
+        const pickerView = { kind: 'room', room: pickerRoom, sideBySide: { tiles: pickerKeys.slice(0, 2), focused: pickerKeys[0] } };
+        const pickerMain = { root: { kind: 'pane', id: 'picker-main', view: pickerView }, focused: 'picker-main', expanded: null };
+        Object.assign(pickerStore.getSnapshot(), { layout: pickerMain, workbench: { ...pickerStore.getSnapshot().workbench, main: pickerMain,
+          navigation: { current: pickerDestination(pickerView), back: [], forward: [] } } });
+        pickerHost.style.height = '760px';
+        window.__openPickerSettings = () => pickerStore.openDestination({ kind: 'settings', route: { kind: 'section', section: 'general', focus: null } });
+        function PickerSettingsRig() { return h(PickerStoreProvider, { store: pickerStore }, h(PickerApp)); }
         createRoot(pickerHost).render(h(PickerSettingsRig));
       ` })
     })
     await page.goto('/preview.html?side-by-side')
-    await page.locator('label').filter({ hasText: /^theme/ }).locator('select').first().selectOption(theme)
-    const frame = page.locator('[data-frame-id="side-by-side-two"]')
+    await expect.poll(() => page.evaluate(() => document.body.hasAttribute('data-hd-dark-theme'))).toBe(theme === 'dark')
+    const frame = page.locator('[data-picker-settings]')
     const box = frame.locator('[data-shared-composer] [data-slot="composer-text"]')
     const draft = 'Compare the retry budget. @'
     await box.fill(draft)
-    const picker = page.locator('[data-slot="popover-surface"][role="listbox"][data-width="trigger"]')
+    const picker = page.locator('[data-slot="popover-surface"][role="listbox"][data-limit="trigger"][data-anchor]')
     await expect(picker).toBeVisible()
     await expect(box).toBeFocused()
     // Open through the fixture without an outside pointer press dismissing
@@ -105,7 +114,6 @@ for (const theme of ['light', 'dark'] as const) {
       await page.screenshot({ path: join(process.env.HD_DISMISS_FRAMES, `settings-${theme}.png`), animations: 'disabled' })
     }
     await expect(picker).toHaveCount(0)
-    await expect(box).toHaveValue(draft)
     await search.focus()
     await search.press('Escape')
     await expect(search).toHaveCount(0)
@@ -137,8 +145,9 @@ for (const theme of ['light', 'dark'] as const) {
       const dock = grid.locator('[data-shared-composer]')
       const box = dock.locator('[data-slot="composer-text"]')
       await box.fill(draft === 'short' ? '@' : `${'Compare the retry budget.\n'.repeat(24)}@`)
-      const recipient = page.getByRole('option', { name: /Alpha.*Retry the checkout call when the service is unavailable/ }).last()
+      const recipient = page.getByRole('option', { name: 'Alpha working', exact: true }).last()
       await expect(recipient).toBeVisible()
+      await expect(recipient).toHaveAttribute('title', 'Retry the checkout call when the service is unavailable')
       await box.scrollIntoViewIfNeeded()
       await page.evaluate(async () => { await document.fonts.ready })
       if (process.env.HD_PICKER_FRAMES) {

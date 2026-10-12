@@ -48,7 +48,7 @@ const runFact = (details: Locator, label: string): Locator => details.locator('[
 const expectAt = async (frame: Locator, expected: string): Promise<void> => {
   const value = runFact(await teamDetails(frame), 'At').locator('[data-slot="middle-truncate"]')
   await expect(value.locator(':scope > .sr-only')).toHaveText(expected)
-  expect((await value.locator('[data-part]').allTextContents()).join('')).toBe(expected)
+  expect((await value.locator('[data-part]').allTextContents()).join('').replace(/\u00a0/g, ' ')).toBe(expected)
 }
 
 test('a front-door start pins its revision in Details, names a diff or working tree by its label alone, and a person’s own stop shows as its live line', async ({ page }) => {

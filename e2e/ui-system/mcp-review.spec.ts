@@ -81,7 +81,7 @@ for (const theme of ['light', 'dark'] as const) {
 
         const geometry = await dialog.evaluate(node => {
           const box = node.getBoundingClientRect()
-          const body = node.querySelector<HTMLElement>('[data-slot="confirm-body"]')!
+          const body = node.querySelector<HTMLElement>('[data-slot="modal-dialog-body"]')!
           const code = node.querySelector('pre')!
           const style = getComputedStyle(code)
           return {
@@ -101,7 +101,7 @@ for (const theme of ['light', 'dark'] as const) {
         // The final non-whitespace character must be reachable by scrolling
         // only the body. Inspect its actual glyph rectangle, not just textContent.
         const end = await dialog.evaluate(node => {
-          const body = node.querySelector<HTMLElement>('[data-slot="confirm-body"]')!
+          const body = node.querySelector<HTMLElement>('[data-slot="modal-dialog-body"]')!
           const code = node.querySelector('pre')!
           body.scrollTop = body.scrollHeight
           const text = code.firstChild!
