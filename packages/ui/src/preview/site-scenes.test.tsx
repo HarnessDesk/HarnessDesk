@@ -144,7 +144,8 @@ it('changes the chart, breakdown, range, account detail and activity through rea
 it('omits the cost footer and every unscanned year hatch', async () => {
   await act(async () => root.render(<SiteScene name="dashboard" />))
   const cost = host.querySelector('section[aria-label="What it cost"]')!
-  expect(cost.textContent).not.toContain('days scanned')
+  expect(cost.querySelector('[data-slot="chart-foot"]')).toBeNull()
+  expect(cost.querySelector('[data-slot="chart-hint"]')?.textContent).toBe('30 of 30 days scanned')
   expect(cost.textContent).not.toContain('Rescan')
   const year = host.querySelector('section[aria-label="When it ran"]')!
   expect(year.querySelector('[data-state="not-scanned"]')).toBeNull()
