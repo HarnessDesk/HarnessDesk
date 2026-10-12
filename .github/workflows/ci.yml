@@ -43,6 +43,7 @@ jobs:
       matrix: ${{ steps.paths.outputs.matrix }}
       shard_count: ${{ steps.paths.outputs.shard_count }}
       shards: ${{ steps.paths.outputs.shards }}
+      record: ${{ steps.paths.outputs.record }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -50,10 +51,21 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+      # What each spec ran on the last full run of main (script/ui-impact.mjs). Caches made on
+      # main are readable from a pull request; the newest one is the nearest to its base.
+      # Without one, or when it cannot speak for a file, a pull request runs every spec.
+      - name: Restore the impact map of main
+        if: github.event_name == 'pull_request'
+        uses: actions/cache/restore@v6
+        with:
+          path: ui-impact-map.json
+          key: ui-impact-map-none
+          restore-keys: ui-impact-map-
       - name: Select UI integration jobs
         id: paths
         env:
           EVENT_NAME: ${{ github.event_name }}
+          UI_IMPACT_MAP: ui-impact-map.json
           # Only a run started by hand names its matrix; any other event leaves it to the selection.
           UI_SYSTEM_MATRIX_REQUEST: ${{ inputs.matrix }}
         run: |
@@ -221,8 +233,32 @@ jobs:
       - name: UI typecheck
         run: pnpm --filter @harnessdesk/ui run typecheck
 
+      # A pull request runs the tests that depend on the UI source it changed (vitest related),
+      # and every test when it changed anything a test may read from elsewhere. Main runs them all.
+      - name: Select UI unit tests
+        id: unit
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          list="$RUNNER_TEMP/ci-unit-paths"
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            if ! git diff --no-renames --name-only -z HEAD^1 HEAD > "$list"; then
+              rm -f "$list"
+            fi
+          fi
+          node script/ci-unit-tests.mjs "$list" > "$RUNNER_TEMP/ci-unit-plan"
+          cat "$RUNNER_TEMP/ci-unit-plan" >> "$GITHUB_OUTPUT"
+          sed -n 's/^summary=//p' "$RUNNER_TEMP/ci-unit-plan" >> "$GITHUB_STEP_SUMMARY"
+
       - name: UI tests
+        if: steps.unit.outputs.mode == 'all'
         run: pnpm --filter @harnessdesk/ui run test
+
+      - name: UI tests that depend on the change
+        if: steps.unit.outputs.mode == 'related'
+        env:
+          UNIT_FILES: ${{ steps.unit.outputs.files }}
+        run: pnpm --filter @harnessdesk/ui exec vitest related --run $UNIT_FILES
 
       - name: Desktop tests
         run: pnpm --filter @harnessdesk/desktop run test
@@ -429,11 +465,28 @@ jobs:
       - run: pnpm run build:node
       - run: pnpm exec playwright install --with-deps chromium
       - name: Run this shard's specs
+        env:
+          UI_IMPACT_SHARD: ${{ matrix.shard }}
+          # A run of the whole suite also records which UI modules each spec ran, for the
+          # pull requests that come after it (script/ui-impact.mjs); a pull request that
+          # runs part of it records nothing.
+          RECORD: ${{ needs.changes.outputs.record }}
         run: |
           mapfile -t specs < <(node script/ci-browser-shards.mjs ${{ matrix.shard }}/${{ needs.changes.outputs.shard_count }})
           # An empty deal must never accidentally run the entire suite.
           test "${#specs[@]}" -gt 0
-          pnpm test:ui-system "${specs[@]}"
+          if [ "$RECORD" = "true" ]; then
+            UI_IMPACT_DIR="$PWD/output/ui-impact" pnpm test:ui-system --tsconfig script/ui-impact/tsconfig.json "${specs[@]}"
+          else
+            pnpm test:ui-system "${specs[@]}"
+          fi
+
+      - uses: actions/upload-artifact@v7
+        if: success() && needs.changes.outputs.record == 'true'
+        with:
+          name: ui-impact-${{ matrix.shard }}
+          path: output/ui-impact/
+          retention-days: 3
 
       # Keep diagnostics briefly after failures or cancellation (including partial runs).
       # Successful shards need no stored report.
@@ -443,6 +496,40 @@ jobs:
           name: ui-system-browser-report-${{ matrix.shard }}
           path: output/playwright/ui-system/
           retention-days: 3
+
+  # The records of a full run, folded into one map and kept for the pull requests
+  # that come next. Only a clean run makes one, and only main keeps it.
+  ui-impact-map:
+    name: UI impact map
+    needs: [changes, ui-system-browser]
+    if: needs.changes.outputs.record == 'true' && needs.ui-system-browser.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: ui-impact-*
+          path: impact-records
+          merge-multiple: true
+      - name: Merge the records into a map
+        id: map
+        continue-on-error: true
+        run: node script/ui-impact.mjs merge impact-records --commit "$GITHUB_SHA" --out ui-impact-map.json
+      - uses: actions/upload-artifact@v7
+        if: steps.map.outcome == 'success'
+        with:
+          name: ui-impact-map
+          path: ui-impact-map.json
+          retention-days: 14
+      - uses: actions/cache/save@v6
+        if: steps.map.outcome == 'success' && github.ref == 'refs/heads/main'
+        with:
+          path: ui-impact-map.json
+          key: ui-impact-map-${{ github.sha }}
 
   ui-system-server:
     needs: changes
