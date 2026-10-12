@@ -45,7 +45,13 @@ for (const theme of WALL_THEMES) for (const width of [1440, 1100, 720]) {
       await expectMenuGeometry(surface)
       await expect(surface.locator('[data-slot="usage-meter-row"]')).not.toHaveCount(0)
       const columns = await surface.locator('[data-slot="usage-meter-row"]').evaluateAll(rows => rows.map(row => ({ reading: row.querySelector('[data-meter-column="reading"]')!.getBoundingClientRect().left, reset: row.querySelector('[data-meter-column="reset"]')?.getBoundingClientRect().left ?? null })))
-      if (plan === 'rest') await expect(surface.locator('[data-menu-hint]').filter({ hasText: 'No usage reported' })).toHaveCount(1)
+      if (plan === 'rest') {
+        const note = surface.locator('[data-menu-note]').filter({ hasText: 'No usage reported' })
+        await expect(note).toHaveCount(1)
+        await expect(note).toBeVisible()
+        await expect(surface.locator('[data-menu-hint]').filter({ hasText: 'No usage reported' })).toHaveCount(0)
+        expect((await surface.innerText()).match(/No usage reported/g)).toHaveLength(1)
+      }
       const resets = columns.map(row => row.reset).filter(x => x !== null)
       expect(new Set(resets).size).toBeLessThanOrEqual(1)
       const details = surface.locator('[data-usage-details]')
