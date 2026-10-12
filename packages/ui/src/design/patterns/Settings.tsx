@@ -862,7 +862,7 @@ export const NavigationGroupHeader = ({
    * `--hd-nav-inset`, the same number `Button size="navigation"` uses.
    * `'row'` answers to the frame's fixed icon edge inside an inset column.
    */
-  inset?: 'bar' | 'nav' | 'row'
+  inset?: 'bar' | 'nav' | 'row' | 'action'
   labelInk?: 'secondary' | 'muted'
   children?: ReactNode
 }) => (

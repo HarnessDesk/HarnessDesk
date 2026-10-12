@@ -154,8 +154,8 @@ export const LeftColumnProjectsHead = ({ value, onChange, focused, onFocusChange
   readonly onFocusChange: (focused: boolean) => void; readonly options: ReactNode; readonly onBrowseFolders: () => void
 }) => {
   const filtering = focused || value.length > 0
-  return <NavigationGroupHeader data-left-head data-left-projects-head inset="row" filtering={filtering}
-    data-filtered={value ? '' : undefined} className={`${styles.head} ${styles.projectsHead} ${styles.inset}`}
+  return <NavigationGroupHeader data-left-head data-left-projects-head inset="action" filtering={filtering}
+    data-filtered={value ? '' : undefined} className={`${styles.head} ${styles.projectsHead}`}
     label={<span className={styles.projectsLabel} data-left-group-text>Projects</span>}>
     {value && <span className={styles.filtered}><Chip tone="neutral" label="Filtered" />
       <Button variant="ghost" size="icon-xs" aria-label="Clear list filter" title="Clear list filter"
@@ -169,7 +169,7 @@ export const LeftColumnProjectsHead = ({ value, onChange, focused, onFocusChange
         } }} />
     </div>
     {options}
-    <Button variant="muted" size="icon-xs" aria-label="Open a project folder" title="Open a project folder"
+    <Button variant="muted" size="icon-xs" edge="end" aria-label="Open a project folder" title="Open a project folder"
       onClick={onBrowseFolders}><PlusIcon size={16} /></Button>
   </NavigationGroupHeader>
 }
