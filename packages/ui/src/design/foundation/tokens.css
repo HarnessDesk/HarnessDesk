@@ -1591,7 +1591,7 @@ body[data-hd-interface='studio'] [data-hd-density='comfortable'] {
    These wide tracks name the selected values themselves. The earlier base
    tracks remain the compact measure; a visible short choice gets enough room
    for its icon, word and chevron before the toolbar starts folding. */
-:root {
+body {
   --hd-composer-track-permissions-wide: 132px;
   --hd-composer-track-mode-wide: 96px;
   --hd-composer-track-context-wide: 52px;
@@ -1602,7 +1602,7 @@ body[data-hd-interface='studio'] [data-hd-density='comfortable'] {
 /* --- composer selected-value fit ------------------------------------------
    Permission and Mode keep their selected values whole before folding. The
    Usage control reserves only the ring's width. */
-:root {
+body {
   --hd-composer-track-permissions-wide: 132px;
   --hd-composer-track-mode-wide: 68px;
   --hd-composer-track-context-wide: var(--hd-target-min);

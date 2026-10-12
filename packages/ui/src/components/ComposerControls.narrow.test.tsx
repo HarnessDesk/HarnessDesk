@@ -360,3 +360,12 @@ it('centres tight controls without letting their glyphs shrink', () => {
     expect(trigger.className).toContain('[&_svg]:shrink-0')
   }
 })
+
+it('declares selected-value aliases where their target token is defined', () => {
+  const blocks = [...foundationTokens.matchAll(/([^{}]+)\{([^{}]+)\}/g)]
+  for (const name of ['--hd-composer-track-context-wide', '--hd-composer-track-context-folded', '--hd-composer-track-context-tight']) {
+    const block = blocks.filter(([, , content]) => content!.includes(name + ':')).at(-1)!
+    const selector = block[1]!.replace(/\/\*[\s\S]*?\*\//g, '').trim()
+    expect(selector).toBe('body')
+  }
+})
