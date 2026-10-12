@@ -1,8 +1,27 @@
 import { installTopBarTestLayout } from '../test/top-bar-layout'
-import { act } from 'react'
+import { act, useState } from 'react'
+import type { PageDestination } from '../state/destinations'
+import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
+import { DestinationPageScope } from '../panels/destination-page'
+import { LibrarySection } from '../components/Library'
+import { PluginsSection } from '../components/PluginsSection'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ReleaseStills } from './release-stills'
+
+// This check owns the clip store and real page controls. Retained work, the
+// sidebar and the other App destinations are covered by release-stills.test.
+vi.mock('./page-preview', () => ({ CurrentPagePreview: ({ page }: { page: PageDestination }) => {
+  const [section, setSection] = useState<'installed' | 'capabilities'>('capabilities')
+  const [id, setId] = useState<string | null>(null)
+  return <TopBarProvider><TopBarOutlet owner="clip" fallback={{ place: '', more: () => null }} />
+    <DestinationPageScope owner="clip" active>
+      {page.kind === 'library'
+        ? <LibrarySection section="skill" onSection={() => {}} importIntent={0} />
+        : <PluginsSection section={section} id={id} onSection={setSection} onPlugin={setId} />}
+    </DestinationPageScope>
+  </TopBarProvider>
+} }))
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
