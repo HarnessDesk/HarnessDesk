@@ -356,7 +356,7 @@ for (const theme of WALL_THEMES) {
         const column = page.locator('[data-left-column]:visible')
         await expect(column).toHaveCount(1)
         const region = destination === 'settings-navigation' ? page.locator('[data-app-window-left]:visible') : column
-        expect(Math.abs((await region.boundingBox())!.width - width)).toBeLessThanOrEqual(1)
+        await expect.poll(async () => Math.abs((await region.boundingBox())!.width - width)).toBeLessThanOrEqual(1)
         const history = column.locator('[data-left-history]')
         if (width < 240) await expect(history).toBeHidden()
         else await expect(history).toBeVisible()
