@@ -4,16 +4,11 @@ import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { readFileSync } from 'node:fs'
-
 import { MAX_SHARDS, SHARD_SECONDS, plan, recordedSeconds, secondsFromLogs, selectedSpecs, shardCount, specFiles } from './ci-browser-shards.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const CLI = fileURLToPath(new URL('./ci-browser-shards.mjs', import.meta.url))
 const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
-const ciShards = workflow.match(/ui-system-browser:[\s\S]*?shard:\s*\[([^\]]+)\]/)?.[1].split(',').map(value => Number(value.trim()))
-assert.ok(ciShards?.length, 'the browser matrix declares its shards')
-assert.deepEqual(ciShards, Array.from({ length: ciShards.length }, (_, index) => index + 1), 'the browser matrix is complete')
 
 test('recording either browser baseline stays serial even on CI with a worker override', () => {
   for (const flag of ['UPDATE_METRICS', 'UPDATE_ALIGNMENT']) {
@@ -38,8 +33,16 @@ test('every spec runs on exactly one shard, however many shards there are', () =
   }
 })
 
+test('the browser matrix is the planner\'s shards, numbered from one, and the job names the count it was dealt', () => {
+  const job = workflow.match(/ui-system-browser:[\s\S]*?(?=\n  [\w-]+:\n)/)?.[0] ?? ''
+  assert.match(job, /shard:\s*\$\{\{\s*fromJSON\(needs\.changes\.outputs\.shards\)\s*\}\}/, 'the matrix is the list the planner printed')
+  assert.match(job, /ci-browser-shards\.mjs \$\{\{ matrix\.shard \}\}\/\$\{\{ needs\.changes\.outputs\.shard_count \}\}/, 'each shard deals against the same count')
+})
+
 test('the shards of the recorded suite finish together', () => {
-  const loads = plan(specFiles(root), recordedSeconds(root), ciShards.length).map(shard => shard.load)
+  const specs = specFiles(root)
+  const seconds = recordedSeconds(root)
+  const loads = plan(specs, seconds, shardCount(specs, seconds)).map(shard => shard.load)
   const mean = loads.reduce((a, b) => a + b, 0) / loads.length
   assert.ok(Math.max(...loads) - Math.min(...loads) <= mean * 0.1, `loads ${loads.join(', ')}`)
 })
