@@ -1640,7 +1640,6 @@ test('a named exemption that matches nothing is reported, so the list cannot out
 test('single-area exemptions (data geometry, native boundaries) name only the live usage exports and go stale with their contract', () => {
   const expected = new Map([
     ['design/ui/timeline.tsx', ['Timeline', 'TimelineItem']],
-    ['design/ui/timeline-cards.tsx', ['TimelineCards', 'TimelineCard', 'TimelineCardRow', 'TimelineCardWords', 'TimelineDocument']],
     ['design/ui/flow-step.tsx', ['FlowStepSurface', 'FlowDoingLine']],
     ['design/ui/chart.tsx', ['ChartCard', 'ChartFoot', 'ChartFrame', 'ChartTitle', 'SegmentMeter', 'BurnDown', 'ChartAxis', 'ChartHead', 'ChartHint', 'ChartTools', 'DayColumns', 'PaceBadge', 'ChartTip', 'ChartTipRow']],
     ['design/ui/heat-grid.tsx', ['HeatGrid', 'HeatLegend']],
@@ -1648,7 +1647,7 @@ test('single-area exemptions (data geometry, native boundaries) name only the li
     ['design/ui/tone.ts', ['tintFor', 'tintsFor']],
     ['design/adapters/terminal.ts', ['terminalAppearance']],
   ])
-  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 29)
+  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 24)
   assert.deepEqual(new Map(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.map(({ module, exports: names }) => [module, names])), expected)
   for (const entry of SINGLE_AREA_PRIMITIVE_EXEMPTIONS) {
     if (entry.kind === 'data-geometry') {
@@ -4505,12 +4504,17 @@ test('timeline geometry exemption is confined to its two data-view exports and c
 test('round-card geometry exemption names only its recorded-data slots in the room', () => {
   const module = path.join(repoRoot, 'packages/ui/src/design/ui/timeline-cards.tsx')
   for (const name of ['TimelineCards', 'TimelineCard', 'TimelineCardRow', 'TimelineCardWords', 'TimelineDocument']) {
-    assert.equal(isSingleAreaPrimitiveExempt(module, name, 'room'), true)
+    assert.equal(isSingleAreaPrimitiveExempt(module, name, 'room'), false)
     assert.equal(isSingleAreaPrimitiveExempt(module, name, 'settings'), false)
     assert.equal(isSingleAreaPrimitiveExempt(path.join(repoRoot, 'packages/ui/src/design/ui/card.tsx'), name, 'room'), false)
   }
   assert.equal(isSingleAreaPrimitiveExempt(module, 'TimelineCardAction', 'room'), false)
-  const entry = SINGLE_AREA_PRIMITIVE_EXEMPTIONS.find(one => one.module === 'design/ui/timeline-cards.tsx')
+  // F21: cards now render both the Run page and Details; a room-only exemption is stale.
+  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.find(one => one.module === 'design/ui/timeline-cards.tsx'), undefined)
+  const entry = {
+    module: 'design/ui/timeline-cards.tsx', area: 'room', kind: 'data-geometry',
+    exports: ['TimelineCards', 'TimelineCard', 'TimelineCardRow', 'TimelineCardWords', 'TimelineDocument'],
+  }
   assert.equal(staleSingleAreaPrimitiveExemptions([entry], () => 'settings').length, 5)
   assert.equal(staleSingleAreaPrimitiveExemptions([entry], () => undefined).length, 5)
 })
