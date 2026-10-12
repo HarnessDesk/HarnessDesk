@@ -13,7 +13,7 @@ const UPDATE = process.env.UPDATE_ALIGNMENT === '1'
 const CHECKS: Check[] = ['lead-off-line', 'trailing-glyph-off-column', 'header-off-body']
 const staged = new Map<string, string[]>()
 
-for (const theme of ['light', 'dark'] as const) test(`New Team role controls share their labels' line in ${theme}`, async ({ page }) => {
+for (const theme of ['light', 'dark'] as const) test(`New Team role controls centre on their complete copy in ${theme}`, async ({ page }) => {
   await page.emulateMedia({ colorScheme: theme })
   for (const shape of ['comparison', 'fix-and-review']) {
     await page.goto(`/design.html?view=team-start`)
@@ -23,7 +23,9 @@ for (const theme of ['light', 'dark'] as const) test(`New Team role controls sha
     const rows = dialog.locator('section[aria-label="Who does what"] [data-slot="row"]')
     await expect(rows).toHaveCount(shape === 'comparison' ? 3 : 2)
     for (const row of await rows.all()) {
-      const label = (await row.locator('[data-slot="row-title"]').boundingBox())!
+      // Shared Row centres the whole copy block, including an earned refusal
+      // sentence. Measuring only its first line falsely nudges the controls.
+      const label = (await row.locator('[data-slot="row-title"]').locator('..').boundingBox())!
       const control = (await row.locator('[data-slot="row-ctl"]').boundingBox())!
       expect(Math.abs(label.y + label.height / 2 - control.y - control.height / 2)).toBeLessThan(10)
     }

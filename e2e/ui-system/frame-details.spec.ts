@@ -30,14 +30,25 @@ for (const theme of WALL_THEMES) {
         if (state === 'asked') await expect(body).toContainText('Asked, not held')
       }
       const keyWidths = await body.locator('[aria-label="Conversation facts"] dt').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().width))
-      expect(keyWidths).toHaveLength(5)
+      if (state === 'armed') {
+        // A draft has no reported permission ceiling. Its facts must not
+        // invent one merely to match a conversation's row count.
+        await expect(body.locator('[aria-label="Conversation facts"] dt')).toHaveText(['Agent', 'Folder', 'Branch', 'Context'])
+      } else expect(keyWidths).toHaveLength(5)
       for (const width of keyWidths) expect(width).toBe(FRAME.summaryKey.panel)
       await page.evaluate(async () => { await document.fonts.ready })
       await page.screenshot({ path: `output/frame-wall/B3-details-${state}-1440-${theme}.png` })
       await page.setViewportSize({ width: 720, height: 900 })
       // Wait for the preview store's resize frame before reading its geometry.
-      // Task 8 replaces this inherited modal overlay with the fixed float.
-      await expect(page.locator('[data-slot="workbench-main"]')).toHaveAttribute('inert', '')
+      // Task 8 replaced the modal overlay with a nonmodal float. Main
+      // remains available and the panel occupies its reserved clear width.
+      const main = page.locator('[data-slot="workbench-main"]')
+      await expect(main).not.toHaveAttribute('inert')
+      const clear = await main.evaluate(node => {
+        const panel = document.querySelector('[data-slot="work-tools"]')!.getBoundingClientRect()
+        return node.getBoundingClientRect().right <= panel.left + 1 && document.documentElement.scrollWidth <= innerWidth
+      })
+      expect(clear).toBe(true)
       await expect(body).toBeVisible()
       await page.screenshot({ path: `output/frame-wall/B3-details-${state}-720-${theme}.png` })
       if (state === 'active') {

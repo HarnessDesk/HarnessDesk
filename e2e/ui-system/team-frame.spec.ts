@@ -165,7 +165,7 @@ for (const theme of ['light','dark'] as const) {
 
   }
  })
- test(`Team frame: narrow members preserve faces and wrap work sentences in ${theme}`, async ({page}) => {
+ test(`Team frame: narrow members preserve faces and wrap work sentences in ${theme}`, async ({page}, testInfo) => {
   await page.setViewportSize({width:720,height:760})
   await page.emulateMedia({colorScheme:theme as 'light'|'dark'})
   await page.goto(`/preview.html?team-frame=running&theme=${theme}`)
@@ -174,6 +174,7 @@ for (const theme of ['light','dark'] as const) {
   for(const face of await members.locator('[data-slot="icon-tile"][data-shape="face"]').all()) expect((await face.boundingBox())!.width).toBeGreaterThanOrEqual(24)
   const subtitles=members.locator('[data-slot="list-row-subtitle"]')
   await expect(subtitles.first()).toBeVisible()
+  await testInfo.attach('Seat subtitle geometry', { body: JSON.stringify(await subtitles.evaluateAll(nodes => nodes.map(node => ({ text: node.textContent, wrap: node.hasAttribute('data-wrap-subtitle'), style: getComputedStyle(node).whiteSpace, visible: node.getClientRects().length > 0, width: node.getBoundingClientRect().width })))), contentType: 'application/json' })
   for(const subtitle of await subtitles.all()) {
    const style=await subtitle.evaluate(node=>{
     const computed=getComputedStyle(node)
@@ -229,18 +230,26 @@ for (const theme of ['light', 'dark'] as const) {
 }
 
 for(const theme of ['light','dark']) {
- test(`Team Agent work sentences wrap in a narrow content column in ${theme}`,async({page})=>{
+ test(`Team Agent work sentences wrap in a narrow content column in ${theme}`,async({page},testInfo)=>{
   await page.setViewportSize({width:720,height:760})
   await page.emulateMedia({colorScheme:theme as 'light'|'dark'})
+  await page.route('**/src/preview/frames-team-overview.tsx*', async route => {
+   const response = await route.fetch(), source = await response.text()
+   expect(source).toContain('overviewModel(scene)')
+   const sentence = 'Edited the checkout error message and checked the retry budget before sending the review.'
+   const model = `(scene === 'narrow' ? (() => { const model = overviewModel(scene); return { ...model, seats: model.seats.map(row => ({ ...row, doing: ${JSON.stringify(sentence)} })) }; })() : overviewModel(scene))`
+   await route.fulfill({ response, body: source.replace('overviewModel(scene)', model) })
+  })
   await page.goto(`/preview.html?team-overview&theme=${theme}`)
   const narrow=page.locator('#team-overview-narrow')
+  await testInfo.attach('narrow work sentence slots', { body: JSON.stringify(await narrow.locator('[data-slot="team-overview"] [data-slot="list-row-subtitle"]').evaluateAll(nodes => nodes.map(node => ({ text: node.textContent, wrap: node.hasAttribute('data-wrap-subtitle'), whiteSpace: getComputedStyle(node).whiteSpace, overflow: getComputedStyle(node).textOverflow, className: node.className })))), contentType: 'application/json' })
   for(const subtitle of await narrow.locator('[data-slot="team-overview"] [data-slot="list-row-subtitle"]').all()) {
    expect(await subtitle.evaluate(node=>getComputedStyle(node).whiteSpace)).toBe('normal')
    expect(await subtitle.evaluate(node=>getComputedStyle(node).textOverflow)).toBe('clip')
   }
-  const work=narrow.locator('[data-slot="team-overview"] [data-slot="seat-doing"]').first()
+  const work=narrow.locator('[data-slot="team-overview"] [aria-label="Seats"] [data-slot="seat-doing"]').first()
   await expect(work).toBeVisible()
-  await work.evaluate(node=>{node.textContent='Edited the checkout error message and checked the retry budget before sending the review.'})
+  await expect(work).toContainText('Edited the checkout error message and checked the retry budget before sending the review.')
   const geometry=await work.evaluate(node=>{
    const range=document.createRange();range.selectNodeContents(node)
    return {lines:range.getClientRects().length,space:getComputedStyle(node).whiteSpace,overflow:node.scrollWidth>node.clientWidth,width:node.getBoundingClientRect().width}

@@ -45,7 +45,7 @@ test('real Workbench and Panes put each notice in one mounted outlet', async ({ 
     }
   }
 
-  await expectOneNotice(layout(page, 'coverage-notice-narrow-overlay'), 'strip')
+  await expectOneNotice(layout(page, 'coverage-notice-narrow-overlay'), 'composer')
   await expectOneNotice(room, 'strip')
   const pendingRoom = layout(page, 'coverage-notice-room-pending-approval')
   await expectOneNotice(pendingRoom, 'strip')
@@ -54,22 +54,22 @@ test('real Workbench and Panes put each notice in one mounted outlet', async ({ 
   await expect(pendingRoom.locator('[data-slot="workbench-notice-fallback"][data-area="main"] [data-slot="notice-strip"]')).toHaveCount(1)
 
   await expectOneNotice(layout(page, 'coverage-notice-folder-gone'), 'strip')
-  await expectOneNotice(layout(page, 'coverage-notice-zoomed-sidebar'), 'strip')
-  await expectOneNotice(layout(page, 'coverage-notice-zoomed-dock'), 'strip')
+  await expectOneNotice(layout(page, 'coverage-notice-zoomed-sidebar'), 'composer')
+  await expectOneNotice(layout(page, 'coverage-notice-zoomed-dock'), 'composer')
   for (const [id, area] of [
     ['coverage-notice-room-board', 'main'],
     ['coverage-notice-folder-gone', 'main'],
-    ['coverage-notice-zoomed-sidebar', 'sidebar'],
   ] as const) {
     await expect(layout(page, id).locator(`[data-slot="workbench-notice-fallback"][data-area="${area}"] [data-slot="notice-strip"]`)).toHaveCount(1)
   }
-  await expect(layout(page, 'coverage-notice-narrow-overlay').locator('[data-notice-host=""] [data-slot="notice-strip"]')).toHaveCount(1)
-  await expect(layout(page, 'coverage-notice-zoomed-dock').locator('[data-notice-host=""] [data-slot="notice-strip"]')).toHaveCount(1)
+  await expect(layout(page, 'coverage-notice-narrow-overlay').locator('[data-slot="composer-dock"] [data-slot="composer-notice"]')).toHaveCount(1)
+  await expect(layout(page, 'coverage-notice-zoomed-sidebar').locator('[data-slot="composer-dock"] [data-slot="composer-notice"]')).toHaveCount(1)
+  await expect(layout(page, 'coverage-notice-zoomed-dock').locator('[data-slot="composer-dock"] [data-slot="composer-notice"]')).toHaveCount(1)
   await expectOneNotice(layout(page, 'coverage-notice-split-composers'), 'composer')
   await expectOneNotice(layout(page, 'coverage-notice-split-unfocused-composer'), 'composer')
 
   const composerStrip = layout(page, 'coverage-notice-composer-strip')
-  await expect(composerStrip.locator('[data-slot="notice-strip"]').locator('xpath=ancestor::*[@data-slot="composer-notices"]')).toHaveCount(1)
+  await expect(composerStrip.locator('[data-slot="composer-notice"]').locator('xpath=ancestor::*[@data-slot="composer-notices"]')).toHaveCount(1)
   const paneBarStrip = layout(page, 'coverage-notice-pane-bar-strip')
   await expectOneNotice(paneBarStrip, 'strip')
   await expect(paneBarStrip.locator('[data-slot="notice-strip"]').locator('xpath=ancestor::*[@data-pane-id]')).toHaveCount(1)
@@ -92,12 +92,12 @@ test('a narrow room keeps its composer notice visible when widened', async ({ pa
   await expect(frame.locator('[data-topbar="tabs"]')).toContainText('Chat')
   await expect(body).toBeVisible()
   await expect.poll(visibleNoticeCount).toBe(1)
-  await expect(frame.locator('[data-slot="composer-notices"] [data-slot="notice-strip"]')).toBeVisible()
+  await expect(frame.locator('[data-slot="composer-notices"] :is([data-slot="notice-strip"], [data-slot="composer-notice"])')).toBeVisible()
 
   await frame.getByTestId('notice-layout-canvas').evaluate((canvas) => { (canvas as HTMLElement).style.width = '1400px' })
   await expect(body).toBeVisible()
   await expect.poll(visibleNoticeCount).toBe(1)
-  const composerStrip = frame.locator('[data-slot="composer-notices"] [data-slot="notice-strip"]')
+  const composerStrip = frame.locator('[data-slot="composer-notices"] :is([data-slot="notice-strip"], [data-slot="composer-notice"])')
   await expect(composerStrip).toBeVisible()
   await expect(frame.locator('[data-slot="workbench-notice-fallback"][data-area="main"] [data-slot="notice-strip"]')).toHaveCount(0)
 })

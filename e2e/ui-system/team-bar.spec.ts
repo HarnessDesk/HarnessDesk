@@ -56,7 +56,7 @@ for (const theme of ['light', 'dark'] as const) {
   const team=frame.locator('[data-slot="team-room"]')
   const header=teamBar(frame)
   await expect(header.getByRole('tab')).toHaveCount(5)
-  await expect(header.locator('[data-slot="tabs-list"]')).toHaveAttribute('data-variant','line')
+  await expect(header.locator('[data-slot="tabs-list"]')).toHaveAttribute('data-variant','default')
   expect((await header.locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
   const title=header.locator('[data-topbar-title]')
   await expect.poll(async()=>(await title.boundingBox())?.width??0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
@@ -93,7 +93,7 @@ for (const theme of ['light', 'dark'] as const) {
    await expect(listed).toHaveCount(5)
    await expect(listed.filter({hasText:/^Board/})).toContainText('2')
    if(folded)await page.keyboard.press('Escape')
-   expect(await header.evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
+   expect(await header.locator('..').evaluate(el=>el.scrollWidth<=el.clientWidth)).toBe(true)
    const bar=(await header.locator('..').boundingBox())!
    const more=(await header.getByRole('button',{name:'More',exact:true}).boundingBox())!
    expect(bar.x+bar.width-more.x-more.width).toBe(FRAME.bar.pad)

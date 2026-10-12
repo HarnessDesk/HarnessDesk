@@ -244,7 +244,7 @@ type PutAway = { before: Reading, now: Reading, later: Reading }
  * takes focus, and again once the wait it used to have would be over.
  */
 const watchPutAway = (page: Page) => page.evaluate(() => {
-  const column = [...document.querySelectorAll<HTMLElement>('div')].find((node) => /(^|\s)_sidebar_/.test(node.className) && node.style.width)!
+  const column = [...document.querySelectorAll<HTMLElement>('div')].find((node) => /(^|\s)_sidebar_/.test(node.className) && node.closest('[data-frame-region="left"]'))!
   const control = [...column.querySelectorAll<HTMLButtonElement>('button')].find((node) => node.textContent?.trim() === 'New session')!
   const read = (): Reading => {
     control.focus()

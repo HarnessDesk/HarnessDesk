@@ -23,7 +23,7 @@ for (const theme of ['light','dark'] as const) {
   }
   const doing=wide.locator('[data-seat="seat-0"] [data-slot="seat-doing"]')
   await expect(doing).toHaveAttribute('title',/Edit/)
-  expect(await doing.evaluate(e=>e.scrollWidth>e.clientWidth)).toBe(true)
+  expect(await doing.locator('[data-part="head"]').evaluate(e=>e.scrollWidth>e.clientWidth)).toBe(true)
   const quiet=wide.locator('[data-resting]').last()
   const ink = await quiet.evaluate(e => {
     const text=e.querySelector('[data-slot="text"]') ?? e
@@ -61,13 +61,11 @@ for (const theme of ['light','dark'] as const) {
   expect(await rows.count()).toBeGreaterThan(0)
   expect(await rows.evaluateAll(nodes=>nodes.filter(node=>getComputedStyle(node).display==='list-item'))).toEqual([])
   await expect(tree.locator('ul, ol')).toHaveCount(0)
-  const spinner=tree.locator('[data-slot="spinner"]')
-  await expect(spinner).toBeVisible()
-  await expect(spinner.locator('..')).toHaveAccessibleName('Working')
-  await expect(spinner).toHaveAttribute('data-tone','neutral')
-  await expect(spinner).toHaveCSS('animation-name','none')
-  await expect(tree).not.toContainText('Working')
-  await expect(tree.locator('[data-slot="sidebar-menu-state"], [data-slot="chip"]')).toHaveCount(0)
+  const attention = tree.locator('[data-left-mark][aria-label="Needs you"]')
+  await expect(attention).toBeVisible()
+  await expect(attention.locator('[data-slot="dot"]')).toHaveAttribute('data-state','limit')
+  await expect(tree.locator('[data-slot="spinner"]')).toHaveCount(0)
+  await expect(tree.locator('[data-slot="chip"]')).toHaveCount(0)
   const disclosure=tree.getByRole('button',{name:'Show the agents in Retry the checkout call',exact:true})
   await expect(disclosure).toHaveCount(0)
   const team=tree.getByRole('button',{name:'Room Retry the checkout call',exact:true})
@@ -240,7 +238,7 @@ for (const theme of ['light', 'dark'] as const) {
   await page.goto(`/preview.html?team-overview&theme=${theme}`)
   for (const width of [1440, 720]) {
    await page.setViewportSize({ width, height: 1100 })
-   const opener = page.locator('#team-overview-live-running [data-slot="team-overview"]').getByRole('button', { name: /^Open / }).first()
+   const opener = page.locator('#team-overview-live-running [data-slot="team-overview"]').getByRole('button', { name: /^Open / }).filter({ has: page.locator('[data-role="subject"]') }).first()
    await opener.locator('[data-role="subject"]').evaluate(node => { node.textContent = 'A' })
    const box = (await opener.boundingBox())!
    expect(box.width).toBeGreaterThanOrEqual(24)

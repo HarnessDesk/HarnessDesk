@@ -2,8 +2,8 @@ import { expect, test } from '@playwright/test'
 
 const toolWall = process.env.FRAME_TOOL_WALL_DIR ?? 'output/frame-wall/tool-bodies'
 
-/** The shell's quiet facts footer retains the complete state and profile
- * sentence at each supported panel width. Drive state comes from a real
+/** The shell retains an earned driving fact and omits an empty footer
+ * at each supported panel width. Drive state comes from a real
  * host-shaped in-flight tool item in the isolated frame fixture. */
 for (const theme of ['light', 'dark'] as const) for (const state of ['idle', 'driven'] as const) {
   test(`the Browser facts stay whole in ${state} ${theme} at supported panel widths`, async ({ page }) => {
@@ -13,8 +13,8 @@ for (const theme of ['light', 'dark'] as const) for (const state of ['idle', 'dr
     await page.locator('[data-work-tool="browser"]').click()
     const panel = page.locator('[data-slot="work-tools"]')
     const footer = page.locator('[data-slot="tool-footer"]')
-    await expect(footer.getByText(state === 'idle' ? 'Idle' : 'Being driven', { exact: true })).toBeVisible()
-    const sentence = footer.getByText('Framed pages only — the desktop app runs a real browser', { exact: true })
+    if (state === 'driven') await expect(footer.getByText('Being driven', { exact: true })).toBeVisible()
+    else await expect(footer).toHaveCount(0)
     for (const width of [320, 400, 640]) {
       const seam = page.getByRole('separator', { name: 'Resize the right panel' })
       const current = (await panel.boundingBox())!.width
@@ -24,7 +24,8 @@ for (const theme of ['light', 'dark'] as const) for (const state of ['idle', 'dr
       await page.mouse.move(handle.x + handle.width / 2 + current - width, handle.y + handle.height / 2, { steps: 6 })
       await page.mouse.up()
       await expect.poll(async () => (await panel.boundingBox())!.width).toBe(width)
-      await expect(sentence).toBeVisible()
+      if (state === 'driven') {
+      await expect(footer.getByText('Being driven', { exact: true })).toBeVisible()
       const held = await footer.evaluate(element => {
         const box = element.getBoundingClientRect()
         const children = [...element.querySelectorAll('*')].map(child => child.getBoundingClientRect())
@@ -37,6 +38,7 @@ for (const theme of ['light', 'dark'] as const) for (const state of ['idle', 'dr
       expect(held.sideways, `${state}: footer fits at ${width}`).toBe(false)
       expect(held.spills, `${state}: whole facts fit the natural footer at ${width}`).toBe(0)
       expect(held.ellipsis).toBe(false)
+      } else await expect(footer).toHaveCount(0)
       // The composer measures its compact controls after a live seam resize.
       // Wait for the real controls, not merely the panel's synchronous box.
       await expect.poll(async () => page.locator('[data-slot="workbench-main"]').evaluate(main => {

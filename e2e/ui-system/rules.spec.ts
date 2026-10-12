@@ -48,7 +48,7 @@ const setPreviewDials = async (page: Page, theme: 'light' | 'dark', look: 'desk'
 const gotoPreview = async (page: Page) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/preview.html')
-  await page.waitForSelector('[data-region="session-row"] [data-slot="sidebar-menu-button"]')
+  await page.waitForSelector('[data-frame-id="sidebar-column"] [data-left-column] [data-left-row] [data-slot="sidebar-menu-button"]')
   await page.evaluate(async () => { await document.fonts.ready })
 }
 
@@ -79,7 +79,7 @@ const PROBE_HELPERS = `
     const r = el.getBoundingClientRect()
     if (r.width < 1 || r.height < 1) return false
     const c = getComputedStyle(el)
-    return c.visibility !== 'hidden' && c.display !== 'none'
+    return c.visibility !== 'hidden' && c.display !== 'none' && c.clipPath !== 'inset(50%)'
   }
 `
 
@@ -143,7 +143,7 @@ const namesViolations = (page: Page) =>
       const style = getComputedStyle(html)
       const rect = html.getBoundingClientRect()
       return (html.offsetParent !== null || style.position === 'fixed') &&
-        style.visibility !== 'hidden' && style.display !== 'none' && rect.width >= 1 && rect.height >= 1
+        style.visibility !== 'hidden' && style.display !== 'none' && style.clip !== 'rect(0px, 0px, 0px, 0px)' && style.clipPath !== 'inset(50%)' && rect.width >= 1 && rect.height >= 1
     }
     // A readout is declared, never guessed from its text: a title that
     // happens to be a number is still a name.
@@ -472,8 +472,8 @@ const destinationRowViolations = (page: Page, menuHeight?: number, kindsAgree = 
         .filter(visible)
         .map((el) => Math.round(el.getBoundingClientRect().height))
       const groups = {
-        'sidebar session row': measure('[data-region="session-row"] [data-slot="sidebar-menu-button"]'),
-        'settings/usage rail row': measure('[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"]'),
+        'sidebar session row': measure('[data-frame-id="sidebar-column"] [data-left-row] [data-slot="sidebar-menu-button"]'),
+        'settings/usage rail row': measure('[data-frame-id="settings-sheet"] [data-left-row] [data-slot="sidebar-menu-button"]'),
       }
       if (menuH != null) groups['menu item'] = [menuH]
       const representative = {}
@@ -501,7 +501,7 @@ const destinationRowViolations = (page: Page, menuHeight?: number, kindsAgree = 
 
 /** Opens the sidebar footer's account menu (reused from `visual-contracts.spec.ts`). */
 const openAccountMenu = async (page: Page) => {
-  const trigger = page.locator('button[class*="accountRow"]')
+  const trigger = page.locator('[data-frame-id="sidebar-column"] button[class*="accountRow"]')
   await trigger.scrollIntoViewIfNeeded()
   await trigger.click()
   await expect(page.locator('[data-slot="popover-popup"]')).toBeVisible()
@@ -553,7 +553,7 @@ test.describe('rule: destination rows', () => {
     await setPreviewDials(page, 'light', 'desk')
     const before = await destinationRowViolations(page, undefined, false)
     expect(before.out).toEqual([])
-    await page.addStyleTag({ content: '[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"] { min-height: 10px !important; height: 10px !important; padding-top: 0 !important; padding-bottom: 0 !important; }' })
+    await page.addStyleTag({ content: '[data-frame-id="settings-sheet"] [data-left-row] [data-slot="sidebar-menu-button"] { min-height: 10px !important; height: 10px !important; padding-top: 0 !important; padding-bottom: 0 !important; }' })
     const after = await destinationRowViolations(page, undefined, false)
     expect(after.out.some((f) => f.reason === 'shorter than --hd-nav-h')).toBe(true)
   })
@@ -564,7 +564,7 @@ test.describe('rule: destination rows', () => {
     const before = await destinationRowViolations(page, undefined, false)
     expect(before.out).toEqual([])
     // What the settings rail's identity row did with a 28px face in a 29px row.
-    await page.locator('[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"]').first().evaluate((row) => row.setAttribute('data-test-row-mutation', ''))
+    await page.locator('[data-frame-id="settings-sheet"] [data-left-row] [data-slot="sidebar-menu-button"]:visible').first().evaluate((row) => row.setAttribute('data-test-row-mutation', ''))
     await page.addStyleTag({ content: '[data-test-row-mutation] { min-height: calc(var(--hd-nav-h) + 1px) !important; }' })
     const after = await destinationRowViolations(page, undefined, false)
     expect(after.out.some((f) => f.reason.includes("own rows disagree"))).toBe(true)
@@ -579,7 +579,7 @@ test.describe('rule: destination rows', () => {
       expect(before.counts['settings/usage rail row']).toBeGreaterThan(0)
       // What Desk was before #1073, the other way round: one kind a pixel off
       // the others while agreeing with its own siblings.
-      await page.addStyleTag({ content: '[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"] { min-height: calc(var(--hd-nav-h) + 1px) !important; }' })
+      await page.addStyleTag({ content: '[data-frame-id="settings-sheet"] [data-left-row] [data-slot="sidebar-menu-button"] { min-height: calc(var(--hd-nav-h) + 1px) !important; }' })
       const after = await destinationRowViolations(page)
       expect(after.out.some((f) => f.reason.startsWith('destination-row kinds disagree'))).toBe(true)
     })
@@ -722,13 +722,13 @@ const realSelectionViolations = (page: Page) =>
     }
     compare(
       'sidebar session row',
-      '[data-region="session-row"] [data-slot="sidebar-menu-button"][data-active="true"]',
-      '[data-region="session-row"] [data-slot="sidebar-menu-button"]:not([data-active])',
+      '[data-frame-id="sidebar-column"] [data-left-row] [data-slot="sidebar-menu-button"][data-active="true"]',
+      '[data-frame-id="sidebar-column"] [data-left-row] [data-slot="sidebar-menu-button"]:not([data-active])',
     )
     compare(
       'settings/usage rail row',
-      '[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"][aria-current="page"]',
-      '[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"]:not([aria-current="page"])',
+      '[data-frame-id="settings-sheet"] [data-left-row] [data-slot="sidebar-menu-button"][aria-current="page"]',
+      '[data-frame-id="settings-sheet"] [data-left-row] [data-slot="sidebar-menu-button"]:not([aria-current="page"])',
     )
     return { out, measured }
   })

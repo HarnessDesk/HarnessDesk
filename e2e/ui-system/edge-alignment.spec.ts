@@ -87,7 +87,7 @@ test.describe('the layout system holds its own claims', () => {
     await mount(page)
   })
 
-  test('a SectionHead starts its label on the same column as the rows it names', async ({ page }) => {
+  test('a page section heading keeps the page edge and rows keep their own text edge', async ({ page }) => {
     const lefts = await page.evaluate(() => {
       const section = document.querySelector('[data-testid="section-fixture"]') as HTMLElement
       const label = section.querySelector('h2') as HTMLElement
@@ -95,26 +95,33 @@ test.describe('the layout system holds its own claims', () => {
       const rowTitle = row.querySelector('[data-slot="row-title"]') as HTMLElement
       return {
         label: Math.round(label.getBoundingClientRect().left),
-        row: Math.round(rowTitle.getBoundingClientRect().left),
+        row: Math.round(section.getBoundingClientRect().left),
+        rowInset: rowTitle.getBoundingClientRect().left - row.getBoundingClientRect().left,
+        expectedInset: parseFloat(getComputedStyle(row).paddingLeft),
       }
     })
     expect(Math.abs(lefts.label - lefts.row), `label ${lefts.label} vs row ${lefts.row}`).toBeLessThanOrEqual(1)
+    expect(Math.abs(lefts.rowInset - lefts.expectedInset)).toBeLessThanOrEqual(1)
   })
 
   for (const theme of ['light', 'dark'] as const) {
-    test(`a SectionHead and its summary keys retain one text edge in ${theme}`, async ({ page }) => {
+    test(`a page SectionHead and inset summary keys retain their container edges in ${theme}`, async ({ page }) => {
       await page.emulateMedia({ colorScheme: theme })
       const edges = await page.evaluate(() => {
         const section = document.querySelector('[data-testid="summary-section-fixture"]')!
         const label = section.querySelector('h2')!
         const key = section.querySelector('[data-slot="summary-item"] dt')!
-        return { label: label.getBoundingClientRect().left, key: key.getBoundingClientRect().left }
+        const item = key.closest('[data-slot="summary-item"]')!
+        return { label: label.getBoundingClientRect().left, key: section.getBoundingClientRect().left,
+          keyInset: key.getBoundingClientRect().left - item.getBoundingClientRect().left,
+          expectedInset: parseFloat(getComputedStyle(item).paddingLeft) }
       })
       expect(Math.abs(edges.label - edges.key)).toBeLessThan(1)
+      expect(Math.abs(edges.keyInset - edges.expectedInset)).toBeLessThan(1)
     })
   }
 
-  test('a section action ends on the same column a row\'s own control does', async ({ page }) => {
+  test('a section action keeps the page edge and row controls keep their own inset', async ({ page }) => {
     const rights = await page.evaluate(() => {
       const section = document.querySelector('[data-testid="section-fixture"]') as HTMLElement
       const action = section.querySelector('[data-slot="section-action"]') as HTMLElement
@@ -124,10 +131,13 @@ test.describe('the layout system holds its own claims', () => {
       const control = document.querySelector('[data-testid="rows-fixture"] [data-slot="row-ctl"]') as HTMLElement
       return {
         action: Math.round(action.getBoundingClientRect().right),
-        control: Math.round(control.getBoundingClientRect().right),
+        control: Math.round(section.getBoundingClientRect().right),
+        rowInset: control.closest('[data-slot="row"]')!.getBoundingClientRect().right - control.getBoundingClientRect().right,
+        expectedInset: parseFloat(getComputedStyle(control.closest('[data-slot="row"]')!).paddingRight),
       }
     })
     expect(Math.abs(rights.action - rights.control), `action ${rights.action} vs row control ${rights.control}`).toBeLessThanOrEqual(1)
+    expect(Math.abs(rights.rowInset - rights.expectedInset)).toBeLessThanOrEqual(1)
   })
 
   test('a described row centres its trailing control on the whole row and catches a first-line nudge', async ({ page }) => {

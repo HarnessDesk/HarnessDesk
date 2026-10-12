@@ -82,33 +82,29 @@ for (const theme of ['light', 'dark'] as const) {
       await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
       await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('permissions')
       const settings = page.locator('[data-frame-id="settings-sheet"] [data-page-destination="settings"]:visible')
-      const reviewers = settings.getByRole('radiogroup', { name: 'Reviewed by', exact: true })
-      await expect(reviewers.getByRole('radio')).toHaveCount(3)
+      const reviewers = settings.getByRole('combobox', { name: 'Reviewed by', exact: true })
+      await expect(reviewers.locator('option')).toHaveCount(3)
+      await expect(reviewers).toHaveValue('user')
       await reviewers.scrollIntoViewIfNeeded()
-      const measurements = await settings.locator('[data-slot="toggle-group-item"]').evaluateAll(nodes => nodes.map(node => {
-        const box = node.getBoundingClientRect()
-        const range = document.createRange()
-        range.selectNodeContents(node)
-        const text = range.getBoundingClientRect()
-        const css = getComputedStyle(node)
-        return {
-          label: node.textContent,
-          width: box.width,
-          height: box.height,
-          fontSize: css.fontSize,
-          paddingLeft: parseFloat(css.paddingLeft),
-          paddingRight: parseFloat(css.paddingRight),
-          textLeft: text.left - box.left,
-          textRight: box.right - text.right,
-        }
-      }))
-      await testInfo.attach('segment-layout', { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' })
-      await settings.screenshot({ path: testInfo.outputPath('permissions.png') })
-      for (const option of measurements) {
-        expect.soft(option.textLeft, option.label ?? '').toBeGreaterThanOrEqual(option.paddingLeft - 1)
-        expect.soft(option.textRight, option.label ?? '').toBeGreaterThanOrEqual(option.paddingRight - 1)
+      for (const value of ['user', 'auto_review', 'guardian_subagent']) {
+        await reviewers.selectOption(value)
+        await expect(reviewers).toHaveValue(value)
+        const measurement = await reviewers.evaluate(node => {
+          const select = node as HTMLSelectElement, css = getComputedStyle(select), box = select.getBoundingClientRect()
+          const context = document.createElement('canvas').getContext('2d')!
+          context.font = `${css.fontWeight} ${css.fontSize} ${css.fontFamily}`
+          return { text: context.measureText(select.selectedOptions[0]!.text).width,
+            available: box.width - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight),
+            height: box.height, font: css.fontSize, overflow: select.scrollWidth > select.clientWidth }
+        })
+        await testInfo.attach('permission choice layout', { body: JSON.stringify(measurement), contentType: 'application/json' })
+        expect(measurement.text).toBeLessThanOrEqual(measurement.available)
+        expect(measurement.overflow).toBe(false)
+        expect(measurement.height).toBe(30)
+        expect(measurement.font).toBe('13px')
       }
-      await expect(reviewers.getByRole('radio', { name: 'You', exact: true })).toBeChecked()
+      await reviewers.selectOption('user')
+      await expect(reviewers).toHaveValue('user')
     })
   }
 }
@@ -262,7 +258,7 @@ for (const [look, theme] of [
     expect(measurement.figures.find(figure=>figure.reading==='10%')?.color).toBe(measurement.warning)
     // Overview lists accounts needing attention; Plans carries every account.
     // Left keeps neutral healthy text; its continuous bar carries the status tone.
-    await dashboard.getByRole('tab',{name:'Plans',exact:true}).click()
+    await dashboard.getByRole('tab',{name:/^Plans(?:\s|$)/}).click()
     const plansTable = dashboard.getByRole('table')
     await expect(plansTable).toBeVisible()
     // Left is the third column, with the continuous meter and percent.
@@ -304,7 +300,7 @@ for (const [look, theme] of [
     // Plans carries the "N low" count in the warning tone, which has to read on
     // the selected fill as well as the label does.
     for (const view of ['Overview', 'Plans', 'Spend', 'Activity', 'Projects']) {
-      const row = dashboard.getByRole('tab',{name:view,exact:true})
+      const row = dashboard.getByRole('tab',{name:new RegExp(`^${view}(?:\\s|$)`)})
       await row.click()
       await expect(row).toHaveAttribute('aria-selected', 'true')
       const measurements = await inkOf(row)

@@ -246,7 +246,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
     for (const [query, selectors] of [
       ['cli-install', ['[data-slot="dialog-content"]']],
       ['run-again=default', ['[data-slot="dialog-head"]', '[data-slot="modal-dialog-body"]', '[data-slot="dialog-footer"]']],
-      ['stop-run-dialog=default', ['[data-slot="alert-dialog-header"]', '[data-slot="confirm-body"]', '[data-slot="alert-dialog-footer"]']],
+      ['stop-run-dialog=default', ['[data-slot="dialog-head"]', '[data-slot="modal-dialog-body"]', '[data-slot="dialog-footer"]']],
     ] as const) {
       await page.goto(`/preview.html?${query}&theme=${theme}`)
       for (const selector of selectors) {
@@ -318,8 +318,14 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
         const range = document.createRange(); range.selectNodeContents(node)
         return Math.round((node.matches('[data-slot=table-head]') ? range.getBoundingClientRect().left : node.getBoundingClientRect().left) - element.getBoundingClientRect().left)
       }
-      return { run: start(run), labels: [needs, seats].map(section => start(section.querySelector('[data-slot="group-label"]')!)),
-        bodies: [needs, seats].map(section => start(section.querySelector('[data-slot="list-row-lead"], [data-slot="list-row-title"], [data-slot="table-head"]')!)) }
+      return { run: start(run.closest('[data-slot="card"]') ?? run), labels: [needs, seats].map(section => start(section.querySelector('[data-slot="group-label"]')!)),
+        bodies: [needs, seats].map(section => {
+          const content = section.querySelector('[data-slot="list-row-lead"], [data-slot="list-row-title"], [data-slot="table-head"]')!
+          const row = content.closest('[data-slot="list-row"], [data-slot="table-head"]')!
+          // Page headings stay on the page edge; a row's content retains
+          // its own inset. Compare that row's container edge, not its text.
+          return start(content) - (content.matches('[data-slot="table-head"]') ? parseFloat(getComputedStyle(content).paddingLeft) : content.getBoundingClientRect().left - row.getBoundingClientRect().left)
+        }) }
     })
     for (const edge of [...layout.labels, ...layout.bodies]) expect(Math.abs(edge - layout.run)).toBeLessThanOrEqual(1)
     const emptyOverview = page.locator('#team-overview-no-seats [data-slot="team-overview"]')
@@ -332,8 +338,9 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
       const range = document.createRange(); range.selectNodeContents(empty)
       const text = range.getBoundingClientRect(), bounds = empty.getBoundingClientRect()
       const style = getComputedStyle(head), headBounds = head.getBoundingClientRect()
-      return { label: label.getBoundingClientRect().left, text: text.left,
-        right: headBounds.right - parseFloat(style.paddingRight), bodyRight: bounds.right,
+      const bodyStyle = getComputedStyle(empty.parentElement!)
+      return { label: label.getBoundingClientRect().left, text: text.left - parseFloat(bodyStyle.paddingLeft),
+        right: headBounds.right - parseFloat(style.paddingRight), bodyRight: bounds.right + parseFloat(bodyStyle.paddingRight),
         gutter: section.getBoundingClientRect().left - element.getBoundingClientRect().left }
     })
     expect(emptyEdges.gutter).toBe(24)

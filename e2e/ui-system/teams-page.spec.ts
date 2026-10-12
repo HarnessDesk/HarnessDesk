@@ -1,5 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
 
+const returnToTeams = async (page: Page, scene: string) => {
+ const frame = page.locator(`#teams-page-${scene}`)
+ const button = frame.locator('[data-left-column]').getByRole('button',{name:'Teams',exact:true})
+ if (!(await button.isVisible())) await frame.getByRole('button',{name:'Show sidebar',exact:true}).click()
+ await button.click()
+}
+
 const openTeams=async(page:Page,theme:'light'|'dark')=>{
  await page.goto('/preview.html?teams-page')
  await page.locator('label').filter({hasText:/^theme/}).locator('select').first().selectOption(theme)
@@ -28,7 +35,7 @@ for(const theme of ['light','dark'] as const) {
   expect(await frame.locator('[data-team-row]').evaluateAll(rows=>rows.map(row=>row.getAttribute('data-team-row')))).toEqual(['team-0','team-1','team-2'])
   const dot=await frame.locator('[data-team-row="team-0"] [data-slot="dot"]').boundingBox()
   expect(dot?.width).toBe(6);expect(dot?.height).toBe(6)
-  await expect(frame.getByRole('button',{name:'Active',exact:true})).toHaveAttribute('aria-current','page')
+  await expect(frame.getByRole('tab',{name:/^Active(?: \d+)?$/})).toHaveAttribute('aria-selected','true')
   const fold=frame.getByRole('button',{name:'Ready to wrap · 2'})
   await expect(fold).toHaveAttribute('aria-expanded','false');await fold.click()
   await expect(frame.locator('[data-team-row]')).toHaveCount(5)
@@ -45,7 +52,7 @@ for(const theme of ['light','dark'] as const) {
   // A nested menu must collide with its window, not the larger catalogue
   // viewport: a taller row can otherwise put Hide under the next window.
   await expect.poll(async()=>{
-   const menu=await hide.boundingBox(),win=await frame.locator('[data-slot="app-window"]').boundingBox()
+   const menu=await hide.boundingBox(),win=await frame.locator('[data-slot="fixed-shell"]').boundingBox()
    return !!menu&&!!win&&menu.y>=win.y&&menu.y+menu.height<=win.y+win.height
   }).toBe(true)
   await expect.poll(()=>hide.evaluate(el=>{
@@ -54,7 +61,7 @@ for(const theme of ['light','dark'] as const) {
   })).toBe(true)
   await page.getByRole('menuitem',{name:'Hide',exact:true}).click()
   await expect(frame.locator('[data-team-row]')).toHaveCount(4)
-  await frame.getByRole('button',{name:'Settled',exact:true}).click()
+  await frame.getByRole('tab',{name:/^Settled(?: \d+)?$/}).click()
   await expect(frame.locator('[data-team-row]')).toHaveCount(2)
   await frame.locator('[data-team-row="team-3"]').getByTitle('More',{exact:true}).click()
   await expect(page.getByRole('menuitem',{name:'Show in Active'})).toBeVisible()
@@ -73,14 +80,16 @@ for(const theme of ['light','dark'] as const) {
    await page.setViewportSize({width,height:900})
    await openTeams(page,theme)
    const frame=page.locator('#teams-page-active')
+   await frame.scrollIntoViewIfNeeded()
    const pageBox=frame.locator('[data-page-destination="teams"]:visible [data-slot="page-records"]')
    await expect(pageBox).toBeVisible()
    if((await pageBox.boundingBox())!.width<600){
     await expect(pageBox).toHaveAttribute('data-layout','narrow')
     await expect(frame.locator('[data-team-row][data-slot="list-row"]')).toHaveCount(3)
    }
-   for(const item of await frame.locator('[data-slot="app-window"], [data-slot="app-window-page"], [data-team-row]').all()) {
-    expect(await item.evaluate(e=>e.scrollWidth<=e.clientWidth+1)).toBe(true)
+   for(const item of await frame.locator('[data-slot="fixed-shell"], [data-page-destination="teams"]:visible, [data-team-row]').all()) {
+    const geometry = await item.evaluate(e => ({slot:e.getAttribute('data-slot'), row:e.getAttribute('data-team-row'), scroll:e.scrollWidth, client:e.clientWidth, children:[...e.querySelectorAll<HTMLElement>('*')].filter(n=>n.scrollWidth>n.clientWidth+1 || n.getBoundingClientRect().right>e.getBoundingClientRect().right+1).map(n=>({slot:n.getAttribute('data-slot'),class:n.className,scroll:n.scrollWidth,client:n.clientWidth,min:getComputedStyle(n).minWidth,position:getComputedStyle(n).position,right:n.getBoundingClientRect().right,after:getComputedStyle(n,'::after').width})).slice(0,12)}))
+    expect(geometry.scroll,JSON.stringify(geometry)).toBeLessThanOrEqual(geometry.client+1)
    }
    // Below the desktop's 720px minimum this embedded specimen keeps its
    // body allocated; the More controls remain keyboard reachable.
@@ -93,15 +102,19 @@ for(const theme of ['light','dark'] as const) {
      return document.activeElement===node&&button.left>=row.left-1&&button.right<=row.right+1
     })).toBe(true)
    }
-   await expect(frame.getByRole('button',{name:'Needs you',exact:true})).toBeVisible()
-   const filters=await Promise.all(['Active','Needs you','Settled'].map(name=>frame.getByRole('button',{name,exact:true}).boundingBox()))
+   await expect(frame.getByRole('tab',{name:/^Needs you(?: \d+)?$/})).toBeVisible()
+   const filters=await Promise.all(['Active','Needs you','Settled'].map(name=>frame.getByRole('tab',{name:new RegExp(`^${name}(?: \\d+)?$`)}).boundingBox()))
    expect(filters.every(box=>box!==null)).toBe(true)
    const inOneRow=filters.every(box=>Math.abs(box!.y-filters[0]!.y)<1)
    const inOneColumn=filters.every(box=>Math.abs(box!.x-filters[0]!.x)<1)
    expect(inOneRow||inOneColumn,`filters at ${width}px: ${JSON.stringify(filters)}`).toBe(true)
-   for(const label of await frame.locator('[data-slot="sidebar-menu-label-content"]').all()) {
-    const geometry=await label.evaluate(e=>({label:e.textContent,scroll:e.scrollWidth,width:e.clientWidth}))
-    expect(geometry.scroll,JSON.stringify(geometry)).toBeLessThanOrEqual(geometry.width+1)
+   for(const label of await frame.locator('[data-slot="sidebar-menu-label-content"]:visible').all()) {
+    const geometry=await label.evaluate(e=>({label:e.textContent,scroll:e.scrollWidth,width:e.clientWidth,overflow:getComputedStyle(e).overflow,textOverflow:getComputedStyle(e).textOverflow,title:e.closest('button')?.title}))
+    if(geometry.scroll>geometry.width+1) {
+     expect(geometry.overflow).toBe('hidden')
+     expect(geometry.textOverflow).toBe('ellipsis')
+     expect(geometry.title).toContain(geometry.label?.trim())
+    }
    }
   }
  })
@@ -113,9 +126,11 @@ for(const theme of ['light','dark'] as const) {
   await page.evaluate(()=>document.fonts.ready)
   for(const scene of ['active','needs-you','settled','empty','pending','failed','narrow']) {
    const frame=page.locator(`#teams-page-${scene}`)
-   const pageBox=frame.locator('[data-page-destination="teams"]:visible [data-slot="page-records"]')
-   await expect(pageBox).toBeVisible()
-   if((await pageBox.boundingBox())!.width<600){
+   const destination=frame.locator('[data-page-destination="teams"]:visible')
+   await expect(destination).toBeVisible()
+   const pageBox=destination.locator('[data-slot="page-records"]')
+   if(scene!=='empty') await expect(pageBox).toBeVisible()
+   if(scene!=='empty' && (await pageBox.boundingBox())!.width<600){
     await expect(pageBox).toHaveAttribute('data-layout','narrow')
     await expect(frame.locator('[data-team-row][data-slot="list-row"]')).toHaveCount(3)
    }
@@ -159,6 +174,7 @@ for(const theme of ['light','dark'] as const) {
   const nameLeft=async(row:typeof first)=>(await row.locator('[data-role="subject"]').boundingBox())!.x
   const before=await nameLeft(first)
   await first.locator('[data-role="subject"]').click()
+  await page.locator('#teams-page-active [data-left-column]').getByRole('button',{name:'Teams',exact:true}).click()
   await expect(first.locator('[aria-label="Unread changes"]')).toHaveCount(0)
   await expect(second.locator('[aria-label="Unread changes"]')).toBeVisible()
   expect(Math.abs(await nameLeft(first)-before)).toBeLessThan(1)
@@ -193,6 +209,7 @@ for(const theme of ['light','dark'] as const) {
    })
    expect(point.reading).toBe(true)
    await page.mouse.click(point.x,point.y)
+   await returnToTeams(page,scene)
    await expect(row.locator('[aria-label="Unread changes"]')).toHaveCount(0)
    const box=await open.boundingBox()
    expect(box!.height).toBeGreaterThanOrEqual(24)
@@ -209,6 +226,7 @@ for(const theme of ['light','dark'] as const) {
    expect(await markBox()).toEqual(beforePress)
    expect(await open.evaluate(el=>({translate:getComputedStyle(el).translate,events:getComputedStyle(el,'::after').pointerEvents}))).toEqual({translate:'none',events:'none'})
    await page.mouse.up()
+   await returnToTeams(page,scene)
    await open.focus()
    await page.keyboard.press('Tab')
    await page.keyboard.press('Shift+Tab')
@@ -220,6 +238,7 @@ for(const theme of ['light','dark'] as const) {
    await expect(open).toBeFocused()
    expect(await open.evaluate(el=>getComputedStyle(el,'::after').boxShadow)).toBe('none')
    await page.mouse.click(point.x,point.y)
+   await returnToTeams(page,scene)
    await expect(row.locator('[aria-label="Unread changes"]')).toHaveCount(0)
   }
  })

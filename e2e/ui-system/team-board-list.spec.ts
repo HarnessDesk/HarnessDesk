@@ -39,7 +39,7 @@ for (const theme of ['light', 'dark'] as const) {
       const rect = table.getBoundingClientRect()
       const pane = root.getBoundingClientRect()
       return {
-        titleEdge: root.querySelector('[aria-label="Board summary"] dt')!.getBoundingClientRect().left,
+        titleEdge: root.querySelector('tbody td')!.getBoundingClientRect().left + parseFloat(getComputedStyle(root.querySelector('tbody td')!).paddingLeft),
         jobEdge: root.querySelector('thead th')!.getBoundingClientRect().left + parseFloat(getComputedStyle(root.querySelector('thead th')!).paddingLeft),
         head: root.querySelector('thead')!.getBoundingClientRect().height,
         rows: [...root.querySelectorAll('tbody tr')].map(row => row.getBoundingClientRect().height),
@@ -73,7 +73,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(reveal).toHaveCSS('opacity', '0')
     await table.locator('tbody tr').first().hover({ position: { x: 10, y: 10 } })
     await expect(reveal).toHaveCSS('opacity', '1')
-    await pane.locator('[aria-label="Board summary"]').click()
+    await table.getByRole('columnheader').first().click()
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.HD_BOARD_LIST_FRAMES) {
       await pane.screenshot({ path: `${process.env.HD_BOARD_LIST_FRAMES}/list-${theme}.png` })
