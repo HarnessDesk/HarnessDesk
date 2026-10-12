@@ -243,7 +243,7 @@ describe('the trigger’s accessible name', () => {
     const root = createRoot(host)
     act(() => {
       root.render(
-        <Popover label={label} title="/home/demo/workspace/app">
+        <Popover label={label} title="/home/dev/workspace/app">
           {() => <span />}
         </Popover>,
       )
@@ -258,7 +258,7 @@ describe('the trigger’s accessible name', () => {
   it('is the hover text when the trigger is a glyph, which has no name of its own', () => {
     const { aria, text } = nameOf(<svg aria-hidden />)
     expect(text.trim()).toBe('')
-    expect(aria).toBe('/home/demo/workspace/app')
+    expect(aria).toBe('/home/dev/workspace/app')
   })
 
   it('is left to the visible words when the trigger has any — even inside a fragment', () => {
