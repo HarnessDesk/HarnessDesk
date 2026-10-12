@@ -168,7 +168,7 @@ const SessionRow = memo(({
      whole list for the better part of a minute while the room's rail already
      read every name. The live session is the fresher record when it exists. */
   /* A Seat without a person's first message is named by its job and Team. */
-  const label = sessionLabel(liveTitle ?? summary.title, livePreview ?? summary.preview, seatLabel ?? undefined)
+  const label = sessionLabel(liveTitle === undefined ? summary.title : liveTitle, livePreview ?? summary.preview, seatLabel ?? undefined)
   const traceShown = trace !== null && (ACTIVE_STATES.has(trace) || trace === 'waiting' || trace === 'failed')
   // Work the agent sent to the background and walked away from: the turn is
   // over, the row would read idle, and something is still running. The glyph
@@ -639,7 +639,7 @@ const WindowedProjectRows = ({
     }
     const key = sessionKey(row.summary.runtime, row.summary.id)
     const live = snapshot.sessions.get(key)
-    return sessionLabel(live?.title ?? row.summary.title, row.summary.preview, seatLabelsOf(snapshot).get(String(key)))
+    return sessionLabel(live ? live.title : row.summary.title, live ? live.preview ?? firstAsk(live) : row.summary.preview, seatLabelsOf(snapshot).get(String(key)))
   }))
 
   useEffect(() => {
