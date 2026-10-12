@@ -109,27 +109,27 @@ test('FIX4 ceiling chips keep a chip gap and distinguish asked from held once pe
   await expect(section).toBeVisible()
   const rows = section.locator('[data-slot="row"]')
   await expect(rows).toHaveCount(12)
-  const codex = rows.first()
-  const chips = codex.locator('[data-ceiling][data-hold]')
-  await expect(chips).toHaveCount(4)
-  const visualState = await chips.evaluateAll(nodes => {
-    const ordered = nodes.map(node => {
-      const box = node.getBoundingClientRect()
-      const chip = node.querySelector<HTMLElement>('[data-slot="chip"]')!
-      return { hold: (node as HTMLElement).dataset.hold, variant: chip.dataset.variant, left: box.left, right: box.right }
+  for (const [index, row] of (await rows.all()).entries()) {
+    const options = row.locator('[data-slot="toggle-group-item"]')
+    await expect(options).toHaveCount(4)
+    expect(await options.allTextContents()).toEqual(['Read only', 'Edit', 'Publish', 'Merge'])
+    for (const option of await options.all()) { await expect(option).toBeVisible(); await expect(option).toBeDisabled() }
+    // AUDIT-4 R11.15 replaces four held/asked chips with one readout and a state chip.
+    const expected = index === 0 ? 'Edit' : index === 1 ? 'Read only' : index % 2 === 0 ? 'Publish' : 'Merge'
+    await expect(row.locator('[data-slot="toggle-group-item"][aria-pressed="true"]')).toHaveCount(1)
+    await expect(row.locator('[data-slot="toggle-group-item"][aria-pressed="true"]')).toHaveText(expected)
+    const chip = row.locator('[data-slot="row-title-chip"] [data-slot="chip"]')
+    await expect(chip).toHaveCount(1)
+    await expect(chip).toHaveText(index === 1 ? 'Asked' : 'Enforced')
+    const gap = await row.evaluate(node => {
+      const name = node.querySelector('[data-slot="row-title-name"]')!.getBoundingClientRect()
+      const chip = node.querySelector('[data-slot="row-title-chip"]')!.getBoundingClientRect()
+      return chip.left - name.right
     })
-    return { gaps: ordered.slice(1).map((item, index) => item.left - ordered[index]!.right), chips: ordered.map(({ hold, variant }) => ({ hold, variant })) }
-  })
-  expect(visualState.chips).toEqual([
-    { hold: 'held', variant: 'default' }, { hold: 'held', variant: 'default' },
-    { hold: 'asked', variant: 'outline' }, { hold: 'asked', variant: 'outline' },
-  ])
-  for (const gap of visualState.gaps) expect(gap, 'ceiling chips use the 8px chip gap').toBeGreaterThanOrEqual(7)
-  expect(visualState.gaps.every(gap => gap <= 9)).toBe(true)
-  const notes = section.locator('[data-slot="ceiling-group-note"]')
-  await expect(notes).toHaveCount(1)
-  expect(await notes.textContent()).toBe('Asked, not enforced')
-  expect(await rows.locator('[data-slot="ceiling-group-note"]').count()).toBe(0)
+    expect(gap, 'the earned ceiling state keeps the 8px chip gap').toBeGreaterThanOrEqual(7)
+    expect(gap).toBeLessThanOrEqual(9)
+  }
+  await expect(section.locator('[data-slot="ceiling-group-note"]')).toHaveCount(0)
 })
 
 test('FIX4 Settings filters are standalone first fields on History, Runtimes, Skills and Extensions', async ({ page }) => {
