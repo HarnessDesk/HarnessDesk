@@ -406,6 +406,7 @@ for (const theme of WALL_THEMES) {
     await expect(column).toBeVisible()
     await column.locator('[data-left-seat] [data-slot="popover-trigger"]:not(:has([data-slot="inbox-button"]))').click()
     await page.keyboard.press('Escape')
+    await expect(page.locator('[role="menu"]')).toHaveCount(0)
     await expect(column).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(column).toBeHidden()
