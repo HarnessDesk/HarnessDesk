@@ -2,7 +2,7 @@
  * The app frame's numbers (docs/superpowers/specs/2026-10-09-app-frame-design.md).
  *
  * `tokens.css` carries them to the components; this module carries them to
- * the checks. `e2e/ui-system/frame-contract.spec.ts` resolves every token in
+ * the checks. `e2e/ui-system/frame-contract-team-work.spec.ts` resolves every token in
  * `FRAME_TOKENS` in a real browser and measures the rendered app against
  * `FRAME`, so a number in the spec fails a check when the app differs from it
  * — the spec's own complaint was numbers that lived only in prose.
