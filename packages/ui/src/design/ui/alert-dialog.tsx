@@ -38,15 +38,13 @@ const AlertDialogOverlay = ({ className, ...props }: AlertDialogPrimitive.Backdr
 const AlertDialogContent = ({ className, children, ...props }: AlertDialogPrimitive.Popup.Props) => (
   <AlertDialogPortal>
     <AlertDialogOverlay />
+    <AlertDialogPrimitive.Viewport className="fixed inset-0 z-(--hd-z-dialog) grid place-items-center p-6">
     <AlertDialogPrimitive.Popup
       data-slot="alert-dialog-content"
       className={cn(
-        /* Held in from the window's sides by the same 24px (`--hd-space-6`) the
-           ordinary dialog's overlay keeps, and centred by its auto margins. The
-           registry's `w-full` + `left-1/2` put a confirm edge to edge on a
-           phone-width window, corners against the glass; its own fix is an
-           arbitrary `max-w-[calc(100%-2rem)]`, which the design audit counts. */
-        'fixed inset-x-6 top-1/2 z-(--hd-z-dialog) mx-auto grid max-w-md -translate-y-1/2 gap-3',
+        /* The named width is relative to the padded viewport interior,
+           so a confirmation keeps the same side air on a phone. */
+        'relative mx-auto grid w-full max-w-md gap-3',
         'rounded-(--hd-surface-radius) bg-(--hd-surface-fill) p-(--hd-inset-dialog) shadow-(--hd-surface-shadow)',
         /* The surface holds focus for Escape and never wears the ring; see
            `SURFACE_FOCUS` in dialog.tsx. */
@@ -57,6 +55,7 @@ const AlertDialogContent = ({ className, children, ...props }: AlertDialogPrimit
     >
       <DialogFormContext.Provider value={false}>{children}</DialogFormContext.Provider>
     </AlertDialogPrimitive.Popup>
+    </AlertDialogPrimitive.Viewport>
   </AlertDialogPortal>
 )
 
