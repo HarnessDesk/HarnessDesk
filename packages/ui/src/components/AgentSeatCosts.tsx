@@ -3,7 +3,7 @@ import type { AgentEntry, FlowSeat, InsightOrderPreview, InsightReport } from '@
 
 import { commonRowNote, metricWords } from '../lib/insight'
 import { useSnapshot, useStore } from '../state/context'
-import { Button, Chip, Dialog, Note, Row, RowValue, Rows, SectionHead } from '../design'
+import { Button, Chip, Dialog, Note, Row, RowValue, Rows, Section } from '../design'
 
 const sameSeat = (left: FlowSeat, right: FlowSeat): boolean =>
   left.runtime === right.runtime && left.model === right.model && left.effort === right.effort && left.thinking === right.thinking
@@ -69,8 +69,7 @@ export const AgentSeatCosts = ({ entry }: { readonly entry: AgentEntry }) => {
   const seatAmounts = new Map(seatRows.map((row) => [row.seat, row.amounts.usd]))
   const failedSources = report?.sources.filter((source) => source.problem !== null) ?? []
   return (
-    <section aria-label="Historical seat costs">
-      <SectionHead name="Historical seat costs" />
+    <Section title="Historical seat costs">
       {problem ? <Note tone="warn">{problem}</Note> : !report ? <Note>Reading recorded usage…</Note> : <>
         <Rows>
           {historical.length === 0 ? <Row title="No historical Seats were recorded" desc="Unknown historical usage stays unassigned." /> : historical.map((seat) => <Row key={seat.id} title={seat.seatLabel} desc={noteFor(seat) !== groupNote ? noteFor(seat) ?? undefined : undefined} control={<RowValue numeric>{metricWords(seatAmounts.get(seat.id) ?? { ...report.totals.usd, value: null, quality: 'unknown', coverage: 'none' }, report.sources, Date.now()).value}</RowValue>} />)}
@@ -79,8 +78,7 @@ export const AgentSeatCosts = ({ entry }: { readonly entry: AgentEntry }) => {
         {groupNote && <Note>{groupNote}</Note>}
         {/* A gap belongs to the whole read, not to one row, and Note carries
             no card padding of its own — inside Rows its text sat flush
-            against the card's edge. Outside it, Note's own margin is the
-            spacing. */}
+            against the card's edge. The Section owns its spacing. */}
         {report.gaps.map((gap) => <Note key={gap} tone="warn">{gap}</Note>)}
       </>}
       <Note>This history is read-only. Ordering seats remains an explicit local action.</Note>
@@ -91,6 +89,6 @@ export const AgentSeatCosts = ({ entry }: { readonly entry: AgentEntry }) => {
         <Rows><Row title="Current order" control={<RowValue>{preview.labels.join(', ')}</RowValue>} /><Row title="Proposed order" control={<RowValue>{preview.proposed.map((seat) => seat.model ?? seat.runtime).join(', ')}</RowValue>} /><Row title="Recorded cost" desc={metricWords(preview.report.leftPerGoalUsd, preview.report.sources, Date.now()).source} control={<RowValue numeric>{metricWords(preview.report.leftPerGoalUsd, preview.report.sources, Date.now()).value}</RowValue>} /></Rows>
         {preview.reason ? <Note tone="warn">{preview.reason}</Note> : null}{orderProblem ? <Note tone="warn">{orderProblem}</Note> : null}
       </Dialog>}
-    </section>
+    </Section>
   )
 }

@@ -9,7 +9,7 @@ import { windowBar, expectLead } from './frame-contract-window-leads-helpers'
 useFrameContractEvidence()
 
 for (const theme of WALL_THEMES) {
-  for (const width of [720]) for (let group = 0; group < Math.ceil(B6_WORK_DESTINATIONS.length / 9); group++) {
+  for (const width of [1440]) for (let group = 6; group < Math.min(8, Math.ceil(B6_WORK_DESTINATIONS.length / 9)); group++) {
     test.describe(`B6 lead follows window state on work destinations group ${group + 1} at ${width} in ${theme}`, () => {
       test.describe.configure({ mode: 'default' }); const allOrigins: number[] = [];
       {

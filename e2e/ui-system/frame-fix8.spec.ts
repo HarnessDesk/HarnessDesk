@@ -53,7 +53,7 @@ test('column filter keeps a matching conversation across repository worktrees', 
 
 {
 
-  for (const [item0, width] of ([1100, 720]).entries()) for (const [item1, tool] of (['Changes', 'Details', 'Browser']).entries()) test(`right tools overlay the full main area below the wide breakpoint [item ${[item0, item1].join('-')}]`, async ({ page }) => {
+  for (const [item0, width] of ([1100, 720]).entries()) for (const [item1, tool] of (['Changes', 'Details', 'Browser']).entries()) test(`right tools reserve a clear main column below the wide breakpoint [item ${[item0, item1].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, 'frame-wall=conversation', width)
     const main = page.locator('[data-frame-region="main"]:visible')
@@ -62,9 +62,12 @@ test('column filter keeps a matching conversation across repository worktrees', 
     const right = page.locator('[data-frame-region="right"]:visible')
     await expect(right).toBeVisible()
     const after = await main.boundingBox(), panel = await right.boundingBox()
-    expect(after!.width).toBe(before!.width)
-    expect(panel!.x).toBeGreaterThanOrEqual(after!.x)
-    expect(panel!.x).toBeLessThan(after!.x + after!.width)
+    expect(before).not.toBeNull()
+    expect(after!.width).toBeGreaterThanOrEqual(Math.min(480, before!.width - 320))
+    expect(panel!.width).toBeGreaterThanOrEqual(320)
+    expect(after!.width + panel!.width).toBe(before!.width)
+    expect(after!.x).toBe(before!.x)
+    expect(panel!.x).toBe(after!.x + after!.width)
     expect(panel!.x + panel!.width).toBe(before!.x + before!.width)
 
 
