@@ -1186,7 +1186,7 @@
 }
 
 .rowChev:empty {
-  width: var(--hd-space-4); /* desk: spec S16 moves detail headings and Back into DestinationBar; only a row's chevron slot remains here. */
+  width: var(--hd-space-4); /* desk: app-frame spec, Pages retires detail headings; DestinationBar owns title and parent navigation; only a row's chevron slot remains here. */
 }
 
 .detailMark {
