@@ -23,9 +23,7 @@ export const FRAME = {
   summaryKey: { page: 132, panel: 92, infoCard: 96 },
 } as const
 
-/** Below the reading floor, an open tool keeps the existing viewport gutter. */
-export const frameReadingFloor = (windowWidth: number, seam = 1): number =>
-  windowWidth > FRAME.main.min + 2 * seam ? FRAME.main.min : Math.max(0, FRAME.page.canvasGutter - 2 * seam)
+export { frameReadingFloor } from './patterns/FixedShell.geometry'
 
 /** Every token the frame names, and the pixels it must resolve to. */
 export const FRAME_TOKENS: Readonly<Record<string, number>> = {
