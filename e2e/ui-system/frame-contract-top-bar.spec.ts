@@ -54,8 +54,10 @@ for (const theme of WALL_THEMES) for (const filter of ['All', 'Open', 'Blocking'
     await bar.evaluate(node => { node.closest('header')!.style.paddingLeft = '78px' })
     await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
     await expect(bar).toHaveAttribute('data-fold', '3')
-    expect((await bar.locator('[data-topbar-title]').boundingBox())!.x).toBe(112)
-    await expect(bar.locator('[data-topbar="lead"] button')).toHaveCount(1)
+    const textEdge = await bar.evaluate(node => node.querySelector('[data-topbar="lead"]')!.getBoundingClientRect().right + parseFloat(getComputedStyle(node).columnGap))
+    expect((await bar.locator('[data-topbar="place"]').boundingBox())!.x).toBe(textEdge)
+    await expect(bar.locator('[data-topbar="lead"] button')).toHaveCount(2)
+    expect(await bar.locator('[data-topbar="lead"] button').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label')))).toEqual(['Show sidebar', 'Search everything'])
     await expect(verb).toHaveCount(0)
     await expect(bar.locator('[data-work-tool]')).toHaveCount(4)
     expect(await fixed.evaluateAll(nodes => nodes.map(node => ({ x: node.getBoundingClientRect().x, width: node.getBoundingClientRect().width })))).toEqual(positions)
@@ -187,7 +189,9 @@ for (const { label, query } of [
 ]) for (const width of WALL_WIDTHS) {
   test(`Owner check 1 interactive descendants opt out of the drag region in ${label} at ${width}`, async ({ page }) => {
     await openFrame(page, query, 'light', width)
-    const region = page.locator('.hd-drag:visible').filter({ has: page.locator('[data-slot="top-bar"]:visible') }).first()
+    const region = label === 'Settings mode' && width >= FRAME.fold.sidebarFloats
+      ? page.locator('[data-left-top] .hd-drag:visible')
+      : page.locator('[data-frame-region="top"] .hd-drag:visible').filter({ has: page.locator('[data-slot="top-bar"]') }).first()
     await expect(region).toBeVisible()
     const measurements = await region.evaluate(node => {
       const selectors = [

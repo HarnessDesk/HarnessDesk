@@ -1,9 +1,23 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page, type Locator } from '@playwright/test'
 import { FRAME } from '../../packages/ui/src/design/frame'
 import { WALL_THEMES } from './frame-wall-destinations'
 import { applyFrameActions, selectFrameTab } from './frame-actions'
 import { openFrame, B6_WORK_DESTINATIONS, B10_NONWORK_DESTINATIONS } from './frame-contract-helpers'
 
+
+const windowBar = (page: Page) => page.locator('[data-frame-region="top"] [data-slot="top-bar"]')
+const expectLead = async (bar: Locator, width: number, settings: boolean, away: boolean) => {
+  const names = !away ? [] : settings ? ['Show sidebar'] : width < FRAME.fold.sidebarFloats
+    ? ['Show sidebar', 'Search everything'] : ['Show sidebar', 'Search everything', 'Back', 'Forward']
+  await expect(bar.locator('[data-topbar="lead"]').getByRole('button')).toHaveCount(names.length)
+  expect(await bar.locator('[data-topbar="lead"]').getByRole('button').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label')))).toEqual(names)
+}
+const expectQuietSettings = async (page: Page, bar: Locator) => {
+  // AUDIT-3b R10.33-34: an empty bar, with the page still named accessibly.
+  await expect(bar.locator('[data-topbar-title]')).toHaveText('')
+  await expect(page.locator('[data-page-destination="settings"]:visible h1')).toHaveText(/\S/)
+  expect((await bar.locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
+}
 
 // Contract runs measure the preview; the final wall owns images and recordings.
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
@@ -12,24 +26,27 @@ for (const theme of WALL_THEMES) for (const width of [720, 1440]) {
   test(`B10 nonwork place hierarchy and lead follow window state at ${width} in ${theme}`, async ({ page }) => {
     const hidden = width === 1440 ? '&frame-sidebar-hidden=1' : ''
     await openFrame(page, `frame-wall=conversation${hidden}`, theme, width)
-    const referenceX = (await page.locator('[data-slot="top-bar"] [data-topbar="place"]').boundingBox())!.x
+    const referenceX = (await windowBar(page).locator('[data-topbar="place"]').boundingBox())!.x
     const measured: { destination: string; origin: number; childX: number; titleWidth: number }[] = []
     for (const destination of B10_NONWORK_DESTINATIONS) {
       await openFrame(page, `${destination.query}${hidden}`, theme, width)
-      const bar = page.locator('[data-slot="top-bar"]:visible')
-      if (destination.id === 'agent') await expect(bar.locator('[data-topbar-title]')).toContainText('Implementer')
-      await expect(bar.locator('[data-topbar="lead"]').getByRole('button')).toHaveCount(width === 720 ? 1 : 3)
-      await expect(bar.locator('[data-topbar="lead"]').getByRole('button', { name: 'Show sidebar', exact: true })).toBeVisible()
+      const bar = windowBar(page)
+      if (destination.id === 'agent') await expect(bar.locator('[data-topbar-title] > [data-slot="text"]')).toHaveText('Code reviewer')
+      const settings = await page.locator('[data-page-destination="settings"]:visible').count() === 1
+      await expectLead(bar, width, settings, true)
       await expect(bar.locator('[data-work-tool]')).toHaveCount(0)
-      await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0,
-        { message: `${destination.id} child title floor` }).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
-      const title = (await bar.locator('[data-topbar-title]').boundingBox())!
-      const origin = (await bar.locator('[data-topbar="place"]').boundingBox())!.x
-      // Bars slot 2 and the approved Agent/Settings drawing put the parent
-      // before the child. Pin that entire place origin, and separately keep
-      // the child title's unchanged 180px floor; work title-x stays in B6.
-      expect(Math.abs(origin - referenceX), `${destination.id} place origin`).toBeLessThanOrEqual(1)
-      measured.push({ destination: destination.id, origin, childX: title.x, titleWidth: title.width })
+      if (settings) await expectQuietSettings(page, bar)
+      else {
+        await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0,
+          { message: `${destination.id} child title floor` }).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+        const title = (await bar.locator('[data-topbar-title]').boundingBox())!
+        const origin = (await bar.locator('[data-topbar="place"]').boundingBox())!.x
+        // Bars slot 2 and the approved Agent/Settings drawing put the parent
+        // before the child. Pin that entire place origin, and separately keep
+        // the child title's unchanged 180px floor; work title-x stays in B6.
+        expect(Math.abs(origin - referenceX), `${destination.id} place origin`).toBeLessThanOrEqual(1)
+        measured.push({ destination: destination.id, origin, childX: title.x, titleWidth: title.width })
+      }
     }
     await test.info().attach('nonwork-place-measurements', { body: JSON.stringify(measured, null, 2), contentType: 'application/json' })
   })
@@ -37,14 +54,18 @@ for (const theme of WALL_THEMES) for (const width of [720, 1440]) {
 for (const theme of WALL_THEMES) {
   test(`B10 standing-column place origin stays common in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation', theme)
-    const referenceX = (await page.locator('[data-slot="top-bar"] [data-topbar="place"]').boundingBox())!.x
+    const referenceX = (await windowBar(page).locator('[data-topbar="place"]').boundingBox())!.x
     for (const destination of B10_NONWORK_DESTINATIONS) {
       await openFrame(page, destination.query, theme)
-      const bar = page.locator('[data-slot="top-bar"]:visible')
-      if (destination.id === 'agent') await expect(bar.locator('[data-topbar-title]')).toContainText('Implementer')
-      await expect(bar.locator('[data-topbar="lead"]').getByRole('button')).toHaveCount(0)
-      const origin = (await bar.locator('[data-topbar="place"]').boundingBox())!.x
-      expect(Math.abs(origin - referenceX), `${destination.id}: origin ${origin}, work ${referenceX}`).toBeLessThanOrEqual(1)
+      const bar = windowBar(page)
+      if (destination.id === 'agent') await expect(bar.locator('[data-topbar-title] > [data-slot="text"]')).toHaveText('Code reviewer')
+      const settings = await page.locator('[data-page-destination="settings"]:visible').count() === 1
+      await expectLead(bar, 1440, settings, false)
+      if (settings) await expectQuietSettings(page, bar)
+      else {
+        const origin = (await bar.locator('[data-topbar="place"]').boundingBox())!.x
+        expect(Math.abs(origin - referenceX), `${destination.id}: origin ${origin}, work ${referenceX}`).toBeLessThanOrEqual(1)
+      }
     }
   })
 }
@@ -53,19 +74,19 @@ for (const theme of WALL_THEMES) {
     test(`B6 lead follows window state on work destinations group ${group + 1} at ${width} in ${theme}`, async ({ page }) => {
       await openFrame(page, 'frame-wall=conversation', theme, width)
       if (width === 1440) await page.getByRole('button', { name: 'Hide sidebar', exact: true }).click()
-      const referenceX = (await page.locator('[data-slot="top-bar"] [data-topbar-title]').boundingBox())!.x
+      const referenceX = (await windowBar(page).locator('[data-topbar="place"]').boundingBox())!.x
       const titleXs: number[] = [referenceX]
       for (const destination of B6_WORK_DESTINATIONS.slice(group * 9, (group + 1) * 9)) {
         await openFrame(page, destination.query, theme, width)
         if (width === 1440) await page.getByRole('button', { name: 'Hide sidebar', exact: true }).click()
         await applyFrameActions(page, destination)
-        const bar = page.locator('[data-slot="top-bar"]:visible').first()
+        const bar = windowBar(page)
         const lead = bar.locator('[data-topbar="lead"]')
-        await expect(lead.getByRole('button')).toHaveCount(width === 720 ? 1 : 3)
+        await expectLead(bar, width, false, true)
         await expect(lead.getByRole('button', { name: 'Show sidebar', exact: true })).toBeVisible()
         await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0,
           { message: `${destination.id} title floor` }).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
-        titleXs.push((await bar.locator('[data-topbar-title]').boundingBox())!.x)
+        titleXs.push((await bar.locator('[data-topbar="place"]').boundingBox())!.x)
       }
       expect(Math.max(...titleXs) - Math.min(...titleXs)).toBeLessThanOrEqual(1)
     })
