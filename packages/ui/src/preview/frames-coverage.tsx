@@ -1,3 +1,4 @@
+import { Input, Text } from '../design'
 import { SettingsPreviewScope } from './settings-pages'
 import { MessageActions } from '../components/MessageActions'
 import { TopBarProvider } from '../panels/top-bar'
@@ -245,6 +246,12 @@ export const CoverageFrames = () => {
         {dialog === 'library flow' && <LibraryFlows flow={{ type: 'import' }} setFlow={() => setDialog('off')} library={LIBRARY as never} columns={COLUMNS} cwd={PREVIEW_ROOT} onApplied={() => setDialog('off')} />}
         {dialog === 'add agents' && <SettingsPreviewScope><AddAgents onBack={() => setDialog('off')} onDone={() => setDialog('off')} /></SettingsPreviewScope>}
       </Boundary>
+      <Frame id="coverage-field-density" title="Fields — comfortable density">
+        <div data-hd-density="comfortable" className="flex flex-col gap-3 p-4">
+          <Text as="h2" role="section">Field measures</Text>
+          <Input aria-label="Comfortable field" defaultValue="Review the change" />
+        </div>
+      </Frame>
       <Frame id="coverage-answer-actions" title="Answer actions">
         <PaneProvider scope={{ paneId: 'coverage-answer-actions', view: { kind: 'conversation', session: PREVIEW_SESSION_KEY }, sessionKey: PREVIEW_SESSION_KEY }}>
           <div className="p-4"><MessageActions text="A recorded placeholder answer." /></div>
