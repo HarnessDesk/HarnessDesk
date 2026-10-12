@@ -406,3 +406,20 @@ it('a profile name never becomes a preference search result', async () => {
   expect(document.body.textContent).toContain('Nothing in settings matches')
   expect(document.body.querySelector<HTMLInputElement>('input[aria-label="Your name"]')?.value).toBe(name)
 })
+
+// The former window rail is now the shared left column; the page keeps its label.
+it('cuts a label the runtime chose rather than wrapping its row', async () => {
+  const label = 'Skills and commands with a long agent supplied name'
+  const info = runtime({ skills: true })
+  await mount([{ ...info, presentation: { ...info.presentation, skillsLabel: label } }])
+  const row = container.querySelector<HTMLButtonElement>(`[aria-label="Settings navigation"] button[aria-label="${label}"]`)!
+  expect(row).not.toBeNull()
+  const text = row.querySelector<HTMLElement>('[data-slot="sidebar-menu-label"]')!
+  expect(text.className).toContain('min-w-0')
+  expect(text.className).toContain('truncate')
+  const rows = [...container.querySelectorAll('[aria-label="Settings navigation"] [data-left-row] > button')]
+  expect(rows.length).toBeGreaterThan(10)
+  expect(new Set(rows.map(one => one.className)).size).toBe(1)
+  await act(async () => row.click())
+  expect(page()).toBe(label)
+})

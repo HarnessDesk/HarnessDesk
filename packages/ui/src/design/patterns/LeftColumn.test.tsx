@@ -107,3 +107,18 @@ test('open disclosures hide at rest and reveal on heading hover or keyboard focu
     expect(arrow.hasAttribute('data-open')).toBe(false)
   } finally { css.remove() }
 })
+
+test('keeps the trailing values out of the label’s space', () => {
+  const label = 'An agent supplied destination label long enough to reach its count'
+  mount(<LeftColumnRow label={label} trailing={{ kind: 'count', value: 25, label: '25 accounts' }} />)
+  const row = container.querySelector('[data-left-row]')!
+  const text = row.querySelector('[data-slot="sidebar-menu-label"]')!
+  const trail = row.querySelector('[data-left-trailing]')!
+  expect(text.className).toContain('truncate')
+  expect(trail.textContent).toBe('25')
+  expect(trail.parentElement).toBe(row)
+  expect(text.contains(trail)).toBe(false)
+  expect(sheet).toMatch(/\.button \[data-slot='sidebar-menu-label'\]\s*\{\s*padding-inline-end: var\(--hd-icon-target\);/)
+  expect(sheet).toMatch(/\.trailing\s*\{[^}]*position: absolute;[^}]*width: var\(--hd-icon-target\);/)
+  expect(sheet).toMatch(/\.row\s*\{[^}]*height: var\(--hd-left-row-h\);/)
+})
