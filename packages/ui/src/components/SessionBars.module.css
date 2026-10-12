@@ -1,17 +1,14 @@
 /* Goal bar, jobs strip, and deliverables — the ambient state around a conversation. */
 
 .goal {
+  flex-wrap: wrap;
   max-width: var(--hd-column);
   margin: 0 auto 8px;
 }
 
-.goalIcon {
-  flex: none;
-}
-
 .goalText {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 10em;
+  min-width: min(100%, 10em);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -22,7 +19,7 @@
 }
 
 .goalClear {
-  flex: none;
+  margin-inline-start: auto;
 }
 
 /* --- jobs -------------------------------------------------------------- */

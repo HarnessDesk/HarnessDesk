@@ -49,7 +49,7 @@ export const GoalBar = () => {
 
   return (
     <Alert tone="neutral" className={`${styles.goal} gap-2`}>
-      <Text role="meta" tone="brand" className={styles.goalIcon}>
+      <Text role="meta" tone="brand">
         <GoalIcon size={14} />
       </Text>
       <Text role="row" className={styles.goalText} title={goal.objective}>
