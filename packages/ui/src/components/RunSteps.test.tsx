@@ -263,3 +263,18 @@ it('a one-step Flow has no retired tool footer', () => {
     expect(container.querySelector('[data-step-row="writer"]')).not.toBeNull()
   } finally { act(() => root.unmount()) }
 })
+
+
+it('Timeline selection follows every visit to the selected Flow step and preserves each round target', () => {
+  const input = runFixture()
+  const container = document.createElement('div'), root = createRoot(container), select = vi.fn()
+  try {
+    act(() => root.render(<RunSteps timeline input={input} selectedRow="round-1" onSelect={select} />))
+    const visits = [...container.querySelectorAll('[data-step-row="writer"]')]
+    expect(visits.length).toBeGreaterThan(1)
+    for (const visit of visits) expect(visit.getAttribute('data-selected')).toBe('true')
+    expect(container.querySelector('[data-step-row="verify"]')?.hasAttribute('data-selected')).toBe(false)
+    act(() => visits.at(-1)!.querySelector<HTMLButtonElement>('button')!.click())
+    expect(select).toHaveBeenCalledWith('card-4-4')
+  } finally { act(() => root.unmount()) }
+})

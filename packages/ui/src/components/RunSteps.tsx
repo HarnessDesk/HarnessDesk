@@ -88,7 +88,7 @@ export const RunSteps = ({ input, selectedRow, selectedStep, faces, faceTints, a
     step={model.steps.find(step => step.id === one.step)
       ?? { id: one.step, kind: 'agent', name: wordOf(one.step), line: '', count: 1, agents: [] }}
     run={runOf(one)} faces={faces} faceTints={faceTints} now={now} subtitle={`Round ${one.round.n}${timeline && roundFacts(one.round.n) ? ` · ${roundFacts(one.round.n)}` : ''}`}
-    selected={chosen === one.round.n} onSelect={() => onSelect(select(one))} />
+    selected={step === one.step} onSelect={() => onSelect(select(one))} />
   const taken = groupRunSteps(normalized).map(group => {
     const first = group[0]!
     if (group.length === 1) return <Fragment key={first.round.n}>{renderOne(first)}</Fragment>
@@ -101,7 +101,7 @@ export const RunSteps = ({ input, selectedRow, selectedStep, faces, faceTints, a
     const row = <FlowStepRow timeline={timeline} seatNames={seatNames} repeated rowId={primary(group.at(-1)!)?.id} rowKind={primary(group.at(-1)!)?.kind} roundGroup={timeline ? first.round.n : undefined} step={model.steps.find(one => one.id === first.step)
       ?? { id: first.step, kind: 'agent', name: wordOf(first.step), line: '', count: 1, agents: [] }}
       run={{ ...runOf(first), runs: group.length }} now={now} faces={faces} faceTints={faceTints}
-      subtitle={`Rounds ${first.round.n}–${group.at(-1)!.round.n}`} selected={group.some(one => one.round.n === chosen)} onSelect={timeline ? () => onSelect(select(group.at(-1)!)) : toggle} />
+      subtitle={`Rounds ${first.round.n}–${group.at(-1)!.round.n}`} selected={step === first.step} onSelect={timeline ? () => onSelect(select(group.at(-1)!)) : toggle} />
     if (timeline) return <Fragment key={first.round.n}>{row}</Fragment>
     return renderRound ? <Fragment key={first.round.n}>
       <TimelineItem section state="done" title={null} data-round-group={first.round.n} data-expanded={open}>{row}</TimelineItem>
