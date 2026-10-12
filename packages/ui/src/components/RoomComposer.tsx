@@ -46,6 +46,7 @@ import { ComposerNotices, NoticeStripOutlet } from './Notices'
 import { mainNoticeHost } from '../state/workbench'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
 import { RoomComposerOptions } from './RoomComposerOptions'
+import { HoldingMessagesChip } from './RoomMessaging'
 
 /**
  * What the composer needs to know about one member.
@@ -188,6 +189,8 @@ export const RoomComposer = ({
   room,
   members,
   messaging,
+  onMessaging,
+  messagingReason,
   card,
   statusLine,
   suspended = false,
@@ -203,6 +206,8 @@ export const RoomComposer = ({
   /** The roster, or null while the host has not answered yet. */
   readonly members: readonly RoomMember[] | null
   readonly messaging: boolean
+  readonly onMessaging: () => Promise<void>
+  readonly messagingReason?: string
   /**
    * A member's name card, hung off the chip that carries them.
    *
@@ -539,7 +544,7 @@ export const RoomComposer = ({
     },
     empty && {
       tone: 'muted',
-      text: 'No agents in this Team yet. Add one from the members menu.',
+      text: 'No agents in this Team yet. Add one from Seats in Details.',
     },
     recipients.some((one) => one.unavailable) && {
       tone: 'warn',
@@ -633,7 +638,7 @@ export const RoomComposer = ({
         />
       )}
 
-      {chosen.length > 0 && (
+      {(chosen.length > 0 || !messaging) && (
         <ComposerChips>
           {chosen.map((one) => (
             <ComposerChip
@@ -666,6 +671,7 @@ export const RoomComposer = ({
               )}
             </ComposerChip>
           ))}
+          {!messaging && <HoldingMessagesChip />}
         </ComposerChips>
       )}
 
@@ -682,10 +688,9 @@ export const RoomComposer = ({
         <Popover
           drop="up"
           align="left"
-          /* The title becomes the accessible name (the label is a glyph and a
-             span, not a string), so it has to *carry* the audience rather than
-             describe the control — a screen reader on "Who this reaches" is
-             told what the button is for and not what it currently says. */
+          aria-label="Send to"
+          /* The stable control name keeps the audience visible; the title
+             describes exactly who receives the message. */
           title={
             chosen.length === 0
               ? defaultAudience ? 'This message reaches everyone on the grid' : 'This message reaches everyone in the Team'
@@ -701,7 +706,7 @@ export const RoomComposer = ({
               <span>{tileLabels ? `To: ${tileAudience}` : audienceLabel(chosen)}</span>
             </>
           }
-        >
+         icons="none">
           {(close) => (
             <Menu close={close}>
               {tileLabels ? <>
@@ -757,6 +762,9 @@ export const RoomComposer = ({
                 </MenuNote>
               )}
               </>}
+              <MenuSeparator />
+              <MenuToggle icon={tileLabels ? undefined : null} label="Board-only" title="Agents cannot message each other; claims and signals continue." checked={!messaging} disabled={record ? RECORD_REASON : messagingReason}
+                onChange={() => { void onMessaging(); close() }} />
             </Menu>
           )}
         </Popover>

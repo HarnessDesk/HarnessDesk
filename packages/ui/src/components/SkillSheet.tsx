@@ -27,15 +27,14 @@ import {
   CodeText,
   DialogBody,
   DialogContent,
-  DialogDescription,
   DialogHead,
   DialogRoot,
-  DialogSubhead,
   EmptyState,
+  FormStack,
   IconTile,
   KeyValue,
   KeyValueRow,
-  Monogram,
+  Note,
   SectionFooter,
   Segmented,
   Separator,
@@ -45,7 +44,6 @@ import {
 import { installSource, type LibraryColumn, type LibraryFlow } from './LibraryActions'
 import { shortPath } from '../lib/paths'
 import { REACH_SENTENCE } from '../lib/reach-states'
-import { monogramFor } from './SkillRow'
 
 /**
  * One skill, opened.
@@ -208,6 +206,30 @@ export const SkillSheet = ({
    * world one second after this sheet installs something.
    */
   const staleIn = entry.reach.filter((one) => one.state === 'stale')
+
+  const canToggleReach = (reach: LibraryEntry['reach'][number]): boolean =>
+    entry.kind === 'skill' &&
+    reach.basis === 'reported' &&
+    reach.toggleable !== false &&
+    (reach.state === 'reaches' || reach.state === 'off')
+  const reachFactCounts = new Map<string, { count: number; warning: boolean }>()
+  for (const reach of entry.reach) {
+    if (canToggleReach(reach)) continue
+    const sentence = REACH_SENTENCE[reach.state]
+    const fact = reachFactCounts.get(sentence) ?? { count: 0, warning: false }
+    fact.count += 1
+    fact.warning ||= isReachProblem(reach.state)
+    reachFactCounts.set(sentence, fact)
+  }
+  const repeatedReachFacts = [...reachFactCounts].filter(([, fact]) => fact.count > 1)
+  const repeatedReachSentences = new Set(repeatedReachFacts.map(([sentence]) => sentence))
+  const groupedWhy = new Map<string, string[]>()
+  for (const reach of entry.reach) {
+    if (reach.note) {
+      const label = columns.find((one) => one.id === reach.runtime)?.label ?? reach.runtime
+      groupedWhy.set(reach.note, [...(groupedWhy.get(reach.note) ?? []), label])
+    }
+  }
 
   /**
    * Agents that read this definition and refused it, with their reason.
@@ -421,26 +443,12 @@ export const SkillSheet = ({
       >
         {/* --- the head: what this is ---------------------------------- */}
         <DialogHead
-          icon={
-            <IconTile size="lg" aria-hidden>
-              <Monogram>{monogramFor(entry.name)}</Monogram>
-            </IconTile>
-          }
           title={entry.title ?? entry.name}
           aside={<Badge variant="secondary">{entry.kind === 'skill' ? 'Skill' : 'MCP server'}</Badge>}
         >
-          {/* The name as it is typed. Same reasoning as the card: the
-              on-disk identity and the invocation are two different
-              strings, and only showing the first leaves the second to
-              guesswork. It stays in the code face: it is what you type. */}
           <Text role="meta">
             <CodeText as="code">{entry.kind === 'skill' ? `/${entry.name}` : entry.name}</CodeText>
           </Text>
-          {entry.description && (
-            <DialogDescription className="m-0">
-              <Text role="muted">{entry.description}</Text>
-            </DialogDescription>
-          )}
         </DialogHead>
 
         {/* --- the body: the document, and the evidence ----------------- */}
@@ -458,29 +466,29 @@ export const SkillSheet = ({
           {/* The definition. The largest thing in the sheet, because it is
               the thing the sheet is about. */}
           <div className="flex min-w-0 flex-col md:min-h-0">
-            <DialogSubhead className="justify-between">
-              <Segmented
-                label="How to show the definition"
-                value={view}
-                options={[
-                  { value: 'rendered', label: 'Rendered' },
-                  { value: 'source', label: 'Source' },
-                ]}
-                onChange={setView}
-              />
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={definition === null}
-                onClick={copy}
-                title="Copy the definition exactly as it sits on disk"
-              >
-                <CopyIcon size={13} />
-                {copied ? 'Copied' : 'Copy'}
-              </Button>
-            </DialogSubhead>
-
             <DialogBody layout="reading">
+              <div className="mb-4 flex items-center justify-between gap-2">
+                <Segmented
+                  label="How to show the definition"
+                  value={view}
+                  options={[
+                    { value: 'rendered', label: 'Rendered' },
+                    { value: 'source', label: 'Source' },
+                  ]}
+                  onChange={setView}
+                />
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={definition === null}
+                  onClick={copy}
+                  title="Copy the definition exactly as it sits on disk"
+                >
+                  <CopyIcon size={13} />
+                  {copied ? 'Copied' : 'Copy'}
+                </Button>
+              </div>
+              {entry.description && <Text as="p" role="muted" className="mb-4">{entry.description}</Text>}
               {reading ? (
                 <EmptyState variant="inline" title="Reading the definition…" />
               ) : definition === null ? (
@@ -539,7 +547,8 @@ export const SkillSheet = ({
           {/* The evidence. Everything the matrix knew, about this one thing. */}
           <DialogBody layout="reading" className="flex min-w-0 flex-col gap-4">
             <Fact label="Which agents load it">
-              <div role="list" className="flex flex-col gap-1.5">
+              <FormStack>
+                <div role="list" className="flex flex-col gap-1.5">
                 {entry.reach.map((reach, index) => {
                   const column = columns[index]
                   const problem = isReachProblem(reach.state)
@@ -560,16 +569,14 @@ export const SkillSheet = ({
                    * A switch the host would refuse is worse than no switch:
                    * the row already has a true sentence to show instead.
                    */
-                  const switchable =
-                    entry.kind === 'skill' &&
-                    reach.basis === 'reported' &&
-                    reach.toggleable !== false &&
-                    (reach.state === 'reaches' || reach.state === 'off')
+                  const switchable = canToggleReach(reach)
                   return (
                     <div key={reach.runtime} role="listitem" className="flex min-w-0 items-baseline gap-2">
                       <span className="flex flex-none translate-y-0.5 items-center gap-1.5">
                         {column?.info ? (
-                          <RuntimeMark runtime={column.info} size={12} />
+                          <IconTile aria-hidden="true" size="xs" shape="face">
+                            <RuntimeMark runtime={column.info} size={12} />
+                          </IconTile>
                         ) : (
                           <span className="inline-block w-3" />
                         )}
@@ -590,7 +597,7 @@ export const SkillSheet = ({
                             }
                           />
                         </span>
-                      ) : (
+                      ) : repeatedReachSentences.has(REACH_SENTENCE[reach.state]) ? null : (
                         <Text
                           role="meta"
                           align="end"
@@ -607,7 +614,15 @@ export const SkillSheet = ({
                     </div>
                   )
                 })}
-              </div>
+                </div>
+                {repeatedReachFacts.map(([sentence, fact]) => (
+                  <Note key={sentence} ink="muted" {...(fact.warning ? { tone: 'warn' as const } : {})}>
+                    {sentence === REACH_SENTENCE.unscanned
+                      ? 'Installed where these agents do not look'
+                      : sentence}
+                  </Note>
+                ))}
+              </FormStack>
               {staleIn.length > 0 && (
                 <Text as="p" role="meta" ink="secondary" className="m-0 flex flex-wrap items-center gap-x-1.5 gap-y-1">
                   <span className="min-w-0">
@@ -657,24 +672,16 @@ export const SkillSheet = ({
               )}
             </Fact>
 
-            {entry.reach.some((one) => one.note) && (
+            {groupedWhy.size > 0 && (
               <Fact label="Why">
                 <div role="list" className="flex flex-col gap-1">
-                  {entry.reach
-                    .filter((one) => one.note)
-                    .map((reach) => (
-                      <Text as="p" role="meta" ink="secondary" key={reach.runtime} className="m-0">
-                        {/* An em dash, not a space. The notes are sentences
-                            and the labels are names, so "Claude Code On disk,
-                            but not in any directory…" ran the two together
-                            into something that read like a typo. */}
-                        <Text role="meta" ink="primary">
-                          {columns[entry.reach.indexOf(reach)]?.label ?? reach.runtime}
-                        </Text>
-                        {' — '}
-                        {reach.note}
-                      </Text>
-                    ))}
+                  {[...groupedWhy].map(([note, agents]) => (
+                    <Text as="p" role="meta" ink="secondary" key={note} className="m-0">
+                      <Text role="meta" ink="primary">{agents.join(', ')}</Text>
+                      {' — '}
+                      {note}
+                    </Text>
+                  ))}
                 </div>
               </Fact>
             )}

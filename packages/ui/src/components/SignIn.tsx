@@ -20,7 +20,7 @@ import { isDesktop, openExternal } from '../lib/desktop'
 import { readinessOf, type Readiness } from '../lib/readiness'
 import { useSnapshot, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
-import { AppWindowMode } from './AppWindow'
+import { SignInMode } from './SignInMode'
 import { RuntimeMark } from './BrandIcons'
 import { Prose } from './Prose'
 import {
@@ -38,7 +38,7 @@ import {
   AlertContent,
   AlertDescription,
   AlertTitle,
-  AppWindowRail,
+  SignInRail,
   Button,
   CodeText,
   DialogBody,
@@ -52,7 +52,6 @@ import {
   ListRow,
   ListRows,
   Note,
-  RailSection,
   Row as SettingsRow,
   RowButton,
   Rows,
@@ -181,7 +180,7 @@ const rowFor = (info: RuntimeInfo, snapshot: AppSnapshot): Row => {
 export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () => void }) => {
   const store = useStore()
   const snapshot = useSnapshot()
-  const embedded = useContext(AppWindowMode) === 'embedded'
+  const embedded = useContext(SignInMode) === 'embedded'
 
   const rows = useMemo(
     () => snapshot.runtimes.map((info) => rowFor(info, snapshot)),
@@ -241,7 +240,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
 
   return (
     /* Embedded — a catalogue specimen — it is not modal and takes no focus,
-       as `AppWindow` is not: a modal there hides the page around it from a
+       as a main page is not: a modal there hides the page around it from a
        screen reader and pulls focus into itself the moment its tab opens. */
     <DialogRoot open modal={!embedded} onOpenChange={(open) => { if (!open) close() }}>
       <DialogContent
@@ -257,10 +256,9 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
         <DialogHead title="Sign in" />
 
         <div className={own.split}>
-          {/* The rail is the window rail — the plate Settings and the
-              dashboard stand their rosters on — under the dialog's own head. */}
-          <AppWindowRail aria-label="Agents" className={own.rail}>
-            <RailSection stretch="list" density="comfortable" className={own.railList}>
+          {/* The sign-in roster stays below the dialog's own head. */}
+          <SignInRail aria-label="Agents" className={own.rail}>
+            <div data-slot="sign-in-list" className={own.railList}>
               {groups.map((group) => (
                 <div key={group.name} role="group" aria-label={group.name} className={own.group}>
                   <SectionHead
@@ -334,7 +332,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
                   <Text as="div" role="meta" className={own.railNote}>{registry.unavailable}</Text>
                 </div>
               )}
-            </RailSection>
+            </div>
 
             <SectionFooter>
               <Text as="div" role="muted">
@@ -342,7 +340,7 @@ export const SignIn = ({ runtime, onClose }: { runtime?: RuntimeId; onClose: () 
                 under {snapshot.credentialProtection} for the keys you paste.
               </Text>
             </SectionFooter>
-          </AppWindowRail>
+          </SignInRail>
 
           {/* The work beside the roster is the dialog's body: a reading
               body, inset the dialog's step, that scrolls on its own. The
@@ -1095,7 +1093,7 @@ const PasteCode = ({
 }) => {
   const store = useStore()
   // In a catalogue the field stands still: taking focus there takes it from the page around it.
-  const embedded = useContext(AppWindowMode) === 'embedded'
+  const embedded = useContext(SignInMode) === 'embedded'
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
   // The refusal count when the last code went, or null when none has gone yet.

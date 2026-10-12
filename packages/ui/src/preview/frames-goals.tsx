@@ -1,3 +1,4 @@
+import { TeamViewFrame } from './TeamViewFrame'
 import { useEffect, useMemo, useState } from 'react'
 
 import type { AuthoringSaveInput, FindingPublicationsView, FindingRunView, Intent } from '@harnessdesk/protocol'
@@ -142,7 +143,7 @@ type DialogOption = (typeof DIALOG_OPTIONS)[number]
 /** A public frame mounts only the finding's synthetic surface, without unrelated preview tooltips. */
 export const FindingFrames = ({ scene }: { readonly scene: string | null }) => scene === 'live' ? <LiveComparisonFinding /> : scene === 'rail' ? (
   <Frame id="goal-findings-rail" title="Goal — its findings rail">
-    <div className="max-h-[480px] overflow-y-auto p-4"><GoalFindings goal={PREVIEW_GOAL.goal.id} /></div>
+    <div className="max-h-[480px] overflow-y-auto p-4"><TeamViewFrame room={PREVIEW_GOAL.goal.id} page="findings"><GoalFindings goal={PREVIEW_GOAL.goal.id} /></TeamViewFrame></div>
   </Frame>
 ) : (
   <FindingDetail goal={PREVIEW_GOAL.goal.id} finding={scene === 'before' ? 'finding-before-selection' : scene === 'advisory-before' ? 'finding-before-advisory-selection' : scene === 'advisory' ? 'finding-not-kept-advisory' : 'finding-not-kept-1'} decide={RUN_VIEW} onClose={() => {}} />
@@ -221,7 +222,7 @@ export const GoalFrames = () => {
       {dialog === 'findings rail' && (
         <Frame id="goal-findings-rail" title="Goal — its findings rail">
           <div className="max-h-[480px] overflow-y-auto p-4">
-            <GoalFindings goal={PREVIEW_GOAL.goal.id} />
+            <TeamViewFrame room={PREVIEW_GOAL.goal.id} page="findings"><GoalFindings goal={PREVIEW_GOAL.goal.id} /></TeamViewFrame>
           </div>
         </Frame>
       )}

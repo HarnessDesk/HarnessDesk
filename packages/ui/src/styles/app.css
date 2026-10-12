@@ -151,6 +151,29 @@ a:hover {
   -webkit-app-region: drag;
 }
 
+/* Interactive targets stay clickable even when they are nested several
+   layers inside window chrome. Empty space in the chrome remains a handle. */
+.hd-drag :is(
+  button,
+  a[href],
+  input,
+  select,
+  textarea,
+  summary,
+  [contenteditable],
+  [tabindex]:not([tabindex='-1']),
+  [role='button'],
+  [role='link'],
+  [role='tab'],
+  [role='menuitem'],
+  [role='switch'],
+  [role='checkbox'],
+  [role='combobox'],
+  [role='option']
+) {
+  -webkit-app-region: no-drag;
+}
+
 /*
  * The cadence: a line of text that is still being written.
  *

@@ -31,10 +31,14 @@ test('a path gives up its middle and a sentence wraps, inside a narrow dialog', 
         document.body.append(facts);
         const h = factsReact.createElement;
         createRoot(facts).render(h(Dialog, { title: 'Arm this trigger', onClose: () => {} },
-          h(KeyValue, null,
+          h(KeyValue, { 'data-testid': 'mixed-facts' },
             h(KeyValueRow, { label: 'Source', kind: 'path' }, ${JSON.stringify(PATH)}),
             h(KeyValueRow, { label: 'Declares' }, ${JSON.stringify(SENTENCE)}),
             h(KeyValueRow, { label: 'Charged', numeric: true }, '$4.20'),
+          ),
+          h(KeyValue, { 'data-testid': 'numeric-facts' },
+            h(KeyValueRow, { label: 'Charged', numeric: true }, '$4.20'),
+            h(KeyValueRow, { label: 'Reserved', numeric: true }, '$12.00'),
           ),
         ));
       `,
@@ -48,7 +52,7 @@ test('a path gives up its middle and a sentence wraps, inside a narrow dialog', 
 
   const laid = await dialog.evaluate((node) => {
     const box = node.getBoundingClientRect()
-    const values = [...node.querySelectorAll('[data-slot="key-value"] dd')] as HTMLElement[]
+    const values = [...node.querySelectorAll('[data-testid="mixed-facts"] dd')] as HTMLElement[]
     const line = node.querySelector('[data-slot="middle-truncate"]') as HTMLElement
     const head = line.querySelector('[data-part="head"]') as HTMLElement
     const tail = line.querySelector('[data-part="tail"]') as HTMLElement
@@ -65,7 +69,8 @@ test('a path gives up its middle and a sentence wraps, inside a narrow dialog', 
       sentenceAlign: getComputedStyle(sentence!).textAlign,
       sentenceLines: Math.round(sentence!.getBoundingClientRect().height / lineHeight),
       moneyAlign: getComputedStyle(money!).textAlign,
-      keysStart: [...node.querySelectorAll('[data-slot="key-value"] dt')].map((key) => Math.round(key.getBoundingClientRect().left)),
+      numericAlign: [...node.querySelectorAll('[data-testid="numeric-facts"] dd')].map(value => getComputedStyle(value).textAlign),
+      keysStart: [...node.querySelectorAll('[data-testid="mixed-facts"] dt')].map((key) => Math.round(key.getBoundingClientRect().left)),
       valuesStart: values.slice(0, 2).map((value) => Math.round(value.getBoundingClientRect().left)),
     }
   })
@@ -77,10 +82,12 @@ test('a path gives up its middle and a sentence wraps, inside a narrow dialog', 
   expect(laid.headCut).toBe(true)
   expect(laid.headShown).toBeGreaterThan(10)
   expect(laid.tailWhole).toBe(true)
-  // A sentence is set left and wraps; a number is set right.
+  // Prose shares its value edge; numeric facts align by place in either list.
   expect(laid.sentenceAlign).toMatch(/^(left|start)$/)
   expect(laid.sentenceLines).toBeGreaterThan(1)
   expect(laid.moneyAlign).toMatch(/^(right|end)$/)
+  expect(laid.numericAlign).toHaveLength(2)
+  for (const alignment of laid.numericAlign) expect(alignment).toMatch(/^(right|end)$/)
   // One key column, one value column.
   expect(new Set(laid.keysStart).size).toBe(1)
   expect(new Set(laid.valuesStart).size).toBe(1)

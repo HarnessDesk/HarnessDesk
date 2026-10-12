@@ -59,7 +59,7 @@ const readyHealth: RuntimeHealth = {
   state: 'ready',
 }
 
-const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'teams' | 'agents' | 'dashboard' | 'plugins' | null = null) => {
+const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'teams' | 'agents' | 'library' | 'dashboard' | 'plugins' | null = null, doors: Partial<Pick<Parameters<typeof Sidebar>[0], 'onOpenSettings' | 'onOpenLibrary'>> = {}, settings?: Parameters<typeof Sidebar>[0]['settings']) => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -88,6 +88,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'teams' 
     newDraft,
     loadWorktrees: vi.fn(async () => {}),
     loadAgents: vi.fn(async () => {}),
+    returnToWork: vi.fn(),
     flowCatalog: vi.fn(async () => []), agentsIn: vi.fn(async () => []), openFrontDoor: vi.fn(), closeFrontDoor: vi.fn(),
   } as unknown as AppStore
 
@@ -103,6 +104,8 @@ const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'teams' 
           onSignIn={() => {}}
           onSearch={() => {}}
           activeDestination={activeDestination}
+          settings={settings}
+          {...doors}
         />
       </StoreProvider>,
     )
@@ -293,23 +296,48 @@ it('keeps the workbench-owned header, one content scroller, and footer as plain 
   expect(footer.childElementCount).toBeGreaterThan(0)
 })
 
-it('puts the unread Inbox before search in the title bar and keeps the footer for the person', () => {
+it('keeps the brand row between the top row and navigation in both column modes', () => {
+  mount()
+  const header = container.querySelector('[data-region="sidebar-header"]')!
+  const top = header.querySelector('[data-left-top]')!
+  const brand = header.querySelector('[data-left-brand]')!
+  const newSession = container.querySelector('button[aria-label="New session"]')!
+  expect(brand.textContent).toContain('HarnessDesk')
+  expect(top.nextElementSibling).toBe(brand)
+  expect(brand.querySelector('svg')?.getAttribute('height')).toBe('14')
+  expect(brand.classList.contains('hd-drag')).toBe(true)
+  expect(brand.compareDocumentPosition(newSession) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+  mount({}, null, {}, { section: 'general', onSection: () => {}, onBack: () => {} })
+  const settingsBrand = container.querySelector('[data-left-brand]')!
+  const back = container.querySelector('[data-left-settings] button[aria-label="Back"]')!
+  expect(settingsBrand.textContent).toContain('HarnessDesk')
+  expect(settingsBrand.compareDocumentPosition(back) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+})
+
+it('leaves sidebar notice cards out of Settings navigation so the last group stays reachable', () => {
+  mount({ goalMigrationPending: true }, null, {}, { section: 'general', onSection: () => {}, onBack: () => {} })
+  expect(container.querySelector('[data-slot="notice-card"]')).toBeNull()
+  expect(container.querySelector('[data-left-settings] button[aria-label="Browser"]')).not.toBeNull()
+})
+
+it('puts the unread Inbox beside the Settings gear in the seat row', () => {
   mount({ inbox: [{ id: 'kept', tone: 'info', title: 'Review ready', at: 0, read: false }] })
   const header = container.querySelector('[data-region="sidebar-header"]')!
   const footer = container.querySelector('[data-region="sidebar-footer"]')!
   const search = header.querySelector<HTMLButtonElement>('button[aria-label="Search everything"]')!
   const titleBar = search.closest('[data-slot="bar"]')!
-  const bell = titleBar.querySelector('[data-slot="inbox-button"]')!
+  const bell = container.querySelector('[data-left-seat] [data-slot="inbox-button"]')!
   expect(bell).not.toBeNull()
   expect(bell.hasAttribute('data-unread')).toBe(true)
   expect(bell.textContent).toBe('Inbox, 1 unread')
   expect(bell.querySelector('[data-slot="inbox-dot"]')).not.toBeNull()
   expect(bell.closest('button')?.title).toBe('Inbox, 1 unread')
-  expect(bell.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+  expect(bell.compareDocumentPosition(footer.querySelector('button[aria-label="Settings"]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   expect(titleBar.classList.contains('hd-drag')).toBe(true)
   expect(bell.closest('.hd-no-drag')).not.toBeNull()
-  expect(search.classList.contains('hd-no-drag')).toBe(true)
-  expect(footer.querySelector('[data-slot="inbox-button"]')).toBeNull()
+  expect(search.closest('.hd-no-drag')).not.toBeNull()
+  expect(footer.contains(bell)).toBe(true)
   expect(footer.querySelector('button[data-slot="popover-trigger"]')).not.toBeNull()
 })
 
@@ -318,7 +346,7 @@ it('puts the unread Inbox before search in the title bar and keeps the footer fo
  * remain present at the minimum sidebar width.
  */
 describe('sidebar destinations', () => {
-  it('renders four separate, labelled design-system rows with main counts at 200px', () => {
+  it('renders five separate, labelled design-system rows with main counts at 200px', () => {
     container.style.width = '200px'
     mount({
       agents: [{ id: 'a', origin: 'builtin', path: '/a/AGENT.md', digest: 'd', shadows: [], problems: [], definition: { id: 'a', name: 'A', ceiling: 'edit', ceilingFrom: 'permission', answers: [], produces: [], skills: [], prefer: [], brief: '' } }],
@@ -330,16 +358,12 @@ describe('sidebar destinations', () => {
     } as unknown as Partial<AppSnapshot>)
     const group = container.querySelector('[aria-label="Main sections"]')!
     const rows = [...group.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')]
-    expect(rows).toHaveLength(4)
-    expect(rows.map((one) => one.getAttribute('aria-label'))).toEqual(['Teams', 'Agents', 'Dashboard', 'Plugins'])
-    expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-label-content"]')?.textContent)).toEqual(['Teams', 'Agents', 'Dashboard', 'Plugins'])
-    expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-icon"]'))).toHaveLength(4)
-    expect(rows.map((one) => one.parentElement?.querySelector('[data-slot="sidebar-menu-badge"]')?.textContent?.trim())).toEqual([undefined, '1', '1', '2'])
-    const type = rows.map((one) => {
-      const label = one.querySelector<HTMLElement>('[data-slot="sidebar-menu-label-content"] [data-slot="text"]')!
-      return label.getAttribute('data-role')
-    })
-    expect(type).toEqual(['navigation', 'navigation', 'navigation', 'navigation'])
+    expect(rows).toHaveLength(5)
+    expect(rows.map((one) => one.getAttribute('aria-label'))).toEqual(['Teams', 'Agents', 'Library', 'Plugins', 'Dashboard'])
+    expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-label-content"]')?.textContent)).toEqual(['Teams', 'Agents', 'Library', 'Plugins', 'Dashboard'])
+    expect(rows.map((one) => one.querySelector('[data-slot="sidebar-menu-icon"]'))).toHaveLength(5)
+    expect(rows.map((one) => one.parentElement?.querySelector('[data-left-mark]')?.textContent?.trim())).toEqual([undefined, '1', undefined, '2', '1'])
+    expect(group.querySelectorAll('[data-left-trailing]')).toHaveLength(5)
   })
 
   it('fills the active row when its destination window is open', () => {
@@ -353,13 +377,13 @@ describe('sidebar destinations', () => {
   it('shows a Dashboard badge only when an agent needs attention', () => {
     mount()
     const dashboard = container.querySelector<HTMLButtonElement>('button[aria-label="Dashboard"]')!
-    expect(dashboard.parentElement?.querySelector('[data-slot="sidebar-menu-badge"]')).toBeNull()
+    expect(dashboard.parentElement?.querySelector('[data-left-mark]')).toBeNull()
 
     mount({
       usage: [{ runtime: CLAUDE, account: null, plan: null, lanes: [{ id: 'weekly', label: 'Weekly', usedPercent: 90, windowMinutes: 10080, resetsAt: null }], credits: null, spend: null, reached: null, source: { kind: 'runtime', label: 'API' }, fetchedAt: 1, staleAfterMs: 1, error: null }],
     } as unknown as Partial<AppSnapshot>)
     const needsAttention = container.querySelector<HTMLButtonElement>('button[aria-label="Dashboard"]')!
-    expect(needsAttention.parentElement?.querySelector('[data-slot="sidebar-menu-badge"]')?.textContent?.trim()).toBe('1')
+    expect(needsAttention.parentElement?.querySelector('[data-left-mark]')?.textContent?.trim()).toBe('1')
   })
 
   it('keeps everything-search and list-filter names distinct and calls the group Projects', () => {
@@ -371,10 +395,9 @@ describe('sidebar destinations', () => {
     expect(container.querySelector('[data-slot="navigation-group-label"]')?.textContent).toContain('Projects')
   })
 
-  it('renders the HarnessDesk wordmark at the documented 20px semibold role', () => {
+  it('keeps the brand wordmark in the header', () => {
     mount()
-    const brand = [...container.querySelectorAll<HTMLElement>('[data-slot="text"]')].find((one) => one.textContent === 'HarnessDesk')!
-    expect(brand.dataset.role).toBe('wordmark')
+    expect(container.querySelector('[data-region="sidebar-header"] [data-role="wordmark"]')?.textContent).toBe('HarnessDesk')
   })
 
   it('keeps New Team unavailable without a project folder', () => {
@@ -396,6 +419,26 @@ it('Teams is a top-level destination and marks its selected page', () => {
   expect(entry?.getAttribute('aria-current')).toBe('page')
 })
 
+it('keeps a conversation row unselected while another destination is current', () => {
+  const conversation: SessionSummary = {
+    id: sessionId('flaky-inventory'),
+    runtime: CLAUDE,
+    title: 'Pin the flaky inventory test',
+    preview: null,
+    cwd: '/workspace/repo',
+    status: { type: 'idle' },
+    createdAt: 1,
+    updatedAt: 2,
+  }
+  mount({
+    history: [conversation],
+    historyIdentity: [conversation],
+    activeSessionKey: sessionKey(CLAUDE, conversation.id),
+  }, 'agents')
+  expect(container.querySelector('button[aria-label="Agents"]')?.getAttribute('aria-current')).toBe('page')
+  expect(container.querySelector('button[aria-label="Pin the flaky inventory test"]')?.getAttribute('aria-current')).toBeNull()
+})
+
 
 it('offers paging when a short filtered list cannot produce a scroll event', () => {
   mount({ historyCursor: 'older-filtered', listPrefs: { ...emptySnapshot().listPrefs, agent: CLAUDE } })
@@ -403,4 +446,29 @@ it('offers paging when a short filtered list cannot produce a scroll event', () 
   expect(more).toBeDefined()
   act(() => more?.click())
   expect(loadHistory).toHaveBeenCalledOnce()
+})
+
+it('has one top row and five page doors in the approved order', () => {
+  mount()
+  const header = container.querySelector('[data-region="sidebar-header"]')!
+  expect(header.querySelectorAll('[data-slot="bar"]')).toHaveLength(2)
+  const group = container.querySelector('[aria-label="Main sections"]')!
+  expect([...group.querySelectorAll('[data-slot="sidebar-menu-button"]')]
+    .map(node => node.getAttribute('aria-label')))
+    .toEqual(['Teams', 'Agents', 'Library', 'Plugins', 'Dashboard'])
+  expect(header.querySelector('[data-role="wordmark"]')?.textContent).toBe('HarnessDesk')
+  expect(container.querySelector('button[aria-label="Settings"]')?.getAttribute('aria-pressed')).toBe('false')
+})
+
+it('Library keeps the existing section route and supports an explicit door', () => {
+  const settings = vi.fn(), library = vi.fn()
+  mount({}, 'library', { onOpenSettings: settings })
+  const row = () => container.querySelector<HTMLButtonElement>('button[aria-label="Library"]')!
+  expect(row().getAttribute('aria-current')).toBe('page')
+  act(() => row().click())
+  expect(settings).toHaveBeenCalledWith('library')
+  mount({}, 'library', { onOpenSettings: settings, onOpenLibrary: library })
+  act(() => row().click())
+  expect(library).toHaveBeenCalledOnce()
+  expect(settings).toHaveBeenCalledOnce()
 })

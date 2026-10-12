@@ -10,7 +10,7 @@ import { PaneSurface, ResizeHandle, Text } from '../design'
 import { DockPanelActions, DockPanelBar } from '../design'
 import { beginResize, endResize, markDragging } from '../lib/resizing'
 import { MountProvider } from '../panels/mount'
-import { PanelActions } from '../panels/PanelActions'
+import { MainWorkActions } from '../panels/MainWorkActions'
 import { ViewHost, useViewTitle, views } from '../panels/views'
 import { NoticeStripOutlet } from './Notices'
 import { PaneProvider, useSnapshot, useStore } from '../state/context'
@@ -90,16 +90,16 @@ const PaneView = ({ pane }: { pane: PaneNode }) => {
             * A strip, for a view that brought no header of its own.
             *
             * The main area draws no chrome — a conversation has its own header
-            * and a tool draws `PanelActions` in its — but the inspectors, the
+            * and a tool draws `MainWorkActions` in its — but the inspectors, the
             * board and the room have neither. Dropped into the middle they
             * arrived with no title, no close and no way back to an edge, which
             * is what "I dragged it here and now I can't close it" meant.
             */}
           {needsStrip(pane.view) && (
-            <DockPanelBar>
+            <DockPanelBar contentInset={pane.view.kind === 'activity' ? 'tool' : undefined}>
               <Text role="row" truncate className={styles.paneTitle}>{titleOf(pane.view)}</Text>
               <DockPanelActions>
-                <PanelActions where="strip" />
+                <MainWorkActions />
               </DockPanelActions>
             </DockPanelBar>
           )}

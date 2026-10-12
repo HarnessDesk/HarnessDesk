@@ -18,7 +18,7 @@ it('names the row, carries a destructive trash item, and returns focus on Escape
     const item = document.querySelector<HTMLElement>('[role="menuitem"]')!
     expect(item.textContent).toBe('Remove…')
     expect(item.dataset['variant']).toBe('destructive')
-    expect(item.querySelector('.lucide-trash-2')).toBeTruthy()
+    expect(item.querySelector('[data-menu-icon]')).toBeNull()
     await act(async () => item.click())
     expect(remove).toHaveBeenCalledOnce()
     await act(async () => trigger.click())

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import type { QuestionWait } from '@harnessdesk/protocol'
 
+import { DestinationPageScope } from '../panels/destination-page'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { QuestionWaitSection } from './SettingsQuestionWait'
@@ -56,4 +57,14 @@ it('keeps a choice once it is saved, and puts the old one back when the write do
   await act(async () => { radios()[0]!.click() })
   expect(save).toHaveBeenLastCalledWith('now')
   expect(chosen()).toEqual(['Until I’m back'])
+})
+
+it('keeps a pending saved choice across hide and reentry while old activation reads cannot overwrite it',async()=>{
+  let finish!:(value:boolean)=>void
+  const snapshot=emptySnapshot(),load=vi.fn(async()=>'5m' as const)
+  const store={subscribe:()=>()=>{},getSnapshot:()=>snapshot,loadQuestionWait:load,setQuestionWait:vi.fn(()=>new Promise<boolean>(yes=>{finish=yes}))} as unknown as AppStore
+  const render=(active:boolean)=>act(async()=>root.render(<StoreProvider store={store}><DestinationPageScope owner="destination:settings" active={active}><QuestionWaitSection/></DestinationPageScope></StoreProvider>))
+  await render(true);act(()=>radios()[3]!.click());await render(false);await render(true)
+  await act(async()=>finish(true))
+  expect(chosen()).toEqual(['An hour']);expect(load).toHaveBeenCalledTimes(1)
 })

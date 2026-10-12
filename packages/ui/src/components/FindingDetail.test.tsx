@@ -213,7 +213,7 @@ it('a finding of another run, or a Goal no longer open, keeps the decision greye
   Object.assign(store, { decideFindingRun: vi.fn(async () => runView()) })
   await renderDeciding(store, runView({ run: 'run-2' }))
   expect(clickNamed('Withdraw it').disabled).toBe(true)
-  expect(document.body.textContent).toContain('This finding belongs to an earlier run on this Goal.')
+  expect(document.body.textContent).toContain('This finding belongs to an earlier run on this Team.')
   await renderDeciding(store, runView({ undecidable: 'This Goal is wrapped. Its findings are history here; carry them into an open Goal to decide them.' }))
   expect(clickNamed('Withdraw it').disabled).toBe(true)
   expect(document.body.textContent).toContain('This Goal is wrapped.')

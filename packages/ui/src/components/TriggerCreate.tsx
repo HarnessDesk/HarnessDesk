@@ -24,6 +24,7 @@ import { DiffView } from './Diff'
 export interface TriggerCreateProps {
   readonly root: string
   readonly opens: TriggerDefinition['opens']
+  readonly dialogTitle?: string
   readonly onSaved: (id: string) => void
   readonly onClose: () => void
 }
@@ -36,8 +37,9 @@ const SOURCE_FIELDS: Readonly<Record<TriggerSource, readonly TriggerField[]>> = 
 }
 const SOURCE_SUBJECT: Readonly<Record<TriggerSource, TriggerField>> = { 'pull-request': 'pr', issue: 'issue', schedule: 'slot' }
 const FIELD_WORDS: Readonly<Record<TriggerField, string>> = {
-  pr: 'pull request', head: 'head commit', event: 'event', issue: 'issue', slot: 'scheduled time',
+  pr: 'Pull request', head: 'Head commit', event: 'Event', issue: 'Issue', slot: 'Scheduled time',
 }
+const sentenceCase = (value: string): string => value ? `${value[0]!.toLocaleUpperCase()}${value.slice(1)}` : value
 /** The whole minutes a schedule may name — the same bound the parser holds it to. */
 const SCHEDULE_MINUTES_MAX = 10080
 
@@ -46,7 +48,7 @@ const slugify = (text: string): string => {
   return slug || 'trigger'
 }
 
-export const TriggerCreate = ({ root, opens, onSaved, onClose }: TriggerCreateProps) => {
+export const TriggerCreate = ({ root, opens, dialogTitle = 'Every time', onSaved, onClose }: TriggerCreateProps) => {
   const store = useStore()
   const [existing, setExisting] = useState<AuthoringDocument | null>(null)
   const [readProblem, setReadProblem] = useState<string | null>(null)
@@ -179,7 +181,7 @@ export const TriggerCreate = ({ root, opens, onSaved, onClose }: TriggerCreatePr
   if (readProblem) return <Banner tone="danger" title="This project's triggers could not be read">{readProblem}</Banner>
   if (existing && existing.issues.length > 0) {
     return (
-      <Dialog title="Every time" onClose={onClose} footer={<Button variant="default" onClick={onClose}>Close</Button>}>
+      <Dialog title={dialogTitle} onClose={onClose} footer={<Button variant="default" onClick={onClose}>Close</Button>}>
         <Banner tone="danger" title="This project's triggers file cannot take an addition yet">
           <NoteList>
             {existing.issues.map((one) => <li key={`${one.at}-${one.text}`}><code>{one.at}</code> — {one.text} {one.fix}</li>)}
@@ -192,7 +194,7 @@ export const TriggerCreate = ({ root, opens, onSaved, onClose }: TriggerCreatePr
 
   return (
     <Dialog
-      title="Every time"
+      title={dialogTitle}
       size="lg"
       onClose={onClose}
       footer={saved ? (
@@ -238,32 +240,34 @@ export const TriggerCreate = ({ root, opens, onSaved, onClose }: TriggerCreatePr
               {source === 'pull-request' && definition.on.kind === 'pull-request' && (
                 <section aria-label="Events">
                   <SectionHead name="Events" />
-                  <Rows>
-                    {(['opened', 'pushed'] as const).map((event) => (
-                      <Row
-                        key={event}
-                        title={event}
-                        control={(
-                          <Switch
-                            checked={definition.on.kind === 'pull-request' && definition.on.events.includes(event)}
-                            aria-label={`Fire when a pull request is ${event}`}
-                            onCheckedChange={(checked) => {
-                              const events = definition.on.kind === 'pull-request' ? definition.on.events : []
-                              edit({ on: { kind: 'pull-request', events: checked ? [...events, event] : events.filter((one) => one !== event) } })
-                            }}
-                          />
-                        )}
-                      />
-                    ))}
-                  </Rows>
-                  <Field label="Forks">
-                    {(control) => (
-                      <NativeSelect {...control} value={definition.forks} onChange={(event) => edit({ forks: event.target.value as 'never' | 'allow' })}>
-                        <option value="never">Never</option>
-                        <option value="allow">Allow — read-only, no command runs against a fork</option>
-                      </NativeSelect>
-                    )}
-                  </Field>
+                  <FormStack spacing="section">
+                    <Rows>
+                      {(['opened', 'pushed'] as const).map((event) => (
+                        <Row
+                          key={event}
+                          title={sentenceCase(event)}
+                          control={(
+                            <Switch
+                              checked={definition.on.kind === 'pull-request' && definition.on.events.includes(event)}
+                              aria-label={`Fire when a pull request is ${event}`}
+                              onCheckedChange={(checked) => {
+                                const events = definition.on.kind === 'pull-request' ? definition.on.events : []
+                                edit({ on: { kind: 'pull-request', events: checked ? [...events, event] : events.filter((one) => one !== event) } })
+                              }}
+                            />
+                          )}
+                        />
+                      ))}
+                    </Rows>
+                    <Field label="Forks">
+                      {(control) => (
+                        <NativeSelect {...control} value={definition.forks} onChange={(event) => edit({ forks: event.target.value as 'never' | 'allow' })}>
+                          <option value="never">Never</option>
+                          <option value="allow">Allow — read-only, no command runs against a fork</option>
+                        </NativeSelect>
+                      )}
+                    </Field>
+                  </FormStack>
                 </section>
               )}
 
@@ -274,7 +278,7 @@ export const TriggerCreate = ({ root, opens, onSaved, onClose }: TriggerCreatePr
                     {(['labelled', 'closed', 'commented'] as const).map((event) => (
                       <Row
                         key={event}
-                        title={event}
+                        title={sentenceCase(event)}
                         control={(
                           <Switch
                             checked={definition.on.kind === 'issue' && definition.on.events.includes(event)}

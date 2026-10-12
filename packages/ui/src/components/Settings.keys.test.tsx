@@ -1,3 +1,4 @@
+import { SettingsTestPage as Settings } from '../test-support/settings-page'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -13,25 +14,7 @@ import {
   type RouteInfo,
   type StoredCredential,
 } from '../state/store'
-import { Settings } from './Settings'
-
-/**
- * The keys behind the custom endpoints, and a way to forget one.
- *
- * A secret was stored by one flow and released by another, and the two could
- * come apart: `routes/delete` drops the credential its route was the last
- * owner of, so a save that failed *after* the key went into the keychain, or
- * an endpoint removed while a second one still named the same key, left a
- * secret on the machine that nothing on screen mentioned and nothing could
- * remove. `credentials/delete` was on the wire the whole time, answered by the
- * host, covered by a server test, and called by nobody.
- *
- * The section only exists when there is something in it: an empty "Stored
- * keys" heading under an empty endpoint list is a permanent reminder of a
- * state that is fine.
- */
-
-;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let container: HTMLDivElement
 let root: Root
@@ -164,7 +147,8 @@ it('forgetting a key confirms first, says what breaks, and drops the row', async
   const remove = await removeOn('Proxy key')
   expect(remove).toBeTruthy()
   expect(remove?.getAttribute('data-variant')).toBe('destructive')
-  expect(remove?.querySelector('svg')).toBeTruthy()
+  expect(remove?.closest('[data-popup-kind]')?.getAttribute('data-menu-icons')).toBe('none')
+  expect(remove?.querySelector('svg')).toBeNull()
   act(() => remove?.click())
   /* The consequence differs by whether anything still names it, and this key
      is named: an endpoint is about to stop working. */

@@ -17,7 +17,6 @@ import {
   ToolPaneHeaderDivider,
   ToolPaneMessage,
   ToolPaneNotice,
-  ToolPaneReading,
   ToolPaneTabIcon,
   ToolPaneTabViewport,
   ToolPaneToolGroup,
@@ -39,9 +38,10 @@ afterEach(() => {
   container.remove()
 })
 
-it('offers the 48px toolbar height without a screen overriding its measure', () => {
- act(()=>root.render(<ToolPaneHeader title="Team" size="lg" />))
- expect(container.querySelector('header')?.className).toContain('h-(--hd-space-12)')
+it('keeps one bar height for a window header', () => {
+  act(() => root.render(<ToolPaneHeader title="Team" variant="window" />))
+  expect(container.querySelector('header')?.className).toContain('h-(--hd-bar-h)')
+  expect(container.querySelector('header')?.className).not.toContain('h-(--hd-space-12)')
 })
 
 it('owns the integrated pane frame and the window-corner header', () => {
@@ -79,6 +79,12 @@ it('uses the header inset for a padded body so their content starts together', (
   ))
   expect(container.querySelector('[data-slot="tool-pane-header"]')?.className).toContain('px-(--hd-bar-pad)')
   expect(container.querySelector('[data-slot="tool-pane-body"]')?.className).toContain('p-(--hd-inset-dense)')
+  expect(container.querySelector('[data-slot="tool-pane-body"]')?.className).toContain('gap-(--hd-card-gap)')
+})
+
+it('uses the shared stack gap for tool panel sections', () => {
+  act(() => root.render(<ToolPaneBody inset="tool"><div>One</div><div>Two</div></ToolPaneBody>))
+  expect(container.querySelector('[data-slot="tool-pane-body"]')?.className).toContain('gap-(--hd-card-gap)')
 })
 
 it('owns the bars, messages, document tabs and activity anatomy', () => {
@@ -98,7 +104,6 @@ it('owns the bars, messages, document tabs and activity anatomy', () => {
       </ToolPaneTabViewport>
       <ToolPaneActivity><ToolPaneActivityMark>1</ToolPaneActivityMark>Running</ToolPaneActivity>
       <ToolPaneToolGroup>Tools</ToolPaneToolGroup>
-      <ToolPaneReading>Reading</ToolPaneReading>
     </ToolPane>,
   ))
 
@@ -114,7 +119,6 @@ it('owns the bars, messages, document tabs and activity anatomy', () => {
     'tool-pane-activity',
     'tool-pane-activity-mark',
     'tool-pane-tool-group',
-    'tool-pane-reading',
   ]) expect(container.querySelector(`[data-slot="${slot}"]`)).not.toBeNull()
   expect(container.querySelector('[data-slot="tool-pane-tab-viewport"]')?.hasAttribute('data-more-start')).toBe(true)
   expect(container.querySelector('[data-slot="tool-pane-tab-viewport"]')?.hasAttribute('data-more-end')).toBe(true)

@@ -1,3 +1,4 @@
+import { installTopBarTestLayout } from '../test/top-bar-layout'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -6,9 +7,12 @@ import type {
   FindingDetailPage, FindingPage, FindingRunView, GoalView, HostMethodName, HostParams, SeatRecord, WireNotification,
 } from '@harnessdesk/protocol'
 
-import { StoreProvider } from '../state/context'
+import { PaneProvider, StoreProvider } from '../state/context'
+import { TopBarOutlet, TopBarProvider } from '../panels/top-bar'
 import { AppStore } from '../state/store'
 import { GoalFindings } from './GoalFindings'
+
+installTopBarTestLayout()
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -100,6 +104,32 @@ const notify = (store: AppStore, notification: WireNotification): void => {
   transport.handlers.onNotification(notification)
 }
 
+const FindingsFrame = ({ store }: { store: AppStore }) => <StoreProvider store={store}><TopBarProvider>
+  <PaneProvider scope={{ paneId: 'main', view: { kind: 'room', room: 'g1' }, sessionKey: null }}>
+    <TopBarOutlet owner="main" fallback={{ place: 'Ship it', more: () => null }} />
+    <GoalFindings goal="g1" />
+  </PaneProvider>
+</TopBarProvider></StoreProvider>
+
+it('B6 keeps the no-decision verb in the shell and removes body filter tabs on the real store', { timeout: TEST_MS }, async () => {
+  const store = new AppStore('ws://localhost:0/')
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+    if (method === 'finding/list') return findingsPage()
+    if (method === 'finding/run') return runView({ blocking: 0, reason: null })
+    throw new Error(`unexpected ${method}`)
+  }) as never)
+  notify(store, { method: 'goal/changed', params: { view: goalView() } })
+  notify(store, { method: 'flow/execution-changed', params: { execution: { id: 'run-1', goal: 'g1', findings: {} } as never } })
+  act(() => root.render(<FindingsFrame store={store} />))
+  await buttonSaying('finding-1')
+  expect(container.querySelector('[data-slot="view-bar"]')).toBeNull()
+  const decide = container.querySelector<HTMLButtonElement>('[data-topbar="verb"] button[aria-label="Decide this run"]')
+  expect(decide).not.toBeNull()
+  expect(decide!.disabled).toBe(true)
+  expect(decide!.title).toBe('This Run has no decision waiting')
+  expect(container.querySelector('[role="tab"]')).toBeNull()
+})
+
 /** Sets a textarea's value the way a browser does — through the element's own native setter, so React's controlled `onChange` actually fires (a hand-set `.value` with no such event would not). */
 const typeInto = (textarea: HTMLTextAreaElement, text: string): void => {
   act(() => {
@@ -159,7 +189,7 @@ it('refreshes the round budget and blind reviewer counts from a flow execution p
   notify(store, { method: 'goal/changed', params: { view: goalView() } })
   notify(store, { method: 'flow/execution-changed', params: { execution: { id: 'run-1', goal: 'g1', findings: {} } as never } })
   act(() => {
-    root.render(<StoreProvider store={store}><GoalFindings goal="g1" /></StoreProvider>)
+    root.render(<FindingsFrame store={store} />)
   })
   await eventually(() => {
     expect(container.textContent).toContain('Round5 of 5')
@@ -200,7 +230,7 @@ it('an already open detail rereads accepted comparison evidence without losing t
   })
   notify(store, { method: 'goal/changed', params: { view: goalView() } })
   push([])
-  act(() => root.render(<StoreProvider store={store}><GoalFindings goal="g1" /></StoreProvider>))
+  act(() => root.render(<FindingsFrame store={store} />))
   const opener = await buttonSaying('finding-1')
   act(() => opener.click())
   typeInto(await reasonBox(), 'Keep this draft while the judge finishes')
@@ -247,7 +277,7 @@ it('a reason typed on the real store path reaches finding/decide, and a live pus
   notify(store, { method: 'flow/execution-changed', params: { execution: { id: 'run-1', goal: 'g1', findings: {} } as never } })
 
   act(() => {
-    root.render(<StoreProvider store={store}><GoalFindings goal="g1" /></StoreProvider>)
+    root.render(<FindingsFrame store={store} />)
   })
   const opener = await buttonSaying('finding-1')
   act(() => opener.click())
@@ -320,7 +350,7 @@ it('a page-two finding keeps its origin run when finding/changed reloads page on
   notify(store, { method: 'flow/execution-changed', params: { execution: { id: 'run-1', goal: 'g1', state: 'running', findings: {} } as never } })
 
   act(() => {
-    root.render(<StoreProvider store={store}><GoalFindings goal="g1" /></StoreProvider>)
+    root.render(<FindingsFrame store={store} />)
   })
   const more = await buttonSaying('Load more')
   act(() => more.click())

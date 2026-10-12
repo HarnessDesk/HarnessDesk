@@ -359,13 +359,11 @@ describe('Submenu', () => {
   })
 
   it('→ lands past a first row that cannot take the focus', async () => {
-    const sheet = document.head.appendChild(document.createElement('style'))
-    sheet.textContent = '.gone { display: none }'
     act(() => {
       root.render(
         <Menu close={() => {}}>
           <Submenu label="Effort">
-            <MenuItem label="Gone" className="gone" selected={false} onSelect={() => {}} />
+            <div hidden><MenuItem label="Gone" selected={false} onSelect={() => {}} /></div>
             <MenuItem label="Low" selected={false} onSelect={() => {}} />
           </Submenu>
         </Menu>,
@@ -377,7 +375,6 @@ describe('Submenu', () => {
     await frame()
     expect(row('Effort').getAttribute('aria-expanded')).toBe('true')
     expect(document.activeElement).toBe(row('Low'))
-    sheet.remove()
   })
 
   it('→ waits a few frames for a first row the flyout draws late', async () => {
@@ -953,4 +950,14 @@ describe('ContextMenu', () => {
     expect(row('Rename')).toBeDefined()
     expect(row('Archive')).toBeDefined()
   })
+})
+
+it('an empty contextual menu states that no actions apply and still dismisses with Escape', async () => {
+  await act(async()=>root.render(<Popover label="Empty menu">{close=><Menu close={close}><>{null}{false}<>{undefined}</></></Menu>}</Popover>))
+  click(row('Empty menu')); await frame()
+  const menu = document.querySelector<HTMLElement>('[role="menu"]')!
+  expect(menu.textContent).toBe('No actions here.')
+  expect(menu.querySelectorAll('[role^="menuitem"]')).toHaveLength(0)
+  key(menu,'Escape'); await frame()
+  expect(document.querySelector('[role="menu"]')).toBeNull()
 })

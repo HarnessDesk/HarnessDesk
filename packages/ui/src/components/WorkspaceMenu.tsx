@@ -1,7 +1,7 @@
 import { useState } from 'react'
 
 import { migratedRoots, projectGroupRootOf, type ProjectGroup } from '../lib/projects'
-import { isPathInside, shortPath } from '../lib/paths'
+import { isPathInside } from '../lib/paths'
 import { captureForRoot, captureWords } from '../lib/provenance'
 import { isDesktop } from '../lib/desktop'
 import { useSnapshot, useStore } from '../state/context'
@@ -12,6 +12,7 @@ import {
   CopyIcon,
   FolderOpenIcon,
   HistoryIcon,
+  MoveFolderIcon,
   MoveDownIcon,
   MoveUpIcon,
   PinIcon,
@@ -27,6 +28,7 @@ import {
   Button,
   ContextMenu,
   MenuItem,
+  MiddleTruncate,
   MenuNote,
   MenuSeparator,
   PopoverGroupLabel,
@@ -103,7 +105,7 @@ export const WorkspaceMenu = ({
   })
   return (
     <>
-      <ContextMenu at={at} label={`Actions for ${group.name}`} onClose={onClose}>
+      <ContextMenu icons="all" at={at} label={`Actions for ${group.name}`} onClose={onClose}>
         <WorkspaceRows
           group={group}
           current={current}
@@ -270,7 +272,8 @@ const WorkspaceRows = ({
       <MenuItem
         icon={<CopyIcon size={14} />}
         label="Copy path"
-        hint={shortPath(actualRoot, snapshot.home)}
+        hint={<MiddleTruncate>{actualRoot}</MiddleTruncate>}
+        title={actualRoot}
         onSelect={() => void navigator.clipboard?.writeText(actualRoot)}
       />
       <MenuItem
@@ -313,7 +316,7 @@ const WorkspaceRows = ({
           } else store.togglePinned(group.root)
         }}
       />
-      <Submenu icon={<ChevronIcon size={14} />} label="Move">
+      <Submenu icons="all" icon={<MoveFolderIcon size={14} />} label="Move" wide>
         <MenuItem
           icon={<MoveUpIcon size={14} />}
           label="Move up"

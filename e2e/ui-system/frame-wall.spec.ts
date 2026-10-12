@@ -1,6 +1,12 @@
+import { applyPageFrameActions } from './frame-page-actions'
+import { installFramePreviewFixture } from './frame-preview-fixture'
+import { settleFrameBar } from './frame-actions'
+import { applyLeftColumnActions } from './left-column-actions'
+import { applySettingsNavigationActions } from './left-column-actions'
 import { mkdirSync } from 'node:fs'
 import path from 'node:path'
 import { expect, test } from '@playwright/test'
+import { FRAME } from '../../packages/ui/src/design/frame'
 import { WALL_DESTINATIONS, WALL_THEMES, WALL_TIME, WALL_WIDTHS } from './frame-wall-destinations'
 
 /**
@@ -21,15 +27,60 @@ test.skip(!DIRECTORY && !COMPARE, 'set FRAME_WALL_DIR or FRAME_WALL_COMPARE=1 to
 for (const destination of WALL_DESTINATIONS) {
   for (const theme of WALL_THEMES) {
     test(`frame wall: ${destination.id} in ${theme}`, async ({ page }) => {
+      await installFramePreviewFixture(page)
       await page.clock.setFixedTime(WALL_TIME)
       await page.emulateMedia({ colorScheme: theme })
       for (const width of WALL_WIDTHS) {
         await page.setViewportSize({ width, height: 900 })
         await page.goto(`/preview.html?${destination.query}&theme=${theme}`)
         await expect(page.locator('[data-frame-id="frame-wall"]')).toBeVisible()
+        if (destination.surface !== 'pattern') {
+          await page.waitForFunction(() => Boolean((window as Window & { __hdFrameWall?: unknown }).__hdFrameWall))
+          await page.evaluate(async () => { await (window as Window & { __hdFrameWall: { ready: Promise<void> } }).__hdFrameWall.ready })
+        }
         if (theme === 'dark') await expect(page.locator('body')).toHaveAttribute('data-hd-dark-theme', '')
-        if ('tab' in destination) await page.locator(`[data-team-page="${destination.tab}"]`).first().click()
+        await applyPageFrameActions(page, destination)
+        if (destination.id === 'agent') {
+          // The selected Agent reads its real authoring document asynchronously.
+          await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar-title]')).toContainText('Implementer')
+          await expect(page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Start a conversation as Implementer', exact: true })).toBeVisible()
+        }
+        if (destination.id === 'settings-appearance') {
+          await expect(page.getByLabel('Code editor preview').locator('.cm-content')).toContainText('export const plan')
+        }
+        if (destination.id === 'conversation-file') {
+          // The native editor loads after the shell; a blank box is not File evidence.
+          await expect(page.locator('[data-slot="work-tools"] .cm-content')).toContainText('Storefront')
+        }
+        if (destination.id === 'conversation-preview') {
+          // The opaque fixture guest must load its actual document before evidence.
+          await expect(page.locator('[data-slot="work-tools"] iframe').contentFrame().getByRole('heading', { name: 'Storefront preview' })).toBeVisible()
+        }
+        if (destination.id === 'conversation-plugin') {
+          // Show the actual contribution, rather than the earlier Details sections.
+          const facts = page.locator('[data-slot="work-tools"]').getByText('Synthetic work facts · 長い記録', { exact: true })
+          await facts.scrollIntoViewIfNeeded()
+          await expect(facts).toBeInViewport()
+        }
+        if (destination.viewChoice === 'Flow') {
+          // The native Flow engine is lazy. Its outer Run is visible while
+          // Suspense still shows loading text; capture the recorded drawing.
+          await expect(page.locator('[data-slot="workbench-main"] [data-slot="flow-canvas"] .react-flow__node')).toHaveCount(4)
+        }
+        await applyLeftColumnActions(page, destination)
+        await applySettingsNavigationActions(page, destination)
+        await openWallDestination(page, destination)
         await page.evaluate(async () => { await document.fonts.ready })
+        // TopBar measures its two folds over animation frames. Capture the
+        // measured contract, rather than its initial unmeasured tab row.
+        for (const bar of await page.locator('[data-slot="top-bar"]:visible').all()) {
+          await settleFrameBar(bar)
+          const title = bar.locator('[data-topbar-title]')
+          await expect.poll(async () => (await title.boundingBox())?.width ?? 0)
+            .toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+          const ink = (await title.boundingBox())!, place = (await bar.locator('[data-topbar="place"]').boundingBox())!
+          expect(ink.x + ink.width).toBeLessThanOrEqual(place.x + place.width)
+        }
         const name = `${destination.id}-${width}-${theme}.png`
         if (DIRECTORY) {
           mkdirSync(DIRECTORY, { recursive: true })
@@ -40,3 +91,5 @@ for (const destination of WALL_DESTINATIONS) {
     })
   }
 }
+
+import { openWallDestination } from './frame-wall-actions'

@@ -166,7 +166,7 @@ describe('the store', () => {
     }
   })
 
-  it('takes back a panel it had expanded when it is put away, rather than leave a window with nothing on it', () => {
+  it('fixed tool routing leaves main usable when the sidebar is put away', () => {
     /* A panel docked in the sidebar and expanded is the only area drawn; put
        the sidebar away with it — the dim, ⌘B — and nothing was left on screen,
        and no control. Found in review, and seen in a real engine: no button
@@ -178,8 +178,10 @@ describe('the store', () => {
       desk.showViewIn('sidebar', { kind: 'tasks' })
       if (narrow) desk.toggleSidebar()
       desk.zoomPanel('sidebar', 'content')
-      expect(desk.getSnapshot().workbench.zoom).toEqual({ area: 'sidebar', scope: 'content' })
-      expect(areaVisible(desk.getSnapshot().workbench, 'main')).toBe(false)
+      expect(desk.getSnapshot().workbench.zoom).toBeNull()
+      expect(desk.getSnapshot().workbench.sidebar.root).toMatchObject({ kind: 'stack', views: [] })
+      expect(desk.getSnapshot().workbench.frameTools[desk.workSubject()!]).toEqual({ tool: 'activity', mode: 'activity', open: true })
+      expect(areaVisible(desk.getSnapshot().workbench, 'main')).toBe(true)
 
       // The dim in a narrow window, ⌘B on the column in a wide one.
       if (narrow) desk.closeFloatingSidebar()
@@ -191,7 +193,7 @@ describe('the store', () => {
     }
   })
 
-  it('re-derives whether the sidebar has a column once putting it away has unzoomed it', () => {
+  it('a fixed right tool keeps the narrow sidebar floating without a sidebar zoom', () => {
     /* A zoom answers "no right panel to fit" — the predicate leaves zoomed
        layouts alone — so `narrowWindow` was false while the sidebar was
        expanded at 900px beside a drawn 280px panel. Putting the sidebar away
@@ -204,9 +206,10 @@ describe('the store', () => {
     desk.resizePanel('right', 280)
     desk.showViewIn('sidebar', { kind: 'tasks' })
     desk.zoomPanel('sidebar', 'content')
-    expect(desk.getSnapshot().narrowWindow).toBe(false)
-
+    expect(desk.getSnapshot().narrowWindow).toBe(true)
     desk.toggleSidebar()
+    expect(sidebarPlacement(desk.getSnapshot())).toBe('floating')
+    desk.closeFloatingSidebar()
 
     expect(desk.getSnapshot().workbench.zoom).toBeNull()
     expect(desk.getSnapshot().narrowWindow).toBe(true)
@@ -226,23 +229,25 @@ describe('the store', () => {
 })
 
 describe('the line', () => {
-  it('is the desktop window’s own minimum width', () => {
-    /* The whole case for 720 is that the desktop app, at its ordinary zoom, can
-       never be narrower. Lower that minimum and the app would float its
-       sidebar at an ordinary width, with nothing here going red. */
-    expect(electronMain).toMatch(new RegExp(`minWidth:\\s*${NARROW_WINDOW}\\b`))
+  it('keeps native minimum720 separate from the FRAME sidebar fold1000', () => {
+    expect(electronMain).toMatch(/minWidth:\s*720\b/)
+    expect(electronMain).toMatch(/minHeight:\s*520\b/)
+    expect(NARROW_WINDOW).toBe(1000)
   })
 })
 
 describe('the width, from the first frame', () => {
   const originalWidth = window.innerWidth
+  const originalHeight = window.innerHeight
   afterEach(() => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: originalWidth })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: originalHeight })
     vi.restoreAllMocks()
   })
 
   it('samples width before first paint and coalesces resize work to animation frames', () => {
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 700 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 900 })
     const callbacks: FrameRequestCallback[] = []
     const frame = vi.spyOn(window, 'requestAnimationFrame').mockImplementation((callback) => {
       callbacks.push(callback)
@@ -251,9 +256,11 @@ describe('the width, from the first frame', () => {
 
     const store = new AppStore('ws://localhost:0/')
     expect(store.getSnapshot().windowWidth).toBe(700)
+    expect(store.getSnapshot().windowHeight).toBe(900)
     expect(store.getSnapshot().narrowWindow).toBe(true)
 
     Object.defineProperty(window, 'innerWidth', { configurable: true, value: 1440 })
+    Object.defineProperty(window, 'innerHeight', { configurable: true, value: 600 })
     window.dispatchEvent(new Event('resize'))
     const scheduled = frame.mock.calls.length
     window.dispatchEvent(new Event('resize'))
@@ -261,6 +268,23 @@ describe('the width, from the first frame', () => {
     expect(frame).toHaveBeenCalledTimes(scheduled)
     for (const callback of callbacks) callback(0)
     expect(store.getSnapshot().windowWidth).toBe(1440)
+    expect(store.getSnapshot().windowHeight).toBe(600)
     expect(store.getSnapshot().narrowWindow).toBe(false)
   })
+})
+
+
+it('floats the sidebar at the frame boundary so a supported Team row retains its title floor', () => {
+  const desk = new AppStore('ws://localhost:0/')
+  vi.spyOn(desk.transport, 'request').mockImplementation((async () => null) as never)
+  desk.setWindowWidth(1000)
+  expect(sidebarPlacement(desk.getSnapshot())).toBe('column')
+  desk.setWindowWidth(999)
+  expect(sidebarPlacement(desk.getSnapshot())).toBe('away')
+  desk.toggleSidebar()
+  expect(sidebarPlacement(desk.getSnapshot())).toBe('floating')
+  desk.setWindowWidth(720)
+  expect(sidebarPlacement(desk.getSnapshot())).toBe('floating')
+  desk.setWindowWidth(1000)
+  expect(sidebarPlacement(desk.getSnapshot())).toBe('column')
 })

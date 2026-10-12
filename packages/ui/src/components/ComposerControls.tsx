@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { ConfigOption, OptionChoice, RuntimeId, RuntimeInfo, SeatAttachmentsRecord, SelectOption } from '@harnessdesk/protocol'
 
-import { Button, Chip, CodeText, Dialog, RowChoice, Search, Text } from '../design'
+import { Button, Chip, ComposerTrack, Dialog, RowChoice, Text } from '../design'
 import { Badge } from '../design'
 import { runtimeLabel } from '../lib/accounts'
 import { CARRY_OPTIONS, type Carry } from '../lib/handoff'
@@ -11,6 +11,7 @@ import { brandOf } from '../lib/identity'
 import { describesEveryChoice, riskTone, selectedChoice } from '../lib/options'
 import { matchPreset, presetsFor } from '../state/presets'
 import { describeChecked, describeUpdate, describeVersion } from '../lib/versions'
+import { openExternal } from '../lib/desktop'
 import { useActiveSession, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { useSeatAgent } from '../state/seat-agent'
 import { optionsBySlot } from '../lib/composer-slots'
@@ -42,7 +43,7 @@ import {
   ZapIcon,
 } from './Icons'
 import { ModelMark, RuntimeMark } from './BrandIcons'
-import { Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, RefusedAction, Submenu } from '../design'
+import { Menu, MenuItem, MenuLabel, MenuNote, MenuSearch, MenuSeparator, MenuToggle, RefusedAction, Submenu } from '../design'
 import { useOptionConfirm } from './OptionConfirm'
 import { Popover } from '../design'
 import sheet from './ComposerControls.module.css'
@@ -63,16 +64,22 @@ import sheet from './ComposerControls.module.css'
  * never heard of lands in "More" with a working menu.
  */
 
-const Chevron = () => <ChevronIcon size={11} style={{ transform: 'rotate(90deg)' }} />
+const Chevron = ({ size = 11 }: { size?: number }) => <ChevronIcon size={size} style={{ transform: 'rotate(90deg)' }} />
 
-const FOLD_ORDER = ['agent', 'work-in', 'more', 'mode', 'permissions', 'model'] as const
+const FOLD_ORDER = ['agent', 'more', 'context', 'mode', 'permissions', 'model'] as const
 type FoldableTrack = (typeof FOLD_ORDER)[number]
+type ToolbarTrack = FoldableTrack | 'work-in'
 type ToolbarStep = { folded: number; tight: boolean }
 
+const WIDE_TRACKS_WITH_OWN_MEASURE = new Set(['permissions', 'mode', 'context'])
 const trackToken = (track: string, size: 'wide' | 'folded' | 'tight'): string =>
-  `--hd-composer-track-${track}${size === 'wide' ? '' : `-${size}`}`
+  `--hd-composer-track-${track}${size === 'wide' ? (WIDE_TRACKS_WITH_OWN_MEASURE.has(track) ? '-wide' : '') : `-${size}`}`
 
-const px = (value: string): number => Number.parseFloat(value) || 0
+const px = (value: string, style?: CSSStyleDeclaration): number => {
+  const resolved = value.replace(/var\((--[\w-]+)(?:,\s*([^)]+))?\)/g, (_match, name: string, fallback: string | undefined) =>
+    style?.getPropertyValue(name).trim() || fallback || '')
+  return Number.parseFloat(resolved) || 0
+}
 
 /** The fold thresholds describe the toolbar's content box, not its padding. */
 const contentBoxWidth = (toolbar: HTMLElement): number => {
@@ -85,25 +92,41 @@ const contentBoxWidth = (toolbar: HTMLElement): number => {
     - px(style.borderRightWidth)
 }
 
-/** Read the active foundation once and measure fold steps from its tracks and gaps. */
+const wideTrackMeasurements = new WeakMap<HTMLElement, Map<string, number>>()
+
+/** Read the active foundation and current selected values before choosing fold steps. */
 const toolbarStepper = (toolbar: HTMLElement): ((width: number) => ToolbarStep) => {
   const style = getComputedStyle(toolbar)
   const layout = toolbar.dataset.composerLayout
   const tracks = ['add', ...(layout === 'live' ? [] : ['work-in']), 'agent', 'permissions', 'mode', 'extension', 'more', 'context', 'model', 'send']
-  // Reserve the populated Extension width regardless of whether an action is
-  // present; its presence varies by agent, but the fold steps must not.
-  const wideWidths = new Map(tracks.map((track) => [
-    track,
-    px(style.getPropertyValue(trackToken(track, 'wide'))),
-  ]))
+  const measuredWidths = wideTrackMeasurements.get(toolbar) ?? new Map<string, number>()
+  for (const trackName of tracks) {
+    const track = toolbar.querySelector<HTMLElement>(`[data-composer-track="${trackName}"]`)
+    if (!track || track.hasAttribute('data-folded') || track.hasAttribute('data-tight')) continue
+    const previousShrink = track.style.flexShrink
+    if (trackName === 'work-in') track.style.flexShrink = '0'
+    const width = track.getBoundingClientRect().width
+    track.style.flexShrink = previousShrink
+    measuredWidths.set(trackName, width)
+  }
+  wideTrackMeasurements.set(toolbar, measuredWidths)
+  const extension = toolbar.querySelector<HTMLElement>('[data-composer-track="extension"]')
+  const wideWidths = new Map(tracks.map((trackName) => {
+    const tokenWidth = px(style.getPropertyValue(trackToken(trackName, 'wide')), style)
+    const measured = measuredWidths.get(trackName) ?? 0
+    const width = trackName === 'extension' && extension?.childElementCount === 0
+      ? px(style.getPropertyValue('--hd-composer-track-extension-empty'), style)
+      : Math.max(tokenWidth, measured)
+    return [trackName, width]
+  }))
   const gap = px(style.columnGap) || px(style.gap)
   // ComposerGap is itself a flex child between the tracks, so there is one
   // more flex gap than there are spaces between the named tracks.
   const gaps = tracks.length * gap
   const total = (widths: ReadonlyMap<string, number>): number =>
     [...widths.values()].reduce((sum, trackWidth) => sum + trackWidth, gaps)
-  const order = FOLD_ORDER.filter((track) => layout !== 'live' || track !== 'work-in')
-  const foldedWidths = new Map(order.map((track) => [track, px(style.getPropertyValue(trackToken(track, 'folded')))]))
+  const order = FOLD_ORDER
+  const foldedWidths = new Map(order.map((track) => [track, px(style.getPropertyValue(trackToken(track, 'folded')), style)]))
   return (width) => {
     const widths = new Map(wideWidths)
     let folded = 0
@@ -123,7 +146,7 @@ const toolbarStepper = (toolbar: HTMLElement): ((width: number) => ToolbarStep) 
  * nothing — its options arrive after the runtime does — and starts watching
  * only once it has drawn something.
  */
-const useNarrowToolbar = (name: FoldableTrack): {
+export const useNarrowToolbar = (name: ToolbarTrack): {
   ref: (node: HTMLSpanElement | null) => void
   folded: boolean
   tight: boolean
@@ -155,6 +178,7 @@ const useNarrowToolbar = (name: FoldableTrack): {
     const onViewportResize = () => update()
     window.addEventListener('resize', onViewportResize)
     mutationObserver?.observe(toolbar, { attributes: true })
+    mutationObserver?.observe(toolbar, { childList: true, subtree: true })
     if (document.documentElement) mutationObserver?.observe(document.documentElement, { attributes: true })
     if (document.body) mutationObserver?.observe(document.body, { attributes: true })
     return () => {
@@ -163,8 +187,9 @@ const useNarrowToolbar = (name: FoldableTrack): {
       window.removeEventListener('resize', onViewportResize)
     }
   }, [toolbar, layout])
-  const order = FOLD_ORDER.filter((track) => toolbar?.dataset.composerLayout !== 'live' || track !== 'work-in')
-  return { ref, folded: step.folded >= order.indexOf(name) + 1, tight: step.tight }
+  const foldIndex = FOLD_ORDER.indexOf(name as FoldableTrack)
+  const foldable = foldIndex >= 0
+  return { ref, folded: foldable && step.folded >= foldIndex + 1, tight: foldable && step.tight }
 }
 
 /** A control's wrapper: no box of its own, just a way to reach the toolbar. */
@@ -186,71 +211,6 @@ const useComposerOptions = (): readonly ConfigOption[] | undefined => {
   if (session) return session.options
   return snapshot.draftOptions ?? undefined
 }
-
-export type ComposerTrackName =
-  | 'add'
-  | 'work-in'
-  | 'agent'
-  | 'permissions'
-  | 'mode'
-  | 'extension'
-  | 'more'
-  | 'context'
-  | 'model'
-  | 'send'
-
-const wideTrackClass: Record<ComposerTrackName, string> = {
-  add: sheet.trackAdd!,
-  'work-in': sheet.trackWorkIn!,
-  agent: sheet.trackAgent!,
-  permissions: sheet.trackPermissions!,
-  mode: sheet.trackMode!,
-  extension: sheet.trackExtension!,
-  more: sheet.trackMore!,
-  context: sheet.trackContext!,
-  model: sheet.trackModel!,
-  send: sheet.trackSend!,
-}
-
-const foldedTrackClass: Partial<Record<ComposerTrackName, string>> = {
-  'work-in': sheet.trackWorkInFolded!,
-  agent: sheet.trackAgentFolded!,
-  permissions: sheet.trackPermissionsFolded!,
-  mode: sheet.trackModeFolded!,
-  more: sheet.trackMoreFolded!,
-  model: sheet.trackModelFolded!,
-}
-
-const tightTrackClass: Partial<Record<ComposerTrackName, string>> = {
-  'work-in': sheet.trackWorkInTight!,
-  agent: sheet.trackAgentTight!,
-  permissions: sheet.trackPermissionsTight!,
-  mode: sheet.trackModeTight!,
-  more: sheet.trackMoreTight!,
-  model: sheet.trackModelTight!,
-}
-
-/** One named, token-sized position in the composer's toolbar. */
-export const ComposerTrack = ({
-  name,
-  folded = false,
-  tight = false,
-  children,
-}: {
-  name: ComposerTrackName
-  folded?: boolean
-  tight?: boolean
-  children?: ReactNode
-}) => (
-  <div
-    data-composer-track={name}
-    data-folded={folded || undefined}
-    data-tight={tight || undefined}
-    className={`${sheet.track} ${wideTrackClass[name]} ${folded ? foldedTrackClass[name] ?? '' : ''} ${tight ? tightTrackClass[name] ?? '' : ''}`}
-  >
-    {children}
-  </div>
-)
 
 const RefusedComposerControl = ({
   label,
@@ -357,7 +317,9 @@ const ChoiceRows = ({
               icon={choiceIcon(option, choice, agent)}
               selected={choice.value === option.currentValue}
               label={choiceLabel(option, choice)}
-              {...(column && choice.description ? { hint: choice.description } : {})}
+              {...(choice.description && !(option.category === '_profile' && choice.value === '') && (option.category === '_permissions'
+                ? choice.group === 'Profiles' || choice.risk === 'high' && (choice.label === 'Full access' || choice.label === 'Never ask')
+                : column) ? { hint: choice.description } : {})}
               {...(choice.description ? { title: choice.description } : {})}
               disabled={option.disabled || choice.disabled}
               onSelect={() => void (key ? store.setOption(option.id, choice.value, key) : store.setOption(option.id, choice.value))}
@@ -412,7 +374,7 @@ const FilterableChoices = ({ option, close }: { option: SelectOption; close: () 
   const store = useStore()
   const key = useSessionKey()
   const [query, setQuery] = useState('')
-  if (option.choices.length <= 8) return <ChoiceRows option={option} />
+  if (option.choices.length < 6) return <ChoiceRows option={option} />
   const needle = query.trim().toLowerCase()
   const filtered = needle
     ? option.choices.filter(
@@ -422,16 +384,9 @@ const FilterableChoices = ({ option, close }: { option: SelectOption; close: () 
     : option.choices
   return (
     <>
-      {/* The list's filter is the one every list draws: the compact field, a
-          line among the menu's borderless rows rather than a form to fill in.
-          The margin sets it on the rows' own inset. */}
-      <Search
-        size="compact"
-        icon="filter"
-        className="mx-1 mt-1 mb-0.5"
-        // eslint-disable-next-line jsx-a11y/no-autofocus
+      <MenuSearch
         autoFocus
-        placeholder={`Type to filter ${option.choices.length} choices…`}
+        label={`Type to filter ${option.choices.length} choices…`}
         value={query}
         onChange={setQuery}
         onKeyDown={(event) => {
@@ -495,7 +450,7 @@ export const PermissionControl = () => {
   const current = first?.type === 'select' ? currentLabel(first) : first?.label
 
   return (
-    <ComposerTrack name="permissions" folded={folded} tight={tight}>
+    <ComposerTrack name="permissions" folded={folded} tight={tight} contentSized={!folded && !tight}>
       <InToolbar refer={ref}>
         <Popover
           fullWidth
@@ -511,7 +466,7 @@ export const PermissionControl = () => {
               {!tight && <Chevron />}
             </>
           }
-        >
+         panelWidth="wide" icons="none">
           {(close) => (
             <Menu close={close}>
               {presets.length > 0 && (
@@ -661,7 +616,7 @@ export const ModelControl = () => {
               {!tight && <Chevron />}
             </>
           }
-        >
+         panelWidth="wide" icons="none">
           {(close) => (
             <Menu close={close}>
               {statuses.length > 0 && <MenuLabel>{name} {statuses.map((status) =>
@@ -691,8 +646,8 @@ export const ModelControl = () => {
                   label={option.label}
                   value={currentLabel(option)}
                   disabled={option.disabled}
-                  width={280}
-                >
+
+                 wide icons="none">
                   {option.description && <MenuNote>{option.description}</MenuNote>}
                   <ChoiceRows option={option} />
                   {/* Switches about thinking ride with the first effort select. */}
@@ -740,7 +695,7 @@ export const ModelControl = () => {
                 />
               )}
               {rest.length > 0 && model.type === 'select' && (
-                <Submenu icon={<ModelIcon size={14} />} label="More models" value={`${rest.length}`} width={300}>
+                <Submenu icon={<ModelIcon size={14} />} label="More models" value={`${rest.length}`}  wide icons="none">
                   <FilterableChoices option={{ ...model, choices: rest }} close={close} />
                 </Submenu>
               )}
@@ -750,8 +705,8 @@ export const ModelControl = () => {
                   icon={<RouteIcon size={14} />}
                   label="Model route"
                   value={activeRoute ? activeRoute.name : 'Direct'}
-                  width={300}
-                >
+
+                 wide icons="none">
                   <MenuItem
                     selected={snapshot.draftRouteId === null}
                     label="Direct"
@@ -786,10 +741,10 @@ export const ModelControl = () => {
 }
 
 /**
- * Which build this list came from, at the foot of the menu — and, when a
- * newer one is published, the fact and the command. The list is whatever the
- * running agent declared; a model that is "missing" is nearly always an agent
- * that is behind, and this is the one place a person looks when they notice.
+ * Which build this list came from, at the foot of the menu. When a newer one
+ * is available, its install action is one row and the command stays in the
+ * title. The list is whatever the running agent declared; a model that is
+ * "missing" is nearly always an agent that is behind.
  */
 const RuntimeBuildNote = () => {
   const store = useStore()
@@ -816,18 +771,15 @@ const RuntimeBuildNote = () => {
             {checked && ` · ${checked}`}
           </div>
         )}
-        {update && (
-          /* A shade warmer than the note around it. The command is the shared
-             command block — the muted plate Settings sets a command on — on a
-             line of its own, folding only when it is wider than the menu. */
-          <Text as="div" role="muted" className="mt-1" data-testid="runtime-update">
-            {update.text}
-            {update.command && (
-              <CodeText as="pre" block ground="muted" wrap className="mt-1">{update.command}</CodeText>
-            )}
-          </Text>
-        )}
       </MenuNote>
+      {update && <MenuItem
+        label={`Update ${runtime.presentation.name} to ${runtime.update?.version ?? ''}`}
+        title={update.command ?? update.url ?? undefined}
+        onSelect={() => {
+          if (update.command) void navigator.clipboard?.writeText(update.command)
+          else if (update.url) void openExternal(update.url)
+        }}
+      />}
     </>
   )
 }
@@ -835,6 +787,7 @@ const RuntimeBuildNote = () => {
 /** The runtime's collaboration modes — plan first, act directly, whatever it offers. */
 export const ModeControl = () => {
   const { ref, folded, tight } = useNarrowToolbar('mode')
+  const live = Boolean(useActiveSession())
   const all = useComposerOptions()
   const modes = optionsBySlot(all).mode
   const mode = modes[0]
@@ -851,11 +804,20 @@ export const ModeControl = () => {
   }
   const current = mode.type === 'select' ? selectedChoice(mode) : undefined
   const label = mode.type === 'select' ? currentLabel(mode) : mode.label
+  const singleValue = mode.type === 'select' && mode.choices.length === 1
+  const showFoldedMark = singleValue && folded && !live
 
   return (
-    <ComposerTrack name="mode" folded={folded} tight={tight}>
+    <ComposerTrack name="mode" folded={folded} tight={tight} contentSized={singleValue && !tight && (!folded || live)}>
       <InToolbar refer={ref}>
-        <Popover
+        {singleValue ? (
+          tight ? null : showFoldedMark ? (
+            <Chip tone="neutral" title={label}>
+              <ZapIcon size={13} />
+              <span className="sr-only">{label}</span>
+            </Chip>
+          ) : <Chip tone="neutral">{label}</Chip>
+        ) : <Popover
           fullWidth
           tightTrigger={tight}
           title={folded ? `${label} — ${mode.description ?? mode.label}` : mode.description ?? mode.label}
@@ -868,7 +830,7 @@ export const ModeControl = () => {
               {!tight && <Chevron />}
             </>
           }
-        >
+         panelWidth="wide" icons="none">
           {(close) => (
             <Menu close={close}>
               {modes.map((option) => (
@@ -876,7 +838,7 @@ export const ModeControl = () => {
               ))}
             </Menu>
           )}
-        </Popover>
+        </Popover>}
       </InToolbar>
     </ComposerTrack>
   )
@@ -904,7 +866,7 @@ export const MoreControl = () => {
                 {!tight && <Chevron />}
               </>
             }
-          >
+           panelWidth="wide" icons="none">
             {(close) => (
               <Menu close={close}>
                 {others.map((option) => (
@@ -1022,7 +984,7 @@ export const AgentControl = () => {
             {!tight && <Chevron />}
           </>
         }
-        >
+         panelWidth="wide" icons="all">
           {(close) => (
             <Menu close={close}>
               {session ? (
@@ -1044,21 +1006,23 @@ export const AgentControl = () => {
                       same for all of them, so N copies of it are N times the
                       height and none of the information. One runtime has
                       nowhere to hand off to. */}
-                  {others.length > 0 && (
-                    <>
-                      <MenuLabel>Hand off</MenuLabel>
-                      <MenuNote>Starts a new conversation there with what happened here.</MenuNote>
-                      {others.map((entry) => (
-                        <MenuItem
-                          key={entry.id}
-                          icon={<RuntimeMark runtime={entry} />}
-                          label={`Hand off to ${label(entry)}…`}
-                          onHighlight={() => warm(entry.id)}
-                          onSelect={() => { warm(entry.id); setHandoff(entry.id) }}
-                        />
-                      ))}
-                    </>
-                  )}
+                  {others.length > 0 && <Submenu
+                    label="Hand off to"
+                    icon={<HandoffIcon size={16} />}
+                    wide
+                    icons="all"
+                  >
+                    <MenuNote>Starts a new conversation there with what happened here.</MenuNote>
+                    {others.map((entry) => (
+                      <MenuItem
+                        key={entry.id}
+                        icon={<RuntimeMark runtime={entry} />}
+                        label={label(entry)}
+                        onHighlight={() => warm(entry.id)}
+                        onSelect={() => { warm(entry.id); setHandoff(entry.id) }}
+                      />
+                    ))}
+                  </Submenu>}
               </>
             ) : (
               <>
@@ -1208,12 +1172,12 @@ export const PlaceControl = () => {
   const store = useStore()
   const snapshot = useSnapshot()
   const session = useActiveSession()
-  const { ref, folded, tight } = useNarrowToolbar('work-in')
+  const { ref } = useNarrowToolbar('work-in')
   const workspace = snapshot.workspace
   if (session) return null
   if (!workspace) {
     return (
-      <ComposerTrack name="work-in" folded={folded} tight={tight}>
+      <ComposerTrack name="work-in">
         <InToolbar refer={ref}>{null}</InToolbar>
       </ComposerTrack>
     )
@@ -1295,16 +1259,15 @@ export const PlaceControl = () => {
       ? leaf(chosen.branch, chosenMain ? 'Local' : 'Worktree')
       : linked
         ? leaf(branch, 'Worktree')
-        : 'Local'
+        : folder
   const tagged = !armed && !chosenMain && (chosen !== null || linked)
 
   return (
-    <ComposerTrack name="work-in" folded={folded} tight={tight}>
+    <ComposerTrack name="work-in" contentSized shrinkable>
       <InToolbar refer={ref}>
         <Popover
           fullWidth
-          tightTrigger={tight}
-          title={folded ? `${word} — ${title}` : title}
+          title={title}
           drop="up"
           align="left"
           onOpenChange={(open) => open && void store.loadWorktrees()}
@@ -1317,16 +1280,14 @@ export const PlaceControl = () => {
             ) : (
               <LocalIcon size={13} />
             )}
-            {!folded && (
-              armed
-                ? <Text role="row" tone="brand" className={sheet.word}>{word}</Text>
-                : <Text role="row" className={sheet.word}>{word}</Text>
-            )}
-            {!folded && tagged && <Badge variant="secondary">worktree</Badge>}
-            {!tight && <Chevron />}
+            {armed
+              ? <Text role="row" tone="brand" className={sheet.word}>{word}</Text>
+              : <Text role="row" truncate title={workspace.path} className={sheet.word}>{word}</Text>}
+            {tagged && <Badge variant="secondary">worktree</Badge>}
+            <Chevron size={12} />
           </>
         }
-        >
+         panelWidth="wide" icons="none">
           {(close) => (
             <Menu close={close}>
               <MenuLabel>Work in</MenuLabel>

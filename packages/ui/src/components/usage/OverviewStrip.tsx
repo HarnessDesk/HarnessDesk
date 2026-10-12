@@ -18,8 +18,7 @@ import { cycleStartFromLanes, paidSummary, periodBounds } from '../../lib/paid'
 import { previousPeriod, stackDailyMetric, type ChartMetric } from '../../lib/ledger'
 import { formatTokens } from '../../lib/context-usage'
 import { formatMoney, provenanceLabel } from '../../lib/usage'
-import { Button, ChartCard, ChartFrame, ChartTitle, Chip, Delta, Separator, Text } from '../../design'
-import styles from './usage.module.css'
+import { Button, DashboardOverviewStats, Chip, Delta, Text } from '../../design'
 
 /** Which day-series the toggle picks — see `stackDailyMetric`'s own `ChartMetric`. */
 export type StripMetric = Exclude<ChartMetric, 'cost'> | 'value'
@@ -156,127 +155,32 @@ export const OverviewStrip = ({
     )
   }
 
-  return (
-    <ChartFrame className={styles.strip} aria-label="What it cost, in brief">
-      <ChartCard className={styles.stripRow}>
-        <div className={styles.stripCell}>
-          <Text role="meta">Paid</Text>
-          <div className={styles.stripFigureLine}>
-            <ChartTitle figure>
-              {currentPaid.amount === null ? '—' : formatMoney(currentPaid.amount, currentPaid.currency ?? 'USD')}
-            </ChartTitle>
-          </div>
-          {currentPaid.amount === null ? (
-            <Text role="meta" className={styles.stripCaption}>
-              <CaptionLink onClick={linkFor(reports[0]?.runtime)}>Set plan prices</CaptionLink>
-            </Text>
-          ) : (
-            paidCaption.length > 0 && (
-              <Text role="meta" className={styles.stripCaption}>
-                {paidCaption}
-              </Text>
-            )
-          )}
-        </div>
-
-        <Separator orientation="vertical" className={`h-auto! self-stretch ${styles.stripDivider}`} />
-
-        <div role="group" aria-label="Chart measure" className="contents">
-          <Button
-            size="panel"
-            variant="quiet"
-            className={`${styles.stripCell} items-start text-left`}
-            aria-pressed={metric === 'value'}
-            title={
-              valuePricing
-                ? `Value (${valuePricing}). Switch the chart below to cost per day`
-                : 'Value. Switch the chart below to cost per day'
-            }
-            onClick={() => onMetricChange('value')}
-          >
-            <Text role="meta">Value</Text>
-            <div className={styles.stripFigureLine}>
-              <ChartTitle figure>
-                {ledger === null ? '—' : ledger.totalCost === null ? 'unpriced' : formatMoney(ledger.totalCost, ledger.currency)}
-              </ChartTitle>
-              {valueChange !== null && <Delta value={Math.round(valueChange)} better="down" tone="neutral" />}
-            </div>
-            <Text
-              role="meta"
-              tone={ratio === null ? undefined : ratio >= 1 ? 'neutral' : 'warning'}
-              className={styles.stripCaption}
-            >
-              {ratio !== null
-                ? paidRatioCaption(ratio)
-                : currentCost !== null
-                  ? `${formatMoney(perDay(currentCost, range) ?? 0, ledger?.currency ?? 'USD')} a day`
-                  : ''}
-            </Text>
-          </Button>
-
-          <Separator orientation="vertical" className={`h-auto! self-stretch ${styles.stripDivider}`} />
-
-          <Button
-            size="panel"
-            variant="quiet"
-            className={`${styles.stripCell} items-start text-left`}
-            aria-pressed={metric === 'turns'}
-            title="Turns — switch the chart below to turns per day"
-            onClick={() => onMetricChange('turns')}
-          >
-            <Text role="meta">Turns</Text>
-            <div className={styles.stripFigureLine}>
-              <ChartTitle figure>{currentTurns !== null ? currentTurns.toLocaleString() : '—'}</ChartTitle>
-              {turnsChange !== null && <Delta value={Math.round(turnsChange)} better="down" tone="neutral" />}
-            </div>
-            <Text role="meta" className={styles.stripCaption}>
-              {perTurn !== null
-                ? `${formatMoney(perTurn, currentPaid.currency ?? 'USD')} paid a turn`
-                : turnsCoverage.partial
-                  ? `known for ${turnsCoverage.known} of ${turnsCoverage.total} agents`
-                  : ''}
-            </Text>
-          </Button>
-
-          <Separator orientation="vertical" className={`h-auto! self-stretch ${styles.stripDivider}`} />
-
-          <Button
-            size="panel"
-            variant="quiet"
-            className={`${styles.stripCell} items-start text-left`}
-            aria-pressed={metric === 'tokens'}
-            title="Tokens — switch the chart below to tokens per day"
-            onClick={() => onMetricChange('tokens')}
-          >
-            <Text role="meta">Tokens</Text>
-            <div className={styles.stripFigureLine}>
-              <ChartTitle figure>{currentTokens !== null ? formatTokens(currentTokens) : '—'}</ChartTitle>
-              {cacheHit !== null && (
-                <Chip size="sm" tone="neutral">
-                  {Math.round(cacheHit)}% cached
-                </Chip>
-              )}
-              {tokensChange !== null && <Delta value={Math.round(tokensChange)} better="down" tone="neutral" />}
-            </div>
-            <Text role="meta" className={styles.stripCaption}>
-              {tokensCoverage.partial
-                ? `known for ${tokensCoverage.known} of ${tokensCoverage.total} agents`
-                : (tokenSplitCaption(ledger?.totals) ?? '')}
-            </Text>
-          </Button>
-        </div>
-      </ChartCard>
-    </ChartFrame>
-  )
+  return <DashboardOverviewStats paid={{
+    value:currentPaid.amount === null ? '—' : formatMoney(currentPaid.amount, currentPaid.currency ?? 'USD'),
+    caption:currentPaid.amount === null ? <CaptionLink onClick={linkFor(reports[0]?.runtime)}>Set plan prices</CaptionLink> : paidCaption,
+  }} measures={[
+    {id:'value',label:'Value',value:ledger === null ? '—' : ledger.totalCost === null ? '—' : formatMoney(ledger.totalCost,ledger.currency),
+      caption:<Text role="meta" tone={ratio === null ? undefined : ratio >= 1 ? 'neutral' : 'warning'}>{ratio !== null ? paidRatioCaption(ratio) : currentCost !== null ? `${formatMoney(perDay(currentCost,range) ?? 0,ledger?.currency ?? 'USD')} a day` : ''}</Text>,
+      trend:valueChange !== null ? <Delta value={Math.round(valueChange)} better="down" tone="neutral" /> : undefined,
+      title:valuePricing ? `Value (${valuePricing}). Switch the chart below to cost per day` : 'Value. Switch the chart below to cost per day',
+      selected:metric === 'value',run:()=>onMetricChange('value')},
+    {id:'turns',label:'Turns',value:currentTurns !== null ? currentTurns.toLocaleString() : '—',
+      caption:perTurn !== null ? `${formatMoney(perTurn,currentPaid.currency ?? 'USD')} paid a turn` : turnsCoverage.partial ? `known for ${turnsCoverage.known} of ${turnsCoverage.total} agents` : '',
+      trend:turnsChange !== null ? <Delta value={Math.round(turnsChange)} better="down" tone="neutral" /> : undefined,
+      title:'Turns — switch the chart below to turns per day',selected:metric === 'turns',run:()=>onMetricChange('turns')},
+    {id:'tokens',label:'Tokens',value:currentTokens !== null ? formatTokens(currentTokens) : '—',
+      caption:tokensCoverage.partial ? `known for ${tokensCoverage.known} of ${tokensCoverage.total} agents` : tokenSplitCaption(ledger?.totals) ?? '',
+      trend:<>{cacheHit !== null && <Chip size="sm" tone="neutral">{Math.round(cacheHit)}% cached</Chip>}{tokensChange !== null && <Delta value={Math.round(tokensChange)} better="down" tone="neutral" />}</>,
+      title:'Tokens — switch the chart below to tokens per day',selected:metric === 'tokens',run:()=>onMetricChange('tokens')},
+  ]} />
 }
 
 /** A caption's own actionable half — plain text everywhere else, an inline link only where it does something. */
 const CaptionLink = ({ onClick, children }: { onClick?: () => void; children: ReactNode }) =>
   onClick ? (
-    // `chip` is the size that pairs the caption's type step with the target
-    // floor (`min-h-(--hd-target-min)`); a bare caption-height link sat under
-    // it at 15px (target-floor.spec).
-    <Button variant="link" size="chip" onClick={onClick}>
+    // `content` keeps its text on the stat column edge; the inline-link
+    // compound gives its target the required floor without moving that text.
+    <Button variant="link" size="content" onClick={onClick}>
       {children}
     </Button>
   ) : (

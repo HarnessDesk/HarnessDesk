@@ -5,16 +5,18 @@ import conversationTsx from '../components/Conversation.tsx?raw'
 import panesCss from '../components/Panes.module.css?raw'
 import sidebarCss from '../components/Sidebar.module.css?raw'
 import sidebarSource from '../components/Sidebar.tsx?raw'
+import leftColumnSource from '../design/patterns/LeftColumn.tsx?raw'
 import teamRoomCss from '../components/TeamRoomPane.module.css?raw'
 import teamRoomTsx from '../components/TeamRoomPane.tsx?raw'
-import terminalPaneSource from '../components/TerminalPane.tsx?raw'
-import toolPaneHeaderSource from '../components/ToolPaneHeader.tsx?raw'
+import terminalShellTabsSource from '../design/patterns/TerminalShellTabs.tsx?raw'
+import topBarSystem from '../design/patterns/TopBar.tsx?raw'
 import toolPanesCss from '../components/ToolPanes.module.css?raw'
 import toolPaneSystem from '../design/ui/tool-pane.tsx?raw'
 import barSystem from '../design/ui/bar.tsx?raw'
 import workbenchCss from './Workbench.module.css?raw'
 import dockPanel from '../design/patterns/DockPanel.tsx?raw'
 import appCss from '../styles/app.css?raw'
+import fixedShellSource from '../design/patterns/FixedShell.tsx?raw'
 
 /**
  * Room for the macOS window buttons, held to one mechanism.
@@ -47,29 +49,30 @@ import appCss from '../styles/app.css?raw'
 
 describe('the row under the macOS window buttons', () => {
   it("a conversation's header leaves room for them through the shared bar's corner", () => {
-    expect(conversationTsx).toMatch(/<Bar as="header" corner inset="ink"/)
+    expect(conversationTsx).toContain('useTopBar')
     expect(barSystem).toContain("corner ? 'pl-[max(var(--hd-bar-ink),var(--titlebar-inset,0px))]'")
   })
 
   it('a room’s top row leaves room for the window buttons through the shared bar’s corner', () => {
     // The window header delegates its corner inset to the shared tool header.
-    expect(teamRoomTsx).toMatch(/<ToolPaneHeader ref=\{headerLayout\.ref\} variant="window" corner/)
+    expect(teamRoomTsx).toContain('useTopBar')
     expect(barSystem).toContain("corner ? 'pl-[max(var(--hd-bar-ink),var(--titlebar-inset,0px))]'")
   })
 
   it("a tool's header leaves room for them through the shared corner role", () => {
-    expect(toolPaneHeaderSource).toContain('corner')
+    expect(topBarSystem).toContain('corner')
     expect(toolPaneSystem).toContain("corner && 'pl-[max(var(--hd-space-4),var(--titlebar-inset,0px))]'")
   })
 
   it("a terminal's own bar leaves room for them through its shared bar variant", () => {
-    expect(terminalPaneSource).toContain('variant="terminal"')
-    expect(toolPaneSystem).toContain("'gap-2 pr-2 pl-[max(var(--hd-space-2-5),var(--titlebar-inset,0px))]")
+    expect(terminalShellTabsSource).toMatch(/<DockPanelBar\b[^>]*data-terminal-shell-tabs=""[^>]*>/)
+    expect(dockPanel).toContain('pl-[max(var(--hd-space-2),var(--titlebar-inset,0px))]')
   })
 
   it("the sidebar's title bar leaves room for them through the shared bar's corner", () => {
     expect(sidebarCss).not.toMatch(/\.titlebar\s*{[^}]*padding/s)
-    expect(sidebarSource).toMatch(/<Bar corner\b/)
+    expect(sidebarSource).toMatch(/<LeftColumnTop\b/)
+    expect(leftColumnSource).toMatch(/<Bar corner\b/)
     expect(barSystem).toContain("corner ? 'pl-[max(var(--hd-bar-pad),var(--titlebar-inset,0px))]'")
   })
 
@@ -96,9 +99,12 @@ describe('the row under the macOS window buttons', () => {
   })
 
   it('and only the area holding the corner is given it', () => {
-    for (const area of ['sidebar', 'main', 'right', 'bottom']) {
+    // The fixed shell's one bar stays at top; right and bottom never own the corner.
+    for (const area of ['sidebar', 'main']) {
       expect(workbenchCss).toContain(`.shell[data-lights='${area}']`)
     }
+    expect(workbenchCss).toMatch(/\.shell\[data-lights='main'\] \[data-frame-region='top'\]/)
+    for (const area of ['right', 'bottom']) expect(workbenchCss).not.toContain(`.shell[data-lights='${area}']`)
     expect(workbenchCss).toMatch(/--titlebar-inset:\s*var\(--hd-titlebar-lights\)/)
   })
 
@@ -108,8 +114,15 @@ describe('the row under the macOS window buttons', () => {
     // indent a header that has nothing above it to clear.
     expect(panesCss).toMatch(/\.child\[data-side='second'\]\s*{\s*--titlebar-inset:\s*0px/)
     expect(panesCss).toMatch(/\.pane\[data-strip\][^{]*{\s*--titlebar-inset:\s*0px/)
-    expect(workbenchCss).toMatch(/\.half\[data-side='second'\][^{]*{\s*--titlebar-inset:\s*0px/)
-    expect(workbenchCss).toMatch(/\.layers\[data-under-bar\]\s*{\s*--titlebar-inset:\s*0px/)
+    // Dock halves and their tab-strip hosts are retired. The corner reserve
+    // belongs to the top region only; the three content hosts are its siblings.
+    expect(fixedShellSource).toContain('<div data-frame-region="top" className={styles.top}>{top}</div>')
+    expect(fixedShellSource).toContain('<div data-frame-region="main" className={styles.main}>{main}</div>')
+    for (const area of ['right', 'bottom']) expect(fixedShellSource).toContain(`data-frame-region="${area}"`)
+    // Fixed tools have no split halves or tab strips that can own the corner.
+    expect(workbenchCss).not.toContain('.half')
+    expect(workbenchCss).not.toContain(".shell[data-lights='right']")
+    expect(workbenchCss).not.toContain(".shell[data-lights='bottom']")
   })
 
   it('unless an expansion has left the second half holding the window', () => {
@@ -129,13 +142,13 @@ describe('nothing decides this for itself', () => {
     eager: true,
   })
 
-  it('only the shell asks whether there are window buttons at all', () => {
+  it('only the permanent shell host ask whether there are window buttons at all', () => {
     const asking = Object.entries(sources)
       .filter(([path]) => !/\.test\.tsx?$/.test(path) && !/\/lib\/desktop\.ts$/.test(path))
       .filter(([, text]) => /hasTrafficLights\(\)/.test(text))
       .map(([path]) => path)
-    // `Workbench` names the area in `data-lights`; every other component is
-    // told by the cascade, which is the whole point of doing it in one place.
+    // The permanent workbench owns the native corner.
+    // Page bodies still inherit the canonical reserve, never decide it.
     expect(asking).toEqual(['./Workbench.tsx'])
   })
 

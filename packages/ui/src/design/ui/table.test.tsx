@@ -1,3 +1,4 @@
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 
@@ -101,4 +102,18 @@ it('windows a thousand bare rows while spacers retain the full scroll extent', a
   expect(body.textContent).not.toContain('Row 94')
   expect(body.querySelectorAll('[aria-hidden="true"] td')[0]?.getAttribute('style')).toContain('height:4180px')
   expect(body.querySelectorAll('[aria-hidden="true"] td')[1]?.getAttribute('style')).toContain('height:38940px')
+})
+
+it('a page table viewport forwards its ref and scroll events while owning its bound', async () => {
+  const { act, createRef } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const host = document.createElement('div'), root = createRoot(host), ref = createRef<HTMLDivElement>()
+  let scrolled = false
+  try {
+    act(() => root.render(<Table viewport={{ref,onScroll:() => { scrolled=true }}}><tbody><TableRow><TableCell>History</TableCell></TableRow></tbody></Table>))
+    expect(ref.current?.getAttribute('data-slot')).toBe('table-container')
+    expect(ref.current?.className).toContain('max-h-(--hd-table-page-max-height)')
+    act(() => ref.current!.dispatchEvent(new Event('scroll',{bubbles:true})))
+    expect(scrolled).toBe(true)
+  } finally { act(() => root.unmount()) }
 })

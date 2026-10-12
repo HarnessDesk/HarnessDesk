@@ -111,4 +111,17 @@ describe('history search request ordering', () => {
 
     expect(store.getSnapshot().history).toEqual([])
   })
+  it('matches the displayed title across worktrees of one repository even when remote search misses it', async () => {
+    const rows = ['/work/storefront/.worktrees/lead', '/work/storefront/.worktrees/review'].map((cwd, i) => ({
+      ...summary(`worktree-${i}`), cwd, title: i === 0 ? 'Lead' : 'Review',
+      repo: { root: '/work/storefront', worktree: true },
+    }))
+    request.mockImplementation(((method: HostMethodName) => Promise.resolve(
+      method === 'session/index' ? { data: rows, nextCursor: null } : method === 'session/search' ? { data: [], nextCursor: null } : null
+    )) as never)
+    await store.loadHistory({ reset: true })
+    await store.searchHistory('Lead')
+    expect(store.getSnapshot().history.map(row => row.title)).toEqual(['Lead'])
+  })
+
 })

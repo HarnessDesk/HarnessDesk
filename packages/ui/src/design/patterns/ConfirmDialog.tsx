@@ -1,17 +1,15 @@
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useId, useRef, type ReactNode } from 'react'
 
-import { AlertIcon, TrashIcon } from '../../components/Icons'
 import { Button } from '../ui/button'
+import { cn } from '../../lib/utils'
 import {
   AlertDialog,
   AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
+  AlertDialogClose,
   AlertDialogTitle,
 } from '../ui/alert-dialog'
-import { cn } from '../../lib/utils'
 import styles from './ConfirmDialog.module.css'
+import { DIALOG_WIDTH, DialogBody, DialogFooter, DialogHead } from './ModalDialog'
 
 /**
  * "Are you sure?" — asked the same way every time.
@@ -37,7 +35,6 @@ import styles from './ConfirmDialog.module.css'
  */
 export const ConfirmDialog = ({
   title,
-  icon,
   confirmLabel,
   cancelLabel = 'Keep',
   tone = 'default',
@@ -50,7 +47,7 @@ export const ConfirmDialog = ({
   children,
 }: {
   title: string
-  /** Overrides the tone's glyph when the subject has an icon of its own. */
+  /** @deprecated Confirm dialogs share one anatomy and do not render leading icons. */
   icon?: ReactNode
   /** The verb for what happens — "Delete", "Remove worktree". Never "OK". */
   confirmLabel: string
@@ -80,6 +77,7 @@ export const ConfirmDialog = ({
   children: ReactNode
 }) => {
   const cancel = useRef<HTMLButtonElement>(null)
+  const descriptionId = useId()
   useEffect(() => {
     if (focusCancel && !busy) cancel.current?.focus()
   }, [focusCancel, busy])
@@ -107,29 +105,22 @@ export const ConfirmDialog = ({
          `cn` drops them here. A module rule saying the same would tie with
          them, and which won depended on the order a build loaded the sheets:
          the preview drew every confirm with a second 16px frame. */
-      className="flex max-h-(--hd-dialog-max-height) flex-col gap-0 overflow-hidden p-0"
+      className={cn(DIALOG_WIDTH.sm, 'flex max-h-(--hd-dialog-max-height) flex-col gap-0 overflow-hidden p-0')}
       initialFocus={false}
+      aria-describedby={descriptionId}
     >
-      <AlertDialogHeader
-        className={cn(styles.header, 'shrink-0 flex-row items-center gap-2')}
-        data-tone={tone === 'destructive' ? 'destructive' : undefined}
-      >
-        <span className={styles.icon}>
-          {icon ?? (tone === 'destructive' ? <TrashIcon size={16} /> : <AlertIcon size={16} />)}
-        </span>
-        <AlertDialogTitle className={styles.title}>{title}</AlertDialogTitle>
-      </AlertDialogHeader>
-      {/* A `div`, not the primitive's default `p`. Every caller passes block
-          content &mdash; `RemoveWorktree` passes a `section` and a `ul` &mdash;
-          and a `p` wrapping those is invalid nesting: React warns, and the
-          browser closes the paragraph early, which strands the rest of the body
-          outside the element `aria-describedby` points at. */}
-      {/* The body is the only part that scrolls: a confirm can be asked to
-          hold what it confirms — a whole skill, a server's command line — and
-          the question and both answers stay on screen however long that is. */}
-      <AlertDialogDescription render={<div />} className={cn(styles.body, 'min-h-0 min-w-0 flex-auto overflow-y-auto')} data-slot="confirm-body">
+      <DialogHead
+        title={title}
+        tone={tone}
+        Title={AlertDialogTitle}
+        Close={AlertDialogClose}
+        closeDisabled={busy}
+      />
+      {/* The body is the shared padded slot and the alert dialog's description:
+          a confirm can hold a whole skill or command while the answers stay fixed. */}
+      <DialogBody id={descriptionId} layout="reading" className={styles.confirmationBody}>
         {children}
-      </AlertDialogDescription>
+      </DialogBody>
       {/* The proceeding action is written first. The footer is `row-reverse`,
           so first in the markup paints rightmost &mdash; the first rule above.
           The order decides the keyboard too: nothing is focused on open, so
@@ -138,21 +129,23 @@ export const ConfirmDialog = ({
           and a Return keep things as they are. Written the other way round,
           every confirm in the app put the verb for leaving things alone where
           the pointer goes to proceed, and a Tab and a Return confirmed. */}
-      <AlertDialogFooter className={cn(styles.footer, 'mt-0 shrink-0')}>
-        {/* One filled button: the act, red when it destroys. The way to keep
-            things as they are is quiet — it is the answer that changes
-            nothing, and it should not compete with the one that does. */}
-        <Button
-          variant={tone === 'destructive' ? 'danger' : 'default'}
-          onClick={onConfirm}
-          disabled={busy || pending}
-        >
-          {busy ? (busyLabel ?? confirmLabel) : confirmLabel}
-        </Button>
-        <Button ref={cancel} variant="quiet" onClick={onCancel} disabled={busy}>
-          {cancelLabel}
-        </Button>
-      </AlertDialogFooter>
+      <DialogFooter actions={
+        <>
+          {/* One filled button: the act, red when it destroys. The way to keep
+              things as they are is quiet — it is the answer that changes
+              nothing, and it should not compete with the one that does. */}
+          <Button
+            variant={tone === 'destructive' ? 'danger' : 'default'}
+            onClick={onConfirm}
+            disabled={busy || pending}
+          >
+            {busy ? (busyLabel ?? confirmLabel) : confirmLabel}
+          </Button>
+          <Button ref={cancel} variant="quiet" onClick={onCancel} disabled={busy}>
+            {cancelLabel}
+          </Button>
+        </>
+      } />
     </AlertDialogContent>
   </AlertDialog>
   )

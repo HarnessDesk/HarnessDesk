@@ -1,14 +1,23 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, createElement, StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { StagedRun, RUN_STAGES, runTimeSegments } from '../../site-demo/fake-run'
-import { TeamRoomPane } from '../components/TeamRoomPane'
+import { TeamFramePreview } from './TeamFramePreview'
+import { runTimeline } from '../lib/run-timeline'
 import { StoreProvider } from '../state/context'
 import { flowOverlay } from '../lib/flow-overlay'
 import { flowModel } from '../lib/flow-model'
 import { SiteRunDemo } from '../../site-demo/run-demo'
 
-afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); window.history.replaceState(null, '', '/') })
+beforeEach(() => {
+  const rect = HTMLElement.prototype.getBoundingClientRect, computed = getComputedStyle
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    return this.matches('[data-topbar-title], [data-topbar="place"]') ? new DOMRect(0, 0, 300, 40) : rect.call(this)
+  })
+  vi.spyOn(globalThis, 'getComputedStyle').mockImplementation((node, pseudo) => node.matches('[data-slot="top-bar"]')
+    ? { getPropertyValue: name => name === '--hd-bar-title-min' ? '180px' : '' } as CSSStyleDeclaration : computed(node, pseudo))
+})
+afterEach(() => { vi.restoreAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals(); window.history.replaceState(null, '', '/') })
 
 describe('the site Run', () => {
   it('signals readiness once after the mounted scene has had a frame to paint', async () => {
@@ -46,8 +55,8 @@ describe('the site Run', () => {
     const button = (name: string) => [...document.querySelectorAll('button')].find(one => one.textContent === name)!
     try {
       await act(async () => root.render(createElement(StoreProvider, { store: run.store,
-        children: createElement(TeamRoomPane, { room: 'overlay-team' }) })))
-      await act(async () => button('Write, review, land').click())
+        children: createElement(TeamFramePreview, { room: 'overlay-team' }) })))
+      await act(async () => box.querySelector<HTMLButtonElement>('[data-team-page="run"]')!.click())
       await act(async () => button('Stop run…').click())
       await act(async () => button('Stop run').click())
       expect(document.querySelector('[role="alertdialog"]')?.textContent ?? '').toContain('Stopping is not available in this staged Run.')
@@ -197,7 +206,7 @@ describe('the site Run', () => {
     const button = (name: string) => [...box.querySelectorAll('button')].find(one => one.textContent === name)
     try {
       await act(async () => root.render(createElement(StoreProvider, { store: run.store,
-        children: createElement(TeamRoomPane, { room: 'overlay-team' }) })))
+        children: createElement(TeamFramePreview, { room: 'overlay-team' }) })))
       expect(box.querySelector('[data-slot="team-overview"]')).not.toBeNull()
       expect(button('Merged')).toBeDefined()
       await act(async () => button('Merged')!.click())
@@ -205,7 +214,12 @@ describe('the site Run', () => {
       expect(button('Merged')).toBeUndefined()
       await act(async () => button('Write, review, land')!.click())
       for (const round of [3, 6]) {
-        expect([...box.querySelectorAll(`[data-kind="card"][data-row^="card-${round}-"]`)].filter(one => one.textContent?.includes('Posted to #42'))).toHaveLength(2)
+        const data = run.read(), snapshot = run.store.getSnapshot()
+        expect(runTimeline({ ...data, sessions: snapshot.sessions, attempts: new Map([...data.attempts].map(([id, value]) => [id, value.attempts])) }).rows.filter(one => one.kind === 'card' && one.round === round && one.publication?.label === 'Posted to #42')).toHaveLength(2)
+        const row = box.querySelector(`[data-kind="card"][data-row^="card-${round}-"]`)!
+        expect(row).not.toBeNull()
+        expect(row.textContent).toContain('Posted to #42')
+        expect(row.textContent).toContain('2 of 2')
       }
     } finally { act(() => root.unmount()); run.dispose() }
   })

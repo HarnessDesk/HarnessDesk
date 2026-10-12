@@ -1,3 +1,4 @@
+import { RuntimesTestPage as RuntimesSection } from '../test-support/settings-page'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -13,12 +14,7 @@ import {
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { RuntimesSection } from './SettingsAgents'
-
-/** Default is a neutral mode on a record's name line. Detail pages still
- * report readiness separately; a neutral list mode must not erase that fact. */
-
-;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let container: HTMLDivElement
 let root: Root
@@ -68,7 +64,7 @@ const spent: UsageReport = {
   error: null,
 } as unknown as UsageReport
 
-const mount = async (over: Partial<AppSnapshot>): Promise<void> => {
+const mount = async (over: Partial<AppSnapshot>): Promise<AppStore> => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -102,7 +98,30 @@ const mount = async (over: Partial<AppSnapshot>): Promise<void> => {
       </StoreProvider>,
     )
   })
+  return store
 }
+
+it.each([true, false])('keeps the runtime default choice in the Settings body with a quiet bar (default=%s)', async (isDefault) => {
+  const workbench = emptySnapshot().workbench
+  const store = await mount({
+    activeRuntime: isDefault ? CLAUDE : runtimeId('another'),
+    accountsByRuntime: { [CLAUDE]: signedIn },
+    workbench: { ...workbench, navigation: { ...workbench.navigation, current: { kind: 'settings', route: { kind: 'section', section: 'runtimes', focus: null } } } },
+  })
+  await click(agentName(), 'the runtime row')
+  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('')
+  if (isDefault) {
+    const defaultChip = [...container.querySelectorAll('[data-slot="chip"]')].find(node => node.textContent === 'Default')
+    expect(defaultChip).toBeDefined()
+    expect(defaultChip?.closest('[data-slot="top-bar"]')).toBeNull()
+  } else {
+    const use = [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent === 'Use for new sessions')
+    expect(use).toBeDefined()
+    expect(use?.closest('[data-slot="top-bar"]')).toBeNull()
+    await click(use, 'the default action')
+    expect(store.selectRuntime).toHaveBeenCalledWith(CLAUDE)
+  }
+})
 
 /** The Default chip's state, wherever on the current screen it is. */
 const chip = (): string => {
@@ -137,7 +156,7 @@ const click = async (node: Element | null | undefined, what: string): Promise<vo
 
 const back = async (): Promise<void> => {
   await click(
-    [...container.querySelectorAll('button')].find((node) => node.textContent?.trim() === 'Runtimes'),
+    [...container.querySelectorAll('button')].find((node) => node.textContent?.trim() === 'Runtimes ›'),
     'the back link',
   )
 }
@@ -206,7 +225,7 @@ it('lists an agent as one line that opens its page, with nothing to fold', async
   await mount({ accountsByRuntime: { [CLAUDE]: signedIn } } as unknown as Partial<AppSnapshot>)
   // The accounts are not a fold under the line any more: the line says who
   // it is signed in as, and its page holds the rest.
-  expect(container.querySelector('button[aria-expanded]')).toBeNull()
+  expect(container.querySelector('[data-slot="rows"] button[aria-expanded]')).toBeNull()
   expect(agentName()?.textContent).toContain('olivia@acme.dev')
   await click(agentName(), 'the agent name')
   expect([...container.querySelectorAll('[data-slot="section-name"]')].map((node) => node.textContent)).toContain('Accounts')

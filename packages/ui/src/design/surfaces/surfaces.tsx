@@ -1,3 +1,9 @@
+import { DashboardDestinationFixture } from '../../preview/dashboard-destination-fixture'
+import { TopBarProvider } from '../../panels/top-bar'
+import { ShellHostsProvider, ShellOutlets } from '../../panels/shell-hosts'
+import { TeamViewFrame } from '../../preview/TeamViewFrame'
+import { TeamFramePreview } from '../../preview/TeamFramePreview'
+import { ConversationFrame } from '../../preview/ConversationFrame'
 import { TeamStartCases } from '../../preview/frames-team-start'
 import { GIT_PREVIEW_ROOT } from '../../preview/git-fixture'
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
@@ -15,7 +21,6 @@ import { TeamBoardPane } from '../../components/TeamBoardPane'
 import { TeamRoomPane } from '../../components/TeamRoomPane'
 import { Text } from '..'
 import { TerminalSurface as TerminalPane } from '../../components/TerminalPane'
-import { Usage } from '../../components/Usage'
 import { MountProvider } from '../../panels/mount'
 import { Workbench } from '../../panels/Workbench'
 import { dock, emptyWorkbench } from '../../state/workbench'
@@ -106,7 +111,7 @@ const personReviewBoardStore = new Proxy(previewStore({
 /** The synthetic board state used in the preview and the design catalogue. */
 export const PersonReviewBoard = () => (
   <Mount with={personReviewBoardStore}>
-    <TeamBoardPane room={PERSON_REVIEW_ROOM} />
+    <TeamViewFrame room={PERSON_REVIEW_ROOM} page="board"><TeamBoardPane room={PERSON_REVIEW_ROOM} /></TeamViewFrame>
   </Mount>
 )
 
@@ -255,12 +260,12 @@ export const ConversationSurface = () => (
             sessionKey: PREVIEW_SESSION_KEY,
           }}
         >
-          <Conversation
+          <ConversationFrame><Conversation
             onChooseProject={() => {}}
             onSignIn={() => {}}
             onOpenUsage={() => {}}
             onOpenRuntimes={() => {}}
-          />
+          /></ConversationFrame>
         </PaneProvider>
       </Frame>
     </Mount>
@@ -274,11 +279,11 @@ export const ConversationSurface = () => (
               sessionKey: PREVIEW_SESSION_KEY,
             }}
           >
-            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+            <ConversationFrame><Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} /></ConversationFrame>
           </PaneProvider>
         </Mount>
       </HeaderCase>
-      <HeaderCase id="conversation-header-ceiling" label="Ceiling chip (Read only)">
+      <HeaderCase id="conversation-header-ceiling" label="Read only seat · ceiling is in Details">
         <Mount>
           <PaneProvider
             scope={{
@@ -287,7 +292,7 @@ export const ConversationSurface = () => (
               sessionKey: PREVIEW_SESSION_KEY,
             }}
           >
-            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+            <ConversationFrame><Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} /></ConversationFrame>
           </PaneProvider>
         </Mount>
       </HeaderCase>
@@ -300,7 +305,7 @@ export const ConversationSurface = () => (
               sessionKey: PREVIEW_SESSION_KEY,
             }}
           >
-            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+            <ConversationFrame><Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} /></ConversationFrame>
           </PaneProvider>
         </Mount>
       </HeaderCase>
@@ -313,7 +318,7 @@ export const ConversationSurface = () => (
               sessionKey: PREVIEW_SESSION_KEY,
             }}
           >
-            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+            <ConversationFrame><Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} /></ConversationFrame>
           </PaneProvider>
         </Mount>
       </HeaderCase>
@@ -326,11 +331,11 @@ export const ConversationSurface = () => (
               sessionKey: PREVIEW_SESSION_KEY,
             }}
           >
-            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+            <ConversationFrame><Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} /></ConversationFrame>
           </PaneProvider>
         </Mount>
       </HeaderCase>
-      <HeaderCase id="conversation-header-narrow" label="Phone width (≤400px container)" width={360}>
+      <HeaderCase id="conversation-header-narrow" label="Minimum desktop width (720px)" width={720}>
         <Mount>
           <PaneProvider
             scope={{
@@ -339,7 +344,7 @@ export const ConversationSurface = () => (
               sessionKey: PREVIEW_SESSION_KEY,
             }}
           >
-            <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+            <ConversationFrame><Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} /></ConversationFrame>
           </PaneProvider>
         </Mount>
       </HeaderCase>
@@ -376,12 +381,12 @@ export const ConversationMapDenseSurface = () => (
             sessionKey: PREVIEW_SESSION_KEY,
           }}
         >
-          <Conversation
+          <ConversationFrame><Conversation
             onChooseProject={() => {}}
             onSignIn={() => {}}
             onOpenUsage={() => {}}
             onOpenRuntimes={() => {}}
-          />
+          /></ConversationFrame>
         </PaneProvider>
       </Frame>
     </Mount>
@@ -433,12 +438,12 @@ export const ConversationMapPreviewOpenSurface = () => {
               sessionKey: PREVIEW_SESSION_KEY,
             }}
           >
-            <Conversation
+            <ConversationFrame><Conversation
               onChooseProject={() => {}}
               onSignIn={() => {}}
               onOpenUsage={() => {}}
               onOpenRuntimes={() => {}}
-            />
+            /></ConversationFrame>
           </PaneProvider>
         </Frame>
       </Mount>
@@ -711,7 +716,11 @@ const seatRefusedStore = (): AppStore => {
   })
 }
 
-const SEAT_REFUSED_STORE = seatRefusedStore()
+/** This shell writes its own layout; sibling catalogue states keep theirs. */
+const StalledTeamFrame = () => {
+  const own = useMemo(seatRefusedStore, [])
+  return <Mount with={own}><Frame><TeamFramePreview room={PREVIEW_FLOW_GOAL.goal.id} /></Frame></Mount>
+}
 
 const keptAnswerStore = (scene: 'answer-kept' | 'answer-seat-gone'): AppStore =>
   previewStore({ flowExecutions: new Map([['preview-flow-run', sceneFlowExecution(scene)]]) })
@@ -775,7 +784,7 @@ export const GroupSurface = () => (
     <Mount>
       <div className={styles.pair}>
         <Frame>
-          <TeamBoardPane room={PREVIEW_ROOM} />
+          <TeamViewFrame room={PREVIEW_ROOM} page="board"><TeamBoardPane room={PREVIEW_ROOM} /></TeamViewFrame>
         </Frame>
         <Frame>
           <TeamRoomPane room={PREVIEW_ROOM} />
@@ -794,7 +803,7 @@ export const GroupSurface = () => (
         <Mount with={QUESTION_STOP_STORE}>
           <div className={styles.pair}>
             <Frame>
-              <TeamBoardPane room={PREVIEW_FLOW_GOAL.goal.id} />
+              <TeamViewFrame room={PREVIEW_FLOW_GOAL.goal.id} page="board"><TeamBoardPane room={PREVIEW_FLOW_GOAL.goal.id} /></TeamViewFrame>
             </Frame>
             <Frame>
               <TeamRoomPane room={PREVIEW_FLOW_GOAL.goal.id} />
@@ -807,11 +816,7 @@ export const GroupSurface = () => (
         {/* The room alone, at the width its conversation needs: the live
             line is the tail of the room's chat, which a half-width frame
             folds away behind the room's own rail. */}
-        <Mount with={SEAT_REFUSED_STORE}>
-          <Frame>
-            <TeamRoomPane room={PREVIEW_FLOW_GOAL.goal.id} />
-          </Frame>
-        </Mount>
+        <StalledTeamFrame />
       </div>
       <div className={styles.headerCase} data-testid="group-run-kept-answer">
         <span className={styles.headerCaseLabel}>A stalled run keeps an answer that can be sent again</span>
@@ -939,7 +944,7 @@ const panelsStore = previewStore({
 export const PanelsSurface = () => (
   <Mount with={panelsStore}>
     <Frame height="page">
-      <Workbench
+      <TopBarProvider><ShellHostsProvider><Workbench
         sidebar={
           <Sidebar
             onOpenSettings={() => {}}
@@ -951,7 +956,7 @@ export const PanelsSurface = () => (
             onSearch={() => {}}
           />
         }
-      />
+      /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
     </Frame>
   </Mount>
 )
@@ -971,7 +976,7 @@ export const DashboardSurface = () => {
   return (
     <Mount with={own}>
       <Frame height="window">
-        <Usage onClose={() => {}} onSignIn={() => {}} />
+        <DashboardDestinationFixture />
       </Frame>
     </Mount>
   )

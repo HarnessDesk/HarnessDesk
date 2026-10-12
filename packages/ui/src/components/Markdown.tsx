@@ -4,7 +4,6 @@ import {
   useMemo,
   useState,
   type MouseEvent as ReactMouseEvent,
-  type UIEvent as ReactUIEvent,
 } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { Marked } from 'marked'
@@ -46,7 +45,6 @@ const marked = new Marked({ gfm: true, breaks: true, async: false })
 const markedDocument = new Marked({ gfm: true, breaks: false, async: false })
 
 const copiedTimers = new WeakMap<HTMLButtonElement, number>()
-const scrollTimers = new WeakMap<HTMLElement, number>()
 
 /** Replaces fenced blocks with highlighted markup and gives each one its plate chrome. */
 const renderCodeBlocks = (html: string, dark: boolean): string => {
@@ -158,27 +156,12 @@ export const Markdown = ({
     }).catch(() => store.notice('warning', 'Could not copy to the clipboard.'))
   }, [store])
 
-  const showScrollbar = useCallback((event: ReactUIEvent<HTMLDivElement>) => {
-    const target = event.target instanceof HTMLElement ? event.target : null
-    if (!target?.matches('pre code')) return
-    const plate = target.closest<HTMLElement>('[data-code-block]')
-    if (!plate) return
-    plate.dataset.scrolling = ''
-    const previous = scrollTimers.get(plate)
-    if (previous !== undefined) window.clearTimeout(previous)
-    scrollTimers.set(plate, window.setTimeout(() => {
-      delete plate.dataset.scrolling
-      scrollTimers.delete(plate)
-    }, 900))
-  }, [])
-
   /* `chat` is the same prose at a message's size and rhythm — a channel line is
      read in a column of other people's lines, not as a document. */
   return (
     <div
       className={chat ? `${styles.markdown} ${styles.chat}` : styles.markdown}
       onClick={copyCode}
-      onScrollCapture={showScrollbar}
       dangerouslySetInnerHTML={{ __html: html }}
     />
   )

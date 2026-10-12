@@ -1,9 +1,9 @@
 import type { ConfigOption } from '@harnessdesk/protocol'
-import { Menu, MenuLabel, MenuNote, Popover, Text } from '../design'
+import { ComposerTrack, Menu, MenuLabel, MenuNote, Popover, Text } from '../design'
 import { optionsBySlot, type ComposerOptionSlot } from '../lib/composer-slots'
 import { selectedChoice, riskTone } from '../lib/options'
 import { PaneProvider, usePane, useSnapshot } from '../state/context'
-import { ComposerTrack, ModelControl, ModeControl, MoreControl, PermissionControl } from './ComposerControls'
+import { ModelControl, ModeControl, MoreControl, PermissionControl } from './ComposerControls'
 import { ModelIcon, ShieldIcon, SlidersIcon, ZapIcon } from './Icons'
 import type { RoomMember } from './RoomComposer'
 
@@ -46,7 +46,7 @@ export const RoomComposerOptions = ({ members }: { members: readonly RoomMember[
               fullWidth title={LABELS[slot]} drop="up" align="left"
               tone={slot === 'permissions' ? riskTone(targets.flatMap((target) => target.slots.permissions)) : 'calm'}
               label={<><Icon size={13} /><Text role="row" className="truncate">{summary(slot)}</Text></>}
-            >
+             icons="none">
               {close => (
                 <Menu close={close}>
                   {targets.length === 0 && <MenuNote>Choose a member to read its settings.</MenuNote>}

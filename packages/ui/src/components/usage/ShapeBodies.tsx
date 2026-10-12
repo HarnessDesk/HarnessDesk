@@ -12,6 +12,7 @@ import { balanceSeries } from '../../lib/balance-series'
 import { dayLabelWithYear } from '../../lib/ledger'
 import { formatMoney } from '../../lib/usage'
 import {
+  DashboardFigure, DashboardLanes, DashboardFact,
   ChartAxis,
   ChartCard,
   ChartFrame,
@@ -24,7 +25,6 @@ import {
   tintFor,
 } from '../../design'
 import { PlanFrame } from './PlanFrame'
-import styles from './usage.module.css'
 
 /**
  * The five shape bodies the table expands into, beside Windows (which reuses
@@ -71,7 +71,7 @@ export const AllowanceBody = ({
       money={moneyRowOf(report, now)}
       footerAction={{ label: 'Refresh', onClick: onRefresh }}
     >
-      <div className={styles.heroFigure}>
+      <DashboardFigure>
         <Text role="figure">
           {lane && lane.limit != null && lane.used != null
             ? laneAmount(Math.max(0, lane.limit - lane.used), lane.unit)
@@ -97,29 +97,23 @@ export const AllowanceBody = ({
         </Text>
         <ToolbarGap />
         {row.approxTurns !== '—' && <Chip label={`≈ ${row.approxTurns.replace('~', '')} turns`} tone="neutral" />}
-      </div>
+      </DashboardFigure>
 
-      <div className={styles.lanes}>
+      <DashboardLanes>
         <Separator />
         <LaneRow title="Plan" lanes={planLanes} />
         {showOnDemandLine && (
-          <div className={styles.statLine}>
-            <Text role="meta">On-demand</Text>
-            <Text role="row" numeric>
+          <DashboardFact label={<>On-demand</>} value={<Text role="row" numeric>
               {!overage || !overage.enabled ? 'off' : (formatMoney(overage.spent ?? 0, overage.currency) ?? '—')}
-            </Text>
-          </div>
+            </Text>} />
         )}
         {overageLanes.length > 0 && <LaneRow title="Overage" lanes={overageLanes} />}
-      </div>
+      </DashboardLanes>
 
-      <div className={styles.statLine}>
-        <Text role="meta">Per turn</Text>
-        <Text role="row" numeric>
+      <DashboardFact label={<>Per turn</>} value={<Text role="row" numeric>
           {report.turns?.unitsPerTurn != null ? `${report.turns.unitsPerTurn.toLocaleString()} ${lane?.unit ?? 'units'}` : '—'}
           {perUnit !== null ? ` · ${formatMoney(perUnit) ?? perUnit} a unit` : ''}
-        </Text>
-      </div>
+        </Text>} />
     </PlanFrame>
   )
 }
@@ -128,17 +122,14 @@ export const AllowanceBody = ({
 const LaneRow = ({ title, lanes }: { title: string; lanes: UsageReport['lanes'] }) => {
   if (lanes.length === 0) return null
   return (
-    <div className={styles.statLine}>
-      <Text role="meta">{title}</Text>
-      <Text role="row" numeric>
+    <DashboardFact label={<>{title}</>} value={<Text role="row" numeric>
         {lanes
           .map((one) => {
             if (one.used == null || one.limit == null) return `${100 - one.usedPercent}% left`
             return `${laneAmount(one.used, one.unit)} of ${laneAmount(one.limit, one.unit)} used`
           })
           .join(' · ')}
-      </Text>
-    </div>
+      </Text>} />
   )
 }
 
@@ -186,26 +177,20 @@ export const BalanceBody = ({
       money={moneyRowOf(report, now)}
       footerAction={{ label: 'Refresh', onClick: onRefresh }}
     >
-      <div className={styles.heroFigure}>
+      <DashboardFigure>
         <Text role="figure" tone={out ? 'danger' : undefined}>
           {balance === null ? '—' : unit === 'USD' ? (formatMoney(balance) ?? `${balance}`) : `${balance.toLocaleString()} ${unit}`}
         </Text>
         <Text role="muted">left</Text>
-      </div>
+      </DashboardFigure>
       {out ? (
         <Text as="div" role="muted" tone="danger">Out — top up to continue.</Text>
       ) : (
         <>
-          <div className={styles.statLine}>
-            <Text role="meta">Runway</Text>
-            <Text role="row" numeric>{days === null ? '—' : `${Math.round(days)}d`}</Text>
-          </div>
-          <div className={styles.statLine}>
-            <Text role="meta">Rate</Text>
-            <Text role="row" numeric>
+          <DashboardFact label={<>Runway</>} value={<Text role="row" numeric>{days === null ? '—' : `${Math.round(days)}d`}</Text>} />
+          <DashboardFact label={<>Rate</>} value={<Text role="row" numeric>
               {days === null || balance === null ? '—' : `${formatMoney(balance / days) ?? '—'} a day`}
-            </Text>
-          </div>
+            </Text>} />
         </>
       )}
       {history && history.points.length >= 2 ? (
@@ -263,12 +248,12 @@ export const KeyBody = ({
       onOpenPlanSettings={onOpenPlanSettings}
       footerAction={{ label: budget ? 'Edit budget' : 'Set a budget', onClick: onOpenPlanSettings }}
     >
-      <div className={styles.heroFigure}>
+      <DashboardFigure>
         <Text role="figure">{spent === null ? '—' : (formatMoney(spent, budget?.currency) ?? `${spent}`)}</Text>
         <Text role="muted">spent this month</Text>
-      </div>
+      </DashboardFigure>
       {budget ? (
-        <div className={styles.lanes}>
+        <DashboardLanes>
           <Separator />
           <Progress
             value={row.left.percent}
@@ -283,7 +268,7 @@ export const KeyBody = ({
           <Text role="meta">
             {row.left.percent === null ? 'Spend not known yet.' : `${Math.round(row.left.percent)}% of the budget left`}
           </Text>
-        </div>
+        </DashboardLanes>
       ) : (
         <Text as="div" role="meta">No budget · Set a budget on this account's Plan card in Settings.</Text>
       )}
@@ -304,14 +289,8 @@ export const FreeBody = ({ row, info, now }: { row: PlanRow; info: RuntimeInfo |
       money={moneyRowOf(report, now)}
       footerAction={null}
     >
-      <div className={styles.statLine}>
-        <Text role="meta">Tokens this period</Text>
-        <Text role="row" numeric>{row.ownUnit}</Text>
-      </div>
-      <div className={styles.statLine}>
-        <Text role="meta">Turns</Text>
-        <Text role="row" numeric>{turns ? turns.count.toLocaleString() : '—'}</Text>
-      </div>
+      <DashboardFact label={<>Tokens this period</>} value={<Text role="row" numeric>{row.ownUnit}</Text>} />
+      <DashboardFact label={<>Turns</>} value={<Text role="row" numeric>{turns ? turns.count.toLocaleString() : '—'}</Text>} />
       {row.ownUnit === '—' && turns === null && <Text as="div" role="meta">Nothing recorded yet.</Text>}
     </PlanFrame>
   )

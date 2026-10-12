@@ -1,0 +1,9 @@
+.records, .group { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--hd-space-3); min-width: 0; }
+.identityCell { max-width: 0; }
+.identity { min-width: 0; flex: 1; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: var(--hd-space-2); }
+.mark { display: inline-flex; width: var(--hd-space-1-5); align-self: center; }
+.title { display: block; min-width: 0; max-width: 100%; }
+.title > span { display: block; }
+.description { grid-column-start: 2; white-space: normal; overflow-wrap: anywhere; }
+.trailing { display: flex; align-items: center; gap: var(--hd-space-2); }
+.fact { width: 1%; }

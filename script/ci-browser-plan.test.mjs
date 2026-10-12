@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
@@ -8,6 +8,10 @@ import { plan, recordedSeconds, secondsFromLogs, specFiles } from './ci-browser-
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const CLI = fileURLToPath(new URL('./ci-browser-shards.mjs', import.meta.url))
+const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+const ciShards = workflow.match(/ui-system-browser:[\s\S]*?shard:\s*\[([^\]]+)\]/)?.[1].split(',').map(value => Number(value.trim()))
+assert.ok(ciShards?.length, 'the browser matrix declares its shards')
+assert.deepEqual(ciShards, Array.from({ length: ciShards.length }, (_, index) => index + 1), 'the browser matrix is complete')
 
 test('recording either browser baseline stays serial even on CI with a worker override', () => {
   for (const flag of ['UPDATE_METRICS', 'UPDATE_ALIGNMENT']) {
@@ -26,14 +30,14 @@ test('recording either browser baseline stays serial even on CI with a worker ov
 test('every spec runs on exactly one shard, however many shards there are', () => {
   const specs = specFiles(root)
   assert.ok(specs.length > 50, 'the suite is found')
-  for (const total of [1, 2, 3, 6, 8, 12]) {
+  for (const total of [1, 2, 3, 6, 8, 12, 16]) {
     const dealt = plan(specs, recordedSeconds(root), total).flatMap(shard => shard.specs)
     assert.deepEqual([...dealt].sort(), specs, `${total} shards`)
   }
 })
 
 test('the shards of the recorded suite finish together', () => {
-  const loads = plan(specFiles(root), recordedSeconds(root), 8).map(shard => shard.load)
+  const loads = plan(specFiles(root), recordedSeconds(root), ciShards.length).map(shard => shard.load)
   const mean = loads.reduce((a, b) => a + b, 0) / loads.length
   assert.ok(Math.max(...loads) - Math.min(...loads) <= mean * 0.1, `loads ${loads.join(', ')}`)
 })

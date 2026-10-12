@@ -1,16 +1,18 @@
 import { expect, test } from '@playwright/test'
 
 /** The Run owns its refusal; the other Team destinations lead there. */
-test('a stopped Team keeps its full reason on Run and a recovery link on the other pages', async ({ page }, info) => {
-  await page.goto('/design.html?view=group')
-  await page.evaluate(async () => { await document.fonts.ready })
-  const wrap = page.locator('[data-testid="group-run-stalled-on-a-seat"]')
-  await expect(wrap).toBeVisible()
-  await wrap.scrollIntoViewIfNeeded()
-  await expect(wrap.locator('header').filter({ hasText: 'Needs you' }).first()).toBeVisible()
-  for (const theme of ['light', 'dark']) {
-    await page.evaluate(value => { document.body.toggleAttribute('data-hd-dark-theme', value === 'dark'); document.documentElement.style.colorScheme = value }, theme)
-    for (const name of ['Overview', 'Board', 'Chat', 'Run']) {
+{
+
+  for (const [themeItem, theme] of (['light', 'dark']).entries()) {
+
+    for (const [item0, name] of (['Overview', 'Board', 'Chat', 'Run']).entries()) test(`a stopped Team keeps its full reason on Run and a recovery link on the other pages [item ${[themeItem].join('-')}] [item ${[item0].join('-')}]`, async ({ page }, info) => {
+      await page.goto('/design.html?view=group')
+      await page.evaluate(async () => { await document.fonts.ready })
+      const wrap = page.locator('[data-testid="group-run-stalled-on-a-seat"]')
+      await expect(wrap).toBeVisible()
+      await wrap.scrollIntoViewIfNeeded()
+      await expect(wrap.locator('header').filter({ hasText: 'Needs you' }).first()).toBeVisible()
+      await page.evaluate(value => { document.body.toggleAttribute('data-hd-dark-theme', value === 'dark'); document.documentElement.style.colorScheme = value }, theme)
       await wrap.getByRole('tab', { name: new RegExp(`^${name}\\b`) }).click()
       if (name === 'Run') {
         const reason = wrap.locator('[data-slot="run-need"]')
@@ -29,6 +31,8 @@ test('a stopped Team keeps its full reason on Run and a recovery link on the oth
       }
       await expect(wrap).not.toContainText('wrap this Goal')
       await info.attach(`stopped-${name.toLowerCase()}-${theme}`, { body: await wrap.screenshot(), contentType: 'image/png' })
-    }
+
+
+    })
   }
-})
+}

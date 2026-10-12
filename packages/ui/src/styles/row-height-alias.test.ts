@@ -50,7 +50,7 @@ describe('the row alias', () => {
   })
 
   /* A scope that wants taller rows moves `--hd-nav-h`, and the alias follows.
-     Studio does exactly that, which is the shape a palette should copy. */
+     Studio selects the FRAME row token through that same alias. */
   it('has a source a scope can move', () => {
     const moved = [...tokens.matchAll(/^\s*--hd-nav-h:\s*([^;]+);/gm)].map((hit) => (hit[1] ?? '').trim())
     expect(moved.length).toBeGreaterThan(1)

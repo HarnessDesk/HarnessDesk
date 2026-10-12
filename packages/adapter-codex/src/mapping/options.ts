@@ -482,6 +482,7 @@ export const sessionOptions = (state: ThreadState, catalog: Catalog): ConfigOpti
           value: profile.id,
           ...(BUILTIN_PROFILES[profile.id] ?? {
             label: profile.id,
+            group: 'Profiles',
             description: profile.description ?? 'A profile from your configuration.',
           }),
         })),

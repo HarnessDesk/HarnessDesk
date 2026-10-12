@@ -14,7 +14,8 @@ import {
   ToolPaneNotice,
 } from '../design'
 import { AlertIcon } from './Icons'
-import { ToolPaneHeader } from './ToolPaneHeader'
+import { ToolBodyControls, ToolSection, SummaryList, SummaryItem } from '../design'
+import { sanitizeText } from '../lib/sanitize'
 import styles from './ToolPanes.module.css'
 
 /**
@@ -257,7 +258,7 @@ export const FilePane = () => {
 
   return (
     <ToolPane variant="integrated">
-      <ToolPaneHeader title={path.split('/').pop() ?? path} subtitle={path}>
+      <ToolSection label={sanitizeText(path.split('/').pop() ?? path)}><SummaryList surface="panel"><SummaryItem label="Path" kind="path">{sanitizeText(path)}</SummaryItem></SummaryList><ToolBodyControls>
         {loaded && draft === null && editable && (
           <Button variant="ghost" size="sm" onClick={() => setDraft(loaded.content)}>
             Edit
@@ -299,7 +300,7 @@ export const FilePane = () => {
             </Button>
           </>
         )}
-      </ToolPaneHeader>
+      </ToolBodyControls></ToolSection>
 
       {conflict && (
         <FileConflictNotice

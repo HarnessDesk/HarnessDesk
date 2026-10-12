@@ -5,8 +5,31 @@ import { runtimeId, type RuntimeResources as Cost } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
 import { RuntimeResources } from './RuntimeResources'
+import { DestinationPageScope } from '../panels/destination-page'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
+it('suspends periodic reads while its retained destination is hidden and resumes on return', async () => {
+  vi.useFakeTimers()
+  const read = vi.fn(async () => [])
+  const snapshot = emptySnapshot()
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, runtimeResources: read } as unknown as AppStore
+  const box = document.createElement('div'), root = createRoot(box)
+  const render = async (active: boolean) => act(async () => root.render(<StoreProvider store={store}>
+    <DestinationPageScope owner="destination:settings" active={active}><RuntimeResources /></DestinationPageScope>
+  </StoreProvider>))
+  try {
+    await render(true)
+    expect(read).toHaveBeenCalledTimes(1)
+    await render(false)
+    await act(async () => vi.advanceTimersByTimeAsync(15_000))
+    expect(read).toHaveBeenCalledTimes(1)
+    await render(true)
+    expect(read).toHaveBeenCalledTimes(2)
+    await act(async () => vi.advanceTimersByTimeAsync(5_000))
+    expect(read).toHaveBeenCalledTimes(3)
+  } finally { act(() => root.unmount()); vi.useRealTimers() }
+})
 
 it('shows process cost, keeps a refused recycle disabled, and refreshes after recycling', async () => {
   const id = runtimeId('fixture')
@@ -20,6 +43,8 @@ it('shows process cost, keeps a refused recycle disabled, and refreshes after re
   const root = createRoot(box)
   try {
     await act(async () => root.render(<StoreProvider store={store}><RuntimeResources runtime={id} /></StoreProvider>))
+    expect(box.textContent).toContain('Process resources')
+    expect(box.querySelector('thead')?.textContent).not.toContain('Idle runtime')
     expect(box.textContent).toContain('3 processes')
     expect(box.textContent).toContain('128 MiB')
     const button = box.querySelector('button')!
@@ -80,5 +105,18 @@ it('a recycle completion from the previous page cannot invalidate the new page o
     await act(async () => finishRead([cost(newId, 9)]))
     expect(box.textContent).toContain('9 processes')
     expect(read).toHaveBeenCalledTimes(2)
+  } finally { act(() => root.unmount()); box.remove() }
+})
+
+it('a refused recycle always carries an actionable reason even when the measurement omitted it', async () => {
+  const snapshot = emptySnapshot()
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, runtimeResources: async () => [{
+    runtime: runtimeId('fixture'), observedAt: 1, processes: 2, residentBytes: 0, canRecycle: false, reason: null,
+  }] } as unknown as AppStore
+  const box = document.createElement('div'); document.body.append(box); const root = createRoot(box)
+  try {
+    await act(async () => root.render(<StoreProvider store={store}><RuntimeResources /></StoreProvider>))
+    expect(box.querySelector('button')!.disabled).toBe(true)
+    expect(box.querySelector('button')!.title).toBe('Let its work finish and close its conversations before recycling.')
   } finally { act(() => root.unmount()); box.remove() }
 })

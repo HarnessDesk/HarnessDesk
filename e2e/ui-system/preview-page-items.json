@@ -1,0 +1,405 @@
+{
+  "frames": [
+    {
+      "selector": "[data-frame-id=\"board-populated\"] > div",
+      "id": "board-populated",
+      "title": "Board \u2014 the pane, with work on it"
+    },
+    {
+      "selector": "[data-frame-id=\"board-person-review\"] > div",
+      "id": "board-person-review",
+      "title": "Board \u2014 choose an attempt for the person judge"
+    },
+    {
+      "selector": "[data-frame-id=\"board-observed\"] > div",
+      "id": "board-observed",
+      "title": "Board \u2014 what the desk observed"
+    },
+    {
+      "selector": "[data-frame-id=\"board-empty\"] > div",
+      "id": "board-empty",
+      "title": "Board \u2014 the empty state"
+    },
+    {
+      "selector": "[data-frame-id=\"board-edges\"] > div",
+      "id": "board-edges",
+      "title": "Board \u2014 the edges, at the width the room leaves it"
+    },
+    {
+      "selector": "[data-frame-id=\"settings-sheet\"] > div",
+      "id": "settings-sheet",
+      "title": "Settings \u2014 the main page and its navigation"
+    },
+    {
+      "selector": "[data-frame-id=\"runtimes-status\"] > div",
+      "id": "runtimes-status",
+      "title": "Runtimes \u2014 what needs you, then what is ready"
+    },
+    {
+      "selector": "[data-frame-id=\"agents-roster\"] > div",
+      "id": "agents-roster",
+      "title": "Agents \u2014 the roster, and a selected Agent"
+    },
+    {
+      "selector": "[data-frame-id=\"workspace-project\"] > div",
+      "id": "workspace-project",
+      "title": "Settings \u203a Workspaces \u2014 a project"
+    },
+    {
+      "selector": "[data-frame-id=\"workspace-triggers\"] > div",
+      "id": "workspace-triggers",
+      "title": "Settings \u203a Workspaces \u2014 Triggers on this Mac"
+    },
+    {
+      "selector": "[data-frame-id=\"dashboard-overview\"] > div",
+      "id": "dashboard-overview",
+      "title": "Dashboard \u2014 what is left, what it cost, where it went"
+    },
+    {
+      "selector": "[data-frame-id=\"conversation-composer\"] > div",
+      "id": "conversation-composer",
+      "title": "Conversation \u2014 the transcript and its composer"
+    },
+    {
+      "selector": "[data-frame-id=\"publication-card\"] > div",
+      "id": "publication-card",
+      "title": "Publication card \u2014 a pull request"
+    },
+    {
+      "selector": "[data-frame-id=\"settings-library\"] > div",
+      "id": "settings-library",
+      "title": "Library"
+    },
+    {
+      "selector": "[data-frame-id=\"settings-appearance\"] > div",
+      "id": "settings-appearance",
+      "title": "Settings \u203a Appearance"
+    },
+    {
+      "selector": "[data-frame-id=\"tables-family\"] > div",
+      "id": "tables-family",
+      "title": "Tables: the family"
+    },
+    {
+      "selector": "[data-frame-id=\"settings-archive\"] > div",
+      "id": "settings-archive",
+      "title": "Settings \u203a Archive"
+    },
+    {
+      "selector": "[data-frame-id=\"settings-account-usage\"] > div",
+      "id": "settings-account-usage",
+      "title": "Settings \u203a Account \u203a Usage"
+    },
+    {
+      "selector": "[data-frame-id=\"settings-extensions\"] > div",
+      "id": "settings-extensions",
+      "title": "Settings \u203a Extensions"
+    },
+    {
+      "selector": "[data-frame-id=\"settings-ceilings\"] > div",
+      "id": "settings-ceilings",
+      "title": "Settings \u203a Ceilings"
+    },
+    {
+      "selector": "[data-frame-id=\"setup-survey\"] > div",
+      "id": "setup-survey",
+      "title": "Setup \u2014 the whole desk, surveyed"
+    },
+    {
+      "selector": "[data-frame-id=\"schema-form\"] > div",
+      "id": "schema-form",
+      "title": "Schema form \u2014 a plugin's own configuration"
+    },
+    {
+      "selector": "[data-frame-id=\"typography-cjk\"] > div",
+      "id": "typography-cjk",
+      "title": "CJK \u2014 reading text and controls"
+    },
+    {
+      "selector": "[data-frame-id=\"finding-status\"] > div",
+      "id": "finding-status",
+      "title": "Finding \u2014 a review round's status"
+    },
+    {
+      "selector": "[data-frame-id=\"goal-receipt\"] > div",
+      "id": "goal-receipt",
+      "title": "Goal \u2014 its receipt, as recorded when wrapped"
+    },
+    {
+      "selector": "[data-frame-id=\"goal-accounting\"] > div",
+      "id": "goal-accounting",
+      "title": "Goal \u2014 its receipt's own accounting"
+    },
+    {
+      "selector": "[data-frame-id=\"insight-loaded\"] > div",
+      "id": "insight-loaded",
+      "title": "Insight \u2014 recorded usage, loaded"
+    },
+    {
+      "selector": "[data-frame-id=\"insight-partial\"] > div",
+      "id": "insight-partial",
+      "title": "Project usage \u2014 partial source scan"
+    },
+    {
+      "selector": "[data-frame-id=\"insight-loading\"] > div",
+      "id": "insight-loading",
+      "title": "Insight \u2014 recorded usage, loading"
+    },
+    {
+      "selector": "[data-frame-id=\"shape-step-form\"] > div",
+      "id": "shape-step-form",
+      "title": "Shape \u2014 one step's own form"
+    },
+    {
+      "selector": "[data-frame-id=\"shape-rule-form\"] > div",
+      "id": "shape-rule-form",
+      "title": "Shape \u2014 one rule's own form"
+    },
+    {
+      "selector": "[data-frame-id=\"shape-graph\"] > div",
+      "id": "shape-graph",
+      "title": "Shape \u2014 the graph"
+    },
+    {
+      "selector": "[data-frame-id=\"command-menu\"] > div",
+      "id": "command-menu",
+      "title": "The / and @ menu"
+    },
+    {
+      "selector": "[data-frame-id=\"transcript-folded-steps\"] > div",
+      "id": "transcript-folded-steps",
+      "title": "A folded burst of steps"
+    },
+    {
+      "selector": "[data-frame-id=\"transcript-memory-citation\"] > div",
+      "id": "transcript-memory-citation",
+      "title": "A memory citation, read from the working tree"
+    },
+    {
+      "selector": "[data-frame-id=\"transcript-preview-pane\"] > div",
+      "id": "transcript-preview-pane",
+      "title": "Preview pane \u2014 a file from the tools surface"
+    },
+    {
+      "selector": "[data-frame-id=\"transcript-missing-folder\"] > div",
+      "id": "transcript-missing-folder",
+      "title": "A folder that no longer exists"
+    },
+    {
+      "selector": "[data-frame-id=\"transcript-background-tasks\"] > div",
+      "id": "transcript-background-tasks",
+      "title": "Background tasks \u2014 this conversation's own"
+    },
+    {
+      "selector": "[data-frame-id=\"tools-file\"] > div",
+      "id": "tools-file",
+      "title": "Tools \u2014 a file"
+    },
+    {
+      "selector": "[data-frame-id=\"tools-browser\"] > div",
+      "id": "tools-browser",
+      "title": "Tools \u2014 the browser"
+    },
+    {
+      "selector": "[data-frame-id=\"tools-terminal\"] > div",
+      "id": "tools-terminal",
+      "title": "Tools \u2014 the terminal"
+    },
+    {
+      "selector": "[data-frame-id=\"goal-header-row\"] > div",
+      "id": "goal-header-row",
+      "title": "Goal \u2014 its header row"
+    },
+    {
+      "selector": "[data-frame-id=\"room-channel-grouping\"] > div",
+      "id": "room-channel-grouping",
+      "title": "Room \u2014 the channel's own grouping"
+    },
+    {
+      "selector": "[data-frame-id=\"tasks-session-plan\"] > div",
+      "id": "tasks-session-plan",
+      "title": "Tasks \u2014 a session's own plan"
+    },
+    {
+      "selector": "[data-frame-id=\"coverage-field-density\"] > div",
+      "id": "coverage-field-density",
+      "title": "Fields \u2014 comfortable density"
+    },
+    {
+      "selector": "[data-frame-id=\"coverage-answer-actions\"] > div",
+      "id": "coverage-answer-actions",
+      "title": "Answer actions"
+    },
+    {
+      "selector": "[data-frame-id=\"coverage-agent-fields\"] > div",
+      "id": "coverage-agent-fields",
+      "title": "Agent \u2014 editable field sections"
+    },
+    {
+      "selector": "[data-frame-id=\"coverage-composer-controls\"] > div",
+      "id": "coverage-composer-controls",
+      "title": "Composer \u2014 permission, mode and more controls"
+    },
+    {
+      "selector": "[data-frame-id=\"coverage-goal-flow\"] > div",
+      "id": "coverage-goal-flow",
+      "title": "Goal \u2014 choose a flow"
+    },
+    {
+      "selector": "[data-frame-id=\"coverage-flow-review-reasons\"] > div",
+      "id": "coverage-flow-review-reasons",
+      "title": "Flow \u2014 reviewer candidate reasons and provider warning"
+    },
+    {
+      "selector": "[data-frame-id=\"coverage-flow-gemini-trust\"] > div",
+      "id": "coverage-flow-gemini-trust",
+      "title": "Flow \u2014 a seat that cannot use the board in this folder"
+    },
+    {
+      "selector": "[data-frame-id=\"coverage-session-background\"] > div",
+      "id": "coverage-session-background",
+      "title": "Session \u2014 background work and deliverables"
+    },
+    {
+      "selector": "[data-frame-id=\"coverage-row-alerts\"] > div",
+      "id": "coverage-row-alerts",
+      "title": "Rows \u2014 usage and worktree alerts"
+    },
+    {
+      "selector": "[data-frame-id=\"coverage-publication\"] > div",
+      "id": "coverage-publication",
+      "title": "Publication \u2014 a reviewable pull request"
+    },
+    {
+      "selector": "[data-frame-id=\"coverage-notices\"] > div",
+      "id": "coverage-notices",
+      "title": "Notices \u2014 strip, inbox and toast"
+    },
+    {
+      "selector": "[data-frame-id=\"coverage-library\"] > div",
+      "id": "coverage-library",
+      "title": "Library \u2014 changes made from here"
+    },
+    {
+      "selector": "[data-frame-id=\"coverage-panel-actions\"] > div",
+      "id": "coverage-panel-actions",
+      "title": "Panel actions context"
+    }
+  ],
+  "boards": [
+    "Foundation",
+    "Sidebar",
+    "Sortable list \u00b7 Trigger picker",
+    "Button \u00b7 icon size",
+    "Dot \u00b7 Chip",
+    "Switch \u00b7 NativeSelect \u00b7 Segmented",
+    "Rows \u00b7 Row \u00b7 RowChoice",
+    "Page and subject type",
+    "Face",
+    "Checklist",
+    "Notices",
+    "Banner",
+    "CodeBlock",
+    "Message \u00b7 Bubble",
+    "Channel",
+    "Sign-in rail",
+    "Dashboard bands",
+    "Page records",
+    "Page controls",
+    "Library matrix",
+    "Page options",
+    "Settings choices",
+    "Inbox menu",
+    "Subject actions",
+    "Info card",
+    "Wide menu",
+    "SeatList",
+    "FixedShell",
+    "ToolBody",
+    "ToolFooter",
+    "Retained main destinations",
+    "The top bar",
+    "Git comparison questions",
+    "Comparison decision",
+    "Comparison summary",
+    "Comparison notice",
+    "Header status group",
+    "Library",
+    "Tables",
+    "Window \u00b7 panel controls",
+    "Stat",
+    "Delta",
+    "Plan card",
+    "Usage meter row",
+    "Section \u00b7 Toolbar",
+    "Badge \u00b7 Tabs",
+    "The icon set",
+    "IconTile",
+    "ListRow",
+    "KeyValue \u00b7 Progress",
+    "ToolPane \u00b7 InspectorPanel",
+    "Field \u00b7 InputGroup",
+    "Stepper",
+    "EmptyState \u00b7 ChoiceRow",
+    "Board",
+    "Run inspector",
+    "Review publication",
+    "Run controls",
+    "Stop a Run",
+    "Timeline",
+    "Timeline cards",
+    "Run timeline",
+    "FlowCanvas",
+    "FlowGraph",
+    "The Run on its Flow",
+    "Teams on the desk",
+    "The wrapped Team",
+    "The Team overview",
+    "The page measures",
+    "The Team bar",
+    "Room \u2014 Side by side",
+    "Adopted from the registry",
+    "Sparkline \u00b7 Bars \u00b7 Donut",
+    "The chart kit",
+    "The Overview strip",
+    "Dialog \u00b7 ConfirmDialog",
+    "Plans table",
+    "FindingDecision \u00b7 Decide this run",
+    "Menu rows",
+    "Left column",
+    "Left column work rows",
+    "Settings navigation",
+    "New Team",
+    "Run again",
+    "Flow brief",
+    "Dashboard",
+    "Group project",
+    "Conversation",
+    "Conversation \u00b7 map, dense",
+    "Conversation \u00b7 map, preview open",
+    "Composer",
+    "Composer \u2014 fixed slots",
+    "Left bar",
+    "Seats in the left bar",
+    "Projects in the left bar",
+    "Git history",
+    "Panels",
+    "Browser \u00b7 Terminal \u00b7 Editor",
+    "Sign in",
+    "Foundation propagation",
+    "Manifest"
+  ],
+  "placement": [
+    "coverage-notice-narrow-overlay",
+    "coverage-notice-room-board",
+    "coverage-notice-room-pending-approval",
+    "coverage-notice-room-container-query",
+    "coverage-notice-folder-gone",
+    "coverage-notice-zoomed-sidebar",
+    "coverage-notice-zoomed-dock",
+    "coverage-notice-split-composers",
+    "coverage-notice-split-unfocused-composer",
+    "coverage-notice-composer-strip",
+    "coverage-notice-pane-bar-strip"
+  ]
+}

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 
+import { FRAME } from '../design/frame'
 import { sessionKey } from '@harnessdesk/protocol'
 
 import { open, panes, sessionOf, split, strayPanels, type PaneView, type TerminalView } from './layout'
@@ -12,6 +13,9 @@ import {
   collapseDock,
   cornerArea,
   dock,
+  dockLimits,
+  effectiveRightWidth,
+  effectiveBottomHeight,
   dockViews,
   drawnInDock,
   emptyWorkbench,
@@ -25,7 +29,9 @@ import {
   noticeArea,
   SEAM,
   readWorkbench,
+  normalizeFixedWorkbench,
   rightPanelOverlays,
+  fixedSubject,
   removeAt,
   replaceView,
   resizeDock,
@@ -482,69 +488,62 @@ describe('docking something that is already here', () => {
 })
 
 describe('protecting the reading column', () => {
-  const right = (size = 280): Workbench => {
-    const docked = dock(emptyWorkbench(), 'right', CHANGES)
-    return { ...docked, right: { ...docked.right, size } }
+  const right = (size = 400): Workbench => {
+    const work = resizeDock(dock(emptyWorkbench(), 'right', CHANGES), 'right', size)
+    return { ...work, frameTools: { [fixedSubject(work.main)!]: { tool: 'changes', mode: 'changes', open: true } } }
   }
-
-  test('keeps three columns at 1440 and keeps the sidebar at the 922px equality boundary', () => {
-    expect(sidebarCannotHaveColumn(right(460), 1440)).toBe(false)
-    // 240 + 280 + 400, and the two dividers the live window measured.
-    expect(sidebarCannotHaveColumn(right(), 922)).toBe(false)
-    expect(sidebarCannotHaveColumn(right(), 921)).toBe(true)
+  test.each([1280, 1440])('a standing panel at %i preserves main480 while remembering right640', width => {
+    const work = right(640)
+    expect(rightPanelOverlays(work, width)).toBe(false)
+    expect(width - 360 - effectiveRightWidth(work, width, 360) - 2 * SEAM).toBeGreaterThanOrEqual(480)
+    expect(work.right.size).toBe(640)
   })
-
-  test.each([
-    [900, false, 619],
-    [720, false, 439],
-    [700, false, 419],
-  ])('%i keeps the panel beside main with %s overlay state and %i main pixels', (width, overlay, main) => {
-    const workbench = right()
-    expect(sidebarCannotHaveColumn(workbench, width)).toBe(true)
-    expect(rightPanelOverlays(workbench, width)).toBe(overlay)
-    expect(width - workbench.right.size - SEAM).toBe(main)
+  test.each([1279, 1000, 999, 720])('a panel floats at %i without moving the sidebar boundary', width => {
+    expect(rightPanelOverlays(right(640), width)).toBe(true)
+    expect(sidebarCannotHaveColumn(right(640), width)).toBe(width < 1000)
   })
-
-  test('the divider is counted: the panel covers main from 680, not 679', () => {
-    const workbench = right()
-    // 280 + 1 + 400 fit at 681; the live window measured 399px at 680 without the divider.
-    expect(rightPanelOverlays(workbench, 681)).toBe(false)
-    expect(rightPanelOverlays(workbench, 680)).toBe(true)
+  test.each([1279, 1100, 1000, 999, 720])('a floating panel at %i protects the reading floor down to the tool minimum and remembers its requested width', width => {
+    const work = right(640)
+    const sidebar = width < 1000 ? 0 : 256
+    expect(effectiveRightWidth(work, width, sidebar)).toBe(Math.max(FRAME.rightPanel.min, width - sidebar - 480 - 2 * SEAM))
+    expect(work.right.size).toBe(640)
+    expect(effectiveRightWidth(work, 1440, 256)).toBe(640)
   })
-
-  test('at 679 the panel covers main after the sidebar has gone', () => {
-    const workbench = right()
-    expect(sidebarCannotHaveColumn(workbench, 679)).toBe(true)
-    expect(rightPanelOverlays(workbench, 679)).toBe(true)
+  test.each([480, 360])('an open tool remains drawable at %i when the viewport cannot fit the reading floor', width => {
+    const work = right(640)
+    expect(effectiveRightWidth(work, width, 0)).toBe(FRAME.rightPanel.min)
+    expect(work.right.size).toBe(640)
   })
-
-  test('collapsed or empty right docks do not take the sidebar column at 900', () => {
-    const drawn = right()
-    expect(sidebarCannotHaveColumn({ ...drawn, right: { ...drawn.right, collapsed: true } }, 900)).toBe(false)
-    expect(sidebarCannotHaveColumn(emptyWorkbench(), 900)).toBe(false)
+  test('hidden caches consume no room and widening restores preferences', () => {
+    const work = right(640), subject = fixedSubject(work.main)!
+    const hidden = { ...work, frameTools: { [subject]: { tool: 'changes' as const, mode: 'changes' as const, open: false } } }
+    expect(effectiveRightWidth(hidden, 1440, 240)).toBe(0)
+    expect(effectiveRightWidth(work, 1280, 360)).toBe(438)
+    expect(effectiveRightWidth(work, 1440, 240)).toBe(640)
+    expect(work.right.size).toBe(640)
   })
-
-  test('uses the sidebar width even while its column is collapsed', () => {
-    const workbench = right()
-    expect(sidebarCannotHaveColumn(workbench, 921)).toBe(true)
-    expect(sidebarCannotHaveColumn({ ...workbench, sidebar: { ...workbench.sidebar, size: 220 } }, 902)).toBe(false)
-  })
-
-  test('zoom keeps its existing area visibility rules', () => {
-    const workbench = zoomArea(right(600), 'right', 'content')
-    expect(sidebarCannotHaveColumn(workbench, 900)).toBe(false)
-    expect(rightPanelOverlays(workbench, 400)).toBe(false)
+  test('bottom geometry clamps passively without closing its process', () => {
+    const work = resizeDock(dock(emptyWorkbench(), 'bottom', TERM), 'bottom', 400)
+    expect(effectiveBottomHeight(work, 239)).toBe(0)
+    expect(effectiveBottomHeight(work, 240)).toBe(120)
+    expect(effectiveBottomHeight(work, 901)).toBe(400)
+    expect(effectiveBottomHeight(work, 600)).toBe(300)
+    expect(work.bottom.size).toBe(400)
+    expect(terminals(work)).toEqual([TERM])
+    expect(effectiveBottomHeight(collapseDock(work, 'bottom', true), 900)).toBe(0)
+    expect(resizeDock(work, 'bottom', 500, 701).bottom.size).toBe(350)
+    expect(readWorkbench(JSON.parse(JSON.stringify(work)), 600)?.bottom.size).toBe(300)
   })
 })
 
 describe('size and visibility', () => {
   test('a size is held inside the area’s own bounds', () => {
     const workbench = dock(emptyWorkbench(), 'bottom', TERM)
-    expect(resizeDock(workbench, 'bottom', 10).bottom.size).toBe(80)
-    expect(resizeDock(workbench, 'bottom', 10_000).bottom.size).toBe(600)
+    expect(resizeDock(workbench, 'bottom', 10).bottom.size).toBe(120)
+    expect(resizeDock(workbench, 'bottom', 10_000).bottom.size).toBe(450)
     // The right panel holds a document, so its floor is a readable column
     // rather than a shell's eighty rows — the bounds are per area on purpose.
-    expect(resizeDock(workbench, 'right', 10).right.size).toBe(280)
+    expect(resizeDock(workbench, 'right', 10).right.size).toBe(320)
     expect(resizeDock(workbench, 'sidebar', 120).sidebar.size).toBe(200)
     const saved = JSON.parse(JSON.stringify(workbench))
     saved.sidebar.size = 120
@@ -556,6 +555,23 @@ describe('size and visibility', () => {
     expect(workbench.bottom.collapsed).toBe(true)
     expect(ids(workbench, 'bottom')).toEqual(['terminal'])
     expect(toggleDock(workbench, 'bottom').bottom.collapsed).toBe(false)
+  })
+
+  test('legacy right collapse synchronizes only an existing current-subject intent and retains its resource', () => {
+    const workbench = dock(emptyWorkbench(), 'right', CHANGES)
+    const subject = fixedSubject(workbench.main)!
+    const other = { tool: 'browser' as const, mode: 'browser', open: true }
+    const start = { ...workbench, frameTools: { [subject]: { tool: 'changes' as const, mode: 'file', open: true }, 'team:other': other } }
+    const closed = collapseDock(start, 'right', true)
+    expect(closed.frameTools[subject]).toEqual({ tool: 'changes', mode: 'file', open: false })
+    expect(closed.frameTools['team:other']).toBe(other)
+    expect(closed.right.root).toBe(start.right.root)
+    expect(closed.focus).toBe(start.focus)
+    const reopened = toggleDock(closed, 'right')
+    expect(reopened.frameTools[subject]).toEqual({ tool: 'changes', mode: 'file', open: true })
+    expect(reopened.right.root).toBe(start.right.root)
+    expect(collapseDock(workbench, 'right', true).frameTools).toEqual(workbench.frameTools)
+    expect(collapseDock(start, 'bottom', true).frameTools).toBe(start.frameTools)
   })
 
   test('an empty area is never collapsed — there is nothing to collapse to', () => {
@@ -582,12 +598,12 @@ describe('noticeArea — which area the strip above the panes rides', () => {
     expect(noticeArea(zoomArea(emptyWorkbench(), 'main', 'content'), 1440)).toBe('main')
   })
 
-  test('the right panel takes notices only when its overlay covers the main area', () => {
+  test('the nonmodal right float leaves notices on main', () => {
     const placed = dock(emptyWorkbench(), 'right', CHANGES)
-    const right: Workbench = { ...placed, right: { ...placed.right, size: 280 } }
-    expect(noticeArea(right, 679)).toBe('right')
+    const right: Workbench = { ...placed, right: { ...placed.right, size: 280 }, frameTools: { [fixedSubject(placed.main)!]: { tool: 'changes', mode: 'changes', open: true } } }
+    expect(noticeArea(right, 679)).toBe('main')
     expect(noticeArea(right, 700)).toBe('main')
-    expect(noticeArea(collapseDock(right, 'right', true), 679)).toBe('main')
+    expect(noticeArea({ ...collapseDock(right, 'right', true), frameTools: { [fixedSubject(right.main)!]: { tool: 'changes', mode: 'changes', open: false } } }, 679)).toBe('main')
     expect(noticeArea(emptyWorkbench(), 679)).toBe('main')
   })
 })
@@ -637,8 +653,8 @@ describe('mainNoticeHost — which pane in the split tree carries the strip', ()
     const zoomed = zoomArea(dock(emptyWorkbench(), 'right', CHANGES), 'right', 'content')
     expect(mainNoticeHost(zoomed, 1440)).toBeNull()
     const placed = dock(emptyWorkbench(), 'right', CHANGES)
-    const overlaidRight: Workbench = { ...placed, right: { ...placed.right, size: 280 } }
-    expect(mainNoticeHost(overlaidRight, 679)).toBeNull()
+    const overlaidRight: Workbench = { ...placed, right: { ...placed.right, size: 280 }, frameTools: { [fixedSubject(placed.main)!]: { tool: 'changes', mode: 'changes', open: true } } }
+    expect(mainNoticeHost(overlaidRight, 679)).toBe(overlaidRight.main.expanded ?? overlaidRight.main.focused)
     expect(mainNoticeHost(overlaidRight, 700)).not.toBeNull()
   })
 })
@@ -673,11 +689,11 @@ describe('focusedComposerVisible — whether the focused mount is a composer tha
     expect(focusedComposerVisible(workbench, 1440)).toBe(false)
   })
 
-  test('a right panel below 400px of remaining width covers main even with no zoom', () => {
+  test('the right float leaves the main composer visible', () => {
     const placed = dock(withMain({ kind: 'conversation', session: A }), 'right', CHANGES)
-    const workbench: Workbench = { ...placed, right: { ...placed.right, size: 280 } }
+    const workbench: Workbench = { ...placed, right: { ...placed.right, size: 280 }, frameTools: { [fixedSubject(placed.main)!]: { tool: 'changes', mode: 'changes', open: true } } }
     expect(focusedComposerVisible(workbench, 700)).toBe(true)
-    expect(focusedComposerVisible(workbench, 679)).toBe(false)
+    expect(focusedComposerVisible(workbench, 679)).toBe(true)
   })
 })
 
@@ -765,11 +781,11 @@ describe('the window buttons', () => {
     expect(cornerArea(zoomArea(emptyWorkbench(), 'main', 'window'), false, 1440)).toBe('main')
   })
 
-  test('a panel zoomed to fill the window takes the corner with it', () => {
+  test('a legacy panel zoom cannot move the fixed window corner', () => {
     const right = zoomArea(dock(emptyWorkbench(), 'right', GIT), 'right', 'window')
-    expect(cornerArea(right, false, 1440)).toBe('right')
+    expect(cornerArea(right, false, 1440)).toBe('main')
     const bottom = zoomArea(dock(emptyWorkbench(), 'bottom', TERM), 'bottom', 'window')
-    expect(cornerArea(bottom, false, 1440)).toBe('bottom')
+    expect(cornerArea(bottom, false, 1440)).toBe('main')
   })
 
   test('the fallback to the bottom is never a panel with nothing in it', () => {
@@ -785,25 +801,26 @@ describe('the window buttons', () => {
     // And the reachable one: the bottom panel, alone, filling the window.
     const bottom = zoomArea(dock(emptyWorkbench(), 'bottom', TERM), 'bottom', 'window')
     expect(dockViews(bottom.right)).toEqual([])
-    expect(cornerArea(bottom, false, 1440)).toBe('bottom')
+    expect(cornerArea(bottom, false, 1440)).toBe('main')
 
     /*
      * The path that could have got round all of it: a zoom is persisted, and
      * the panel it named is empty by the time the project is opened again.
-     * `readWorkbench` settles too, so what restores has no zoom and the middle
-     * is back — which is what makes "every zoom has passed `settle`" true of a
-     * restored document and not only of a live one.
+     * Restore now decodes, normalizes fixed placement, then settles. The
+     * decoder preserves the raw zoom until normalization has seen the state.
      */
     const save = (workbench: Workbench): unknown => JSON.parse(JSON.stringify(workbench))
     const emptied = readWorkbench(save({ ...emptyWorkbench(), zoom: { area: 'right', scope: 'window' } }))!
-    expect(emptied.zoom).toBeNull()
-    expect(cornerArea(emptied, false, 1440)).toBe('main')
+    expect(emptied.zoom).toEqual({ area: 'right', scope: 'window' })
+    const restored = settle(normalizeFixedWorkbench(emptied).workbench)
+    expect(restored.zoom).toBeNull()
+    expect(cornerArea(restored, false, 1440)).toBe('main')
 
     // And the same document with the panel still occupied, so the assertion
     // above is `settle` dropping a zoom rather than the reader never seeing one.
     const kept = readWorkbench(save({ ...dock(emptyWorkbench(), 'right', CHANGES), zoom: { area: 'right', scope: 'window' } }))!
     expect(kept.zoom).toEqual({ area: 'right', scope: 'window' })
-    expect(cornerArea(kept, false, 1440)).toBe('right')
+    expect(cornerArea(kept, false, 1440)).toBe('main')
   })
 
   test('and a collapsed sidebar under a content zoom leaves the panel in it', () => {
@@ -812,17 +829,17 @@ describe('the window buttons', () => {
     // all. The two conditions are separate and both have to be asked.
     const workbench = zoomArea(dock(emptyWorkbench(), 'right', GIT), 'right', 'content')
     expect(areaVisible(workbench, 'sidebar')).toBe(true)
-    expect(cornerArea(workbench, false, 1440)).toBe('right')
+    expect(cornerArea(workbench, false, 1440)).toBe('main')
   })
 
-  test('the right panel takes the corner only when it covers the middle', () => {
+  test('the nonmodal right float never takes the native corner', () => {
     // The panel covers main only when fewer than 400px remain beside it.
     const placed = dock(emptyWorkbench(), 'right', GIT)
-    const right: Workbench = { ...placed, right: { ...placed.right, size: 280 } }
-    expect(cornerArea(right, false, 679)).toBe('right')
+    const right: Workbench = { ...placed, right: { ...placed.right, size: 280 }, frameTools: { [fixedSubject(placed.main)!]: { tool: 'changes', mode: 'changes', open: true } } }
+    expect(cornerArea(right, false, 679)).toBe('main')
     expect(cornerArea(right, false, 700)).toBe('main')
     // A collapsed or empty right panel lays nothing over the middle.
-    expect(cornerArea({ ...right, right: { ...right.right, collapsed: true } }, false, 679)).toBe('main')
+    expect(cornerArea({ ...right, right: { ...right.right, collapsed: true }, frameTools: { [fixedSubject(right.main)!]: { tool: 'changes', mode: 'changes', open: false } } }, false, 679)).toBe('main')
     expect(cornerArea(emptyWorkbench(), false, 679)).toBe('main')
     // And the floating sidebar never stands as a column, so it is not asked here.
   })
@@ -904,32 +921,50 @@ describe('the visible inspector', () => {
 describe('a view drawn in a dock', () => {
   const STEPS = { kind: 'run-steps' } as const
   const DETAILS = { kind: 'run-details' } as const
+  const rightRun = (view: PaneView): Workbench => {
+    const empty = emptyWorkbench()
+    const main = { root: { kind: 'pane' as const, id: 'drawn-team', view: { kind: 'room' as const, room: 'drawn-team' } }, focused: 'drawn-team', expanded: null }
+    const held = dock({ ...empty, main }, 'right', view)
+    const subject = fixedSubject(main)!
+    return { ...held, frameTools: { [subject]: { tool: 'details', mode: 'run-details', open: true } },
+      toolOwners: Object.fromEntries(dockViews(held.right).map(one => [one.id, subject])) }
+  }
   const appState = (
     workbench: Workbench,
     over: { narrowWindow?: boolean; sidebarCollapsed?: boolean; sidebarFloating?: boolean } = {},
   ) => ({ narrowWindow: false, sidebarCollapsed: false, sidebarFloating: false, workbench, ...over })
 
-  test('is drawn while its dock is open and showing it', () => {
-    expect(drawnInDock(appState(dock(emptyWorkbench(), 'right', STEPS)), 'run-steps')).toBe(true)
+  test('canonical Team Details hides legacy right cache while bottom stays drawn', () => {
+    expect(drawnInDock(appState(rightRun(STEPS)), 'run-steps')).toBe(false)
     expect(drawnInDock(appState(dock(emptyWorkbench(), 'bottom', STEPS)), 'run-steps')).toBe(true)
     expect(drawnInDock(appState(emptyWorkbench()), 'run-steps')).toBe(false)
   })
 
+  test('is not drawn when a retained right view has a closed subject intent despite an open raw dock', () => {
+    const raw = dock(emptyWorkbench(), 'right', STEPS)
+    const subject = fixedSubject(raw.main)!
+    const retained = { ...raw, frameTools: { [subject]: { tool: 'details' as const, mode: 'run-details', open: false } } }
+    expect(retained.right.collapsed).toBe(false)
+    expect(drawnInDock(appState(retained), 'run-steps')).toBe(false)
+    expect(drawnInDock(appState(raw), 'run-steps')).toBe(false)
+    expect(dockViews(retained.right)).toEqual(dockViews(raw.right))
+  })
+
   test('is not drawn while its dock is put away to the strip', () => {
-    const away = collapseDock(dock(emptyWorkbench(), 'right', STEPS), 'right', true)
+    const away = collapseDock(rightRun(STEPS), 'right', true)
     expect(drawnInDock(appState(away), 'run-steps')).toBe(false)
   })
 
   test('is not drawn behind the tab in front of it', () => {
-    const behind = dock(dock(emptyWorkbench(), 'right', STEPS), 'right', DETAILS)
+    const behind = dock(rightRun(STEPS), 'right', DETAILS)
     expect(drawnInDock(appState(behind), 'run-steps')).toBe(false)
-    expect(drawnInDock(appState(behind), 'run-details')).toBe(true)
+    expect(drawnInDock(appState(behind), 'run-details')).toBe(false)
   })
 
   test('is not drawn while a zoom has the room elsewhere', () => {
     // `shownView` reads this dock as open, which it is; it is not on the screen.
-    const docked = dock(emptyWorkbench(), 'right', STEPS)
-    expect(drawnInDock(appState(docked), 'run-steps')).toBe(true)
+    const docked = rightRun(STEPS)
+    expect(drawnInDock(appState(docked), 'run-steps')).toBe(false)
     expect(drawnInDock(appState(zoomArea(docked, 'main', 'content')), 'run-steps')).toBe(false)
   })
 
@@ -1154,4 +1189,54 @@ describe('a main area saved when it could hold tools', () => {
     })
     expect(strayPanels(saved)).toEqual([])
   })
+})
+
+
+test('an unrequested right panel starts at the canonical frame width', () => {
+  expect(emptyWorkbench().right.size).toBe(400)
+})
+
+
+describe('FRAME fixed boundaries and height limits', () => {
+  test('sidebar equality never depends on a remembered wide tool', () => {
+    const initial = emptyWorkbench()
+    const subject = fixedSubject(initial.main)!
+    const work = resizeDock({ ...dock(initial, 'right', CHANGES),
+      frameTools: { [subject]: { tool: 'changes', mode: 'changes', open: true } } }, 'right', 640)
+    expect(sidebarCannotHaveColumn(work, FRAME.fold.sidebarFloats)).toBe(false)
+    expect(sidebarCannotHaveColumn(work, FRAME.fold.sidebarFloats - 1)).toBe(true)
+  })
+  test('right float equality is fixed independently of requested width', () => {
+    const initial = emptyWorkbench(), subject = fixedSubject(initial.main)!
+    const work = { ...dock(initial, 'right', CHANGES), frameTools: { [subject]: { tool: 'changes' as const, mode: 'changes' as const, open: true } } }
+    expect(rightPanelOverlays(work, 1280)).toBe(false)
+    expect(rightPanelOverlays(work, 1279)).toBe(true)
+  })
+  test('FRAME defaults and dynamic bottom maximum replace old dock numbers', () => {
+    expect(emptyWorkbench().sidebar.size).toBe(FRAME.sidebar.width)
+    expect(emptyWorkbench().right.size).toBe(FRAME.rightPanel.width)
+    expect(emptyWorkbench().bottom.size).toBe(FRAME.bottomPanel.height)
+    expect(dockLimits('bottom', 900)).toEqual({ min: 120, max: 450 })
+    expect(dockLimits('bottom', 240)).toEqual({ min: 120, max: 120 })
+    expect(dockLimits('sidebar')).toEqual({ min: 200, max: 360 })
+    expect(dockLimits('right')).toEqual({ min: 320, max: 640 })
+  })
+})
+
+
+test('legacy workbenches gain history and serialized pages preserve all fixed tool and dock state', () => {
+  const original = emptyWorkbench()
+  const { navigation: _navigation, ...legacy } = original
+  const fallback = { kind: 'work', view: { kind: 'conversation', session: null } }
+  expect(readWorkbench(legacy)?.navigation).toEqual({ current: fallback, back: [], forward: [] })
+  expect(readWorkbench(original.main)?.navigation.current).toEqual(fallback)
+  const current = { kind: 'plugins', section: 'installed', id: 'demo' }
+  const restored = readWorkbench({ ...original, navigation: { current, back: [fallback, { kind: 'bad' }], forward: [] } })!
+  expect(restored.navigation).toEqual({ current, back: [fallback], forward: [] })
+  expect(restored.frameTools).toEqual(original.frameTools)
+  expect(restored.toolOwners).toEqual(original.toolOwners)
+  expect(restored.frameSubjects).toEqual(original.frameSubjects)
+  expect(restored.main).toEqual(original.main)
+  expect(restored.bottom).toEqual(original.bottom)
+  expect(restored.right).toEqual(original.right)
 })

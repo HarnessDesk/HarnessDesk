@@ -98,6 +98,7 @@ it('retains a completed measurement delivered while the post-cleanup kept list i
   act(() => listener(usage))
   await act(async () => finish([]))
   expect(box.textContent).not.toContain('Measuring…')
+  expect(box.textContent).not.toContain('Deleted task')
 })
 
 it.each(['pane', 'dock'] as const)('excludes settled room tiles, watching and tile pins from the %s at preview and confirmation', async place => {

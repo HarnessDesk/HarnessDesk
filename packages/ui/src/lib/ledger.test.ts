@@ -234,35 +234,34 @@ describe('periodTotals', () => {
     const today = periodTotals(thirty, [1])[0]
     expect(today?.label).toBe('Today')
     expect(today?.cost).toBe(30)
-    expect(today?.partial).toBe(true)
+    expect(today).not.toHaveProperty('partial')
     // A day still running against a whole one falls every morning and recovers
     // by evening, which says nothing about the spending.
-    expect(today?.change).toBeNull()
+    expect(today).not.toHaveProperty('change')
   })
 
-  it('measures a multi-day window over complete days only', () => {
+  it('measures the same inclusive multi-day window as the selected range', () => {
     const week = periodTotals(thirty, [7])[0]
-    expect(week?.partial).toBe(false)
-    // The seven complete days are 29 down to 23 — today's 30 is excluded.
-    expect(week?.cost).toBe(182)
+    expect(week).not.toHaveProperty('partial')
+    // The last seven days include today, 30 down to 24.
+    expect(week?.cost).toBe(189)
   })
 
-  it('compares a period against the one of the same length before it', () => {
+  it('does not compare an inclusive period whose final day is still running', () => {
     const week = periodTotals(thirty, [7])[0]
-    // 29…23 against 22…16, both complete.
-    expect(week?.change).toBeCloseTo(((182 - 133) / 133) * 100, 5)
+    // Today is still running.
+    expect(week).not.toHaveProperty('change')
   })
 
   it('offers no comparison when the earlier period is not wholly loaded', () => {
     const twenty = periodTotals(thirty, [20])[0]
     expect(twenty?.cost).toBeGreaterThan(0)
-    expect(twenty?.change).toBeNull()
+    expect(twenty).not.toHaveProperty('change')
   })
 
-  it('will not offer a period longer than the complete days it holds', () => {
-    // Thirty loaded days are twenty-nine complete ones, so a 30-day
-    // comparison window cannot be filled.
-    expect(periodTotals(thirty, [7, 30, 90]).map((total) => total.days)).toEqual([7])
+  it('will not offer a period longer than the loaded days', () => {
+    // Thirty loaded days fill both 7 and 30 day ranges.
+    expect(periodTotals(thirty, [7, 30, 90]).map((total) => total.days)).toEqual([7, 30])
   })
 
   it('has no percentage for a rise from nothing', () => {
@@ -274,8 +273,8 @@ describe('periodTotals', () => {
       NOON,
     )
     // Two complete days of spend, and two empty ones before them.
-    expect(periodTotals(quiet, [2])[0]?.cost).toBe(10)
-    expect(periodTotals(quiet, [2])[0]?.change).toBeNull()
+    expect(periodTotals(quiet, [2])[0]?.cost).toBe(5)
+    expect(periodTotals(quiet, [2])[0]).not.toHaveProperty('change')
   })
 
   it('answers with nothing for an empty window', () => {
@@ -554,4 +553,36 @@ describe('shareOf', () => {
     expect(shareOf(25, null)).toBeNull()
     expect(shareOf(null, 200)).toBeNull()
   })
+})
+
+it('shorter spend figures agree with selected inclusive ranges for 7 and 30 days', () => {
+  const daily = Array.from({ length: 90 }, (_, i) => ({ day: TODAY - i * DAY, runtime: runtimeId('fixture'), cost: i % 5 === 0 ? 0 : (i + 1) / 100 }))
+  const wide = stackDaily(report(90, daily, TODAY - 26 * DAY), NOON)
+  for (const span of [7, 30]) {
+    const selected = stackDaily(report(span, daily.filter(entry => entry.day >= TODAY - (span - 1) * DAY), TODAY - 26 * DAY), NOON)
+    expect(periodTotals(wide, [span])[0]?.cost).toBeCloseTo(selected.total, 8)
+  }
+})
+
+it('a host report’s recorded dates do not label a quiet interior day unread', () => {
+  const ledger = report(7, [{ day: TODAY, runtime: runtimeId('fixture'), cost: 5 }, { day: TODAY - 2 * DAY, runtime: runtimeId('fixture'), cost: 0 }], TODAY - 6 * DAY)
+  Object.assign(ledger.coverage, { coveredDays: [TODAY, TODAY - 2 * DAY] })
+  const days = stackDaily(ledger, NOON).days
+  expect(days.at(-2)?.unknown).toBe(false)
+  expect(days.at(-3)?.unknown).toBe(false)
+  expect(days.at(-3)?.total).toBe(0)
+})
+
+it('quiet days after the earliest host row remain known without fabricated zero rows', () => {
+  const ledger = report(3, [{day:TODAY-2*DAY,runtime:CODEX,cost:4}], TODAY-2*DAY)
+  Object.assign(ledger.coverage,{coveredDays:[TODAY-2*DAY],daysCovered:1})
+  const series=stackDaily(ledger,NOON)
+  expect(series.days.map(day=>day.unknown)).toEqual([false,false,false])
+  expect(periodTotals(series)[0]?.unknown).toBe(false)
+})
+
+it('withholds the previous-period percentage when the current window has an unknown day', () => {
+ const wide=stackDaily(report(4,Array.from({length:4},(_,back)=>({day:TODAY-back*DAY,runtime:CODEX,cost:1}))),NOON)
+ const gap={...wide,days:wide.days.map((day,index)=>({...day,unknown:index===3}))}
+ expect(previousPeriod(gap,2,2).change).toBeNull()
 })

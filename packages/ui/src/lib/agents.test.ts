@@ -298,6 +298,12 @@ describe('agents in words', () => {
     expect(firstReason(plan({ winner: null, candidates: [] }))).toBe('It names no seat to try')
   })
 
+  it('does not report a seat when the selected candidate is marked passed', () => {
+    const staleWinner = plan({ winner: 0, candidates: [plan().candidates[0]!] })
+    expect(seatTaken(staleWinner)).toBeNull()
+    expect(firstReason(staleWinner)).toBe('Cursor is signed out')
+  })
+
   /*
    * `plan.blocked` is the host's own sentence (`unusable()` in
    * `methods/agents.ts`) and starts with the Agent file's absolute path — a

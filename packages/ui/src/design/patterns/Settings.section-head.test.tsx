@@ -50,6 +50,9 @@ it('keeps card labels distinct from an explicit page-section heading', () => {
   expect(name?.className).toContain('text-(--hd-foreground)')
   expect(heading?.closest('[data-sticky]')?.textContent).toBe('What is leftThe selected account is out of quota.Range')
   expect(heading?.nextElementSibling?.getAttribute('data-slot')).toBe('section-description')
+  const action = heading?.closest('[data-section-head]')?.querySelector('[data-slot="section-action"]')
+  expect(action?.textContent).toBe('Range')
+  expect(action?.firstElementChild?.tagName).toBe('BUTTON')
 
   // The card label is the one group label, not a style of its own.
   expect(label?.className).toContain('text-(length:--hd-text-sm)')
@@ -58,27 +61,24 @@ it('keeps card labels distinct from an explicit page-section heading', () => {
   expect(css).not.toMatch(/\.sectionName\[data-level='heading'\]/)
 })
 
-/*
- * A `SectionHead` sits above whatever body it names, which is a `Rows` card
- * as often as it is a `Note` or a plain button (ProjectTriggers' own body,
- * `.sectionHead`'s inset is earned by that card, and applying it whether or
- * not the body is one put a Note-bodied head's label 17px right of a body
- * that starts flush with the page. jsdom does not resolve `:has()` against
- * layout, so this reads the rule's own selector rather than a computed
- * style; `e2e/ui-system/page-grammar.spec.ts` measures the two cases live.
- */
-it('earns its card inset only when a Rows card is the very next thing it names', () => {
-  expect(css).toMatch(/\.sectionHead:has\(\+ \[data-slot='rows'\]\),\s*\.sectionHead:has\(\+ \[role='radiogroup'\]\),\s*\.sectionHead:has\(\+ \[data-slot='table-container'\]\)\s*\{[^}]*padding-inline:/s)
-  // The bare `.sectionHead` rule — the one every head gets — carries no
-  // inline padding of its own; only the conditional one does.
+it('truncates section names and moves their controls to a second row when they do not fit', () => {
+  const content = /\.sectionHeadContent\s*\{([^}]*)\}/s.exec(css)?.[1] ?? ''
+  const text = /\.sectionHeadText\s*\{([^}]*)\}/s.exec(css)?.[1] ?? ''
+  const name = /\.sectionName\s*\{([^}]*)\}/s.exec(css)?.[1] ?? ''
+  expect(content).toMatch(/flex-wrap:\s*wrap/)
+  expect(text).toMatch(/min-width:\s*0/)
+  expect(name).toMatch(/min-width:\s*0/)
+  expect(name).toMatch(/overflow:\s*hidden/)
+  expect(name).toMatch(/text-overflow:\s*ellipsis/)
+  expect(name).toMatch(/white-space:\s*nowrap/)
+})
+
+/* Page headings keep the content edge even when the body below them is inset. */
+it('keeps page section heads on one text edge regardless of their body', () => {
+  expect(css).not.toMatch(/\.sectionHead:has\(\+ \[data-slot='rows'\]\)/)
+  expect(css).not.toMatch(/\.sectionHead:has\(\+ \[role='radiogroup'\]\)/)
+  expect(css).not.toMatch(/\.sectionHead:has\(\+ \[data-slot='table-container'\]\)/)
+  expect(css).not.toMatch(/\.sectionHead:has\(\+ \[data-slot='summary-list'\]\)/)
   const bare = /\.sectionHead\s*\{([^}]*)\}/s.exec(css)?.[1] ?? ''
-  expect(bare).not.toMatch(/padding-inline/)
-})
-
-it('insets the label over the system’s summary card to its content edge', () => {
-  expect(css).toMatch(/\.sectionHead:has\(\+ \[data-slot='summary-list'\]\)\s*\{[^}]*padding-inline: calc\(var\(--hd-border-width\) \+ var\(--hd-inset-row\)\);/s)
-})
-
-it('insets a head over a table container to the table’s row content edge', () => {
-  expect(css).toMatch(/\.sectionHead:has\(\+ \[data-slot='table-container'\]\)\s*\{[^}]*padding-inline: calc\(var\(--hd-border-width\) \+ var\(--hd-table-edge\)\);/s)
+  expect(bare).not.toMatch(/padding(?:-inline)?\s*:/)
 })

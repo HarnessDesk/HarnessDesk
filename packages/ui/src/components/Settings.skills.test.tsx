@@ -1,3 +1,4 @@
+import { SkillsTestPage as SkillsSection } from '../test-support/settings-page'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -6,19 +7,7 @@ import type { RuntimeInfo, SkillInfo } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { SkillsSection } from './Settings'
-
-/**
- * The skills list, readable.
- *
- * A skill's wire name and its full trigger paragraph are what the model
- * reads; a person scanning a list of 116 needs the display name, up to three wrapped
- * lines, and where it came from — with the full text one click away rather
- * than twelve lines tall in the row. Codex ships all of that metadata
- * (displayName, shortDescription, scope) and the page now uses it.
- */
-
-;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let container: HTMLDivElement
 let root: Root
@@ -64,12 +53,14 @@ const SKILLS: SkillInfo[] = [
 
 const mount = (skills: SkillInfo[] = SKILLS): { onUse: ReturnType<typeof vi.fn> } => {
   const info = runtime()
+  const initial = emptySnapshot()
   const snapshot: AppSnapshot = {
-    ...emptySnapshot(),
+    ...initial,
     status: 'open',
     activeRuntime: info.id,
     runtimes: [info],
     skills,
+    workbench: { ...initial.workbench, navigation: { ...initial.workbench.navigation, current: { kind: 'settings', route: { kind: 'section', section: 'skills', focus: null } } } },
   }
   const store = {
     subscribe: () => () => {},
@@ -111,12 +102,15 @@ it('opening a skill shows the full text, the identifier, and Use in composer', (
 
   const composed: string[] = []
   const listener = (event: Event): void => {
-    composed.push(String((event as CustomEvent).detail))
+    const detail=(event as CustomEvent<{text:string;onReceived:()=>void}>).detail
+    composed.push(detail.text);detail.onReceived()
   }
   window.addEventListener('harnessdesk:compose', listener)
   const use = [...container.querySelectorAll('button')].find(
     (button) => button.textContent === 'Use in composer',
   )
+  expect(use).toBeDefined()
+  expect(use?.closest('[data-slot="top-bar"]')).toBeNull()
   act(() => use?.click())
   window.removeEventListener('harnessdesk:compose', listener)
 
@@ -151,11 +145,11 @@ it("draws a skill's colour and its logo as the plugin rows do, on the icon tile"
   expect(logo?.querySelector('img')?.getAttribute('style')).toBeNull()
 })
 
-it('omits repeated sparks and limits list descriptions to three wrapped lines', () => {
+it('omits repeated sparks and keeps the complete description in prose', () => {
   mount()
   expect(container.querySelectorAll('[data-slot="row-mark"]')).toHaveLength(0)
   expect(container.querySelector('[data-slot="row-desc"]')?.getAttribute('data-wrap')).toBe('true')
-  expect(container.querySelector('[class*="skillDesc"]')).not.toBeNull()
+  expect(container.querySelector('[data-slot="row-desc"] [data-role="prose"]')).not.toBeNull()
 })
 
 it('a list with a manifest mark gives every skill a face', () => {
@@ -191,10 +185,10 @@ it('mixed marked, unmarked and broken icons keep a 15px fallback glyph', () => {
   }
   const marked = [...container.querySelectorAll('button')].find(row => row.textContent?.includes('Marked'))!
   act(() => marked.click())
-  expect(container.querySelector('[data-slot="icon-tile"]')?.classList.contains('size-6')).toBe(true)
+  expect(container.querySelector('[data-topbar-mark]')).toBeNull()
 })
 
-it('keeps the fallback glyph at 15px in the list and 22px in the detail head', () => {
+it('keeps the fallback glyph at 15px in the list and the Settings bar quiet on detail', () => {
   mount([
     { name: 'generic', description: 'A generic mark.', enabled: true },
     { name: 'marked', description: 'A named mark.', enabled: true, brandColor: '#7a5af8' },
@@ -202,7 +196,5 @@ it('keeps the fallback glyph at 15px in the list and 22px in the detail head', (
   const row = [...container.querySelectorAll('button')].find(button => button.textContent?.includes('Generic'))!
   expect(row.querySelector('[data-slot="row-mark"] svg')?.getAttribute('width')).toBe('15')
   act(() => row.click())
-  const detailGlyph = container.querySelector('[data-shape="square"] svg')
-  expect(detailGlyph?.getAttribute('width')).toBe('22')
-  expect(detailGlyph?.getAttribute('height')).toBe('22')
+  expect(container.querySelector('[data-topbar-mark]')).toBeNull()
 })

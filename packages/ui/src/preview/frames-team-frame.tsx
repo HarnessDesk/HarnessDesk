@@ -1,17 +1,20 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { TopBarProvider } from '../panels/top-bar'
+import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
+import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { Workbench } from '../panels/Workbench'
 import { ShellProvider } from '../panels/views'
 import { Sidebar } from '../components/Sidebar'
+import { itemId, turnId } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
+import { destinationOf } from '../state/destinations'
 import { useTheme } from '../state/theme'
 import { emptyWorkbench } from '../state/workbench'
 import { overviewTeamStore } from './team-overview-fixture'
 import { triggerRunsStore } from './team-runs-fixture'
-import { TeamRoomPane } from '../components/TeamRoomPane'
+import { TeamFramePreview } from './TeamFramePreview'
 
 /** The real Team frame and unchanged sidebar, with placeholder-only membership. */
 export const TeamFrame = () => {
- useTheme()
  const controls = new URLSearchParams(location.search).get('team-frame') === 'controls'
  const box = useRef<HTMLDivElement>(null)
  useEffect(() => {
@@ -19,32 +22,59 @@ export const TeamFrame = () => {
   const frame=requestAnimationFrame(() => box.current?.querySelector<HTMLButtonElement>('header button[title="More"]')?.click())
   return () => cancelAnimationFrame(frame)
  }, [controls])
- const store = useMemo(() => {
+  const store = useMemo(() => {
   const scene = new URLSearchParams(location.search).get('team-frame')
-  const own = scene === 'trigger-runs' ? triggerRunsStore() : overviewTeamStore(scene === 'ready' ? 'done' : scene === 'running' ? 'running' : scene === 'no-run' ? 'no-run' : 'needs-you')
-  const main = {root:{kind:'pane' as const,id:'frame-team',view:{kind:'room' as const,room:'overview-team'}},focused:'frame-team',expanded:null}
+  const emptyFindings = scene === 'empty-findings'
+  const own = scene === 'trigger-runs' ? triggerRunsStore() : overviewTeamStore(scene === 'ready' ? 'done' : scene === 'running' || scene === 'member-chat' || scene === 'board' || emptyFindings ? 'running' : scene === 'no-run' ? 'no-run' : 'needs-you')
+  const main = {root:{kind:'pane' as const,id:'frame-team',view:{kind:'room' as const,room:'overview-team',...(scene === 'board' ? {framePage:'board' as const} : emptyFindings ? {framePage:'findings' as const} : {})}},focused:'frame-team',expanded:null}
   const snapshot = own.getSnapshot()
+  if (scene === 'member-chat') {
+   const sessions = new Map(snapshot.sessions)
+   const member = [...sessions.entries()].find(([, session]) => session.id === 'overview-1')
+   if (member) {
+    const [key, session] = member
+    sessions.set(key, { ...session, turns: [{ id: turnId('frame-member-chat'), status:'completed', items:[
+     { id:itemId('frame-member-chat-user'), type:'userMessage', content:[{type:'text',text:'Check the request flow before changing retries.'}] },
+     { id:itemId('frame-member-chat-answer'), type:'assistantMessage', phase:'final', text:'The request helper makes one attempt. I am tracing where transient failures are returned.' },
+    ] }] })
+   }
+   Object.assign(snapshot, { sessions })
+  }
+  if (emptyFindings) {
+   Object.assign(snapshot, {
+    findings: new Map([['overview-team', { filter:'all',rows:[],totals:{all:0,open:0,blocking:0},next:null,problem:null,loading:false,loadingMore:false,error:null,stale:false }]]),
+    findingRuns: new Map([...snapshot.findingRuns].map(([id, findingRun]) => [id, { ...findingRun, open:0, blocking:0, reason:null, rounds:[] }])),
+   })
+  }
   const base = emptyWorkbench()
-  const right = new URLSearchParams(location.search).has('right-panel') ? {...base.right, root:{kind:'stack' as const,id:'frame-browser-stack',active:'frame-browser',views:[{id:'frame-browser',view:{kind:'browser' as const,tabs:[{id:'frame-page',url:'about:blank'}],active:'frame-page',driven:'frame-page'}}]}} : base.right
+  const navigation = { ...base.navigation, current: destinationOf(main.root.view), back: [...base.navigation.back, base.navigation.current], forward: [] }
+
   const run = [...snapshot.flowExecutions.values()].at(-1)!
-  Object.assign(snapshot, {flowExecutions:scene === 'trigger-runs' || !run ? snapshot.flowExecutions : new Map([[run.id,{...run,target:{kind:'branch',label:'team/checkout',base:null,head:'a1b2c3d4e5f6',pr:null,dirty:false}}]]),boardEvidence:new Map([['overview-team',{room:'overview-team',stamp:1,checks:[],refused:[],unreadable:null,cards:[{card:1,running:[],facts:[{freshness:{state:'fresh'},by:null,record:{id:'frame-pr',observedAt:1,fact:{kind:'pr',number:7,head:'a1b2c3d4e5f6',state:'open',url:'https://github.com/acme/storefront/pull/7'}}}]}]}]]),workbench:{...base,main,right},layout:main,sidebarCollapsed:false,sidebarFloating:false,activeSessionKey:null})
+  Object.assign(snapshot, {flowExecutions:scene === 'trigger-runs' || !run ? snapshot.flowExecutions : new Map([[run.id,{...run,target:{kind:'branch',label:'team/checkout',base:null,head:'a1b2c3d4e5f6',pr:null,dirty:false}}]]),boardEvidence:emptyFindings ? new Map() : new Map([['overview-team',{room:'overview-team',stamp:1,checks:[],refused:[],unreadable:null,cards:[{card:1,running:[],facts:[{freshness:{state:'fresh'},by:null,record:{id:'frame-pr',observedAt:1,fact:{kind:'pr',number:7,head:'a1b2c3d4e5f6',state:'open',url:'https://github.com/acme/storefront/pull/7'}}}]}]}]]),workbench:{...base,main,navigation},layout:main,navCanBack:true,sidebarCollapsed:false,sidebarFloating:false,activeSessionKey:null})
+  if (new URLSearchParams(location.search).has('right-panel')) void own.openBrowser()
   return own
  }, [])
- return <StoreProvider store={store}><ShellProvider actions={{chooseProject:()=>{},signIn:()=>{},openUsage:()=>{},openRuntimes:()=>{},openAgents:()=>{},reviewImports:()=>{}}}>
-  <div ref={box} data-frame-id="team-frame" className={`h-screen bg-background${controls ? ' max-w-95' : ''}`}>
-   <Workbench sidebar={<Sidebar onOpenSettings={()=>{}} onOpenPlugins={()=>{}} onOpenAgents={()=>{}} onOpenTeams={()=>{}} onOpenUsage={()=>{}} onBrowseFolders={()=>{}} onSignIn={()=>{}} onSearch={()=>{}} />} />
+ return <StoreProvider store={store}><ApplyPreviewTheme><ShellProvider actions={{chooseProject:()=>{},signIn:()=>{},openUsage:()=>{},openRuntimes:()=>{},openAgents:()=>{},reviewImports:()=>{}}}>
+  <div ref={box} data-frame-id="team-frame" className={`h-screen bg-background${controls ? ' max-w-180' : ''}`}>
+   <TopBarProvider><ShellHostsProvider><Workbench sidebar={<Sidebar onOpenSettings={()=>{}} onOpenPlugins={()=>{}} onOpenAgents={()=>{}} onOpenTeams={()=>{}} onOpenUsage={()=>{}} onBrowseFolders={()=>{}} onSignIn={()=>{}} onSearch={()=>{}} />} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
   </div>
- </ShellProvider></StoreProvider>
+ </ShellProvider></ApplyPreviewTheme></StoreProvider>
+}
+
+const ApplyPreviewTheme = ({ children }: { readonly children: ReactNode }) => {
+ useTheme()
+ return <>{children}</>
 }
 
 const TeamBarExample = ({narrow = false, sideBySide = false}:{narrow?:boolean;sideBySide?:boolean}) => {
+ const box = useRef<HTMLDivElement>(null)
  const store=useMemo(()=>overviewTeamStore(narrow?'no-run':'running'),[narrow])
- const box=useRef<HTMLDivElement>(null)
- useEffect(()=>{
-  box.current?.querySelector<HTMLElement>('header')?.setAttribute('data-catalog-size',narrow?'sm':sideBySide?'lg':'default')
-  if(sideBySide) box.current?.querySelector<HTMLButtonElement>('[data-team-page="side-by-side"]')?.click()
- },[narrow,sideBySide])
- return <div ref={box} className={`h-96 w-full${narrow?' max-w-160':''}`}><StoreProvider store={store}><TeamRoomPane room="overview-team" /></StoreProvider></div>
+ const view=useMemo(()=>({kind:'room' as const,room:'overview-team',...(sideBySide ? {framePage:'room' as const,sideBySide:{tiles:[...store.getSnapshot().sessions.keys()].slice(0,2)}} : {})}),[store,sideBySide])
+ useEffect(() => {
+  // Keep all three catalogue cases measured on their replacement frame Bar.
+  box.current?.querySelector('header[data-slot="bar"]')?.setAttribute('data-catalog-size', narrow ? 'sm' : sideBySide ? 'lg' : 'default')
+ }, [narrow, sideBySide])
+ return <div ref={box} className={`h-96 w-full${narrow?' max-w-180':''}`}><StoreProvider store={store}><TeamFramePreview room="overview-team" view={view} /></StoreProvider></div>
 }
 
 /** Production Team chrome at a full width, a narrowed pane and Side by side. */

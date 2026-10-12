@@ -12,6 +12,7 @@ import {
   quartileLevels,
   toHourGridCell,
   streaksFor,
+  busiestDay,
   busiestWeekday,
 } from './heat'
 
@@ -95,6 +96,17 @@ describe('buildDayRange — the three kinds of nothing', () => {
     expect(earliestScannedDay(report([]))).toBeNull()
     const cells = buildDayRange(report([]), addDays(TODAY, -3), TODAY, TODAY)
     expect(cells.every((cell) => !cell.scanned)).toBe(true)
+  })
+})
+
+describe('busiestDay', () => {
+  it('returns no day when every day in view has zero activity', () => {
+    const days = [
+      { day: 1, tokens: 0, cost: 0, scanned: true, parts: [], future: false },
+      { day: 2, tokens: 0, cost: 0, scanned: true, parts: [], future: false },
+    ]
+    expect(busiestDay(days, 'tokens')).toBeNull()
+    expect(busiestDay(days, 'cost')).toBeNull()
   })
 })
 

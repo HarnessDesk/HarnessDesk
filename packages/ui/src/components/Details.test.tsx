@@ -11,9 +11,9 @@ import '../panels/builtins'
  * four bodies, and could only ever appear in the right-hand column. The claim
  * it pinned is the one that still matters — **a view that nothing offers is a
  * view nobody can open** — but the tab row is the panel system's now, and the
- * five are ordinary inspectors it mounts. Run details and Steps are different:
- * their doors live on the Run itself (the Details link and the Flow choice),
- * so they do not belong in the global summonable list.
+ * five are ordinary inspectors it mounts. Run details is reached from its Run, so it does not belong in the global
+ * summonable list. Steps is a compatibility route to the Run Timeline, not
+ * a registered panel.
  *
  * It then pinned that claim against `DETAIL_VIEWS`, a table in `Details.tsx`
  * that named them a second time. That table is gone, and this is why: both the
@@ -25,7 +25,7 @@ import '../panels/builtins'
  */
 
 const INSPECTORS = ['changes', 'trajectory', 'agents', 'activity', 'tasks'] as const
-const RUN_SCOPED = ['run-details', 'run-steps'] as const
+const RUN_SCOPED = ['run-details'] as const
 
 it('every inspector is a view the panel system mounts on the right', () => {
   for (const kind of INSPECTORS) {

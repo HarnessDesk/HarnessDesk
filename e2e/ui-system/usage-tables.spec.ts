@@ -3,6 +3,16 @@ import path from 'node:path'
 import { FRAME } from '../../packages/ui/src/design/frame'
 import { COLLECT, textReasons, USER } from '../../script/shots/audit.mjs'
 
+const mountPlanMeters = async (page: Page, fixtureUsage = false) => {
+  await page.evaluate(async fixtureUsage => {
+    const container = document.createElement('section')
+    document.body.appendChild(container)
+    const { mountPlanMetersSpecimen } = await import('/src/preview/frames-supported-controls.tsx' as string)
+    mountPlanMetersSpecimen(container, fixtureUsage)
+  }, fixtureUsage)
+  await expect(page.locator('[data-frame-id="supported-plan-meters"]')).toBeVisible()
+}
+
 const capture = async (page: Page, frame: Locator, name: string) => {
   if (!process.env.USAGE_TABLES_FRAMES_DIR) return
   // Audit the photographed surface, including its tooltip and field values.
@@ -56,7 +66,7 @@ const wholeMeterNames = async (rows: Locator) => {
   for (const row of await rows.all()) await row.locator(':scope > span').first().hover()
   const readings = await rows.evaluateAll(nodes => nodes.map(node => {
     const name = node.firstElementChild as HTMLElement
-    const reset = node.lastElementChild as HTMLElement
+    const reset = node.querySelector('[data-meter-column="reset"] [title]') as HTMLElement
     const hasBar = Boolean(node.querySelector('[data-slot="progress"]'))
     const reading = node.children[hasBar ? 2 : 1] as HTMLElement
     const range = document.createRange()
@@ -70,7 +80,7 @@ const wholeMeterNames = async (rows: Locator) => {
     expect(reading.nameScroll, JSON.stringify(reading)).toBeLessThanOrEqual(reading.nameWidth)
     expect(reading.title).toBe(reading.nameScroll > reading.nameWidth ? reading.name : null)
     expect(reading.hasBar).toBe(false)
-    expect(reading.resetTitle).toMatch(/^resets /)
+    expect(reading.resetTitle).toMatch(/^(resets |blocked until )/)
     expect(reading.readingLines, JSON.stringify(reading)).toBe(1)
     expect(reading.resetScroll, JSON.stringify(reading)).toBeLessThanOrEqual(reading.resetWidth)
   }
@@ -94,11 +104,15 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto('/preview.html')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await page.evaluate(async () => { await document.fonts.ready })
-    const dashboard = page.getByRole('dialog', { name: 'Dashboard', exact: true })
+    const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
     const card = dashboard.locator('[data-slot="card"]').filter({ has: page.locator('[data-slot="usage-meter-row"]') }).first()
     await expect(card.locator('[data-slot="usage-meter-row"]')).toHaveCount(3)
     await alignedMeters(card.locator('[data-slot="usage-meter-row"]'))
-    await page.getByRole('group', { name: 'Plan usage' }).locator('button').first().click()
+    await page.evaluate(async () => {
+      const { mountPlanMetersSpecimen } = await import('/src/preview/frames-supported-controls.tsx' as string)
+      const host = document.createElement('section'); document.querySelector('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:not([hidden])')!.append(host); mountPlanMetersSpecimen(host, true)
+    })
+    await page.locator('[data-frame-id="supported-plan-meters"]').getByRole('group', { name: 'Plan usage' }).locator('button').first().click()
     await alignedMeters(page.getByRole('menu').locator('[data-slot="usage-meter-row"]'))
   })
 }
@@ -112,38 +126,48 @@ for (const theme of ['light', 'dark'] as const) {
     await page.getByText('Usage remaining', { exact: true }).click()
     const rows = page.locator('[data-usage-details] [data-slot="usage-meter-row"]')
     await expect(rows).toHaveCount(2)
-    const geometry = await rows.first().evaluate(node => {
-      const popup = node.closest('[data-slot="popover-popup"]')!
-      const details = node.closest('[data-usage-details]')!
-      const panelStyle = getComputedStyle(popup)
-      const detailsStyle = getComputedStyle(details)
-      return {
-        panelWidth: popup.getBoundingClientRect().width,
-        width: node.getBoundingClientRect().width,
-        inset: parseFloat(panelStyle.paddingLeft) + parseFloat(panelStyle.paddingRight)
-          + parseFloat(detailsStyle.marginLeft) + parseFloat(detailsStyle.marginRight),
-      }
+    // S17 puts these facts on the menu text edges: 16px on each side.
+    const accountWidth = await rows.first().evaluate(node => {
+      const panel = node.closest('[data-slot="popover-popup"]')!.getBoundingClientRect()
+      const row = node.getBoundingClientRect()
+      return { panel: panel.width, row: row.width, left: row.left - panel.left, right: panel.right - row.right }
     })
-    expect(geometry.panelWidth).toBe(FRAME.menu.max)
-    expect(geometry.width).toBe(FRAME.menu.max - geometry.inset)
+    expect(accountWidth).toEqual({ panel: FRAME.menu.max, row: FRAME.menu.max - 32, left: 16, right: 16 })
     await wholeMeterNames(rows)
   })
 
   test(`context usage keeps whole names and the caller inset in ${theme}`, async ({ page }) => {
-    await page.goto('/preview.html')
-    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
-    await stageWindows(page)
-    await page.locator('[data-frame-id="conversation-composer"]').getByRole('button', { name: /^Context window/ }).click()
-    const panel = page.getByRole('menu').filter({ hasText: 'Last turn' })
-    const rows = panel.locator('[data-slot="usage-meter-row"]')
-    await expect(rows).toHaveCount(2)
-    const inset = await rows.first().evaluate(node => {
-      const panel = node.closest('[class*="panel"]')!.getBoundingClientRect()
-      const row = node.getBoundingClientRect()
+    await page.route('**/src/preview/frame-destination-store.ts*', async route => {
+      const response = await route.fetch()
+      const source = await response.text()
+      const marker = 'const seed = fixture.getSnapshot();'
+      expect(source).toContain(marker)
+      const body = source.replace(marker, `${marker}
+        seed.runtimes = seed.runtimes.map(runtime => ({ ...runtime, capabilities: { ...runtime.capabilities, metered: true } }));
+        seed.limits = { windows: [
+          { id: '5-hour', label: '5-hour', usedPercent: 0, windowMinutes: 300, resetsAt: Date.now() + 86400000 },
+          { id: 'weekly-opus', label: 'Weekly · Opus', usedPercent: 100, windowMinutes: 10080, resetsAt: Date.now() + 604800000 }
+        ] };`)
+      await route.fulfill({ response, body })
+    })
+    await page.goto(`/preview.html?frame-wall=conversation&theme=${theme}`)
+    await page.getByRole('button', { name: 'Usage', exact: true }).hover()
+    const panel = page.locator('[data-popup-kind="info-card"]').filter({ hasText: 'Context window' })
+    await expect(panel).toBeVisible()
+    const facts = panel.locator('[data-info-pair]')
+    for (const [label, value] of [['5-hour', '100% left'], ['Weekly · Opus', '0% left']] as const) {
+      const fact = facts.filter({ has: page.locator('dt').getByText(label, { exact: true }) })
+      await expect(fact.locator('dt')).toHaveText(label)
+      await expect(fact.locator('dd').first()).toHaveText(value)
+      await expect(fact.locator('[data-info-pair-note]')).toContainText('resets ')
+      expect(await fact.locator('dt').evaluate(node => node.scrollWidth - node.clientWidth)).toBe(0)
+    }
+    const inset = await facts.first().evaluate(node => {
+      const panel = node.closest('[data-popup-kind="info-card"]')!.getBoundingClientRect()
+      const row = node.parentElement!.getBoundingClientRect()
       return { width: panel.width, left: row.left - panel.left, right: panel.right - row.right }
     })
-    expect(inset).toEqual({ width: 272, left: 8, right: 8 })
-    await wholeMeterNames(rows)
+    expect(inset).toEqual({ width: FRAME.infoCard.width, left: FRAME.infoCard.padding, right: FRAME.infoCard.padding })
   })
 }
 
@@ -178,7 +202,7 @@ for (const theme of ['light', 'dark'] as const) {
 
 test('Dashboard Project preview counts its retained Run through the batch history loader', async ({ page }) => {
   await page.goto('/preview.html?view=projects')
-  const dashboard = page.getByRole('dialog', { name: 'Dashboard', exact: true })
+  const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
   const row = dashboard.getByRole('row', { name: /Storefront/ })
   await expect(row.locator('td').nth(1)).toHaveText('1')
   await expect(dashboard.getByText('Run counts are unavailable for some Teams.')).toHaveCount(0)
@@ -188,8 +212,8 @@ for (const theme of ['light', 'dark'] as const) {
   test(`narrow Plans disclosure keeps its position and name in ${theme}`, async ({ page }) => {
     await page.goto('/preview.html?view=plans')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
-    const table = page.getByRole('dialog', { name: 'Dashboard', exact: true }).locator('[data-slot="plans-table"]')
-    await table.locator('[data-slot="table-container"]').evaluate(node => { (node as HTMLElement).style.width = '480px' })
+    const table = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible').locator('[data-slot="plans-table"]')
+    await table.locator('xpath=ancestor::*[@data-page-destination][1]').evaluate(node => { (node as HTMLElement).style.width = '480px' })
     const button = table.locator('button[aria-controls^="plans-row-body"]').first()
     const name = await button.locator('xpath=ancestor::tr').locator('td').first().locator('[data-role="subject"]').textContent()
     await expect(button).toHaveAttribute('aria-expanded', 'false')
@@ -253,18 +277,27 @@ test('partial Project preview has available Team counts through the default load
 
 for (const theme of ['light', 'dark'] as const) {
   test(`blocked plan popover names the gate clock in ${theme}`, async ({ page }) => {
+    // The footer belongs to Dashboard's own store. Stage its real fixture
+    // before either store is constructed, rather than patching Conversation.
+    await page.route('**/src/preview/sidebar-fixture.ts*', async route => {
+      const response = await route.fetch()
+      await route.fulfill({ response, body: `${await response.text()}
+        {
+          window.__usageGate = Date.now() + 3 * 86400000;
+          for (const report of previewUsage) if (report.lanes.length) report.lanes = [
+            { id: 'session', label: 'Session', usedPercent: 50, windowMinutes: 300, resetsAt: Date.now() + 3600000 },
+            { id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: window.__usageGate },
+          ];
+        }` })
+    })
     await page.goto('/preview.html')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
-    const gate = await page.evaluate(() => {
-      const { store } = (window as unknown as { __hdPreview: { store: import('../../packages/ui/src/state/store').AppStore & { patch(value: object): void } } }).__hdPreview
-      const until = Date.now() + 3 * 86400000
-      store.patch({ usage: store.getSnapshot().usage.map(report => ({ ...report, lanes: report.lanes.length ? [
-        { id: 'session', label: 'Session', usedPercent: 50, windowMinutes: 300, resetsAt: Date.now() + 3600000 },
-        { id: 'weekly', label: 'Weekly', usedPercent: 100, windowMinutes: 10080, resetsAt: until },
-      ] : [] })) })
-      return until
+    const gate = await page.evaluate(() => (window as unknown as { __usageGate: number }).__usageGate)
+    await page.evaluate(async () => {
+      const { mountPlanMetersSpecimen } = await import('/src/preview/frames-supported-controls.tsx' as string)
+      const host = document.createElement('section'); document.querySelector('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:not([hidden])')!.append(host); mountPlanMetersSpecimen(host, true)
     })
-    await page.getByRole('group', { name: 'Plan usage' }).locator('button').first().click()
+    await page.locator('[data-frame-id="supported-plan-meters"]').getByRole('group', { name: 'Plan usage' }).locator('button').first().click()
     const menu = page.getByRole('menu').filter({ has: page.getByText('blocked 3d', { exact: true }) })
     const row = menu.locator('[data-slot="usage-meter-row"]').filter({ hasText: 'Session' })
     await expect(row).toContainText('blocked 3d')
@@ -272,24 +305,24 @@ for (const theme of ['light', 'dark'] as const) {
       const { formatReset } = await import('/src/lib/limits.ts' as string)
       return formatReset(gate)
     }, gate)
-    await expect(row.locator(':scope > :last-child')).toHaveAttribute('title', `blocked until ${clock}`)
+    await expect(row.locator('[data-meter-column="reset"] [title]')).toHaveAttribute('title', `blocked until ${clock}`)
     await page.evaluate(async () => { await document.fonts.ready })
     await capture(page, menu, `blocked-plan-${theme}.png`)
   })
 
   test(`By Goal retries refused history and wraps its recovery action in ${theme}`, async ({ page }) => {
-    await page.route('**/src/preview/usage-fixture.ts*', async route => {
+    await page.route('**/src/preview/frame-destination-store.ts*', async route => {
       const response = await route.fetch()
-      const body = (await response.text())
-        .replace(/=> \(\{\s*loaded:/, '=> (await new Promise(resolve => { if (window.__historyHold) window.__historyFinish = resolve; else resolve(); }), { loaded:')
-        .replace('loaded: new Set(teams)', 'loaded: new Set(window.__historyRecovered ? teams : [])')
-        .replace('unavailable: new Set()', 'unavailable: new Set(window.__historyRecovered ? [] : teams)')
+      const source = await response.text()
+      const marker = 'if (method === \"flow/executions\") {'
+      expect(source).toContain(marker)
+      const body = source.replace(marker, `${marker} await new Promise(resolve => { if (window.__historyHold) window.__historyFinish = resolve; else resolve(); }); if (!window.__historyRecovered) throw new Error('Synthetic history read refused');`)
       await route.fulfill({ response, body })
     })
     await page.goto('/preview.html?view=projects')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
-    const dashboard = page.getByRole('dialog', { name: 'Dashboard', exact: true })
-    const project = dashboard.locator('[aria-label="Project usage"]')
+    const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
+    const project = dashboard.getByRole('region', { name: /^Team usage in / })
     const note = project.locator('[data-slot="note"]').filter({ hasText: 'Run counts are unavailable for some Teams.' })
     await expect(note.getByRole('button', { name: 'Try again', exact: true })).toBeVisible()
     await expect(project.locator('tbody td').nth(1)).toHaveText('—')

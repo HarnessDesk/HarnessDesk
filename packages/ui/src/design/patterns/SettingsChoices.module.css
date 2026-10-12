@@ -1,0 +1,8 @@
+.pictures { display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); gap: var(--hd-space-2); }
+.picture { display: grid; place-items: center; }
+.inline { display: inline-flex; align-items: center; gap: var(--hd-space-1-5); }
+.ring { opacity: 0.55; transition: opacity var(--hd-duration-fast) var(--hd-ease); }
+.ring:hover { opacity: 0.85; }
+.ring[data-on] { opacity: 1; }
+.picture > * { transition: transform var(--hd-duration-fast) var(--hd-ease), box-shadow var(--hd-duration-fast) var(--hd-ease); }
+.picture:hover > * { transform: scale(1.06); }

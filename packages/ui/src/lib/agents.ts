@@ -283,8 +283,11 @@ export const fixWords = (fix: SeatFix, runtime: string): string => {
 }
 
 /** The seat a plan would take here, or null when it would take none. */
-export const seatTaken = (plan: SeatPlan | undefined): SeatCandidate | null =>
-  plan && plan.winner !== null ? (plan.candidates[plan.winner] ?? null) : null
+export const seatTaken = (plan: SeatPlan | undefined): SeatCandidate | null => {
+  if (!plan) return null
+  const selected = plan.winner === null ? null : plan.candidates[plan.winner] ?? null
+  return selected?.state === 'taken' ? selected : null
+}
 
 /**
  * The first thing wrong with a plan that takes no seat, for a row with room
@@ -297,7 +300,7 @@ export const seatTaken = (plan: SeatPlan | undefined): SeatCandidate | null =>
  */
 export const firstReason = (plan: SeatPlan): string | null => {
   if (plan.blocked) return 'Its file has a problem'
-  if (plan.winner !== null) return null
+  if (seatTaken(plan)) return null
   const first = plan.candidates.find((one) => one.reason !== null)
   if (first?.reason) return reasonWords(first.reason, first.runtimeName)
   return plan.candidates.length === 0 ? 'It names no seat to try' : null

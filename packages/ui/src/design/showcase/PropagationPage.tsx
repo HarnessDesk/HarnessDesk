@@ -7,7 +7,7 @@ import { terminalAppearance } from '../adapters/terminal'
 import { Dialog } from '../patterns/ModalDialog'
 import { Menu, MenuAccountGroup, MenuAccountRow, MenuItem, MenuSeparator } from '../patterns/Menu'
 import { Popover } from '../patterns/Popover'
-import { AccountMark, PageHead, Row, RowChoice, Rows } from '../patterns/Settings'
+import { AccountMark, SectionHead, Row, RowChoice, Rows } from '../patterns/Settings'
 import {
   Board,
   BoardCard,
@@ -43,10 +43,10 @@ export const PropagationPage = () => {
   return (
     <div className={styles.page}>
       <section data-testid="prop-settings">
-        <PageHead
-          title="Appearance"
-          blurb="The real Settings page furniture and controls."
-          actions={<Button data-testid="prop-button">Save</Button>}
+        <SectionHead
+          name="Appearance"
+          description="The real Settings page furniture and controls."
+          action={<Button variant="outline" size="sm" data-testid="prop-button">Save</Button>}
         />
         <Rows>
           <Row

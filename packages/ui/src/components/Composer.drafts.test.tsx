@@ -9,6 +9,7 @@ import { draftsOf, UNSCOPED_RECOVERY_KEY } from '../state/drafts'
 import { panes, sessionOf } from '../state/layout'
 import { AppStore, emptySnapshot, type AppSnapshot } from '../state/store'
 import { Composer } from './Composer'
+import { RoomMessagesHeld } from './RoomMessaging'
 
 /**
  * A typed message is never lost.
@@ -95,17 +96,29 @@ afterEach(() => { strict = false })
 // One stable wrapper: a new component per draw would remount the composer on
 // every draw, and a switch would no longer be a switch.
 const Plain = ({ children }: { children: React.ReactNode }) => <>{children}</>
-const draw = (key: SessionKey | null): void => {
+const draw = (key: SessionKey | null, held = false): void => {
   const Wrap = strict ? StrictMode : Plain
   act(() => {
     root.render(
       <Wrap><StoreProvider store={store}>
         {key ? (
           <PaneProvider scope={{ paneId: 'p1', view: { kind: 'conversation', session: key }, sessionKey: key }}>
-            <Composer onChooseProject={() => {}} />
+            <RoomMessagesHeld.Provider value={held}><Composer onChooseProject={() => {}} /></RoomMessagesHeld.Provider>
           </PaneProvider>
         ) : null}
       </StoreProvider></Wrap>,
+    )
+  })
+}
+
+const drawNewSessionDraft = (): void => {
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <PaneProvider scope={{ paneId: 'p1', view: { kind: 'conversation', session: null }, sessionKey: null }}>
+          <Composer onChooseProject={() => {}} />
+        </PaneProvider>
+      </StoreProvider>,
     )
   })
 }
@@ -301,6 +314,14 @@ describe('a failed conversation read preserves typing in the fresh composer (#80
 })
 
 describe('a draft belongs to its conversation, not to the composer drawing it', () => {
+  it('keeps new-session text when another conversation replaces the draft', () => {
+    drawNewSessionDraft()
+    type('Keep this new-session text.')
+    draw(one)
+    drawNewSessionDraft()
+    expect(textarea().value).toBe('Keep this new-session text.')
+  })
+
   it('is waiting when the composer is taken away and drawn again', () => {
     draw(one)
     type('keep me')
@@ -428,4 +449,19 @@ describe('a message whose send fails goes back to the conversation it was writte
     expect(textarea().value).toBe('')
     restoreMessage('try again')
   })
+})
+
+it('shows room Board-only on the own composer and retains its individual draft when released', () => {
+  draw(one)
+  type('Review the retry budget')
+  draw(one, true)
+  const chip = container.querySelector('[data-slot="composer-chip"]')
+  expect(chip?.textContent).toBe('Board-only')
+  expect(chip?.getAttribute('title')).toBe('Agents cannot message each other. Change Board-only in Send to.')
+  expect(textarea().value).toBe('Review the retry budget')
+  expect(textarea().disabled).toBe(false)
+  expect(container.querySelector('[aria-label="Send to"]')).toBeNull()
+  draw(one)
+  expect(container.textContent).not.toContain('Board-only')
+  expect(textarea().value).toBe('Review the retry budget')
 })

@@ -5,7 +5,7 @@ import type { FileChange, Turn } from '@harnessdesk/protocol'
 import { totalsByFile } from '../lib/turn-view'
 import { useSelect, useSessionKey, useStore } from '../state/context'
 import { closedTurnFilesKey } from '../state/snapshot'
-import { Button, Card, ChangeStats, Chip, CodeText, IconTile, Separator, Text } from '../design'
+import { Button, Card, ChangeStats, Chip, CodeText, IconTile, MiddleTruncate, Separator, Text } from '../design'
 import { CrossIcon, DiffIcon, RedoIcon, UndoIcon } from './Icons'
 import styles from './TurnFiles.module.css'
 
@@ -98,7 +98,7 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
         </IconTile>
         <span className={styles.title}>
           <Text role="subject" className={styles.titleLine}>
-            {verb} {one ? basename(one.path) : `${files.length} files`}{' '}
+            {one ? <MiddleTruncate>{`${verb} ${basename(one.path)}`}</MiddleTruncate> : `${verb} ${files.length} files`}{' '}
             <ChangeStats added={added} removed={removed} />
             {reverted && <Chip tone="neutral" size="sm">put back</Chip>}
           </Text>

@@ -34,8 +34,8 @@ export const GIT_PREVIEW_ROOT = '~/code/storefront'
 const DAY = 24 * 60 * 60 * 1000
 const at = (daysAgo: number, hour = 11) => Date.UTC(2026, 8, 17 - daysAgo, hour)
 
-const SHANE = { author: 'Shane', authorEmail: 'shane@harnessdesk.app' } as const
-const AGENT = { author: 'Codex', authorEmail: 'agent@harnessdesk.app' } as const
+const PERSON = { author: 'Jane Doe', authorEmail: 'dev@example.com' } as const
+const AGENT = { author: 'Jane Doe', authorEmail: 'agent@example.com' } as const
 
 const sha = (n: number) => n.toString(16).padStart(4, '0').repeat(10)
 
@@ -43,14 +43,14 @@ const sha = (n: number) => n.toString(16).padStart(4, '0').repeat(10)
    merged into main at c7, and `feature/inventory.reconciliation.retry` still open at c9. */
 export const GIT_COMMITS: readonly GitLogCommit[] = [
   { sha: sha(9), parents: [sha(6)], subject: 'Keep a row whose folder is gone, and say so', ...AGENT, authoredAt: at(0, 15), committedAt: at(0, 15), refs: ['feature/inventory.reconciliation.retry', 'origin/feature/inventory.reconciliation.retry'] },
-  { sha: sha(8), parents: [sha(7)], subject: 'Name the numbers the screens were still guessing', ...SHANE, authoredAt: at(0, 10), committedAt: at(0, 10), refs: ['HEAD -> main', 'origin/main'] },
-  { sha: sha(7), parents: [sha(6), sha(5)], subject: "Merge branch 'feat/worktree-list'", ...SHANE, authoredAt: at(1, 17), committedAt: at(1, 17), refs: ['tag: v0.4.0'] },
-  { sha: sha(6), parents: [sha(3)], subject: 'Let a sheet be its own size', ...SHANE, authoredAt: at(1, 12), committedAt: at(1, 12), refs: [] },
+  { sha: sha(8), parents: [sha(7)], subject: 'Name the numbers the screens were still guessing', ...PERSON, authoredAt: at(0, 10), committedAt: at(0, 10), refs: ['HEAD -> main', 'origin/main'] },
+  { sha: sha(7), parents: [sha(6), sha(5)], subject: "Merge branch 'feat/worktree-list'", ...PERSON, authoredAt: at(1, 17), committedAt: at(1, 17), refs: ['tag: v0.4.0'] },
+  { sha: sha(6), parents: [sha(3)], subject: 'Let a sheet be its own size', ...PERSON, authoredAt: at(1, 12), committedAt: at(1, 12), refs: [] },
   { sha: sha(5), parents: [sha(4)], subject: 'Show which worktrees an agent is holding', ...AGENT, authoredAt: at(2, 16), committedAt: at(2, 16), refs: ['feat/worktree-list'] },
   { sha: sha(4), parents: [sha(3)], subject: 'List worktrees with the branch each one is on', ...AGENT, authoredAt: at(3, 14), committedAt: at(3, 14), refs: [] },
-  { sha: sha(3), parents: [sha(2)], subject: 'One prompt at a time, so a room says it once', ...SHANE, authoredAt: at(4, 9), committedAt: at(4, 9), refs: [] },
-  { sha: sha(2), parents: [sha(1)], subject: 'Sign in and out over ACP', ...SHANE, authoredAt: at(6, 13), committedAt: at(6, 13), refs: [] },
-  { sha: sha(1), parents: [], subject: 'HarnessDesk 0.1.0', ...SHANE, authoredAt: at(9, 10), committedAt: at(9, 10), refs: [] },
+  { sha: sha(3), parents: [sha(2)], subject: 'One prompt at a time, so a room says it once', ...PERSON, authoredAt: at(4, 9), committedAt: at(4, 9), refs: [] },
+  { sha: sha(2), parents: [sha(1)], subject: 'Sign in and out over ACP', ...PERSON, authoredAt: at(6, 13), committedAt: at(6, 13), refs: [] },
+  { sha: sha(1), parents: [], subject: 'HarnessDesk 0.1.0', ...PERSON, authoredAt: at(9, 10), committedAt: at(9, 10), refs: [] },
 ]
 
 export const gitLog = (): GitLogPage => ({ commits: GIT_COMMITS, hasMore: false })

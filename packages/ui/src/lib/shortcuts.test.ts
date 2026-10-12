@@ -97,8 +97,8 @@ describe('the handler behind the table', () => {
   it('and the two new ones reach the store verbs they exist for', () => {
     // A `case` alone would pass the check above while calling nothing, which
     // is exactly the dead command #254 warns about.
-    expect(appSource).toMatch(/case 'nav-back':\s*\n\s*void store\.navigateBack\(\)/)
-    expect(appSource).toMatch(/case 'nav-forward':\s*\n\s*void store\.navigateForward\(\)/)
+    expect(appSource).toMatch(/case 'nav-back':\s*\n\s*if \(snapshot\.workbench\.navigation\.current\.kind === 'settings'\) void store\.leaveSettings\(\)/)
+    expect(appSource).toMatch(/case 'nav-forward':\s*\n\s*if \(snapshot\.workbench\.navigation\.current\.kind !== 'settings'\) void store\.navigateForward\(\)/)
     // Controls: the source really was loaded, and the matcher can tell the
     // two verbs apart rather than passing on any `case` it finds.
     expect(appSource).toContain("case 'toggle-sidebar':")
@@ -134,7 +134,7 @@ describe('a chord the focused surface already answered', () => {
     // Control: with the flag down every row in the table still matches, so the
     // loop above cannot pass by the table being empty or the matcher broken.
     for (const one of SHORTCUTS) {
-      const fresh = { key: one.key, metaKey: true, ctrlKey: false, shiftKey: Boolean(one.shift), altKey: Boolean(one.alt), code: one.code }
+      const fresh = { key: one.key, metaKey: !one.controlOnly, ctrlKey: Boolean(one.controlOnly), shiftKey: Boolean(one.shift), altKey: Boolean(one.alt), code: one.code }
       expect(shortcutFor(fresh)?.action).toBe(one.action)
     }
   })

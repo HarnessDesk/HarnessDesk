@@ -10,14 +10,18 @@ export type SidebarMenuStateProps = {
   state: ComponentProps<typeof Dot>['state']
   /** Fold the full label to its compact mark at narrow row widths. */
   compactAtNarrow?: boolean
+  /** Use the priority mark when the row has one fixed trailing slot. */
+  compact?: boolean
 }
 
 /** A quiet conversation or room state ends on the inset rail and folds to a dot for its own row's actions. */
-export const SidebarMenuState = ({ label, title = label, tone, state, compactAtNarrow = false }: SidebarMenuStateProps) => (
+export const SidebarMenuState = ({ label, title = label, tone, state, compactAtNarrow = false, compact = false }: SidebarMenuStateProps) => (
   <span data-slot="sidebar-menu-state" role="img" aria-label={label} title={title}
     {...(compactAtNarrow ? { 'data-compact-at-narrow': '' } : {})}
     className="inline-flex min-w-0 shrink-0 items-center">
+    {compact ? <Dot state={state} variant="navigation" /> : <>
     <span data-sidebar-menu-state-full aria-hidden="true" className="inline-flex min-w-0"><Chip tone={tone} variant="quiet">{label}</Chip></span>
     <span data-sidebar-menu-state-compact aria-hidden="true" className="hidden shrink-0"><Dot state={state} variant="navigation" /></span>
+    </>}
   </span>
 )

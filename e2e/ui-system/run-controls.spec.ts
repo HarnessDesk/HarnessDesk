@@ -1,5 +1,6 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
 import path from 'node:path'
+import { FRAME } from '../../packages/ui/src/design/frame'
 
 /**
  * A Run's controls. Abandoning a card is a question that says first what the
@@ -65,7 +66,7 @@ for (const theme of ['light', 'dark'] as const) {
       await open(page, theme, `&abandon=${variant}`)
       const dialog = page.getByRole('alertdialog', { name: 'Abandon card #4?' })
       await expect(dialog).toBeVisible()
-      const body = dialog.locator('[data-slot="confirm-body"]')
+      const body = dialog.locator('[data-slot="modal-dialog-body"]')
       await expect(body.locator('p').first()).toHaveText(first)
       await expect(body.locator('p').nth(1)).toHaveText('Alpha holds this card now. Abandoning takes it back, and Alpha cannot finish it.')
       const held = await dialog.evaluate((node) => {
@@ -74,7 +75,7 @@ for (const theme of ['light', 'dark'] as const) {
         range.selectNodeContents(title)
         const box = node.getBoundingClientRect()
         const buttons = [...node.querySelectorAll('button')].map((one) => one.getBoundingClientRect())
-        const sentences = [...node.querySelectorAll('[data-slot="confirm-body"] p')].map((one) => {
+        const sentences = [...node.querySelectorAll('[data-slot="modal-dialog-body"] p')].map((one) => {
           const style = getComputedStyle(one)
           return { ellipsis: style.textOverflow === 'ellipsis', fits: one.scrollWidth <= one.clientWidth + 1 }
         })
@@ -119,10 +120,25 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(dialog.getByRole('button', { name: 'Keep it', exact: true })).toBeInViewport()
   })
 
-  test(`at a narrow pane a person's step is a pushed detail with its controls and no sideways scroll in ${theme}`, async ({ page }) => {
+  test(`at a narrow pane a person's step is a floating detail covering the timeline with its controls and no sideways scroll in ${theme}`, async ({ page }) => {
     await open(page, theme)
     const narrow = page.locator('#run-controls-narrow')
-    await expect(narrow.locator('[data-slot="run-scroll"]')).toBeHidden()
+    // The canonical Details tool covers main at this width, retaining the
+    // timeline's state beneath it. DOM visibility alone cannot measure cover.
+    const panel = narrow.locator('[data-preview-tool-placement="floating"]')
+    await expect(panel).toBeVisible()
+    await panel.scrollIntoViewIfNeeded()
+    const covered = await panel.evaluate(node => {
+      const bounds = node.getBoundingClientRect()
+      const main = node.parentElement!.querySelector('[data-slot="workbench-main"]')!.getBoundingClientRect()
+      const hit = document.elementFromPoint(main.left + main.width / 2, main.top + main.height / 2)
+      return { width: bounds.width, mainWidth: main.width, covers: bounds.left <= main.left + 1 && bounds.right >= main.right - 1
+        && bounds.top <= main.top + 1 && bounds.bottom >= main.bottom - 1, receivesPointer: hit !== null && node.contains(hit) }
+    })
+    expect(covered.width).toBe(Math.min(FRAME.rightPanel.width, covered.mainWidth))
+    expect(covered.covers).toBe(true)
+    expect(covered.receivesPointer).toBe(true)
+    await expect(narrow.locator('[data-slot="run-scroll"]')).toHaveCount(1)
     const inspector = narrow.locator('[data-slot="run-inspector"]')
     await expect(inspector).toBeVisible()
     await expect(inspector).toContainText('Your answer')

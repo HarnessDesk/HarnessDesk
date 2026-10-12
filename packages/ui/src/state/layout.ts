@@ -104,6 +104,10 @@ export interface BrowserView {
 
 export const BLANK = 'about:blank'
 
+export const TEAM_FRAME_PAGES = ['overview', 'run', 'board', 'room', 'findings', 'runs', 'receipt'] as const
+export type TeamFramePage = (typeof TEAM_FRAME_PAGES)[number]
+export type TeamChatLayout = 'thread' | 'side-by-side'
+
 export type PaneView =
   | { readonly kind: 'conversation'; readonly session: SessionKey | null }
   | TerminalView
@@ -147,6 +151,11 @@ export type PaneView =
   | {
       readonly kind: 'room'
       readonly room: string
+      readonly framePage?: TeamFramePage
+      /** Chosen Chat view, independent of the retained tile arrangement. */
+      readonly chatLayout?: TeamChatLayout
+      /** The member transcript open in Chat, when Chat was opened from this Team. */
+      readonly chatMember?: SessionKey
       /**
        * The members whose transcripts are up as columns.
        *
@@ -927,6 +936,9 @@ export const readView = (raw: unknown): PaneView => {
       return {
         kind: 'room',
         room,
+        ...(record['chatLayout'] === 'thread' || record['chatLayout'] === 'side-by-side' ? { chatLayout: record['chatLayout'] } : {}),
+        ...(TEAM_FRAME_PAGES.includes(record['framePage'] as TeamFramePage) ? { framePage: record['framePage'] as TeamFramePage } : {}),
+        ...(typeof record['chatMember'] === 'string' && record['chatMember'] !== '' ? { chatMember: record['chatMember'] as SessionKey } : {}),
         ...(watching.length > 0 ? { watching } : {}),
         ...(sideBySide ? { sideBySide } : {}),
       }
@@ -942,18 +954,13 @@ export const readView = (raw: unknown): PaneView => {
     case 'plugin': {
       const contribution = str('contribution')
       const label = str('label')
-      /* `main` was a legal mount before the middle became a two-valued slot,
-         so a layout saved then can still name it. It is filtered out rather
-         than rejected, and a panel left with nothing is re-homed to the right
-         edge rather than dropped: a person cannot tell a panel that migrated
-         silently from one that vanished, and only one of those is a bug they
-         would think to report. */
+      /* Keep legacy payloads, but never turn an absent or incompatible
+         declaration into a capability. Empty mounts remain hidden caches. */
       const mounts = (Array.isArray(record['mounts']) ? record['mounts'] : []).filter(
         (entry): entry is UiDock =>
           entry === 'sidebar' || entry === 'right' || entry === 'bottom',
       )
-      const homed = mounts.length > 0 ? mounts : (['right'] as const)
-      return contribution && label ? { kind: 'plugin', contribution, label, mounts: homed } : EMPTY
+      return contribution && label ? { kind: 'plugin', contribution, label, mounts } : EMPTY
     }
     default: {
       const session = str('session')

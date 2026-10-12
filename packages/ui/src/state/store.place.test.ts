@@ -9,8 +9,9 @@ import {
   type WorkspaceEntry,
 } from '@harnessdesk/protocol'
 
-import { panes, sessionOf } from './layout'
-import { mountedViews } from './workbench'
+import { panes, sessionOf, browserView, type PaneView } from './layout'
+import { toolOf } from './frame-tools'
+import { mountedViews, dockViews, emptyWorkbench, navigationFor } from './workbench'
 import { AppStore } from './store'
 import type { TransportEvents } from '../lib/transport'
 
@@ -74,6 +75,75 @@ beforeEach(async () => {
   }) as never)
   await store.selectRuntime(AGENT)
   await store.openWorkspace(REPO.path)
+})
+
+it.each(['panel toggle', 'lit tool'] as const)('Activity tasks can be closed by the %s', async (closer) => {
+  answers['session/read'] = conversation('status-work', REPO.path)
+  await store.openSession(sessionId('status-work'), { runtime: AGENT })
+  store.openDetailsTab('tasks')
+  const subject = store.workSubject()!
+  const before = store.getSnapshot().workbench
+  expect(before.frameTools[subject]?.open).toBe(true)
+  if (closer === 'panel toggle') store.toggleWorkPanel()
+  else {
+    const current = before.frameTools[subject]!
+    store.chooseWorkTool(current.tool, current.mode, true)
+  }
+  expect(store.getSnapshot().workbench.frameTools[subject]?.open).toBe(false)
+  expect(store.getSnapshot().workbench.right.collapsed).toBe(true)
+  expect(dockViews(store.getSnapshot().workbench.right)).toEqual(dockViews(before.right))
+})
+
+describe.each(['panel toggle', 'lit tool'] as const)('right panel closure through the %s', (closer) => {
+  const views: readonly PaneView[] = [
+    { kind: 'run-details' }, { kind: 'agents' },
+    { kind: 'changes' }, { kind: 'file', path: '/repo/README.md', runtime: AGENT },
+    { kind: 'preview', path: '/repo/preview.html', runtime: AGENT },
+    { kind: 'activity' }, { kind: 'trajectory' }, { kind: 'tasks' },
+    { kind: 'git', root: REPO.path }, browserView('https://example.com/'),
+    { kind: 'plugin', contribution: 'fixture-panel', label: 'Fixture facts', mounts: ['right'] },
+  ]
+  const close = () => {
+    if (closer === 'panel toggle') store.toggleWorkPanel()
+    else {
+      const current = store.getSnapshot().workbench.frameTools[store.workSubject()!]!
+      store.chooseWorkTool(current.tool, current.mode, true)
+    }
+  }
+  const check = () => {
+    const subject = store.workSubject()!, before = store.getSnapshot().workbench
+    expect(before.frameTools[subject]?.open).toBe(true)
+    close()
+    expect(store.getSnapshot().workbench.frameTools[subject]?.open).toBe(false)
+    expect(store.getSnapshot().workbench.right.collapsed).toBe(true)
+    expect(dockViews(store.getSnapshot().workbench.right)).toEqual(dockViews(before.right))
+    store.toggleWorkPanel()
+    expect(store.getSnapshot().workbench.frameTools[subject]).toEqual(before.frameTools[subject])
+  }
+  it.each(['changes', 'activity', 'trajectory', 'agents', 'tasks'] as const)('closes openDetailsTab(%s)', async (kind) => {
+    answers['session/read'] = conversation('status-work', REPO.path)
+    await store.openSession(sessionId('status-work'), { runtime: AGENT })
+    store.openDetailsTab(kind)
+    check()
+  })
+  it.each(views.map(view => [view.kind, view] as const))('closes showViewIn(right, %s)', async (_kind, view) => {
+    answers['session/read'] = conversation('status-work', REPO.path)
+    await store.openSession(sessionId('status-work'), { runtime: AGENT })
+    store.showViewIn('right', view)
+    expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]?.tool).toBe(toolOf(view.kind))
+    check()
+  })
+  it('keeps the More terminal independent of the tasks panel', async () => {
+    answers['session/read'] = conversation('status-work', REPO.path)
+    answers['terminal/open'] = { terminalId: 'status-terminal', runtime: AGENT }
+    await store.openSession(sessionId('status-work'), { runtime: AGENT })
+    store.openDetailsTab('tasks')
+    await store.openTerminal()
+    const bottom = dockViews(store.getSnapshot().workbench.bottom)
+    expect(bottom).toHaveLength(1)
+    check()
+    expect(dockViews(store.getSnapshot().workbench.bottom)).toEqual(bottom)
+  })
 })
 
 describe('where a draft starts', () => {
@@ -547,12 +617,12 @@ describe('a place chosen beside another pane', () => {
     // takes it, and then there is no draft left to keep a hand-off on.
     store.openFile(`${REPO.path}/README.md`, { split: 'row' })
     const kinds = panes(store.getSnapshot().layout.root).map((pane) => pane.view.kind)
-    expect(kinds).toContain('file')
+    expect(kinds).toEqual(['conversation'])
     expect(panes(store.getSnapshot().layout.root).filter((pane) => pane.view.kind === 'conversation').map(sessionOf)).toEqual([null])
-    const file = panes(store.getSnapshot().layout.root).find((pane) => pane.view.kind === 'file')
+    const file = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'file')
     expect(file).toBeDefined()
-    store.focusPane(file!.id)
-    expect(store.getSnapshot().layout.focused).toBe(file!.id)
+    store.focusView(file!.id)
+    expect(store.getSnapshot().workbench.focus).toBe(file!.id)
 
     store.startDraftIn({ kind: 'existing', path: TREE, branch: 'harnessdesk/parser-fix' })
 
@@ -590,4 +660,232 @@ describe('a bring-back into a main checkout whose saved layout shows a room', ()
     expect(draft).toBeDefined()
     expect(store.getSnapshot().draftHandoff).toMatchObject({ runtime: AGENT, sessionId: 's-1' })
   })
+})
+
+it('persisted tool migration retains terminal and browser ids without closing resources', async () => {
+  answers['app/state/get'] = { layouts: { [REPO.path]: {
+    main: { root: { kind: 'pane', id: 'fixture-main', view: { kind: 'room', room: 'fixture-team' } }, focused: 'fixture-main' },
+    sidebar: { views: [{ id: 'fixture-browser', view: { kind: 'browser', profile: 'lane-fixture', tabs: [{ id: 'fixture-tab', url: 'about:blank' }], active: 'fixture-tab', driven: 'fixture-tab' } }], active: 'fixture-browser' },
+    right: { views: [{ id: 'fixture-terminal', view: { kind: 'terminal', terminalId: 'fixture-pty', runtime: AGENT, cwd: '/repo' } }], active: 'fixture-terminal' },
+  } } }
+  await store.loadPreferences()
+  const { workbench } = store.getSnapshot()
+  expect(dockViews(workbench.right).map(one => one.id)).toEqual(['fixture-browser'])
+  expect(dockViews(workbench.bottom).map(one => one.id)).toEqual(['fixture-terminal'])
+  expect(workbench.toolOwners['fixture-browser']).toBe('team:fixture-team')
+  expect(calls('terminal/close')).toEqual([])
+  expect(calls('session/close')).toEqual([])
+})
+
+
+it.each(['sidebar', 'bottom'] as const)('refuses all explicit routes to a restored %s-only plugin while retaining it', async (area) => {
+  const view = { kind: 'plugin' as const, contribution: 'fixture-hidden', label: 'Legacy panel', mounts: [area] }
+  answers['app/state/get'] = { layouts: { [REPO.path]: {
+    main: { root: { kind: 'pane', id: 'plugin-draft', view: { kind: 'conversation', session: null } }, focused: 'plugin-draft' },
+    [area]: { views: [{ id: 'hidden-plugin', view }], active: 'hidden-plugin', size: 240 },
+  } } }
+  await store.loadPreferences()
+  const restored = store.getSnapshot().workbench
+  expect(dockViews(restored.right).find(one => one.id === 'hidden-plugin')?.view).toEqual(view)
+  expect(restored.frameTools['draft:plugin-draft']?.mode).not.toBe('plugin')
+  for (const reveal of [() => store.showViewIn('right', view), () => store.revealView('hidden-plugin'),
+    () => store.chooseWorkTool('details', 'plugin')]) {
+    const before = store.getSnapshot().workbench
+    reveal()
+    expect(store.getSnapshot().workbench).toBe(before)
+    expect(store.getSnapshot().notices.at(-1)?.message).toContain('does not support the fixed right panel')
+  }
+  expect(calls('session/close')).toEqual([])
+})
+
+
+it('a confirmed removal invalidates a cold hidden subject without relabelling its file cache', async () => {
+  const key = sessionKey(AGENT, sessionId('cold-owner'))
+  const owner = `session:${key}`
+  const file = { kind: 'file' as const, path: '/repo/README.md', runtime: AGENT }
+  answers['app/state/get'] = { layouts: { [REPO.path]: {
+    main: { root: { kind: 'pane', id: 'current-draft', view: { kind: 'conversation', session: null } }, focused: 'current-draft' },
+    right: { views: [{ id: 'cold-file', view: file }], active: 'cold-file', size: 400 },
+    toolOwners: { 'cold-file': owner },
+    frameSubjects: { [owner]: { paneId: 'cold-main', view: { kind: 'conversation', session: key } } },
+    frameTools: { [owner]: { tool: 'changes', mode: 'file', open: true } },
+  } } }
+  await store.loadPreferences()
+  expect(store.getSnapshot().sessions.has(key)).toBe(false)
+  expect(store.getSnapshot().workbench.frameSubjects[owner]).toBeDefined()
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  handlers.onNotification({ method: 'session/removed', params: { runtime: AGENT, sessionId: sessionId('cold-owner'), deleted: false } })
+  const removed = store.getSnapshot().workbench
+  expect(removed.frameSubjects[owner]).toBeUndefined()
+  expect(removed.frameTools[owner]).toBeUndefined()
+  store.revealView('cold-file')
+  expect(store.getSnapshot().workbench).toBe(removed)
+  expect(panes(store.getSnapshot().workbench.main.root).map(sessionOf)).toEqual([null])
+  expect(store.getSnapshot().workbench.toolOwners['cold-file']).toBe(owner)
+  expect(dockViews(store.getSnapshot().workbench.right).find(one => one.id === 'cold-file')?.view).toEqual(file)
+  expect(calls('session/close')).toEqual([])
+})
+
+
+describe('explicit reveal of a cold restored resource owner', () => {
+  const id = sessionId('cold-resource-owner')
+  const key = sessionKey(AGENT, id)
+  const owner = `session:${key}`
+  const restore = async () => {
+    answers['app/state/get'] = { layouts: { [REPO.path]: {
+      main: { root: { kind: 'pane', id: 'other-draft', view: { kind: 'conversation', session: null } }, focused: 'other-draft' },
+      right: { views: [{ id: 'cold-resource', view: { kind: 'file', path: '/repo/a.ts', runtime: AGENT } }], active: 'cold-resource', size: 400 },
+      toolOwners: { 'cold-resource': owner },
+      frameSubjects: { [owner]: { paneId: 'owner-pane', view: { kind: 'conversation', session: key } } },
+      frameTools: { [owner]: { tool: 'changes', mode: 'file', open: true } },
+    } } }
+    await store.loadPreferences()
+    expect(store.getSnapshot().sessions.has(key)).toBe(false)
+    expect(calls('session/read')).toEqual([])
+    expect(calls('session/resume')).toEqual([])
+  }
+  it('reads and resumes its conversation once while preserving the revealed file and pane', async () => {
+    await restore()
+    let finish!: (session: Session) => void
+    answers['session/read'] = () => new Promise<Session>(resolve => { finish = resolve })
+    answers['session/resume'] = conversation(id, REPO.path)
+    const file = dockViews(store.getSnapshot().workbench.right)[0]!
+    store.revealView(file.id)
+    store.revealView(file.id)
+    expect(calls('session/read')).toEqual([{ runtime: AGENT, sessionId: id }])
+    expect(store.getSnapshot().loadingSessions.has(key)).toBe(true)
+    expect(store.getSnapshot().layout.focused).toBe('owner-pane')
+    finish(conversation(id, REPO.path))
+    await vi.waitFor(() => expect(store.getSnapshot().loadingSessions.has(key)).toBe(false))
+    expect(calls('session/resume')).toEqual([{ runtime: AGENT, sessionId: id }])
+    expect(store.getSnapshot().sessions.get(key)?.itemsLoaded).toBe(true)
+    expect(store.getSnapshot().activeSessionKey).toBe(key)
+    expect(dockViews(store.getSnapshot().workbench.right)[0]).toEqual(file)
+    expect(store.getSnapshot().workbench.focus).toBe(file.id)
+    expect(store.getSnapshot().workbench.frameTools[owner]).toEqual({ tool: 'changes', mode: 'file', open: true })
+    store.revealView(file.id)
+    expect(calls('session/read')).toHaveLength(1)
+    expect(calls('session/resume')).toHaveLength(1)
+    expect(calls('session/close')).toEqual([])
+  })
+  it.each(['read', 'resume'] as const)('a confirmed removal during %s prevents its delayed answer restoring the conversation', async stage => {
+    await restore()
+    let finish!: (session: Session) => void
+    const loaded = conversation(id, REPO.path)
+    answers['session/read'] = loaded
+    answers['session/resume'] = loaded
+    answers[`session/${stage}`] = () => new Promise<Session>(resolve => { finish = resolve })
+    store.revealView('cold-resource')
+    await vi.waitFor(() => expect(calls(`session/${stage}`)).toHaveLength(1))
+    const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+    handlers.onNotification({ method: 'session/removed', params: { runtime: AGENT, sessionId: id, deleted: true } })
+    finish(loaded)
+    await vi.waitFor(() => expect(store.getSnapshot().loadingSessions.has(key)).toBe(false))
+    expect(store.getSnapshot().sessions.has(key)).toBe(false)
+    expect(store.getSnapshot().activeSessionKey).toBeNull()
+    expect(store.getSnapshot().workbench.frameSubjects[owner]).toBeUndefined()
+    expect(store.getSnapshot().workbench.toolOwners['cold-resource']).toBe(owner)
+    expect(dockViews(store.getSnapshot().workbench.right).map(one => one.id)).toEqual(['cold-resource'])
+    if (stage === 'read') expect(calls('session/resume')).toEqual([])
+    store.revealView('cold-resource')
+    expect(store.getSnapshot().activeSessionKey).toBeNull()
+    expect(calls('session/close')).toEqual([])
+  })
+})
+
+
+it('an explicit compatible plugin revision updates the retained manifest while preserving its cache id and owner', async () => {
+  const legacy = { kind: 'plugin' as const, contribution: 'fixture-revised', label: 'Legacy panel', mounts: ['sidebar'] as const }
+  answers['app/state/get'] = { layouts: { [REPO.path]: {
+    main: { root: { kind: 'pane', id: 'plugin-owner', view: { kind: 'conversation', session: null } }, focused: 'plugin-owner' },
+    sidebar: { views: [{ id: 'revised-cache', view: legacy }], active: 'revised-cache', size: 240 },
+  } } }
+  await store.loadPreferences()
+  const previous = store.getSnapshot().workbench.toolOwners['revised-cache']
+  const compatible = { ...legacy, label: 'Revised panel', mounts: ['right'] as const }
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  handlers.onNotification({ method: 'extension', params: { event: { type: 'contributions/changed', owner: 'fixture' as never, revision: 2, contributions: [{
+    kind: 'ui', id: compatible.contribution, owner: 'fixture', slot: 'session.header', label: compatible.label,
+    component: 'hd.panel', mounts: ['right'],
+  }] as never } } })
+  store.showViewIn('right', compatible)
+  const current = store.getSnapshot().workbench
+  expect(dockViews(current.right)).toEqual([{ id: 'revised-cache', view: compatible }])
+  expect(current.toolOwners['revised-cache']).toBe(previous)
+  expect(current.frameTools[previous!]).toEqual({ tool: 'details', mode: 'plugin', open: true })
+  expect(calls('session/close')).toEqual([])
+})
+
+
+it('a current manifest revision refuses the saved right plugin at admission, reveal and mode selection', async () => {
+  const view = { kind: 'plugin' as const, contribution: 'fixture-manifest', label: 'Saved panel', mounts: ['right'] as const }
+  store.showViewIn('right', view)
+  const before = store.getSnapshot().workbench
+  const held = dockViews(before.right)[0]!
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  handlers.onNotification({ method: 'extension', params: { event: { type: 'contributions/changed', owner: 'fixture' as never, revision: 2, contributions: [{
+    kind: 'ui', id: view.contribution, owner: 'fixture', slot: 'session.header', label: view.label,
+    component: 'hd.panel', mounts: ['sidebar'],
+  }] as never } } })
+  expect(store.getSnapshot().contributions).toHaveLength(1)
+  for (const reveal of [() => store.showViewIn('right', view), () => store.revealView(held.id),
+    () => store.chooseWorkTool('details', 'plugin')]) {
+    reveal()
+    expect(store.getSnapshot().workbench).toBe(before)
+    expect(store.getSnapshot().notices.at(-1)?.message).toContain('does not support the fixed right panel')
+  }
+  expect(dockViews(store.getSnapshot().workbench.right)).toContainEqual(held)
+})
+
+it.each(['settings','review'] as const)('restores per-project %s and history without changing remembered work or docks', async kind => {
+  const seed = emptyWorkbench(), b = emptyWorkbench()
+  const a = { ...seed, frameTools:{[`draft:${seed.main.focused}`]:{tool:'changes' as const,mode:'file' as const,open:true}}, right:{...seed.right,root:{kind:'stack' as const,id:'fixture-right',active:'fixture-file',views:[{id:'fixture-file',view:{kind:'file' as const,path:'/repo/README.md',runtime:AGENT}}]}}, bottom: { ...seed.bottom, root: { kind: 'stack' as const, id: 'fixture-bottom',
+    active: 'fixture-terminal', views: [{ id: 'fixture-terminal', view: { kind: 'terminal' as const,
+      terminalId: 'fixture-pty', runtime: AGENT, cwd: REPO.path } }] } } }
+  const aWork = navigationFor(a.main).current, bWork = navigationFor(b.main).current
+  const aPage = kind==='settings' ? { kind: 'settings', route: { kind: 'section', section: 'appearance', focus: null } } as const
+    : {kind:'changes-review',root:REPO.path,returnTo:aWork.kind==='work'?aWork.view:{kind:'conversation',session:null}} as const
+  const bPage = { kind: 'dashboard', view: 'plans', scope: null } as const
+  answers['app/state/get'] = { layouts: {
+    [REPO.path]: { ...a, navigation: { current: aPage, back: [aWork], forward: [{ kind: 'agents', id: null }] } },
+    [OTHER.path]: { ...b, navigation: { current: bPage, back: [bWork], forward: [] } },
+  } }
+  await store.loadPreferences()
+  await store.openWorkspace(OTHER.path)
+  expect(store.getSnapshot().workbench.navigation.current).toEqual(bPage)
+  await store.openWorkspace(REPO.path)
+  expect(store.getSnapshot().workbench.navigation).toEqual({ current: aPage, back: [aWork], forward: [{ kind: 'agents', id: null }] })
+  expect(store.getSnapshot().workbench.main).toEqual(a.main)
+  expect(store.getSnapshot().workbench.bottom).toEqual(a.bottom)
+  expect(store.getSnapshot().workbench.right).toEqual(a.right)
+  expect(store.getSnapshot().workbench.frameTools).toEqual(a.frameTools)
+  await store.navigateBack()
+  expect(store.getSnapshot().workbench.navigation.current).toEqual(aWork)
+  await store.navigateForward()
+  expect(store.getSnapshot().workbench.navigation.current).toEqual(aPage)
+})
+
+it('restoring a page hydrates remembered conversation without visiting it', async () => {
+  const seed = emptyWorkbench()
+  const key = sessionKey(AGENT, sessionId('fixture-remembered'))
+  const main = { root: { kind: 'pane' as const, id: 'fixture-main', view: { kind: 'conversation' as const, session: key } },
+    focused: 'fixture-main', expanded: null }
+  const page = { kind: 'dashboard', view: 'plans', scope: null } as const
+  const navigation = { current: page, back: [{ kind: 'work' as const, view: main.root.view }], forward: [] }
+  answers['app/state/get'] = { layouts: { [REPO.path]: { ...seed, main, navigation } } }
+  answers['session/read'] = conversation('fixture-remembered', REPO.path)
+  answers['session/resume'] = conversation('fixture-remembered', REPO.path)
+  await store.loadPreferences()
+  await vi.waitFor(() => expect(store.getSnapshot().sessions.has(key)).toBe(true))
+  expect(store.getSnapshot().workbench.navigation).toEqual(navigation)
+  expect(store.getSnapshot().layout).toEqual(main)
+  expect(calls('session/close')).toEqual([])
+})
+
+it('historical tasks callers open the complete Activity body', async () => {
+  answers['session/read'] = conversation('activity-work', REPO.path)
+  await store.openSession(sessionId('activity-work'), { runtime: AGENT })
+  store.openDetailsTab('tasks')
+  const subject = store.workSubject()!
+  expect(store.getSnapshot().workbench.frameTools[subject]?.mode).toBe('activity')
 })

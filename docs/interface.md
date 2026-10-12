@@ -169,6 +169,13 @@ Zed on the way.
 
 ## Window chrome
 
+The window has no status bar. The seat menu carries plan usage and scoped
+Open usage / Sign in actions; background tasks lead Activity, whose tool button
+has a dot while any task runs. Connection trouble is a Banner at main's top,
+with five quiet seconds at startup and no notice while connected. A native
+update advisory is one action row above the seat. More carries Terminal and its
+Control-backtick toggle; the terminal stays at main's bottom.
+
 Hide-sidebar, back and forward sit on the title-bar row beside the macOS
 traffic lights, and move into the header of whatever the middle shows — a
 conversation or a room — whenever the sidebar is not standing beside it: put
@@ -360,11 +367,11 @@ heading. An agent that has answered that nobody is signed in is not listed
 (choosing it would start nothing) unless it is the default; it waits behind
 **Add an account**, whose chooser is where signing in happens. The menu-bar
 item still lists it, because there the row is itself the way to sign in.
-**Usage remaining** appears only where something is metered — its windows and
-when each resets, nothing else — and then come Settings and signing out of the
-default agent. Dashboard is not in this menu: it is in the sidebar's nav, on
-everything, and the Usage verb on an account's card opens its Plans view,
-scoped to that one agent.
+**Usage remaining** and the other agents' usage rows carry the same plan
+facts as the former window foot: windows, resets, blocks, source and age. Each
+fold has Open usage, scoped to that agent; an agent needing an account has Sign
+in. Then come Settings and signing out of the default agent. Dashboard in the
+sidebar opens on everything.
 
 **Your profile is a name and a face, and nothing else, because nothing else is
 shown.** Settings opens on it — your face and name head the rail, above every
@@ -1343,7 +1350,7 @@ wrapping subtitle. Its task or message refusal shares that subtitle, so the
 work stays readable without adding a separate third line.
 Empty Board and Chat content keeps one quiet sentence in the reading column.
 The Board toolbar keeps **New job**; an empty Goal also offers **Start with a team** there.
-Board-only Chat keeps the consequence of its messaging mode on screen.
+Board-only Chat keeps the consequence of its messaging mode on screen: agents cannot message each other, while claims and signals continue. Chat’s Send to menu changes the mode; refused messages are never queued for release.
 
 What needs you can be answered from its row. A tool's request for approval
 offers the agent's own choices. The command and its working folder, files a

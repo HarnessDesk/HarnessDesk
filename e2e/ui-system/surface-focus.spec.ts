@@ -32,7 +32,7 @@ const mount = async (page: Page) => {
         import { Button } from '/src/design/ui/button.tsx';
         import { Input } from '/src/design/ui/input.tsx';
         import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem, DropdownMenuPortal, DropdownMenuPositioner, DropdownMenuPopup } from '/src/design/ui/dropdown-menu.tsx';
-        import { Popover, PopoverTrigger, PopoverContent } from '/src/design/ui/popover.tsx';
+        import { Popover, PopoverTrigger, PopoverPortal, PopoverPositioner, PopoverPopup } from '/src/design/ui/popover.tsx';
         const h = ringReact.createElement;
         const Fixture = () => {
           const [open, setOpen] = ringReact.useState(null);
@@ -50,7 +50,7 @@ const mount = async (page: Page) => {
                 h(DropdownMenuPopup, { 'data-testid': 'menu-popup', className: 'plain-level' }, h(DropdownMenuItem, null, 'Three'))))),
             h(Popover, null,
               h(PopoverTrigger, { render: h(Button, null) }, 'Open popover'),
-              h(PopoverContent, { 'data-testid': 'popover-content' }, h(Button, null, 'Inside'))),
+              h(PopoverPortal, null, h(PopoverPositioner, null, h(PopoverPopup, { 'data-testid': 'popover-content', tabIndex: -1 }, h(Button, null, 'Inside'))))),
             open === 'plain' && h(Dialog, { title: 'Nothing to type', onClose: close,
               footer: h(ringReact.Fragment, null, h(Button, { onClick: close }, 'Done'), h(Button, { variant: 'secondary', onClick: close }, 'Cancel')) },
               h('p', null, 'A dialog with no field focuses its own surface.')),

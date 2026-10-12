@@ -317,7 +317,7 @@
 
 .codeBlock:hover pre code,
 .codeBlock:focus-within pre code,
-.codeBlock[data-scrolling] pre code {
+.codeBlock pre code[data-scrolling] {
   scrollbar-color: var(--hd-scrollbar-fill) transparent;
 }
 
@@ -332,7 +332,7 @@
 
 .codeBlock:hover pre code::-webkit-scrollbar-thumb,
 .codeBlock:focus-within pre code::-webkit-scrollbar-thumb,
-.codeBlock[data-scrolling] pre code::-webkit-scrollbar-thumb {
+.codeBlock pre code[data-scrolling]::-webkit-scrollbar-thumb {
   background: var(--hd-scrollbar-fill);
 }
 

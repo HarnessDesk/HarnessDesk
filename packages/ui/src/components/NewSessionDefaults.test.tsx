@@ -81,17 +81,12 @@ it('renders the runtime’s declared defaults and writes a pick through the shar
   expect(container.textContent).toContain('Model')
   expect(container.textContent).toContain('Sandbox')
 
-  const mini = [...container.querySelectorAll('button')].find((node) =>
-    node.textContent?.includes('GPT-5.6 mini'),
-  )
-  expect(mini).toBeTruthy()
-  await act(async () => {
-    mini!.click()
-  })
+  const model = container.querySelector<HTMLSelectElement>('select[aria-label="Model"]')!
+  expect(model).toBeTruthy()
+  expect([...model.options].map(option => option.textContent)).toEqual(DECLARED[0]!.type === 'select' ? DECLARED[0]!.choices.map(choice => choice.label) : [])
+  await act(async () => { model.value = 'gpt-5.6-mini'; model.dispatchEvent(new Event('change', {bubbles:true})) })
   expect(setNewSessionDefault).toHaveBeenCalledWith('codex', 'model', 'gpt-5.6-mini')
-  // The re-declared list is what renders now.
-  const checked = container.querySelector('[role="radio"][aria-checked="true"]')
-  expect(checked?.textContent).toContain('mini')
+  expect(container.querySelector<HTMLSelectElement>('select[aria-label="Model"]')?.value).toBe('gpt-5.6-mini')
 })
 
 it('an agent with nothing to pre-set gets the sentence, not an empty section', async () => {

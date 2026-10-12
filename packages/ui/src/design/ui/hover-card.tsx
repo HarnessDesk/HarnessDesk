@@ -1,46 +1,20 @@
 import { PreviewCard as HoverCardPrimitive } from '@base-ui/react/preview-card'
-import type * as React from 'react'
+import * as React from 'react'
+import { useState, useEffect } from 'react'
+import { menusOpen, useMenusOpen } from './popup-state'
 
-import { cn } from '@/lib/utils'
+import { DialogFormContext } from '@/lib/dialog-form'
 import { floatingMotion } from './motion'
 
-/* Vendored from shadcn/ui (hover-card); z-index and surface from the app's
- * own token names, and the two delays below are the app's rather than the
- * registry's.
- *
- * The surface is the *popover's*, to the letter — `rounded-lg`, one border,
- * `shadow-md` — and not the app's big floating `--hd-shadow`. A hover card
- * opens beside menus, selects and popovers, often over one of them, and a
- * heavier shadow at a larger radius reads as a different class of object
- * lifted further off the page than the menu it is sitting next to. It is the
- * same kind of thing they are: a small surface on the popover layer. The
- * dialog's `--hd-surface-shadow` belongs to something modal that takes the
- * whole window; this takes 288px.
- *
- * A hover card is not a big tooltip. A tooltip repeats a label the row had no
- * room for; a hover card carries facts the surface does not hold at all, and
- * it can be entered and pressed. That difference is what the delays encode:
- *
- *   Open  is slow enough that dragging the pointer down a rail of eight
- *         members fires nothing. The former 700ms default was a beat too long
- *         to feel like a response to a deliberate rest; 420 is the point at
- *         which a pass reads as a pause.
- *   Close is long enough for the pointer to cross the gap into the card and
- *         reach a button. The former 300ms default left a card hanging over
- *         the row after the reader has plainly moved on. 160 with an 8px
- *         offset is comfortably inside the travel time and out of the way.
- *
- * Because the content is reachable, `Portal` matters more here than for a
- * tooltip: a card rendered inside a rail with `overflow: hidden` is clipped
- * at the rail's edge, and the buttons at its foot are the part that goes.
- */
+/* Vendored preview-card behavior with the frame's typed information plate.
+ * Facts open after a deliberate 420ms rest, and stay for the 160ms trip into
+ * the card. A portal avoids the rail's clipping boundary. Menus suppress the
+ * plate through popup-state; factual content offers no action controls. */
 
 const HOVER_CARD_OPEN_DELAY = 420
 const HOVER_CARD_CLOSE_DELAY = 160
 
-/* How far a card reaches out from its trigger: the `w-72` below, which is
- * 18rem, and the gap. Exported for a caller that has to know whether a side
- * has room for a card before it asks for that side — see `AgentHoverCard`. */
+/* Retained compatibility export; actual placement reads --hd-info-card-width. */
 const HOVER_CARD_WIDTH_REM = 18
 const HOVER_CARD_SIDE_OFFSET = 8
 
@@ -56,65 +30,53 @@ const HOVER_CARD_SIDE_OFFSET = 8
  */
 const HOVER_CARD_COLLISION_PADDING = 0
 
-const HoverCard = ({ ...props }: React.ComponentProps<typeof HoverCardPrimitive.Root>) => (
-  <HoverCardPrimitive.Root data-slot="hover-card" {...props} />
-)
+const HoverCardIntent = React.createContext<(() => void) | undefined>(undefined)
+
+const HoverCard = ({ open: controlledOpen, defaultOpen, onOpenChange, ...props }: React.ComponentProps<typeof HoverCardPrimitive.Root>) => {
+  const blocked = useMenusOpen()
+  const [localOpen, setLocalOpen] = useState(defaultOpen ?? false)
+  const [disarmed, setDisarmed] = useState(false)
+  const disarmedRef = React.useRef(false)
+  useEffect(() => { if (blocked) { disarmedRef.current = true; setLocalOpen(false); setDisarmed(true) } }, [blocked])
+  const arm = React.useCallback(() => {
+    if (!menusOpen()) { disarmedRef.current = false; setDisarmed(false) }
+  }, [])
+  return <HoverCardIntent.Provider value={arm}><HoverCardPrimitive.Root {...props} open={!blocked && !disarmed && (controlledOpen ?? localOpen)} data-slot="hover-card"
+    onOpenChange={(next, details) => {
+      if (next && (menusOpen() || disarmedRef.current)) { details.cancel(); return }
+      onOpenChange?.(next, details)
+      if (details.isCanceled) return
+      setLocalOpen(next)
+    }} /></HoverCardIntent.Provider>
+}
+
 
 const HoverCardTrigger = ({
   delay = HOVER_CARD_OPEN_DELAY,
   closeDelay = HOVER_CARD_CLOSE_DELAY,
+  onPointerEnter,
+  onFocus,
   ...props
-}: React.ComponentProps<typeof HoverCardPrimitive.Trigger>) => (
+}: React.ComponentProps<typeof HoverCardPrimitive.Trigger>) => {
+  const arm = React.useContext(HoverCardIntent)
+  return (
   <HoverCardPrimitive.Trigger
     data-slot="hover-card-trigger"
     delay={delay}
     closeDelay={closeDelay}
+    onPointerEnter={event => { arm?.(); onPointerEnter?.(event) }}
+    onFocus={event => { arm?.(); onFocus?.(event) }}
     {...props}
   />
-)
+  )
+}
 
-/**
- * `bleed` is for a card whose body is a composed card of its own — a crest and
- * bands whose rules run edge to edge (`AgentCard`) — the way a tool pane's
- * body bleeds for content that brings its own ground: an inset around it would
- * stop every band's rule short of the card's edge.
- */
-const HoverCardContent = ({
-  className,
-  align = 'start',
-  side = 'right',
-  sideOffset = HOVER_CARD_SIDE_OFFSET,
-  bleed = false,
-  ...props
-}: React.ComponentProps<typeof HoverCardPrimitive.Popup> &
-  Pick<React.ComponentProps<typeof HoverCardPrimitive.Positioner>, 'align' | 'side' | 'sideOffset'> & {
-    bleed?: boolean
-  }) => (
-  <HoverCardPrimitive.Portal>
-    <HoverCardPrimitive.Positioner
-      data-slot="hover-card-positioner"
-      align={align}
-      side={side}
-      sideOffset={sideOffset}
-      collisionPadding={HOVER_CARD_COLLISION_PADDING}
-      className="z-(--hd-z-popover)"
-    >
-      <HoverCardPrimitive.Popup
-        data-slot="hover-card-content"
-        {...(bleed ? { 'data-bleed': '' } : {})}
-        className={cn(
-          /* `p-3`, so a card of plain facts — a sentence, a key/value list —
-             is never the first thing that has to hand-roll its own inset;
-             a card whose body is a composed card of its own says `bleed`. */
-          floatingMotion,
-          'bg-popover text-popover-foreground w-72 overflow-hidden rounded-lg border shadow-md outline-hidden',
-          bleed ? 'p-0' : 'p-3',
-          className,
-        )}
-        {...props}
-      />
-    </HoverCardPrimitive.Positioner>
-  </HoverCardPrimitive.Portal>
+const HoverCardContent = ({ align = 'start', side = 'right', sideOffset = HOVER_CARD_SIDE_OFFSET, ...props }:
+  Omit<React.ComponentProps<typeof HoverCardPrimitive.Popup>, 'className' | 'style'> &
+  Pick<React.ComponentProps<typeof HoverCardPrimitive.Positioner>, 'align' | 'side' | 'sideOffset'>) => (
+  <HoverCardPrimitive.Portal><HoverCardPrimitive.Positioner data-slot="hover-card-positioner" align={align} side={side} sideOffset={sideOffset} collisionPadding={HOVER_CARD_COLLISION_PADDING} className="z-(--hd-z-popover)">
+    <DialogFormContext.Provider value={false}><HoverCardPrimitive.Popup {...props} data-slot="hover-card-content" data-popup-kind="info-card" className={floatingMotion} /></DialogFormContext.Provider>
+  </HoverCardPrimitive.Positioner></HoverCardPrimitive.Portal>
 )
 
 export {

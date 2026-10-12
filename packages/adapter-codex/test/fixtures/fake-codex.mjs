@@ -1859,7 +1859,7 @@ rl.on('line', (line) => {
         return
       }
       const child = spawn(params.command[0], params.command.slice(1), {
-        cwd: process.cwd(),
+        cwd: params.cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, FAKE_TTY: params.tty ? '1' : '0' },
       })

@@ -46,10 +46,23 @@ it('advances waiting time and keeps terminal durations fixed', () => {
   try {
     act(() => root.render(<FlowStepRow step={model.steps[3]!} run={{ ...run, state: 'waiting', durationMs: 0, since: 1000 }} now={61_000} />))
     expect(container.querySelector('[data-slot="list-row-trail"]')?.textContent).toContain('1m')
-    expect(container.querySelector('[data-slot="chip"][data-tone="warning"]')?.textContent).toBe('Needs you')
+    expect(container.querySelector('[data-slot="chip"][data-tone="warning"]')?.textContent).toBe('Waiting for you')
     act(() => root.render(<FlowStepRow step={model.steps[0]!} run={{ ...run, state: 'stopped', since: 1000 }} now={1_000_000} />))
     expect(container.querySelector('[data-slot="list-row-trail"]')?.textContent).toContain('14m')
     expect(container.textContent).not.toContain('Published')
+  } finally { act(() => root.unmount()) }
+})
+
+it('uses Waiting for you for approval waits and keeps future steps free of outcome lines', () => {
+  const container = document.createElement('div')
+  const root = createRoot(container)
+  try {
+    act(() => root.render(<FlowStepRow timeline step={model.steps[0]!} run={{ ...run, state: 'waiting' }} />))
+    expect(container.textContent).toContain('Waiting for you')
+    expect(container.textContent).not.toContain('Needs you')
+    act(() => root.render(<FlowStepRow timeline step={{ ...model.steps[3]!, line: 'closed' }} run={{ ...run, state: 'future', line: null }} />))
+    expect(container.textContent).toContain('Not reached')
+    expect(container.textContent).not.toContain('closed')
   } finally { act(() => root.unmount()) }
 })
 
@@ -65,5 +78,24 @@ it.each([
     act(() => root.render(<FlowStepRow step={model.steps[0]!} run={{ ...run, line }} />))
     const state = container.querySelector('[data-slot="list-row-trail"] [data-slot="chip"]')!
     expect(state.getAttribute('data-tone')).toBe(tone)
+  } finally { act(() => root.unmount()) }
+})
+
+it('marks a recorded failed check as failed on the flat Timeline', () => {
+  const container = document.createElement('div'), root = createRoot(container)
+  try {
+    act(() => root.render(<FlowStepRow timeline step={model.steps[1]!} run={{ ...run, line: 'fail' }} />))
+    expect(container.querySelector('[data-slot="timeline-item"]')?.getAttribute('data-state')).toBe('danger')
+    expect(container.querySelector('[data-slot="timeline-indicator"]')?.getAttribute('aria-label')).toBe('Failed')
+  } finally { act(() => root.unmount()) }
+})
+it('qualifies advancing Timeline time and keeps a stopped duration fixed', () => {
+  const container = document.createElement('div'), root = createRoot(container)
+  try {
+    act(() => root.render(<FlowStepRow timeline step={model.steps[0]!} run={{ ...run, state: 'working', durationMs: 0, since: 1000 }} now={61_000} />))
+    expect(container.querySelector('[data-slot="run-time"]')?.textContent).toBe('1m so far')
+    act(() => root.render(<FlowStepRow timeline step={model.steps[0]!} run={{ ...run, state: 'stopped', since: 1000 }} now={1_000_000} />))
+    expect(container.querySelector('[data-slot="run-time"]')?.textContent).toBe('14m')
+    expect(container.textContent).not.toContain('so far')
   } finally { act(() => root.unmount()) }
 })

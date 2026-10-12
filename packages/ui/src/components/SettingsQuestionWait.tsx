@@ -1,3 +1,4 @@
+import { useDestinationActive } from '../panels/destination-page'
 import { useEffect, useRef, useState } from 'react'
 
 import type { QuestionWait } from '@harnessdesk/protocol'
@@ -25,22 +26,29 @@ export const QUESTION_WAIT_CHOICES: readonly { readonly value: QuestionWait; rea
  * work on, so a short wait loses nothing but the agent's time.
  */
 export const QuestionWaitSection = () => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const saving = useRef(false)
+  const readRevision = useRef(0)
   const [wait, setWait] = useState<QuestionWait | null>(null)
   const [busy, setBusy] = useState(false)
 
   useEffect(() => {
+    if (!destinationActive || saving.current) return
+
+    const revision=++readRevision.current
     let live = true
     setWait(null)
     void store.loadQuestionWait().then((next) => {
-      if (live) setWait(next)
+      if (live && revision===readRevision.current && !saving.current) setWait(next)
     })
     return () => { live = false }
-  }, [store])
+  }, [destinationActive, store])
 
   const choose = async (next: QuestionWait): Promise<void> => {
     if (wait === null || saving.current || next === wait) return
+    readRevision.current++
     saving.current = true
     const before = wait
     setWait(next)

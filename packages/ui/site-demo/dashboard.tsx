@@ -1,13 +1,13 @@
 import { memo, useMemo, useState } from 'react'
 import { PlansView } from '../src/components/usage/PlansView'
 import { ActivityView } from '../src/components/usage/ActivityView'
-import { BandHead, PIVOTS, RANGES, Ranked, Spend, tintsForRoster, type Pivot } from '../src/components/usage/shared'
+import { PIVOTS, RANGES, Ranked, Spend, tintsForRoster, type Pivot } from '../src/components/usage/shared'
 import type { HeatView } from '../src/components/UsageActivity'
 import type { HeatMetric, HourMetric } from '../src/lib/heat'
 import { runway } from '../src/lib/usage'
 import { SCENE_NOW, sceneUsage, siteSceneLedger, sceneRuntimes } from './dashboard-data'
 import { previewStore } from '../src/preview/harness'
-import { PaneColumn, Segmented } from '../src/design'
+import { PaneColumn, Segmented, Section } from '../src/design'
 import type { LedgerReport } from '@harnessdesk/protocol'
 import type { SceneName } from './scenes'
 
@@ -75,10 +75,9 @@ export const DashboardScene = memo(({ data, view = 'dashboard' }: { data: Return
     style={full ? undefined : { padding: 'var(--hd-space-5)' }}>
     {full ? <div className="site-dashboard-spend">
       {spend}
-      <section aria-label="Where it went" className="site-dashboard-breakdown">
-        <BandHead name="Where it went" action={<Segmented label="Group spend by" options={PIVOTS} value={pivot} onChange={next => setPivot(next as Pivot)} />} />
-        <Ranked ledger={ledger} wideLedger={wideLedger} pivot={pivot} range={range} now={data.now} byId={byId} tintOf={tints} compact />
-      </section>
+      <div className="site-dashboard-breakdown">
+        <Section title="Where it went" action={<Segmented label="Group spend by" options={PIVOTS} value={pivot} onChange={next => setPivot(next as Pivot)} />}><Ranked ledger={ledger} wideLedger={wideLedger} pivot={pivot} range={range} now={data.now} byId={byId} tintOf={tints} compact /></Section>
+      </div>
     </div> : view === 'dashboard-spend' ? spend : null}
     {(full || view === 'dashboard-limits') && <div className="site-dashboard-accounts">
       <PlansView reports={reports} byId={byId} snapshot={snapshot} now={data.now} summary={summary}

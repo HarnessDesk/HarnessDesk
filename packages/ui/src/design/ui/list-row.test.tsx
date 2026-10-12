@@ -14,7 +14,8 @@ it('lets an earned sentence wrap instead of cutting it into a caption', () => {
 
   expect(markup).toContain('data-wrap-subtitle=""')
   expect(markup).toContain('whitespace-normal')
-  expect(markup).toContain('[overflow-wrap:anywhere]')
+  expect(markup).toContain('[overflow-wrap:normal]')
+  expect(markup).not.toContain('[overflow-wrap:anywhere]')
 })
 
 it('sets the small title in the navigation pair and does not bold selection', () => {

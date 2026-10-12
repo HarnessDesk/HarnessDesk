@@ -2,11 +2,12 @@ import { useId, useCallback, useEffect, useRef, useState, type ReactNode } from 
 
 import { runtimeId, DEFAULT_FLOW_BUDGET, type AgentEntry, type FlowAgentRole, type FlowEntry, type FlowPolicy, type FlowPreview, type FlowPreviewSeat, type FlowProblem, type FlowRunOptions, type FlowSeat, type ModelInfo, type SeatCandidate } from '@harnessdesk/protocol'
 
-import { ActionError, Banner, Button, Chip, CodeText, Field, Input, NativeSelect, Note, NoteList, Rows, Row, SectionHead, Segmented, Switch, Text, Textarea } from '../design'
+import { ActionError, Banner, Button, Chip, CodeText, DisclosureChevron, Field, Input, NativeSelect, Note, NoteList, Rows, Row, SectionHead, Segmented, Switch, Text, Textarea } from '../design'
 import { agentName, firstReason, fixWords, markFor, reasonWords, seatTaken } from '../lib/agents'
 import { boundInputValues } from '../lib/shapes'
 import { supportsAttemptCheck, withAttemptCheck } from '../lib/team-start'
 import { evidenceGuardsWords, messagingWords } from '../lib/flows'
+import { stepName } from '../lib/flow-model'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { AgentIcon } from './Icons'
@@ -605,6 +606,8 @@ interface TeamFormProps {
 const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, editingDisabled, done, details, onVar, onReadingChange, onPolicy }: TeamFormProps) => {
   const snapshot = useSnapshot()
   const checkId = useId()
+  const detailsId = useId()
+  const [detailsOpen, setDetailsOpen] = useState(false)
   const hasReviewLoop = flow.rules.some(rule => rule.on === 'reviewer' && rule.then.role === flow.seed.role)
   const mergeRules = template.rules.filter(rule => rule.then.role === 'referee')
   const hasReviewOptions = hasReviewLoop && !template.roles.some(role => role.kind === 'check') && mergeRules.length > 0 && mergeRules.every(rule => rule.on === 'reviewer')
@@ -624,13 +627,18 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
         const role = flow.roles.find(one => one.id === seat.role)
         if (role?.kind !== 'agent') return null
         const slots = preview.seats.filter(one => one.role === role.id).sort((a, b) => a.index - b.index)
-        const picked = role.seats[seat.index] ?? role.seats[0] ?? seatTaken(seat.plan)?.seat
-        const label = role.id === flow.seed.role && hasReviewLoop ? 'Writes' : role.id === 'reviewer' ? 'Reviews' : role.id === 'competitor' ? `Attempt ${String.fromCharCode(65 + seat.index)}` : role.id === 'judge' ? 'Judge' : role.id
+        const configured = role.seats[seat.index] ?? role.seats[0]
+        const automatic = seatTaken(seat.plan)
+        const picked = configured ?? automatic?.seat
+        const automaticName = automatic
+          ? snapshot.runtimes.find(one => one.id === automatic.seat.runtime)?.presentation.name ?? automatic.runtimeName
+          : null
+        const label = role.id === flow.seed.role && hasReviewLoop ? 'Writes' : role.id === 'reviewer' ? 'Reviews' : role.id === 'competitor' ? `Attempt ${String.fromCharCode(65 + seat.index)}` : role.id === 'judge' ? 'Judge' : stepName(role.id)
         const repeatsInReviewLoop = seat.reviews && flow.rules.some(rule => rule.on === seat.role && rule.then.role === flow.seed.role)
         return <Row key={`${role.id}-${seat.index}`} title={<span className={styles.roleTitle}>{label}{repeatsInReviewLoop && <Chip tone="neutral" size="sm">Fresh each round</Chip>}</span>} desc={!seatTaken(seat.plan) ? firstReason(seat.plan) ?? undefined : undefined}
           mark={picked ? <RuntimeMark runtime={snapshot.runtimes.find(one => one.id === picked.runtime) ?? { id: picked.runtime, presentation: { name: 'Selected agent' } }} size={16} /> : <AgentIcon size={16} />}
           control={<div className={styles.roleControls}>
-            <TeamSeatControls label={label} seat={picked} disabled={disabled} onChange={next => {
+            <TeamSeatControls label={label} seat={configured} automaticName={automaticName} disabled={disabled} onChange={next => {
               const seats = slots.map(one => one.index === seat.index ? next : role.seats[one.index] ?? role.seats[0] ?? seatTaken(one.plan)?.seat)
               if (seats.every((one): one is FlowSeat => one !== undefined)) editRole({ ...role, seats })
             }} />
@@ -660,7 +668,12 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
       : <Rows><Row title={<label htmlFor={checkId}>Check each attempt with</label>} desc={<span id={`${checkId}-hint`}>{checkHint}</span>} control={checkControl({ id: checkId, 'aria-describedby': `${checkId}-hint` })} /></Rows>)}
     {flow.roles.filter(role => role.kind === 'check' && (!hasAttemptCheck || role.id !== 'verify')).map(role => role.kind === 'check' && <Field key={role.id} label={`Check · ${role.id}`}>{control => <Input {...control} disabled={editingDisabled} value={role.check.run} onChange={event => onPolicy({ ...flow, roles: flow.roles.map(one => one.id === role.id ? { ...role, check: { ...role.check, run: event.target.value } } : one) })} />}</Field>)}
     {done}
-    <details className={styles.details}><summary><Text as="span" role="muted">Details</Text></summary><div className={styles.flow}>
+    <div className={styles.flow}>
+      <Button className="self-start" variant="quiet" size="inline-link" aria-expanded={detailsOpen} aria-controls={detailsId} onClick={() => setDetailsOpen(open => !open)}>
+        <DisclosureChevron open={detailsOpen} size="sm" />
+        <Text as="span" role="muted">Details</Text>
+      </Button>
+      <div id={detailsId} data-flow-details hidden={!detailsOpen} className={detailsOpen ? styles.flow : undefined}>
       {details}
       <Rows>{preview.seats.map(seat => {
         const role = flow.roles.find(one => one.id === seat.role)
@@ -675,11 +688,12 @@ const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, ed
       })}</Rows>
       <FlowInputFields flow={{ ...flow, inputs: flow.inputs.filter(input => input.id !== primary && !boundInputValues(flow).has(input.id)) }} scope="team-start" vars={vars} disabled={disabled} onChange={onVar} onReadingChange={onReadingChange} />
       <FlowPreviewReport preview={preview} flow={flow} warnings={preview.problems.filter(one => one.level === 'warning')} roster={roster} vars={vars} />
-    </div></details>
+      </div>
+    </div>
   </div>
 }
 
-const TeamSeatControls = ({ label, seat, disabled, onChange }: { readonly label: string; readonly seat?: FlowSeat; readonly disabled?: boolean; readonly onChange: (seat: FlowSeat) => void }) => {
+const TeamSeatControls = ({ label, seat, automaticName, disabled, onChange }: { readonly label: string; readonly seat?: FlowSeat; readonly automaticName: string | null; readonly disabled?: boolean; readonly onChange: (seat: FlowSeat) => void }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [models, setModels] = useState<readonly ModelInfo[]>([])
@@ -692,8 +706,8 @@ const TeamSeatControls = ({ label, seat, disabled, onChange }: { readonly label:
   const model = models.find(one => one.id === seat?.model) ?? models.find(one => one.isDefault)
   const selectedRuntime = snapshot.runtimes.find(one => one.id === seat?.runtime)
   return <>
-    <NativeSelect className={styles.agentSelect} aria-label={`Agent for ${label}`} title={selectedRuntime?.presentation.name} disabled={disabled} value={seat?.runtime ?? ''} onChange={event => onChange({ runtime: event.target.value })}>
-      {!seat && <option value="">Automatic</option>}
+    <NativeSelect className={styles.agentSelect} aria-label={`Agent for ${label}`} title={selectedRuntime?.presentation.name ?? automaticName ?? undefined} disabled={disabled} value={seat?.runtime ?? ''} onChange={event => onChange({ runtime: event.target.value })}>
+      {!seat && <option value="">{automaticName ? `Automatic · ${automaticName}` : 'Automatic · Nothing can run'}</option>}
       {seat && !snapshot.runtimes.some(one => one.id === seat.runtime) && <option value={seat.runtime}>Selected agent</option>}
       {snapshot.runtimes.map(one => <option key={one.id} value={one.id}>{one.presentation.name}</option>)}
     </NativeSelect>

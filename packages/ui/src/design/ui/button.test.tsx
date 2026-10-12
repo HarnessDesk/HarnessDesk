@@ -114,6 +114,16 @@ describe('the canonical button', () => {
     }
   })
 
+  it('keeps choice plates neutral across hover and selected states', () => {
+    const choice = buttonVariants({ variant: 'choice' })
+    expect(choice).toContain('hover:bg-(--hd-hover)')
+    expect(choice).toContain('data-[selected]:bg-(--hd-active)')
+    expect(choice).toContain('data-[on]:bg-(--hd-active)')
+    expect(choice).toContain('aria-checked:bg-(--hd-active)')
+    expect(choice).not.toContain('--hd-accent')
+    expect(choice).not.toContain('--hd-ring')
+  })
+
   /* A refused row's own dimming is a canonical Button concern (see
      NewSessionChoice.tsx's comment on its `.group` rule): `ghost` and
      `floating` already fade on `data-refused` for a runtime an attachment
@@ -158,6 +168,23 @@ describe('the canonical button', () => {
     expect(compact).toContain('gap-(--hd-space-0-5)')
     expect(compact).toContain('p-0')
     expect(compact).toContain('text-(length:--hd-text-sm)')
+  })
+
+  it('provides an edge-aligned navigation plate with content inset and no border', () => {
+    const edge = buttonVariants({ variant: 'row', size: 'navigation-edge' })
+    expect(edge).toContain('min-h-(--hd-nav-h)')
+    expect(edge).toContain('gap-(--hd-nav-gap)')
+    expect(edge).toContain('px-(--hd-space-2-5)')
+    expect(edge).toContain('border-0')
+    expect(edge).toContain('text-(length:--hd-text-sm)')
+  })
+
+  it('keeps a compact icon label visible without redrawing the button at its caller', () => {
+    const compact = buttonVariants({ size: 'icon-label' })
+    expect(compact).toContain('h-(--hd-btn-h-sm)')
+    expect(compact).toContain('gap-(--hd-space-1-5)')
+    expect(compact).toContain('p-0')
+    expect(compact).toContain('text-(length:--hd-text-xs)')
   })
 
   it('owns borderless and default-cursor row postures without a feature override', () => {
@@ -210,13 +237,13 @@ describe('the button is ink, not the brand', () => {
  * Pinned because the wrong answer is the tidy-looking one: `--hd-solid` reads
  * as "the loud fill" and will attract this back if nothing objects.
  */
-describe('the on-states follow the accent dial', () => {
-  it('the three of them read the accent, and the knob reads what sits on it', () => {
-    expect(tokenSheet).toMatch(/--hd-toggle-on:\s*var\(--hd-accent\)/)
+describe('the on-states use neutral ink', () => {
+  it('the three of them read the neutral solid, and the knob reads its foreground', () => {
+    expect(tokenSheet).toMatch(/--hd-toggle-on:\s*var\(--hd-solid\)/)
     /* Not a value of its own: `--hd-primary-foreground` is already solved per
        accent and per face — white where it carries, dark ink on green, orange
        and the lighter rose and mono dark faces. */
-    expect(tokenSheet).toMatch(/--hd-toggle-knob-on:\s*var\(--hd-primary-foreground\)/)
+    expect(tokenSheet).toMatch(/--hd-toggle-knob-on:\s*var\(--hd-solid-foreground\)/)
   })
 
   it('reaches them through the toggle tokens, so a foundation swap carries', () => {
@@ -279,6 +306,7 @@ it('catalogues only the log-row size for the windowed row pitch', () => {
   expect(buttonSource.includes("'table-row':")).toBe(false)
   const entry = CATALOG_ENTRIES.find(entry => entry.id === 'primitive.button')!
   expect(entry.sizes).toContain('log-row')
+  expect(entry.sizes).toContain('icon-label')
   expect(entry.sizes).not.toContain('table-row')
 })
 
@@ -294,4 +322,20 @@ it('marks the positioned row without intercepting its readings or duplicating ho
  expect(markup).toContain('<button')
  expect(markup).not.toContain(' stretched=')
  expect(renderToStaticMarkup(<Button stretched variant="row">Open</Button>)).toContain('hover:bg-transparent')
+})
+
+it('lets a wrapping button grow while preserving the default floor and padding',()=>{
+  const wrapped=buttonVariants({size:'wrap'})
+  expect(wrapped).toContain('h-auto')
+  expect(wrapped).toContain('min-h-(--hd-btn-h)')
+  expect(wrapped).toContain('p-(--hd-btn-padding)')
+  expect(wrapped).toContain('whitespace-normal')
+  expect(buttonVariants({size:'default'})).not.toContain('h-auto')
+  expect(CATALOG_ENTRIES.find(entry=>entry.id==='primitive.button')?.sizes).toContain('wrap')
+})
+
+it('keeps a figure button text on its column edge with an inset hover plate', () => {
+  const markup = renderToStaticMarkup(<Button size="content" edgePlate variant="ghost" bordered={false}>Turns</Button>)
+  expect(markup).toContain('h-full w-full -mx-(--hd-space-2) px-(--hd-space-2)')
+  expect(markup).toContain('items-start justify-start text-left whitespace-normal')
 })

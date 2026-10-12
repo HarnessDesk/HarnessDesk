@@ -3,14 +3,14 @@ import { sessionKey, splitSessionKey, type FlowExecution, type GoalView, type Se
 /** A retained Seat and its conversation, shared by the rail, Overview, tree and Run inspector. */
 export interface LinkedTeamSeat {
   key: SessionKey
-  record: Pick<SeatRecord, 'id' | 'session' | 'role' | 'openedAt'>
+  record: Pick<SeatRecord, 'id' | 'session' | 'role' | 'openedAt' | 'closed'>
   role: string | null
   name: string
 }
 
 export type TeamSeat = LinkedTeamSeat | {
   key: null
-  record: Pick<SeatRecord, 'id' | 'role' | 'openedAt'> & { session: null }
+  record: Pick<SeatRecord, 'id' | 'role' | 'openedAt' | 'closed'> & { session: null }
   role: string | null
   name: string
 }
@@ -37,7 +37,7 @@ export const teamSeats = (
       const session = member?.session ?? receipt?.answers.find(one => one.seat === id)?.session ?? null
       const role = [...rounds].reverse().find(round => round.seats.includes(id))?.role ?? member?.role ?? null
       const name = member?.agent ?? member?.seatLabel ?? 'Agent'
-      const record = { id, session, role, openedAt: goal.goal.createdAt }
+      const record = { id, session, role, openedAt: goal.goal.createdAt, closed: null }
       if (!session) { seats.push({ key: null, record: { ...record, session: null }, role, name }); continue }
       const key = sessionKey(session.runtime, session.sessionId)
       const seat: LinkedTeamSeat = { key, record: { ...record, session }, role, name }
@@ -47,10 +47,12 @@ export const teamSeats = (
     }
     return seats
   }
-  for (const record of goal?.members ?? []) {
+  for (const record of [...(goal?.members ?? []), ...(goal?.pastMembers ?? [])]) {
     if (!record.session.runtime || !record.session.sessionId) continue
     const key = sessionKey(record.session.runtime, record.session.sessionId)
     const role = [...rounds].reverse().find(round => round.seats.includes(record.id))?.role ?? record.role
+    const held = result.get(key)
+    if (held && record.closed != null && held.record.closed == null) continue
     result.set(key, { key, record, role, name: team?.nicknames?.[key] ?? record.agent?.name ?? record.seatLabel ?? 'Agent' })
   }
   for (const key of team?.members ?? []) {
@@ -58,7 +60,7 @@ export const teamSeats = (
     const { runtime, id } = splitSessionKey(key)
     if (!runtime || !id) continue
     const role = team?.roles?.[key] ?? null
-    result.set(key, { key, record: { id: String(key), session: { runtime, sessionId: id }, role, openedAt: 0 }, role, name: team?.nicknames?.[key] ?? 'Agent' })
+    result.set(key, { key, record: { id: String(key), session: { runtime, sessionId: id }, role, openedAt: 0, closed: null }, role, name: team?.nicknames?.[key] ?? 'Agent' })
   }
   return [...result.values()]
 }

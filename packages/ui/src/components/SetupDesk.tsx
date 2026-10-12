@@ -67,7 +67,7 @@ export const SetupDesk = ({
             state === 'broken' && health?.state === 'unavailable'
               ? `${health.message}${health.remediation ? ` ${health.remediation}` : ''}`
               : state === 'signin'
-                ? 'Signed out — a session sent to it would not start.'
+                ? 'Signed out. Sign in to start a session.'
                 : state === 'limit'
                   ? 'Its plan window is spent; it comes back when the window resets.'
                   : state === 'unknown'

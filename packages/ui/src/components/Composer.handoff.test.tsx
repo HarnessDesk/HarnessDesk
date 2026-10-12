@@ -4,7 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { deskContextContent, runtimeId, sessionId, splitContextContent, type RuntimeInfo, wrapContext } from '@harnessdesk/protocol'
 
-import { StoreProvider } from '../state/context'
+import { PaneProvider, StoreProvider } from '../state/context'
+import { Drafts, NEW_SESSION_DRAFT_KEY } from '../state/drafts'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { Composer } from './Composer'
 
@@ -51,7 +52,7 @@ const calls = {
   runCommand: vi.fn(async () => true),
 }
 
-const mount = (): void => {
+const mount = (paneId?: string): void => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     runtimes: [runtime],
@@ -72,12 +73,19 @@ const mount = (): void => {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     transport: { request: vi.fn() },
+    // Each fixture is a separate window; it must not restore another test's mirror.
+    drafts: new Drafts(null),
     ...calls,
   } as unknown as AppStore
+  if (paneId) {
+    const rootId = paneId.split(':')[0]!
+    Object.assign(snapshot, { workbench: { ...snapshot.workbench, main: { root: { kind: 'pane', id: rootId, view: { kind: 'conversation', session: null } }, focused: rootId, expanded: null } } })
+  }
+  const composer = <Composer onChooseProject={() => {}} />
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <Composer onChooseProject={() => {}} />
+        {paneId ? <PaneProvider scope={{ paneId, view: { kind: 'conversation', session: null }, sessionKey: null }}>{composer}</PaneProvider> : composer}
       </StoreProvider>,
     )
   })
@@ -130,6 +138,45 @@ describe('the window’s chord over a composer', () => {
     expect(event.defaultPrevented).toBe(false)
     expect(textarea().value).toBe('/')
   })
+})
+
+it('a focused composer refuses another pane target without acknowledging or changing its draft', () => {
+  mount('owning-pane')
+  type('Keep this draft')
+  const received = vi.fn()
+  act(() => window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: { paneId: 'other-pane', text: 'Wrong target', onReceived: received } })))
+  expect(received).not.toHaveBeenCalled()
+  expect(textarea().value).toBe('Keep this draft')
+  act(() => window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: { paneId: 'owning-pane', text: 'Own target', onReceived: received } })))
+  expect(received).toHaveBeenCalledTimes(1)
+  expect(textarea().value).toBe('Keep this draft\nOwn target')
+  // Existing untargeted callers still reach the focused composer.
+  act(() => window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: { text: 'Continue here', onReceived: received } })))
+  expect(received).toHaveBeenCalledTimes(2)
+  expect(textarea().value).toBe('Keep this draft\nOwn target\nContinue here')
+})
+
+it('a synthetic member composer accepts its exact owner target while the Team root has focus', () => {
+  mount('team-main:member-session')
+  const received = vi.fn()
+  act(() => window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: { paneId: 'team-main:member-session', text: 'Commit this member', onReceived: received } })))
+  expect(received).toHaveBeenCalledTimes(1)
+  expect(textarea().value).toBe('Commit this member')
+})
+
+it('keeps the synthetic member fixture independent of a different window draft', () => {
+  const otherWindow = new Drafts(sessionStorage)
+  otherWindow.setLive(NEW_SESSION_DRAFT_KEY, { text: 'Not yet.', attachments: [] })
+  window.dispatchEvent(new Event('pagehide'))
+  try {
+    mount('team-main:member-session')
+    const received = vi.fn()
+    act(() => window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: { paneId: 'team-main:member-session', text: 'Commit this member', onReceived: received } })))
+    expect(received).toHaveBeenCalledTimes(1)
+    expect(textarea().value).toBe('Commit this member')
+  } finally {
+    otherWindow.setLive(NEW_SESSION_DRAFT_KEY, { text: '', attachments: [] })
+  }
 })
 
 describe('a draft carrying a hand-off', () => {

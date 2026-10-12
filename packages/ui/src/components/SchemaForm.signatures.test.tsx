@@ -27,3 +27,20 @@ it('shows shared signature placeholders once and saves explicitly empty template
     expect(save).toHaveBeenCalledWith({description:'',review:'',comment:''})
   } finally {act(() => root.unmount());container.remove()}
 })
+
+it('an unset enum stays unselected until an explicit choice is saved', () => {
+  const box = document.createElement('div'); document.body.append(box)
+  const root = createRoot(box), save = vi.fn()
+  try {
+    act(() => root.render(<SchemaForm schema={{ type: 'object', properties: { mode: { type: 'string', title: 'Mode', enum: ['safe', 'fast'] } } }} value={{}} onSubmit={save} />))
+    const select = box.querySelector('select')!
+    expect(select.value).toBe('')
+    expect(box.querySelector('button')!.disabled).toBe(true)
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(select, 'safe')
+      select.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    act(() => box.querySelector('button')!.click())
+    expect(save).toHaveBeenCalledWith({ mode: 'safe' })
+  } finally { act(() => root.unmount()); box.remove() }
+})

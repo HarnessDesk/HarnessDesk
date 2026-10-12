@@ -1,3 +1,9 @@
+import { destinationForSettings } from '../app/settings-destination'
+import { SettingsTestPage as Settings } from '../test-support/settings-page'
+import type { ComponentProps } from 'react'
+import { TopBarProvider } from '../panels/top-bar'
+import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
+import { fixedSubject } from '../state/workbench'
 import { act, useEffect, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -8,7 +14,8 @@ import { NO_CAPABILITIES } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import type { Profile } from '../lib/profile'
-import { Settings, type Section } from './Settings'
+import { type Section } from './Settings'
+
 
 /** The home every `~/…` path in these fixtures hangs off; the page prints them back with the tilde. */
 const HOME = '/home/u'
@@ -88,6 +95,7 @@ const makeStore = (runtimes: readonly RuntimeInfo[], profile: Profile = {}): App
   return {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
+    workSubject: () => fixedSubject(snapshot.layout),
     transport: { request },
     // The Profile page writes the name when it is let go.
     setProfile: vi.fn(),
@@ -113,7 +121,7 @@ const makeStore = (runtimes: readonly RuntimeInfo[], profile: Profile = {}): App
 
 /** The title of the page on show — the nav rail's labels live outside it. */
 const page = (): string =>
-  document.body.querySelector('[data-slot="page-title"]')?.textContent?.trim() ?? ''
+  document.body.querySelector('[data-topbar-title]')?.textContent?.trim() ?? ''
 
 /** The nav rail's own row, found by its label rather than its position. */
 const navRow = (label: string): HTMLElement | undefined =>
@@ -197,7 +205,7 @@ const mount = async (runtimes: readonly RuntimeInfo[] = [runtime()], profile: Pr
   return drive
 }
 
-it('Escape closes the window and says so, so a sidebar floating under it stays', async () => {
+it('Escape keeps Settings in main without claiming a modal surface', async () => {
   const { held } = await mount()
   expect(held()).not.toBe(false)
 
@@ -205,8 +213,8 @@ it('Escape closes the window and says so, so a sidebar floating under it stays',
   await act(async () => {
     document.dispatchEvent(event)
   })
-  expect(held()).toBe(false)
-  expect(event.defaultPrevented).toBe(true)
+  expect(held()).toBe('appearance')
+  expect(event.defaultPrevented).toBe(false)
 })
 
 it('a page asked for while the window is open replaces the one on show', async () => {
@@ -224,19 +232,21 @@ it('a page asked for while the window is open replaces the one on show', async (
 it('a page asked for a second time still moves the window back to it', async () => {
   const { route } = await mount()
 
-  // Library by route, Plugins by hand, Library by route again. With the page
+  // Library by route, Appearance by hand, Library by route again. With the page
   // held in two places the third step was swallowed: the parent still named
   // Library, so its state did not change and neither did the prop.
-  await act(async () => route('library'))
-  expect(page()).toBe('Library')
+  await act(async () => route('general'))
+  expect(page()).toBe('General')
 
-  const plugins = navRow('Plugins')
-  expect(plugins, 'the nav rail should offer Plugins').toBeTruthy()
-  await act(async () => plugins?.click())
-  expect(page()).toBe('Plugins')
+  const appearance = navRow('Appearance')
+  expect(appearance, 'preferences offer Appearance').toBeTruthy()
+  await act(async () => appearance?.click())
+  expect(page()).toBe('Appearance')
 
-  await act(async () => route('library'))
-  expect(page()).toBe('Library')
+  await act(async () => route('general'))
+  expect(page()).toBe('General')
+  await act(async () => route('notifications'))
+  expect(page()).toBe('Notifications')
 })
 
 it('the nav rail keeps the page it moved to when nothing new is asked for', async () => {
@@ -271,56 +281,30 @@ it('a route to Extensions still gives way when the agent has none', async () => 
   expect(page()).toBe('Runtimes')
 })
 
-it('the import banner opens the Library with its import flow, window already open', async () => {
-  const { route } = await mount()
-  expect(page()).toBe('Appearance')
-
-  // App sets `libraryImport` and the section in one update and clears the flag
-  // on the next commit, because `LibrarySection` reads it only on its own
-  // first render. A page that arrived a commit later than the flag would mount
-  // with it already cleared, and the import dialog would never open.
-  await act(async () => route('library', true))
-  expect(page()).toBe('Library')
-  expect(document.body.textContent).toContain('Import between agents')
+it('historical Library and Plugins requests remain explicit compatibility destinations', () => {
+  expect(destinationForSettings('library')).toEqual({kind:'library',section:'skill'})
+  expect(destinationForSettings('plugins')).toEqual({kind:'plugins',section:'installed',id:null})
 })
 
-it('starts the rail with you, and your row opens your profile', async () => {
+it('keeps Profile callable by route, with no identity in preferences', async () => {
   const drive = await mount()
-  const you = navRow('HarnessDesk')
-  const general = navRow('General')
-  if (!you || !general) throw new Error('no identity row, or no General row')
-  // First: above every group, the way a Mac's own settings open on their owner.
-  expect(you.compareDocumentPosition(general) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-  expect(you.hasAttribute('data-selected')).toBe(false)
-
-  act(() => you.click())
+  expect(navRow('HarnessDesk')).toBeUndefined()
+  await act(async () => drive.route('profile'))
   expect(drive.held()).toBe('profile')
-  expect(navRow('HarnessDesk')?.getAttribute('aria-current')).toBe('page')
   expect(document.body.querySelector('input[aria-label="Your name"]')).not.toBeNull()
 })
 
-it('keeps you in the rail while a search could mean you, and only then', async () => {
+it('preference search excludes identity and retains account keywords', async () => {
   await mount()
-  const search = document.body.querySelector<HTMLInputElement>('input[aria-label="Search settings"]')
-  if (!search) throw new Error('no rail search')
-  const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
-  const find = (value: string): void =>
-    act(() => {
-      setValue?.call(search, value)
-      search.dispatchEvent(new Event('input', { bubbles: true }))
-    })
-
-  find('picture')
-  expect(navRow('HarnessDesk')).toBeDefined()
-  expect(document.body.textContent).not.toContain('Nothing in settings matches')
-  find('permissions')
-  expect(navRow('HarnessDesk')).toBeUndefined()
-  expect(navRow('Permissions')).toBeDefined()
-  // There is no HarnessDesk account, so the word finds the pages that do
-  // mean one — an agent's — and not you. The day an account lands on this
-  // page (the spec's "Later"), this flips: the word will mean you.
-  find('account')
-  expect(navRow('HarnessDesk')).toBeUndefined()
+  const search = document.body.querySelector<HTMLInputElement>('input[aria-label="Search settings"]')!
+  const find = (value: string) => act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(search, value)
+    search.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  find('picture'); expect(navRow('HarnessDesk')).toBeUndefined()
+  expect(document.body.textContent).toContain('Nothing in settings matches')
+  find('permissions'); expect(navRow('Permissions')).toBeDefined()
+  find('account'); expect(navRow('HarnessDesk')).toBeUndefined()
   expect(document.body.textContent).not.toContain('Nothing in settings matches')
 })
 
@@ -373,11 +357,9 @@ it('ordinary Permissions navigation preserves its controls without writing ceili
   expect(store.setQuestionWait).not.toHaveBeenCalled()
 })
 
-it('takes a typed name back on the first Escape, and closes the window on the second', async () => {
+it('takes a typed name back on Escape and keeps the Profile page open', async () => {
   const drive = await mount()
-  const you = navRow('HarnessDesk')
-  if (!you) throw new Error('no identity row')
-  act(() => you.click())
+  await act(async () => drive.route('profile'))
   const input = document.body.querySelector<HTMLInputElement>('input[aria-label="Your name"]')
   if (!input) throw new Error('no name field')
   const setValue = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
@@ -394,14 +376,12 @@ it('takes a typed name back on the first Escape, and closes the window on the se
   act(() => {
     document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
   })
-  expect(drive.held()).toBe(false)
+  expect(drive.held()).toBe('profile')
 })
 
-it('keeps the profile page up while a search hides its row, as every other row behaves', async () => {
+it('keeps the routed profile page up while preference search changes', async () => {
   const drive = await mount()
-  const you = navRow('HarnessDesk')
-  if (!you) throw new Error('no identity row')
-  act(() => you.click())
+  await act(async () => drive.route('profile'))
   const search = document.body.querySelector<HTMLInputElement>('input[aria-label="Search settings"]')
   if (!search) throw new Error('no rail search')
   act(() => {
@@ -413,34 +393,33 @@ it('keeps the profile page up while a search hides its row, as every other row b
   expect(document.body.querySelector('input[aria-label="Your name"]')).not.toBeNull()
 })
 
-it('finds you by your own name — with no "nothing matches" beside you — and says the whole name where the rail cuts it', async () => {
-  const name = 'Zanzibar Quill'
-  await mount([runtime()], { name })
-  const search = document.body.querySelector<HTMLInputElement>('input[aria-label="Search settings"]')
-  if (!search) throw new Error('no rail search')
-  const find = (value: string): void =>
-    act(() => {
-      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(search, value)
-      search.dispatchEvent(new Event('input', { bubbles: true }))
-    })
-
-  // A word only your name answers: you, and no empty-rail message under you.
-  find('zanzibar')
-  expect(navRow(name)).toBeDefined()
-  expect(document.body.textContent).not.toContain('Nothing in settings matches')
-  // The control: a word nothing answers says so.
-  find('qqqzzz')
+it('a profile name never becomes a preference search result', async () => {
+  const name = 'Jane Doe'
+  const drive = await mount([runtime()], { name })
+  await act(async () => drive.route('profile'))
+  const search = document.body.querySelector<HTMLInputElement>('input[aria-label="Search settings"]')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(search, 'Jane')
+    search.dispatchEvent(new Event('input', { bubbles: true }))
+  })
   expect(navRow(name)).toBeUndefined()
   expect(document.body.textContent).toContain('Nothing in settings matches')
+  expect(document.body.querySelector<HTMLInputElement>('input[aria-label="Your name"]')?.value).toBe(name)
+})
 
-  find('')
-  const nameText = navRow(name)?.querySelector<HTMLElement>('[data-slot="text"][data-role="row"]')
-  const label = nameText?.parentElement
-  if (!label) throw new Error('no clipped rail label')
-  Object.defineProperty(label, 'scrollWidth', { configurable: true, value: 320 })
-  Object.defineProperty(label, 'clientWidth', { configurable: true, value: 120 })
-  act(() => {
-    label.dispatchEvent(new MouseEvent('mouseover', { bubbles: true }))
-  })
-  expect(label.getAttribute('title')).toBe(name)
+// The former window rail is now the shared left column; the page keeps its label.
+it('cuts a label the runtime chose rather than wrapping its row', async () => {
+  const label = 'Skills and commands with a long agent supplied name'
+  const info = runtime({ skills: true })
+  await mount([{ ...info, presentation: { ...info.presentation, skillsLabel: label } }])
+  const row = container.querySelector<HTMLButtonElement>(`[aria-label="Settings navigation"] button[aria-label="${label}"]`)!
+  expect(row).not.toBeNull()
+  const text = row.querySelector<HTMLElement>('[data-slot="sidebar-menu-label"]')!
+  expect(text.className).toContain('min-w-0')
+  expect(text.className).toContain('truncate')
+  const rows = [...container.querySelectorAll('[aria-label="Settings navigation"] [data-left-row] > button')]
+  expect(rows.length).toBeGreaterThan(10)
+  expect(new Set(rows.map(one => one.className)).size).toBe(1)
+  await act(async () => row.click())
+  expect(page()).toBe(label)
 })

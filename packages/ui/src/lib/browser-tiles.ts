@@ -1,3 +1,4 @@
+import { supportsFixedTool } from '../state/frame-tools'
 import { sessionKey, type SessionKey } from '@harnessdesk/protocol'
 import type { AppSnapshot } from '../state/snapshot'
 import { browserView, panes } from '../state/layout'
@@ -53,11 +54,14 @@ export function browserMount(snapshot: AppSnapshot, profile: string | null) {
 
 /** Projection only: the saved panel and its tabs remain the source of truth. */
 export function tileBrowserWorkbench(snapshot: AppSnapshot): Workbench {
-  if (snapshot.browserTiles.size === 0) return snapshot.workbench
   const entries = [
     ...panes(snapshot.workbench.main.root).map(pane => ({ id: pane.id, view: pane.view })),
     ...mountedViews(snapshot.workbench).map(entry => entry.mounted),
   ]
-  return entries.reduce((workbench, entry) => entry.view.kind === 'browser' && snapshot.browserTiles.has(browserProfileKey(entry.view.profile ?? null))
-    ? removeAt(workbench, entry.id) : workbench, snapshot.workbench)
+  // Hidden caches retain lifecycle payloads without instantiating an undeclared plugin or another transcript.
+  return entries.reduce((workbench, entry) =>
+    (entry.view.kind === 'conversation' && !panes(snapshot.workbench.main.root).some(pane => pane.id === entry.id))
+      || (entry.view.kind === 'plugin' && !supportsFixedTool(entry.view, snapshot.contributions))
+      || (entry.view.kind === 'browser' && snapshot.browserTiles.has(browserProfileKey(entry.view.profile ?? null)))
+      ? removeAt(workbench, entry.id) : workbench, snapshot.workbench)
 }

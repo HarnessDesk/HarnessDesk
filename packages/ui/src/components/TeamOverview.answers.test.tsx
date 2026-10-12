@@ -66,9 +66,14 @@ it('shows what is being approved whole, so a yes is not given blind', () => {
   expect(box.textContent).toContain('The check needs a clean checkout.')
 })
 
-it('shows the working folder for an ordinary command approval', () => {
-  draw([item()], fake([command('a1', 'pnpm verify', { cwd: '/work/project' })]))
-  expect(rows()[0]?.textContent).toContain('/work/project')
+it('shows the folder name with the full path on hover', () => {
+  const path = '/private/tmp/frame-fix6/fixture-run/storefront'
+  draw([item()], fake([command('a1', 'pnpm verify', { cwd: path })]))
+  const folder = rows()[0]?.querySelector<HTMLElement>('[data-slot="approval-meta"][data-kind="folder"]')
+  expect(folder?.querySelectorAll('span')[0]?.textContent).toBe('in')
+  expect(folder?.querySelectorAll('span')[1]?.textContent).toBe('storefront')
+  expect(folder?.title).toBe(path)
+  expect(folder?.textContent).not.toContain(path)
 })
 
 it('shows a refused approval beside its row and disables only that choice', () => {
@@ -91,7 +96,10 @@ it('names the running command and folder that will receive stdin', () => {
   expect(row.textContent).toContain('y\n')
   expect(row.textContent).toContain('To')
   expect(row.textContent).toContain('npm login')
-  expect(row.textContent).toContain('/work/storefront')
+  const folder = row.querySelector<HTMLElement>('[data-slot="approval-meta"][data-kind="folder"]')
+  expect(folder?.querySelectorAll('span')[0]?.textContent).toBe('in')
+  expect(folder?.querySelectorAll('span')[1]?.textContent).toBe('storefront')
+  expect(folder?.title).toBe('/work/storefront')
 })
 
 it('names the files a change touches and the folders and hosts an access would open', () => {

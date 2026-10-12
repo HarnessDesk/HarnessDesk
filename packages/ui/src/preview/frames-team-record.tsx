@@ -1,6 +1,6 @@
 import { useEffect, useMemo } from 'react'
 import { itemId, sessionKey, turnId, type GoalReceipt, type GoalView, type InsightAmounts, type Intent, type SessionSummary } from '@harnessdesk/protocol'
-import { TeamRoomPane } from '../components/TeamRoomPane'
+import { TeamFramePreview } from './TeamFramePreview'
 import { SessionTree } from '../components/SessionTree'
 import { RailSection } from '../design'
 import { StoreProvider } from '../state/context'
@@ -79,7 +79,7 @@ export const teamRecordStore = (scene: RecordScene = 'wrapped') => {
 }
 export const RecordExample = ({scene}:{scene:RecordScene}) => {
  const store=useMemo(()=>teamRecordStore(scene),[scene])
- return <section className={NARROW.includes(scene)?'h-144 max-w-sm':'h-144'}><StoreProvider store={store}><TeamRoomPane room="overview-team" /></StoreProvider></section>
+ return <section className={NARROW.includes(scene)?'h-144 max-w-180':'h-144'}><StoreProvider store={store}><TeamFramePreview room="overview-team" /></StoreProvider></section>
 }
 export const TeamRecordBoard = () => <div className="flex flex-col gap-4">{TEAM_RECORD_STATES.map(scene=><section key={scene} data-catalog-state={scene}><RecordExample scene={scene}/></section>)}</div>
 /**
@@ -99,7 +99,7 @@ const WrapsUnderQuestion = () => {
   }
   return ()=>{ delete host.__hdWrapOpenTeam }
  },[store])
- return <section id="team-record-open" className="h-144"><StoreProvider store={store}><TeamRoomPane room="overview-team" /></StoreProvider></section>
+ return <section id="team-record-open" className="h-144"><StoreProvider store={store}><TeamFramePreview room="overview-team" /></StoreProvider></section>
 }
 /**
  * "Give this to…" on an open Team's card nobody holds, in a project where a wrapped Team keeps a conversation: the
@@ -125,13 +125,13 @@ const AssignWhereOneIsKept = () => {
    history:[...snapshot.history,summary('free-copy','Tidy the settings copy'),summary(kept.sessionId,'Tighten the checkout copy'),summary('free-tests','Add a test for the retry budget')]})
   return base
  },[])
- return <section id="team-record-assign" className="h-144"><StoreProvider store={store}><TeamRoomPane room="overview-team" /></StoreProvider></section>
+ return <section id="team-record-assign" className="h-144"><StoreProvider store={store}><TeamFramePreview room="overview-team" /></StoreProvider></section>
 }
 export const TeamRecordFrames = () => {
  const sidebar=useMemo(()=>teamRecordStore('older'),[])
  const shared=useMemo(()=>teamRecordStore('shared'),[])
  const unlinked=useMemo(()=>teamRecordStore('unlinked'),[])
- return <div className="flex flex-col gap-4 p-4">{TEAM_RECORD_STATES.map(scene=><section key={scene} id={`team-record-${scene}`} className={NARROW.includes(scene)?'max-w-sm':undefined}><RecordExample scene={scene}/></section>)}
+ return <div className="flex flex-col gap-4 p-4">{TEAM_RECORD_STATES.map(scene=><section key={scene} id={`team-record-${scene}`} className={NARROW.includes(scene)?'max-w-180':undefined}><RecordExample scene={scene}/></section>)}
   <section id="team-record-sidebar" className="w-72"><StoreProvider store={sidebar}><RailSection stretch="list"><SessionTree now={Date.now()}/></RailSection></StoreProvider></section>
   <section id="team-record-sidebar-shared" className="w-72"><StoreProvider store={shared}><RailSection stretch="list"><SessionTree now={Date.now()}/></RailSection></StoreProvider></section>
   <section id="team-record-sidebar-unlinked" className="w-72"><StoreProvider store={unlinked}><RailSection stretch="list"><SessionTree now={Date.now()}/></RailSection></StoreProvider></section>

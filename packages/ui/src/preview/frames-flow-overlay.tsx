@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { AgentIcon, CheckIcon, DevToolsIcon } from '../components/Icons'
-import { TeamRoomPane } from '../components/TeamRoomPane'
+import { TeamFramePreview } from './TeamFramePreview'
 import { FlowGraph, Text } from '../design'
 import { StoreProvider } from '../state/context'
 import { useTheme } from '../state/theme'
@@ -36,7 +36,7 @@ export const FlowOverlayFrames = () => {
     return () => window.removeEventListener('flow-overlay-scene', advance)
   }, [rig])
   return <div className="flex min-h-full flex-col gap-8 bg-background p-4 text-foreground">
-    <section id="flow-overlay-live" data-scene={scene} className="h-192"><StoreProvider store={rig.store}><TeamRoomPane room="overlay-team" /></StoreProvider></section>
+    <section id="flow-overlay-live" data-scene={scene} className="h-192"><StoreProvider store={rig.store}><TeamFramePreview room="overlay-team" /></StoreProvider></section>
     <section id="flow-overlay-blueprint"><FlowGraph model={flowGraphModel('blueprint')} /></section>
     {FLOW_OVERLAY_SCENES.map(scene => { const source = flowOverlayFixture(scene); return <section key={scene} id={`flow-overlay-${scene}`}><Text role="section">{scene}</Text><FlowGraph model={source.model} overlay={source.overlay} faces={FACES} doing={DOING} /></section> })}
   </div>

@@ -1,10 +1,11 @@
-import { createContext, useContext, createElement, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode } from 'react'
+import { createContext, useContext,  type ReactNode } from 'react'
 
 import { cn } from '../../lib/utils'
-import { Bar } from '../ui/bar'
-import { ToolbarGap } from '../ui/section'
+import { useToolBodySections } from './ToolBody'
+import { ToolFooterPublisher } from './ToolFooter'
 import { Button, buttonVariants } from '../ui/button'
 import { ChangeStats } from './Change'
+import { MiddleTruncate } from '../ui/key-value'
 import { PaneColumn } from './PaneColumn'
 import { Chip, Dot, Search, Text } from './Settings'
 
@@ -12,15 +13,15 @@ import { Chip, Dot, Search, Text } from './Settings'
  * The anatomy shared by the right-hand inspectors.
  *
  * Changes, Activity, Agents and background tasks are different lists inside
- * the same piece of furniture: a bar, rows that state one event or object,
- * and a quiet facts line. Owning those roles here means a selected row stays
+ * the same piece of furniture: ordinary control rows, recorded events or objects,
+ * and shell-published facts. Owning those roles here means a selected row stays
  * a fill, a running mark stays the same dot, and the list's labels cannot
  * drift back into a fifth spelling.
  */
 
-/** A prose inspector owns one reading gutter in both its bar and body. */
+/** Standalone prose bodies keep their reading gutter; controls use the ordinary row inset. */
 const PanelInset = createContext<'dense' | 'reading'>('dense')
-const PanelFrame = ({ children, testId, inset = 'dense' }: { children: ReactNode; testId?: string; inset?: 'dense' | 'reading' }) => (
+const PanelFrame = ({ children, testId, inset = 'dense' }: { children: ReactNode; testId?: string; inset?: 'dense' | 'reading' }) => useToolBodySections() ? <>{children}</> : (
   <PanelInset.Provider value={inset}>
     <div data-slot="inspector-panel" data-inset={inset} data-testid={testId} className="flex h-full min-w-0 flex-col">
       {children}
@@ -28,27 +29,17 @@ const PanelFrame = ({ children, testId, inset = 'dense' }: { children: ReactNode
   </PanelInset.Provider>
 )
 
-const PanelTools = ({ children }: { children: ReactNode }) => (
-  <Bar data-slot="inspector-tools" rule="bottom" className={useContext(PanelInset) === 'reading' ? 'px-(--hd-space-6)' : undefined}>
-    {children}
-  </Bar>
-)
-
 const PanelBody = ({ children }: { children: ReactNode }) => {
   const reading = useContext(PanelInset) === 'reading'
-  return <div data-slot="inspector-body" className={cn('min-h-0 flex-1 overflow-y-auto', !reading && 'p-(--hd-inset-dense)')}>
-    {reading ? <PaneColumn inset="reading">{children}</PaneColumn> : children}
+  const sections = useToolBodySections()
+  if (sections) return <>{children}</>
+  return <div data-slot="inspector-body" className={cn('min-h-0 flex flex-col gap-(--hd-card-gap) flex-1 overflow-y-auto', !reading && 'p-(--hd-inset-dense)')}>
+    {reading ? <PaneColumn inset="reading" className="flex min-w-0 flex-col gap-(--hd-card-gap)">{children}</PaneColumn> : children}
   </div>
 }
 
-/** The quiet facts line under the list: a bar whose two readings are the meta role. */
-const PanelFooter = ({ left, right }: { left: ReactNode; right: ReactNode }) => (
-  <Bar data-slot="inspector-footer" rule="top">
-    <Text role="meta">{left}</Text>
-    <ToolbarGap />
-    <Text role="meta">{right}</Text>
-  </Bar>
-)
+/** Facts retain their existing calculations while the fixed shell owns their footer. */
+const PanelFooter = ({ left, right }: { left: ReactNode; right: ReactNode }) => <ToolFooterPublisher left={left} right={right} />
 
 /**
  * A count on the left, and a fact about the whole group on the right.
@@ -129,14 +120,14 @@ const PanelRow = ({
         </span>
       ) : null}
       <span className="flex min-w-0 flex-1 flex-col">
-        <Text role="row" truncate={!wrapTitle} className={cn('flex min-w-0 gap-2', wrapTitle ? 'items-start' : 'items-center')}>{title}</Text>
+        <Text role="row" truncate={!wrapTitle} className={cn('flex min-w-0 gap-2', wrapTitle ? 'items-start' : 'items-center')}>{typeof title === 'string' && !wrapTitle ? <MiddleTruncate>{title}</MiddleTruncate> : title}</Text>
         {sub ? (
           <Text
             role="meta"
             truncate
-            className={cn('mt-(--hd-table-line-gap)', subPath && 'text-left [direction:rtl] [unicode-bidi:plaintext]')}
+            className="mt-(--hd-table-line-gap)"
           >
-            {sub}
+            {subPath && typeof sub === 'string' ? <MiddleTruncate>{sub}</MiddleTruncate> : sub}
           </Text>
         ) : null}
         {ask ? <Text role="meta" ink="secondary" className={cn('mt-(--hd-table-line-gap) [overflow-wrap:anywhere]', askLines === 2 && 'line-clamp-2')}>{ask}</Text> : null}
@@ -195,52 +186,6 @@ const PanelFilter = ({
   />
 )
 
-/**
- * A filter you press, beside a list's search: the one drawing for it, in the
- * inspectors and in the Library's counts alike.
- *
- * It is a control, not a status, and each state says so. At rest it is a pill
- * on the chip ground; under the pointer the ground takes a step toward the
- * ink (`--hd-chip-fill-hover`, a longer step in the dark theme, where a short
- * one reads as none) and the words go to full ink;
- * focused from the keyboard it takes the app's one focus ring; pressed, it is
- * lit in the accent — `pressed` (or the older `data-on`) sets that, and says
- * it to assistive technology as `aria-pressed`.
- *
- * `as="span"` is the other thing a pill can be, and the only status here: a
- * fact about the list ("this week") that nothing presses, drawn as a `Chip`.
- */
-const PanelPill = ({
-  as = 'button',
-  pressed,
-  children,
-  ...props
-}: {
-  as?: 'button' | 'span'
-  pressed?: boolean
-  children: ReactNode
-} & ButtonHTMLAttributes<HTMLButtonElement> & HTMLAttributes<HTMLSpanElement>) => {
-  if (as === 'span') return <Chip tone="neutral" className="min-h-(--hd-target-min) bg-(--hd-chip-fill) text-(--hd-secondary-foreground)">{children}</Chip>
-  const selected = pressed ?? 'data-on' in props
-  const { 'data-on': _on, ...rest } = props as typeof props & { 'data-on'?: string }
-  return createElement(
-    Button,
-    {
-      ...rest,
-      ...(selected ? { 'data-on': '' } : {}),
-      'aria-pressed': selected,
-      variant: 'ghost',
-      size: 'chip',
-      type: props.type ?? 'button',
-      className: cn(
-        'bg-(--hd-chip-fill) text-(--hd-secondary-foreground) hover:bg-(--hd-chip-fill-hover) hover:text-(--hd-foreground)',
-        selected && 'bg-(--hd-accent-dim) text-(--hd-accent) hover:bg-(--hd-accent-dim) hover:text-(--hd-accent)',
-        props.className,
-      ),
-    },
-    children,
-  )
-}
 
 export {
   Counts,
@@ -250,9 +195,7 @@ export {
   PanelFilter,
   PanelFooter,
   PanelFrame,
-  PanelPill,
   PanelRow,
-  PanelTools,
   RowTime,
   RunDot,
 }

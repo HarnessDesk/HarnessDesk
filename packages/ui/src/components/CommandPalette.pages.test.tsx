@@ -63,7 +63,7 @@ const mount = async (
 }
 
 const type = (value: string): void => {
-  const field = container.querySelector('input')
+  const field = document.body.querySelector<HTMLInputElement>('[aria-label="Command palette"] input')
   if (!field) throw new Error('no palette input')
   act(() => {
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
@@ -74,7 +74,7 @@ const type = (value: string): void => {
 
 const choose = async (label: string): Promise<void> => {
   await act(async () => {})
-  const option = [...container.querySelectorAll<HTMLElement>('[role="option"]')].find((one) => one.textContent?.includes(label))
+  const option = [...document.body.querySelectorAll<HTMLElement>('[aria-label="Command palette"] [role="option"]')].find((one) => one.textContent?.includes(label))
   expect(option, `an option for ${label}`).toBeTruthy()
   act(() => option!.click())
 }

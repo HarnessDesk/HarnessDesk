@@ -7,6 +7,7 @@ import type { AgentItem, Approval, FlowExecution, InsightAmounts, InsightMetric,
 
 import { doingLine, teamOverview, type TeamOverviewInput, type TeamOverviewSeat } from '../../src/views/team-overview.js'
 import type { ClientSnapshot } from '../../src/views/snapshot.js'
+import { teamOverviewInputOf } from '../../src/views/team-overview-of.js'
 import { teamOverviewOf } from '../../src/views/index.js'
 
 const card = (id: number, patch: Partial<Intent> = {}): Intent => ({
@@ -556,4 +557,15 @@ it('excludes an untimed turn completed before the Seat while retaining unknown S
    cards: [card(1, { state: 'done' })], signals: [blockedSignal('Alpha', { signal: 'completed' })] }))
   assert.equal(model.seats[0]?.durationMs, completedAt === 90 ? 50 : null)
  }
+})
+
+
+it('adapts live seats before stopped seats and retains the live repeated conversation', () => {
+ const live={...seat('live').record,closed:null} as SeatRecord
+ const stopped={...seat('live').record,id:'old',closed:{at:300,why:'released'}} as SeatRecord
+ const past={...seat('past').record,closed:{at:300,why:'released'}} as SeatRecord
+ const snapshot={teams:[{goal:{id:'team'},members:[live],pastMembers:[past,stopped]}],boards:[],runs:[],seats:[],approvals:[]} as unknown as ClientSnapshot
+ const input=teamOverviewInputOf(snapshot,'team',{report:null,runtimes:[]})
+ assert.deepEqual(input.seats.map(one=>one.record.id),['live','past'])
+ assert.equal((input.seats[0]?.record as SeatRecord).closed,null)
 })

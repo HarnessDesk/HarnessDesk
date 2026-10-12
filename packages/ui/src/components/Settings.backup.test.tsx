@@ -6,14 +6,14 @@ import type { BackupFile, BackupReport } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { BackupRows } from './Settings'
+import { BackupRows, GeneralSectionRows } from './Settings'
 
 /**
  * The Backup rows' outcome sentence, pinned after review found it still
  * calling the registered runtimes "agents" — the rename Task 11 made
  * everywhere else. It counts four things apart: the runtimes registered here,
  * this Mac's own Agent files, this Mac's seats for them, and its
- * preferences/conversations, and records of what the desk observed — never
+ * preferences/conversations, and records of seats and work evidence — never
  * folding runtimes and Agents into one word.
  */
 
@@ -49,6 +49,16 @@ const render = (store: AppStore): void => {
   })
 }
 
+const renderGeneral = (store: AppStore): void => {
+  act(() => {
+    root.render(
+      <StoreProvider store={store}>
+        <GeneralSectionRows />
+      </StoreProvider>,
+    )
+  })
+}
+
 const button = (label: string): HTMLButtonElement | HTMLLabelElement => {
   const found = [
     ...container.querySelectorAll<HTMLButtonElement | HTMLLabelElement>('button, label'),
@@ -73,6 +83,14 @@ const BACKUP: BackupFile = {
   seating: {},
 }
 
+it('uses the action labels alone for export, restore and diagnostics', () => {
+  const store = { subscribe: () => () => {}, getSnapshot: () => emptySnapshot(), transport: { request: vi.fn() } } as unknown as AppStore
+  renderGeneral(store)
+  for (const label of ['Export…', 'Restore…', 'Save bundle…']) {
+    expect(button(label).querySelector('svg'), `${label} has a redundant icon`).toBeNull()
+  }
+})
+
 it('says the runtimes it exported are runtimes, and counts Agents and seats apart', async () => {
   const request = vi.fn(async () => BACKUP)
   const store = { subscribe: () => () => {}, getSnapshot: () => emptySnapshot(), transport: { request } } as unknown as AppStore
@@ -84,7 +102,7 @@ it('says the runtimes it exported are runtimes, and counts Agents and seats apar
   })
   expect(request).toHaveBeenCalledWith('backup/export', {})
   const text = container.textContent ?? ''
-  expect(text).toContain('Exported 2 runtimes, 3 Agents of yours, 1 conversation and 0 records of what the desk observed.')
+  expect(text).toContain('Exported 2 runtimes, 3 Agents of yours, 1 conversation and 0 records of seats and work evidence.')
   expect(text).not.toMatch(/\b2 agents\b/)
 })
 
@@ -115,7 +133,7 @@ it('says the runtimes it restored are runtimes, and counts Agents and seats apar
   expect(request).toHaveBeenCalledWith('backup/import', { backup: {} })
   const text = container.textContent ?? ''
   expect(text).toContain(
-    'Restored 1 runtime, 3 Agents, 1 seat choice, 2 preferences, 4 conversations and 5 records of what the desk observed. 3 already here or newer, left alone.',
+    'Restored 1 runtime, 3 Agents, 1 seat choice, 2 preferences, 4 conversations and 5 records of seats and work evidence. 3 already here or newer, left alone.',
   )
   expect(text).not.toMatch(/\b1 agent\b/)
 })

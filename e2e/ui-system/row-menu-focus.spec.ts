@@ -27,7 +27,7 @@ const label = 'Draft the 2.5 migration notes after reviewing the sidebar target 
 const actions = `Actions for ${label}`
 
 const rowOf = (page: Page) =>
-  page.locator('[data-region="session-row"] [data-slot="sidebar-menu-item"]').filter({
+  page.locator('[data-region="session-row"] [data-left-row]').filter({
     has: page.locator(`button[aria-label="${actions}"]`),
   })
 

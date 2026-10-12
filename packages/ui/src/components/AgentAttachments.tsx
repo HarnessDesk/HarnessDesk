@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 
 import type { AgentAttachmentsView, AgentEntry, AttachmentEditPreview, AttachmentReview } from '@harnessdesk/protocol'
 
-import { Banner, Button, CodeText, ConfirmDialog, Dialog, Note, Checkbox, Row, Rows, SectionHead, SummaryItem } from '../design'
+import { Banner, Button, CodeText, ConfirmDialog, Dialog, FormStack, Note, Checkbox, Row, Rows, SectionHead, SummaryItem } from '../design'
 import { useSnapshot, useStore } from '../state/context'
+import { useDestinationActive } from '../panels/destination-page'
 import { DiffView } from './Diff'
 
 /**
@@ -32,12 +33,18 @@ export const AgentAttachments = ({
   readonly entry: AgentEntry
   readonly onProblem?: (problem: string | null) => void
 }) => {
+  const active = useDestinationActive()
   const store = useStore()
   const snapshot = useSnapshot()
   const [view, setView] = useState<AgentAttachmentsView | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
   const [editing, setEditing] = useState(false)
   const [reviewing, setReviewing] = useState(false)
+  useEffect(() => {
+    if (active) return
+    setEditing(false)
+    setReviewing(false)
+  }, [active])
 
   useEffect(() => {
     let live = true
@@ -84,10 +91,10 @@ export const AgentAttachments = ({
         {...(loadable && anyCapable && snapshot.workspace
           ? {
               note: (
-                <span className="inline-flex flex-wrap items-center gap-2">
+                <>
                   {`Review what this Agent would load in ${snapshot.workspace.name}`}
                   <Button size="sm" variant="outline" onClick={() => setReviewing(true)}>Review & Approve…</Button>
-                </span>
+                </>
               ),
             }
           : {})}
@@ -97,7 +104,7 @@ export const AgentAttachments = ({
       {entry.definition?.runtimeServers !== undefined && <SummaryItem label="Native servers">
         {entry.definition.runtimeServers.length === 0 ? 'None' : entry.definition.runtimeServers.join(', ')}
       </SummaryItem>}
-      {editing && (
+      {active && editing && (
         <AttachmentEditDialog
           entry={entry}
           view={view}
@@ -105,7 +112,7 @@ export const AgentAttachments = ({
           onSaved={(next) => { setView(next); setEditing(false) }}
         />
       )}
-      {reviewing && snapshot.workspace && (
+      {active && reviewing && snapshot.workspace && (
         <AttachmentReviewDialog entry={entry} root={snapshot.workspace.path} onClose={() => setReviewing(false)} />
       )}
     </>
@@ -211,10 +218,10 @@ const AttachmentEditDialog = ({
       </Rows>
       {problem && <Banner tone="danger" title="This cannot be written">{problem}</Banner>}
       {preview && (
-        <div className="space-y-2">
+        <FormStack>
           <CodeText>{preview.path}</CodeText>
           <DiffView diff={preview.diff} wrap />
-        </div>
+        </FormStack>
       )}
     </Dialog>
   )
@@ -296,14 +303,14 @@ const AttachmentReviewDialog = ({
     >
       {problem && <Banner tone="danger" title="This could not be reviewed">{problem}</Banner>}
       {review && (
-        <div className="space-y-2">
+        <FormStack>
           <Note>{review.consequence}</Note>
           <Note>Effective ceiling: {review.effectiveCeiling}</Note>
           {review.files.map((file) => (
-            <div key={file.path} className="space-y-1">
+            <FormStack key={file.path}>
               <CodeText>{file.path}</CodeText>
               <CodeText as="pre">{file.text}</CodeText>
-            </div>
+            </FormStack>
           ))}
           {hidden.length > 0 && (
             <Rows>
@@ -315,7 +322,7 @@ const AttachmentReviewDialog = ({
               />
             </Rows>
           )}
-        </div>
+        </FormStack>
       )}
     </ConfirmDialog>
   )

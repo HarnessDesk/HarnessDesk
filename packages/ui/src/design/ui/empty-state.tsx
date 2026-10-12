@@ -62,6 +62,10 @@ type EmptyStateProps = EmptyStateBase &
         footer?: React.ReactNode
         /** The same words with less air, for a panel inside a card. */
         tight?: boolean
+        /** Take the remaining height of a filled Page and centre the panel within it. */
+        fill?: boolean
+        /** Stretch choice content to the panel width instead of centring it at its intrinsic width. */
+        stretchChildren?: boolean
       }
     | {
         /** One muted line inside a list, a column or a pane. */
@@ -71,6 +75,7 @@ type EmptyStateProps = EmptyStateBase &
         icon?: never
         footer?: never
         tight?: never
+        fill?: never
       }
     | {
         /** One row of a `Rows` card. `children` is its trailing control. */
@@ -79,13 +84,17 @@ type EmptyStateProps = EmptyStateBase &
         icon?: React.ReactNode
         footer?: never
         tight?: never
+        fill?: never
       }
   )
 
 const EmptyState = (allProps: EmptyStateProps) => {
   const align = 'align' in allProps ? allProps.align : undefined
   const { align: _align, ...restProps } = allProps as EmptyStateProps & { align?: 'center' | 'start' }
-  const { className, variant = 'panel', icon, title, description, footer, tight, children, ...props } = restProps
+  const { className, variant = 'panel', icon, title, description, footer, tight, fill, stretchChildren, children, ...props } = restProps as EmptyStateProps & {
+    align?: 'center' | 'start'
+    stretchChildren?: boolean
+  }
   if (variant === 'inline') {
     /* A `div`, not a `p`: the line may carry an element — a link, a button —
        and a paragraph cannot hold a block. The look is the one the sidebar,
@@ -129,6 +138,7 @@ const EmptyState = (allProps: EmptyStateProps) => {
       data-variant="panel"
       className={cn(
         'mx-auto flex w-full max-w-md flex-col items-center text-center',
+        fill && 'flex-1 justify-center',
         tight ? 'gap-2 py-6' : 'gap-3 py-10',
         className,
       )}
@@ -148,7 +158,7 @@ const EmptyState = (allProps: EmptyStateProps) => {
           <p className="text-base text-(--hd-muted-foreground)">{description}</p>
         )}
       </div>
-      {children != null && <div className="mt-2 flex w-full flex-col gap-2">{children}</div>}
+      {children != null && <div className={cn('mt-2 flex w-full flex-col gap-2', stretchChildren ? 'items-stretch' : 'items-center')}>{children}</div>}
       {footer != null && <div className="mt-1 text-xs text-(--hd-muted-foreground)">{footer}</div>}
     </div>
   )

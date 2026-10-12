@@ -1,16 +1,16 @@
+import { CurrentPagePreview } from './page-preview'
 /** Content-only website cameras, composed from the shipped surfaces. */
 import { useEffect, useMemo, useState } from 'react'
 import { FlowInputFields, FlowPreviewSeats } from '../components/FlowStart'
 import { HandoffSheet } from '../components/ComposerControls'
 import { RunView } from '../components/RunView'
-import { TeamRoomPane } from '../components/TeamRoomPane'
+import { TeamFramePreview } from './TeamFramePreview'
 import { TeamsWindow } from '../components/TeamsWindow'
-import { Usage, type DashboardView } from '../components/Usage'
+import { type DashboardView } from '../components/Usage'
 import { Bar, Button, Card, CardContent, Dialog, FormStack } from '../design'
 import { runTimeline } from '../lib/run-timeline'
 import { browserView } from '../state/layout'
 import { mountedViews, replaceView } from '../state/workbench'
-import { MountProvider } from '../panels/mount'
 import { previewStore, PREVIEW_AGENTS, PREVIEW_ROOM } from './harness'
 import { sideBySideStore, SIDE_BY_SIDE_KEYS } from './side-by-side-fixture'
 import { teamsPageStore } from './teams-page-fixture'
@@ -78,14 +78,12 @@ export const SiteStills = ({ scene }: { scene: string }) => {
     window.addEventListener('site-clip-stage', receive)
     return () => window.removeEventListener('site-clip-stage', receive)
   }, [clip])
-  if (scene === 'teams-table') return <><TeamsWindow onClose={() => {}} />{clip && stage === 1 &&
+  if (scene === 'teams-table') return <><CurrentPagePreview page={{kind:'teams',filter:'active'}} />{clip && stage === 1 &&
     <Dialog title="Start with a team" size="xl" onClose={() => setStage(0)}><StartTop onBack={() => setStage(0)} /></Dialog>}</>
   if (scene === 'run-short' || scene === 'race-run') return <CompactRun race={scene === 'race-run'} stage={clip ? stage : null} />
   if (scene === 'handoff-dialog') return <HandoffSheet from="Writer" to="Reviewer" onCancel={() => {}} onConfirm={() => {}} />
   if (scene === 'start-preview') return <div className="w-full max-w-2xl"><StartTop /></div>
-  if (scene === 'browser-tile') return <MountProvider scope={{ area: 'main', id: 'site-browser', view: { kind: 'room', room: PREVIEW_ROOM,
-    sideBySide: { tiles: SIDE_BY_SIDE_KEYS.slice(0, 1), focused: SIDE_BY_SIDE_KEYS[0], modes: { [SIDE_BY_SIDE_KEYS[0]!]: 'browser' } } } }}>
-    <TeamRoomPane room={PREVIEW_ROOM} />
-  </MountProvider>
-  return <Usage view={clip ? view : scene === 'dash-plans' ? 'plans' : scene === 'dash-spend' || scene === 'dash-agents' ? 'spend' : 'activity'} onView={clip ? setView : undefined} onClose={() => {}} />
+  if (scene === 'browser-tile') return <TeamFramePreview room={PREVIEW_ROOM} view={{ kind: 'room', framePage: 'room', room: PREVIEW_ROOM,
+    sideBySide: { tiles: SIDE_BY_SIDE_KEYS.slice(0, 1), focused: SIDE_BY_SIDE_KEYS[0], modes: { [SIDE_BY_SIDE_KEYS[0]!]: 'browser' } } }} />
+  return <CurrentPagePreview page={{kind:'dashboard',view:clip?view:scene==='dash-plans'?'plans':scene==='dash-spend'||scene==='dash-agents'?'spend':'activity',scope:null}} />
 }

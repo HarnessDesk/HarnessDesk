@@ -2,9 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 
 import { useStore } from '../state/context'
 import { useMount } from '../panels/mount'
-import { Button, ToolPane, ToolPaneBody, ToolPaneGuest, ToolPaneMessage, ToolPaneReading, ToolPaneStage } from '../design'
+import { Button, ToolPane, ToolPaneBody, ToolPaneGuest, ToolPaneMessage, Page, ToolPaneStage } from '../design'
 import { Markdown } from './Markdown'
-import { ToolPaneHeader } from './ToolPaneHeader'
+import { ToolBodyControls, ToolSection, SummaryList, SummaryItem } from '../design'
+import { sanitizeText } from '../lib/sanitize'
 import styles from './ToolPanes.module.css'
 
 /**
@@ -117,7 +118,7 @@ export const PreviewPane = () => {
 
   return (
     <ToolPane variant="integrated">
-      <ToolPaneHeader title={`Preview · ${path.split('/').pop() ?? path}`} subtitle={path}>
+      <ToolSection label={sanitizeText(`Preview · ${path.split('/').pop() ?? path}`)}><SummaryList surface="panel"><SummaryItem label="Path" kind="path">{sanitizeText(path)}</SummaryItem></SummaryList><ToolBodyControls>
         <Button
           variant="ghost"
           size="sm"
@@ -129,7 +130,7 @@ export const PreviewPane = () => {
         <Button variant="ghost" size="sm" onClick={() => store.openFile(path, { split: null })}>
           Source
         </Button>
-      </ToolPaneHeader>
+      </ToolBodyControls></ToolSection>
       <ToolPaneBody bleed className={styles.body} data-preview="">
         {error ? (
           <ToolPaneMessage>{error}</ToolPaneMessage>
@@ -157,9 +158,9 @@ export const PreviewPane = () => {
         ) : content === null ? (
           <ToolPaneMessage>Loading…</ToolPaneMessage>
         ) : (
-          <ToolPaneReading>
+          <Page width="reading">
             <Markdown text={content} />
-          </ToolPaneReading>
+          </Page>
         )}
       </ToolPaneBody>
     </ToolPane>

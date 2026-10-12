@@ -155,3 +155,15 @@ it('completed and stopped Runs need no person, and a stopped Run is not Ready to
  expect(teamListRow(complete)).toMatchObject({state:'settled',ready:true})
  expect(teamListRow(stopped)).toMatchObject({state:'stopped',ready:false})
 })
+
+
+it('stopped Runs distinguish an original turn finishing from claimed work', () => {
+ const one = input('stopped', 'running')
+ one.execution = { ...one.execution!, state: 'stopped', currentEndedAt: 300, endedAt: 300, end: { kind: 'stopped', by: 'person' } }
+ one.overview.seats = [{ ...one.overview.seats[0]!, state: 'working' }]
+ one.overview.needsYou = []
+ Object.assign(one, { stopping: true })
+ expect(teamListRow(one).state).toBe('stopping')
+ Object.assign(one, { stopping: false })
+ expect(teamListRow(one).state).toBe('stopped')
+})

@@ -1,3 +1,4 @@
+import { DestinationBar, useDestinationPage } from '../panels/destination-page'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import {
@@ -25,7 +26,6 @@ import {
   fixWords,
   isAgentFolder,
   markFor,
-  originWords,
   projectName,
   sameSeat,
   shadowWords,
@@ -37,16 +37,17 @@ import { ceilingTitle, flagWords, runtimeHolds } from '../lib/ceilings'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { AgentSeatCosts } from './AgentSeatCosts'
-import { AgentIcon, BriefIcon, PlusIcon, TrashIcon } from './Icons'
+import { PlusIcon, TrashIcon, CopyIcon, FolderIcon, FileIcon, ShieldIcon, ClockIcon } from './Icons'
 import {
-  BackLink,
   Banner,
+  Chip,
+  MenuItem,
+  PageExplanation,
+  PreservedText,
   BoardMenuButton,
   Button,
   Checkbox,
   ConfirmDialog,
-  DetailHead,
-  DetailMark,
   Dialog,
   DropdownMenu,
   DropdownMenuContent,
@@ -60,7 +61,6 @@ import {
   RowValue,
   Rows,
   Section,
-  SectionHead,
   SortableAnnouncer,
   SortableHandle,
   SummaryItem,
@@ -70,8 +70,8 @@ import {
   sortableItemClass,
   useSortable,
 } from '../design'
-import styles from './AgentPage.module.css'
 import { AgentAttachments } from './AgentAttachments'
+import { AgentFace } from './AgentFace'
 import { AgentFields, AgentPageSections, FieldEditDialog, PreferFieldDialog } from './AgentFields'
 import { AgentNotes } from './AgentNotes'
 import { CeilingUpdate } from './CeilingUpdate'
@@ -102,16 +102,9 @@ const authoringTarget = (entry: AgentEntry, project: string | null): AuthoringTa
  * remove, and the page must not lean on the host's own refusal to find that
  * out (`isAgentFolder`).
  */
-export const AgentPage = ({
-  entry,
-  onBack,
-  onLeave,
-}: {
-  readonly entry: AgentEntry
-  readonly onBack: () => void
-  /** Closes the Agents window: what is opened from here — the file, a conversation — is behind it. */
-  readonly onLeave: () => void
-}) => {
+export const AgentPage = (props: { readonly entry: AgentEntry; readonly onBack: () => void }) => <AgentPageBody {...props} />
+const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly onBack: () => void }) => {
+  const { active } = useDestinationPage()
   const store = useStore()
   const snapshot = useSnapshot()
   const [customizing, setCustomizing] = useState(false)
@@ -129,6 +122,17 @@ export const AgentPage = ({
   const [everyTime, setEveryTime] = useState(false)
   const [attachmentsProblem, setAttachmentsProblem] = useState<string | null>(null)
   const [startingHigher, setStartingHigher] = useState(false)
+  useEffect(() => {
+    if (active) return
+    setCustomizing(false)
+    setRemoving(false)
+    setAdding(false)
+    setUpdatingCeiling(false)
+    setEditingCeiling(false)
+    setEditingPrefer(false)
+    setEveryTime(false)
+    setStartingHigher(false)
+  }, [active])
   const definition = entry.definition
   // Offered only for an Agent whose own ceiling reaches past the default a seating starts at (#897).
   const canStartHigher = definition !== null && (definition.ceiling === 'publish' || definition.ceiling === 'merge')
@@ -157,7 +161,7 @@ export const AgentPage = ({
   }, [entry.id, entry.origin, entry.path, snapshot.agentsProject])
 
   useEffect(() => {
-    if (!definition) return
+    if (!active || !definition) return
     let live = true
     setAgentDocument(null)
     setDocumentProblem(null)
@@ -173,11 +177,11 @@ export const AgentPage = ({
       live = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entry.id, entry.origin, snapshot.agentsProject, store])
+  }, [active, entry.id, entry.origin, snapshot.agentsProject, store])
 
   const openFile = (): void => {
     store.openFile(entry.path)
-    onLeave()
+    store.returnToWork()
   }
 
   /**
@@ -219,68 +223,21 @@ export const AgentPage = ({
     }
   }
 
+  const start = (): void => { void store.startAsAgent(entry.id) }
   return (
     <>
-      <BackLink to="Agents" onClick={onBack} />
-      <DetailHead
-        mark={
-          <DetailMark shape="face">
-            <AgentIcon size={22} />
-          </DetailMark>
-        }
-        name={name}
-        owner={originWords(entry.origin, project)}
-        {...(definition?.description ? { blurb: definition.description } : {})}
-        {...(definition
-          ? {
-              actions: (
-                <Button
-                  variant="default"
-                  onClick={() => {
-                    // Never disabled: one that cannot be seated here raises the refusal sheet, with its fixes.
-                    void store.startAsAgent(entry.id).then((key) => {
-                      if (key) onLeave()
-                    })
-                  }}
-                >
-                  Start a conversation as {definition.name}
-                </Button>
-              ),
-            }
-          : {})}
-      />
-
-      {/*
-       * Customize… lives below the head, not inside its own `actions` slot:
-       * that slot's own layout gives its text column no room once a second
-       * action sits beside a label this long — a shape every other
-       * `DetailHead` caller avoids by keeping to one short control (a toggle,
-       * an icon). Flagged for the UI-system session (`design/patterns/Settings.tsx`'s
-       * `.detailCtl`/`.detailText`): it needs either a wrap or a second line
-       * for more than one wide action, not a second composition here working
-       * around it. Remove… moved out entirely — a destructive action never
-       * sits alone under the title (review item 7) — into its own Danger
-       * section at the foot of the page, below.
-       */}
-      {(targets.length > 0 || (definition && snapshot.agentsProject) || canStartHigher) && (
-        <span className={styles.actions}>
-          {canStartHigher && (
-            <Button variant="outline" onClick={() => setStartingHigher(true)}>
-              Start at a higher ceiling…
-            </Button>
-          )}
-          {targets.length > 0 && (
-            <Button variant="outline" onClick={() => setCustomizing(true)}>
-              Customize…
-            </Button>
-          )}
-          {definition && snapshot.agentsProject && (
-            <Button variant="outline" onClick={() => setEveryTime(true)}>
-              Every time…
-            </Button>
-          )}
-        </span>
-      )}
+      <DestinationBar place={name} parents={[{ label: 'Agents', run: onBack }]}
+        mark={<AgentFace entry={entry} />} state={definition ? <Chip label={ceilingWords(definition.ceiling)} tone="neutral" title={ceilingFlag ?? undefined} /> : undefined}
+        verb={definition ? { label: `Start a conversation as ${definition.name}`, run: start } : undefined}
+        more={close => <>
+          {canStartHigher && <MenuItem icon={<ShieldIcon size={14} />} label="Start at a higher ceiling…" onSelect={() => { setStartingHigher(true); close() }} />}
+          {targets.length > 0 && <MenuItem icon={<CopyIcon size={14} />} label="Customize…" onSelect={() => { setCustomizing(true); close() }} />}
+          {definition && snapshot.agentsProject && <MenuItem icon={<ClockIcon size={14} />} label="Run automatically…" onSelect={() => { setEveryTime(true); close() }} />}
+          {folder && <MenuItem icon={<FileIcon size={14} />} label="Open file" onSelect={() => { openFile(); close() }} />}
+          {folder && <MenuItem icon={<FolderIcon size={14} />} label="Reveal" onSelect={() => { void store.revealAgent(entry.id, entry.origin); close() }} />}
+          {folder && entry.origin !== 'builtin' && <MenuItem icon={<TrashIcon size={14} />} label="Remove…" danger onSelect={() => { setRemoving(true); close() }} />}
+      </>} />
+      {definition?.description && <PageExplanation>{definition.description}</PageExplanation>}
 
       {(folder || definition) && (
         <Section title="Agent">
@@ -291,16 +248,7 @@ export const AgentPage = ({
                 kind="path"
                 title={entry.path}
                 {...(shadows ? { note: shadows } : {})}
-                action={
-                  <span className={styles.actions}>
-                    <Button size="sm" variant="outline" onClick={openFile}>
-                      Open file
-                    </Button>
-                    <Button size="sm" variant="outline" onClick={() => void store.revealAgent(entry.id, entry.origin)}>
-                      Reveal
-                    </Button>
-                  </span>
-                }
+
               >
                 {fileLabel}
               </SummaryItem>
@@ -337,7 +285,7 @@ export const AgentPage = ({
                   </Button>
                 }
               >
-                {firstParagraph(definition.brief) || 'It has no brief yet.'}
+                <PreservedText value={firstParagraph(definition.brief) || 'It has no brief yet.'} />
               </SummaryItem>
             )}
           </SummaryList>
@@ -349,24 +297,22 @@ export const AgentPage = ({
       {attachmentsProblem && <Banner tone="danger" title="Attachments could not be read">{attachmentsProblem}</Banner>}
 
       {errors.length > 0 && (
-        <>
-          <SectionHead name="Why it will not parse" />
+        <Section title="Why it will not parse">
           <Rows>
             {errors.map((one) => (
               <Row key={`${one.at}-${one.text}`} title={one.text} {...(one.at ? { desc: `At ${one.at}` } : {})} />
             ))}
           </Rows>
-        </>
+        </Section>
       )}
       {warnings.length > 0 && (
-        <>
-          <SectionHead name="Warnings" />
+        <Section title="Warnings">
           <Rows>
             {warnings.map((one) => (
               <Row key={`${one.at}-${one.text}`} title={one.text} {...(one.at ? { desc: `At ${one.at}` } : {})} />
             ))}
           </Rows>
-        </>
+        </Section>
       )}
 
       {definition && (
@@ -396,13 +342,12 @@ export const AgentPage = ({
           ) : documentProblem ? (
             <Banner tone="danger" title="This Agent’s file could not be read">{documentProblem}</Banner>
           ) : (
-            <>
-              <SectionHead name="What it hands back" />
+            <Section title="What it hands back">
               <Rows>
                 <Row title="Answers" control={<RowValue>{wordList(definition.answers)}</RowValue>} />
                 <Row title="Produces" control={<RowValue>{wordList(definition.produces)}</RowValue>} />
               </Rows>
-            </>
+            </Section>
           )}
 
           <AgentNotes entry={entry} />
@@ -411,45 +356,27 @@ export const AgentPage = ({
         </>
       )}
 
-      {/* A destructive action never sits alone under the title (review item 7) — reachable for a broken entry too, since removing one is how its folder is cleaned up. */}
-      {folder && entry.origin !== 'builtin' && (
-        <section aria-label="Danger">
-          <SectionHead name="Danger" />
-          <Rows>
-            <Row
-              title="Remove"
-              desc="Moves its folder to the Trash. It can be put back."
-              control={
-                <Button variant="destructive" size="sm" onClick={() => setRemoving(true)}>
-                  Remove…
-                </Button>
-              }
-            />
-          </Rows>
-        </section>
-      )}
-
-      {startingHigher && definition && (
+      {active && startingHigher && definition && (
         <StartHigher
           entry={entry}
           onClose={() => setStartingHigher(false)}
-          onStarted={onLeave}
         />
       )}
 
-      {customizing && definition && (
+      {active && customizing && definition && (
         <CustomizeDialog
           entry={entry}
           targets={targets}
           onClose={() => setCustomizing(false)}
           onCopied={(copy) => {
+            setCustomizing(false)
             store.openFile(copy.path)
-            onLeave()
+            store.returnToWork()
           }}
         />
       )}
 
-      {adding && definition && (
+      {active && adding && definition && (
         <AddSeatDialog
           entry={entry}
           expected={snapshot.seating?.entries.find((one) => one.id === entry.id)?.seats ?? null}
@@ -458,11 +385,11 @@ export const AgentPage = ({
         />
       )}
 
-      {updatingCeiling && definition && canUpdateCeiling && (
+      {active && updatingCeiling && definition && canUpdateCeiling && (
         <CeilingUpdate entry={entry} onClose={() => setUpdatingCeiling(false)} />
       )}
 
-      {editingCeiling && definition && agentDocument && (
+      {active && editingCeiling && definition && agentDocument && (
         <FieldEditDialog
           fieldKey="ceiling"
           target={agentDocument.target as Extract<WritableAuthoringTarget, { readonly kind: 'agent' }>}
@@ -477,7 +404,7 @@ export const AgentPage = ({
         />
       )}
 
-      {editingPrefer && definition && agentDocument && (
+      {active && editingPrefer && definition && agentDocument && (
         <PreferFieldDialog
           entry={entry}
           target={agentDocument.target as Extract<WritableAuthoringTarget, { readonly kind: 'agent' }>}
@@ -492,7 +419,7 @@ export const AgentPage = ({
         />
       )}
 
-      {removing && folder && entry.origin !== 'builtin' && (
+      {active && removing && folder && entry.origin !== 'builtin' && (
         <RemoveDialog
           entry={entry}
           name={name}
@@ -502,10 +429,11 @@ export const AgentPage = ({
         />
       )}
 
-      {everyTime && snapshot.agentsProject && (
+      {active && everyTime && snapshot.agentsProject && (
         <TriggerCreate
           root={snapshot.agentsProject}
           opens={{ agent: entry.id }}
+          dialogTitle={`Run ${name} automatically`}
           onClose={() => setEveryTime(false)}
           onSaved={() => setEveryTime(false)}
         />
@@ -537,11 +465,9 @@ const OwnSeats = ({
   const seats = replaced ? (plan.own ?? []) : (plan?.candidates ?? [])
   const editable = entry.origin !== 'builtin'
   return (
-    <section aria-label="Seats">
-      <SectionHead
-        name="Seats"
+    <Section title="Seats"
         {...(editable && onEditPrefer ? { action: <Button size="sm" variant="outline" onClick={onEditPrefer}>Edit…</Button> } : {})}
-      />
+      >
       <Note>
         {replaced
           ? 'Not used on this Mac: its seats here replace this list. Every other machine seats it in this order.'
@@ -562,7 +488,7 @@ const OwnSeats = ({
           />
         ))}
       </Rows>
-    </section>
+    </Section>
   )
 }
 
@@ -698,11 +624,9 @@ const MachineSeats = ({
   }
 
   return (
-    <section aria-label="On this Mac">
-      <SectionHead
-        name="On this Mac"
+    <Section title="On this Mac"
         action={
-          <span className={styles.actions}>
+          <>
             {mine && (
               <Button size="sm" variant="outline" disabled={busy || unreadable} onClick={() => set(null)}>
                 Clear
@@ -724,9 +648,9 @@ const MachineSeats = ({
               <PlusIcon size={14} />
               Add a seat…
             </Button>
-          </span>
+          </>
         }
-      />
+      >
       <Rows>
         {troubles.map((one) => (
           <Row
@@ -762,13 +686,10 @@ const MachineSeats = ({
                   <DropdownMenu
                     open={menuFor === id && !busy}
                     onOpenChange={(open) => setMenuFor(open && !busy ? id : null)}
-                  >
+                   icons="none">
                     <DropdownMenuTrigger render={<BoardMenuButton aria-label={`Seat ${index + 1} actions`} {...(busy ? { 'aria-disabled': true } : {})} />} />
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem variant="destructive" onClick={() => remove(index)}>
-                        <TrashIcon size={14} />
-                        Remove seat
-                      </DropdownMenuItem>
+                      <DropdownMenuItem variant="destructive" onClick={() => remove(index)} label={"Remove seat"} icon={<TrashIcon size={14} />} />
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </>
@@ -782,7 +703,7 @@ const MachineSeats = ({
         {`Kept in ${seating ? shortPath(seating.path, snapshot.home) : 'seating.json'}, on this Mac only — never committed.`}
       </Note>
       {problem && <Note tone="bad">{problem}</Note>}
-    </section>
+    </Section>
   )
 }
 
@@ -851,7 +772,6 @@ const AddSeatDialog = ({
   return (
     <Dialog
       title={`A seat for ${agentName(entry)} on this Mac`}
-      icon={<AgentIcon size={15} />}
       size="sm"
       onClose={onClose}
       footer={
@@ -965,7 +885,6 @@ const CustomizeDialog = ({
   return (
     <Dialog
       title={`Customize ${agentName(entry)}`}
-      icon={<BriefIcon size={15} />}
       onClose={onClose}
       footer={
         <>
@@ -1057,7 +976,6 @@ const RemoveDialog = ({
       {entry.origin === 'project' ? ' The project’s checkout changes; commit it for everyone else.' : ''}
       {hasMachineSeat && (
         <Checkbox
-          className={styles.clearSeats}
           checked={clearSeats}
           onCheckedChange={(next) => setClearSeats(next === true)}
           label={`Also clear this Mac’s seats for “${name}”`}
@@ -1083,11 +1001,9 @@ const RemoveDialog = ({
 const StartHigher = ({
   entry,
   onClose,
-  onStarted,
 }: {
   readonly entry: AgentEntry
   readonly onClose: () => void
-  readonly onStarted: () => void
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -1120,9 +1036,8 @@ const StartHigher = ({
     if (busy) return
     setBusy(true)
     // Closed either way: a seating refused here raises its own refusal sheet, with its fixes.
-    void store.startAsAgent(entry.id, level === 'edit' ? {} : { ceiling: level }).then((key) => {
+    void store.startAsAgent(entry.id, level === 'edit' ? {} : { ceiling: level }).then(() => {
       onClose()
-      if (key) onStarted()
     })
   }
   return (
@@ -1148,7 +1063,7 @@ const StartHigher = ({
             <RowChoice
               key={one}
               title={ceilingWords(one)}
-              desc={<span className="whitespace-normal">{refused ?? `${how}${loads}`}</span>}
+              desc={refused ?? `${how}${loads}`}
               selected={level === one}
               disabled={busy || unheld === null || refused !== null}
               onClick={() => setLevel(one)}

@@ -110,6 +110,8 @@ for (const scene of ['workspace-hover', 'session-hover']) {
     assert.equal(staged, 1)
     assert.deepEqual(mutations, [], 'the staged history and pin are not stripped')
     assert.equal(hovered.length, 1)
+    assert.match(hovered[0], /\[data-left-row\]/, 'the scene must enter the canonical frame row')
+    if (scene === 'workspace-hover') assert.match(hovered[0], /aria-label\^="New session in /, 'the project action is the approved new-session glyph')
     if (scene === 'session-hover') assert.doesNotMatch(hovered[0], /trailing-marks="0"/, 'the native scene targets a marked session')
   })
 }

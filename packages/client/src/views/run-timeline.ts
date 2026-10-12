@@ -110,6 +110,8 @@ export interface RunTimelineInput {
   origin?: string | null
   findingRun?: FindingRunView | null
   publicationOn?: boolean
+  /** Seats whose conversations currently hold an approval request. */
+  waitingSeats?: ReadonlySet<string>
   /** What the desk recorded each time a check card ran, by card: a check with more than one result draws each under it. */
   attempts?: ReadonlyMap<number, readonly FlowCheckAttempt[]>
   /** Cards whose readable evidence may omit earlier check results. */
@@ -284,6 +286,9 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
       let kind: RunTimelineRow['kind'] = 'card'
       const personWaiting = role?.kind === 'person' && (execution.state === 'running' || execution.state === 'stalled') && round.state !== 'closed'
         && (card.state === 'open' || card.state === 'claimed' || (card.blockedBy === 'hand' && Boolean(card.blockedReason?.trim())))
+      const assignedSeat = round.seats[index] ?? null
+      const approvalWaiting = role?.kind === 'agent' && assignedSeat !== null && input.waitingSeats?.has(assignedSeat) === true
+        && (execution.state === 'running' || execution.state === 'stalled') && round.state === 'running' && !terminal(card)
       if (role?.kind === 'person') { kind = 'person'; if (personWaiting) status = 'Needs you' }
       let retryRefusal: string | null = null
       if (role?.kind === 'check') {
@@ -297,7 +302,8 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
           ? attemptWords({ exit: result.exit, timedOut: result.timedOut, outcome: card.outcome ?? 'pass' }) : outcome ?? 'Result unavailable'
       }
       if (timing.status) status = timing.status
-      const attention = (!stoppedWork && (uncertain || personWaiting)) || (execution.end?.kind === 'unrouted' && execution.end.card === id)
+      if (approvalWaiting) status = 'Waiting for you'
+      const attention = (!stoppedWork && (uncertain || personWaiting || approvalWaiting)) || (execution.end?.kind === 'unrouted' && execution.end.card === id)
       // The attempt a check ran on: by its revision or checkout, qualifying shared revisions by checkout; else by card order before a result.
       const subject = (): string | null => {
         const attempts = attemptsBefore(round.n)
@@ -312,7 +318,7 @@ export function runTimeline(input: RunTimelineInput): { header: RunHeader; rows:
       }
       rows.push(row(`${kind}-${round.n}-${id}`, kind, title, { round: round.n, card: id,
         seat: [...execution.operations].reverse().find(one => one.kind === 'seat' && one.card === id && one.seat !== null)?.seat ?? null,
-        status, attention, durationMs, since, working, publication: recorded?.cards.includes(id) ? roundPublication : null, retryRefusal,
+        status, attention, durationMs, since, working: approvalWaiting ? false : working, publication: recorded?.cards.includes(id) ? roundPublication : null, retryRefusal,
         attempt: kind === 'card' ? competing.get(round.n)?.find(one => one.card === id)?.label ?? null : null,
         on: kind === 'check' ? subject() : null, keep: kept.get(id) ?? null, pick: picks.get(id) ?? null,
         summary: kind === 'check' ? null : kind === 'person' ? stepWords(card.detail) ?? card.title : firstParagraph(card.note) ?? firstParagraph(card.handoff),

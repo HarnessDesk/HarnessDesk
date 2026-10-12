@@ -1,7 +1,7 @@
 import type { RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
 
 import type { SilentAgent } from './shared'
-import { Button, Row, Rows, SectionHead } from '../../design'
+import { Button, Row, Rows, Section } from '../../design'
 import { RuntimeMark } from '../BrandIcons'
 
 /**
@@ -54,8 +54,7 @@ export const entriesFromReports = (
 export const NotReportingList = ({ entries }: { entries: readonly NotReportingEntry[] }) => {
   if (entries.length === 0) return null
   return (
-    <>
-      <SectionHead level="heading" name="Not reporting" />
+    <Section title="Not reporting">
       <Rows>
         {entries.map((entry) => (
           <Row
@@ -73,6 +72,6 @@ export const NotReportingList = ({ entries }: { entries: readonly NotReportingEn
           />
         ))}
       </Rows>
-    </>
+    </Section>
   )
 }

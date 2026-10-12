@@ -30,6 +30,13 @@ it('reads the travelled rules from the host causes, including a loop and its inc
   expect(overlay.rules.get('approved')).toEqual({ count: 0, current: false })
 })
 
+it('marks an agent step waiting when one of its seats has a pending approval', () => {
+  const execution = run([round(1, 'write', 'seed', false, ['seat-alpha'])])
+  const overlay = flowOverlay({ execution, cards: [card(1, null)], model: flowModel(execution.document.flow),
+    waitingSeats: new Set(['seat-alpha']) })
+  expect(overlay.steps.get('write')?.state).toBe('waiting')
+})
+
 it('counts recorded check results without guessing whether an unfinished operation already kept its result', () => {
   const execution = run([round(1, 'check', 'seed', false)], { operations: [{ key: 'check:1:0', kind: 'check', state: 'started', card: 1, seat: null }] })
   const first = { id: 'first', at: 2000 }

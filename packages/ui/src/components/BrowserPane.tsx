@@ -44,6 +44,7 @@ import {
   ArrowLeftIcon,
   ArrowRightIcon,
   CameraIcon,
+  CopyIcon,
   CrossIcon,
   DesktopIcon,
   DevToolsIcon,
@@ -95,7 +96,7 @@ import {
   useSortable,
 } from '../design'
 import { useTabStrip } from './TabStrip'
-import { ToolPaneHeader } from './ToolPaneHeader'
+import { ToolBodyControls, ToolFooterPublisher } from '../design'
 import styles from './ToolPanes.module.css'
 
 /**
@@ -676,7 +677,7 @@ const useDriving = (): Driving | null => {
         const info = snapshot.runtimes.find((entry) => entry.id === session.runtime) ?? null
         return {
           what,
-          who: info?.presentation.name ?? String(session.runtime),
+          who: info?.presentation.name ?? 'Agent',
           step: index + 1,
           key,
           info,
@@ -760,11 +761,11 @@ const BrowserPaneContent = () => {
 
   /** The runtime of the conversation beside this pane, for the driven mark. */
   const activeRuntime = useMemo(() => {
-    const key = mount?.embedded ? sessionKey : snapshot.activeSessionKey
+    const key = mount?.embedded || mount?.fixed ? sessionKey : snapshot.activeSessionKey
     const session = key ? (snapshot.sessions.get(key) ?? null) : null
     if (!session) return null
     return snapshot.runtimes.find((entry) => entry.id === session.runtime) ?? null
-  }, [mount?.embedded, sessionKey, snapshot.activeSessionKey, snapshot.sessions, snapshot.runtimes])
+  }, [mount?.embedded, mount?.fixed, sessionKey, snapshot.activeSessionKey, snapshot.sessions, snapshot.runtimes])
 
   /*
    * Who would receive the browser tools if a turn asked for them now.
@@ -1271,7 +1272,7 @@ const BrowserPaneContent = () => {
   /* Both halves of focus: this browser is usually docked to the right now, and
    `layout.focused` names panes only — the shortcuts stopped arming entirely
    the day the browser stopped being a pane. */
-  const focused = mount?.embedded ? focusedTile : focusedMount(snapshot.workbench) === paneId
+  const focused = mount?.embedded || mount?.fixed ? focusedTile : focusedMount(snapshot.workbench) === paneId
   useEffect(() => {
     if (!focused || !paneId || !view) return
     const onKeyDown = (event: KeyboardEvent): void => {
@@ -1382,9 +1383,7 @@ const BrowserPaneContent = () => {
 
   return (
     <ToolPane variant="integrated" className="@container/browser">
-      {!mount.embedded && <ToolPaneHeader
-        title="Browser"
-        lead={
+      {!mount.embedded && <ToolBodyControls>
           <div className={styles.tabStrip}>
             <ToolPaneTabViewport
               edges={strip.edges}
@@ -1454,7 +1453,7 @@ const BrowserPaneContent = () => {
                     )}
                     <Button
                       type="button"
-                      variant="reveal" size="icon-sm"
+                      variant="reveal" size="icon-sm" edge="end" edgeGlyph={11}
                       onClick={(event) => {
                         event.stopPropagation()
                         store.closeBrowserTab(paneId, entry.id)
@@ -1479,13 +1478,11 @@ const BrowserPaneContent = () => {
               <PlusIcon size={12} />
             </Button>
           </div>
-        }
-      >
         <Popover
           label={<MoreIcon size={14} />}
           title="Browser settings"
           align="right"
-        >
+         icons="none">
           {(close) => (
             <Menu close={close}>
               <MenuItem
@@ -1580,9 +1577,9 @@ const BrowserPaneContent = () => {
             </Menu>
           )}
         </Popover>
-      </ToolPaneHeader>}
+      </ToolBodyControls>}
       <ToolPaneBar as="form" variant={mount.embedded ? "address-slim" : "address"} onSubmit={go}>
-        <Button variant="ghost"
+        <Button variant="ghost" size="icon-xs"
           type="button"
           onClick={() => act((element) => element.goBack())}
           disabled={!arrows.back}
@@ -1591,7 +1588,7 @@ const BrowserPaneContent = () => {
         >
           <ArrowLeftIcon size={14} />
         </Button>
-        <Button variant="ghost"
+        <Button variant="ghost" size="icon-xs"
           type="button"
           onClick={() => act((element) => element.goForward())}
           disabled={!arrows.forward}
@@ -1600,7 +1597,7 @@ const BrowserPaneContent = () => {
         >
           <ArrowRightIcon size={14} />
         </Button>
-        <Button variant="ghost"
+        <Button variant="ghost" size="icon-xs"
           type="button"
           onClick={() => act((element) => (busy ? element.stop() : element.reload()))}
           title={busy ? 'Stop loading' : 'Reload'}
@@ -1612,12 +1609,9 @@ const BrowserPaneContent = () => {
           ref={addressBox}
           variant="chrome" className={styles.address}
           value={address === BLANK ? '' : address}
-          // Never "search" in this placeholder: the shared `rule: fields`
-          // check reads that word on any input as a filter box that skipped
-          // the canonical Search pattern, and an address bar — which takes a
-          // query as readily as a URL, the way a real browser's omnibox does
-          // — is a different thing than a list's own filter field.
-          placeholder="Enter a URL, or words to look up"
+          // This is browser chrome, not a list filter: short wording keeps the
+          // URL and query affordance whole in the address field.
+          placeholder="Enter a URL or query"
           spellCheck={false}
           onChange={(event) => {
             setTyping(true)
@@ -1644,8 +1638,9 @@ const BrowserPaneContent = () => {
         <Popover
           label={<DeviceGlyph size={14} />}
           title={`Size: ${spec.label}`}
+          tightTrigger triggerVariant={{ variant: 'ghost', size: 'icon-xs' }}
           align="right"
-        >
+         icons="none">
           {(close) => (
             <Menu close={close}>
               {BROWSER_DEVICES.map((entry) => {
@@ -1667,7 +1662,7 @@ const BrowserPaneContent = () => {
         {/* Point at the thing you mean. Both incumbents have this; ours puts
             it beside the device sizes, because it is the same kind of switch
             — a way of looking at the page rather than a place to go. */}
-        <Button variant={annotating ? 'secondary' : 'ghost'}
+        <Button variant={annotating ? 'secondary' : 'ghost'} size="icon-xs"
           type="button"
           onClick={() => setAnnotate(annotating ? null : 'comment')}
           disabled={!inline || tab.url === BLANK}
@@ -1818,16 +1813,18 @@ const BrowserPaneContent = () => {
         person debugging a page actually reaches for: the real browser, and
         the element inspector at the exact point they clicked.
       */}
-      <ContextMenu at={pageMenu?.at ?? null} label="Page" onClose={() => setPageMenu(null)}>
+      <ContextMenu at={pageMenu?.at ?? null} label="Page" onClose={() => setPageMenu(null)} icons="all">
         {pageMenu && (
           <>
             {pageMenu.target.linkURL && (
               <>
                 <MenuItem
+                  icon={<PlusIcon size={14} />}
                   label="Open link in new tab"
                   onSelect={() => store.newBrowserTab(paneId, pageMenu.target.linkURL)}
                 />
                 <MenuItem
+                  icon={<CopyIcon size={14} />}
                   label="Copy link"
                   onSelect={() => void navigator.clipboard?.writeText(pageMenu.target.linkURL).catch(() => {})}
                 />
@@ -1842,8 +1839,9 @@ const BrowserPaneContent = () => {
             */}
             {!pageMenu.target.linkURL && pageMenu.target.selectionText && (
               <>
-                <MenuItem label="Copy" onSelect={() => act((element) => element.copy())} />
+                <MenuItem icon={<CopyIcon size={14} />} label="Copy" onSelect={() => act((element) => element.copy())} />
                 <MenuItem
+                  icon={<SearchIcon size={14} />}
                   label={`Search for “${pageMenu.target.selectionText.slice(0, 24)}”`}
                   onSelect={() =>
                     store.newBrowserTab(
@@ -1858,16 +1856,18 @@ const BrowserPaneContent = () => {
               </>
             )}
             <MenuItem
+              icon={<ArrowLeftIcon size={14} />}
               label="Back"
               disabled={arrows.back ? false : 'Nothing to go back to.'}
               onSelect={() => act((element) => element.goBack())}
             />
             <MenuItem
+              icon={<ArrowRightIcon size={14} />}
               label="Forward"
               disabled={arrows.forward ? false : 'Nothing to go forward to.'}
               onSelect={() => act((element) => element.goForward())}
             />
-            <MenuItem label="Reload" onSelect={() => act((element) => element.reload())} />
+            <MenuItem icon={<RetryIcon size={14} />} label="Reload" onSelect={() => act((element) => element.reload())} />
             <MenuSeparator />
             <MenuItem
               icon={<ExternalIcon size={14} />}
@@ -1885,19 +1885,22 @@ const BrowserPaneContent = () => {
           </>
         )}
       </ContextMenu>
-      <ContextMenu at={tabMenu.at} label="Tab" onClose={tabMenu.close}>
+      <ContextMenu at={tabMenu.at} label="Tab" onClose={tabMenu.close} icons="all">
         {tabMenu.tab && (
           <>
             <MenuItem
+              icon={<CopyIcon size={14} />}
               label="Duplicate"
               onSelect={() => store.duplicateBrowserTab(paneId, tabMenu.tab!.id)}
             />
             <MenuItem
+              icon={<CopyIcon size={14} />}
               label="Copy address"
               disabled={tabMenu.tab.url === BLANK ? 'This tab has no page yet.' : false}
               onSelect={() => void navigator.clipboard?.writeText(tabMenu.tab!.url).catch(() => {})}
             />
             <MenuItem
+              icon={<DesktopIcon size={14} />}
               label="Browser tools drive this tab"
               selected={view.driven === tabMenu.tab.id}
               disabled={canDrive ? false : `${drivingRuntime?.presentation.name ?? 'This agent'} cannot receive browser tools.`}
@@ -1905,15 +1908,18 @@ const BrowserPaneContent = () => {
             />
             <MenuSeparator />
             <MenuItem
+              icon={<CrossIcon size={14} />}
               label={tabs.length === 1 ? 'Close the browser' : 'Close tab'}
               onSelect={() => store.closeBrowserTab(paneId, tabMenu.tab!.id)}
             />
             <MenuItem
+              icon={<CrossIcon size={14} />}
               label="Close other tabs"
               disabled={tabs.length < 2 ? 'There is only this one.' : false}
               onSelect={() => store.closeOtherBrowserTabs(paneId, tabMenu.tab!.id)}
             />
             <MenuItem
+              icon={<ArrowRightIcon size={14} />}
               label="Close tabs to the right"
               disabled={
                 tabs.findIndex((entry) => entry.id === tabMenu.tab!.id) === tabs.length - 1
@@ -1976,28 +1982,8 @@ const BrowserPaneContent = () => {
       </ToolPaneBody>
       {/* What the pane is, said once at the bottom: whether a turn has the
           wheel, and that the profile is never the one your own browser uses. */}
-      <Bar rule="top">
-        {loadFailures[view.active] ? (
-          <Text role="meta">Page failed to load</Text>
-        ) : driving ? (
-          <>
-            <Dot state="signin" pulse />
-            <Text role="meta">Being driven</Text>
-          </>
-        ) : (
-          <Text role="meta">Idle</Text>
-        )}
-        <ToolbarGap />
-        {/* The bar is one row tall, so the sentence may wrap to two lines and
-            no further: a pane split narrower than that keeps only the state
-            on the left rather than spilling the sentence past the bar. With
-            the driven state beside it (a dot and a longer word) the sentence
-            first needs a third line at 252px, so it gives way below 18rem.
-            `@container/browser` is on the pane. */}
-        <Text role="meta" className="hidden @[18rem]/browser:inline">
-          {inline ? 'Never your own browser profile' : 'Framed pages only — the desktop app runs a real browser'}
-        </Text>
-      </Bar>
+      <ToolFooterPublisher left={loadFailures[view.active] ? 'Page failed to load' : driving ? <><Dot state="signin" pulse /> Being driven</> : ''}
+        right="" />
     </ToolPane>
   )
 }

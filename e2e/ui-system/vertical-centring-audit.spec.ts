@@ -1,3 +1,4 @@
+import { cataloguePageCases, PAGE_ITEMS } from './catalogue-sweep'
 import { mkdirSync, unlinkSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -199,31 +200,25 @@ const median = (values: number[]) => {
 }
 const round = (value: number) => Math.round(value * 100) / 100
 
-test('measure glyph centring across preview frames and design explorer boards', async ({ browser }) => {
-  test.setTimeout(300_000)
-  mkdirSync(OUT, { recursive: true })
-  for (let index = 1; index <= 6; index++) {
-    try { unlinkSync(`${OUT}/worst-${String(index).padStart(2, '0')}.png`) } catch { /* no previous capture */ }
-  }
-  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2, colorScheme: 'light', reducedMotion: 'reduce' })
-  const page = await context.newPage()
-  const origin = test.info().project.use.baseURL as string
+cataloguePageCases('measure glyph centring across preview frames and design explorer boards', getPage => {
   const all: Sample[] = []
-
-  await page.goto(`${origin}/preview.html`)
-  await settle(page)
-  const frames = await page.locator('#root > div > section').evaluateAll(nodes => nodes
-    .filter(section => section.querySelector(':scope > h2') && section.querySelector(':scope > div'))
-    .map(section => ({ id: section.getAttribute('data-frame-id')!, title: section.querySelector(':scope > h2')?.textContent?.trim() || 'Frame', selector: `[data-frame-id="${section.getAttribute('data-frame-id')}"] > div` })))
-  expect(frames.length).toBeGreaterThan(10)
-  for (const frame of frames) all.push(...await measureRoot(page, frame.selector, 'preview.html', frame.id, frame.title))
-
-  await page.goto(`${origin}/design.html`)
-  await settle(page)
-  const nav = page.locator('nav button')
-  const boardCount = await nav.count()
-  expect(boardCount).toBeGreaterThan(10)
-  for (let i = 0; i < boardCount; i++) {
+  const frames = PAGE_ITEMS.frames, boardCount = PAGE_ITEMS.boards.length
+  for (const frame of frames) test(`glyph centring preview: ${frame.id}`, async ({ }, info) => {
+    const page = getPage(), origin = info.project.use.baseURL as string
+    if (new URL(page.url()).pathname !== '/preview.html') { await page.goto(`${origin}/preview.html`); await settle(page) }
+    const live = await page.locator('#root > div > section').evaluateAll(nodes => nodes.filter(section => section.querySelector(':scope > h2') && section.querySelector(':scope > div')).map(section => section.getAttribute('data-frame-id')))
+    expect(live.length).toBeGreaterThan(10)
+    expect(frames.length).toBeGreaterThan(10)
+    expect(live).toEqual(frames.map(frame => frame.id))
+    all.push(...await measureRoot(page, frame.selector, 'preview.html', frame.id, frame.title))
+  })
+  for (const [i, label] of PAGE_ITEMS.boards.entries()) test(`glyph centring board: ${label}`, async ({ }, info) => {
+    const page = getPage(), origin = info.project.use.baseURL as string
+    if (new URL(page.url()).pathname !== '/design.html') { await page.goto(`${origin}/design.html`); await settle(page) }
+    const nav = page.getByRole('navigation').filter({ has: page.getByText('Design system', { exact: true }) }).locator(':scope > button')
+    expect(await nav.count()).toBeGreaterThan(10)
+    expect(boardCount).toBeGreaterThan(10)
+    expect((await nav.allTextContents()).map(text => text.replace(/\s+/g, ' ').trim())).toEqual(PAGE_ITEMS.boards)
     const item = nav.nth(i)
     const title = (await item.innerText()).replace(/\s+/g, ' ').trim()
     await item.click()
@@ -235,113 +230,116 @@ test('measure glyph centring across preview frames and design explorer boards', 
     const id = await root.getAttribute('data-alignment-board-id')
     expect(id).toMatch(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
     all.push(...await measureRoot(page, 'main > div[data-alignment-board-id]', 'design.html', id!, actualTitle))
-  }
-
-  const grouped = new Map<string, Sample[]>()
-  for (const sample of all) {
-    const list = grouped.get(sample.component) ?? []
-    list.push(sample)
-    grouped.set(sample.component, list)
-  }
-  const byComponent = [...grouped].map(([component, instances]) => {
-    const cap = instances.map(item => item.imbalance.cap)
-    const x = instances.map(item => item.imbalance.xHeight)
-    const ink = instances.map(item => item.imbalance.ink)
-    const worst = [...instances].sort((a, b) => b.imbalance.cap - a.imbalance.cap).slice(0, 10)
-    return { component, count: instances.length, imbalance: { cap: { min: Math.min(...cap), median: median(cap), max: Math.max(...cap) }, xHeight: { min: Math.min(...x), median: median(x), max: Math.max(...x) }, ink: { min: Math.min(...ink), median: median(ink), max: Math.max(...ink) } }, worst: worst.map(item => ({ key: item.key, text: item.text, capPx: item.imbalance.cap, xHeightPx: item.imbalance.xHeight, inkPx: item.imbalance.ink })) }
-  }).sort((a, b) => b.imbalance.cap.max - a.imbalance.cap.max)
-  const stats = (values: number[]) => ({ min: Math.min(...values), median: median(values), max: Math.max(...values) })
-  const capOffsetByFace = new Map<string, number[]>()
-  for (const sample of all) {
-    const key = `${sample.font} / ${sample.fontSize}`
-    const offsets = capOffsetByFace.get(key) ?? []
-    offsets.push((sample.gaps.cap.below - sample.gaps.cap.above) / 2)
-    capOffsetByFace.set(key, offsets)
-  }
-  const faceOffsets = Object.fromEntries([...capOffsetByFace].map(([face, offsets]) => [face, median(offsets)]))
-  const tokenPrediction = all.map(sample => {
-    const offset = faceOffsets[`${sample.font} / ${sample.fontSize}`] ?? 0
-    return Math.abs((sample.gaps.cap.above + offset) - (sample.gaps.cap.below - offset))
   })
-  const cssSupport = await page.evaluate(() => ({
-    trim: CSS.supports('text-box-trim', 'trim-both'),
-    edge: CSS.supports('text-box-edge', 'cap alphabetic'),
-  }))
-  const report = {
-    meta: { generatedAt: new Date().toISOString(), origin, viewport: { width: 1440, height: 900, deviceScaleFactor: 2 }, conventionForHeadline: 'cap', conventions: { cap: 'baseline - capHeight to baseline', xHeight: 'baseline - xHeight to baseline', ink: 'actualBoundingBoxAscent/Descent' }, previewFrames: frames.length, explorerBoards: boardCount, instanceCount: all.length, browserVersion: browser.version(), cssTextBoxSupport: cssSupport },
-    candidateFixes: {
-      textBoxTrim: { supported: cssSupport.trim && cssSupport.edge, predictedCapImbalance: stats(cssSupport.trim && cssSupport.edge ? all.map(() => 0) : all.map(sample => sample.imbalance.cap)), risks: ['Support is required in the target Chromium; unsupported engines ignore the declarations.', 'Mixed icon and text flex rows may change their intrinsic height differently from text-only rows.', 'Fallback fonts and CJK runs use their own cap metrics; a Latin cap edge does not define those glyphs.'] },
-      perFaceOffset: { offsetsPx: faceOffsets, predictedCapImbalance: stats(tokenPrediction), risks: ['A font-family stack can resolve to different fallback faces by glyph and platform.', 'Moving text independently can break icon/text alignment and touch the wrong line in a multi-line control.'] },
-      lineHeightToFontBox: { target: 'fontBoundingBoxAscent + fontBoundingBoxDescent', predictedCapImbalance: stats(all.map(sample => sample.imbalance.cap)), risks: ['Changing line-height changes row height and wrapping; fixed-height controls can clip or overflow.', 'It does not remove font fallback metric differences or align a mixed icon/text row.'] },
-    },
-    summary: byComponent.map(({ component, count, imbalance }) => ({ component, instances: count, imbalance })),
-    components: byComponent,
-    samples: all,
-  }
-  writeFileSync(`${OUT}/vertical-centring-report.json`, `${JSON.stringify(report, null, 2)}\n`)
-  writeFileSync(`${OUT}/vertical-centring-report.md`, `# Vertical centring audit\n\nFrames: ${frames.length}; boards: ${boardCount}; instances: ${all.length}. Headline convention: cap-height. Browser Chromium: ${browser.version()}. CSS text-box-trim supported: ${cssSupport.trim && cssSupport.edge}.\n\n| Component | Instances | Cap min / median / max (px) | X-height min / median / max (px) | Ink min / median / max (px) |\n|---|---:|---:|---:|---:|\n${byComponent.map(item => `| \`${item.component}\` | ${item.count} | ${item.imbalance.cap.min} / ${item.imbalance.cap.median} / ${item.imbalance.cap.max} | ${item.imbalance.xHeight.min} / ${item.imbalance.xHeight.median} / ${item.imbalance.xHeight.max} | ${item.imbalance.ink.min} / ${item.imbalance.ink.median} / ${item.imbalance.ink.max} |`).join('\n')}\n\n## Ten worst instances per component\n\n${byComponent.map(item => `### \`${item.component}\`\n\n${item.worst.map(worst => `- ${worst.capPx}px cap, ${worst.xHeightPx}px x-height, ${worst.inkPx}px ink — \`${worst.key}\` — ${worst.text}`).join('\n')}`).join('\n\n')}\n\n## Candidate fix model\n\n- Text box trim: ${report.candidateFixes.textBoxTrim.supported ? 'supported' : 'unsupported'}; cap imbalance ${report.candidateFixes.textBoxTrim.predictedCapImbalance.min}/${report.candidateFixes.textBoxTrim.predictedCapImbalance.median}/${report.candidateFixes.textBoxTrim.predictedCapImbalance.max}px (min/median/max).\n- Per-face metric offset: ${report.candidateFixes.perFaceOffset.predictedCapImbalance.min}/${report.candidateFixes.perFaceOffset.predictedCapImbalance.median}/${report.candidateFixes.perFaceOffset.predictedCapImbalance.max}px (min/median/max).\n- Line-height matched to font box: ${report.candidateFixes.lineHeightToFontBox.predictedCapImbalance.min}/${report.candidateFixes.lineHeightToFontBox.predictedCapImbalance.median}/${report.candidateFixes.lineHeightToFontBox.predictedCapImbalance.max}px (min/median/max); modeled as unchanged for center-aligned text.\n`)
-
-  // One capture per source frame so the images show distinct offenders.
-  const captureSamples: Sample[] = []
-  for (const sample of [...all].sort((a, b) => b.imbalance.cap - a.imbalance.cap)) {
-    if (captureSamples.some(existing => existing.page === sample.page && existing.frame === sample.frame)) continue
-    captureSamples.push(sample)
-    if (captureSamples.length === 5) break
-  }
-  for (let i = 0; i < captureSamples.length; i++) {
-    const sample = captureSamples[i]!
-    await page.goto(`${origin}/${sample.page}`)
-    await settle(page)
-    if (sample.page === 'preview.html') {
-      const locator = page.locator(`[data-frame-id="${sample.frame}"] > div`)
-      await locator.scrollIntoViewIfNeeded()
-    } else {
-      const nav = page.locator('nav button')
-      let opened = false
-      for (let index = 0; index < await nav.count(); index++) {
-        await nav.nth(index).click()
-        await page.locator('main h1').first().waitFor({ state: 'visible' })
-        await settle(page)
-        if (await page.locator(`main > div[data-alignment-board-id="${sample.frame}"]`).count()) { opened = true; break }
-      }
-      if (!opened) continue
+  test('glyph centring: report and offender capture journey', async ({ browser }, info) => {
+    test.setTimeout(300_000)
+    const page = getPage(), origin = info.project.use.baseURL as string
+    mkdirSync(OUT, { recursive: true })
+    for (let index = 1; index <= 6; index++) { try { unlinkSync(`${OUT}/worst-${String(index).padStart(2, '0')}.png`) } catch { } }
+    const grouped = new Map<string, Sample[]>()
+    for (const sample of all) {
+      const list = grouped.get(sample.component) ?? []
+      list.push(sample)
+      grouped.set(sample.component, list)
     }
-    await settle(page)
-    const selector = sample.page === 'preview.html' ? `[data-frame-id="${sample.frame}"] > div` : `main > div[data-alignment-board-id="${sample.frame}"]`
-    const target = page.locator(selector).first()
-    const marked = await target.evaluate((root, wanted) => {
-      const node = [...root.querySelectorAll('*')].find(el => (el.textContent ?? '').trim().replace(/\s+/g, ' ') === wanted && el.getBoundingClientRect().width > 0)
-      if (!node) return false
-      node.setAttribute('data-vcentre-capture-target', '')
-      return true
-    }, sample.text)
-    if (!marked) continue
-    await page.locator('[data-vcentre-capture-target]').first().scrollIntoViewIfNeeded()
-    await page.evaluate(({ selector, number }) => {
-      const root = document.querySelector(selector)
-      if (!root) return
-      const node = root.querySelector('[data-vcentre-capture-target]')
-      if (!node) return
-      const range = document.createRange(); range.selectNodeContents(node)
-      const line = [...range.getClientRects()].find(rect => rect.width && rect.height)
-      if (!line) return
-      let target: Element | null = node.closest('button,input,[data-slot="chip"],[data-slot="badge"],[role="tab"],[data-slot="tab"]')
-      for (let current: Element | null = node; !target && current && current !== root; current = current.parentElement) {
-        const style = getComputedStyle(current)
-        if ((style.display === 'flex' && style.flexDirection === 'row') && current.getBoundingClientRect().height <= 120) target = current
+    const byComponent = [...grouped].map(([component, instances]) => {
+      const cap = instances.map(item => item.imbalance.cap)
+      const x = instances.map(item => item.imbalance.xHeight)
+      const ink = instances.map(item => item.imbalance.ink)
+      const worst = [...instances].sort((a, b) => b.imbalance.cap - a.imbalance.cap).slice(0, 10)
+      return { component, count: instances.length, imbalance: { cap: { min: Math.min(...cap), median: median(cap), max: Math.max(...cap) }, xHeight: { min: Math.min(...x), median: median(x), max: Math.max(...x) }, ink: { min: Math.min(...ink), median: median(ink), max: Math.max(...ink) } }, worst: worst.map(item => ({ key: item.key, text: item.text, capPx: item.imbalance.cap, xHeightPx: item.imbalance.xHeight, inkPx: item.imbalance.ink })) }
+    }).sort((a, b) => b.imbalance.cap.max - a.imbalance.cap.max)
+    const stats = (values: number[]) => ({ min: Math.min(...values), median: median(values), max: Math.max(...values) })
+    const capOffsetByFace = new Map<string, number[]>()
+    for (const sample of all) {
+      const key = `${sample.font} / ${sample.fontSize}`
+      const offsets = capOffsetByFace.get(key) ?? []
+      offsets.push((sample.gaps.cap.below - sample.gaps.cap.above) / 2)
+      capOffsetByFace.set(key, offsets)
+    }
+    const faceOffsets = Object.fromEntries([...capOffsetByFace].map(([face, offsets]) => [face, median(offsets)]))
+    const tokenPrediction = all.map(sample => {
+      const offset = faceOffsets[`${sample.font} / ${sample.fontSize}`] ?? 0
+      return Math.abs((sample.gaps.cap.above + offset) - (sample.gaps.cap.below - offset))
+    })
+    const cssSupport = await page.evaluate(() => ({
+      trim: CSS.supports('text-box-trim', 'trim-both'),
+      edge: CSS.supports('text-box-edge', 'cap alphabetic'),
+    }))
+    const report = {
+      meta: { generatedAt: new Date().toISOString(), origin, viewport: { width: 1440, height: 900, deviceScaleFactor: 2 }, conventionForHeadline: 'cap', conventions: { cap: 'baseline - capHeight to baseline', xHeight: 'baseline - xHeight to baseline', ink: 'actualBoundingBoxAscent/Descent' }, previewFrames: frames.length, explorerBoards: boardCount, instanceCount: all.length, browserVersion: browser.version(), cssTextBoxSupport: cssSupport },
+      candidateFixes: {
+        textBoxTrim: { supported: cssSupport.trim && cssSupport.edge, predictedCapImbalance: stats(cssSupport.trim && cssSupport.edge ? all.map(() => 0) : all.map(sample => sample.imbalance.cap)), risks: ['Support is required in the target Chromium; unsupported engines ignore the declarations.', 'Mixed icon and text flex rows may change their intrinsic height differently from text-only rows.', 'Fallback fonts and CJK runs use their own cap metrics; a Latin cap edge does not define those glyphs.'] },
+        perFaceOffset: { offsetsPx: faceOffsets, predictedCapImbalance: stats(tokenPrediction), risks: ['A font-family stack can resolve to different fallback faces by glyph and platform.', 'Moving text independently can break icon/text alignment and touch the wrong line in a multi-line control.'] },
+        lineHeightToFontBox: { target: 'fontBoundingBoxAscent + fontBoundingBoxDescent', predictedCapImbalance: stats(all.map(sample => sample.imbalance.cap)), risks: ['Changing line-height changes row height and wrapping; fixed-height controls can clip or overflow.', 'It does not remove font fallback metric differences or align a mixed icon/text row.'] },
+      },
+      summary: byComponent.map(({ component, count, imbalance }) => ({ component, instances: count, imbalance })),
+      components: byComponent,
+      samples: all,
+    }
+    writeFileSync(`${OUT}/vertical-centring-report.json`, `${JSON.stringify(report, null, 2)}\n`)
+    writeFileSync(`${OUT}/vertical-centring-report.md`, `# Vertical centring audit\n\nFrames: ${frames.length}; boards: ${boardCount}; instances: ${all.length}. Headline convention: cap-height. Browser Chromium: ${browser.version()}. CSS text-box-trim supported: ${cssSupport.trim && cssSupport.edge}.\n\n| Component | Instances | Cap min / median / max (px) | X-height min / median / max (px) | Ink min / median / max (px) |\n|---|---:|---:|---:|---:|\n${byComponent.map(item => `| \`${item.component}\` | ${item.count} | ${item.imbalance.cap.min} / ${item.imbalance.cap.median} / ${item.imbalance.cap.max} | ${item.imbalance.xHeight.min} / ${item.imbalance.xHeight.median} / ${item.imbalance.xHeight.max} | ${item.imbalance.ink.min} / ${item.imbalance.ink.median} / ${item.imbalance.ink.max} |`).join('\n')}\n\n## Ten worst instances per component\n\n${byComponent.map(item => `### \`${item.component}\`\n\n${item.worst.map(worst => `- ${worst.capPx}px cap, ${worst.xHeightPx}px x-height, ${worst.inkPx}px ink — \`${worst.key}\` — ${worst.text}`).join('\n')}`).join('\n\n')}\n\n## Candidate fix model\n\n- Text box trim: ${report.candidateFixes.textBoxTrim.supported ? 'supported' : 'unsupported'}; cap imbalance ${report.candidateFixes.textBoxTrim.predictedCapImbalance.min}/${report.candidateFixes.textBoxTrim.predictedCapImbalance.median}/${report.candidateFixes.textBoxTrim.predictedCapImbalance.max}px (min/median/max).\n- Per-face metric offset: ${report.candidateFixes.perFaceOffset.predictedCapImbalance.min}/${report.candidateFixes.perFaceOffset.predictedCapImbalance.median}/${report.candidateFixes.perFaceOffset.predictedCapImbalance.max}px (min/median/max).\n- Line-height matched to font box: ${report.candidateFixes.lineHeightToFontBox.predictedCapImbalance.min}/${report.candidateFixes.lineHeightToFontBox.predictedCapImbalance.median}/${report.candidateFixes.lineHeightToFontBox.predictedCapImbalance.max}px (min/median/max); modeled as unchanged for center-aligned text.\n`)
+    const captureSamples: Sample[] = []
+    for (const sample of [...all].sort((a, b) => b.imbalance.cap - a.imbalance.cap)) {
+      if (captureSamples.some(existing => existing.page === sample.page && existing.frame === sample.frame)) continue
+      captureSamples.push(sample)
+      if (captureSamples.length === 5) break
+    }
+    for (let i = 0; i < captureSamples.length; i++) {
+      const sample = captureSamples[i]!
+      await page.goto(`${origin}/${sample.page}`)
+      await settle(page)
+      if (sample.page === 'preview.html') {
+        const locator = page.locator(`[data-frame-id="${sample.frame}"] > div`)
+        await locator.scrollIntoViewIfNeeded()
+      } else {
+        const nav = page.getByRole('navigation').filter({ has: page.getByText('Design system', { exact: true }) }).locator(':scope > button')
+        let opened = false
+        for (let index = 0; index < await nav.count(); index++) {
+          await nav.nth(index).click()
+          await page.locator('main h1').first().waitFor({ state: 'visible' })
+          await settle(page)
+          if (await page.locator(`main > div[data-alignment-board-id="${sample.frame}"]`).count()) { opened = true; break }
+        }
+        if (!opened) continue
       }
-      target ??= node.parentElement
-      const box = target.getBoundingClientRect()
-      const overlay = document.createElement('div')
-      overlay.dataset.auditOverlay = String(number)
-      overlay.style.cssText = `position:fixed;z-index:2147483647;pointer-events:none;left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px;border:2px solid #ff1744;box-sizing:border-box`
-      const glyph = document.createElement('div')
-      glyph.style.cssText = `position:fixed;z-index:2147483647;pointer-events:none;left:${line.left}px;top:${line.top}px;width:${line.width}px;height:${line.height}px;background:rgba(0,180,255,.25);outline:2px solid #00b4ff;box-sizing:border-box`
-      document.body.append(overlay, glyph)
-    }, { selector, number: i })
-    await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())))
-    await page.screenshot({ path: `${OUT}/worst-${String(i + 1).padStart(2, '0')}.png`, scale: 'css' })
-  }
-  await context.close()
-  console.log(`Vertical centring audit: ${frames.length} preview frames, ${boardCount} boards, ${all.length} single-line text instances; ${byComponent.length} component groups. JSON: ${OUT}/vertical-centring-report.json`)
-})
+      await settle(page)
+      const selector = sample.page === 'preview.html' ? `[data-frame-id="${sample.frame}"] > div` : `main > div[data-alignment-board-id="${sample.frame}"]`
+      const target = page.locator(selector).first()
+      const marked = await target.evaluate((root, wanted) => {
+        const node = [...root.querySelectorAll('*')].find(el => (el.textContent ?? '').trim().replace(/\s+/g, ' ') === wanted && el.getBoundingClientRect().width > 0)
+        if (!node) return false
+        node.setAttribute('data-vcentre-capture-target', '')
+        return true
+      }, sample.text)
+      if (!marked) continue
+      await page.locator('[data-vcentre-capture-target]').first().scrollIntoViewIfNeeded()
+      await page.evaluate(({ selector, number }) => {
+        const root = document.querySelector(selector)
+        if (!root) return
+        const node = root.querySelector('[data-vcentre-capture-target]')
+        if (!node) return
+        const range = document.createRange(); range.selectNodeContents(node)
+        const line = [...range.getClientRects()].find(rect => rect.width && rect.height)
+        if (!line) return
+        let target: Element | null = node.closest('button,input,[data-slot="chip"],[data-slot="badge"],[role="tab"],[data-slot="tab"]')
+        for (let current: Element | null = node; !target && current && current !== root; current = current.parentElement) {
+          const style = getComputedStyle(current)
+          if ((style.display === 'flex' && style.flexDirection === 'row') && current.getBoundingClientRect().height <= 120) target = current
+        }
+        target ??= node.parentElement
+        const box = target.getBoundingClientRect()
+        const overlay = document.createElement('div')
+        overlay.dataset.auditOverlay = String(number)
+        overlay.style.cssText = `position:fixed;z-index:2147483647;pointer-events:none;left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px;border:2px solid #ff1744;box-sizing:border-box`
+        const glyph = document.createElement('div')
+        glyph.style.cssText = `position:fixed;z-index:2147483647;pointer-events:none;left:${line.left}px;top:${line.top}px;width:${line.width}px;height:${line.height}px;background:rgba(0,180,255,.25);outline:2px solid #00b4ff;box-sizing:border-box`
+        document.body.append(overlay, glyph)
+      }, { selector, number: i })
+      await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())))
+      await page.screenshot({ path: `${OUT}/worst-${String(i + 1).padStart(2, '0')}.png`, scale: 'css' })
+    }
+
+    console.log(`Vertical centring audit: ${frames.length} preview frames, ${boardCount} boards, ${all.length} single-line text instances; ${byComponent.length} component groups. JSON: ${OUT}/vertical-centring-report.json`)
+  })
+}, { deviceScaleFactor: 2 })

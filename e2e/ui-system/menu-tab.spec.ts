@@ -95,9 +95,30 @@ test.describe('a Popover’s menu', () => {
   })
 
   test('Tab walks a panel’s own buttons first, and past the last one leaves the same way', async ({ page }) => {
-    // The plan meters' "other agents" menu holds plain buttons, not rows, and
-    // Tab is how the keyboard gets from one to the next.
-    const trigger = page.locator('[data-slot="popover-trigger"][aria-label*="other agents"]')
+    // Canonical plan menus now contain menu rows. Supply a real Menu with
+    // plain action buttons to retain the separate Tab-through-panel contract.
+    await page.route('**/src/preview/main.tsx*', async route => {
+      const response = await route.fetch(), source = await response.text()
+      const reactUrl = /from "([^"\n]*\/react\.js[^"\n]*)"/.exec(source)?.[1]
+      if (!reactUrl) throw new Error('preview React import missing')
+      await route.fulfill({ response, body: `${source}
+        import meterReact from ${JSON.stringify(reactUrl)};
+        import { PlanMeters as MenuMeters } from '/src/components/PlanMeters.tsx';
+        import { StoreProvider as MeterStoreProvider } from '/src/state/context.tsx';
+        import { store as meterStore } from '/src/preview/harness.tsx';
+        import { Button as MeterButton, Menu as PanelMenu, Popover as PanelPopover } from '/src/design/index.ts';
+        const meterHost = document.createElement('section'); meterHost.dataset.frameId = 'menu-plan-meters'; document.body.append(meterHost);
+        createRoot(meterHost).render(meterReact.createElement(MeterStoreProvider, { store: meterStore },
+          meterReact.createElement(meterReact.Fragment, null,
+            meterReact.createElement(PanelPopover, { title: 'Panel actions', label: 'Panel actions' }, close =>
+              meterReact.createElement(PanelMenu, { close },
+                meterReact.createElement(MeterButton, null, 'First action'),
+                meterReact.createElement(MeterButton, null, 'Second action'))),
+            meterReact.createElement(MeterButton, null, 'Following control'))));
+      ` })
+    })
+    await page.reload()
+    const trigger = page.locator('[data-frame-id="menu-plan-meters"]').getByRole('button', { name: 'Panel actions', exact: true })
     await trigger.scrollIntoViewIfNeeded()
     const next = await stopAfter(page, trigger)
     await trigger.focus()
@@ -135,7 +156,7 @@ test.describe('a Popover’s menu', () => {
         const held = document.activeElement
         return (
           held === document.body ||
-          (held instanceof HTMLElement && held.isConnected && !held.closest('[data-base-ui-portal],[role="menu"]'))
+          (held instanceof Element && held.isConnected && !held.closest('[data-base-ui-portal],[role="menu"]'))
         )
       }),
     ).toBe(true)

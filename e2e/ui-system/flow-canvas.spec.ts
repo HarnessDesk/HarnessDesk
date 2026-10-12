@@ -343,13 +343,13 @@ for (const theme of ['light', 'dark'] as const) {
       const edge = surface.locator('.react-flow__edge[data-id="r1"]')
       await edge.focus(); await page.keyboard.press('Enter')
       await expect(edge).toHaveClass(/selected/)
-      const accent = await surface.evaluate(el => {
+      const selectedInk = await surface.evaluate(el => {
         const probe = document.createElement('span')
-        probe.style.color = 'var(--hd-accent)'; el.append(probe)
+        probe.style.color = 'var(--hd-foreground)'; el.append(probe)
         const color = getComputedStyle(probe).color; probe.remove()
         return color
       })
-      await expect.poll(() => edge.locator('.react-flow__edge-path').evaluate(el => getComputedStyle(el).stroke)).toBe(accent)
+      await expect.poll(() => edge.locator('.react-flow__edge-path').evaluate(el => getComputedStyle(el).stroke)).toBe(selectedInk)
     })
     test('marquee and selection borders use the canvas tokens', async ({ page }) => {
       const surface = canvas(page), box = (await canvas(page).boundingBox())!
@@ -361,7 +361,7 @@ for (const theme of ['light', 'dark'] as const) {
       const style = await selection.evaluate(el => ({ fill: getComputedStyle(el).backgroundColor, border: getComputedStyle(el).borderColor, borderStyle: getComputedStyle(el).borderStyle }))
       const tokens = await surface.evaluate(el => {
         const probe = document.createElement('span')
-        probe.style.backgroundColor = 'var(--hd-accent-dim)'; probe.style.borderColor = 'var(--hd-accent)'; el.append(probe)
+        probe.style.backgroundColor = 'var(--hd-selected)'; probe.style.borderColor = 'var(--hd-border-strong)'; el.append(probe)
         const result = { fill: getComputedStyle(probe).backgroundColor, border: getComputedStyle(probe).borderColor }
         probe.remove(); return result
       })

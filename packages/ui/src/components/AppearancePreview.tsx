@@ -48,23 +48,7 @@ export const useResolvedDark = (): boolean => {
   return theme === 'system' ? system : theme === 'dark'
 }
 
-/*
- * One miniature window. Two faces, drawn from six greys, plus the two marks
- * the rows underneath actually move: the row you are on, in the live accent,
- * and the button, in the face's own ink. `both` splits the picture down the
- * middle, which is what "System" means.
- *
- * The button is the face's ink and not `--hd-accent`, and that is the whole
- * point of the split the token layer now makes — a filled button in this app
- * is ink, so a card that drew it in the brand was advertising a colour the
- * window does not use. It has to come from `face()` rather than from
- * `--hd-solid` for the same reason every other value here does: the token is
- * switched on `body`, so the "Light" card inside a dark window would resolve
- * the solid to near-white and draw a white button on a white card.
- *
- * The accent stays live, because it can: it is the same colour in both faces,
- * and it is now on the mark that earns it — the selected row.
- */
+/* Each illustration keeps its own neutral palette, whichever theme the app wears. */
 const Mini = ({ dark, both }: { dark: boolean; both?: boolean }) => {
   const face = (isDark: boolean) =>
     isDark
@@ -77,9 +61,8 @@ const Mini = ({ dark, both }: { dark: boolean; both?: boolean }) => {
         <rect x="0" y="0" width="240" height="160" fill={c.page} />
         <rect x="0" y="0" width="64" height="160" fill={c.rail} />
         <rect x="10" y="14" width="44" height="6" rx="3" fill={c.bar} />
-        {/* The row you are on. The one mark in the picture that is the brand,
-            which is what the Accent row below moves. */}
-        <rect x="10" y="30" width="34" height="5" rx="2.5" fill="var(--hd-accent)" />
+        {/* Selection uses this miniature's neutral ink so it stays visible on its rail. */}
+        <rect x="10" y="30" width="34" height="5" rx="2.5" fill={c.ink} />
         <rect x="10" y="42" width="40" height="5" rx="2.5" fill={c.text} />
         <rect x="10" y="54" width="30" height="5" rx="2.5" fill={c.text} />
         <rect x="84" y="20" width="60" height="7" rx="3.5" fill={c.bar} />

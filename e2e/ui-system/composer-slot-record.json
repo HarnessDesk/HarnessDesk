@@ -1,0 +1,114 @@
+{
+  "composer": {
+    "draft": {
+      "folded": [
+        "agent",
+        "more"
+      ],
+      "tight": []
+    },
+    "live": {
+      "folded": [],
+      "tight": []
+    }
+  },
+  "560": {
+    "draft": {
+      "folded": [
+        "agent",
+        "permissions",
+        "mode",
+        "more",
+        "context",
+        "model"
+      ],
+      "tight": []
+    },
+    "live": {
+      "folded": [
+        "agent",
+        "permissions",
+        "mode",
+        "more",
+        "context"
+      ],
+      "tight": []
+    }
+  },
+  "360": {
+    "draft": {
+      "folded": [
+        "agent",
+        "permissions",
+        "mode",
+        "more",
+        "context",
+        "model"
+      ],
+      "tight": [
+        "agent",
+        "permissions",
+        "mode",
+        "more",
+        "context",
+        "model"
+      ]
+    },
+    "live": {
+      "folded": [
+        "agent",
+        "permissions",
+        "mode",
+        "more",
+        "context",
+        "model"
+      ],
+      "tight": [
+        "agent",
+        "permissions",
+        "mode",
+        "more",
+        "context",
+        "model"
+      ]
+    }
+  },
+  "320": {
+    "draft": {
+      "folded": [
+        "agent",
+        "permissions",
+        "mode",
+        "more",
+        "context",
+        "model"
+      ],
+      "tight": [
+        "agent",
+        "permissions",
+        "mode",
+        "more",
+        "context",
+        "model"
+      ]
+    },
+    "live": {
+      "folded": [
+        "agent",
+        "permissions",
+        "mode",
+        "more",
+        "context",
+        "model"
+      ],
+      "tight": [
+        "agent",
+        "permissions",
+        "mode",
+        "more",
+        "context",
+        "model"
+      ]
+    }
+  }
+}

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { TeamRoomPane } from '../src/components/TeamRoomPane'
+import { TeamFramePreview } from '../src/preview/TeamFramePreview'
 import { AgentIcon, CheckIcon, DevToolsIcon } from '../src/components/Icons'
 import { Button, Chip, FlowGraph, PaneColumn, Text } from '../src/design'
 import { flowModel, ceilingsOfRun, stepName } from '../src/lib/flow-model'
@@ -74,7 +74,7 @@ export const RunDemo = ({ run, poster, frozen = false }: { run: StagedRun; poste
         <Button size="sm" variant="outline" onClick={() => { setPaused(true); run.pause(); run.next() }}>Next step</Button>
       </span>}
     </PaneColumn>
-    {poster ? <Poster run={run} /> : <div className="site-run-pane"><TeamRoomPane room={RUN_TEAM} /></div>}
+    {poster ? <Poster run={run} /> : <div className="site-run-pane"><TeamFramePreview room={RUN_TEAM} /></div>}
   </div>
 }
 

@@ -1,15 +1,18 @@
 import { expect, test } from '@playwright/test'
 import { mkdirSync } from 'node:fs'
 import { COLLECT, textReasons, USER } from '../../script/shots/audit.mjs'
+import { FRAME } from '../../packages/ui/src/design/frame'
+import { closeTeamDetails, selectTeamPage, teamBar, teamDetails } from './team-frame-actions'
 
 for (const theme of ['light', 'dark'] as const) {
-  for (const width of [1440, 800, 480]) {
+  for (const width of [1440, 800, 720]) {
     test(`trigger Runs keep their facts and gutter at ${width}px in ${theme}`, async ({ page }) => {
       await page.setViewportSize({ width, height: 900 })
       await page.emulateMedia({ colorScheme: theme })
       await page.goto(`/preview.html?team-frame=trigger-runs&theme=${theme}`)
       const team = page.locator('[data-slot="team-room"]')
-      await team.getByRole('tab', { name: /^Runs/ }).click()
+      const frame=page.locator('[data-frame-id="team-frame"]')
+      await selectTeamPage(frame,'runs')
       const runs = team.locator('[data-slot="team-runs"]')
       await expect(runs).toBeVisible()
       await expect(runs.locator('[data-run]')).toHaveCount(3)
@@ -17,14 +20,12 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(runs).toContainText('2 of 3 answered')
       await expect(runs).toContainText('2 findings')
       await expect(runs).toContainText('$6.00 of $20.00 daily cap')
-      for (const button of await runs.locator('[data-slot="page-head"] button').all()) {
-        const height = await button.evaluate(el => ({
-          actual: el.getBoundingClientRect().height,
-          full: parseFloat(getComputedStyle(el).getPropertyValue('--hd-btn-h')),
-        }))
-        expect(height.actual).toBeGreaterThanOrEqual(height.full)
-      }
-      await expect(team.locator('header').first()).toContainText('Running')
+      await expect(runs.locator('[data-slot="page-head"]')).toHaveCount(0)
+      await expect(runs.getByRole('searchbox', { name: 'Filter Runs' })).toHaveCount(0)
+      await expect(runs.getByRole('button', { name: 'Pause every trigger' })).toHaveCount(0)
+      const facts=await teamDetails(frame)
+      await expect(facts.locator('[data-slot="summary-item"]').filter({hasText:/^State/})).toContainText('running')
+      await closeTeamDetails(frame)
       await expect(runs).toContainText('interrupting its turns and checks')
       const geometry = await runs.evaluate(el => {
         const table = el.querySelector('table')!.getBoundingClientRect()
@@ -41,17 +42,26 @@ for (const theme of ['light', 'dark'] as const) {
         await page.evaluate(async () => { await document.fonts.ready })
         await page.screenshot({ path: `${directory}/after-runs-${width}-${theme}.png` })
       }
-      await runs.getByRole('button', { name: 'Pause every trigger' }).click()
-      await expect(team.locator('header').first()).toContainText('Paused')
-      await expect(team.locator('header').first()).toContainText('Running')
-      await runs.getByRole('button', { name: 'Resume every trigger' }).click()
-      await expect(team.locator('header').first()).toContainText('Armed')
-      await runs.getByRole('searchbox', { name: 'Filter Runs' }).fill('Run 2')
+      await teamBar(frame).getByRole('button', { name: 'More', exact: true }).click()
+      await page.getByRole('menuitem', { name: 'Pause every trigger', exact: true }).click()
+      const paused=await teamDetails(frame)
+      await expect(paused.locator('[data-slot="summary-item"]').filter({hasText:/^Trigger/})).toContainText('Paused')
+      await expect(paused.locator('[data-slot="summary-item"]').filter({hasText:/^State/})).toContainText('running')
+      await closeTeamDetails(frame)
+      await teamBar(frame).getByRole('button', { name: 'More', exact: true }).click()
+      await page.getByRole('menuitem', { name: 'Resume every trigger', exact: true }).click()
+      await expect((await teamDetails(frame)).locator('[data-slot="summary-item"]').filter({hasText:/^Trigger/})).toContainText('Armed')
+      await closeTeamDetails(frame)
+      await teamBar(frame).getByRole('button', { name: 'View', exact: true }).click()
+      await page.getByRole('searchbox', { name: 'Filter Runs' }).fill('Run 2')
+      await page.keyboard.press('Escape')
       await expect(runs.locator('[data-run]')).toHaveCount(1)
       await runs.getByRole('button', { name: 'Open Run 2: Retry checkout after a payment timeout' }).click()
       await expect(team.locator('[data-slot="run-view"]')).toBeVisible()
       await team.getByRole('button', { name: 'Back to Runs' }).click()
-      await expect(runs.getByRole('searchbox', { name: 'Filter Runs' })).toHaveValue('Run 2')
+      await teamBar(frame).getByRole('button', { name: 'View', exact: true }).click()
+      await expect(page.getByRole('searchbox', { name: 'Filter Runs' })).toHaveValue('Run 2')
+      await page.keyboard.press('Escape')
       await expect(runs.locator('[data-run]')).toHaveCount(1)
     })
   }
@@ -63,15 +73,16 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?team-frame=trigger-runs&theme=${theme}`)
     const team = page.locator('[data-slot="team-room"]')
-    await team.getByRole('tab', { name: /^Runs/ }).click()
+    const frame=page.locator('[data-frame-id="team-frame"]')
+    await selectTeamPage(frame,'runs')
     const runs = team.locator('[data-slot="team-runs"]')
     await runs.locator('[data-run]').first().getByRole('button').click()
     await expect(team.locator('[data-slot="run-view"]')).toBeVisible()
 
-    const header = team.locator('header').first()
+    const header = teamBar(frame)
     const geometry = await header.evaluate(element => {
       const bounds = element.getBoundingClientRect()
-      const title = element.querySelector<HTMLElement>('[data-role="subject"]')
+      const title = element.querySelector<HTMLElement>('[data-topbar-title]')
       if (!title) throw new Error('The Team header has no subject')
       const style = getComputedStyle(title)
       const canvas = document.createElement('canvas')
@@ -95,6 +106,8 @@ for (const theme of ['light', 'dark'] as const) {
     })
     expect(geometry.characters, JSON.stringify(geometry)).toBeGreaterThanOrEqual(10)
     expect(geometry.buttonsInside).toBe(true)
+    expect(geometry.titleWidth).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+    expect((await header.locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
 
     const directory = process.env.TEAM_RUNS_SHOTS_DIR
     if (directory) {

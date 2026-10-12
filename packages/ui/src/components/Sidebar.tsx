@@ -1,21 +1,27 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { describeStrip, type StripMeter } from '../lib/plan-strip'
+import { SidebarUpdate } from './SidebarUpdate'
+import { LeftColumnModeHead } from '../design'
+import { SettingsNavigation } from './SettingsNavigation'
+import { LeftColumn, LeftColumnBody, LeftColumnNavigation, LeftColumnProjectsHead, LeftColumnTop, LeftColumnRow, LeftColumnSeat, LeftColumnGroup } from '../design'
+import { LibraryIcon } from './Icons'
+import { Slot } from '../slots/registry'
+import { sidebarPlacement } from '../state/workbench'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { SidebarNotices, useInboxMessages } from './Notices'
 import type { Account, RuntimeId, RuntimeInfo, UsageReport } from '@harnessdesk/protocol'
-import { useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
-import { Slot } from '../slots/registry'
+import { useActiveSession, useRuntime, useRuntimeHealth, useSnapshot, useStore } from '../state/context'
 import { AgentIcon, BranchIcon, CaretIcon, CrossIcon, PluginIcon, PlusIcon, SearchIcon, SettingsIcon, SignOutIcon, TeamIcon, UsageIcon } from './Icons'
-import { WindowControls } from './WindowControls'
 import { FrontDoor } from './FrontDoor'
 import { SessionListControls, SessionTree } from './SessionTree'
-// Imported for its side effect: the Tasks panel registers itself into the
-// `sidebar.panel` slot rendered below.
-import './TaskPanel'
 import {
   AccountMark,
-  UsageMeterRow,
-  Bar,
+  MenuFacts,
+  ConfirmDialog,
+  ActionError,
+  useDismissOverlays,
   Button,
+  Bar,
   Dot,
   Menu,
   MenuItem,
@@ -25,22 +31,14 @@ import {
   MenuNote,
   MenuSeparator,
   InboxPanel,
-  NavigationGroupHeader,
   Popover,
-  RailSection,
   Search,
-  Chip,
-  Separator,
-  SidebarMenu,
-  SidebarMenuBadge,
-  SidebarMenuButton,
-  SidebarMenuItem,
   Text,
   buttonVariants,
   type MenuAccountFigure,
   type Tone,
 } from '../design'
-import { accountKey, accountName, accountIdentity, agentKey, tintOf, type AccountPrefs } from '../lib/accounts'
+import { accountKey, accountName, accountIdentity, agentKey, runtimeLabel, tintOf, type AccountPrefs } from '../lib/accounts'
 import { folderName, projectRootOf } from '../lib/projects'
 import { anyBroken, inForce } from '../lib/agents'
 import { livePlugins } from '../lib/plugins'
@@ -52,7 +50,7 @@ import { HarnessMark, RuntimeMark } from './BrandIcons'
 import { ProfileFace } from './ProfileFace'
 import { Clipped, DisclosureChevron, EmptyState } from '../design'
 import type { Section } from './Settings'
-import { bindingLane, describeReport, isBlocked } from '../lib/usage'
+import { bindingLane, describeReport, describeLane, formatAge, formatMoney, isBlocked } from '../lib/usage'
 import { usageReadingTone } from '../lib/limits'
 import { usageAccount } from '../lib/usage-alerts'
 import styles from './Sidebar.module.css'
@@ -72,6 +70,7 @@ import styles from './Sidebar.module.css'
 export const Sidebar = ({
   onOpenSettings,
   onOpenPlugins,
+  onOpenLibrary,
   onOpenAgents,
   onOpenTeams,
   onOpenUsage,
@@ -79,9 +78,11 @@ export const Sidebar = ({
   onSignIn,
   onSearch,
   activeDestination = null,
+  active = true, settings, listFilter, sessionsOwner = true,
 }: {
   onOpenSettings: (section?: Section) => void
   onOpenPlugins: () => void
+  onOpenLibrary?: () => void
   /** Opens the Agents window — the roster, never a Settings page. */
   onOpenAgents: () => void
   onOpenTeams: () => void
@@ -91,12 +92,18 @@ export const Sidebar = ({
   /** Opens the sign-in screen, on one runtime when the caller knows which. */
   onSignIn: (runtime?: RuntimeId) => void
   onSearch: () => void
-  activeDestination?: 'teams' | 'agents' | 'dashboard' | 'plugins' | null
+  active?: boolean
+  settings?: { section: Section; onSection: (section: Section) => void; onBack: () => void }
+  listFilter?: { value: string; onChange: (value: string) => void }
+  sessionsOwner?: boolean
+  activeDestination?: 'teams' | 'agents' | 'library' | 'plugins' | 'dashboard' | null
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const inbox = useInboxMessages()
-  const [query, setQuery] = useState('')
+  const [localQuery, setLocalQuery] = useState('')
+  const query = listFilter?.value ?? localQuery
+  const setQuery = listFilter?.onChange ?? setLocalQuery
   const searchQuery = query.trim()
   // The filter takes the Projects row while it is in use and gives the
   // label back when it is empty and unfocused: a 200px sidebar has room for
@@ -104,7 +111,6 @@ export const Sidebar = ({
   const [filterFocused, setFilterFocused] = useState(false)
   /** The non-default start flow selected from the adjacent menu. */
   const [starting, setStarting] = useState<boolean>(false)
-  const filtering = filterFocused || query.length > 0
   const listRef = useRef<HTMLDivElement>(null)
   const now = Date.now()
   // Only the ones a person would want to know about: spent, or nearly.
@@ -116,9 +122,10 @@ export const Sidebar = ({
 
   // Debounced so typing does not fire a search per keystroke against the runtime.
   useEffect(() => {
+    if (!sessionsOwner) return
     const timer = window.setTimeout(() => void store.searchHistory(query), 220)
     return () => window.clearTimeout(timer)
-  }, [query, store])
+  }, [query, store, sessionsOwner])
 
   const onScroll = useCallback(() => {
     const element = listRef.current
@@ -138,147 +145,82 @@ export const Sidebar = ({
   const agentsCount = inForce(agentsRoster).length
   const agentsBroken = anyBroken(agentsRoster)
   const pluginCount = livePlugins(snapshot.plugins).length
-  return (
-    <div className={styles.sidebar}>
-      <div className={styles.header} data-region="sidebar-header">
-        <Bar corner className="hd-drag"><WindowControls /></Bar>
-        <Bar inset="ink" className="hd-drag">
-          <Text role="subject" className={styles.brandMark} aria-hidden><HarnessMark size={14} /></Text>
-          <Text role="wordmark" truncate className={styles.workspaceName} title={snapshot.workspace?.path ?? undefined}>HarnessDesk</Text>
-          <div className={`${styles.headerActions} hd-no-drag`}>
-            <InboxPanel
-              side="bottom" size="icon-xs"
-              messages={inbox}
-              onOpen={(id) => store.markInboxRead(id)}
-              onMarkAllRead={() => store.markInboxRead(null)}
-              onClear={() => store.clearInbox()}
-            />
-            <Button
-              variant="ghost" size="icon-xs" className="hd-no-drag"
-              onClick={onSearch} title="Search everything (⌘K)" aria-label="Search everything" aria-keyshortcuts="Meta+K"
-            ><SearchIcon size={13} /></Button>
-          </div>
-        </Bar>
-        {starting && projectRootOf(snapshot.workspace) && <FrontDoor context={{ kind: 'project', root: projectRootOf(snapshot.workspace)! }} onClose={() => setStarting(false)} onStarted={execution => { store.openGoal(execution.goal); setStarting(false) }} />}
-        <RailSection as="nav" stretch="head" className={styles.nav} aria-label="Workspace actions">
-          <div className={styles.navRow}>
-            <Button
-              variant="navigation" size="navigation" className={styles.newSession}
-              disabled={!ready || !snapshot.workspace}
-              onClick={() => store.newDraft()} title="Start a session here"
-            >
-              <Text role="muted" className={styles.navIcon}><PlusIcon size={15} /></Text>
-              New session
-            </Button>
-            <WorktreeMenu onChoose={() => setStarting(true)} />
-          </div>
-          <SidebarMenu role="group" aria-label="Main sections">
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                icon={<TeamIcon size={14} />} label={<Text role="navigation">Teams</Text>} aria-label="Teams" title="Teams"
-                isActive={activeDestination === 'teams'} aria-current={activeDestination === 'teams' ? 'page' : undefined}
-                onClick={onOpenTeams}
-              />
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                icon={<AgentIcon size={14} />} label={<Text role="navigation">Agents</Text>} aria-label="Agents" title="Agents"
-                trailingOverlay={agentsCount > 0} labelTrailingContent={agentsCount > 0}
-                isActive={activeDestination === 'agents'} aria-current={activeDestination === 'agents' ? 'page' : undefined}
-                onClick={onOpenAgents}
-              />
-              {agentsCount > 0 && <SidebarMenuBadge title={`${agentsCount} Agents${agentsBroken ? ', some unavailable' : ''}`}><Text role="meta" numeric tone={agentsBroken ? 'warning' : undefined}>{agentsCount}</Text></SidebarMenuBadge>}
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                icon={<UsageIcon size={14} />} label={<Text role="navigation">Dashboard</Text>} aria-label="Dashboard" title="Dashboard"
-                trailingOverlay={lowAgents > 0} labelTrailingContent={lowAgents > 0}
-                isActive={activeDestination === 'dashboard'} aria-current={activeDestination === 'dashboard' ? 'page' : undefined}
-                onClick={() => onOpenUsage()}
-              />
-              {lowAgents > 0 && <SidebarMenuBadge title={`${lowAgents} Agents need attention`}><Text role="meta" numeric>{lowAgents}</Text></SidebarMenuBadge>}
-            </SidebarMenuItem>
-            <SidebarMenuItem>
-              <SidebarMenuButton
-                icon={<PluginIcon size={14} />} label={<Text role="navigation">Plugins</Text>} aria-label="Plugins" title="Plugins"
-                trailingOverlay={pluginCount > 0} labelTrailingContent={pluginCount > 0}
-                isActive={activeDestination === 'plugins'} aria-current={activeDestination === 'plugins' ? 'page' : undefined}
-                onClick={onOpenPlugins}
-              />
-              {pluginCount > 0 && <SidebarMenuBadge title={`${pluginCount} Plugins`}><Text role="meta" numeric>{pluginCount}</Text></SidebarMenuBadge>}
-            </SidebarMenuItem>
-          </SidebarMenu>
-        </RailSection>
-      </div>
-      <div ref={listRef} className={styles.content} data-region="sidebar-content" onScroll={onScroll}>
-        <NavigationGroupHeader
-          labelInk="muted"
-          label={(
-            <span className={styles.groupLabel}>
-              <span className={styles.projectName}>Projects</span>
-              {query && <span className={styles.filterBadge}><Chip tone="neutral" label="Filtered" /><Button variant="ghost" size="icon-xs" aria-label="Clear list filter" title="Clear list filter" onClick={() => setQuery('')}><CrossIcon size={12} /></Button></span>}
-            </span>
-          )}
-          filtering={filtering}
-          keepLabelWhenFiltering
-          data-surface=""
-          data-filtered={query ? '' : undefined}
-        >
-          <div className={styles.filter}>
-            <Search
-              size="compact" icon="filter" className={styles.filterInput}
-              placeholder="Filter by title" label="Filter this list" title="Filter this list"
-              value={query} onChange={setQuery}
-              onFocus={() => setFilterFocused(true)} onBlur={() => setFilterFocused(false)}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  if (query) event.preventDefault()
-                  setQuery('')
-                  event.currentTarget.blur()
-                }
-              }}
-            />
-          </div>
-          <SessionListControls searching={searchQuery.length > 0} />
-          <Button
-            variant="muted" size="icon-xs" edge="end" edgeGlyph={12} className={styles.listAddButton}
-            onClick={onBrowseFolders} title="Open a project folder" aria-label="Open a project folder"
-          ><PlusIcon size={13} /></Button>
-        </NavigationGroupHeader>
-        <RailSection stretch="list">
-          {snapshot.history.length === 0 && !snapshot.historyLoading && !searchQuery && (
-            <EmptyState
-              variant="inline"
-              title={ready
-                ? `No sessions yet. Start one to see it here${runtime.presentation.historySource ? ` — sessions you run in ${runtime.presentation.historySource} show up too` : ''}.`
-                : 'Connect a runtime to see your sessions.'}
-            />
-          )}
-          <SessionTree
-            now={now}
-            searching={searchQuery.length > 0}
-            searchEmptyState={searchQuery && !snapshot.historyLoading ? (
-              <EmptyState variant="inline" title={`No conversations match “${searchQuery}”.`}>
-                {' '}
-                <Button variant="muted" size="sm" onClick={() => setQuery('')}>Clear search</Button>
-              </EmptyState>
-            ) : null}
-          />
-          {snapshot.historyCursor && query.length === 0 && (
-            <Button variant="muted" size="sm" disabled={snapshot.historyLoading} onClick={() => void store.loadHistory()}>
-              Load more conversations
-            </Button>
-          )}
-        </RailSection>
-      </div>
-      <Separator />
-      <div className={styles.footer} data-region="sidebar-footer">
-        <Slot name="sidebar.panel" />
-        <SidebarNotices />
-        <AccountFooter onOpenSettings={onOpenSettings} onOpenUsage={onOpenUsage} onSignIn={onSignIn} />
-      </div>
-    </div>
+  const top = <LeftColumnTop shown={sidebarPlacement(snapshot) !== 'away'}
+    settings={Boolean(settings)}
+    back={snapshot.navCanBack} forward={snapshot.navCanForward}
+    toggle={() => store.toggleSidebar()} goBack={() => { void store.navigateBack() }}
+    goForward={() => { void store.navigateForward() }}
+    search={<Button variant="ghost" size="icon-sm" onClick={onSearch}
+      title="Search everything (⌘K)" aria-label="Search everything" aria-keyshortcuts="Meta+K"><SearchIcon size={16} /></Button>} />
+  const brand = <Bar inset="ink" className="hd-drag" data-left-brand>
+    <HarnessMark size={14} />
+    <Text role="wordmark" truncate title={snapshot.workspace?.path ?? undefined}>HarnessDesk</Text>
+  </Bar>
+  const pageDoors = [
+    { id: 'teams' as const, label: 'Teams', icon: <TeamIcon size={16} />, run: onOpenTeams, count: 0 },
+    { id: 'agents' as const, label: 'Agents', icon: <AgentIcon size={16} />, run: onOpenAgents, count: agentsCount },
+    { id: 'library' as const, label: 'Library', icon: <LibraryIcon size={16} />, run: onOpenLibrary ?? (() => onOpenSettings('library')), count: 0 },
+    { id: 'plugins' as const, label: 'Plugins', icon: <PluginIcon size={16} />, run: onOpenPlugins, count: pluginCount },
+    { id: 'dashboard' as const, label: 'Dashboard', icon: <UsageIcon size={16} />, run: () => onOpenUsage(), count: lowAgents },
+  ]
+  const sessionsHead = <>
+
+    <LeftColumnNavigation>
+      <LeftColumnRow label="New session" icon={<PlusIcon size={16} />}
+        disabled={!ready || !snapshot.workspace} title="Start a session here" onClick={() => store.newDraft()}
+        menu={{ icons: 'all', label: 'More ways to start', onOpenChange: open => { if (open) void store.loadWorktrees() },
+          content: close => <WorktreeItems close={close} onChoose={() => { store.returnToWork(); setStarting(true) }} /> }} />
+      <LeftColumnGroup label="Main sections" heading={false}>
+        {pageDoors.map(door => <LeftColumnRow key={door.id} label={door.label} icon={door.icon}
+          selected={activeDestination === door.id} onClick={door.run}
+          title={door.id === 'agents' && agentsBroken ? 'Agents, some unavailable' : door.label}
+          trailing={door.count > 0 ? { kind: 'count', value: door.count,
+            label: door.id === 'agents' ? `${door.count} Agents${agentsBroken ? ', some unavailable' : ''}` : door.id === 'dashboard' ? `${door.count} Agents need attention` : `${door.count} Plugins` } : undefined} />)}
+      </LeftColumnGroup>
+    </LeftColumnNavigation>
+  </>
+  const sessionsBody = (
+    <LeftColumnBody hidden={Boolean(settings)} ref={listRef} onScroll={onScroll}>
+    <LeftColumnProjectsHead value={query} onChange={setQuery} focused={filterFocused}
+      onFocusChange={setFilterFocused} options={<SessionListControls searching={searchQuery.length > 0} />}
+      onBrowseFolders={onBrowseFolders} />
+      {snapshot.history.length === 0 && !snapshot.historyLoading && !searchQuery && (
+        <EmptyState
+          variant="inline"
+          title={ready
+            ? `No sessions yet. Start one to see it here${runtime.presentation.historySource ? ` — sessions you run in ${runtime.presentation.historySource} show up too` : ''}.`
+            : 'Connect a runtime to see your sessions.'}
+        />
+      )}
+      <SessionTree
+        now={now}
+        suppressSelection={activeDestination !== null}
+        searching={searchQuery.length > 0}
+        searchEmptyState={searchQuery && !snapshot.historyLoading ? (
+          <EmptyState variant="inline" title={`No conversations match “${searchQuery}”.`}>
+            {' '}
+            <Button variant="muted" size="sm" onClick={() => setQuery('')}>Clear search</Button>
+          </EmptyState>
+        ) : null}
+      />
+      {snapshot.historyCursor && query.length === 0 && (
+        <LeftColumnRow label="Load more conversations" disabled={snapshot.historyLoading} onClick={() => { void store.loadHistory() }} />
+      )}
+    </LeftColumnBody>
   )
+  return <>
+    {starting && projectRootOf(snapshot.workspace) && <FrontDoor context={{ kind: 'project', root: projectRootOf(snapshot.workspace)! }} onClose={() => setStarting(false)} onStarted={execution => { store.openGoal(execution.goal); setStarting(false) }} />}
+  <LeftColumn active={active} top={<>{top}{brand}</>} head={<LeftColumnModeHead hidden={Boolean(settings)}>{sessionsHead}</LeftColumnModeHead>}
+    body={<>{sessionsBody}<LeftColumnBody hidden={!settings}>
+      {settings && <SettingsNavigation section={settings.section} onSection={settings.onSection} onBack={settings.onBack} />}
+    </LeftColumnBody></>}
+    footer={<><Slot name="sidebar.panel" />{!settings && <SidebarNotices />}<SidebarUpdate /><AccountFooter notifications={<InboxPanel side="top" size="icon-sm" messages={inbox}
+      onOpen={id => store.markInboxRead(id)} onMarkAllRead={() => store.markInboxRead(null)}
+      onClear={() => store.clearInbox()} />}
+      onOpenSettings={onOpenSettings}
+      onOpenUsage={onOpenUsage} onSignIn={onSignIn} settingsOpen={Boolean(settings)}
+      onGear={settings ? () => {} : () => onOpenSettings('general')} /></>} />
+  </>
 }
 
 /**
@@ -302,7 +244,7 @@ export const Sidebar = ({
  * It stays visible in a folder that is not a repository, disabled and saying
  * why. A control that vanishes teaches nobody what it was.
  */
-const WorktreeMenu = ({ onChoose }: { readonly onChoose: () => void }) => {
+const WorktreeItems = ({ onChoose, close }: { readonly onChoose: () => void; readonly close: () => void }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const health = useRuntimeHealth()
@@ -313,20 +255,11 @@ const WorktreeMenu = ({ onChoose }: { readonly onChoose: () => void }) => {
   const mine = snapshot.worktrees.filter((entry) => entry.managed)
 
   return (
-    <Popover
-      title="More ways to start"
-      drop="down"
-      align="right"
-      triggerClassName={buttonVariants({ variant: 'ghost', size: 'icon-xs', className: styles.navSecondary })}
-      label={<CaretIcon size={14} />}
-      onOpenChange={(open) => open && void store.loadWorktrees()}
-    >
-      {(close) => (
         <Menu close={close}>
           <MenuItem icon={<PlusIcon size={14} />} label="New session" shortcut="⌘N" onSelect={() => { close(); store.newDraft() }} />
           <MenuItem icon={<TeamIcon size={14} />} label="New Team…" shortcut="⌘⇧N" {...(!hasFolder ? { disabled: 'Open a folder to start one.' } : {})} onSelect={() => { close(); onChoose() }} />
           <MenuItem
-            icon={<PlusIcon size={14} />}
+            icon={<BranchIcon size={14} />}
             label="New worktree…"
             title="Its own checkout, on a branch of its own."
             {...(!isRepo || !ready ? { disabled: true, hint: isRepo ? 'Connect an agent to work in a worktree.' : 'Worktrees need a git repository.' } : {})}
@@ -353,8 +286,6 @@ const WorktreeMenu = ({ onChoose }: { readonly onChoose: () => void }) => {
             </>
           )}
         </Menu>
-      )}
-    </Popover>
   )
 }
 
@@ -429,11 +360,17 @@ const readinessTone = (state: Readiness): Tone | undefined => ({
 } as const)[state]
 
 export const AccountFooter = ({
+  notifications,
   onOpenSettings,
   onOpenUsage,
   onSignIn,
+  settingsOpen = false,
+  onGear = () => onOpenSettings('general'),
 }: {
   onOpenSettings: (section?: Section) => void
+  notifications?: ReactNode
+  onGear?: () => void
+  settingsOpen?: boolean
   /** Opens the dashboard, scoped to one agent when the caller names it. */
   onOpenUsage: (runtime?: RuntimeId) => void
   /** Opens the sign-in screen, on one runtime when the caller knows which. */
@@ -446,14 +383,13 @@ export const AccountFooter = ({
   const runtime = useRuntime()
   const [open, setOpen] = useState(false)
   const [accountsOpen, setAccountsOpen] = useState(false)
-  const [usageOpen, setUsageOpen] = useState(false)
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [signOutError, setSignOutError] = useState<string | null>(null)
+  useDismissOverlays(confirmingSignOut, () => { setSignOutError(null); setConfirmingSignOut(false) })
   const accountRef = useRef<HTMLDivElement>(null)
   const resetMenu = (): void => {
     setAccountsOpen(false)
-    setUsageOpen(false)
-    setConfirmingSignOut(false)
   }
 
   const seats: Seat[] = snapshot.runtimes.flatMap((info): Seat[] => {
@@ -533,10 +469,6 @@ export const AccountFooter = ({
   const nextAs = here?.account ? `${agentName} · ${here.name}` : agentName
   // You: the profile's name, which is HarnessDesk until you choose one.
   const yourName = profileName(snapshot.profile)
-  const usageView = here?.report
-    ? describeReport(here.report, { now: Date.now(), maxLanes: 8, preference: here.preference })
-    : null
-  const hasUsage = usageView !== null && usageView.all.length > 0
   // The chairs you can sit in. An agent that is waiting for a sign-in is not
   // one — choosing it would start nothing — so it waits behind "Add an
   // account…", whose chooser is where signing in happens. The default stays
@@ -592,10 +524,13 @@ export const AccountFooter = ({
   const signOut = async (close: () => void): Promise<void> => {
     if (!snapshot.activeRuntime) return
     setBusy(true)
+    setSignOutError(null)
     try {
       await store.signOutAgent(snapshot.activeRuntime)
       close()
       resetMenu()
+    } catch (error) {
+      setSignOutError(error instanceof Error ? error.message : String(error))
     } finally {
       setBusy(false)
     }
@@ -606,7 +541,7 @@ export const AccountFooter = ({
     <>
       <ProfileFace size={24} />
       <Text role="subject" className={styles.accountName}>
-        <Clipped className={styles.accountLabel}>{yourName}</Clipped>
+        <Clipped truncate className={styles.accountLabel}>{yourName}</Clipped>
       </Text>
       {here?.figure && here.tone !== 'good' && (
         <Text role="muted" tone={usageReadingTone(here.tone)} numeric className={styles.accountMeta}>
@@ -620,7 +555,6 @@ export const AccountFooter = ({
           side="right"
           align="end"
           className={styles.seatTrigger}
-          onOpenUsage={onOpenUsage}
           disabled={open}
         >
           <AccountMark
@@ -631,7 +565,7 @@ export const AccountFooter = ({
                 ? { 'data-off': '' }
                 : {})}
           >
-            <RuntimeMark runtime={here.info} size={13} />
+            <RuntimeMark runtime={here.info} size={16} />
           </AccountMark>
         </AccountHoverCard>
       )}
@@ -648,7 +582,7 @@ export const AccountFooter = ({
   )
 
   return (
-    <Bar rule="top" ref={accountRef}>
+    <LeftColumnSeat notifications={notifications} settingsOpen={settingsOpen} onSettings={onGear} menu={<div ref={accountRef}>
       <Popover
         title={here ? `New sessions run as ${nextAs}` : 'Accounts and settings'}
         /* Opens upward from the footer. Its width belongs to the menu so a
@@ -658,6 +592,7 @@ export const AccountFooter = ({
         sideOffset={6}
         fullWidth
         panelWidth="wide"
+        icons="all"
         triggerClassName={buttonVariants({ variant: 'navigation', size: 'navigation', className: styles.accountRow })}
         label={accountTrigger}
         onOpenChange={(next) => {
@@ -681,73 +616,15 @@ export const AccountFooter = ({
               such account yet, and a sign-in button for one would be a lie,
               so this is what is true today: your profile, kept on this Mac.
               Pressing it opens the page where it is set. */}
-          <MenuItem
-            layout="profile"
-            title="Your name and picture. Nothing syncs between machines."
-            onSelect={() => {
-              onOpenSettings('profile')
-            }}
-          >
-            <ProfileFace size={30} />
-            <span className={styles.youText}>
-              <span className={styles.youName}>
-                <Text role="row"><Clipped className={styles.youLabel}>{yourName}</Clipped></Text>
-              </span>
-            </span>
-          </MenuItem>
+          <MenuItem icon={<ProfileFace size={16} />} label={yourName} title="Your name and picture. Nothing syncs between machines." onSelect={() => onOpenSettings('profile')} />
 
           <MenuSeparator />
           <MenuLabel size="compact">Run new sessions as</MenuLabel>
             {groups.map((all) => {
               const group = accountsOpen || !here ? all : all.filter((seat) => seat.current)
               if (group.length === 0) return null
-              // The seat's own mark is the trigger, and — like every other one —
-              // it is out of the tab order. An earlier version of this comment
-              // claimed the card opened on keyboard focus here; review checked,
-              // and it does not. It could not: the trigger is `tabIndex={-1}`,
-              // and its parent is a `role="menuitem"` that owns the arrow keys.
-              // Making the span focusable would put a second stop inside a menu
-              // item, which is worse than the card being pointer-only. The
-              // seat's own press still does the thing the card's verb does.
-              //
-              // An account under its agent's heading wears no mark and no card
-              // — the heading carries the mark, and a card on the name would
-              // open at every rest on the list — only its colour, the ring it
-              // wears everywhere else, drawn small.
               const renderSeat = (seat: Seat, child: boolean) => {
-                const mark = child ? (
-                  <AccountMark
-                    size="dot"
-                    aria-hidden="true"
-                    {...(seat.account ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) } : {})}
-                  >
-                    {null}
-                  </AccountMark>
-                ) : (
-                  <AccountHoverCard
-                    info={seat.info}
-                    account={seat.account}
-                    side="right"
-                    align="start"
-                    className={styles.seatTrigger}
-                    /* The same verbs as the badge's card on the row below: two
-                       cards for one account that offered different things were
-                       the whole of the complaint. The sidebar's Dashboard opens
-                       the dashboard on everything; this opens it on this seat. */
-                    onOpenUsage={onOpenUsage}
-                  >
-                    <AccountMark
-                      size="sm"
-                      {...(seat.account
-                        ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) }
-                        : seat.state === 'signin'
-                          ? { 'data-off': '' }
-                          : {})}
-                    >
-                      <RuntimeMark runtime={seat.info} size={13} />
-                    </AccountMark>
-                  </AccountHoverCard>
-                )
+                const mark = child ? <AccountMark size="dot" aria-hidden="true" {...(seat.account ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) } : {})}>{null}</AccountMark> : <AccountMark size="menu" {...(seat.account ? { 'data-tint': tintOf(seat.key, snapshot.accountPrefs) } : seat.state === 'signin' ? { 'data-off': '' } : {})}><RuntimeMark runtime={seat.info} size={16} /></AccountMark>
                 // What is left, where it is measured; otherwise the one word
                 // that is wrong. A ready seat with nothing metered says
                 // nothing, and neither does one that has not answered yet.
@@ -776,7 +653,6 @@ export const AccountFooter = ({
                     onSelect={() => {
                       if (seat.current && chairs.length > 1) {
                         setAccountsOpen((value) => !value)
-                        setUsageOpen(false)
                         return
                       }
                       void store.selectRuntime(seat.info.id)
@@ -796,7 +672,7 @@ export const AccountFooter = ({
                   label={agent.presentation.name}
                   mark={
                     <AccountMark size="sm">
-                      <RuntimeMark runtime={agent} size={13} />
+                      <RuntimeMark runtime={agent} size={16} />
                     </AccountMark>
                   }
                 >
@@ -805,7 +681,7 @@ export const AccountFooter = ({
               )
             })}
             <MenuItem
-              icon={<PlusIcon size={13} />}
+              icon={<PlusIcon size={16} />}
               label="Add an account…"
               onSelect={() => {
                 // Opens the chooser rather than adding one here. "An account"
@@ -818,95 +694,82 @@ export const AccountFooter = ({
               }}
             />
 
-          <MenuSeparator />
-            {/* Only where something is metered: a row whose whole answer is
-                "—" took a line to say there was nothing to say. */}
-            {hasUsage && (
+            <SeatPlanUsage onOpen={onOpenUsage} onSignIn={onSignIn} />
             <MenuItem
-              expanded={usageOpen}
-              keepOpen
-              onSelect={() => {
-                setUsageOpen((value) => !value)
-              }}
-              /* The menu's own icon column and value slot, so the gauge and its
-                 words line up with Settings below. Dashboard is not in this
-                 menu: it is in the sidebar's own nav, always, with this gauge,
-                 and a second door here wore the same mark for another verb. */
-              icon={<UsageIcon size={13} />}
-              label="Usage remaining"
-              value={
-              <Text role="muted" tone={usageReadingTone(here?.tone)} numeric className={styles.accountMenuMeta}>
-                {here?.figure ?? '—'}
-                {/* The fold wears the figure's trouble, as the figure beside it does.
-                    A fold has one trouble tone, so a spent window's red figure
-                    folds under the warning mark. */}
-                <DisclosureChevron
-                  open={usageOpen}
-                  placement="trailing"
-                  tone={usageReadingTone(here?.tone) ? 'warning' : 'neutral'}
-                  className={styles.accountMenuCaret}
-                />
-              </Text>
-              }
-            />
-            )}
-            {usageOpen && usageView && (
-              <div className={styles.usageDetails} data-usage-details>
-                <div className={styles.usageLanes}>
-                  {usageView.all.map((lane) => (
-                    <UsageMeterRow key={lane.id} name={lane.title} percent={lane.remainingPercent} countdown={lane.resetCountdown} countdownTitle={lane.resetClock ? `resets ${lane.resetClock}` : undefined} tone={lane.tone === 'bad' ? 'danger' : lane.tone === 'warn' ? 'warning' : 'neutral'} standalone barless />
-                  ))}
-                </div>
-                {/* No link to the dashboard here: Dashboard is in the
-                    sidebar's nav, and a second door to it, indented under
-                    the fold, was one row and one ragged edge for nothing. */}
-              </div>
-            )}
-            <MenuItem
-              icon={<SettingsIcon size={13} />}
+              icon={<SettingsIcon size={16} />}
               label="Settings"
               shortcut="⌘,"
               onSelect={() => {
                 onOpenSettings()
               }}
             />
-            {signedIn && !confirmingSignOut && (
-              <MenuItem
-                icon={<SignOutIcon size={13} />}
-                label={`Sign out of ${agentName}…`}
-                danger
-                keepOpen
-                onSelect={() => setConfirmingSignOut(true)}
-              />
-            )}
-            {confirmingSignOut && (
-              <div>
-                <MenuNote>
-                  Sign out of {agentName}? You'll need to sign in again before the next turn.
-                </MenuNote>
-                <div className={styles.accountMenuConfirmActions}>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => setConfirmingSignOut(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    variant="destructive"
-                    size="sm"
-                    disabled={busy}
-                    onClick={() => void signOut(close)}
-                  >
-                    {busy ? 'Signing out…' : 'Sign out'}
-                  </Button>
-                </div>
-              </div>
-            )}
+            {signedIn && <MenuItem icon={<SignOutIcon size={16} />} label={`Sign out of ${agentName}…`} danger onSelect={() => { setSignOutError(null); setConfirmingSignOut(true) }} />}
           </Menu>
         )}
       </Popover>
-    </Bar>
+      {confirmingSignOut && <ConfirmDialog title={`Sign out of ${agentName}?`} confirmLabel="Sign out" cancelLabel="Keep signed in" tone="destructive" busy={busy} onCancel={() => { setSignOutError(null); setConfirmingSignOut(false) }} onConfirm={() => void signOut(() => setConfirmingSignOut(false))}>
+        <>You'll need to sign in again before the next turn.{signOutError && <ActionError>{signOutError}</ActionError>}</>
+      </ConfirmDialog>}
+    </div>} />
   )
 }
+
+/** The same plan facts as PlanMeters, in the seat's existing menu rows. */
+const SeatPlanUsage = ({ onOpen, onSignIn }: { onOpen: (runtime: RuntimeId) => void; onSignIn: (runtime: RuntimeId) => void }) => {
+  const snapshot = useSnapshot()
+  const [now, setNow] = useState(Date.now), [expanded, setExpanded] = useState<string | null>(null)
+  useEffect(() => { const timer = window.setInterval(() => setNow(Date.now()), 60_000); return () => window.clearInterval(timer) }, [])
+  const view = describeStrip({ runtimes: snapshot.runtimes, usage: snapshot.usage, accountsByRuntime: snapshot.accountsByRuntime,
+    accountPrefs: snapshot.accountPrefs, health: snapshot.health, activeRuntime: snapshot.activeRuntime, sessionRuntime: null, now })
+  const meters: readonly StripMeter[] = [...(view.anchor?.kind === 'meter' ? [view.anchor.meter] : []), ...(view.rest?.meters ?? [])]
+  const signIns = view.rest?.asides.filter(aside => aside.detail === 'Needs sign-in').map(aside => aside.info) ?? []
+  const markFor = (runtime: RuntimeId): ReactNode => {
+    const info = snapshot.runtimes.find(one => one.id === runtime)
+    return info ? <RuntimeMark runtime={info} size={16} /> : <AgentIcon size={16} />
+  }
+  const signedInIds = new Set([
+    ...(view.anchor?.kind === 'signIn' ? [view.anchor.info.id] : []),
+    ...signIns.map(info => info.id),
+  ])
+  const reportingIds = new Set(meters.map(meter => meter.runtime))
+  const noUsageNames = snapshot.runtimes
+    .filter(info => !signedInIds.has(info.id) && !reportingIds.has(info.id))
+    .map(info => runtimeLabel(info, snapshot.runtimes, snapshot.accountsByRuntime, snapshot.accountPrefs))
+  const noUsageSummary = noUsageNames.length === 0 ? null
+    : noUsageNames.length === 1 ? `No usage reported: ${noUsageNames[0]}`
+      : noUsageNames.length === 2 ? `No usage reported: ${noUsageNames[0]} and ${noUsageNames[1]}`
+        : `No usage reported: ${noUsageNames[0]}, ${noUsageNames[1]} and ${noUsageNames.length - 2} more`
+  const hasUsageGroup = Boolean(view.anchor || meters.length || signIns.length || noUsageSummary)
+  return <>
+    {hasUsageGroup && <MenuSeparator />}
+    {view.anchor?.kind === 'signIn' && <MenuItem icon={markFor(view.anchor.info.id)} label={`Sign in to ${view.anchor.info.presentation.name}`}
+      onSelect={() => { if (view.anchor?.kind === 'signIn') onSignIn(view.anchor.info.id) }} />}
+    {meters.map((meter, index) => {
+      const key = `${meter.runtime}:${meter.report.account ?? ''}`, open = expanded === key
+      return <SeatUsageRows key={key} meter={meter} now={now} open={open} icon={markFor(meter.runtime)}
+        label={index === 0 && view.anchor?.kind === 'meter' ? 'Usage remaining' : `${meter.name}${meter.account ? ` · ${meter.account}` : ''} usage`}
+        toggle={() => setExpanded(open ? null : key)} onOpen={() => onOpen(meter.runtime)} />
+    })}
+    {signIns.map(info => <MenuItem key={info.id} icon={markFor(info.id)}
+      label={`Sign in to ${info.presentation.name}`}
+      onSelect={() => onSignIn(info.id)} />)}
+    {noUsageSummary && <MenuNote>{noUsageSummary}</MenuNote>}
+    {hasUsageGroup && <MenuSeparator />}
+  </>
+}
+const SeatUsageRows = ({ meter, now, open, icon, label, toggle, onOpen }: { meter: StripMeter; now: number; open: boolean; icon: ReactNode; label: string; toggle: () => void; onOpen: () => void }) => <>
+  <MenuItem icon={icon} label={label} trailing={<><Text role="muted" tone={usageReadingTone(meter.tone)} numeric>{meter.figure}</Text><DisclosureChevron open={open} placement="trailing" tone={usageReadingTone(meter.tone) ? 'warning' : 'neutral'} /></>} expanded={open} keepOpen onSelect={toggle} title={meter.title} />
+  {open && <div data-usage-details>
+    {(meter.report.plan || meter.report.account) && <MenuNote>{[meter.report.plan, meter.report.account].filter(Boolean).join(' · ')}</MenuNote>}
+    <MenuFacts rows={meter.report.lanes.map(raw => {
+      const lane = describeLane(raw, now, meter.report.lanes)
+      return { id: lane.id, name: lane.title, percent: lane.remainingPercent,
+        countdown: lane.gatedUntil === null ? lane.resetCountdown : `blocked ${lane.gatedFor ?? '—'}`,
+        countdownTitle: lane.gatedUntil !== null ? `blocked until ${lane.gatedClock}` : lane.resetClock ? `resets ${lane.resetClock}` : undefined,
+        tone: lane.tone === 'bad' ? 'danger' as const : lane.tone === 'warn' ? 'warning' as const : 'neutral' as const, barless: true }
+    })} />
+    <MenuNote>{[meter.report.spend?.todayCost != null ? `${formatMoney(meter.report.spend.todayCost, meter.report.spend.currency)} today` : null,
+      meter.report.source.label, formatAge(meter.report.fetchedAt, now)].filter(Boolean).join(' · ')}</MenuNote>
+    <MenuItem icon={<UsageIcon size={16} />} label="Open usage" onSelect={onOpen} />
+  </div>}
+</>

@@ -1,3 +1,4 @@
+import { SettingsTestPage as Settings } from '../test-support/settings-page'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -7,20 +8,7 @@ import { NO_CAPABILITIES, runtimeId } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { Settings } from './Settings'
-
-/**
- * The Runtimes nav dot (#986, PR #1020 review round 2).
- *
- * `agentReadiness`'s fallback used to read `signin` the moment no sibling had
- * an account entry, whether or not any of them had actually said so, and the
- * nav lit while accounts were still loading (or forever, after a read that
- * failed silently). It reads `unknown` for that case now, and `isBlocking`
- * (`Settings.tsx:1818-1823`) keeps it quiet — while a confirmed sign-out
- * still lights it, which is the control.
- */
-
-;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let container: HTMLDivElement
 let root: Root
@@ -79,7 +67,7 @@ const runtimesRow = (): HTMLElement | undefined =>
   [...container.querySelectorAll('button')].find((node) => node.textContent?.trim().startsWith('Runtimes'))
 
 const dotOf = (row: HTMLElement | undefined): Element | null =>
-  row?.closest('[data-slot="sidebar-menu-item"]')?.querySelector('[data-slot="dot"]') ?? null
+  row?.closest('[data-left-row]')?.querySelector('[data-slot="dot"]') ?? null
 
 it('does not light for an agent that has not answered yet', () => {
   // Absent from accountsByRuntime altogether: still loading, or a read that
@@ -93,4 +81,16 @@ it('lights for an agent that answered and confirmed nobody is signed in', () => 
   const dot = dotOf(runtimesRow())
   expect(dot).not.toBeNull()
   expect(dot?.getAttribute('data-state')).toBe('signin')
+})
+
+
+it('uses the left-column anatomy for the existing Settings pages and groups', () => {
+  mount({})
+  const nav = container.querySelector('[aria-label="Settings navigation"]')!
+  expect(nav.querySelectorAll('[data-left-group]')).toHaveLength(4)
+  const row = runtimesRow()!
+  expect(row.closest('[data-left-row]')).not.toBeNull()
+  expect(row.closest('[data-left-row]')?.querySelectorAll('[data-left-trailing]')).toHaveLength(1)
+  expect([...nav.querySelectorAll('[data-left-group-text]')].map(node => node.textContent))
+    .toEqual(['Preferences', 'Conversations', 'Agents', 'Access'])
 })

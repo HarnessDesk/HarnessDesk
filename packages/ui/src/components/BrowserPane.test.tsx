@@ -8,7 +8,8 @@ import type { DesktopBridge } from '../lib/desktop'
 import { StoreProvider } from '../state/context'
 import { MountProvider } from '../panels/mount'
 import { addBrowserTab, browserView, patchBrowserTab, type BrowserView, type PaneId } from '../state/layout'
-import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { emptySnapshot, type AppSnapshot, AppStore } from '../state/store'
+import { dockViews } from '../state/workbench'
 import { BrowserPane, normaliseUrl, stepZoom, tabName, zoomPercent } from './BrowserPane'
 
 describe('normaliseUrl', () => {
@@ -214,7 +215,7 @@ describe('BrowserPane', () => {
     expect(failureState?.textContent).toContain('http://127.0.0.1:9/')
     expect(failureState?.textContent).not.toContain('https://last-good.example/')
     expect(container.textContent).toContain('Try again')
-    const footer = [...container.querySelectorAll('[data-slot="bar"][data-rule="top"]')]
+    const footer = [...container.querySelectorAll('[data-slot="content-footer"]')]
       .find((bar) => bar.textContent?.includes('Page failed to load'))
     expect(footer).toBeDefined()
     expect(footer?.textContent).not.toContain('Idle')
@@ -226,7 +227,8 @@ describe('BrowserPane', () => {
       guest.dispatchEvent(Object.assign(new Event('did-navigate'), { url: 'http://127.0.0.1:9/' }))
     })
     expect(container.textContent).not.toContain('connection was refused')
-    expect(container.textContent).toContain('Idle')
+    expect(container.textContent).not.toContain('Idle')
+    expect(container.querySelector('[data-slot="content-footer"]')).toBeNull()
   })
 
   it('draws one tab per page, named by the page', () => {
@@ -404,13 +406,10 @@ describe('BrowserPane', () => {
 
   it('is idle when nothing is touching the page', () => {
     mount(browserView('https://a.test/'))
-    expect(container.textContent).toContain('Idle')
+    expect(container.textContent).not.toContain('Idle')
     expect(container.textContent).not.toContain('Being driven')
-    const footer = [...container.querySelectorAll('[data-slot="bar"][data-rule="top"]')]
-      .find((bar) => bar.textContent?.includes('Idle'))
-    expect(footer).toBeDefined()
-    expect(footer?.querySelector('[data-slot="text"][data-role="meta"]')?.textContent).toBe('Idle')
-    expect(footer?.textContent).toContain('Never your own browser profile')
+    expect(container.querySelector('[data-slot="content-footer"]')).toBeNull()
+    expect(container.textContent).not.toContain('Never your own browser profile')
   })
 
   it('names the driven tab to the shell, not whichever tab is on screen', () => {
@@ -563,14 +562,15 @@ describe('BrowserPane', () => {
    */
   it('keeps the whole tab strip out of the window-drag region', () => {
     mount(addBrowserTab(browserView('https://a.test/'), 'https://b.test/'))
-    const header = container.querySelector('header')
-    expect(header?.className).toContain('hd-drag')
+    const controls = container.querySelector('[data-slot="tool-controls"]')
+    expect(controls).not.toBeNull()
+    expect(controls?.closest('.hd-drag')).toBeNull()
     for (const control of [
       ...container.querySelectorAll('[role="tab"]'),
       container.querySelector('[aria-label="New tab"]')!,
       container.querySelector('[role="tab"] button[aria-label^="Close"]')!,
     ]) {
-      expect(control.closest('.hd-no-drag'), `${control.getAttribute('aria-label') ?? control.textContent} is draggable`).not.toBeNull()
+      expect(control.closest('.hd-drag'), `${control.getAttribute('aria-label') ?? control.textContent} is draggable`).toBeNull()
     }
   })
 
@@ -585,6 +585,20 @@ describe('BrowserPane', () => {
     expect(rows.join('|')).toContain('Duplicate')
     expect(rows.join('|')).toContain('Close other tabs')
     expect(rows.join('|')).toContain('Close tabs to the right')
+    const menu = document.querySelector<HTMLElement>('[role="menu"]')!
+    expect(menu.closest('[data-popup-kind]')?.getAttribute('data-menu-icons')).toBe('all')
+    expect([...menu.querySelectorAll<HTMLElement>('[data-menu-row]')].every(row => row.querySelector('[data-menu-icon]'))).toBe(true)
+  })
+
+  it('gives every page action in the right-click menu its own icon', () => {
+    const view = addBrowserTab(browserView('https://example.test/'), 'https://next.example.test/')
+    mount(view)
+    const event = new Event('context-menu') as Event & { params?: { x: number; y: number; linkURL?: string; selectionText?: string } }
+    event.params = { x: 40, y: 20, linkURL: 'https://link.example.test/', selectionText: '' }
+    act(() => webviews()[0]?.dispatchEvent(event))
+    const menu = document.querySelector<HTMLElement>('[role="menu"]')!
+    expect(menu.closest('[data-popup-kind]')?.getAttribute('data-menu-icons')).toBe('all')
+    expect([...menu.querySelectorAll<HTMLElement>('[data-menu-row]')].every(row => row.querySelector('[data-menu-icon]'))).toBe(true)
   })
 
   it('reorders tabs by dragging one along the strip', () => {
@@ -1099,4 +1113,45 @@ describe('BrowserPane find', () => {
     mount({ ...view, active: view.tabs[0]!.id }, harness)
     expect(findField()).toBeNull()
   })
+})
+
+it('reopening the default browser across Teams mounts one bridge subscriber and opens one target tab', () => {
+  const store = new AppStore('ws://localhost:0/')
+  store.openTeamRoom('fixture-a')
+  store.openBrowser()
+  store.openTeamRoom('fixture-b')
+  store.openBrowser()
+  const named: { profile: string | null; webContentsId: number }[] = []
+  window.harnessdesk!.browserReady = request => { named.push(request) }
+  const handlers = new Set<(request: { url: string; profile: string | null }) => void>()
+  window.harnessdesk!.onBrowserOpenTab = handler => {
+    handlers.add(handler)
+    return () => { handlers.delete(handler) }
+  }
+  const browsers = dockViews(store.getSnapshot().workbench.right).filter(one => one.view.kind === 'browser')
+  act(() => root.render(
+    <StoreProvider store={store}>
+      {browsers.map(one => <MountProvider key={one.id} scope={{ area: 'right', id: one.id, view: one.view }}>
+        <BrowserPane />
+      </MountProvider>)}
+    </StoreProvider>,
+  ))
+  expect(handlers.size).toBe(1)
+  expect(webviews()).toHaveLength(1)
+  Object.assign(webviews()[0]!, { getWebContentsId: () => 71 })
+  act(() => { webviews()[0]!.dispatchEvent(new Event('dom-ready')) })
+  expect(named).toEqual([{ profile: null, webContentsId: 71 }])
+  act(() => store.focusDrivenBrowserTab())
+  expect(store.getSnapshot().workbench.focus).toBe(browsers[0]!.id)
+  expect(named).toEqual([{ profile: null, webContentsId: 71 }])
+  act(() => {
+    for (const handler of handlers) handler({ profile: null, url: 'https://example.com/target' })
+  })
+  const workbench = store.getSnapshot().workbench
+  const after = dockViews(workbench.right).filter(one => one.view.kind === 'browser')
+  expect(after).toHaveLength(1)
+  expect(after.flatMap(one => one.view.kind === 'browser' ? one.view.tabs : [])
+    .filter(tab => tab.url === 'https://example.com/target')).toHaveLength(1)
+  expect(workbench.toolOwners[after[0]!.id]).toBe('team:fixture-a')
+  expect(store.workSubject()).toBe('team:fixture-a')
 })
