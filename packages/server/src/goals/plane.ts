@@ -287,6 +287,7 @@ export class GoalPlane {
       ?? executions.find((one) => one.state === 'running' || one.state === 'stalled')
       ?? executions.find((one) => one.id === origin)
       ?? (named === null ? executions.at(-1) : undefined)
+    const currentSeats = new Set(current?.rounds.flatMap(round => round.seats) ?? [])
     const endingNeedsYou = current?.end?.kind === 'unrouted' || current?.end?.kind === 'budget' || current?.end?.kind === 'stalled'
     const placements = board.intents.map((intent) => {
       const step = flowStepOf(intent, run, executions)
@@ -319,7 +320,7 @@ export class GoalPlane {
         const found = dependencies.find((one) => one.id === dependency)
         return found?.state === 'wrapped' ? [] : [{ id: dependency, sentence: found?.sentence ?? 'A missing Goal' }]
       }),
-      members, pastMembers: this.port.seats.all().filter(seat => seat.board === id && seat.closed !== null && !seat.restored), board, receipt: document.receipt,
+      members, pastMembers: this.port.seats.all().filter(seat => seat.board === id && seat.closed !== null && !seat.restored && currentSeats.has(seat.id)), board, receipt: document.receipt,
       problem: document.restored ? 'This Goal came from a backup. Start a new Goal to continue its work.' : problem,
       ...(document.flowReservation ? { reservation: { run: document.flowReservation.run } } : {}),
     }

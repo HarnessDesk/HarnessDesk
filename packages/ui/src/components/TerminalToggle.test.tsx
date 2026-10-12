@@ -8,7 +8,7 @@ import { StoreProvider } from '../state/context'
 import type { TerminalView } from '../state/layout'
 import { dock, dockViews } from '../state/workbench'
 import { AppStore, emptySnapshot, type AppSnapshot } from '../state/store'
-import { TerminalToggle } from './TerminalToggle'
+import { TerminalToggle, toggleTerminal } from './TerminalToggle'
 
 /**
  * The terminal button at the app foot is an on/off switch.
@@ -177,4 +177,17 @@ it('actual cancellation closes arriving PTYs without attaching or changing the w
     expect(dockViews(store.getSnapshot().workbench.right)).toEqual(right)
     expect(button().getAttribute('aria-label')).toBe('Open terminal')
   } finally { request.mockRestore(); vi.unstubAllGlobals() }
+})
+
+it('the keyboard toggle closes retained shells on Settings without creating a new one', () => {
+  const store = mount([docked()], false)
+  Object.assign(store.getSnapshot().workbench, { navigation: { current: { kind: 'settings', route: { kind: 'section', section: 'general', focus: null } }, back: [], forward: [] } })
+  act(() => toggleTerminal(store))
+  expect([opened, closed]).toEqual([0, 1])
+})
+it('the keyboard toggle does not create a shell from a page borrowing retained work', () => {
+  const store = mount([])
+  Object.assign(store.getSnapshot().workbench, { navigation: { current: { kind: 'dashboard', view: 'overview', scope: null }, back: [], forward: [] } })
+  act(() => toggleTerminal(store))
+  expect([opened, closed]).toEqual([0, 0])
 })

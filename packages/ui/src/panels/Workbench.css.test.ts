@@ -65,9 +65,9 @@ describe('the dim over a narrow window', () => {
     expect(shellCss).toMatch(/\.shell\[data-panel-floats='true'\] \.right\s*\{[^}]*top:\s*var\(--hd-bar-h\)/)
     expect(shellCss).toContain('bottom: var(--frame-bottom)')
   })
-  it('reserves the floating right panel as a fixed-shell column beside main', () => {
-    expect(shellCss).toMatch(/\.shell\[data-panel-floats='true'\]\s*\{[^}]*grid-template-columns:\s*var\(--frame-left\) minmax\(0, 1fr\) var\(--frame-right-open\)/)
-    expect(shellCss).toMatch(/\.shell\[data-left-floats='true'\]\[data-panel-floats='true'\]\s*\{[^}]*grid-template-columns:\s*0 minmax\(0, 1fr\) var\(--frame-right-open\)/)
+  it('keeps main width when the right panel floats over it', () => {
+    expect(shellCss).toMatch(/\.shell\[data-panel-floats='true'\]\s*\{[^}]*grid-template-columns:\s*var\(--frame-left\) minmax\(0, 1fr\) 0/)
+    expect(shellCss).toMatch(/\.shell\[data-left-floats='true'\]\[data-panel-floats='true'\]\s*\{[^}]*grid-template-columns:\s*0 minmax\(0, 1fr\) 0/)
   })
   it('does not hide main or disable its bar dragging for a nonmodal right float', () => {
     expect(css).not.toContain('data-right-panel-overlay')

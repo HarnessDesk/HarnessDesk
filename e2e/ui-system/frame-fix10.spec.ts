@@ -11,16 +11,16 @@ const openFrame = async (page: Page, query: string, theme: 'light' | 'dark' = 'l
 
 {
 
-for (const [item0, theme] of (['light', 'dark'] as const).entries()) test(('FIX10 partly read spend agrees across ranges and keeps today unread') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
+for (const [item0, theme] of (['light', 'dark'] as const).entries()) test(('FIX10 partly read spend agrees across ranges and keeps quiet days known') + ' [item ' + [item0].join('-') + ']', async ({ page }) => {
 
 await openFrame(page, 'frame-wall=dashboard&frame-view=spend&frame-fix10-ledger=partial', theme)
 const cost = page.getByRole('region', { name: 'What it cost', exact: true })
-await expect(cost.locator('[data-slot="stat"]').filter({ hasText: 'Last 7 days' })).toContainText('$23.09· 4 of 7 days scanned')
-await expect(cost.locator('[data-slot="stat"]').filter({ hasText: 'Today' })).toContainText('Not read yet')
+await expect(cost.locator('[data-slot="stat"]').filter({ hasText: 'Last 7 days' })).toContainText('$23.09so far')
+await expect(cost.locator('[data-slot="stat"]').filter({ hasText: 'Today' })).toContainText('$0')
 await page.getByRole('combobox', { name: 'How far back', exact: true }).selectOption('7')
 await expect(cost.locator('[data-slot="chart-title"]').first()).toHaveText('$23.09')
-await expect(cost).toContainText('4 of 7 days scanned')
-await expect(cost.locator('[data-slot="stat"]').filter({ hasText: 'Today' })).toContainText('Not read yet')
+await expect(cost).toContainText('3 of 7 days with usage')
+await expect(cost.locator('[data-slot="stat"]').filter({ hasText: 'Today' })).toContainText('$0')
 
 
 })

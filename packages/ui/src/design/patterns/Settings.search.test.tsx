@@ -116,3 +116,23 @@ it('lets an always-focused field use its caret as the focus cue without changing
   expect(container.querySelector('[aria-label="Palette search"]')?.getAttribute('data-focus-indicator')).toBe('caret')
   expect(container.querySelector('[aria-label="Ordinary search"]')?.hasAttribute('data-focus-indicator')).toBe(false)
 })
+
+it('clears nonempty Search on Escape without letting its page leave, and leaves empty/composing Escape alone', () => {
+  const change=vi.fn(), keys=vi.fn()
+  const draw=(value:string)=>act(()=>root.render(<Search value={value} onChange={change} onKeyDown={keys} placeholder="Search settings" />))
+  draw('runtime')
+  const input=container.querySelector('input')!
+  const escape=new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})
+  act(()=>input.dispatchEvent(escape))
+  expect(change).toHaveBeenCalledWith('')
+  expect(escape.defaultPrevented).toBe(true)
+  expect(keys).toHaveBeenCalledOnce()
+  change.mockClear();draw('')
+  const empty=new KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true})
+  act(()=>input.dispatchEvent(empty))
+  expect(empty.defaultPrevented).toBe(false);expect(change).not.toHaveBeenCalled()
+  draw('runtime')
+  const composing=new KeyboardEvent('keydown',{key:'Escape',isComposing:true,bubbles:true,cancelable:true})
+  act(()=>input.dispatchEvent(composing))
+  expect(composing.defaultPrevented).toBe(false);expect(change).not.toHaveBeenCalled()
+})

@@ -901,7 +901,7 @@ it('a delayed Back read cannot supersede a newly selected page', async () => {
   await back
   expect(store.getSnapshot().workbench.navigation).toEqual(before)
 })
-it('a failed Back read cannot use a cached session as successful read evidence', async () => {
+it('a failed Back read skips the unavailable target instead of using its cached session', async () => {
   answers['session/read'] = session(); answers['session/resume'] = session()
   await store.openSession(ID, { runtime: RUNTIME })
   store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'appearance', focus: null } })
@@ -911,8 +911,9 @@ it('a failed Back read cannot use a cached session as successful read evidence',
     return answers[method] ?? null
   }) as never)
   await store.navigateBack()
-  expect(store.getSnapshot().workbench.navigation).toEqual(before.navigation)
-  expect(store.getSnapshot().layout).toEqual(before.main)
+  expect(store.getSnapshot().workbench.navigation.current).toEqual({ kind: 'work', view: { kind: 'conversation', session: null } })
+  expect(store.getSnapshot().workbench.navigation.back).toEqual([])
+  expect(store.getSnapshot().layout).not.toEqual(before.main)
 })
 it('a readable history target with refused resume remains navigable', async () => {
   answers['session/read'] = session(); answers['session/resume'] = session()
@@ -950,4 +951,121 @@ it('a hidden transcript read never visits work or closes the current page', asyn
   answers['session/read'] = session(); answers['session/resume'] = session()
   expect(await store.openSession(ID, { runtime: RUNTIME, reveal: false })).toBe(true)
   expect(store.getSnapshot().workbench.navigation).toBe(before)
+})
+
+it('Settings departure skips an unreadable conversation and preserves Settings routes for Forward', async () => {
+  answers['session/read'] = session(); answers['session/resume'] = session()
+  store.openTeamRoom('fixture-earlier')
+  await store.openSession(ID, { runtime: RUNTIME })
+  store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'general', focus: null } })
+  const route = { kind: 'settings', route: { kind: 'section', section: 'history', focus: null } } as const
+  store.openDestination(route)
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => {
+    if (method === 'session/read') throw new Error('Synthetic transcript unavailable')
+    return answers[method] ?? null
+  }) as never)
+  await store.leaveSettings()
+  expect(store.getSnapshot().workbench.navigation.current).toMatchObject({ kind: 'work', view: { kind: 'room', room: 'fixture-earlier' } })
+  await store.navigateForward()
+  expect(store.getSnapshot().workbench.navigation.current).toMatchObject({ kind: 'settings' })
+})
+it('Forward skips an unreadable conversation and reaches the page beyond it', async () => {
+  answers['session/read'] = session(); answers['session/resume'] = session()
+  await store.openSession(ID, { runtime: RUNTIME })
+  const route = { kind: 'settings', route: { kind: 'section', section: 'general', focus: null } } as const
+  store.openDestination(route)
+  await store.navigateBack(); await store.navigateBack()
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => {
+    if (method === 'session/read') throw new Error('Synthetic transcript unavailable')
+    return answers[method] ?? null
+  }) as never)
+  await store.navigateForward()
+  expect(store.getSnapshot().workbench.navigation.current).toEqual(route)
+})
+it('removed conversations are pruned from both history directions and review return scope', async () => {
+  answers['session/read'] = session(); answers['session/resume'] = session()
+  store.openTeamRoom('fixture-earlier')
+  await store.openSession(ID, { runtime: RUNTIME })
+  store.openReview()
+  await store.navigateBack()
+  await store.navigateBack()
+  const transport = store.transport as unknown as { handlers: TransportEvents }
+  transport.handlers.onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: ID, deleted: true } })
+  const history = store.getSnapshot().workbench.navigation
+  expect(JSON.stringify(history)).not.toContain('s-1')
+  await store.navigateForward()
+  expect(store.getSnapshot().workbench.navigation.current).toMatchObject({ kind: 'changes-review', returnTo: { kind: 'conversation', session: null } })
+})
+it('a first send retains the draft tool intent and rekeys each retained tool owner', async () => {
+  Object.assign(store.getSnapshot(), { activeRuntime: RUNTIME, workspace: { path: '/synthetic/project', name: 'Synthetic' } })
+  store.newDraft()
+  store.openBrowser('https://example.com/draft')
+  store.openDetailsTab('changes')
+  const before = store.getSnapshot().workbench
+  const draft = store.workSubject()!
+  const owners = Object.entries(before.toolOwners).filter(([, owner]) => owner === draft).map(([id]) => id)
+  answers['session/create'] = session()
+  await store.send([{ type: 'text', text: 'First message' }])
+  const after = store.getSnapshot().workbench
+  expect(after.main.focused).toBe(before.main.focused)
+  expect(after.frameTools[`session:${KEY}`]).toEqual(before.frameTools[draft])
+  expect(after.frameSubjects[`session:${KEY}`]?.view).toEqual({ kind: 'conversation', session: KEY })
+  expect(owners.map(id => after.toolOwners[id])).toEqual(owners.map(() => `session:${KEY}`))
+  expect(after.frameTools[draft]).toBeUndefined()
+  expect(after.frameSubjects[draft]).toBeUndefined()
+})
+
+it('deleting the Settings history target leaves Settings navigable in one departure', async () => {
+  answers['session/read'] = session(); answers['session/resume'] = session()
+  store.openTeamRoom('fixture-earlier')
+  await store.openSession(ID, { runtime: RUNTIME })
+  store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'general', focus: null } })
+  store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'history', focus: null } })
+  const transport = store.transport as unknown as { handlers: TransportEvents }
+  transport.handlers.onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: ID, deleted: true } })
+  expect(JSON.stringify(store.getSnapshot().workbench.navigation)).not.toContain('s-1')
+  await store.leaveSettings()
+  expect(store.getSnapshot().workbench.navigation.current).toMatchObject({ kind: 'work', view: { kind: 'room', room: 'fixture-earlier' } })
+})
+it('deleting the current review subject clears its return target and the Back visit', async () => {
+  answers['session/read'] = session(); answers['session/resume'] = session()
+  await store.openSession(ID, { runtime: RUNTIME })
+  store.openReview()
+  const transport = store.transport as unknown as { handlers: TransportEvents }
+  transport.handlers.onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: ID, deleted: true } })
+  const history = store.getSnapshot().workbench.navigation
+  expect(history.current).toMatchObject({ kind: 'changes-review', returnTo: { kind: 'conversation', session: null } })
+  expect(JSON.stringify(history)).not.toContain('s-1')
+  await store.navigateBack()
+  expect(store.getSnapshot().workbench.navigation.current).toEqual({ kind: 'work', view: { kind: 'conversation', session: null } })
+})
+
+it('a legacy split creation does not transfer tools from the displaced draft', async () => {
+  Object.assign(store.getSnapshot(), { activeRuntime: RUNTIME, workspace: { path: '/synthetic/project', name: 'Synthetic' } })
+  store.newDraft(); store.openBrowser('https://example.com/draft')
+  const before = store.getSnapshot().workbench, draft = store.workSubject()!
+  const owners = Object.entries(before.toolOwners).filter(([, owner]) => owner === draft).map(([id]) => id)
+  answers['session/create'] = session()
+  await store.newSession({ split: 'row' })
+  const after = store.getSnapshot().workbench
+  expect(after.main.focused).not.toBe(before.main.focused)
+  expect(after.frameTools[draft]).toEqual(before.frameTools[draft])
+  expect(after.frameSubjects[draft]).toEqual(before.frameSubjects[draft])
+  expect(owners.map(id => after.toolOwners[id])).toEqual(owners.map(() => draft))
+  expect(after.frameTools[`session:${KEY}`]).toBeUndefined()
+})
+it('a creation finishing after a different draft is selected does not adopt the earlier draft tools', async () => {
+  Object.assign(store.getSnapshot(), { activeRuntime: RUNTIME, workspace: { path: '/synthetic/project', name: 'Synthetic' } })
+  store.newDraft(); store.openBrowser('https://example.com/draft')
+  const before = store.getSnapshot().workbench, draft = store.workSubject()!
+  let created!: (value: Session) => void
+  const pending = new Promise<Session>(resolve => { created = resolve })
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => method === 'session/create' ? pending : answers[method] ?? null) as never)
+  const sending = store.send([{ type: 'text', text: 'First message' }])
+  store.openTeamRoom('fixture-elsewhere'); store.newDraft()
+  created(session()); await sending
+  const after = store.getSnapshot().workbench
+  expect(after.frameTools[draft]).toEqual(before.frameTools[draft])
+  expect(after.frameSubjects[draft]).toEqual(before.frameSubjects[draft])
+  expect(after.frameTools[`session:${KEY}`]).toBeUndefined()
 })

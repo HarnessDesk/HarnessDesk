@@ -8,13 +8,14 @@ import type { LibraryKind } from '@harnessdesk/protocol'
  * Provenance as a manifest, not a symlink.
  *
  * One JSON file records every copy the write path has ever produced: the
- * path it wrote, and the digest of the definition as written. That pair is
- * the whole overwrite policy — digest equal means the copy is still ours and
- * may be updated or removed; digest unequal means a person edited it since,
+ * path it wrote, and the digest of the bundle as written. Those matching
+ * means the copy is still ours and may be updated or removed; a changed
+ * definition or supporting file means a person edited it since,
  * and the install path must stand back. **Nothing without an entry here is
  * ever written over by an install.** The explicit resolve and remove flows
  * may replace foreign copies, and they carry a backup precisely because this
  * file cannot vouch for what they replace.
+ * Legacy skill entries vouch only for a lone definition, never its extras.
  *
  * No symlinks, no Windows junctions, and nothing breaks when an agent
  * rewrites its own directory — the manifest just stops matching, which *is*
@@ -28,6 +29,8 @@ export interface ManifestEntry {
   readonly path: string
   /** Digest of the definition as this app last wrote it. */
   readonly digest: string
+  /** Full skill bundle as last written, including retained supporting files. */
+  readonly bundle?: string
   readonly at: number
   /** Where the content came from, for the audit trail's benefit. */
   readonly source?: string
@@ -68,7 +71,8 @@ export class LibraryManifest {
           (entry?.kind === 'skill' || entry?.kind === 'mcp') &&
           typeof entry?.name === 'string' &&
           typeof entry?.path === 'string' &&
-          typeof entry?.digest === 'string'
+          typeof entry?.digest === 'string' &&
+          (entry.bundle === undefined || typeof entry.bundle === 'string')
         ) {
           manifest.#entries.set(keyOf(entry.kind, entry.path, entry.name), entry)
         }

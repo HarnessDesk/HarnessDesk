@@ -5,7 +5,7 @@ import styles from './MainDestination.module.css'
 export const MainDestination = ({ page, work, pages }: {
   readonly page: boolean; readonly work: ReactNode; readonly pages?: ReactNode
 }) => <div data-slot="main-destinations" className={styles.root}>
-  <div data-slot="retained-work" hidden={page} inert={page} className={styles.work}>{work}</div>
+  <div data-slot="retained-work" {...(page ? { 'data-hidden': '' } : {})} inert={page} className={styles.work}>{work}</div>
   <div data-slot="destination-pages" hidden={!page} inert={!page} className={styles.pages}>{pages}</div>
 </div>
 /** Each visited page owns one scroll element for the current project. */

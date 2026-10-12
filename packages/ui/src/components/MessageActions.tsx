@@ -1,7 +1,8 @@
 import { useCallback, useState } from 'react'
 
+import { sessionUnavailable } from '../lib/session-unavailable'
 import { instant } from '../lib/clock'
-import { useSessionKey, useSnapshot, useStore } from '../state/context'
+import { useActiveSession, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { isRecordConversation, RECORD_REASON } from '../lib/team-record'
 import { Button, CopyButton, Text } from '../design'
 import { RetryIcon, ThumbsDownIcon, ThumbsUpIcon } from './Icons'
@@ -21,7 +22,9 @@ import styles from './Items.module.css'
 export const MessageActions = ({ text, at }: { text: string; at?: number | null }) => {
   const store = useStore()
   const key = useSessionKey()
-  const record = isRecordConversation(useSnapshot().goals.values(), key)
+  const snapshot = useSnapshot()
+  const record = isRecordConversation(snapshot.goals.values(), key)
+  const refusal = record ? RECORD_REASON : sessionUnavailable(snapshot, useActiveSession())
   const [copied, setCopied] = useState(false)
   const [vote, setVote] = useState<'up' | 'down' | null>(null)
   // A runtime that stamped the turn with something that is not a clock reading
@@ -33,7 +36,7 @@ export const MessageActions = ({ text, at }: { text: string; at?: number | null 
   // already started something else, and "try again" must not be the one
   // message the app throws away.
   const retry = useCallback(() => {
-    if (record) return
+    if (refusal) return
     void store.queue(
       [
         {
@@ -43,7 +46,7 @@ export const MessageActions = ({ text, at }: { text: string; at?: number | null 
       ],
       key,
     )
-  }, [key, store, record])
+  }, [key, store, refusal])
 
   return (
     <div data-message-actions="assistant" className={styles.actions} {...(copied || vote ? { 'data-sticky': '' } : {})}>
@@ -74,9 +77,9 @@ export const MessageActions = ({ text, at }: { text: string; at?: number | null 
       <Button
         variant="quiet" size="icon-xs"
         onClick={retry}
-        disabled={record}
+        disabled={Boolean(refusal)}
         aria-label="Ask the agent to try again"
-        title={record ? RECORD_REASON : 'Try again'}
+        title={refusal ?? 'Try again'}
       >
         <RetryIcon size={13} />
       </Button>

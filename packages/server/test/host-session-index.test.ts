@@ -636,3 +636,20 @@ test('reading an existing conversation does not promote it in project recency', 
   assert.deepEqual(after.data.map(row => row.id), before.data.map(row => row.id))
   assert.equal(after.data.find(row => row.id === old.id)?.updatedAt, old.updatedAt)
 })
+
+test('reading a held body retains its creation time instead of sparse index or replay timing', async t => {
+  const root = tempDir('hd-index-held-time-')
+  const runtime = new FakeRuntime()
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library'), catalogRefreshMs: 0 })
+  t.after(() => host.dispose())
+  host.register(runtime)
+  await host.start()
+  const opened = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } })
+  const record = host.registry.get(runtime.info.id, opened.id)!
+  record.session = { ...record.session, itemsLoaded: true, createdAt: 10, updatedAt: 100 }
+  runtime.readSession = async () => ({ ...record.session, createdAt: 500, updatedAt: 500 })
+  const read = await host.call('session/read', { runtime: runtime.info.id, sessionId: opened.id })
+  assert.equal(read.createdAt, 10)
+  assert.equal(read.updatedAt, 100)
+})

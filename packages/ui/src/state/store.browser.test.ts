@@ -12,11 +12,9 @@ import '../panels/builtins'
 /**
  * The store's browser-pane actions.
  *
- * The rule these hold is the one the pane is built on: **the tab an agent
- * drives is a tab on screen**. `browser_open` reaches `openBrowser` from the
- * shell, and the shell asks for `focusDrivenBrowserTab` before every
- * command — because Chromium stops painting a `<webview>` nobody is looking
- * at, so a driven tab left behind another screenshots blank.
+ * The shell selects the driven tab before every command. Explicit reveals
+ * return to the resource's recorded work; agent commands preserve the main
+ * destination and its Back history while selecting that retained tab.
  */
 
 let store: AppStore
@@ -322,6 +320,8 @@ it('an explicit browser reveal returns to its recorded Team and keeps its driven
   store.newBrowserTab(id, 'https://example.com/notes')
   const before = viewAt(store.getSnapshot().workbench, id) as BrowserView
   store.openTeamRoom('fixture-b')
+  store.revealView(id)
+  expect(store.getSnapshot().workbench.navigation.back.at(-1)).toMatchObject({ kind: 'work', view: { kind: 'room', room: 'fixture-b' } })
   store.focusDrivenBrowserTab('lane-fixture')
   expect(store.workSubject()).toBe('team:fixture-a')
   expect(store.getSnapshot().workbench.toolOwners[id]).toBe('team:fixture-a')
@@ -405,4 +405,31 @@ it('B7 closing and reopening keeps the actually selected second Browser profile'
   store.toggleWorkPanel()
   store.toggleWorkPanel()
   expect(activeView(store.getSnapshot().workbench.right)?.id).toBe(first.id)
+})
+
+for (const page of [false, true]) it(`agent-driven browser commands preserve the person's main and history (page=${page})`, () => {
+  store.openTeamRoom('fixture-a')
+  store.openBrowser('https://example.com/first', { profile: 'lane-fixture' })
+  const first = findView(store.getSnapshot().workbench, browserView(BLANK, 'lane-fixture'))!
+  if (first.area === 'main') throw new Error('fixed browser expected')
+  store.newBrowserTab(first.mounted.id, 'https://example.com/person')
+  const beforeBrowser = viewAt(store.getSnapshot().workbench, first.mounted.id) as BrowserView
+  store.openTeamRoom('fixture-b')
+  if (page) store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'general', focus: null } })
+  const before = store.getSnapshot().workbench
+  store.focusDrivenBrowserTab('lane-fixture')
+  expect(store.getSnapshot().workbench.main).toBe(before.main)
+  expect(store.getSnapshot().workbench.navigation).toBe(before.navigation)
+  expect(store.getSnapshot().workbench.focus).toBe(before.focus)
+  expect((viewAt(store.getSnapshot().workbench, first.mounted.id) as BrowserView).active).toBe(beforeBrowser.driven)
+})
+
+it('an agent reopening its retained browser does not replace another work destination', () => {
+  store.openTeamRoom('fixture-a')
+  store.openBrowser('https://example.com/first', { profile: 'lane-fixture' })
+  store.openTeamRoom('fixture-b')
+  const before = store.getSnapshot().workbench
+  store.openBrowser('https://example.com/updated', { profile: 'lane-fixture', driven: true })
+  expect(store.getSnapshot().workbench.main).toBe(before.main)
+  expect(store.getSnapshot().workbench.navigation).toBe(before.navigation)
 })

@@ -5,4 +5,4 @@ import { ComposerChip } from '../design'
 export const RoomMessagesHeld = createContext(false)
 
 /** One status chip for the room composer and its single visible tile. */
-export const HoldingMessagesChip = () => <ComposerChip title="Messages are held. Release them in Send to.">Holding messages</ComposerChip>
+export const HoldingMessagesChip = () => <ComposerChip title="Agents cannot message each other. Change Board-only in Send to.">Board-only</ComposerChip>

@@ -270,6 +270,8 @@ const libraryPlannedOpValidator: Validator<LibraryPlannedOp> = shape({
   sourcePath: optional(isString),
   flat: optional(isBoolean),
   guardDigest: nullableString,
+  guardBundle: (value, path) => value === undefined ? undefined : nullableString(value, path),
+  sourceBundle: (value, path) => value === undefined ? undefined : isString(value, path),
   backup: isBoolean,
 }) as Validator<LibraryPlannedOp>
 
@@ -1278,6 +1280,8 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
 
   'flow/catalog': goalShape({ root: isString }),
   'flow/source': goalShape({ root: isString, id: isFilled, origin: optional(literalUnion('project', 'user', 'builtin')) }),
+  // Attachment decisions belong to the result. goalShape rejects a caller's
+  // attachments, just as it rejects caller-supplied ceilings and evidence.
   'flow/preview': goalShape({
     continues: optional(isFilled),
     seats: optional(flowSeatOverrides),

@@ -837,5 +837,5 @@ export const provenanceLabel = (spend: Pick<SpendSummary, 'provenance'>): string
 export const coverageLabel = (spend: Pick<SpendSummary, 'coverage'>): string | null => {
   const coverage = spend.coverage
   if (!coverage) return null
-  return `${coverage.daysCovered} of ${coverage.daysRequested} days scanned`
+  return `${coverage.daysCovered} of ${coverage.daysRequested} days with usage`
 }

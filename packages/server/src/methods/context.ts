@@ -19,6 +19,7 @@ import type {
   FindingPublishAction,
   FindingView,
   FlowSeat,
+  FlowPreviewSeat,
   GitStatus,
   GoalId,
   GoalView,
@@ -187,6 +188,7 @@ export interface HostContext {
    */
   readonly attachments?: {
     prepare(subject: AttachmentSubject): Promise<PreparedAttachments>
+    preflight(subject: AttachmentSubject): Promise<NonNullable<FlowPreviewSeat['attachments']>>
     record(seat: SeatRecord, prepared: PreparedAttachments, receipt: SessionAttachmentReceipt): Promise<SeatAttachmentsRecord>
     /** Task 5's own two person-facing verbs on Task 1's trust store — a preview names exact bytes, an approval names exactly the token that preview minted. */
     readonly trust: {

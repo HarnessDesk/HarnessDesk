@@ -9,7 +9,7 @@
 
 import readline from 'node:readline'
 import { spawn, spawnSync } from 'node:child_process'
-import { appendFileSync, existsSync, readFileSync, mkdirSync, readdirSync, writeFileSync, rmSync, renameSync, statSync } from 'node:fs'
+import { appendFileSync, existsSync, readFileSync, mkdirSync, readdirSync, writeFileSync, rmSync, renameSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -1858,16 +1858,8 @@ rl.on('line', (line) => {
         send({ id, result: { exitCode: 1, stdout: '', stderr: 'touch: Operation not permitted\n' } })
         return
       }
-      let cwd = process.cwd()
-      if (typeof params.cwd === 'string') {
-        try {
-          if (statSync(params.cwd).isDirectory()) cwd = params.cwd
-        } catch {
-          // If the conversation folder has gone away, keep the fake's current folder.
-        }
-      }
       const child = spawn(params.command[0], params.command.slice(1), {
-        cwd,
+        cwd: params.cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, FAKE_TTY: params.tty ? '1' : '0' },
       })

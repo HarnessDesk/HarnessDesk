@@ -7,6 +7,7 @@ import type { AgentEntry, AuthoringDocument, AuthoringSavePreview, RuntimeInfo }
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { AgentFields, FieldEditDialog, PreferFieldDialog } from './AgentFields'
+import { DestinationPageScope } from '../panels/destination-page'
 
 /**
  * Task 5's editable Agent metadata: one field, previewed then saved, never
@@ -87,6 +88,18 @@ const mount = (store: AppStore, doc: AuthoringDocument = DOCUMENT) => {
   return { onEdit, onOpenFile }
 }
 
+it('dismisses a retained field editor on hide and does not restore it on return', async () => {
+  const store = storeFor()
+  const render = (active: boolean) => act(async () => root.render(<StoreProvider store={store}><DestinationPageScope owner="destination:agents" active={active}><AgentFields document={DOCUMENT} entry={ENTRY} busy={false} onEdit={() => {}} onOpenFile={() => {}} /></DestinationPageScope></StoreProvider>))
+  await render(true)
+  await act(async () => editButtonFor('Description').click())
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+  await render(false)
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+  await render(true)
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+})
+
 const editButtonFor = (label: string): HTMLButtonElement => {
   const row = [...container.querySelectorAll('[data-slot="row"], div, section')]
     .find((el) => el.textContent?.startsWith(label) && el.querySelector('button'))
@@ -139,6 +152,7 @@ it('one key produces one previewed patch, bound to the original digest, then an 
 
   act(() => editButtonFor('Description').click())
   await settle()
+  expect(document.querySelector('[data-slot="dialog-footer-actions"] button')?.hasAttribute('data-filled')).toBe(true)
   await type(dialogInput(), 'New words.')
   await settle()
 
@@ -362,6 +376,7 @@ it('prefer edits as the ordered list it is: adding a seat previews it, and Save 
   await settle()
 
   expect(document.body.textContent).toContain('It prefers no seat yet')
+  expect(document.querySelector('[data-slot="dialog-footer-actions"] button')?.hasAttribute('data-filled')).toBe(true)
   // "Add a seat" opens a menu of runtimes; choosing one adds it directly —
   // no separate inline form with its own Add and Cancel.
   act(() => dialogButton('Add a seat').click())

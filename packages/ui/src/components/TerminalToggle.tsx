@@ -18,11 +18,11 @@ const pendingFor = (store: AppStore) => {
 const publish = (pending: PendingTerminal) => pending.listeners.forEach(listener => listener())
 /** Menu and keyboard share one pending intent, including a second press during startup. */
 export const toggleTerminal = (store: AppStore): void => {
-  if (!terminalCwdForSnapshot(store.getSnapshot())) return
   const pending = pendingFor(store)
   if (terminals(store.getSnapshot().workbench).length > 0 || pending.operation !== null) {
     pending.operation = null; publish(pending); store.closeTerminalDock(); return
   }
+  if (!terminalCwdForSnapshot(store.getSnapshot())) return
   const operation = Symbol('terminal-open')
   pending.operation = operation; publish(pending)
   void store.openTerminal().finally(() => {
@@ -44,7 +44,7 @@ export const TerminalMenuItem = ({ close }: { close: () => void }) => {
   const { on, run } = useTerminalToggle()
   const snapshot = useSnapshot()
   const cwd = terminalCwdForSnapshot(snapshot)
-  if (!cwd) return null
+  if (!cwd && !on) return null
   return <MenuItem label="Terminal" icon={<TerminalIcon size={16} />} selected={on}
     shortcut={chordOf(SHORTCUTS.find(one => one.action === 'toggle-terminal')!)}
     onSelect={() => { run(); close() }} />

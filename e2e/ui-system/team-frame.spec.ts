@@ -117,10 +117,10 @@ for (const theme of ['light','dark'] as const) {
   await team.getByRole('button',{name:'Send to',exact:true}).click()
   const audienceEdges=await Promise.all([
    labelLeft('menuitemradio','Everyone in the Team'),
-   labelLeft('switch','Hold messages'),
+   labelLeft('switch','Board-only'),
   ])
   expect(Math.max(...audienceEdges)-Math.min(...audienceEdges)).toBeLessThanOrEqual(1)
-  await expect(page.getByRole('switch',{name:'Hold messages',exact:true})).toBeVisible()
+  await expect(page.getByRole('switch',{name:'Board-only',exact:true})).toBeVisible()
  })
  test(`Team frame: Wrap is outlined on a ready Overview in ${theme}`, async ({page}) => {
   await page.emulateMedia({colorScheme:theme})

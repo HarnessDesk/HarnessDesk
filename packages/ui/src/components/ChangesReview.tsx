@@ -60,7 +60,7 @@ const Counts = ({ added, removed }: { added: number; removed: number }) =>
   added + removed > 0 ? <ChangeStats added={added} removed={removed} /> : null
 
 interface ReviewProps { readonly root: string | null; readonly returnTo: WorkView }
-export const ChangesReview = (props: ReviewProps) => <ReviewBody {...props} />
+export const ChangesReview = (props: ReviewProps) => <ReviewBody key={JSON.stringify([props.root, props.returnTo])} {...props} />
 
 const ReviewBody = ({ root, returnTo }: ReviewProps) => {
   const store = useStore()
@@ -69,7 +69,8 @@ const ReviewBody = ({ root, returnTo }: ReviewProps) => {
   const [staged, setStaged] = useState(false)
   const [query, setQuery] = useState('')
   const [git, setGit] = useState<GitStatus | null>(null)
-  const [treeDiff, setTreeDiff] = useState('')
+  const [treeRead, setTreeRead] = useState<{ readonly staged: boolean; readonly diff: string } | null>(null)
+  const treeDiff = treeRead?.staged === staged ? treeRead.diff : ''
   const sections = useRef<Map<string, HTMLElement>>(new Map())
 
   useEffect(() => {
@@ -84,9 +85,9 @@ const ReviewBody = ({ root, returnTo }: ReviewProps) => {
     void store.transport
       .request('git/diff', { root, ...(staged ? { staged: true } : {}) })
       .then((result) => {
-        if (!cancelled) setTreeDiff(result.diff)
+        if (!cancelled) setTreeRead({ staged, diff: result.diff })
       })
-      .catch(() => { if (!cancelled) setTreeDiff('') })
+      .catch(() => { if (!cancelled) setTreeRead({ staged, diff: '' }) })
     return () => {
       cancelled = true
     }

@@ -430,7 +430,7 @@ export interface LibraryPlannedOp {
    * moved on.
    */
   readonly content?: string
-  /** Where bundle `extraFiles` are copied from at apply time. */
+  /** Where supporting files are snapshotted and checked before apply writes. */
   readonly sourcePath?: string
   /**
    * The target is a flat `<name>.md` definition rather than a bundle
@@ -439,10 +439,14 @@ export interface LibraryPlannedOp {
   readonly flat?: boolean
   /**
    * Digest of the target's definition when the plan was made; null when the
-   * plan saw nothing there. Apply re-digests and refuses this op alone on a
-   * mismatch — the person confirmed a diff against this exact state.
+   * plan saw nothing there. MCP apply re-digests this; skill apply uses the
+   * whole-bundle guard below.
    */
   readonly guardDigest: string | null
+  /** Skill target's whole bundle at preview time; null without a definition. */
+  readonly guardBundle?: string | null
+  /** Skill definition and supporting bytes the operation will carry. */
+  readonly sourceBundle?: string
   /** The op will file a copy of what it replaces or removes before acting. */
   readonly backup: boolean
 }

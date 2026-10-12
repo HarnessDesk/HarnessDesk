@@ -1,5 +1,6 @@
 import { destinationOf, leaveSettingsDestination, sameDestination, visitDestination, stepDestination, type PageDestination, type WorkView, type DestinationHistory } from './destinations'
 import { FRAME } from '../design/frame'
+import { terminalCwdForSnapshot } from '../lib/terminal-scope'
 import { type TeamChatLayout, type TeamFramePage } from './layout'
 import { replaceTeamPayload } from './workbench'
 import { fixedToolRefusal, forgetFrameSubject, supportsFixedTool, admitFixedTool, chooseTool, toolOf, revealFixedTool, type WorkTool } from './frame-tools'
@@ -1323,27 +1324,43 @@ export class AppStore {
     this.#setWorkbench({ ...this.#snapshot.workbench,
       navigation: visitDestination(before, destinationOf(view)) })
   }
+  /** Forget unreadable work visits without discarding the pages around them. */
+  #withoutSessionHistory(key: SessionKey): DestinationHistory {
+    const history = this.#snapshot.workbench.navigation
+    const keep = (entry: DestinationHistory['current']) => !(entry.kind === 'work' && entry.view.kind === 'conversation' && entry.view.session === key)
+    const clearReturn = (entry: DestinationHistory['current']): DestinationHistory['current'] =>
+      entry.kind === 'changes-review' && entry.returnTo.kind === 'conversation' && entry.returnTo.session === key
+        ? { ...entry, returnTo: { kind: 'conversation', session: null } } : entry
+    return { current: clearReturn(history.current), back: history.back.filter(keep).map(clearReturn), forward: history.forward.filter(keep).map(clearReturn) }
+  }
   #enqueueHistory(direction: 'back' | 'forward'): Promise<void> {
     const project = this.#snapshot.workspace?.path ?? null
     const epoch = this.#navigationEpoch
     const stillSelected = () => epoch === this.#navigationEpoch && (this.#snapshot.workspace?.path ?? null) === project
     const step = async (): Promise<void> => {
       if (!stillSelected()) return
-      const after = stepDestination(this.#snapshot.workbench.navigation, direction)
-      if (!after) return
-      const target = after.current
-      if (target.kind === 'work' && target.view.kind === 'conversation' && target.view.session) {
-        const { runtime, id } = splitSessionKey(target.view.session)
-        if (!await this.openSession(id, { runtime, reveal: false, preserveLayoutOnReadFailure: true })) return
+      while (stillSelected()) {
+        const after = stepDestination(this.#snapshot.workbench.navigation, direction)
+        if (!after) return
+        const target = after.current
+        if (target.kind === 'work' && target.view.kind === 'conversation' && target.view.session) {
+          const { runtime, id } = splitSessionKey(target.view.session)
+          if (!await this.openSession(id, { runtime, reveal: false, preserveLayoutOnReadFailure: true })) {
+            if (!stillSelected()) return
+            this.#setWorkbench({ ...this.#snapshot.workbench, navigation: this.#withoutSessionHistory(target.view.session) })
+            continue
+          }
+        }
+        if (!stillSelected()) return
+        const remembered = focusedPane(this.#snapshot.layout).view
+        const unchanged = target.kind !== 'work' || ((remembered.kind === 'conversation' || remembered.kind === 'room')
+          && sameDestination(destinationOf(remembered), target))
+        const main = unchanged || target.kind !== 'work' ? this.#snapshot.layout
+          : settleExpansion(singleConversation(onlyIn(this.#snapshot.layout, target.view)))
+        this.#setWorkbench({ ...this.#snapshot.workbench, main, navigation: after })
+        this.closeFloatingSidebar()
+        return
       }
-      if (!stillSelected()) return
-      const remembered = focusedPane(this.#snapshot.layout).view
-      const unchanged = target.kind !== 'work' || ((remembered.kind === 'conversation' || remembered.kind === 'room')
-        && sameDestination(destinationOf(remembered), target))
-      const main = unchanged || target.kind !== 'work' ? this.#snapshot.layout
-        : settleExpansion(singleConversation(onlyIn(this.#snapshot.layout, target.view)))
-      this.#setWorkbench({ ...this.#snapshot.workbench, main, navigation: after })
-      this.closeFloatingSidebar()
     }
     const next = this.#navigationQueue.then(step, step)
     this.#navigationQueue = next.catch(() => {})
@@ -1355,25 +1372,37 @@ export class AppStore {
     const stillSelected = () => epoch === this.#navigationEpoch && (this.#snapshot.workspace?.path ?? null) === project
     const step = async (): Promise<void> => {
       if (!stillSelected()) return
-      const history = this.#snapshot.workbench.navigation
-      const after = leaveSettingsDestination(history)
-      if (!after) {
-        if (history.current.kind === 'settings') this.returnToWork()
+      let skipped = false
+      while (stillSelected()) {
+        const history = this.#snapshot.workbench.navigation
+        const after = leaveSettingsDestination(history)
+        if (!after) {
+          if (history.current.kind === 'settings') {
+            if (skipped) this.newDraft()
+            else this.returnToWork()
+          }
+          return
+        }
+        const target = after.current
+        if (target.kind === 'work' && target.view.kind === 'conversation' && target.view.session) {
+          const { runtime, id } = splitSessionKey(target.view.session)
+          if (!await this.openSession(id, { runtime, reveal: false, preserveLayoutOnReadFailure: true })) {
+            if (!stillSelected()) return
+            this.#setWorkbench({ ...this.#snapshot.workbench, navigation: this.#withoutSessionHistory(target.view.session) })
+            skipped = true
+            continue
+          }
+        }
+        if (!stillSelected()) return
+        const remembered = focusedPane(this.#snapshot.layout).view
+        const unchanged = target.kind !== 'work' || ((remembered.kind === 'conversation' || remembered.kind === 'room')
+          && sameDestination(destinationOf(remembered), target))
+        const main = unchanged || target.kind !== 'work' ? this.#snapshot.layout
+          : settleExpansion(singleConversation(onlyIn(this.#snapshot.layout, target.view)))
+        this.#setWorkbench({ ...this.#snapshot.workbench, main, navigation: after })
+        this.closeFloatingSidebar()
         return
       }
-      const target = after.current
-      if (target.kind === 'work' && target.view.kind === 'conversation' && target.view.session) {
-        const { runtime, id } = splitSessionKey(target.view.session)
-        if (!await this.openSession(id, { runtime, reveal: false, preserveLayoutOnReadFailure: true })) return
-      }
-      if (!stillSelected()) return
-      const remembered = focusedPane(this.#snapshot.layout).view
-      const unchanged = target.kind !== 'work' || ((remembered.kind === 'conversation' || remembered.kind === 'room')
-        && sameDestination(destinationOf(remembered), target))
-      const main = unchanged || target.kind !== 'work' ? this.#snapshot.layout
-        : settleExpansion(singleConversation(onlyIn(this.#snapshot.layout, target.view)))
-      this.#setWorkbench({ ...this.#snapshot.workbench, main, navigation: after })
-      this.closeFloatingSidebar()
     }
     const next = this.#navigationQueue.then(step, step)
     this.#navigationQueue = next.catch(() => {})
@@ -2685,6 +2714,10 @@ export class AppStore {
       readonly reveal?: boolean
     } = {},
   ): Promise<SessionKey | null> {
+    const candidate = focusedPane(this.#snapshot.layout)
+    const draftPane = options.reveal !== false && options.split === undefined && (!options.area || options.area === 'main')
+      && candidate.view.kind === 'conversation' && candidate.view.session === null ? candidate : null
+    const draftSubject = draftPane ? `draft:${draftPane.id}` : null
     const runtime = options.runtime ?? this.#snapshot.activeRuntime
     const workspace = options.cwd ?? this.#snapshot.workspace?.path
     /* A folder this app has proof is gone is never where a session starts.
@@ -2730,7 +2763,24 @@ export class AppStore {
       })
       this.#setSession(session)
       const key = sessionKey(runtime, session.id)
-      if (options.reveal !== false) this.#showInPane(key, options.split, options.area)
+      if (options.reveal !== false) {
+        this.#showInPane(key, options.split, options.area, draftPane?.id)
+        const promoted = focusedPane(this.#snapshot.layout)
+        if (draftSubject && promoted.id === draftPane?.id && promoted.view.kind === 'conversation' && promoted.view.session === key) {
+          const before = this.#snapshot.workbench
+          const { [draftSubject]: intent, ...frameTools } = before.frameTools
+          const { [draftSubject]: scope, ...frameSubjects } = before.frameSubjects
+          if (intent || scope) {
+            const subject = `session:${key}`
+            const pane = focusedPane(before.main)
+            this.#setWorkbench({ ...before,
+              frameTools: intent ? { ...frameTools, [subject]: intent } : frameTools,
+              frameSubjects: { ...frameSubjects, [subject]: { paneId: pane.id, view: pane.view } },
+              toolOwners: Object.fromEntries(Object.entries(before.toolOwners).map(([id, owner]) => [id, owner === draftSubject ? subject : owner])),
+            })
+          }
+        }
+      }
       this.#ensureHistorySummary(session)
       return key
     } catch (error) {
@@ -3253,7 +3303,9 @@ export class AppStore {
       this.#snapshot.workbench.frameSubjects[`session:${key}`] !== undefined ||
       this.#snapshot.workbench.frameTools[`session:${key}`] !== undefined ||
       (deleted && (this.drafts.live(key) !== null || this.drafts.recoverable(key).length > 0))
-    if (!held) return
+    const navigation = this.#withoutSessionHistory(key)
+    const historyChanged = JSON.stringify(navigation) !== JSON.stringify(this.#snapshot.workbench.navigation)
+    if (!held && !historyChanged) return
     // Where it was on screen first, so the focus moves with the panes rather
     // than being left on a conversation nothing can open any more.
     const closing = this.#deleting.has(key)
@@ -3263,7 +3315,7 @@ export class AppStore {
     }
     for (const entry of docked) this.#setWorkbench(undockIn(this.#snapshot.workbench, entry.mounted.id))
     const retained = forgetFrameSubject(this.#snapshot.workbench, `session:${key}`)
-    if (retained !== this.#snapshot.workbench) this.#setWorkbench(retained)
+    if (retained !== this.#snapshot.workbench || historyChanged) this.#setWorkbench({ ...retained, navigation: this.#withoutSessionHistory(key) })
     const nextSessions = new Map(sessions)
     const nextQueues = new Map(queues)
     const nextTasks = new Map(tasks)
@@ -3646,15 +3698,13 @@ export class AppStore {
    * Opens the browser pane, at `url` when given, else where it last was.
    * One browser per layout, several tabs inside it.
    *
-   * A URL goes to the **driven** tab and brings it to the front — this is
-   * what an agent's `browser_open` reaches from the desktop shell, and the
-   * pane's contract is that the page the tools drive is a page on screen.
-   * Chromium freezes a `<webview>` nobody is looking at, so a driven tab
-   * hidden behind another would screenshot as a stale frame.
+   * A URL goes to the driven tab. Explicit opens reveal its recorded work;
+   * the desktop shell marks agent opens as driven so updating a retained
+   * browser cannot replace the destination the person is reading.
    */
   openBrowser(
     url?: string,
-    options: { readonly split?: Split['direction'] | null; readonly profile?: string | null } = {},
+    options: { readonly split?: Split['direction'] | null; readonly profile?: string | null; readonly driven?: boolean } = {},
   ): void {
     const profile = options.profile ?? null
     if (profile !== null && (!/^lane-[A-Za-z0-9-]{1,100}$/.test(profile) || profile.endsWith('\n'))) {
@@ -3668,7 +3718,8 @@ export class AppStore {
     }
     if (existing) {
       if (url) this.#patchBrowser(existing.id, sendDriven)
-      if (!this.#frontBrowserTile(profile)) this.revealView(existing.id)
+      if (options.driven) this.focusDrivenBrowserTab(profile)
+      else if (!this.#frontBrowserTile(profile)) this.revealView(existing.id)
       return
     }
     // A closed panel gets its pages back — including when it is an agent
@@ -3704,11 +3755,19 @@ export class AppStore {
     this.#showOnly(view)
   }
 
-  /** Brings the driven tab to the front, before the tools act on it. */
+  /** Selects the driven tab before tools act, without changing unrelated work. */
   focusDrivenBrowserTab(profile: string | null = null): void {
     const pane = this.#browserPane(profile)
     if (!pane) return
-    if (this.#frontBrowserTile(profile)) {
+    if (this.#snapshot.workbench.navigation.current.kind === 'work' && this.#frontBrowserTile(profile)) {
+      this.#patchBrowser(pane.id, view => view.active === view.driven ? view : { ...view, active: view.driven })
+      return
+    }
+    const workbench = this.#snapshot.workbench
+    const owner = workbench.toolOwners[pane.id]
+    if (workbench.navigation.current.kind !== 'work' || (owner && owner !== fixedSubject(workbench.main))) {
+      // Retained native layers keep their layout box offscreen. An agent
+      // can select its driven tab without changing the person's destination.
       this.#patchBrowser(pane.id, view => view.active === view.driven ? view : { ...view, active: view.driven })
       return
     }
@@ -3859,9 +3918,7 @@ export class AppStore {
     const runtime = this.#snapshot.activeRuntime
     const sessionKeyNow = this.#snapshot.activeSessionKey
     const session = sessionKeyNow ? this.#snapshot.sessions.get(sessionKeyNow) : undefined
-    const destination = this.#snapshot.workbench.navigation.current
-    const cwd = options.cwd ?? (destination.kind === 'changes-review'
-      ? destination.root : session?.cwd ?? this.#snapshot.workspace?.path)
+    const cwd = options.cwd ?? terminalCwdForSnapshot(this.#snapshot)
     if (!runtime || !cwd) {
       this.resultNotice('warning', 'Choose a project folder before opening a terminal.')
       return
@@ -4031,12 +4088,21 @@ export class AppStore {
     this.#setLayout(resizeIn(this.#snapshot.layout, splitId, ratio))
   }
 
-  #showInPane(key: SessionKey, _split?: Split['direction'], area?: AreaId): void {
+  #showInPane(key: SessionKey, _split?: Split['direction'], area?: AreaId, draftPaneId?: PaneId): void {
     if (area && area !== 'main') {
       // Nothing declares an edge for a conversation any more, so `showViewIn`
       // refuses this — kept as the one place that would have to change if a
       // conversation ever became dockable again.
       this.showViewIn(area, { kind: 'conversation', session: key })
+      return
+    }
+    const draft = draftPaneId ? findPane(this.#snapshot.layout, draftPaneId) : undefined
+    if (draft?.view.kind === 'conversation' && draft.view.session === null) {
+      const view = { kind: 'conversation' as const, session: key }
+      const main = focusPaneIn(showIn(this.#snapshot.layout, draft.id, view), draft.id)
+      this.#navigationEpoch += 1
+      this.#setWorkbench({ ...this.#snapshot.workbench, main,
+        navigation: visitDestination(this.#snapshot.workbench.navigation, destinationOf(view)) })
       return
     }
     // A session replaces whatever the middle held, including a room. Splitting
@@ -4279,7 +4345,11 @@ export class AppStore {
     if (refusal) { this.resultNotice('warning', refusal); return }
     const fixed = revealFixedTool(this.#snapshot.workbench, id)
     if (fixed) {
-      this.#setWorkbench(fixed)
+      const work = focusedPane(fixed.main).view
+      const navigation = work.kind === 'conversation' || work.kind === 'room'
+        ? visitDestination(this.#snapshot.workbench.navigation, destinationOf(work)) : fixed.navigation
+      if (navigation !== this.#snapshot.workbench.navigation) this.#navigationEpoch += 1
+      this.#setWorkbench({ ...fixed, navigation })
       // Hidden subject scopes can survive a cold restore without a loaded
       // conversation. Restore its body in place, without displacing the tool.
       const owner = fixed.toolOwners[id]

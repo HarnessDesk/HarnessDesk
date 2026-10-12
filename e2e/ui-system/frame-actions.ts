@@ -54,7 +54,7 @@ export const applyFrameActions = async (page: Page, actions: FrameActions): Prom
   if (actions.tool) await page.locator(`[data-work-tool="${actions.tool}"]`).click()
   if (actions.holdMessages) {
     await page.getByRole('button', { name: 'Send to', exact: true }).click()
-    await page.getByRole('switch', { name: 'Hold messages', exact: true }).click()
+    await page.getByRole('switch', { name: 'Board-only', exact: true }).click()
     await expect(page.getByRole('menu')).toHaveCount(0)
   }
 }

@@ -62,8 +62,9 @@ await page.getByRole('button', { name: tool, exact: true }).first().click()
 const right = page.locator('[data-frame-region="right"]:visible')
 await expect(right).toBeVisible()
 const after = await main.boundingBox(), panel = await right.boundingBox()
-expect(after!.width).toBe(before!.width - panel!.width)
-expect(panel!.x).toBe(after!.x + after!.width)
+expect(after!.width).toBe(before!.width)
+expect(panel!.x).toBeGreaterThanOrEqual(after!.x)
+expect(panel!.x).toBeLessThan(after!.x + after!.width)
 expect(panel!.x + panel!.width).toBe(before!.x + before!.width)
 
 
@@ -81,10 +82,10 @@ test('spend keeps unscanned days as gaps in bars and line beside its coverage', 
   const range = page.getByRole('combobox', { name: 'How far back', exact: true })
   await range.selectOption('7')
   const plot = page.locator('[data-slot="day-columns"]').first()
-  await expect(plot.locator('li').filter({ hasText: 'No record yet' })).toHaveCount(3)
-  await expect(page.locator('[data-slot="chart-head"]').first()).toContainText('4 of 7 days scanned')
+  await expect(plot.locator('li').filter({ hasText: 'No record yet' })).toHaveCount(0)
+  await expect(page.locator('[data-slot="chart-head"]').first()).toContainText('4 of 7 days with usage')
   await page.getByRole('combobox', { name: 'Bars or line', exact: true }).selectOption('line')
-  await expect(plot.locator('li').filter({ hasText: 'No record yet' })).toHaveCount(3)
+  await expect(plot.locator('li').filter({ hasText: 'No record yet' })).toHaveCount(0)
 })
 
 test('projects empty usage has one message and headings follow the grouping', async ({ page }) => {

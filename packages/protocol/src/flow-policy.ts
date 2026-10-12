@@ -1,4 +1,5 @@
 import type { AgentDefinition, AgentEntry, SeatPlan } from './agent.js'
+import type { AttachmentDeclaration } from './attachments.js'
 import type { StartContext } from './authoring.js'
 import type { CeilingLevel } from './evidence.js'
 import type { FindingRunState } from './findings.js'
@@ -426,6 +427,14 @@ export interface FlowPreviewSeat {
   readonly atPredecessor?: 'always' | 'may'
   /** Whether this Seat is there to review, as the server decides it (`reviewsIn`): its round is a review series's round. */
   readonly reviews: boolean
+  /** Host-computed dry decisions for a winning Seat whose Agent declares attachments. */
+  readonly attachments?: {
+    readonly skillsMode: 'runtime-defaults' | 'allowlist'
+    readonly mcpMode: 'runtime-defaults' | 'allowlist'
+    /** A null problem means this declaration would load when the Seat opens. */
+    readonly declarations: readonly AttachmentDeclaration[]
+    readonly refusal: string | null
+  }
 }
 
 /**

@@ -30,7 +30,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(page.locator('[data-page-destination="settings"]')).toBeVisible()
     await expect(work).toBeHidden()
     await expect(work).toHaveAttribute('inert', '')
-    await expect(terminal).toBeHidden()
+    await expect(terminal).toBeVisible()
     await expect(terminal).toHaveAttribute('data-terminal-id', terminalId!)
     await expect(terminal).toHaveAttribute('data-retention-witness', 'terminal')
     await page.evaluate(()=>window.dispatchEvent(new CustomEvent('harnessdesk:preview-connection',{detail:'reconnecting'})))
@@ -47,6 +47,9 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(terminal).toBeVisible()
     await page.keyboard.press('Meta+]')
     await expect(page.locator('[data-page-destination="settings"]')).toBeVisible()
+    // The retained terminal keeps focus and owns Escape for the shell.
+    // Leave Settings from its page field, rather than sending a shell key.
+    await page.getByRole('searchbox', { name: 'Search settings' }).focus()
     await page.keyboard.press('Escape')
     await expect(work).toBeVisible()
     await expect(terminal).toHaveAttribute('data-retention-witness', 'terminal')

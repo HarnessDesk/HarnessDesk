@@ -39,7 +39,7 @@ it('does not show zero spend for shorter periods containing unscanned days', () 
   expect(stats.find(stat => stat.textContent?.includes('Today'))?.textContent).toContain('Not read yet')
   expect(stats.find(stat => stat.textContent?.includes('Last 7 days'))?.textContent).toContain('Not read yet')
   expect(host.querySelector('[data-slot="chart-title"]')?.textContent).toBe('—')
-  expect(host.textContent?.match(/0 of 30 days scanned/g)).toHaveLength(1)
+  expect(host.textContent?.match(/0 of 30 days with usage/g)).toHaveLength(1)
   expect(host.textContent).toContain('No usage recorded in this window')
   expect(host.textContent).not.toContain('unpriced')
 })
@@ -49,7 +49,7 @@ it('states complete scan coverage once even when the recorded window is empty', 
   const ledger = { ...emptyLedger(30), totalCost: 0, coverage: { ...emptyLedger(30).coverage, daysCovered: 30,
     coveredDays: Array.from({ length: 30 }, (_, back) => new Date(2026, 9, 10 - back).getTime()) } }
   act(() => root.render(<Spend ledger={ledger} wideLedger={null} byId={new Map()} tintOf={() => 'blue'} scan={null} now={now} range={30} mode="bars" onModeChange={() => {}} onScan={() => {}} />))
-  expect(host.textContent?.match(/30 of 30 days scanned/g)).toHaveLength(1)
+  expect(host.textContent?.match(/30 of 30 days with usage/g)).toHaveLength(1)
   expect(host.textContent).toContain('No usage recorded in this window')
 })
 
@@ -57,21 +57,21 @@ it('states complete scan coverage once even when the recorded window is empty', 
 it('agrees to the cent across ranges for a partly read week beside a quiet day', () => {
   const now = new Date(2026, 9, 10, 12).getTime()
   const day = (back: number) => new Date(2026, 9, 10 - back).getTime()
-  const coveredDays = [1, 3, 4, 6].map(day)
+  const coveredDays = [3, 4, 6].map(day)
   const daily = [3, 4, 6].map((back, index) => ({ day: day(back), runtime: runtimeId('fixture'), cost: [10.01, 9.03, 4.05][index]!, tokens: 10 }))
   const ledger = (days: number): LedgerReport => ({ ...emptyLedger(days), totalCost: 23.09, daily,
-    coverage: { ...emptyLedger(days).coverage, coveredDays, daysCovered: 4, earliestDay: day(6) } })
+    coverage: { ...emptyLedger(days).coverage, coveredDays, daysCovered: 3, earliestDay: day(6) } })
   const render = (days: number, report = ledger(days), at = now) => act(() => root.render(<Spend ledger={report} wideLedger={null} byId={new Map()} tintOf={() => 'blue'} scan={null} now={at} range={days} mode="bars" onModeChange={() => {}} onScan={() => {}} />))
   render(7)
   const headline = host.querySelector('[data-slot="chart-title"]')!.textContent
   expect(headline).toBe('$23.09')
-  expect(host.textContent).toContain('4 of 7 days scanned')
-  expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('TodayNot read yet')
+  expect(host.textContent).toContain('3 of 7 days with usage')
+  expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('Today$0')
   render(30)
   const week = [...host.querySelectorAll('[data-slot="stat"]')].find(stat => stat.textContent?.includes('Last 7 days'))!
   expect(week.textContent).toContain(headline)
-  expect(week.textContent).toContain('4 of 7 days scanned')
-  expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('TodayNot read yet')
-  render(7, { ...ledger(7), daily: [], totalCost: 0 }, day(1) + 12 * 3600000)
+  expect(week.textContent).toContain('so far')
+  expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('Today$0')
+  render(7, { ...ledger(7), daily: [], totalCost: 0, coverage: { ...ledger(7).coverage, daysCovered: 0, coveredDays: [] } }, day(1) + 12 * 3600000)
   expect(host.querySelector('[data-slot="stat"]')?.textContent).toContain('Today$0')
 })

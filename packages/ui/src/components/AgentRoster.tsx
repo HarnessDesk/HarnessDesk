@@ -69,8 +69,10 @@ export const AgentsRosterSection = ({
   readonly onFocus: (id: string | null) => void
 }) => {
   const snapshot = useSnapshot()
+  const { active } = useDestinationPage()
   const open = focus, setOpen = onFocus
   const [creating, setCreating] = useState(false)
+  useEffect(() => { if (!active) setCreating(false) }, [active])
 
   const agents = snapshot.agents ?? []
   const project = projectName(snapshot.workspace)
@@ -163,7 +165,7 @@ export const AgentsRosterSection = ({
           </Section>
         )
       })}
-      {creating && (
+      {active && creating && (
         <AgentNew
           root={projectRootOf(snapshot.workspace) ?? undefined}
           onClose={() => setCreating(false)}

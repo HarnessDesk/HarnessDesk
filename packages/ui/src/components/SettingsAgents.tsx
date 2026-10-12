@@ -1258,7 +1258,7 @@ export const AddAgents = ({ onBack, onDone }: { onBack: () => void; onDone: () =
         />
       </Rows>
       {destinationActive && customOpen && (
-        <CustomAgentDialog onAdded={onDone} onClose={() => setCustomOpen(false)} />
+        <CustomAgentDialog onAdded={() => { setCustomOpen(false); onDone() }} onClose={() => setCustomOpen(false)} />
       )}
     </>
   )
@@ -1872,9 +1872,10 @@ const AgentDetail = ({
   return (
     <>
 <DestinationBar place={info.presentation.name} mark={<RuntimeMark runtime={info} size={16} />}
-  parents={[{ label: 'Settings', run: () => store.askSettings('general') }, { label: 'Runtimes', run: onBack }]}
-  state={snapshot.activeRuntime === info.id ? <Chip state={defaultChipState(info, snapshot)} label="Default" /> : undefined}
-  more={close => <>{snapshot.activeRuntime !== info.id && <MenuItem icon={<CheckIcon size={16} />} label="Use for new sessions" onSelect={() => { void store.selectRuntime(info.id); close() }} />}</>} />
+  parents={[{ label: 'Settings', run: () => store.askSettings('general') }, { label: 'Runtimes', run: onBack }]} />
+      <Rows><Row title={info.presentation.name} control={snapshot.activeRuntime === info.id
+        ? <Chip state={defaultChipState(info, snapshot)} label="Default" />
+        : <Button variant="outline" size="sm" onClick={() => void store.selectRuntime(info.id)}>Use for new sessions</Button>} /></Rows>
 {build && <Text role="meta">{build}</Text>}
 {info.presentation.tagline && <PageExplanation>{info.presentation.tagline}</PageExplanation>}
 
@@ -1997,7 +1998,7 @@ export const RuntimesSection = ({
     void store.loadAccounts()
   }, [destinationActive, store])
 
-  const back = useCallback((): void => setView({ kind: 'list' }), [])
+  const back = useCallback((): void => setView({ kind: 'list' }), [setView])
   const openAccount = (runtime: RuntimeId, key: string): void => setView({ kind: 'account', runtime, key })
 
   const groups = useMemo(() => agentGroups(snapshot.runtimes), [snapshot.runtimes])

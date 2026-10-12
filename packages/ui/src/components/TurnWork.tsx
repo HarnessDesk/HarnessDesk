@@ -12,6 +12,7 @@ import { useEffect, useState } from 'react'
 import type { AgentItem, Turn } from '@harnessdesk/protocol'
 
 import { useSnapshot, useSessionKey } from '../state/context'
+import { waitsForApproval } from '../lib/approval-wait'
 import { groupItems, isSilentReasoning } from '../lib/group-items'
 import { planOf, turnPlan } from '../lib/todos'
 import { describeTurnWork, liveActivity } from '../lib/turn-view'
@@ -72,8 +73,7 @@ export const TurnWork = ({
 }) => {
   const snapshot = useSnapshot()
   const key = useSessionKey()
-  const waiting = snapshot.approvals.some(({ key: owner, approval }) => owner === key && approval.type === 'command'
-    && (approval.turnId === turn.id || work.some(item => item.id === approval.itemId)))
+  const waiting = waitsForApproval(snapshot.approvals, key, work, turn.id)
   const running = turn.status === 'inProgress'
   const now = useNow(running)
   const [choice, setChoice] = useState<boolean | null>(null)
@@ -128,7 +128,7 @@ export const TurnWork = ({
         onClick={() => setChoice(!open)}
         title={open ? 'Fold the work away' : 'Show what the agent did'}
       >
-        <TurnWorkHeaderLabel state={line.trouble ? 'trouble' : running ? 'running' : 'done'}>{line.head}</TurnWorkHeaderLabel>
+        <TurnWorkHeaderLabel state={line.trouble ? 'trouble' : running && !waiting ? 'running' : 'done'}>{waiting ? 'Work paused' : line.head}</TurnWorkHeaderLabel>
         {/* The receipt stands in for the rows, so it shows when they do not:
             open, the sentences are the rows themselves, and a line repeating
             them above is the same story told twice. */}

@@ -2375,7 +2375,9 @@ export class FlowExecutions {
       const record = this.#port.seatOf(id)
       const claim = record ? this.#claimOf(goal, record, cards) : null
       if (interrupt && record) {
-        await this.#port.settleApprovals?.(record, this.#get(runId).state === 'stopped' ? 'Run stopped' : 'Seat released')
+        await this.#port.settleApprovals?.(record, this.#get(runId).state === 'stopped' ? 'Run stopped' : 'Seat released').catch((error: unknown) => {
+          this.#port.log('a flow Seat’s approvals could not be settled', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
+        })
         await this.#port.interrupt?.(record).catch((error: unknown) => {
           this.#port.log('a flow Seat’s turn could not be interrupted', { goal, seat: id, error: error instanceof Error ? error.message : String(error) })
         })
