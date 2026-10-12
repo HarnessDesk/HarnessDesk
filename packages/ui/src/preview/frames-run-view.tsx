@@ -1,5 +1,4 @@
 import type { ComponentProps } from 'react'
-import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
 import { useEffect, useMemo, useState } from 'react'
 import { WAITING_FINDINGS, type FlowPreview, type FlowRunOptions } from '@harnessdesk/protocol'
 import type { RunTimelineInput } from '../lib/run-timeline'
@@ -12,15 +11,10 @@ import { type RunViewTab } from '../components/RunView'
 import { RunWorkspace } from '../components/RunWorkspace'
 import { RunFramePreview } from './RunFramePreview'
 import { TeamFramePreview } from './TeamFramePreview'
-import { TeamRunView } from '../components/TeamRunView'
 import { StoreProvider } from '../state/context'
 import { Boundary } from './boundary'
 import { RUN_VIEW_STATES, runFixture, runModel, runTeamStore, type RunScene } from './run-view-fixture'
 
-const CatalogueTeamRunView = (props: ComponentProps<typeof TeamRunView>) => <TopBarProvider>
-  <TopBarOutlet owner="" fallback={{ place: 'Recorded Run', more: () => null }} />
-  <TeamRunView {...props} />
-</TopBarProvider>
 const CatalogueRunWorkspace = (props: ComponentProps<typeof RunWorkspace>) => <RunFramePreview {...props} />
 
 /** One store for every example on a page: *Open the file* reads the catalogue through it, as the app does. */
@@ -45,14 +39,14 @@ export const RunExample = ({ scene, input }: { scene: RunScene; input?: RunTimel
 }
 /** The Run as the app mounts it: the timeline with the inspector beside it, and the Flow when it is chosen. */
 export const RunWorkspaceExample = ({ scene = 'running', view: first = 'timeline' }: { scene?: RunScene; view?: RunViewTab }) => {
-  const source = useMemo(() => runFixture(scene), [scene])
-  const store = useMemo(() => scene === 'live-polish' ? runTeamStore(scene) : sharedStore(), [scene])
-  const [selected, setSelected] = useState<string | null>(null)
-  const [view, setView] = useState<RunViewTab>(first)
-  return <StoreProvider store={store}><CatalogueTeamRunView execution={source.execution} origin="Started by you" onOpenSeat={() => {}}
-    model={runModel(scene)} number={1} selectedRow={selected} onSelect={setSelected}
-    drawFlow view={view} onView={setView} /></StoreProvider>
+  const store = useMemo(() => {
+    const fixture = runTeamStore(scene)
+    fixture.requestTeamFrame('overview-team', 'run', first)
+    return fixture
+  }, [scene, first])
+  return <StoreProvider store={store}><TeamFramePreview room="overview-team" view={{ kind: 'room', room: 'overview-team', framePage: 'run' }} /></StoreProvider>
 }
+
 export const RunViewBoard = () => <div className="flex flex-col gap-4">{RUN_VIEW_STATES.map(scene =>
   <section key={scene} data-catalog-state={scene} className={scene === 'narrow' ? 'flex h-144 max-w-sm flex-col' : 'flex h-144 flex-col'}><RunExample scene={scene} /></section>)}
   <section data-catalog-state="flow" className="flex h-144 flex-col"><RunWorkspaceExample view="flow" /></section></div>
