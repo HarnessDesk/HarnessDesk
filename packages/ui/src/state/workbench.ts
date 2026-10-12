@@ -1,5 +1,5 @@
 import { destinationOf, readDestinationHistory, type DestinationHistory } from './destinations'
-import { FRAME, frameReadingFloor } from '../design/frame'
+import { FRAME } from '../design/frame'
 import { supportsFixedTool, toolOf, chooseTool, readToolIntents, type ToolIntent } from './frame-tools'
 import type { UiArea } from '@harnessdesk/protocol'
 
@@ -1038,6 +1038,9 @@ export const sidebarCannotHaveColumn = (_workbench: Workbench, windowWidth: numb
 export const rightPanelOverlays = (workbench: Workbench, windowWidth: number): boolean =>
   windowWidth < FRAME.fold.panelFloats && rightPanelDrawn(workbench)
 
+/** The reading floor yields only enough to keep the tool's minimum usable. */
+const frameReadingFloor = (windowWidth: number, standingSidebar = 0, seam = 1): number =>
+  Math.min(FRAME.main.min, Math.max(0, windowWidth - standingSidebar - FRAME.rightPanel.min - 2 * seam))
 /** Requested preferences survive viewport changes; only drawing is clamped. */
 export const effectiveRightWidth = (workbench: Workbench, windowWidth: number, standingSidebar: number): number => {
   if (!rightPanelDrawn(workbench)) return 0
