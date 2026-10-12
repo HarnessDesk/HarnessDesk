@@ -128,7 +128,7 @@ for (const theme of WALL_THEMES) {
     await openFrame(page, 'frame-wall=draft', theme)
     await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Details', exact: true }).click()
     const panel = page.locator('[data-slot="tool-body"]:visible')
-    const note = panel.locator('[data-slot="tool-prose"]').filter({ hasText: 'Not recorded for this draft:' }).first()
+    const note = panel.locator('[data-slot="tool-prose"]').filter({ hasText: 'Permission level not reported for this draft.' }).first()
     await expect(note).toBeVisible()
     const geometry = await note.evaluate(node => {
       const text = node.querySelector<HTMLElement>('[data-slot="text"]')!, style = getComputedStyle(text)
