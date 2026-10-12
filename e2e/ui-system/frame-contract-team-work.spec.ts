@@ -145,6 +145,8 @@ for (const theme of WALL_THEMES) {
     await expect(page.locator('[data-team-page="side-by-side"]')).toHaveCount(0)
     await page.locator('[data-work-tool="details"]').click()
     const details = page.locator('[data-slot="tool-body"]:visible')
+    await expect(details).toBeVisible()
+    await expect(details.locator('[data-slot="tool-section"] > [data-slot="group-label"]').first()).toContainText('Run')
     const headings = await details.locator('[data-slot="tool-section"] > [data-slot="group-label"]').evaluateAll(nodes => nodes.map(node => node.textContent))
     expect(headings[0]).toContain('Run')
     expect(headings[1]).toContain('Seats')
