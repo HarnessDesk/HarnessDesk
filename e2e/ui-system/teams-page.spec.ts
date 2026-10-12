@@ -33,8 +33,10 @@ for (const theme of ['light', 'dark'] as const) {
     const frame = page.locator('#teams-page-active')
     await expect(frame.locator('[data-team-row]')).toHaveCount(3)
     expect(await frame.locator('[data-team-row]').evaluateAll(rows => rows.map(row => row.getAttribute('data-team-row')))).toEqual(['team-0', 'team-1', 'team-2'])
-    const dot = await frame.locator('[data-team-row="team-0"] [data-slot="dot"]').boundingBox()
-    expect(dot?.width).toBe(6); expect(dot?.height).toBe(6)
+    await expect(async () => {
+      const dot = await frame.locator('[data-team-row="team-0"] [data-slot="dot"]').boundingBox()
+      expect(dot?.width).toBe(6); expect(dot?.height).toBe(6)
+    }).toPass()
     await expect(frame.getByRole('tab', { name: /^Active(?: \d+)?$/ })).toHaveAttribute('aria-selected', 'true')
     const fold = frame.getByRole('button', { name: 'Ready to wrap · 2' })
     await expect(fold).toHaveAttribute('aria-expanded', 'false'); await fold.click()
