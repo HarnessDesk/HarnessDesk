@@ -17,7 +17,7 @@ const referenceX = (await windowBar(page).locator('[data-topbar="place"]').bound
 const measured: { destination: string; origin: number; childX: number; titleWidth: number }[] = []
 await openFrame(page, `${destination.query}${hidden}`, theme, width)
 const bar = windowBar(page)
-if (destination.id === 'agent') await expect(bar.locator('[data-topbar-title] > [data-slot="text"]')).toHaveText('Code reviewer')
+if (destination.id === 'e4-agent-detail') await expect(bar.locator('[data-topbar-title] > [data-slot="text"]')).toHaveText('Code reviewer')
 const settings = await page.locator('[data-page-destination="settings"]:visible').count() === 1
 await expectLead(bar, width, settings, true)
 await expect(bar.locator('[data-work-tool]')).toHaveCount(0)

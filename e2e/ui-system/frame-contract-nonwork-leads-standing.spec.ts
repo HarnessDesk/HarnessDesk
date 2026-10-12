@@ -14,7 +14,7 @@ await openFrame(page, 'frame-wall=conversation', theme)
 const referenceX = (await windowBar(page).locator('[data-topbar="place"]').boundingBox())!.x
 await openFrame(page, destination.query, theme)
 const bar = windowBar(page)
-if (destination.id === 'agent') await expect(bar.locator('[data-topbar-title] > [data-slot="text"]')).toHaveText('Code reviewer')
+if (destination.id === 'e4-agent-detail') await expect(bar.locator('[data-topbar-title] > [data-slot="text"]')).toHaveText('Code reviewer')
 const settings = await page.locator('[data-page-destination="settings"]:visible').count() === 1
 await expectLead(bar, 1440, settings, false)
 if (settings) await expectQuietSettings(page, bar)
