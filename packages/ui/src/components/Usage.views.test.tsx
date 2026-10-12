@@ -247,7 +247,7 @@ describe('the heatmap band', () => {
   it('makes no new ledger request when switching Overview → Activity → Overview, and keeps its toggles', async () => {
     const store = await renderWithStore('overview')
     const ledgerMock = store.ledger as unknown as ReturnType<typeof vi.fn>
-    expect(isPressed('Year')).toBe(true)
+    expect(isPressed('Last 12 months')).toBe(true)
 
     const byAgent = document.querySelector<HTMLSelectElement>('select[aria-label="Show by"]')!
     await act(async () => { byAgent.value = 'agent'; byAgent.dispatchEvent(new Event('change', {bubbles:true})) })

@@ -1,13 +1,16 @@
 import { installTopBarTestLayout } from '../test/top-bar-layout'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
-import { expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { ReleaseStills } from './release-stills'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 installTopBarTestLayout()
-const settle = () => act(async()=>{await new Promise<void>(resolve=>requestAnimationFrame(()=>resolve()))})
+// Advance the rig's layout frame directly; jsdom has no paint to wait for.
+beforeEach(() => vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame'] }))
+afterEach(() => vi.useRealTimers())
+const settle = () => act(async () => { vi.advanceTimersToNextFrame() })
 const selectLibraryMatrix = async (host: ParentNode): Promise<void> => {
   const trigger = host.querySelector<HTMLButtonElement>('[data-slot="popover-trigger"][title="How to show the library"]')
   expect(trigger).toBeTruthy()

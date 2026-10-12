@@ -68,8 +68,8 @@ it('a Section owns its spacing: the stack gap inside, 32px between sections, and
   expect(own).toContain('first:mt-0')
   // A card's or a note's own margin cannot reopen the gap the section decided.
   expect(own).toContain('*:my-0!')
-  // The page title and action share a center line; descriptions take their own row.
-  expect(classes(section.querySelector('[data-slot="section-head"]'))).toContain('items-center')
+  // The label stays on its content edge; taller actions grow upward.
+  expect(classes(section.querySelector('[data-slot="section-head"]'))).toContain('items-end')
 })
 
 it('keeps the section title and controls on one head row while the title truncates', () => {

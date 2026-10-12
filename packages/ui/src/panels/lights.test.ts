@@ -65,7 +65,7 @@ describe('the row under the macOS window buttons', () => {
   })
 
   it("a terminal's own bar leaves room for them through its shared bar variant", () => {
-    expect(terminalShellTabsSource).toContain('<DockPanelBar data-terminal-shell-tabs="">')
+    expect(terminalShellTabsSource).toMatch(/<DockPanelBar\b[^>]*data-terminal-shell-tabs=""[^>]*>/)
     expect(dockPanel).toContain('pl-[max(var(--hd-space-2),var(--titlebar-inset,0px))]')
   })
 

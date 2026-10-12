@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { deskContextContent, runtimeId, sessionId, splitContextContent, type RuntimeInfo, wrapContext } from '@harnessdesk/protocol'
 
 import { PaneProvider, StoreProvider } from '../state/context'
+import { Drafts, NEW_SESSION_DRAFT_KEY } from '../state/drafts'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { Composer } from './Composer'
 
@@ -72,6 +73,8 @@ const mount = (paneId?: string): void => {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     transport: { request: vi.fn() },
+    // Each fixture is a separate window; it must not restore another test's mirror.
+    drafts: new Drafts(null),
     ...calls,
   } as unknown as AppStore
   if (paneId) {
@@ -159,6 +162,21 @@ it('a synthetic member composer accepts its exact owner target while the Team ro
   act(() => window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: { paneId: 'team-main:member-session', text: 'Commit this member', onReceived: received } })))
   expect(received).toHaveBeenCalledTimes(1)
   expect(textarea().value).toBe('Commit this member')
+})
+
+it('keeps the synthetic member fixture independent of a different window draft', () => {
+  const otherWindow = new Drafts(sessionStorage)
+  otherWindow.setLive(NEW_SESSION_DRAFT_KEY, { text: 'Not yet.', attachments: [] })
+  window.dispatchEvent(new Event('pagehide'))
+  try {
+    mount('team-main:member-session')
+    const received = vi.fn()
+    act(() => window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: { paneId: 'team-main:member-session', text: 'Commit this member', onReceived: received } })))
+    expect(received).toHaveBeenCalledTimes(1)
+    expect(textarea().value).toBe('Commit this member')
+  } finally {
+    otherWindow.setLive(NEW_SESSION_DRAFT_KEY, { text: '', attachments: [] })
+  }
 })
 
 describe('a draft carrying a hand-off', () => {

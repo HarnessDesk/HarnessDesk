@@ -1,4 +1,5 @@
 import { App } from '../app/App'
+import { installTopBarTestLayout } from '../test/top-bar-layout'
 import { frameDestinationStore } from '../preview/frame-destination-store'
 import { previewStore } from '../preview/harness'
 import { StoreProvider } from '../state/context'
@@ -7,6 +8,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+installTopBarTestLayout()
 let container: HTMLDivElement, root: ReturnType<typeof createRoot>
 beforeEach(() => { container=document.createElement('div'); document.body.append(container); root=createRoot(container) })
 afterEach(() => { act(() => root.unmount()); container.remove() })

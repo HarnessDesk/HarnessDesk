@@ -46,7 +46,7 @@ describe('the dim over a narrow window', () => {
   it('leaves the focus order behind it: a sidebar put away is hidden once its slide has finished', () => {
     /* The claim behind "a sidebar that is put away can no longer be reached
        with Tab" — a rule nothing held until now. */
-    const hidden = blockAfter('.sidebar[data-hidden] {')
+    const hidden = blockAfter('.sidebar:where([data-hidden]) {')
     expect(hidden).toMatch(/visibility:\s*hidden/)
     expect(hidden).toMatch(/visibility 0s linear var\(--hd-duration-slow\)/)
   })
