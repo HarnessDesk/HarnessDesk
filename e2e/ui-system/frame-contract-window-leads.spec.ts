@@ -22,13 +22,16 @@ const expectQuietSettings = async (page: Page, bar: Locator) => {
 // Contract runs measure the preview; the final wall owns images and recordings.
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 
-for (const theme of WALL_THEMES) for (const width of [720, 1440]) {
-  test(`B10 nonwork place hierarchy and lead follow window state at ${width} in ${theme}`, async ({ page }) => {
+// Every destination remains checked; batches bound repeated full-frame mounts.
+const nonworkGroups = Array.from({ length: Math.ceil(B10_NONWORK_DESTINATIONS.length / 8) }, (_, group) =>
+  B10_NONWORK_DESTINATIONS.slice(group * 8, (group + 1) * 8))
+for (const theme of WALL_THEMES) for (const width of [720, 1440]) for (const [group, destinations] of nonworkGroups.entries()) {
+  test(`B10 nonwork place hierarchy and lead follow window state at ${width} in ${theme}${group === 0 ? '' : ` group ${group + 1}`}`, async ({ page }) => {
     const hidden = width === 1440 ? '&frame-sidebar-hidden=1' : ''
     await openFrame(page, `frame-wall=conversation${hidden}`, theme, width)
     const referenceX = (await windowBar(page).locator('[data-topbar="place"]').boundingBox())!.x
     const measured: { destination: string; origin: number; childX: number; titleWidth: number }[] = []
-    for (const destination of B10_NONWORK_DESTINATIONS) {
+    for (const destination of destinations) {
       await openFrame(page, `${destination.query}${hidden}`, theme, width)
       const bar = windowBar(page)
       if (destination.id === 'agent') await expect(bar.locator('[data-topbar-title] > [data-slot="text"]')).toHaveText('Code reviewer')
@@ -51,11 +54,11 @@ for (const theme of WALL_THEMES) for (const width of [720, 1440]) {
     await test.info().attach('nonwork-place-measurements', { body: JSON.stringify(measured, null, 2), contentType: 'application/json' })
   })
 }
-for (const theme of WALL_THEMES) {
-  test(`B10 standing-column place origin stays common in ${theme}`, async ({ page }) => {
+for (const theme of WALL_THEMES) for (const [group, destinations] of nonworkGroups.entries()) {
+  test(`B10 standing-column place origin stays common in ${theme}${group === 0 ? '' : ` group ${group + 1}`}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation', theme)
     const referenceX = (await windowBar(page).locator('[data-topbar="place"]').boundingBox())!.x
-    for (const destination of B10_NONWORK_DESTINATIONS) {
+    for (const destination of destinations) {
       await openFrame(page, destination.query, theme)
       const bar = windowBar(page)
       if (destination.id === 'agent') await expect(bar.locator('[data-topbar-title] > [data-slot="text"]')).toHaveText('Code reviewer')
