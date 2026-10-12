@@ -1,3 +1,4 @@
+import { installFramePreviewFixture } from './frame-preview-fixture'
 import { teamDetails, selectTeamPage, closeTeamDetails } from './team-frame-actions'
 import { selectRunView } from './run-frame-actions'
 import { expect, test, type Page } from '@playwright/test'
@@ -75,7 +76,7 @@ for (const theme of ['light', 'dark'] as const) {
     const menu = page.getByRole('menu')
     await expect(menu).toContainText('Weekly')
     await expect(menu).toContainText('79%')
-    await menu.getByRole('button').first().click()
+    await menu.getByRole('menuitem').first().click()
     await expect(plan).toContainText('Recorded plan opened')
     expect(errors).toEqual([])
   })
@@ -177,6 +178,48 @@ const collectCoverage = (page: Page): Promise<{ allComponents: readonly string[]
         fiber = fiber.return
       }
     }
+    // A destination registers slots; the visible host renders them as a
+    // sibling, so no DOM leaf has the registrar in its ancestry. Credit the
+    // exact mounted reference only when its active scope has a visible host.
+    const registryEntry = (file: string) => mod.coverageRegistry.find(entry => entry.file === file)?.exports
+    const registrar = registryEntry('panels/destination-page.tsx')?.DestinationBar
+    const pageScope = registryEntry('panels/destination-page.tsx')?.DestinationPageScope
+    const outlet = registryEntry('panels/top-bar.tsx')?.TopBarOutlet
+    const owners = new Set<string>()
+    for (const bar of document.querySelectorAll('[data-slot="top-bar"]')) {
+      if (!isVisible(bar)) continue
+      const key = Object.keys(bar).find(name => name.startsWith('__reactFiber$'))
+      if (!key) continue
+      let fiber: any = (bar as unknown as Record<string, unknown>)[key]
+      while (fiber) {
+        if (fiber.type === outlet && typeof fiber.memoizedProps?.owner === 'string') owners.add(fiber.memoizedProps.owner)
+        fiber = fiber.return
+      }
+    }
+    const visited = new Set<unknown>()
+    const inspect = (first: any): void => {
+      for (let fiber = first; fiber; fiber = fiber.sibling) {
+        if (visited.has(fiber)) continue
+        visited.add(fiber)
+        if (fiber.stateNode instanceof Element) continue
+        if (fiber.type === registrar && fiber.child === null) {
+          let scope: any = null, host: Element | null = null
+          for (let parent = fiber.return; parent; parent = parent.return) {
+            if (parent.type === pageScope && scope === null) scope = parent.memoizedProps
+            if (parent.stateNode instanceof Element && host === null) host = parent.stateNode
+          }
+          if (scope?.active && owners.has(scope.owner) && host && isVisible(host)) {
+            for (let parent = fiber; parent; parent = parent.return) {
+              const names = refToComponents.get(parent.type)
+              if (names) for (const name of names) covered.add(name)
+              if (parent.type === pageScope) break
+            }
+          }
+        }
+        inspect(fiber.child)
+      }
+    }
+    for (const fiber of seenFibers as Set<any>) inspect(fiber.child)
     return { allComponents, covered: [...covered] }
   })
 
@@ -244,6 +287,48 @@ const sweepSelectsForCoverage = (
           fiber = fiber.return
         }
       }
+    // A destination registers slots; the visible host renders them as a
+    // sibling, so no DOM leaf has the registrar in its ancestry. Credit the
+    // exact mounted reference only when its active scope has a visible host.
+    const registryEntry = (file: string) => mod.coverageRegistry.find(entry => entry.file === file)?.exports
+    const registrar = registryEntry('panels/destination-page.tsx')?.DestinationBar
+    const pageScope = registryEntry('panels/destination-page.tsx')?.DestinationPageScope
+    const outlet = registryEntry('panels/top-bar.tsx')?.TopBarOutlet
+    const owners = new Set<string>()
+    for (const bar of document.querySelectorAll('[data-slot="top-bar"]')) {
+      if (!isVisible(bar)) continue
+      const key = Object.keys(bar).find(name => name.startsWith('__reactFiber$'))
+      if (!key) continue
+      let fiber: any = (bar as unknown as Record<string, unknown>)[key]
+      while (fiber) {
+        if (fiber.type === outlet && typeof fiber.memoizedProps?.owner === 'string') owners.add(fiber.memoizedProps.owner)
+        fiber = fiber.return
+      }
+    }
+    const visited = new Set<unknown>()
+    const inspect = (first: any): void => {
+      for (let fiber = first; fiber; fiber = fiber.sibling) {
+        if (visited.has(fiber)) continue
+        visited.add(fiber)
+        if (fiber.stateNode instanceof Element) continue
+        if (fiber.type === registrar && fiber.child === null) {
+          let scope: any = null, host: Element | null = null
+          for (let parent = fiber.return; parent; parent = parent.return) {
+            if (parent.type === pageScope && scope === null) scope = parent.memoizedProps
+            if (parent.stateNode instanceof Element && host === null) host = parent.stateNode
+          }
+          if (scope?.active && owners.has(scope.owner) && host && isVisible(host)) {
+            for (let parent = fiber; parent; parent = parent.return) {
+              const names = refToComponents.get(parent.type)
+              if (names) for (const name of names) covered.add(name)
+              if (parent.type === pageScope) break
+            }
+          }
+        }
+        inspect(fiber.child)
+      }
+    }
+    for (const fiber of seenFibers as Set<any>) inspect(fiber.child)
     }
     // React receives the `change` synchronously, then may place an effect's
     // state-gated subtree in the next render. Two animation frames make that
@@ -290,6 +375,18 @@ const sweepSelectsForCoverage = (
     probe?.reveal.remove()
     return { covered: [...covered], delayedReveal }
   }, { delayedRevealProbe })
+
+test('a published destination bar credits only its active visible registration', async ({ page }) => {
+  await page.goto('/preview.html?frame-wall=library')
+  await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar-title]')).toHaveText('Library')
+  const before = await collectCoverage(page)
+  expect(before.covered).toContain('panels/destination-page.tsx#DestinationBar')
+  expect(before.covered).toContain('panels/library-bar.tsx#LibraryBar')
+  await page.locator('[data-page-destination="library"]').evaluate(node => { (node as HTMLElement).style.opacity = '0' })
+  const hidden = await collectCoverage(page)
+  expect(hidden.covered).not.toContain('panels/destination-page.tsx#DestinationBar')
+  expect(hidden.covered).not.toContain('panels/library-bar.tsx#LibraryBar')
+})
 
 test.describe('preview coverage', () => {
   test('Seat browsers preview live pages and Seats with nothing open', async ({ page }) => {
@@ -363,6 +460,22 @@ test.describe('preview coverage', () => {
       const result = await collectCoverage(page)
       allComponents = result.allComponents
       for (const file of result.covered) covered.add(file)
+    }
+
+    await page.goto('/preview.html')
+    await page.locator('[data-frame-id="coverage-answer-actions"]').getByRole('button', { name: 'Mark this response as good', exact: true }).click()
+    await expect(page.locator('[data-frame-id="coverage-answer-actions"] [data-message-actions][data-sticky]')).toBeVisible()
+    for (const component of (await collectCoverage(page)).covered) covered.add(component)
+    await installFramePreviewFixture(page)
+    await page.goto('/preview.html?frame-wall=conversation&frame-update=1')
+    await expect(page.getByRole('button', { name: 'Relaunch to update', exact: true })).toBeVisible()
+    for (const component of (await collectCoverage(page)).covered) covered.add(component)
+    for (const scene of ['comparison', 'investigation']) {
+      await page.goto(`/preview.html?run-shapes=${scene}`)
+      await page.locator('#run-shapes-frame [data-step-row][data-row="card-1-1"] button').click()
+      if (scene === 'comparison') await expect(page.locator('[data-slot="run-inspector"] [data-slot="timeline-card"]')).toHaveCount(2)
+      else await expect(page.locator('[data-slot="timeline-document-body"]')).toContainText('Investigation answer')
+      for (const component of (await collectCoverage(page)).covered) covered.add(component)
     }
 
     // The catalogue's standalone grids omit the shared composer. The real
@@ -603,8 +716,8 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(dialog.getByRole('button', { name: 'Move to Trash' })).toBeVisible()
     await dialog.getByRole('button', { name: 'Keep', exact: true }).click()
     await frame.getByRole('button', { name: 'Fix the project picker actions', exact: true }).click()
-    const deletion = page.getByRole('menuitem', { name: 'Delete everywhere…', exact: true })
-    await expect(deletion).toBeDisabled()
+    const deletion = page.getByRole('menuitem', { name: /^Delete everywhere…(?:\s|$)/ })
+    await expect(deletion).toHaveAttribute('aria-disabled','true')
     await expect(deletion).toHaveAttribute('title', 'Beta erases it for good, so delete it there')
   })
 }

@@ -1,3 +1,5 @@
+import { SettingsPreviewScope } from './settings-pages'
+import { MessageActions } from '../components/MessageActions'
 import { TopBarProvider } from '../panels/top-bar'
 import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 import { useEffect, useRef, useState } from 'react'
@@ -24,7 +26,7 @@ import { libraryColumnsFor, LIBRARY, PREVIEW_AGENTS, PREVIEW_ROOM, PREVIEW_SESSI
 import { PREVIEW_ROOT, previewUsage } from './sidebar-fixture'
 import { GEMINI_UNTRUSTED_PREVIEW, REVIEWER_REASONS_PREVIEW } from './flow-fixture'
 import { ShellProvider } from '../panels/views'
-import { StoreProvider } from '../state/context'
+import { StoreProvider, PaneProvider } from '../state/context'
 import type { AppStore } from '../state/store'
 import type { LayoutNode } from '../state/layout'
 import { dockViews, emptyWorkbench, fixedSubject, normalizeFixedWorkbench } from '../state/workbench'
@@ -241,8 +243,13 @@ export const CoverageFrames = () => {
         {dialog === 'resolve' && <ResolveDialog entry={LIBRARY.entries[0]! as never} columns={COLUMNS} onClose={() => setDialog('off')} onPlan={() => setDialog('plan')} />}
         {dialog === 'plan' && <PlanDialog title="Preview library change" intents={[]} columns={COLUMNS} cwd={PREVIEW_ROOT} onClose={() => setDialog('off')} onApplied={() => setDialog('off')} />}
         {dialog === 'library flow' && <LibraryFlows flow={{ type: 'import' }} setFlow={() => setDialog('off')} library={LIBRARY as never} columns={COLUMNS} cwd={PREVIEW_ROOT} onApplied={() => setDialog('off')} />}
-        {dialog === 'add agents' && <AddAgents onBack={() => setDialog('off')} onDone={() => setDialog('off')} />}
+        {dialog === 'add agents' && <SettingsPreviewScope><AddAgents onBack={() => setDialog('off')} onDone={() => setDialog('off')} /></SettingsPreviewScope>}
       </Boundary>
+      <Frame id="coverage-answer-actions" title="Answer actions">
+        <PaneProvider scope={{ paneId: 'coverage-answer-actions', view: { kind: 'conversation', session: PREVIEW_SESSION_KEY }, sessionKey: PREVIEW_SESSION_KEY }}>
+          <div className="p-4"><MessageActions text="A recorded placeholder answer." /></div>
+        </PaneProvider>
+      </Frame>
       <Frame id="coverage-agent-fields" title="Agent — editable field sections">
         <div className="p-4"><AgentPageSections entry={entry}><StepNameScope items={[]} root={PREVIEW_ROOT}><PlanSteps todos={[{ label: 'Read the Agent file', done: true }, { label: 'Preview the saved edit', done: false }] as never} /></StepNameScope></AgentPageSections></div>
       </Frame>
