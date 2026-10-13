@@ -1,8 +1,11 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { test } from 'node:test'
 import { spawnSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 
+import { splitServerSpecs } from './ci-server-split.mjs'
 import { REQUIRED_CHECKS } from './land-safe.mjs'
 
 const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
@@ -24,7 +27,7 @@ test('browser CI sizes its shards to the work, up to sixteen, with time for setu
   assert.match(browser, /^      UI_SYSTEM_SPECS: \$\{\{ needs.changes.outputs.browser_specs \}\}$/m)
   assert.match(browser, /^          mapfile -t specs < <\(node script\/ci-browser-shards\.mjs \$\{\{ matrix\.shard \}\}\/\$\{\{ needs\.changes\.outputs\.shard_count \}\}\)$/m)
   assert.match(browser, /^          test "\$\{#specs\[@\]\}" -gt 0$/m)
-  assert.match(browser, /^            pnpm test:ui-system "\$\{specs\[@\]\}"$/m)
+  assert.match(browser, /^            node script\/ui-system-run\.mjs "\$\{specs\[@\]\}"$/m)
   assert.doesNotMatch(browser, /--shard=/)
   assert.match(browser, /^      fail-fast: false$/m)
 })
@@ -44,13 +47,14 @@ test('the plan reaches the shards through the change job, and a manual run can n
 test('the stable browser check requires every shard and keeps reports after failure (#1140)', () => {
   const aggregate = job('ui-system-browser-integration')
   assert.match(aggregate, /^    name: UI system browser integration$/m)
-  assert.match(aggregate, /^    needs: \[changes, ui-system-browser, ui-system-server\]$/m)
+  assert.match(aggregate, /^    needs: \[changes, ui-system-build, ui-system-browser, ui-system-server\]$/m)
   assert.match(aggregate, /^    if: always\(\)$/m)
   assert.match(aggregate, /SHARDS_RESULT: \$\{\{ needs.ui-system-browser.result \}\}/)
   assert.match(job('ui-system-browser'), /- uses: actions\/upload-artifact@\S+\n        if: failure\(\) \|\| cancelled\(\)\n        with:\n          name: ui-system-browser-report-\$\{\{ matrix.shard \}\}/)
 })
 
 for (const [name, artifact, path] of [
+  ['ui-system-build', 'ui-system-build-report', 'output/playwright/ui-system/'],
   ['ui-system-browser', 'ui-system-browser-report-${{ matrix.shard }}', 'output/playwright/ui-system/'],
   ['ui-system-server', 'ui-system-server-report', 'output/playwright/ui-system/'],
   ['ui-system-native', 'ui-system-native-report', 'output/native-ui-system/'],
@@ -73,7 +77,7 @@ test('unsigned packaging proves the app builds without retaining an unused bundl
   assert.match(packaging, /electron-builder --mac dir/)
   assert.doesNotMatch(packaging, /actions\/upload-artifact@|HarnessDesk-unsigned/)
   // Diagnostics of the three heavy jobs, and the two that carry a full run's records to the map.
-  assert.equal([...workflow.matchAll(/uses: actions\/upload-artifact@/g)].length, 5)
+  assert.equal([...workflow.matchAll(/uses: actions\/upload-artifact@/g)].length, 7)
 })
 
 // Execute the workflow's actual shell, so the required checks cannot report
@@ -115,7 +119,7 @@ for (const [name, resultKey, flagKey, heavy] of [
 
 test('browser aggregate receives both results and the three-way decision', () => {
   const aggregate = job('ui-system-browser-integration')
-  assert.match(aggregate, /^    needs: \[changes, ui-system-browser, ui-system-server\]$/m)
+  assert.match(aggregate, /^    needs: \[changes, ui-system-build, ui-system-browser, ui-system-server\]$/m)
   assert.match(aggregate, /^    if: always\(\)$/m)
   for (const line of [
     'BROWSER: ${{ needs.changes.outputs.browser }}',
@@ -133,7 +137,7 @@ test('browser aggregate accepts only the exact result pair requested', () => {
           || (browser === 'server' && shards === 'skipped' && server === 'success')
           || (browser === 'none' && shards === 'skipped' && server === 'skipped')
         const output = runAggregate('ui-system-browser-integration', {
-          BROWSER: browser, SHARDS_RESULT: shards, SERVER_RESULT: server, CHANGES_RESULT: 'success',
+          BROWSER: browser, SHARDS_RESULT: shards, SERVER_RESULT: server, CHANGES_RESULT: 'success', BUILD_RESULT: browser === 'all' ? 'success' : 'skipped',
         })
         assert.equal(output.status, passes ? 0 : 1, `${browser}/${shards}/${server}: ${output.stdout} ${output.stderr}`)
       }
@@ -164,10 +168,12 @@ test('server specs run in one Ubuntu job using the discovered paths', () => {
 })
 
 test('only heavy UI jobs are conditional; required check names stay conclusive', () => {
-  for (const [name, flag, mode] of [['ui-system-browser', 'browser', 'all'], ['ui-system-server', 'browser', 'server'], ['ui-system-native', 'native', 'true']]) {
+  for (const [name, flag, mode] of [['ui-system-server', 'browser', 'server'], ['ui-system-native', 'native', 'true']]) {
     assert.match(job(name), /^    needs: changes$/m)
     assert.ok(job(name).includes(`    if: needs.changes.outputs.${flag} == '${mode}'`))
   }
+  // The shards and the page build they serve from run together, under the same condition.
+  for (const name of ['ui-system-build', 'ui-system-browser']) assert.ok(job(name).includes("    if: needs.changes.outputs.browser == 'all'\n"), name)
   assert.match(job('ui-system-native'), /^    name: UI system native smoke$/m)
   assert.match(job('ui-system-native'), /^    runs-on: macos-14$/m)
   // The gate check is the one that waits for the rest, so it must conclude
@@ -260,4 +266,54 @@ test('a pull request runs the unit tests that depend on its change, and every ot
   // Each command is a step of its own, so the gate that holds `pnpm verify` and CI to the same commands finds the whole run.
   assert.match(tests, /- name: UI tests\n        if: steps\.unit\.outputs\.mode == 'all'\n        run: pnpm --filter @harnessdesk\/ui run test\n/)
   assert.match(tests, /if: steps\.unit\.outputs\.mode == 'related'\n        env:\n          UNIT_FILES: \$\{\{ steps\.unit\.outputs\.files \}\}\n        run: pnpm --filter @harnessdesk\/ui exec vitest related --run \$UNIT_FILES\n/)
+})
+
+
+test('one shared browser build runs for every full run; only a non-recording run serves from it', () => {
+  const build = job('ui-system-build')
+  assert.match(build, /^    needs: changes$/m)
+  assert.ok(build.includes("    if: needs.changes.outputs.browser == 'all'\n"), 'a recording run builds too, so a broken build fails the run that broke it')
+  for (const command of ['pnpm install --frozen-lockfile', 'pnpm run build:node', 'pnpm run build:e2e']) assert.ok(build.includes(`run: ${command}`))
+  assert.match(build, /actions\/upload-artifact@\S+[\s\S]*name: ui-system-pages\n          path: packages\/ui\/dist-e2e\/\n          retention-days: 1\n          if-no-files-found: error/)
+  const browser = job('ui-system-browser')
+  // Plain success() on both needs: a failed or cancelled build starts no shards, and nothing falls back to the dev server.
+  assert.match(browser, /^    needs: \[changes, ui-system-build\]$/m)
+  assert.match(browser, /^    if: needs\.changes\.outputs\.browser == 'all'$/m)
+  assert.doesNotMatch(browser, /!cancelled\(\)|always\(\)/)
+  assert.match(browser, /actions\/download-artifact@\S+\n        if: needs.changes.outputs.record != 'true'\n        with:\n          name: ui-system-pages\n          path: packages\/ui\/dist-e2e\//)
+  assert.match(browser, /UI_SYSTEM_SERVER: dev/)
+  assert.match(browser, /UI_SYSTEM_PAGES: prebuilt/)
+})
+
+test('a recording run still tries the build, with specs that the static server runs, from every built page', () => {
+  const build = job('ui-system-build')
+  assert.match(build, /- name: Install the browser to try the build\n        if: needs\.changes\.outputs\.record == 'true'\n        run: pnpm exec playwright install --with-deps chromium\n/)
+  assert.match(build, /- name: Try the build\n        if: needs\.changes\.outputs\.record == 'true'\n        env:\n(?:          #[^\n]*\n)?          UI_SYSTEM_PAGES: prebuilt\n        run: \|\n/)
+  // The pages stay the build's own: the runner does not rebuild them, and the matrix stays the small one.
+  assert.match(build, /^      UI_SYSTEM_MATRIX: pr$/m)
+  const root = fileURLToPath(new URL('../', import.meta.url))
+  const specs = [...new Set([...build.matchAll(/e2e\/ui-system\/[\w-]+\.spec\.ts/g)].map(match => match[0]))]
+  // A spec that moved to the dev server would make this a dev run that proves nothing about the build.
+  assert.deepEqual(splitServerSpecs(root, specs), { static: specs, dev: [] })
+  const text = specs.map(spec => readFileSync(join(root, spec), 'utf8')).join('\n')
+  for (const page of ['design.html', 'narrow-overlay.html', 'preview.html']) assert.ok(text.includes(page), `no spec tries ${page}`)
+  // The embedded tile page is reached through the side-by-side fixture, and its test is the one the grep picks.
+  assert.ok(build.includes('e2e/ui-system/side-by-side.spec.ts --grep "two Seat browsers stay live"'))
+  assert.ok(readFileSync(join(root, 'packages/ui/src/preview/side-by-side-fixture.ts'), 'utf8').includes('/src/preview/tile-page.html'))
+  assert.ok(text.includes('two Seat browsers stay live'))
+})
+
+test('the aggregate requires a successful build exactly when the browser suite runs', () => {
+  const aggregate = job('ui-system-browser-integration')
+  assert.ok(aggregate.includes('BUILD_RESULT: ${{ needs.ui-system-build.result }}'))
+  for (const browser of ['all', 'server', 'none']) {
+    for (const result of ['success', 'failure', 'cancelled', 'skipped', '']) {
+      const output = runAggregate('ui-system-browser-integration', {
+        CHANGES_RESULT: 'success', BROWSER: browser, SHARDS_RESULT: browser === 'all' ? 'success' : 'skipped',
+        SERVER_RESULT: browser === 'server' ? 'success' : 'skipped', BUILD_RESULT: result,
+      })
+      const passes = result === (browser === 'all' ? 'success' : 'skipped')
+      assert.equal(output.status, passes ? 0 : 1, `${browser}/${result}: ${output.stdout} ${output.stderr}`)
+    }
+  }
 })

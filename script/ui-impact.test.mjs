@@ -413,11 +413,13 @@ test('the specs that open pages of their own are found through the helpers that 
     'e2e/ui-system/opens.ts': 'export const open = async browser => browser.newPage()\n',
     'e2e/ui-system/b.spec.ts': "import { open } from './opens'\nopen()\n",
   })
+  const without = fixtureWithout('e2e/ui-system/opens.ts')
   try {
     assert.deepEqual(unobservedSpecs(root), ['b.spec.ts'])
-    assert.deepEqual(unobservedSpecs(fixtureWithout('e2e/ui-system/opens.ts')), [])
+    assert.deepEqual(unobservedSpecs(without), [])
   } finally {
     rmSync(root, { recursive: true, force: true })
+    rmSync(without, { recursive: true, force: true })
   }
 })
 
@@ -534,11 +536,13 @@ test('the setup a map was recorded in covers the pages and configuration of the 
 
 test('the scan of the suite does not need the build: an import of build output that is not there is no file to follow', () => {
   const root = fixture({ 'e2e/ui-system/b.spec.ts': "import { rig } from '../../packages/server/dist/test/fixtures/rig.js'\nrig()\n" })
+  const unresolved = fixture({ 'e2e/ui-system/b.spec.ts': "import { x } from './does-not-exist'\nx()\n" })
   try {
     const graph = suiteGraph(root)
     assert.ok(graph.sources.some(file => file.endsWith('b.spec.ts')))
-    assert.throws(() => suiteGraph(fixture({ 'e2e/ui-system/b.spec.ts': "import { x } from './does-not-exist'\nx()\n" })), /Cannot resolve suite import/, 'any other import that names nothing is still an error')
+    assert.throws(() => suiteGraph(unresolved), /Cannot resolve suite import/, 'any other import that names nothing is still an error')
   } finally {
     rmSync(root, { recursive: true, force: true })
+    rmSync(unresolved, { recursive: true, force: true })
   }
 })

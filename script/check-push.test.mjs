@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { test } from 'node:test'
@@ -73,7 +73,7 @@ for (const paths of [
     assert.deepEqual(plan.ci.change, changes.planChange(root, options))
     assert.deepEqual(plan.ci.unit, unitPlan(root, options))
     for (const step of plan.steps.filter(step => step.status === 'run')) {
-      assert.ok(!(step.command === 'pnpm' && step.args.includes('test:ui-system')) || step.args.some(arg => arg.endsWith('.spec.ts')), 'a browser command always names specs')
+      assert.ok(!(step.command === 'node' && step.args.includes('script/ui-system-run.mjs')) || step.args.some(arg => arg.endsWith('.spec.ts')), 'a browser command always names specs')
       assert.ok(!step.args.includes('vitest') || step.args.includes('related'), 'only related UI unit tests run')
       assert.notDeepEqual(step.args, ['--filter', '@harnessdesk/ui', 'run', 'test'])
     }
@@ -100,14 +100,37 @@ test('suite-only planning needs neither dependencies nor a build', async () => {
     assert.equal(plan.ci.unit.mode, 'none')
     assert.equal(plan.ci.change.matrix, 'full')
     const run = plan.steps.filter(step => step.status === 'run')
-    assert.ok(run.some(step => step.args.includes('test:ui-system')))
+    assert.ok(run.some(step => step.args.includes('script/ui-system-run.mjs')))
     // Planning needs no build; running the specs does, because they import compiled host fixtures and CI builds first.
     assert.ok(run.every(step => !step.args.some(arg => /typecheck|dist\//.test(arg))))
-    assert.deepEqual(run.find(step => step.args.includes('test:ui-system')).needs, ['Node build'])
+    assert.deepEqual(run.find(step => step.args.includes('script/ui-system-run.mjs')).needs, ['Node build'])
     assert.ok(run.some(step => step.name === 'Node build'))
-    assert.ok(run.filter(step => step.command === 'node').every(step => /check-(?:secrets|doc-paths)\.mjs/.test(step.args[0])))
+    assert.ok(run.filter(step => step.command === 'node').every(step => /(?:check-(?:secrets|doc-paths)|ui-system-run)\.mjs/.test(step.args[0])))
     assert.equal(existsSync(join(directory, 'node_modules')), false)
     assert.equal(existsSync(join(directory, 'packages/server/dist')), false)
+  })
+})
+
+test('the suite-only --plan CLI starts from a script-only copy without dependencies', async () => {
+  await fixture(async (directory, put) => {
+    const scripts = mkdtempSync(join(tmpdir(), 'check-push-scripts-'))
+    try {
+      cpSync(join(root, 'script'), join(scripts, 'script'), { recursive: true })
+      put('e2e/ui-system/row-box.spec.ts', 'export const changed = true\n')
+      const result = spawnSync(process.execPath, [realpathSync(join(scripts, 'script/check-push.mjs')), '--plan'], {
+        cwd: directory, encoding: 'utf8', env: { ...process.env, NODE_TEST_CONTEXT: undefined, UI_IMPACT_MAP: '', UI_SYSTEM_MATRIX_REQUEST: '' },
+      })
+      assert.equal(result.status, 0, result.stderr)
+      const plan = JSON.parse(result.stdout)
+      assert.deepEqual(Object.keys(plan).sort(), ['base', 'ci', 'mergeBase', 'notes', 'paths', 'steps'])
+      assert.deepEqual(JSON.parse(plan.ci.change.browser_specs), ['e2e/ui-system/row-box.spec.ts'])
+      assert.equal(plan.ci.unit.mode, 'none')
+      assert.equal(existsSync(join(scripts, 'node_modules')), false)
+      assert.equal(existsSync(join(directory, 'node_modules')), false)
+      assert.equal(existsSync(join(directory, 'packages/server/dist')), false)
+    } finally {
+      rmSync(scripts, { recursive: true, force: true })
+    }
   })
 })
 
@@ -270,11 +293,11 @@ test('browser selection observes both limits and always retains directly edited 
     put('e2e/ui-system/durations.json', '{"row-box.spec.ts":300,"second.spec.ts":300}')
     const select = paths => createPlan(directory, { paths, chromium: true })
     const bounded = select(['e2e/ui-system/helper.ts'])
-    assert.deepEqual(bounded.steps.find(step => step.name === 'Browser specs').args, ['test:ui-system', 'e2e/ui-system/row-box.spec.ts', 'e2e/ui-system/second.spec.ts'])
+    assert.deepEqual(bounded.steps.find(step => step.name === 'Browser specs').args, ['script/ui-system-run.mjs', 'e2e/ui-system/row-box.spec.ts', 'e2e/ui-system/second.spec.ts'])
     assert.deepEqual(bounded.steps.find(step => step.name === 'Browser specs').env, { UI_SYSTEM_MATRIX: 'full', PLAYWRIGHT_UI_SYSTEM_WORKERS: '1' })
     put('e2e/ui-system/durations.json', '{"row-box.spec.ts":300,"second.spec.ts":301}')
     const costly = select(['e2e/ui-system/helper.ts', 'e2e/ui-system/row-box.spec.ts'])
-    assert.deepEqual(costly.steps.find(step => step.name === 'Browser specs').args, ['test:ui-system', 'e2e/ui-system/row-box.spec.ts'])
+    assert.deepEqual(costly.steps.find(step => step.name === 'Browser specs').args, ['script/ui-system-run.mjs', 'e2e/ui-system/row-box.spec.ts'])
     assert.match(costly.steps.find(step => step.name === 'Remaining browser specs').reason, /601 recorded seconds/)
     const seconds = { 'row-box.spec.ts': 1, 'second.spec.ts': 1 }
     for (let index = 0; index < 5; index++) {
@@ -283,7 +306,7 @@ test('browser selection observes both limits and always retains directly edited 
     }
     put('e2e/ui-system/durations.json', JSON.stringify(seconds))
     const many = select(['e2e/ui-system/helper.ts', 'e2e/ui-system/row-box.spec.ts'])
-    assert.deepEqual(many.steps.find(step => step.name === 'Browser specs').args, ['test:ui-system', 'e2e/ui-system/row-box.spec.ts'])
+    assert.deepEqual(many.steps.find(step => step.name === 'Browser specs').args, ['script/ui-system-run.mjs', 'e2e/ui-system/row-box.spec.ts'])
     assert.match(many.steps.find(step => step.name === 'Remaining browser specs').reason, /7 reached specs/)
     const missing = createPlan(directory, { paths: ['e2e/ui-system/row-box.spec.ts'], chromium: false })
     assert.match(missing.steps.find(step => step.name === 'Browser specs').reason, /Chromium is not installed/)
@@ -308,7 +331,7 @@ test('impact-map planning shares CI selection and uses the merge base for freshn
     git('commit', '-qm', 'Fixture second change')
     const plan = createPlan(directory, { paths: [component], mergeBase: base, map: readMap(join(directory, 'impact-map.json')), chromium: true })
     assert.deepEqual(plan.ci.change, changes.planChange(directory, { event: 'pull_request', paths: [component], baseRevision: base, map }))
-    assert.deepEqual(plan.steps.find(step => step.name === 'Browser specs').args, ['test:ui-system', 'e2e/ui-system/row-box.spec.ts'])
+    assert.deepEqual(plan.steps.find(step => step.name === 'Browser specs').args, ['script/ui-system-run.mjs', 'e2e/ui-system/row-box.spec.ts'])
     assert.equal(plan.ci.change.matrix, 'pr')
     assert.equal(changes.planChange(directory, { event: 'pull_request', paths: [component], map }).browser_specs, 'all', 'HEAD^1 is deliberately not the merge base')
     const flag = cli(directory, ['--plan', '--map', 'impact-map.json'])
@@ -336,7 +359,7 @@ test('planner dependencies select planner tests, alongside changed scripts and t
   const plan = createPlan(root, { paths: ['script/ci-browser-shards.mjs', 'script/check-push.test.mjs', 'script/check-layering.mjs'], fast: true })
   assert.deepEqual(plan.steps.find(step => step.name === 'Script tests').args, ['--test',
     'script/check-layering.test.mjs', 'script/check-push.test.mjs', 'script/ci-browser-plan.test.mjs',
-    'script/ci-browser-shards.test.mjs', 'script/ci-changes.test.mjs', 'script/ci-unit-tests.test.mjs', 'script/gates.test.mjs', 'script/ui-impact.test.mjs'])
+    'script/ci-browser-shards.test.mjs', 'script/ci-changes.test.mjs', 'script/ci-imports.test.mjs', 'script/ci-planners.test.mjs', 'script/ci-unit-tests.test.mjs', 'script/gates.test.mjs', 'script/ui-impact.test.mjs'])
 })
 
 test('gates see untracked additions without changing the real index', async () => {
@@ -454,4 +477,18 @@ test('a gate row names every data file its script reads from the repository', as
     }
   }
   assert.deepEqual(missing, [], 'a data file a gate reads must be a path that makes it run')
+})
+
+test('gates read working files, never bytes from the temporary index', async () => {
+  const { GATES } = await api()
+  const seen = new Set()
+  const visit = file => {
+    if (seen.has(file)) return
+    seen.add(file)
+    const text = readFileSync(file, 'utf8')
+    // ls-files --cached enumerates names; other cached commands read index content.
+    assert.doesNotMatch(text.replace(/['"]ls-files['"]\s*,\s*['"]--cached['"]/g, ''), /['"](?:cat-file|--cached)['"]|['"]show['"]\s*,\s*['"]:/, file)
+    for (const [, specifier] of text.matchAll(/(?:from\s*|import\s*)['"](\.[^'"\n]+\.mjs)['"]/g)) visit(join(dirname(file), specifier))
+  }
+  for (const row of GATES) visit(join(root, row.args[0]))
 })

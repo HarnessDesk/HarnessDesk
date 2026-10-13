@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { hasE2EBuild } from './script/ui-system-run.mjs'
 
 import { defineConfig, devices } from '@playwright/test'
 
@@ -29,6 +30,12 @@ const repoRoot = path.dirname(fileURLToPath(import.meta.url))
 const envPort = Number(process.env.PLAYWRIGHT_UI_SYSTEM_PORT)
 const port = Number.isInteger(envPort) && envPort > 0 ? envPort : derivedPort(repoRoot)
 const origin = `http://127.0.0.1:${port}`
+const staticServer = process.env.UI_SYSTEM_SERVER === 'static'
+if (staticServer && !hasE2EBuild(repoRoot)) {
+  throw new Error('Missing packages/ui/dist-e2e; run pnpm run build:node then pnpm run build:e2e before UI_SYSTEM_SERVER=static.')
+}
+const reportGroup = process.env.UI_SYSTEM_REPORT_GROUP
+const reportRoot = `./output/playwright/ui-system${reportGroup === 'static' || reportGroup === 'dev' ? `/${reportGroup}` : ''}`
 
 /**
  * How many browsers run at once. One anywhere but CI: a Mac that other work
@@ -85,7 +92,7 @@ const pullRequestMatrix = process.env.UI_SYSTEM_MATRIX === 'pr'
 
 export default defineConfig({
   testDir: './e2e/ui-system',
-  outputDir: './output/playwright/ui-system/results',
+  outputDir: `${reportRoot}/results`,
   // The frame wall's approved frames (frame-wall.spec.ts): local only, under
   // output/, never committed.
   snapshotPathTemplate: './output/playwright/ui-system/approved/{arg}{ext}',
@@ -102,7 +109,7 @@ export default defineConfig({
   // twenty seconds alone takes longer; the limit is for a test that is stuck,
   // not for one that is slow because its neighbour is busy.
   ...(workers > 1 ? { timeout: 90_000, expect: { timeout: 10_000 } } : {}),
-  reporter: [['list'], ['html', { outputFolder: './output/playwright/ui-system/report', open: 'never' }]],
+  reporter: [['list'], ['html', { outputFolder: `${reportRoot}/report`, open: 'never' }]],
   use: {
     baseURL: origin,
     ...devices['Desktop Chrome'],
@@ -113,7 +120,9 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   webServer: {
-    command: `pnpm --filter @harnessdesk/ui exec vite --host 127.0.0.1 --port ${port}`,
+    command: staticServer
+      ? `pnpm --filter @harnessdesk/ui exec vite preview --outDir dist-e2e --host 127.0.0.1 --port ${port} --strictPort`
+      : `pnpm --filter @harnessdesk/ui exec vite --host 127.0.0.1 --port ${port}`,
     url: `${origin}/design.html?view=propagation`,
     reuseExistingServer: false,
     timeout: 120_000,
