@@ -8,7 +8,8 @@ import {
   indentUnit,
 } from '@codemirror/language'
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search'
-import { Annotation, Compartment, EditorState, type Extension } from '@codemirror/state'
+import { Annotation, ChangeSet, Compartment, EditorState, type Extension } from '@codemirror/state'
+import { getOriginalDoc, originalDocChangeEffect, unifiedMergeView, updateOriginalDoc } from '@codemirror/merge'
 import {
   EditorView,
   drawSelection,
@@ -31,6 +32,8 @@ import {
   look,
   type EditorLook,
 } from './languages'
+import { countTextChanges, type ChangeCounts } from './counts'
+import { mergeTheme } from './merge-theme'
 
 /**
  * A CodeMirror view, as a React component.
@@ -91,7 +94,13 @@ export interface CodeViewProps {
   readonly className?: string
 }
 
-export const CodeView = ({
+interface EditorSurfaceProps extends CodeViewProps {
+  readonly original?: string
+  readonly onCountsChange?: (counts: ChangeCounts) => void
+}
+
+/** Internal shared engine; the public CodeView and MergeView choose its mode. */
+export const EditorSurface = ({
   value,
   path = null,
   language = null,
@@ -106,7 +115,9 @@ export const CodeView = ({
   onSave,
   ariaLabel,
   className,
-}: CodeViewProps) => {
+  original,
+  onCountsChange,
+}: EditorSurfaceProps) => {
   const host = useRef<HTMLDivElement | null>(null)
   const view = useRef<EditorView | null>(null)
 
@@ -130,6 +141,17 @@ export const CodeView = ({
   const onSaveRef = useRef(onSave)
   onChangeRef.current = onChange
   onSaveRef.current = onSave
+  const onCountsRef = useRef(onCountsChange)
+  onCountsRef.current = onCountsChange
+  const lastCounts = useRef('')
+  const reportCounts = (state: EditorState): void => {
+    if (original === undefined) return
+    const counts = countTextChanges(getOriginalDoc(state).toString(), state.doc.toString())
+    const key = `${counts.added}:${counts.removed}`
+    if (key === lastCounts.current) return
+    lastCounts.current = key
+    onCountsRef.current?.(counts)
+  }
 
   const resolvedLanguage = useMemo(
     () => language ?? languageForPath(path),
@@ -148,6 +170,10 @@ export const CodeView = ({
     const state = EditorState.create({
       doc: value,
       extensions: [
+        ...(original === undefined ? [] : [
+          unifiedMergeView({ original, mergeControls: false, gutter: true }),
+          mergeTheme,
+        ]),
         compartments.gutter.of(gutterExtension),
         highlightSpecialChars(),
         history(),
@@ -180,6 +206,9 @@ export const CodeView = ({
         ]),
         keymap.of(editingKeymap),
         EditorView.updateListener.of((update) => {
+          if (update.docChanged || update.transactions.some((transaction) => transaction.effects.some((effect) => effect.is(updateOriginalDoc)))) {
+            reportCounts(update.state)
+          }
           if (!update.docChanged) return
           if (update.transactions.some((transaction) => transaction.annotation(Sync))) return
           onChangeRef.current?.(update.state.doc.toString())
@@ -214,6 +243,24 @@ export const CodeView = ({
       selection: { anchor: Math.min(current.state.selection.main.anchor, value.length) },
     })
   }, [value])
+
+  useEffect(() => {
+    const current = view.current
+    if (!current || original === undefined) return
+    const previous = getOriginalDoc(current.state)
+    if (previous.toString() === original) return
+    current.dispatch({ effects: originalDocChangeEffect(current.state,
+      ChangeSet.of({ from: 0, to: previous.length, insert: original }, previous.length)),
+    })
+  }, [original])
+
+  useEffect(() => {
+    const current = view.current
+    if (!current || original === undefined) return
+    const counts = countTextChanges(getOriginalDoc(current.state).toString(), current.state.doc.toString())
+    lastCounts.current = `${counts.added}:${counts.removed}`
+    onCountsChange?.(counts)
+  }, [onCountsChange])
 
   // Marks are positions *into the document*, so they are re-applied whenever
   // either changes — and after the sync above, which is why this effect is
@@ -279,3 +326,5 @@ export const CodeView = ({
 
   return <div ref={host} className={className} data-testid="code-editor" />
 }
+
+export const CodeView = (props: CodeViewProps) => <EditorSurface {...props} />

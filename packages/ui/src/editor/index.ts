@@ -3,6 +3,11 @@ import { lazy } from 'react'
 /** The editor's public boundary. CodeMirror loads only when a view mounts. */
 export const CodeView = lazy(async () => ({ default: (await import('./CodeView')).CodeView }))
 export type { CodeViewProps } from './CodeView'
+export const MergeView = lazy(async () => ({ default: (await import('./MergeView')).MergeView }))
+export type { MergeViewProps } from './MergeView'
+export { MarkdownView, type MarkdownViewProps } from './MarkdownView'
+export { countTextChanges, type ChangeCounts } from './counts'
+export { readHead, reverseTextPatch, type HeadFile, type HeadRequest, type ReadHeadOptions } from './head'
 export type { EditorLook } from './languages'
 export {
   CANDIDATE_FACES,
