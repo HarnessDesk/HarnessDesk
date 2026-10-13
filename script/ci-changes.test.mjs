@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { browserPlan, themeInputs } from './ci-changes.mjs'
+import { browserPlan, planChange, themeDiff, themeInputs } from './ci-changes.mjs'
 import { specFiles } from './ci-browser-shards.mjs'
 import { mergeRecords } from './ui-impact.mjs'
 
@@ -388,4 +388,34 @@ test('a file outside the UI that its source imports is a browser input, and one 
   // `packages/ui/src/design/frame.ts` is the UI's; the shared constants it imports from other packages are theirs.
   assert.equal(run(['docs/architecture.md']).browser, 'none')
   assert.equal(run(['packages/desktop/electron/main.mjs']).browser, 'none', 'imported by a unit test of the UI and by no source of it')
+})
+
+test('suite-only selection reads the source behind compiled package imports on an unbuilt checkout', async () => {
+  await fixture((root, put) => {
+    put('packages/server/test/rig.ts', 'export const rig = {}')
+    put('e2e/ui-system/server.spec.ts', "import { rig } from '../../packages/server/dist/test/rig.js'")
+    put('e2e/ui-system/durations.json', '{}')
+    const output = planChange(root, { event: 'pull_request', paths: ['e2e/ui-system/ui.spec.ts'] })
+    assert.deepEqual(JSON.parse(output.browser_specs), ['e2e/ui-system/ui.spec.ts'])
+  })
+})
+
+test('the shared change plan prints the same fields, in the same order, as the CI CLI', () => {
+  const real = fileURLToPath(new URL('../', import.meta.url))
+  const paths = ['docs/architecture.md']
+  const output = check(paths, ['none', false])
+  const shared = planChange(real, { event: 'pull_request', paths })
+  assert.deepEqual(Object.fromEntries(Object.entries(shared).map(([key, value]) => [key, String(value)])), output)
+  assert.deepEqual(Object.keys(shared), Object.keys(output))
+})
+
+test('theme diff selection matches the unchanged CI grep pipeline', () => {
+  const real = fileURLToPath(new URL('../', import.meta.url))
+  const workflow = readFileSync(join(real, '.github/workflows/ci.yml'), 'utf8')
+  const pipeline = workflow.match(/git diff --no-renames -U0 HEAD\^1 HEAD -- packages\/ui \| (grep[^;]+); then/)?.[1]
+  assert.ok(pipeline, 'CI still exposes its theme pipeline')
+  for (const diff of ['+++ b/theme.css\n--- a/dark.css', '+DARK colour', '-theme rule', ' context dark', '+colour: blue', '+--- theme', '\n+theme\n']) {
+    const result = spawnSync('bash', ['-c', pipeline], { input: diff, encoding: 'utf8' })
+    assert.equal(themeDiff(diff), result.status === 0, diff)
+  }
 })
