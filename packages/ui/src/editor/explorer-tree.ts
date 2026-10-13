@@ -62,21 +62,26 @@ export const explorerRows = (
     })
   }
   const rows: ExplorerTreeRow[] = []
-  const walk = (folder: string, depth: number, inherited?: ExplorerChange) => {
+  const walk = (folder: string, depth: number, changedDirectory = false, untracked = false) => {
     const entries = new Map<string, ExplorerEntry>()
     for (const entry of listings.get(folder) ?? []) {
       if (explorerPath(root, entry.path) !== entry.path || entry.path.slice(0, entry.path.lastIndexOf('/')) !== folder.replace(/\/$/, '')) continue
       if (entry.name === '.git') continue
-      if (filter === 'all' || inherited || changedEntries.has(entry.path)) entries.set(entry.path, entry)
+      if (filter === 'all' || changedDirectory || changedEntries.has(entry.path)) entries.set(entry.path, entry)
     }
     for (const entry of changedEntries.values()) {
       // The filesystem knows the kind; Git's non-slash paths can be directories (gitlinks).
       if (!entries.has(entry.path) && entry.path.slice(0, entry.path.lastIndexOf('/')) === folder.replace(/\/$/, '')) entries.set(entry.path, entry)
     }
     for (const entry of [...entries.values()].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'directory' ? -1 : 1) || a.name.localeCompare(b.name))) {
-      const change = changes.get(entry.path) ?? inherited
-      rows.push({ ...entry, depth, letter: entry.kind === 'file' && change ? letterOf(change.status) : null })
-      if (entry.kind === 'directory' && expanded.includes(entry.path)) walk(entry.path, depth + 1, change)
+      const change = changes.get(entry.path)
+      // Aggregate tracked-directory changes admit descendants, but do not describe their status.
+      // A collapsed untracked directory is the exception: its unnamed descendants are untracked.
+      const status = change?.status ?? (untracked ? 'untracked' : null)
+      rows.push({ ...entry, depth, letter: entry.kind === 'file' && status ? letterOf(status) : null })
+      if (entry.kind === 'directory' && expanded.includes(entry.path)) {
+        walk(entry.path, depth + 1, changedDirectory || Boolean(change), change ? change.status === 'untracked' : untracked)
+      }
     }
   }
   walk(root, 0)
