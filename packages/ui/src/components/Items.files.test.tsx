@@ -11,7 +11,7 @@ import { ItemView } from './Items'
 /**
  * The `+N −M` beside a changed file, read off the rendered row.
  *
- * `countDrawn` is tested on its own in `lib/diff.test.ts`. What this pins is
+ * `countDrawn` is tested on its own in `editor/diff.test.ts`. What this pins is
  * that the row asks it the question the view under it answers: an added file
  * that arrives as its content is drawn as all additions, so its counts have
  * no removals, whatever its lines start with. Review of #133 found the row

@@ -29,7 +29,7 @@ import {
 import { Checkbox, DisclosureChevron, EmptyState, Fieldset } from '../design'
 import { RuntimeMark } from './BrandIcons'
 import { shortPath } from '../lib/paths'
-import { DiffView } from './Diff'
+import { DiffView } from '../editor'
 import { AlertIcon, CheckIcon, CrossIcon, TodoPendingIcon } from './Icons'
 import { ChoiceList, Row, Rows, RowChoice, Section, Toolbar, PageControls } from '../design'
 import { useDestinationActive } from '../panels/destination-page'

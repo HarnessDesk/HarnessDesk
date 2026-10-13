@@ -71,7 +71,7 @@ import {
 import { instant } from '../lib/clock'
 import { openExternal } from '../lib/desktop'
 import { formatTokensWithFloor } from '../lib/context-usage'
-import { countFileChange, wholeFileOf } from '../lib/diff'
+import { countFileChange, wholeFileOf, DiffView } from '../editor'
 import {
   describedTitle,
   isSilentReasoning,
@@ -98,7 +98,6 @@ import {
   wireNameOf,
   type ToolSentenceDetail,
 } from '../lib/tool-names'
-import { DiffView } from './Diff'
 import {
   SubagentIcon,
   AlertIcon,

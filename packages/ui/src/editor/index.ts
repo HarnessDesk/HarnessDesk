@@ -15,3 +15,24 @@ export {
   readEditorPrefs,
   type EditorPrefs,
 } from './prefs'
+
+export { DiffView, type DiffViewProps } from './DiffView'
+export {
+  asAdditions,
+  asRemovals,
+  countChanges,
+  countDrawn,
+  countFileChange,
+  drawnWhole,
+  linesIn,
+  parseDiff,
+  splitByFile,
+  splitHunks,
+  wholeFileOf,
+  wholeTextDiff,
+  type DiffHunk,
+  type DiffLine,
+  type FileDiff,
+  type LineKind,
+  type WholeFile,
+} from './diff'

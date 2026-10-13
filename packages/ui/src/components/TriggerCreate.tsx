@@ -10,9 +10,8 @@ import {
   ActionError, Banner, Button, Dialog, Field, FormStack, Input, NativeSelect, Note, NoteList, Row, RowChoice, Rows, SectionHead, Switch, Text,
 } from '../design'
 import { triggerBudgetWords, triggerCommentWords, triggerGroupingWords, triggerRowWords } from '../lib/intake'
-import { wholeTextDiff } from '../lib/diff'
+import { wholeTextDiff, DiffView } from '../editor'
 import { useStore } from '../state/context'
-import { DiffView } from './Diff'
 
 /**
  * Every time: turn a shape or an Agent into a disarmed trigger, saved to the

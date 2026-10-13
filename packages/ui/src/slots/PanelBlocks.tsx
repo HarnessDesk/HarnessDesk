@@ -29,9 +29,8 @@ import type { UiAction, UiBlock, UiPanelData, UiTreeNode } from '@harnessdesk/pr
 
 import { useSnapshot, useStore } from '../state/context'
 import { useTheme } from '../state/theme'
-import { CodeView, editorLook } from '../editor'
+import { CodeView, editorLook, DiffView } from '../editor'
 import { Markdown } from '../components/Markdown'
-import { DiffView } from '../components/Diff'
 import { BulletIcon, ChevronIcon, TodoDoneIcon, TodoPendingIcon } from '../components/Icons'
 import { publishComponent, type SlotProps } from './registry'
 import styles from './PanelBlocks.module.css'

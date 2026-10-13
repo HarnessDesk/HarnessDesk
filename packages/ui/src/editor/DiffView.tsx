@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '../design'
-import { asAdditions, asRemovals, drawnWhole, parseDiff, type DiffLine, type WholeFile } from '../lib/diff'
+import { asAdditions, asRemovals, drawnWhole, parseDiff, type DiffLine, type WholeFile } from './diff'
 import { scriptedScrollBehavior } from '../lib/scripted-scroll'
-import { ChevronIcon } from './Icons'
-import styles from './Diff.module.css'
+import { ChevronIcon } from '../components/Icons'
+import styles from './DiffView.module.css'
 
 /**
- * Unified diff rendering. Parsing lives in `lib/diff`.
+ * Unified diff rendering. Parsing lives in `editor/diff`.
  *
  * Hunk navigation is here rather than in the panel because a hunk is a
  * property of the diff, not of where it is shown: the same control works on

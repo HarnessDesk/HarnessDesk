@@ -1,7 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
 
-import { DiffView } from './Diff'
+import { DiffView } from './DiffView'
+import diffCss from './DiffView.module.css?raw'
 
 const DIFF = [
   '--- ~/.cursor/skills/code-review/SKILL.md',
@@ -40,4 +41,8 @@ describe('DiffView wrapping', () => {
       rows(renderToStaticMarkup(<DiffView diff={DIFF} />)),
     )
   })
+})
+
+it('keeps patch rows horizontally contained by their own scroll box', () => {
+  expect(diffCss).toMatch(/\.scroll\s*\{[^}]*overflow-x:\s*auto/s)
 })

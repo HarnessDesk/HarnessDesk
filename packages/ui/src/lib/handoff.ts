@@ -3,7 +3,7 @@ import { editOf, typedUserText } from '@harnessdesk/protocol'
 import type { AgentItem, FileChange, Session } from '@harnessdesk/protocol'
 
 import { HANDOFF_PREFIX, isHandoffSource, splitContextContent, wrapContext } from './context-envelope'
-import { countFileChange } from './diff'
+import { countFileChange } from '../editor'
 import { relativeTo } from './paths'
 import { applyPlanEdits, type PlanEdit } from './plan-edits'
 import { sessionPlan } from './todos'

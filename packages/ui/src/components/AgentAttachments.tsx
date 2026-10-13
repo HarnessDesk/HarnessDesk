@@ -5,7 +5,7 @@ import type { AgentAttachmentsView, AgentEntry, AttachmentEditPreview, Attachmen
 import { Banner, Button, CodeText, ConfirmDialog, Dialog, FormStack, Note, Checkbox, Row, Rows, SectionHead, SummaryItem } from '../design'
 import { useSnapshot, useStore } from '../state/context'
 import { useDestinationActive } from '../panels/destination-page'
-import { DiffView } from './Diff'
+import { DiffView } from '../editor'
 
 /**
  * Skills and Servers, editable, from the Agent page — Task 5's replacement

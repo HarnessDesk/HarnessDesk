@@ -5,7 +5,7 @@ import type { AgentEntry, CeilingLevel, CeilingUpdate as Shown } from '@harnessd
 import { Banner, Button, CodeText, Dialog, Note, RowChoice, Rows } from '../design'
 import { updateChoices } from '../lib/ceilings'
 import { useStore } from '../state/context'
-import { DiffView } from './Diff'
+import { DiffView } from '../editor'
 
 /** Preview and write exactly one Agent ceiling line, from its page. */
 export const CeilingUpdate = ({ entry, onClose }: { readonly entry: AgentEntry; readonly onClose: () => void }) => {

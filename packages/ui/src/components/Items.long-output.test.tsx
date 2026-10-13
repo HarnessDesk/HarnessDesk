@@ -10,7 +10,6 @@ import noteCss from '../design/patterns/Settings.module.css?raw'
 import { ItemView } from './Items'
 import itemsCss from './Items.module.css?raw'
 import markdownCss from './Markdown.module.css?raw'
-import diffCss from './Diff.module.css?raw'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -76,10 +75,9 @@ describe('long transcript content stays inside the conversation column', () => {
     expect(markdownCss).toMatch(/\.markdown pre code\s*\{[^}]*overflow-x:\s*auto/s)
   })
 
-  it('keeps code blocks, diffs and tables horizontally contained by their own boxes', () => {
+  it('keeps code blocks and tables horizontally contained by their own boxes', () => {
     expect(markdownCss).toMatch(/\.markdown pre code\s*\{[^}]*overflow-x:\s*auto/s)
     expect(markdownCss).toMatch(/\.markdown table\s*\{[^}]*overflow-x:\s*auto/s)
-    expect(diffCss).toMatch(/\.scroll\s*\{[^}]*overflow-x:\s*auto/s)
     expect(itemsCss).toMatch(/\.wire\s*\{[^}]*overflow-wrap:\s*anywhere/s)
     expect(itemsCss).toMatch(/\.argValue\s*\{[^}]*overflow-wrap:\s*anywhere/s)
   })

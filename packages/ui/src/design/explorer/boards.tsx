@@ -5,7 +5,7 @@ import { approvalId, runtimeId, sessionKey, sessionId, turnId, type AgentItem, t
 import { AgentIcon, AlertIcon, BranchIcon, CaretIcon, CheckIcon, CrossIcon, FilterIcon, FolderGoneIcon, FolderIcon, MoreIcon, PinIcon, PlusIcon, PluginIcon, SearchIcon, SettingsIcon, TeamIcon, TerminalIcon, TodoPendingIcon, UsageIcon, UserIcon } from '../../components/Icons'
 import { MessageQueue } from '../../components/MessageQueue'
 import { RuntimeMark } from '../../components/BrandIcons'
-import { DiffView } from '../../components/Diff'
+import { DiffView } from '../../editor'
 import { TurnFiles } from '../../components/TurnFiles'
 import { Notices } from '../../components/Notices'
 import { Toaster } from '../ui/toast'

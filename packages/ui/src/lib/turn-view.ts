@@ -1,7 +1,7 @@
 import type { AgentItem, FileChange, ItemStatus, Turn } from '@harnessdesk/protocol'
 
 import { elapsedSince, instant } from './clock'
-import { countFileChange } from './diff'
+import { countFileChange } from '../editor'
 import { readToolResult } from './tool-result'
 import { planOf } from './todos'
 import { describedTitle, editedPathOf, isDescribed, isSilentReasoning, toolCallVerb } from './group-items'

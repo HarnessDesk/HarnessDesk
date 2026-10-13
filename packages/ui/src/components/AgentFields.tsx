@@ -20,7 +20,7 @@ import {
 import { useSnapshot, useStore } from '../state/context'
 import { useDestinationActive } from '../panels/destination-page'
 import { MoveDownIcon, MoveUpIcon, PlusIcon, TrashIcon } from './Icons'
-import { DiffView } from './Diff'
+import { DiffView } from '../editor'
 
 /**
  * The Agent page's editable metadata — name, description, ceiling, what it

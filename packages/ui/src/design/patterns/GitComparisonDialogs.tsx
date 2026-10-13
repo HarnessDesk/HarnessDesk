@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { GitMergeOutcome, GitRefsSummary } from '@harnessdesk/protocol'
 
 import { useStore } from '../../state/context'
-import { DiffView } from '../../components/Diff'
+import { DiffView } from '../../editor'
 import { DiffIcon, MergeIcon } from '../../components/Icons'
 import { Button } from '../ui/button'
 import { NativeSelect } from '../ui/native-select'

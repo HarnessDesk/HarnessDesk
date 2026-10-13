@@ -4,9 +4,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FlowUpdatePreview, FlowUpdateResult } from '@harnessdesk/protocol'
 
 import { Banner, Button, CodeText, Dialog, Note, NoteList } from '../design'
-import { wholeTextDiff } from '../lib/diff'
+import { wholeTextDiff, DiffView } from '../editor'
 import { useStore } from '../state/context'
-import { DiffView } from './Diff'
 
 export interface FlowUpdateProps {
   readonly root: string

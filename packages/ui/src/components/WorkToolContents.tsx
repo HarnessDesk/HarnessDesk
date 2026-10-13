@@ -5,7 +5,7 @@ import { SummaryList, SummaryItem, Text, ToolBody, ToolBodySections, ToolSection
 import { ChangesView, TrajectoryView } from './Details'
 import { Activity } from './Activity'
 import { BackgroundTasksView } from './BackgroundTasks'
-import { DiffView } from './Diff'
+import { DiffView } from '../editor'
 import { teamSeats, hasConversation } from '../lib/team-seats'
 import { goalRunOf } from '../lib/goal-run'
 import { sanitizeText } from '../lib/sanitize'
