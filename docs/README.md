@@ -12,7 +12,7 @@ You run agents, and you will never read this repository's source.
 | [getting-started.md](getting-started.md) | Install an agent — or three — sign in, run a first session; keyboard; troubleshooting |
 | [interface.md](interface.md) | Every surface of the window, and why each is shaped the way it is |
 | [cli.md](cli.md) | The `harnessdesk` command line: installing it from the app's menu, and every command, flag, `--json` shape and exit code — generated from the command table by `pnpm cli:doc` |
-| [agents.md](agents.md) | Who does the work: an Agent's brief, the most it may do and the seats it prefers; the nine that ship; starting as one, and saving your own |
+| [agents.md](agents.md) | Who does the work: an Agent's brief, the most it may do and the seats it prefers; the ten that ship; starting as one, and saving your own |
 | [runtimes.md](runtimes.md) | Which copy of a runtime — an installed agent CLI — runs, where the model list comes from and why it is sometimes wrong, and multiple accounts |
 | [agent-capabilities.md](agent-capabilities.md) | What each agent declares it can do, surveyed out of the running app — a control it has no answer for is not drawn |
 | [message-queue.md](message-queue.md) | Typing while the agent works — what Enter does in every case |
@@ -39,17 +39,14 @@ You are deciding whether to trust it, or changing it.
 | | |
 | --- | --- |
 | [architecture.md](architecture.md) | The system as built, package by package |
-| [decisions.md](decisions.md) | The nine choices everything else follows from, each with the rule a reviewer can apply |
+| [decisions.md](decisions.md) | The choices that shape the system, their costs, and the rules a reviewer can apply |
 | [diagrams/](diagrams) | The architecture as a diagram — typed JSON source, rendered to one self-contained interactive page |
 | [design-system.md](design-system.md) | Tokens, primitives, patterns — generated from the source by `pnpm design:doc`; never edited by hand |
 | [design.md](design.md) | The type scale, ink levels, row rhythm, and when a row earns a second line |
 | [../assets/brand/README.md](../assets/brand/README.md) | The mark, the icon spec measured against macOS itself, and what blue is not |
 
-[decisions.md](decisions.md) states the nine choices everything else follows
-from — native Codex first with ACP for the rest, Cordis above the agent, a
-gateway rather than a fork, writing through the editor plane, one panel system,
-capabilities negotiated rather than normalised — each with the rule a reviewer
-can apply, plus the one decision that is still open.
+[decisions.md](decisions.md) records the choices behind the system and their
+trade-offs. Where a decision defines a rule, its section states it explicitly.
 
 ## Evidence
 

@@ -118,9 +118,10 @@ that both the head and base branch tip stayed put
 before it asks GitHub to squash-merge that exact head. This avoids the stale
 result `gh pr checks` can show immediately after a push. Use it for every
 landing, whether the merge is initiated by a human or an agent seat; use
-`--dry-run` to print the decision without merging. Exit 4 means GitHub added
-the PR to its merge queue; it is not merged until a later run confirms the
-`MERGED` state and merge commit. A single failed
+`--dry-run` to print the decision without merging. Exit 4 means the merge was
+requested but is not yet confirmed. Read the PR's state and merge commit
+separately before continuing; rerunning land-safe refuses an already merged
+PR. A single failed
 job that reproduces the exact "document default font-size" signature this
 codebase has fought before (the measured number matches the browser's
 default rather than the app's own, with the element's box sized correctly
@@ -157,6 +158,10 @@ Equal trees mean the squash merge changed no bytes — what CI is checking and
 what you're about to build and sign are the same tree.
 
 ## 4. Build, sign, and notarize
+
+Inspect `packages/desktop/release` and move previous-release artifacts and old
+checksums out of it. The directory must contain only artifacts for this
+release; stapling refuses a DMG absent from the new manifest.
 
 ```
 pnpm --dir packages/desktop run dist:notarized

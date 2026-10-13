@@ -111,11 +111,12 @@ before you send, and why the audit log records which one ran.
 There is no HarnessDesk server. Nothing syncs, there is no account, and there
 is nowhere for a second copy of your work to be.
 
-The vision names lanes this project intends to grow into — work that outlives a
-closed laptop, a team's shared audit trail, work that starts from a pull
-request. **Each one appears in this document, with the four answers above,
-before it can be switched on.** The first of them is also a change of kind
-rather than degree, and revises VISION.md in public before it ships.
+The remaining vision lanes include work that outlives a closed laptop and a
+hosted shared audit trail. Local work started by pull-request triggers already
+exists; its polling boundary is described above. **Each remaining lane appears
+in this document, with the four answers above, before it can be switched on.**
+The first of them is also a change of kind rather than degree, and revises
+VISION.md in public before it ships.
 
 Until then, a section here would be a description of something that does not
 exist, which is the one thing a document like this must never contain.
