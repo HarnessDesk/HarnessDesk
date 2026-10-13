@@ -67,7 +67,8 @@ export const reverseTextPatch = (current: string | null, patch: string): string 
     if (old.length !== oldCount || now.length !== newCount || start < cursor || start + now.length > source.length) mismatch()
     if (output.length + start - cursor !== oldStart) mismatch()
     if (source.slice(start, start + now.length).join('') !== now.join('')) mismatch()
-    output.push(...source.slice(cursor, start), ...old)
+    for (let at = cursor; at < start; at++) output.push(source[at]!)
+    for (const line of old) output.push(line)
     cursor = start + now.length
   }
   if (!hasHunk) {
@@ -75,7 +76,7 @@ export const reverseTextPatch = (current: string | null, patch: string): string 
     if (oldMissing && source.length) mismatch()
     return oldMissing ? null : current ?? ''
   }
-  output.push(...source.slice(cursor))
+  for (let at = cursor; at < source.length; at++) output.push(source[at]!)
   if (oldMissing && output.length) mismatch()
   return oldMissing ? null : output.join('')
 }
@@ -89,7 +90,11 @@ export const readHead = async (request: HeadRequest, options: ReadHeadOptions): 
   if (path.startsWith('/') || path.split('/').some((part) => part === '..' || part === '') || !path) {
     throw new Error('The file is outside the repository.')
   }
-  const states = status.files.filter((file) => file.path === path)
+  // Normal Git status collapses a wholly untracked directory to one row.
+  // Only its trailing slash proves containment; a sibling prefix does not.
+  const states = status.files.filter((file) => file.path === path || (
+    file.status === 'untracked' && file.path.endsWith('/') && path.startsWith(file.path)
+  ))
   if (states.some((file) => file.status === 'conflicted')) throw new Error('Resolve the Git conflict before comparing HEAD.')
   const recreated = states.some((file) => file.status === 'untracked') && states.some((file) => file.staged && file.status === 'deleted')
   if (!recreated && states.some((file) => file.status === 'untracked')) return { content: null, status: 'untracked' }

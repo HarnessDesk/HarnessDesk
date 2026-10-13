@@ -26,6 +26,16 @@ it('keeps an unchanged tracked file distinct from an untracked file', async () =
   expect(await editor.readHead(reader('new\n', '', '', [file('untracked')]) as editor.HeadRequest, { root: '/project', path: 'file.txt' })).toEqual({ content: null, status: 'untracked' })
 })
 
+it('recognizes files inside an untracked directory row without matching sibling prefixes', async () => {
+  const directory: GitFileStatus = { path: 'newdir/', status: 'untracked', staged: false }
+  const request = reader('new\n', '', '', [directory])
+  expect(await editor.readHead(request as editor.HeadRequest, { root: '/project', path: 'newdir/nested/file.txt' })).toEqual({ content: null, status: 'untracked' })
+  expect(request.mock.calls).toEqual([['git/status', { root: '/project' }]])
+  expect(await editor.readHead(reader('same\n', '', '', [directory]) as editor.HeadRequest, { root: '/project', path: 'newdirectory/file.txt' })).toEqual({ content: 'same\n', status: 'tracked' })
+  expect(await editor.readHead(reader('same\n', '', '', [{ ...directory, path: 'newdir' }]) as editor.HeadRequest, { root: '/project', path: 'newdir/file.txt' })).toEqual({ content: 'same\n', status: 'tracked' })
+  expect(await editor.readHead(reader('same\n', '', '', [{ ...directory, status: 'modified' }]) as editor.HeadRequest, { root: '/project', path: 'newdir/file.txt' })).toEqual({ content: 'same\n', status: 'tracked' })
+})
+
 it('reconstructs additions and deletions without inventing an empty HEAD file', async () => {
   const add = 'diff --git a/file.txt b/file.txt\nnew file mode 100644\n--- /dev/null\n+++ b/file.txt\n@@ -0,0 +1 @@\n+new\n'
   const remove = 'diff --git a/file.txt b/file.txt\ndeleted file mode 100644\n--- a/file.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-old\n'
@@ -37,6 +47,15 @@ it('reconstructs additions and deletions without inventing an empty HEAD file', 
 it('reads HEAD for a staged deletion recreated as an untracked disk file', async () => {
   const remove = 'diff --git a/file.txt b/file.txt\ndeleted file mode 100644\n--- a/file.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-old\n'
   expect(await editor.readHead(reader('recreated\n', '', remove, [file('deleted', true), file('untracked')]) as editor.HeadRequest, { root: '/project', path: 'file.txt' })).toEqual({ content: 'old\n', status: 'tracked' })
+})
+
+it('preserves HEAD when a staged deletion is recreated inside an untracked directory row', async () => {
+  const remove = 'diff --git a/newdir/file.txt b/newdir/file.txt\ndeleted file mode 100644\n--- a/newdir/file.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-old\n'
+  const states: readonly GitFileStatus[] = [
+    { path: 'newdir/file.txt', status: 'deleted', staged: true },
+    { path: 'newdir/', status: 'untracked', staged: false },
+  ]
+  expect(await editor.readHead(reader('recreated\n', '', remove, states) as editor.HeadRequest, { root: '/project', path: 'newdir/file.txt' })).toEqual({ content: 'old\n', status: 'tracked' })
 })
 
 it('uses the conversation runtime and accepts the exact disk snapshot already loaded', async () => {
@@ -77,6 +96,14 @@ it('reverses multiple hunks using the new-side positions', () => {
   const diff = '@@ -1 +1,2 @@\n-a\n+A\n+extra\n@@ -4 +5 @@\n-d\n+D\n'
   expect(editor.reverseTextPatch('A\nextra\nb\nc\nD\n', diff)).toBe('a\nb\nc\nd\n')
   expect(() => editor.reverseTextPatch('after\n', '@@ -99 +1 @@\n-before\n+after\n')).toThrow(/match/i)
+})
+
+it('reconstructs a supported text file with long unchanged prefix and suffix', () => {
+  // 1,300,006 bytes, below the existing 2 MiB text limit; one small edit.
+  const unchanged = 'keep\n'.repeat(130000)
+  const current = `${unchanged}after\n${unchanged}`
+  const diff = '@@ -130001 +130001 @@\n-before\n+after\n'
+  expect(editor.reverseTextPatch(current, diff)).toBe(`${unchanged}before\n${unchanged}`)
 })
 
 it('distinguishes empty tracked additions and deletions from a missing file', async () => {
