@@ -77,7 +77,7 @@ and only a conversation has one folder of its own, so:
 
 A Team's branch is a natural later extension; it is not in this design.
 
-⌘G is "find next" in the editor's search keymap and in the VS Code keymap.
+⌘G is "find next" in the editor's search keymap and the editing keymap.
 The app's binding wins; find next stays on Enter in the search field and on
 F3.
 
@@ -137,7 +137,7 @@ link to its parent, switches back to Conversation mode.
     `+12 −3` counts.
 - **Preview** is `MarkdownView`: the existing renderer, through
   `lib/sanitize.ts`. **Edit** in Preview switches to Source.
-- **Source** is `CodeView` with the VS Code keymap.
+- **Source** is `CodeView` with the familiar editing keymap.
 - **Changes** is the file against `HEAD` in CodeMirror's unified merge view
   (`@codemirror/merge`), still editable, so a change can be read and fixed in
   the same place.
@@ -178,8 +178,8 @@ the selection. It puts a quote, `auth.ts:14–15`, into the conversation's
 composer, opening the Conversation tool if another tool is showing. The quote
 is plain text in the draft — the path and line range, then the selected text
 in a fenced block — so every agent reads it the same way and the person can
-edit it before sending. ⌘L in the VS Code keymap (expand line selection) is
-overridden by the app's binding.
+edit it before sending. ⌘L in the editing keymap (expand line selection)
+is overridden by the app's binding.
 
 ## How it is built: one `editor` module
 
@@ -206,19 +206,19 @@ The module is product UI, so it is built out of the design system like any
 screen: `Button`, `Row`, the switcher, `Banner` for the change-on-disk notice.
 Its icons come from `components/Icons.tsx`.
 
-### Engine: CodeMirror 6, with a VS Code feel
+### Engine: CodeMirror 6, with familiar editing keys
 
 The engine stays CodeMirror 6. Three packages are added:
 
-- `@replit/codemirror-vscode-keymap` (MIT): VS Code's editing keys;
+- `@replit/codemirror-vscode-keymap` (MIT): familiar editing keys;
 - `@codemirror/merge` (MIT): the Changes view and Compare;
 - `@replit/codemirror-minimap` (MIT): a minimap, as an Appearance setting,
   off by default.
 
 All three load in the editor's lazy chunk, not the first-paint chunk.
 
-Monaco was weighed and set aside: it would feel identical to VS Code and adds
-a minimap, a diff editor and TypeScript completion, but it is several
+An alternative engine was weighed and set aside: it offers familiar editing
+keys, a minimap, a diff editor and TypeScript completion, but it is several
 megabytes with worker threads to configure in Electron, its colours are theme
 objects that would have to be re-applied on every theme and palette change
 instead of following the tokens, it is not supported on phones, and the
@@ -276,7 +276,7 @@ without switching to it.
 5. **The experience** as described, approved ("Looks good").
 6. **The switch:** at the right end of the left column's top row; the
    column's default width becomes 256 and the bell moves to the seat row.
-7. **Engine:** CodeMirror 6 with the VS Code keymap, a minimap setting and
+7. **Engine:** CodeMirror 6 with the familiar editing keymap, a minimap setting and
    `@codemirror/merge`.
 8. **Plugin or module:** one built-in module; plugins extend it through
    `ctx.editor` and never draw it.

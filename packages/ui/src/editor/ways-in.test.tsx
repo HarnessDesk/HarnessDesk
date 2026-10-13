@@ -34,6 +34,32 @@ const draw = async (main = false) => act(async () => root.render(<StoreProvider 
 const bind = () => { const s = store.getSnapshot(); Object.assign(s.workbench, { toolOwners: { ...s.workbench.toolOwners, 'file-owner': subject }, frameSubjects: { ...s.workbench.frameSubjects, [subject]: { paneId: 'owner', view: { kind: 'conversation', session: key } } } }) }
 const edit = async (area: 'panel' | 'main', value: string) => act(async () => { const input = host.querySelector<HTMLTextAreaElement>(`[data-${area}] textarea`)!; Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(input, value); input.dispatchEvent(new Event('input', { bubbles: true })) })
 const save = async (area: 'panel' | 'main') => act(async () => [...host.querySelectorAll<HTMLButtonElement>(`[data-${area}] button`)].find(b => b.textContent === 'Unsaved · Save ⌘S')!.click())
+for (const dirtyPeer of [false, true]) it.each(['main', 'panel'] as const)(`a stale %s Reload keeps the peer ${dirtyPeer ? 'draft' : 'save'} before notifications`, async reader => {
+  const peer = reader === 'main' ? 'panel' : 'main'
+  request.mockImplementation((async (method: string, params: any) => {
+    if (method === 'workspace/readFile') return { ...disk }
+    if (method === 'workspace/stat') return { modifiedAt: 1 }
+    if (method === 'file/save') {
+      if (params.expectedHash !== disk.hash) return { saved: false, conflict: { content: disk.content, hash: disk.hash } }
+      disk = { ...disk, content: params.content, hash: 'saved-hash' }
+      return { saved: true, hash: disk.hash }
+    }
+    return null
+  }) as never)
+  const action = async (area: 'main' | 'panel', label: string) => act(async () => {
+    const button = [...host.querySelectorAll<HTMLButtonElement>(`[data-${area}] button`)].find(node => node.textContent === label)
+    expect(button).toBeTruthy(); button!.click()
+  })
+  bind(); store.openEditorFile(subject, path, { keep: true }); await draw(true)
+  await edit(reader, 'my saved draft')
+  disk = { ...disk, content: 'older foreign bytes', hash: 'foreign-hash' }
+  await save(reader); await save(peer); wakes.held = true
+  await action(peer, 'Keep mine')
+  expect(store.getSnapshot().editorLiveDocuments.get(subject)?.get(path)).toMatchObject({ content: 'my saved draft', base: { hash: 'saved-hash' } })
+  if (dirtyPeer) await edit(peer, 'newer peer draft')
+  await action(reader, 'Reload')
+  expect(store.getSnapshot().editorLiveDocuments.get(subject)?.get(path)).toMatchObject({ content: dirtyPeer ? 'newer peer draft' : disk.content, base: { hash: disk.hash } })
+})
 it('popout keeps its exact owner, view and original draft baseline while entering Editor mode', async () => {
   bind(); await draw(); await edit('panel', 'panel draft')
   const popout = host.querySelector<HTMLButtonElement>('[aria-label="Pop out to Editor mode"]')

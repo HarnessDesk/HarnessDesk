@@ -90,6 +90,28 @@ it('ignores an old load when switching paths', async () => {
 it('allows explicit creation and saving an empty missing file', async () => {
   disk = { kind: 'missing' }; await render(); await click('Create this file'); await click('Unsaved · Save ⌘S'); expect(request).toHaveBeenCalledWith('file/save', expect.objectContaining({ content: '', expectedHash: '' }))
 })
+it.each(['original', ''])('reviews a tracked deletion with HEAD %j without creating or saving the missing file', async original => {
+  disk = { kind: 'missing' }
+  head.mockResolvedValue({ content: original, status: 'tracked' })
+  const onViewChange = vi.fn()
+  await render('/work/deleted.ts', { view: 'changes', onViewChange })
+  expect(container.querySelector('[data-original]')?.textContent).toBe(original)
+  expect(container.querySelector('textarea')?.value).toBe('')
+  expect(container.querySelector('textarea')?.readOnly).toBe(true)
+  expect(button(`Changes +0 −${original ? 1 : 0}`)).toBeTruthy()
+  expect(request.mock.calls.some(([method]) => method === 'file/save')).toBe(false)
+  await click('Source')
+  expect(onViewChange).toHaveBeenCalledWith('source')
+  await render('/work/deleted.ts', { view: 'source', onViewChange })
+  expect(button('Create this file')).toBeTruthy()
+})
+it('keeps an unknown missing path on its explicit Create surface', async () => {
+  disk = { kind: 'missing' }; head.mockResolvedValue({ content: null, status: 'added' } as never)
+  await render('/work/new.ts', { view: 'changes' })
+  expect(button('Create this file')).toBeTruthy()
+  expect(container.querySelector('[data-original]')).toBeNull()
+  expect(container.textContent).not.toContain('Changes +')
+})
 it.each(['binary', 'tooLarge'])('preserves a draft and blocks overwriting a %s refusal', async reason => {
   request.mockImplementation(async (method: string) => method === 'workspace/readFile' ? disk : method === 'file/save' ? { saved: false, reason, size: 3 * 1024 * 1024 } : { modifiedAt: 1 })
   await render(); await edit('draft'); await click('Unsaved · Save ⌘S'); expect(container.querySelector('textarea')?.value).toBe('draft'); expect(button('Unsaved · Save ⌘S')?.disabled).toBe(true); expect(button('Keep mine')).toBeUndefined()

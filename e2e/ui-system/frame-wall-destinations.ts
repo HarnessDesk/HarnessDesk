@@ -233,3 +233,18 @@ export const E8_REVIEW_WALL_DESTINATIONS: readonly WallDestination[] = [
 ;(PAGE_WALL_DESTINATIONS as WallDestination[]).push(...E8_REVIEW_WALL_DESTINATIONS)
 
 ;(WALL_DESTINATIONS as WallDestination[]).push(...PAGE_WALL_DESTINATIONS)
+
+// Editor mode adds its real file states without reordering existing frame groups.
+;(WALL_DESTINATIONS as WallDestination[]).push(
+  { id: 'editor-conversation', query: 'frame-wall=conversation&frame-editor-mode=conversation', leftOpen: true },
+  { id: 'editor-source', query: 'frame-wall=conversation&frame-editor-mode=source' },
+  { id: 'editor-changes', query: 'frame-wall=conversation&frame-editor-mode=changes' },
+  { id: 'editor-preview', query: 'frame-wall=conversation&frame-editor-mode=preview' },
+  { id: 'editor-ask', query: 'frame-wall=conversation&frame-editor-mode=ask' },
+  { id: 'editor-conflict', query: 'frame-wall=conversation&frame-editor-mode=conflict' },
+  { id: 'editor-settings', query: 'frame-wall=settings&frame-section=appearance', leftOpen: true },
+  { id: 'editor-team', query: 'frame-wall=team', tab: 'overview', leftOpen: true },
+  { id: 'editor-panel-file', query: 'frame-wall=conversation&frame-editor-mode=panel' },
+  { id: 'editor-panel-popout', query: 'frame-wall=conversation&frame-editor-mode=panel' },
+  { id: 'editor-dirty-close', query: 'frame-wall=conversation&frame-editor-mode=source' },
+)

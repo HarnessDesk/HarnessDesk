@@ -523,7 +523,34 @@ rendered.
 Pure logic lives in `lib/` and is unit-tested away from React: `handoff.ts`
 (the cross-agent packet), `trace.ts` (what an agent is doing right now),
 `turn-summary.ts` (what a turn amounted to), `projects.ts` (sessions grouped
-by repository), `context-usage.ts`, `limits.ts`, `diff.ts`, `images.ts`.
+by repository), `context-usage.ts`, `limits.ts`, `images.ts`; diff parsing
+and counting are public editor helpers.
+
+File rendering and editing live in `packages/ui/src/editor`, with imports
+from other modules held to its public `index.ts` by the UI architecture gate.
+CodeView, MergeView and MarkdownView share FileView between main's editor tabs
+and the Changes tool's file modes. CodeMirror, merge, editing keys and the
+optional minimap load through lazy editor chunks; Markdown still passes
+through `lib/sanitize.ts`.
+
+The store keeps a persisted window mode and bounded per-conversation tab/view/
+Explorer metadata in the host's `app/state`. Effective Editor mode requires
+main to be a loaded conversation. Renderer-only `editorDocuments` holds dirty
+documents for tab/close decisions; `editorLiveDocuments` retains full clean
+and dirty baselines for simultaneous surfaces, and line targets are transient.
+None of those file bytes or hashes are serialized into app state. Explicit
+saves use the existing `file/save` expected-hash contract; disk reads and
+mtime checks drive quiet reload or the conflict choices. The Explorer uses
+confined `workspace/browse` entry reads, existing file search and Git status,
+rooted in the conversation's own cwd. No editor-specific wire method exists.
+
+Main remains the conversation's work subject while its body shows EditorMain.
+Editor mode adds the Conversation tool before the four existing work tools;
+only that tool mounts the live transcript/composer, and leaving the mode
+restores the prior tool. Review, file links and Pop out enter through the
+store's conversation-bound file entry, preserving the full unsaved document
+and its hash across panel/main. Ask appends an editable quote to the owning
+conversation's draft and never starts a turn.
 
 The interface those pieces build is described in [interface.md](interface.md).
 

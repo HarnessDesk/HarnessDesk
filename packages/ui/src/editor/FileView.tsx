@@ -114,7 +114,7 @@ export const FileView = (props: FileViewProps) => {
   const current = useRef(state)
   const latestState = (): FileState => {
     const incoming = callbacks.current.readLiveDocument?.()
-    if (incoming !== undefined && !sameFileDocument(incoming, liveDocumentOf(current.current))) current.current = incoming ? withDocument(current.current, incoming) : blank()
+    if (incoming !== undefined && ((incoming !== null && incoming.base !== current.current.base) || !sameFileDocument(incoming, liveDocumentOf(current.current)))) current.current = incoming ? withDocument(current.current, incoming) : blank()
     return current.current
   }
   const update = (change: (before: FileState) => FileState, publish = true) => {
@@ -299,7 +299,8 @@ export const FileView = (props: FileViewProps) => {
   useImperativeHandle(props.saveRef, () => ({ save: () => save() }))
 
   const content = state.draft ?? state.base?.content ?? ''
-  const changed = state.head !== undefined && (state.head === null || state.head !== content)
+  const deleted = state.problem?.kind === 'missing' && typeof state.head === 'string'
+  const changed = state.head !== undefined && (deleted || state.head === null || state.head !== content) && !(state.problem?.kind === 'missing' && state.head === null)
   const counts = changed ? countTextChanges(state.head ?? '', content) : null
   const actualMode = mode === 'changes' && !changed && !state.comparing ? 'source' : mode
   const editable = !!state.base && !state.base.truncated && state.base.content.length <= MAX_EDITABLE
@@ -320,7 +321,8 @@ export const FileView = (props: FileViewProps) => {
   const conflict = state.conflict
   const reload = () => {
     if (conflict?.kind !== 'text') return
-    update(one => ({ ...one, base: conflict.missing ? null : { content: conflict.content, hash: conflict.hash, truncated: false }, draft: null, pending: false, conflict: null, comparing: false, problem: conflict.missing ? { kind: 'missing' } : null }))
+    update(one => one.base !== state.base || one.conflict !== conflict ? one
+      : { ...one, base: conflict.missing ? null : { content: conflict.content, hash: conflict.hash, truncated: false }, draft: null, pending: false, conflict: null, comparing: false, problem: conflict.missing ? { kind: 'missing' } : null })
   }
   useEffect(() => { setSelection(null) }, [path, runtime, actualMode, subject, keyboardHere])
   useEffect(() => {
@@ -367,8 +369,8 @@ export const FileView = (props: FileViewProps) => {
     <div className={styles.bar} data-slot="file-bar">
       <span className={styles.path} title={sanitizeText(path)}>{sanitizeText(path)}</span>
       {dirty(state) && <Button size="sm" disabled={!canSave || state.saving} onClick={() => void save()}>{state.saving ? 'Saving…' : 'Unsaved · Save ⌘S'}</Button>}
-      {(state.base || native) && <Segmented<FileViewMode> label="File view" value={actualMode} onChange={view => { update(one => ({ ...one, comparing: false })); changeView(view) }} options={[
-        ...((markdown || html || pdf) ? [{ value: 'preview' as const, label: 'Preview' }] : []),
+      {(state.base || native || deleted) && <Segmented<FileViewMode> label="File view" value={actualMode} onChange={view => { update(one => ({ ...one, comparing: false })); changeView(view) }} options={[
+        ...((markdown || html || pdf) && !deleted ? [{ value: 'preview' as const, label: 'Preview' }] : []),
         ...(!pdf ? [{ value: 'source' as const, label: 'Source' }] : []),
         ...(counts ? [{ value: 'changes' as const, label: `Changes +${counts.added} −${counts.removed}` }] : []),
       ]} />}
@@ -381,6 +383,7 @@ export const FileView = (props: FileViewProps) => {
     </> : undefined} />}
     <ToolPaneBody ref={surface} bleed className={styles.body} data-preview={actualMode === 'preview' ? '' : undefined}>
       {native ? frameError ? <ToolPaneMessage>{frameError}</ToolPaneMessage> : frameSrc === null ? <ToolPaneMessage>Loading…</ToolPaneMessage> : <ToolPaneStage><ToolPaneGuest title={path} src={frameSrc} {...(html ? { sandbox: 'allow-scripts allow-forms allow-popups' } : {})} /></ToolPaneStage>
+        : deleted && actualMode === 'changes' ? <Suspense fallback={<div className={styles.editor} />}><MergeView {...editorProps} original={state.head ?? ''} /></Suspense>
         : state.problem ? state.problem.kind === 'missing' ? <ToolPaneMessage as="div"><p>{sanitizeText(path.split('/').pop() ?? path)} does not exist yet.</p><Button variant="outline" size="sm" onClick={() => { update(one => ({ ...one, base: { content: '', hash: '', truncated: false }, draft: '', pending: true, problem: null })); changeView('source') }}>Create this file</Button></ToolPaneMessage> : <ToolPaneMessage>{state.problem.kind === 'tooLarge' ? `File too large — ${(state.problem.size / (1024 * 1024)).toFixed(1)} MB` : state.problem.message}</ToolPaneMessage>
         : state.binary ? state.binary.imageSrc ? <div className={styles.imageStage}><img className={styles.image} src={state.binary.imageSrc} alt={sanitizeText(path.split('/').pop() ?? path)} onError={() => update(one => ({ ...one, binary: one.binary ? { ...one.binary, imageSrc: null } : null }))} /></div> : <ToolPaneMessage>Binary file — {(state.binary.size / 1024).toFixed(1)} KB</ToolPaneMessage>
         : !state.base ? <ToolPaneMessage>Loading…</ToolPaneMessage>
