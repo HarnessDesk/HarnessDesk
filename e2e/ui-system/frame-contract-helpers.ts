@@ -98,6 +98,29 @@ export const expectMenuPlateGeometry = async (surface: Locator) => {
   expect(m.border).toBe('0px')
   expect(m.overflow).toBe(false)
 }
+/** A selection popover contains one small Button, rather than menu rows. */
+export const expectSelectionActionGeometry = async (page: Page, surface: Locator) => {
+  await expectMenuPlateGeometry(surface)
+  await expect(surface.locator('[data-menu-row]')).toHaveCount(0)
+  await expect(surface.locator('button,a[href],input,select,textarea,[role="button"],[role^="menuitem"],[role="switch"]')).toHaveCount(1)
+  const action = surface.getByRole('button', { name: 'Ask in chat ⌘L', exact: true })
+  await expect(action).toBeVisible()
+  await expect(action).toBeEnabled()
+  await expect(action).toHaveAttribute('data-slot', 'button')
+  await expect(action).toHaveAttribute('data-variant', 'ghost')
+  const box = (await action.boundingBox())!, plate = (await surface.boundingBox())!
+  expect(box.height).toBe(await resolvedPx(page, '--hd-btn-h-sm'))
+  expect(box.width).toBeGreaterThanOrEqual(await resolvedPx(page, '--hd-target-min'))
+  expect(await action.evaluate(node => parseFloat(getComputedStyle(node).fontSize))).toBe(await resolvedPx(page, '--hd-btn-text-sm'))
+  expect(box.x - plate.x).toBeCloseTo(FRAME_MENU.padding, 2)
+  expect(box.y - plate.y).toBeCloseTo(FRAME_MENU.padding, 2)
+  expect(plate.y + plate.height - box.y - box.height).toBeCloseTo(FRAME_MENU.padding, 2)
+  expect(box.x + box.width).toBeLessThanOrEqual(plate.x + plate.width - FRAME_MENU.padding)
+  expect(await action.evaluate(node => {
+    const box = node.getBoundingClientRect()
+    return node.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2))
+  }), 'the selection action owns its pointer target').toBe(true)
+}
 export const expectMenuGeometry = async (surface: Locator) => {
   await expectMenuPlateGeometry(surface)
   const rows = await rowMetrics(surface)
@@ -335,6 +358,9 @@ export const expectDestinationPopupContracts = async (page: Page, destination: t
   await openWallDestination(page, destination)
   const kinds = new Set<string>()
   const rich = page.locator('[data-slot="popover-popup"]:visible,[data-slot="popover-surface"]:visible,[data-slot="dropdown-menu-popup"][data-popup-kind]:visible,[data-slot="dropdown-menu-content"]:visible,[data-slot="dropdown-menu-sub-content"]:visible,[data-slot="hover-card-content"]:visible,[data-slot="select-content"]:visible')
+  // This destination stages a selection after the lazy editor mounts. Counting
+  // popups before its action arrives would pass without measuring anything.
+  if (destination.id === 'editor-ask') await expect(rich.filter({ has: page.getByRole('button', { name: 'Ask in chat ⌘L', exact: true }) })).toHaveCount(1)
   for (let at = 0; at < await rich.count(); at += 1) {
     const popup = rich.nth(at)
     await expect(popup).not.toHaveAttribute('data-starting-style', '')
@@ -349,6 +375,8 @@ export const expectDestinationPopupContracts = async (page: Page, destination: t
     if (kind === 'info-card') {
       await expectInfoGeometry(popup)
       expect(await popup.locator('button,a,input,select,[role="menuitem"],[role="switch"]').count()).toBe(0)
+    } else if (destination.id === 'editor-ask') {
+      await expectSelectionActionGeometry(page, popup)
     } else if (destination.id === 'left-inbox') {
       // The sidebar's empty Inbox has facts and a footer, with exactly zero actions.
       await expect(popup).toHaveAttribute('data-popup-kind', 'wide-menu')

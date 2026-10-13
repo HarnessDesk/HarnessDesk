@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { openFrame } from './frame-contract-helpers'
+import { openFrame, resolvedPx } from './frame-contract-helpers'
 import { applyLeftColumnActions } from './left-column-actions'
 
 for (const theme of ['light', 'dark'] as const) {
@@ -21,7 +21,8 @@ for (const theme of ['light', 'dark'] as const) {
         return { width: cell.width, height: cell.height, right: cell.right }
       }) }
     })
-    expect(boxes.cells.map(({ width, height }) => ({ width, height }))).toEqual([{ width: 26, height: 22 }, { width: 26, height: 22 }])
+    const cell = { width: await resolvedPx(page, '--hd-mode-switch-cell-w'), height: await resolvedPx(page, '--hd-mode-switch-cell-h') }
+    expect(boxes.cells.map(({ width, height }) => ({ width, height }))).toEqual([cell, cell])
     expect(boxes.cells.at(-1)!.right).toBeLessThan(boxes.right)
     await editor.click()
     await expect(editor).toHaveAttribute('aria-pressed', 'true')
