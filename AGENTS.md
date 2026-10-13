@@ -139,9 +139,8 @@ them in `docs/decisions.md`.
     | A new dialog, sheet or confirm | `design/ui/dialog.tsx` or a policy in `design/patterns` | then the screen |
     | Agent settings / plugin pages / login | the existing canonical patterns | build with `Row`, `Rows`, `Button`, `Input` |
 
-    One has no seam yet, so building one is the first commit rather than a
-    detour: **icons** (`Icons.tsx` is a flat façade over lucide, with no token
-    and no board).
+    `Icons.tsx` remains the glyph façade over lucide. The design explorer's
+    **The icon set** board enumerates it; `IconTile` owns glyph containers.
 
     Where this table and the audit disagree, the audit is right — it reads the
     code and this is prose. Its failure messages name the file to edit.
