@@ -2237,6 +2237,7 @@ class PreviewStore {
       if (method === 'workspace/readFile') {
         const path = (params as { path?: string } | undefined)?.path ?? ''
         if (path.endsWith('README.md')) return { kind: 'text', content: '# Storefront\n\nRecorded checkout work.', truncated: false, hash: 'fixture-readme' }
+        if (path.endsWith('preview.html')) return { kind: 'text', content: '<!doctype html><html><body><h1>Storefront preview</h1><p>Synthetic checkout recovery · 長い記録</p></body></html>', truncated: false, hash: 'fixture-preview' }
         if (path.endsWith('lib/brands.ts'))
           return { kind: 'text', content: editorSource, truncated: false, hash: `len-${editorSource.length}` }
         return { kind: 'missing' }
