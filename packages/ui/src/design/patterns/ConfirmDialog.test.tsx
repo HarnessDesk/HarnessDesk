@@ -344,3 +344,13 @@ it('a confirm holds whatever it is asked to confirm: the popup is bounded by the
     expect(getComputedStyle(part).flexShrink).toBe('0')
   }
 })
+
+it('offers an independent middle action while keeping Cancel last in keyboard order', () => {
+  const discard = vi.fn(), save = vi.fn(), cancel = vi.fn()
+  const surface = open({ confirmLabel: 'Save', cancelLabel: 'Cancel', onConfirm: save, onCancel: cancel,
+    alternative: { label: "Don't save", onClick: discard } })
+  const answers = [...surface.querySelectorAll('[data-slot="dialog-footer"] button')]
+  expect(answers.map(node => node.textContent)).toEqual(['Save', "Don't save", 'Cancel'])
+  act(() => button(surface, "Don't save").click())
+  expect(discard).toHaveBeenCalledOnce(); expect(save).not.toHaveBeenCalled(); expect(cancel).not.toHaveBeenCalled()
+})

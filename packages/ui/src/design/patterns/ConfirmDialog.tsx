@@ -42,6 +42,7 @@ export const ConfirmDialog = ({
   busyLabel,
   pending = false,
   focusCancel = false,
+  alternative,
   onConfirm,
   onCancel,
   children,
@@ -71,6 +72,8 @@ export const ConfirmDialog = ({
   pending?: boolean
   /** Move focus to the keeping verb when a live update removes the opener or disables confirmation. */
   focusCancel?: boolean
+  /** A third answer, such as discarding edits while Save remains the primary action. */
+  alternative?: { readonly label: string; readonly onClick: () => void }
   onConfirm: () => void
   onCancel: () => void
   /** What is destroyed and where it goes. One or two sentences. */
@@ -141,6 +144,9 @@ export const ConfirmDialog = ({
           >
             {busy ? (busyLabel ?? confirmLabel) : confirmLabel}
           </Button>
+          {alternative && <Button variant="quiet" onClick={alternative.onClick} disabled={busy}>
+            {alternative.label}
+          </Button>}
           <Button ref={cancel} variant="quiet" onClick={onCancel} disabled={busy}>
             {cancelLabel}
           </Button>

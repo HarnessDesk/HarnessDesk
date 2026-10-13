@@ -139,7 +139,7 @@ const rig = (
   return { store }
 }
 
-const render = (store: AppStore, key: string | null = KEY): void => {
+const render = (store: AppStore, key: string | null = KEY, props: Partial<React.ComponentProps<typeof Conversation>> = {}): void => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
@@ -152,6 +152,7 @@ const render = (store: AppStore, key: string | null = KEY): void => {
         >
           <TopBarOutlet owner="p1" fallback={{ place: 'New session', more: () => null }} /><WorkDetailsOutlet owner="p1" />
           <Conversation
+            {...props}
             onChooseProject={() => undefined}
             onSignIn={() => undefined}
             onOpenUsage={() => undefined}
@@ -954,4 +955,47 @@ it('failed-runtime history refuses live agent verbs and keeps copy without edit 
     expect(row?.getAttribute('title')).toContain(reason)
   }
   expect([...document.querySelectorAll('[data-menu-row]')].some(node=>node.textContent?.includes('Commit the changes'))).toBe(false)
+})
+
+
+it('uses the conversation file crumb and replaces the transcript while retaining conversation tools', async () => {
+  const { store } = rig(session({ title: 'Review checkout' }))
+  const mode = vi.fn()
+  Object.assign(store, { setWindowMode: mode })
+  Object.assign(store.getSnapshot(), { editorState: [{ subject: `session:${KEY}`, state: { tabs: [{ path: '/repo/src/code.ts', view: 'source' }], active: '/repo/src/code.ts', preview: null, filter: null, expanded: [] } }] })
+  await act(async () => render(store, KEY, { mainContent: <div data-testid="editor-main">File body</div> }))
+  expect(container.querySelector('[data-testid="editor-main"]')).not.toBeNull()
+  expect(container.querySelector('[data-live-transcript]')).toBeNull()
+  expect(container.querySelector('textarea')).toBeNull()
+  expect(container.querySelector('[data-topbar-title]')?.firstElementChild?.textContent).toBe('src/code.ts')
+  const crumb = container.querySelector<HTMLButtonElement>('[data-topbar="place"] > button')!
+  expect(crumb.textContent).toContain('Review checkout')
+  await act(async () => crumb.click()); expect(mode).toHaveBeenCalledWith('conversation')
+  expect(container.querySelector('[data-work-panel-toggle]')).not.toBeNull()
+})
+
+it('reattaches transcript follow after returning from editor main', async () => {
+  const resize: (() => void)[] = []
+  vi.stubGlobal('ResizeObserver', class {
+    active = false
+    constructor(callback: ResizeObserverCallback) { resize.push(() => { if (this.active) callback([], this as unknown as ResizeObserver) }) }
+    observe() { this.active = true }
+    disconnect() { this.active = false }
+    unobserve() {}
+  })
+  try {
+    const { store } = rig(session({ updatedAt: 9000, turns: [{ id: turnId('t-1'), status: 'completed', items: [{ id: itemId('i-1'), type: 'assistantMessage', text: 'see the log for details' }] }] }))
+    await act(async () => render(store))
+    const original = container.querySelector<HTMLElement>('[data-live-transcript]')!
+    Object.defineProperties(original, { scrollHeight: { get: () => 800 }, clientHeight: { get: () => 400 } })
+    act(() => resize.forEach(callback => callback()))
+    expect(original.scrollTop).toBe(800)
+    await act(async () => render(store, KEY, { mainContent: <div>Editor</div> }))
+    await act(async () => render(store))
+    const restored = container.querySelector<HTMLElement>('[data-live-transcript]')!
+    expect(restored).not.toBe(original)
+    Object.defineProperties(restored, { scrollHeight: { get: () => 800 }, clientHeight: { get: () => 400 } })
+    act(() => resize.forEach(callback => callback()))
+    expect(restored.scrollTop).toBe(800)
+  } finally { vi.unstubAllGlobals() }
 })

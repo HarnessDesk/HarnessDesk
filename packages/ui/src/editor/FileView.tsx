@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react'
 import { WORKSPACE_BINARY_LIMIT_BYTES, type RuntimeId, type WorkspaceReadFileResult } from '@harnessdesk/protocol'
 import { Banner, BannerAction, Button, Segmented, ToolPane, ToolPaneBody, ToolPaneGuest, ToolPaneMessage, ToolPaneStage } from '../design'
 import { ExternalIcon } from '../components/Icons'
@@ -30,7 +30,11 @@ export interface FileTransfer {
   readonly view: FileViewMode
   readonly document: FileDocumentState | null
 }
+export interface FileSaveHandle { readonly save: () => Promise<boolean> }
 export interface FileViewProps {
+  /** Explicit Save from a parent close question uses this surface's conflict handling. */
+  readonly saveRef?: Ref<FileSaveHandle>
+
   readonly path: string
   readonly runtime: RuntimeId
   readonly root: string | null
@@ -195,34 +199,40 @@ export const FileView = (props: FileViewProps) => {
     return () => window.clearInterval(timer)
   }, [path, runtime, store, native])
 
-  const save = async (expectedHash = current.current.base?.hash) => {
+  const save = async (expectedHash = current.current.base?.hash): Promise<boolean> => {
     const before = current.current
-    if (!before.base || !dirty(before) || before.saving || expectedHash === undefined || before.conflict?.kind === 'binary' || before.conflict?.kind === 'tooLarge') return
+    if (!before.base || before.base.truncated || before.base.content.length > MAX_EDITABLE || !dirty(before) || before.saving || expectedHash === undefined || before.conflict?.kind === 'binary' || before.conflict?.kind === 'tooLarge') return false
+    let saved = false
     const content = before.draft ?? before.base.content
     const identity = ++epoch.current; ++loadId.current; ++pollId.current; ++headRevision.current
     update(one => ({ ...one, saving: true }))
     try {
       const result = await store.transport.request('file/save', { path, runtime, content, expectedHash })
-      if (identity !== epoch.current) return
+      if (identity !== epoch.current) return false
       if (result.saved) {
         update(one => ({ ...one, base: { content, hash: result.hash, truncated: false }, draft: one.draft === content ? null : one.draft, pending: false, conflict: null, comparing: false }))
         // Keep polling suspended until the post-save baseline stat is installed.
         const meta = await store.transport.request('workspace/stat', { path, runtime }).catch(() => null)
-        if (identity !== epoch.current) return
+        if (identity !== epoch.current) return false
         modifiedAt.current = meta?.modifiedAt ?? null
         store.reportEditor?.({ kind: 'saved', path, at: Date.now(), hash: result.hash })
         // Stat can already include a foreign write after our save. Verify bytes
         // after installing that baseline so this write cannot become invisible.
         const mediaType = IMAGE_TYPES[path.split('.').pop()?.toLowerCase() ?? '']
         const verified = await store.transport.request('workspace/readFile', { path, runtime, maxBytes: WORKSPACE_BINARY_LIMIT_BYTES, ...(mediaType ? { encoding: 'base64' as const } : {}) })
-        if (identity !== epoch.current) return
+        if (identity !== epoch.current) return false
         diskRead.current = verified; ++headRevision.current
         update(one => reconcileRead(one, verified, mediaType))
+        saved = !dirty(current.current)
       } else if ('reason' in result) update(one => ({ ...one, conflict: { kind: result.reason, size: result.size } }))
       else update(one => ({ ...one, conflict: { kind: 'text', ...result.conflict } }))
     } catch (error) { if (identity === epoch.current) store.notice?.('error', error instanceof Error ? error.message : String(error)) }
     finally { if (identity === epoch.current) { update(one => ({ ...one, saving: false })); refreshHead.current(); if (native) setFrameGeneration(value => value + 1) } }
+    if (identity !== epoch.current) return false
+    callbacks.current.onDocumentChange?.(documentOf(current.current))
+    return saved
   }
+  useImperativeHandle(props.saveRef, () => ({ save: () => save() }))
 
   const content = state.draft ?? state.base?.content ?? ''
   const changed = state.head !== undefined && (state.head === null || state.head !== content)

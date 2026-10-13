@@ -42,7 +42,7 @@ export {
   type WholeFile,
 } from './diff'
 
-export { FileView, type FileViewProps, type FileViewMode, type FileBase, type FileDocumentState, type FileTransfer } from './FileView'
+export { FileView, type FileSaveHandle, type FileViewProps, type FileViewMode, type FileBase, type FileDocumentState, type FileTransfer } from './FileView'
 export {
   emptyEditorConversation, editorConversation, updateEditorConversation, effectiveWindowMode, effectiveExplorerFilter,
   defaultFileView, openEditorTab, keepEditorTab, closeEditorTab, setEditorTabView,
@@ -52,3 +52,5 @@ export {
 } from './state'
 export { explorerChanges, explorerRows, explorerPath, type ExplorerEntry, type ExplorerChange, type ExplorerTreeRow, type ExplorerLetter } from './explorer-tree'
 export { Explorer } from './Explorer'
+export { FileTabs } from './FileTabs'
+export { EditorMain } from './EditorMain'

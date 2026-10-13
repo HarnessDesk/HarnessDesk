@@ -1,3 +1,4 @@
+import { installEditorMainFixture } from './editor-main-fixture'
 import { installExplorerFixture } from './editor-explorer-fixture'
 import { PREVIEW_FINDINGS } from './findings-fixture'
 import { dashboardDestinationStore } from './dashboard-destination-fixture'
@@ -229,6 +230,7 @@ export const FrameWall = () => {
     // Additional Details states for the same real frame; all data is synthetic.
     const detailsCase = query.get('frame-details-case')
     const snapshot = next.getSnapshot()
+    if (destination === 'conversation' && query.has('frame-editor')) installEditorMainFixture(next)
     if (destination === 'conversation' && query.has('frame-explorer')) installExplorerFixture(next, query.get('frame-explorer')!)
     if (destination === 'team-receipt' && query.get('frame-fix8-receipt-finding') === '1') {
       const goal = snapshot.goals.get('overview-team')!

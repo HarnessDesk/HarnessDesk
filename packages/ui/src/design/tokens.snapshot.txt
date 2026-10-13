@@ -163,6 +163,7 @@
 --hd-field-path-width = 280px
 --hd-file-bar-h = 38px
 --hd-file-document-w = 720px
+--hd-file-tabs-h = 36px
 --hd-focus-ring = 0 0 0 2px rgb(52, 88, 240)
 --hd-font-cjk-fallback = 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans CJK KR'
 --hd-font-cjk-ja = 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP'
@@ -718,6 +719,7 @@
 --hd-field-path-width = 280px
 --hd-file-bar-h = 38px
 --hd-file-document-w = 720px
+--hd-file-tabs-h = 36px
 --hd-focus-ring = 0 0 0 2px rgb(112, 142, 250)
 --hd-font-cjk-fallback = 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans CJK KR'
 --hd-font-cjk-ja = 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP'
@@ -1278,6 +1280,7 @@
 --hd-field-path-width = 280px
 --hd-file-bar-h = 38px
 --hd-file-document-w = 720px
+--hd-file-tabs-h = 36px
 --hd-focus-ring = 0 0 0 3px color-mix(in srgb, rgb(52, 88, 240) 45%, transparent)
 --hd-font-cjk-fallback = 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans CJK KR'
 --hd-font-cjk-ja = 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP'
@@ -1842,6 +1845,7 @@
 --hd-field-path-width = 280px
 --hd-file-bar-h = 38px
 --hd-file-document-w = 720px
+--hd-file-tabs-h = 36px
 --hd-focus-ring = 0 0 0 3px color-mix(in srgb, rgb(112, 142, 250) 55%, transparent)
 --hd-font-cjk-fallback = 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans CJK KR'
 --hd-font-cjk-ja = 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP'

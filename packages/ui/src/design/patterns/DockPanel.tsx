@@ -395,6 +395,7 @@ export const DockPanelTab = ({
   label,
   live,
   closeOnHover = false,
+  unsaved,
   className,
   ...props
 }: Omit<React.ComponentProps<typeof TabsTrigger>, 'children'> & {
@@ -410,6 +411,8 @@ export const DockPanelTab = ({
   live?: boolean
   /** Keep the close control hidden on the active tab until hover or keyboard focus. */
   closeOnHover?: boolean
+  /** Document edits occupy the same trailing slot as the hover close control. */
+  unsaved?: boolean
 }) => (
   /* Out of the strip's drag region, and the *tab* rather than the tab list:
      the list is `w-full`, so no-dragging it would hand the whole strip back
@@ -512,7 +515,7 @@ export const DockPanelTab = ({
          * It also drops focus-on-press, which is why the ✕ still reveals itself
          * on `focus-visible` for anyone reaching it by keyboard.
          */
-        data-slot="dock-panel-tab-close"
+        data-slot={unsaved !== undefined ? "file-tab-trailing" : "dock-panel-tab-close"}
         draggable={false}
         onMouseDown={(event) => {
           event.preventDefault()
@@ -544,9 +547,15 @@ export const DockPanelTab = ({
         className={cn(
           'relative -ml-5 inline-flex size-4 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) opacity-0 hover:bg-(--hd-hover) hover:text-(--hd-foreground) focus-visible:opacity-100 group-hover/tab:opacity-100 [&_svg]:size-3.5',
           !closeOnHover && 'peer-data-active/tab:opacity-100',
+          unsaved !== undefined && 'ml-[calc(-1*var(--hd-icon-target-sm))] size-(--hd-icon-target-sm)',
+          unsaved && 'opacity-100',
+          unsaved !== undefined && 'group-focus-within/tab:opacity-100',
         )}
       >
-        <CrossIcon />
+        {unsaved !== undefined ? <>
+          {unsaved && <span data-slot="file-tab-unsaved" aria-hidden className="absolute size-1.5 rounded-full bg-(--hd-foreground) group-hover/tab:opacity-0 group-focus-within/tab:opacity-0" />}
+          <CrossIcon className="opacity-0 group-hover/tab:opacity-100 group-focus-within/tab:opacity-100" />
+        </> : <CrossIcon />}
       </Button>
     )}
   </span>

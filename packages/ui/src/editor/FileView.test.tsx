@@ -1,10 +1,10 @@
-import { act } from 'react'
+import { act, createRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { runtimeId } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
-import { FileView, type FileDocumentState } from './FileView'
+import { FileView, type FileDocumentState, type FileSaveHandle } from './FileView'
 
 const head = vi.hoisted(() => vi.fn(async () => ({ content: 'original', status: 'tracked' })))
 vi.mock('./head', () => ({ readHead: head }))
@@ -230,4 +230,15 @@ it('drops a queued HEAD refresh when the file unmounts', async () => {
   head.mockImplementationOnce(async () => await new Promise(resolve => { finish = resolve })); const initialCalls = head.mock.calls.length
   await render(); await poll(); act(() => root.unmount()); root = createRoot(container)
   await act(async () => finish({ content: 'obsolete', status: 'tracked' })); expect(head.mock.calls.length - initialCalls).toBe(1)
+})
+
+
+it('refuses parent Save on a truncated read without writing a partial file', async () => {
+  const saveRef = createRef<FileSaveHandle>()
+  disk = { ...text('partial disk'), truncated: true }
+  await render('/work/notes.txt', { saveRef, document: { base: disk, content: 'partial draft', pendingCreation: false } })
+  let saved: boolean | undefined
+  await act(async () => { saved = await saveRef.current?.save() })
+  expect(saved).toBe(false)
+  expect(request.mock.calls.filter(([method]) => method === 'file/save')).toHaveLength(0)
 })
