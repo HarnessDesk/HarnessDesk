@@ -206,10 +206,10 @@ found" — so the desktop engine prints the guest itself
 A separate Chrome window cannot, and the tool says so in words rather than in
 that error.
 
-**Across the process boundary.** The Browser plugin is an *installed* plugin
-and runs in the supervised plugin-host child process, which has no window of
-its own. The extension host forwards every DevTools call to the desktop shell's
-engine when running inside the app, and starts Chrome itself otherwise.
+**Across the process boundary.** The built-in Browser plugin runs in-process.
+Installed plugins use the same browser service through the supervised child
+host's forwarding interface. The service uses the desktop shell's engine when
+running inside the app, and starts Chrome otherwise.
 
 **Guest isolation.** `webviewTag` is on for the one window; guests get no
 preload and no Node (re-asserted in `will-attach-webview`), a partition of
@@ -224,7 +224,9 @@ falls back to a sandboxed iframe, with Chrome behind the tools.
 
 The globe in the top-right of every conversation header — and *Open browser*
 in the palette — opens the pane beside the conversation, with back, forward,
-reload and an address bar. One per layout, like the preview pane.
+reload and an address bar. There is one browser per profile: ordinary
+conversations share the default browser, while isolated lanes have their own.
+A Seat tile can display that profile's browser.
 
 **A tool can open it.** When an agent calls `browser_open` and no pane is open,
 the shell opens one and waits for the view to load; `browser_close` asks for it
@@ -242,8 +244,8 @@ So the rule is kept rather than dropped:
 
 > **The driven tab is a named tab, and acting on it brings it to the front.**
 
-One tab carries a `driven` mark (a dot on its tab, `Agents drive this tab` in
-its menu). `browser_open` navigates *that* tab and makes it active; before any
+One tab carries a `driven` mark (a dot on its tab, `Browser tools drive this tab`
+in its menu). `browser_open` navigates *that* tab and makes it active; before any
 tool command the shell asks the pane to front it. You can browse in the other
 tabs all you like — the next tool call snaps back to the agent's page, which is
 both correct for the agent and honest for you, because you see it happen.
@@ -385,8 +387,10 @@ Plugin tools reach an agent one of two ways, and neither is universal:
   (`packages/adapter-codex/src/capabilities.ts`).
 - **ACP agents** are offered an MCP server when initializing a session — the
   `harnessdesk` bridge (`packages/mcp-tools`), which forwards to the host's tool
-  gateway over a unix socket in the state directory. Filesystem permissions are
-  the auth, so no token rides the environment.
+  gateway over a unix socket in the state directory. Filesystem permissions
+  authorize socket access; the bridge needs no window wire token. Its
+  environment carries a per-session caller token so tool calls retain
+  conversation identity.
 
 | Agent | Browser tools | Why |
 | --- | --- | --- |
@@ -475,10 +479,10 @@ that exercised both: Codex built a small click game through HarnessDesk, then
 played it through these tools — open, screenshot, click, read the score — while
 the Chrome window showed the run live.
 
-**2026-08-22, the same evening — the pane.** Claude Code's and Codex's desktop
-apps show the page *inside* the window; HarnessDesk showed it in a separate
-Chrome. Adding the `<webview>` engine changed no tool code. Validated with a
-small to-do app served on localhost: opened by `browser_open` into the pane,
+**2026-08-22, the same evening — the pane.** HarnessDesk initially showed pages
+in a separate Chrome window. Adding the `<webview>` engine changed no tool
+code. Validated with a small to-do app served on localhost: opened by
+`browser_open` into the pane,
 two items typed by `browser_key`, one clicked done by `browser_click`, state
 read by `browser_evaluate` — and then by Claude Code through HarnessDesk, which
 found `mcp__harnessdesk__browser_open`, passed the permission gate, and
