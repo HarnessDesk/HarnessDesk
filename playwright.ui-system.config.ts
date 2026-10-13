@@ -51,6 +51,38 @@ const workers =
         ? Math.max(1, Math.floor(os.availableParallelism() / 2))
         : 1
 
+/**
+ * What a pull request reads of the frame contracts, and what it leaves for `main`.
+ *
+ * The frame contracts run each geometry check in both themes. A theme here is a
+ * set of colour variables and nothing else (every `body[data-hd-dark-theme]`
+ * rule rewrites a colour or a border alpha, none a size or a position), so a box
+ * measured in the dark theme is the box measured in the light one, and a pull
+ * request pays for the second measurement without learning anything from it.
+ * With `UI_SYSTEM_MATRIX=pr` (CI sets it for a pull request whose diff does not
+ * touch a theme, a stylesheet of the shared build or the suite itself; see
+ * `script/ci-changes.mjs`) the frame specs below skip the cases whose title names
+ * the dark theme. Push to `main`, a manual run and every other command read both,
+ * and the colour contracts listed here read both in every run.
+ *
+ * Skipped by default is wrong for a new spec, so the list is the other way
+ * round: a `frame-*` spec is a geometry spec until it is named here. The
+ * popup contracts check the ink of a disabled or destructive row against the
+ * same token in whichever theme runs; they stay on the geometry side because
+ * both ends of that comparison come from the active theme.
+ * `script/ci-browser-plan.test.mjs` fails a spec that asserts a colour and is
+ * not listed.
+ */
+export const COLOUR_SPECS = [
+  'frame-contract-conversation', 'frame-contract-left-headings', 'frame-contract-left-surfaces', 'frame-contract-menus',
+  'frame-contract-palette', 'frame-contract-reconcile', 'frame-contract-teams', 'frame-contract-tools',
+  'frame-contract-top-bar', 'frame-final-columns', 'frame-final-selection', 'frame-final-tiles',
+  'frame-fix9', 'frame-fix10', 'frame-owner5d',
+] as const
+// Playwright matches `grep` against the project name, the file and the title joined by spaces.
+export const geometryInDark = new RegExp(`^ *(?!(?:${COLOUR_SPECS.join('|')})\\.spec\\.ts )frame-[\\w-]+\\.spec\\.ts .*\\bdark\\b`)
+const pullRequestMatrix = process.env.UI_SYSTEM_MATRIX === 'pr'
+
 export default defineConfig({
   testDir: './e2e/ui-system',
   outputDir: './output/playwright/ui-system/results',
@@ -64,6 +96,7 @@ export default defineConfig({
   fullyParallel: workers > 1,
   workers,
   retries: 0,
+  ...(pullRequestMatrix ? { grepInvert: geometryInDark } : {}),
   // The defaults (30s a test, 5s an assertion) are sized for a browser that has
   // the machine to itself. Beside another, and the dev server, a test that takes
   // twenty seconds alone takes longer; the limit is for a test that is stuck,

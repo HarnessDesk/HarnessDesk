@@ -6,20 +6,23 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
+import { themeInputs } from './ci-changes.mjs'
+
 const script = fileURLToPath(new URL('./ci-changes.mjs', import.meta.url))
-const check = (paths, expected, event = 'pull_request') => {
+const check = (paths, expected, event = 'pull_request', env = {}) => {
   const directory = mkdtempSync(join(tmpdir(), 'ci-changes-'))
   try {
     const list = join(directory, 'paths')
     if (paths !== null) writeFileSync(list, paths.length ? `${paths.join('\0')}\0` : '')
     const result = spawnSync(process.execPath, [script, list], {
-      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event },
+      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event, UI_THEME_TOUCHED: '', UI_SYSTEM_MATRIX_REQUEST: '', ...env },
     })
     assert.equal(result.status, 0, result.stderr)
     const output = Object.fromEntries(result.stdout.trim().split('\n').map(line => line.split(/=(.*)/s).slice(0, 2)))
     assert.equal(output.browser, expected[0])
     assert.equal(output.native, String(expected[1]))
     assert.deepEqual(JSON.parse(output.server_specs), ['e2e/ui-system/notices-inbox.spec.ts', 'e2e/ui-system/run-ending.spec.ts', 'e2e/ui-system/template-contest-journey.spec.ts', 'e2e/ui-system/template-journeys.spec.ts'])
+    return output
   } finally {
     rmSync(directory, { recursive: true, force: true })
   }
@@ -38,21 +41,26 @@ for (const path of [
 for (const path of ['docs/architecture.md', 'CONTRIBUTING.md', 'script/land-safe.mjs']) {
   test(`${path} skips both suites`, () => check([path], ['none', false]))
 }
-for (const path of ['e2e/ui-system/layout.spec.ts', 'e2e/ui-system/durations.json', 'playwright.ui-system.config.ts', 'script/ci-browser-shards.mjs']) {
+for (const path of ['e2e/ui-system/row-box.spec.ts', 'playwright.ui-system.config.ts', 'script/ci-browser-shards.mjs']) {
   test(`${path} runs the browser suite`, () => check([path], ['all', false]))
+}
+// The recorded times only change how specs are dealt; the plan's own tests check the deal.
+for (const path of ['e2e/ui-system/durations.json', 'e2e/ui-system/durations.pr.json']) {
+  test(`${path} opens no browser`, () => check([path], ['none', false]))
 }
 for (const path of ['packages/desktop/electron/main.mjs', 'script/shots/seed.mjs', 'script/lib/temporary-directory.mjs']) {
   test(`${path} runs native smoke`, () => check([path], ['none', true]))
 }
-test('native smoke runner runs both suites because it is also in the browser test directory', () =>
-  check(['e2e/ui-system/native-smoke.mjs'], ['all', true]))
+// It sits in the browser test directory but no browser spec imports it, so only the native job runs it.
+test('the native smoke runner runs native smoke and no browser spec', () =>
+  check(['e2e/ui-system/native-smoke.mjs'], ['none', true]))
 test('empty input runs everything', () => check([], ['all', true]))
 test('unreadable input runs everything', () => check(null, ['all', true]))
 test('push to main runs everything even for docs', () => check(['docs/architecture.md'], ['all', true], 'push'))
 test('NUL input preserves filenames with spaces and newlines', () =>
   check(['docs/line\nbreak.md', 'docs/a b.md'], ['none', false]))
 test('a mixed change runs each affected suite', () =>
-  check(['docs/architecture.md', 'packages/desktop/electron/main.mjs', 'e2e/ui-system/layout.spec.ts'], ['all', true]))
+  check(['docs/architecture.md', 'packages/desktop/electron/main.mjs', 'e2e/ui-system/row-box.spec.ts'], ['all', true]))
 
 for (const path of ['packages/server/src/host.ts', 'packages/plugins/src/index.ts', 'packages/adapter-codex/test/fixtures/fake-codex.mjs']) {
   test(`${path} runs server specs and native smoke`, () => check([path], ['server', true]))
@@ -141,4 +149,123 @@ test('import scan still refuses an unresolved source helper', async () => {
     put('e2e/ui-system/added.spec.ts', "import { rig } from './missing.mts'")
     assert.throws(() => serverSpecs(root, uiPackages(root)), /Cannot resolve suite import/)
   })
+})
+
+// What the browser job runs, and how it is sized (the plan of `browserPlan`).
+const plan = (paths, env = {}, event = 'pull_request') => {
+  const directory = mkdtempSync(join(tmpdir(), 'ci-plan-'))
+  try {
+    const list = join(directory, 'paths')
+    writeFileSync(list, paths.length ? `${paths.join('\0')}\0` : '')
+    const result = spawnSync(process.execPath, [script, list], {
+      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event, UI_THEME_TOUCHED: '', UI_SYSTEM_MATRIX_REQUEST: '', ...env },
+    })
+    assert.equal(result.status, 0, result.stderr)
+    const output = Object.fromEntries(result.stdout.trim().split('\n').map(line => line.split(/=(.*)/s).slice(0, 2)))
+    return output
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+}
+
+test('a pull request that touches the UI runs every spec in the pull-request matrix, on as many shards as the work needs', () => {
+  const run = plan(['packages/ui/src/App.tsx'])
+  assert.equal(run.browser, 'all')
+  assert.equal(run.browser_specs, 'all')
+  assert.equal(run.matrix, 'pr')
+  assert.ok(Number(run.shard_count) >= 2 && Number(run.shard_count) <= 16, run.shard_count)
+  assert.deepEqual(JSON.parse(run.shards), Array.from({ length: Number(run.shard_count) }, (_, index) => index + 1))
+})
+
+test('the pull-request matrix never needs more shards than the whole of main', () => {
+  const main = Number(plan(['docs/architecture.md'], {}, 'push').shard_count)
+  assert.ok(Number(plan(['packages/ui/src/App.tsx']).shard_count) <= main)
+})
+
+test('a diff that names a theme reads both themes', () =>
+  assert.equal(plan(['packages/ui/src/App.tsx'], { UI_THEME_TOUCHED: 'true' }).matrix, 'full'))
+
+for (const path of ['pnpm-lock.yaml', 'package.json', '.github/workflows/ci.yml', 'assets/avatars/128/blue.png', 'playwright.ui-system.config.ts', 'script/ci-browser-shards.mjs']) {
+  test(`${path} reads both themes`, () => assert.equal(plan(['packages/ui/src/App.tsx', path]).matrix, 'full'))
+}
+
+// A declaration added inside an existing `body[data-hd-dark-theme]` block says neither "dark" nor "theme" in its own line.
+for (const path of ['packages/ui/src/design/foundation/tokens.css', 'packages/ui/src/styles/app.css', 'packages/ui/vite.config.ts', 'packages/ui/tsconfig.json', 'packages/ui/package.json']) {
+  test(`${path} reads both themes, whatever the lines of the diff say`, () => assert.equal(plan([path]).matrix, 'full'))
+}
+
+test('a stylesheet that names a theme before or after the change reads both themes', () => {
+  const root = fileURLToPath(new URL('../', import.meta.url))
+  const popup = ['packages/ui/src/design/ui/popup.css'] // says neither word today
+  assert.equal(themeInputs(root, popup, () => null), false, 'a stylesheet that is neither')
+  assert.equal(themeInputs(root, popup, () => 'body[data-hd-dark-theme] { --x: 1 }'), true, 'it named a theme before the change and the change took the word out')
+  assert.equal(themeInputs(root, ['packages/ui/src/components/Row.tsx'], () => 'dark'), false, 'only stylesheets are read for the word')
+})
+
+test('main and a run on demand read both themes of every spec', () => {
+  for (const event of ['push', 'workflow_dispatch']) {
+    const run = plan(['packages/ui/src/App.tsx'], {}, event)
+    assert.deepEqual([run.browser, run.browser_specs, run.matrix], ['all', 'all', 'full'], event)
+    assert.ok(Number(run.shard_count) >= Number(plan(['packages/ui/src/App.tsx']).shard_count), event)
+  }
+})
+
+test('a run on demand can ask for the pull-request matrix, and a pull request for nothing else', () => {
+  assert.equal(plan(['packages/ui/src/App.tsx'], { UI_SYSTEM_MATRIX_REQUEST: 'pr' }, 'workflow_dispatch').matrix, 'pr')
+  assert.equal(plan(['packages/ui/src/App.tsx'], { UI_SYSTEM_MATRIX_REQUEST: 'bogus' }).matrix, 'pr')
+})
+
+test('an unreadable change list reads both themes of every spec', () => {
+  const run = check(null, ['all', true])
+  assert.deepEqual([run.browser_specs, run.matrix], ['all', 'full'])
+})
+
+test('a pull request that only edits one spec runs that spec, in both themes, on one shard', () => {
+  const run = plan(['e2e/ui-system/row-box.spec.ts'])
+  assert.deepEqual([run.browser, run.browser_specs, run.matrix, run.shard_count, run.shards], ['all', '["e2e/ui-system/row-box.spec.ts"]', 'full', '1', '[1]'])
+})
+
+test('a changed helper runs every spec that imports it, and only those', () => {
+  const run = plan(['e2e/ui-system/frame-contract-split-setup.ts'])
+  const specs = JSON.parse(run.browser_specs)
+  assert.ok(specs.length > 5 && specs.length < 80, specs.length)
+  assert.ok(specs.every(spec => /\.spec\.ts$/.test(spec)))
+  assert.ok(specs.includes('e2e/ui-system/frame-contract-popup-menus.spec.ts'))
+  assert.ok(!specs.includes('e2e/ui-system/row-box.spec.ts'))
+})
+
+test('a helper a spec loads by URL or by name, and not by an import, still runs that spec', () => {
+  // `write-once.spec.ts` spawns a child that loads `write-once.ts` from `new URL('./write-once', import.meta.url)`.
+  const run = plan(['e2e/ui-system/write-once.ts'])
+  assert.ok(JSON.parse(run.browser_specs).includes('e2e/ui-system/write-once.spec.ts'), run.browser_specs)
+})
+
+test('a changed helper reaches the specs that import it through another helper', () => {
+  const direct = JSON.parse(plan(['e2e/ui-system/frame-contract-helpers.ts']).browser_specs)
+  const wall = JSON.parse(plan(['e2e/ui-system/frame-wall-destinations.ts']).browser_specs)
+  assert.ok(wall.length >= direct.length, 'the destinations are imported by the helpers, so everything the helpers reach is reached')
+  for (const spec of direct) assert.ok(wall.includes(spec), spec)
+})
+
+test('data a spec might read at run time, or a deleted helper, cannot be traced and runs every spec', () => {
+  for (const path of ['e2e/ui-system/composer-slot-record.json', 'e2e/ui-system/a-helper-that-was-deleted.ts']) {
+    const run = plan([path])
+    assert.deepEqual([run.browser, run.browser_specs, run.matrix], ['all', 'all', 'full'], path)
+  }
+})
+
+test('deleting a spec runs nothing', () =>
+  assert.equal(plan(['e2e/ui-system/a-spec-that-was-deleted.spec.ts']).browser, 'none'))
+
+test('a spec edit beside a host change also runs the server-facing specs', () => {
+  const run = plan(['e2e/ui-system/row-box.spec.ts', 'packages/server/src/host.ts'])
+  assert.deepEqual(JSON.parse(run.browser_specs), [
+    'e2e/ui-system/notices-inbox.spec.ts', 'e2e/ui-system/row-box.spec.ts', 'e2e/ui-system/run-ending.spec.ts',
+    'e2e/ui-system/template-contest-journey.spec.ts', 'e2e/ui-system/template-journeys.spec.ts',
+  ])
+})
+
+test('the outputs are well formed on a run that skips the browser job', () => {
+  const run = plan(['docs/architecture.md'])
+  assert.deepEqual([run.browser, run.shard_count, run.shards], ['none', '0', '[1]'])
 })

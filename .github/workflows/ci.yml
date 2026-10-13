@@ -10,6 +10,16 @@ on:
   push:
     branches: [main]
   pull_request:
+  # A run on demand covers everything, as `main` does. `matrix: pr` asks for the
+  # pull-request theme matrix instead, to reproduce what a pull request ran.
+  # (GitHub offers a manual run only for a workflow that is on the default branch.)
+  workflow_dispatch:
+    inputs:
+      matrix:
+        description: Which themes the browser geometry contracts read
+        type: choice
+        options: [full, pr]
+        default: full
 
 # A superseded run has nothing to tell us; cancel it rather than queue behind it.
 concurrency:
@@ -29,6 +39,10 @@ jobs:
       browser: ${{ steps.paths.outputs.browser }}
       native: ${{ steps.paths.outputs.native }}
       server_specs: ${{ steps.paths.outputs.server_specs }}
+      browser_specs: ${{ steps.paths.outputs.browser_specs }}
+      matrix: ${{ steps.paths.outputs.matrix }}
+      shard_count: ${{ steps.paths.outputs.shard_count }}
+      shards: ${{ steps.paths.outputs.shards }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -40,16 +54,26 @@ jobs:
         id: paths
         env:
           EVENT_NAME: ${{ github.event_name }}
+          # Only a run started by hand names its matrix; any other event leaves it to the selection.
+          UI_SYSTEM_MATRIX_REQUEST: ${{ inputs.matrix }}
         run: |
           list="$RUNNER_TEMP/ci-changed-paths"
+          theme=false
           if [ "$EVENT_NAME" = "pull_request" ]; then
             # Compare the merge to its base parent. Disable rename detection
             # so moving an input out of a tested directory still runs its suite.
             if ! git diff --no-renames --name-only -z HEAD^1 HEAD > "$list"; then
               rm -f "$list"
             fi
+            # A pull request reads the browser geometry contracts in one theme
+            # (playwright.ui-system.config.ts) unless its UI diff names a theme.
+            if git diff --no-renames -U0 HEAD^1 HEAD -- packages/ui | grep -E '^[+-]' | grep -Ev '^(\+\+\+|---)' | grep -Eiq 'dark|theme'; then
+              theme=true
+            fi
           fi
-          node script/ci-changes.mjs "$list" >> "$GITHUB_OUTPUT"
+          UI_THEME_TOUCHED="$theme" node script/ci-changes.mjs "$list" > "$RUNNER_TEMP/ci-plan"
+          cat "$RUNNER_TEMP/ci-plan" >> "$GITHUB_OUTPUT"
+          sed -n 's/^summary=//p' "$RUNNER_TEMP/ci-plan" >> "$GITHUB_STEP_SUMMARY"
 
   # One job ran every step below in turn, and took as long as all of them added
   # together: the longest wait on every push, and the one that kept `package`
@@ -363,12 +387,24 @@ jobs:
   ui-system-browser:
     needs: changes
     if: needs.changes.outputs.browser == 'all'
-    name: UI system browser integration shard ${{ matrix.shard }}/16
+    name: UI system browser integration shard ${{ matrix.shard }}/${{ needs.changes.outputs.shard_count }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16]
+        # As many shards as the work needs, from one to sixteen: each carries
+        # about 1,500 recorded seconds of tests, which two browsers get through
+        # in twelve to fourteen minutes (script/ci-browser-shards.mjs sizes the
+        # shards, script/ci-changes.mjs counts them). A change that reaches one
+        # spec gets one shard, a pull request that touches the UI thirteen, and
+        # `main` all sixteen. Always at least [1], so the matrix is well formed
+        # on the runs that skip this job.
+        shard: ${{ fromJSON(needs.changes.outputs.shards) }}
+    env:
+      # What this run is: its theme matrix and the specs it covers. The shards
+      # of one run read the same two values, so they deal the same plan.
+      UI_SYSTEM_MATRIX: ${{ needs.changes.outputs.matrix }}
+      UI_SYSTEM_SPECS: ${{ needs.changes.outputs.browser_specs }}
     # The frame contracts roughly quadrupled the suite's single-worker time.
     # Eight shards exceeded the 30-minute limit even without failures; sixteen
     # leave room for setup, runner variation and reports. Keep two browsers per
@@ -394,7 +430,7 @@ jobs:
       - run: pnpm exec playwright install --with-deps chromium
       - name: Run this shard's specs
         run: |
-          mapfile -t specs < <(node script/ci-browser-shards.mjs ${{ matrix.shard }}/16)
+          mapfile -t specs < <(node script/ci-browser-shards.mjs ${{ matrix.shard }}/${{ needs.changes.outputs.shard_count }})
           # An empty deal must never accidentally run the entire suite.
           test "${#specs[@]}" -gt 0
           pnpm test:ui-system "${specs[@]}"
