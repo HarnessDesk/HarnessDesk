@@ -1657,11 +1657,14 @@ export interface HostMethods {
     result: readonly FileMatch[]
   }
   'workspace/browse': {
-    params: { readonly path?: string; readonly runtime?: RuntimeId }
+    params:
+      | { readonly mode?: 'directories'; readonly path?: string; readonly runtime?: RuntimeId }
+      | { readonly mode: 'entries'; readonly root: string; readonly path?: string; readonly runtime?: RuntimeId }
     result: {
       readonly path: string
       readonly parent: string | null
-      readonly entries: readonly { readonly name: string; readonly path: string }[]
+      /** Kind is present only in the confined entries mode; folder pickers keep their shape. */
+      readonly entries: readonly { readonly name: string; readonly path: string; readonly kind?: 'file' | 'directory' }[]
     }
   }
   'workspace/readFile': {

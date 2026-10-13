@@ -1700,6 +1700,12 @@ absent in Settings. Its compact cells use the shared switcher appearance.
 
 The account row closes the column without a separator hairline above it.
 
+### `LeftColumnExplorerHead`
+
+`packages/ui/src/design/patterns/LeftColumn.tsx`
+
+Explorer occupies the same column; its header and foot share the row inset.
+
 ### `LibraryMatrix`
 
 `packages/ui/src/design/patterns/LibraryMatrix.tsx`

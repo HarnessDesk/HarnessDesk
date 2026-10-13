@@ -299,3 +299,21 @@ for (const current of [
   expect(touch).not.toHaveBeenCalled()
   expect(store.getSnapshot().windowMode).toBe('editor')
 })
+it('Go to file only dispatches for Editor on a conversation, using Command and Control aliases', async () => {
+  const store = routedStore(), key = sessionKey(runtimeId('demo'), sessionId('file-session'))
+  Object.assign(store.getSnapshot(), { sessions: new Map([[key, { title: 'Synthetic conversation', turns: [] }]]) })
+  store.selectWork({ kind: 'conversation', session: key })
+  const open = vi.fn()
+  window.addEventListener('harnessdesk:go-to-file', open)
+  try {
+    await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
+    act(() => native.run('go-to-file'))
+    expect(open).not.toHaveBeenCalled()
+    act(() => store.setWindowMode('editor'))
+    for (const modifier of ['metaKey', 'ctrlKey']) act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', [modifier]: true, bubbles: true, cancelable: true })))
+    expect(open).toHaveBeenCalledTimes(2)
+    await click('Settings')
+    act(() => native.run('go-to-file'))
+    expect(open).toHaveBeenCalledTimes(2)
+  } finally { window.removeEventListener('harnessdesk:go-to-file', open) }
+})

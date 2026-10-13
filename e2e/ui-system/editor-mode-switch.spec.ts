@@ -40,7 +40,11 @@ for (const theme of ['light', 'dark'] as const) {
     const top = page.locator('[data-left-column]:visible [data-left-top]')
     await top.getByRole('button', { name: 'Editor mode', exact: true }).click()
     for (const label of ['Teams', 'Agents', 'Library', 'Plugins', 'Dashboard']) {
-      await page.getByRole('navigation', { name: 'Workspace actions' }).getByRole('button', { name: label, exact: true }).click()
+      await page.keyboard.press('Meta+k')
+      const palette = page.getByRole('dialog', { name: 'Command palette' })
+      const action = label === 'Teams' ? 'Show Teams' : label === 'Library' || label === 'Plugins' ? `Settings › ${label}` : label
+      await palette.locator('input').fill(action)
+      await palette.getByRole('option', { name: new RegExp(`^${action}(?:\\s|$)`) }).click()
       const editor = top.getByRole('button', { name: 'Editor mode', exact: true })
       await expect(editor).toBeDisabled()
       await expect(editor).toHaveAttribute('title', "Editor mode opens a conversation's files")
@@ -64,6 +68,7 @@ for (const theme of ['light', 'dark'] as const) for (const windowWidth of [1440,
     // A real visit and return enable Forward, so a stolen pointer has an observable consequence.
     await column.locator('[data-left-seat]').getByRole('button', { name: 'Settings', exact: true }).click()
     await page.keyboard.press('Meta+[')
+    await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(0)
     for (const width of [239, 240, 256, 267, 268, 280]) {
       await applyLeftColumnActions(page, { leftOpen: true, leftWidth: width })
       await expect.poll(async () => (await top.boundingBox())?.width).toBe(width)
@@ -85,6 +90,7 @@ for (const theme of ['light', 'dark'] as const) for (const windowWidth of [1440,
         await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1)
         await expect(page.locator('[data-left-top]:visible [data-mode-switch]')).toHaveCount(0)
         await page.keyboard.press('Meta+[')
+        await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(0)
         await applyLeftColumnActions(page, { leftOpen: true, leftWidth: width })
         await expect(editor).toHaveAttribute('aria-pressed', 'true')
       }

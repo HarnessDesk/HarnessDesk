@@ -1162,7 +1162,12 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     limit: optional(isNumber),
     runtime: optional(isString),
   }),
-  'workspace/browse': shape({ path: optional(isString), runtime: optional(isString) }),
+  'workspace/browse': (value, path) => {
+    const source = isObject(value, path)
+    return source['mode'] === 'entries'
+      ? shape({ mode: literalUnion('entries'), root: isString, path: optional(isString), runtime: optional(isString) })(value, path)
+      : shape({ mode: optional(literalUnion('directories')), path: optional(isString), runtime: optional(isString) })(value, path)
+  },
   'workspace/readFile': shape({
     path: isString,
     maxBytes: optional(isNumber),

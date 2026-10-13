@@ -177,6 +177,11 @@ export const App = () => {
           if(snapshot.workbench.navigation.current.kind!=='work')store.returnToWork()
           else store.closePane(snapshot.layout.focused)
           return
+        case 'go-to-file':
+          if (effectiveWindowMode(store.getSnapshot().windowMode, store.getSnapshot().workbench) === 'editor') {
+            window.dispatchEvent(new CustomEvent('harnessdesk:go-to-file'))
+          }
+          return
         case 'palette':
           setPaletteOpen((value) => !value)
           return

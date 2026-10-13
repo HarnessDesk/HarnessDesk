@@ -3424,8 +3424,8 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
   { id: 'left-column', title: 'Left column', about: 'Aligned rows with one trailing slot and long titles.', render: LeftColumnBoard },
 ]
 
-import { LeftColumn, LeftColumnTop, LeftColumnBody, LeftColumnRow, LeftColumnGroup, LeftColumnSeat } from ".."
-import { BellIcon, UserIcon } from '../../components/Icons'
+import { LeftColumn, LeftColumnTop, LeftColumnBody, LeftColumnRow, LeftColumnGroup, LeftColumnSeat, LeftColumnExplorerHead, LeftColumnExplorerFoot } from ".."
+import { BellIcon, UserIcon, FileIcon } from '../../components/Icons'
 
 export const LEFTCOLUMN_CATALOG_VARIANTS = ['light', 'dark'] as const
 export const LEFTCOLUMN_CATALOG_SIZES = ['default'] as const
@@ -3437,8 +3437,9 @@ export function LeftColumnBoard() {
   top={<LeftColumnTop shown settings={false} back={false} forward={false} toggle={() => {}} goBack={() => {}} goForward={() => {}}
     search={<Button variant="ghost" size="icon-sm" aria-label="Search everything"><SearchIcon size={16} /></Button>}
     modeSwitch={{ value: mode, onChange: setMode, disabled: false, disabledTitle: "Editor mode opens a conversation's files" }} />}
-  head={null} body={<LeftColumnBody>
-  <LeftColumnRow label="Teams" icon={<TeamIcon size={16} />} onClick={() => {}} />
+  head={mode === 'editor' ? <LeftColumnExplorerHead name="storefront" path="/work/storefront" filter="changed" changes={4} onFilter={() => {}} /> : null} body={<LeftColumnBody>
+  {mode === 'editor' && <><LeftColumnRow label="src" icon={<FolderIcon size={16} />} tree={{ depth: 0, expanded: true }} onClick={() => {}} /><LeftColumnRow label="checkout.ts" icon={<FileIcon size={16} />} tree={{ depth: 1, letter: 'M' }} trailing={{ kind: 'mark', icon: 'M', label: 'Modified' }} selected onClick={() => {}} /></>}
+  {mode === 'conversation' && <><LeftColumnRow label="Teams" icon={<TeamIcon size={16} />} onClick={() => {}} />
   <LeftColumnGroup label="Projects">
     <LeftColumnRow label="Release notes for checkout retry · 長い会話名" icon={<FolderIcon size={16} />}
       title={'Release notes for checkout retry\nThe folder is gone; the transcript remains readable.'}
@@ -3446,10 +3447,10 @@ export function LeftColumnBoard() {
       action={{ label: 'Actions for Release notes', onClick: () => {} }} />
     <LeftColumnRow label="Conversation with no leading mark" onClick={() => {}} />
     <LeftColumnRow label="Unavailable conversation" disabled title="Conversation not kept" />
-  </LeftColumnGroup>
+  </LeftColumnGroup></>}
 </LeftColumnBody>}
-  footer={<LeftColumnSeat notifications={<Button variant="ghost" size="icon-sm" aria-label="Inbox"><BellIcon size={16} /></Button>} settingsOpen={false} onSettings={() => {}}
-    menu={<Button variant="ghost" size="pattern" className="inline-flex items-center gap-(--hd-space-2) px-(--hd-space-2) text-(length:--hd-text) font-(weight:--hd-weight-medium)" data-catalog-size="default"><UserIcon size={16} />Jane Doe</Button>} />} />
+  footer={<>{mode === 'editor' && <LeftColumnExplorerFoot onClick={() => {}} />}<LeftColumnSeat notifications={<Button variant="ghost" size="icon-sm" aria-label="Inbox"><BellIcon size={16} /></Button>} settingsOpen={false} onSettings={() => {}}
+    menu={<Button variant="ghost" size="pattern" className="inline-flex items-center gap-(--hd-space-2) px-(--hd-space-2) text-(length:--hd-text) font-(weight:--hd-weight-medium)" data-catalog-size="default"><UserIcon size={16} />Jane Doe</Button>} /></>} />
 }
 
 

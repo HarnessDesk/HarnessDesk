@@ -23,6 +23,7 @@ import {
   type GoalView,
   type HostMethodName,
   type HostParams,
+  type HostResult,
   type HostToClient,
   type Session,
   type SessionSummary,
@@ -1395,6 +1396,13 @@ test('file reads go through the runtime\'s own view when it declares one', async
     entries: { name: string }[]
   }
   assert.deepEqual(browsed.entries.map((entry) => entry.name), ['src'])
+  const tree = await client.call('workspace/browse', { mode: 'entries', root: '/w', runtime: FAKE_RUNTIME_ID }) as HostResult<'workspace/browse'>
+  assert.equal(tree.parent, null)
+  assert.deepEqual(tree.entries, [
+    { name: 'src', path: '/w/src', kind: 'directory' },
+    { name: 'README.md', path: '/w/README.md', kind: 'file' },
+  ])
+  await assert.rejects(() => client.call('workspace/browse', { mode: 'entries', root: '/w', path: harness.stateDir, runtime: FAKE_RUNTIME_ID }), /outside every open workspace/)
   assert.ok(harness.runtime.files.calls.some((call) => call.startsWith('read /w/README.md')))
 })
 

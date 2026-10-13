@@ -42,7 +42,7 @@ import { accountKey, accountName, accountIdentity, agentKey, runtimeLabel, tintO
 import { folderName, projectRootOf } from '../lib/projects'
 import { anyBroken, inForce } from '../lib/agents'
 import { livePlugins } from '../lib/plugins'
-import { effectiveWindowMode } from '../editor'
+import { Explorer, effectiveWindowMode } from '../editor'
 import { brandOf } from '../lib/identity'
 import { profileName } from '../lib/profile'
 import { READINESS_LABEL, readinessOf, type Readiness } from '../lib/readiness'
@@ -102,6 +102,9 @@ export const Sidebar = ({
   const store = useStore()
   const snapshot = useSnapshot()
   const inbox = useInboxMessages()
+  const destination = snapshot.workbench.navigation.current
+  const explorerSession = effectiveWindowMode(snapshot.windowMode, snapshot.workbench) === 'editor' && destination.kind === 'work' && destination.view.kind === 'conversation' ? destination.view.session : null
+  const explorerShown = explorerSession !== null && !settings
   const [localQuery, setLocalQuery] = useState('')
   const query = listFilter?.value ?? localQuery
   const setQuery = listFilter?.onChange ?? setLocalQuery
@@ -185,7 +188,7 @@ export const Sidebar = ({
     </LeftColumnNavigation>
   </>
   const sessionsBody = (
-    <LeftColumnBody hidden={Boolean(settings)} ref={listRef} onScroll={onScroll}>
+    <LeftColumnBody hidden={Boolean(settings) || explorerShown} ref={listRef} onScroll={onScroll}>
     <LeftColumnProjectsHead value={query} onChange={setQuery} focused={filterFocused}
       onFocusChange={setFilterFocused} options={<SessionListControls searching={searchQuery.length > 0} />}
       onBrowseFolders={onBrowseFolders} />
@@ -215,8 +218,8 @@ export const Sidebar = ({
   )
   return <>
     {starting && projectRootOf(snapshot.workspace) && <FrontDoor context={{ kind: 'project', root: projectRootOf(snapshot.workspace)! }} onClose={() => setStarting(false)} onStarted={execution => { store.openGoal(execution.goal); setStarting(false) }} />}
-  <LeftColumn active={active} top={<>{top}{brand}</>} head={<LeftColumnModeHead hidden={Boolean(settings)}>{sessionsHead}</LeftColumnModeHead>}
-    body={<>{sessionsBody}<LeftColumnBody hidden={!settings}>
+  <LeftColumn active={active} top={<>{top}{brand}</>} head={<LeftColumnModeHead hidden={Boolean(settings) || explorerShown}>{sessionsHead}</LeftColumnModeHead>}
+    body={<>{sessionsBody}{explorerShown && <Explorer session={explorerSession} />}<LeftColumnBody hidden={!settings}>
       {settings && <SettingsNavigation section={settings.section} onSection={settings.onSection} onBack={settings.onBack} />}
     </LeftColumnBody></>}
     footer={<><Slot name="sidebar.panel" />{!settings && <SidebarNotices />}<SidebarUpdate /><AccountFooter notifications={<InboxPanel side="top" size="icon-sm" messages={inbox}

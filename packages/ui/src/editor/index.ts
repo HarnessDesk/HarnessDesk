@@ -50,3 +50,5 @@ export {
   type WindowMode, type ExplorerFilter, type EditorTab, type EditorConversation,
   type EditorState, type EditorDocuments, type OpenEditorTabOptions,
 } from './state'
+export { explorerChanges, explorerRows, explorerPath, type ExplorerEntry, type ExplorerChange, type ExplorerTreeRow, type ExplorerLetter } from './explorer-tree'
+export { Explorer } from './Explorer'

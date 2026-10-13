@@ -736,7 +736,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['PaneColumn', 'conversation', 'The reading column\'s inset, shared by the transcript and the room stream, plus the bars strip, the jobs strip and the rail'],
   ['PlanCard', 'plan-card', 'A plan\'s price and a key or metered account\'s monthly budget, set once from a suggested price'],
   ['UsageMeterRow', 'usage-meter-row', 'A shared name, remaining meter, percentage and reset countdown'],
-  ['LeftColumn', 'left-column', 'One column row, group edge, top mode switch and seat in both modes'],
+  ['LeftColumn', 'left-column', 'One column row, group edge, top mode switch, Explorer tree and seat in both modes'],
   ['ComposerTrack', 'composer', 'Content-sized selected-value tracks that fold with the composer toolbar'],
 ] as const satisfies readonly ModuleSeed[]
 

@@ -69,6 +69,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { action: 'settings', label: 'Settings', key: ',', group: 'Window' },
   { action: 'usage', label: 'Dashboard', key: 'u', group: 'Window' },
   { action: 'palette', label: 'Command palette', key: 'k', group: 'Finding things' },
+  { action: 'go-to-file', label: 'Go to file in Editor mode', key: 'p', group: 'Finding things' },
 ]
 
 /**

@@ -155,7 +155,7 @@ it('answers them from a read-only editor, which binds them and declines', async 
 })
 
 for (const modifier of ['ctrlKey', 'metaKey'] as const) {
-  for (const key of ['g', 'l']) {
+  for (const key of ['g', 'l', 'p']) {
     it(`leaves ${modifier} ${key} to the app from the editor and search field`, async () => {
       const content = await editor(false)
       const view = EditorView.findFromDOM(content)!
