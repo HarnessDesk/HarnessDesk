@@ -61,6 +61,7 @@ const context = (root, map, over = {}) => {
     specHash: name => map.hashes[map.specs.indexOf(name)],
     baseFiles: () => baseOf(map),
     importers: path => importers.get(path),
+    dataExports: path => !existsSync(join(root, path)) || exportsData(readFileSync(join(root, path), 'utf8')),
     ...over,
   }
 }
@@ -351,8 +352,8 @@ test('a module that hands data to its importers reaches the specs in which they 
       record('e2e/ui-system/b.spec.ts', { loaded: everything, ran: ['/src/y.tsx'] }),
     ])
     const shared = 'packages/ui/src/shared.ts'
-    assert.deepEqual(impactedSpecs(map, [shared], context(root, map)).specs, ['a.spec.ts'], 'by its functions alone')
-    assert.deepEqual(impactedSpecs(map, [shared], context(root, map, { dataExports: () => true })).specs, ['a.spec.ts', 'b.spec.ts'], 'and by what its importers read')
+    assert.deepEqual(impactedSpecs(map, [shared], context(root, map, { dataExports: () => false })).specs, ['a.spec.ts'], 'by its functions alone')
+    assert.deepEqual(impactedSpecs(map, [shared], context(root, map)).specs, ['a.spec.ts', 'b.spec.ts'], 'and by what its importers read, as `export const LIMIT = 3` hands on')
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -360,6 +361,8 @@ test('a module that hands data to its importers reaches the specs in which they 
 
 test('a module hands data to its importers when it exports a value that is not a function', () => {
   for (const [text, expected] of [
+    ['export function f() {}\nexport type T = string', false],
+    ["const x = 1\nwindow.x = x", true],
     ["export const LABEL = 'Ready'", true],
     ['export const ITEMS = [1, 2]', true],
     ['export const limits: Limits = { max: 3 }', true],
@@ -384,6 +387,8 @@ test('a module hands data to its importers when it exports a value that is not a
     ['export class Store { static limit = 3 }', true],
     ['export const Foo = (\n  a: string,\n) => a', false],
     ['export const Foo = ({\n  a,\n}) => a', false],
+    ['export const FlowInputFields = ({ flow, scope, vars }: {\n  flow: string\n}) => null', false],
+    ['export const Foo = (props: Props) => props.team ? 1 : 2', false],
   ]) assert.equal(exportsData(text), expected, text)
 })
 

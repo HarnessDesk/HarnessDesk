@@ -122,14 +122,25 @@ export function queriedImporters(root, files = Object.keys(uiFiles(root))) {
 // free of it; re-exports, names exported apart from their declaration, class statics, parenthesised values
 // and anything the scan cannot tell are data.
 export function exportsData(text) {
-  const functionLike = /^(?:async\s+)?(?:function\b|class\b|\((?:[^)]*\)\s*(?::[^=]+)?=>|[{\[]\s*$|\s*$)|<|[A-Za-z_$][\w$]*\s*=>|(?:React\.)?(?:forwardRef|memo|lazy)\b|cva\()/
+  if (!/^export\b/m.test(text)) return true // a module with no export is there for what it does when it loads
   for (const match of text.matchAll(/^export\s+(?:const|let|var)\s+[\w$]+[^=\n]*=\s*(.*)$/gm)) {
-    if (!functionLike.test(match[1])) return true
+    if (!functionLike(match[1])) return true
   }
   if (/^export\s+(?:\*|\{)/m.test(text)) return true // `export { a }`, `export * from`, `export { a } from`: a name, not a declaration
   if (/^export\s+default\s+(?!(?:async\s+)?(?:function|class)\b|\(|[A-Za-z_$][\w$]*\s*=>)/m.test(text)) return true
   if (/^export\s+(?:const\s+)?enum\b/m.test(text)) return true
   return /\bstatic\b/.test(text) && /^export\s+(?:default\s+)?class\b/m.test(text)
+}
+
+// Whether what follows `export const X =` on its line is a function: an arrow, a function, a class, a component
+// wrapper. A parenthesis is a function's parameters when an arrow follows it or the line leaves it open
+// (destructured parameters run over several lines), and a parenthesised value when it closes on the line.
+function functionLike(initializer) {
+  const start = initializer.replace(/^async\s+/, '')
+  if (/^(?:function\b|class\b|<|[A-Za-z_$][\w$]*\s*=>|(?:React\.)?(?:forwardRef|memo|lazy)\b|cva\()/.test(start)) return true
+  if (!start.startsWith('(')) return false
+  if (/=>/.test(start)) return true
+  return (start.match(/\(/g) ?? []).length > (start.match(/\)/g) ?? []).length
 }
 
 const compress = (indexes, total) => (total > 0 && indexes.length === total ? 'all' : indexes)
@@ -229,8 +240,9 @@ export function readMap(file) {
 //
 // A file is reached by the specs in which some function of it ran. A module that
 // also hands data to its importers (`exportsData`) is reached by the specs in which
-// they ran. A file in which none ever ran (a stylesheet, a constant, a type, an
-// image, a font) is reached through whoever imports it, since that is where its
+// they ran. A script in which none ever ran that hands nothing on (a component no
+// spec rendered) is reached by none; a stylesheet, an image, a font, or a script of
+// constants is reached through whoever imports it, since that is where its
 // values go; so is one that only the browser's bundler can have taken in
 // (a stylesheet another one `@import`s has no script of its own). A script nobody
 // loaded is reached by no one.
@@ -269,7 +281,8 @@ export function impactedSpecs(map, paths, { allSpecs, specHash, baseFiles, baseE
     const parents = new Set([...(importers(path) ?? [])].filter(parent => !TEST_FILE.test(parent)))
     const viaParents = () => [...parents].flatMap(parent => reaching(parent, visiting))
     if (ran.length > 0) return dataExports(path) ? [...ran, ...viaParents()] : ran
-    if (loaded.length === 0 && isScript(path)) return []
+    // A script in which nothing ran and that hands nothing on (a component no spec rendered) is reached by no one.
+    if (isScript(path) && (loaded.length === 0 || !dataExports(path))) return []
     // A sheet that is not scoped to a module of its own reaches everything that loaded it, wherever it was taken in.
     if (!isScript(path) && globalSheet(path)) return loadedAnywhere(path, new Set())
     if (parents.size === 0) return loaded
@@ -406,7 +419,11 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
     const commit = option('--commit') ?? ''
     const minimum = Number(option('--minimum') ?? 0.9)
     const records = collect(args, /(?:^|\/)worker-[^/]*\.json$/).map(file => JSON.parse(readFileSync(file, 'utf8')))
-    const listings = collect(args, /(?:^|\/)expected-[^/]*\.json$/).map(file => JSON.parse(readFileSync(file, 'utf8')))
+    // A listing is the JSON on standard output; whatever a package manager printed before it is not part of it.
+    const listings = collect(args, /(?:^|\/)expected-[^/]*\.json$/).map(file => {
+      const text = readFileSync(file, 'utf8')
+      return JSON.parse(text.slice(Math.max(0, text.indexOf('{'))))
+    })
     const graph = suiteGraph(root)
     const unobserved = unobservedSpecs(root, graph)
     const map = mergeRecords(root, records, { commit, expected: listings.length > 0 ? expectedCounts(listings) : {}, environment: environmentAt(root), unobserved })
