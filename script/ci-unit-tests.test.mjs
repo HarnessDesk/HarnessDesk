@@ -7,7 +7,7 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
 import { walk } from './ci-imports.mjs'
-import { setupFiles, treeReaders, unitPlan } from './ci-unit-tests.mjs'
+import { outsideReads, setupFiles, treeReaders, unitPlan } from './ci-unit-tests.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const plan = (paths, event = 'pull_request') => unitPlan(root, { event, paths })
@@ -95,6 +95,7 @@ test('a test that reads the tree through a helper is a reader, and so is one tha
       mkdirSync(join(dir, path, '..'), { recursive: true })
       writeFileSync(join(dir, path), text)
     }
+    put('packages/ui/package.json', JSON.stringify({ name: '@harnessdesk/ui' }))
     put('packages/ui/src/sheet.test.ts', "import { readSheet } from './test-support/read-sheet'\nreadSheet()\n")
     put('packages/ui/src/test-support/read-sheet.ts', "import { readFileSync } from 'node:fs'\nexport const readSheet = () => readFileSync('x.css', 'utf8')\n")
     put('packages/ui/src/plain.test.ts', "import { x } from './plain'\nx()\n")
@@ -109,4 +110,14 @@ test('a test that reads the tree through a helper is a reader, and so is one tha
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('a package the UI is not built from is nothing to its unit tests, unless a file of the UI reads it', () => {
+  assert.ok(outsideReads(root).includes('packages/server/flows'), 'two tests read the shipped flows by a pattern')
+  // `server` is not a dependency of the UI: its source is, to the UI's tests, nothing.
+  assert.equal(plan(['packages/server/src/host.ts']).mode, 'none')
+  assert.equal(plan(['packages/server/src/host.ts', 'packages/ui/src/components/BringHome.tsx']).mode, 'related')
+  assert.equal(plan(['packages/server/flows/review.yml']).mode, 'all', 'read by a pattern')
+  assert.equal(plan(['packages/protocol/src/wire.ts']).mode, 'all', 'the UI is built from it')
+  assert.equal(plan(['packages/adapter-codex/src/index.ts']).mode, 'none')
 })

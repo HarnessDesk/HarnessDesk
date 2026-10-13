@@ -110,9 +110,13 @@ the specs ran:
 The UI's unit tests follow the same idea with the tool that already knows their
 imports: a pull request that changes only the UI's own source runs `vitest
 related` on the changed files, plus the tests that read the tree by themselves
-(the file system, `import.meta.glob`); a pull request that changes anything a
-test may read from elsewhere, a deleted file or the test setup, and every run of
-`main`, runs them all (`script/ci-unit-tests.mjs`).
+(the file system, `import.meta.glob`, in the test or in a helper it imports) and
+the importers of a file that is imported with a query (`?raw`), which Vitest does
+not follow; a pull request that changes anything a test may read from elsewhere
+(another package the UI is built from, or one a file of the UI reads by import or
+pattern), a deleted file or anything the test setup imports, and every run of
+`main`, runs them all. A package the UI is not built from and does not read is
+nothing to these tests (`script/ci-unit-tests.mjs`).
 
 `server` runs only specs that import packages outside those UI inputs, in
 one Ubuntu job, for other package changes. The selector discovers those
