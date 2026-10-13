@@ -40,7 +40,7 @@ export const GATES = [
   gate('check-notices', [/^THIRD_PARTY_NOTICES\.md$/, /^licenses\//, /^packages\/[^/]+\/package\.json$/, /^package\.json$/, /^pnpm-lock\.yaml$/], 'licences and dependency manifests'),
   gate('check-design-tokens', [/^packages\/ui\/src\/(?:design\/|styles\/)/, /^packages\/desktop\/electron\/assets\/about-foundation\.css$/, /^script\/design-tokens\.mjs$/], 'token sources and snapshots'),
   gate('design-audit', [ui, designScripts], 'UI source, audit policy and baseline', ['--strict']),
-  gate('check-ui-system', [ui, /^script\/ui-(?:architecture|catalog)\.mjs$/], 'UI source and catalogue policy'),
+  gate('check-ui-system', [ui, /^script\/ui-(?:architecture|catalog)\.mjs$/, /^script\/ui-catalog-surfaces\.json$/], 'UI source and catalogue policy'),
   gate('check-interface-drift', [ui, /^script\/design-tokens\.mjs$/], 'UI source and token resolution'),
   gate('check-alignment-census', [/^packages\/ui\/src\/design\/alignment-census\.json$/, /^e2e\/ui-system\/alignment-census\.spec\.ts$/], 'the census table and its spec'),
   gate('design-doc', [/^packages\/ui\/src\/design\//, /^packages\/ui\/src\/styles\//, /^docs\/design-system\.md$/, designScripts], 'design source and generated reference', ['--check']),
@@ -69,21 +69,25 @@ const git = (root, args) => execFileSync('git', args, {
 const nulPaths = text => text.split('\0').filter(Boolean)
 export function readChange(root, base = 'origin/main') {
   let mergeBase
+  let baseCommit
   try {
-    const commit = git(root, ['rev-parse', '--verify', '--end-of-options', `${base}^{commit}`]).trim()
-    mergeBase = git(root, ['merge-base', commit, 'HEAD']).trim()
+    baseCommit = git(root, ['rev-parse', '--verify', '--end-of-options', `${base}^{commit}`]).trim()
+    mergeBase = git(root, ['merge-base', baseCommit, 'HEAD']).trim()
   } catch {
     const error = new Error(`Cannot read base ref ${JSON.stringify(base)} or its merge base with HEAD. Make the ref available locally, or use --base <ref>; no fetch was attempted.`)
     error.exitCode = 2
     throw error
   }
+  // How far the base has moved on since this branch left it: CI merges the branch into the base as it is then.
+  const behind = Number(git(root, ['rev-list', '--count', `${mergeBase}..${baseCommit}`]).trim())
+  const dirty = nulPaths(git(root, ['status', '--porcelain', '-z', '--no-renames', '--untracked-files=all'])).map(entry => entry.slice(3))
   const untracked = nulPaths(git(root, ['ls-files', '--others', '--exclude-standard', '-z']))
   const paths = [...new Set([...nulPaths(git(root, ['diff', '--no-renames', '--name-only', '-z', mergeBase, '--'])), ...untracked])].sort()
   let themeTouched = themeDiff(git(root, ['diff', '--no-renames', '-U0', mergeBase, '--', 'packages/ui']))
   // An untracked UI file is an addition too; it has no git diff yet.
   if (!themeTouched) themeTouched = untracked.some(path => path.startsWith('packages/ui/')
     && themeDiff(readFileSync(join(root, path), 'utf8').split('\n').map(line => `+${line}`).join('\n')))
-  return { base, mergeBase, paths, themeTouched }
+  return { base, mergeBase, paths, themeTouched, behind, dirty }
 }
 
 const files = directory => !existsSync(directory) ? [] : readdirSync(directory, { withFileTypes: true })
@@ -140,6 +144,16 @@ function scriptTests(root, paths) {
   // The workflow, the browser configuration, the recorded times and the contributor guide are read by those tests.
   const read = /^(?:\.github\/workflows\/ci\.yml|playwright\.ui-system\.config\.ts|e2e\/ui-system\/durations(?:\.pr)?\.json|CONTRIBUTING\.md|package\.json)$/
   if (paths.some(path => dependencies.has(path) || read.test(path))) selected.push(...PLANNERS.map(name => `script/${name}.test.mjs`))
+  // A test that names a changed file by its name tests something that reads it: a gate's parser, a workflow, a manifest.
+  // Over-selecting costs seconds; the gates' own tests are the ones a changed script is most likely to break.
+  const named = paths.filter(path => !/\.test\.mjs$/.test(path) && /^(?:script\/.+|package\.json|\.github\/workflows\/.+|(?:AGENTS|CONTRIBUTING)\.md|playwright\.ui-system\.config\.ts|e2e\/ui-system\/durations(?:\.pr)?\.json)$/.test(path))
+    .map(path => path.split('/').pop()).filter(name => name.length >= 6)
+  if (named.length) {
+    for (const file of readdirSync(join(root, 'script')).filter(file => /\.test\.mjs$/.test(file))) {
+      const text = readFileSync(join(root, 'script', file), 'utf8')
+      if (named.some(name => text.includes(name))) selected.push(`script/${file}`)
+    }
+  }
   return [...new Set(selected)].filter(path => existsSync(join(root, path))).sort()
 }
 
@@ -170,13 +184,17 @@ export function chromiumInstalled(root, env = process.env) {
   }
 }
 
-export function createPlan(root, { paths, base = 'origin/main', mergeBase = null, themeTouched = false, request = '', map = null, fast = false, chromium } = {}) {
+export function createPlan(root, { paths, base = 'origin/main', mergeBase = null, themeTouched = false, request = '', map = null, fast = false, chromium, behind = 0, dirty = [] } = {}) {
   const change = planChange(root, { event: 'pull_request', paths, themeTouched, request, map, ...(mergeBase ? { baseRevision: mergeBase } : {}) })
   const unit = unitPlan(root, { event: 'pull_request', paths })
   // A change to a shared input (the lockfile, a root script, the workflow) is the one most likely to break CI, so
   // the cheap checks that read it still run; what only CI can do (install, the full matrix) is named in the notes.
   const shared = sharedInputs(paths).filter(path => !path.startsWith('script/'))
-  const notes = shared.length ? [`Shared inputs changed (${shared.join(', ')}): CI installs and exercises the full graph, in both themes of every spec; the checks below that read them still run.`] : []
+  const notes = [
+    ...(dirty.length ? [`${dirty.length} path${dirty.length === 1 ? ' is' : 's are'} not committed (${dirty.slice(0, 3).join(', ')}${dirty.length > 3 ? ', …' : ''}): these checks read your files, which are not what a push sends. Commit first for an answer about the commit.`] : []),
+    `Checked against the merge base${behind ? `; ${base} has ${behind} newer commit${behind === 1 ? '' : 's'}` : ''}. CI checks your branch merged into the base as it is then${behind ? ': merge it in to see the same tree' : ''}.`,
+    ...(shared.length ? [`Shared inputs changed (${shared.join(', ')}): CI installs and exercises the full graph, in both themes of every spec; the checks below that read them still run.`] : []),
+  ]
   const leave = paths.length === 0 ? 'No changed files; CI remains the full gate.' : ''
   const steps = []
   const add = (name, command, args, reason = '', extra = {}) => {
@@ -204,15 +222,6 @@ export function createPlan(root, { paths, base = 'origin/main', mergeBase = null
   const nodeReason = fast ? '--fast leaves Node-package tests to CI.' : node.changed.size === 0 ? 'No package source changed.' : ''
   const selected = node.tests.filter(entry => entry.direct || totalTests <= 60)
   const cli = gates.find(step => step.name === 'cli-doc')
-  const consumers = [cli, typecheck, related]
-  const build = add('Node build', 'pnpm', ['run', 'build:node'],
-    consumers.some(step => step.status === 'run') || (!nodeReason && selected.length) ? '' : nodeReason || 'No selected step reads a Node build.')
-  for (const step of consumers) if (step.status === 'run') step.needs = [build.name]
-  for (const entry of node.tests) add(`Node tests: ${entry.name}`, 'node', ['--test', '--test-timeout=120000', ...entry.files],
-    nodeReason || (!entry.direct && totalTests > 60 ? `${totalTests} test files across changed packages and dependants exceed the local limit of 60; CI runs dependent tests.` : ''), { needs: [build.name] })
-  if (node.tests.length === 0) add('Node-package tests', 'node', [], nodeReason || 'No changed package or dependant has compiled Node tests.')
-  add('Node end-to-end tests', 'node', [], 'CI runs the separate Node end-to-end files; their wider deadlines exceed the local budget.')
-
   const direct = paths.filter(path => path.startsWith('e2e/ui-system/') && SPEC.test(path) && existsSync(join(root, path)))
   const reached = change.browser === 'server' ? JSON.parse(change.server_specs)
     : change.browser === 'all' && change.browser_specs !== 'all' ? JSON.parse(change.browser_specs) : []
@@ -220,14 +229,27 @@ export function createPlan(root, { paths, base = 'origin/main', mergeBase = null
   const duration = reached.reduce((sum, path) => sum + (seconds[path.slice('e2e/ui-system/'.length)] ?? Infinity), 0)
   const small = reached.length <= 6 && duration <= 600
   const browserFiles = [...new Set([...direct, ...(small ? reached : [])])].sort()
+  const browserReason = fast ? '--fast leaves browser specs to CI.'
+    : browserFiles.length === 0 ? 'No edited spec or bounded reached set to run.'
+      : !(chromium ?? chromiumInstalled(root)) ? 'Chromium is not installed for this checkout; run pnpm exec playwright install chromium separately. CI runs these specs.' : ''
+  const consumers = [cli, typecheck, related]
+  const build = add('Node build', 'pnpm', ['run', 'build:node'],
+    // The specs import compiled host fixtures; CI builds before it runs them, and so does this.
+    consumers.some(step => step.status === 'run') || !browserReason || (!nodeReason && selected.length) ? '' : nodeReason || 'No selected step reads a Node build.')
+  for (const step of consumers) if (step.status === 'run') step.needs = [build.name]
+  for (const entry of node.tests) add(`Node tests: ${entry.name}`, 'node', ['--test', '--test-timeout=120000', ...entry.files],
+    nodeReason || (!entry.direct && totalTests > 60 ? `${totalTests} test files across changed packages and dependants exceed the local limit of 60; CI runs dependent tests.` : ''), { needs: [build.name] })
+  if (node.tests.length === 0) add('Node-package tests', 'node', [], nodeReason || 'No changed package or dependant has compiled Node tests.')
+  add('Node end-to-end tests', 'node', [], 'CI runs the separate Node end-to-end files; their wider deadlines exceed the local budget.')
+
   add('Remaining browser specs', 'pnpm', [], `${change.summary} ${change.browser_specs === 'all' && change.browser === 'all'
     ? `${map ? 'The map cannot narrow this change.' : 'No readable impact map was supplied.'} CI runs all specs; locally only edited specs run.`
     : !small ? `${reached.length} reached specs / ${Number.isFinite(duration) ? duration : 'unknown'} recorded seconds exceed the local limit of 6 specs / 600 seconds; CI runs the remainder.`
       : 'Every eligible reached spec is selected locally.'}`)
-  add('Browser specs', 'pnpm', browserFiles.length ? ['test:ui-system', ...browserFiles] : [], fast ? '--fast leaves browser specs to CI.'
-    : browserFiles.length === 0 ? 'No edited spec or bounded reached set to run.'
-      : !(chromium ?? chromiumInstalled(root)) ? 'Chromium is not installed for this checkout; run pnpm exec playwright install chromium separately. CI runs these specs.' : '',
-  { env: { UI_SYSTEM_MATRIX: change.matrix, PLAYWRIGHT_UI_SYSTEM_WORKERS: '1' }, ...(build.status === 'run' ? { needs: [build.name] } : {}) })
+  add('Browser specs', 'pnpm', browserFiles.length ? ['test:ui-system', ...browserFiles] : [], browserReason,
+    { env: { UI_SYSTEM_MATRIX: change.matrix, PLAYWRIGHT_UI_SYSTEM_WORKERS: '1' }, ...(browserReason ? {} : { needs: [build.name] }) })
+  // One worker is the default here (a laptop is shared); CI runs two at once, which can expose a spec that only passes alone.
+  if (!browserReason) notes.push('Browser specs run one worker at a time here; CI runs two in parallel.')
   add('Native smoke', 'pnpm', ['test:ui-system:native'], change.native ? 'CI runs native smoke on the real shell; it exceeds the local budget.' : 'CI does not need native smoke for this change.')
   return { base, mergeBase, paths, notes, ci: { change, unit }, steps }
 }

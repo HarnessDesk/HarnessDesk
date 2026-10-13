@@ -419,3 +419,17 @@ test('theme diff selection matches the unchanged CI grep pipeline', () => {
     assert.equal(themeDiff(diff), result.status === 0, diff)
   }
 })
+
+test('a pull request that edits only a spec that imports build output plans on a checkout that has not built', async () => {
+  const { browserPlan } = await import('./ci-changes.mjs')
+  await fixture((root, put) => {
+    // The suite as `changes` sees it: no `node_modules`, no `dist`, and a spec that imports build output.
+    put('e2e/ui-system/row-box.spec.ts', "import { rig } from '../../packages/server/dist/test/fixtures/rig.js'\nrig()\n")
+    put('e2e/ui-system/other.spec.ts', 'export {}\n')
+    put('e2e/ui-system/durations.json', JSON.stringify({ 'row-box.spec.ts': 66, 'other.spec.ts': 10 }))
+    put('e2e/ui-system/durations.pr.json', '{}')
+    const run = browserPlan(root, { browser: 'all', inputs: ['e2e/ui-system/row-box.spec.ts'], serverInputs: false, event: 'pull_request', themeTouched: false, request: '', baseText: () => null })
+    assert.deepEqual([run.browser, run.specs, run.count, run.matrix], ['all', JSON.stringify(['e2e/ui-system/row-box.spec.ts']), 1, 'full'])
+    assert.match(run.summary, /1 of 3 specs, full theme matrix, 1 shard/) // the fixture's own ui.spec.ts is the third
+  })
+})

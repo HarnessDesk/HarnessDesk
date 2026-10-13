@@ -101,7 +101,10 @@ test('suite-only planning needs neither dependencies nor a build', async () => {
     assert.equal(plan.ci.change.matrix, 'full')
     const run = plan.steps.filter(step => step.status === 'run')
     assert.ok(run.some(step => step.args.includes('test:ui-system')))
-    assert.ok(run.every(step => !step.args.some(arg => /build|typecheck|dist\//.test(arg))))
+    // Planning needs no build; running the specs does, because they import compiled host fixtures and CI builds first.
+    assert.ok(run.every(step => !step.args.some(arg => /typecheck|dist\//.test(arg))))
+    assert.deepEqual(run.find(step => step.args.includes('test:ui-system')).needs, ['Node build'])
+    assert.ok(run.some(step => step.name === 'Node build'))
     assert.ok(run.filter(step => step.command === 'node').every(step => /check-(?:secrets|doc-paths)\.mjs/.test(step.args[0])))
     assert.equal(existsSync(join(directory, 'node_modules')), false)
     assert.equal(existsSync(join(directory, 'packages/server/dist')), false)
@@ -155,7 +158,21 @@ test('merge-base selection includes committed, staged, unstaged, untracked and b
     assert.equal(change.mergeBase, base)
     assert.deepEqual(change.paths, ['docs/committed.md', 'docs/guide.md', 'docs/moved guide.md', 'docs/staged.md', 'docs/untracked.md', 'packages/protocol/src/index.ts'])
     assert.equal(readChange(directory, 'HEAD').paths.includes('docs/committed.md'), false)
+    // The base moved by one commit, and four paths are not committed: the result says both.
+    assert.equal(change.behind, 1)
+    assert.deepEqual(change.dirty.sort(), ['docs/moved guide.md', 'docs/staged.md', 'docs/untracked.md', 'docs/guide.md', 'packages/protocol/src/index.ts'].sort())
   })
+})
+
+test('the notes say what the answer is about: the files, not the commit, and the merge base, not the merge', async () => {
+  const { createPlan } = await api()
+  const quiet = createPlan(root, { paths: ['docs/guide.md'], chromium: true })
+  assert.deepEqual(quiet.notes, ['Checked against the merge base. CI checks your branch merged into the base as it is then.'])
+  const dirty = createPlan(root, { paths: ['docs/guide.md'], chromium: true, behind: 3, dirty: ['docs/guide.md', 'a.md', 'b.md', 'c.md'], base: 'origin/main' })
+  assert.match(dirty.notes[0], /4 paths are not committed \(docs\/guide\.md, a\.md, b\.md, …\): these checks read your files, which are not what a push sends/)
+  assert.match(dirty.notes[1], /origin\/main has 3 newer commits\. CI checks your branch merged into the base as it is then: merge it in to see the same tree\./)
+  const spec = createPlan(root, { paths: ['e2e/ui-system/row-box.spec.ts'], chromium: true })
+  assert.ok(spec.notes.some(note => /one worker at a time here; CI runs two in parallel/.test(note)))
 })
 
 test('--plan and --dry-run return the documented JSON without running checks', async () => {
@@ -319,7 +336,7 @@ test('planner dependencies select planner tests, alongside changed scripts and t
   const plan = createPlan(root, { paths: ['script/ci-browser-shards.mjs', 'script/check-push.test.mjs', 'script/check-layering.mjs'], fast: true })
   assert.deepEqual(plan.steps.find(step => step.name === 'Script tests').args, ['--test',
     'script/check-layering.test.mjs', 'script/check-push.test.mjs', 'script/ci-browser-plan.test.mjs',
-    'script/ci-browser-shards.test.mjs', 'script/ci-changes.test.mjs', 'script/ci-unit-tests.test.mjs', 'script/ui-impact.test.mjs'])
+    'script/ci-browser-shards.test.mjs', 'script/ci-changes.test.mjs', 'script/ci-unit-tests.test.mjs', 'script/gates.test.mjs', 'script/ui-impact.test.mjs'])
 })
 
 test('gates see untracked additions without changing the real index', async () => {
@@ -411,4 +428,30 @@ test('the UI typecheck and the related unit tests read workspace build output, s
   assert.equal(step('Node build').status, 'run')
   assert.deepEqual(step('UI unit tests').needs, ['Node build'])
   assert.equal(plan.ci.unit.mode, 'related')
+})
+
+test('a test that names a changed input is run with it, even when it is not the changed script\'s own', async () => {
+  const { createPlan } = await api()
+  const tests = paths => createPlan(root, { paths, chromium: true }).steps.find(step => step.name === 'Script tests')
+  // `gates.test.mjs` holds the tests of the gate library and of the parsers of several gates.
+  assert.ok(tests(['script/lib/steps.mjs']).args.includes('script/gates.test.mjs'))
+  assert.ok(tests(['script/check-reachable.mjs']).args.includes('script/gates.test.mjs'))
+  assert.ok(tests(['package.json']).args.includes('script/gates.test.mjs'))
+  // The workflow is read by the check's own table-of-gates test as well as the planner tests.
+  assert.ok(tests(['.github/workflows/ci.yml']).args.includes('script/check-push.test.mjs'))
+  assert.equal(tests(['docs/architecture.md']).status, 'skipped')
+})
+
+test('a gate row names every data file its script reads from the repository', async () => {
+  const { GATES } = await api()
+  const missing = []
+  for (const row of GATES) {
+    const text = [row.args[0], ...[...readFileSync(join(root, row.args[0]), 'utf8').matchAll(/['"`](script\/[\w.-]+\.mjs)['"`]/g)].map(match => match[1])]
+      .map(file => readFileSync(join(root, file), 'utf8')).join('\n')
+    for (const [, file] of text.matchAll(/['"`]((?:packages|script|e2e|licenses)\/[\w./-]+\.(?:json|css|txt))['"`]/g)) {
+      if (/\$\{/.test(file) || !existsSync(join(root, file))) continue
+      if (!row.paths.some(pattern => pattern.test(file))) missing.push(`${row.name}: ${file}`)
+    }
+  }
+  assert.deepEqual(missing, [], 'a data file a gate reads must be a path that makes it run')
 })
