@@ -41,3 +41,5 @@ export {
   type LineKind,
   type WholeFile,
 } from './diff'
+
+export { FileView, type FileViewProps, type FileViewMode, type FileBase, type FileDocumentState, type FileTransfer } from './FileView'

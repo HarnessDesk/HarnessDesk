@@ -367,6 +367,8 @@ body {
      A group is read from this comment to the next one, so nothing inside it
      may open a comment of its own: doing that dropped both the token below and
      `--hd-column` out of the generated table without failing anything. */
+  --hd-file-bar-h: 38px;
+  --hd-file-document-w: 720px;
   --hd-control-h: 26px;
   --hd-target-min: 24px;
   --hd-control-h-sm: 24px;

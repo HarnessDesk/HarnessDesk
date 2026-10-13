@@ -220,6 +220,8 @@ Controls are one height so a row of them lines up without anyone counting pixels
 
 | token | value |
 | --- | --- |
+| `--hd-file-bar-h` | `38px` |
+| `--hd-file-document-w` | `720px` |
 | `--hd-control-h` | `<cycle>` |
 | `--hd-target-min` | `24px` |
 | `--hd-control-h-sm` | `24px` |
