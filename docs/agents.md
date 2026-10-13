@@ -131,7 +131,9 @@ its own branch's, because a project keeps its Agents at the top of its
 checkout. The roster is read again whenever a file under any of the three
 places changes (`packages/server/src/agent-watch.ts`).
 
-## The nine that ship
+<a id="the-nine-that-ship"></a>
+
+## The ten that ship
 
 | Agent | What it is for | `ceiling` |
 | --- | --- | --- |
@@ -141,6 +143,7 @@ places changes (`packages/server/src/agent-watch.ts`).
 | API reviewer | Reads a change for what it does to the interfaces other code and other people rely on | `read` |
 | Test reviewer | Judges whether a change's tests would catch it being wrong | `edit` |
 | Implementer | Builds the change it is given on its own branch, proves it with the project's checks, and hands it over | `publish` |
+| Reviewed change merger | Merges only the reviewed revision after the required checks pass | `merge` |
 | Judge | Compares attempts at the same task, picks one or none, and says why | `read` |
 | Researcher | Answers a question from the code and its sources, and writes the answer down with its evidence | `edit` |
 | Requirements analyst | Turns a need into requirements that can be built and tested, and later judges whether a change meets them | `edit` |
@@ -149,7 +152,8 @@ Code, security and API reviewers and the judge only need to inspect and report,
 so they stay at `read`. Test and performance reviewers run checks and write
 their evidence; the researcher and requirements analyst write their results,
 so those four need `edit`. The implementer may hand over its own branch, so it
-has `publish`.
+has `publish`. The reviewed change merger needs `merge` to land the revision
+that was reviewed, once the required checks pass.
 
 Each names runtimes, not models — `prefer: [claude-code, codex, cursor]` —
 because a model name in a file that travels breaks the Agent on every machine
@@ -242,8 +246,8 @@ the Agent's name; its composer names the seat it took, as read back from the
 runtime; and its name card carries the Agent — what it is for, its ceiling,
 where it came from, the seat, every seat passed over and why — with *The brief
 has changed since this started* once the file has moved on from the one it was
-handed. That a conversation was seated as an Agent is remembered until the
-desk quits.
+handed. That a conversation was seated as an Agent is retained in its durable
+Seat record and restored when the desk restarts.
 
 **Held and asked.** A seat's effective ceiling is the narrower of its Agent's
 ceiling and its seating grant. The current `agent/seat` interface still accepts
@@ -257,7 +261,10 @@ runtime supplied no reliable control and read-back for that level. Codex maps
 `read` to its read-only sandbox and `edit` to its workspace sandbox, with
 approval reviewed by the person. The workspace sandbox is narrower than the
 ladder's `edit`: it cannot commit, reach the network or listen on a port.
-Claude Code plan mode is not a read-only sandbox, so it is not claimed as held.
+The bundled Claude Code bridge declares a held read ceiling through its native
+pre-tool guard. This is tool enforcement, not an operating-system sandbox;
+plan mode alone does not establish a held ceiling. ACP peers without that guard
+remain asked.
 No runtime is claimed to hold `publish` or `merge` in this phase.
 
 The desk's own tools enforce the effective ceiling whether its chip says held

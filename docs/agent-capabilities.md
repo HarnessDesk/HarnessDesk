@@ -4,7 +4,8 @@ Agents differ, and the interface is built to say so rather than to paper over
 it: a runtime **declares** its capabilities, and a control for something an
 agent cannot do is simply not drawn.
 
-This is the survey, read out of the running app rather than off the source —
+This is the historical survey, read out of the running app rather than off the
+source —
 `codex-cli 0.149.0`, `claude 2.1.240`, `cursor-agent 2026.08.11`, DeepSeek
 Harness `0.0.1`, on 2026-08-23. What each agent has been *shown* to do, in
 live recordings against signed-in agents, is a different question — each of
@@ -33,7 +34,7 @@ stops naming a test that exists.
 | | `hooks` — configured hooks are visible | ● | ○ | ○ | ○ |
 | **Account** | `account` — something to sign in to | ● | ● | ● | ● |
 | | `metered` — reports quota or balance | ● | ○ | ○ | ○ |
-| **Not yet declared** | receives HarnessDesk's plugin tools ³ | ● | ● | ● | ● |
+| **Tools** | `pluginTools` — receives HarnessDesk's plugin tools ³ | ● | ● | ● | ● |
 
 ¹ `skills` is answered per session for ACP agents — the agent's commands
 arrive when a session opens, so it reads false until one has. Claude Code
@@ -43,9 +44,10 @@ declares 51 of them once you are in a conversation.
 enumerate and manage that agent's own MCP servers, which the ACP bridges
 cannot.
 
-³ Declared per runtime as the `pluginTools` capability, and reported
-truthfully — an agent that refuses the server reports `false`, not hope.
-HarnessDesk offers every agent an MCP server carrying its 63 built-in plugin
+³ The tools row reflects the current source declaration. The `pluginTools`
+capability is reported truthfully per runtime — an agent that refuses the
+server reports `false`, not hope.
+HarnessDesk offers every agent an MCP server carrying its built-in plugin
 tools (the browser, iOS Simulator, Android, checkpoint and todo plugins among
 them; installed plugins add their own on top). Codex takes them as dynamic
 tools; Claude Code takes the server; Cursor takes them through a generated
@@ -77,11 +79,13 @@ edit level because it cannot commit, reach the network or listen on a port.
 `packages/adapter-codex/test/capabilities.test.ts` checks the declaration and
 the settings read back after a session opens.
 
-No runtime declares a held `publish` or `merge` control in this phase. Claude
-Code plan mode is not treated as a read-only sandbox, and the ACP adapters do
-not provide a reliable ceiling read-back, so those seats say *asked*. The
-desk's classified tools still refuse calls beyond the effective ceiling,
-including delegated calls correlated to their root seat. Unknown callers and
+No runtime declares a held `publish` or `merge` control in this phase. The
+bundled Claude Code bridge declares a held read ceiling through its native
+pre-tool guard. This is tool enforcement, not an operating-system sandbox;
+plan mode alone does not establish a held ceiling. ACP peers without that guard
+remain *asked*. The desk's classified tools still refuse calls beyond the
+effective ceiling, including delegated calls correlated to their root seat.
+Unknown callers and
 runtime-native shell actions are explicit limits: the desk does not claim a
 global shell interceptor.
 

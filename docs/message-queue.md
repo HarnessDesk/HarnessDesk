@@ -109,7 +109,8 @@ runtime's declared capability rather than its name:
 
 | State | Placeholder |
 | --- | --- |
-| Idle | *Describe a task — / for commands, @ for files* |
+| New session | *Describe a task to start a session — / for commands, @ for files* |
+| Idle existing conversation | *Type a reply — / for commands, @ for files* |
 | Busy, agent can steer | *Type the next message — ↵ queues it, ⌘↵ adds it to this turn* |
 | Busy, agent cannot | *Type the next message — it is sent when this turn ends* |
 | Messages waiting (queue held or idle) | *Adds to the 1 message already waiting* / *Adds to the N messages already waiting* |
