@@ -1,3 +1,4 @@
+import { effectiveWindowMode } from '../editor'
 import { tileBrowserWorkbench } from '../lib/browser-tiles'
 import { WorkDetailsOutlet, useRegisteredOwner } from './top-bar'
 import { useShellHosts } from './shell-hosts'
@@ -283,6 +284,9 @@ const WorkToolBodies = ({ drawn }: { drawn: boolean }) => {
   const active = matching.find(entry => entry.id === current?.id)?.id ?? matching[0]?.id ?? null
   const registered = useRegisteredOwner(owner)
   const open = Boolean(drawn && subject && focused && selected?.open)
+  const editor = effectiveWindowMode(snapshot.windowMode, snapshot.workbench) === 'editor'
+  const conversation = editor && focused?.view.kind === 'conversation' && focused.view.session !== null
+  const conversationShown = open && selected?.tool === 'conversation'
   const details = open && registered && selected?.tool === 'details'
   const detailsId = `details:${owner}`
   const plugin = details && selected?.mode === 'plugin' ? active : null
@@ -301,6 +305,16 @@ const WorkToolBodies = ({ drawn }: { drawn: boolean }) => {
   return <ToolFooterProvider>
     <FixedPanelBody onKeyDown={escapeTool} data-slot="work-tools" data-open={open} data-tool={selected?.tool} inert={!open}>
       <DockPanelBody className={styles.layers}>
+        {conversation && <FixedToolLayer className={styles.layer} data-conversation-tool="" {...(conversationShown ? {} : { 'data-hidden': '', inert: true })}
+          onPointerDownCapture={() => store.focusPane(owner)} onFocusCapture={() => store.focusPane(owner)}>
+          <KeyboardHereContext.Provider value={conversationShown ? null : false}>
+            <PaneProvider scope={{ paneId: owner, view: focused.view, sessionKey: focused.view.session }}>
+              <MountProvider scope={{ area: 'right', id: `conversation:${owner}`, view: focused.view, fixed: true }}>
+                <ViewHost view={focused.view} />
+              </MountProvider>
+            </PaneProvider>
+          </KeyboardHereContext.Provider>
+        </FixedToolLayer>}
         <div className={styles.layer} {...(details ? {} : { 'data-hidden': '', inert: true })}>
           <KeyboardHereContext.Provider value={details ? null : false}>
             <ToolFooterScope id={detailsId}><ToolBody><ToolBodySections>

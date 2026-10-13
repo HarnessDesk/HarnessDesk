@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import type { GitFileStatus, GitStatus } from '@harnessdesk/protocol'
 
-import { countChanges, splitByFile, splitHunks, type DiffHunk } from '../lib/diff'
+import { countChanges, splitByFile, splitHunks, type DiffHunk, DiffView } from '../editor'
 import { inView } from '../lib/git-view'
 import { Button, Card, ChangeStats, CodeText, EmptyState, Note, Page, PatchHeader, Section, Separator, SummaryList, SummaryItem, MiddleTruncate, Text, ToolbarGap } from '../design'
 import { useStore } from '../state/context'
@@ -10,7 +10,6 @@ import { DestinationBar, useDestinationPage } from '../panels/destination-page'
 import { ReviewFilter, ReviewIndex } from '../panels/review-index'
 import type { WorkView } from '../state/destinations'
 import { handOverToComposer } from '../lib/compose'
-import { DiffView } from './Diff'
 
 
 /**

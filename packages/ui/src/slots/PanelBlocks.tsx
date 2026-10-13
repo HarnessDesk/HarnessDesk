@@ -23,15 +23,14 @@ import {
   Text,
   TextMark,
 } from '../design'
-import { Suspense, lazy, useMemo, useState, type ReactNode, type ComponentProps } from 'react'
+import { Suspense, useMemo, useState, type ReactNode, type ComponentProps } from 'react'
 
 import type { UiAction, UiBlock, UiPanelData, UiTreeNode } from '@harnessdesk/protocol'
 
 import { useSnapshot, useStore } from '../state/context'
 import { useTheme } from '../state/theme'
-import { editorLook } from '../lib/editor-prefs'
+import { CodeView, editorLook, DiffView } from '../editor'
 import { Markdown } from '../components/Markdown'
-import { DiffView } from '../components/Diff'
 import { BulletIcon, ChevronIcon, TodoDoneIcon, TodoPendingIcon } from '../components/Icons'
 import { publishComponent, type SlotProps } from './registry'
 import styles from './PanelBlocks.module.css'
@@ -57,8 +56,6 @@ import styles from './PanelBlocks.module.css'
  * should not be in the paint of a window that usually opens on a
  * conversation.
  */
-
-const CodeEditor = lazy(async () => ({ default: (await import('../components/CodeEditor')).CodeEditor }))
 
 const isPanelData = (value: unknown): value is UiPanelData =>
   typeof value === 'object' && value !== null && Array.isArray((value as UiPanelData).blocks)
@@ -107,7 +104,7 @@ const CodeBlock = ({ block }: { block: Extract<UiBlock, { type: 'code' }> }) => 
         {/* The text itself while the editor's chunk is in flight, so the
             panel shows the code rather than a blank. */}
         <Suspense fallback={<CodeText as="pre" block>{text}</CodeText>}>
-          <CodeEditor
+          <CodeView
             value={text}
             path={block.path ?? null}
             language={block.language ?? null}
@@ -116,6 +113,7 @@ const CodeBlock = ({ block }: { block: Extract<UiBlock, { type: 'code' }> }) => 
             look={appearance}
             lineNumbers={editorPrefs.lineNumbers}
             wrap={editorPrefs.wrap}
+            minimap={editorPrefs.minimap}
             tabSize={editorPrefs.tabSize}
             {...(block.decorations ? { decorations: block.decorations } : {})}
             {...(editable

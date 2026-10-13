@@ -8,6 +8,7 @@ import path from 'node:path'
 import { expect, test } from '@playwright/test'
 import { FRAME } from '../../packages/ui/src/design/frame'
 import { WALL_DESTINATIONS, WALL_THEMES, WALL_TIME, WALL_WIDTHS } from './frame-wall-destinations'
+import { applyEditorModeFrameActions } from './editor-mode-frame-actions'
 
 /**
  * The frame wall: every destination at three widths in both themes.
@@ -49,6 +50,8 @@ for (const destination of WALL_DESTINATIONS) {
           await expect(page.getByLabel('Code editor preview').locator('.cm-content')).toContainText('export const plan')
         }
         if (destination.id === 'conversation-file') {
+          await expect(page.locator('[data-slot="work-tools"]').getByRole('radio', { name: 'Preview', exact: true })).toBeChecked()
+          await page.locator('[data-slot="work-tools"]').getByRole('button', { name: 'Edit', exact: true }).click()
           // The native editor loads after the shell; a blank box is not File evidence.
           await expect(page.locator('[data-slot="work-tools"] .cm-content')).toContainText('Storefront')
         }
@@ -70,6 +73,7 @@ for (const destination of WALL_DESTINATIONS) {
         await applyLeftColumnActions(page, destination)
         await applySettingsNavigationActions(page, destination)
         await openWallDestination(page, destination)
+        await applyEditorModeFrameActions(page, destination.id)
         await page.evaluate(async () => { await document.fonts.ready })
         // TopBar measures its two folds over animation frames. Capture the
         // measured contract, rather than its initial unmeasured tab row.

@@ -133,10 +133,15 @@ for (const theme of WALL_THEMES) {
       expect(group.size).toBe(FRAME.rail.label)
       expect(group.weight).toBe(FRAME.rail.groupWeight)
       expect(Math.abs(group.x - values[0]!.iconX)).toBeLessThanOrEqual(1)
-      const controls = await page.locator('[data-left-top] button').evaluateAll(nodes => nodes.map(el => ({
+      const controls = await page.locator('[data-left-top] button:not([data-mode-switch] button)').evaluateAll(nodes => nodes.map(el => ({
         width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height,
       })))
       expect(controls).toHaveLength(4)
+      const modeCells = await page.locator('[data-mode-switch] button').evaluateAll(nodes => nodes.map(el => ({
+        width: el.getBoundingClientRect().width, height: el.getBoundingClientRect().height,
+      })))
+      const modeCell = { width: await resolvedPx(page, '--hd-mode-switch-cell-w'), height: await resolvedPx(page, '--hd-mode-switch-cell-h') }
+      expect(modeCells).toEqual([modeCell, modeCell])
       for (const control of controls) {
         expect(control.width).toBe(FRAME.bar.iconButton)
         expect(control.height).toBe(FRAME.bar.iconButton)

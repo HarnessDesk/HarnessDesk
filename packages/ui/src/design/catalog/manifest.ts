@@ -163,7 +163,7 @@ const COMPOUND_COVERAGE_EXEMPTIONS = new Set([
   'Popover', 'ChannelMessage', 'AgentCard', 'CodeBlock', 'CopyButton', 'DockPanel', 'TerminalShellTabs', 'PublicationCard', 'ActionError', 'Change', 'RefusedAction',
   'InspectorPanel', 'ConversationEmptyState', 'TurnWork', 'Notices', 'Checklist', 'FlowGraph', 'FlowCanvas', 'FlowStepRow',
   'heat-grid', 'PlanCard', 'SidebarMenuState', 'CommandPalette',
-  'SettingsRowMenu', 'HeaderStatusGroup',
+  'SettingsRowMenu', 'HeaderStatusGroup', 'SelectionAction',
 ])
 
 const compoundCoverageExemption = (name: string, exampleId: string): string | undefined =>
@@ -264,6 +264,7 @@ const VARIANTS: Readonly<Record<string, readonly CatalogVariant[]>> = {
   Lightbox: ['default'],
   Menu: ['default'],
   Popover: ['default'],
+  SelectionAction: ['default'],
   ChannelMessage: ['default'],
   AgentCard: ['default'],
   CodeBlock: ['default'],
@@ -387,6 +388,7 @@ const STATES: Readonly<Record<string, readonly CatalogState[]>> = {
   Lightbox: ['closed', 'open'],
   Menu: ['closed', 'open', 'selected', 'disabled'],
   Popover: ['closed', 'open'],
+  SelectionAction: ['open'],
   DockPanel: ['expanded', 'collapsed'],
   TerminalShellTabs: ['default'],
   ChannelMessage: ['default', 'loading', 'success', 'error'],
@@ -484,6 +486,7 @@ const PATTERN_CONSUMER: Readonly<Record<string, string>> = {
   Lightbox: 'packages/ui/src/components/Items.tsx',
   Menu: 'packages/ui/src/components/ComposerControls.tsx',
   Popover: 'packages/ui/src/components/ComposerControls.tsx',
+  SelectionAction: 'packages/ui/src/editor/FileView.tsx',
   ChannelMessage: 'packages/ui/src/components/Channel.tsx',
   AgentCard: 'packages/ui/src/components/AgentCards.tsx',
   CodeBlock: 'packages/ui/src/components/Items.tsx',
@@ -551,6 +554,7 @@ const PATTERN_EXAMPLE_CONSUMER: Readonly<Record<string, string>> = {
   DialogForm: 'packages/ui/src/design/explorer/boards.tsx',
   Lightbox: 'packages/ui/src/design/explorer/boards.tsx',
   Popover: 'packages/ui/src/design/explorer/boards.tsx',
+  SelectionAction: 'packages/ui/src/design/catalog/selection-action-example.tsx',
   ChannelMessage: 'packages/ui/src/design/explorer/boards.tsx',
   AgentCard: 'packages/ui/src/design/explorer/boards.tsx',
   CodeBlock: 'packages/ui/src/design/explorer/boards.tsx',
@@ -708,6 +712,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['Lightbox', 'dialog', 'Full-window image gallery and modal policy'],
   ['Menu', 'propagation', 'Menu, context menu and submenu policy'],
   ['Popover', 'propagation', 'HarnessDesk anchored action popover'],
+  ['SelectionAction', 'control', 'One draft action floating above a file selection'],
   ['ChannelMessage', 'channel', 'Room and channel message anatomy'],
   ['AgentCard', 'group', 'Agent, account and member card anatomy'],
   ['CodeBlock', 'code', 'Verbatim command and output plate'],
@@ -736,7 +741,7 @@ export const CANONICAL_PATTERN_MODULES = [
   ['PaneColumn', 'conversation', 'The reading column\'s inset, shared by the transcript and the room stream, plus the bars strip, the jobs strip and the rail'],
   ['PlanCard', 'plan-card', 'A plan\'s price and a key or metered account\'s monthly budget, set once from a suggested price'],
   ['UsageMeterRow', 'usage-meter-row', 'A shared name, remaining meter, percentage and reset countdown'],
-  ['LeftColumn', 'left-column', 'One column row, group edge, top and seat in both modes'],
+  ['LeftColumn', 'left-column', 'One column row, group edge, top mode switch, Explorer tree and seat in both modes'],
   ['ComposerTrack', 'composer', 'Content-sized selected-value tracks that fold with the composer toolbar'],
 ] as const satisfies readonly ModuleSeed[]
 

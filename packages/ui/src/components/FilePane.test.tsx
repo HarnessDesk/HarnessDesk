@@ -9,8 +9,8 @@ import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { FilePane } from './FilePane'
 
-vi.mock('./CodeEditor', () => ({
-  CodeEditor: ({ value, readOnly, onChange }: { value: string; readOnly: boolean; onChange: (value: string) => void }) => (
+vi.mock('../editor/CodeView', () => ({
+  CodeView: ({ value, readOnly, onChange }: { value: string; readOnly: boolean; onChange: (value: string) => void }) => (
     <textarea aria-label="file editor" value={value} readOnly={readOnly} onChange={(event) => onChange(event.currentTarget.value)} />
   ),
 }))
@@ -97,9 +97,6 @@ it.each([
     </StoreProvider>,
   ))
   await settle()
-  const edit = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Edit')
-  if (!edit) throw new Error('Edit button is missing')
-  act(() => edit.click())
   const editor = container.querySelector<HTMLTextAreaElement>('textarea[aria-label="file editor"]')
   if (!editor) throw new Error('Editor is missing')
   act(() => {
@@ -109,11 +106,11 @@ it.each([
     editor.dispatchEvent(new Event('change', { bubbles: true }))
   })
   await settle()
-  const save = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Save')
+  const save = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Unsaved · Save ⌘S')
   if (!save) throw new Error('Save button is missing')
   await act(async () => { save.click() })
   await settle()
-  expect(Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Save')?.disabled).toBe(true)
+  expect(Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Unsaved · Save ⌘S')?.disabled).toBe(true)
   expect(container.querySelector<HTMLTextAreaElement>('textarea[aria-label="file editor"]')?.value).toBe('person’s unsaved draft')
   expect(container.querySelector<HTMLTextAreaElement>('textarea[aria-label="file editor"]')?.readOnly).toBe(false)
   expect(container.textContent).toContain(message)
@@ -167,4 +164,52 @@ it('renders an image result from one read', async () => {
   await settle()
   expect(container.querySelector('img')?.getAttribute('src')).toBe('data:image/png;base64,aGVsbG8=')
   expect(container.textContent).not.toContain('Create this file')
+})
+
+it('keeps the mounted runtime and retained conversation root when transferring a file', async () => {
+  const runtime = runtimeId('claude')
+  const retainedKey = 'claude:retained' as import('@harnessdesk/protocol').SessionKey
+  const onPopOut = vi.fn()
+  const retainedSnapshot = {
+    ...snapshot,
+    activeRuntime: runtimeId('codex'),
+    sessions: new Map([[retainedKey, { cwd: '/work/retained-worktree' }]]),
+    workspace: { path: '/work/main-checkout' },
+    workbench: {
+      ...snapshot.workbench,
+      toolOwners: { 'file-test': `session:${retainedKey}` },
+      frameSubjects: { [`session:${retainedKey}`]: { paneId: 'original', view: { kind: 'conversation', session: retainedKey } } },
+    },
+  }
+  const store = {
+    subscribe: () => () => {}, getSnapshot: () => retainedSnapshot, reportEditor: vi.fn(),
+    transport: { request: vi.fn(async (method: string) => method === 'workspace/readFile' ? { kind: 'text', content: 'original', hash: 'hash', truncated: false } : { kind: 'file', modifiedAt: 1 }) },
+  } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><MountProvider scope={{ area: 'right', id: 'file-test', view: { kind: 'file', path: '/work/retained-worktree/notes.txt', runtime } }}><FilePane onPopOut={onPopOut} /></MountProvider></StoreProvider>))
+  await settle()
+  act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Pop out to Editor mode"]')!.click())
+  expect(onPopOut).toHaveBeenCalledWith(expect.objectContaining({ root: '/work/retained-worktree', runtime, subject: `session:${retainedKey}`, view: 'source' }))
+  expect(store.transport.request).toHaveBeenCalledWith('workspace/readFile', expect.objectContaining({ runtime }))
+})
+
+it('withholds a retained conversation root when metadata is missing instead of reading the main checkout', async () => {
+  const runtime = runtimeId('claude')
+  const retainedKey = 'claude:missing-metadata' as import('@harnessdesk/protocol').SessionKey
+  const onPopOut = vi.fn()
+  const heldSnapshot = {
+    ...snapshot,
+    workspace: { path: '/work/main-checkout' },
+    workbench: {
+      ...snapshot.workbench,
+      toolOwners: { 'file-test': `session:${retainedKey}` },
+      frameSubjects: { [`session:${retainedKey}`]: { paneId: 'original', view: { kind: 'conversation', session: retainedKey } } },
+    },
+  }
+  const request = vi.fn(async (method: string) => method === 'workspace/readFile' ? { kind: 'text', content: 'original', hash: 'hash', truncated: false } : { kind: 'file', modifiedAt: 1 })
+  const store = { subscribe: () => () => {}, getSnapshot: () => heldSnapshot, reportEditor: vi.fn(), transport: { request } } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><MountProvider scope={{ area: 'right', id: 'file-test', view: { kind: 'file', path: '/work/retained-worktree/notes.txt', runtime } }}><FilePane onPopOut={onPopOut} /></MountProvider></StoreProvider>))
+  await settle()
+  act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Pop out to Editor mode"]')!.click())
+  expect(onPopOut).toHaveBeenCalledWith(expect.objectContaining({ root: null, runtime, subject: `session:${retainedKey}` }))
+  expect(request.mock.calls.some(([method]) => method === 'git/status')).toBe(false)
 })

@@ -1,4 +1,4 @@
-import { splitByFile } from './diff'
+import { splitByFile } from '../editor'
 
 /** A document a card committed: where it is, and its complete words at that revision. */
 export interface CommittedDocument {

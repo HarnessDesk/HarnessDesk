@@ -1,7 +1,38 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { overlayViolations, scanUiArchitecture } from './ui-architecture.mjs'
+import { overlayViolations, scanEditorBoundary, scanUiArchitecture } from './ui-architecture.mjs'
+
+test('editor boundary applies to consumers outside the renderer source without imposing screen rules', () => {
+  assert.equal(scanEditorBoundary([
+    { path: 'e2e/example.ts', source: "import { CodeView } from '../packages/ui/src/editor/CodeView'" },
+    { path: 'packages/ui/vite.config.ts', source: "export * from './src/editor/languages'" },
+  ]).length, 2)
+  assert.deepEqual(scanEditorBoundary([
+    { path: 'e2e/example.ts', source: "import { CodeView } from '../packages/ui/src/editor/index'" },
+    { path: 'other/example.tsx', source: 'const view = <button>Allowed outside renderer</button>' },
+  ]), [])
+})
+
+test('editor consumers use only the public entrypoint, including re-exports and lazy imports', () => {
+  const path = 'packages/ui/src/components/Example.tsx'
+  for (const source of [
+    "import { CodeView } from '../editor/CodeView'",
+    "export { CodeView } from '@/editor/CodeView'",
+    "const editor = import('../editor/CodeView.tsx')",
+    "const editor = import(`../editor/CodeView`)",
+    "type View = import('../editor/CodeView').CodeViewProps",
+    "import { CodeView } from '../editor/nested/../CodeView'",
+  ]) {
+    assert.ok(scanUiArchitecture([{ path, source }]).some(({ rule }) => rule === 'editor-module-boundary'), source)
+  }
+  for (const source of [
+    "import { CodeView } from '../editor'",
+    "import { CodeView } from '../editor/index'",
+    "const editor = import('@/editor/index.ts')",
+  ]) assert.deepEqual(scanUiArchitecture([{ path, source }]), [])
+  assert.deepEqual(scanUiArchitecture([{ path: 'packages/ui/src/editor/FileView.tsx', source: "import { CodeView } from './CodeView'" }]), [])
+})
 
 test('overlay audit covers raw attributes, aliased parts, and canonical authorities structurally', () => {
   const source = `import { DialogOverlay as Shade } from '../design'; const view = <div role={'dialog'} aria-modal><Shade /></div>`

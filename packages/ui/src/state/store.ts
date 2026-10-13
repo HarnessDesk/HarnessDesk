@@ -1,9 +1,11 @@
+import { effectiveWindowMode, sameFileDocument, isDirtyDocument, type FileTransfer, type EditorLineTarget } from '../editor'
+import { filePathInRoot } from '../lib/file-link'
 import { destinationOf, leaveSettingsDestination, sameDestination, visitDestination, stepDestination, type PageDestination, type WorkView, type DestinationHistory } from './destinations'
 import { FRAME } from '../design/frame'
 import { terminalCwdForSnapshot } from '../lib/terminal-scope'
 import { type TeamChatLayout, type TeamFramePage } from './layout'
 import { replaceTeamPayload } from './workbench'
-import { fixedToolRefusal, forgetFrameSubject, supportsFixedTool, admitFixedTool, chooseTool, toolOf, revealFixedTool, type WorkTool } from './frame-tools'
+import { settleConversationTool, conversationToolContext, fixedToolRefusal, forgetFrameSubject, supportsFixedTool, admitFixedTool, chooseTool, toolOf, revealFixedTool, type WorkTool } from './frame-tools'
 import { activeView, fixedSubject, normalizeFixedWorkbench } from './workbench'
 import { readTeamsPrefs, teamListRow } from '../lib/teams-list'
 import { teamsInput } from '../lib/teams-snapshot'
@@ -156,7 +158,11 @@ import { coalesce } from '../lib/coalesce'
 import { acceptedFindingEvidence, emptyFindingsState, type FindingFilter, type FindingsListState } from '../lib/findings'
 import { openExternal, setDockIcon } from '../lib/desktop'
 import { openingOfContent, splitContext, wrapContext } from '../lib/context-envelope'
-import { readEditorPrefs } from '../lib/editor-prefs'
+import {
+  readEditorPrefs, editorConversation, updateEditorConversation, openEditorTab, keepEditorTab,
+  closeEditorTab, setEditorTabView, readEditorState, persistEditorState,
+  type WindowMode, type ExplorerFilter, type EditorConversation, type FileDocumentState, type FileLiveDocumentState, type FileViewMode, type OpenEditorTabOptions,
+} from '../editor'
 import { readColumnWidths } from '../lib/git-columns'
 import { readSystemNotifications } from '../lib/system-notifications'
 import { sessionLabel, shortLabel } from '../lib/sessions'
@@ -343,6 +349,10 @@ const FORGOTTEN_FOLDERS_KEPT = 2000
 export type UnheldCeilings = 'seat' | 'refuse'
 
 export class AppStore {
+  #windowModeChanged = false
+  #editorPreferencesLoaded = false
+  readonly #editorChanged = new Set<string>()
+  readonly #editorTouched = new Set<string>()
   /** What each conversation has typed and not sent. See `state/drafts`. */
   readonly drafts: Drafts
   #captureEpoch = 0
@@ -3741,7 +3751,7 @@ export class AppStore {
    * open something.
    */
   openDefaultView(view: PaneView): void {
-    if (toolOf(view.kind) || view.kind === 'board' || view.kind === 'run-steps') { this.showViewIn('right', view); return }
+    if ((view.kind !== 'conversation' && toolOf(view.kind)) || view.kind === 'board' || view.kind === 'run-steps') { this.showViewIn('right', view); return }
     if (view.kind === 'terminal') { this.showViewIn('bottom', view); return }
     const area = defaultArea(view)
     if (area) {
@@ -4194,7 +4204,8 @@ export class AppStore {
         )
       : null
     const migration = rehomed ? normalizeFixedWorkbench(rehomed, true) : null
-    const workbench = migration ? settleWorkbench(migration.workbench) : emptyWorkbench()
+    const restored = migration ? settleWorkbench(migration.workbench) : emptyWorkbench()
+    const workbench = settleConversationTool(restored, effectiveWindowMode(this.#snapshot.windowMode, restored) === 'editor', true)
     // Persisting what was just read back would be a no-op write; set directly.
     this.#patch({
       workbench,
@@ -4233,6 +4244,12 @@ export class AppStore {
     const subject = this.workSubject()
     if (!subject) return
     const before = this.#snapshot.workbench
+    if (tool === 'conversation') {
+      const pane = findPane(before.main, before.main.focused)!
+      const next = admitFixedTool(before, pane.view, toggle, conversationToolContext(before, effectiveWindowMode(this.#snapshot.windowMode, before) === 'editor'))
+      if (next) this.#setWorkbench(next)
+      return
+    }
     const intent = chooseTool(before.frameTools[subject], tool, mode, toggle)
     if (intent.open && mode === tool && (tool === 'changes' || tool === 'activity')
       && !dockViews(before.right).some(one => before.toolOwners[one.id] === subject && one.view.kind === tool)) {
@@ -4268,12 +4285,12 @@ export class AppStore {
       else this.resultNotice('warning', 'Open a Team to view its Run Timeline.')
       return
     }
-    if (toolOf(view.kind)) {
+    if (toolOf(view.kind) && (view.kind !== 'conversation' || area !== 'main')) {
       if (view.kind === 'plugin' && !supportsFixedTool(view, this.#snapshot.contributions)) {
         this.resultNotice('warning', 'This plugin panel does not support the fixed right panel.')
         return
       }
-      const next = admitFixedTool(this.#snapshot.workbench, view)
+      const next = admitFixedTool(this.#snapshot.workbench, view, false, conversationToolContext(this.#snapshot.workbench, effectiveWindowMode(this.#snapshot.windowMode, this.#snapshot.workbench) === 'editor'))
       if (!next) { this.resultNotice('warning', 'Open a conversation or Team before opening this tool.'); return }
       this.#setWorkbench(next)
       return
@@ -6662,6 +6679,19 @@ export class AppStore {
   async loadPreferences(): Promise<void> {
     try {
       const preferences = await this.transport.request('app/state/get', {})
+      const loadedEditor = readEditorState(preferences['editorState'])
+      const localEditor = this.#snapshot.editorState.filter(one => this.#editorChanged.has(one.subject) || this.#editorTouched.has(one.subject))
+      const editorState = [
+        ...localEditor.map(one => this.#editorChanged.has(one.subject) ? one
+          : { subject: one.subject, state: loadedEditor.find(saved => saved.subject === one.subject)?.state ?? one.state }),
+        ...loadedEditor.filter(one => !this.#editorChanged.has(one.subject) && !this.#editorTouched.has(one.subject)),
+      ]
+      this.#patch({ editorState, ...(!this.#windowModeChanged
+        ? { windowMode: preferences['windowMode'] === 'editor' ? 'editor' : 'conversation' } : {}) })
+      // Until this read and merge, local metadata has stayed in memory.
+      // Now persist the complete projection, including restored peers.
+      this.#editorPreferencesLoaded = true
+      if (localEditor.length) void this.#writePreference({ editorState: persistEditorState(editorState) }, 'The open files')
       this.#infoPreferencesLoaded = true
       this.#pendingInfo.unshift(...readRuntimeNotices(preferences['runtimeNotices']).reverse().map(entry => ({ runtime: entry.runtime, event: entry.event })))
       // The runtime the user last selected comes back, provided it still
@@ -7124,6 +7154,150 @@ export class AppStore {
   setTheme(theme: AppSnapshot['theme']): void {
     this.#patch({ theme })
     void this.#writePreference({ theme }, 'The theme')
+  }
+
+  setWindowMode(windowMode: WindowMode): void {
+    this.#windowModeChanged = true
+    this.#patch({ windowMode })
+    void this.#writePreference({ windowMode }, 'The window mode')
+  }
+
+  #setEditorConversation(subject: string, state: EditorConversation): void {
+    this.#editorChanged.add(subject)
+    this.#saveEditorConversation(subject, state)
+  }
+
+  #saveEditorConversation(subject: string, state: EditorConversation): void {
+    const editorState = updateEditorConversation(this.#snapshot.editorState, subject, state)
+    this.#patch({ editorState })
+    if (this.#editorPreferencesLoaded) void this.#writePreference({ editorState: persistEditorState(editorState) }, 'The open files')
+  }
+
+  touchEditorConversation(subject: string): void {
+    // A mount can precede preference hydration. Recency alone must not replace
+    // that conversation's saved tabs with an empty initial state.
+    this.#editorTouched.add(subject)
+    this.#saveEditorConversation(subject, editorConversation(this.#snapshot.editorState, subject))
+  }
+
+  openEditorFile(subject: string, path: string, options: OpenEditorTabOptions & { readonly document?: FileDocumentState | null } = {}): boolean {
+    const retained = this.#snapshot.editorDocuments.get(subject)?.get(path)
+    if (options.document && retained && !sameFileDocument(options.document, retained)) {
+      this.notice('warning', 'This file has another unsaved draft in Editor mode. Both drafts are kept; open the editor draft before transferring this one.')
+      return false
+    }
+    let state = editorConversation(this.#snapshot.editorState, subject)
+    // A preview with a retained document is never replaced, even if a caller
+    // captured the draft before mounting the editor shell.
+    if (state.preview && this.#snapshot.editorDocuments.get(subject)?.has(state.preview)) state = keepEditorTab(state, state.preview)
+    state = openEditorTab(state, path, options)
+    this.#setEditorConversation(subject, state)
+    if (options.document) this.setEditorLiveDocument(subject, path, options.document)
+    return true
+  }
+
+  /** Entries already carry a loaded owner; revealing it must not resume an agent. */
+  enterEditorFile(key: SessionKey, path: string, options: OpenEditorTabOptions & { readonly line?: number; readonly document?: FileDocumentState | null } = {}): boolean {
+    const session = this.#snapshot.sessions.get(key)
+    const absolute = session && filePathInRoot(path, session.cwd)
+    if (!session || !absolute) return false
+    const subject = `session:${key}`
+    if (!this.openEditorFile(subject, absolute, { ...options, keep: true })) return false
+    if (options.view) this.setEditorFileView(subject, absolute, options.view)
+    if (options.line) {
+      const editorLineTargets = new Map(this.#snapshot.editorLineTargets), files = new Map(editorLineTargets.get(subject))
+      const previous = files.get(absolute)
+      files.set(absolute, { line: options.line, request: (previous?.request ?? 0) + 1 } satisfies EditorLineTarget)
+      editorLineTargets.set(subject, files); this.#patch({ editorLineTargets })
+    }
+    this.#showInPane(key)
+    this.setWindowMode('editor')
+    return true
+  }
+
+  clearEditorLineTarget(subject: string, path: string, request: number): void {
+    const held = this.#snapshot.editorLineTargets.get(subject)
+    if (held?.get(path)?.request !== request) return
+    const editorLineTargets = new Map(this.#snapshot.editorLineTargets), files = new Map(held)
+    files.delete(path)
+    if (files.size) editorLineTargets.set(subject, files)
+    else editorLineTargets.delete(subject)
+    this.#patch({ editorLineTargets })
+  }
+
+  reviewEditorFiles(key: SessionKey, path: string): void {
+    if (this.enterEditorFile(key, path, { view: 'changes' })) this.setEditorExplorerFilter(`session:${key}`, 'changed')
+  }
+
+  popOutEditorFile(file: FileTransfer): boolean {
+    if (!file.subject?.startsWith('session:')) return false
+    const key = file.subject.slice('session:'.length) as SessionKey, session = this.#snapshot.sessions.get(key)
+    if (!session || session.runtime !== file.runtime || (file.root !== null && session.cwd !== file.root)) return false
+    return this.enterEditorFile(key, file.path, { view: file.view, document: file.document })
+  }
+
+  selectEditorFile(subject: string, path: string): void {
+    const state = editorConversation(this.#snapshot.editorState, subject)
+    if (state.tabs.some(tab => tab.path === path)) this.#setEditorConversation(subject, { ...state, active: path })
+  }
+
+  keepEditorFile(subject: string, path: string): void {
+    const state = editorConversation(this.#snapshot.editorState, subject)
+    const next = keepEditorTab(state, path)
+    if (next !== state) this.#setEditorConversation(subject, next)
+  }
+
+  /** False means a ConfirmDialog is needed. The confirmed call passes discard=true. */
+  closeEditorFile(subject: string, path: string, discard = false): boolean {
+    if (!discard && this.#snapshot.editorDocuments.get(subject)?.has(path)) return false
+    const state = editorConversation(this.#snapshot.editorState, subject)
+    const next = closeEditorTab(state, path)
+    if (next !== state) this.#setEditorConversation(subject, next)
+    this.setEditorDocument(subject, path, null)
+    this.setEditorLiveDocument(subject, path, null)
+    return true
+  }
+
+  setEditorFileView(subject: string, path: string, view: FileViewMode): void {
+    const state = editorConversation(this.#snapshot.editorState, subject)
+    const next = setEditorTabView(state, path, view)
+    if (next !== state) this.#setEditorConversation(subject, next)
+  }
+
+  setEditorExplorerFilter(subject: string, filter: ExplorerFilter): void {
+    this.#setEditorConversation(subject, { ...editorConversation(this.#snapshot.editorState, subject), filter })
+  }
+
+  setEditorExpandedFolders(subject: string, expanded: readonly string[]): void {
+    this.#setEditorConversation(subject, { ...editorConversation(this.#snapshot.editorState, subject), expanded: [...new Set(expanded)] })
+  }
+
+  /** Full shared snapshots propagate edits and a save's new clean base to every mounted surface. */
+  setEditorLiveDocument(subject: string, path: string, document: FileLiveDocumentState | null): void {
+    const previous = this.#snapshot.editorLiveDocuments.get(subject)?.get(path)
+    if (sameFileDocument(previous, document)) return
+    const editorLiveDocuments = new Map(this.#snapshot.editorLiveDocuments), live = new Map(editorLiveDocuments.get(subject))
+    live.set(path, document); editorLiveDocuments.set(subject, live)
+    const editorDocuments = new Map(this.#snapshot.editorDocuments), dirty = new Map(editorDocuments.get(subject))
+    if (document && isDirtyDocument(document)) dirty.set(path, document)
+    else dirty.delete(path)
+    if (dirty.size) editorDocuments.set(subject, dirty)
+    else editorDocuments.delete(subject)
+    this.#patch({ editorLiveDocuments, editorDocuments })
+    if (document && isDirtyDocument(document)) this.keepEditorFile(subject, path)
+  }
+
+  setEditorDocument(subject: string, path: string, document: FileDocumentState | null): void {
+    const state = editorConversation(this.#snapshot.editorState, subject)
+    if (document && !state.tabs.some(tab => tab.path === path)) return
+    const editorDocuments = new Map(this.#snapshot.editorDocuments)
+    const files = new Map(editorDocuments.get(subject))
+    if (document) files.set(path, document)
+    else files.delete(path)
+    if (files.size) editorDocuments.set(subject, files)
+    else editorDocuments.delete(subject)
+    this.#patch({ editorDocuments })
+    if (document) this.keepEditorFile(subject, path)
   }
 
   setPalette(palette: AppSnapshot['palette']): void {
@@ -7876,6 +8050,10 @@ export class AppStore {
    */
   #patch(patch: Partial<AppSnapshot>): void {
     const next = { ...this.#snapshot, ...patch }
+    if (patch.windowMode !== undefined || patch.workbench !== undefined) {
+      next.workbench = settleConversationTool(next.workbench, effectiveWindowMode(next.windowMode, next.workbench) === 'editor')
+      next.detailsTab = visibleInspector(next.workbench)
+    }
     // Whether the sidebar can have a column follows the window and the docks,
     // so it is settled here, where both change, rather than by each caller —
     // and again below if this method rewrites the workbench itself.
@@ -7886,7 +8064,7 @@ export class AppStore {
         next.sidebarFloating = false
       }
     }
-    if (patch.windowWidth !== undefined || patch.workbench !== undefined) settleNarrow()
+    if (patch.windowWidth !== undefined || next.workbench !== this.#snapshot.workbench) settleNarrow()
     // The focused conversation: the focused pane's, or — when a tool pane has
     // focus — the conversation it belongs to, so the composer's commands and
     // the details column stay on the work the tool was opened for.

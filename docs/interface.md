@@ -52,6 +52,45 @@ then carries a badge for the number of views waiting there. A split that would
 leave either half below its minimum size stays disabled and tells you the size
 it needs and the size this panel has.
 
+### Editor mode
+
+A conversation's files have their own window mode. The two icon buttons at
+the right end of the left column's top row switch between Conversation and
+Editor; **⌘G** does the same from the editor. The switch stays greyed on a
+Team, draft or other destination, with its reason on hover, and is absent in
+Settings. Leaving the conversation returns the visible window to Conversation
+mode; returning restores its editor state.
+
+Editor mode replaces the Sessions list with an **Explorer** rooted at the
+open conversation's folder, including its worktree. **All / Changed** filters
+the tree; Changed starts selected when files differ. Git letters and colours
+identify changes, and **Go to file ⌘P** searches that folder. A single click
+opens an italic preview tab that the next single click replaces. Editing or
+double-clicking keeps it. Tabs, selected views and the Explorer's filter are
+kept per conversation; unsaved text stays in the running window.
+
+Main shows the active file. Markdown opens in **Preview**, with **Edit**
+leading to **Source**; text files start in Source. **Changes** appears only
+for a file that differs from HEAD and shows editable added and removed lines.
+The file bar offers **Unsaved · Save ⌘S** only while dirty. Saving is explicit
+and checks the read hash. A change on disk reloads a clean file quietly; an
+unsaved file offers **Compare**, **Reload** and **Keep mine**. Closing a dirty
+tab asks **Save**, **Don't save** or **Cancel**. **Minimap**, off initially,
+is an editor setting in Settings › Appearance.
+
+The right panel adds **Conversation** first in its tool row and selects it
+on entry, with the same transcript and composer. Details, Changes, Activity
+and Browser continue to follow that conversation. The conversation title in
+the main breadcrumb returns to Conversation mode. Selecting text in Source,
+Changes or Markdown Preview offers **Ask in chat ⌘L**, which inserts a plain
+text quote with its file and known line range into that composer's draft,
+opens Conversation and focuses the draft without sending it.
+
+**Review** on a turn's changed-files card enters Editor mode with Changed
+selected and the first file in Changes. A transcript file link opens Source
+at its line. **Pop out** from the Changes tool's file view transfers the
+same file, chosen view and unsaved document into a kept editor tab.
+
 ### Two kinds of tab, and one row where possible
 
 Some tools have documents of their own: the browser has pages, and they get a
@@ -129,8 +168,9 @@ each tool is used:
 - **Inspectors** (Changes, Trajectory, Agents, Activity, Background tasks) open
   on the right beside the conversation, but can dock to the bottom or the
   sidebar.
-- A **conversation** opens in the middle and stays in the middle. The main area
-  is a fixed destination: it holds one conversation, or one room. Reading
+- A **conversation** opens in the middle; Editor mode shows its files there
+  and its transcript in the Conversation tool on the right. The main area
+  follows one conversation, or one room. Reading
   multiple agents concurrently is answered by the **Room**, where member
   columns display several transcripts side by side under one roof, headed by who
   they belong to.
@@ -636,7 +676,7 @@ rides in the conversation: the agent is told, through its own instruction
 layer, to use the tools; the desk does the rest. Text a person writes
 themselves carries no signature.
 
-**Under every finished turn, a summary**: files changed (click → Changes),
+**Under every finished turn, a summary**: files changed (Review → Editor mode),
 commands run, tests passed or failed, what broke, and "waiting for your
 answer" when the agent ended on a question. All read off the items by
 `lib/turn-summary.ts`. The transcript says how the agent got there; the

@@ -7,8 +7,9 @@ import { Button } from '../ui/button'
 import { SidebarMenuButton } from '../ui/sidebar'
 import { GroupLabel } from '../ui/group-label'
 import { DisclosureChevron } from '../ui/disclosure-chevron'
-import { Text, Search, Chip, NavigationGroupHeader } from './Settings'
-import { ArrowLeftIcon, ArrowRightIcon, MoreIcon, CrossIcon, PlusIcon, SettingsIcon, SidebarIcon } from '../../components/Icons'
+import { Text, Search, Chip, NavigationGroupHeader, Segmented } from './Settings'
+import { ArrowLeftIcon, ArrowRightIcon, MoreIcon, CrossIcon, PlusIcon, SettingsIcon, SidebarIcon, CommentIcon, EditorIcon, SearchIcon } from '../../components/Icons'
+import { switcherTrack, switcherItem } from '../ui/switcher'
 import styles from './LeftColumn.module.css'
 
 export type LeftColumnTrail =
@@ -42,17 +43,20 @@ export interface LeftColumnRowProps {
   readonly trailing?: LeftColumnTrail
   readonly action?: LeftColumnAction
   readonly onClick?: (event: MouseEvent<HTMLButtonElement>) => void
+  readonly onDoubleClick?: (event: MouseEvent<HTMLButtonElement>) => void
+  readonly tree?: { readonly depth: number; readonly expanded?: boolean; readonly letter?: 'M' | 'A' | 'D' | 'R' | '!' | null }
   readonly onContextMenu?: (event: MouseEvent<HTMLDivElement>) => void
   readonly buttonProps?: Pick<ComponentProps<'button'>, 'aria-label' | 'aria-describedby' | 'onKeyDown' | 'onDragOver' | 'onDrop'>
 }
 export const LeftColumnRow = forwardRef<HTMLButtonElement, LeftColumnRowProps>((props, ref) =>
-  <div data-left-row data-left-project={props.project ? '' : undefined} data-insert={props.insertion} data-current={props.current ? '' : undefined} data-dragging={props.dragging ? '' : undefined} className={styles.row} onContextMenu={props.onContextMenu}>
+  <div data-left-row data-left-tree={props.tree ? '' : undefined} data-letter={props.tree?.letter ?? undefined} data-left-project={props.project ? '' : undefined} data-insert={props.insertion} data-current={props.current ? '' : undefined} data-dragging={props.dragging ? '' : undefined} className={styles.row} onContextMenu={props.onContextMenu}>
     <SidebarMenuButton data-draggable={props.project ? '' : undefined} ref={ref} className={styles.button}
-      label={props.expanded === undefined ? props.label : <><span data-left-fold-name className={styles.foldName}>{props.label}</span><DisclosureChevron open={props.expanded} size="xs" className={styles.disclosure} /></>}
-      icon={props.expanded === undefined ? props.icon ?? <span aria-hidden="true" /> : undefined} isActive={props.selected}
+      style={props.tree ? { paddingInlineStart: `calc(var(--hd-space-2) + ${props.tree.depth} * var(--hd-space-4))` } : undefined}
+      label={props.tree ? <span className={styles.treeLabel}><span className={styles.treeIcon}>{props.icon}</span><span className={styles.treeName}>{props.label}</span></span> : props.expanded === undefined ? props.label : <><span data-left-fold-name className={styles.foldName}>{props.label}</span><DisclosureChevron open={props.expanded} size="xs" className={styles.disclosure} /></>}
+      icon={props.tree ? props.tree.expanded === undefined ? <span aria-hidden="true" /> : <DisclosureChevron open={props.tree.expanded} size="xs" /> : props.expanded === undefined ? props.icon ?? <span aria-hidden="true" /> : undefined} isActive={props.selected}
       title={props.title ?? props.label} disabled={props.disabled}
-      aria-current={props.selected ? 'page' : undefined} aria-expanded={props.expanded}
-      aria-label={props.label} onClick={props.onClick} {...props.buttonProps} />
+      aria-current={props.selected ? 'page' : undefined} aria-expanded={props.tree ? props.tree.expanded : props.expanded}
+      aria-label={props.label} onClick={props.onClick} onDoubleClick={props.onDoubleClick} {...props.buttonProps} />
     <span data-left-trailing className={styles.trailing}>
       {props.trailing && <span data-left-mark className={styles.mark} role="img" aria-label={props.trailing.label} title={props.trailing.label}>
         {props.trailing.kind === 'count' ? <Text role="meta" numeric>{props.trailing.value}</Text> : props.trailing.icon}
@@ -93,11 +97,19 @@ export interface LeftColumnTopProps {
   readonly goBack: () => void
   readonly goForward: () => void
   readonly search: ReactNode
+  readonly modeSwitch?: {
+    readonly value: 'conversation' | 'editor'
+    readonly onChange: (value: 'conversation' | 'editor') => void
+    readonly disabled: boolean
+    readonly disabledTitle: string
+  }
 }
 /**
  * The column's top controls share the window's edge row and keep the drag
  * region around every control. The row has no separator hairline beneath it;
- * the column's own spacing marks the transition to its brand row.
+ * the column's own spacing marks the transition to its brand row. The mode
+ * switch takes the reserved right edge, stays when history folds, and is
+ * absent in Settings. Its compact cells use the shared switcher appearance.
  */
 export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top className={styles.top}>
   <Bar corner className="hd-drag">
@@ -113,6 +125,18 @@ export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top c
           aria-label="Forward" title="Forward" onClick={props.goForward}><ArrowRightIcon size={16} /></Button>
       </span>}
     </div>
+    {!props.settings && props.modeSwitch && <div data-mode-switch data-size="mode" role="group" aria-label="Window mode"
+      aria-disabled={props.modeSwitch.disabled} title={props.modeSwitch.disabled ? props.modeSwitch.disabledTitle : undefined}
+      className={`${switcherTrack} hd-no-drag`}>
+      <Button variant="ghost" size="pattern" data-stretched className={switcherItem}
+        aria-label="Conversation mode" aria-pressed={props.modeSwitch.value === 'conversation'} aria-keyshortcuts="Meta+G"
+        disabled={props.modeSwitch.disabled} title={props.modeSwitch.disabled ? props.modeSwitch.disabledTitle : 'Conversation mode (⌘G)'}
+        onClick={() => props.modeSwitch?.onChange('conversation')}><CommentIcon size={14} /></Button>
+      <Button variant="ghost" size="pattern" data-stretched className={switcherItem}
+        aria-label="Editor mode" aria-pressed={props.modeSwitch.value === 'editor'} aria-keyshortcuts="Meta+G"
+        disabled={props.modeSwitch.disabled} title={props.modeSwitch.disabled ? props.modeSwitch.disabledTitle : 'Editor mode (⌘G)'}
+        onClick={() => props.modeSwitch?.onChange('editor')}><EditorIcon size={14} /></Button>
+    </div>}
   </Bar>
 </div>
 /** The account row closes the column without a separator hairline above it. */
@@ -180,3 +204,18 @@ export const LeftColumnEmpty = ({ children }: { children: ReactNode }) =>
 
 export const LeftColumnModeHead = ({ hidden, children }: { hidden: boolean; children: ReactNode }) =>
   <div hidden={hidden} inert={hidden} className={hidden ? styles.hidden : undefined}>{children}</div>
+
+/** Explorer occupies the same column; its header and foot share the row inset. */
+export const LeftColumnExplorerHead = ({ name, path, filter, changes, onFilter }: {
+  readonly name: string; readonly path: string; readonly filter: 'all' | 'changed'
+  readonly changes: number | null; readonly onFilter: (filter: 'all' | 'changed') => void
+}) => <div data-explorer-head className={styles.explorerHead}>
+  <span className={styles.explorerName} title={path}>{name}</span>
+  {changes !== null && <Segmented label="Explorer filter" value={filter} onChange={onFilter}
+    options={[{ value: 'all', label: 'All' }, { value: 'changed', label: `Changed ${changes}` }]} />}
+</div>
+export const LeftColumnExplorerFoot = ({ onClick }: { readonly onClick: () => void }) =>
+  <div data-explorer-foot className={styles.explorerFoot}><Button variant="muted" size="sm" className={styles.fileSearch}
+    aria-label="Go to file" title="Go to file (⌘P)" aria-keyshortcuts="Meta+P" onClick={onClick}>
+    <SearchIcon size={16} /><span>Go to file</span><Text role="meta">⌘P</Text>
+  </Button></div>

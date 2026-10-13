@@ -269,3 +269,7 @@ export { DashboardOverviewStats, DashboardBands, DashboardColumns, DashboardAcco
 export { PageRecords, PageRecordViews, type RecordColumn, type PageRecord, type RecordGroup } from './patterns/PageRecords'
 export { LibraryMatrix, type LibraryMatrixColumn, type LibraryMatrixCell, type LibraryMatrixRow, type LibraryMatrixFooter } from './patterns/LibraryMatrix'
 export { SignInRail } from './patterns/SignInRail'
+
+export { LeftColumnExplorerHead, LeftColumnExplorerFoot } from './patterns/LeftColumn'
+
+export { SelectionAction } from './patterns/SelectionAction'

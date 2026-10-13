@@ -23,11 +23,15 @@
 .headControls { display: flex; align-items: center; gap: var(--hd-space-0-5); min-width: 0; }
 .top { container: left-column-top / inline-size; }
 .lead, .history, .topActions { display: flex; align-items: center; gap: var(--hd-space-0-5); }
-.lead { flex: 1; min-width: 0; }
+.lead { flex: 1; min-width: 0; container: left-column-controls / inline-size; }
 .topActions { flex: none; }
 .topActions button { flex: none; width: var(--hd-frame-icon-button); height: var(--hd-frame-icon-button); }
 .topButton { flex: none; padding: 0; display: inline-flex; align-items: center; justify-content: center; width: var(--hd-frame-icon-button); height: var(--hd-frame-icon-button); border-radius: var(--hd-radius-sm); }
 @container left-column-top (width < 240px) { .history { display: none; } }
+/* The lead's available width already excludes the native corner, mode track
+   and bar gap. Four 28px targets plus three 2px gaps must fit before history
+   is shown; the original outer-column fold still applies without the track. */
+@container left-column-controls (width < 118px) { .history { display: none; } }
 .seat { height: 100%; display: flex; align-items: center; gap: var(--hd-bar-gap); width: 100%; min-width: 0; }
 .seatMenu { flex: 1; min-width: 0; }
 .topButton[aria-pressed='true'] { background: var(--hd-selected); }
@@ -80,3 +84,19 @@
 .button[aria-expanded='false'] .disclosure, .row:hover .disclosure, .row:has(:focus-visible) .disclosure { visibility: visible; }
 /* The pinned band's hairline is already part of the following group's air. */
 .body [data-sidebar-band='pinned'] + [data-project-root] .row[data-left-project] { margin-block-start: calc(var(--hd-space-4) - (var(--hd-left-row-h) - var(--hd-line-sm)) / 2 - var(--hd-border-width)); }
+
+.treeLabel { display: flex; align-items: center; gap: var(--hd-space-2); min-width: 0; }
+.treeIcon { display: inline-flex; flex: none; width: var(--hd-space-4); height: var(--hd-space-4); }
+.treeName { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.row[data-left-tree] .button { font-weight: var(--hd-weight-normal); }
+.row[data-letter='M'] .treeName, .row[data-letter='M'] .mark { color: var(--hd-warning-ink); }
+.row[data-letter='A'] .treeName, .row[data-letter='A'] .mark { color: var(--hd-success-ink); }
+.row[data-letter='D'] .treeName, .row[data-letter='D'] .mark { color: var(--hd-danger-ink); }
+.row[data-letter='R'] .treeName, .row[data-letter='R'] .mark { color: var(--hd-primary-ink); }
+.row[data-letter='!'] .treeName, .row[data-letter='!'] .mark { color: var(--hd-warning-ink); }
+.row[data-left-tree] .mark { font-family: var(--hd-font-code); }
+.explorerHead { display: flex; flex-wrap: wrap; align-items: center; gap: var(--hd-space-2); padding: var(--hd-space-2) var(--hd-space-4); }
+.explorerName { flex: 1; min-width: 0; font-size: var(--hd-text-sm); line-height: var(--hd-line-sm); font-weight: var(--hd-weight-semibold); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.explorerFoot { flex: none; padding: var(--hd-space-2) var(--hd-space-4); }
+.explorerFoot .fileSearch { width: 100%; justify-content: flex-start; gap: var(--hd-space-2); background: var(--hd-input); border: var(--hd-border-width) solid var(--hd-border); }
+.fileSearch > span:last-child { margin-inline-start: auto; }

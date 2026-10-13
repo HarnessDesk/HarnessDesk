@@ -19,6 +19,8 @@ it('fixed tools contain body controls rather than a second frame header or dock 
       expect(source).toContain('data-terminal-id={view.terminalId}')
       expect(source).toContain('Close terminal')
     } else if (kind === 'room') expect(source).toContain('useTopBar')
+    else if (kind === 'file') expect(source).toContain('<FileView')
+    else if (kind === 'preview') expect(source).toContain('<FilePane')
     else expect(source, kind).toContain('<ToolBodyControls')
   }
 })

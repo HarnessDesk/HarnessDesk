@@ -1,0 +1,150 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index 3f0c98aba65c44b0ff033dd299649985cfc7951c..43ee0a6004e52b900bed89dc8d159494922c995b 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -99,6 +99,9 @@ const OverlayView = view.ViewPlugin.fromClass(class {
+     constructor(view) {
+         this.view = view;
+         this._isDragging = false;
++        this.onMouseDown = this.onMouseDown.bind(this);
++        this.onMouseUp = this.onMouseUp.bind(this);
++        this.onMouseMove = this.onMouseMove.bind(this);
+         if (view.state.facet(Config).enabled) {
+             this.create(view);
+         }
+@@ -108,9 +111,9 @@ const OverlayView = view.ViewPlugin.fromClass(class {
+         this.dom = crelt__default["default"]("div", { class: "cm-minimap-overlay" });
+         this.container.appendChild(this.dom);
+         // Attach event listeners for overlay
+-        this.container.addEventListener("mousedown", this.onMouseDown.bind(this));
+-        window.addEventListener("mouseup", this.onMouseUp.bind(this));
+-        window.addEventListener("mousemove", this.onMouseMove.bind(this));
++        this.container.addEventListener("mousedown", this.onMouseDown);
++        window.addEventListener("mouseup", this.onMouseUp);
++        window.addEventListener("mousemove", this.onMouseMove);
+         // Attach the overlay elements to the minimap
+         const inner = view.dom.querySelector(".cm-minimap-inner");
+         if (inner) {
+@@ -122,6 +125,10 @@ const OverlayView = view.ViewPlugin.fromClass(class {
+         this.computeTop();
+     }
+     remove() {
++        if (this.scrollFrame !== undefined) {
++            cancelAnimationFrame(this.scrollFrame);
++            this.scrollFrame = undefined;
++        }
+         if (this.container) {
+             this.container.removeEventListener("mousedown", this.onMouseDown);
+             window.removeEventListener("mouseup", this.onMouseUp);
+@@ -285,7 +292,11 @@ const OverlayView = view.ViewPlugin.fromClass(class {
+ }, {
+     eventHandlers: {
+         scroll() {
+-            requestAnimationFrame(() => this.computeTop());
++            if (this.scrollFrame !== undefined) cancelAnimationFrame(this.scrollFrame);
++            this.scrollFrame = requestAnimationFrame(() => {
++                this.scrollFrame = undefined;
++                this.computeTop();
++            });
+         },
+     },
+ });
+@@ -1033,6 +1044,10 @@ const minimapClass = view.ViewPlugin.fromClass(class {
+         }
+     }
+     remove() {
++        if (this.scrollFrame !== undefined) {
++            cancelAnimationFrame(this.scrollFrame);
++            this.scrollFrame = undefined;
++        }
+         if (this.dom) {
+             this.dom.remove();
+         }
+@@ -1152,7 +1167,11 @@ const minimapClass = view.ViewPlugin.fromClass(class {
+ }, {
+     eventHandlers: {
+         scroll() {
+-            requestAnimationFrame(() => this.render());
++            if (this.scrollFrame !== undefined) cancelAnimationFrame(this.scrollFrame);
++            this.scrollFrame = requestAnimationFrame(() => {
++                this.scrollFrame = undefined;
++                this.render();
++            });
+         },
+     },
+     provide: (plugin) => {
+diff --git a/dist/index.js b/dist/index.js
+index c7c9a0406e1cfa2277ab6324fe47f70dd577e7c1..1e1fa6e004b167efc02944573d9fa0dafbb0f7fb 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -91,6 +91,9 @@ const OverlayView = /*@__PURE__*/ViewPlugin.fromClass(class {
+     constructor(view) {
+         this.view = view;
+         this._isDragging = false;
++        this.onMouseDown = this.onMouseDown.bind(this);
++        this.onMouseUp = this.onMouseUp.bind(this);
++        this.onMouseMove = this.onMouseMove.bind(this);
+         if (view.state.facet(Config).enabled) {
+             this.create(view);
+         }
+@@ -100,9 +103,9 @@ const OverlayView = /*@__PURE__*/ViewPlugin.fromClass(class {
+         this.dom = crelt("div", { class: "cm-minimap-overlay" });
+         this.container.appendChild(this.dom);
+         // Attach event listeners for overlay
+-        this.container.addEventListener("mousedown", this.onMouseDown.bind(this));
+-        window.addEventListener("mouseup", this.onMouseUp.bind(this));
+-        window.addEventListener("mousemove", this.onMouseMove.bind(this));
++        this.container.addEventListener("mousedown", this.onMouseDown);
++        window.addEventListener("mouseup", this.onMouseUp);
++        window.addEventListener("mousemove", this.onMouseMove);
+         // Attach the overlay elements to the minimap
+         const inner = view.dom.querySelector(".cm-minimap-inner");
+         if (inner) {
+@@ -114,6 +117,10 @@ const OverlayView = /*@__PURE__*/ViewPlugin.fromClass(class {
+         this.computeTop();
+     }
+     remove() {
++        if (this.scrollFrame !== undefined) {
++            cancelAnimationFrame(this.scrollFrame);
++            this.scrollFrame = undefined;
++        }
+         if (this.container) {
+             this.container.removeEventListener("mousedown", this.onMouseDown);
+             window.removeEventListener("mouseup", this.onMouseUp);
+@@ -277,7 +284,11 @@ const OverlayView = /*@__PURE__*/ViewPlugin.fromClass(class {
+ }, {
+     eventHandlers: {
+         scroll() {
+-            requestAnimationFrame(() => this.computeTop());
++            if (this.scrollFrame !== undefined) cancelAnimationFrame(this.scrollFrame);
++            this.scrollFrame = requestAnimationFrame(() => {
++                this.scrollFrame = undefined;
++                this.computeTop();
++            });
+         },
+     },
+ });
+@@ -1025,6 +1036,10 @@ const minimapClass = /*@__PURE__*/ViewPlugin.fromClass(class {
+         }
+     }
+     remove() {
++        if (this.scrollFrame !== undefined) {
++            cancelAnimationFrame(this.scrollFrame);
++            this.scrollFrame = undefined;
++        }
+         if (this.dom) {
+             this.dom.remove();
+         }
+@@ -1144,7 +1159,11 @@ const minimapClass = /*@__PURE__*/ViewPlugin.fromClass(class {
+ }, {
+     eventHandlers: {
+         scroll() {
+-            requestAnimationFrame(() => this.render());
++            if (this.scrollFrame !== undefined) cancelAnimationFrame(this.scrollFrame);
++            this.scrollFrame = requestAnimationFrame(() => {
++                this.scrollFrame = undefined;
++                this.render();
++            });
+         },
+     },
+     provide: (plugin) => {

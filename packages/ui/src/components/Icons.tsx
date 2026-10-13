@@ -59,6 +59,7 @@ import {
   CalendarDays,
   ExternalLink,
   File,
+  FileCode2,
   FileDiff,
   FileText,
   Folder,
@@ -469,6 +470,7 @@ export const MobileIcon = icon(Smartphone, 'MobileIcon')
 export const TabletIcon = icon(Tablet, 'TabletIcon')
 export const DesktopIcon = icon(DesktopIconGlyph, 'DesktopIcon')
 /** Chromium's own inspector, on the page in the pane. */
+export const EditorIcon = icon(FileCode2, 'EditorIcon')
 export const DevToolsIcon = icon(Code, 'DevToolsIcon')
 /** The same thing, in a full window. */
 export const ExpandIcon = icon(Maximize2, 'ExpandIcon')

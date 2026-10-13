@@ -12,6 +12,8 @@ import { desktop, isDesktop, onOpenGoal, onOpenSession, onShortcut, setTraySumma
 import { sessionLabel, shortLabel } from '../lib/sessions'
 import { describeTray } from '../lib/tray'
 import { shortcutFor } from '../lib/shortcuts'
+import { effectiveWindowMode, requestAskInChat } from '../editor'
+import { fixedSubject } from '../state/workbench'
 import { Workbench } from '../panels/Workbench'
 import { ShellProvider } from '../panels/views'
 import { Toaster } from '../design'
@@ -59,6 +61,11 @@ export const App = () => {
   const store = useStore()
   const snapshot = useSnapshot()
   const session = useActiveSession()
+  const editorAvailable = effectiveWindowMode('editor', snapshot.workbench) === 'editor'
+  const editorSubject = editorAvailable ? fixedSubject(snapshot.workbench.main) : null
+  useEffect(() => {
+    if (editorSubject) store.touchEditorConversation(editorSubject)
+  }, [store, editorSubject])
   // Each explicit import request is consumed once by the retained Library body.
   const projectKey = snapshot.workspace?.path ?? 'unscoped'
   const [libraryImport, setLibraryImport] = useState({ project: projectKey, intent: 0 })
@@ -134,6 +141,16 @@ export const App = () => {
         case 'toggle-terminal':
           toggleTerminal(store)
           return
+        case 'ask-in-chat':
+          requestAskInChat()
+          return
+        case 'toggle-editor-mode': {
+          const current = store.getSnapshot()
+          if (effectiveWindowMode('editor', current.workbench) === 'editor') {
+            store.setWindowMode(effectiveWindowMode(current.windowMode, current.workbench) === 'editor' ? 'conversation' : 'editor')
+          }
+          return
+        }
         case 'toggle-sidebar':
           store.toggleSidebar()
           return
@@ -162,6 +179,11 @@ export const App = () => {
         case 'close-pane':
           if(snapshot.workbench.navigation.current.kind!=='work')store.returnToWork()
           else store.closePane(snapshot.layout.focused)
+          return
+        case 'go-to-file':
+          if (effectiveWindowMode(store.getSnapshot().windowMode, store.getSnapshot().workbench) === 'editor') {
+            window.dispatchEvent(new CustomEvent('harnessdesk:go-to-file'))
+          }
           return
         case 'palette':
           setPaletteOpen((value) => !value)
@@ -339,6 +361,10 @@ export const App = () => {
     const onKeyDown = (event: KeyboardEvent): void => {
       const shortcut = shortcutFor(event)
       if (!shortcut) return
+      if (shortcut.action === 'ask-in-chat') {
+        if (requestAskInChat()) event.preventDefault()
+        return
+      }
       event.preventDefault()
       run(shortcut.action)
     }

@@ -14,12 +14,14 @@ import {
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { Sidebar } from './Sidebar'
+import type { Destination } from '../state/destinations'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let container: HTMLDivElement
 let root: Root
 let newDraft: ReturnType<typeof vi.fn>
+let setWindowMode: ReturnType<typeof vi.fn>
 let loadHistory: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
@@ -28,6 +30,7 @@ beforeEach(() => {
   root = createRoot(container)
   newDraft = vi.fn()
   loadHistory = vi.fn()
+  setWindowMode = vi.fn()
 })
 
 afterEach(() => {
@@ -86,6 +89,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'teams' 
     loadHistory,
     searchHistory: vi.fn(async () => {}),
     newDraft,
+    setWindowMode,
     loadWorktrees: vi.fn(async () => {}),
     loadAgents: vi.fn(async () => {}),
     returnToWork: vi.fn(),
@@ -192,6 +196,7 @@ describe('Sidebar readiness with active runtime (#382)', () => {
       searchHistory,
       setListPrefs: vi.fn(),
       newDraft,
+    setWindowMode,
       loadWorktrees: vi.fn(async () => {}),
       loadAgents: vi.fn(async () => {}),
     } as unknown as AppStore
@@ -471,4 +476,42 @@ it('Library keeps the existing section route and supports an explicit door', () 
   act(() => row().click())
   expect(library).toHaveBeenCalledOnce()
   expect(settings).toHaveBeenCalledOnce()
+})
+
+
+const atDestination = (current: Destination, windowMode: AppSnapshot['windowMode'] = 'editor') => {
+  const workbench = emptySnapshot().workbench
+  return { windowMode, workbench: { ...workbench, navigation: { ...workbench.navigation, current } } }
+}
+it('a current conversation gets the effective mode and changes it through the store', () => {
+  mount(atDestination({ kind: 'work', view: { kind: 'conversation', session: sessionKey(CLAUDE, sessionId('mode-session')) } }))
+  const conversation = container.querySelector<HTMLButtonElement>('button[aria-label="Conversation mode"]')
+  const editor = container.querySelector<HTMLButtonElement>('button[aria-label="Editor mode"]')
+  expect(editor).not.toBeNull()
+  expect(editor!.disabled).toBe(false)
+  expect(editor!.getAttribute('aria-pressed')).toBe('true')
+  act(() => conversation!.click())
+  expect(setWindowMode).toHaveBeenCalledWith('conversation')
+})
+for (const current of [
+  { kind: 'work', view: { kind: 'conversation', session: null } },
+  { kind: 'work', view: { kind: 'room', room: 'demo-team' } },
+  { kind: 'teams', filter: 'active' }, { kind: 'agents', id: null }, { kind: 'agents', id: 'demo-agent' },
+  { kind: 'library', section: 'skill' }, { kind: 'plugins', section: 'installed', id: null },
+  { kind: 'dashboard', view: 'overview', scope: null },
+  { kind: 'changes-review', root: null, returnTo: { kind: 'conversation', session: null } },
+] satisfies Destination[]) it(`keeps a greyed Conversation selection on ${JSON.stringify(current)}`, () => {
+  mount(atDestination(current))
+  const editor = container.querySelector<HTMLButtonElement>('button[aria-label="Editor mode"]')
+  expect(editor).not.toBeNull()
+  expect(editor!.disabled).toBe(true)
+  expect(editor!.title).toBe("Editor mode opens a conversation's files")
+  expect(container.querySelector('button[aria-label="Conversation mode"]')?.getAttribute('aria-pressed')).toBe('true')
+  act(() => editor!.click())
+  expect(setWindowMode).not.toHaveBeenCalled()
+})
+it('Settings omits both mode controls even with an Editor preference', () => {
+  mount(atDestination({ kind: 'settings', route: { kind: 'section', section: 'general', focus: null } }), null, {},
+    { section: 'general', onSection: () => {}, onBack: () => {} })
+  expect(container.querySelector('[data-mode-switch]')).toBeNull()
 })

@@ -1,5 +1,6 @@
+import { effectiveWindowMode } from '../editor'
 import { Button, TopBarToolButton } from '../design'
-import { FilePlusIcon, HistoryIcon, GlobeIcon, SquareMenuIcon, PanelRightIcon } from '../components/Icons'
+import { FilePlusIcon, HistoryIcon, GlobeIcon, SquareMenuIcon, PanelRightIcon, SessionIcon } from '../components/Icons'
 import { useActiveSession, useSnapshot, useStore } from '../state/context'
 import { fixedSubject } from '../state/workbench'
 const tools = [
@@ -26,7 +27,9 @@ export const WorkTools = ({ draft = false, changesRefusal }: { draft?: boolean; 
   if (!subject) return null
   const current = snapshot.workbench.frameTools[subject]
   const running = [...snapshot.tasks.values()].some(tasks => tasks.some(task => task.state === 'running'))
-  return <>{tools.map(one => {
+  const available = effectiveWindowMode(snapshot.windowMode, snapshot.workbench) === 'editor'
+    ? [{ value: 'conversation', label: 'Conversation', Icon: SessionIcon } as const, ...tools] : tools
+  return <>{available.map(one => {
     const reason = one.value === 'activity' && !running && runtimeRefusal ? runtimeRefusal : draft && (one.value === 'changes' || one.value === 'activity' && !running) ? 'Send this session before opening this tool' : one.value === 'changes' ? changesRefusal : undefined
     return <TopBarToolButton key={one.value} attention={one.value === 'activity' && running} data-work-tool={one.value}
       aria-label={one.label} title={reason ?? one.label} disabled={Boolean(reason)}

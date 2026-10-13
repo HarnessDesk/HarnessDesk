@@ -28,7 +28,7 @@ import {
 } from '../design'
 import { shortSha } from '../lib/evidence'
 import { useStore } from '../state/context'
-import { DiffView } from './Diff'
+import { DiffView } from '../editor'
 import { Markdown } from './Markdown'
 
 /**

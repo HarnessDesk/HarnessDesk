@@ -8,7 +8,7 @@ import { chordParts, SHORTCUTS, type Shortcut } from '../lib/shortcuts'
 import { emptyNoticePolicy, NOTICE_KINDS, NOTICE_USES, surfaceFor, SURFACE_LABEL, type NoticeSurface } from '../lib/notice-policy'
 import { unreadCount } from '../lib/inbox'
 import { SYSTEM_NOTIFICATION_KINDS, systemNotificationOn } from '../lib/system-notifications'
-import { FONT_SIZES, installedFaces, TAB_SIZES } from '../lib/editor-prefs'
+import { FONT_SIZES, installedFaces, TAB_SIZES } from '../editor'
 import { formatAge } from '../lib/usage'
 import { AVATARS, isAvatarId, type AvatarId } from '../lib/avatars'
 import {
@@ -436,6 +436,16 @@ export const AppearanceSection = () => {
           desc="Spaces per level."
           control={
             <PageOptions choices={[{id:"Indent width",label:"Indent width",value:String(snapshot.editorPrefs.tabSize),items:TAB_SIZES.map((size) => ({ value: String(size), label: `${size}` })),change:next => store.setEditorPrefs({ tabSize: Number(next) })}]}/>
+          }
+        />
+        <Row
+          title="Minimap"
+          control={
+            <Switch
+              aria-label="Minimap"
+              checked={snapshot.editorPrefs.minimap}
+              onCheckedChange={(minimap) => store.setEditorPrefs({ minimap })}
+            />
           }
         />
       </Rows>

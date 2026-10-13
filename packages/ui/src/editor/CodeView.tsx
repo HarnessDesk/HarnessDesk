@@ -1,16 +1,19 @@
 import { useEffect, useMemo, useRef } from 'react'
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { history } from '@codemirror/commands'
+import { vscodeKeymap } from '@replit/codemirror-vscode-keymap'
 import {
   bracketMatching,
   foldGutter,
-  foldKeymap,
   indentOnInput,
   indentUnit,
 } from '@codemirror/language'
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search'
-import { Annotation, Compartment, EditorState, type Extension } from '@codemirror/state'
+import { Annotation, ChangeSet, Compartment, EditorState, StateEffect, StateField, type Extension } from '@codemirror/state'
+import { getOriginalDoc, originalDocChangeEffect, unifiedMergeView, updateOriginalDoc } from '@codemirror/merge'
 import {
   EditorView,
+  Decoration,
+  type DecorationSet,
   drawSelection,
   dropCursor,
   highlightActiveLine,
@@ -30,7 +33,11 @@ import {
   loadLanguage,
   look,
   type EditorLook,
-} from '../lib/editor'
+} from './languages'
+import { countTextChanges, type ChangeCounts } from './counts'
+import { mergeTheme } from './merge-theme'
+import type { EditorLineTarget } from './state'
+import { rebaseFileChange } from './rebase'
 
 /**
  * A CodeMirror view, as a React component.
@@ -54,11 +61,41 @@ import {
  *   into the editor after a save marks the pane dirty again immediately.
  */
 
+// The window owns mode switching, Ask in chat, the Command palette and Go to file.
+// Remove their chords, including palette prefixes, from the editing and
+// search-panel maps so neither claims the DOM event.
+// Search still advances on Enter in its field and F3 in either scope.
+const editingKeymap = [...vscodeKeymap, ...searchKeymap].filter((binding) =>
+  ![binding.key, binding.mac, binding.win, binding.linux].some((key) =>
+    key !== undefined && /^(?:Mod|Cmd|Ctrl)-(?:[glp]$|k(?:\s|$))/i.test(key),
+  ),
+)
+
 /** Marks a transaction as the app's own, so `onChange` can ignore it. */
 const Sync = Annotation.define<boolean>()
 
-export interface CodeEditorProps {
+export interface EditorSelection {
+  readonly source: string
+  readonly from: number
+  readonly to: number
+  readonly rect: DOMRect | null
+}
+
+const markLinkedLine = StateEffect.define<number>()
+const linkedLine = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update: (marks, transaction) => {
+    marks = marks.map(transaction.changes)
+    for (const effect of transaction.effects) if (effect.is(markLinkedLine)) marks = Decoration.set([Decoration.line({ class: 'cm-linkedLine' }).range(effect.value)])
+    return marks
+  },
+  provide: field => EditorView.decorations.from(field),
+})
+
+export interface CodeViewProps {
   readonly value: string
+  readonly lineTarget?: EditorLineTarget
+  readonly onLineTargetReached?: (request: number) => void
   /** Absolute or relative; only its final segment picks the grammar. */
   readonly path?: string | null
   /** Overrides the grammar `path` implies — a fence language, mostly. */
@@ -68,21 +105,32 @@ export interface CodeEditorProps {
   readonly look: EditorLook
   readonly lineNumbers?: boolean
   readonly wrap?: boolean
+  readonly minimap?: boolean
   readonly tabSize?: number
   /**
    * Lines someone else wants marked — a plugin's diagnostics, a review's
    * findings. Drawn by the lint layer, so they underline, hover and list.
    */
   readonly decorations?: readonly UiDecoration[]
-  readonly onChange?: (value: string) => void
+  /** Full value for simple consumers; applyTo rebases actual edits onto a shared peer document. */
+  readonly onChange?: (value: string, applyTo: (latest: string) => string) => void
+  readonly onSelection?: (selection: EditorSelection | null) => void
   /** Cmd/Ctrl+S. The pane decides what saving means; the editor only reports it. */
   readonly onSave?: () => void
   readonly ariaLabel?: string
   readonly className?: string
 }
 
-export const CodeEditor = ({
+interface EditorSurfaceProps extends CodeViewProps {
+  readonly original?: string
+  readonly onCountsChange?: (counts: ChangeCounts) => void
+}
+
+/** Internal shared engine; the public CodeView and MergeView choose its mode. */
+export const EditorSurface = ({
   value,
+  lineTarget,
+  onLineTargetReached,
   path = null,
   language = null,
   readOnly = false,
@@ -90,13 +138,17 @@ export const CodeEditor = ({
   look: appearance,
   lineNumbers: showLineNumbers = true,
   wrap = false,
+  minimap = false,
   tabSize = 2,
   decorations,
   onChange,
+  onSelection,
   onSave,
   ariaLabel,
   className,
-}: CodeEditorProps) => {
+  original,
+  onCountsChange,
+}: EditorSurfaceProps) => {
   const host = useRef<HTMLDivElement | null>(null)
   const view = useRef<EditorView | null>(null)
 
@@ -109,6 +161,7 @@ export const CodeEditor = ({
     readOnly: new Compartment(),
     gutter: new Compartment(),
     wrap: new Compartment(),
+    minimap: new Compartment(),
     tab: new Compartment(),
     save: new Compartment(),
   }).current
@@ -116,10 +169,37 @@ export const CodeEditor = ({
   // Held in refs so the keymap and update listener — installed once, at
   // creation — always call the current prop rather than the one that existed
   // when the view was built.
+  const onSelectionRef = useRef(onSelection)
+  onSelectionRef.current = onSelection
+  const reportSelection = (current: EditorView): void => {
+    // Removed text is a native widget selection, not a range in the current
+    // document. FileView owns its quote and refreshes its geometry on scroll.
+    const native = current.dom.ownerDocument.getSelection()
+    const anchor = native?.anchorNode
+    const deleted = (anchor instanceof Element ? anchor : anchor?.parentElement)?.closest('.cm-deletedChunk')
+    if (native && !native.isCollapsed && deleted && current.dom.contains(deleted)
+      && native.focusNode && current.dom.contains(native.focusNode)) return
+    const { from, to, empty } = current.state.selection.main
+    if (empty) { onSelectionRef.current?.(null); return }
+    const at = current.coordsAtPos(from)
+    onSelectionRef.current?.({ source: current.state.doc.toString(), from, to, rect: at ? new DOMRect(at.left, at.top, at.right - at.left, at.bottom - at.top) : null })
+  }
+
   const onChangeRef = useRef(onChange)
   const onSaveRef = useRef(onSave)
   onChangeRef.current = onChange
   onSaveRef.current = onSave
+  const onCountsRef = useRef(onCountsChange)
+  onCountsRef.current = onCountsChange
+  const lastCounts = useRef('')
+  const reportCounts = (state: EditorState): void => {
+    if (original === undefined) return
+    const counts = countTextChanges(getOriginalDoc(state).toString(), state.doc.toString())
+    const key = `${counts.added}:${counts.removed}`
+    if (key === lastCounts.current) return
+    lastCounts.current = key
+    onCountsRef.current?.(counts)
+  }
 
   const resolvedLanguage = useMemo(
     () => language ?? languageForPath(path),
@@ -138,7 +218,13 @@ export const CodeEditor = ({
     const state = EditorState.create({
       doc: value,
       extensions: [
+        ...(original === undefined ? [] : [
+          unifiedMergeView({ original, mergeControls: false, gutter: true }),
+          mergeTheme,
+        ]),
         compartments.gutter.of(gutterExtension),
+        linkedLine,
+        EditorView.theme({ '.cm-linkedLine': { backgroundColor: 'var(--hd-accent-dim)' } }),
         highlightSpecialChars(),
         history(),
         drawSelection(),
@@ -153,6 +239,7 @@ export const CodeEditor = ({
         diagnosticsExtension(),
         compartments.tab.of([EditorState.tabSize.of(tabSize), indentUnit.of(' '.repeat(tabSize))]),
         compartments.wrap.of(wrap ? EditorView.lineWrapping : []),
+        compartments.minimap.of([]),
         compartments.readOnly.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
         compartments.look.of(look(appearance, dark)),
         compartments.language.of([]),
@@ -168,11 +255,16 @@ export const CodeEditor = ({
             },
           },
         ]),
-        keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, ...foldKeymap, indentWithTab]),
+        keymap.of(editingKeymap),
         EditorView.updateListener.of((update) => {
+          if (update.selectionSet || update.docChanged) reportSelection(update.view)
+          if (update.docChanged || update.transactions.some((transaction) => transaction.effects.some((effect) => effect.is(updateOriginalDoc)))) {
+            reportCounts(update.state)
+          }
           if (!update.docChanged) return
           if (update.transactions.some((transaction) => transaction.annotation(Sync))) return
-          onChangeRef.current?.(update.state.doc.toString())
+          const before = update.startState.doc.toString(), value = update.state.doc.toString(), changes = update.changes
+          onChangeRef.current?.(value, latest => rebaseFileChange(before, value, latest, changes))
         }),
         EditorView.contentAttributes.of(ariaLabel ? { 'aria-label': ariaLabel } : {}),
       ],
@@ -180,7 +272,10 @@ export const CodeEditor = ({
 
     const created = new EditorView({ state, parent })
     view.current = created
+    const scrolled = () => reportSelection(created)
+    created.scrollDOM.addEventListener('scroll', scrolled)
     return () => {
+      created.scrollDOM.removeEventListener('scroll', scrolled)
       created.destroy()
       view.current = null
     }
@@ -194,16 +289,45 @@ export const CodeEditor = ({
   useEffect(() => {
     const current = view.current
     if (!current) return
-    const doc = current.state.doc.toString()
-    if (doc === value) return
+    // Disk/shared values retain their line endings; the engine stores line
+    // breaks separately. A CRLF echo of typing must not reset its selections.
+    const incoming = current.state.toText(value)
+    if (current.state.doc.eq(incoming)) return
     current.dispatch({
-      changes: { from: 0, to: doc.length, insert: value },
+      changes: { from: 0, to: current.state.doc.length, insert: incoming },
       annotations: Sync.of(true),
       // A reload can shorten the file under a cursor that was near its end;
       // clamping keeps the selection valid instead of throwing.
-      selection: { anchor: Math.min(current.state.selection.main.anchor, value.length) },
+      selection: { anchor: Math.min(current.state.selection.main.anchor, incoming.length) },
     })
   }, [value])
+
+  // A request is transient, and deliberately independent of value changes.
+  useEffect(() => {
+    const current = view.current
+    if (!current || !lineTarget) return
+    const line = current.state.doc.line(Math.max(1, Math.min(current.state.doc.lines, lineTarget.line)))
+    current.dispatch({ selection: { anchor: line.from }, effects: [markLinkedLine.of(line.from), EditorView.scrollIntoView(line.from, { y: 'center' })] })
+    onLineTargetReached?.(lineTarget.request)
+  }, [lineTarget])
+
+  useEffect(() => {
+    const current = view.current
+    if (!current || original === undefined) return
+    const previous = getOriginalDoc(current.state)
+    if (previous.toString() === original) return
+    current.dispatch({ effects: originalDocChangeEffect(current.state,
+      ChangeSet.of({ from: 0, to: previous.length, insert: original }, previous.length)),
+    })
+  }, [original])
+
+  useEffect(() => {
+    const current = view.current
+    if (!current || original === undefined) return
+    const counts = countTextChanges(getOriginalDoc(current.state).toString(), current.state.doc.toString())
+    lastCounts.current = `${counts.added}:${counts.removed}`
+    onCountsChange?.(counts)
+  }, [onCountsChange])
 
   // Marks are positions *into the document*, so they are re-applied whenever
   // either changes — and after the sync above, which is why this effect is
@@ -259,6 +383,35 @@ export const CodeEditor = ({
   }, [compartments, wrap])
 
   useEffect(() => {
+    const current = view.current
+    if (!current) return
+    if (!minimap) {
+      current.dispatch({ effects: compartments.minimap.reconfigure([]) })
+      return
+    }
+    let cancelled = false
+    void import('@replit/codemirror-minimap').then(({ showMinimap }) => {
+      // A closed pane or a newer off choice owns the result of a late load.
+      if (cancelled || view.current !== current) return
+      current.dispatch({ effects: compartments.minimap.reconfigure([
+        showMinimap.of({
+          create: () => ({ dom: current.dom.ownerDocument.createElement('div') }),
+          displayText: 'blocks',
+        }),
+        EditorView.theme({
+          '.cm-minimap-gutter': { backgroundColor: 'var(--hd-background)' },
+          '.cm-minimap-overlay': { background: 'var(--hd-foreground)' },
+          '.cm-minimap-box-shadow': { boxShadow: 'none' },
+        }),
+      ]) })
+    }).catch(() => {
+      // An unavailable optional chunk leaves the primary editor usable.
+      // No state is replaced; toggling off and on can request it again.
+    })
+    return () => { cancelled = true }
+  }, [compartments, minimap])
+
+  useEffect(() => {
     view.current?.dispatch({
       effects: compartments.tab.reconfigure([
         EditorState.tabSize.of(tabSize),
@@ -269,3 +422,5 @@ export const CodeEditor = ({
 
   return <div ref={host} className={className} data-testid="code-editor" />
 }
+
+export const CodeView = (props: CodeViewProps) => <EditorSurface {...props} />

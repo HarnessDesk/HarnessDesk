@@ -98,7 +98,7 @@ for (const theme of WALL_THEMES) {
     expect((await column.boundingBox())!.width).toBe(FRAME.sidebar.width)
     const top = column.locator('[data-left-top]')
     expect(await top.locator('button').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label'))))
-      .toEqual(['Hide sidebar', 'Search everything', 'Back', 'Forward'])
+      .toEqual(['Hide sidebar', 'Search everything', 'Back', 'Forward', 'Conversation mode', 'Editor mode'])
     await expect(top.locator('[data-slot="inbox-button"]')).toHaveCount(0)
     const seat = column.locator('[data-left-seat]')
     const bell = seat.locator('[data-slot="inbox-button"]').locator('..')

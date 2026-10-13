@@ -50,6 +50,8 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { action: 'open-folder', label: 'Open folder…', key: 'o', group: 'Sessions' },
   { action: 'close-pane', label: 'Close the focused pane', key: 'w', group: 'Sessions' },
   { action: 'toggle-terminal', label: 'Show or hide Terminal', key: '`', controlOnly: true, group: 'Window' },
+  { action: 'ask-in-chat', label: 'Ask in chat', key: 'l', group: 'Window' },
+  { action: 'toggle-editor-mode', label: 'Switch Conversation and Editor mode', key: 'g', group: 'Window' },
   { action: 'toggle-sidebar', label: 'Show or hide the sidebar', key: 'b', group: 'Window' },
   /* Back and forward through what the middle has shown. The lead's arrows
      are the other route; narrow windows keep them in the floating sidebar.
@@ -68,6 +70,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { action: 'settings', label: 'Settings', key: ',', group: 'Window' },
   { action: 'usage', label: 'Dashboard', key: 'u', group: 'Window' },
   { action: 'palette', label: 'Command palette', key: 'k', group: 'Finding things' },
+  { action: 'go-to-file', label: 'Go to file in Editor mode', key: 'p', group: 'Finding things' },
 ]
 
 /**

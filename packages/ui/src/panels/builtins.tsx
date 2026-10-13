@@ -1,3 +1,4 @@
+import { EditorMain, effectiveWindowMode } from '../editor'
 import { WorkChangesView, WorkActivityView } from '../components/WorkToolContents'
 import { RunDetailsView } from './run-dock'
 import { Approvals } from '../components/Approvals'
@@ -85,15 +86,21 @@ const basename = (path: string): string => path.split('/').filter(Boolean).at(-1
  */
 const ConversationView = () => {
   const shell = useShell()
+  const snapshot = useSnapshot(), key = useSessionKey(), mount = useMount()
+  const session = key ? snapshot.sessions.get(key) : null
+  const editor = mount?.area === 'main' && session && effectiveWindowMode(snapshot.windowMode, snapshot.workbench) === 'editor'
+
   return (
     <>
       <Conversation
+        header={mount?.area !== 'right'}
+        mainContent={editor && key ? <EditorMain key={key} subject={`session:${key}`} runtime={session.runtime} root={session.cwd} /> : undefined}
         onChooseProject={shell.chooseProject}
         onSignIn={shell.signIn}
         onOpenUsage={shell.openUsage}
         onOpenRuntimes={shell.openRuntimes}
       />
-      <Approvals />
+      {mount?.area !== 'right' && <Approvals />}
     </>
   )
 }

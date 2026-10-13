@@ -34,6 +34,19 @@ const row = (action: string) => {
 }
 
 describe('the shortcut table', () => {
+  it('offers Go to file on the app modifier without claiming modified or handled P chords', () => {
+    expect(shortcutFor(chord('p'))?.action).toBe('go-to-file')
+    expect(shortcutFor({ ...chord('p'), metaKey: false, ctrlKey: true })?.action).toBe('go-to-file')
+    expect(shortcutFor({ ...chord('p'), shiftKey: true })).toBeNull()
+    expect(shortcutFor({ ...chord('p'), altKey: true })).toBeNull()
+    expect(shortcutFor({ ...chord('p'), defaultPrevented: true })).toBeNull()
+  })
+  it('toggles the window mode on Command-G while preserving handled and modified chords', () => {
+    expect(shortcutFor(chord('g'))?.action).toBe('toggle-editor-mode')
+    expect(shortcutFor({ ...chord('g'), defaultPrevented: true })).toBeNull()
+    expect(shortcutFor({ ...chord('g'), shiftKey: true })).toBeNull()
+    expect(chordOf(row('toggle-editor-mode'))).toBe('⌘G')
+  })
   it('opens New Team with Shift while the plain chord still starts a session', () => {
     expect(shortcutFor({ ...chord('N'), shiftKey: true })?.action).toBe('new-team')
     expect(shortcutFor(chord('n'))?.action).toBe('new-session')

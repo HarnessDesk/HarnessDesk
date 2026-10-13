@@ -220,6 +220,9 @@ Controls are one height so a row of them lines up without anyone counting pixels
 
 | token | value |
 | --- | --- |
+| `--hd-file-tabs-h` | `36px` |
+| `--hd-file-bar-h` | `38px` |
+| `--hd-file-document-w` | `720px` |
 | `--hd-control-h` | `<cycle>` |
 | `--hd-target-min` | `24px` |
 | `--hd-control-h-sm` | `24px` |
@@ -454,6 +457,8 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-card-padding` | `16px` |
 | `--hd-card-gap` | `12px` |
 | `--hd-seg-pad` | `2px` |
+| `--hd-mode-switch-cell-w` | `26px` |
+| `--hd-mode-switch-cell-h` | `24px` |
 | `--hd-seg-trim` | `calc(2px * 2)` |
 | `--hd-seg-text` | `12px` |
 | `--hd-chip-radius` | `9999px` |
@@ -1686,13 +1691,21 @@ Works outside a group too; only grouped readings contribute to its card.
 
 The column's top controls share the window's edge row and keep the drag
 region around every control. The row has no separator hairline beneath it;
-the column's own spacing marks the transition to its brand row.
+the column's own spacing marks the transition to its brand row. The mode
+switch takes the reserved right edge, stays when history folds, and is
+absent in Settings. Its compact cells use the shared switcher appearance.
 
 ### `LeftColumnSeat`
 
 `packages/ui/src/design/patterns/LeftColumn.tsx`
 
 The account row closes the column without a separator hairline above it.
+
+### `LeftColumnExplorerHead`
+
+`packages/ui/src/design/patterns/LeftColumn.tsx`
+
+Explorer occupies the same column; its header and foot share the row inset.
 
 ### `LibraryMatrix`
 
@@ -2037,6 +2050,12 @@ The glyph for what was published: a pull request, a review, a comment, an issue.
 `packages/ui/src/design/patterns/PublicationCard.tsx`
 
 A pull request's state in a word, toned as the judgement it is: merged is good news, closed without merging is not.
+
+### `SelectionAction`
+
+`packages/ui/src/design/patterns/SelectionAction.tsx`
+
+A selection keeps focus while its one action floats above the selected text.
 
 ### `Dot`
 
@@ -2481,4 +2500,4 @@ list only goes down, except when the audit learns to see something it was blind 
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 5 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 20 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2094 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `screenLayout` | 2092 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |

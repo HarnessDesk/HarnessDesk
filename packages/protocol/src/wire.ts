@@ -329,6 +329,9 @@ export type GitConclusion = 'merge' | 'cherry-pick' | 'revert'
 
 export interface GitStatus {
   readonly root: string
+  /** Canonical directory admitted for this status request, which may be below root.
+   * Maps the caller's folder spelling to Git paths without guessing aliases. */
+  readonly resolvedRoot?: string
   readonly branch?: string | null
   readonly ahead: number
   readonly behind: number
@@ -1657,11 +1660,14 @@ export interface HostMethods {
     result: readonly FileMatch[]
   }
   'workspace/browse': {
-    params: { readonly path?: string; readonly runtime?: RuntimeId }
+    params:
+      | { readonly mode?: 'directories'; readonly path?: string; readonly runtime?: RuntimeId }
+      | { readonly mode: 'entries'; readonly root: string; readonly path?: string; readonly runtime?: RuntimeId }
     result: {
       readonly path: string
       readonly parent: string | null
-      readonly entries: readonly { readonly name: string; readonly path: string }[]
+      /** Kind is present only in the confined entries mode; folder pickers keep their shape. */
+      readonly entries: readonly { readonly name: string; readonly path: string; readonly kind?: 'file' | 'directory' }[]
     }
   }
   'workspace/readFile': {

@@ -6,9 +6,17 @@ import {
   editorLook,
   installedFaces,
   readEditorPrefs,
-} from './editor-prefs'
+} from './prefs'
 
 describe('readEditorPrefs', () => {
+  it('keeps the optional minimap off for older preferences and validates its persisted choice', () => {
+    expect(DEFAULT_EDITOR_PREFS.minimap).toBe(false)
+    expect(readEditorPrefs({ wrap: true }).minimap).toBe(false)
+    expect(readEditorPrefs({ minimap: true }).minimap).toBe(true)
+    expect(readEditorPrefs({ minimap: false }).minimap).toBe(false)
+    expect(readEditorPrefs({ minimap: 'true' }).minimap).toBe(false)
+  })
+
   it('fills an absent preference with the defaults', () => {
     expect(readEditorPrefs(undefined)).toEqual(DEFAULT_EDITOR_PREFS)
     expect(readEditorPrefs(null)).toEqual(DEFAULT_EDITOR_PREFS)

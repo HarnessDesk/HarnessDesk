@@ -367,6 +367,9 @@ body {
      A group is read from this comment to the next one, so nothing inside it
      may open a comment of its own: doing that dropped both the token below and
      `--hd-column` out of the generated table without failing anything. */
+  --hd-file-tabs-h: 36px;
+  --hd-file-bar-h: 38px;
+  --hd-file-document-w: 720px;
   --hd-control-h: 26px;
   --hd-target-min: 24px;
   --hd-control-h-sm: 24px;
@@ -1243,6 +1246,9 @@ body {
      inside it is sized by subtracting this — see `--hd-seg-trim` in the Studio
      block and `.segItem` in Kit. */
   --hd-seg-pad: var(--hd-space-0-5);
+  /* The two icon cells in the window's Conversation / Editor mode track. */
+  --hd-mode-switch-cell-w: 26px;
+  --hd-mode-switch-cell-h: var(--hd-target-min); /* desk: 22px → 24px so both mode buttons clear the target floor. */
   /*
    * How much the cell gives back to the track, per edge.
    *

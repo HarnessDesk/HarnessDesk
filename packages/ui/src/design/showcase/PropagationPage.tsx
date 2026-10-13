@@ -1,7 +1,7 @@
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 
 import { RuntimeMark } from '../../components/BrandIcons'
-import { CodeEditor } from '../../components/CodeEditor'
+import { CodeView } from '../../editor'
 import { FolderIcon, SendIcon } from '../../components/Icons'
 import { terminalAppearance } from '../adapters/terminal'
 import { Dialog } from '../patterns/ModalDialog'
@@ -224,13 +224,15 @@ export const PropagationPage = () => {
       <section data-testid="prop-editor">
         <h2 className={styles.heading}>Specialized renderer adapter</h2>
         <div className={styles.editor}>
-          <CodeEditor
-            value={'const shared = "foundation"\n'}
-            path="foundation.ts"
-            dark={false}
-            look={{ fontFamily: 'var(--hd-font-code)', fontSize: 12, lineHeight: 1.5 }}
-            ariaLabel="Foundation adapter editor"
-          />
+          <Suspense fallback={null}>
+            <CodeView
+              value={'const shared = "foundation"\n'}
+              path="foundation.ts"
+              dark={false}
+              look={{ fontFamily: 'var(--hd-font-code)', fontSize: 12, lineHeight: 1.5 }}
+              ariaLabel="Foundation adapter editor"
+            />
+          </Suspense>
         </div>
         <div
           className={styles.terminalProbe}

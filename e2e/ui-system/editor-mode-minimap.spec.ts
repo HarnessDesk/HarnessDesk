@@ -1,0 +1,52 @@
+import { expect, test } from '@playwright/test'
+import { openFrame } from './frame-contract-helpers'
+
+for (const theme of ['light', 'dark'] as const) test(`Minimap toggles live in Appearance and reaches Source and Changes in ${theme}`, async ({ page }, testInfo) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await openFrame(page, 'frame-wall=conversation&frame-editor=entry', theme, 1440)
+  await page.getByRole('button', { name: 'Review', exact: true }).click()
+  const main = page.locator('[data-slot="editor-main"]')
+  await main.getByRole('radio', { name: 'Source', exact: true }).click()
+  const content = main.locator('.cm-content')
+  await expect(content).toBeVisible()
+  await expect(main.locator('.cm-minimap-gutter')).toHaveCount(0)
+  await content.focus()
+  await page.keyboard.press('Meta+End')
+  await page.keyboard.insertText('// minimap draft\n')
+  const settings = page.locator('[data-left-column]:visible [data-left-seat]').getByRole('button', { name: 'Settings', exact: true })
+  const nav = page.getByRole('navigation', { name: 'Settings navigation' })
+  const choose = async (enabled: boolean) => {
+    await settings.click()
+    await nav.getByRole('button', { name: 'Appearance', exact: true }).click()
+    const sample = page.getByLabel('Code editor preview')
+    await sample.locator('.cm-content').evaluate(node => node.setAttribute('data-minimap-lifetime', 'sample'))
+    const toggle = page.getByRole('switch', { name: 'Minimap', exact: true })
+    await expect(toggle).toBeChecked({ checked: !enabled })
+    await toggle.click()
+    await expect(toggle).toBeChecked({ checked: enabled })
+    await expect(sample.locator('.cm-minimap-gutter')).toHaveCount(enabled ? 1 : 0)
+    await expect(sample.locator('.cm-content')).toHaveAttribute('data-minimap-lifetime', 'sample')
+    await page.screenshot({ path: testInfo.outputPath(`minimap-appearance-${enabled}-${theme}.png`) })
+    await nav.getByRole('button', { name: 'Back', exact: true }).click()
+    await expect(main).toBeVisible()
+    await expect(main.locator('.cm-minimap-gutter')).toHaveCount(enabled ? 1 : 0)
+  }
+  await choose(true)
+  await expect(content).toContainText('// minimap draft')
+  const canvas = main.locator('.cm-minimap-inner canvas')
+  await expect.poll(() => canvas.evaluate(node => {
+    const canvas = node as HTMLCanvasElement
+    return canvas.width > 0 && canvas.height > 0 && canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data.some((value, index) => index % 4 === 3 && value > 0)
+  })).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath(`minimap-source-${theme}.png`) })
+  await choose(false)
+  await expect(content).toContainText('// minimap draft')
+  await main.getByRole('radio', { name: /^Changes/ }).click()
+  await choose(true)
+  await expect(main.locator('.cm-deletedChunk')).not.toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath(`minimap-changes-${theme}.png`) })
+  await choose(false)
+  await expect(content).toContainText('// minimap draft')
+  expect(errors).toEqual([])
+})

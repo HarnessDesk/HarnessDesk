@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { StoreProvider } from '../state/context'
 import { AppStore } from '../state/store'
+import { runtimeId, sessionId, sessionKey } from '@harnessdesk/protocol'
 import type { SettingsRoute } from '../state/destinations'
 
 const native = vi.hoisted(() => ({run: (_action: string) => {}}))
@@ -250,4 +251,69 @@ it('Escape from an inactive retained editor still leaves Settings', async () => 
   const escape = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })
   act(() => retained.dispatchEvent(escape)); await settle()
   expect(store.getSnapshot().workbench.navigation.current.kind).toBe('work')
+})
+
+
+it('Command-G toggles an existing conversation from an input and shares the native action', async () => {
+  const store = routedStore(), key = sessionKey(runtimeId('demo'), sessionId('mode-session'))
+  Object.assign(store.getSnapshot(), { sessions: new Map([[key, { title: 'Synthetic conversation', turns: [] }]]) })
+  store.selectWork({ kind: 'conversation', session: key })
+  await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
+  const field = container.querySelector('input')!
+  field.focus()
+  const chord = () => new KeyboardEvent('keydown', { key: 'g', metaKey: true, bubbles: true, cancelable: true })
+  const first = chord()
+  act(() => field.dispatchEvent(first))
+  expect(first.defaultPrevented).toBe(true)
+  expect(store.getSnapshot().windowMode).toBe('editor')
+  act(() => native.run('toggle-editor-mode'))
+  expect(store.getSnapshot().windowMode).toBe('conversation')
+  await settle()
+  const handled = chord(); handled.preventDefault()
+  act(() => field.dispatchEvent(handled))
+  expect(store.getSnapshot().windowMode).toBe('conversation')
+  const recency = store.getSnapshot().editorState
+  expect(recency[0]?.subject).toBe(`session:${key}`)
+  const next = sessionKey(runtimeId('demo'), sessionId('next-session'))
+  Object.assign(store.getSnapshot(), { sessions: new Map([...store.getSnapshot().sessions, [next, { title: 'Next conversation', turns: [] } as never]]) })
+  act(() => store.selectWork({ kind: 'conversation', session: next }))
+  await settle()
+  expect(store.getSnapshot().editorState[0]?.subject).toBe(`session:${next}`)
+})
+
+for (const current of [
+  { kind: 'work' as const, view: { kind: 'conversation' as const, session: null } },
+  { kind: 'work' as const, view: { kind: 'room' as const, room: 'demo-team' } },
+  { kind: 'settings' as const, route: { kind: 'section' as const, section: 'general' as const, focus: null } },
+  { kind: 'teams' as const, filter: 'active' as const },
+]) it(`Command-G and native mode commands leave the preference alone on ${JSON.stringify(current)}`, async () => {
+  const store = routedStore()
+  store.setWindowMode('editor')
+  const workbench = store.getSnapshot().workbench
+  Object.assign(store.getSnapshot(), { workbench: { ...workbench, navigation: { ...workbench.navigation, current } } })
+  await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
+  const change = vi.spyOn(store, 'setWindowMode'), touch = vi.spyOn(store, 'touchEditorConversation')
+  act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'g', metaKey: true, bubbles: true, cancelable: true })))
+  act(() => native.run('toggle-editor-mode'))
+  expect(change).not.toHaveBeenCalled()
+  expect(touch).not.toHaveBeenCalled()
+  expect(store.getSnapshot().windowMode).toBe('editor')
+})
+it('Go to file only dispatches for Editor on a conversation, using Command and Control aliases', async () => {
+  const store = routedStore(), key = sessionKey(runtimeId('demo'), sessionId('file-session'))
+  Object.assign(store.getSnapshot(), { sessions: new Map([[key, { title: 'Synthetic conversation', turns: [] }]]) })
+  store.selectWork({ kind: 'conversation', session: key })
+  const open = vi.fn()
+  window.addEventListener('harnessdesk:go-to-file', open)
+  try {
+    await act(async () => root.render(<StoreProvider store={store}><App /></StoreProvider>))
+    act(() => native.run('go-to-file'))
+    expect(open).not.toHaveBeenCalled()
+    act(() => store.setWindowMode('editor'))
+    for (const modifier of ['metaKey', 'ctrlKey']) act(() => document.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', [modifier]: true, bubbles: true, cancelable: true })))
+    expect(open).toHaveBeenCalledTimes(2)
+    await click('Settings')
+    act(() => native.run('go-to-file'))
+    expect(open).toHaveBeenCalledTimes(2)
+  } finally { window.removeEventListener('harnessdesk:go-to-file', open) }
 })

@@ -3,14 +3,13 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { currentTurn, type GitStatus } from '@harnessdesk/protocol'
 
 import { handOverToComposer } from '../lib/compose'
-import { countChanges, splitByFile } from '../lib/diff'
+import { countChanges, splitByFile, DiffView } from '../editor'
 import { useActiveSession, usePane, useSnapshot, useStore } from '../state/context'
 import { downloadMarkdown, exportFilename, sessionToMarkdown } from '../lib/export-session'
 import { inView } from '../lib/git-view'
 import { Activity } from './Activity'
 import { Agents } from './Agents'
 import { SeatRecordBlock } from './SeatRecordBlock'
-import { DiffView } from './Diff'
 import { FileIcon, ReviewIcon } from './Icons'
 import { Button, ListRowDetail, ToolBodyControls, Switch, Tabs, TabsList, TabsTrigger, Chip } from '../design'
 import {

@@ -279,3 +279,11 @@ it('uses the partial reason for a stopped Redo and clears it after Redo succeeds
   expect(close().disabled).toBe(false)
   expect(close().title).toBe('Hide this card. The changes stay in the Changes panel.')
 })
+
+it('Review explicitly opens the first file in the owning conversation editor', async () => {
+  const { store } = await rig([])
+  ;(store as any).reviewEditorFiles = vi.fn()
+  await act(async () => button('Review')!.click())
+  expect((store as any).reviewEditorFiles).toHaveBeenCalledWith(KEY, CHANGES[0]!.path)
+  expect(store.setDetailsTab).not.toHaveBeenCalled()
+})

@@ -5,3 +5,11 @@
 .track .item [data-slot="switcher-count"] { font-size: var(--hd-text-xs); color: var(--hd-tertiary-foreground); font-weight: var(--hd-weight-normal); font-variant-numeric: tabular-nums; }
 
 .track .item.item[data-icon-only="true"] { padding-inline: 0; }
+
+
+/* The window mode track uses the same switcher appearance in compact icon cells. */
+.track.track[data-size='mode'] { flex: none; padding: var(--hd-seg-pad); gap: var(--hd-space-0-5); border-radius: var(--hd-radius-full); }
+.track[data-size='mode'][aria-disabled='true'] { opacity: 0.5; }
+.track[data-size='mode'] .item.item { display: inline-flex; align-items: center; justify-content: center; width: var(--hd-mode-switch-cell-w); height: var(--hd-mode-switch-cell-h); padding: 0; border-radius: var(--hd-radius-full); }
+.track[data-size='mode'] .item:disabled { opacity: 1; }
+.track[data-size='mode'] .item[aria-pressed='true'] { background: var(--hd-background); color: var(--hd-foreground); box-shadow: var(--hd-shadow-sm); }

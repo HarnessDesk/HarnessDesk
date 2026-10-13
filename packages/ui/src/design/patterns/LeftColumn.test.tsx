@@ -45,7 +45,8 @@ test('the column top and seat bars meet without a separator hairline', () => {
 
 test('Settings keeps only the sidebar toggle in the column top row', () => {
   mount(<LeftColumnTop shown settings back goBack={() => {}} forward goForward={() => {}}
-    toggle={() => {}} search={<button aria-label="Search everything" />} />)
+    toggle={() => {}} search={<button aria-label="Search everything" />}
+    modeSwitch={{ value: 'editor', onChange: vi.fn(), disabled: false, disabledTitle: 'Unavailable' }} />)
   expect([...container.querySelectorAll('button')].map(one => one.getAttribute('aria-label'))).toEqual(['Hide sidebar'])
 })
 
@@ -121,4 +122,41 @@ test('keeps the trailing values out of the label’s space', () => {
   expect(sheet).toMatch(/\.button \[data-slot='sidebar-menu-label'\]\s*\{\s*padding-inline-end: var\(--hd-icon-target\);/)
   expect(sheet).toMatch(/\.trailing\s*\{[^}]*position: absolute;[^}]*width: var\(--hd-icon-target\);/)
   expect(sheet).toMatch(/\.row\s*\{[^}]*height: var\(--hd-left-row-h\);/)
+})
+
+
+test('the mode switch ends the top row and selects a mode without running history', () => {
+  const change = vi.fn(), back = vi.fn()
+  const draw = (value: 'conversation' | 'editor') => mount(<LeftColumnTop shown settings={false} back forward
+    toggle={() => {}} goBack={back} goForward={() => {}} search={<button aria-label="Search everything" />}
+    modeSwitch={{ value, onChange: change, disabled: false, disabledTitle: 'Unavailable' }} />)
+  draw('conversation')
+  expect([...container.querySelectorAll('button')].map(one => one.getAttribute('aria-label')))
+    .toEqual(['Hide sidebar', 'Search everything', 'Back', 'Forward', 'Conversation mode', 'Editor mode'])
+  expect(button('Conversation mode').getAttribute('aria-pressed')).toBe('true')
+  expect(button('Editor mode').getAttribute('aria-pressed')).toBe('false')
+  expect(button('Editor mode').getAttribute('aria-keyshortcuts')).toBe('Meta+G')
+  act(() => button('Editor mode').click())
+  expect(change).toHaveBeenCalledWith('editor')
+  expect(back).not.toHaveBeenCalled()
+  draw('editor')
+  expect(button('Editor mode').getAttribute('aria-pressed')).toBe('true')
+  act(() => button('Conversation mode').click())
+  expect(change).toHaveBeenLastCalledWith('conversation')
+})
+
+test('an unavailable mode switch keeps both controls and its whole-track explanation', () => {
+  const change = vi.fn(), title = "Editor mode opens a conversation's files"
+  mount(<LeftColumnTop shown settings={false} back={false} forward={false} toggle={() => {}} goBack={() => {}}
+    goForward={() => {}} search={null}
+    modeSwitch={{ value: 'conversation', onChange: change, disabled: true, disabledTitle: title }} />)
+  for (const name of ['Conversation mode', 'Editor mode']) {
+    const control = button(name)
+    expect(control).not.toBeNull()
+    expect(control.disabled).toBe(true)
+    expect(control.title).toBe(title)
+    act(() => control.click())
+  }
+  expect(container.querySelector('[data-mode-switch]')?.getAttribute('title')).toBe(title)
+  expect(change).not.toHaveBeenCalled()
 })

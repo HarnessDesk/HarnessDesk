@@ -1872,7 +1872,7 @@ test('screen appearance excludes the design system and its named specialized ren
   const files = [
     path.join(root, 'packages/ui/src/design/patterns/Role.module.css'),
     path.join(root, 'packages/ui/src/components/Markdown.module.css'),
-    path.join(root, 'packages/ui/src/components/Diff.module.css'),
+    path.join(root, 'packages/ui/src/editor/DiffView.module.css'),
   ]
   for (const file of files) {
     fs.mkdirSync(path.dirname(file), { recursive: true })
@@ -1998,7 +1998,7 @@ test('screen utility appearance excludes the design system, test files, and the 
     path.join(repoRoot, 'packages/ui/src/design/ui/button.tsx'),
     path.join(repoRoot, 'packages/ui/src/components/Example.test.tsx'),
     path.join(repoRoot, 'packages/ui/src/components/Markdown.tsx'),
-    path.join(repoRoot, 'packages/ui/src/components/Diff.tsx'),
+    path.join(repoRoot, 'packages/ui/src/editor/DiffView.tsx'),
     // The icon façade carries the same exemption the loose-icon rule gives it.
     path.join(repoRoot, 'packages/ui/src/components/Icons.tsx'),
   ]

@@ -1,3 +1,4 @@
+import { effectiveWindowMode } from '../editor'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { RuntimeMark } from './BrandIcons'
 
@@ -32,7 +33,7 @@ import { conditionFor } from '../lib/usage-alerts'
 import { isSilenced, offersMute, surfaceFor, wasKept, type NoticeIdentity, type NoticePolicy, type NoticeSurface } from '../lib/notice-policy'
 import { useShell, type ShellActions } from '../panels/views'
 import { useMount } from '../panels/mount'
-import { areaVisible, focusedComposerVisible, mainNoticeHost, noticeArea, visibleViews, type AreaId } from '../state/workbench'
+import { areaVisible, fixedSubject, focusedComposerVisible, mainNoticeHost, noticeArea, visibleViews, type AreaId } from '../state/workbench'
 import { findPane } from '../state/layout'
 import { useImportOffer } from './ImportOffer'
 
@@ -436,6 +437,13 @@ const composerVisible = (snapshot: AppSnapshot, area: AreaId, mountId: string): 
   if (area === 'main') {
     if (snapshot.layout.expanded !== null && snapshot.layout.expanded !== mountId) return false
     return noticeArea(workbench, snapshot.windowWidth) === 'main'
+  }
+  if (area === 'right' && effectiveWindowMode(snapshot.windowMode, workbench) === 'editor') {
+    const pane = findPane(workbench.main, workbench.main.focused)
+    const subject = fixedSubject(workbench.main), tool = subject ? workbench.frameTools[subject] : undefined
+    if (pane?.view.kind === 'conversation' && pane.view.session !== null && mountId === `conversation:${pane.id}`) {
+      return !workbench.right.collapsed && tool?.tool === 'conversation' && tool.open
+    }
   }
   const dock = workbench[area]
   return !dock.collapsed && visibleViews(dock).some((entry) => entry.id === mountId)

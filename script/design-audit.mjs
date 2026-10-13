@@ -2109,7 +2109,7 @@ const PATTERN_STEMS = new Set(['empty'])
  */
 const SCREEN_APPEARANCE_EXEMPTIONS = new Set([
   'components/Markdown.module.css',
-  'components/Diff.module.css',
+  'editor/DiffView.module.css',
 ])
 
 const screenAppearanceName = (file) => file.replaceAll('\\', '/').split('/packages/ui/src/').at(-1)

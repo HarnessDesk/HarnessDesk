@@ -1,5 +1,8 @@
+import { fileLink, filePathInRoot } from '../lib/file-link'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
+import { editorConversation } from '../editor'
+import { sanitizeText } from '../lib/sanitize'
 import { sessionUnavailable } from '../lib/session-unavailable'
 import { allItems, currentTurn, isBusy, isNoticeTurn, openingOfContent, type RuntimeId, type Session } from '@harnessdesk/protocol'
 
@@ -346,6 +349,7 @@ export const Conversation = ({
   header = true,
   composer = true,
   teamMenuOwner,
+  mainContent,
 }: {
   onChooseProject: () => void
   onSignIn: (runtime?: RuntimeId) => void
@@ -361,6 +365,8 @@ export const Conversation = ({
   composer?: boolean
   /** Selected member actions augment its Team bar, retaining the conversation scope. */
   teamMenuOwner?: string
+  /** Main can read files while this conversation continues owning its frame slots. */
+  mainContent?: ReactNode
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -459,8 +465,17 @@ export const Conversation = ({
   const onScrollClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     const element = scroll.current
     const link = (event.target as HTMLElement).closest?.('a[href]')
-    if (element && link && element.contains(link)) setPinned(false)
-  }, [])
+    if (element && link && element.contains(link)) {
+      setPinned(false)
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || !key || !session) return
+      const target = fileLink(link.getAttribute('href') ?? '')
+      const path = target && filePathInRoot(target.path, session.cwd)
+      if (path && target) {
+        event.preventDefault()
+        store.enterEditorFile(key, path, { view: 'source', line: target.line })
+      }
+    }
+  }, [store, key, session])
 
   // Layout effect so the jump happens in the same frame the content grows,
   // rather than as a visible lurch afterwards.
@@ -484,7 +499,7 @@ export const Conversation = ({
     observer.observe(element)
     if (transcriptContent.current) observer.observe(transcriptContent.current)
     return () => {observer.disconnect(); cancelAnimationFrame(frame)}
-  }, [items, pinned, session?.id])
+  }, [items, pinned, session?.id, Boolean(mainContent)])
 
   // Switching sessions always starts at the bottom of the new transcript.
   useEffect(() => {
@@ -514,9 +529,13 @@ export const Conversation = ({
     setPinned(true)
   }, [])
 
+  const activeFile = mainContent && key ? editorConversation(snapshot.editorState, `session:${key}`).active : null
+  const filePlace = activeFile && session?.cwd && activeFile.startsWith(`${session.cwd}/`)
+    ? activeFile.slice(session.cwd.length + 1) : activeFile
   useTopBar(pane?.paneId ?? '', {
     lead: sidebarPlacement(snapshot) !== 'column' ? <WindowControls /> : undefined,
-    place: <HeaderTitle session={session} />,
+    place: filePlace ? sanitizeText(filePlace) : <HeaderTitle session={session} />,
+    parent: filePlace ? { label: titleOf(session), run: () => store.setWindowMode('conversation') } : undefined,
     state: session && !sessionCannotRun ? <Chip tone={STATUS_PILL_TONE[status]}>{STATUS_LABEL[status]}</Chip> : undefined,
     tools: <WorkTools draft={!session} />,
     terminal: true,
@@ -532,6 +551,7 @@ export const Conversation = ({
       {(header || teamMenuOwner) && session && <ConversationMenu owner={teamMenuOwner} folderActions={teamMenuOwner
         ? close => pane && <PaneProvider scope={pane}><GitControl menu menuClose={close} onCreateBranch={setCreatingBranchRoot} onRemoveWorktree={() => setRemovingWorktree(true)} onBringHome={() => setBringingHome(true)} /></PaneProvider> : undefined} />}
 
+      {mainContent ?? <>
       <div className={styles.body}>
         {/* Beside the transcript, not in it: the rail is a picture of the
             scroller and must not scroll with what it pictures. */}
@@ -669,6 +689,7 @@ export const Conversation = ({
           <Composer onChooseProject={onChooseProject} />
         )}
       </ComposerDock>
+      </>}
       {removingWorktree && worktree && (
         <RemoveWorktree worktree={worktree} onClose={() => setRemovingWorktree(false)} />
       )}

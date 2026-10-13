@@ -38,7 +38,7 @@ import { useActiveSession, usePane, useSnapshot, useStore } from '../state/conte
 import { useMount } from '../panels/mount'
 import { ActionError, Alert, Badge, Card, CardContent, ChangeStats, Chip, CodeText, Dialog, DisclosureChevron, Dot, EmptyState, FileState, KeyValue, ListRowDetail, ToolPaneBar, ToolPaneBody, KeyValueRow, Note, PatchHeader, Popover, PopoverGroupLabel, ResizeHandle, Separator, TableHeader, Text, ToolbarGap } from '../design'
 import { Button, buttonVariants, Input, NativeSelect, RefusedAction, Search, Segmented, Switch } from '../design'
-import { DiffView } from './Diff'
+import { DiffView } from '../editor'
 import {
   AgentIcon,
   BranchIcon,

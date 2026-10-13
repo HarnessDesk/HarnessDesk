@@ -19,6 +19,7 @@ export interface EditorPrefs {
   readonly lineHeight: number
   readonly lineNumbers: boolean
   readonly wrap: boolean
+  readonly minimap: boolean
   readonly tabSize: number
 }
 
@@ -28,6 +29,7 @@ export const DEFAULT_EDITOR_PREFS: EditorPrefs = {
   lineHeight: 1.55,
   lineNumbers: true,
   wrap: false,
+  minimap: false,
   tabSize: 2,
 }
 
@@ -89,6 +91,7 @@ export const readEditorPrefs = (raw: unknown): EditorPrefs => {
     lineHeight: clamp(source.lineHeight, 1.1, 2.4, DEFAULT_EDITOR_PREFS.lineHeight),
     lineNumbers: typeof source.lineNumbers === 'boolean' ? source.lineNumbers : DEFAULT_EDITOR_PREFS.lineNumbers,
     wrap: typeof source.wrap === 'boolean' ? source.wrap : DEFAULT_EDITOR_PREFS.wrap,
+    minimap: typeof source.minimap === 'boolean' ? source.minimap : DEFAULT_EDITOR_PREFS.minimap,
     // Anything else would indent with a width no formatter agrees with.
     tabSize: TAB_SIZES.includes(source.tabSize as (typeof TAB_SIZES)[number])
       ? (source.tabSize as number)
