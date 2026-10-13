@@ -1,0 +1,6 @@
+{
+  "compilerOptions": {
+    "baseUrl": "../..",
+    "paths": { "@playwright/test": ["script/ui-impact/test.ts"] }
+  }
+}

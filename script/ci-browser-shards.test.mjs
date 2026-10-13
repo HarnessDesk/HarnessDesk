@@ -24,7 +24,7 @@ test('browser CI sizes its shards to the work, up to sixteen, with time for setu
   assert.match(browser, /^      UI_SYSTEM_SPECS: \$\{\{ needs.changes.outputs.browser_specs \}\}$/m)
   assert.match(browser, /^          mapfile -t specs < <\(node script\/ci-browser-shards\.mjs \$\{\{ matrix\.shard \}\}\/\$\{\{ needs\.changes\.outputs\.shard_count \}\}\)$/m)
   assert.match(browser, /^          test "\$\{#specs\[@\]\}" -gt 0$/m)
-  assert.match(browser, /^          pnpm test:ui-system "\$\{specs\[@\]\}"$/m)
+  assert.match(browser, /^            pnpm test:ui-system "\$\{specs\[@\]\}"$/m)
   assert.doesNotMatch(browser, /--shard=/)
   assert.match(browser, /^      fail-fast: false$/m)
 })
@@ -57,6 +57,7 @@ for (const [name, artifact, path] of [
 ]) {
   test(`${name} uploads only failed or cancelled diagnostics for three days`, () => {
     const uploads = [...job(name).matchAll(/      - uses: actions\/upload-artifact@\S+\n([\s\S]*?)(?=^      -|$(?![\s\S]))/gm)]
+      .filter(([, body]) => body.includes('-report'))
     assert.equal(uploads.length, 1)
     const upload = uploads[0][1]
     assert.match(upload, /^        if: failure\(\) \|\| cancelled\(\)$/m)
@@ -71,7 +72,8 @@ test('unsigned packaging proves the app builds without retaining an unused bundl
   assert.match(packaging, /name: Build app bundle/)
   assert.match(packaging, /electron-builder --mac dir/)
   assert.doesNotMatch(packaging, /actions\/upload-artifact@|HarnessDesk-unsigned/)
-  assert.equal([...workflow.matchAll(/uses: actions\/upload-artifact@/g)].length, 3)
+  // Diagnostics of the three heavy jobs, and the two that carry a full run's records to the map.
+  assert.equal([...workflow.matchAll(/uses: actions\/upload-artifact@/g)].length, 5)
 })
 
 // Execute the workflow's actual shell, so the required checks cannot report
@@ -218,4 +220,40 @@ test('changes compares the merge to its first parent and falls back on failed di
 test('only main pushes trigger CI; tags keep their original release path', () => {
   assert.match(workflow, /^    branches: \[main\]$/m)
   assert.doesNotMatch(workflow, /^    tags:/m)
+})
+
+test('a full run records what each spec ran, and only a pull request that runs part of the suite does not', () => {
+  const changes = job('changes')
+  assert.ok(changes.includes('      record: ${{ steps.paths.outputs.record }}'))
+  const browser = job('ui-system-browser')
+  assert.ok(browser.includes('RECORD: ${{ needs.changes.outputs.record }}'))
+  assert.match(browser, /^          if \[ "\$RECORD" = "true" \]; then\n            mkdir -p output\/ui-impact\n            UI_IMPACT_DIR="\$PWD\/output\/ui-impact" pnpm test:ui-system --tsconfig script\/ui-impact\/tsconfig\.json "\$\{specs\[@\]\}"$/m)
+  // The tests each spec has are listed beside the records, so a partial record is told from a complete one.
+  assert.match(browser, /pnpm --silent test:ui-system --list --reporter=json "\$\{specs\[@\]\}" > "output\/ui-impact\/expected-\$UI_IMPACT_SHARD\.json"/)
+  assert.match(browser, /- uses: actions\/upload-artifact@\S+\n        if: success\(\) && needs\.changes\.outputs\.record == 'true'\n        with:\n          name: ui-impact-\$\{\{ matrix\.shard \}\}\n          path: output\/ui-impact\//)
+})
+
+test('the map is made from a clean full run, kept only by main, and read by a pull request from the newest one', () => {
+  const map = job('ui-impact-map')
+  assert.match(map, /^    needs: \[changes, ui-system-browser\]$/m)
+  assert.match(map, /^    if: needs\.changes\.outputs\.record == 'true' && needs\.ui-system-browser\.result == 'success'$/m)
+  assert.match(map, /pattern: ui-impact-\*\n          path: impact-records\n          merge-multiple: true/)
+  assert.match(map, /node script\/ui-impact\.mjs merge impact-records --commit "\$GITHUB_SHA" --out ui-impact-map\.json/)
+  assert.match(map, /id: map\n        continue-on-error: true/)
+  assert.match(map, /actions\/cache\/save@\S+\n        if: steps\.map\.outcome == 'success' && github\.ref == 'refs\/heads\/main'\n        with:\n          path: ui-impact-map\.json\n          key: ui-impact-map-\$\{\{ github\.sha \}\}/)
+  const changes = job('changes')
+  assert.match(changes, /if: github\.event_name == 'pull_request'\n        uses: actions\/cache\/restore@\S+\n        with:\n          path: ui-impact-map\.json\n          key: ui-impact-map-none\n          restore-keys: ui-impact-map-\n/)
+  assert.ok(changes.includes('UI_IMPACT_MAP: ui-impact-map.json'))
+  // The map job concludes nothing the merge depends on: neither aggregate waits for it.
+  assert.doesNotMatch(job('ui-system-browser-integration'), /ui-impact-map/)
+  assert.doesNotMatch(job('verify'), /ui-impact-map/)
+})
+
+test('a pull request runs the unit tests that depend on its change, and every other run runs them all', () => {
+  const tests = job('ui-tests')
+  assert.match(tests, /node script\/ci-unit-tests\.mjs "\$list"/)
+  assert.match(tests, /git diff --no-renames --name-only -z HEAD\^1 HEAD > "\$list"/)
+  // Each command is a step of its own, so the gate that holds `pnpm verify` and CI to the same commands finds the whole run.
+  assert.match(tests, /- name: UI tests\n        if: steps\.unit\.outputs\.mode == 'all'\n        run: pnpm --filter @harnessdesk\/ui run test\n/)
+  assert.match(tests, /if: steps\.unit\.outputs\.mode == 'related'\n        env:\n          UNIT_FILES: \$\{\{ steps\.unit\.outputs\.files \}\}\n        run: pnpm --filter @harnessdesk\/ui exec vitest related --run \$UNIT_FILES\n/)
 })
