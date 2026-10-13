@@ -26,7 +26,8 @@ for (const theme of ['light', 'dark'] as const) {
         }
         return { top: rect(top), search: rect(search), bell: rect(bell),
           unread: rect(bell.querySelector('[data-slot="inbox-dot"]')!),
-          controls: [...top.querySelectorAll('button')].filter(button => button.getClientRects().length > 0).map(rect),
+          controls: [...top.querySelectorAll('button')].filter(button => button.getClientRects().length > 0).map(button => ({ ...rect(button), mode: Boolean(button.closest('[data-mode-switch]')) })),
+          modeCell: { width: parseFloat(getComputedStyle(top).getPropertyValue('--hd-mode-switch-cell-w')), height: parseFloat(getComputedStyle(top).getPropertyValue('--hd-mode-switch-cell-h')) },
           draggable: getComputedStyle(top).getPropertyValue('-webkit-app-region'),
           noDrag: Boolean(search.closest('.hd-no-drag') && bell.closest('.hd-no-drag')),
           bellInFooter: node.querySelector('[data-region="sidebar-footer"]')!.contains(bell) }
@@ -37,10 +38,13 @@ for (const theme of ['light', 'dark'] as const) {
       expect(measured.unread.width).toBeGreaterThan(0)
       expect(measured.unread.width).toBe(measured.unread.height)
       expect(measured.bell.top).toBeGreaterThan(measured.search.bottom)
+      expect(measured.controls.filter(control => control.mode)).toHaveLength(2)
       for (const control of measured.controls) {
-        expect(control.width).toBe(FRAME.bar.iconButton)
-        expect(control.height).toBe(FRAME.bar.iconButton)
-        expect(control.top).toBe(measured.search.top)
+        expect(control.width).toBe(control.mode ? measured.modeCell.width : FRAME.bar.iconButton)
+        expect(control.height).toBe(control.mode ? measured.modeCell.height : FRAME.bar.iconButton)
+        expect(control.top + control.height / 2).toBe(measured.search.top + measured.search.height / 2)
+        expect(control.left).toBeGreaterThanOrEqual(measured.top.left)
+        expect(control.right).toBeLessThanOrEqual(measured.top.right)
       }
       expect(measured.draggable).toBe('drag')
       expect(measured.noDrag).toBe(true)
