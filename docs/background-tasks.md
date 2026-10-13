@@ -9,23 +9,20 @@ test run, a server it wants logs from later. That work does not end when the
 turn ends, which means it is not a transcript row: by the time it finishes,
 the row that started it has scrolled off the top of the conversation.
 
-So HarnessDesk keeps it beside the conversation rather than inside it. It is
-a **panel** — the fifth inspector, summoned from the conversation's ⋯ menu,
-⌘K (*Show background tasks*), or `/tasks`, and docked to the right like
-Changes — with one card per task: the sentence the agent named it with, the
-kind and state in words, a clock, a stop button while it runs, and then the
+Background tasks appear under **Background work** in **Activity**. Open Activity
+from the conversation's toolbar, choose *Show Activity* in ⌘K, or type `/tasks`.
+Activity's button shows an indicator while any task runs. There is one card per
+task: the sentence the agent named it with, the kind and state in words, a
+clock, a stop button while it runs, and then the
 command under a prompt mark (`$`) and **what it printed**, scrollable, staying
 there after the turn. Running work is listed first; **Clear** forgets the
-finished. While anything is listed the conversation's header wears a chip —
-green with a turning mark while something runs, a quiet count once everything
-has ended — and pressing it opens the panel.
+finished.
 
 The first build put this in a strip above the composer, beside the queue and
 the goal. A strip has room for a label, a clock and a stop button, and none for
-the one thing a person opens the registry for: the output. Claude Code's own
-desktop app draws it as a panel holding the command and its output, and that is
-the shape a comparison on the same turn showed to be right — see "Why a panel"
-below.
+the one thing a person opens the registry for: the output. A panel has room for
+the command and its output, and keeps them available after the turn — see
+"Why a panel" below.
 
 Two of the four agents have this concept, they implement it completely
 differently, and the other two do not have it at all. All three of those are
@@ -35,9 +32,9 @@ first-class outcomes here.
 
 | You do | What happens |
 | --- | --- |
-| The agent backgrounds a command | A green chip appears in the conversation header; the panel, if open, gains a card with the description, the command, and a running clock ✓ |
-| Something is running and the panel is not in front | A green dot appears on the ⋯ menu's *Background tasks* item, on the dock's tab, and on the conversation's row in the sidebar — every door to the panel, from one `live` predicate the view declares ✓ |
-| You press the chip, choose ⋯ → Background tasks, press ⌘K, or type `/tasks` | The panel opens beside the conversation ✓ |
+| The agent backgrounds a command | Activity's button shows an indicator; Background work, if open, gains a card with the description, the command, and a running clock |
+| Something is running and Activity is not in front | Activity's button keeps its indicator while any task runs |
+| You open Activity from the conversation's toolbar, choose Show Activity in ⌘K, or type `/tasks` | Activity opens beside the conversation, with the tasks under Background work |
 | You open a conversation with a job already running | The list is read on open, not waited for ✓ |
 | A task ends while you are doing nothing | The card moves to *Completed* when it ends, not when you next type, and its output appears beneath the command ✓ |
 | The task printed more than 64 KB | The card shows the tail, and notes that it is showing the end of a longer log ✓ |
@@ -47,7 +44,7 @@ first-class outcomes here.
 | Press Stop on a task that already ended | An info notice says *"That task had already finished."* and the list refreshes — no error ✓ |
 | Press **Clear** | Finished cards are removed. **Running work keeps running** ✓ |
 | Reload the window | Running work is restored from the host's sync state ✓ |
-| Use an agent without the concept | No header chip appears; the panel opens to an honest empty state saying the agent keeps no such list ✓ |
+| Use an agent without the concept | Background work shows an honest empty state saying the agent keeps no such list ✓ |
 
 ✓ marks what has been driven end to end against the real binaries, or against
 the repository's fake Claude Code playing the observed wire shapes.
@@ -143,8 +140,8 @@ Codex tracks live background terminal processes in its app-server.
 Neither Cursor nor DeepSeek Harness keeps a registry of work that outlives a
 turn.
 
-Both report the capability as false, and neither shows a header chip. When you
-open the panel on one of their conversations, it displays an honest empty
+Both report the capability as false. When you open Background work on one of
+their conversations, it displays an honest empty
 state: *Nothing to list — [Agent] keeps no list of work that outlives a turn.*
 It does not draw an empty list or say "0 running", which would falsely imply that
 background tasks were kept but lost.
@@ -173,19 +170,16 @@ Worse, a strip had no room for the output — a growing list would push the
 composer off the screen, so finished work hid behind a count, and what a
 finished task printed had nowhere to go but a notice in the transcript.
 
-Recorded against Claude Code's desktop app on the same scripted turn, the
-difference was plain: its Background tasks is a side panel, one card per task
-with "Bash · Completed", the command, and the output scrollable beneath, and it
-stays after the turn. So the registry moved to where the other inspectors
-already live. The dock keeps two strips — the jobs strip, bare text that
+A panel has room for the command and its output, and keeps them available after
+the turn. So the registry moved to where the other inspectors already live.
+The dock keeps two strips — the jobs strip, bare text that
 leaves with the turn, and the queue, a card of your own words — and they no
 longer need a paragraph to tell apart. What the panel kept from the strip: the
 stop on every running row, the clock, **Clear** that never touches running
-work, and the green, now on the header chip and the card's turning mark, for a
-process that is up.
+work. Activity's button shows when any task runs, and each card carries its own
+status mark.
 
-The panel says the kind as a noun — *Shell*, *Agent* — and never as the wire
-name Claude's app prints (*Bash*), because this app's rule is that a tool's
+The panel says the kind as a noun — *Shell*, *Agent* — because a tool's
 wire name appears only where a rule is written against it.
 
 ## Where the code is
@@ -207,14 +201,15 @@ wire name appears only where a rule is written against it.
   and clearing tasks.
 - `packages/server/src/host.ts` and `packages/server/src/registry.ts` — held
   session tasks and sync state across window reloads.
-- `packages/ui/src/components/BackgroundTasks.tsx` — the inspector panel,
+- `packages/ui/src/components/BackgroundTasks.tsx` — the Background work cards,
   `TaskCard`, output notes, and empty states.
 - `packages/ui/src/lib/tasks.ts` — task formatting, kind and state words,
   duration formatting, and tooltip assembly.
-- `packages/ui/src/components/Conversation.tsx` — header chip (`TasksChip`) and
-  menu integration.
-- `packages/ui/src/panels/builtins.tsx` — view registration and `live`
-  indicator predicate.
+- `packages/ui/src/components/WorkToolContents.tsx` — Background work in Activity.
+- `packages/ui/src/panels/WorkTools.tsx` — the Activity button and its running-work
+  indicator.
+- `packages/ui/src/state/frame-tools.ts` — routes `/tasks` to Activity.
+- `packages/ui/src/panels/builtins.tsx` — view and slash-command registration.
 
 ## What was verified, and what was not
 

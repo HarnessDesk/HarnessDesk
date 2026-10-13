@@ -202,7 +202,7 @@ export const COMMANDS = [
     usage: 'run wait <run> [--timeout SECONDS]',
     description: 'Waits for a run to end, without polling, and says how it ended in its exit code. A run that has already ended answers at once. A run that is waiting for you, on a person card or a question from one of its seats, also ends the wait.',
     arguments: [RUN_ARGUMENT],
-    options: [{ flag: '--timeout', value: 'SECONDS', description: 'Give up after this many seconds, counted from when the command starts, and exit 8. Any finite number from 0 up; leave it out to wait without a deadline.' }],
+    options: [{ flag: '--timeout', value: 'SECONDS', description: 'Give up after this many seconds, counted from when the command starts, and exit 8. Accepts finite numbers from 0 through 2147483.647; leave it out to wait without a deadline.' }],
     json: '`{ "run": "<run id>", "state": "<state>", "reason": "<reason>" }`. `state` is `null` when the timeout or a signal came before the desk had answered, and `reason` is `null` when the run has none.',
     exits: {
       0: 'The run settled.',
@@ -268,7 +268,7 @@ export const COMMANDS = [
   {
     name: 'card abandon', tier: 'run', action: 'abandon', methods: ['goal/read', 'flow/executions', 'flow/execution', 'team/intent'], flags: ['team', 'card', 'reason', 'yes'], execute: abandonCard,
     usage: 'card abandon <team> <card> --reason TEXT [--yes]',
-    description: "Abandons a card, though the rule after its role still fires. That rule may open the next role's card: before it asks, the command says which role that would be, and points to `run stop` as the way to end the work instead. On a terminal it asks `Abandon this card? [y/N]`; `--yes` answers for you, and is needed when there is no terminal.",
+    description: "Abandons a card. Once every card in the round has finished, the run follows the first matching rule. If no rule matches, the run ends without opening another role. Before it asks, the command lists possible next roles and points to `run stop` as the way to end the work instead. On a terminal it asks `Abandon this card? [y/N]`; `--yes` answers for you, and is needed when there is no terminal.",
     arguments: [TEAM_ARGUMENT, CARD_ARGUMENT],
     options: [{ flag: '--reason', value: 'TEXT', description: 'Why the card is abandoned. Required, and recorded with the card.' }, YES_OPTION],
     json: '`{ "role": "<the abandoned card\'s role>", "nextRole": "<the role that opened next>" }`; either is `null` when there is none.',
@@ -981,7 +981,7 @@ async function abandonCard(args: Arguments): Promise<number> {
     const execution = executions.find(run => run.rounds.some(round => round.cards.includes(card.id)))
     const rules = execution?.document.flow.rules.filter(rule => rule.on === card.role) ?? []
     const targets = rules.map(rule => `${rule.then.role}${rule.when ? ' (if its conditions match)' : ''}`)
-    const message = `Abandoning ${card.role ?? 'this role'} still fires the rule after the role. ${targets.length ? `Next role: ${targets.join(', ')}; the first matching rule opens it.` : 'No next role is declared.'} To end the work, use run stop${execution ? ` ${execution.id}` : ' <run>'} --reason TEXT.`
+    const message = `Abandoning ${card.role ?? 'this role'} finishes this card. Once every card in the round has finished, the run follows the first matching rule after the role. If no rule matches, the run ends without opening another role. ${targets.length ? `Possible next roles: ${targets.join(', ')}.` : 'No next role is declared.'} To end the work, use run stop${execution ? ` ${execution.id}` : ' <run>'} --reason TEXT.`
     process.stderr.write(sanitizeHuman(message) + '\n')
     if (!await confirmAction(args, 'Abandon this card? [y/N] ')) return 4
     const result = await client.call('team/intent', { room: args.team!, id: Number(args.card), action: 'abandon', reason: args.reason! })
