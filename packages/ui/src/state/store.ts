@@ -1,9 +1,10 @@
+import { effectiveWindowMode } from '../editor'
 import { destinationOf, leaveSettingsDestination, sameDestination, visitDestination, stepDestination, type PageDestination, type WorkView, type DestinationHistory } from './destinations'
 import { FRAME } from '../design/frame'
 import { terminalCwdForSnapshot } from '../lib/terminal-scope'
 import { type TeamChatLayout, type TeamFramePage } from './layout'
 import { replaceTeamPayload } from './workbench'
-import { fixedToolRefusal, forgetFrameSubject, supportsFixedTool, admitFixedTool, chooseTool, toolOf, revealFixedTool, type WorkTool } from './frame-tools'
+import { settleConversationTool, conversationToolContext, fixedToolRefusal, forgetFrameSubject, supportsFixedTool, admitFixedTool, chooseTool, toolOf, revealFixedTool, type WorkTool } from './frame-tools'
 import { activeView, fixedSubject, normalizeFixedWorkbench } from './workbench'
 import { readTeamsPrefs, teamListRow } from '../lib/teams-list'
 import { teamsInput } from '../lib/teams-snapshot'
@@ -3749,7 +3750,7 @@ export class AppStore {
    * open something.
    */
   openDefaultView(view: PaneView): void {
-    if (toolOf(view.kind) || view.kind === 'board' || view.kind === 'run-steps') { this.showViewIn('right', view); return }
+    if ((view.kind !== 'conversation' && toolOf(view.kind)) || view.kind === 'board' || view.kind === 'run-steps') { this.showViewIn('right', view); return }
     if (view.kind === 'terminal') { this.showViewIn('bottom', view); return }
     const area = defaultArea(view)
     if (area) {
@@ -4202,7 +4203,8 @@ export class AppStore {
         )
       : null
     const migration = rehomed ? normalizeFixedWorkbench(rehomed, true) : null
-    const workbench = migration ? settleWorkbench(migration.workbench) : emptyWorkbench()
+    const restored = migration ? settleWorkbench(migration.workbench) : emptyWorkbench()
+    const workbench = settleConversationTool(restored, effectiveWindowMode(this.#snapshot.windowMode, restored) === 'editor', true)
     // Persisting what was just read back would be a no-op write; set directly.
     this.#patch({
       workbench,
@@ -4241,6 +4243,12 @@ export class AppStore {
     const subject = this.workSubject()
     if (!subject) return
     const before = this.#snapshot.workbench
+    if (tool === 'conversation') {
+      const pane = findPane(before.main, before.main.focused)!
+      const next = admitFixedTool(before, pane.view, toggle, conversationToolContext(before, effectiveWindowMode(this.#snapshot.windowMode, before) === 'editor'))
+      if (next) this.#setWorkbench(next)
+      return
+    }
     const intent = chooseTool(before.frameTools[subject], tool, mode, toggle)
     if (intent.open && mode === tool && (tool === 'changes' || tool === 'activity')
       && !dockViews(before.right).some(one => before.toolOwners[one.id] === subject && one.view.kind === tool)) {
@@ -4276,12 +4284,12 @@ export class AppStore {
       else this.resultNotice('warning', 'Open a Team to view its Run Timeline.')
       return
     }
-    if (toolOf(view.kind)) {
+    if (toolOf(view.kind) && (view.kind !== 'conversation' || area !== 'main')) {
       if (view.kind === 'plugin' && !supportsFixedTool(view, this.#snapshot.contributions)) {
         this.resultNotice('warning', 'This plugin panel does not support the fixed right panel.')
         return
       }
-      const next = admitFixedTool(this.#snapshot.workbench, view)
+      const next = admitFixedTool(this.#snapshot.workbench, view, false, conversationToolContext(this.#snapshot.workbench, effectiveWindowMode(this.#snapshot.windowMode, this.#snapshot.workbench) === 'editor'))
       if (!next) { this.resultNotice('warning', 'Open a conversation or Team before opening this tool.'); return }
       this.#setWorkbench(next)
       return
@@ -7979,6 +7987,10 @@ export class AppStore {
    */
   #patch(patch: Partial<AppSnapshot>): void {
     const next = { ...this.#snapshot, ...patch }
+    if (patch.windowMode !== undefined || patch.workbench !== undefined) {
+      next.workbench = settleConversationTool(next.workbench, effectiveWindowMode(next.windowMode, next.workbench) === 'editor')
+      next.detailsTab = visibleInspector(next.workbench)
+    }
     // Whether the sidebar can have a column follows the window and the docks,
     // so it is settled here, where both change, rather than by each caller —
     // and again below if this method rewrites the workbench itself.
@@ -7989,7 +8001,7 @@ export class AppStore {
         next.sidebarFloating = false
       }
     }
-    if (patch.windowWidth !== undefined || patch.workbench !== undefined) settleNarrow()
+    if (patch.windowWidth !== undefined || next.workbench !== this.#snapshot.workbench) settleNarrow()
     // The focused conversation: the focused pane's, or — when a tool pane has
     // focus — the conversation it belongs to, so the composer's commands and
     // the details column stay on the work the tool was opened for.

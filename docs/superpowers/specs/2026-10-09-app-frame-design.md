@@ -154,7 +154,7 @@ Approved by the owner: the frame is fixed rather than freely arranged.
 There is no status-bar region or reserved height: seat and main reach the
 window's bottom (owner, 2026-10-10).
 
-- **The right panel's tools are a fixed set of four icons** — Details,
+- **The right panel's tools are a fixed set of four icons, with Conversation first as a fifth in Editor mode only** (the [Editor mode decision](2026-10-10-editor-mode-design.md#the-right-panel)) — Details,
   Changes, Activity, Browser — then the panel toggle, then ⋯, at the end of
   the top bar, standing over the panel's column while it is open. Pressing one
   opens the panel on that tool; pressing the lit one closes it. No tool opens
@@ -342,7 +342,7 @@ panel at all: it is the Run tab's Timeline in main — steps taken, then not
 reached, with identical rounds folded into one row — and the View menu's Flow
 layout draws the same steps as a graph. A file, an image preview, the
 repository's history and plugin panels are placed by step 2's inventory, each
-into a tool or a page; none adds a fifth icon without a decision here.
+into a tool or a page; the [Editor mode decision](2026-10-10-editor-mode-design.md#the-right-panel) adds Conversation as a fifth icon in Editor mode only.
 
 **What the Team bar held, and where it went:**
 

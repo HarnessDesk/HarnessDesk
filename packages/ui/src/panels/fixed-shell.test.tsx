@@ -1,8 +1,8 @@
-import { splitSessionKey, type CapabilityContribution } from '@harnessdesk/protocol'
+import { splitSessionKey, type Approval, type CapabilityContribution } from '@harnessdesk/protocol'
 import { AppStore } from '../state/store'
 import { ToolBody, ToolSection, DestinationBody } from '../design'
 import { DestinationBar, DestinationPageScope } from './destination-page'
-import { useSessionKey, useIsFocusedPane } from '../state/context'
+import { useSessionKey, useIsFocusedPane, PaneProvider } from '../state/context'
 import { publishComponent } from '../slots/registry'
 import { sideBySideStore, SIDE_BY_SIDE_KEYS } from '../preview/side-by-side-fixture'
 import { PREVIEW_ROOM } from '../preview/harness'
@@ -790,4 +790,106 @@ it('folderless pages hide the terminal without changing its shells or saved heig
   expect(shell.dataset.bottomOpen).toBe('true')
   expect(container.querySelector('[data-terminal-id]')).toBe(terminal)
   expect(store.getSnapshot().workbench.bottom).toBe(before.bottom)
+})
+
+it('Editor has one scoped right Conversation composer and retains main chrome without duplicate approvals', async () => {
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { queueMicrotask(() => callback(0)); return 1 })
+  const { frameDestinationStore } = await import('../preview/frame-destination-store')
+  const store = frameDestinationStore(previewStore())
+  store.showViewIn('main', { kind: 'conversation', session: PREVIEW_SESSION_KEY })
+  store.chooseWorkTool('activity'); store.toggleWorkPanel()
+  await act(async () => root.render(<StoreProvider store={store}><Workbench sidebar={<div />} /></StoreProvider>))
+  await act(async () => store.setWindowMode('editor'))
+  expect([...container.querySelectorAll('[data-work-tool]')].map(one => one.getAttribute('data-work-tool'))).toEqual(['conversation', 'details', 'changes', 'activity', 'browser'])
+  expect(container.querySelector('[data-work-tool="conversation"]')?.getAttribute('aria-pressed')).toBe('true')
+  const main = container.querySelector('[data-frame-region="main"]')!, right = container.querySelector('[data-frame-region="right"]')!
+  expect(main.querySelector('[data-slot="composer"]')).toBeNull()
+  expect(main.querySelector('[data-live-transcript]')).toBeNull()
+  expect(right.querySelectorAll('[data-slot="composer"]')).toHaveLength(1)
+  expect(right.querySelectorAll('[data-live-transcript]')).toHaveLength(1)
+  expect(container.querySelectorAll('[data-slot="composer"]')).toHaveLength(1)
+  const textarea = right.querySelector<HTMLTextAreaElement>('textarea')!
+  await act(async () => window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: { text: 'Review the open file', replace: true } })))
+  expect(textarea.value).toBe('Review the open file')
+  expect(document.activeElement).toBe(textarea)
+  await act(async () => textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+  expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]?.open).toBe(false)
+  await act(async () => store.chooseWorkTool('conversation'))
+  await act(async () => store.chooseWorkTool('details'))
+  expect(right.querySelector('textarea')).toBe(textarea)
+  await act(async () => store.chooseWorkTool('conversation'))
+  expect(textarea.value).toBe('Review the open file')
+  await act(async () => store.setWindowMode('conversation'))
+  expect(container.querySelectorAll('[data-work-tool]')).toHaveLength(4)
+  expect(main.querySelectorAll('[data-slot="composer"]')).toHaveLength(1)
+  expect(main.querySelector<HTMLTextAreaElement>('textarea')!.value).toBe('Review the open file')
+  expect(right.querySelector('[data-slot="composer"]')).toBeNull()
+  expect(store.getSnapshot().workbench.frameTools[store.workSubject()!]).toEqual({ tool: 'activity', mode: 'activity', open: false })
+  Object.assign(store.getSnapshot(), { approvals: [{ key: PREVIEW_SESSION_KEY, approval: {
+    id: 'fixture-approval', sessionId: splitSessionKey(PREVIEW_SESSION_KEY).id, requestedAt: 1,
+    type: 'command', command: 'pwd', cwd: '/work/storefront', actions: [],
+    options: [{ id: 'yes', label: 'Run it', intent: 'approve' }, { id: 'no', label: 'Cancel', intent: 'deny' }],
+  } as unknown as Approval }] })
+  await act(async () => store.setWindowMode('editor'))
+  expect(document.querySelectorAll('[data-slot="approval-dialog-scope"]')).toHaveLength(1)
+  expect(right.querySelector('[data-slot="approval-dialog-scope"]')).toBeNull()
+})
+
+it('Editor routes session notices to the visible right composer and removes them while its tool is hidden', async () => {
+  vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue(new DOMRect(0, 0, 200, 100))
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { queueMicrotask(() => callback(0)); return 1 })
+  const { frameDestinationStore } = await import('../preview/frame-destination-store')
+  const store = frameDestinationStore(previewStore())
+  store.showViewIn('main', { kind: 'conversation', session: PREVIEW_SESSION_KEY })
+  const from = splitSessionKey(PREVIEW_SESSION_KEY)
+  Object.assign(store.getSnapshot(), { agentNotices: [{ id: 'fixture-question', from: { runtime: from.runtime, sessionId: from.id, name: 'File review' }, where: 'composer', title: 'Which checkout path should I update?', at: 1 }] })
+  store.setWindowMode('editor')
+  await act(async () => root.render(<StoreProvider store={store}><Workbench sidebar={<div />} /></StoreProvider>))
+  const right = container.querySelector('[data-frame-region="right"]')!
+  expect(right.querySelector('[data-slot="composer-notice"]')?.textContent ?? '').toContain('Which checkout path should I update?')
+  await act(async () => store.chooseWorkTool('details'))
+  expect(right.querySelector('[data-slot="composer-notice"]')).toBeNull()
+  await act(async () => store.chooseWorkTool('conversation'))
+  expect(right.querySelector('[data-slot="composer-notice"]')?.textContent ?? '').toContain('Which checkout path should I update?')
+})
+
+it('a Browser focused in Editor cannot strand compose events after the prior Details panel is restored', async () => {
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { queueMicrotask(() => callback(0)); return 1 })
+  const { frameDestinationStore } = await import('../preview/frame-destination-store')
+  const store = frameDestinationStore(previewStore())
+  store.showViewIn('main', { kind: 'conversation', session: PREVIEW_SESSION_KEY })
+  store.chooseWorkTool('details'); store.setWindowMode('editor')
+  await act(async () => root.render(<StoreProvider store={store}><Workbench sidebar={<div />} /></StoreProvider>))
+  await act(async () => store.openBrowser())
+  const browser = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser')!
+  await act(async () => store.focusView(browser.id))
+  await act(async () => store.setWindowMode('conversation'))
+  const textarea = container.querySelector<HTMLTextAreaElement>('[data-frame-region="main"] textarea')!
+  await act(async () => window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: { paneId: store.getSnapshot().layout.focused, text: 'Continue reviewing the checkout', replace: true } })))
+  expect(textarea.value).toBe('Continue reviewing the checkout')
+  expect(document.activeElement).toBe(textarea)
+})
+
+
+it('a retained Team Details pane receives keyboard scope when leaving a Browser-focused Editor', async () => {
+  vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { queueMicrotask(() => callback(0)); return 1 })
+  const { frameDestinationStore } = await import('../preview/frame-destination-store')
+  const store = frameDestinationStore(previewStore())
+  store.openTeamRoom(PREVIEW_ROOM); store.chooseWorkTool('details')
+  store.showViewIn('main', { kind: 'conversation', session: PREVIEW_SESSION_KEY })
+  store.chooseWorkTool('details'); store.setWindowMode('editor')
+  await act(async () => root.render(<StoreProvider store={store}><Workbench sidebar={<div />} /></StoreProvider>))
+  await act(async () => store.openBrowser())
+  const browser = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser')!
+  await act(async () => store.focusView(browser.id))
+  await act(async () => store.openTeamRoom(PREVIEW_ROOM))
+  const snapshot = store.getSnapshot(), pane = snapshot.layout.root
+  if (pane.kind !== 'pane') throw new Error('expected one Team destination')
+  const FocusProbe = () => <output data-team-keyboard-scope>{String(useIsFocusedPane())}</output>
+  await act(async () => root.render(<StoreProvider store={store}><Workbench sidebar={<div />} />
+    <PaneProvider scope={{ paneId: pane.id, view: pane.view, sessionKey: null }}><FocusProbe /></PaneProvider>
+  </StoreProvider>))
+  expect(container.querySelector(`[data-tool-mount="${browser.id}"]`)?.hasAttribute('data-hidden')).toBe(true)
+  expect(container.querySelector('[data-slot="work-tools"]')?.getAttribute('data-tool')).toBe('details')
+  expect(container.querySelector('[data-team-keyboard-scope]')?.textContent).toBe('true')
 })

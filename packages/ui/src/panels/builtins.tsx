@@ -93,13 +93,14 @@ const ConversationView = () => {
   return (
     <>
       <Conversation
+        header={mount?.area !== 'right'}
         mainContent={editor && key ? <EditorMain key={key} subject={`session:${key}`} runtime={session.runtime} root={session.cwd} /> : undefined}
         onChooseProject={shell.chooseProject}
         onSignIn={shell.signIn}
         onOpenUsage={shell.openUsage}
         onOpenRuntimes={shell.openRuntimes}
       />
-      <Approvals />
+      {mount?.area !== 'right' && <Approvals />}
     </>
   )
 }

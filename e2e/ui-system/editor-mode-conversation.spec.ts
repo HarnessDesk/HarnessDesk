@@ -1,0 +1,50 @@
+import { expect, test } from '@playwright/test'
+import { openFrame } from './frame-contract-helpers'
+
+for (const theme of ['light', 'dark'] as const) for (const width of [1440, 1100, 860]) {
+  test(`Editor Conversation is one panel-width body with a retained draft in ${theme} at ${width}`, async ({ page }, testInfo) => {
+    const errors: string[] = []
+    page.on('pageerror', error => errors.push(error.message))
+    await openFrame(page, 'frame-wall=conversation&frame-editor=source', theme, width)
+    const main = page.locator('[data-frame-region="main"]'), right = page.locator('[data-frame-region="right"]')
+    const tool = page.locator('[data-work-tool="conversation"]')
+    await expect(page.locator('[data-work-tool]')).toHaveCount(5)
+    expect(await page.locator('[data-work-tool]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-work-tool')))).toEqual(['conversation', 'details', 'changes', 'activity', 'browser'])
+    await expect(tool).toHaveAttribute('aria-pressed', 'true')
+    await expect(main.locator('[data-slot="editor-main"]')).toBeVisible()
+    await expect(main.locator('[data-live-transcript], [data-slot="composer"]')).toHaveCount(0)
+    await expect(right.locator('[data-live-transcript]')).toBeVisible()
+    await expect(page.locator('[data-slot="composer"]')).toHaveCount(1)
+    const textarea = right.locator('textarea')
+    await textarea.fill('Review the open checkout file')
+    const geometry = await right.evaluate(node => {
+      const panel = node.getBoundingClientRect(), transcript = node.querySelector('[data-live-transcript]')!.getBoundingClientRect(), composer = node.querySelector('[data-slot="composer"]')!.getBoundingClientRect()
+      return { width: panel.width, transcript: { left: transcript.left - panel.left, right: panel.right - transcript.right }, composer: { left: composer.left - panel.left, right: panel.right - composer.right, bottom: panel.bottom - composer.bottom }, overflow: node.scrollWidth > node.clientWidth }
+    })
+    expect(geometry.width).toBeGreaterThanOrEqual(320)
+    expect(geometry.width).toBeLessThanOrEqual(640)
+    expect(geometry.transcript.left).toBeGreaterThanOrEqual(0)
+    expect(geometry.transcript.right).toBeGreaterThanOrEqual(-1)
+    expect(geometry.composer.left).toBeGreaterThanOrEqual(0)
+    expect(geometry.composer.right).toBeGreaterThanOrEqual(-1)
+    expect(geometry.composer.bottom).toBeGreaterThanOrEqual(0)
+    expect(geometry.overflow).toBe(false)
+    await page.screenshot({ path: testInfo.outputPath(`conversation-${theme}-${width}.png`) })
+    await page.locator('[data-work-tool="details"]').click()
+    await expect(textarea).toBeHidden()
+    await tool.click()
+    await expect(textarea).toHaveValue('Review the open checkout file')
+    await expect(textarea).toBeVisible()
+    await textarea.focus(); await page.keyboard.press('Escape')
+    await expect(tool).toHaveAttribute('aria-pressed', 'false')
+    await expect(tool).toBeFocused()
+    await tool.click()
+    await page.locator('[data-topbar="place"] > button').click()
+    await expect(tool).toHaveCount(0)
+    await expect(page.locator('[data-work-tool]')).toHaveCount(4)
+    await expect(right.locator('[data-slot="composer"]')).toHaveCount(0)
+    await expect(main.locator('[data-slot="composer"]')).toBeVisible()
+    await expect(main.locator('textarea')).toHaveValue('Review the open checkout file')
+    expect(errors).toEqual([])
+  })
+}
