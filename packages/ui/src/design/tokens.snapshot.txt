@@ -207,6 +207,8 @@
 --hd-menu-row-h = 30px
 --hd-menu-row-radius = calc(10px - 6px)
 --hd-menu-search-h = 28px
+--hd-mode-switch-cell-h = 22px
+--hd-mode-switch-cell-w = 26px
 --hd-motion-rise = 4px
 --hd-motion-scale = 0.97
 --hd-muted = rgb(245, 245, 245)
@@ -760,6 +762,8 @@
 --hd-menu-row-h = 30px
 --hd-menu-row-radius = calc(10px - 6px)
 --hd-menu-search-h = 28px
+--hd-mode-switch-cell-h = 22px
+--hd-mode-switch-cell-w = 26px
 --hd-motion-rise = 4px
 --hd-motion-scale = 0.97
 --hd-muted = rgb(49, 49, 49)
@@ -1319,6 +1323,8 @@
 --hd-menu-row-h = 30px
 --hd-menu-row-radius = calc(10px - 6px)
 --hd-menu-search-h = 28px
+--hd-mode-switch-cell-h = 22px
+--hd-mode-switch-cell-w = 26px
 --hd-motion-rise = 4px
 --hd-motion-scale = 0.97
 --hd-muted = rgb(245, 245, 245)
@@ -1881,6 +1887,8 @@
 --hd-menu-row-h = 30px
 --hd-menu-row-radius = calc(10px - 6px)
 --hd-menu-search-h = 28px
+--hd-mode-switch-cell-h = 22px
+--hd-mode-switch-cell-w = 26px
 --hd-motion-rise = 4px
 --hd-motion-scale = 0.97
 --hd-muted = rgb(49, 49, 49)

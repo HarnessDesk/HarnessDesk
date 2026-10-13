@@ -3431,9 +3431,12 @@ export const LEFTCOLUMN_CATALOG_VARIANTS = ['light', 'dark'] as const
 export const LEFTCOLUMN_CATALOG_SIZES = ['default'] as const
 export const LEFTCOLUMN_CATALOG_STATES = ['default', 'selected', 'disabled', 'long-title'] as const
 
-export function LeftColumnBoard() { return <LeftColumn
+export function LeftColumnBoard() {
+  const [mode, setMode] = useState<'conversation' | 'editor'>('conversation')
+  return <LeftColumn
   top={<LeftColumnTop shown settings={false} back={false} forward={false} toggle={() => {}} goBack={() => {}} goForward={() => {}}
-    search={<Button variant="ghost" size="icon-sm" aria-label="Search everything"><SearchIcon size={16} /></Button>} />}
+    search={<Button variant="ghost" size="icon-sm" aria-label="Search everything"><SearchIcon size={16} /></Button>}
+    modeSwitch={{ value: mode, onChange: setMode, disabled: false, disabledTitle: "Editor mode opens a conversation's files" }} />}
   head={null} body={<LeftColumnBody>
   <LeftColumnRow label="Teams" icon={<TeamIcon size={16} />} onClick={() => {}} />
   <LeftColumnGroup label="Projects">

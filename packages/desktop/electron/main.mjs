@@ -583,6 +583,11 @@ const buildMenu = () => {
           click: () => sendShortcut('toggle-sidebar'),
         },
         {
+          label: 'Switch Conversation and Editor Mode',
+          accelerator: 'Cmd+G',
+          click: () => sendShortcut('toggle-editor-mode'),
+        },
+        {
           label: 'Show Changes',
           accelerator: 'Shift+Cmd+D',
           click: () => sendShortcut('show-changes'),

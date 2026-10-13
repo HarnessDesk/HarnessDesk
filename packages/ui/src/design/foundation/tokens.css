@@ -1245,6 +1245,9 @@ body {
      inside it is sized by subtracting this — see `--hd-seg-trim` in the Studio
      block and `.segItem` in Kit. */
   --hd-seg-pad: var(--hd-space-0-5);
+  /* The two icon cells in the window's Conversation / Editor mode track. */
+  --hd-mode-switch-cell-w: 26px;
+  --hd-mode-switch-cell-h: 22px;
   /*
    * How much the cell gives back to the track, per edge.
    *

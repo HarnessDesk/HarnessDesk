@@ -42,6 +42,7 @@ import { accountKey, accountName, accountIdentity, agentKey, runtimeLabel, tintO
 import { folderName, projectRootOf } from '../lib/projects'
 import { anyBroken, inForce } from '../lib/agents'
 import { livePlugins } from '../lib/plugins'
+import { effectiveWindowMode } from '../editor'
 import { brandOf } from '../lib/identity'
 import { profileName } from '../lib/profile'
 import { READINESS_LABEL, readinessOf, type Readiness } from '../lib/readiness'
@@ -147,6 +148,10 @@ export const Sidebar = ({
   const pluginCount = livePlugins(snapshot.plugins).length
   const top = <LeftColumnTop shown={sidebarPlacement(snapshot) !== 'away'}
     settings={Boolean(settings)}
+    modeSwitch={{ value: effectiveWindowMode(snapshot.windowMode, snapshot.workbench),
+      onChange: value => store.setWindowMode(value),
+      disabled: effectiveWindowMode('editor', snapshot.workbench) !== 'editor',
+      disabledTitle: "Editor mode opens a conversation's files" }}
     back={snapshot.navCanBack} forward={snapshot.navCanForward}
     toggle={() => store.toggleSidebar()} goBack={() => { void store.navigateBack() }}
     goForward={() => { void store.navigateForward() }}

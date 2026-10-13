@@ -8,7 +8,8 @@ import { SidebarMenuButton } from '../ui/sidebar'
 import { GroupLabel } from '../ui/group-label'
 import { DisclosureChevron } from '../ui/disclosure-chevron'
 import { Text, Search, Chip, NavigationGroupHeader } from './Settings'
-import { ArrowLeftIcon, ArrowRightIcon, MoreIcon, CrossIcon, PlusIcon, SettingsIcon, SidebarIcon } from '../../components/Icons'
+import { ArrowLeftIcon, ArrowRightIcon, MoreIcon, CrossIcon, PlusIcon, SettingsIcon, SidebarIcon, CommentIcon, EditorIcon } from '../../components/Icons'
+import { switcherTrack, switcherItem } from '../ui/switcher'
 import styles from './LeftColumn.module.css'
 
 export type LeftColumnTrail =
@@ -93,11 +94,19 @@ export interface LeftColumnTopProps {
   readonly goBack: () => void
   readonly goForward: () => void
   readonly search: ReactNode
+  readonly modeSwitch?: {
+    readonly value: 'conversation' | 'editor'
+    readonly onChange: (value: 'conversation' | 'editor') => void
+    readonly disabled: boolean
+    readonly disabledTitle: string
+  }
 }
 /**
  * The column's top controls share the window's edge row and keep the drag
  * region around every control. The row has no separator hairline beneath it;
- * the column's own spacing marks the transition to its brand row.
+ * the column's own spacing marks the transition to its brand row. The mode
+ * switch takes the reserved right edge, stays when history folds, and is
+ * absent in Settings. Its compact cells use the shared switcher appearance.
  */
 export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top className={styles.top}>
   <Bar corner className="hd-drag">
@@ -113,6 +122,18 @@ export const LeftColumnTop = (props: LeftColumnTopProps) => <div data-left-top c
           aria-label="Forward" title="Forward" onClick={props.goForward}><ArrowRightIcon size={16} /></Button>
       </span>}
     </div>
+    {!props.settings && props.modeSwitch && <div data-mode-switch data-size="mode" role="group" aria-label="Window mode"
+      aria-disabled={props.modeSwitch.disabled} title={props.modeSwitch.disabled ? props.modeSwitch.disabledTitle : undefined}
+      className={`${switcherTrack} hd-no-drag`}>
+      <Button variant="ghost" size="pattern" data-stretched className={switcherItem}
+        aria-label="Conversation mode" aria-pressed={props.modeSwitch.value === 'conversation'} aria-keyshortcuts="Meta+G"
+        disabled={props.modeSwitch.disabled} title={props.modeSwitch.disabled ? props.modeSwitch.disabledTitle : 'Conversation mode (⌘G)'}
+        onClick={() => props.modeSwitch?.onChange('conversation')}><CommentIcon size={14} /></Button>
+      <Button variant="ghost" size="pattern" data-stretched className={switcherItem}
+        aria-label="Editor mode" aria-pressed={props.modeSwitch.value === 'editor'} aria-keyshortcuts="Meta+G"
+        disabled={props.modeSwitch.disabled} title={props.modeSwitch.disabled ? props.modeSwitch.disabledTitle : 'Editor mode (⌘G)'}
+        onClick={() => props.modeSwitch?.onChange('editor')}><EditorIcon size={14} /></Button>
+    </div>}
   </Bar>
 </div>
 /** The account row closes the column without a separator hairline above it. */

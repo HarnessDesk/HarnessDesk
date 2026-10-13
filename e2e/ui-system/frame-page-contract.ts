@@ -135,7 +135,7 @@ export const expectPageJourney = async (page: Page, label: string, kind: string,
     })
     expect(colors[0]).toBe(colors[2]);expect(colors[1]).toBe(colors[2])
     expect(await column.locator('[data-left-top] button').evaluateAll(nodes=>nodes.map(node=>node.getAttribute('aria-label'))))
-      .toEqual(['Hide sidebar','Search everything','Back','Forward'])
+      .toEqual(['Hide sidebar','Search everything','Back','Forward','Conversation mode','Editor mode'])
     await expect(column.getByText('Back to app',{exact:true})).toHaveCount(0)
     if(options.opener==='review')await expect(column.locator('[data-left-settings]:visible')).toHaveCount(0)
   }
