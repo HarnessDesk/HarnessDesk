@@ -1,4 +1,5 @@
 import { installEditorMainFixture } from './editor-main-fixture'
+import { EditorModeSelection, editorModeFixture, installEditorModeFixture, type EditorModeScene } from './frames-editor-mode'
 import { installExplorerFixture } from './editor-explorer-fixture'
 import { PREVIEW_FINDINGS } from './findings-fixture'
 import { dashboardDestinationStore } from './dashboard-destination-fixture'
@@ -231,6 +232,7 @@ export const FrameWall = () => {
     const detailsCase = query.get('frame-details-case')
     const snapshot = next.getSnapshot()
     if (destination === 'conversation' && query.has('frame-editor')) installEditorMainFixture(next, query.get('frame-editor') === 'entry')
+    if (destination === 'conversation' && query.has('frame-editor-mode')) installEditorModeFixture(next, query.get('frame-editor-mode') as EditorModeScene)
     if (destination === 'conversation' && query.has('frame-explorer')) installExplorerFixture(next, query.get('frame-explorer')!)
     if (destination === 'team-receipt' && query.get('frame-fix8-receipt-finding') === '1') {
       const goal = snapshot.goals.get('overview-team')!
@@ -833,7 +835,7 @@ export const FrameWall = () => {
     // Seed the real store's private history page before a capture can observe
     // the sidebar's debounced empty search restoring that page.
     const ready = store.loadHistory({ reset: true })
-    const api={ready, editorState: () => store.getSnapshot().editorState, resizeLeft:(width:number)=>store.resizePanel('sidebar',width), finishStoppedTurn: () => {
+    const api={ready, editorState: () => store.getSnapshot().editorState, changeEditorDisk: () => editorModeFixture(store)?.changeOnDisk(), resizeLeft:(width:number)=>store.resizePanel('sidebar',width), finishStoppedTurn: () => {
       const snapshot = store.getSnapshot(), goal = snapshot.goals.get('overview-team')
       const member = goal?.pastMembers?.[0]
       if (!member || new URLSearchParams(location.search).get('frame-fix10-stop') !== '1') return
@@ -856,6 +858,6 @@ export const FrameWall = () => {
   }, [store,destination])
   if (requested === 'topbar') return <TopBarProbe />
   return <StoreProvider store={store}>
-    <div data-frame-id="frame-wall" data-destination={destination} className="h-screen min-h-0 overflow-hidden bg-background"><App/><PopupWall/></div>
+    <div data-frame-id="frame-wall" data-destination={destination} className="h-screen min-h-0 overflow-hidden bg-background"><App/><PopupWall/><EditorModeSelection/></div>
   </StoreProvider>
 }
