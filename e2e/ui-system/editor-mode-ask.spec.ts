@@ -43,7 +43,7 @@ for (const theme of ['light', 'dark'] as const) test(`Ask quotes Source, Changes
   // Make this a scrollable file, then retain a current-document selection
   // while selecting the separate native removed-line widget.
   await main.locator('.cm-content').focus()
-  await page.keyboard.press('Meta+End')
+  await page.keyboard.press('ControlOrMeta+End')
   await page.keyboard.insertText('\n' + 'unchanged follow-up line\n'.repeat(50))
   await select(main.locator('.cm-line').filter({ hasText: 'Checkout' }).first())
   const removed = await select(main.locator('.cm-deletedText').first())

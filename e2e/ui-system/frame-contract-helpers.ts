@@ -382,6 +382,7 @@ export const expectDestinationPopupContracts = async (page: Page, destination: t
 })
 
 export const S17_ICON_POLICY: Readonly<Record<string, 'all' | 'none'>> = {
+  'editor-ask': 'none',
   'popup-composer-model': 'none',
   'popup-topbar-view': 'none',
   'popup-folded-tabs': 'none',

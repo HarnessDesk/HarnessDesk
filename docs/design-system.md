@@ -458,7 +458,7 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-card-gap` | `12px` |
 | `--hd-seg-pad` | `2px` |
 | `--hd-mode-switch-cell-w` | `26px` |
-| `--hd-mode-switch-cell-h` | `22px` |
+| `--hd-mode-switch-cell-h` | `24px` |
 | `--hd-seg-trim` | `calc(2px * 2)` |
 | `--hd-seg-text` | `12px` |
 | `--hd-chip-radius` | `9999px` |

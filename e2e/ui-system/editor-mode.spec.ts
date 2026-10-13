@@ -134,7 +134,7 @@ for (const theme of ['light', 'dark'] as const) {
       await editor.focus(); await page.keyboard.press('Meta+Home')
       await page.keyboard.insertText('// Temporary edit\n')
       await expect(main.getByRole('button', { name: 'Unsaved · Save ⌘S', exact: true })).toBeVisible()
-      await page.keyboard.press('Meta+z')
+      await page.keyboard.press('ControlOrMeta+z')
       await expect(main.getByRole('button', { name: 'Unsaved · Save ⌘S', exact: true })).toHaveCount(0)
       await expect(editor).not.toContainText('Temporary edit')
       await page.evaluate(() => (window as Window & { __hdFrameWall: { changeEditorDisk: (kind: 'delete') => void } }).__hdFrameWall.changeEditorDisk('delete'))

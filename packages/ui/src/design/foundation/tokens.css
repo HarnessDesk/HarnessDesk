@@ -1248,7 +1248,7 @@ body {
   --hd-seg-pad: var(--hd-space-0-5);
   /* The two icon cells in the window's Conversation / Editor mode track. */
   --hd-mode-switch-cell-w: 26px;
-  --hd-mode-switch-cell-h: 22px;
+  --hd-mode-switch-cell-h: var(--hd-target-min); /* desk: 22px → 24px so both mode buttons clear the target floor. */
   /*
    * How much the cell gives back to the track, per edge.
    *
