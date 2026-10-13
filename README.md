@@ -150,7 +150,13 @@ Choose or write the rules for who works, which checks run and where the person s
 
 ### Command line
 
-Script it, or let your agent run it: the same Run from a terminal. Start a Flow and watch its events with the `harnessdesk` command line bundled with the app.
+Script it, or let your agent run it: the same Run from a terminal. Start the built-in comparison Flow with the `harnessdesk` command line bundled with the app:
+
+```sh
+harnessdesk flow start comparison --input task=@brief.md --yes
+```
+
+Watch its events. After the judge picks an attempt, answer the merge step before the Run settles.
 
 [Docs →](docs/cli.md)
 
@@ -160,7 +166,7 @@ Script it, or let your agent run it: the same Run from a terminal. Start a Flow 
     <source media="(prefers-color-scheme: dark) and (prefers-reduced-motion: no-preference)" srcset="docs/images/app/anim-cli-dark.svg" />
     <source media="(prefers-color-scheme: dark)" srcset="docs/images/app/anim-cli-dark-poster.png" />
     <source media="(prefers-reduced-motion: no-preference)" srcset="docs/images/app/anim-cli-light.svg" />
-    <img src="docs/images/app/anim-cli-light-poster.png" width="100%" alt="An illustrated split screen starts a race from game.md in the terminal and follows the same Run in HarnessDesk; both attempts pass checks, the judge picks one, and the event stream settles." />
+    <img src="docs/images/app/anim-cli-light-poster.png" width="100%" alt="An illustrated split screen starts the comparison Flow with its task input in the terminal and follows the same Run in HarnessDesk; both attempts pass checks, the judge picks one, and the person answers the merge step before the event stream settles." />
   </picture>
 
 </td>
@@ -198,8 +204,8 @@ See Paid beside Value, and recorded activity By hour. Value is an estimate at pu
 - **[Hand-off](docs/multi-agent.md#2-hand-offs-passing-the-baton)** — pass a conversation to another agent with a packet it can pick up.
 - **[A browser the agent drives](docs/browser-control.md)** — open pages, click and read the console beside the conversation.
 - **[Repository tools](docs/interface.md)** — history, branches, changes and worktrees beside the work.
-- **[Agents](docs/agents.md)** — reusable briefs, ceilings and preferred Seats; nine built-in roles to start from.
-- **Plugins.** Twelve built in, and their tools reach every agent: each one gets an MCP server carrying its 73 built-in plugin tools. [Docs →](docs/extending.md)
+- **[Agents](docs/agents.md)** — reusable briefs, ceilings and preferred Seats; ten built-in roles to start from.
+- **Plugins.** Twelve built in. HarnessDesk projects its 73 built-in plugin tools into each agent’s tool interface. [Docs →](docs/extending.md)
 - **[Library](docs/interface.md#settings)** — skills and MCP servers across installed agents, and which ones load each.
 - **[One policy, one audit log](docs/architecture.md)** — the same rules whichever agent asked.
 

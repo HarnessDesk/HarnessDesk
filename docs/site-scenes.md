@@ -24,10 +24,10 @@ including after changing their controls. Limits scrolls inside when an account
 opens. All three reuse the full Dashboard's fictional data and shipping controls;
 their layout adjustments are scoped to the site views.
 
-The shipping Dashboard bands open at **What it cost**, beside **Where it
-went**, followed by **What is left** and **When it ran**. The window scrolls
-inside. Chart mode, range, spending pivots, account details and activity tabs
-are interactive. There is no playback loop or pointer. Host actions are quiet
+The site scene starts with **What it cost** beside **Where it went**, followed
+by **What is left** and **When it ran**. The desktop Overview starts with its
+summary strip and **What is left**. The window scrolls inside. Chart mode, range,
+spending pivots, account details and activity tabs are interactive. There is no playback loop or pointer. Host actions are quiet
 no-ops; no agent or external service runs. The site omits the cost chart's
 scan-accounting footer while the app retains it.
 
