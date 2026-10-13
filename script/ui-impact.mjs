@@ -337,9 +337,9 @@ export function impactedSpecs(map, paths, { allSpecs, specHash, baseFiles, baseE
 }
 
 // The UI's files on the branch a pull request is made against, with the version of each.
-const filesAtBase = root => {
+export const filesAtBase = (root, revision = 'HEAD^1') => {
   try {
-    const listing = execFileSync('git', ['ls-tree', '-r', '-z', 'HEAD^1', '--', ...UI_ROOTS], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 })
+    const listing = execFileSync('git', ['ls-tree', '-r', '-z', revision, '--', ...UI_ROOTS], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 })
     const files = {}
     for (const entry of listing.split('\0')) {
       const match = /^\d+ blob ([0-9a-f]{40})\t(.+)$/s.exec(entry)
