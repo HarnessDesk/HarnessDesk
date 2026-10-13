@@ -50,7 +50,7 @@ import type { AccountPrefsMap } from '../lib/accounts'
 
 import type { Profile } from '../lib/profile'
 
-import { DEFAULT_EDITOR_PREFS } from '../editor'
+import { DEFAULT_EDITOR_PREFS, type WindowMode, type EditorState, type EditorDocuments } from '../editor'
 
 import type { GitColumnWidths } from '../lib/git-columns'
 
@@ -752,6 +752,10 @@ export interface AppSnapshot {
    * which is what keeps a palette change reaching the editor — a family
    * copied out of the token at pick time would freeze it.
    */
+  /** Stored preference; effectiveWindowMode applies it only to a conversation destination. */
+  readonly windowMode: WindowMode
+  readonly editorState: EditorState
+  readonly editorDocuments: EditorDocuments
   readonly editorPrefs: {
     readonly fontFamily: string
     readonly fontSize: number
@@ -936,6 +940,9 @@ const EMPTY: AppSnapshot = {
   planEdits: {},
   listPrefs: { density: 'compact', agent: null, sort: 'recency', pinned: [], pinnedSessions: [], collapsed: [], panelsCollapsed: [], othersOpen: false },
   editorPrefs: DEFAULT_EDITOR_PREFS,
+  windowMode: 'conversation',
+  editorState: [],
+  editorDocuments: new Map(),
   editorPlane: [],
   usageOff: [],
   noticePolicy: emptyNoticePolicy(),
@@ -960,6 +967,8 @@ const EMPTY: AppSnapshot = {
 /** A blank snapshot, for tests that render a component against a made-up state. */
 export const emptySnapshot = (): AppSnapshot => ({
   ...EMPTY,
+  editorState: [],
+  editorDocuments: new Map(),
   teamFrameRequests: {},
   captureHealth: new Map(),
   provenanceRevision: new Map(),

@@ -43,3 +43,10 @@ export {
 } from './diff'
 
 export { FileView, type FileViewProps, type FileViewMode, type FileBase, type FileDocumentState, type FileTransfer } from './FileView'
+export {
+  emptyEditorConversation, editorConversation, updateEditorConversation, effectiveWindowMode, effectiveExplorerFilter,
+  defaultFileView, openEditorTab, keepEditorTab, closeEditorTab, setEditorTabView,
+  readEditorState, persistEditorState,
+  type WindowMode, type ExplorerFilter, type EditorTab, type EditorConversation,
+  type EditorState, type EditorDocuments, type OpenEditorTabOptions,
+} from './state'

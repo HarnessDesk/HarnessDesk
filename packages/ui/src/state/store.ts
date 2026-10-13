@@ -156,7 +156,11 @@ import { coalesce } from '../lib/coalesce'
 import { acceptedFindingEvidence, emptyFindingsState, type FindingFilter, type FindingsListState } from '../lib/findings'
 import { openExternal, setDockIcon } from '../lib/desktop'
 import { openingOfContent, splitContext, wrapContext } from '../lib/context-envelope'
-import { readEditorPrefs } from '../editor'
+import {
+  readEditorPrefs, editorConversation, updateEditorConversation, openEditorTab, keepEditorTab,
+  closeEditorTab, setEditorTabView, readEditorState, persistEditorState,
+  type WindowMode, type ExplorerFilter, type EditorConversation, type FileDocumentState, type FileViewMode, type OpenEditorTabOptions,
+} from '../editor'
 import { readColumnWidths } from '../lib/git-columns'
 import { readSystemNotifications } from '../lib/system-notifications'
 import { sessionLabel, shortLabel } from '../lib/sessions'
@@ -343,6 +347,9 @@ const FORGOTTEN_FOLDERS_KEPT = 2000
 export type UnheldCeilings = 'seat' | 'refuse'
 
 export class AppStore {
+  #windowModeChanged = false
+  readonly #editorChanged = new Set<string>()
+  readonly #editorTouched = new Set<string>()
   /** What each conversation has typed and not sent. See `state/drafts`. */
   readonly drafts: Drafts
   #captureEpoch = 0
@@ -6662,6 +6669,19 @@ export class AppStore {
   async loadPreferences(): Promise<void> {
     try {
       const preferences = await this.transport.request('app/state/get', {})
+      const loadedEditor = readEditorState(preferences['editorState'])
+      const localEditor = this.#snapshot.editorState.filter(one => this.#editorChanged.has(one.subject) || this.#editorTouched.has(one.subject))
+      const editorState = [
+        ...localEditor.map(one => this.#editorChanged.has(one.subject) ? one
+          : { subject: one.subject, state: loadedEditor.find(saved => saved.subject === one.subject)?.state ?? one.state }),
+        ...loadedEditor.filter(one => !this.#editorChanged.has(one.subject) && !this.#editorTouched.has(one.subject)),
+      ]
+      this.#patch({ editorState, ...(!this.#windowModeChanged
+        ? { windowMode: preferences['windowMode'] === 'editor' ? 'editor' : 'conversation' } : {}) })
+      // A local write made before hydration contained only this window's
+      // known subjects. Write the merged metadata back so it cannot erase
+      // the other restored conversations on the next launch.
+      if (localEditor.length) void this.#writePreference({ editorState: persistEditorState(editorState) }, 'The open files')
       this.#infoPreferencesLoaded = true
       this.#pendingInfo.unshift(...readRuntimeNotices(preferences['runtimeNotices']).reverse().map(entry => ({ runtime: entry.runtime, event: entry.event })))
       // The runtime the user last selected comes back, provided it still
@@ -7124,6 +7144,88 @@ export class AppStore {
   setTheme(theme: AppSnapshot['theme']): void {
     this.#patch({ theme })
     void this.#writePreference({ theme }, 'The theme')
+  }
+
+  setWindowMode(windowMode: WindowMode): void {
+    this.#windowModeChanged = true
+    this.#patch({ windowMode })
+    void this.#writePreference({ windowMode }, 'The window mode')
+  }
+
+  #setEditorConversation(subject: string, state: EditorConversation): void {
+    this.#editorChanged.add(subject)
+    this.#saveEditorConversation(subject, state)
+  }
+
+  #saveEditorConversation(subject: string, state: EditorConversation, persist = true): void {
+    const editorState = updateEditorConversation(this.#snapshot.editorState, subject, state)
+    this.#patch({ editorState })
+    if (persist) void this.#writePreference({ editorState: persistEditorState(editorState) }, 'The open files')
+  }
+
+  touchEditorConversation(subject: string): void {
+    // A mount can precede preference hydration. Recency alone must not replace
+    // that conversation's saved tabs with an empty initial state.
+    this.#editorTouched.add(subject)
+    this.#saveEditorConversation(subject, editorConversation(this.#snapshot.editorState, subject), this.#snapshot.preferencesLoaded)
+  }
+
+  openEditorFile(subject: string, path: string, options: OpenEditorTabOptions & { readonly document?: FileDocumentState | null } = {}): void {
+    let state = editorConversation(this.#snapshot.editorState, subject)
+    // A preview with a retained document is never replaced, even if a caller
+    // captured the draft before mounting the editor shell.
+    if (state.preview && this.#snapshot.editorDocuments.get(subject)?.has(state.preview)) state = keepEditorTab(state, state.preview)
+    state = openEditorTab(state, path, options)
+    this.#setEditorConversation(subject, state)
+    if (options.document && !this.#snapshot.editorDocuments.get(subject)?.has(path)) this.setEditorDocument(subject, path, options.document)
+  }
+
+  selectEditorFile(subject: string, path: string): void {
+    const state = editorConversation(this.#snapshot.editorState, subject)
+    if (state.tabs.some(tab => tab.path === path)) this.#setEditorConversation(subject, { ...state, active: path })
+  }
+
+  keepEditorFile(subject: string, path: string): void {
+    const state = editorConversation(this.#snapshot.editorState, subject)
+    const next = keepEditorTab(state, path)
+    if (next !== state) this.#setEditorConversation(subject, next)
+  }
+
+  /** False means a ConfirmDialog is needed. The confirmed call passes discard=true. */
+  closeEditorFile(subject: string, path: string, discard = false): boolean {
+    if (!discard && this.#snapshot.editorDocuments.get(subject)?.has(path)) return false
+    const state = editorConversation(this.#snapshot.editorState, subject)
+    const next = closeEditorTab(state, path)
+    if (next !== state) this.#setEditorConversation(subject, next)
+    this.setEditorDocument(subject, path, null)
+    return true
+  }
+
+  setEditorFileView(subject: string, path: string, view: FileViewMode): void {
+    const state = editorConversation(this.#snapshot.editorState, subject)
+    const next = setEditorTabView(state, path, view)
+    if (next !== state) this.#setEditorConversation(subject, next)
+  }
+
+  setEditorExplorerFilter(subject: string, filter: ExplorerFilter): void {
+    this.#setEditorConversation(subject, { ...editorConversation(this.#snapshot.editorState, subject), filter })
+  }
+
+  setEditorExpandedFolders(subject: string, expanded: readonly string[]): void {
+    this.#setEditorConversation(subject, { ...editorConversation(this.#snapshot.editorState, subject), expanded: [...new Set(expanded)] })
+  }
+
+  setEditorDocument(subject: string, path: string, document: FileDocumentState | null): void {
+    const state = editorConversation(this.#snapshot.editorState, subject)
+    if (document && !state.tabs.some(tab => tab.path === path)) return
+    const editorDocuments = new Map(this.#snapshot.editorDocuments)
+    const files = new Map(editorDocuments.get(subject))
+    if (document) files.set(path, document)
+    else files.delete(path)
+    if (files.size) editorDocuments.set(subject, files)
+    else editorDocuments.delete(subject)
+    this.#patch({ editorDocuments })
+    if (document) this.keepEditorFile(subject, path)
   }
 
   setPalette(palette: AppSnapshot['palette']): void {
