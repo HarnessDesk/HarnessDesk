@@ -1,6 +1,7 @@
 // What a file loads, read without running anything: the imports of the browser
 // suite and of the UI. `ci-changes.mjs` plans a pull request with them and
 // `ui-impact.mjs` records and reads the map of what each spec ran.
+// Both run before dependencies are installed, so this module uses only builtins.
 import { createHash } from 'node:crypto'
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { basename, dirname, extname, join, relative, resolve } from 'node:path'
@@ -153,6 +154,10 @@ export function unobservedSpecs(root, graph = suiteGraph(root)) {
   const holding = graph.sources.filter(file => opens.test(readFileSync(file, 'utf8')))
   return specsReaching(graph, holding).map(file => relative(graph.suite, file)).sort()
 }
+
+// These are the build's entry pages. Query strings vary the fixture, not the
+// route. Source URLs and source-response rewrites still belong to Vite's dev server.
+export const E2E_PAGES = ['preview.html', 'design.html', 'narrow-overlay.html', 'src/preview/tile-page.html']
 
 // The workspace packages the UI is built from, resolved from the manifests, so adding a
 // workspace dependency cannot silently leave it outside full browser coverage.

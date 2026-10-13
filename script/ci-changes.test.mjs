@@ -43,7 +43,7 @@ for (const path of [
 for (const path of ['docs/architecture.md', 'CONTRIBUTING.md', 'script/land-safe.mjs']) {
   test(`${path} skips both suites`, () => check([path], ['none', false]))
 }
-for (const path of ['e2e/ui-system/row-box.spec.ts', 'playwright.ui-system.config.ts', 'script/ci-browser-shards.mjs']) {
+for (const path of ['e2e/ui-system/row-box.spec.ts', 'playwright.ui-system.config.ts', 'script/ci-browser-shards.mjs', 'script/ui-system-run.mjs', 'script/ui-system-run.test.mjs', 'script/ci-server-split.mjs', 'script/ci-server-split.test.mjs']) {
   test(`${path} runs the browser suite`, () => check([path], ['all', false]))
 }
 // The recorded times only change how specs are dealt; the plan's own tests check the deal.

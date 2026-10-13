@@ -143,7 +143,9 @@ function scriptTests(root, paths) {
     .map(path => path.endsWith('.test.mjs') ? path : path.replace(/\.mjs$/, '.test.mjs'))
   // The workflow, the browser configuration, the recorded times and the contributor guide are read by those tests.
   const read = /^(?:\.github\/workflows\/ci\.yml|playwright\.ui-system\.config\.ts|e2e\/ui-system\/durations(?:\.pr)?\.json|CONTRIBUTING\.md|package\.json)$/
-  if (paths.some(path => dependencies.has(path) || read.test(path))) selected.push(...PLANNERS.map(name => `script/${name}.test.mjs`))
+  // `ci-planners.test.mjs` is the guard that these files need nothing installed (CI plans before the install),
+  // so it follows the same trigger: a bare import added anywhere in their closure must fail here, not in CI.
+  if (paths.some(path => dependencies.has(path) || read.test(path))) selected.push(...PLANNERS.map(name => `script/${name}.test.mjs`), 'script/ci-planners.test.mjs')
   // A test that names a changed file by its name tests something that reads it: a gate's parser, a workflow, a manifest.
   // Over-selecting costs seconds; the gates' own tests are the ones a changed script is most likely to break.
   const named = paths.filter(path => !/\.test\.mjs$/.test(path) && /^(?:script\/.+|package\.json|\.github\/workflows\/.+|(?:AGENTS|CONTRIBUTING)\.md|playwright\.ui-system\.config\.ts|e2e\/ui-system\/durations(?:\.pr)?\.json)$/.test(path))
@@ -246,7 +248,7 @@ export function createPlan(root, { paths, base = 'origin/main', mergeBase = null
     ? `${map ? 'The map cannot narrow this change.' : 'No readable impact map was supplied.'} CI runs all specs; locally only edited specs run.`
     : !small ? `${reached.length} reached specs / ${Number.isFinite(duration) ? duration : 'unknown'} recorded seconds exceed the local limit of 6 specs / 600 seconds; CI runs the remainder.`
       : 'Every eligible reached spec is selected locally.'}`)
-  add('Browser specs', 'pnpm', browserFiles.length ? ['test:ui-system', ...browserFiles] : [], browserReason,
+  add('Browser specs', 'node', browserFiles.length ? ['script/ui-system-run.mjs', ...browserFiles] : [], browserReason,
     { env: { UI_SYSTEM_MATRIX: change.matrix, PLAYWRIGHT_UI_SYSTEM_WORKERS: '1' }, ...(browserReason ? {} : { needs: [build.name] }) })
   // One worker is the default here (a laptop is shared); CI runs two at once, which can expose a spec that only passes alone.
   if (!browserReason) notes.push('Browser specs run one worker at a time here; CI runs two in parallel.')
@@ -257,6 +259,9 @@ export function createPlan(root, { paths, base = 'origin/main', mergeBase = null
 const quote = text => /^[\w./@=:+-]+$/.test(text) ? text : `'${text.replaceAll("'", "'\\''")}'`
 const commandText = step => [...Object.entries(step.env ?? {}).map(([name, value]) => `${name}=${quote(value)}`), step.command, ...step.args.map(quote)].join(' ')
 
+// Untracked paths are staged with an unrelated HEAD blob in a disposable index.
+// Gates may enumerate its paths only: no gate may read index bytes. The working
+// file at each path is the content under review, not the borrowed blob.
 function gateIndex(root) {
   const additions = nulPaths(git(root, ['ls-files', '--others', '--exclude-standard', '-z']))
   if (!additions.length) return { env: {}, dispose() {} }

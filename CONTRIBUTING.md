@@ -116,6 +116,26 @@ the specs ran:
   The recording is `script/ui-impact/test.ts`, a build of `@playwright/test` the
   specs are pointed at only while recording; it costs under a tenth of a run.
 
+Non-recording browser shards share one build of `preview.html`, `design.html`,
+`narrow-overlay.html` and the embedded Seat page,
+`packages/ui/src/preview/tile-page.html`, in `packages/ui/dist-e2e`.
+The classifier in `script/ci-server-split.mjs` follows the suite import graph
+and keeps specs that load source URLs, rewrite source responses, or need an
+unbuilt or unknown route on the dev server; the rest run against the build.
+`node script/ui-system-run.mjs <spec paths>` runs that same split locally and
+rebuilds before serving static pages;
+`pnpm check:push` uses it too.
+Only `UI_SYSTEM_PAGES=prebuilt`, set after CI downloads the shared artifact,
+uses an existing build; a missing or incomplete artifact then fails the run.
+To choose static explicitly, run `pnpm run build:node`, then `pnpm run build:e2e`,
+then `UI_SYSTEM_SERVER=static pnpm test:ui-system <spec paths>`; the Node build
+must come first because the UI resolves workspace packages through their
+compiled output. Recording stays one dev-server run, with the recording
+configuration and module URLs intact; because that run never serves the build,
+the build job runs a few static specs from each built page itself (the
+`Try the build` step) on a recording run, so a build that compiles but cannot
+run fails the run that broke it.
+
 The UI's unit tests follow the same idea with the tool that already knows their
 imports: a pull request that changes only the UI's own source runs `vitest
 related` on the changed files, plus the tests that read the tree by themselves
