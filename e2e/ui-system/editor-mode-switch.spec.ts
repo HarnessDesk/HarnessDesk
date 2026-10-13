@@ -53,3 +53,53 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(top.locator('[data-mode-switch]')).toHaveCount(0)
   })
 }
+
+for (const theme of ['light', 'dark'] as const) for (const windowWidth of [1440, 720]) {
+  test(`native corner reserves distinct history and mode targets at ${windowWidth} in ${theme}`, async ({ page }, testInfo) => {
+    await openFrame(page, 'frame-wall=conversation', theme, windowWidth)
+    await applyLeftColumnActions(page, { leftOpen: true })
+    const column = page.locator('[data-left-column]:visible'), top = column.locator('[data-left-top]')
+    const editor = top.getByRole('button', { name: 'Editor mode', exact: true })
+    await editor.click()
+    // A real visit and return enable Forward, so a stolen pointer has an observable consequence.
+    await column.locator('[data-left-seat]').getByRole('button', { name: 'Settings', exact: true }).click()
+    await page.keyboard.press('Meta+[')
+    for (const width of [239, 240, 256, 267, 268, 280]) {
+      await applyLeftColumnActions(page, { leftOpen: true, leftWidth: width })
+      await expect.poll(async () => (await top.boundingBox())?.width).toBe(width)
+      await top.evaluate(node => { (node as HTMLElement).style.setProperty('--titlebar-inset', 'var(--hd-titlebar-lights)') })
+      const targets = await top.evaluate(node => [...node.querySelectorAll('button')]
+        .filter(button => button.getBoundingClientRect().width > 0).map(button => {
+          const box = button.getBoundingClientRect()
+          return { label: button.getAttribute('aria-label'), disabled: button.disabled, x: box.x, right: box.right,
+            centerHit: document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)?.closest('button')?.getAttribute('aria-label') }
+        }))
+      expect.soft(targets.slice(1).filter((target, index) => target.x < targets[index]!.right), `overlaps at ${width}px`).toEqual([])
+      for (const target of targets.filter(target => !target.disabled)) expect.soft(target.centerHit, `${target.label} owns its centre at ${width}px`).toBe(target.label)
+      const forward = top.getByRole('button', { name: 'Forward', exact: true })
+      expect.soft(await forward.isVisible(), `history folds before the mode track at ${width}px`).toBe(width >= 268)
+      if (width >= 268) {
+        await expect(forward).toBeEnabled()
+        const box = (await forward.boundingBox())!
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+        await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1)
+        await expect(page.locator('[data-left-top]:visible [data-mode-switch]')).toHaveCount(0)
+        await page.keyboard.press('Meta+[')
+        await applyLeftColumnActions(page, { leftOpen: true, leftWidth: width })
+        await expect(editor).toHaveAttribute('aria-pressed', 'true')
+      }
+      // Exercise the mode cells by coordinate too, not a locator's automatic obstruction handling.
+      const conversation = top.getByRole('button', { name: 'Conversation mode', exact: true })
+      const conversationBox = (await conversation.boundingBox())!
+      await page.mouse.click(conversationBox.x + conversationBox.width / 2, conversationBox.y + conversationBox.height / 2)
+      await expect(conversation).toHaveAttribute('aria-pressed', 'true')
+      const editorBox = (await editor.boundingBox())!
+      await page.mouse.click(editorBox.x + editorBox.width / 2, editorBox.y + editorBox.height / 2)
+      await expect(editor).toHaveAttribute('aria-pressed', 'true')
+      await expect(top.getByRole('button', { name: 'Hide sidebar', exact: true })).toBeVisible()
+      await expect(top.getByRole('button', { name: 'Search everything', exact: true })).toBeVisible()
+      await page.evaluate(() => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+      if (width === 240 || width === 256) await page.screenshot({ path: testInfo.outputPath(`native-${theme}-${windowWidth}-${width}.png`) })
+    }
+  })
+}
