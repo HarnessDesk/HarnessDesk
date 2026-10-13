@@ -27,7 +27,11 @@ export const blobSha = content => {
 export const resolveHelper = (file, specifier) => {
   const base = resolve(dirname(file), specifier)
   const extension = extname(base)
-  const helper = [base, ...SOURCE.map(ext => `${base}${ext}`),
+  // A spec may import a compiled host fixture. Planning runs before the build,
+  // so read its source, even when an old dist happens to be present locally.
+  const source = base.replace(/(\/packages\/[^/]+)\/dist\//, '$1/')
+  const compiledSource = source === base ? [] : [source.replace(/\.js$/, '.ts'), source.replace(/\.mjs$/, '.mts'), source.replace(/\.cjs$/, '.cts')]
+  const helper = [...compiledSource, base, ...SOURCE.map(ext => `${base}${ext}`),
     base.replace(/\.js$/, '.ts'), base.replace(/\.mjs$/, '.mts'), base.replace(/\.cjs$/, '.cts'),
     ...SOURCE.map(ext => join(base, `index${ext}`))]
     .find(candidate => existsSync(candidate) && SOURCE.includes(extname(candidate)))

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 
 import { recordedSeconds, shardCount, specFiles } from './ci-browser-shards.mjs'
 import { IMPORT, SOURCE, SPEC, resolveHelper, specsReaching, suiteGraph, uiPackages } from './ci-imports.mjs'
-import { impactPlan, readMap, uiExternalImports, uiSource } from './ui-impact.mjs'
+import { environmentAt, filesAtBase, impactPlan, readMap, uiExternalImports, uiSource } from './ui-impact.mjs'
 
 export { uiPackages }
 
@@ -29,6 +29,8 @@ const SHARED = [
   /^script\/check-secrets\.mjs$/, // The shared frame audit imports its public-text checks.
   /^script\/lib\/desk\.mjs$/, // Imported by the frame audit; native smoke also uses it to launch the desk.
 ]
+
+export const sharedInputs = paths => paths.filter(path => SHARED.some(pattern => pattern.test(path)))
 
 // The recorded spec times only change how the specs are dealt to shards. The
 // plan's own tests (`script/ci-browser-plan.test.mjs`, in the gates job) check the
@@ -104,9 +106,9 @@ const THEME_PATH = /^packages\/ui\/src\/(?:design\/foundation\/|styles\/)/
 // The UI's own build and compiler configuration decides how everything renders.
 const UI_BUILD = /^packages\/ui\/(?!src\/|site-demo\/)/
 
-const textAtBase = (root, path) => {
+const textAtBase = (root, path, revision = 'HEAD^1') => {
   try {
-    return execFileSync('git', ['show', `HEAD^1:${path}`], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 })
+    return execFileSync('git', ['show', `${revision}:${path}`], { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 64 * 1024 * 1024 })
   } catch {
     return null
   }
@@ -118,6 +120,11 @@ export function themeInputs(root, inputs, baseText = textAtBase) {
     || (path.startsWith('packages/ui/') && path.endsWith('.css')
       && (says(existsSync(join(root, path)) ? readFileSync(join(root, path), 'utf8') : null) || says(baseText(root, path)))))
 }
+
+// CI's grep pipeline, in the same order: changed lines, without diff headers,
+// mentioning either word in any case. The workflow's pipeline is held by a test.
+export const themeDiff = diff => diff.split('\n').some(line => /^[+-]/.test(line)
+  && !/^(\+\+\+|---)/.test(line) && /dark|theme/i.test(line))
 
 // Text that goes into a line of the step's outputs: a file name can hold a newline, and a newline
 // in an output is a second output.
@@ -171,20 +178,16 @@ export function browserPlan(root, { browser, inputs, serverInputs, event, themeT
   }
 }
 
-// NUL delimiters keep spaces/newlines literal; --no-renames includes both
-// paths of a moved input. Unreadable/empty/malformed paths run everything.
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
-  const root = fileURLToPath(new URL('../', import.meta.url))
+// CI's merge commit names its base as HEAD^1. A local caller can name its merge
+// base instead, so theme and impact-map freshness answer for the same change.
+export function planChange(root, { event, paths, themeTouched = false, request = '', map = null, baseRevision = 'HEAD^1' }) {
   const inputs = uiPackages(root)
   const specs = serverSpecs(root, inputs)
-  const event = process.env.GITHUB_EVENT_NAME
   let decision = { browser: 'all', native: true }
   let browserInputs = []
   let serverInputs = false
-  if (event === 'pull_request') {
+  if (event === 'pull_request' && paths) {
     try {
-      const raw = readFileSync(process.argv[2], 'utf8')
-      const paths = raw.endsWith('\0') ? raw.slice(0, -1).split('\0') : []
       // A name with a control character in it is not one to plan from: run everything.
       if (paths.length > 0 && paths.every(path => path.length > 0 && !path.startsWith('/') && !path.split('/').includes('..') && !/[\u0000-\u001f\u007f]/.test(path))) {
         const external = uiExternalImports(root)
@@ -197,20 +200,41 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
         }
       }
     } catch {
-      // A failed diff leaves no readable list. Non-PR events run everything.
+      // An unreadable input graph keeps the conservative decision, as an unreadable diff does.
     }
   }
-  const mapFile = process.env.UI_IMPACT_MAP
-  const map = mapFile ? readMap(mapFile) : null
   const plan = browserPlan(root, {
     browser: decision.browser, inputs: browserInputs, serverInputs, event,
+    themeTouched, request, baseText: (root, path) => textAtBase(root, path, baseRevision),
+    impact: map ? { map, baseFiles: () => filesAtBase(root, baseRevision), baseEnvironment: () => environmentAt(root, baseRevision) } : null,
+  })
+  return {
+    browser: plan.browser, native: decision.native, server_specs: JSON.stringify(specs),
+    browser_specs: plan.specs, matrix: plan.matrix, shard_count: plan.count, shards: plan.shards,
+    record: plan.record, summary: plan.summary,
+  }
+}
+
+// NUL delimiters keep spaces/newlines literal; --no-renames includes both
+// paths of a moved input. Unreadable/empty/malformed paths run everything.
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  const root = fileURLToPath(new URL('../', import.meta.url))
+  let paths = null
+  try {
+    const raw = readFileSync(process.argv[2], 'utf8')
+    paths = raw.endsWith('\0') ? raw.slice(0, -1).split('\0') : []
+  } catch {
+    // A failed diff leaves no readable list. Non-PR events run everything.
+  }
+  const mapFile = process.env.UI_IMPACT_MAP
+  const plan = planChange(root, {
+    event: process.env.GITHUB_EVENT_NAME, paths,
     themeTouched: process.env.UI_THEME_TOUCHED === 'true',
-    request: process.env.UI_SYSTEM_MATRIX_REQUEST ?? '',
-    impact: map ? { map } : null,
+    request: process.env.UI_SYSTEM_MATRIX_REQUEST ?? '', map: mapFile ? readMap(mapFile) : null,
   })
   process.stdout.write([
-    `browser=${plan.browser}`, `native=${decision.native}`, `server_specs=${JSON.stringify(specs)}`,
-    `browser_specs=${plan.specs}`, `matrix=${plan.matrix}`, `shard_count=${plan.count}`, `shards=${plan.shards}`, `record=${plan.record}`,
+    `browser=${plan.browser}`, `native=${plan.native}`, `server_specs=${plan.server_specs}`,
+    `browser_specs=${plan.browser_specs}`, `matrix=${plan.matrix}`, `shard_count=${plan.shard_count}`, `shards=${plan.shards}`, `record=${plan.record}`,
     `summary=${plan.summary}`, '',
   ].join('\n'))
 }

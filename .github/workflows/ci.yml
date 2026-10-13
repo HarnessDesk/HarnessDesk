@@ -518,18 +518,20 @@ jobs:
           pattern: ui-impact-*
           path: impact-records
           merge-multiple: true
+      # A run whose records cannot make a map fails this job, in the open. It gates nothing (the
+      # required checks do not wait for it), but a green job that saved no map is how a broken scan
+      # goes unseen: pull requests then plan without a map, which is slow and safe, and nobody knows.
       - name: Merge the records into a map
-        id: map
-        continue-on-error: true
-        run: node script/ui-impact.mjs merge impact-records --commit "$GITHUB_SHA" --out ui-impact-map.json
+        run: |
+          node script/ui-impact.mjs merge impact-records --commit "$GITHUB_SHA" --out ui-impact-map.json
+          test -s ui-impact-map.json
       - uses: actions/upload-artifact@v7
-        if: steps.map.outcome == 'success'
         with:
           name: ui-impact-map
           path: ui-impact-map.json
           retention-days: 14
       - uses: actions/cache/save@v6
-        if: steps.map.outcome == 'success' && github.ref == 'refs/heads/main'
+        if: github.ref == 'refs/heads/main'
         with:
           path: ui-impact-map.json
           key: ui-impact-map-${{ github.sha }}

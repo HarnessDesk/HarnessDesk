@@ -173,6 +173,14 @@ them in `docs/decisions.md`.
 
 ## Before you commit
 
+Before you push, run `pnpm check:push`. It uses CI's planners for the committed,
+uncommitted and untracked change against the merge base with `origin/main`,
+without fetching, and reports selected checks, skips and timings. Use `--plan`
+for a JSON plan, `--base <ref>` for another local base, `--map <file>` (or
+`UI_IMPACT_MAP`) for a downloaded impact map, and `--fast` to leave Node-package
+tests and browser specs to CI. Broad suites and shared-input changes stay with
+CI; `pnpm verify` remains the full gate.
+
 ```bash
 pnpm verify
 ```

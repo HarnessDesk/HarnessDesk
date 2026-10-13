@@ -54,6 +54,7 @@
     "codex:protocol": "node script/generate-codex-protocol.mjs",
     "codex:drift": "node script/generate-codex-protocol.mjs --check",
     "verify": "node script/verify.mjs",
+    "check:push": "node script/check-push.mjs",
     "design:tokens": "node script/check-design-tokens.mjs",
     "design:audit": "node script/design-audit.mjs",
     "design:doc": "node script/design-doc.mjs",
