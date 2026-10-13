@@ -348,6 +348,7 @@ export type UnheldCeilings = 'seat' | 'refuse'
 
 export class AppStore {
   #windowModeChanged = false
+  #editorPreferencesLoaded = false
   readonly #editorChanged = new Set<string>()
   readonly #editorTouched = new Set<string>()
   /** What each conversation has typed and not sent. See `state/drafts`. */
@@ -6678,9 +6679,9 @@ export class AppStore {
       ]
       this.#patch({ editorState, ...(!this.#windowModeChanged
         ? { windowMode: preferences['windowMode'] === 'editor' ? 'editor' : 'conversation' } : {}) })
-      // A local write made before hydration contained only this window's
-      // known subjects. Write the merged metadata back so it cannot erase
-      // the other restored conversations on the next launch.
+      // Until this read and merge, local metadata has stayed in memory.
+      // Now persist the complete projection, including restored peers.
+      this.#editorPreferencesLoaded = true
       if (localEditor.length) void this.#writePreference({ editorState: persistEditorState(editorState) }, 'The open files')
       this.#infoPreferencesLoaded = true
       this.#pendingInfo.unshift(...readRuntimeNotices(preferences['runtimeNotices']).reverse().map(entry => ({ runtime: entry.runtime, event: entry.event })))
@@ -7157,17 +7158,17 @@ export class AppStore {
     this.#saveEditorConversation(subject, state)
   }
 
-  #saveEditorConversation(subject: string, state: EditorConversation, persist = true): void {
+  #saveEditorConversation(subject: string, state: EditorConversation): void {
     const editorState = updateEditorConversation(this.#snapshot.editorState, subject, state)
     this.#patch({ editorState })
-    if (persist) void this.#writePreference({ editorState: persistEditorState(editorState) }, 'The open files')
+    if (this.#editorPreferencesLoaded) void this.#writePreference({ editorState: persistEditorState(editorState) }, 'The open files')
   }
 
   touchEditorConversation(subject: string): void {
     // A mount can precede preference hydration. Recency alone must not replace
     // that conversation's saved tabs with an empty initial state.
     this.#editorTouched.add(subject)
-    this.#saveEditorConversation(subject, editorConversation(this.#snapshot.editorState, subject), this.#snapshot.preferencesLoaded)
+    this.#saveEditorConversation(subject, editorConversation(this.#snapshot.editorState, subject))
   }
 
   openEditorFile(subject: string, path: string, options: OpenEditorTabOptions & { readonly document?: FileDocumentState | null } = {}): void {

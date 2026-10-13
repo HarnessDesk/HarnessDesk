@@ -20,6 +20,7 @@ beforeEach(() => {
 })
 
 it('writes and restores mode and conversation tabs through app/state without document contents', async () => {
+  await store.loadPreferences()
   store.setWindowMode('editor')
   store.openEditorFile('session:first', 'notes.md')
   store.setEditorDocument('session:first', 'notes.md', doc)
@@ -118,7 +119,66 @@ it('does not write empty startup tabs before preferences have even begun loading
   expect(editorConversation(store.getSnapshot().editorState, 'session:startup').active).toBe('saved.md')
 })
 
+it.each(['before', 'during'] as const)('defers local metadata mutations %s initial hydration without replacing saved peers', async timing => {
+  const original = [
+    { subject: 'session:local', state: { tabs: [{ path: 'old.ts', view: 'source' }], active: 'old.ts' } },
+    { subject: 'session:saved', state: { tabs: [{ path: 'saved.md', view: 'changes' }], active: 'saved.md', filter: 'all', expanded: ['src'] } },
+  ]
+  saved = { windowMode: 'conversation', editorState: original }
+  let answer!: () => void
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName, params: unknown) => {
+    if (method === 'app/state/get') {
+      const captured = structuredClone(saved)
+      return timing === 'during' ? new Promise(resolve => { answer = () => resolve(captured) }) : captured
+    }
+    if (method === 'app/state/set') saved = { ...saved, ...(params as { patch: Record<string, unknown> }).patch }
+    return null
+  }) as never)
+  const pending = timing === 'during' ? store.loadPreferences() : null
+  store.setWindowMode('editor')
+  store.openEditorFile('session:local', 'mine.md', { document: doc })
+  store.setEditorFileView('session:local', 'mine.md', 'changes')
+  store.setEditorExplorerFilter('session:local', 'all')
+  store.setEditorExpandedFolders('session:local', ['mine'])
+  expect(saved.editorState).toEqual(original)
+  expect(editorConversation(store.getSnapshot().editorState, 'session:local').active).toBe('mine.md')
+  expect(store.getSnapshot().editorDocuments.get('session:local')?.get('mine.md')).toEqual(doc)
+  if (timing === 'during') answer()
+  await (pending ?? store.loadPreferences())
+  expect(store.getSnapshot().windowMode).toBe('editor')
+  expect(editorConversation(store.getSnapshot().editorState, 'session:local')).toMatchObject({
+    tabs: [{ path: 'mine.md', view: 'changes' }], active: 'mine.md', preview: null, filter: 'all', expanded: ['mine'],
+  })
+  expect(editorConversation(store.getSnapshot().editorState, 'session:saved')).toMatchObject(original[1]!.state)
+  expect(store.getSnapshot().editorDocuments.get('session:local')?.get('mine.md')).toEqual(doc)
+  expect(saved.editorState).toEqual(store.getSnapshot().editorState)
+})
+
+it('keeps metadata writes deferred after a failed initial read until a retry can merge saved peers', async () => {
+  const original = [{ subject: 'session:saved', state: { tabs: [{ path: 'saved.md', view: 'preview' }] } }]
+  saved = { editorState: original }
+  let failRead = true
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName, params: unknown) => {
+    if (method === 'app/state/get') {
+      if (failRead) throw new Error('read refused')
+      return structuredClone(saved)
+    }
+    if (method === 'app/state/set') saved = { ...saved, ...(params as { patch: Record<string, unknown> }).patch }
+    return null
+  }) as never)
+  await store.loadPreferences()
+  expect(store.getSnapshot().preferencesLoaded).toBe(true)
+  store.openEditorFile('session:local', 'mine.md', { document: doc })
+  expect(saved.editorState).toEqual(original)
+  failRead = false
+  await store.loadPreferences()
+  expect(editorConversation(store.getSnapshot().editorState, 'session:saved').active).toBe('saved.md')
+  expect(store.getSnapshot().editorDocuments.get('session:local')?.get('mine.md')).toEqual(doc)
+  expect(saved.editorState).toEqual(store.getSnapshot().editorState)
+})
+
 it('reports failed preference writes while preserving the local state', async () => {
+  await store.loadPreferences()
   vi.mocked(store.transport.request).mockRejectedValue(new Error('write refused'))
   store.setWindowMode('editor')
   store.openEditorFile('session:first', 'one.md')
