@@ -388,6 +388,16 @@ export const scanUiArchitecture = (files) => {
       findings.push({ path: file.path, rule: 'raw-style-export', detail: 'export { styles as ... }' })
     }
     for (const specifier of moduleSpecifiers(file.path, file.source)) {
+      const resolved = specifier.startsWith('@/')
+        ? path.posix.normalize(`${UI_SOURCE}${specifier.slice(2)}`)
+        : specifier.startsWith('.')
+          ? path.posix.normalize(path.posix.join(path.posix.dirname(file.path), specifier))
+          : specifier
+      const editorRoot = `${UI_SOURCE}editor`
+      if (!file.path.startsWith(`${editorRoot}/`) && resolved.startsWith(`${editorRoot}/`) &&
+          !/^index(?:\.[cm]?[jt]sx?)?$/.test(resolved.slice(editorRoot.length + 1))) {
+        findings.push({ path: file.path, rule: 'editor-module-boundary', detail: `${specifier}: use the editor entrypoint` })
+      }
       if (/^@xyflow\/react(?:\/|$)/.test(specifier) && file.path !== CANVAS_ENGINE) {
         findings.push({ path: file.path, rule: 'canvas-engine-import', detail: 'React Flow belongs only in the lazy FlowCanvas engine' })
       }

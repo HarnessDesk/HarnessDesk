@@ -3,6 +3,24 @@ import test from 'node:test'
 
 import { overlayViolations, scanUiArchitecture } from './ui-architecture.mjs'
 
+test('editor consumers use only the public entrypoint, including re-exports and lazy imports', () => {
+  const path = 'packages/ui/src/components/Example.tsx'
+  for (const source of [
+    "import { CodeView } from '../editor/CodeView'",
+    "export { CodeView } from '@/editor/CodeView'",
+    "const editor = import('../editor/CodeView.tsx')",
+    "import { CodeView } from '../editor/nested/../CodeView'",
+  ]) {
+    assert.ok(scanUiArchitecture([{ path, source }]).some(({ rule }) => rule === 'editor-module-boundary'), source)
+  }
+  for (const source of [
+    "import { CodeView } from '../editor'",
+    "import { CodeView } from '../editor/index'",
+    "const editor = import('@/editor/index.ts')",
+  ]) assert.deepEqual(scanUiArchitecture([{ path, source }]), [])
+  assert.deepEqual(scanUiArchitecture([{ path: 'packages/ui/src/editor/FileView.tsx', source: "import { CodeView } from './CodeView'" }]), [])
+})
+
 test('overlay audit covers raw attributes, aliased parts, and canonical authorities structurally', () => {
   const source = `import { DialogOverlay as Shade } from '../design'; const view = <div role={'dialog'} aria-modal><Shade /></div>`
   assert.ok(overlayViolations('packages/ui/src/components/Bad.tsx', source).length >= 3)
