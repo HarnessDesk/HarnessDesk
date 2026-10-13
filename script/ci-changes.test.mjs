@@ -6,7 +6,9 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { themeInputs } from './ci-changes.mjs'
+import { browserPlan, themeInputs } from './ci-changes.mjs'
+import { specFiles } from './ci-browser-shards.mjs'
+import { mergeRecords } from './ui-impact.mjs'
 
 const script = fileURLToPath(new URL('./ci-changes.mjs', import.meta.url))
 const check = (paths, expected, event = 'pull_request', env = {}) => {
@@ -15,7 +17,7 @@ const check = (paths, expected, event = 'pull_request', env = {}) => {
     const list = join(directory, 'paths')
     if (paths !== null) writeFileSync(list, paths.length ? `${paths.join('\0')}\0` : '')
     const result = spawnSync(process.execPath, [script, list], {
-      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event, UI_THEME_TOUCHED: '', UI_SYSTEM_MATRIX_REQUEST: '', ...env },
+      encoding: 'utf8', env: { ...process.env, GITHUB_EVENT_NAME: event, UI_THEME_TOUCHED: '', UI_SYSTEM_MATRIX_REQUEST: '', UI_IMPACT_MAP: '', ...env },
     })
     assert.equal(result.status, 0, result.stderr)
     const output = Object.fromEntries(result.stdout.trim().split('\n').map(line => line.split(/=(.*)/s).slice(0, 2)))
@@ -57,8 +59,13 @@ test('the native smoke runner runs native smoke and no browser spec', () =>
 test('empty input runs everything', () => check([], ['all', true]))
 test('unreadable input runs everything', () => check(null, ['all', true]))
 test('push to main runs everything even for docs', () => check(['docs/architecture.md'], ['all', true], 'push'))
-test('NUL input preserves filenames with spaces and newlines', () =>
-  check(['docs/line\nbreak.md', 'docs/a b.md'], ['none', false]))
+test('NUL input preserves filenames with spaces', () =>
+  check(['docs/a b.md', 'docs/b c.md'], ['none', false]))
+// A name with a newline would write a second line into the step's outputs: it is not a name to plan from.
+test('a filename with a control character runs everything', () => {
+  check(['docs/line\nbreak.md', 'docs/a b.md'], ['all', true])
+  check(['docs/tab\there.md'], ['all', true])
+})
 test('a mixed change runs each affected suite', () =>
   check(['docs/architecture.md', 'packages/desktop/electron/main.mjs', 'e2e/ui-system/row-box.spec.ts'], ['all', true]))
 
@@ -268,4 +275,117 @@ test('a spec edit beside a host change also runs the server-facing specs', () =>
 test('the outputs are well formed on a run that skips the browser job', () => {
   const run = plan(['docs/architecture.md'])
   assert.deepEqual([run.browser, run.shard_count, run.shards], ['none', '0', '[1]'])
+})
+
+// A map of the real repository, made up: every spec ran the button, and `row-box.spec.ts` alone ran BringHome.
+const real = fileURLToPath(new URL('../', import.meta.url))
+const impactMap = () => {
+  const records = specFiles(real).map(spec => ({
+    [`e2e/ui-system/${spec}`]: {
+      tests: 1, unclean: 0,
+      loaded: ['/src/design/ui/button.tsx', '/src/components/BringHome.tsx'],
+      ran: spec === 'row-box.spec.ts' ? ['/src/design/ui/button.tsx', '/src/components/BringHome.tsx'] : ['/src/design/ui/button.tsx'],
+    },
+  }))
+  return mergeRecords(real, records, { commit: 'abcdef1234567' })
+}
+const planWith = (inputs, impact, over = {}) => browserPlan(real, {
+  browser: 'all', inputs, serverInputs: false, event: 'pull_request', themeTouched: false, request: '', baseText: () => null, impact, ...over,
+})
+const current = map => ({ map, baseFiles: () => Object.fromEntries(Object.entries(map.files).map(([path, entry]) => [path, entry.blob])), baseEnvironment: () => map.environment })
+
+test('a change to the UI runs the specs in which that source ran, in the light theme', () => {
+  const map = impactMap()
+  const run = planWith(['packages/ui/src/components/BringHome.tsx'], current(map))
+  assert.deepEqual(JSON.parse(run.specs), ['e2e/ui-system/row-box.spec.ts'])
+  assert.deepEqual([run.browser, run.matrix, run.count], ['all', 'pr', 1])
+  assert.match(run.summary, /1 of \d+ specs.*Selected by the specs that ran the changed UI source \(map of abcdef123\)/)
+})
+
+test('a change to something every spec ran, and a change without a map, run every spec', () => {
+  const map = impactMap()
+  const all = JSON.parse(planWith(['packages/ui/src/design/ui/button.tsx'], current(map)).specs)
+  assert.equal(all.length, specFiles(real).length)
+  const unmapped = planWith(['packages/ui/src/components/BringHome.tsx'], null)
+  assert.deepEqual([unmapped.specs, unmapped.matrix], ['all', 'pr'])
+})
+
+test('a file that has moved on since the map was recorded runs every spec, and the summary says why', () => {
+  const map = impactMap()
+  const base = current(map).baseFiles()
+  base['packages/ui/src/components/BringHome.tsx'] = 'f'.repeat(40)
+  const run = planWith(['packages/ui/src/components/BringHome.tsx'], { ...current(map), baseFiles: () => base })
+  assert.equal(run.specs, 'all')
+  assert.match(run.summary, /Not narrowed: .*BringHome\.tsx has changed on the base branch since the map was recorded/)
+})
+
+test('a change to the UI beside something the map cannot speak for runs every spec', () => {
+  const map = impactMap()
+  for (const beside of ['package.json', 'packages/ui/vite.config.ts', 'packages/protocol/src/index.ts']) {
+    assert.equal(planWith(['packages/ui/src/components/BringHome.tsx', beside], current(map)).specs, 'all', beside)
+  }
+})
+
+test('a change to the UI beside an edit to the suite runs both selections, in both themes', () => {
+  const map = impactMap()
+  const run = planWith(['packages/ui/src/components/BringHome.tsx', 'e2e/ui-system/rules.spec.ts'], current(map))
+  assert.deepEqual(JSON.parse(run.specs), ['e2e/ui-system/row-box.spec.ts', 'e2e/ui-system/rules.spec.ts'])
+  assert.equal(run.matrix, 'full')
+})
+
+test('a change that reaches no spec opens no browser', () => {
+  const map = impactMap()
+  const run = planWith(['packages/ui/src/components/BringHome.test.tsx'], current(map))
+  assert.deepEqual([run.browser, run.count], ['none', 0])
+})
+
+test('a spec the map has not seen run runs, whatever else changed', () => {
+  const map = impactMap()
+  map.specs.shift()
+  map.hashes.shift()
+  for (const entry of Object.values(map.files)) {
+    for (const kind of ['loaded', 'ran']) if (Array.isArray(entry[kind])) entry[kind] = entry[kind].filter(index => index > 0).map(index => index - 1)
+  }
+  const unseen = specFiles(real).find(spec => !map.specs.includes(spec))
+  const run = planWith(['packages/ui/src/components/BringHome.tsx'], current(map))
+  assert.ok(JSON.parse(run.specs).includes(`e2e/ui-system/${unseen}`), unseen)
+})
+
+test('only a run of the whole suite in both themes records what each spec ran', () => {
+  const ui = ['packages/ui/src/App.tsx']
+  for (const event of ['push', 'workflow_dispatch']) assert.equal(plan(ui, {}, event).record, 'true', event)
+  assert.equal(plan(ui, { UI_THEME_TOUCHED: 'true' }).record, 'true', 'a pull request that reads both themes of every spec')
+  assert.equal(plan(ui).record, 'false', 'a pull request that reads one theme')
+  assert.equal(plan(ui, { UI_SYSTEM_MATRIX_REQUEST: 'pr' }, 'workflow_dispatch').record, 'false', 'a run on demand for the pull-request matrix')
+  assert.equal(plan(['e2e/ui-system/row-box.spec.ts']).record, 'false', 'a part of the suite')
+  assert.equal(plan(['docs/architecture.md']).record, 'false', 'no browser at all')
+})
+
+test('a map that cannot be read changes nothing about what a pull request runs', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'ci-map-'))
+  try {
+    for (const [name, text] of Object.entries({ missing: null, empty: '', garbage: '{"version":' })) {
+      const file = join(directory, `${name}.json`)
+      if (text !== null) writeFileSync(file, text)
+      const run = plan(['packages/ui/src/components/BringHome.tsx'], { UI_IMPACT_MAP: file })
+      assert.deepEqual([run.browser, run.browser_specs, run.matrix], ['all', 'all', 'pr'], name)
+    }
+  } finally {
+    rmSync(directory, { recursive: true, force: true })
+  }
+})
+
+test('a summary never carries a newline into the outputs, whatever a path is called', () => {
+  const map = impactMap()
+  const run = planWith(['packages/ui/src/components/BringHome.tsx'], { ...current(map), baseFiles: () => ({ ...current(map).baseFiles(), 'packages/ui/src/new\nbrowser=none.ts': 'a'.repeat(40) }) })
+  assert.equal(run.specs, 'all')
+  assert.doesNotMatch(run.summary, /[\n\r]/)
+  assert.match(run.summary, /new browser=none\.ts was added to the base branch/)
+})
+
+test('a file outside the UI that its source imports is a browser input, and one only its tests import is not', () => {
+  const run = (paths) => plan(paths)
+  // `packages/ui/src/design/frame.ts` is the UI's; the shared constants it imports from other packages are theirs.
+  assert.equal(run(['docs/architecture.md']).browser, 'none')
+  assert.equal(run(['packages/desktop/electron/main.mjs']).browser, 'none', 'imported by a unit test of the UI and by no source of it')
 })

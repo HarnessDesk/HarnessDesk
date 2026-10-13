@@ -80,6 +80,44 @@ Two rules keep a pull request from running more than it can learn from:
   A pull request's times are `e2e/ui-system/durations.pr.json`, refreshed the
   same way from a pull request's logs; a spec it does not list uses the full time.
 
+A third rule narrows a change to the UI's own source, once there is a map of what
+the specs ran:
+
+- **A change to the UI's source runs the specs in which that source ran.** Every
+  full run (a push to `main`, a run started by hand, a pull request that has to
+  read everything) records, for each spec, which modules of the UI its page
+  loaded and in which of them a function ran; `script/ui-impact.mjs merge` folds
+  the shards' records into one map, and `main` keeps the newest in the Actions
+  cache. A pull request reads that map: a changed file runs the specs that ran
+  it, a stylesheet or a constant (nothing in it runs) runs the specs that ran
+  whoever imports it, and a file added or deleted also runs the specs that ran
+  the modules that load files by a pattern. A module that hands data to its
+  importers (`export const LABEL = …`) also runs the specs in which they ran, and
+  a stylesheet the bundler took into another (`@import`, `url()`) is followed to
+  whoever imports that. A spec the map has not seen, or whose own code or helpers
+  have changed since, always runs, and so does a spec that opens pages of its own
+  (the recorder sees only the page a test is given) or whose recording was not
+  complete (`playwright test --list` says how many tests it has). Anything the
+  map cannot speak for runs every spec: no map, a file that changed on the base
+  branch since the map was recorded, a change to the setup it was recorded in
+  (the browser configuration, dependencies, the pages, the workspace packages the
+  preview loads), a file outside the UI's source, a change to shared inputs. `main` always runs everything, so a miss is found there and fixed
+  forward. To see what a change would run, with a map downloaded from a run
+  (`ui-impact-map`): `node script/ui-impact.mjs select --map ui-impact-map.json --fresh <paths>`.
+  The recording is `script/ui-impact/test.ts`, a build of `@playwright/test` the
+  specs are pointed at only while recording; it costs under a tenth of a run.
+
+The UI's unit tests follow the same idea with the tool that already knows their
+imports: a pull request that changes only the UI's own source runs `vitest
+related` on the changed files, plus the tests that read the tree by themselves
+(the file system, `import.meta.glob`, in the test or in a helper it imports) and
+the importers of a file that is imported with a query (`?raw`), which Vitest does
+not follow; a pull request that changes anything a test may read from elsewhere
+(another package the UI is built from, or one a file of the UI reads by import or
+pattern), a deleted file or anything the test setup imports, and every run of
+`main`, runs them all. A package the UI is not built from and does not read is
+nothing to these tests (`script/ci-unit-tests.mjs`).
+
 `server` runs only specs that import packages outside those UI inputs, in
 one Ubuntu job, for other package changes. The selector discovers those
 imports, including local helpers; the spec list needs no manual update. `none`
