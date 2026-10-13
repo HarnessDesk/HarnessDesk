@@ -182,6 +182,24 @@ for (const modifier of ['ctrlKey', 'metaKey'] as const) {
   }
 }
 
+it.each(['editor', 'search field'])('opens the Command palette from the %s with Command K', async (scope) => {
+  const content = await editor(false)
+  const view = EditorView.findFromDOM(content)!
+  openSearchPanel(view)
+  const target = scope === 'editor'
+    ? content
+    : container.querySelector<HTMLInputElement>('input[name="search"]')!
+  const before = view.state.selection.toJSON()
+  const { ran, stop } = desk()
+  try {
+    press(target, 'k')
+    expect(ran).toEqual(['palette'])
+    expect(view.state.selection.toJSON()).toEqual(before)
+  } finally {
+    stop()
+  }
+})
+
 it('finds the next match with F3 and with Enter in the search field', async () => {
   const content = await editor(false)
   const view = EditorView.findFromDOM(content)!

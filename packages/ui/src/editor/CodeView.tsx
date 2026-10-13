@@ -54,12 +54,13 @@ import {
  *   into the editor after a save marks the pane dirty again immediately.
  */
 
-// The window owns mode switching and Ask in chat. Remove their chords from
-// both the editing map and search-panel map so neither claims the DOM event.
+// The window owns mode switching, Ask in chat and the Command palette.
+// Remove their chords, including palette prefixes, from the editing and
+// search-panel maps so neither claims the DOM event.
 // Search still advances on Enter in its field and F3 in either scope.
 const editingKeymap = [...vscodeKeymap, ...searchKeymap].filter((binding) =>
   ![binding.key, binding.mac, binding.win, binding.linux].some((key) =>
-    key !== undefined && /^(?:Mod|Cmd|Ctrl)-(?:g|l)$/i.test(key),
+    key !== undefined && /^(?:Mod|Cmd|Ctrl)-(?:[gl]$|k(?:\s|$))/i.test(key),
   ),
 )
 
