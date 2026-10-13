@@ -1,4 +1,5 @@
-import { effectiveWindowMode } from '../editor'
+import { effectiveWindowMode, sameFileDocument, isDirtyDocument, type FileTransfer, type EditorLineTarget } from '../editor'
+import { filePathInRoot } from '../lib/file-link'
 import { destinationOf, leaveSettingsDestination, sameDestination, visitDestination, stepDestination, type PageDestination, type WorkView, type DestinationHistory } from './destinations'
 import { FRAME } from '../design/frame'
 import { terminalCwdForSnapshot } from '../lib/terminal-scope'
@@ -7179,14 +7180,60 @@ export class AppStore {
     this.#saveEditorConversation(subject, editorConversation(this.#snapshot.editorState, subject))
   }
 
-  openEditorFile(subject: string, path: string, options: OpenEditorTabOptions & { readonly document?: FileDocumentState | null } = {}): void {
+  openEditorFile(subject: string, path: string, options: OpenEditorTabOptions & { readonly document?: FileDocumentState | null } = {}): boolean {
+    const retained = this.#snapshot.editorDocuments.get(subject)?.get(path)
+    if (options.document && retained && !sameFileDocument(options.document, retained)) {
+      this.notice('warning', 'This file has another unsaved draft in Editor mode. Both drafts are kept; open the editor draft before transferring this one.')
+      return false
+    }
     let state = editorConversation(this.#snapshot.editorState, subject)
     // A preview with a retained document is never replaced, even if a caller
     // captured the draft before mounting the editor shell.
     if (state.preview && this.#snapshot.editorDocuments.get(subject)?.has(state.preview)) state = keepEditorTab(state, state.preview)
     state = openEditorTab(state, path, options)
     this.#setEditorConversation(subject, state)
-    if (options.document && !this.#snapshot.editorDocuments.get(subject)?.has(path)) this.setEditorDocument(subject, path, options.document)
+    if (options.document) this.setEditorLiveDocument(subject, path, options.document)
+    return true
+  }
+
+  /** Entries already carry a loaded owner; revealing it must not resume an agent. */
+  enterEditorFile(key: SessionKey, path: string, options: OpenEditorTabOptions & { readonly line?: number; readonly document?: FileDocumentState | null } = {}): boolean {
+    const session = this.#snapshot.sessions.get(key)
+    const absolute = session && filePathInRoot(path, session.cwd)
+    if (!session || !absolute) return false
+    const subject = `session:${key}`
+    if (!this.openEditorFile(subject, absolute, { ...options, keep: true })) return false
+    if (options.view) this.setEditorFileView(subject, absolute, options.view)
+    if (options.line) {
+      const editorLineTargets = new Map(this.#snapshot.editorLineTargets), files = new Map(editorLineTargets.get(subject))
+      const previous = files.get(absolute)
+      files.set(absolute, { line: options.line, request: (previous?.request ?? 0) + 1 } satisfies EditorLineTarget)
+      editorLineTargets.set(subject, files); this.#patch({ editorLineTargets })
+    }
+    this.#showInPane(key)
+    this.setWindowMode('editor')
+    return true
+  }
+
+  clearEditorLineTarget(subject: string, path: string, request: number): void {
+    const held = this.#snapshot.editorLineTargets.get(subject)
+    if (held?.get(path)?.request !== request) return
+    const editorLineTargets = new Map(this.#snapshot.editorLineTargets), files = new Map(held)
+    files.delete(path)
+    if (files.size) editorLineTargets.set(subject, files)
+    else editorLineTargets.delete(subject)
+    this.#patch({ editorLineTargets })
+  }
+
+  reviewEditorFiles(key: SessionKey, path: string): void {
+    if (this.enterEditorFile(key, path, { view: 'changes' })) this.setEditorExplorerFilter(`session:${key}`, 'changed')
+  }
+
+  popOutEditorFile(file: FileTransfer): boolean {
+    if (!file.subject?.startsWith('session:')) return false
+    const key = file.subject.slice('session:'.length) as SessionKey, session = this.#snapshot.sessions.get(key)
+    if (!session || session.runtime !== file.runtime || (file.root !== null && session.cwd !== file.root)) return false
+    return this.enterEditorFile(key, file.path, { view: file.view, document: file.document })
   }
 
   selectEditorFile(subject: string, path: string): void {
@@ -7207,6 +7254,7 @@ export class AppStore {
     const next = closeEditorTab(state, path)
     if (next !== state) this.#setEditorConversation(subject, next)
     this.setEditorDocument(subject, path, null)
+    this.setEditorLiveDocument(subject, path, null)
     return true
   }
 
@@ -7222,6 +7270,21 @@ export class AppStore {
 
   setEditorExpandedFolders(subject: string, expanded: readonly string[]): void {
     this.#setEditorConversation(subject, { ...editorConversation(this.#snapshot.editorState, subject), expanded: [...new Set(expanded)] })
+  }
+
+  /** Full shared snapshots propagate edits and a save's new clean base to every mounted surface. */
+  setEditorLiveDocument(subject: string, path: string, document: FileDocumentState | null): void {
+    const previous = this.#snapshot.editorLiveDocuments.get(subject)?.get(path)
+    if (sameFileDocument(previous, document)) return
+    const editorLiveDocuments = new Map(this.#snapshot.editorLiveDocuments), live = new Map(editorLiveDocuments.get(subject))
+    live.set(path, document); editorLiveDocuments.set(subject, live)
+    const editorDocuments = new Map(this.#snapshot.editorDocuments), dirty = new Map(editorDocuments.get(subject))
+    if (document && isDirtyDocument(document)) dirty.set(path, document)
+    else dirty.delete(path)
+    if (dirty.size) editorDocuments.set(subject, dirty)
+    else editorDocuments.delete(subject)
+    this.#patch({ editorLiveDocuments, editorDocuments })
+    if (document && isDirtyDocument(document)) this.keepEditorFile(subject, path)
   }
 
   setEditorDocument(subject: string, path: string, document: FileDocumentState | null): void {

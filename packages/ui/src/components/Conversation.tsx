@@ -1,3 +1,4 @@
+import { fileLink, filePathInRoot } from '../lib/file-link'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 
 import { editorConversation } from '../editor'
@@ -464,8 +465,17 @@ export const Conversation = ({
   const onScrollClick = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     const element = scroll.current
     const link = (event.target as HTMLElement).closest?.('a[href]')
-    if (element && link && element.contains(link)) setPinned(false)
-  }, [])
+    if (element && link && element.contains(link)) {
+      setPinned(false)
+      if (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.altKey || event.shiftKey || !key || !session) return
+      const target = fileLink(link.getAttribute('href') ?? '')
+      const path = target && filePathInRoot(target.path, session.cwd)
+      if (path && target) {
+        event.preventDefault()
+        store.enterEditorFile(key, path, { view: 'source', line: target.line })
+      }
+    }
+  }, [store, key, session])
 
   // Layout effect so the jump happens in the same frame the content grows,
   // rather than as a visible lurch afterwards.

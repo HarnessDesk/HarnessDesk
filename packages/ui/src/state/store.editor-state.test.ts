@@ -186,3 +186,11 @@ it('reports failed preference writes while preserving the local state', async ()
   expect(store.getSnapshot().windowMode).toBe('editor')
   expect(editorConversation(store.getSnapshot().editorState, 'session:first').active).toBe('one.md')
 })
+
+it('deliberate line entry overrides an existing Preview tab and keeps unrelated drafts', () => {
+  store.openEditorFile('session:first', 'notes.md', { keep: true })
+  store.openEditorFile('session:first', 'other.ts', { document: doc })
+  store.openEditorFile('session:first', 'notes.md', { view: 'source', keep: true })
+  expect(editorConversation(store.getSnapshot().editorState, 'session:first').tabs.find(tab => tab.path === 'notes.md')?.view).toBe('source')
+  expect(store.getSnapshot().editorDocuments.get('session:first')?.get('other.ts')).toEqual(doc)
+})

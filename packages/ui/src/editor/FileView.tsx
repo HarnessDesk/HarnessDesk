@@ -10,6 +10,8 @@ import styles from './FileView.module.css'
 import { quoteSelection, previewSelection } from './quote'
 import { askInChat, canAskInChat } from './ask'
 import type { EditorSelection } from './CodeView'
+import type { EditorLineTarget } from './state'
+import { sameFileDocument } from './document'
 
 export type FileViewMode = 'preview' | 'source' | 'changes'
 export interface FileBase {
@@ -48,6 +50,13 @@ export interface FileViewProps {
   /** Initial state for path/runtime; root arrival refreshes only HEAD provenance. */
   readonly document?: FileDocumentState | null
   readonly onDocumentChange?: (document: FileDocumentState | null) => void
+  /** Opt-in shared document binding; unlike document, this also receives clean save baselines. */
+  readonly liveDocument?: FileDocumentState | null
+  /** Latest store snapshot, independent of frame-coalesced React notifications. */
+  readonly readLiveDocument?: () => FileDocumentState | null | undefined
+  readonly onLiveDocumentChange?: (document: FileDocumentState) => void
+  readonly lineTarget?: EditorLineTarget
+  readonly onLineTargetReached?: (request: number) => void
 }
 
 type Conflict = { kind: 'text'; content: string; hash: string; missing?: boolean } | { kind: 'binary' | 'tooLarge'; size: number }
@@ -65,8 +74,14 @@ interface FileState {
 }
 const blank = (): FileState => ({ base: null, draft: null, pending: false, problem: null, binary: null, conflict: null, head: undefined, comparing: false, saving: false })
 const dirty = (state: FileState) => state.pending || (state.draft !== null && state.draft !== state.base?.content)
-const documentOf = (state: FileState): FileDocumentState | null => state.base && dirty(state)
+const liveDocumentOf = (state: FileState): FileDocumentState | null => state.base
   ? { base: state.base, content: state.draft ?? state.base.content, pendingCreation: state.pending, ...(state.comparing && state.conflict?.kind === 'text' ? { comparison: { content: state.conflict.content, hash: state.conflict.hash, ...(state.conflict.missing ? { missing: true } : {}) } } : {}) } : null
+const documentOf = (state: FileState): FileDocumentState | null => dirty(state) ? liveDocumentOf(state) : null
+const withDocument = (before: FileState, document: FileDocumentState): FileState => ({ ...before,
+  base: document.base, draft: document.content === document.base.content ? null : document.content,
+  pending: document.pendingCreation, problem: null, binary: null,
+  conflict: document.comparison ? { kind: 'text', ...document.comparison } : null, comparing: !!document.comparison,
+})
 const IMAGE_TYPES: Readonly<Record<string, string>> = { avif: 'image/avif', gif: 'image/gif', jpeg: 'image/jpeg', jpg: 'image/jpeg', png: 'image/png', webp: 'image/webp' }
 const initialMode = (path: string): FileViewMode => /\.(md|markdown|html?|pdf)$/i.test(path) ? 'preview' : 'source'
 const MAX_EDITABLE = 512 * 1024
@@ -97,7 +112,16 @@ export const FileView = (props: FileViewProps) => {
   const callbacks = useRef(props); callbacks.current = props
   const [state, setState] = useState<FileState>(blank)
   const current = useRef(state)
-  const update = (change: (before: FileState) => FileState) => { current.current = change(current.current); setState(current.current) }
+  const latestState = (): FileState => {
+    const incoming = callbacks.current.readLiveDocument?.()
+    if (incoming !== undefined && !sameFileDocument(incoming, liveDocumentOf(current.current))) current.current = incoming ? withDocument(current.current, incoming) : blank()
+    return current.current
+  }
+  const update = (change: (before: FileState) => FileState, publish = true) => {
+    current.current = change(publish ? latestState() : current.current); setState(current.current)
+    const document = liveDocumentOf(current.current)
+    if (publish && document) callbacks.current.onLiveDocumentChange?.(document)
+  }
   const [chosen, setChosen] = useState<FileViewMode>(() => props.view ?? initialMode(path))
   const [frameSrc, setFrameSrc] = useState<string | null>(null)
   const [frameError, setFrameError] = useState<string | null>(null)
@@ -116,6 +140,8 @@ export const FileView = (props: FileViewProps) => {
   // Edits made while reading are checked at completion, never captured as clean.
   const load = async (identity: number) => {
     const reading = ++loadId.current
+    const sharedBase = callbacks.current.readLiveDocument?.()?.base
+    const sharedBaselineChanged = () => !!callbacks.current.readLiveDocument && sharedBase !== callbacks.current.readLiveDocument()?.base
     try {
       const mediaType = IMAGE_TYPES[path.split('.').pop()?.toLowerCase() ?? '']
       const [file, meta] = await Promise.all([
@@ -123,12 +149,14 @@ export const FileView = (props: FileViewProps) => {
         store.transport.request('workspace/stat', { path, runtime }).catch(() => null),
       ])
       if (identity !== epoch.current || reading !== loadId.current) return
+      if (sharedBaselineChanged()) { void load(identity); return }
       modifiedAt.current = meta?.modifiedAt ?? null
       diskRead.current = file; ++headRevision.current
       update(before => reconcileRead(before, file, mediaType))
       refreshHead.current()
     } catch (error) {
       if (identity !== epoch.current || reading !== loadId.current) return
+      if (sharedBaselineChanged()) { void load(identity); return }
       update(before => ({ ...before, problem: { kind: 'unreadable', message: error instanceof Error ? error.message : String(error) } }))
     }
   }
@@ -152,13 +180,25 @@ export const FileView = (props: FileViewProps) => {
   useEffect(() => {
     const identity = ++epoch.current
     diskRead.current = null; ++headRevision.current
-    const saved = callbacks.current.document
+    const latest = callbacks.current.readLiveDocument?.()
+    const saved = latest === undefined ? callbacks.current.liveDocument === undefined ? callbacks.current.document : callbacks.current.liveDocument : latest
     update(() => saved ? { ...blank(), base: saved.base, draft: saved.content, pending: saved.pendingCreation, conflict: saved.comparison ? { kind: 'text', ...saved.comparison } : null, comparing: !!saved.comparison } : blank())
     setChosen(callbacks.current.view ?? initialMode(path)); modifiedAt.current = null
     if (!pdf) void load(identity)
     store.reportEditor?.({ kind: 'opened', path, at: Date.now() })
     return () => { ++epoch.current; ++headRevision.current; diskRead.current = null; headQueued.current = false; store.reportEditor?.({ kind: 'closed', path, at: Date.now() }) }
   }, [path, runtime, store])
+
+  // Panels remain mounted while hidden. Shared edits and clean saves must update
+  // their local state too; a mount seed alone leaves an old draft and hash behind.
+  useEffect(() => {
+    const incoming = props.liveDocument
+    if (incoming === undefined || sameFileDocument(incoming, liveDocumentOf(current.current))) return
+    if (incoming === null) {
+      const identity = ++epoch.current; ++loadId.current; ++pollId.current
+      update(() => blank(), false); void load(identity)
+    } else update(before => withDocument(before, incoming), false)
+  }, [props.liveDocument])
 
   // A conversation's root can arrive after the same physical file is opened.
   // It changes only comparison provenance, never its draft, save or ticket.
@@ -208,18 +248,24 @@ export const FileView = (props: FileViewProps) => {
     return () => window.clearInterval(timer)
   }, [path, runtime, store, native])
 
-  const save = async (expectedHash = current.current.base?.hash): Promise<boolean> => {
-    const before = current.current
+  const save = async (requestedHash?: string): Promise<boolean> => {
+    const before = latestState(), expectedHash = requestedHash ?? before.base?.hash
     if (!before.base || before.base.truncated || before.base.content.length > MAX_EDITABLE || !dirty(before) || before.saving || expectedHash === undefined || before.conflict?.kind === 'binary' || before.conflict?.kind === 'tooLarge') return false
     let saved = false
     const content = before.draft ?? before.base.content
+    // The immutable shared base object is its generation: even a peer restoring
+    // the original bytes/hash must not admit this older save response again.
+    let sharedBase = callbacks.current.readLiveDocument?.()?.base
+    const superseded = () => !!callbacks.current.readLiveDocument && sharedBase !== callbacks.current.readLiveDocument()?.base
     const identity = ++epoch.current; ++loadId.current; ++pollId.current; ++headRevision.current
     update(one => ({ ...one, saving: true }))
     try {
       const result = await store.transport.request('file/save', { path, runtime, content, expectedHash })
       if (identity !== epoch.current) return false
+      if (superseded()) { await load(identity); return false }
       if (result.saved) {
         update(one => ({ ...one, base: { content, hash: result.hash, truncated: false }, draft: one.draft === content ? null : one.draft, pending: false, conflict: null, comparing: false }))
+        sharedBase = callbacks.current.readLiveDocument?.()?.base
         // Keep polling suspended until the post-save baseline stat is installed.
         const meta = await store.transport.request('workspace/stat', { path, runtime }).catch(() => null)
         if (identity !== epoch.current) return false
@@ -228,14 +274,23 @@ export const FileView = (props: FileViewProps) => {
         // Stat can already include a foreign write after our save. Verify bytes
         // after installing that baseline so this write cannot become invisible.
         const mediaType = IMAGE_TYPES[path.split('.').pop()?.toLowerCase() ?? '']
+        const verificationBase = callbacks.current.readLiveDocument?.()?.base
         const verified = await store.transport.request('workspace/readFile', { path, runtime, maxBytes: WORKSPACE_BINARY_LIMIT_BYTES, ...(mediaType ? { encoding: 'base64' as const } : {}) })
         if (identity !== epoch.current) return false
-        diskRead.current = verified; ++headRevision.current
-        update(one => reconcileRead(one, verified, mediaType))
-        saved = !dirty(current.current)
+        if (callbacks.current.readLiveDocument && verificationBase !== callbacks.current.readLiveDocument()?.base) void load(identity)
+        else {
+          diskRead.current = verified; ++headRevision.current
+          update(one => reconcileRead(one, verified, mediaType))
+        }
+        saved = !dirty(latestState())
       } else if ('reason' in result) update(one => ({ ...one, conflict: { kind: result.reason, size: result.size } }))
       else update(one => ({ ...one, conflict: { kind: 'text', ...result.conflict } }))
-    } catch (error) { if (identity === epoch.current) store.notice?.('error', error instanceof Error ? error.message : String(error)) }
+    } catch (error) {
+      if (identity === epoch.current) {
+        if (superseded()) await load(identity)
+        else store.notice?.('error', error instanceof Error ? error.message : String(error))
+      }
+    }
     finally { if (identity === epoch.current) { update(one => ({ ...one, saving: false })); refreshHead.current(); if (native) setFrameGeneration(value => value + 1) } }
     if (identity !== epoch.current) return false
     callbacks.current.onDocumentChange?.(documentOf(current.current))
@@ -261,7 +316,7 @@ export const FileView = (props: FileViewProps) => {
     setSelection(null)
     return true
   }
-  const editorProps = { onSelection, value: content, path, readOnly: !editable, dark: theme === 'dark', look: appearance, lineNumbers: snapshot.editorPrefs.lineNumbers, wrap: snapshot.editorPrefs.wrap, tabSize: snapshot.editorPrefs.tabSize, ariaLabel: path, className: styles.editor, decorations: snapshot.editorPlane.find(one => one.path === path)?.decorations ?? [], onChange: (value: string) => { update(one => ({ ...one, draft: value })); store.reportEditor?.({ kind: 'changed', path, at: Date.now() }) }, onSave: () => { void save() } }
+  const editorProps = { onLineTargetReached: props.onLineTargetReached, lineTarget: actualMode === 'source' ? props.lineTarget : undefined, onSelection, value: content, path, readOnly: !editable, dark: theme === 'dark', look: appearance, lineNumbers: snapshot.editorPrefs.lineNumbers, wrap: snapshot.editorPrefs.wrap, tabSize: snapshot.editorPrefs.tabSize, ariaLabel: path, className: styles.editor, decorations: snapshot.editorPlane.find(one => one.path === path)?.decorations ?? [], onChange: (value: string, applyTo?: (latest: string) => string) => { update(one => ({ ...one, draft: applyTo ? applyTo(one.draft ?? one.base?.content ?? '') : value })); store.reportEditor?.({ kind: 'changed', path, at: Date.now() }) }, onSave: () => { void save() } }
   const conflict = state.conflict
   const reload = () => {
     if (conflict?.kind !== 'text') return
@@ -317,7 +372,7 @@ export const FileView = (props: FileViewProps) => {
         ...(!pdf ? [{ value: 'source' as const, label: 'Source' }] : []),
         ...(counts ? [{ value: 'changes' as const, label: `Changes +${counts.added} −${counts.removed}` }] : []),
       ]} />}
-      {props.onPopOut && <Button variant="ghost" size="icon-sm" title="Pop out to Editor mode" aria-label="Pop out to Editor mode" onClick={() => props.onPopOut?.({ path, runtime, root, ...(subject ? { subject } : {}), view: state.head === undefined && mode === 'changes' ? mode : actualMode, document: documentOf(current.current) })}><ExternalIcon size={14} /></Button>}
+      {props.onPopOut && <Button variant="ghost" size="icon-sm" title="Pop out to Editor mode" aria-label="Pop out to Editor mode" onClick={() => props.onPopOut?.({ path, runtime, root, ...(subject ? { subject } : {}), view: state.head === undefined && mode === 'changes' ? mode : actualMode, document: documentOf(latestState()) })}><ExternalIcon size={14} /></Button>}
     </div>
     {conflict && <Banner tone="warning" measure="container" title={conflict.kind === 'text' ? `${sanitizeText(path.split('/').pop() ?? path)} changed on disk while you had unsaved edits.` : conflict.kind === 'binary' ? 'This file is now binary. Your save was refused.' : 'This file is now too large to edit. Your save was refused.'} actions={conflict.kind === 'text' ? <>
       <BannerAction variant="secondary" disabled={state.saving} onClick={() => { update(one => ({ ...one, comparing: true })); changeView('changes') }}>Compare</BannerAction>

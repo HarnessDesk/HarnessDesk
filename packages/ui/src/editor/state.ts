@@ -19,6 +19,9 @@ export interface EditorConversation {
 export type EditorState = readonly { readonly subject: string; readonly state: EditorConversation }[]
 /** Full unsaved documents, never included in app/state. */
 export type EditorDocuments = ReadonlyMap<string, ReadonlyMap<string, FileDocumentState>>
+export type EditorLiveDocuments = ReadonlyMap<string, ReadonlyMap<string, FileDocumentState | null>>
+export interface EditorLineTarget { readonly line: number; readonly request: number }
+export type EditorLineTargets = ReadonlyMap<string, ReadonlyMap<string, EditorLineTarget>>
 export interface OpenEditorTabOptions {
   readonly keep?: boolean
   readonly view?: FileViewMode
@@ -47,7 +50,7 @@ export const defaultFileView = (path: string): FileViewMode =>
 
 export const openEditorTab = (state: EditorConversation, path: string, options: OpenEditorTabOptions = {}): EditorConversation => {
   if (state.tabs.some(tab => tab.path === path)) {
-    const selected = { ...state, active: path }
+    const selected = { ...state, active: path, tabs: options.view ? state.tabs.map(tab => tab.path === path ? { ...tab, view: options.view! } : tab) : state.tabs }
     return options.keep ? keepEditorTab(selected, path) : selected
   }
   const tab = { path, view: options.view ?? defaultFileView(path) }

@@ -41,7 +41,14 @@ export const EditorMain = ({ subject, runtime, root }: { readonly subject: strin
       onKeep={path => store.keepEditorFile(subject, path)} onClose={close} />}
     {tab ? <FileView key={`${subject}:${tab.path}`} saveRef={save} path={tab.path} runtime={runtime} root={root} subject={subject}
       view={tab.view} onViewChange={view => store.setEditorFileView(subject, tab.path, view)} document={files?.get(tab.path)}
-      onDocumentChange={document => store.setEditorDocument(subject, tab.path, document)} />
+      liveDocument={snapshot.editorLiveDocuments.get(subject)?.has(tab.path) ? snapshot.editorLiveDocuments.get(subject)?.get(tab.path) : files?.get(tab.path)}
+      readLiveDocument={() => {
+        const latest = store.getSnapshot(), document = latest.editorLiveDocuments.get(subject)?.get(tab.path)
+        return document === undefined ? latest.editorDocuments.get(subject)?.get(tab.path) : document
+      }}
+      onLiveDocumentChange={document => store.setEditorLiveDocument(subject, tab.path, document)}
+      lineTarget={snapshot.editorLineTargets.get(subject)?.get(tab.path)}
+      onLineTargetReached={request => store.clearEditorLineTarget(subject, tab.path, request)} />
       : <ToolPane variant="integrated"><ToolPaneMessage>No file open. Pick one in the Explorer, or press ⌘P.</ToolPaneMessage></ToolPane>}
     {question && <ConfirmDialog title={`Save changes to ${sanitizeText(question.path.split('/').pop() ?? question.path)}?`}
       confirmLabel="Save" busy={busy} busyLabel="Saving…" cancelLabel="Cancel"

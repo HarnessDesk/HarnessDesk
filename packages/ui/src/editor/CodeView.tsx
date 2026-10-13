@@ -8,10 +8,12 @@ import {
   indentUnit,
 } from '@codemirror/language'
 import { highlightSelectionMatches, search, searchKeymap } from '@codemirror/search'
-import { Annotation, ChangeSet, Compartment, EditorState, type Extension } from '@codemirror/state'
+import { Annotation, ChangeSet, Compartment, EditorState, StateEffect, StateField, type Extension } from '@codemirror/state'
 import { getOriginalDoc, originalDocChangeEffect, unifiedMergeView, updateOriginalDoc } from '@codemirror/merge'
 import {
   EditorView,
+  Decoration,
+  type DecorationSet,
   drawSelection,
   dropCursor,
   highlightActiveLine,
@@ -34,6 +36,8 @@ import {
 } from './languages'
 import { countTextChanges, type ChangeCounts } from './counts'
 import { mergeTheme } from './merge-theme'
+import type { EditorLineTarget } from './state'
+import { rebaseFileChange } from './rebase'
 
 /**
  * A CodeMirror view, as a React component.
@@ -77,8 +81,21 @@ export interface EditorSelection {
   readonly rect: DOMRect | null
 }
 
+const markLinkedLine = StateEffect.define<number>()
+const linkedLine = StateField.define<DecorationSet>({
+  create: () => Decoration.none,
+  update: (marks, transaction) => {
+    marks = marks.map(transaction.changes)
+    for (const effect of transaction.effects) if (effect.is(markLinkedLine)) marks = Decoration.set([Decoration.line({ class: 'cm-linkedLine' }).range(effect.value)])
+    return marks
+  },
+  provide: field => EditorView.decorations.from(field),
+})
+
 export interface CodeViewProps {
   readonly value: string
+  readonly lineTarget?: EditorLineTarget
+  readonly onLineTargetReached?: (request: number) => void
   /** Absolute or relative; only its final segment picks the grammar. */
   readonly path?: string | null
   /** Overrides the grammar `path` implies — a fence language, mostly. */
@@ -94,7 +111,8 @@ export interface CodeViewProps {
    * findings. Drawn by the lint layer, so they underline, hover and list.
    */
   readonly decorations?: readonly UiDecoration[]
-  readonly onChange?: (value: string) => void
+  /** Full value for simple consumers; applyTo rebases actual edits onto a shared peer document. */
+  readonly onChange?: (value: string, applyTo: (latest: string) => string) => void
   readonly onSelection?: (selection: EditorSelection | null) => void
   /** Cmd/Ctrl+S. The pane decides what saving means; the editor only reports it. */
   readonly onSave?: () => void
@@ -110,6 +128,8 @@ interface EditorSurfaceProps extends CodeViewProps {
 /** Internal shared engine; the public CodeView and MergeView choose its mode. */
 export const EditorSurface = ({
   value,
+  lineTarget,
+  onLineTargetReached,
   path = null,
   language = null,
   readOnly = false,
@@ -200,6 +220,8 @@ export const EditorSurface = ({
           mergeTheme,
         ]),
         compartments.gutter.of(gutterExtension),
+        linkedLine,
+        EditorView.theme({ '.cm-linkedLine': { backgroundColor: 'var(--hd-accent-dim)' } }),
         highlightSpecialChars(),
         history(),
         drawSelection(),
@@ -237,7 +259,8 @@ export const EditorSurface = ({
           }
           if (!update.docChanged) return
           if (update.transactions.some((transaction) => transaction.annotation(Sync))) return
-          onChangeRef.current?.(update.state.doc.toString())
+          const before = update.startState.doc.toString(), value = update.state.doc.toString(), changes = update.changes
+          onChangeRef.current?.(value, latest => rebaseFileChange(before, value, latest, changes))
         }),
         EditorView.contentAttributes.of(ariaLabel ? { 'aria-label': ariaLabel } : {}),
       ],
@@ -272,6 +295,15 @@ export const EditorSurface = ({
       selection: { anchor: Math.min(current.state.selection.main.anchor, value.length) },
     })
   }, [value])
+
+  // A request is transient, and deliberately independent of value changes.
+  useEffect(() => {
+    const current = view.current
+    if (!current || !lineTarget) return
+    const line = current.state.doc.line(Math.max(1, Math.min(current.state.doc.lines, lineTarget.line)))
+    current.dispatch({ selection: { anchor: line.from }, effects: [markLinkedLine.of(line.from), EditorView.scrollIntoView(line.from, { y: 'center' })] })
+    onLineTargetReached?.(lineTarget.request)
+  }, [lineTarget])
 
   useEffect(() => {
     const current = view.current

@@ -999,3 +999,31 @@ it('reattaches transcript follow after returning from editor main', async () => 
     expect(restored.scrollTop).toBe(800)
   } finally { vi.unstubAllGlobals() }
 })
+
+it('a transcript path:line targets its own conversation, while external and modified links retain navigation', async () => {
+  const { store } = rig(session({ turns: [{ id: turnId('links'), status: 'completed', items: [{ id: itemId('links-message'), type: 'assistantMessage', text: '[notes](src/file.ts:2) [website](https://example.com)' }] }] }))
+  const enter = vi.fn(() => true); store.enterEditorFile = enter
+  render(store); await act(async () => {})
+  const notes = [...container.querySelectorAll('a')].find(a => a.textContent === 'notes')!
+  expect(notes.getAttribute('href')).toBe('src/file.ts:2')
+  const click = new MouseEvent('click', { bubbles: true, cancelable: true })
+  act(() => notes.dispatchEvent(click))
+  expect(click.defaultPrevented).toBe(true)
+  expect(enter).toHaveBeenCalledWith(KEY, '/repo/src/file.ts', { view: 'source', line: 2 })
+  const modified = new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true })
+  act(() => notes.dispatchEvent(modified))
+  expect(modified.defaultPrevented).toBe(false)
+  const website = [...container.querySelectorAll('a')].find(a => a.textContent === 'website')!
+  act(() => website.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })))
+  expect(enter).toHaveBeenCalledTimes(1)
+})
+
+it('a refused local file entry consumes the link instead of falling through to browser navigation', () => {
+  const { store } = rig(transcriptSession()); store.enterEditorFile = vi.fn(() => false)
+  render(store)
+  const link = document.createElement('a'); link.setAttribute('href', '/repo/file.ts:12')
+  container.getElementsByClassName(styles.scroll!)[0]!.append(link)
+  const event = new MouseEvent('click', { bubbles: true, cancelable: true })
+  act(() => link.dispatchEvent(event))
+  expect(event.defaultPrevented).toBe(true)
+})

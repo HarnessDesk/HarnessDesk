@@ -50,7 +50,7 @@ import type { AccountPrefsMap } from '../lib/accounts'
 
 import type { Profile } from '../lib/profile'
 
-import { DEFAULT_EDITOR_PREFS, type WindowMode, type EditorState, type EditorDocuments } from '../editor'
+import { DEFAULT_EDITOR_PREFS, type WindowMode, type EditorState, type EditorDocuments, type EditorLiveDocuments, type EditorLineTargets } from '../editor'
 
 import type { GitColumnWidths } from '../lib/git-columns'
 
@@ -756,6 +756,9 @@ export interface AppSnapshot {
   readonly windowMode: WindowMode
   readonly editorState: EditorState
   readonly editorDocuments: EditorDocuments
+  /** Shared full baselines, including clean saves; renderer-only. Null explicitly discards. */
+  readonly editorLiveDocuments: EditorLiveDocuments
+  readonly editorLineTargets: EditorLineTargets
   readonly editorPrefs: {
     readonly fontFamily: string
     readonly fontSize: number
@@ -943,6 +946,8 @@ const EMPTY: AppSnapshot = {
   windowMode: 'conversation',
   editorState: [],
   editorDocuments: new Map(),
+  editorLiveDocuments: new Map(),
+  editorLineTargets: new Map(),
   editorPlane: [],
   usageOff: [],
   noticePolicy: emptyNoticePolicy(),
@@ -969,6 +974,8 @@ export const emptySnapshot = (): AppSnapshot => ({
   ...EMPTY,
   editorState: [],
   editorDocuments: new Map(),
+  editorLiveDocuments: new Map(),
+  editorLineTargets: new Map(),
   teamFrameRequests: {},
   captureHealth: new Map(),
   provenanceRevision: new Map(),

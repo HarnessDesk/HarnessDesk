@@ -48,7 +48,7 @@ export {
   defaultFileView, openEditorTab, keepEditorTab, closeEditorTab, setEditorTabView,
   readEditorState, persistEditorState,
   type WindowMode, type ExplorerFilter, type EditorTab, type EditorConversation,
-  type EditorState, type EditorDocuments, type OpenEditorTabOptions,
+  type EditorState, type EditorDocuments, type EditorLiveDocuments, type EditorLineTarget, type EditorLineTargets, type OpenEditorTabOptions,
 } from './state'
 export { explorerChanges, explorerRows, explorerPath, type ExplorerEntry, type ExplorerChange, type ExplorerTreeRow, type ExplorerLetter } from './explorer-tree'
 export { Explorer } from './Explorer'
@@ -56,3 +56,5 @@ export { FileTabs } from './FileTabs'
 export { EditorMain } from './EditorMain'
 
 export { requestAskInChat } from './ask'
+
+export { sameFileDocument, isDirtyDocument } from './document'
