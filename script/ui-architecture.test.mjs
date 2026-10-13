@@ -1,7 +1,18 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import { overlayViolations, scanUiArchitecture } from './ui-architecture.mjs'
+import { overlayViolations, scanEditorBoundary, scanUiArchitecture } from './ui-architecture.mjs'
+
+test('editor boundary applies to consumers outside the renderer source without imposing screen rules', () => {
+  assert.equal(scanEditorBoundary([
+    { path: 'e2e/example.ts', source: "import { CodeView } from '../packages/ui/src/editor/CodeView'" },
+    { path: 'packages/ui/vite.config.ts', source: "export * from './src/editor/languages'" },
+  ]).length, 2)
+  assert.deepEqual(scanEditorBoundary([
+    { path: 'e2e/example.ts', source: "import { CodeView } from '../packages/ui/src/editor/index'" },
+    { path: 'other/example.tsx', source: 'const view = <button>Allowed outside renderer</button>' },
+  ]), [])
+})
 
 test('editor consumers use only the public entrypoint, including re-exports and lazy imports', () => {
   const path = 'packages/ui/src/components/Example.tsx'

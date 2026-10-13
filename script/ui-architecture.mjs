@@ -155,6 +155,23 @@ const moduleSpecifiers = (file, source) => {
   return found
 }
 
+/** Separate from the renderer design rules: every source consumer uses this boundary. */
+export const scanEditorBoundary = (files) => files.flatMap((file) => {
+  const editorRoot = `${UI_SOURCE}editor`
+  if (file.path.startsWith(`${editorRoot}/`)) return []
+  return moduleSpecifiers(file.path, file.source).flatMap((specifier) => {
+    const resolved = specifier.startsWith('@/')
+      ? path.posix.normalize(`${UI_SOURCE}${specifier.slice(2)}`)
+      : specifier.startsWith('.')
+        ? path.posix.normalize(path.posix.join(path.posix.dirname(file.path), specifier))
+        : specifier
+    return resolved.startsWith(`${editorRoot}/`) &&
+      !/^index(?:\.[cm]?[jt]sx?)?$/.test(resolved.slice(editorRoot.length + 1))
+      ? [{ path: file.path, rule: 'editor-module-boundary', detail: `${specifier}: use the editor entrypoint` }]
+      : []
+  })
+})
+
 const stylesheetBindings = (file, source) => {
   const ast = parseSource(file, source)
   const found = new Map()
@@ -362,7 +379,7 @@ const namesPatternSize = (node) => {
 }
 
 export const scanUiArchitecture = (files) => {
-  const findings = []
+  const findings = scanEditorBoundary(files.filter((file) => !file.path.endsWith('.css')))
   const cssByPath = new Map(files.filter((file) => file.path.endsWith('.css')).map((file) => [file.path, file.source]))
   for (const file of files) {
     if (file.path.endsWith('.css')) {
@@ -392,16 +409,6 @@ export const scanUiArchitecture = (files) => {
       findings.push({ path: file.path, rule: 'raw-style-export', detail: 'export { styles as ... }' })
     }
     for (const specifier of moduleSpecifiers(file.path, file.source)) {
-      const resolved = specifier.startsWith('@/')
-        ? path.posix.normalize(`${UI_SOURCE}${specifier.slice(2)}`)
-        : specifier.startsWith('.')
-          ? path.posix.normalize(path.posix.join(path.posix.dirname(file.path), specifier))
-          : specifier
-      const editorRoot = `${UI_SOURCE}editor`
-      if (!file.path.startsWith(`${editorRoot}/`) && resolved.startsWith(`${editorRoot}/`) &&
-          !/^index(?:\.[cm]?[jt]sx?)?$/.test(resolved.slice(editorRoot.length + 1))) {
-        findings.push({ path: file.path, rule: 'editor-module-boundary', detail: `${specifier}: use the editor entrypoint` })
-      }
       if (/^@xyflow\/react(?:\/|$)/.test(specifier) && file.path !== CANVAS_ENGINE) {
         findings.push({ path: file.path, rule: 'canvas-engine-import', detail: 'React Flow belongs only in the lazy FlowCanvas engine' })
       }
@@ -511,9 +518,13 @@ const isMain = process.argv[1] != null && path.resolve(process.argv[1]) === file
 
 if (isMain) {
   const files = repositoryFiles(root)
-    .filter((file) => file.startsWith('packages/ui/src/') && /\.(?:ts|tsx|css)$/.test(file))
+    .filter((file) => /\.(?:[cm]?[jt]sx?|css)$/.test(file))
     .map((file) => ({ path: file, source: fs.readFileSync(path.join(root, file), 'utf8') }))
-  const findings = scanUiArchitecture(files)
+  const renderer = (file) => file.path.startsWith(UI_SOURCE) && /\.(?:ts|tsx|css)$/.test(file.path)
+  const findings = [
+    ...scanUiArchitecture(files.filter(renderer)),
+    ...scanEditorBoundary(files.filter((file) => !renderer(file) && !file.path.endsWith('.css'))),
+  ]
   if (findings.length > 0) {
     for (const finding of findings) {
       console.error(`${finding.rule}: ${finding.path}: ${finding.detail}`)
