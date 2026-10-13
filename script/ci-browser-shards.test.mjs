@@ -12,18 +12,33 @@ const job = (name) => {
   return match[1]
 }
 
-test('browser CI spreads the suite across sixteen shards with time for setup and reports (#1140)', () => {
+test('browser CI sizes its shards to the work, up to sixteen, with time for setup and reports (#1140)', () => {
   const browser = job('ui-system-browser')
-  assert.match(browser, /^    name: UI system browser integration shard \$\{\{ matrix.shard \}\}\/16$/m)
-  assert.match(browser, /^        shard: \[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16\]$/m)
+  assert.match(browser, /^    name: UI system browser integration shard \$\{\{ matrix.shard \}\}\/\$\{\{ needs.changes.outputs.shard_count \}\}$/m)
+  // The matrix is the plan's own list (one to sixteen, never empty), so the deal and the matrix cannot disagree.
+  assert.match(browser, /^        shard: \$\{\{ fromJSON\(needs.changes.outputs.shards\) \}\}$/m)
   assert.match(browser, /^    timeout-minutes: 30$/m)
   // Dealt by measured time, not by Playwright's count of tests (script/ci-browser-shards.mjs):
-  // the deal and the matrix have to agree on sixteen, and an empty deal must never run the whole suite.
-  assert.match(browser, /^          mapfile -t specs < <\(node script\/ci-browser-shards\.mjs \$\{\{ matrix\.shard \}\}\/16\)$/m)
+  // every shard of a run reads the same matrix, selection and count, and an empty deal must never run the whole suite.
+  assert.match(browser, /^      UI_SYSTEM_MATRIX: \$\{\{ needs.changes.outputs.matrix \}\}$/m)
+  assert.match(browser, /^      UI_SYSTEM_SPECS: \$\{\{ needs.changes.outputs.browser_specs \}\}$/m)
+  assert.match(browser, /^          mapfile -t specs < <\(node script\/ci-browser-shards\.mjs \$\{\{ matrix\.shard \}\}\/\$\{\{ needs\.changes\.outputs\.shard_count \}\}\)$/m)
   assert.match(browser, /^          test "\$\{#specs\[@\]\}" -gt 0$/m)
   assert.match(browser, /^          pnpm test:ui-system "\$\{specs\[@\]\}"$/m)
   assert.doesNotMatch(browser, /--shard=/)
   assert.match(browser, /^      fail-fast: false$/m)
+})
+
+test('the plan reaches the shards through the change job, and a manual run can name its matrix', () => {
+  const changes = job('changes')
+  for (const output of ['browser_specs', 'matrix', 'shard_count', 'shards']) {
+    assert.ok(changes.includes(`      ${output}: \${{ steps.paths.outputs.${output} }}`), output)
+  }
+  assert.match(workflow, /^  workflow_dispatch:\n    inputs:\n      matrix:\n[\s\S]*?options: \[full, pr\]\n        default: full$/m)
+  assert.ok(changes.includes('UI_SYSTEM_MATRIX_REQUEST: ${{ inputs.matrix }}'))
+  assert.match(changes, /UI_THEME_TOUCHED="\$theme" node script\/ci-changes\.mjs/)
+  // The diff that decides it is the UI's own, between the base parent and the merge.
+  assert.match(changes, /git diff --no-renames -U0 HEAD\^1 HEAD -- packages\/ui /)
 })
 
 test('the stable browser check requires every shard and keeps reports after failure (#1140)', () => {
@@ -194,7 +209,7 @@ test('changes compares the merge to its first parent and falls back on failed di
   assert.match(changes, /fetch-depth: 2/)
   assert.match(changes, /git diff --no-renames --name-only -z HEAD\^1 HEAD/)
   assert.match(changes, /if ! git diff[\s\S]*?rm -f "\$list"/)
-  assert.match(changes, /node script\/ci-changes\.mjs "\$list" >> "\$GITHUB_OUTPUT"/)
+  assert.match(changes, /node script\/ci-changes\.mjs "\$list" > "\$RUNNER_TEMP\/ci-plan"\n\s+cat "\$RUNNER_TEMP\/ci-plan" >> "\$GITHUB_OUTPUT"/)
   assert.match(changes, /browser: \$\{\{ steps\.paths\.outputs\.browser \}\}/)
   assert.match(changes, /server_specs: \$\{\{ steps\.paths\.outputs\.server_specs \}\}/)
   assert.match(changes, /native: \$\{\{ steps\.paths\.outputs\.native \}\}/)
