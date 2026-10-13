@@ -9,6 +9,8 @@ test('editor consumers use only the public entrypoint, including re-exports and 
     "import { CodeView } from '../editor/CodeView'",
     "export { CodeView } from '@/editor/CodeView'",
     "const editor = import('../editor/CodeView.tsx')",
+    "const editor = import(`../editor/CodeView`)",
+    "type View = import('../editor/CodeView').CodeViewProps",
     "import { CodeView } from '../editor/nested/../CodeView'",
   ]) {
     assert.ok(scanUiArchitecture([{ path, source }]).some(({ rule }) => rule === 'editor-module-boundary'), source)
