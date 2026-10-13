@@ -33,6 +33,8 @@ export const resolveHelper = (file, specifier) => {
     .find(candidate => existsSync(candidate) && SOURCE.includes(extname(candidate)))
   if (helper) return helper
   if (extension && !SOURCE.includes(extension)) return null
+  // Build output is not in a checkout that has not built (the jobs that plan a run do not): it is no file of the suite to follow.
+  if (/(?:^|\/)dist\//.test(specifier)) return null
   throw new Error(`Cannot resolve suite import: ${specifier}`)
 }
 

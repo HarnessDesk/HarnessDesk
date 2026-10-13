@@ -531,3 +531,14 @@ test('the setup a map was recorded in covers the pages and configuration of the 
   }
   assert.ok(!('packages/ui/src' in environment) && !('packages/ui/site-demo' in environment), 'the source is tracked file by file')
 })
+
+test('the scan of the suite does not need the build: an import of build output that is not there is no file to follow', () => {
+  const root = fixture({ 'e2e/ui-system/b.spec.ts': "import { rig } from '../../packages/server/dist/test/fixtures/rig.js'\nrig()\n" })
+  try {
+    const graph = suiteGraph(root)
+    assert.ok(graph.sources.some(file => file.endsWith('b.spec.ts')))
+    assert.throws(() => suiteGraph(fixture({ 'e2e/ui-system/b.spec.ts': "import { x } from './does-not-exist'\nx()\n" })), /Cannot resolve suite import/, 'any other import that names nothing is still an error')
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
