@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef } from 'react'
-import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands'
+import { history } from '@codemirror/commands'
+import { vscodeKeymap } from '@replit/codemirror-vscode-keymap'
 import {
   bracketMatching,
   foldGutter,
-  foldKeymap,
   indentOnInput,
   indentUnit,
 } from '@codemirror/language'
@@ -30,7 +30,7 @@ import {
   loadLanguage,
   look,
   type EditorLook,
-} from '../lib/editor'
+} from './languages'
 
 /**
  * A CodeMirror view, as a React component.
@@ -54,10 +54,19 @@ import {
  *   into the editor after a save marks the pane dirty again immediately.
  */
 
+// The window owns mode switching and Ask in chat. Remove their chords from
+// both the editing map and search-panel map so neither claims the DOM event.
+// Search still advances on Enter in its field and F3 in either scope.
+const editingKeymap = [...vscodeKeymap, ...searchKeymap].filter((binding) =>
+  ![binding.key, binding.mac, binding.win, binding.linux].some((key) =>
+    key !== undefined && /^(?:Mod|Cmd|Ctrl)-(?:g|l)$/i.test(key),
+  ),
+)
+
 /** Marks a transaction as the app's own, so `onChange` can ignore it. */
 const Sync = Annotation.define<boolean>()
 
-export interface CodeEditorProps {
+export interface CodeViewProps {
   readonly value: string
   /** Absolute or relative; only its final segment picks the grammar. */
   readonly path?: string | null
@@ -81,7 +90,7 @@ export interface CodeEditorProps {
   readonly className?: string
 }
 
-export const CodeEditor = ({
+export const CodeView = ({
   value,
   path = null,
   language = null,
@@ -96,7 +105,7 @@ export const CodeEditor = ({
   onSave,
   ariaLabel,
   className,
-}: CodeEditorProps) => {
+}: CodeViewProps) => {
   const host = useRef<HTMLDivElement | null>(null)
   const view = useRef<EditorView | null>(null)
 
@@ -168,7 +177,7 @@ export const CodeEditor = ({
             },
           },
         ]),
-        keymap.of([...defaultKeymap, ...historyKeymap, ...searchKeymap, ...foldKeymap, indentWithTab]),
+        keymap.of(editingKeymap),
         EditorView.updateListener.of((update) => {
           if (!update.docChanged) return
           if (update.transactions.some((transaction) => transaction.annotation(Sync))) return

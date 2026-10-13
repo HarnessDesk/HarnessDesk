@@ -9,8 +9,9 @@ import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { FilePane } from './FilePane'
 
-vi.mock('./CodeEditor', () => ({
-  CodeEditor: ({ value, readOnly, onChange }: { value: string; readOnly: boolean; onChange: (value: string) => void }) => (
+vi.mock('../editor', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../editor')>(),
+  CodeView: ({ value, readOnly, onChange }: { value: string; readOnly: boolean; onChange: (value: string) => void }) => (
     <textarea aria-label="file editor" value={value} readOnly={readOnly} onChange={(event) => onChange(event.currentTarget.value)} />
   ),
 }))

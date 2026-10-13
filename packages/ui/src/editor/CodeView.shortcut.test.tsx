@@ -1,9 +1,11 @@
 import { act } from 'react'
+import { EditorView } from '@codemirror/view'
+import { openSearchPanel, SearchQuery, setSearchQuery } from '@codemirror/search'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it } from 'vitest'
+import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { shortcutFor } from '../lib/shortcuts'
-import { CodeEditor } from './CodeEditor'
+import { CodeView } from './CodeView'
 
 /**
  * A window-wide chord, and the surface that already answered it.
@@ -38,13 +40,13 @@ import { CodeEditor } from './CodeEditor'
  * the event in the capture phase, so it is not a question this handler can
  * ever see. It is unchanged by this test and by the rule.
  *
- * **The modifier is Control, not Command, and that is not a shortcut taken.**
- * CodeMirror resolves `Mod-` per platform, and jsdom reports no Mac, so the
- * editor here binds `Ctrl-[`. The window's table answers to either modifier
- * by design, so Control is the same chord to both halves — and driving
- * Command instead would test nothing, because the editor would decline it and
- * the collision would not occur.
+ * The fixture reports macOS before CodeMirror resolves `Mod-`, so the
+ * Command shortcuts below exercise the shipping platform's real bindings.
  */
+
+vi.hoisted(() => {
+  Object.defineProperty(window.navigator, 'platform', { configurable: true, value: 'MacIntel' })
+})
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -62,7 +64,7 @@ const desk = (): { ran: string[]; stop: () => void } => {
 }
 
 const press = (from: EventTarget, key: string): void => {
-  from.dispatchEvent(new KeyboardEvent('keydown', { key, ctrlKey: true, bubbles: true, cancelable: true }))
+  from.dispatchEvent(new KeyboardEvent('keydown', { key, metaKey: true, bubbles: true, cancelable: true }))
 }
 
 let container: HTMLDivElement
@@ -82,7 +84,7 @@ afterEach(async () => {
 const editor = async (readOnly: boolean): Promise<HTMLElement> => {
   await act(async () => {
     root.render(
-      <CodeEditor
+      <CodeView
         value={'    indented line'}
         path="notes.txt"
         readOnly={readOnly}
@@ -150,4 +152,48 @@ it('answers them from a read-only editor, which binds them and declines', async 
   // Nothing there can indent, so nothing claims the key and the desk keeps it.
   expect(ran).toEqual(['nav-back'])
   expect(content.textContent).toBe(before)
+})
+
+for (const modifier of ['ctrlKey', 'metaKey'] as const) {
+  for (const key of ['g', 'l']) {
+    it(`leaves ${modifier} ${key} to the app from the editor and search field`, async () => {
+      const content = await editor(false)
+      const view = EditorView.findFromDOM(content)!
+      openSearchPanel(view)
+      view.dispatch({ effects: setSearchQuery.of(new SearchQuery({ search: 'line' })) })
+      const searchField = container.querySelector<HTMLInputElement>('input[name="search"]')!
+      const before = view.state.selection.toJSON()
+      const received: string[] = []
+      const listener = (event: KeyboardEvent): void => {
+        if (!event.defaultPrevented && event.key === key) received.push(event.key)
+      }
+      document.addEventListener('keydown', listener)
+      try {
+        for (const target of [content, searchField]) {
+          target.dispatchEvent(new KeyboardEvent('keydown', { key, [modifier]: true, bubbles: true, cancelable: true }))
+          expect(view.state.selection.toJSON(), `${key} changed the selection before the app could answer`).toEqual(before)
+        }
+        expect(received).toEqual([key, key])
+        expect(container.querySelector('.cm-gotoLine')).toBeNull()
+      } finally {
+        document.removeEventListener('keydown', listener)
+      }
+    })
+  }
+}
+
+it('finds the next match with F3 and with Enter in the search field', async () => {
+  const content = await editor(false)
+  const view = EditorView.findFromDOM(content)!
+  view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: 'match first match last' } })
+  openSearchPanel(view)
+  const searchField = container.querySelector<HTMLInputElement>('input[name="search"]')!
+  searchField.value = 'match'
+  searchField.dispatchEvent(new KeyboardEvent('keyup', { key: 'h', bubbles: true }))
+  searchField.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', keyCode: 13, bubbles: true, cancelable: true }))
+  expect(view.state.selection.main.from).toBe(0)
+  expect(view.state.selection.main.to).toBe(5)
+  content.dispatchEvent(new KeyboardEvent('keydown', { key: 'F3', bubbles: true, cancelable: true }))
+  expect(view.state.selection.main.from).toBe(12)
+  expect(view.state.selection.main.to).toBe(17)
 })

@@ -1,8 +1,8 @@
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { WORKSPACE_BINARY_LIMIT_BYTES } from '@harnessdesk/protocol'
 
-import { editorLook } from '../lib/editor-prefs'
+import { CodeView, editorLook } from '../editor'
 import { useSnapshot, useStore } from '../state/context'
 import { useMount } from '../panels/mount'
 import { useTheme } from '../state/theme'
@@ -25,10 +25,9 @@ import styles from './ToolPanes.module.css'
  * editor's core — state, view, commands, language, search — into the chunk
  * that paints the window, for a window that usually opens on a conversation
  * and may never show a file at all. Grammars are already lazy one level down
- * in `lib/editor.ts`; this is the same discipline applied to the editor
+ * in `editor/languages.ts`; this is the same discipline applied to the editor
  * itself.
  */
-const CodeEditor = lazy(async () => ({ default: (await import('./CodeEditor')).CodeEditor }))
 
 /**
  * A file, viewed and edited.
@@ -371,7 +370,7 @@ export const FilePane = () => {
           // or two off local disk, and a spinner that flashes for one frame
           // reads as a fault where nothing was wrong.
           <Suspense fallback={<div className={styles.cmEditor} />}>
-            <CodeEditor
+            <CodeView
               className={styles.cmEditor}
               value={draft ?? loaded.content}
               path={path}

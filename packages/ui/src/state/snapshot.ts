@@ -50,7 +50,7 @@ import type { AccountPrefsMap } from '../lib/accounts'
 
 import type { Profile } from '../lib/profile'
 
-import { DEFAULT_EDITOR_PREFS } from '../lib/editor-prefs'
+import { DEFAULT_EDITOR_PREFS } from '../editor'
 
 import type { GitColumnWidths } from '../lib/git-columns'
 

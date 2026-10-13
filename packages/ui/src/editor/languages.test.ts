@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Text } from '@codemirror/state'
 
-import { asDiagnostics, knownLanguages, languageForPath, loadLanguage } from './editor'
+import { asDiagnostics, knownLanguages, languageForPath, loadLanguage } from './languages'
 
 describe('languageForPath', () => {
   it('reads an ordinary extension', () => {

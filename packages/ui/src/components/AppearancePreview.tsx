@@ -1,7 +1,7 @@
 import { Button, Card, CardViewport, Text } from '../design'
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
+import { Suspense, useEffect, useMemo, useState } from 'react'
 
-import { editorLook } from '../lib/editor-prefs'
+import { CodeView, editorLook } from '../editor'
 import { useSnapshot, useStore } from '../state/context'
 import styles from './AppearancePreview.module.css'
 
@@ -22,8 +22,6 @@ import styles from './AppearancePreview.module.css'
  * as the rows under it are changed, which is the whole point of putting it
  * here.
  */
-
-const CodeEditor = lazy(async () => ({ default: (await import('./CodeEditor')).CodeEditor }))
 
 const SAMPLE = `export const plan = async (task: Task): Promise<Step[]> => {
   const steps = await agent.propose(task, { effort: 'high' })
@@ -141,7 +139,7 @@ export const EditorSample = () => {
     <Card variant="flush" radius="lg" className={styles.sample} aria-label="Code editor preview">
       <CardViewport size="editor">
         <Suspense fallback={<div className={styles.sampleBlank} />}>
-          <CodeEditor
+          <CodeView
             className={styles.sampleEditor}
             value={SAMPLE}
             path="plan.ts"

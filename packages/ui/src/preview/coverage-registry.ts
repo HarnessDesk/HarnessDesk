@@ -1,3 +1,5 @@
+import * as editor from '../editor'
+
 /**
  * Every `components/` and `panels/` file's own exports, indexed by the file
  * they came from — built with Vite's `import.meta.glob` (eager, so this
@@ -66,6 +68,7 @@ const panelModules = import.meta.glob(['../panels/**/*.tsx', '!../panels/**/*.te
 >
 
 export const coverageRegistry: readonly CoverageEntry[] = [
+  { file: 'editor/index.ts', exports: editor },
   ...buildEntries(componentModules, 'components'),
   ...buildEntries(panelModules, 'panels'),
 ]

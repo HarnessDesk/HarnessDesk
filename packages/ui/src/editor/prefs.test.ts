@@ -6,7 +6,7 @@ import {
   editorLook,
   installedFaces,
   readEditorPrefs,
-} from './editor-prefs'
+} from './prefs'
 
 describe('readEditorPrefs', () => {
   it('fills an absent preference with the defaults', () => {

@@ -48,7 +48,7 @@ export const NODE_TESTS: readonly string[] = [
   'src/lib/context-usage.test.ts',
   'src/lib/conversation-map.test.ts',
   'src/lib/diff.test.ts',
-  'src/lib/editor.test.ts',
+  'src/editor/languages.test.ts',
   'src/lib/evidence.test.ts',
   'src/lib/export-session.test.ts',
   'src/lib/flow-layout.test.ts',
