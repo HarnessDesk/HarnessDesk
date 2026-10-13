@@ -70,7 +70,8 @@ export const explorerRows = (
       if (filter === 'all' || inherited || changedEntries.has(entry.path)) entries.set(entry.path, entry)
     }
     for (const entry of changedEntries.values()) {
-      if (entry.path.slice(0, entry.path.lastIndexOf('/')) === folder.replace(/\/$/, '')) entries.set(entry.path, entry)
+      // The filesystem knows the kind; Git's non-slash paths can be directories (gitlinks).
+      if (!entries.has(entry.path) && entry.path.slice(0, entry.path.lastIndexOf('/')) === folder.replace(/\/$/, '')) entries.set(entry.path, entry)
     }
     for (const entry of [...entries.values()].sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'directory' ? -1 : 1) || a.name.localeCompare(b.name))) {
       const change = changes.get(entry.path) ?? inherited

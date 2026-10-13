@@ -40,3 +40,22 @@ it('a collapsed untracked directory admits lazily read files under Changed', () 
   const rows = editor.explorerRows(root, listings, [path], 'changed', editor.explorerChanges(root, git))
   expect(rows.find(row => row.name === 'new.ts')?.letter).toBe('A')
 })
+
+for (const filter of ['all', 'changed'] as const) it(`preserves a listed directory for a non-slash Git path under ${filter}, including expanded children`, () => {
+  const vendor = `${root}/vendor`, library = `${vendor}/library`
+  const listings = new Map<string, readonly editor.ExplorerEntry[]>([
+    [root, [{ name: 'vendor', path: vendor, kind: 'directory' }]],
+    [vendor, [{ name: 'library', path: library, kind: 'directory' }]],
+    [library, [{ name: 'source.ts', path: `${library}/source.ts`, kind: 'file' }]],
+  ])
+  const changes = editor.explorerChanges(root, { root: '/project/branch', ahead: 0, behind: 0,
+    files: [{ path: 'src/vendor/library', status: 'modified', staged: false }] })
+  const closed = editor.explorerRows(root, listings, [vendor], filter, changes)
+  expect(closed.map(row => [row.name, row.kind, row.letter])).toEqual([
+    ['vendor', 'directory', null], ['library', 'directory', null],
+  ])
+  const expanded = editor.explorerRows(root, listings, [vendor, library], filter, changes)
+  expect(expanded.map(row => [row.name, row.kind, row.depth])).toEqual([
+    ['vendor', 'directory', 0], ['library', 'directory', 1], ['source.ts', 'file', 2],
+  ])
+})
