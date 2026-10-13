@@ -159,8 +159,11 @@ for (const theme of ['light', 'dark'] as const) {
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.RUN_DOCK_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.RUN_DOCK_FRAMES_DIR, `details-after-${theme}.png`) })
     await summary.getByRole('button', { name: 'Flow file', exact: true }).click()
-    await expect(page.getByRole('dialog')).toContainText('This is the file as it is now.')
+    const flowDialog = page.getByRole('dialog')
+    await expect(flowDialog).toContainText('This is the file as it is now.')
+    await expect(flowDialog).toBeFocused()
     await page.keyboard.press('Escape')
+    await expect(flowDialog).toHaveCount(0)
     // Four recorded round visits and the unreached person remain in Timeline; Flow shows four step identities.
     // Switching representations neither admits a Steps tool nor discards selection.
     await selectRunView(frame, 'Timeline')
