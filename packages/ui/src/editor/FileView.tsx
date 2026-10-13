@@ -27,6 +27,8 @@ export interface FileDocumentState {
   /** An explicit disk-vs-draft comparison, retained when the view moves. */
   readonly comparison?: { readonly content: string; readonly hash: string; readonly missing?: boolean }
 }
+/** Missing is a disk observation; null still means discard and reload from disk. */
+export type FileLiveDocumentState = FileDocumentState | { readonly kind: 'missing' }
 export interface FileTransfer {
   readonly path: string
   readonly runtime: RuntimeId
@@ -51,10 +53,10 @@ export interface FileViewProps {
   readonly document?: FileDocumentState | null
   readonly onDocumentChange?: (document: FileDocumentState | null) => void
   /** Opt-in shared document binding; unlike document, this also receives clean save baselines. */
-  readonly liveDocument?: FileDocumentState | null
+  readonly liveDocument?: FileLiveDocumentState | null
   /** Latest store snapshot, independent of frame-coalesced React notifications. */
-  readonly readLiveDocument?: () => FileDocumentState | null | undefined
-  readonly onLiveDocumentChange?: (document: FileDocumentState) => void
+  readonly readLiveDocument?: () => FileLiveDocumentState | null | undefined
+  readonly onLiveDocumentChange?: (document: FileLiveDocumentState) => void
   readonly lineTarget?: EditorLineTarget
   readonly onLineTargetReached?: (request: number) => void
 }
@@ -74,10 +76,17 @@ interface FileState {
 }
 const blank = (): FileState => ({ base: null, draft: null, pending: false, problem: null, binary: null, conflict: null, head: undefined, comparing: false, saving: false })
 const dirty = (state: FileState) => state.pending || (state.draft !== null && state.draft !== state.base?.content)
-const liveDocumentOf = (state: FileState): FileDocumentState | null => state.base
-  ? { base: state.base, content: state.draft ?? state.base.content, pendingCreation: state.pending, ...(state.comparing && state.conflict?.kind === 'text' ? { comparison: { content: state.conflict.content, hash: state.conflict.hash, ...(state.conflict.missing ? { missing: true } : {}) } } : {}) } : null
-const documentOf = (state: FileState): FileDocumentState | null => dirty(state) ? liveDocumentOf(state) : null
-const withDocument = (before: FileState, document: FileDocumentState): FileState => ({ ...before,
+const missingDocument = { kind: 'missing' } as const
+const baseOf = (document: FileLiveDocumentState | null | undefined): FileBase | undefined => document && 'base' in document ? document.base : undefined
+const liveDocumentOf = (state: FileState): FileLiveDocumentState | null => state.base
+  ? { base: state.base, content: state.draft ?? state.base.content, pendingCreation: state.pending, ...(state.comparing && state.conflict?.kind === 'text' ? { comparison: { content: state.conflict.content, hash: state.conflict.hash, ...(state.conflict.missing ? { missing: true } : {}) } } : {}) } : state.problem?.kind === 'missing' ? missingDocument : null
+const documentOf = (state: FileState): FileDocumentState | null => {
+  const document = liveDocumentOf(state)
+  return dirty(state) && document && 'base' in document ? document : null
+}
+const withDocument = (before: FileState, document: FileLiveDocumentState): FileState => 'kind' in document
+  ? { ...before, base: null, draft: null, pending: false, problem: { kind: 'missing' }, binary: null, conflict: null, comparing: false }
+  : ({ ...before,
   base: document.base, draft: document.content === document.base.content ? null : document.content,
   pending: document.pendingCreation, problem: null, binary: null,
   conflict: document.comparison ? { kind: 'text', ...document.comparison } : null, comparing: !!document.comparison,
@@ -114,7 +123,7 @@ export const FileView = (props: FileViewProps) => {
   const current = useRef(state)
   const latestState = (): FileState => {
     const incoming = callbacks.current.readLiveDocument?.()
-    if (incoming !== undefined && ((incoming !== null && incoming.base !== current.current.base) || !sameFileDocument(incoming, liveDocumentOf(current.current)))) current.current = incoming ? withDocument(current.current, incoming) : blank()
+    if (incoming !== undefined && ((incoming && baseOf(incoming) !== (current.current.base ?? undefined)) || !sameFileDocument(incoming, liveDocumentOf(current.current)))) current.current = incoming ? withDocument(current.current, incoming) : blank()
     return current.current
   }
   const update = (change: (before: FileState) => FileState, publish = true) => {
@@ -140,8 +149,8 @@ export const FileView = (props: FileViewProps) => {
   // Edits made while reading are checked at completion, never captured as clean.
   const load = async (identity: number) => {
     const reading = ++loadId.current
-    const sharedBase = callbacks.current.readLiveDocument?.()?.base
-    const sharedBaselineChanged = () => !!callbacks.current.readLiveDocument && sharedBase !== callbacks.current.readLiveDocument()?.base
+    const sharedBase = baseOf(callbacks.current.readLiveDocument?.())
+    const sharedBaselineChanged = () => !!callbacks.current.readLiveDocument && sharedBase !== baseOf(callbacks.current.readLiveDocument?.())
     try {
       const mediaType = IMAGE_TYPES[path.split('.').pop()?.toLowerCase() ?? '']
       const [file, meta] = await Promise.all([
@@ -182,7 +191,7 @@ export const FileView = (props: FileViewProps) => {
     diskRead.current = null; ++headRevision.current
     const latest = callbacks.current.readLiveDocument?.()
     const saved = latest === undefined ? callbacks.current.liveDocument === undefined ? callbacks.current.document : callbacks.current.liveDocument : latest
-    update(() => saved ? { ...blank(), base: saved.base, draft: saved.content, pending: saved.pendingCreation, conflict: saved.comparison ? { kind: 'text', ...saved.comparison } : null, comparing: !!saved.comparison } : blank())
+    update(() => saved ? withDocument(blank(), saved) : blank())
     setChosen(callbacks.current.view ?? initialMode(path)); modifiedAt.current = null
     if (!pdf) void load(identity)
     store.reportEditor?.({ kind: 'opened', path, at: Date.now() })
@@ -255,8 +264,8 @@ export const FileView = (props: FileViewProps) => {
     const content = before.draft ?? before.base.content
     // The immutable shared base object is its generation: even a peer restoring
     // the original bytes/hash must not admit this older save response again.
-    let sharedBase = callbacks.current.readLiveDocument?.()?.base
-    const superseded = () => !!callbacks.current.readLiveDocument && sharedBase !== callbacks.current.readLiveDocument()?.base
+    let sharedBase = baseOf(callbacks.current.readLiveDocument?.())
+    const superseded = () => !!callbacks.current.readLiveDocument && sharedBase !== baseOf(callbacks.current.readLiveDocument?.())
     const identity = ++epoch.current; ++loadId.current; ++pollId.current; ++headRevision.current
     update(one => ({ ...one, saving: true }))
     try {
@@ -265,7 +274,7 @@ export const FileView = (props: FileViewProps) => {
       if (superseded()) { await load(identity); return false }
       if (result.saved) {
         update(one => ({ ...one, base: { content, hash: result.hash, truncated: false }, draft: one.draft === content ? null : one.draft, pending: false, conflict: null, comparing: false }))
-        sharedBase = callbacks.current.readLiveDocument?.()?.base
+        sharedBase = baseOf(callbacks.current.readLiveDocument?.())
         // Keep polling suspended until the post-save baseline stat is installed.
         const meta = await store.transport.request('workspace/stat', { path, runtime }).catch(() => null)
         if (identity !== epoch.current) return false
@@ -274,10 +283,10 @@ export const FileView = (props: FileViewProps) => {
         // Stat can already include a foreign write after our save. Verify bytes
         // after installing that baseline so this write cannot become invisible.
         const mediaType = IMAGE_TYPES[path.split('.').pop()?.toLowerCase() ?? '']
-        const verificationBase = callbacks.current.readLiveDocument?.()?.base
+        const verificationBase = baseOf(callbacks.current.readLiveDocument?.())
         const verified = await store.transport.request('workspace/readFile', { path, runtime, maxBytes: WORKSPACE_BINARY_LIMIT_BYTES, ...(mediaType ? { encoding: 'base64' as const } : {}) })
         if (identity !== epoch.current) return false
-        if (callbacks.current.readLiveDocument && verificationBase !== callbacks.current.readLiveDocument()?.base) void load(identity)
+        if (callbacks.current.readLiveDocument && verificationBase !== baseOf(callbacks.current.readLiveDocument?.())) void load(identity)
         else {
           diskRead.current = verified; ++headRevision.current
           update(one => reconcileRead(one, verified, mediaType))

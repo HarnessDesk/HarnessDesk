@@ -1,5 +1,5 @@
 import type { Workbench } from '../state/workbench'
-import type { FileDocumentState, FileViewMode } from './FileView'
+import type { FileDocumentState, FileLiveDocumentState, FileViewMode } from './FileView'
 
 export type WindowMode = 'conversation' | 'editor'
 export type ExplorerFilter = 'changed' | 'all'
@@ -19,7 +19,7 @@ export interface EditorConversation {
 export type EditorState = readonly { readonly subject: string; readonly state: EditorConversation }[]
 /** Full unsaved documents, never included in app/state. */
 export type EditorDocuments = ReadonlyMap<string, ReadonlyMap<string, FileDocumentState>>
-export type EditorLiveDocuments = ReadonlyMap<string, ReadonlyMap<string, FileDocumentState | null>>
+export type EditorLiveDocuments = ReadonlyMap<string, ReadonlyMap<string, FileLiveDocumentState | null>>
 export interface EditorLineTarget { readonly line: number; readonly request: number }
 export type EditorLineTargets = ReadonlyMap<string, ReadonlyMap<string, EditorLineTarget>>
 export interface OpenEditorTabOptions {

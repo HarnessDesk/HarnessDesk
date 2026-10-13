@@ -1,5 +1,6 @@
 import type { GitFileStatus, GitStatus } from '@harnessdesk/protocol'
 import type { ExplorerFilter } from './state'
+import { conversationPath } from './git-paths'
 
 export interface ExplorerEntry {
   readonly name: string
@@ -34,7 +35,7 @@ const letterOf = (status: GitFileStatus['status']): ExplorerLetter => ({
 export const explorerChanges = (root: string, git: GitStatus | null): ReadonlyMap<string, ExplorerChange> => {
   const changes = new Map<string, ExplorerChange>()
   for (const file of git?.files ?? []) {
-    const path = explorerPath(root, `${git!.root.replace(/\/$/, '')}/${file.path}`)
+    const path = conversationPath(root, file.path, git!)
     if (!path || path === root) continue
     const previous = changes.get(path)
     // Conflicts survive the second status column. Other duplicates prefer the working tree.

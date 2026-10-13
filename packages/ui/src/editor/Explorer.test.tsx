@@ -50,6 +50,18 @@ it('uses retained session cwd/runtime, defaults Changed, single previews and dou
   await act(async () => r.button('a.ts').dispatchEvent(new MouseEvent('dblclick', { bubbles: true })))
   expect(editor.editorConversation(r.snapshot().editorState, `session:${a}`).preview).toBeNull()
 })
+it('keeps Git letters, Changed count and displayed tab paths for an admitted alias below the repository root', async () => {
+  const r = rig(), request = r.request.getMockImplementation()!
+  r.request.mockImplementation((async (method: string, params: unknown) => method === 'git/status'
+    ? { root: '/canonical/worktree', resolvedRoot: '/canonical/worktree/src', ahead: 0, behind: 0, files: [{ path: 'src/a.ts', status: 'modified', staged: false }] }
+    : request(method, params)) as never)
+  await r.render()
+  expect(container.querySelector('[aria-label="a.ts: modified"]')).not.toBeNull()
+  expect(container.textContent).toContain('Changed 1')
+  expect(r.button('b.md')).toBeUndefined()
+  await act(async () => r.button('a.ts').click())
+  expect(r.store.openEditorFile).toHaveBeenCalledWith(`session:${a}`, '/worktree/src/a.ts')
+})
 it('All lazily expands folders and the explicit choice stays All as Git changes refresh', async () => {
   const r = rig(); await r.render()
   await act(async () => r.button('All').click())

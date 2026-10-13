@@ -15,6 +15,17 @@ it('rebases Git paths to the conversation subfolder and deduplicates staged/unst
   expect(changes.get(`${root}/newdir`)?.kind).toBe('directory')
   expect(editor.explorerChanges(root, null).size).toBe(0)
 })
+it('maps canonical Git changes through an admitted alias without escaping a conversation subfolder', () => {
+  const displayed = '/tmp/project/src'
+  const status = { ...git, root: '/private/tmp/project', resolvedRoot: '/private/tmp/project/src' }
+  const changes = editor.explorerChanges(displayed, status)
+  expect([...changes.keys()]).toEqual([`${displayed}/app/a.ts`, `${displayed}/gone.ts`, `${displayed}/newdir`])
+  const rows = editor.explorerRows(displayed, new Map(), [`${displayed}/app`], 'changed', changes)
+  expect(rows.find(row => row.name === 'a.ts')?.letter).toBe('M')
+  expect(rows.find(row => row.name === 'gone.ts')?.letter).toBe('D')
+  expect(editor.explorerChanges(displayed, { ...status, resolvedRoot: '/private/tmp/project-sibling/src' }).size).toBe(0)
+  expect(editor.explorerChanges(displayed, { ...status, resolvedRoot: undefined }).size).toBe(0)
+})
 it('Changed synthesizes ancestors and deleted files without turning untracked directories into tabs', () => {
   const rows = editor.explorerRows(root, new Map(), [], 'changed', editor.explorerChanges(root, git))
   expect(rows.map(row => [row.name, row.kind, row.letter])).toEqual([

@@ -1,5 +1,11 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { openFrame } from './frame-contract-helpers'
+
+const showEditorAtNarrowWidth = async (page: Page, width: number) => {
+  if (width >= 1000) return
+  const drawer = page.getByRole('dialog', { name: 'Sidebar', exact: true })
+  if (await drawer.isVisible()) await drawer.getByRole('button', { name: 'Hide sidebar', exact: true }).click()
+}
 
 for (const theme of ['light', 'dark'] as const) {
   test(`editor fixture opens four changed files and one retained dirty tab in ${theme}`, async ({ page }) => {
@@ -117,4 +123,49 @@ for (const theme of ['light', 'dark'] as const) {
     await main.getByRole('radio', { name: 'Source', exact: true }).click()
     await expect(main.getByRole('button', { name: 'Create this file', exact: true })).toBeVisible()
   })
+  for (const width of [1440, 1100, 720]) {
+    test(`clean deletion and deleted-draft Reload stay missing across polls at ${width} in ${theme}`, async ({ page }, testInfo) => {
+      await page.clock.install()
+      await openFrame(page, 'frame-wall=conversation&frame-editor-mode=source', theme, width)
+      await showEditorAtNarrowWidth(page, width)
+      const main = page.locator('[data-slot="editor-main"]')
+      await main.getByRole('button', { name: 'Unsaved · Save ⌘S', exact: true }).click()
+      await expect(main.locator('[data-slot="file-tab-unsaved"]')).toHaveCount(0)
+      const remove = () => page.evaluate(() => (window as Window & { __hdFrameWall: { changeEditorDisk: (kind: 'delete') => void } }).__hdFrameWall.changeEditorDisk('delete'))
+      await remove()
+      await page.clock.fastForward(3100)
+      await expect(main.getByRole('button', { name: 'Create this file', exact: true })).toBeVisible()
+      await page.clock.fastForward(3100)
+      await expect(main.getByRole('button', { name: 'Create this file', exact: true })).toBeVisible()
+      await main.getByRole('radio', { name: 'Changes +0 −4', exact: true }).click()
+      await expect(main.locator('.cm-deletedChunk')).toContainText('token.length > 8')
+      await expect(main.locator('.cm-content')).toHaveAttribute('contenteditable', 'false')
+      await page.screenshot({ path: testInfo.outputPath(`editor-clean-deletion-${width}-${theme}.png`) })
+
+      await openFrame(page, 'frame-wall=conversation&frame-editor-mode=source', theme, width)
+      await showEditorAtNarrowWidth(page, width)
+      await expect(main.locator('.cm-content')).toContainText('retryPayment')
+      await remove()
+      await page.clock.fastForward(3100)
+      await expect(main.getByRole('button', { name: 'Reload', exact: true })).toBeVisible()
+      await main.getByRole('button', { name: 'Reload', exact: true }).click()
+      await page.clock.fastForward(3100)
+      await expect(main.getByRole('button', { name: 'Create this file', exact: true })).toBeVisible()
+      await expect(main.locator('[data-slot="file-tab-unsaved"]')).toHaveCount(0)
+      await expect(main.locator('.cm-content')).toHaveCount(0)
+      await page.screenshot({ path: testInfo.outputPath(`editor-reload-deletion-${width}-${theme}.png`) })
+    })
+    test(`an admitted alias retains Changed letters and editable HEAD comparison at ${width} in ${theme}`, async ({ page }, testInfo) => {
+      await openFrame(page, 'frame-wall=conversation&frame-editor-mode=alias', theme, width)
+      const main = page.locator('[data-slot="editor-main"]')
+      if (width < 1000) await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
+      await expect(page.getByRole('radio', { name: 'Changed 4', exact: true })).toBeChecked()
+      await expect(page.locator('[aria-label="auth.ts: modified"]')).toBeVisible()
+      await showEditorAtNarrowWidth(page, width)
+      await main.getByRole('radio', { name: /^Changes/ }).click()
+      await expect(main.locator('.cm-deletedChunk')).toContainText('token.length > 8')
+      await expect(main.locator('.cm-content')).toHaveAttribute('contenteditable', 'true')
+      await page.screenshot({ path: testInfo.outputPath(`editor-alias-${width}-${theme}.png`) })
+    })
+  }
 }

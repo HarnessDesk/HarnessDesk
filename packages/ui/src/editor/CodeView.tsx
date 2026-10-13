@@ -289,14 +289,16 @@ export const EditorSurface = ({
   useEffect(() => {
     const current = view.current
     if (!current) return
-    const doc = current.state.doc.toString()
-    if (doc === value) return
+    // Disk/shared values retain their line endings; the engine stores line
+    // breaks separately. A CRLF echo of typing must not reset its selections.
+    const incoming = current.state.toText(value)
+    if (current.state.doc.eq(incoming)) return
     current.dispatch({
-      changes: { from: 0, to: doc.length, insert: value },
+      changes: { from: 0, to: current.state.doc.length, insert: incoming },
       annotations: Sync.of(true),
       // A reload can shorten the file under a cursor that was near its end;
       // clamping keeps the selection valid instead of throwing.
-      selection: { anchor: Math.min(current.state.selection.main.anchor, value.length) },
+      selection: { anchor: Math.min(current.state.selection.main.anchor, incoming.length) },
     })
   }, [value])
 

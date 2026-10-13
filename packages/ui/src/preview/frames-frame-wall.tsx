@@ -835,7 +835,7 @@ export const FrameWall = () => {
     // Seed the real store's private history page before a capture can observe
     // the sidebar's debounced empty search restoring that page.
     const ready = store.loadHistory({ reset: true })
-    const api={ready, editorState: () => store.getSnapshot().editorState, changeEditorDisk: () => editorModeFixture(store)?.changeOnDisk(), resizeLeft:(width:number)=>store.resizePanel('sidebar',width), finishStoppedTurn: () => {
+    const api={ready, editorState: () => store.getSnapshot().editorState, changeEditorDisk: (kind?: 'delete') => kind === 'delete' ? editorModeFixture(store)?.deleteOnDisk() : editorModeFixture(store)?.changeOnDisk(), resizeLeft:(width:number)=>store.resizePanel('sidebar',width), finishStoppedTurn: () => {
       const snapshot = store.getSnapshot(), goal = snapshot.goals.get('overview-team')
       const member = goal?.pastMembers?.[0]
       if (!member || new URLSearchParams(location.search).get('frame-fix10-stop') !== '1') return

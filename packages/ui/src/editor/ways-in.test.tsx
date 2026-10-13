@@ -194,7 +194,7 @@ it.each(['main', 'panel'] as const)('fences a held %s post-save verification rea
   }) as never)
   await edit(saver, 'first save'); await save(saver)
   await edit(peer, 'second save'); await save(peer)
-  expect(store.getSnapshot().editorLiveDocuments.get(subject)?.get(path)?.content).toBe('second save')
+  expect(store.getSnapshot().editorLiveDocuments.get(subject)?.get(path)).toMatchObject({ content: 'second save' })
   await act(async () => finishRead(verification))
   expect(store.getSnapshot().editorLiveDocuments.get(subject)?.get(path)).toMatchObject({ content: 'second save', base: { content: 'second save', hash: 'saved-hash' } })
 })

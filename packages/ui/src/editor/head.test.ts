@@ -85,6 +85,21 @@ it('refuses absolute paths whose lexical root differs from the canonical Git roo
   expect(request).toHaveBeenCalledTimes(1)
 })
 
+it.each(['', '/src'])('maps an admitted alias at conversation subfolder %j to the canonical repository', async folder => {
+  const path = `${folder.slice(1)}${folder ? '/' : ''}file.txt`
+  const request = vi.fn(async (method: string, params: any) => {
+    if (method === 'git/status') return { root: '/private/tmp/project', resolvedRoot: `/private/tmp/project${folder}`, ahead: 0, behind: 0, files: [{ path, status: 'modified', staged: false }] }
+    if (method === 'workspace/readFile') return { kind: 'text', content: 'disk\n', truncated: false, hash: 'hash' }
+    return { diff: params.staged ? '' : patch('head', 'disk').replaceAll('file.txt', path) }
+  })
+  expect(await editor.readHead(request as editor.HeadRequest, { root: `/tmp/project${folder}`, path: `/tmp/project${folder}/file.txt` })).toEqual({ content: 'head\n', status: 'tracked' })
+  expect(request).toHaveBeenCalledWith('workspace/readFile', { path: `/tmp/project${folder}/file.txt` })
+  expect(request).toHaveBeenCalledWith('git/diff', { root: '/private/tmp/project', path })
+  for (const outside of ['/tmp/project-sibling/file.txt', '/tmp/project/../outside.txt']) {
+    await expect(editor.readHead(request as editor.HeadRequest, { root: `/tmp/project${folder}`, path: outside })).rejects.toThrow(/outside/i)
+  }
+})
+
 it('preserves missing final newlines and verifies patch context', () => {
   const noNewline = patch('before', 'after').replace('-before\n', '-before\n\\ No newline at end of file\n').replace('+after\n', '+after\n\\ No newline at end of file\n')
   expect(editor.reverseTextPatch('after', noNewline)).toBe('before')

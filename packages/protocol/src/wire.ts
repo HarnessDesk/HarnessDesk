@@ -329,6 +329,9 @@ export type GitConclusion = 'merge' | 'cherry-pick' | 'revert'
 
 export interface GitStatus {
   readonly root: string
+  /** Canonical directory admitted for this status request, which may be below root.
+   * Maps the caller's folder spelling to Git paths without guessing aliases. */
+  readonly resolvedRoot?: string
   readonly branch?: string | null
   readonly ahead: number
   readonly behind: number

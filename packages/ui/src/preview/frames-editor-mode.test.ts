@@ -10,7 +10,7 @@ it('provides four changed files, two tabs, one dirty document and real HEAD prov
   const { subject, root, path, readme, runtime } = fixture
   expect(editorConversation(store.getSnapshot().editorState, subject).tabs).toHaveLength(2)
   expect(store.getSnapshot().editorDocuments.get(subject)?.size).toBe(1)
-  expect(store.getSnapshot().editorLiveDocuments.get(subject)?.get(path)?.content).toContain('retryPayment')
+  expect(store.getSnapshot().editorLiveDocuments.get(subject)?.get(path)).toMatchObject({ content: expect.stringContaining('retryPayment') })
   expect((await store.transport.request('git/status', { root }))?.files).toHaveLength(4)
   for (const file of [path, readme, `${root}/src/checkout.ts`, `${root}/docs/retry.md`, `${root}/unchanged.ts`]) {
     const head = await readHead((method, params) => store.transport.request(method, params), { root, path: file, runtime })
@@ -35,5 +35,11 @@ it('supplies a tracked deletion and its HEAD without an unsaved creation draft',
   expect(await store.transport.request('workspace/readFile', { path, runtime })).toEqual({ kind: 'missing' })
   expect(store.getSnapshot().editorDocuments.get(subject)?.size ?? 0).toBe(0)
   expect(editorConversation(store.getSnapshot().editorState, subject).tabs.find(tab => tab.path === path)?.view).toBe('changes')
+  expect(await readHead((method, params) => store.transport.request(method, params), { root, path, runtime })).toMatchObject({ content: expect.stringContaining('token.length > 8'), status: 'tracked' })
+})
+it('reads Git paths for a conversation alias below the canonical repository root', async () => {
+  const store = frameDestinationStore(previewStore())
+  const { path, root, runtime } = installEditorModeFixture(store, 'alias')
+  expect(await store.transport.request('git/status', { root })).toMatchObject({ root: '/canonical/storefront', resolvedRoot: '/canonical/storefront/subfolder' })
   expect(await readHead((method, params) => store.transport.request(method, params), { root, path, runtime })).toMatchObject({ content: expect.stringContaining('token.length > 8'), status: 'tracked' })
 })

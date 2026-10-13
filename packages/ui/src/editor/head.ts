@@ -1,5 +1,6 @@
 import type { HostParams, HostResult, RuntimeId, WorkspaceReadFileResult } from '@harnessdesk/protocol'
 import { splitByFile } from './diff'
+import { conversationPath, repositoryPath } from './git-paths'
 
 type HeadMethod = 'git/status' | 'git/diff' | 'workspace/readFile'
 export type HeadRequest = <M extends HeadMethod>(method: M, params: HostParams<M>) => Promise<HostResult<M>>
@@ -10,7 +11,7 @@ export interface HeadFile {
 }
 export interface ReadHeadOptions {
   readonly root: string
-  /** Repository-relative or absolute, confined to the status response's root. */
+  /** Repository-relative or absolute; aliases use the host's admitted folder mapping. */
   readonly path: string
   readonly runtime?: RuntimeId
   /** The same disk snapshot the caller loaded, to avoid a second read. */
@@ -86,8 +87,8 @@ export const readHead = async (request: HeadRequest, options: ReadHeadOptions): 
   const status = await request('git/status', { root: options.root })
   if (!status) return { content: null, status: 'outside-repository' }
   const root = status.root.replace(/\/$/, '')
-  const path = options.path.startsWith(`${root}/`) ? options.path.slice(root.length + 1) : options.path
-  if (path.startsWith('/') || path.split('/').some((part) => part === '..' || part === '') || !path) {
+  const path = repositoryPath(options.root, options.path, status)
+  if (!path) {
     throw new Error('The file is outside the repository.')
   }
   // Normal Git status collapses a wholly untracked directory to one row.
@@ -99,7 +100,7 @@ export const readHead = async (request: HeadRequest, options: ReadHeadOptions): 
   const recreated = states.some((file) => file.status === 'untracked') && states.some((file) => file.staged && file.status === 'deleted')
   if (!recreated && states.some((file) => file.status === 'untracked')) return { content: null, status: 'untracked' }
   const disk = options.disk ?? await request('workspace/readFile', {
-    path: `${root}/${path}`,
+    path: conversationPath(options.root, path, status) ?? `${root}/${path}`,
     ...(options.runtime ? { runtime: options.runtime } : {}),
   })
   if (disk.kind !== 'missing' && (disk.kind !== 'text' || disk.truncated)) throw new Error('A complete text file is needed to compare HEAD.')

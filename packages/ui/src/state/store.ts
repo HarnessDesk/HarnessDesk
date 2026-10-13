@@ -161,7 +161,7 @@ import { openingOfContent, splitContext, wrapContext } from '../lib/context-enve
 import {
   readEditorPrefs, editorConversation, updateEditorConversation, openEditorTab, keepEditorTab,
   closeEditorTab, setEditorTabView, readEditorState, persistEditorState,
-  type WindowMode, type ExplorerFilter, type EditorConversation, type FileDocumentState, type FileViewMode, type OpenEditorTabOptions,
+  type WindowMode, type ExplorerFilter, type EditorConversation, type FileDocumentState, type FileLiveDocumentState, type FileViewMode, type OpenEditorTabOptions,
 } from '../editor'
 import { readColumnWidths } from '../lib/git-columns'
 import { readSystemNotifications } from '../lib/system-notifications'
@@ -7273,7 +7273,7 @@ export class AppStore {
   }
 
   /** Full shared snapshots propagate edits and a save's new clean base to every mounted surface. */
-  setEditorLiveDocument(subject: string, path: string, document: FileDocumentState | null): void {
+  setEditorLiveDocument(subject: string, path: string, document: FileLiveDocumentState | null): void {
     const previous = this.#snapshot.editorLiveDocuments.get(subject)?.get(path)
     if (sameFileDocument(previous, document)) return
     const editorLiveDocuments = new Map(this.#snapshot.editorLiveDocuments), live = new Map(editorLiveDocuments.get(subject))

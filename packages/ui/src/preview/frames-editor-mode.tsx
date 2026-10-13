@@ -4,7 +4,7 @@ import { wholeTextDiff } from '../editor'
 import { useStore } from '../state/context'
 import type { AppStore } from '../state/store'
 
-export type EditorModeScene = 'conversation' | 'source' | 'changes' | 'preview' | 'ask' | 'conflict' | 'panel' | 'minimap' | 'deleted'
+export type EditorModeScene = 'conversation' | 'source' | 'changes' | 'preview' | 'ask' | 'conflict' | 'panel' | 'minimap' | 'deleted' | 'alias'
 const fixtures = new WeakMap<AppStore, ReturnType<typeof installEditorModeFixture>>()
 export const editorModeFixture = (store: AppStore) => fixtures.get(store)
 
@@ -42,7 +42,10 @@ export function installEditorModeFixture(store: AppStore, scene: EditorModeScene
   }
   const request = store.transport.request.bind(store.transport)
   store.transport.request = (async (method: HostMethodName, params: HostParams<HostMethodName>) => {
-    if (method === 'git/status') return scene === 'deleted' ? { ...status, files: status.files.map(file => file.path === 'src/auth.ts' ? { ...file, status: 'deleted' as const } : file) } : status
+    if (method === 'git/status') {
+      const current = { ...status, files: status.files.map(file => file.path === 'src/auth.ts' && !files.has(path) ? { ...file, status: 'deleted' as const } : file) }
+      return scene === 'alias' ? { ...current, root: '/canonical/storefront', resolvedRoot: '/canonical/storefront/subfolder', files: current.files.map(file => ({ ...file, path: `subfolder/${file.path}` })) } : current
+    }
     if (method === 'workspace/readFile') {
       const file = files.get((params as HostParams<'workspace/readFile'>).path)
       return file ? { kind: 'text', content: file.content, hash: file.hash, truncated: false } : { kind: 'missing' }
@@ -54,9 +57,9 @@ export function installEditorModeFixture(store: AppStore, scene: EditorModeScene
     }
     if (method === 'git/diff') {
       const p = params as HostParams<'git/diff'>
-      const paths = p.path ? [`${root}/${p.path}`] : [...new Set([...files.keys(), ...head.keys()])].filter(file => file !== `${root}/unchanged.ts`)
+      const paths = p.path ? [`${root}/${scene === 'alias' ? p.path.replace(/^subfolder\//, '') : p.path}`] : [...new Set([...files.keys(), ...head.keys()])].filter(file => file !== `${root}/unchanged.ts`)
       return { diff: p.staged ? '' : paths.map(file => {
-        const relative = file.slice(root.length + 1), after = files.get(file)?.content ?? ''
+        const relative = `${scene === 'alias' ? 'subfolder/' : ''}${file.slice(root.length + 1)}`, after = files.get(file)?.content ?? ''
         const before = head.get(file) ?? ''
         const added = after.replace(/\n$/, '').split('\n')
         const removed = before.replace(/\n$/, '').split('\n')
@@ -103,7 +106,7 @@ export function installEditorModeFixture(store: AppStore, scene: EditorModeScene
   store.setWindowMode(scene === 'conversation' || scene === 'panel' ? 'conversation' : 'editor')
   if (scene === 'panel') store.openFile(readme)
   if (scene === 'minimap') store.setEditorPrefs({ minimap: true })
-  const control = { scene, subject, path, readme, root, runtime, changeOnDisk: (target = path) => {
+  const control = { scene, subject, path, readme, root, runtime, deleteOnDisk: () => files.delete(path), changeOnDisk: (target = path) => {
     const file = files.get(target)
     if (file) files.set(target, { content: `${file.content}\n// Updated on disk.\n`, hash: 'fixture-disk-change', modifiedAt: file.modifiedAt + 1 })
   } }
