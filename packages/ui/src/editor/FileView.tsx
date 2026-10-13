@@ -38,7 +38,7 @@ export interface FileViewProps {
   readonly view?: FileViewMode
   readonly onViewChange?: (view: FileViewMode) => void
   readonly onPopOut?: (file: FileTransfer) => void
-  /** Initial state for this file identity; later changes are emitted below. */
+  /** Initial state for path/runtime; root arrival refreshes only HEAD provenance. */
   readonly document?: FileDocumentState | null
   readonly onDocumentChange?: (document: FileDocumentState | null) => void
 }
@@ -67,9 +67,9 @@ const MAX_EDITABLE = 512 * 1024
 const reconcileRead = (before: FileState, file: WorkspaceReadFileResult, mediaType?: string): FileState => {
   // A restored draft keeps its original hash; a fresh disk read cannot rebase it.
   if (dirty(before) && before.base) {
-    if (file.kind === 'text') return { ...before, conflict: file.hash === before.base.hash ? before.conflict : { kind: 'text', content: file.content, hash: file.hash } }
-    if (file.kind === 'binary' || file.kind === 'tooLarge') return { ...before, conflict: { kind: file.kind, size: file.size } }
-    if (file.kind === 'missing') return { ...before, conflict: before.pending ? before.conflict : { kind: 'text', content: '', hash: '', missing: true } }
+    if (file.kind === 'text') return { ...before, problem: null, binary: null, conflict: file.hash === before.base.hash ? null : { kind: 'text', content: file.content, hash: file.hash }, comparing: file.hash === before.base.hash ? false : before.comparing }
+    if (file.kind === 'binary' || file.kind === 'tooLarge') return { ...before, problem: null, binary: null, conflict: { kind: file.kind, size: file.size }, comparing: false }
+    if (file.kind === 'missing') return { ...before, problem: null, binary: null, conflict: before.pending ? null : { kind: 'text', content: '', hash: '', missing: true }, comparing: before.pending ? false : before.comparing }
     return { ...before, problem: file }
   }
   if (file.kind === 'text') return { ...before, base: file, draft: null, pending: false, problem: null, binary: null, conflict: null, comparing: false }
@@ -92,6 +92,9 @@ export const FileView = (props: FileViewProps) => {
   const mode = props.view ?? chosen
   const changeView = (view: FileViewMode) => { setChosen(view); callbacks.current.onViewChange?.(view) }
   const epoch = useRef(0), loadId = useRef(0), pollId = useRef(0), modifiedAt = useRef<number | null>(null)
+  const diskRead = useRef<WorkspaceReadFileResult | null>(null)
+  const headRevision = useRef(0), headInFlight = useRef(false), headQueued = useRef(false)
+  const refreshHead = useRef<() => void>(() => {})
   const markdown = /\.(md|markdown)$/i.test(path), html = /\.html?$/i.test(path), pdf = /\.pdf$/i.test(path)
   const native = mode === 'preview' && (html || pdf)
   const appearance = useMemo(() => editorLook(snapshot.editorPrefs), [snapshot.editorPrefs])
@@ -108,31 +111,49 @@ export const FileView = (props: FileViewProps) => {
       ])
       if (identity !== epoch.current || reading !== loadId.current) return
       modifiedAt.current = meta?.modifiedAt ?? null
+      diskRead.current = file; ++headRevision.current
       update(before => reconcileRead(before, file, mediaType))
-      if (root && ((file.kind === 'text' && !file.truncated) || file.kind === 'missing')) {
-        void loadHead(file, identity, reading)
-      }
+      refreshHead.current()
     } catch (error) {
       if (identity !== epoch.current || reading !== loadId.current) return
       update(before => ({ ...before, problem: { kind: 'unreadable', message: error instanceof Error ? error.message : String(error) } }))
     }
   }
-  const loadHead = async (file: WorkspaceReadFileResult, identity: number, reading: number) => {
-    try {
-      const head = await readHead((method, params) => store.transport.request(method, params), { path, root: root!, runtime, disk: file })
-      if (identity === epoch.current && reading === loadId.current) update(before => ({ ...before, head: head.status === 'outside-repository' ? undefined : head.content }))
-    } catch { if (identity === epoch.current && reading === loadId.current) update(before => ({ ...before, head: undefined })) }
+  // HEAD can move without changing this file's mtime. Reuse the latest disk
+  // snapshot, fence provenance changes, and coalesce polling into one request.
+  refreshHead.current = () => {
+    const file = diskRead.current, provenance = callbacks.current
+    if (!provenance.root || !file || current.current.saving || !((file.kind === 'text' && !file.truncated) || file.kind === 'missing')) return
+    if (headInFlight.current) { headQueued.current = true; return }
+    headInFlight.current = true; headQueued.current = false
+    const identity = epoch.current, revision = headRevision.current
+    const accepts = () => identity === epoch.current && revision === headRevision.current
+    void readHead((method, params) => store.transport.request(method, params), { path: provenance.path, root: provenance.root, runtime: provenance.runtime, disk: file }).then(head => {
+      if (accepts()) update(before => ({ ...before, head: head.status === 'outside-repository' ? undefined : head.content }))
+    }).catch(() => { if (accepts()) update(before => ({ ...before, head: undefined })) }).finally(() => {
+      headInFlight.current = false
+      if (headQueued.current) { headQueued.current = false; refreshHead.current() }
+    })
   }
 
   useEffect(() => {
     const identity = ++epoch.current
+    diskRead.current = null; ++headRevision.current
     const saved = callbacks.current.document
     update(() => saved ? { ...blank(), base: saved.base, draft: saved.content, pending: saved.pendingCreation, conflict: saved.comparison ? { kind: 'text', ...saved.comparison } : null, comparing: !!saved.comparison } : blank())
     setChosen(callbacks.current.view ?? initialMode(path)); modifiedAt.current = null
     if (!pdf) void load(identity)
     store.reportEditor?.({ kind: 'opened', path, at: Date.now() })
-    return () => { ++epoch.current; store.reportEditor?.({ kind: 'closed', path, at: Date.now() }) }
-  }, [path, runtime, root, store])
+    return () => { ++epoch.current; ++headRevision.current; diskRead.current = null; headQueued.current = false; store.reportEditor?.({ kind: 'closed', path, at: Date.now() }) }
+  }, [path, runtime, store])
+
+  // A conversation's root can arrive after the same physical file is opened.
+  // It changes only comparison provenance, never its draft, save or ticket.
+  useEffect(() => {
+    ++headRevision.current
+    update(before => ({ ...before, head: undefined }))
+    refreshHead.current()
+  }, [root])
 
   useEffect(() => { if (state === current.current) callbacks.current.onDocumentChange?.(documentOf(state)) }, [state.base, state.draft, state.pending, state.comparing, state.conflict])
 
@@ -159,7 +180,8 @@ export const FileView = (props: FileViewProps) => {
       if (current.current.saving) return
       const identity = epoch.current, polling = ++pollId.current
       void store.transport.request('workspace/stat', { path, runtime }).then(meta => {
-        if (identity !== epoch.current || polling !== pollId.current || current.current.saving || meta.modifiedAt === modifiedAt.current) return
+        if (identity !== epoch.current || polling !== pollId.current || current.current.saving) return
+        if (meta.modifiedAt === modifiedAt.current) { refreshHead.current(); return }
         if (pdf) { modifiedAt.current = meta.modifiedAt; setFrameGeneration(value => value + 1) }
         else { void load(identity); if (native) setFrameGeneration(value => value + 1) }
       }).catch(() => {
@@ -171,13 +193,13 @@ export const FileView = (props: FileViewProps) => {
       })
     }, 3000)
     return () => window.clearInterval(timer)
-  }, [path, runtime, root, store, native])
+  }, [path, runtime, store, native])
 
   const save = async (expectedHash = current.current.base?.hash) => {
     const before = current.current
     if (!before.base || !dirty(before) || before.saving || expectedHash === undefined || before.conflict?.kind === 'binary' || before.conflict?.kind === 'tooLarge') return
     const content = before.draft ?? before.base.content
-    const identity = ++epoch.current; ++loadId.current; ++pollId.current
+    const identity = ++epoch.current; ++loadId.current; ++pollId.current; ++headRevision.current
     update(one => ({ ...one, saving: true }))
     try {
       const result = await store.transport.request('file/save', { path, runtime, content, expectedHash })
@@ -194,12 +216,12 @@ export const FileView = (props: FileViewProps) => {
         const mediaType = IMAGE_TYPES[path.split('.').pop()?.toLowerCase() ?? '']
         const verified = await store.transport.request('workspace/readFile', { path, runtime, maxBytes: WORKSPACE_BINARY_LIMIT_BYTES, ...(mediaType ? { encoding: 'base64' as const } : {}) })
         if (identity !== epoch.current) return
+        diskRead.current = verified; ++headRevision.current
         update(one => reconcileRead(one, verified, mediaType))
-        if (root && ((verified.kind === 'text' && !verified.truncated) || verified.kind === 'missing')) void loadHead(verified, identity, loadId.current)
       } else if ('reason' in result) update(one => ({ ...one, conflict: { kind: result.reason, size: result.size } }))
       else update(one => ({ ...one, conflict: { kind: 'text', ...result.conflict } }))
     } catch (error) { if (identity === epoch.current) store.notice?.('error', error instanceof Error ? error.message : String(error)) }
-    finally { if (identity === epoch.current) { update(one => ({ ...one, saving: false })); if (native) setFrameGeneration(value => value + 1) } }
+    finally { if (identity === epoch.current) { update(one => ({ ...one, saving: false })); refreshHead.current(); if (native) setFrameGeneration(value => value + 1) } }
   }
 
   const content = state.draft ?? state.base?.content ?? ''

@@ -159,3 +159,75 @@ it.each([false, true])('detects a foreign write between save and baseline stat (
   if (newerDraft) { expect(container.querySelector('textarea')?.value).toBe('newer draft'); expect(button('Compare')).toBeTruthy(); await click('Compare'); expect(container.querySelector('[data-original]')?.textContent).toBe('foreign bytes') }
   else { expect(container.querySelector('textarea')?.value).toBe('foreign bytes'); expect(container.textContent).not.toContain('changed on disk') }
 })
+
+it('preserves a same-file dirty draft and original hash when root metadata arrives', async () => {
+  const onDocumentChange = vi.fn()
+  await render('/work/notes.txt', { root: null, onDocumentChange }); await edit('unsaved draft')
+  const reads = request.mock.calls.filter(([method]) => method === 'workspace/readFile').length
+  await render('/work/notes.txt', { root: '/work', onDocumentChange })
+  expect(container.querySelector('textarea')?.value).toBe('unsaved draft'); expect(onDocumentChange).toHaveBeenLastCalledWith(expect.objectContaining({ content: 'unsaved draft', base: expect.objectContaining({ hash: 'old-hash' }) }))
+  expect(request.mock.calls.filter(([method]) => method === 'workspace/readFile')).toHaveLength(reads)
+})
+it('preserves an in-flight save and newer edits through root-only arrival', async () => {
+  let finish!: (value: any) => void
+  request.mockImplementation(async (method: string) => method === 'file/save' ? await new Promise(resolve => { finish = resolve }) : method === 'workspace/readFile' ? disk : { modifiedAt: modified })
+  await render('/work/notes.txt', { root: null }); await edit('submitted'); await click('Unsaved · Save ⌘S'); await edit('newer draft')
+  await render('/work/notes.txt', { root: '/work' }); disk = text('submitted', 'saved-hash'); await act(async () => finish({ saved: true, hash: 'saved-hash' }))
+  expect(container.querySelector('textarea')?.value).toBe('newer draft'); expect(button('Unsaved · Save ⌘S')?.disabled).toBe(false)
+  await click('Unsaved · Save ⌘S'); expect(request).toHaveBeenLastCalledWith('file/save', expect.objectContaining({ content: 'newer draft', expectedHash: 'saved-hash' }))
+})
+it('keeps a pending native ticket live through root-only arrival', async () => {
+  let finish!: (value: any) => void
+  request.mockImplementation(async (method: string) => method === 'preview/ticket' ? await new Promise(resolve => { finish = resolve }) : { modifiedAt: modified })
+  await render('/work/doc.pdf', { root: null }); await render('/work/doc.pdf', { root: '/work' }); await act(async () => finish({ ticket: 'placeholder-ticket' }))
+  expect(container.querySelector('iframe')?.src).toContain('placeholder-ticket')
+})
+it('clears a reverted disk conflict and comparison without exposing an obsolete Reload target', async () => {
+  vi.useFakeTimers(); await render(); await edit('my draft'); disk = text('temporary foreign version', 'foreign-hash'); modified = 2; await poll(); await click('Compare')
+  disk = text(); modified = 3; await poll(); expect(button('Compare')).toBeUndefined(); expect(button('Reload')).toBeUndefined(); expect(button('Keep mine')).toBeUndefined(); expect(container.querySelector('[data-original]')?.textContent).not.toBe('temporary foreign version'); expect(container.querySelector('textarea')?.value).toBe('my draft')
+  await poll(); expect(button('Reload')).toBeUndefined(); expect(container.querySelector('textarea')?.value).toBe('my draft')
+})
+it('refreshes HEAD after a commit without a disk write and hides unchanged Changes', async () => {
+  vi.useFakeTimers(); disk = text('committed bytes', 'disk-hash'); await render(); expect(button('Changes +1 −1')).toBeTruthy()
+  head.mockResolvedValue({ content: 'committed bytes', status: 'tracked' }); await poll(); expect(button('Changes +1 −1')).toBeUndefined()
+  expect(request.mock.calls.filter(([method]) => method === 'workspace/readFile')).toHaveLength(1)
+})
+it('refreshes HEAD movement without rebasing an unchanged disk or dirty draft', async () => {
+  vi.useFakeTimers(); await render(); expect(button('Changes +1 −1')).toBeUndefined(); head.mockResolvedValue({ content: 'other commit', status: 'tracked' }); await poll(); expect(button('Changes +1 −1')).toBeTruthy()
+  await edit('my draft'); head.mockResolvedValue({ content: 'my draft', status: 'tracked' }); await poll(); expect(button('Changes +1 −1')).toBeUndefined(); expect(container.querySelector('textarea')?.value).toBe('my draft')
+  await click('Unsaved · Save ⌘S'); expect(request).toHaveBeenCalledWith('file/save', expect.objectContaining({ expectedHash: 'old-hash' }))
+})
+it('bounds HEAD requests to one in flight and fences an obsolete root response', async () => {
+  vi.useFakeTimers(); let finish!: (value: any) => void
+  head.mockImplementationOnce(async () => await new Promise(resolve => { finish = resolve })); const initialCalls = head.mock.calls.length
+  await render('/work/notes.txt', { root: '/work/old-root' }); await render('/work/notes.txt', { root: '/work/new-root' }); await poll(); await poll(); await poll()
+  expect(head.mock.calls.length - initialCalls).toBe(1)
+  head.mockResolvedValue({ content: 'original', status: 'tracked' }); await act(async () => finish({ content: 'obsolete baseline', status: 'tracked' })); expect(button('Changes +1 −1')).toBeUndefined(); expect(head.mock.calls.length - initialCalls).toBe(2)
+})
+it.each([false, true])('recovers a dirty editor after unreadable disk becomes text (foreign hash: %s)', async foreign => {
+  vi.useFakeTimers(); await render(); await edit('my draft'); disk = { kind: 'unreadable', message: 'Temporary refusal' }; modified = 2; await poll(); expect(container.textContent).toContain('Temporary refusal')
+  disk = foreign ? text('foreign bytes', 'foreign-hash') : text(); modified = 3; await poll(); expect(container.textContent).not.toContain('Temporary refusal'); expect(container.querySelector('textarea')?.value).toBe('my draft')
+  if (foreign) { await click('Compare'); expect(container.querySelector('[data-original]')?.textContent).toBe('foreign bytes'); expect(container.querySelector('textarea')?.value).toBe('my draft') } else expect(button('Compare')).toBeUndefined()
+})
+
+it('fences a HEAD response from before a save until the queued current snapshot resolves', async () => {
+  let earlier!: (value: any) => void, latest!: (value: any) => void
+  head.mockImplementationOnce(async () => await new Promise(resolve => { earlier = resolve }))
+  head.mockImplementationOnce(async () => await new Promise(resolve => { latest = resolve }))
+  await render(); await edit('saved bytes'); await click('Unsaved · Save ⌘S')
+  await act(async () => earlier({ content: 'obsolete HEAD', status: 'tracked' }))
+  expect(button('Changes +1 −1')).toBeUndefined(); expect(container.querySelector('textarea')?.value).toBe('saved bytes')
+  await act(async () => latest({ content: 'saved bytes', status: 'tracked' })); expect(button('Changes +1 −1')).toBeUndefined()
+})
+it('clears a reverted creation conflict when a pending new file is missing again', async () => {
+  vi.useFakeTimers(); disk = { kind: 'missing' }; await render(); await click('Create this file'); await edit('new draft')
+  disk = text('foreign creation', 'foreign-hash'); modified = 2; await poll(); await click('Compare')
+  disk = { kind: 'missing' }; modified = 3; await poll(); expect(button('Reload')).toBeUndefined(); expect(container.querySelector('[data-original]')?.textContent).not.toBe('foreign creation'); expect(container.querySelector('textarea')?.value).toBe('new draft')
+})
+
+it('drops a queued HEAD refresh when the file unmounts', async () => {
+  vi.useFakeTimers(); let finish!: (value: any) => void
+  head.mockImplementationOnce(async () => await new Promise(resolve => { finish = resolve })); const initialCalls = head.mock.calls.length
+  await render(); await poll(); act(() => root.unmount()); root = createRoot(container)
+  await act(async () => finish({ content: 'obsolete', status: 'tracked' })); expect(head.mock.calls.length - initialCalls).toBe(1)
+})
