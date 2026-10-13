@@ -105,6 +105,7 @@ export interface CodeViewProps {
   readonly look: EditorLook
   readonly lineNumbers?: boolean
   readonly wrap?: boolean
+  readonly minimap?: boolean
   readonly tabSize?: number
   /**
    * Lines someone else wants marked — a plugin's diagnostics, a review's
@@ -137,6 +138,7 @@ export const EditorSurface = ({
   look: appearance,
   lineNumbers: showLineNumbers = true,
   wrap = false,
+  minimap = false,
   tabSize = 2,
   decorations,
   onChange,
@@ -159,6 +161,7 @@ export const EditorSurface = ({
     readOnly: new Compartment(),
     gutter: new Compartment(),
     wrap: new Compartment(),
+    minimap: new Compartment(),
     tab: new Compartment(),
     save: new Compartment(),
   }).current
@@ -236,6 +239,7 @@ export const EditorSurface = ({
         diagnosticsExtension(),
         compartments.tab.of([EditorState.tabSize.of(tabSize), indentUnit.of(' '.repeat(tabSize))]),
         compartments.wrap.of(wrap ? EditorView.lineWrapping : []),
+        compartments.minimap.of([]),
         compartments.readOnly.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
         compartments.look.of(look(appearance, dark)),
         compartments.language.of([]),
@@ -375,6 +379,35 @@ export const EditorSurface = ({
       effects: compartments.wrap.reconfigure(wrap ? EditorView.lineWrapping : []),
     })
   }, [compartments, wrap])
+
+  useEffect(() => {
+    const current = view.current
+    if (!current) return
+    if (!minimap) {
+      current.dispatch({ effects: compartments.minimap.reconfigure([]) })
+      return
+    }
+    let cancelled = false
+    void import('@replit/codemirror-minimap').then(({ showMinimap }) => {
+      // A closed pane or a newer off choice owns the result of a late load.
+      if (cancelled || view.current !== current) return
+      current.dispatch({ effects: compartments.minimap.reconfigure([
+        showMinimap.of({
+          create: () => ({ dom: current.dom.ownerDocument.createElement('div') }),
+          displayText: 'blocks',
+        }),
+        EditorView.theme({
+          '.cm-minimap-gutter': { backgroundColor: 'var(--hd-background)' },
+          '.cm-minimap-overlay': { background: 'var(--hd-foreground)' },
+          '.cm-minimap-box-shadow': { boxShadow: 'none' },
+        }),
+      ]) })
+    }).catch(() => {
+      // An unavailable optional chunk leaves the primary editor usable.
+      // No state is replaced; toggling off and on can request it again.
+    })
+    return () => { cancelled = true }
+  }, [compartments, minimap])
 
   useEffect(() => {
     view.current?.dispatch({

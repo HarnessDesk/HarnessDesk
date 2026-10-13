@@ -438,6 +438,16 @@ export const AppearanceSection = () => {
             <PageOptions choices={[{id:"Indent width",label:"Indent width",value:String(snapshot.editorPrefs.tabSize),items:TAB_SIZES.map((size) => ({ value: String(size), label: `${size}` })),change:next => store.setEditorPrefs({ tabSize: Number(next) })}]}/>
           }
         />
+        <Row
+          title="Minimap"
+          control={
+            <Switch
+              aria-label="Minimap"
+              checked={snapshot.editorPrefs.minimap}
+              onCheckedChange={(minimap) => store.setEditorPrefs({ minimap })}
+            />
+          }
+        />
       </Rows>
 
       <SectionHead name="Session list" />

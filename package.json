@@ -87,6 +87,9 @@
       "@xmldom/xmldom@>=0.7.0 <=0.8.14": "~0.8.15",
       "js-yaml@<4.3.2": "^4.3.2",
       "hono@<4.13.5": "^4.13.5"
+    },
+    "patchedDependencies": {
+      "@replit/codemirror-minimap@0.5.2": "patches/@replit__codemirror-minimap@0.5.2.patch"
     }
   }
 }

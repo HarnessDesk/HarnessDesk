@@ -765,6 +765,7 @@ export interface AppSnapshot {
     readonly lineHeight: number
     readonly lineNumbers: boolean
     readonly wrap: boolean
+    readonly minimap: boolean
     readonly tabSize: number
   }
   /**

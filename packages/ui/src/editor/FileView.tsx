@@ -316,7 +316,7 @@ export const FileView = (props: FileViewProps) => {
     setSelection(null)
     return true
   }
-  const editorProps = { onLineTargetReached: props.onLineTargetReached, lineTarget: actualMode === 'source' ? props.lineTarget : undefined, onSelection, value: content, path, readOnly: !editable, dark: theme === 'dark', look: appearance, lineNumbers: snapshot.editorPrefs.lineNumbers, wrap: snapshot.editorPrefs.wrap, tabSize: snapshot.editorPrefs.tabSize, ariaLabel: path, className: styles.editor, decorations: snapshot.editorPlane.find(one => one.path === path)?.decorations ?? [], onChange: (value: string, applyTo?: (latest: string) => string) => { update(one => ({ ...one, draft: applyTo ? applyTo(one.draft ?? one.base?.content ?? '') : value })); store.reportEditor?.({ kind: 'changed', path, at: Date.now() }) }, onSave: () => { void save() } }
+  const editorProps = { onLineTargetReached: props.onLineTargetReached, lineTarget: actualMode === 'source' ? props.lineTarget : undefined, onSelection, value: content, path, readOnly: !editable, dark: theme === 'dark', look: appearance, lineNumbers: snapshot.editorPrefs.lineNumbers, wrap: snapshot.editorPrefs.wrap, minimap: snapshot.editorPrefs.minimap, tabSize: snapshot.editorPrefs.tabSize, ariaLabel: path, className: styles.editor, decorations: snapshot.editorPlane.find(one => one.path === path)?.decorations ?? [], onChange: (value: string, applyTo?: (latest: string) => string) => { update(one => ({ ...one, draft: applyTo ? applyTo(one.draft ?? one.base?.content ?? '') : value })); store.reportEditor?.({ kind: 'changed', path, at: Date.now() }) }, onSave: () => { void save() } }
   const conflict = state.conflict
   const reload = () => {
     if (conflict?.kind !== 'text') return

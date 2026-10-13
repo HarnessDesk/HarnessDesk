@@ -113,6 +113,7 @@ const CodeBlock = ({ block }: { block: Extract<UiBlock, { type: 'code' }> }) => 
             look={appearance}
             lineNumbers={editorPrefs.lineNumbers}
             wrap={editorPrefs.wrap}
+            minimap={editorPrefs.minimap}
             tabSize={editorPrefs.tabSize}
             {...(block.decorations ? { decorations: block.decorations } : {})}
             {...(editable

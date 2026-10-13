@@ -148,6 +148,7 @@ export const EditorSample = () => {
             look={appearance}
             lineNumbers={editorPrefs.lineNumbers}
             wrap={editorPrefs.wrap}
+            minimap={editorPrefs.minimap}
             tabSize={editorPrefs.tabSize}
             ariaLabel="Code editor preview"
           />
