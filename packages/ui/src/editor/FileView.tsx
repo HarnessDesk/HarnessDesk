@@ -104,6 +104,7 @@ const reconcileRead = (before: FileState, file: WorkspaceReadFileResult, mediaTy
     return { ...before, problem: file }
   }
   if (file.kind === 'text') return { ...before, base: file, draft: null, pending: false, problem: null, binary: null, conflict: null, comparing: false }
+  if (file.kind === 'missing') return withDocument(before, missingDocument)
   if (file.kind === 'binary') return { ...before, base: null, binary: { size: file.size, imageSrc: mediaType && file.content !== undefined ? `data:${mediaType};base64,${file.content}` : null }, problem: null }
   return { ...before, base: null, binary: null, problem: file }
 }

@@ -90,6 +90,18 @@ it('ignores an old load when switching paths', async () => {
 it('allows explicit creation and saving an empty missing file', async () => {
   disk = { kind: 'missing' }; await render(); await click('Create this file'); await click('Unsaved · Save ⌘S'); expect(request).toHaveBeenCalledWith('file/save', expect.objectContaining({ content: '', expectedHash: '' }))
 })
+it('clears reverted edits on clean deletion without a shared document binding', async () => {
+  vi.useFakeTimers(); await render(); await edit('temporary edit'); await edit('original')
+  expect(button('Unsaved · Save ⌘S')).toBeUndefined()
+  disk = { kind: 'missing' }; await poll()
+  expect(button('Unsaved · Save ⌘S')).toBeUndefined()
+  expect(button('Create this file')).toBeTruthy()
+  await poll(); expect(button('Create this file')).toBeTruthy()
+  await click('Changes +0 −1')
+  expect(container.querySelector('[data-original]')?.textContent).toBe('original')
+  expect(container.querySelector('textarea')?.value).toBe('')
+  expect(container.querySelector('textarea')?.readOnly).toBe(true)
+})
 it.each(['original', ''])('reviews a tracked deletion with HEAD %j without creating or saving the missing file', async original => {
   disk = { kind: 'missing' }
   head.mockResolvedValue({ content: original, status: 'tracked' })

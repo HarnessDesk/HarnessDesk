@@ -62,6 +62,25 @@ it('shares a clean deletion with main and panel through subsequent HEAD refreshe
   expect(surface('main').querySelector('textarea')?.value).toBe('')
 })
 
+it.each(['main', 'panel'] as const)('clears an edit reverted in %s when disk is deleted', async name => {
+  const area = surface(name).querySelector('textarea')!
+  for (const value of ['temporary edit', 'original']) await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(area, value)
+    area.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(store.getSnapshot().editorDocuments.get(subject)?.has(path)).toBeFalsy()
+  for (const peer of ['main', 'panel'] as const) expect(surface(peer).textContent).not.toContain('Unsaved')
+  disk = { kind: 'missing' }; await poll(); expectMissing()
+  await poll(); expectMissing()
+  expect(store.getSnapshot().editorLiveDocuments.get(subject)?.get(path)).toEqual({ kind: 'missing' })
+  for (const peer of ['main', 'panel'] as const) {
+    await click(peer, 'Changes +0 −1')
+    expect(surface(peer).querySelector('pre')?.textContent).toBe('original')
+    expect(surface(peer).querySelector('textarea')?.value).toBe('')
+    expect(surface(peer).querySelector('textarea')?.readOnly).toBe(true)
+  }
+})
+
 it.each(['main', 'panel'] as const)('Reload in %s discards a deleted draft in both bound surfaces', async name => {
   const area = surface(name).querySelector('textarea')!
   await act(async () => {
