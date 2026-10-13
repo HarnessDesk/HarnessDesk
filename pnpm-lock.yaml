@@ -16,7 +16,7 @@ overrides:
 patchedDependencies:
   '@replit/codemirror-minimap@0.5.2':
     hash: d6d6a01fc770dbc168c9fa428b8128993e9523fe6f931ead55ac1eef4384e136
-    path: patches/@replit__codemirror-minimap@0.5.2.patch
+    path: patches/codemirror-minimap-0.5.2.patch
 
 importers:
 
