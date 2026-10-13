@@ -2051,6 +2051,12 @@ The glyph for what was published: a pull request, a review, a comment, an issue.
 
 A pull request's state in a word, toned as the judgement it is: merged is good news, closed without merging is not.
 
+### `SelectionAction`
+
+`packages/ui/src/design/patterns/SelectionAction.tsx`
+
+A selection keeps focus while its one action floats above the selected text.
+
 ### `Dot`
 
 `packages/ui/src/design/patterns/Settings.tsx`

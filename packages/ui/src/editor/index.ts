@@ -54,3 +54,5 @@ export { explorerChanges, explorerRows, explorerPath, type ExplorerEntry, type E
 export { Explorer } from './Explorer'
 export { FileTabs } from './FileTabs'
 export { EditorMain } from './EditorMain'
+
+export { requestAskInChat } from './ask'

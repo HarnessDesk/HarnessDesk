@@ -70,6 +70,13 @@ const editingKeymap = [...vscodeKeymap, ...searchKeymap].filter((binding) =>
 /** Marks a transaction as the app's own, so `onChange` can ignore it. */
 const Sync = Annotation.define<boolean>()
 
+export interface EditorSelection {
+  readonly source: string
+  readonly from: number
+  readonly to: number
+  readonly rect: DOMRect | null
+}
+
 export interface CodeViewProps {
   readonly value: string
   /** Absolute or relative; only its final segment picks the grammar. */
@@ -88,6 +95,7 @@ export interface CodeViewProps {
    */
   readonly decorations?: readonly UiDecoration[]
   readonly onChange?: (value: string) => void
+  readonly onSelection?: (selection: EditorSelection | null) => void
   /** Cmd/Ctrl+S. The pane decides what saving means; the editor only reports it. */
   readonly onSave?: () => void
   readonly ariaLabel?: string
@@ -112,6 +120,7 @@ export const EditorSurface = ({
   tabSize = 2,
   decorations,
   onChange,
+  onSelection,
   onSave,
   ariaLabel,
   className,
@@ -137,6 +146,22 @@ export const EditorSurface = ({
   // Held in refs so the keymap and update listener — installed once, at
   // creation — always call the current prop rather than the one that existed
   // when the view was built.
+  const onSelectionRef = useRef(onSelection)
+  onSelectionRef.current = onSelection
+  const reportSelection = (current: EditorView): void => {
+    // Removed text is a native widget selection, not a range in the current
+    // document. FileView owns its quote and refreshes its geometry on scroll.
+    const native = current.dom.ownerDocument.getSelection()
+    const anchor = native?.anchorNode
+    const deleted = (anchor instanceof Element ? anchor : anchor?.parentElement)?.closest('.cm-deletedChunk')
+    if (native && !native.isCollapsed && deleted && current.dom.contains(deleted)
+      && native.focusNode && current.dom.contains(native.focusNode)) return
+    const { from, to, empty } = current.state.selection.main
+    if (empty) { onSelectionRef.current?.(null); return }
+    const at = current.coordsAtPos(from)
+    onSelectionRef.current?.({ source: current.state.doc.toString(), from, to, rect: at ? new DOMRect(at.left, at.top, at.right - at.left, at.bottom - at.top) : null })
+  }
+
   const onChangeRef = useRef(onChange)
   const onSaveRef = useRef(onSave)
   onChangeRef.current = onChange
@@ -206,6 +231,7 @@ export const EditorSurface = ({
         ]),
         keymap.of(editingKeymap),
         EditorView.updateListener.of((update) => {
+          if (update.selectionSet || update.docChanged) reportSelection(update.view)
           if (update.docChanged || update.transactions.some((transaction) => transaction.effects.some((effect) => effect.is(updateOriginalDoc)))) {
             reportCounts(update.state)
           }
@@ -219,7 +245,10 @@ export const EditorSurface = ({
 
     const created = new EditorView({ state, parent })
     view.current = created
+    const scrolled = () => reportSelection(created)
+    created.scrollDOM.addEventListener('scroll', scrolled)
     return () => {
+      created.scrollDOM.removeEventListener('scroll', scrolled)
       created.destroy()
       view.current = null
     }

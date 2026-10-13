@@ -189,6 +189,7 @@ const notePreview = (note: { readonly name: string; readonly text?: string }): s
 interface ComposeDetail {
   readonly text: string
   readonly paneId?: string
+  readonly sessionKey?: string
   readonly replace?: boolean
   readonly attachments?: readonly {
     readonly name: string
@@ -1006,6 +1007,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       const detail = typeof raw === 'string' ? { text: raw, replace: false } : raw
       if (!detail || typeof detail.text !== 'string') return
       if (detail.paneId !== undefined && detail.paneId !== pane?.paneId) return
+      if (detail.sessionKey !== undefined && detail.sessionKey !== key) return
       // The receipt, first: a sender retrying each frame stops the moment
       // this composer says it has the message.
       detail.onReceived?.()
@@ -1014,7 +1016,7 @@ export const Composer = ({ onChooseProject }: { onChooseProject: () => void }) =
       // "Edit" on a sent message replaces the draft: that message is the draft.
       if (detail.text.length > 0) {
         setText((current) =>
-          detail.replace || current.trim().length === 0 ? detail.text : `${current}\n${detail.text}`,
+          detail.replace || current.length === 0 ? detail.text : `${current}\n${detail.text}`,
         )
       }
       // A message taken back out of the queue brings its chips with it;

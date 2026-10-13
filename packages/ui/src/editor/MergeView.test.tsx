@@ -74,3 +74,12 @@ it.each(['g', 'l', 'k'])('keeps the app chord Command %s from merge content and 
     expect(view.state.selection.toJSON()).toEqual(before)
   }
 })
+
+it('reports the selected current-document offsets and clears an empty selection', async () => {
+  const onSelection = vi.fn()
+  const view = await mount({ onSelection } as any)
+  await act(async () => view.dispatch({ selection: { anchor: 0, head: 6 } }))
+  expect(onSelection).toHaveBeenLastCalledWith(expect.objectContaining({ source: 'after\nkeep\n', from: 0, to: 6 }))
+  await act(async () => view.dispatch({ selection: { anchor: 6 } }))
+  expect(onSelection).toHaveBeenLastCalledWith(null)
+})

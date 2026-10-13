@@ -126,6 +126,7 @@ import {
   Separator,
 } from '..'
 import { Specimen } from './specimen'
+import { SelectionActionExample } from '../catalog/selection-action-example'
 import { CjkSpecimen } from '../../preview/cjk-specimen'
 import styles from './explorer.module.css'
 
@@ -570,6 +571,7 @@ const ControlBoard = () => {
           </div>
           </div>
         </Case>
+        <Case label="selection action"><SelectionActionExample /></Case>
       </div>
       <p className={styles.rule}>
         A toggle is a <code>&lt;button role=&quot;switch&quot;&gt;</code> rather than a checkbox

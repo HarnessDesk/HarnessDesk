@@ -1,0 +1,6 @@
+.surface {
+  min-width: 0;
+  width: max-content;
+  padding: 0;
+  background: var(--hd-background);
+}

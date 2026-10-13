@@ -1,12 +1,15 @@
-import { Suspense, useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react'
+import { Suspense, useContext, useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type Ref } from 'react'
 import { WORKSPACE_BINARY_LIMIT_BYTES, type RuntimeId, type WorkspaceReadFileResult } from '@harnessdesk/protocol'
-import { Banner, BannerAction, Button, Segmented, ToolPane, ToolPaneBody, ToolPaneGuest, ToolPaneMessage, ToolPaneStage } from '../design'
+import { Banner, BannerAction, Button, SelectionAction, Segmented, ToolPane, ToolPaneBody, ToolPaneGuest, ToolPaneMessage, ToolPaneStage } from '../design'
 import { ExternalIcon } from '../components/Icons'
-import { useSnapshot, useStore } from '../state/context'
+import { KeyboardHereContext, usePane, useSnapshot, useStore } from '../state/context'
 import { useTheme } from '../state/theme'
 import { sanitizeText } from '../lib/sanitize'
 import { CodeView, MergeView, MarkdownView, countTextChanges, editorLook, readHead } from './index'
 import styles from './FileView.module.css'
+import { quoteSelection, previewSelection } from './quote'
+import { askInChat, canAskInChat } from './ask'
+import type { EditorSelection } from './CodeView'
 
 export type FileViewMode = 'preview' | 'source' | 'changes'
 export interface FileBase {
@@ -84,7 +87,13 @@ const reconcileRead = (before: FileState, file: WorkspaceReadFileResult, mediaTy
 /** One document surface; callers own tabs, window mode and the lifetime of drafts. */
 export const FileView = (props: FileViewProps) => {
   const { path, runtime, root, subject } = props
-  const store = useStore(), snapshot = useSnapshot(), theme = useTheme()
+  const store = useStore(), snapshot = useSnapshot(), theme = useTheme(), pane = usePane()
+  const selectionId = useId()
+  const keyboardHere = useContext(KeyboardHereContext)
+  const surface = useRef<HTMLDivElement>(null)
+  const [selection, setSelection] = useState<{ text: string; rect: DOMRect } | null>(null)
+  const selected = useRef(selection); selected.current = selection
+  const ask = useRef<() => boolean>(() => false)
   const callbacks = useRef(props); callbacks.current = props
   const [state, setState] = useState<FileState>(blank)
   const current = useRef(state)
@@ -240,12 +249,60 @@ export const FileView = (props: FileViewProps) => {
   const actualMode = mode === 'changes' && !changed && !state.comparing ? 'source' : mode
   const editable = !!state.base && !state.base.truncated && state.base.content.length <= MAX_EDITABLE
   const canSave = editable && state.conflict?.kind !== 'binary' && state.conflict?.kind !== 'tooLarge'
-  const editorProps = { value: content, path, readOnly: !editable, dark: theme === 'dark', look: appearance, lineNumbers: snapshot.editorPrefs.lineNumbers, wrap: snapshot.editorPrefs.wrap, tabSize: snapshot.editorPrefs.tabSize, ariaLabel: path, className: styles.editor, decorations: snapshot.editorPlane.find(one => one.path === path)?.decorations ?? [], onChange: (value: string) => { update(one => ({ ...one, draft: value })); store.reportEditor?.({ kind: 'changed', path, at: Date.now() }) }, onSave: () => { void save() } }
+  const quotePath = root && path.startsWith(`${root.replace(/\/$/, '')}/`) ? path.slice(root.replace(/\/$/, '').length + 1) : path
+  const onSelection = (one: EditorSelection | null) => {
+    const text = one ? quoteSelection(quotePath, one.source, one.from, one.to) : null
+    setSelection(text && one?.rect ? { text, rect: one.rect } : null)
+  }
+  ask.current = () => {
+    const one = selected.current
+    if (!one || !pane?.paneId || !subject || !canAskInChat(store, pane.paneId, subject)) return false
+    void askInChat(store, pane.paneId, subject, one.text)
+    setSelection(null)
+    return true
+  }
+  const editorProps = { onSelection, value: content, path, readOnly: !editable, dark: theme === 'dark', look: appearance, lineNumbers: snapshot.editorPrefs.lineNumbers, wrap: snapshot.editorPrefs.wrap, tabSize: snapshot.editorPrefs.tabSize, ariaLabel: path, className: styles.editor, decorations: snapshot.editorPlane.find(one => one.path === path)?.decorations ?? [], onChange: (value: string) => { update(one => ({ ...one, draft: value })); store.reportEditor?.({ kind: 'changed', path, at: Date.now() }) }, onSave: () => { void save() } }
   const conflict = state.conflict
   const reload = () => {
     if (conflict?.kind !== 'text') return
     update(one => ({ ...one, base: conflict.missing ? null : { content: conflict.content, hash: conflict.hash, truncated: false }, draft: null, pending: false, conflict: null, comparing: false, problem: conflict.missing ? { kind: 'missing' } : null }))
   }
+  useEffect(() => { setSelection(null) }, [path, runtime, actualMode, subject, keyboardHere])
+  useEffect(() => {
+    const request = (event: Event) => {
+      const focus = document.activeElement
+      const host = surface.current
+      // A retained selection in a hidden file or after typing elsewhere is stale.
+      if (!host || host.closest('[inert], [data-hidden]') || (focus !== document.body && focus !== null && !host.contains(focus) && !document.getElementById(selectionId)?.contains(focus))) return
+      const detail = (event as CustomEvent<{ handled: boolean }>).detail
+      if (!detail.handled) detail.handled = ask.current()
+    }
+    window.addEventListener('harnessdesk:ask-in-chat', request)
+    return () => window.removeEventListener('harnessdesk:ask-in-chat', request)
+  }, [selectionId])
+  useEffect(() => {
+    const read = () => {
+      const host = surface.current, one = document.getSelection()
+      const start = one?.anchorNode, end = one?.focusNode
+      if (!host || !one || one.isCollapsed || !start || !end || !host.contains(start) || !host.contains(end)) {
+        // Source selections are owned by the editor engine, not native DOM selection.
+        if (actualMode === 'preview' || (one && !one.isCollapsed)) setSelection(null)
+        return
+      }
+      const deleted = (start instanceof Element ? start : start.parentElement)?.closest('.cm-deletedChunk')
+      if (actualMode !== 'preview' && !deleted) return
+      const source = deleted ? state.comparing && conflict?.kind === 'text' ? conflict.content : state.head ?? '' : content
+      const text = previewSelection(quotePath, source, one.toString())
+      const rect = one.getRangeAt(0).getBoundingClientRect()
+      setSelection(text ? { text, rect } : null)
+    }
+    document.addEventListener('selectionchange', read)
+    const host = surface.current
+    host?.addEventListener('scroll', read, true)
+    const unfocused = (event: FocusEvent) => { if (event.target instanceof Node && !host?.contains(event.target) && !document.getElementById(selectionId)?.contains(event.target)) setSelection(null) }
+    document.addEventListener('focusin', unfocused)
+    return () => { document.removeEventListener('selectionchange', read); host?.removeEventListener('scroll', read, true); document.removeEventListener('focusin', unfocused) }
+  }, [actualMode, quotePath, content, state.comparing, state.head, conflict, selectionId])
   return <ToolPane variant="integrated" onKeyDown={event => {
     if (!event.defaultPrevented && !event.altKey && !event.shiftKey && (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 's') {
       event.preventDefault()
@@ -267,7 +324,7 @@ export const FileView = (props: FileViewProps) => {
       <BannerAction variant="secondary" disabled={state.saving} onClick={reload}>Reload</BannerAction>
       <BannerAction disabled={state.saving} onClick={() => void save(conflict.hash)}>Keep mine</BannerAction>
     </> : undefined} />}
-    <ToolPaneBody bleed className={styles.body} data-preview={actualMode === 'preview' ? '' : undefined}>
+    <ToolPaneBody ref={surface} bleed className={styles.body} data-preview={actualMode === 'preview' ? '' : undefined}>
       {native ? frameError ? <ToolPaneMessage>{frameError}</ToolPaneMessage> : frameSrc === null ? <ToolPaneMessage>Loading…</ToolPaneMessage> : <ToolPaneStage><ToolPaneGuest title={path} src={frameSrc} {...(html ? { sandbox: 'allow-scripts allow-forms allow-popups' } : {})} /></ToolPaneStage>
         : state.problem ? state.problem.kind === 'missing' ? <ToolPaneMessage as="div"><p>{sanitizeText(path.split('/').pop() ?? path)} does not exist yet.</p><Button variant="outline" size="sm" onClick={() => { update(one => ({ ...one, base: { content: '', hash: '', truncated: false }, draft: '', pending: true, problem: null })); changeView('source') }}>Create this file</Button></ToolPaneMessage> : <ToolPaneMessage>{state.problem.kind === 'tooLarge' ? `File too large — ${(state.problem.size / (1024 * 1024)).toFixed(1)} MB` : state.problem.message}</ToolPaneMessage>
         : state.binary ? state.binary.imageSrc ? <div className={styles.imageStage}><img className={styles.image} src={state.binary.imageSrc} alt={sanitizeText(path.split('/').pop() ?? path)} onError={() => update(one => ({ ...one, binary: one.binary ? { ...one.binary, imageSrc: null } : null }))} /></div> : <ToolPaneMessage>Binary file — {(state.binary.size / 1024).toFixed(1)} KB</ToolPaneMessage>
@@ -278,5 +335,6 @@ export const FileView = (props: FileViewProps) => {
         </Suspense>}
       {state.base?.truncated && <ToolPaneMessage>Showing the first part of a large file.</ToolPaneMessage>}
     </ToolPaneBody>
+    {keyboardHere !== false && selection && pane?.paneId && subject && <SelectionAction id={selectionId} rect={selection.rect} onAsk={() => { ask.current() }} onDismiss={() => setSelection(null)} />}
   </ToolPane>
 }

@@ -12,7 +12,7 @@ import { desktop, isDesktop, onOpenGoal, onOpenSession, onShortcut, setTraySumma
 import { sessionLabel, shortLabel } from '../lib/sessions'
 import { describeTray } from '../lib/tray'
 import { shortcutFor } from '../lib/shortcuts'
-import { effectiveWindowMode } from '../editor'
+import { effectiveWindowMode, requestAskInChat } from '../editor'
 import { fixedSubject } from '../state/workbench'
 import { Workbench } from '../panels/Workbench'
 import { ShellProvider } from '../panels/views'
@@ -140,6 +140,9 @@ export const App = () => {
           return
         case 'toggle-terminal':
           toggleTerminal(store)
+          return
+        case 'ask-in-chat':
+          requestAskInChat()
           return
         case 'toggle-editor-mode': {
           const current = store.getSnapshot()
@@ -358,6 +361,10 @@ export const App = () => {
     const onKeyDown = (event: KeyboardEvent): void => {
       const shortcut = shortcutFor(event)
       if (!shortcut) return
+      if (shortcut.action === 'ask-in-chat') {
+        if (requestAskInChat()) event.preventDefault()
+        return
+      }
       event.preventDefault()
       run(shortcut.action)
     }

@@ -320,12 +320,14 @@ export const PopoverSurface = forwardRef<
     anchor?: RefObject<HTMLElement | null>
     /** Lets a controlled typing picker clear its owner's active query. */
     onDismiss?: () => void
+    /** Selection geometry, anchored by the same floating and dismissal policy. */
+    rect?: DOMRect
   }
->(({ className, limit, anchor, onDismiss, ...props }, ref) => {
+>(({ className, limit, anchor, rect, onDismiss, ...props }, ref) => {
   const { icons, wide } = useMenuPresentation()
   const menuId = useRef(Symbol('popover-surface'))
   useLayoutEffect(() => registerMenu(menuId.current), [])
-  useDismissOverlays(Boolean(anchor), () => onDismiss?.())
+  useDismissOverlays(Boolean(anchor || rect), () => onDismiss?.())
   const surface = <div
     ref={ref}
     {...props}
@@ -333,21 +335,21 @@ export const PopoverSurface = forwardRef<
     data-popup-kind={wide ? 'wide-menu' : 'menu'}
     data-menu-icons={icons}
     {...(limit ? { 'data-limit': limit } : {})}
-    {...(anchor ? { 'data-anchor': '' } : {})}
+    {...((anchor || rect) ? { 'data-anchor': '' } : {})}
     className={`${styles.panel}${className ? ` ${className}` : ''}`}
   />
-  if (!anchor) return surface
+  if (!anchor && !rect) return surface
   return (
     <BasePopover open modal={false} onOpenChange={open => { if (!open) onDismiss?.() }}>
       <PopoverPortal>
         <PopoverPositioner
-          anchor={anchor}
+          anchor={rect ? { getBoundingClientRect: () => rect } : anchor}
           positionMethod="fixed"
           side="top"
           align="start"
           sideOffset={6}
           collisionPadding={8}
-          collisionBoundary={anchor.current?.closest('[data-slot="app-window"], [data-slot="fixed-shell"]') ?? undefined}
+          collisionBoundary={anchor?.current?.closest('[data-slot="app-window"], [data-slot="fixed-shell"]') ?? undefined}
           className={styles.positioner}
         >
           <PopoverPopup render={surface} initialFocus={false} finalFocus={false} onMouseDown={event => event.preventDefault()} />
