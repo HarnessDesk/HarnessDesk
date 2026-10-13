@@ -81,7 +81,7 @@ Every command ends with one of these. A command's own section lists the codes th
 | [`card show`](#harnessdesk-card-show) | One card on a Team's board: its role, state, outcome, note and handoff. | read |
 | [`card handoff`](#harnessdesk-card-handoff) | Prints a card's handoff text and nothing else, so it can go down a pipe. | read |
 | [`card answer`](#harnessdesk-card-answer) | Answers a card a flow addressed to a person, with one of its role's outcomes. | answer |
-| [`card abandon`](#harnessdesk-card-abandon) | Abandons a card, though the rule after its role still fires. | run |
+| [`card abandon`](#harnessdesk-card-abandon) | Abandons a card. | run |
 | [`waiting`](#harnessdesk-waiting) | Everything waiting for a person: person cards, questions from seats and tool approvals. | read |
 
 ### `harnessdesk desks`
@@ -390,7 +390,7 @@ Needs the **read** tier.
 
 **Flags**
 
-- `--timeout SECONDS`: Give up after this many seconds, counted from when the command starts, and exit 8. Any finite number from 0 up; leave it out to wait without a deadline.
+- `--timeout SECONDS`: Give up after this many seconds, counted from when the command starts, and exit 8. Accepts finite numbers from 0 through 2147483.647; leave it out to wait without a deadline.
 
 **With `--json`**
 
@@ -543,7 +543,7 @@ Needs the **answer** tier.
 harnessdesk card abandon <team> <card> --reason TEXT [--yes]
 ```
 
-Abandons a card, though the rule after its role still fires. That rule may open the next role's card: before it asks, the command says which role that would be, and points to `run stop` as the way to end the work instead. On a terminal it asks `Abandon this card? [y/N]`; `--yes` answers for you, and is needed when there is no terminal.
+Abandons a card. Once every card in the round has finished, the run follows the first matching rule. If no rule matches, the run ends without opening another role. Before it asks, the command lists possible next roles and points to `run stop` as the way to end the work instead. On a terminal it asks `Abandon this card? [y/N]`; `--yes` answers for you, and is needed when there is no terminal.
 
 Needs the **run** tier.
 
@@ -596,6 +596,9 @@ A single object, `{ "waiting": [...] }`, each item with `id`, `team`, `kind` (`c
 ```sh
 # Is a desk running, and what is it doing?
 harnessdesk status
+
+# Open an existing project on this desk first.
+harnessdesk open ~/code/app
 
 # See what a flow would do in a project, then start it. Nothing is spent until the start.
 harnessdesk flow preview review-pr --project ~/code/app --input task="Fix the retry count"

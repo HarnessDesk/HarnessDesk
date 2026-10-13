@@ -309,8 +309,8 @@ On 2026-08-22, two investigations demonstrated why static catalogues fail:
 
 - **Missing GPT-5.6 in Codex:** HarnessDesk invoked `/opt/homebrew/bin/codex`
   at version 0.135.0 — fourteen minor versions behind the 0.149.0 release
-  bundled in ChatGPT.app. Version 0.135.0 requested the active catalogue
-  from OpenAI and failed to parse the response:
+  found in another application bundle. Version 0.135.0 requested the active
+  catalogue from OpenAI and failed to parse the response:
   ```
   codex_models_manager::manager: failed to refresh available models:
     unknown variant `max`, expected one of `none`, `minimal`, `low`, `medium`, `high`, `xhigh`
@@ -378,11 +378,11 @@ Re-verification against `cursor-agent` 2026.08.31 (Cursor 3.19.13) on
    The CLI version is displayed in settings alongside the bridge version.
    If the CLI is missing, the bridge falls back to its bundled build and
    logs the condition.
-3. **Query catalogues dynamically.** The active catalogue is retained for
-   the process lifetime, cleared on restart or account change, and
-   refreshed periodically. If a runtime's binary changes on disk, the process
-   restarts onto it once idle. Model metadata is never persisted to disk by
-   HarnessDesk.
+3. **Query catalogues dynamically.** HarnessDesk saves the last observed model
+   catalogue and other display observations in `runtime-cache.json`. They remain
+   readable while a runtime is idle and across launches; live runtime answers
+   replace them. If a runtime's binary changes on disk, the process restarts
+   onto it once idle.
 4. **Surface outdated runtimes beside the model list.** When a runtime
    publishes an npm package, the host checks npm's `latest` dist-tag once
    daily (cached in `<state>/update-checks.json`; set
@@ -458,9 +458,10 @@ Why this architecture protects older installations:
    catalogue parsing failures, the explanation logged to stderr is captured
    and displayed directly in the model option description alongside the
    remediation advisory.
-3. **Cache invalidation across restarts.** Because model catalogues are not
-   persisted across runs, a runtime upgrade is immediately reflected upon
-   process restart without stale cache interference.
+3. **Live answers replace saved observations.** The last observed model
+   catalogue remains readable while a runtime is idle and across launches.
+   After a runtime starts, its live answers replace the display observations
+   saved in `runtime-cache.json`.
 4. **Open string mappings.** Reasoning effort levels and options pass
    through as strings. In Codex 0.149.0, reasoning effort transitioned from
    an enum to an open string.
@@ -779,8 +780,10 @@ Key implementation details:
   Codex strictly requires `wire_api = "responses"`; `"chat"` is rejected at
   startup. The loopback gateway (`packages/responses-gateway`) intercepts
   requests, replaces the token with the real key, and proxies upstream.
-  API keys never appear in process listings, environment variables, or
-  disk files.
+  The upstream key stays out of the runtime's process arguments, environment
+  and configuration. HarnessDesk stores it in its credential broker, encrypted
+  by the desktop cipher or protected only by file permissions in a standalone
+  host.
 - **Lifecycle and ports:** Loopback ports change upon every start, so the
   gateway configuration is rewritten at launch. Removing a gateway account
   terminates its gateway proxy and deletes the broker-stored key.
