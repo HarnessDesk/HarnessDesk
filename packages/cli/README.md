@@ -90,8 +90,13 @@ only displayed Teams receive an overview and usage read.
 ```sh
 harnessdesk open . --json
 harnessdesk flows --project . --json
-harnessdesk flow preview write-review-fix --project . \
-  --title "Finish the change" --brief-file brief.md --seat writer=fake/high
+harnessdesk flow preview fix-and-review --project . --input work=@brief.md
+```
+
+The next example requires a user-created `./flow.yaml` with a `brief` input
+and a `writer` role, and registered `fake` and `fake-b` test runtimes.
+
+```sh
 harnessdesk flow start ./flow.yaml --project . --brief-file - \
   --seat writer=fake/high,fake-b/high --unattended --yes --json
 harnessdesk run show demo-run --json

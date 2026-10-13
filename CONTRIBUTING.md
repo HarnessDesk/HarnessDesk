@@ -46,8 +46,9 @@ reachable-methods check, the third-party notices check, the design-system
 gates, the UI-system architecture gate, interface drift, the command-line reference check, the recorded-claims link, the doc-paths check, the
 check that holds this gate and CI to one list, Codex protocol drift, and the
 check that this paragraph and AGENTS.md name every step the gate runs. CI runs
-all of those except protocol drift, which needs a real `codex` binary; a
-green local run means a green pipeline.
+these checks except protocol drift, which needs a real `codex` binary, and
+also runs selected browser integration and native smoke checks. A passing
+local gate does not replace those CI results.
 
 On pull requests, “Build, typecheck, test” always runs. It stands for the whole
 gate and is green only when each of four jobs that run side by side is: the
