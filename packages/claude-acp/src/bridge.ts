@@ -485,15 +485,36 @@ export const recordToolCalls = (inner: CanUseTool, sessionId: string, store: Too
     }
   }
 
-/** A subagent or an unidentified request cannot borrow a parent's call record. */
-export const recordedToolCallFor = (value: unknown, store: ToolCallStore): RecordedToolCall | null => {
+export type ToolCallCapture = {
+  readonly sessionId: string
+  readonly toolCallId: string
+  readonly entry: PendingToolCall
+  readonly recorded: RecordedToolCall
+}
+
+/** Bind a request synchronously to the callback that is pending as it arrives. */
+export const captureToolCall = (value: unknown, store: ToolCallStore): ToolCallCapture | null => {
   const request = value as { sessionId?: unknown; toolCall?: { toolCallId?: unknown } } | null | undefined
   const sessionId = request?.sessionId
   const toolCallId = request?.toolCall?.toolCallId
   if (typeof sessionId !== 'string' || !sessionId || typeof toolCallId !== 'string' || !toolCallId) return null
   const entry = store.get(sessionId)?.get(toolCallId)
-  return entry?.pending === 1 && !entry.ambiguous ? entry.recorded : null
+  return entry?.pending === 1 && !entry.ambiguous ? { sessionId, toolCallId, entry, recorded: entry.recorded } : null
 }
+
+/** A settled, cancelled or collided callback cannot lend proof to a later request. */
+export const captureStillHolds = (
+  capture: ToolCallCapture | null,
+  store: ToolCallStore,
+  signal?: AbortSignal,
+): capture is ToolCallCapture =>
+  capture !== null && !signal?.aborted &&
+  store.get(capture.sessionId)?.get(capture.toolCallId) === capture.entry &&
+  capture.entry.pending === 1 && !capture.entry.ambiguous
+
+/** A subagent or an unidentified request cannot borrow a parent's call record. */
+export const recordedToolCallFor = (value: unknown, store: ToolCallStore): RecordedToolCall | null =>
+  captureToolCall(value, store)?.recorded ?? null
 
 /** Adds provenance only when the desk server supplied for this session asked. */
 export const withFlowBoardToolProvenance = (
@@ -629,6 +650,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     super(client as never, logger)
     const requestPermission = client.requestPermission.bind(client)
     client.requestPermission = async (params, signal) => {
+      const capture = captureToolCall(params, this.#toolCalls)
       const sessionId = typeof (params as { sessionId?: unknown } | null)?.sessionId === 'string'
         ? (params as { sessionId: string }).sessionId
         : ''
@@ -640,7 +662,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
         params,
         this.#suppliedMcpServers.get(sessionId) ?? [],
         liveServerStatus,
-        recordedToolCallFor(params, this.#toolCalls),
+        captureStillHolds(capture, this.#toolCalls, signal) ? capture.recorded : null,
       ), signal)
     }
     const notify = client.sessionUpdate.bind(client)

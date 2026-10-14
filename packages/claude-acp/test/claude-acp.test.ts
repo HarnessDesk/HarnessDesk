@@ -6,8 +6,9 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { scratch } from './scratch.js'
 
+import { ClaudeAcpAgent } from '@agentclientprotocol/claude-agent-acp'
 import type { CanUseTool } from '@anthropic-ai/claude-agent-sdk'
-import { recordToolCalls, recordedToolCallFor, type RecordedToolCall, type ToolCallStore } from '../src/bridge.js'
+import { HarnessDeskClaudeAgent, captureToolCall, captureStillHolds, recordToolCalls, recordedToolCallFor, type RecordedToolCall, type ToolCallStore } from '../src/bridge.js'
 
 import { AcpRuntime, type AcpAgentConfig } from '@harnessdesk/adapter-acp'
 import { describeAdapterConformance } from '@harnessdesk/adapter-testkit'
@@ -482,6 +483,184 @@ test('CLI call lookup requires the exact session and tool call id and no settled
   pending.resolve(allowed)
   await call
   assert.equal(recordedToolCallFor(airRequest, store), null)
+})
+
+const browserTool = 'mcp__harnessdesk__browser_open'
+
+test('request capture refuses a reused key after the original callback settles', async () => {
+  const store: ToolCallStore = new Map()
+  const aPending = pendingPermission()
+  const a = recordToolCalls(() => aPending.promise, 's1', store)(browserTool, {}, permissionOptions('call1'))
+  const captured = captureToolCall(airRequest, store)
+  assert.equal(captured?.recorded.toolName, browserTool)
+  assert.equal(captureStillHolds(captured, store), true)
+  const aborted = new Error('original callback aborted')
+  const aSettled = assert.rejects(a, error => error === aborted)
+  aPending.reject(aborted)
+  await aSettled
+  assert.equal(captureStillHolds(captured, store), false)
+  const bPending = pendingPermission()
+  const b = recordToolCalls(() => bPending.promise, 's1', store)(recordedDeskCall.toolName, {}, permissionOptions('call1'))
+  try {
+    assert.equal(recordedToolCallFor(airRequest, store)?.toolName, recordedDeskCall.toolName, 'id-only lookup would now find the wrong callback')
+    assert.equal(captureStillHolds(captured, store), false, 'a fresh entry cannot validate an earlier capture')
+    assert.equal(boardMarker(withFlowBoardToolProvenance(airRequest, ['harnessdesk'], [dynamicDesk], captureStillHolds(captured, store) ? captured!.recorded : null)), undefined)
+  } finally {
+    bPending.resolve(allowed)
+    await b
+  }
+})
+
+test('request capture is invalidated by overlap even after the second callback settles', async () => {
+  const store: ToolCallStore = new Map()
+  const aPending = pendingPermission()
+  const a = recordToolCalls(() => aPending.promise, 's1', store)(browserTool, {}, permissionOptions('call1'))
+  const captured = captureToolCall(airRequest, store)
+  const bPending = pendingPermission()
+  const b = recordToolCalls(() => bPending.promise, 's1', store)(recordedDeskCall.toolName, {}, permissionOptions('call1'))
+  try {
+    assert.equal(captureToolCall(airRequest, store), null)
+    assert.equal(captureStillHolds(captured, store), false)
+    bPending.resolve(allowed)
+    await b
+    assert.equal(captureStillHolds(captured, store), false)
+    assert.equal(boardMarker(withFlowBoardToolProvenance(airRequest, ['harnessdesk'], [dynamicDesk], captureStillHolds(captured, store) ? captured!.recorded : null)), undefined)
+  } finally {
+    aPending.resolve(allowed)
+    bPending.resolve(allowed)
+    await Promise.all([a, b])
+  }
+})
+
+test('request capture refuses a signal aborted after a delayed status read', async () => {
+  const store: ToolCallStore = new Map()
+  const controller = new AbortController()
+  const pending = pendingPermission()
+  const call = recordToolCalls(() => pending.promise, 's1', store)(recordedDeskCall.toolName, {}, { ...permissionOptions('call1'), signal: controller.signal })
+  const captured = captureToolCall(airRequest, store)
+  try {
+    await Promise.resolve() // The callback remains pending across the status await.
+    assert.equal(captureStillHolds(captured, store, controller.signal), true)
+    controller.abort()
+    assert.equal(captureStillHolds(captured, store, controller.signal), false)
+  } finally {
+    pending.resolve(allowed)
+    await call
+  }
+})
+
+test('request capture requires an existing unambiguous entry and exact request ids', async () => {
+  const store: ToolCallStore = new Map()
+  assert.equal(captureToolCall(airRequest, store), null)
+  assert.equal(captureStillHolds(null, store), false)
+  const pending = pendingPermission()
+  const call = recordToolCalls(() => pending.promise, 's1', store)(recordedDeskCall.toolName, {}, permissionOptions('call1'))
+  try {
+    assert.equal(captureStillHolds(captureToolCall(airRequest, store), store), true)
+    for (const request of [null, { ...airRequest, sessionId: 'child' }, { ...airRequest, sessionId: undefined }, { ...airRequest, toolCall: {} }]) {
+      assert.equal(captureToolCall(request, store), null)
+    }
+  } finally {
+    pending.resolve(allowed)
+    await call
+  }
+})
+
+test('three callbacks pending simultaneously keep a shared key unusable until all settle', async () => {
+  const store: ToolCallStore = new Map()
+  const pending = [pendingPermission(), pendingPermission(), pendingPermission()]
+  const calls = pending.map((item, index) => recordToolCalls(() => item.promise, 's1', store)(index === 0 ? browserTool : recordedDeskCall.toolName, {}, permissionOptions('call1')))
+  try {
+    for (const index of [1, 0, 2]) {
+      assert.equal(recordedToolCallFor(airRequest, store), null)
+      assert.equal(store.get('s1')?.has('call1'), true)
+      pending[index]!.resolve(allowed)
+      await calls[index]
+    }
+    assert.equal(store.size, 0)
+  } finally {
+    pending.forEach(item => item.resolve(allowed))
+    await Promise.all(calls)
+  }
+})
+
+test('a callback missing its tool-use id is forwarded without recording', async () => {
+  const store: ToolCallStore = new Map()
+  const input = { action: 'read' }
+  const options = { ...permissionOptions('call1'), toolUseID: undefined } as unknown as Parameters<CanUseTool>[2]
+  let forwarded = false
+  const inner: CanUseTool = async (name, receivedInput, receivedOptions) => {
+    forwarded = true
+    assert.equal(name, recordedDeskCall.toolName)
+    assert.equal(receivedInput, input)
+    assert.equal(receivedOptions, options)
+    assert.equal(store.size, 0)
+    return allowed
+  }
+  assert.equal(await recordToolCalls(inner, 's1', store)(recordedDeskCall.toolName, input, options), allowed)
+  assert.equal(forwarded, true)
+  assert.equal(store.size, 0)
+})
+
+test('the permission wrapper refuses a cancelled browser capture after same-key reuse and marks an undisturbed control', async (t) => {
+  const forwarded: unknown[] = []
+  const client = {
+    sessionUpdate: async () => {},
+    requestPermission: async (params: unknown, _signal?: AbortSignal): Promise<unknown> => { forwarded.push(params); return {} },
+  }
+  const statuses: { promise: Promise<{ name: string; source: string }[]>; resolve: (value: { name: string; source: string }[]) => void }[] = []
+  const query = { mcpServerStatus: () => {
+    let resolve!: (value: { name: string; source: string }[]) => void
+    const promise = new Promise<{ name: string; source: string }[]>(yes => { resolve = yes })
+    statuses.push({ promise, resolve })
+    return promise
+  } }
+  let requestToSend: unknown = airRequest
+  let forwardedRequest: Promise<unknown> | undefined
+  let callbackPending = pendingPermission()
+  t.mock.method(ClaudeAcpAgent.prototype, 'newSession', async () => ({ sessionId: 's1', configOptions: [] }))
+  t.mock.method(ClaudeAcpAgent.prototype, 'canUseTool', () => (_name: string, _input: unknown, options: Parameters<CanUseTool>[2]) => {
+    if (requestToSend) forwardedRequest = client.requestPermission(requestToSend, options.signal)
+    return callbackPending.promise
+  })
+  const agent = new HarnessDeskClaudeAgent(client, { stateDir: scratch('claude-capture-state-'), log: () => {} })
+  agent.sessions['s1'] = { query } as unknown as (typeof agent.sessions)[string]
+  await agent.newSession({ cwd: WORKDIR, mcpServers: [{ name: 'harnessdesk', command: process.execPath, args: [], env: [] }] })
+  const controller = new AbortController()
+  const original = agent.canUseTool('s1')(browserTool, {}, { ...permissionOptions('call1'), signal: controller.signal })
+  const oldRequest = forwardedRequest!
+  assert.equal(statuses.length, 1, 'the request is waiting at the status read')
+  const cancelled = new Error('callback cancelled while status was pending')
+  const originalSettled = assert.rejects(original, error => error === cancelled)
+  controller.abort()
+  callbackPending.reject(cancelled)
+  await originalSettled
+  requestToSend = null
+  callbackPending = pendingPermission()
+  const replacementPending = callbackPending
+  const replacement = agent.canUseTool('s1')(recordedDeskCall.toolName, {}, permissionOptions('call1'))
+  try {
+    statuses[0]!.resolve([dynamicDesk])
+    await oldRequest
+    assert.equal(boardMarker(forwarded[0]), undefined, 'the cancelled browser request cannot use the replacement board identity')
+  } finally {
+    replacementPending.resolve(allowed)
+    await replacement
+  }
+  requestToSend = airRequest
+  callbackPending = pendingPermission()
+  const controlPending = callbackPending
+  const control = agent.canUseTool('s1')(recordedDeskCall.toolName, {}, permissionOptions('call1'))
+  const controlRequest = forwardedRequest!
+  try {
+    statuses[1]!.resolve([dynamicDesk])
+    await controlRequest
+    assert.deepEqual(boardMarker(forwarded[1]), { server: 'harnessdesk', tool: recordedDeskCall.toolName })
+    assert.deepEqual((forwarded[1] as typeof airRequest).toolCall._meta.claudeCode, { mcpServer: dynamicDesk })
+  } finally {
+    controlPending.resolve(allowed)
+    await control
+  }
 })
 
 test('the real bridge marks an AIR board permission from fake Claude CLI provenance', { timeout: 30_000 }, async () => {
