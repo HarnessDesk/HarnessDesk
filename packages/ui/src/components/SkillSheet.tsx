@@ -42,6 +42,7 @@ import {
   Text,
 } from '../design'
 import { installSource, type LibraryColumn, type LibraryFlow } from './LibraryActions'
+import { handOverToComposer } from '../lib/compose'
 import { shortPath } from '../lib/paths'
 import { REACH_SENTENCE } from '../lib/reach-states'
 
@@ -797,18 +798,22 @@ export const SkillSheet = ({
         <SectionFooter className="flex-wrap">
           {/*
            * The card teaches `/name`; this is where that becomes a thing you
-           * did. Same event the per-agent skills page dispatches, so there is
-           * one way into the composer and not two that drift.
+           * did. Same hand-over the per-agent skills page uses, so there is
+           * one way into the composer and not two that drift. The Library is
+           * a page, not the conversation, so the composer ignores a bare event
+           * sent from here: go back to the work first, then hand over until a
+           * composer takes it, and say so when none does.
            */}
           {entry.kind === 'skill' && (
             <Button
               variant="outline"
               size="sm"
               onClick={() => {
-                window.dispatchEvent(
-                  new CustomEvent('harnessdesk:compose', { detail: `/${entry.name} ` }),
-                )
                 onClose()
+                store.returnToWork()
+                void handOverToComposer({ text: `/${entry.name} ` }).then((received) => {
+                  if (!received) store.notice('warning', 'The message box did not take it — click into the conversation and try again.')
+                })
               }}
             >
               <SlashIcon size={13} />
