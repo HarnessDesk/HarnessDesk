@@ -112,7 +112,7 @@ for (const theme of WALL_THEMES) {
         expect(top.height).toBe(FRAME.bar.height)
         const rows = column.locator('[data-left-row]:not([data-left-project]):visible')
         expect(await rows.count()).toBeGreaterThan(2)
-        await expectColumnRowEdges(rows)
+        await expectColumnRowEdges(rows, destination === 'settings-navigation' ? FRAME.rail.settingsRowHeight : FRAME.rail.rowHeight)
         const seat = column.locator('[data-left-seat]')
         expect((await seat.locator('..').boundingBox())!.height).toBe(FRAME.bar.height)
         await expect(seat.getByRole('button', { name: 'Settings', exact: true }))

@@ -8,7 +8,10 @@
 .group + .group { padding-block-start: var(--hd-space-4); }
 .label { font-weight: var(--hd-weight-medium); display: block; padding-inline-start: var(--hd-space-2); margin-block: var(--hd-space-2); }
 .row { position: relative; height: var(--hd-left-row-h); min-width: 0; }
-.row .button { box-sizing: border-box; border: 0; padding-block: 0; height: var(--hd-left-row-h); min-height: var(--hd-left-row-h); padding-inline: var(--hd-space-2); gap: var(--hd-space-2); border-radius: var(--hd-nav-radius); font-size: var(--hd-text-sm); line-height: var(--hd-line-sm); font-weight: var(--hd-weight-normal); }
+.row .button { box-sizing: border-box; border: 0; padding-block: 0; height: var(--hd-left-row-h); min-height: var(--hd-left-row-h); padding-inline: var(--hd-space-2); gap: var(--hd-left-menu-gap); border-radius: var(--hd-nav-radius); font-size: var(--hd-text-sm); line-height: var(--hd-line-sm); font-weight: var(--hd-weight-normal); }
+/* The Settings menu reads one step larger than the sidebar (14 / 20); its row sizes are the [data-left-settings] tokens. */
+:global([data-left-settings]) .row .button { font-size: var(--hd-text); line-height: var(--hd-line); }
+.row + .row { margin-block-start: var(--hd-left-row-gap); }
 .row .button[data-active='true'] { background: var(--hd-selected); color: var(--hd-foreground); }
 .button [data-slot='sidebar-menu-label'] { padding-inline-end: var(--hd-icon-target); }
 .button [data-slot='sidebar-menu-icon'] { width: var(--hd-space-4); height: var(--hd-space-4); }

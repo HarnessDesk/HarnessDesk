@@ -29,7 +29,7 @@
 --hd-btn-disabled-fill-share = 16%
 --hd-btn-disabled-ink-share = 60%
 --hd-btn-fill = rgb(245, 245, 245)
---hd-btn-h = 30px
+--hd-btn-h = 32px
 --hd-btn-h-sm = 28px
 --hd-btn-padding = 0 12px
 --hd-btn-padding-sm = 0 10px
@@ -42,7 +42,7 @@
 --hd-btn-shadow = none
 --hd-btn-text = 13px
 --hd-btn-text-sm = 12px
---hd-btn-weight = 500
+--hd-btn-weight = 400
 --hd-card = rgb(255, 255, 255)
 --hd-card-foreground = rgb(27, 27, 27)
 --hd-card-gap = 12px
@@ -100,6 +100,8 @@
 --hd-composer-min = 44px
 --hd-composer-radius = 28px
 --hd-composer-send-size = 30px
+--hd-composer-shell-shadow = 0 4px 20px rgba(0, 0, 0, 0.035)
+--hd-composer-shell-shadow-focus = 0 4px 20px rgba(0, 0, 0, 0.035)
 --hd-composer-slots-preview-narrow = 560px
 --hd-composer-slots-preview-tight = 360px
 --hd-composer-track-add = 32px
@@ -158,7 +160,7 @@
 --hd-face-radius-lg = 10px
 --hd-fade = linear-gradient(to right, #000 calc(100% - 16px), transparent)
 --hd-fade-edge = 16px
---hd-field-h = 30px
+--hd-field-h = 32px
 --hd-field-name-width = 220px
 --hd-field-path-width = 280px
 --hd-file-bar-h = 38px
@@ -193,7 +195,9 @@
 --hd-inset-dense = 8px
 --hd-inset-dialog = 24px
 --hd-inset-row = 12px
---hd-label-weight = 500
+--hd-label-weight = 400
+--hd-left-menu-gap = 8px
+--hd-left-row-gap = 0px
 --hd-left-row-h = 30px
 --hd-line = 20px
 --hd-line-display = 40px
@@ -308,6 +312,9 @@
 --hd-surface-fill = rgb(255, 255, 255)
 --hd-surface-radius = 14px
 --hd-surface-shadow = 0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(9, 12, 17, 0.12)
+--hd-switcher-item-h = 30px
+--hd-switcher-item-inset = 12px
+--hd-switcher-pad = 1px
 --hd-table-cell-x = 12px
 --hd-table-edge = 12px
 --hd-table-end-gap = 12px
@@ -318,7 +325,7 @@
 --hd-table-head-ink = rgb(49, 49, 49)
 --hd-table-head-size = 13px
 --hd-table-lead-gap = 12px
---hd-table-line-gap = 2px
+--hd-table-line-gap = 4px
 --hd-table-log-head-h = 28px
 --hd-table-name-size = 14px
 --hd-table-page-max-height = 50dvh
@@ -326,6 +333,8 @@
 --hd-table-row-min = 56px
 --hd-table-row-min-bare = 44px
 --hd-table-sentence-size = 13px
+--hd-tabs-h = 32px
+--hd-tabs-inset = 12px
 --hd-target-min = 24px
 --hd-tertiary-foreground = rgb(71, 71, 71)
 --hd-text = 14px
@@ -375,9 +384,9 @@
 --hd-warning-dim = rgba(240, 165, 27, 0.14)
 --hd-warning-foreground = rgb(17, 17, 17)
 --hd-warning-ink = rgb(150, 100, 0)
---hd-weight-medium = 500
+--hd-weight-medium = 400
 --hd-weight-normal = 400
---hd-weight-semibold = 600
+--hd-weight-semibold = 580
 --hd-z-base = 0
 --hd-z-dialog = 100
 --hd-z-drawer = 40
@@ -585,7 +594,7 @@
 --hd-btn-disabled-fill-share = 16%
 --hd-btn-disabled-ink-share = 60%
 --hd-btn-fill = rgb(49, 49, 49)
---hd-btn-h = 30px
+--hd-btn-h = 32px
 --hd-btn-h-sm = 28px
 --hd-btn-padding = 0 12px
 --hd-btn-padding-sm = 0 10px
@@ -598,7 +607,7 @@
 --hd-btn-shadow = none
 --hd-btn-text = 13px
 --hd-btn-text-sm = 12px
---hd-btn-weight = 500
+--hd-btn-weight = 400
 --hd-card = rgb(33, 33, 33)
 --hd-card-foreground = rgb(231, 231, 231)
 --hd-card-gap = 12px
@@ -656,6 +665,8 @@
 --hd-composer-min = 44px
 --hd-composer-radius = 28px
 --hd-composer-send-size = 30px
+--hd-composer-shell-shadow = 0 4px 20px rgba(0, 0, 0, 0.035)
+--hd-composer-shell-shadow-focus = 0 4px 20px rgba(0, 0, 0, 0.035)
 --hd-composer-slots-preview-narrow = 560px
 --hd-composer-slots-preview-tight = 360px
 --hd-composer-track-add = 32px
@@ -714,7 +725,7 @@
 --hd-face-radius-lg = 10px
 --hd-fade = linear-gradient(to right, #000 calc(100% - 16px), transparent)
 --hd-fade-edge = 16px
---hd-field-h = 30px
+--hd-field-h = 32px
 --hd-field-name-width = 220px
 --hd-field-path-width = 280px
 --hd-file-bar-h = 38px
@@ -749,7 +760,9 @@
 --hd-inset-dense = 8px
 --hd-inset-dialog = 24px
 --hd-inset-row = 12px
---hd-label-weight = 500
+--hd-label-weight = 400
+--hd-left-menu-gap = 8px
+--hd-left-row-gap = 0px
 --hd-left-row-h = 30px
 --hd-line = 20px
 --hd-line-display = 40px
@@ -864,6 +877,9 @@
 --hd-surface-fill = rgb(33, 33, 33)
 --hd-surface-radius = 14px
 --hd-surface-shadow = 0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.16)
+--hd-switcher-item-h = 30px
+--hd-switcher-item-inset = 12px
+--hd-switcher-pad = 1px
 --hd-table-cell-x = 12px
 --hd-table-edge = 12px
 --hd-table-end-gap = 12px
@@ -874,7 +890,7 @@
 --hd-table-head-ink = rgb(208, 208, 208)
 --hd-table-head-size = 13px
 --hd-table-lead-gap = 12px
---hd-table-line-gap = 2px
+--hd-table-line-gap = 4px
 --hd-table-log-head-h = 28px
 --hd-table-name-size = 14px
 --hd-table-page-max-height = 50dvh
@@ -882,6 +898,8 @@
 --hd-table-row-min = 56px
 --hd-table-row-min-bare = 44px
 --hd-table-sentence-size = 13px
+--hd-tabs-h = 32px
+--hd-tabs-inset = 12px
 --hd-target-min = 24px
 --hd-tertiary-foreground = rgb(177, 177, 177)
 --hd-text = 14px
@@ -931,9 +949,9 @@
 --hd-warning-dim = rgba(240, 165, 27, 0.14)
 --hd-warning-foreground = rgb(17, 17, 17)
 --hd-warning-ink = rgb(232, 168, 68)
---hd-weight-medium = 500
+--hd-weight-medium = 400
 --hd-weight-normal = 400
---hd-weight-semibold = 600
+--hd-weight-semibold = 580
 --hd-z-base = 0
 --hd-z-dialog = 100
 --hd-z-drawer = 40
@@ -1141,7 +1159,7 @@
 --hd-btn-disabled-fill-share = 16%
 --hd-btn-disabled-ink-share = 60%
 --hd-btn-fill = rgb(245, 245, 245)
---hd-btn-h = 30px
+--hd-btn-h = 32px
 --hd-btn-h-sm = 28px
 --hd-btn-padding = 0 12px
 --hd-btn-padding-sm = 0 10px
@@ -1154,7 +1172,7 @@
 --hd-btn-shadow = 0 1px 2px rgba(0, 0, 0, 0.05)
 --hd-btn-text = 13px
 --hd-btn-text-sm = 12px
---hd-btn-weight = 500
+--hd-btn-weight = 400
 --hd-card = rgb(255, 255, 255)
 --hd-card-border = transparent
 --hd-card-divider = rgba(9, 12, 17, 0.12)
@@ -1217,6 +1235,8 @@
 --hd-composer-radius = 28px
 --hd-composer-ring = 0 0 0 3px color-mix(in srgb, rgb(52, 88, 240) 45%, transparent)
 --hd-composer-send-size = 30px
+--hd-composer-shell-shadow = 0 4px 20px rgba(0, 0, 0, 0.035)
+--hd-composer-shell-shadow-focus = 0 4px 20px rgba(0, 0, 0, 0.035)
 --hd-composer-slots-preview-narrow = 560px
 --hd-composer-slots-preview-tight = 360px
 --hd-composer-track-add = 32px
@@ -1275,7 +1295,7 @@
 --hd-face-radius-lg = 10px
 --hd-fade = linear-gradient(to right, #000 calc(100% - 16px), transparent)
 --hd-fade-edge = 16px
---hd-field-h = 30px
+--hd-field-h = 32px
 --hd-field-name-width = 220px
 --hd-field-path-width = 280px
 --hd-file-bar-h = 38px
@@ -1311,7 +1331,9 @@
 --hd-inset-dialog = 24px
 --hd-inset-row = 12px
 --hd-label-space = 20px
---hd-label-weight = 500
+--hd-label-weight = 400
+--hd-left-menu-gap = 8px
+--hd-left-row-gap = 0px
 --hd-left-row-h = 30px
 --hd-line = 20px
 --hd-line-display = 40px
@@ -1429,6 +1451,9 @@
 --hd-surface-fill = rgb(255, 255, 255)
 --hd-surface-radius = 14px
 --hd-surface-shadow = 0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(9, 12, 17, 0.12)
+--hd-switcher-item-h = 30px
+--hd-switcher-item-inset = 12px
+--hd-switcher-pad = 1px
 --hd-table-cell-x = 12px
 --hd-table-edge = 12px
 --hd-table-end-gap = 12px
@@ -1439,7 +1464,7 @@
 --hd-table-head-ink = rgb(49, 49, 49)
 --hd-table-head-size = 13px
 --hd-table-lead-gap = 12px
---hd-table-line-gap = 2px
+--hd-table-line-gap = 4px
 --hd-table-log-head-h = 28px
 --hd-table-name-size = 14px
 --hd-table-page-max-height = 50dvh
@@ -1447,6 +1472,8 @@
 --hd-table-row-min = 56px
 --hd-table-row-min-bare = 44px
 --hd-table-sentence-size = 13px
+--hd-tabs-h = 32px
+--hd-tabs-inset = 12px
 --hd-target-min = 24px
 --hd-tertiary-foreground = rgb(71, 71, 71)
 --hd-text = 14px
@@ -1496,9 +1523,9 @@
 --hd-warning-dim = rgba(240, 165, 27, 0.14)
 --hd-warning-foreground = rgb(17, 17, 17)
 --hd-warning-ink = rgb(150, 100, 0)
---hd-weight-medium = 500
+--hd-weight-medium = 400
 --hd-weight-normal = 400
---hd-weight-semibold = 600
+--hd-weight-semibold = 580
 --hd-z-base = 0
 --hd-z-dialog = 100
 --hd-z-drawer = 40
@@ -1706,7 +1733,7 @@
 --hd-btn-disabled-fill-share = 16%
 --hd-btn-disabled-ink-share = 60%
 --hd-btn-fill = rgb(49, 49, 49)
---hd-btn-h = 30px
+--hd-btn-h = 32px
 --hd-btn-h-sm = 28px
 --hd-btn-padding = 0 12px
 --hd-btn-padding-sm = 0 10px
@@ -1719,7 +1746,7 @@
 --hd-btn-shadow = 0 0 0 1px rgba(255, 255, 255, 0.04)
 --hd-btn-text = 13px
 --hd-btn-text-sm = 12px
---hd-btn-weight = 500
+--hd-btn-weight = 400
 --hd-card = rgb(33, 33, 33)
 --hd-card-border = transparent
 --hd-card-divider = rgba(255, 255, 255, 0.16)
@@ -1782,6 +1809,8 @@
 --hd-composer-radius = 28px
 --hd-composer-ring = 0 0 0 3px color-mix(in srgb, rgb(112, 142, 250) 55%, transparent)
 --hd-composer-send-size = 30px
+--hd-composer-shell-shadow = 0 4px 20px rgba(0, 0, 0, 0.035)
+--hd-composer-shell-shadow-focus = 0 4px 20px rgba(0, 0, 0, 0.035)
 --hd-composer-slots-preview-narrow = 560px
 --hd-composer-slots-preview-tight = 360px
 --hd-composer-track-add = 32px
@@ -1840,7 +1869,7 @@
 --hd-face-radius-lg = 10px
 --hd-fade = linear-gradient(to right, #000 calc(100% - 16px), transparent)
 --hd-fade-edge = 16px
---hd-field-h = 30px
+--hd-field-h = 32px
 --hd-field-name-width = 220px
 --hd-field-path-width = 280px
 --hd-file-bar-h = 38px
@@ -1876,7 +1905,9 @@
 --hd-inset-dialog = 24px
 --hd-inset-row = 12px
 --hd-label-space = 20px
---hd-label-weight = 500
+--hd-label-weight = 400
+--hd-left-menu-gap = 8px
+--hd-left-row-gap = 0px
 --hd-left-row-h = 30px
 --hd-line = 20px
 --hd-line-display = 40px
@@ -1994,6 +2025,9 @@
 --hd-surface-fill = rgb(33, 33, 33)
 --hd-surface-radius = 14px
 --hd-surface-shadow = 0 24px 60px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.16)
+--hd-switcher-item-h = 30px
+--hd-switcher-item-inset = 12px
+--hd-switcher-pad = 1px
 --hd-table-cell-x = 12px
 --hd-table-edge = 12px
 --hd-table-end-gap = 12px
@@ -2004,7 +2038,7 @@
 --hd-table-head-ink = rgb(208, 208, 208)
 --hd-table-head-size = 13px
 --hd-table-lead-gap = 12px
---hd-table-line-gap = 2px
+--hd-table-line-gap = 4px
 --hd-table-log-head-h = 28px
 --hd-table-name-size = 14px
 --hd-table-page-max-height = 50dvh
@@ -2012,6 +2046,8 @@
 --hd-table-row-min = 56px
 --hd-table-row-min-bare = 44px
 --hd-table-sentence-size = 13px
+--hd-tabs-h = 32px
+--hd-tabs-inset = 12px
 --hd-target-min = 24px
 --hd-tertiary-foreground = rgb(177, 177, 177)
 --hd-text = 14px
@@ -2061,9 +2097,9 @@
 --hd-warning-dim = rgba(240, 165, 27, 0.14)
 --hd-warning-foreground = rgb(17, 17, 17)
 --hd-warning-ink = rgb(232, 168, 68)
---hd-weight-medium = 500
+--hd-weight-medium = 400
 --hd-weight-normal = 400
---hd-weight-semibold = 600
+--hd-weight-semibold = 580
 --hd-z-base = 0
 --hd-z-dialog = 100
 --hd-z-drawer = 40

@@ -17,7 +17,7 @@ test('S18 every dialog preview uses the same title, inset, close, and footer ana
       fontSize: getComputedStyle(node).fontSize,
       fontWeight: getComputedStyle(node).fontWeight,
     }))
-    expect(titleStyle).toEqual({ fontSize: '16px', fontWeight: '600' })
+    expect(titleStyle).toEqual({ fontSize: '16px', fontWeight: '580' })
 
     const surfaceBox = (await surface.boundingBox())!
     await expect(surface.locator('[data-slot="dialog-head"] button:not([aria-label="Close"])')).toHaveCount(0)

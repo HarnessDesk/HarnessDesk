@@ -104,6 +104,12 @@ body {
   --font-sans: var(--hd-font-family);
   --font-mono: var(--hd-font-code);
 
+  /* `font-medium` and `font-semibold` are the app's two weights, so a weight
+     moved in the foundation moves the components written in Tailwind too. */
+  --font-weight-normal: var(--hd-weight-normal);
+  --font-weight-medium: var(--hd-weight-medium);
+  --font-weight-semibold: var(--hd-weight-semibold);
+
   /* The app's type scale under Tailwind's names: `text-sm` is the app's
      13px small text, `text-base` its 14px default — so a vendored component
      written in the shadcn idiom lands on the desk's own steps.

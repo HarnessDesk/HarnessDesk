@@ -55,9 +55,9 @@ for (const theme of WALL_THEMES) {
         iconX: icon.getBoundingClientRect().x, size: parseFloat(css.fontSize) }
     }))
     for (const row of anatomy) {
-      expect(row.height).toBe(FRAME.rail.rowHeight)
+      expect(row.height).toBe(FRAME.rail.settingsRowHeight)
       expect(row.icon).toBe(FRAME.rail.icon)
-      expect(row.size).toBe(FRAME.rail.label)
+      expect(row.size).toBe(FRAME.rail.settingsLabel)
     }
     const ink = await group.locator('[data-left-group-text]').boundingBox()
     expect(ink!.x).toBe(anatomy[0]!.iconX)

@@ -70,7 +70,7 @@ const tabsListVariants = cva(
            of it. Reads as one object, so it belongs where it sits *beside*
            things — a card header, a toolbar. */
         default: switcherTrack,
-        line: 'gap-1 rounded-none bg-transparent group-data-[orientation=horizontal]/tabs:h-(--hd-control-h)',
+        line: 'gap-1 rounded-none bg-transparent group-data-[orientation=horizontal]/tabs:h-(--hd-tabs-h)',
         /* Page sections: no track, an indicator under the active tab. Belongs
            where the tabs sit *above* what they switch — a pane, a page — and
            the rule under them is shared with the content's own top edge. */
@@ -106,7 +106,7 @@ const TabsTrigger = ({ className, icon, iconOnly = false, count, children, ...pr
     data-slot="tabs-trigger"
     {...(icon ? { 'data-icon-only': String(iconOnly) } : {})}
     className={cn(
-      'relative inline-flex items-center justify-center gap-1.5 rounded-(--hd-radius-sm) border border-transparent px-2 text-sm font-medium whitespace-nowrap outline-none transition-colors',
+      'relative inline-flex items-center justify-center gap-1.5 rounded-(--hd-radius-sm) border border-transparent px-(--hd-tabs-inset) text-sm font-medium whitespace-nowrap outline-none transition-colors',
       'text-(--hd-muted-foreground) hover:text-(--hd-foreground)',
       // Section strips scroll: keep the keyboard outline inside the tab.
       'group-data-[variant=section]/tabs-list:focus-visible:outline-offset-[calc(-1*var(--hd-ring-width))]',
@@ -130,7 +130,7 @@ const TabsTrigger = ({ className, icon, iconOnly = false, count, children, ...pr
     {...props}
   >
     {icon ? <>
-      <span data-slot="tabs-label" aria-hidden={iconOnly || undefined} className={cn('inline-flex w-max items-center gap-1.5 px-2', iconOnly && 'invisible absolute pointer-events-none')}>
+      <span data-slot="tabs-label" aria-hidden={iconOnly || undefined} className={cn('inline-flex w-max items-center gap-1.5 px-(--hd-tabs-inset)', iconOnly && 'invisible absolute pointer-events-none')}>
         {children}{count !== undefined && <span className="text-xs font-normal text-(--hd-muted-foreground)">{count}</span>}
       </span>
       {iconOnly && <span aria-hidden="true" className="inline-flex items-center justify-center">

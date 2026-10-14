@@ -107,7 +107,7 @@ for (const theme of ['light', 'dark'] as const) {
           expect(row.markRadius, id).toBe('6px')
         }
         expect(row.nameSize, id).toBe('13px')
-        expect(row.nameWeight, id).toBe('500')
+        expect(row.nameWeight, id).toBe('400')
         expect(row.markOffset, id).toBeLessThanOrEqual(1)
         expect(row.trailingOffset, id).toBeLessThanOrEqual(1)
       }

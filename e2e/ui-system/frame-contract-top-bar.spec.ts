@@ -374,8 +374,8 @@ for (const theme of WALL_THEMES) {
       expect(order.indexOf('tabs')).toBeLessThan(order.indexOf('spacer'))
       const track = bar.locator('[data-slot="tabs-list"]')
       if (await track.isVisible()) {
-        expect(await track.evaluate(node => { const style = getComputedStyle(node); return [style.paddingTop, style.gap, style.borderRadius] })).toEqual(['2px', '1px', '8px'])
-        expect(await track.locator('[role="tab"]').first().evaluate(node => { const style = getComputedStyle(node); return [node.getBoundingClientRect().height, style.paddingLeft, style.borderRadius, style.fontSize] })).toEqual([24, '9px', '6px', '13px'])
+        expect(await track.evaluate(node => { const style = getComputedStyle(node); return [style.paddingTop, style.gap, style.borderRadius] })).toEqual(['1px', '1px', '8px'])
+        expect(await track.locator('[role="tab"]').first().evaluate(node => { const style = getComputedStyle(node); return [node.getBoundingClientRect().height, style.paddingLeft, style.borderRadius, style.fontSize] })).toEqual([30, '12px', '6px', '13px'])
         expect(await track.locator('[aria-selected="true"]').evaluate(node => getComputedStyle(node).boxShadow)).not.toBe('none')
       }
       await bar.getByRole('button', { name: 'Details', exact: true }).click()

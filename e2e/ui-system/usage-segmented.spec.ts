@@ -61,7 +61,7 @@ for (const theme of ['light', 'dark'] as const) {
       await testInfo.attach('view-layout', { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' })
       await bar.screenshot({ path: testInfo.outputPath('views.png') })
       const track = await views.first().locator('..').evaluate(node => ({ height: node.getBoundingClientRect().height, padding: parseFloat(getComputedStyle(node).paddingTop) }))
-      expect(track).toEqual({ height: 28, padding: 2 })
+      expect(track).toEqual({ height: 32, padding: 1 })
       for (const row of measurements) {
         expect.soft(row.height, row.label ?? '').toBe(track.height - 2 * track.padding)
         for (const content of row.contents) {
@@ -102,7 +102,7 @@ for (const theme of ['light', 'dark'] as const) {
         await testInfo.attach('permission choice layout', { body: JSON.stringify(measurement), contentType: 'application/json' })
         expect(measurement.text).toBeLessThanOrEqual(measurement.available)
         expect(measurement.overflow).toBe(false)
-        expect(measurement.height).toBe(30)
+        expect(measurement.height).toBe(32)
         expect(measurement.font).toBe('13px')
       }
       await reviewers.selectOption('user')

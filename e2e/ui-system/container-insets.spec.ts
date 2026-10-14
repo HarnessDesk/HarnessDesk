@@ -40,7 +40,7 @@ const contracts = [
   { selector: '[data-slot="list-row"][data-size="default"][data-hd-table="compact"]:has([data-wrap-title], [data-wrap-subtitle])', tier: 'dense', inlineTier: 'row' },
   { selector: '[data-slot="chart-card"]', tier: 'card' },
   { selector: '[data-slot="row"]:has([data-slot="row-desc"], [data-slot="row-mark"], [data-slot="row-face"])', tier: 'row' },
-  { selector: '[data-slot="row"]:not(:has([data-slot="row-desc"], [data-slot="row-mark"], [data-slot="row-face"]))', tier: 'row', blockInset: 8 },
+  { selector: '[data-slot="row"]:not(:has([data-slot="row-desc"], [data-slot="row-mark"], [data-slot="row-face"]))', tier: 'row', blockInset: 12 },
   { selector: '[data-slot="summary-card"]:not([data-surface="panel"]) [data-slot="summary-item"]', tier: 'row' },
   { selector: '[data-slot="summary-card"][data-surface="panel"]', tier: 'row', blockInset: 0 },
 ] as const
@@ -202,7 +202,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1440, 720])
       row: element.getBoundingClientRect().height,
       control: element.querySelector('button')!.getBoundingClientRect().height,
     }))
-    expect(bareGeometry).toEqual({ row: 44, control: 28 })
+    expect(bareGeometry).toEqual({ row: 52, control: 28 })
     const wrapped = page.locator('[data-inset-probe="wrapped"]')
     await expect(wrapped).toBeVisible()
     const wrappedGeometry = await wrapped.evaluate(element => {

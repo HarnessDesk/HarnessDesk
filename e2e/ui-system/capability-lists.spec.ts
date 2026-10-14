@@ -56,7 +56,8 @@ for (const theme of ['light', 'dark'] as const) {
       const row = title.closest('button')!
       return { title: title.textContent, height: row.getBoundingClientRect().height, face: Boolean(row.querySelector('[data-slot="row-mark"]')) }
     }))
-    expect(pluginGeometry.map(row => row.height)).toEqual(Array(12).fill(44))
+    // 12px above and below a 23px control line, once past the 44px floor.
+    expect(pluginGeometry.map(row => row.height)).toEqual(Array(12).fill(47))
     expect(pluginGeometry.every(row => !row.face)).toBe(true)
     expect(pluginGeometry[2]?.title).toBe('Plugin 2')
     expect(pluginGeometry[10]?.title).toBe('Plugin 10')

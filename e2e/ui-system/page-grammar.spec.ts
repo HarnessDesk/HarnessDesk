@@ -116,7 +116,7 @@ test('a Section owns its rhythm: 12px from label to card, 32px between sections 
   expect(readings.rowsMargin).toBe('0px')
   expect(readings.noteMargin).toBe('0px 0px')
   expect(readings.buttonWidth).toBeLessThan(readings.sectionWidth / 2)
-  expect(readings.label).toEqual({ size: '13px', weight: '500', transform: 'none' })
+  expect(readings.label).toEqual({ size: '13px', weight: '400', transform: 'none' })
   await page.getByTestId('grammar').screenshot({ path: test.info().outputPath('page-grammar.png') })
 })
 
@@ -127,7 +127,7 @@ test('page and detail names share the fixed bar type and height', async ({ page 
     return { type: `${style.fontSize}/${style.lineHeight} ${style.fontWeight}`, height: node.closest('header')!.getBoundingClientRect().height }
   }))
   expect(readings).toHaveLength(4)
-  expect(new Set(readings.map(one => one.type))).toEqual(new Set(['14px/20px 500']))
+  expect(new Set(readings.map(one => one.type))).toEqual(new Set(['14px/20px 400']))
   for (const one of readings) expect(one.height).toBe(40)
 })
 

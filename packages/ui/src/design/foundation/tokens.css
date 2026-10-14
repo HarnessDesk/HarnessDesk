@@ -341,8 +341,8 @@ body {
   --hd-line-display: 40px;
 
   --hd-weight-normal: 400;
-  --hd-weight-medium: 500;
-  --hd-weight-semibold: 600;
+  --hd-weight-medium: 400; /* desk: 500 → 400, a lighter medium */
+  --hd-weight-semibold: 580; /* desk: 600 → 580, slightly lighter (Geist is variable) */
   /* Content names: chat senders and inline MemberName share this one weight.
      Set it back to 600 to restore the treatment before 2026-10-03. */
   --hd-member-weight: 500;
@@ -404,7 +404,7 @@ body {
   --hd-table-name-size: var(--hd-text);
   --hd-table-fact-size: var(--hd-text-xs);
   --hd-table-sentence-size: var(--hd-text-sm);
-  --hd-table-line-gap: var(--hd-space-0-5);
+  --hd-table-line-gap: var(--hd-space-1); /* desk: 2 → 4, the second line sits a little further from the first */
   --hd-table-end-gap: var(--hd-space-3);
   /* The floor of the history's resizable commit detail. Its action and
      filter bars stand on the tool pane's own bar rung now (`ToolPaneBar`). */
@@ -550,6 +550,9 @@ body {
   --hd-composer-max: 320px;
   --hd-composer-line: 20px; /* The interface line. */
   --hd-composer-radius: 28px;
+  /* The box's edge is carried by its ring; the shadow is only a soft lift, the same at rest and in focus. */
+  --hd-composer-shell-shadow: 0 4px 20px rgba(0, 0, 0, 0.035);
+  --hd-composer-shell-shadow-focus: var(--hd-composer-shell-shadow);
   /* The composer toolbar's decisions keep their places across agent shapes.
      The wide tracks fit the useful labels; each control's folded track keeps
      its place after the 560px label fold without borrowing another slot's
@@ -1020,7 +1023,7 @@ body {
    * Where the two sit in one row the button is the taller by 2, which is
    * the same relationship the reference draws — never the reverse.
    */
-  --hd-btn-h: 30px; /* Solved for box/cap ≈ 3.2. */
+  --hd-btn-h: 32px; /* desk: 30 → 32, the ordinary button is two pixels taller */
   --hd-btn-h-sm: 28px; /* Solved for box/cap ≈ 3.2. */
   --hd-btn-radius: var(--hd-radius-md);
   --hd-btn-padding: 0 12px; /* 1.29 × the cap. */
@@ -1169,6 +1172,8 @@ body {
   --hd-nav-h-group: var(--hd-nav-h); /* One height for every row in the column. */
   /* Frame left-column rows have one size in both interfaces. */
   --hd-left-row-h: 30px;
+  --hd-left-row-gap: 0px;
+  --hd-left-menu-gap: var(--hd-space-2);
   --hd-frame-icon-button: 28px;
   --hd-nav-radius: var(--hd-radius); /* The row radius. */
   --hd-nav-gap: var(--hd-space-2);
@@ -1262,6 +1267,12 @@ body {
   --hd-seg-trim: calc(var(--hd-seg-pad) * 2); /* Both edges let the track meet the row. */
   /* The cell's label is the small rung's, with the small rung's box. */
   --hd-seg-text: var(--hd-btn-text-sm);
+  /* A switcher is a 32px track of 30px cells; the cell's room is 12px a side. */
+  --hd-switcher-pad: 1px; /* desk: 2 → 1, with the cell 24 → 30 the track is 32 */
+  --hd-switcher-item-h: 30px; /* desk: 24 → 30 */
+  --hd-switcher-item-inset: var(--hd-space-3); /* desk: 9 → 12 */
+  --hd-tabs-h: 32px; /* desk: 26 → 32, the line tabs match the switcher */
+  --hd-tabs-inset: var(--hd-space-3); /* desk: 8 → 12 */
 
   --hd-chip-radius: var(--hd-radius-full);
   --hd-chip-fill: var(--hd-muted);
@@ -1488,6 +1499,15 @@ body[data-hd-interface='studio'][data-hd-dark-theme] {
   /* Same reason, the other direction: a 45% wash that reads as a halo on
      white disappears into a dark page. */
   --hd-ring-muted: color-mix(in srgb, var(--hd-ring) 55%, transparent);
+}
+
+/* The Settings menu stands one step roomier than the working sidebar: 32px
+   rows, 1px apart, 12px from icon to label, and the control radius. */
+[data-left-settings] {
+  --hd-left-row-h: 32px; /* desk: 30 → 32, Settings rows */
+  --hd-left-row-gap: 1px;
+  --hd-left-menu-gap: var(--hd-space-3);
+  --hd-nav-radius: var(--hd-radius-md);
 }
 
 /*

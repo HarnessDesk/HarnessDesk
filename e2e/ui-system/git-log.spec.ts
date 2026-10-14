@@ -54,7 +54,7 @@ for (const theme of ['light', 'dark'] as const) {
     expect(await header.getByRole('columnheader').first().evaluate(el => {
       const style = getComputedStyle(el.querySelector('[data-slot="text"]')!)
       return [style.fontSize, style.fontWeight]
-    })).toEqual(['12px', '500'])
+    })).toEqual(['12px', '400'])
     expect(await header.getByRole('columnheader').first().locator('[data-slot="text"]').evaluate(el => {
       const probe = document.createElement('span')
       probe.style.color = 'var(--hd-table-head-ink)'
