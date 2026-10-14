@@ -117,6 +117,10 @@ for (const theme of ['light', 'dark'] as const) {
     const main = page.locator('[data-slot="editor-main"]')
     await expect(main.getByRole('radio', { name: 'Changes +0 −4', exact: true })).toBeChecked()
     await expect(main.locator('.cm-deletedChunk')).toContainText('token.length > 8')
+    // The change gutter carries each removed line's sign, as it does for an added one: no second sign inside the line.
+    const removed = main.locator('.cm-deletedLine').first()
+    await expect(removed).toBeVisible()
+    expect(await removed.evaluate((line) => getComputedStyle(line, '::before').content)).toMatch(/^(none|normal)$/)
     await expect(main.locator('.cm-content')).toHaveAttribute('contenteditable', 'false')
     await expect(main.getByRole('button', { name: 'Create this file', exact: true })).toHaveCount(0)
     await page.screenshot({ path: testInfo.outputPath(`editor-deleted-${theme}.png`) })
