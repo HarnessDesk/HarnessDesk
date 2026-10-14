@@ -129,6 +129,13 @@ test('every select offers its current value, even one set outside the interface'
   assert.ok(permissions.type === 'select' && permissions.choices.some((c) => c.value === 'from-toml'))
 })
 
+test('a configured service tier of "default" reads as Standard, not as a fourth speed', () => {
+  const speed = byId(sessionOptions({ ...state, serviceTier: 'default' }, catalog), 'serviceTier')
+  assert.ok(speed.type === 'select')
+  assert.equal(speed.currentValue, 'standard')
+  assert.deepEqual(speed.choices.map((choice) => choice.label), ['Standard', 'Fast'])
+})
+
 test('effort, speed and the mode switch appear only when the catalogue supports them', () => {
   const options = sessionOptions(state, catalog)
   assert.deepEqual(
