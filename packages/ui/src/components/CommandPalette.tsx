@@ -18,13 +18,13 @@ import {
 } from '../design'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import type { FileMatch, SessionSummary, TranscriptHit } from '@harnessdesk/protocol'
+import { sessionKey, type FileMatch, type SessionSummary, type TranscriptHit } from '@harnessdesk/protocol'
 
 import { runtimeLabel } from '../lib/accounts'
 import { brandOf } from '../lib/identity'
 import { firstReason, inForce, markFor, seatTaken } from '../lib/agents'
 import { extractHit, highlightAll, type HighlightSpan } from '../lib/search-highlight'
-import { sessionLabel } from '../lib/sessions'
+import { firstAsk, sessionLabel } from '../lib/sessions'
 import { availableCommands } from '../state/commands'
 import { useSnapshot, useStore } from '../state/context'
 import { sidebarPlacement } from '../state/workbench'
@@ -530,7 +530,11 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
     const sessionEntryFrom = (summary: SessionSummary): Entry => {
       const agent = snapshot.runtimes.find((entry) => entry.id === summary.runtime)?.presentation.name ?? summary.runtime
       const folder = summary.cwd.split('/').filter(Boolean).at(-1) ?? summary.cwd
-      const label = sessionLabel(summary.title, summary.preview)
+      // A conversation open in this window is the fresher record: the history
+      // row has no preview until the host's list catches up, and the sidebar
+      // already names it from what the person asked.
+      const live = snapshot.sessions.get(sessionKey(summary.runtime, summary.id))
+      const label = sessionLabel(live ? live.title : summary.title, live ? live.preview ?? firstAsk(live) : summary.preview)
       const labelMatches = needle ? highlightAll(needle, label) : []
       // The transcript store's own matching line wins over one re-derived
       // from the preview: it is from the conversation's content. A title hit
