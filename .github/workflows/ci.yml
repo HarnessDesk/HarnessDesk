@@ -495,11 +495,10 @@ jobs:
       # of one run read the same two values, so they deal the same plan.
       UI_SYSTEM_MATRIX: ${{ needs.changes.outputs.matrix }}
       UI_SYSTEM_SPECS: ${{ needs.changes.outputs.browser_specs }}
-    # The frame contracts roughly quadrupled the suite's single-worker time.
-    # Eight shards exceeded the 30-minute limit even without failures; sixteen
-    # leave room for setup, runner variation and reports. Keep two browsers per
-    # runner and the measured-time file planner so the shards finish together.
-    timeout-minutes: 30
+    # A balanced full-suite shard takes about 22 minutes; the slowest of five
+    # recent recording runs took 28. The 90-second per-test timeout catches a
+    # hung test; this limit only stops a runaway.
+    timeout-minutes: 40
 
     steps:
       - uses: actions/checkout@v7
