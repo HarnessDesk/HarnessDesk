@@ -42,7 +42,7 @@
 --hd-btn-shadow = none
 --hd-btn-text = 13px
 --hd-btn-text-sm = 12px
---hd-btn-weight = 500
+--hd-btn-weight = 400
 --hd-card = rgb(255, 255, 255)
 --hd-card-foreground = rgb(27, 27, 27)
 --hd-card-gap = 12px
@@ -193,7 +193,7 @@
 --hd-inset-dense = 8px
 --hd-inset-dialog = 24px
 --hd-inset-row = 12px
---hd-label-weight = 500
+--hd-label-weight = 400
 --hd-left-row-h = 30px
 --hd-line = 20px
 --hd-line-display = 40px
@@ -375,7 +375,7 @@
 --hd-warning-dim = rgba(240, 165, 27, 0.14)
 --hd-warning-foreground = rgb(17, 17, 17)
 --hd-warning-ink = rgb(150, 100, 0)
---hd-weight-medium = 500
+--hd-weight-medium = 400
 --hd-weight-normal = 400
 --hd-weight-semibold = 600
 --hd-z-base = 0
@@ -598,7 +598,7 @@
 --hd-btn-shadow = none
 --hd-btn-text = 13px
 --hd-btn-text-sm = 12px
---hd-btn-weight = 500
+--hd-btn-weight = 400
 --hd-card = rgb(33, 33, 33)
 --hd-card-foreground = rgb(231, 231, 231)
 --hd-card-gap = 12px
@@ -749,7 +749,7 @@
 --hd-inset-dense = 8px
 --hd-inset-dialog = 24px
 --hd-inset-row = 12px
---hd-label-weight = 500
+--hd-label-weight = 400
 --hd-left-row-h = 30px
 --hd-line = 20px
 --hd-line-display = 40px
@@ -931,7 +931,7 @@
 --hd-warning-dim = rgba(240, 165, 27, 0.14)
 --hd-warning-foreground = rgb(17, 17, 17)
 --hd-warning-ink = rgb(232, 168, 68)
---hd-weight-medium = 500
+--hd-weight-medium = 400
 --hd-weight-normal = 400
 --hd-weight-semibold = 600
 --hd-z-base = 0
@@ -1154,7 +1154,7 @@
 --hd-btn-shadow = 0 1px 2px rgba(0, 0, 0, 0.05)
 --hd-btn-text = 13px
 --hd-btn-text-sm = 12px
---hd-btn-weight = 500
+--hd-btn-weight = 400
 --hd-card = rgb(255, 255, 255)
 --hd-card-border = transparent
 --hd-card-divider = rgba(9, 12, 17, 0.12)
@@ -1311,7 +1311,7 @@
 --hd-inset-dialog = 24px
 --hd-inset-row = 12px
 --hd-label-space = 20px
---hd-label-weight = 500
+--hd-label-weight = 400
 --hd-left-row-h = 30px
 --hd-line = 20px
 --hd-line-display = 40px
@@ -1496,7 +1496,7 @@
 --hd-warning-dim = rgba(240, 165, 27, 0.14)
 --hd-warning-foreground = rgb(17, 17, 17)
 --hd-warning-ink = rgb(150, 100, 0)
---hd-weight-medium = 500
+--hd-weight-medium = 400
 --hd-weight-normal = 400
 --hd-weight-semibold = 600
 --hd-z-base = 0
@@ -1719,7 +1719,7 @@
 --hd-btn-shadow = 0 0 0 1px rgba(255, 255, 255, 0.04)
 --hd-btn-text = 13px
 --hd-btn-text-sm = 12px
---hd-btn-weight = 500
+--hd-btn-weight = 400
 --hd-card = rgb(33, 33, 33)
 --hd-card-border = transparent
 --hd-card-divider = rgba(255, 255, 255, 0.16)
@@ -1876,7 +1876,7 @@
 --hd-inset-dialog = 24px
 --hd-inset-row = 12px
 --hd-label-space = 20px
---hd-label-weight = 500
+--hd-label-weight = 400
 --hd-left-row-h = 30px
 --hd-line = 20px
 --hd-line-display = 40px
@@ -2061,7 +2061,7 @@
 --hd-warning-dim = rgba(240, 165, 27, 0.14)
 --hd-warning-foreground = rgb(17, 17, 17)
 --hd-warning-ink = rgb(232, 168, 68)
---hd-weight-medium = 500
+--hd-weight-medium = 400
 --hd-weight-normal = 400
 --hd-weight-semibold = 600
 --hd-z-base = 0

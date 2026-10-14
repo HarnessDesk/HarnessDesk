@@ -341,7 +341,7 @@ body {
   --hd-line-display: 40px;
 
   --hd-weight-normal: 400;
-  --hd-weight-medium: 500;
+  --hd-weight-medium: 400; /* desk: 500 → 400, a lighter medium */
   --hd-weight-semibold: 600;
   /* Content names: chat senders and inline MemberName share this one weight.
      Set it back to 600 to restore the treatment before 2026-10-03. */

@@ -210,7 +210,7 @@ Two default running sizes: 13px for chrome and 14px for reading. 12px carries me
 | `--hd-line-title` | `30px` |
 | `--hd-line-display` | `40px` |
 | `--hd-weight-normal` | `400` |
-| `--hd-weight-medium` | `500` |
+| `--hd-weight-medium` | `400` |
 | `--hd-weight-semibold` | `600` |
 | `--hd-member-weight` | `500` |
 
@@ -438,7 +438,7 @@ One row in a navigation list — the sidebar's sessions, the settings sheet's pa
 | `--hd-nav-gap` | `8px` |
 | `--hd-nav-inset` | `8px` |
 | `--hd-nav-padding` | `0 8px` |
-| `--hd-label-weight` | `500` |
+| `--hd-label-weight` | `400` |
 
 ### The section label
 
