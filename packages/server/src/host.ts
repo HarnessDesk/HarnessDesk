@@ -3820,18 +3820,22 @@ export class Host {
   async #shellWorkspace(scope: ScopeQuery): Promise<WorkspaceAdmission | undefined> {
     const record = scope.runtime && scope.sessionId ? this.registry.get(scope.runtime, scope.sessionId) : undefined
     // Durable records are candidates, re-admitted against person-opened projects on every invocation.
-    const kept = record ? this.#evidence.seats.latestKeptOf(record.runtime, record.session.id) : null
+    const retained = record ? this.#evidence.seats.latestKeptOf(record.runtime, record.session.id) : null
+    const kept = record && !record.shellCheckout ? retained : null
     let checkout = record?.shellCheckout ?? kept?.checkout
     let admitted: ShellProjectIdentity | undefined
     let ordinaryRoot: string | undefined
     // Runtime cwd is only a candidate for an ordinary conversation, never a replacement for Seat placement.
-    if (record && !kept && !record.seatedAs && !this.#seating.has(sessionKey(record.runtime, record.session.id)) &&
+    if (record && !retained && !record.seatedAs && !this.#seating.has(sessionKey(record.runtime, record.session.id)) &&
       (!record.shellCheckout || record.shellCheckout.source === 'fallback') && isAbsolute(record.session.cwd)) {
       const realCwd = await realpath(record.session.cwd).catch(() => undefined)
       const requested = realCwd ? await shellCheckoutIdentity(realCwd) : null
       if (realCwd && requested && !samePath(requested.gitDir, requested.gitCommonDir) &&
         (samePath(realCwd, requested.checkoutRoot) || realCwd.startsWith(`${requested.checkoutRoot}${sep}`))) {
-        const candidate = await this.#admitShellProject(requested.checkoutRoot, requested.checkoutRoot)
+        const openedCheckoutRoots = this.#state.state.workspaces.flatMap((entry) =>
+          isShellProjectIdentity(entry.shellIdentity) ? [entry.shellIdentity.checkoutRoot] : [])
+        const eligible = await this.#worktrees.shellCheckoutEligible(requested.checkoutRoot, requested.checkoutRoot, openedCheckoutRoots)
+        const candidate = eligible ? await this.#admitShellProject(requested.checkoutRoot, requested.checkoutRoot) : undefined
         if (candidate && !samePath(requested.checkoutRoot, candidate.project) && samePath(requested.gitCommonDir, candidate.gitCommonDir ?? '')) {
           const root = await this.#worktrees.shellRoot(candidate.project, requested.checkoutRoot, candidate.gitCommonDir, candidate.checkoutRoot)
           if (samePath(root, requested.checkoutRoot)) {

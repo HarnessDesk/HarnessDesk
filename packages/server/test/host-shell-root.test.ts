@@ -157,6 +157,35 @@ for (const spelling of ['canonical', 'symlink'] as const) {
   }
 }
 
+for (const cached of [false, true]) {
+  test(`an unopened unmanaged conversation checkout bypasses stale project admission with ${cached ? 'cached' : 'fresh'} fallback`, async (t) => {
+    const d = await rig(t)
+    const checkout = join(d.base, 'unopened-conversation')
+    await git(d.project, 'worktree', 'add', '-b', 'unopened-conversation', checkout)
+    assert.equal((await new Worktrees(d.stateDir).list(d.project)).find((entry) => entry.path === checkout)?.managed, false)
+    const subfolder = join(d.project, 'src')
+    await mkdir(subfolder)
+    await d.host.call('workspace/open', { path: subfolder })
+    await d.host.call('workspace/forget', { path: d.project })
+    const scope = d.conversation(checkout)
+    assert.equal(d.host.registry.get(scope.runtime, scope.sessionId)?.shellCheckout, null)
+    await d.host.call('workspace/open', { path: d.other })
+    const expected = { ok: true, content: [{ type: 'text', text: d.other }] }
+    if (cached) {
+      assert.deepEqual(await d.kernel.invokeTool(d.tool.id, {}, scope), expected)
+      assert.deepEqual(d.host.registry.get(scope.runtime, scope.sessionId)?.shellCheckout,
+        { project: d.other, cwd: d.other, source: 'fallback' })
+    }
+    await rm(subfolder, { recursive: true })
+    for (let repeat = 0; repeat < 2; repeat++) {
+      assert.deepEqual(await d.kernel.invokeTool(d.tool.id, {}, scope), expected)
+      assert.equal((await d.host.call('context/resolve', { id: d.where.id, ...scope })).text, d.other)
+      assert.deepEqual(d.host.registry.get(scope.runtime, scope.sessionId)?.shellCheckout,
+        { project: d.other, cwd: d.other, source: 'fallback' })
+    }
+  })
+}
+
 for (const kind of ['uncached', 'cached fallback', 'subdirectory', 'safe alias'] as const) {
   test(`ordinary managed checkout admission handles ${kind} through bridge, tool and context calls`, async (t) => {
     const d = await rig(t)

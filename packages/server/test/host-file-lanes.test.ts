@@ -216,6 +216,27 @@ test('a Seat whose lane disappears follows the opened linked worktree for tools 
   assert.deepEqual(await d.context(scope), { root: d.linked, branch: 'feature', read: 'linked' })
 })
 
+test('a cached Seat checkout replaced by a main-checkout symlink follows the opened workspace fallback', async (t) => {
+  const d = await rig(t)
+  await d.host.call('workspace/open', { path: d.project })
+  const lane = await new Worktrees(d.stateDir).create(d.project, { name: 'replaced-seat' })
+  const scope = await d.seat(lane.path)
+  const record = d.host.registry.get(d.agent.info.id, scope.sessionId as Session['id'])!
+  assert.deepEqual(record.shellCheckout, { project: d.project, cwd: lane.path, source: 'own' })
+  assert.ok(await d.host.call('evidence/seat', scope))
+  const opened = join(d.linked, 'src')
+  await d.host.call('workspace/open', { path: opened })
+  await rm(lane.path, { recursive: true })
+  await symlink(d.project, lane.path)
+  for (let repeat = 0; repeat < 2; repeat++) {
+    assert.deepEqual({ tool: await d.where(scope), context: await d.context(scope), source: record.shellCheckout?.source }, {
+      tool: { root: opened, branch: 'feature', read: 'linked src', names: ['file.txt'], editor: 'opened' },
+      context: { root: opened, branch: 'feature', read: 'linked src' },
+      source: 'fallback',
+    })
+  }
+})
+
 test('a restarted host re-admits a kept Seat and falls back when another Seat lane is missing', async (t) => {
   const d = await rig(t)
   await d.host.call('workspace/open', { path: d.linked })
