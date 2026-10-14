@@ -29,13 +29,9 @@ afterEach(() => {
   container.remove()
 })
 
-it('names an open, untitled conversation by its first ask', async () => {
-  const summary = { id: 's1', runtime: 'codex', title: null, preview: null, cwd: '/w/game', updatedAt: 1 } as unknown as SessionSummary
-  const live = {
-    title: undefined,
-    preview: undefined,
-    turns: [{ items: [{ type: 'userMessage', content: [{ type: 'text', text: 'Build a small arcade game' }] }] }],
-  } as unknown as Session
+const show = async (summaryFields: Partial<SessionSummary>, liveFields: Record<string, unknown>): Promise<string> => {
+  const summary = { id: 's1', runtime: 'codex', title: null, preview: null, cwd: '/w/game', updatedAt: 1, ...summaryFields } as unknown as SessionSummary
+  const live = { title: undefined, preview: undefined, turns: [], ...liveFields } as unknown as Session
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -58,7 +54,24 @@ it('names an open, untitled conversation by its first ask', async () => {
       </StoreProvider>,
     )
   })
-  const text = document.body.textContent ?? ''
+  return document.body.textContent ?? ''
+}
+
+const ask = { items: [{ type: 'userMessage', content: [{ type: 'text', text: 'Build a small arcade game' }] }] }
+
+it('names an open, untitled conversation by its first ask', async () => {
+  const text = await show({}, { turns: [ask] })
   expect(text).toContain('Build a small arcade game')
+  expect(text).not.toContain('Untitled session')
+})
+
+it('keeps the history title when the open session has not been titled', async () => {
+  const text = await show({ title: 'Release checklist' }, { turns: [ask] })
+  expect(text).toContain('Release checklist')
+})
+
+it('keeps the history preview when the open session has nothing to say yet', async () => {
+  const text = await show({ preview: 'Fix the flaky test' }, { turns: [] })
+  expect(text).toContain('Fix the flaky test')
   expect(text).not.toContain('Untitled session')
 })

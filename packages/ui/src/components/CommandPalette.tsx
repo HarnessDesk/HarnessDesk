@@ -534,7 +534,12 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
       // row has no preview until the host's list catches up, and the sidebar
       // already names it from what the person asked.
       const live = snapshot.sessions.get(sessionKey(summary.runtime, summary.id))
-      const label = sessionLabel(live ? live.title : summary.title, live ? live.preview ?? firstAsk(live) : summary.preview)
+      // The same precedence as the sidebar row: the open session's own title
+      // (an explicit null or empty one included) over the summary's, and its
+      // preview or first ask over the summary's preview.
+      const liveTitle = live?.title
+      const livePreview = live ? live.preview ?? firstAsk(live) : undefined
+      const label = sessionLabel(liveTitle === undefined ? summary.title : liveTitle, livePreview ?? summary.preview)
       const labelMatches = needle ? highlightAll(needle, label) : []
       // The transcript store's own matching line wins over one re-derived
       // from the preview: it is from the conversation's content. A title hit
