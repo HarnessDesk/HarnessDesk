@@ -257,8 +257,9 @@ test('AIR provenance uses the recorded CLI call and refuses a request without it
   assert.equal(withFlowBoardToolProvenance(airRequest, ['harnessdesk'], [dynamicDesk]), airRequest)
   assert.equal(withFlowBoardToolProvenance(airRequest, ['harnessdesk'], [dynamicDesk], null), airRequest)
   const withoutMeta = { ...airRequest, toolCall: { toolCallId: 'call1', title: 'Mcp' } }
-  assert.deepEqual(boardMarker(withFlowBoardToolProvenance(withoutMeta, ['harnessdesk'], [dynamicDesk], recordedDeskCall)),
-    { server: 'harnessdesk', tool: recordedDeskCall.toolName })
+  assert.equal(withFlowBoardToolProvenance(withoutMeta, ['harnessdesk'], [dynamicDesk], recordedDeskCall), withoutMeta)
+  const marked = withFlowBoardToolProvenance(airRequest, ['harnessdesk'], [dynamicDesk], recordedDeskCall) as typeof airRequest
+  assert.deepEqual(marked.toolCall._meta.claudeCode, { mcpServer: dynamicDesk }, 'AIR acceptance keeps its own server metadata')
 })
 
 const airRefusals: { name: string; request?: unknown; recorded?: RecordedToolCall; supplied?: string[]; live?: { name: string; source?: string }[] }[] = [
@@ -304,6 +305,8 @@ test('AIR provenance scrubs a forged marker without a recorded call and preserve
 const permissionOptions = (toolUseID: string, mcpServer = dynamicDesk): Parameters<CanUseTool>[2] =>
   ({ signal: new AbortController().signal, toolUseID, mcpServer, requestId: `request-${toolUseID}` })
 const allowed = { behavior: 'allow' as const, updatedInput: {} }
+const recordedAt = (store: ToolCallStore, sessionId = 's1', toolCallId = 'call1'): RecordedToolCall | null =>
+  recordedToolCallFor({ sessionId, toolCall: { toolCallId } }, store)
 const pendingPermission = () => {
   let resolve!: (value: Awaited<ReturnType<CanUseTool>>) => void
   let reject!: (error: Error) => void
@@ -320,14 +323,14 @@ test('CLI call recording exists while pending and is removed after resolution', 
     assert.equal(name, recordedDeskCall.toolName)
     assert.equal(receivedInput, input)
     assert.equal(receivedOptions, options)
-    assert.deepEqual(store.get('s1')?.get('call1'), recordedDeskCall)
+    assert.deepEqual(recordedAt(store), recordedDeskCall)
     return pending.promise
   }
   const wrapped = recordToolCalls(inner, 's1', store)
   const call = wrapped(recordedDeskCall.toolName, input, options)
-  assert.deepEqual(store.get('s1')?.get('call1'), recordedDeskCall)
+  assert.deepEqual(recordedAt(store), recordedDeskCall)
   options.mcpServer!.name = 'mutated'
-  assert.deepEqual(store.get('s1')?.get('call1'), { ...recordedDeskCall, mcpServer: { name: 'harnessdesk', source: 'dynamic' } }, 'server identity is copied from the CLI arguments')
+  assert.deepEqual(recordedAt(store), { ...recordedDeskCall, mcpServer: { name: 'harnessdesk', source: 'dynamic' } }, 'server identity is copied from the CLI arguments')
   pending.resolve(allowed)
   assert.equal(await call, allowed)
   assert.equal(store.size, 0, 'empty session maps are removed too')
@@ -338,7 +341,7 @@ test('CLI call recording is removed after rejection and synchronous throws', asy
   const pending = pendingPermission()
   const wrapped = recordToolCalls(() => pending.promise, 's1', store)
   const call = wrapped(recordedDeskCall.toolName, {}, permissionOptions('call1'))
-  assert.deepEqual(store.get('s1')?.get('call1'), recordedDeskCall)
+  assert.deepEqual(recordedAt(store), recordedDeskCall)
   const failure = new Error('stub permission failed')
   pending.reject(failure)
   await assert.rejects(call, error => error === failure)
@@ -356,9 +359,9 @@ test('CLI call recording keeps overlapping tool ids and sessions separate', asyn
   const a = wrapped(recordedDeskCall.toolName, {}, permissionOptions('call1'))
   const b = wrapped('mcp__harnessdesk__complete_claim', {}, permissionOptions('call2'))
   const c = recordToolCalls(() => child.promise, 'child', store)('mcp__other__x', {}, permissionOptions('call1', { name: 'other', source: 'project' }))
-  assert.deepEqual(store.get('s1')?.get('call1'), recordedDeskCall)
-  assert.equal(store.get('s1')?.get('call2')?.toolName, 'mcp__harnessdesk__complete_claim')
-  assert.equal(store.get('child')?.get('call1')?.toolName, 'mcp__other__x')
+  assert.deepEqual(recordedAt(store), recordedDeskCall)
+  assert.equal(recordedAt(store, 's1', 'call2')?.toolName, 'mcp__harnessdesk__complete_claim')
+  assert.equal(recordedAt(store, 'child', 'call1')?.toolName, 'mcp__other__x')
   first.resolve(allowed)
   await a
   assert.equal(store.get('s1')?.has('call1'), false)
@@ -371,6 +374,93 @@ test('CLI call recording keeps overlapping tool ids and sessions separate', asyn
   await c
   assert.equal(store.size, 0)
 })
+
+test('AIR provenance refuses a Bash request even with a matching desk record', () => {
+  const bash = { sessionId: 's1', toolCall: { toolCallId: 'call1', title: 'Run command', rawInput: { command: 'git status' } } }
+  assert.equal(withFlowBoardToolProvenance(bash, ['harnessdesk'], [dynamicDesk], recordedDeskCall), bash)
+  const noServer = { ...bash, toolCall: { ...bash.toolCall, _meta: { claudeCode: {} } } }
+  assert.equal(withFlowBoardToolProvenance(noServer, ['harnessdesk'], [dynamicDesk], recordedDeskCall), noServer)
+})
+
+const collidingTools: readonly (readonly RecordedToolCall[])[] = [
+  [{ toolName: 'Bash', mcpServer: undefined }, recordedDeskCall],
+  [recordedDeskCall, { toolName: 'Bash', mcpServer: undefined }],
+  [recordedDeskCall, { toolName: 'mcp__harnessdesk__complete_claim', mcpServer: dynamicDesk }],
+  [{ toolName: 'mcp__harnessdesk__complete_claim', mcpServer: dynamicDesk }, recordedDeskCall],
+]
+const optionsForRecorded = (recorded: RecordedToolCall): Parameters<CanUseTool>[2] =>
+  ({ ...permissionOptions('call1'), mcpServer: recorded.mcpServer })
+
+for (const tools of collidingTools) {
+  for (const firstToSettle of [0, 1] as const) {
+    for (const rejectFirst of [false, true]) {
+      test(`duplicate CLI key stays ambiguous: ${tools.map(tool => tool.toolName).join(' then ')}, settles ${firstToSettle} first, ${rejectFirst ? 'reject' : 'resolve'}`, async () => {
+        const store: ToolCallStore = new Map()
+        const pending = [pendingPermission(), pendingPermission()] as const
+        const calls = tools.map((tool, index) => recordToolCalls(() => pending[index]!.promise, 's1', store)(tool.toolName, {}, optionsForRecorded(tool)))
+        // Observe rejections immediately, including when an assertion aborts the test.
+        const settled = calls.map(call => call.then(value => ({ value }), error => ({ error })))
+        const failure = new Error('overlapping permission rejected')
+        try {
+          assert.equal(recordedToolCallFor(airRequest, store), null, 'an overlapping key cannot prove either tool')
+          if (rejectFirst && firstToSettle === 0) pending[0].reject(failure)
+          else pending[firstToSettle].resolve(allowed)
+          await settled[firstToSettle]
+          assert.equal(store.get('s1')?.has('call1'), true, 'one settling callback cannot remove the other')
+          assert.equal(recordedToolCallFor(airRequest, store), null, 'ambiguity survives with one callback left')
+          // A third registration while the remaining callback is pending stays ambiguous.
+          const thirdPending = pendingPermission()
+          const third = recordToolCalls(() => thirdPending.promise, 's1', store)(recordedDeskCall.toolName, {}, permissionOptions('call1'))
+          assert.equal(recordedToolCallFor(airRequest, store), null)
+          thirdPending.resolve(allowed)
+          await third
+          assert.equal(recordedToolCallFor(airRequest, store), null)
+          const lastToSettle = firstToSettle === 0 ? 1 : 0
+          if (rejectFirst && lastToSettle === 0) pending[0].reject(failure)
+          else pending[lastToSettle].resolve(allowed)
+          await settled[lastToSettle]
+          assert.equal(store.size, 0, 'the key and empty session disappear only after every callback settles')
+          assert.equal(recordedToolCallFor(airRequest, store), null)
+          if (rejectFirst) assert.deepEqual(await settled[0], { error: failure })
+          // A fresh, non-overlapping callback for the same key is usable again.
+          const freshPending = pendingPermission()
+          const fresh = recordToolCalls(() => freshPending.promise, 's1', store)(recordedDeskCall.toolName, {}, permissionOptions('call1'))
+          assert.deepEqual(recordedToolCallFor(airRequest, store), recordedDeskCall)
+          freshPending.resolve(allowed)
+          await fresh
+          assert.equal(store.size, 0)
+        } finally {
+          pending[0].resolve(allowed)
+          pending[1].resolve(allowed)
+          await Promise.all(settled)
+        }
+      })
+    }
+  }
+  test(`duplicate CLI key stays ambiguous after a synchronous throw: ${tools.map(tool => tool.toolName).join(' then ')}`, async () => {
+    const store: ToolCallStore = new Map()
+    const pending = pendingPermission()
+    const first = tools[0]!
+    const second = tools[1]!
+    const call = recordToolCalls(() => pending.promise, 's1', store)(first.toolName, {}, optionsForRecorded(first))
+    const failure = new Error('overlapping permission threw')
+    let duringThrow: RecordedToolCall | null | undefined
+    try {
+      const throwing = recordToolCalls(() => {
+        duringThrow = recordedToolCallFor(airRequest, store)
+        throw failure
+      }, 's1', store)(second.toolName, {}, optionsForRecorded(second))
+      await assert.rejects(throwing, error => error === failure)
+      assert.equal(duringThrow, null)
+      assert.equal(store.get('s1')?.has('call1'), true)
+      assert.equal(recordedToolCallFor(airRequest, store), null, 'a synchronous throw cannot restore a collided key')
+    } finally {
+      pending.resolve(allowed)
+      await call
+    }
+    assert.equal(store.size, 0)
+  })
+}
 
 test('CLI call lookup requires the exact session and tool call id and no settled record', async () => {
   const store: ToolCallStore = new Map()

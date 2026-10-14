@@ -449,23 +449,38 @@ export type RecordedToolCall = {
   readonly toolName: string
   readonly mcpServer: { readonly name: string; readonly source: string } | undefined
 }
-export type ToolCallStore = Map<string, Map<string, RecordedToolCall>>
+type PendingToolCall = {
+  readonly recorded: RecordedToolCall
+  pending: number
+  ambiguous: boolean
+}
+export type ToolCallStore = Map<string, Map<string, PendingToolCall>>
 
 /** Keep only CLI identity, and only for the lifetime of its permission check. */
 export const recordToolCalls = (inner: CanUseTool, sessionId: string, store: ToolCallStore): CanUseTool =>
   async (toolName, input, options) => {
     if (!sessionId || typeof options.toolUseID !== 'string' || !options.toolUseID) return inner(toolName, input, options)
-    const calls = store.get(sessionId) ?? new Map<string, RecordedToolCall>()
-    const recorded: RecordedToolCall = {
-      toolName,
-      mcpServer: options.mcpServer ? { name: options.mcpServer.name, source: options.mcpServer.source } : undefined,
+    const calls = store.get(sessionId) ?? new Map<string, PendingToolCall>()
+    const existing = calls.get(options.toolUseID)
+    const entry: PendingToolCall = existing ?? {
+      recorded: {
+        toolName,
+        mcpServer: options.mcpServer ? { name: options.mcpServer.name, source: options.mcpServer.source } : undefined,
+      },
+      pending: 0,
+      ambiguous: false,
     }
-    calls.set(options.toolUseID, recorded)
+    // A collision poisons the key until every overlapping callback has settled.
+    // Retaining the first record must never make it usable again mid-overlap.
+    if (existing) entry.ambiguous = true
+    entry.pending++
+    calls.set(options.toolUseID, entry)
     store.set(sessionId, calls)
     try {
       return await inner(toolName, input, options)
     } finally {
-      calls.delete(options.toolUseID)
+      entry.pending--
+      if (entry.pending === 0) calls.delete(options.toolUseID)
       if (calls.size === 0) store.delete(sessionId)
     }
   }
@@ -476,7 +491,8 @@ export const recordedToolCallFor = (value: unknown, store: ToolCallStore): Recor
   const sessionId = request?.sessionId
   const toolCallId = request?.toolCall?.toolCallId
   if (typeof sessionId !== 'string' || !sessionId || typeof toolCallId !== 'string' || !toolCallId) return null
-  return store.get(sessionId)?.get(toolCallId) ?? null
+  const entry = store.get(sessionId)?.get(toolCallId)
+  return entry?.pending === 1 && !entry.ambiguous ? entry.recorded : null
 }
 
 /** Adds provenance only when the desk server supplied for this session asked. */
@@ -520,10 +536,12 @@ export const withFlowBoardToolProvenance = (
       typeof call['toolCallId'] !== 'string' || !call['toolCallId'] ||
       recordedCall?.mcpServer?.name !== 'harnessdesk' || recordedCall.mcpServer.source !== 'dynamic'
     ) return cleanRequest
-    if (Object.hasOwn(claudeCode ?? {}, 'mcpServer') && (
+    // AIR must itself identify the MCP server; a non-MCP ask cannot borrow proof.
+    if (
+      !Object.hasOwn(claudeCode ?? {}, 'mcpServer') ||
       claudeCode?.mcpServer?.name !== recordedCall.mcpServer.name ||
       claudeCode.mcpServer.source !== recordedCall.mcpServer.source
-    )) return cleanRequest
+    ) return cleanRequest
     toolName = recordedCall.toolName
   }
   if (typeof toolName !== 'string' || !toolName.startsWith('mcp__harnessdesk__')) return cleanRequest
