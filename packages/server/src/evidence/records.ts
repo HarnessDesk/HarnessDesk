@@ -456,15 +456,15 @@ export const foldSeats = (lines: readonly StoredLine[]): SeatRecord[] => {
 }
 
 /**
- * What makes two facts about one card the same question: a named check is its
- * own question, and every other kind is one question per card.
+ * What makes two facts about one card the same question: a check by name, a
+ * review by Seat and revision, a finding by id, and other facts by kind.
  */
 export const factKey = (fact: Evidence): string => {
   switch (fact.kind) {
     case 'check':
       return `check:${fact.name}`
     case 'review':
-      return `review:${fact.by}`
+      return `review:${fact.by}:${fact.at}`
     case 'finding':
       return `finding:${fact.id}`
     default:

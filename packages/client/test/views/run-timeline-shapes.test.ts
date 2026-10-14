@@ -171,6 +171,16 @@ describe('runTimeline · a comparison', () => {
       assert.equal(find(rows, 'card-1-1').keep, 'kept')
       assert.equal(find(rows, 'card-1-2').keep, 'not-kept')
     })
+    it('keeps the picked attempt when the same judge later records neither for the other revision', () => {
+      const facts = comparison().evidence.cards.flatMap(one => one.facts)
+      const neither = view(5, 3, { kind: 'review', verdict: 'neither', by: 'seat-5' as never, at: REV.b })
+      facts.push({ ...neither, record: { ...neither.record, id: '5-review-neither', observedAt: 506 } })
+      const rows = rowsOf(comparison({ facts }))
+      assert.deepEqual(find(rows, 'card-3-5').pick, { revision: REV.a, attempts: [
+        { card: 1, label: 'Attempt A', revision: REV.a, keep: 'kept' }, { card: 2, label: 'Attempt B', revision: REV.b, keep: 'not-kept' }] })
+      assert.equal(find(rows, 'card-1-1').keep, 'kept')
+      assert.equal(find(rows, 'card-1-2').keep, 'not-kept')
+    })
     it('keeps nothing until a review has picked', () => {
       const facts = comparison().evidence.cards.flatMap(one => one.facts).filter(one => one.record.fact.kind !== 'review')
       const rows = rowsOf(comparison({ facts }))

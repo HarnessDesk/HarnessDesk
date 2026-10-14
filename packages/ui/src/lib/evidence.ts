@@ -159,7 +159,7 @@ export const chipOf = (view: EvidenceView): FactChip => {
     case 'diff':
       return chip('diff', isEmptyDiff(fact) ? 'no changes' : `+${fact.added} −${fact.removed} in ${plural(fact.files, 'file')}`, null)
     case 'review':
-      return chip(`review:${fact.by}`, `review: ${fact.verdict}`, null)
+      return chip(`review:${fact.by}:${fact.at}`, `review: ${fact.verdict}`, null)
     case 'finding':
       return chip(`finding:${fact.id}`, `finding ${fact.state}`, null)
     case 'spend':
