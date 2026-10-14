@@ -717,13 +717,14 @@ export const runway = (
  * reports its login method as `team` — and a badge that reads "team" next to
  * one that reads "Pro" looks like two different kinds of fact. Only a label
  * with no capitals at all is touched, so `Max 20x` is left exactly as its
- * source wrote it.
+ * source wrote it. An identifier written with underscores (`self_serve_team`)
+ * reads as words, since an underscore is not a word break to `\b`.
  */
 export const planLabel = (plan: string | null): string | null => {
   const trimmed = plan?.trim()
   if (!trimmed) return null
   if (/[A-Z]/.test(trimmed)) return trimmed
-  return trimmed.replace(/\b[a-z]/g, (letter) => letter.toUpperCase())
+  return trimmed.replace(/_+/g, ' ').replace(/\b[a-z]/g, (letter) => letter.toUpperCase())
 }
 
 export const formatMoney = (amount: number | null, currency = 'USD'): string | null => {

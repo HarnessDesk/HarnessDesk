@@ -704,6 +704,8 @@ describe('formatting', () => {
     // Codex reports its login method, in lower case; Cursor already title-cases.
     expect(planLabel('team')).toBe('Team')
     expect(planLabel('pro trial')).toBe('Pro Trial')
+    // An identifier written with underscores reads as words, not as a symbol.
+    expect(planLabel('self_serve_team')).toBe('Self Serve Team')
     expect(planLabel('Max 20x')).toBe('Max 20x')
     expect(planLabel('Pro')).toBe('Pro')
     expect(planLabel('  ')).toBeNull()
