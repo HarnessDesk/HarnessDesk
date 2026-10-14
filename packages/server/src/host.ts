@@ -3829,7 +3829,8 @@ export class Host {
       (!record.shellCheckout || record.shellCheckout.source === 'fallback') && isAbsolute(record.session.cwd)) {
       const realCwd = await realpath(record.session.cwd).catch(() => undefined)
       const requested = realCwd ? await shellCheckoutIdentity(realCwd) : null
-      if (realCwd && requested && (samePath(realCwd, requested.checkoutRoot) || realCwd.startsWith(`${requested.checkoutRoot}${sep}`))) {
+      if (realCwd && requested && !samePath(requested.gitDir, requested.gitCommonDir) &&
+        (samePath(realCwd, requested.checkoutRoot) || realCwd.startsWith(`${requested.checkoutRoot}${sep}`))) {
         const candidate = await this.#admitShellProject(requested.checkoutRoot, requested.checkoutRoot)
         if (candidate && !samePath(requested.checkoutRoot, candidate.project) && samePath(requested.gitCommonDir, candidate.gitCommonDir ?? '')) {
           const root = await this.#worktrees.shellRoot(candidate.project, requested.checkoutRoot, candidate.gitCommonDir, candidate.checkoutRoot)

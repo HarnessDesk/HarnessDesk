@@ -125,6 +125,38 @@ test('ordinary worktree conversation Git context and status use its checkout', a
     [{ label: 'Git', text: 'The workspace is on git branch `main`.' }])
 })
 
+for (const spelling of ['canonical', 'symlink'] as const) {
+  for (const cached of [false, true]) {
+    test(`a ${spelling} main-checkout conversation bypasses stale project admission with ${cached ? 'cached' : 'fresh'} fallback`, async (t) => {
+      const d = await rig(t)
+      const alias = join(d.base, 'alias')
+      await symlink(d.project, alias)
+      const cwd = spelling === 'symlink' ? alias : d.project
+      const subfolder = join(cwd, 'src')
+      await mkdir(subfolder)
+      await d.host.call('workspace/open', { path: subfolder })
+      await d.host.call('workspace/forget', { path: d.project })
+      const scope = d.conversation(cwd)
+      assert.equal(d.host.registry.get(scope.runtime, scope.sessionId)?.shellCheckout, null)
+      await d.host.call('workspace/open', { path: d.other })
+      const expected = { ok: true, content: [{ type: 'text', text: d.other }] }
+      if (cached) {
+        assert.deepEqual(await d.kernel.invokeTool(d.tool.id, {}, scope), expected)
+        assert.deepEqual(d.host.registry.get(scope.runtime, scope.sessionId)?.shellCheckout,
+          { project: d.other, cwd: d.other, source: 'fallback' })
+      }
+      await rm(subfolder, { recursive: true })
+      assert.equal(await realpath(cwd), d.project, 'only the opened subfolder disappeared; the main checkout remains')
+      for (let repeat = 0; repeat < 2; repeat++) {
+        assert.deepEqual(await d.kernel.invokeTool(d.tool.id, {}, scope), expected)
+        assert.equal((await d.host.call('context/resolve', { id: d.where.id, ...scope })).text, d.other)
+        assert.deepEqual(d.host.registry.get(scope.runtime, scope.sessionId)?.shellCheckout,
+          { project: d.other, cwd: d.other, source: 'fallback' })
+      }
+    })
+  }
+}
+
 for (const kind of ['uncached', 'cached fallback', 'subdirectory', 'safe alias'] as const) {
   test(`ordinary managed checkout admission handles ${kind} through bridge, tool and context calls`, async (t) => {
     const d = await rig(t)
@@ -150,13 +182,40 @@ for (const kind of ['uncached', 'cached fallback', 'subdirectory', 'safe alias']
   })
 }
 
-for (const kind of ['foreign repository', 'non-git', 'relative', 'empty', 'unopened linked checkout', 'symlink escape', 'core.worktree redirect', 'gitdir redirect'] as const) {
+test('an ordinary conversation in an opened linked checkout keeps admission and identity refusals after a workspace switch', async (t) => {
+  const d = await rig(t)
+  const checkout = join(d.base, 'opened-conversation')
+  const subfolder = join(checkout, 'src')
+  await git(d.project, 'worktree', 'add', '-b', 'opened-conversation', checkout)
+  await mkdir(subfolder)
+  await d.host.call('workspace/open', { path: subfolder })
+  await d.host.call('workspace/forget', { path: d.project })
+  const scope = d.conversation(checkout, 'linked-healthy')
+  const fresh = d.conversation(checkout, 'linked-fresh')
+  const cached = d.conversation(checkout, 'linked-cached')
+  d.host.registry.get(cached.runtime, cached.sessionId)!.shellCheckout = { project: d.other, cwd: d.other, source: 'fallback' }
+  await d.host.call('workspace/open', { path: d.other })
+  assert.deepEqual(await d.kernel.invokeTool(d.tool.id, {}, scope), { ok: true, content: [{ type: 'text', text: checkout }] })
+  assert.deepEqual(d.host.registry.get(scope.runtime, scope.sessionId)?.shellCheckout,
+    { project: d.project, cwd: checkout, source: 'own' })
+  assert.equal((await d.host.call('context/resolve', { id: d.where.id, ...scope })).text, checkout)
+  await rm(subfolder, { recursive: true })
+  for (const caller of [fresh, cached, scope]) {
+    await assert.rejects(d.kernel.invokeTool(d.tool.id, {}, caller), /project checkout changed or is no longer open/i)
+    await assert.rejects(d.host.call('context/resolve', { id: d.where.id, ...caller }), /project checkout changed or is no longer open/i)
+  }
+})
+
+for (const kind of ['foreign repository', 'non-git', 'bare repository', 'relative', 'empty', 'unopened linked checkout', 'symlink escape', 'core.worktree redirect', 'gitdir redirect'] as const) {
   test(`ordinary conversation cwd naming ${kind} cannot admit a checkout`, async (t) => {
     const d = await rig(t)
     let cwd = d.other
     if (kind === 'non-git') {
       cwd = join(d.base, 'plain')
       await mkdir(cwd)
+    } else if (kind === 'bare repository') {
+      cwd = join(d.base, 'bare.git')
+      await run('git', ['init', '--bare', '-q', cwd])
     } else if (kind === 'relative' || kind === 'empty') cwd = kind === 'relative' ? '.' : ''
     else if (kind === 'unopened linked checkout') {
       cwd = join(d.base, 'unopened')
