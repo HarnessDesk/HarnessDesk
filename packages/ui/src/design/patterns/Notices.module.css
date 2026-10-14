@@ -248,7 +248,12 @@
   color: var(--hd-foreground);
 }
 
+/* The message takes the width it needs and gives it up only when the row is
+   full. `.line` grows by default, and so does the spacer that pushes the pager
+   and dismiss to the far edge, so the two split the slack and the message was
+   clipped at half of it, with an empty spacer beside the ellipsis. */
 .strip .line {
+  flex: 0 1 auto;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
