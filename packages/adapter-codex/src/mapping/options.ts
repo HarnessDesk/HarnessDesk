@@ -375,6 +375,7 @@ const EFFORT_LABELS: Readonly<Record<string, string>> = {
 }
 
 const STANDARD_TIER = 'standard'
+const DEFAULT_TIER = 'default'
 
 /** Ensures the current value is always among the choices, so a select never renders blank. */
 const withCurrent = (choices: readonly OptionChoice[], current: string): OptionChoice[] =>
@@ -531,7 +532,9 @@ export const sessionOptions = (state: ThreadState, catalog: Catalog): ConfigOpti
   })
 
   if (model && model.serviceTiers.length > 0) {
-    const current = state.serviceTier ?? STANDARD_TIER
+    // Codex's own config can name the tier "default": that is the plain tier,
+    // the one Standard already stands for, not a fourth choice.
+    const current = state.serviceTier && state.serviceTier !== DEFAULT_TIER ? state.serviceTier : STANDARD_TIER
     options.push({
       type: 'select',
       id: 'serviceTier',
