@@ -582,6 +582,9 @@ rl.on('line', (line) => {
         // that makes the row change for a second window watching.
         setTimeout(() => endTask(request.task_id, 'stopped'), 5)
         return
+      case 'mcp_status':
+        respond({ mcpServers: JSON.parse(process.env.FAKE_CLAUDE_MCP_STATUS ?? '[]') })
+        return
       case 'set_model':
         model = request.model ?? model
         respond({})
