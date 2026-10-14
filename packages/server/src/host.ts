@@ -3831,7 +3831,7 @@ export class Host {
       const requested = realCwd ? await shellCheckoutIdentity(realCwd) : null
       if (realCwd && requested && (samePath(realCwd, requested.checkoutRoot) || realCwd.startsWith(`${requested.checkoutRoot}${sep}`))) {
         const candidate = await this.#admitShellProject(requested.checkoutRoot, requested.checkoutRoot)
-        if (candidate && samePath(requested.gitCommonDir, candidate.gitCommonDir ?? '')) {
+        if (candidate && !samePath(requested.checkoutRoot, candidate.project) && samePath(requested.gitCommonDir, candidate.gitCommonDir ?? '')) {
           const root = await this.#worktrees.shellRoot(candidate.project, requested.checkoutRoot, candidate.gitCommonDir, candidate.checkoutRoot)
           if (samePath(root, requested.checkoutRoot)) {
             checkout = { project: candidate.project, cwd: root, source: 'own' }

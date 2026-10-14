@@ -132,6 +132,29 @@ test('a conversation in the open folder runs its tool calls in that folder as it
   }
 })
 
+test('a main-checkout conversation follows a workspace switch before its first capability call', async (t) => {
+  const d = await rig(t)
+  const opened = join(d.linked, 'src')
+  for (const first of ['tool', 'context']) {
+    await d.host.call('workspace/open', { path: d.project })
+    const scope = await d.conversation(d.project)
+    const record = d.host.registry.get(d.agent.info.id, scope.sessionId as Session['id'])!
+    assert.equal(record.shellCheckout, null)
+    await d.host.call('workspace/open', { path: opened })
+    const expected = {
+      tool: { root: opened, branch: 'feature', read: 'linked src', names: ['file.txt'], editor: 'opened' },
+      context: { root: opened, branch: 'feature', read: 'linked src' },
+    }
+    const actual = first === 'tool'
+      ? { tool: await d.where(scope), context: await d.context(scope) }
+      : { context: await d.context(scope), tool: await d.where(scope) }
+    assert.deepEqual(actual, expected, first)
+    assert.deepEqual(await d.where(scope), expected.tool)
+    assert.deepEqual(await d.context(scope), expected.context)
+    assert.equal(d.host.registry.get(d.agent.info.id, scope.sessionId as Session['id'])?.shellCheckout?.source, 'fallback')
+  }
+})
+
 test('a Seat in a lane of its own runs its tool calls in the lane', async (t) => {
   const d = await rig(t)
   await d.host.call('workspace/open', { path: d.project })
