@@ -270,7 +270,7 @@ const WorktreeItems = ({ onChoose, close }: { readonly onChoose: () => void; rea
             icon={<BranchIcon size={14} />}
             label="New worktree…"
             title="Its own checkout, on a branch of its own."
-            {...(!isRepo || !ready ? { disabled: true, hint: isRepo ? 'Connect an agent to work in a worktree.' : 'Worktrees need a git repository.' } : {})}
+            {...(!isRepo || !ready ? { disabled: isRepo ? 'Connect an agent to work in a worktree.' : 'Worktrees need a git repository.' } : {})}
             onSelect={() => {
               close()
               store.askNewWorktree(snapshot.workspace?.path ?? null)
