@@ -1,3 +1,5 @@
+import { openingOfContent, type Session } from '@harnessdesk/protocol'
+
 import { openingOf, opensEnvelope } from './context-envelope'
 
 /**
@@ -65,3 +67,23 @@ export const shortLabel = (label: string, max = TITLE_LIMIT): string => {
   const body = space > max / 2 ? cut.slice(0, space) : cut
   return `${body.replace(/[\s,;:.!?—-]+$/, '')}…`
 }
+
+/**
+ * How the opening message is called, for a row with no name yet, by the rule
+ * every adapter's preview follows (`openingOf`): the person's first line, or
+ * for a message that's only blocks, the block that says what the
+ * conversation is. It reads every text block of a message, because the
+ * composer puts attached context in blocks of its own before the typed words.
+ * The first message that says anything answers (review of #231).
+ */
+export const firstAsk = (session: Session): string | null => {
+  for (const turn of session.turns) {
+    for (const item of turn.items) {
+      if (item.type !== 'userMessage') continue
+      const opening = openingOfContent(item.content)
+      if (opening) return opening
+    }
+  }
+  return null
+}
+

@@ -29,11 +29,11 @@ import {
 } from '../design'
 import { memo, useCallback, useEffect, useMemo, useRef, useState, type DragEvent as ReactDragEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react'
 
-import { isBusy, openingOfContent, sessionKey, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
+import { isBusy, sessionKey, type Session, type SessionSummary, type TeamState } from '@harnessdesk/protocol'
 
 import { agentGroups, agentKey, agentKeyOf } from '../lib/accounts'
 import { folderName, groupByProject, groupHolding, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, roomGroupRootOf, type ProjectGroup } from '../lib/projects'
-import { sessionLabel } from '../lib/sessions'
+import { firstAsk, sessionLabel } from '../lib/sessions'
 import { seatLabelsOf } from '../lib/seat-names'
 import { captureForRoot } from '../lib/provenance'
 import { teamSeats, hasConversation } from '../lib/team-seats'
@@ -847,25 +847,6 @@ const rowOf = (session: Session): SessionSummary => ({
   git: session.git ?? null,
   repo: null,
 })
-
-/**
- * How the opening message is called, for a row with no name yet, by the rule
- * every adapter's preview follows (`openingOf`): the person's first line, or
- * for a message that's only blocks, the block that says what the
- * conversation is. It reads every text block of a message, because the
- * composer puts attached context in blocks of its own before the typed words.
- * The first message that says anything answers (review of #231).
- */
-const firstAsk = (session: Session): string | null => {
-  for (const turn of session.turns) {
-    for (const item of turn.items) {
-      if (item.type !== 'userMessage') continue
-      const opening = openingOfContent(item.content)
-      if (opening) return opening
-    }
-  }
-  return null
-}
 
 /**
  * What the list is made of.
