@@ -724,7 +724,11 @@ export const planLabel = (plan: string | null): string | null => {
   const trimmed = plan?.trim()
   if (!trimmed) return null
   if (/[A-Z]/.test(trimmed)) return trimmed
-  return trimmed.replace(/_+/g, ' ').replace(/\b[a-z]/g, (letter) => letter.toUpperCase())
+  // Underscores at the ends become spaces too, so trim again: a name that was
+  // only underscores is no name, and must not reach a chip as a blank one.
+  const words = trimmed.replace(/_+/g, ' ').trim()
+  if (!words) return null
+  return words.replace(/\b[a-z]/g, (letter) => letter.toUpperCase())
 }
 
 export const formatMoney = (amount: number | null, currency = 'USD'): string | null => {

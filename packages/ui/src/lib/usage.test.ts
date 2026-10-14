@@ -706,6 +706,9 @@ describe('formatting', () => {
     expect(planLabel('pro trial')).toBe('Pro Trial')
     // An identifier written with underscores reads as words, not as a symbol.
     expect(planLabel('self_serve_team')).toBe('Self Serve Team')
+    expect(planLabel(' __team__ ')).toBe('Team')
+    // Nothing but underscores is no name, never a blank one.
+    expect(planLabel('___')).toBeNull()
     expect(planLabel('Max 20x')).toBe('Max 20x')
     expect(planLabel('Pro')).toBe('Pro')
     expect(planLabel('  ')).toBeNull()
