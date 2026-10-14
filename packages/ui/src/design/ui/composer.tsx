@@ -68,14 +68,14 @@ const ComposerShell = ({ className, ...props }: React.ComponentProps<'div'>) => 
     data-slot="composer"
     className={cn(
       'flex flex-col rounded-(--hd-radius-lg) bg-(--hd-card)',
-      'shadow-(--hd-shadow-xs) ring-1 ring-(--hd-border-emphasis) ring-inset',
+      'shadow-(--hd-composer-shell-shadow) ring-1 ring-(--hd-border-emphasis) ring-inset',
       'data-[dropping]:shadow-(--hd-shadow-raised) data-[dropping]:ring-2 data-[dropping]:ring-(--hd-primary)',
       // The focused shadow carries `--hd-composer-ring` ahead of it, exactly as
       // the module does. Under Desk that token is `none` and this is one
       // shadow; under Studio it is the app's focus ring, and without it here
       // the two composers announced focus differently in the same interface —
       // one of them one keystroke from the other.
-      'transition-shadow focus-within:shadow-[var(--hd-composer-ring,0_0_0_0_transparent),var(--hd-shadow-raised)]',
+      'transition-shadow focus-within:shadow-[var(--hd-composer-ring,0_0_0_0_transparent),var(--hd-composer-shell-shadow-focus)]',
       'focus-within:ring-(--hd-border-heavy)',
       className,
     )}

@@ -951,7 +951,7 @@
 
 /* Bare rows keep the family's pitch and balanced insets, including the last row. */
 .row:not(:has(.rowDesc, .rowMark, .rowFace)) {
-  padding-block: var(--hd-inset-dense); /* desk: bare rows use 8px blocks; face rows retain the full 12px tier */
+  padding-block: var(--hd-inset-row); /* desk: bare rows 8 → 12, the same tier as a row with a sentence */
 }
 
 .row:last-child::after {

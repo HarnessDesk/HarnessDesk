@@ -243,10 +243,10 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-table-name-size` | `14px` |
 | `--hd-table-fact-size` | `12px` |
 | `--hd-table-sentence-size` | `13px` |
-| `--hd-table-line-gap` | `2px` |
+| `--hd-table-line-gap` | `4px` |
 | `--hd-table-end-gap` | `12px` |
 | `--hd-history-detail-min-h` | `160px` |
-| `--hd-field-h` | `30px` |
+| `--hd-field-h` | `32px` |
 | `--hd-table-page-max-height` | `50dvh` |
 | `--hd-field-name-width` | `220px` |
 | `--hd-field-path-width` | `280px` |
@@ -276,6 +276,8 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-composer-max` | `320px` |
 | `--hd-composer-line` | `20px` |
 | `--hd-composer-radius` | `28px` |
+| `--hd-composer-shell-shadow` | `0 4px 20px rgba(0, 0, 0, 0.035)` |
+| `--hd-composer-shell-shadow-focus` | `0 4px 20px rgba(0, 0, 0, 0.035)` |
 | `--hd-composer-track-add` | `32px` |
 | `--hd-composer-track-work-in` | `84px` |
 | `--hd-composer-track-work-in-folded` | `48px` |
@@ -433,6 +435,8 @@ One row in a navigation list — the sidebar's sessions, the settings sheet's pa
 | `--hd-nav-h` | `calc(20px + 4px * 2 + 2px)` |
 | `--hd-nav-h-group` | `calc(20px + 4px * 2 + 2px)` |
 | `--hd-left-row-h` | `30px` |
+| `--hd-left-row-gap` | `0px` |
+| `--hd-left-menu-gap` | `8px` |
 | `--hd-frame-icon-button` | `28px` |
 | `--hd-nav-radius` | `10px` |
 | `--hd-nav-gap` | `8px` |
@@ -461,6 +465,11 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-mode-switch-cell-h` | `24px` |
 | `--hd-seg-trim` | `calc(2px * 2)` |
 | `--hd-seg-text` | `12px` |
+| `--hd-switcher-pad` | `1px` |
+| `--hd-switcher-item-h` | `30px` |
+| `--hd-switcher-item-inset` | `12px` |
+| `--hd-tabs-h` | `32px` |
+| `--hd-tabs-inset` | `12px` |
 | `--hd-chip-radius` | `9999px` |
 | `--hd-chip-fill` | `rgb(245, 245, 245)` |
 | `--hd-chip-fill-hover` | `color-mix(in srgb, rgb(245, 245, 245) 92%, rgb(27, 27, 27))` |
@@ -522,9 +531,13 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-ring-muted` | `rgb(52, 88, 240)` |
 | `--hd-card-fill` | `` |
 | `--hd-ring-muted` | `rgb(52, 88, 240)` |
-| `--hd-field-h` | `30px` |
-| `--hd-btn-h` | `30px` |
-| `--hd-field-h` | `30px` |
+| `--hd-left-row-h` | `30px` |
+| `--hd-left-row-gap` | `0px` |
+| `--hd-left-menu-gap` | `8px` |
+| `--hd-nav-radius` | `10px` |
+| `--hd-field-h` | `32px` |
+| `--hd-btn-h` | `32px` |
+| `--hd-field-h` | `32px` |
 | `--hd-btn-h-sm` | `28px` |
 
 ### Table density
@@ -543,7 +556,7 @@ A table scope owns its density, including list and settings examples. Restating 
 | `--hd-table-head-ink` | `rgb(49, 49, 49)` | `rgb(49, 49, 49)` |
 | `--hd-table-head-size` | `13px` | `12px` |
 | `--hd-table-lead-gap` | `12px` | `10px` |
-| `--hd-table-line-gap` | `2px` | `2px` |
+| `--hd-table-line-gap` | `4px` | `4px` |
 | `--hd-table-name-size` | `14px` | `13px` |
 | `--hd-table-page-max-height` | `50dvh` | `50dvh` |
 | `--hd-table-row-min` | `56px` | `40px` |

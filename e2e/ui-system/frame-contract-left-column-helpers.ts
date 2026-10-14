@@ -5,7 +5,7 @@ import { FRAME } from '../../packages/ui/src/design/frame'
 
 
 // Opening rows share icon/text edges; foldable headings start at the icon edge.
-export const expectColumnRowEdges = async (rows: Locator) => {
+export const expectColumnRowEdges = async (rows: Locator, rowHeight: number = FRAME.rail.rowHeight) => {
   const values = await rows.evaluateAll(nodes => nodes.map(node => {
     const button = node.querySelector<HTMLElement>('[data-slot="sidebar-menu-button"]')!
     const icon = button.querySelector<HTMLElement>('[data-slot="sidebar-menu-icon"]')
@@ -16,7 +16,7 @@ export const expectColumnRowEdges = async (rows: Locator) => {
       icon: icon?.getBoundingClientRect().x ?? null, heading: button.hasAttribute('aria-expanded'),
       gap: words && chevron ? chevron.getBoundingClientRect().left - words.getBoundingClientRect().right : null }
   }))
-  for (const row of values) expect(row.h).toBe(FRAME.rail.rowHeight)
+  for (const row of values) expect(row.h).toBe(rowHeight)
   const opening = values.filter(row => !row.heading)
   expect(opening.length).toBeGreaterThan(2)
   for (const row of opening) expect(row.icon).not.toBeNull()

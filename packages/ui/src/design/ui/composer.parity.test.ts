@@ -46,9 +46,9 @@ it('the shared shell owns its resting and focused surface', () => {
   for (const utility of [
     'rounded-(--hd-radius-lg)',
     'bg-(--hd-card)',
-    'shadow-(--hd-shadow-xs)',
+    'shadow-(--hd-composer-shell-shadow)',
     'ring-(--hd-border-emphasis)',
-    'focus-within:shadow-[var(--hd-composer-ring,0_0_0_0_transparent),var(--hd-shadow-raised)]',
+    'focus-within:shadow-[var(--hd-composer-ring,0_0_0_0_transparent),var(--hd-composer-shell-shadow-focus)]',
     'focus-within:ring-(--hd-border-heavy)',
   ]) {
     expect(composerSystem).toContain(utility)

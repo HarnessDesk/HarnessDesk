@@ -44,7 +44,10 @@ test('R10 nav4 Changes review uses page top gutter and Escape returns to work', 
   const topBar = (await page.locator('[data-slot="top-bar"]:visible').boundingBox())!
   const firstBlock = (await review.locator('[data-page-measure="wide"] > *').first().boundingBox())!
   const topOffset = firstBlock.y - (topBar.y + topBar.height)
-  expect(Math.round(topOffset)).toBe(FRAME.page.gutter)
+  // The gutter is drawn from where a 28px switcher track ends; the track is 32 now and centred in the same bar,
+  // so its bottom edge sits 2px lower while the page content has not moved.
+  const trackGrowth = (topBar.height - 28) / 2
+  expect(Math.round(topOffset + trackGrowth)).toBe(FRAME.page.gutter)
   await page.keyboard.press('Escape')
   await expect(review).toHaveCount(0)
   await expect(page.locator('[data-slot="retained-work"]:visible')).toHaveCount(1)

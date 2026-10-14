@@ -40,7 +40,7 @@ for (const theme of WALL_THEMES) {
     const labels = await nav.locator('[data-left-group-text]').allTextContents()
     expect(labels).toEqual(['Preferences', 'Conversations', 'Agents', 'Access'])
     for (const row of await nav.locator('[data-left-row]').all()) {
-      expect((await row.boundingBox())!.height).toBe(FRAME.rail.rowHeight)
+      expect((await row.boundingBox())!.height).toBe(FRAME.rail.settingsRowHeight)
     }
     await expect(nav.getByRole('button', { name: 'Back', exact: true })).toBeVisible()
     await expect(nav.getByRole('button', { name: 'Library', exact: true })).toHaveCount(0)
@@ -158,7 +158,7 @@ for (const theme of WALL_THEMES) {
       expect(values.length).toBeGreaterThan(10)
       await expect(column.getByRole('button', { name: 'New session', exact: true })).toHaveCount(0)
       await expect(column.locator('[aria-label="Main sections"]:visible')).toHaveCount(0)
-      for (const row of values) expect(row.height).toBe(FRAME.rail.rowHeight)
+      for (const row of values) expect(row.height).toBe(FRAME.rail.settingsRowHeight)
       for (const edge of ['text', 'icon'] as const) {
         const xs = values.map(row => row[edge])
         expect(Math.max(...xs) - Math.min(...xs)).toBeLessThanOrEqual(1)

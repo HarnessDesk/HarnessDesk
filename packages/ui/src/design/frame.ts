@@ -17,7 +17,7 @@ export const FRAME = {
   main: { min: 480 },
   fold: { panelFloats: 1280, sidebarFloats: 1000 },
   page: { reading: 736, wide: 1320, gutter: 24, canvasGutter: 8 },
-  rail: { rowHeight: 30, inset: 8, icon: 16, gap: 8, label: 13, settingsLabel: 14, line: 20, groupWeight: 400 },
+  rail: { rowHeight: 30, settingsRowHeight: 32, inset: 8, icon: 16, gap: 8, label: 13, settingsLabel: 14, line: 20, groupWeight: 400 },
   menu: { min: 200, max: 340, padding: 6, radius: 10, rowHeight: 30, rowRadius: 4 },
   infoCard: { width: 288, padding: 12 },
   summaryKey: { page: 132, panel: 92, infoCard: 96 },

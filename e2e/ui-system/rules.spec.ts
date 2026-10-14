@@ -489,6 +489,14 @@ const destinationRowViolations = (page: Page, menuHeight?: number, kindsAgree = 
           representative[where] = list[0]
         }
       }
+      // The Settings rail stands one rung roomier than the working rows (32 against 30), by decision;
+      // it is checked against its own value and the other kinds agree with each other.
+      const SETTINGS_ROW = 32
+      const settingsKind = 'settings/usage rail row'
+      if (representative[settingsKind] !== undefined && representative[settingsKind] !== SETTINGS_ROW) {
+        out.push({ where: settingsKind, height: representative[settingsKind], navH, reason: 'destination-row kinds disagree: ' + settingsKind + ' stands ' + representative[settingsKind] + ', not ' + SETTINGS_ROW })
+      }
+      delete representative[settingsKind]
       const acrossKinds = new Set(Object.values(representative))
       if (acrossKindsToo && acrossKinds.size > 1) {
         for (const [where, height] of Object.entries(representative)) {
@@ -565,7 +573,7 @@ test.describe('rule: destination rows', () => {
     expect(before.out).toEqual([])
     // What the settings rail's identity row did with a 28px face in a 29px row.
     await page.locator('[data-frame-id="settings-sheet"] [data-left-row] [data-slot="sidebar-menu-button"]:visible').first().evaluate((row) => row.setAttribute('data-test-row-mutation', ''))
-    await page.addStyleTag({ content: '[data-test-row-mutation] { min-height: calc(var(--hd-nav-h) + 1px) !important; }' })
+    await page.addStyleTag({ content: '[data-test-row-mutation] { min-height: calc(var(--hd-nav-h) + 3px) !important; }' })
     const after = await destinationRowViolations(page, undefined, false)
     expect(after.out.some((f) => f.reason.includes("own rows disagree"))).toBe(true)
   })
@@ -579,7 +587,7 @@ test.describe('rule: destination rows', () => {
       expect(before.counts['settings/usage rail row']).toBeGreaterThan(0)
       // What Desk was before #1073, the other way round: one kind a pixel off
       // the others while agreeing with its own siblings.
-      await page.addStyleTag({ content: '[data-frame-id="settings-sheet"] [data-left-row] [data-slot="sidebar-menu-button"] { min-height: calc(var(--hd-nav-h) + 1px) !important; }' })
+      await page.addStyleTag({ content: '[data-frame-id="settings-sheet"] [data-left-row] [data-slot="sidebar-menu-button"] { min-height: calc(var(--hd-nav-h) + 3px) !important; }' })
       const after = await destinationRowViolations(page)
       expect(after.out.some((f) => f.reason.startsWith('destination-row kinds disagree'))).toBe(true)
     })
@@ -633,7 +641,7 @@ const fieldViolations = (page: Page, look: 'desk' | 'studio') =>
       if (inComfortable) measuredComfortable += 1
       // Only Studio's comfortable scope raises the rung; Desk's own
       // comfortable windows stay on the ordinary 30px field.
-      const wantHeight = interfaceName === 'studio' && inComfortable ? 36 : 30
+      const wantHeight = interfaceName === 'studio' && inComfortable ? 36 : 32
       const cs = getComputedStyle(field)
       fontSizes.add(cs.fontSize)
       const height = Math.round(field.getBoundingClientRect().height)
@@ -660,7 +668,7 @@ const fieldViolations = (page: Page, look: 'desk' | 'studio') =>
   }, look)
 
 test.describe('rule: fields', () => {
-  test('rule: fields — default fields are 30px/14px (36px in Studio\'s comfortable scope), and every filter uses one Search pattern', async ({ page }) => {
+  test('rule: fields — default fields are 32px/14px (36px in Studio\'s comfortable scope), and every filter uses one Search pattern', async ({ page }) => {
     await gotoPreview(page)
     const findings: (FieldFinding & { where: string })[] = []
     for (const theme of ['light', 'dark'] as const) {
@@ -678,7 +686,7 @@ test.describe('rule: fields', () => {
     expect(findings).toEqual([])
   })
 
-  test('rule: fields — the checker catches a default field pushed off 30px/14px', async ({ page }) => {
+  test('rule: fields — the checker catches a default field pushed off 32px/14px', async ({ page }) => {
     await gotoPreview(page)
     const before = await fieldViolations(page, 'desk')
     await page.addStyleTag({ content: '[data-slot="input"][data-size="default"] { height: 40px !important; font-size: 16px !important; }' })
