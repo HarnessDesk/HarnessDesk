@@ -3820,9 +3820,28 @@ export class Host {
   async #shellWorkspace(scope: ScopeQuery): Promise<WorkspaceAdmission | undefined> {
     const record = scope.runtime && scope.sessionId ? this.registry.get(scope.runtime, scope.sessionId) : undefined
     // Durable records are candidates, re-admitted against person-opened projects on every invocation.
-    const kept = record && !record.shellCheckout ? this.#evidence.seats.latestKeptOf(record.runtime, record.session.id) : null
-    const checkout = record?.shellCheckout ?? kept?.checkout
-    const admitted = await this.#admitShellProject(checkout?.project, checkout?.cwd)
+    const kept = record ? this.#evidence.seats.latestKeptOf(record.runtime, record.session.id) : null
+    let checkout = record?.shellCheckout ?? kept?.checkout
+    let admitted: ShellProjectIdentity | undefined
+    let ordinaryRoot: string | undefined
+    // Runtime cwd is only a candidate for an ordinary conversation, never a replacement for Seat placement.
+    if (record && !kept && !record.seatedAs && !this.#seating.has(sessionKey(record.runtime, record.session.id)) &&
+      (!record.shellCheckout || record.shellCheckout.source === 'fallback') && isAbsolute(record.session.cwd)) {
+      const realCwd = await realpath(record.session.cwd).catch(() => undefined)
+      const requested = realCwd ? await shellCheckoutIdentity(realCwd) : null
+      if (realCwd && requested && (samePath(realCwd, requested.checkoutRoot) || realCwd.startsWith(`${requested.checkoutRoot}${sep}`))) {
+        const candidate = await this.#admitShellProject(requested.checkoutRoot, requested.checkoutRoot)
+        if (candidate && samePath(requested.gitCommonDir, candidate.gitCommonDir ?? '')) {
+          const root = await this.#worktrees.shellRoot(candidate.project, requested.checkoutRoot, candidate.gitCommonDir, candidate.checkoutRoot)
+          if (samePath(root, requested.checkoutRoot)) {
+            checkout = { project: candidate.project, cwd: root, source: 'own' }
+            admitted = candidate
+            ordinaryRoot = root
+          }
+        }
+      }
+    }
+    admitted ??= await this.#admitShellProject(checkout?.project, checkout?.cwd)
     const identity = admitted ?? await this.#admitShellProject(this.#shellProject)
     if (!identity) {
       if (this.#shellProject) throw new Error('The project checkout changed or is no longer open. Open it again before running shell commands.')
@@ -3830,11 +3849,11 @@ export class Host {
     }
     // A foreign or stale project loses its cwd as well; it cannot authorize a lane of the fallback project.
     const project = identity.project
-    const cwd = await this.#worktrees.shellRoot(project, admitted ? checkout?.cwd : undefined, identity.gitCommonDir, identity.checkoutRoot)
+    const cwd = ordinaryRoot ?? await this.#worktrees.shellRoot(project, admitted ? checkout?.cwd : undefined, identity.gitCommonDir, identity.checkoutRoot)
     // A Seat owns its placement only while shellRoot can still return that admitted checkout.
     const placement = checkout && (kept ? await realpath(checkout.cwd).catch(() => undefined) : checkout.cwd)
     const source = admitted && checkout && placement && samePath(cwd, placement)
-      ? record?.shellCheckout?.source ?? (kept ? 'own' : 'fallback')
+      ? ordinaryRoot ? 'own' : record?.shellCheckout?.source ?? (kept ? 'own' : 'fallback')
       : 'fallback'
     if (record) record.shellCheckout = { project, cwd, source }
     return { root: cwd, enterCheckout: source === 'own' && !samePath(cwd, this.#shellCheckoutRoot ?? '') }

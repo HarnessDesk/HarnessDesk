@@ -147,6 +147,20 @@ test('a Seat in a lane of its own runs its tool calls in the lane', async (t) =>
   assert.deepEqual(await d.where(await d.conversation(d.project)), { root: d.project, branch: 'main', read: 'top', names: ['file.txt', 'src'], editor: 'opened' })
 })
 
+test('an ordinary conversation in a managed worktree shares that checkout across tool and context capabilities', async (t) => {
+  const d = await rig(t)
+  await d.host.call('workspace/open', { path: d.project })
+  const lane = await new Worktrees(d.stateDir).create(d.project, { name: 'conversation' })
+  await writeFile(join(lane.path, 'file.txt'), 'conversation\n')
+  await writeFile(join(lane.path, 'worktree.txt'), 'only here\n')
+  const scope = await d.conversation(lane.path)
+  for (let repeat = 0; repeat < 2; repeat++) {
+    assert.deepEqual(await d.where(scope), { root: lane.path, branch: null, read: 'conversation', names: ['file.txt', 'src', 'worktree.txt'], editor: 'opened' })
+    assert.deepEqual(await d.context(scope), { root: lane.path, branch: null, read: 'conversation' })
+  }
+  assert.deepEqual(await d.where(await d.conversation(d.project)), { root: d.project, branch: 'main', read: 'top', names: ['file.txt', 'src'], editor: 'opened' })
+})
+
 
 test('a Seat started in the checkout holding an opened subfolder follows that folder for tools and context', async (t) => {
   const d = await rig(t)
