@@ -6,7 +6,10 @@ import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import { scratch } from './scratch.js'
 
-import { AcpRuntime } from '@harnessdesk/adapter-acp'
+import type { CanUseTool } from '@anthropic-ai/claude-agent-sdk'
+import { recordToolCalls, recordedToolCallFor, type RecordedToolCall, type ToolCallStore } from '../src/bridge.js'
+
+import { AcpRuntime, type AcpAgentConfig } from '@harnessdesk/adapter-acp'
 import { describeAdapterConformance } from '@harnessdesk/adapter-testkit'
 import { wrapContext, type AgentEvent, type AgentItem, type AgentSession, type ConfigOption } from '@harnessdesk/protocol'
 
@@ -24,12 +27,13 @@ const BRIDGE = fileURLToPath(new URL('../src/main.js', import.meta.url))
 const FAKE = fileURLToPath(new URL('./fixtures/fake-claude.mjs', import.meta.url))
 const WORKDIR = scratch('claude-acp-')
 
-const make = (extra: Record<string, string> = {}): AcpRuntime =>
+const make = (extra: Record<string, string> = {}, toolServer?: AcpAgentConfig['toolServer']): AcpRuntime =>
   new AcpRuntime({
     id: 'claude-code',
     name: 'Claude Code',
     command: process.execPath,
     args: [BRIDGE],
+    ...(toolServer ? { toolServer, trustsBridgeProvenance: true } : {}),
     env: {
       HOME: scratch('claude-home-'),
       CLAUDE_CODE_EXECUTABLE: FAKE,
@@ -233,6 +237,183 @@ test('the bridge preserves MCP config and marks only the supplied live harnessde
   ]), request, 'coexisting server definitions fail closed')
   const configuredRequest = { ...request, toolCall: { ...request.toolCall, _meta: { claudeCode: { ...request.toolCall._meta.claudeCode, mcpServer: { name: 'harnessdesk', source: 'project' } } } } }
   assert.equal(withFlowBoardToolProvenance(configuredRequest, ['harnessdesk'], liveStatus), configuredRequest, 'non-session tool source cannot acquire desk provenance')
+})
+
+const dynamicDesk = { name: 'harnessdesk', source: 'dynamic' }
+const recordedDeskCall: RecordedToolCall = { toolName: 'mcp__harnessdesk__claim_next', mcpServer: dynamicDesk }
+const airRequest = {
+  sessionId: 's1',
+  toolCall: { toolCallId: 'call1', title: 'Mcp', _meta: { claudeCode: { mcpServer: dynamicDesk } } },
+}
+const boardMarker = (value: unknown): unknown =>
+  (value as { _meta?: { harnessdesk?: { flowBoardTool?: unknown } } })._meta?.harnessdesk?.flowBoardTool
+const proveAirCall = (): void => assert.deepEqual(
+  boardMarker(withFlowBoardToolProvenance(airRequest, ['harnessdesk'], [dynamicDesk], recordedDeskCall)),
+  { server: 'harnessdesk', tool: 'mcp__harnessdesk__claim_next' },
+)
+
+test('AIR provenance uses the recorded CLI call and refuses a request without it', () => {
+  proveAirCall()
+  assert.equal(withFlowBoardToolProvenance(airRequest, ['harnessdesk'], [dynamicDesk]), airRequest)
+  assert.equal(withFlowBoardToolProvenance(airRequest, ['harnessdesk'], [dynamicDesk], null), airRequest)
+  const withoutMeta = { ...airRequest, toolCall: { toolCallId: 'call1', title: 'Mcp' } }
+  assert.deepEqual(boardMarker(withFlowBoardToolProvenance(withoutMeta, ['harnessdesk'], [dynamicDesk], recordedDeskCall)),
+    { server: 'harnessdesk', tool: recordedDeskCall.toolName })
+})
+
+const airRefusals: { name: string; request?: unknown; recorded?: RecordedToolCall; supplied?: string[]; live?: { name: string; source?: string }[] }[] = [
+  { name: 'recorded server is not dynamic', recorded: { ...recordedDeskCall, mcpServer: { name: 'harnessdesk', source: 'project' } } },
+  { name: 'recorded server source is missing', recorded: { ...recordedDeskCall, mcpServer: { name: 'harnessdesk' } as RecordedToolCall['mcpServer'] } },
+  { name: 'recorded server is not harnessdesk', recorded: { ...recordedDeskCall, mcpServer: { name: 'other', source: 'dynamic' } } },
+  { name: 'recorded server is missing', recorded: { ...recordedDeskCall, mcpServer: undefined } },
+  { name: 'recorded tool belongs to another server', recorded: { ...recordedDeskCall, toolName: 'mcp__other__x' } },
+  { name: 'recorded tool name is not a string', recorded: { ...recordedDeskCall, toolName: 42 as unknown as string } },
+  { name: 'metadata server source disagrees', request: { ...airRequest, toolCall: { ...airRequest.toolCall, _meta: { claudeCode: { mcpServer: { name: 'harnessdesk', source: 'project' } } } } } },
+  { name: 'metadata server name disagrees', request: { ...airRequest, toolCall: { ...airRequest.toolCall, _meta: { claudeCode: { mcpServer: { name: 'other', source: 'dynamic' } } } } } },
+  { name: 'metadata server is null', request: { ...airRequest, toolCall: { ...airRequest.toolCall, _meta: { claudeCode: { mcpServer: null } } } } },
+  { name: 'supplied server names are ambiguous', supplied: ['harnessdesk', 'harnessdesk'] },
+  { name: 'supplied desk server is missing', supplied: [] },
+  { name: 'live server status is ambiguous', live: [dynamicDesk, { name: 'harnessdesk', source: 'project' }] },
+  { name: 'live server status is missing', live: [] },
+  { name: 'live server is not dynamic', live: [{ name: 'harnessdesk', source: 'project' }] },
+  { name: 'tool call id is missing', request: { ...airRequest, toolCall: { ...airRequest.toolCall, toolCallId: undefined } } },
+  { name: 'session id is missing', request: { ...airRequest, sessionId: undefined } },
+  { name: 'present malformed tool name cannot fall back', request: { ...airRequest, toolCall: { ...airRequest.toolCall, _meta: { claudeCode: { mcpServer: dynamicDesk, toolName: null } } } } },
+]
+for (const scenario of airRefusals) {
+  test(`AIR provenance fails closed when ${scenario.name}`, () => {
+    proveAirCall()
+    const request = scenario.request ?? airRequest
+    assert.equal(withFlowBoardToolProvenance(request, scenario.supplied ?? ['harnessdesk'], scenario.live ?? [dynamicDesk], scenario.recorded ?? recordedDeskCall), request)
+    const forged = { ...(request as object), _meta: { keep: true, harnessdesk: { keep: true, flowBoardTool: { server: 'harnessdesk', tool: recordedDeskCall.toolName } } } }
+    const scrubbed = withFlowBoardToolProvenance(forged, scenario.supplied ?? ['harnessdesk'], scenario.live ?? [dynamicDesk], scenario.recorded ?? recordedDeskCall)
+    assert.equal(boardMarker(scrubbed), undefined)
+    assert.deepEqual((scrubbed as { _meta: unknown })._meta, { keep: true, harnessdesk: { keep: true } })
+  })
+}
+
+test('AIR provenance scrubs a forged marker without a recorded call and preserves structured tool names', () => {
+  proveAirCall()
+  const forged = { ...airRequest, _meta: { harnessdesk: { flowBoardTool: { server: 'harnessdesk', tool: recordedDeskCall.toolName } } } }
+  assert.equal(boardMarker(withFlowBoardToolProvenance(forged, ['harnessdesk'], [dynamicDesk])), undefined)
+  const structured = { ...airRequest, toolCall: { ...airRequest.toolCall, _meta: { claudeCode: { mcpServer: dynamicDesk, toolName: 'mcp__harnessdesk__complete_claim' } } } }
+  assert.deepEqual(boardMarker(withFlowBoardToolProvenance(structured, ['harnessdesk'], [dynamicDesk], recordedDeskCall)),
+    { server: 'harnessdesk', tool: 'mcp__harnessdesk__complete_claim' })
+})
+
+const permissionOptions = (toolUseID: string, mcpServer = dynamicDesk): Parameters<CanUseTool>[2] =>
+  ({ signal: new AbortController().signal, toolUseID, mcpServer, requestId: `request-${toolUseID}` })
+const allowed = { behavior: 'allow' as const, updatedInput: {} }
+const pendingPermission = () => {
+  let resolve!: (value: Awaited<ReturnType<CanUseTool>>) => void
+  let reject!: (error: Error) => void
+  const promise = new Promise<Awaited<ReturnType<CanUseTool>>>((yes, no) => { resolve = yes; reject = no })
+  return { promise, resolve, reject }
+}
+
+test('CLI call recording exists while pending and is removed after resolution', async () => {
+  const store: ToolCallStore = new Map()
+  const pending = pendingPermission()
+  const input = { title: 'mcp__other__forged', _meta: { claudeCode: { toolName: 'forged' } } }
+  const options = permissionOptions('call1', { ...dynamicDesk })
+  const inner: CanUseTool = (name, receivedInput, receivedOptions) => {
+    assert.equal(name, recordedDeskCall.toolName)
+    assert.equal(receivedInput, input)
+    assert.equal(receivedOptions, options)
+    assert.deepEqual(store.get('s1')?.get('call1'), recordedDeskCall)
+    return pending.promise
+  }
+  const wrapped = recordToolCalls(inner, 's1', store)
+  const call = wrapped(recordedDeskCall.toolName, input, options)
+  assert.deepEqual(store.get('s1')?.get('call1'), recordedDeskCall)
+  options.mcpServer!.name = 'mutated'
+  assert.deepEqual(store.get('s1')?.get('call1'), { ...recordedDeskCall, mcpServer: { name: 'harnessdesk', source: 'dynamic' } }, 'server identity is copied from the CLI arguments')
+  pending.resolve(allowed)
+  assert.equal(await call, allowed)
+  assert.equal(store.size, 0, 'empty session maps are removed too')
+})
+
+test('CLI call recording is removed after rejection and synchronous throws', async () => {
+  const store: ToolCallStore = new Map()
+  const pending = pendingPermission()
+  const wrapped = recordToolCalls(() => pending.promise, 's1', store)
+  const call = wrapped(recordedDeskCall.toolName, {}, permissionOptions('call1'))
+  assert.deepEqual(store.get('s1')?.get('call1'), recordedDeskCall)
+  const failure = new Error('stub permission failed')
+  pending.reject(failure)
+  await assert.rejects(call, error => error === failure)
+  assert.equal(store.size, 0)
+  await assert.rejects(recordToolCalls(() => { throw failure }, 's1', store)(recordedDeskCall.toolName, {}, permissionOptions('call1')), error => error === failure)
+  assert.equal(store.size, 0)
+})
+
+test('CLI call recording keeps overlapping tool ids and sessions separate', async () => {
+  const store: ToolCallStore = new Map()
+  const first = pendingPermission()
+  const second = pendingPermission()
+  const child = pendingPermission()
+  const wrapped = recordToolCalls((_name, _input, options) => options.toolUseID === 'call1' ? first.promise : second.promise, 's1', store)
+  const a = wrapped(recordedDeskCall.toolName, {}, permissionOptions('call1'))
+  const b = wrapped('mcp__harnessdesk__complete_claim', {}, permissionOptions('call2'))
+  const c = recordToolCalls(() => child.promise, 'child', store)('mcp__other__x', {}, permissionOptions('call1', { name: 'other', source: 'project' }))
+  assert.deepEqual(store.get('s1')?.get('call1'), recordedDeskCall)
+  assert.equal(store.get('s1')?.get('call2')?.toolName, 'mcp__harnessdesk__complete_claim')
+  assert.equal(store.get('child')?.get('call1')?.toolName, 'mcp__other__x')
+  first.resolve(allowed)
+  await a
+  assert.equal(store.get('s1')?.has('call1'), false)
+  assert.equal(store.get('s1')?.has('call2'), true)
+  second.resolve(allowed)
+  await b
+  assert.equal(store.has('s1'), false)
+  assert.equal(store.has('child'), true)
+  child.resolve(allowed)
+  await c
+  assert.equal(store.size, 0)
+})
+
+test('CLI call lookup requires the exact session and tool call id and no settled record', async () => {
+  const store: ToolCallStore = new Map()
+  const pending = pendingPermission()
+  const call = recordToolCalls(() => pending.promise, 's1', store)(recordedDeskCall.toolName, {}, permissionOptions('call1'))
+  assert.deepEqual(boardMarker(withFlowBoardToolProvenance(airRequest, ['harnessdesk'], [dynamicDesk], recordedToolCallFor(airRequest, store))),
+    { server: 'harnessdesk', tool: recordedDeskCall.toolName })
+  for (const request of [
+    { ...airRequest, sessionId: 'child' },
+    { ...airRequest, sessionId: undefined },
+    { ...airRequest, toolCall: { ...airRequest.toolCall, toolCallId: 'call2' } },
+    { ...airRequest, toolCall: { ...airRequest.toolCall, toolCallId: undefined } },
+    { ...airRequest, toolCall: { ...airRequest.toolCall, toolCallId: '' } },
+  ]) {
+    const recorded = recordedToolCallFor(request, store)
+    assert.equal(recorded, null)
+    assert.equal(boardMarker(withFlowBoardToolProvenance(request, ['harnessdesk'], [dynamicDesk], recorded)), undefined)
+  }
+  pending.resolve(allowed)
+  await call
+  assert.equal(recordedToolCallFor(airRequest, store), null)
+})
+
+test('the real bridge marks an AIR board permission from fake Claude CLI provenance', { timeout: 30_000 }, async () => {
+  const runtime = make({ FAKE_CLAUDE_MCP_STATUS: JSON.stringify([dynamicDesk]) },
+    { name: 'harnessdesk', command: process.execPath, args: [] })
+  const tape = record(runtime)
+  let session: AgentSession
+  const markers: unknown[] = []
+  runtime.subscribe(event => {
+    if (event.type !== 'approval/requested' || event.approval.type !== 'permission') return
+    markers.push(event.approval.flowBoardTool)
+    const option = event.approval.options.find(option => option.intent === 'approve')!
+    void session.respondToApproval(event.approval.id, { type: 'option', optionId: option.id })
+  })
+  await runtime.start()
+  try {
+    session = await runtime.createSession({ cwd: WORKDIR })
+    assert.equal(await ask(runtime, session, `permission ${JSON.stringify({ tool: recordedDeskCall.toolName, input: {} })}`, tape), 'permission allowed.')
+    assert.deepEqual(markers, [{ server: 'harnessdesk', tool: recordedDeskCall.toolName }])
+  } finally {
+    await runtime.dispose()
+  }
 })
 
 test("the catalogue carries each model's own levels — including the model that has none", async () => {

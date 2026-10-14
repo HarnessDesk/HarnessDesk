@@ -23,6 +23,7 @@ import {
   type SetSessionConfigOptionRequest,
   type SetSessionConfigOptionResponse,
 } from '@agentclientprotocol/sdk'
+import type { CanUseTool } from '@anthropic-ai/claude-agent-sdk'
 import { ClaudeAcpAgent, nodeToWebReadable, nodeToWebWritable } from '@agentclientprotocol/claude-agent-acp'
 import { DESK_TOOL_CEILINGS, isCompactionSummary, peelDeskContextPrefix, withoutCompaction } from '@harnessdesk/protocol'
 
@@ -444,11 +445,46 @@ export interface HarnessDeskClaudeAgentOptions { readonly stateDir?: string; rea
 type AcpClient = { sessionUpdate(params: SessionNotification): Promise<void>; requestPermission(params: unknown, signal?: AbortSignal): Promise<unknown>; readTextFile?(params: unknown): Promise<unknown>; writeTextFile?(params: unknown): Promise<unknown>; createElicitation?(params: unknown, signal?: AbortSignal): Promise<unknown>; completeElicitation?(params: unknown): Promise<void>; extNotification?(method: string, params: unknown): Promise<void> }
 type Logger = { log: (...args: unknown[]) => void; error: (...args: unknown[]) => void }
 
+export type RecordedToolCall = {
+  readonly toolName: string
+  readonly mcpServer: { readonly name: string; readonly source: string } | undefined
+}
+export type ToolCallStore = Map<string, Map<string, RecordedToolCall>>
+
+/** Keep only CLI identity, and only for the lifetime of its permission check. */
+export const recordToolCalls = (inner: CanUseTool, sessionId: string, store: ToolCallStore): CanUseTool =>
+  async (toolName, input, options) => {
+    if (!sessionId || typeof options.toolUseID !== 'string' || !options.toolUseID) return inner(toolName, input, options)
+    const calls = store.get(sessionId) ?? new Map<string, RecordedToolCall>()
+    const recorded: RecordedToolCall = {
+      toolName,
+      mcpServer: options.mcpServer ? { name: options.mcpServer.name, source: options.mcpServer.source } : undefined,
+    }
+    calls.set(options.toolUseID, recorded)
+    store.set(sessionId, calls)
+    try {
+      return await inner(toolName, input, options)
+    } finally {
+      calls.delete(options.toolUseID)
+      if (calls.size === 0) store.delete(sessionId)
+    }
+  }
+
+/** A subagent or an unidentified request cannot borrow a parent's call record. */
+export const recordedToolCallFor = (value: unknown, store: ToolCallStore): RecordedToolCall | null => {
+  const request = value as { sessionId?: unknown; toolCall?: { toolCallId?: unknown } } | null | undefined
+  const sessionId = request?.sessionId
+  const toolCallId = request?.toolCall?.toolCallId
+  if (typeof sessionId !== 'string' || !sessionId || typeof toolCallId !== 'string' || !toolCallId) return null
+  return store.get(sessionId)?.get(toolCallId) ?? null
+}
+
 /** Adds provenance only when the desk server supplied for this session asked. */
 export const withFlowBoardToolProvenance = (
   value: unknown,
   suppliedServerNames: readonly string[],
   liveServerStatus: readonly { readonly name: string; readonly source?: string }[],
+  recordedCall?: RecordedToolCall | null,
 ): unknown => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return value
   const request = value as Record<string, unknown>
@@ -469,18 +505,33 @@ export const withFlowBoardToolProvenance = (
   const matchingLiveServers = liveServerStatus.filter((server) => server.name === 'harnessdesk')
   if (
     suppliedServerNames.filter((name) => name === 'harnessdesk').length !== 1 ||
-    claudeCode?.mcpServer?.name !== 'harnessdesk' ||
-    claudeCode.mcpServer.source !== 'dynamic' ||
     matchingLiveServers.length !== 1 ||
-    matchingLiveServers[0]?.source !== 'dynamic' ||
-    typeof claudeCode.toolName !== 'string' ||
-    !claudeCode.toolName.startsWith('mcp__harnessdesk__')
+    matchingLiveServers[0]?.source !== 'dynamic'
   ) return cleanRequest
+  let toolName: unknown
+  if (Object.hasOwn(claudeCode ?? {}, 'toolName')) {
+    // Preserve the structured non-AIR path; malformed names never fall back.
+    if (claudeCode?.mcpServer?.name !== 'harnessdesk' || claudeCode.mcpServer.source !== 'dynamic') return cleanRequest
+    toolName = claudeCode.toolName
+  } else {
+    // AIR omits the name. The caller supplies only the record for these exact ids.
+    if (
+      typeof request['sessionId'] !== 'string' || !request['sessionId'] ||
+      typeof call['toolCallId'] !== 'string' || !call['toolCallId'] ||
+      recordedCall?.mcpServer?.name !== 'harnessdesk' || recordedCall.mcpServer.source !== 'dynamic'
+    ) return cleanRequest
+    if (Object.hasOwn(claudeCode ?? {}, 'mcpServer') && (
+      claudeCode?.mcpServer?.name !== recordedCall.mcpServer.name ||
+      claudeCode.mcpServer.source !== recordedCall.mcpServer.source
+    )) return cleanRequest
+    toolName = recordedCall.toolName
+  }
+  if (typeof toolName !== 'string' || !toolName.startsWith('mcp__harnessdesk__')) return cleanRequest
   return {
     ...cleanRequest,
     _meta: {
       ...requestMeta,
-      harnessdesk: { ...cleanHarnessdesk, flowBoardTool: { server: 'harnessdesk', tool: claudeCode.toolName } },
+      harnessdesk: { ...cleanHarnessdesk, flowBoardTool: { server: 'harnessdesk', tool: toolName } },
     },
   }
 }
@@ -549,6 +600,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
   readonly #outputPollers = new Map<string, ReturnType<typeof setTimeout>>()
   readonly #deletedSessions = new Set<string>()
   readonly #suppliedMcpServers = new Map<string, readonly string[]>()
+  readonly #toolCalls: ToolCallStore = new Map()
   /** The exact input a session was prepared with, and what actually got staged for it — set once at create/load, reapplied unchanged by `#recreate`. */
   readonly #attachments = new Map<string, { input: AttachmentInput; staged: StagedAttachments }>()
   readonly #stateDir: string
@@ -570,6 +622,7 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
         params,
         this.#suppliedMcpServers.get(sessionId) ?? [],
         liveServerStatus,
+        recordedToolCallFor(params, this.#toolCalls),
       ), signal)
     }
     const notify = client.sessionUpdate.bind(client)
@@ -633,6 +686,9 @@ export class HarnessDeskClaudeAgent extends ClaudeAcpAgent {
     }
     this.#stateDir = options.stateDir ?? process.env['CLAUDE_ACP_STATE_DIR'] ?? join(homedir(), '.harnessdesk', 'claude-acp')
     this.#log = options.log ?? ((line) => process.stderr.write(`${line}\n`))
+  }
+  override canUseTool(sessionId: string): CanUseTool {
+    return recordToolCalls(super.canUseTool(sessionId), sessionId, this.#toolCalls)
   }
   override async initialize(request: InitializeRequest): Promise<InitializeResponse> {
     const response = await super.initialize(request)
