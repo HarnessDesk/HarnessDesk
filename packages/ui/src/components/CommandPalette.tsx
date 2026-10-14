@@ -25,8 +25,10 @@ import { brandOf } from '../lib/identity'
 import { firstReason, inForce, markFor, seatTaken } from '../lib/agents'
 import { extractHit, highlightAll, type HighlightSpan } from '../lib/search-highlight'
 import { firstAsk, sessionLabel } from '../lib/sessions'
+import { handOverToComposer } from '../lib/compose'
 import { availableCommands } from '../state/commands'
 import { useSnapshot, useStore } from '../state/context'
+import type { AppSnapshot, AppStore } from '../state/store'
 import { sidebarPlacement } from '../state/workbench'
 import {
   AgentIcon,
@@ -176,8 +178,18 @@ const score = (query: string, label: string, extra: string): number => {
   return pairs > 0 ? 5 + pairs : 0
 }
 
-const compose = (text: string): void => {
-  window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: text }))
+/**
+ * A picked command goes to the conversation's message box. The palette opens
+ * over any page, and the composer ignores a bare compose event while a page
+ * (the Library, Settings) rather than the conversation is showing — so from a
+ * page the command was dropped without a word. Go back to the work first, hand
+ * it over until a composer takes it, and say so when none does.
+ */
+const compose = (store: AppStore, snapshot: AppSnapshot, text: string): void => {
+  if (snapshot.workbench.navigation.current.kind !== 'work') store.returnToWork()
+  void handOverToComposer({ text }).then((received) => {
+    if (!received) store.notice('warning', 'The message box did not take it — click into the conversation and try again.')
+  })
 }
 
 export const CommandPalette = ({ host }: { host: PaletteHost }) => {
@@ -606,7 +618,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
       icon: <SlashIcon size={14} />,
       run: () => {
         close()
-        compose(`/${command.name} `)
+        compose(store, snapshot, `/${command.name} `)
       },
     }))
 
