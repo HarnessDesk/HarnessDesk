@@ -256,6 +256,18 @@ export class Worktrees {
     return list(repoRoot, this.stateDir)
   }
 
+  /** Eligibility is not authority: the captured project identity still has to agree. */
+  async shellCheckoutEligible(from: string, checkout: string, openedCheckoutRoots: readonly string[] = []): Promise<boolean> {
+    try {
+      const registered = (await this.list(from)).find((entry) =>
+        samePath(entry.path, checkout) && (entry.managed || openedCheckoutRoots.some((root) => samePath(checkout, root))))
+      // A listing path replaced by a link no longer names the checkout it registered.
+      return registered !== undefined && samePath(await realpath(registered.path), registered.path)
+    } catch {
+      return false
+    }
+  }
+
   /** A shell boundary is a captured project, its opened checkout or a managed lane, never caller metadata. */
   async shellRoot(project: string, candidate?: string, gitCommonDir: string | null = null, openedCheckoutRoot: string | null = null): Promise<string> {
     assertAbsolute(project)
@@ -269,10 +281,7 @@ export class Worktrees {
       const checkout = await realpath(candidate)
       if (samePath(checkout, parse(checkout).root) || samePath(checkout, await realpath(homedir()))) return root
       if (samePath(checkout, root)) return root
-      const registered = (await this.list(root)).find((entry) =>
-        samePath(entry.path, checkout) && (entry.managed || openedCheckoutRoot !== null && samePath(checkout, openedCheckoutRoot)))
-      // A listing path replaced by a link no longer names the checkout it registered.
-      if (!registered || !samePath(await realpath(registered.path), registered.path)) return root
+      if (!await this.shellCheckoutEligible(root, checkout, openedCheckoutRoot === null ? [] : [openedCheckoutRoot])) return root
       const repository = await shellCheckoutIdentity(checkout)
       // Only the identity captured at open authorizes a linked checkout.
       return repository && gitCommonDir && samePath(repository.checkoutRoot, checkout) && samePath(repository.gitCommonDir, gitCommonDir) ? checkout : root
