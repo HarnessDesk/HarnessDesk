@@ -147,6 +147,15 @@ describe('Sidebar readiness with active runtime (#382)', () => {
     expect(document.querySelector('[aria-label="Search shapes"]')).not.toBeNull()
   })
 
+  it('says why New worktree… is unavailable, not what a worktree is', () => {
+    mount({ workspace: { path: '/workspace/plain' } as AppSnapshot['workspace'] })
+    act(() => container.querySelector<HTMLButtonElement>('button[title="More ways to start"]')!.click())
+    const row = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((one) => one.textContent?.startsWith('New worktree…'))!
+    expect(row.hasAttribute('disabled') || row.getAttribute('aria-disabled') === 'true' || row.hasAttribute('data-disabled')).toBe(true)
+    expect(row.textContent).toContain('Worktrees need a git repository.')
+    expect(row.textContent).not.toContain('Its own checkout')
+  })
+
   it('shows no sessions empty state rather than connect runtime when active runtime is ready', () => {
     mount()
     const empty = container.querySelector('[data-slot="empty-state"]')
