@@ -133,6 +133,8 @@ const mount = async (
     definition?: unknown
     /** Stands in for the store verb, so a toggle's arguments can be read. */
     setSkillEnabled?: (...args: unknown[]) => Promise<void>
+    /** Stands in for the store verb that leaves the page for the conversation. */
+    returnToWork?: () => void
   } = {},
 ): Promise<ReturnType<typeof vi.fn>> => {
   // Method-aware: the page asks for the library, then usage, then its own
@@ -163,6 +165,8 @@ const mount = async (
     getSnapshot: () => snapshot,
     transport: { request },
     setSkillEnabled: options.setSkillEnabled ?? (async () => {}),
+    returnToWork: options.returnToWork ?? (() => {}),
+    notice: vi.fn(),
     // The Agent filter's own roster read — these fixtures never populate
     // `snapshot.agents`, so this stays a no-op and the filter offers nothing.
     loadAgents: vi.fn(async () => {}),
@@ -1080,6 +1084,44 @@ it('opening a row reads the definition off the host and renders it', async () =>
   // reads to decide whether to fire, so a reader who cannot see it cannot
   // debug that decision.
   expect(sheet?.textContent).toContain('description: Review the diff.')
+})
+
+it('Use in composer leaves the page for the conversation, then hands the command over', async () => {
+  // The composer ignores a compose event while a page, not the conversation,
+  // is showing — so a bare event sent from the Library closed the sheet and
+  // went nowhere, with no word that it had. The press has to go back to the
+  // work first and keep handing over until a composer takes it.
+  const calls: string[] = []
+  await mount(library([entry('code-review', ['reaches', 'absent'])]), undefined, {
+    definition: {
+      name: 'code-review',
+      kind: 'skill',
+      path: '/home/u/.claude/skills/code-review',
+      text: '---\nname: code-review\ndescription: Review the diff.\n---\n\n# Code review',
+      truncated: false,
+      files: [{ path: 'SKILL.md', bytes: 90 }],
+      moreFiles: 0,
+    },
+    returnToWork: () => calls.push('returnToWork'),
+  })
+  await act(async () => cards()[0]?.click())
+  const use = [...document.querySelectorAll('button')].find((button) => button.textContent === 'Use in composer')
+  expect(use, 'the sheet should offer Use in composer').toBeTruthy()
+
+  const listener = (event: Event): void => {
+    const detail = (event as CustomEvent<{ text: string; onReceived: () => void }>).detail
+    calls.push(`compose ${detail.text}`)
+    detail.onReceived()
+  }
+  window.addEventListener('harnessdesk:compose', listener)
+  try {
+    await act(async () => use?.click())
+  } finally {
+    window.removeEventListener('harnessdesk:compose', listener)
+  }
+
+  expect(calls).toEqual(['returnToWork', 'compose /code-review '])
+  expect(document.querySelector('[data-slot="skill-sheet"]'), 'the sheet closes').toBeNull()
 })
 
 it('a definition the host cannot answer for is said, never left blank', async () => {
