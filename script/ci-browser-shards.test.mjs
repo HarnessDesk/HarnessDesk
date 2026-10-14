@@ -195,7 +195,8 @@ test('the gate check waits for every part of the gate and packaging waits for it
   for (const [part, key] of GATE_PARTS) {
     assert.ok(gate.includes(`${key}: \${{ needs.${part}.result }}`), key)
     // Each part builds what it runs against: none of them borrows another's checkout.
-    assert.match(job(part), /^      - name: Build\n        run: pnpm run build$/m, `${part} builds`)
+    if (part !== 'ui-tests') assert.match(job(part), /^      - name: Build\n        run: pnpm run build$/m, `${part} builds`)
+    else assert.match(job(part), /^    needs: \[changes, ui-typecheck, ui-unit-tests\]$/m, 'UI tests aggregates jobs that build their own inputs')
   }
   assert.match(job('package'), /^    needs: verify$/m)
 })
@@ -260,12 +261,15 @@ test('the map is made from a clean full run, kept only by main, and read by a pu
 })
 
 test('a pull request runs the unit tests that depend on its change, and every other run runs them all', () => {
-  const tests = job('ui-tests')
-  assert.match(tests, /node script\/ci-unit-tests\.mjs "\$list"/)
-  assert.match(tests, /git diff --no-renames --name-only -z HEAD\^1 HEAD > "\$list"/)
-  // Each command is a step of its own, so the gate that holds `pnpm verify` and CI to the same commands finds the whole run.
-  assert.match(tests, /- name: UI tests\n        if: steps\.unit\.outputs\.mode == 'all'\n        run: pnpm --filter @harnessdesk\/ui run test\n/)
-  assert.match(tests, /if: steps\.unit\.outputs\.mode == 'related'\n        env:\n          UNIT_FILES: \$\{\{ steps\.unit\.outputs\.files \}\}\n        run: pnpm --filter @harnessdesk\/ui exec vitest related --run \$UNIT_FILES\n/)
+  const changes = job('changes'), tests = job('ui-unit-tests')
+  assert.match(changes, /node script\/ci-unit-tests\.mjs "\$list"/)
+  assert.match(changes, /git diff --no-renames --name-only -z HEAD\^1 HEAD > "\$list"/)
+  assert.match(tests, /if: needs\.changes\.outputs\.unit_mode == 'all'/)
+  assert.match(tests, /id: deal\n        if: needs.changes.outputs.unit_mode == 'all'\n        run: \|/)
+  assert.match(tests, /test -s "\$deal"/)
+  assert.match(tests, /UNIT_DEAL: \$\{\{ steps.deal.outputs.files \}\}\n        run: pnpm --filter @harnessdesk\/ui run test \$UNIT_DEAL\n/)
+  assert.match(tests, /UNIT_FILES: \$\{\{ needs\.changes\.outputs\.unit_files \}\}/)
+  assert.match(tests, /if: needs\.changes\.outputs\.unit_mode == 'related'\n        run: pnpm --filter @harnessdesk\/ui exec vitest related --run \$UNIT_FILES\n/)
 })
 
 

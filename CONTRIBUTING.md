@@ -154,6 +154,16 @@ pattern), a deleted file or anything the test setup imports, and every run of
 `main`, runs them all. A package the UI is not built from and does not read is
 nothing to these tests (`script/ci-unit-tests.mjs`).
 
+Full unit runs are sharded by measured file time, longest first onto the lightest
+shard, using `script/ci-unit-shards.mjs` and `script/ci-unit-durations.json`.
+Refresh the table from the last five full `main` run logs with
+`node script/ci-unit-shards.mjs --refresh run.log … > script/ci-unit-durations.json`;
+new files use the median recorded time. Related tests use one shard; UI typecheck
+and desktop tests run once in their own job, and `UI tests` aggregates both jobs'
+results. Files under `script/` that no UI file imports or mentions by path do not
+select unit tests, unless they configure Vitest or belong to the setup closure;
+scripts read by the UI include their transitive script imports.
+
 `server` runs only specs that import packages outside those UI inputs, in
 one Ubuntu job, for other package changes. The selector discovers those
 imports, including local helpers; the spec list needs no manual update. `none`

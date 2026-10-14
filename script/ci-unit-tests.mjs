@@ -7,7 +7,7 @@
 //
 //   node script/ci-unit-tests.mjs <changed paths, NUL separated>
 //   → mode=all | related | none, files=<paths relative to packages/ui>, summary=…
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { dirname, extname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -23,12 +23,63 @@ const SETUP = /(?:^|\/)(?:setup-tests\.[cm]?[jt]s|vitest[^/]*\.[cm]?[jt]s)$/
 const TEST = /\.test\.[cm]?[jt]sx?$/
 const MOST = 300
 
+// Include literal template dynamic imports as well as the ordinary import forms.
+const imports = text => [...text.matchAll(IMPORT)].map(([, specifier]) => specifier)
+  .concat([...text.matchAll(/\bimport\s*\(\s*`([^`$\n]+)`\s*\)/g)].map(([, specifier]) => specifier))
+const sourceAt = base => [base, ...SOURCE.map(ext => `${base}${ext}`), ...SOURCE.map(ext => join(base, `index${ext}`))]
+  .find(candidate => {
+    try { return existsSync(candidate) && statSync(candidate).isFile() } catch { return false }
+  })
+
 // The file system, or a pattern over files that are not the images of `assets/` (which every change to them
 // already runs the whole suite for).
 const readsTree = text => /\bfrom\s+['"](?:node:)?fs(?:\/promises)?['"]/.test(text)
   || [...text.matchAll(/import\.meta\.glob\s*[<(]([\s\S]{0,240})/g)].some(([, pattern]) => !/assets\//.test(pattern) || /(?:components|panels|src)\//.test(pattern))
 
-// What a file of the UI imports from the UI's own source, to the end of the chain.
+const STRING = /'((?:\\.|[^'\\\r\n])*)'|"((?:\\.|[^"\\\r\n])*)"|`((?:\\.|[^`\\])*)`/g
+const literals = text => [...text.matchAll(STRING)]
+  .map(([, single, double, template]) => single ?? double ?? template)
+// Config strings can define aliases without reading the filesystem themselves.
+// Consume comments as separate tokens so their prose cannot define an alias.
+const CONFIG_STRING = new RegExp(`//[^\\r\\n]*|/\\*[^]*?\\*/|${STRING.source}`, 'g')
+const configNamesScriptDirectory = text => [...text.matchAll(CONFIG_STRING)]
+  .some(([, single, double, template]) => /\bscript\/|(?:^|\/)script$/.test(single ?? double ?? template ?? ''))
+
+// These scans deliberately include comments, fixtures and displayed examples.
+// A stray mention costs a suite; missing a possible read costs coverage.
+const staticImports = text => [...text.matchAll(/\b(?:from\s*|import\s*)['"]([^'"\n]+)['"]/g)].map(([, specifier]) => specifier)
+const fsOrProcessReader = (text, specifiers = imports(text)) => specifiers.some(path => /^(?:(?:node:)?(?:fs(?:\/promises)?|child_process)|execa|cross-spawn)$/.test(path))
+  || /\bimport\.meta\.glob\s*(?:<[^>]*>)?\(/.test(text)
+const scriptGlobs = text => [...text.matchAll(/\bimport\.meta\.glob\s*(?:<[^>]*>)?\(\s*(\[[^\]]*\]|'[^']*'|"[^"]*"|`[^`]*`)/g)]
+  .flatMap(([, argument]) => literals(argument)).filter(path => !path.includes('${'))
+const scriptPath = path => path === 'script' || path.startsWith('script/')
+const inRepository = path => path !== '..' && !path.startsWith('../')
+const relativeTargets = (root, file, specifiers, inside = inRepository) => specifiers.filter(specifier => specifier.startsWith('.'))
+  .map(specifier => resolve(dirname(file), specifier.replace(/[?#].*$/, '')))
+  .filter(base => inside(relative(root, base))).map(sourceAt).filter(Boolean)
+
+// D: a quoted word or path segment plus filesystem/process access can build any
+// sibling's path. The manifest's "scripts" key is neither of those mentions.
+const namesScriptDirectory = text => /\bscript\/|(['"`])script\1|\/script['"`]/.test(text)
+export const readsScriptDirectory = text => fsOrProcessReader(text) && namesScriptDirectory(text)
+
+const outsideReadFiles = root => {
+  const ui = join(root, 'packages/ui')
+  const sources = ['src', 'site-demo'].flatMap(prefix => existsSync(join(ui, prefix)) ? walk(join(ui, prefix)) : [])
+  const configs = existsSync(ui) ? readdirSync(ui).filter(name => /^(?:vitest.*\.ts|vite\.config\.ts|package\.json|tsconfig.*\.json)$/.test(name))
+    .map(name => join(ui, name)) : []
+  const reached = new Set()
+  const queue = [...configs]
+  while (queue.length) {
+    const file = queue.pop()
+    if (reached.has(file)) continue
+    reached.add(file)
+    queue.push(...relativeTargets(root, file, imports(readFileSync(file, 'utf8'))))
+  }
+  return { files: new Set([...sources, ...reached]), uiFiles: new Set([...sources, ...configs]), configFiles: reached }
+}
+
+// What a file of the UI imports from its source or from scripts, to the end of the chain.
 const closure = (root, start, edges = new Map()) => {
   const seen = new Set()
   const queue = [start]
@@ -38,12 +89,15 @@ const closure = (root, start, edges = new Map()) => {
     seen.add(file)
     if (!edges.has(file)) {
       const from = join(root, file)
+      const text = readFileSync(from, 'utf8')
       const found = []
-      for (const [, specifier] of readFileSync(from, 'utf8').matchAll(IMPORT)) {
+      for (const specifier of imports(text)) {
         const clean = specifier.replace(/[?#].*$/, '')
         const base = clean.startsWith('@/') ? join(root, 'packages/ui/src', clean.slice(2)) : clean.startsWith('.') ? resolve(dirname(from), clean) : null
-        const target = base && [base, ...SOURCE.map(ext => `${base}${ext}`), ...SOURCE.map(ext => join(base, `index${ext}`))].find(candidate => existsSync(candidate) && statSync(candidate).isFile())
-        if (target && uiSource(relative(root, target))) found.push(relative(root, target))
+        const target = base && sourceAt(base)
+        if (!target) continue
+        const path = relative(root, target)
+        if (path.startsWith('script/') || uiSource(path)) found.push(path)
       }
       edges.set(file, found)
     }
@@ -83,29 +137,78 @@ export function setupFiles(root) {
 // with.
 export function outsideReads(root) {
   const reads = new Set()
-  for (const prefix of ['packages/ui/src', 'packages/ui/site-demo']) {
-    const directory = join(root, prefix)
-    if (!existsSync(directory)) continue
-    for (const file of walk(directory)) {
-      if (!SOURCE.includes(extname(file))) continue
-      const text = readFileSync(file, 'utf8')
-      const outside = target => {
-        const path = relative(root, target)
-        return path.startsWith('..') || path.startsWith('packages/ui/') ? null : path
-      }
-      for (const [, specifier] of text.matchAll(IMPORT)) {
-        if (!specifier.startsWith('.')) continue
-        const path = outside(resolve(dirname(file), specifier.replace(/[?#].*$/, '')))
-        if (path) reads.add(path)
-      }
-      for (const [, pattern] of text.matchAll(/import\.meta\.glob\s*(?:<[^>]*>)?\(\s*\[?\s*['"]([^'"]+)['"]/g)) {
-        if (!pattern.startsWith('.')) continue
-        const path = outside(resolve(dirname(file), pattern.split(/[*{[]/)[0]))
-        if (path) reads.add(path)
+  // The flag follows the seed's static closure: imports (B) may execute a
+  // reader; a name in ordinary UI text (A) only reads the named closure.
+  const scripts = new Map()
+  const queue = []
+  const addScript = (base, reader) => {
+    const path = relative(root, base)
+    if (!scriptPath(path)) return
+    let files
+    try {
+      const stat = statSync(base)
+      if (stat.isFile()) files = [base]
+      else if (stat.isDirectory()) files = walk(base)
+    } catch { /* Missing paths and constructed fragments are not named reads. */ }
+    if (!files?.length) return
+    reads.add(path === 'script' ? 'script/' : path)
+    for (const file of files.filter(file => SOURCE.includes(extname(file)))) {
+      const target = relative(root, file)
+      if (!scripts.has(target) || (reader && !scripts.get(target))) {
+        scripts.set(target, reader)
+        queue.push([target, reader])
       }
     }
   }
-  return [...reads]
+  const { files, uiFiles, configFiles } = outsideReadFiles(root)
+  for (const file of files) {
+    const text = readFileSync(file, 'utf8')
+    const specifiers = imports(text)
+    const reader = fsOrProcessReader(text, specifiers)
+    // A: names anywhere in the text, resolved against real files/directories.
+    for (const [path] of text.matchAll(/\bscript\/[\w./@+-]*[\w/@+-]/g)) addScript(join(root, path), reader)
+    // D: no path has to resolve when a reader can construct it.
+    if (reader && namesScriptDirectory(text)) reads.add('script/')
+    if (configFiles.has(file) && configNamesScriptDirectory(text)) reads.add('script/')
+    // B: relative imports and globs can name scripts without a script/ string.
+    for (const target of relativeTargets(root, file, specifiers, scriptPath)) addScript(target, true)
+    for (const pattern of scriptGlobs(text)) {
+      if (pattern.startsWith('.')) addScript(resolve(dirname(file), pattern.split(/[*{[]/)[0]), true)
+    }
+    // Keep the existing non-script read rules, including their source boundary.
+    if (!uiFiles.has(file) || !SOURCE.includes(extname(file))) continue
+    const outside = target => {
+      const path = relative(root, target)
+      return path.startsWith('..') || path.startsWith('packages/ui/') || scriptPath(path) ? null : path
+    }
+    for (const specifier of specifiers) {
+      if (!specifier.startsWith('.')) continue
+      const path = outside(resolve(dirname(file), specifier.replace(/[?#].*$/, '')))
+      if (path) {
+        reads.add(path)
+        const target = sourceAt(join(root, path))
+        if (target) reads.add(relative(root, target))
+      }
+    }
+    for (const [, pattern] of text.matchAll(/import\.meta\.glob\s*(?:<[^>]*>)?\(\s*\[?\s*['"]([^'"]+)['"]/g)) {
+      if (!pattern.startsWith('.')) continue
+      const path = outside(resolve(dirname(file), pattern.split(/[*{[]/)[0]))
+      if (path) reads.add(path)
+    }
+  }
+  // Static imports/re-exports only: no chasing a script's command strings,
+  // URL literals or individual read calls. Cycles and stronger seeds terminate.
+  while (queue.length) {
+    const [path, reader] = queue.pop()
+    const file = join(root, path)
+    const text = readFileSync(file, 'utf8')
+    reads.add(path)
+    // C applies to B's closure and reader seeds, but not to A-only names in
+    // ordinary UI text. Gate names in comments must not read every script.
+    if (reader && fsOrProcessReader(text)) reads.add('script/')
+    for (const target of relativeTargets(root, file, staticImports(text), scriptPath)) addScript(target, reader)
+  }
+  return [...reads].sort()
 }
 
 export function unitPlan(root, { event, paths }) {
@@ -118,11 +221,14 @@ export function unitPlan(root, { event, paths }) {
   // Another package that the UI is not built from, and that no file of the UI reads, is nothing to a unit test of it:
   // its own tests (the Node jobs) say what it does.
   const uiPackagesOf = uiPackages(root)
-  const unrelatedPackage = path => /^packages\/[^/]+\//.test(path) && !uiPackagesOf.has(path.split('/')[1]) && !reads.some(read => path === read || path.startsWith(`${read.replace(/\/?$/, '/')}`))
+  const isRead = path => reads.some(read => path === read || path.startsWith(`${read.replace(/\/?$/, '/')}`))
+  const unrelatedPackage = path => /^packages\/[^/]+\//.test(path) && !uiPackagesOf.has(path.split('/')[1]) && !isRead(path)
   const files = []
   for (const path of paths) {
+    if (path.startsWith('script/') && !existsSync(join(root, path))) return all(`${path} was deleted`)
     if (setup.has(path)) return all(`${path} is part of the test setup`)
-    if (IGNORED.some(pattern => pattern.test(path)) || unrelatedPackage(path)) continue
+    const unrelatedScript = path.startsWith('script/') && !isRead(path) && !SETUP.test(path)
+    if (IGNORED.some(pattern => pattern.test(path)) || unrelatedPackage(path) || unrelatedScript) continue
     if (!TRACKED.test(path)) return all(`${path} is read outside the UI's own source`)
     if (SETUP.test(path)) return all(`${path} sets up every test`)
     if (!existsSync(join(root, path))) return all(`${path} was deleted`)

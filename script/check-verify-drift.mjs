@@ -213,7 +213,12 @@ export const ciCommands = (yaml) => {
       raw = block.join(' ')
     }
     const parsed = parseCommand(raw)
-    if (parsed) out.push(parsed)
+    if (parsed) {
+      // Preserve the old whole-block parse, but the dealt-unit allowance below
+      // belongs only to an inline run: command, never to a shell body's text.
+      Object.defineProperty(parsed, 'inline', { value: raw === value })
+      out.push(parsed)
+    }
   }
 
   Object.defineProperty(out, 'includes', {
@@ -257,7 +262,15 @@ export const missingFromCI = (gate, workflow) => {
     const matched = workflow.some((entry) => {
       const parsed = typeof entry === 'string' ? parseCommand(entry) : entry
       if (!parsed) return false
-      return (
+      // CI runs the same unit command with the dealt filenames appended.
+      // Accept exactly that variable, not arbitrary filters or command prefixes;
+      // ci-unit-shards.test.mjs proves the deal covers the whole Vitest suite.
+      const dealtUnit = line === 'pnpm --filter @harnessdesk/ui run test'
+        && parsed.inline !== false
+        && parsed.command === command && parsed.args.length === args.length + 1
+        && parsed.args.at(-1) === '$UNIT_DEAL'
+        && args.every((arg, index) => parsed.args[index] === arg)
+      return dealtUnit || (
         parsed.command === command &&
         parsed.args.length === args.length &&
         parsed.args.every((arg, index) => arg === args[index])
