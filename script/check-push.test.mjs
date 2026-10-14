@@ -359,7 +359,28 @@ test('planner dependencies select planner tests, alongside changed scripts and t
   const plan = createPlan(root, { paths: ['script/ci-browser-shards.mjs', 'script/check-push.test.mjs', 'script/check-layering.mjs'], fast: true })
   assert.deepEqual(plan.steps.find(step => step.name === 'Script tests').args, ['--test',
     'script/check-layering.test.mjs', 'script/check-push.test.mjs', 'script/ci-browser-plan.test.mjs',
-    'script/ci-browser-shards.test.mjs', 'script/ci-changes.test.mjs', 'script/ci-imports.test.mjs', 'script/ci-planners.test.mjs', 'script/ci-unit-tests.test.mjs', 'script/gates.test.mjs', 'script/ui-impact.test.mjs'])
+    'script/ci-browser-shards.test.mjs', 'script/ci-changes.test.mjs', 'script/ci-imports.test.mjs', 'script/ci-planners.test.mjs', 'script/ci-unit-shards.test.mjs', 'script/ci-unit-tests.test.mjs', 'script/gates.test.mjs', 'script/ui-impact.test.mjs'])
+})
+
+test('the unit duration table selects the unit deal regression tests', async () => {
+  const { createPlan } = await api()
+  const plan = createPlan(root, { paths: ['script/ci-unit-durations.json'], fast: true })
+  assert.ok(plan.steps.find(step => step.name === 'Script tests').args.includes('script/ci-unit-shards.test.mjs'))
+})
+
+test('UI discovery inputs select the unit shard guards, including added or deleted test paths', async () => {
+  const { createPlan } = await api()
+  for (const path of ['packages/ui/vitest.config.ts', 'packages/ui/vitest.node-tests.ts', 'packages/ui/vitest.extra.ts',
+    'packages/ui/package.json', 'packages/ui/src/state/store.test.ts', 'packages/ui/src/nested/new.test.tsx', 'packages/ui/src/deleted.test.ts']) {
+    const plan = createPlan(root, { paths: [path], fast: true, chromium: false })
+    const tests = plan.steps.find(step => step.name === 'Script tests')
+    assert.equal(tests.status, 'run', path)
+    assert.ok(tests.args.includes('script/ci-unit-shards.test.mjs'), path)
+  }
+  for (const path of ['packages/ui/src/components/BringHome.tsx', 'packages/ui/site-demo/unused.test.ts', 'packages/ui/src/helper.test.mts']) {
+    const plan = createPlan(root, { paths: [path], fast: true, chromium: false })
+    assert.ok(!plan.steps.find(step => step.name === 'Script tests').args.includes('script/ci-unit-shards.test.mjs'), path)
+  }
 })
 
 test('gates see untracked additions without changing the real index', async () => {

@@ -128,7 +128,7 @@ function packageTests(root, paths) {
     }).filter(entry => entry.files.length > 0) }
 }
 
-const PLANNERS = ['ci-changes', 'ci-unit-tests', 'ui-impact', 'ci-imports', 'ci-browser-plan', 'ci-browser-shards']
+const PLANNERS = ['ci-changes', 'ci-unit-tests', 'ci-unit-shards', 'ui-impact', 'ci-imports', 'ci-browser-plan', 'ci-browser-shards']
 function scriptTests(root, paths) {
   const dependencies = new Set()
   const visit = file => {
@@ -142,10 +142,13 @@ function scriptTests(root, paths) {
   const selected = paths.filter(path => /^script\/[^/]+(?:\.test)?\.mjs$/.test(path))
     .map(path => path.endsWith('.test.mjs') ? path : path.replace(/\.mjs$/, '.test.mjs'))
   // The workflow, the browser configuration, the recorded times and the contributor guide are read by those tests.
-  const read = /^(?:\.github\/workflows\/ci\.yml|playwright\.ui-system\.config\.ts|e2e\/ui-system\/durations(?:\.pr)?\.json|CONTRIBUTING\.md|package\.json)$/
+  const read = /^(?:\.github\/workflows\/ci\.yml|playwright\.ui-system\.config\.ts|e2e\/ui-system\/durations(?:\.pr)?\.json|script\/ci-unit-durations\.json|CONTRIBUTING\.md|package\.json)$/
   // `ci-planners.test.mjs` is the guard that these files need nothing installed (CI plans before the install),
   // so it follows the same trigger: a bare import added anywhere in their closure must fail here, not in CI.
   if (paths.some(path => dependencies.has(path) || read.test(path))) selected.push(...PLANNERS.map(name => `script/${name}.test.mjs`), 'script/ci-planners.test.mjs')
+  // Discovery, unique substring filters and shell-safe names depend on the UI
+  // config and test inventory. Check paths alone so additions/deletions count.
+  if (paths.some(path => /^packages\/ui\/(?:vitest[^/]*\.ts|package\.json|src\/.+\.test\.tsx?)$/.test(path))) selected.push('script/ci-unit-shards.test.mjs')
   // A test that names a changed file by its name tests something that reads it: a gate's parser, a workflow, a manifest.
   // Over-selecting costs seconds; the gates' own tests are the ones a changed script is most likely to break.
   const named = paths.filter(path => !/\.test\.mjs$/.test(path) && /^(?:script\/.+|package\.json|\.github\/workflows\/.+|(?:AGENTS|CONTRIBUTING)\.md|playwright\.ui-system\.config\.ts|e2e\/ui-system\/durations(?:\.pr)?\.json)$/.test(path))

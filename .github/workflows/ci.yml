@@ -44,6 +44,10 @@ jobs:
       shard_count: ${{ steps.paths.outputs.shard_count }}
       shards: ${{ steps.paths.outputs.shards }}
       record: ${{ steps.paths.outputs.record }}
+      unit_mode: ${{ steps.paths.outputs.unit_mode }}
+      unit_files: ${{ steps.paths.outputs.unit_files }}
+      unit_shard_count: ${{ steps.paths.outputs.unit_shard_count }}
+      unit_shards: ${{ steps.paths.outputs.unit_shards }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -86,6 +90,23 @@ jobs:
           UI_THEME_TOUCHED="$theme" node script/ci-changes.mjs "$list" > "$RUNNER_TEMP/ci-plan"
           cat "$RUNNER_TEMP/ci-plan" >> "$GITHUB_OUTPUT"
           sed -n 's/^summary=//p' "$RUNNER_TEMP/ci-plan" >> "$GITHUB_STEP_SUMMARY"
+
+          # The same changed paths select unit tests once, before any install.
+          node script/ci-unit-tests.mjs "$list" > "$RUNNER_TEMP/ci-unit-plan"
+          sed -n 's/^mode=/unit_mode=/p; s/^files=/unit_files=/p' "$RUNNER_TEMP/ci-unit-plan" >> "$GITHUB_OUTPUT"
+          sed -n 's/^summary=//p' "$RUNNER_TEMP/ci-unit-plan" >> "$GITHUB_STEP_SUMMARY"
+          unit_mode=$(sed -n 's/^mode=//p' "$RUNNER_TEMP/ci-unit-plan")
+          unit_count=1
+          case "$unit_mode" in
+            all) unit_count=$(node script/ci-unit-shards.mjs --count) ;;
+            related) ;; # Vitest discovers related tests at run time: one shard.
+            none) unit_count=0 ;;
+            *) echo "Unknown unit mode: $unit_mode"; exit 1 ;;
+          esac
+          echo "unit_shard_count=$unit_count" >> "$GITHUB_OUTPUT"
+          # Keep [1] even when skipped, so the matrix is always well formed.
+          unit_shards=$(node -e 'console.log(JSON.stringify(Array.from({ length: Math.max(1, Number(process.argv[1])) }, (_, i) => i + 1)))' "$unit_count")
+          echo "unit_shards=$unit_shards" >> "$GITHUB_OUTPUT"
 
   # One job ran every step below in turn, and took as long as all of them added
   # together: the longest wait on every push, and the one that kept `package`
@@ -206,15 +227,17 @@ jobs:
       - name: CLI end-to-end tests
         run: node --test --test-timeout=600000 "packages/cli/dist/test/e2e*.test.js"
 
-  ui-tests:
-    name: UI tests
+  ui-typecheck:
+    name: UI typecheck and desktop tests
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # These run once, alongside the shards. Fifteen minutes leaves ample room
+    # for install/build/typecheck and desktop tests while bounding a runaway.
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - uses: pnpm/action-setup@v6
         with:
@@ -228,40 +251,91 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Build
-        run: pnpm run build
+        run: pnpm run build:node
 
       - name: UI typecheck
         run: pnpm --filter @harnessdesk/ui run typecheck
 
-      # A pull request runs the tests that depend on the UI source it changed (vitest related),
-      # and every test when it changed anything a test may read from elsewhere. Main runs them all.
-      - name: Select UI unit tests
-        id: unit
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          list="$RUNNER_TEMP/ci-unit-paths"
-          if [ "$EVENT_NAME" = "pull_request" ]; then
-            if ! git diff --no-renames --name-only -z HEAD^1 HEAD > "$list"; then
-              rm -f "$list"
-            fi
-          fi
-          node script/ci-unit-tests.mjs "$list" > "$RUNNER_TEMP/ci-unit-plan"
-          cat "$RUNNER_TEMP/ci-unit-plan" >> "$GITHUB_OUTPUT"
-          sed -n 's/^summary=//p' "$RUNNER_TEMP/ci-unit-plan" >> "$GITHUB_STEP_SUMMARY"
-
-      - name: UI tests
-        if: steps.unit.outputs.mode == 'all'
-        run: pnpm --filter @harnessdesk/ui run test
-
-      - name: UI tests that depend on the change
-        if: steps.unit.outputs.mode == 'related'
-        env:
-          UNIT_FILES: ${{ steps.unit.outputs.files }}
-        run: pnpm --filter @harnessdesk/ui exec vitest related --run $UNIT_FILES
-
       - name: Desktop tests
         run: pnpm --filter @harnessdesk/desktop run test
+
+  ui-unit-tests:
+    name: UI unit tests shard ${{ matrix.shard }}/${{ needs.changes.outputs.unit_shard_count }}
+    needs: changes
+    if: needs.changes.outputs.unit_mode != 'none'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.changes.outputs.unit_shards) }}
+    # A full-suite deal plans about 125s of tests plus 60s of setup per shard.
+    # Related selections are undealt; 15 minutes covers the old serial run too.
+    timeout-minutes: 15
+    env:
+      UNIT_MODE: ${{ needs.changes.outputs.unit_mode }}
+      UNIT_FILES: ${{ needs.changes.outputs.unit_files }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.4.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Vitest transforms UI source itself and reads workspace packages from
+      # dist. Verified list and a small deal with no UI dist: build:node suffices;
+      # building the renderer would add work without supplying test inputs.
+      - run: pnpm run build:node
+
+      - name: Deal UI tests
+        id: deal
+        if: needs.changes.outputs.unit_mode == 'all'
+        run: |
+          deal="$RUNNER_TEMP/unit-deal"
+          node script/ci-unit-shards.mjs ${{ matrix.shard }}/${{ needs.changes.outputs.unit_shard_count }} > "$deal"
+          # The empty-deal guard lives here, before the test step can run the whole suite.
+          test -s "$deal"
+          echo "files=$(paste -sd ' ' "$deal")" >> "$GITHUB_OUTPUT"
+
+      - name: UI tests
+        if: needs.changes.outputs.unit_mode == 'all'
+        env:
+          UNIT_DEAL: ${{ steps.deal.outputs.files }}
+        run: pnpm --filter @harnessdesk/ui run test $UNIT_DEAL
+
+      - name: UI tests that depend on the change
+        if: needs.changes.outputs.unit_mode == 'related'
+        run: pnpm --filter @harnessdesk/ui exec vitest related --run $UNIT_FILES
+
+  ui-tests:
+    name: UI tests
+    runs-on: ubuntu-latest
+    needs: [changes, ui-typecheck, ui-unit-tests]
+    if: always()
+    timeout-minutes: 5
+    steps:
+      - name: Require typecheck, desktop and the selected unit tests
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          UNIT_MODE: ${{ needs.changes.outputs.unit_mode }}
+          TYPECHECK_RESULT: ${{ needs.ui-typecheck.result }}
+          SHARDS_RESULT: ${{ needs.ui-unit-tests.result }}
+        run: |
+          if [ "$CHANGES_RESULT" != "success" ]; then
+            echo "UI unit input selection did not succeed ($CHANGES_RESULT)."
+            exit 1
+          fi
+          case "$TYPECHECK_RESULT/$SHARDS_RESULT/$UNIT_MODE" in
+            success/success/all|success/success/related|success/skipped/none)
+              exit 0
+              ;;
+          esac
+          echo "UI typecheck/unit results did not agree ($TYPECHECK_RESULT/$SHARDS_RESULT/$UNIT_MODE)."
+          exit 1
 
   gates:
     name: Gates
