@@ -389,6 +389,40 @@ test('all reviewer Seats remain distinct: three producers at the same revision d
   )
 })
 
+test('one judge’s reviews of different revisions both reach the card in either verdict order', async (t) => {
+  const repo = await makeRepo()
+  const project = await canonical(repo.dir)
+  const pickedAt = await repo.git('rev-parse', 'HEAD')
+  await writeFile(join(repo.dir, 'README.md'), 'another attempt\n')
+  await repo.git('commit', '-q', '-am', 'another attempt')
+  const neitherAt = await repo.git('rev-parse', 'HEAD')
+  const review = (verdict: 'picked' | 'neither', at: string, observedAt: number): EvidenceRecord => ({
+    id: `review-${verdict}`,
+    fact: { kind: 'review', verdict, by: 'seat-judge', at },
+    card: { board: 'room-1', id: 4 },
+    checkout: { cwd: repo.dir, branch: 'main' },
+    seat: 'seat-judge',
+    round: 2,
+    observedAt,
+    posted: null,
+  })
+  for (const pickedFirst of [true, false]) {
+    await t.test(pickedFirst ? 'picked then neither' : 'neither then picked', async () => {
+      const picked = review('picked', pickedAt, pickedFirst ? 1 : 2)
+      const neither = review('neither', neitherAt, pickedFirst ? 2 : 1)
+      const records = pickedFirst ? [picked, neither] : [neither, picked]
+      const read = await boardEvidence({
+        room: 'room-1', stamp: 1, project, records, checks: [], refused: [], unreadable: null, running: [],
+        seatWords: () => ({ agent: 'Judge', seat: 'Fake Runtime' }),
+      })
+      const reviews = read.cards.find((one) => one.card === 4)?.facts.map((view) => view.record.fact)
+      assert.deepEqual(reviews?.sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+        [picked.fact, neither.fact].sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b))),
+        'both verdicts survive on the same card for the same Seat')
+    })
+  }
+})
+
 test('the wire refuses a board read that names no room', () => {
   assert.throws(() => parseClientMessage({ id: 1, method: 'evidence/board', params: { room: '' } }), ValidationError)
 })

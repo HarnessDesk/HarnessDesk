@@ -56,6 +56,16 @@ describe('what CI says together', () => {
 })
 
 describe("a card's chips", () => {
+  it('keeps one judge’s reviews of two revisions as separately keyed chips', () => {
+    const reviews = [
+      factView({ kind: 'review', by: 'seat-judge', at: 'a'.repeat(40), verdict: 'picked' }),
+      factView({ kind: 'review', by: 'seat-judge', at: 'b'.repeat(40), verdict: 'neither' }),
+    ]
+    const chips = cardChips(cardEvidence(5, reviews))
+    expect(chips.map(one => one.label)).toEqual(['review: picked', 'review: neither'])
+    expect(new Set(chips.map(one => one.key)).size).toBe(2)
+  })
+
   it('a check running now stands in for that check’s last fact, and the rest keep their order', () => {
     const chips = cardChips(cardEvidence(3, [checkView({ exit: 1 }), prView('open')], [{ name: 'verify', since: 1 }]))
     expect(chips.map((one) => one.label)).toEqual(['verify running', 'PR #12 open'])
