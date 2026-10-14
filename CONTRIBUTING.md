@@ -57,9 +57,9 @@ integration selects one of three modes: `all` runs the browser shards for change
 to the UI, its transitive workspace dependencies (read from package manifests),
 browser specs/configuration, or shared root inputs. The shards are dealt by how
 long each spec file takes, not by how many tests it holds
-(`script/ci-browser-shards.mjs`, from `e2e/ui-system/durations.json`, which its
-`--refresh` rebuilds from the shards' CI logs), and each runs two browsers at
-once. A run gets as many shards as its work needs, one to sixteen, so a change
+(`script/ci-browser-shards.mjs`, from `e2e/ui-system/durations.json` and
+`durations.pr.json`), and each runs two browsers at once. A run gets as many
+shards as its work needs, one to sixteen, so a change
 that reaches one spec does not pay for sixteen runners.
 
 Two rules keep a pull request from running more than it can learn from:
@@ -86,8 +86,15 @@ Two rules keep a pull request from running more than it can learn from:
   browser configuration), reads both too. To reproduce either run on a branch, start CI by hand
   (`gh workflow run ci.yml --ref <branch> -f matrix=full`, or `-f matrix=pr`;
   GitHub offers a manual run only for a workflow that is on the default branch).
-  A pull request's times are `e2e/ui-system/durations.pr.json`, refreshed the
-  same way from a pull request's logs; a spec it does not list uses the full time.
+  Refresh `e2e/ui-system/durations.json` (dev server with coverage, both themes)
+  from the last five push runs of `main` that ran the whole suite, and
+  `durations.pr.json` (PR theme matrix, built pages where supported, dev server
+  elsewhere, no coverage) from one `workflow_dispatch` run of `ci.yml` on a
+  branch with `matrix=pr`: save each log with `gh run view <id> --log > run.log`,
+  then use `node script/ci-browser-shards.mjs --refresh run.log …` and write its
+  output to the corresponding table. A missing PR measurement uses the full
+  time scaled by the median PR/full ratio of shared specs (the full time if
+  none overlap); a stale table shows up as a shard much slower than its plan.
 
 A third rule narrows a change to the UI's own source, once there is a map of what
 the specs ran:

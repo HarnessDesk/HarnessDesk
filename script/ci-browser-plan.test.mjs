@@ -1,14 +1,45 @@
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import { MAX_SHARDS, SHARD_SECONDS, plan, recordedSeconds, secondsFromLogs, selectedSpecs, shardCount, specFiles } from './ci-browser-shards.mjs'
+import { MAX_SHARDS, SHARD_SECONDS, plan, plannedWallSeconds, recordedSeconds, secondsFromLogs, selectedSpecs, shardCount, specFiles } from './ci-browser-shards.mjs'
 
 const root = fileURLToPath(new URL('../', import.meta.url))
 const CLI = fileURLToPath(new URL('./ci-browser-shards.mjs', import.meta.url))
 const workflow = readFileSync(new URL('../.github/workflows/ci.yml', import.meta.url), 'utf8')
+
+const durationRoot = (t, full, pr) => {
+  const directory = mkdtempSync(join(tmpdir(), 'browser-duration-test-'))
+  t.after(() => rmSync(directory, { recursive: true, force: true }))
+  const suite = join(directory, 'e2e/ui-system')
+  mkdirSync(suite, { recursive: true })
+  writeFileSync(join(suite, 'durations.json'), JSON.stringify(full))
+  if (pr !== undefined) writeFileSync(join(suite, 'durations.pr.json'), JSON.stringify(pr))
+  return directory
+}
+
+test('missing pull-request times use the median ratio of shared specs', t => {
+  const full = { 'alpha.spec.ts': 100, 'beta.spec.ts': 200, 'gamma.spec.ts': 300, 'missing.spec.ts': 80 }
+  const pr = { 'alpha.spec.ts': 25, 'beta.spec.ts': 100, 'gamma.spec.ts': 600 }
+  const directory = durationRoot(t, full, pr)
+  assert.deepEqual(recordedSeconds(directory, 'pr'), { ...pr, 'missing.spec.ts': 40 })
+  assert.deepEqual(recordedSeconds(directory, 'full'), full, 'the full matrix keeps its recorded times')
+})
+
+test('pull-request times without shared specs fall back to the full times', t => {
+  const full = { 'alpha.spec.ts': 100 }
+  const pr = { 'beta.spec.ts': 30 }
+  assert.deepEqual(recordedSeconds(durationRoot(t, full, pr), 'pr'), { ...full, ...pr })
+})
+
+test('a missing pull-request table keeps the full times', t => {
+  const full = { 'alpha.spec.ts': 100 }
+  assert.deepEqual(recordedSeconds(durationRoot(t, full), 'pr'), full)
+})
 
 test('recording either browser baseline stays serial even on CI with a worker override', () => {
   for (const flag of ['UPDATE_METRICS', 'UPDATE_ALIGNMENT']) {
@@ -39,13 +70,17 @@ test('the browser matrix is the planner\'s shards, numbered from one, and the jo
   assert.match(job, /ci-browser-shards\.mjs \$\{\{ matrix\.shard \}\}\/\$\{\{ needs\.changes\.outputs\.shard_count \}\}/, 'each shard deals against the same count')
 })
 
-test('the shards of the recorded suite finish together', () => {
-  const specs = specFiles(root)
-  const seconds = recordedSeconds(root)
-  const loads = plan(specs, seconds, shardCount(specs, seconds)).map(shard => shard.load)
-  const mean = loads.reduce((a, b) => a + b, 0) / loads.length
-  assert.ok(Math.max(...loads) - Math.min(...loads) <= mean * 0.1, `loads ${loads.join(', ')}`)
-})
+for (const matrix of ['full', 'pr']) {
+  test(`the ${matrix} suite's heaviest planned shard is at most 1.15 times its mean`, () => {
+    const specs = specFiles(root)
+    const seconds = recordedSeconds(root, matrix)
+    const count = matrix === 'full' ? MAX_SHARDS : shardCount(specs, seconds)
+    const loads = plan(specs, seconds, count).map(shard => shard.load)
+    const mean = loads.reduce((sum, load) => sum + load, 0) / loads.length
+    const heaviest = Math.max(...loads)
+    assert.ok(heaviest <= mean * 1.15, `${matrix}: max/mean ${heaviest / mean} at ${count} shards; refresh the times or split a heavy spec`)
+  })
+}
 
 test('the deal is longest first onto the lightest shard, and the same every time', () => {
   const seconds = { a: 9, b: 8, c: 7, d: 6, e: 5, f: 4, g: 3 }
@@ -94,6 +129,34 @@ test('the refresh reads the list reporter: a spec is the sum of its tests, the m
   assert.equal(secondsFromLogs([first, second, third])['alpha.spec.ts'], 12, 'the middle of 11.7, 24 and 1')
 })
 
+test('the refresh counts only shard jobs in a prefixed run log', () => {
+  const log = [
+    'UI system browser integration shard 2/16\tRun browser specs\t2026-10-07T17:43:56Z \u001b[32m  ✓\u001b[39m    1 e2e/ui-system/alpha.spec.ts:12:3 › one (11.2s)',
+    'UI system pages\tTry the build\t2026-10-07T17:44:07Z   ✓    1 e2e/ui-system/alpha.spec.ts:12:3 › one (20.0s)',
+    'UI system pages\tTry the build\t2026-10-07T17:44:12Z   -    2 e2e/ui-system/build-only.spec.ts:5:1 › skipped',
+  ].join('\n')
+  assert.deepEqual(secondsFromLogs([log]), { 'alpha.spec.ts': 11 })
+})
+
+test('the refresh drops a prefixed job line whatever follows the prefix', () => {
+  const log = [
+    'UI system browser integration shard 2/16\tRun browser specs\t2026-10-07T17:43:56.123Z   ✓    1 e2e/ui-system/alpha.spec.ts:12:3 › one (11.2s)',
+    'UI system pages\tTry the build\talpha ran   ✓    1 e2e/ui-system/alpha.spec.ts:12:3 › one (20.0s)',
+    'UI system pages\tTry the build\t   ✓    1 e2e/ui-system/alpha.spec.ts:12:3 › one (20.0s)',
+  ].join('\n')
+  assert.deepEqual(secondsFromLogs([log]), { 'alpha.spec.ts': 11 })
+})
+
+test('the refresh handles prefixed and plain lines in the same log', () => {
+  const log = [
+    'UI system browser integration shard 1/2\tRun browser specs\t2026-10-07T17:43:56Z   ✓    1 e2e/ui-system/alpha.spec.ts:12:3 › one (10.0s)',
+    'UI system pages\tTry the build\t2026-10-07T17:44:07Z   ✓    1 e2e/ui-system/alpha.spec.ts:12:3 › one (20.0s)',
+    '2026-10-07T17:44:12Z   ✘    2 e2e/ui-system/alpha.spec.ts:30:3 › two (5.0s)',
+    '  -    3 e2e/ui-system/beta.spec.ts:5:1 › skipped',
+  ].join('\n')
+  assert.deepEqual(secondsFromLogs([log]), { 'alpha.spec.ts': 15, 'beta.spec.ts': 1 })
+})
+
 const withEnv = (env, ...args) => spawnSync(process.execPath, [CLI, ...args], { encoding: 'utf8', env: { ...process.env, UI_SYSTEM_MATRIX: '', UI_SYSTEM_SPECS: '', ...env } })
 
 test('shards are sized to the work: at least one, enough that each carries about SHARD_SECONDS, never more than MAX_SHARDS', () => {
@@ -103,39 +166,51 @@ test('shards are sized to the work: at least one, enough that each carries about
   assert.equal(shardCount(['a', 'b', 'c'], seconds), 1)
   assert.equal(shardCount(['a', 'b', 'c'], seconds, { target: 30 }), 2)
   assert.equal(shardCount(['a', 'b', 'c'], seconds, { target: 20 }), 3)
-  assert.equal(shardCount(['a', 'b', 'c'], seconds, { target: 1, max: 4 }), 4)
+  assert.equal(shardCount(['a', 'b', 'c', 'd', 'e'], { ...seconds, d: 40, e: 50 }, { target: 1, max: 4 }), 4, 'the cap, when there are more specs than the cap')
+  assert.equal(shardCount(['a', 'b', 'c'], seconds, { target: 1, max: 4 }), 3, 'and never an empty shard')
   assert.equal(shardCount(['new'], seconds, { target: 20 }), 1, 'a spec nobody has timed counts as a typical one')
 })
 
-test('the suite never leaves a shard much heavier than SHARD_SECONDS, in either matrix', () => {
+test('MAX_SHARDS caps the runners for the whole suite in either matrix', () => {
   const specs = specFiles(root)
   for (const matrix of ['full', 'pr']) {
     const seconds = recordedSeconds(root, matrix)
-    const needed = shardCount(specs, seconds, { max: Infinity })
-    const carried = specs.reduce((sum, spec) => sum + (seconds[spec] ?? 0), 0) / Math.min(needed, MAX_SHARDS)
-    // MAX_SHARDS stops a big suite from asking for more runners than the account has; the shards then carry more.
-    assert.ok(carried <= SHARD_SECONDS * 1.5, `${matrix}: ${Math.round(carried)}s a shard at ${Math.min(needed, MAX_SHARDS)} shards (${needed} would carry ${SHARD_SECONDS}s); split a big spec, or raise MAX_SHARDS and the runners it needs`)
+    assert.ok(shardCount(specs, seconds) <= MAX_SHARDS, `${matrix} must not ask for more than ${MAX_SHARDS} runners`)
   }
 })
 
-test('the pull-request matrix is dealt by its own times, which are never above the full ones', () => {
-  const full = recordedSeconds(root, 'full')
-  const pr = recordedSeconds(root, 'pr')
-  assert.deepEqual(Object.keys(pr).sort(), Object.keys(full).sort())
-  const smaller = Object.keys(pr).filter(spec => pr[spec] < full[spec])
-  assert.ok(smaller.length > 10, 'the geometry contracts take less in a pull request')
-  for (const spec of Object.keys(pr)) assert.ok(pr[spec] <= full[spec], spec)
-  const own = JSON.parse(readFileSync(new URL('../e2e/ui-system/durations.pr.json', import.meta.url), 'utf8'))
-  const suite = new Set(specFiles(root))
-  for (const spec of Object.keys(own)) assert.ok(suite.has(spec), `durations.pr.json names ${spec}, which is not a spec`)
+test('a selection never asks for more shards than it has specs', () => {
+  assert.equal(shardCount(['big.spec.ts'], { 'big.spec.ts': 2600 }), 1, 'one spec cannot fill two shards')
+  assert.equal(shardCount(['a', 'b'], { a: 5000, b: 5000 }), 2)
+  assert.equal(shardCount([], {}), 1)
 })
 
-test('the shards of a pull request finish together too', () => {
+test('planned wall time shares recorded seconds between two workers and adds setup', () => {
+  assert.equal(plannedWallSeconds(SHARD_SECONDS, 100), 850)
+  assert.equal(plannedWallSeconds(SHARD_SECONDS), 870)
+})
+
+test('the full suite plans at most 25 minutes for its heaviest shard at MAX_SHARDS', () => {
   const specs = specFiles(root)
-  const seconds = recordedSeconds(root, 'pr')
-  const loads = plan(specs, seconds, shardCount(specs, seconds)).map(shard => shard.load)
-  const mean = loads.reduce((a, b) => a + b, 0) / loads.length
-  assert.ok(Math.max(...loads) - Math.min(...loads) <= mean * 0.1, `loads ${loads.join(', ')}`)
+  const loads = plan(specs, recordedSeconds(root, 'full'), MAX_SHARDS).map(shard => shard.load)
+  const wall = plannedWallSeconds(Math.max(...loads), 120)
+  assert.ok(wall <= 25 * 60, `${MAX_SHARDS} shards plan a heaviest wall time of ${Math.round(wall)}s; the suite has outgrown that many runners`)
+})
+
+test('the pull-request table is lighter overall and both tables name only suite specs', () => {
+  const full = JSON.parse(readFileSync(new URL('../e2e/ui-system/durations.json', import.meta.url), 'utf8'))
+  const own = JSON.parse(readFileSync(new URL('../e2e/ui-system/durations.pr.json', import.meta.url), 'utf8'))
+  const pr = recordedSeconds(root, 'pr')
+  const total = seconds => Object.values(seconds).reduce((sum, value) => sum + value, 0)
+  assert.ok(total(own) < total(full), 'the pull-request table records less total test time')
+  const smaller = Object.keys(own).filter(spec => own[spec] < full[spec])
+  assert.ok(smaller.length > 10, 'the geometry contracts take less in a pull request')
+  const suite = new Set(specFiles(root))
+  for (const [name, seconds] of [['durations.json', full], ['durations.pr.json', own]]) {
+    for (const spec of Object.keys(seconds)) assert.ok(suite.has(spec), `${name} names ${spec}, which is not a spec`)
+  }
+  // A spec neither table knows yet is dealt as a typical one (the day it is added), so only the timed ones are held to an entry.
+  for (const spec of Object.keys(full)) assert.ok(Object.hasOwn(pr, spec), `the pull-request plan needs a time for ${spec}`)
 })
 
 test('a selection narrows the deal to the named specs and refuses a name that is no spec', () => {
