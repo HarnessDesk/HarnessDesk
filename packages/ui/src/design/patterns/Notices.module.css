@@ -259,6 +259,14 @@
   text-overflow: ellipsis;
 }
 
+/* With the message sized to its text, a sentence longer than the row leaves no
+   free space and everything that may shrink does. The message is the one part
+   that should: the pager's "1 of 2" breaks at its spaces, so left shrinkable it
+   wrapped and made the strip taller. */
+.strip .pager {
+  flex: none;
+}
+
 /* --- inbox: the bell, and what it keeps ----------------------------------- */
 
 .inbox {

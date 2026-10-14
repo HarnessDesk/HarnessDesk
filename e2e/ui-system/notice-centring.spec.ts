@@ -274,3 +274,21 @@ test('a strip notice gives its message the room it needs before it clips', async
   const { shown, needed } = await line.evaluate((element) => ({ shown: element.clientWidth, needed: element.scrollWidth }))
   expect(shown, 'the message is not clipped while the row has room').toBeGreaterThanOrEqual(needed)
 })
+
+test('a strip message too long for its row gives up its own width, never the pager', async ({ page }) => {
+  await openBoard(page, 'Notices')
+  const strip = page.locator('[data-alignment-board-id="notices"] [data-slot="notice-strip"]')
+    .filter({ has: page.locator('[data-slot="notice-pager"]') }).first()
+  await expect(strip).toBeVisible()
+  const pager = strip.locator('[data-slot="notice-pager"]')
+  const [stripBefore, pagerBefore] = await Promise.all([strip.boundingBox(), pager.boundingBox()])
+  // With the message sized to its text, a sentence longer than the row leaves
+  // no free space, so everything that may shrink does. The pager's "1 of 2"
+  // breaks at its spaces, which made the strip taller.
+  await strip.locator('[data-part="notice-title"]').evaluate((title) => {
+    title.textContent = `${title.textContent} ${'and a great deal more to say about it '.repeat(40)}`
+  })
+  const [stripAfter, pagerAfter] = await Promise.all([strip.boundingBox(), pager.boundingBox()])
+  expect(stripAfter!.height, 'the strip stays one line tall').toBeCloseTo(stripBefore!.height, 0)
+  expect(pagerAfter!.width, 'the pager keeps its width').toBeCloseTo(pagerBefore!.width, 0)
+})
