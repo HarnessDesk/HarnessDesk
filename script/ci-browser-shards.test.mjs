@@ -20,7 +20,7 @@ test('browser CI sizes its shards to the work, up to sixteen, with time for setu
   assert.match(browser, /^    name: UI system browser integration shard \$\{\{ matrix.shard \}\}\/\$\{\{ needs.changes.outputs.shard_count \}\}$/m)
   // The matrix is the plan's own list (one to sixteen, never empty), so the deal and the matrix cannot disagree.
   assert.match(browser, /^        shard: \$\{\{ fromJSON\(needs.changes.outputs.shards\) \}\}$/m)
-  assert.match(browser, /^    timeout-minutes: 30$/m)
+  assert.match(browser, /^    timeout-minutes: 40$/m)
   // Dealt by measured time, not by Playwright's count of tests (script/ci-browser-shards.mjs):
   // every shard of a run reads the same matrix, selection and count, and an empty deal must never run the whole suite.
   assert.match(browser, /^      UI_SYSTEM_MATRIX: \$\{\{ needs.changes.outputs.matrix \}\}$/m)
