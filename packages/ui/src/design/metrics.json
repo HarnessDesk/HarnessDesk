@@ -170,7 +170,7 @@
   "badge/badge/variant/default": {
     "h": 20,
     "text": 12,
-    "weight": "500",
+    "weight": "400",
     "line": 16,
     "pad": "1 6 1 6",
     "radius": 8
@@ -178,7 +178,7 @@
   "badge/badge/variant/destructive": {
     "h": 20,
     "text": 12,
-    "weight": "500",
+    "weight": "400",
     "line": 16,
     "pad": "1 6 1 6",
     "radius": 8
@@ -186,7 +186,7 @@
   "badge/badge/variant/outline": {
     "h": 20,
     "text": 12,
-    "weight": "500",
+    "weight": "400",
     "line": 16,
     "pad": "1 6 1 6",
     "radius": 8
@@ -194,7 +194,7 @@
   "badge/badge/variant/secondary": {
     "h": 20,
     "text": 12,
-    "weight": "500",
+    "weight": "400",
     "line": 16,
     "pad": "1 6 1 6",
     "radius": 8
@@ -226,7 +226,7 @@
   "badge/tabs-trigger/size/icon": {
     "h": 24,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 20,
     "pad": "0 0 0 0",
     "radius": 6
@@ -250,7 +250,7 @@
   "button/button/size/chip": {
     "h": 24,
     "text": 12,
-    "weight": "500",
+    "weight": "400",
     "line": 20,
     "pad": "0 8 0 8",
     "radius": 33554400
@@ -258,7 +258,7 @@
   "button/button/size/content": {
     "h": 15,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 0 0 0",
     "radius": 8
@@ -266,7 +266,7 @@
   "button/button/size/content-min": {
     "h": 24,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 0 0 0",
     "radius": 8
@@ -274,7 +274,7 @@
   "button/button/size/default": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 12 0 12",
     "radius": 8
@@ -282,7 +282,7 @@
   "button/button/size/fill": {
     "h": 15,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 0 0 0",
     "radius": 8
@@ -290,7 +290,7 @@
   "button/button/size/icon": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 0 0 0",
     "radius": 8
@@ -298,7 +298,7 @@
   "button/button/size/icon-circle": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 0 0 0",
     "radius": 33554400
@@ -306,7 +306,7 @@
   "button/button/size/icon-label": {
     "h": 28,
     "text": 12,
-    "weight": "500",
+    "weight": "400",
     "line": 20,
     "pad": "0 0 0 0",
     "radius": 8
@@ -314,7 +314,7 @@
   "button/button/size/icon-sm": {
     "h": 28,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 0 0 0",
     "radius": 8
@@ -322,7 +322,7 @@
   "button/button/size/icon-xs": {
     "h": 24,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 0 0 0",
     "radius": 8
@@ -338,7 +338,7 @@
   "button/button/size/inline-link": {
     "h": 31,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "8 0 8 0",
     "radius": 8
@@ -346,7 +346,7 @@
   "button/button/size/log-row": {
     "h": 26,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 12 0 0",
     "radius": 8
@@ -370,7 +370,7 @@
   "button/button/size/panel": {
     "h": 47,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "16 16 16 16",
     "radius": 8
@@ -394,7 +394,7 @@
   "button/button/size/sidebar-nav": {
     "h": 28,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 20,
     "pad": "0 0 0 0",
     "radius": 8
@@ -402,7 +402,7 @@
   "button/button/size/sm": {
     "h": 28,
     "text": 12,
-    "weight": "500",
+    "weight": "400",
     "line": 20,
     "pad": "0 10 0 10",
     "radius": 8
@@ -410,7 +410,7 @@
   "button/button/size/wrap": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 12 0 12",
     "radius": 8
@@ -418,7 +418,7 @@
   "button/button/size/xs": {
     "h": 24,
     "text": 12,
-    "weight": "500",
+    "weight": "400",
     "line": 16,
     "pad": "0 6 0 6",
     "radius": 8
@@ -426,7 +426,7 @@
   "button/button/variant/action": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 12 0 12",
     "radius": 8
@@ -434,7 +434,7 @@
   "button/button/variant/choice": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 12 0 12",
     "radius": 8
@@ -442,7 +442,7 @@
   "button/button/variant/danger": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 12 0 12",
     "radius": 8
@@ -450,7 +450,7 @@
   "button/button/variant/default": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 12 0 12",
     "radius": 8
@@ -458,7 +458,7 @@
   "button/button/variant/destructive": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 12 0 12",
     "radius": 8
@@ -466,7 +466,7 @@
   "button/button/variant/floating": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 12 0 12",
     "radius": 33554400
@@ -474,7 +474,7 @@
   "button/button/variant/ghost": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 12 0 12",
     "radius": 8
@@ -482,7 +482,7 @@
   "button/button/variant/link": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 12 0 12",
     "radius": 8
@@ -490,7 +490,7 @@
   "button/button/variant/muted": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 12 0 12",
     "radius": 8
@@ -498,7 +498,7 @@
   "button/button/variant/navigation": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 12 0 12",
     "radius": 8
@@ -506,7 +506,7 @@
   "button/button/variant/outline": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 12 0 12",
     "radius": 8
@@ -514,7 +514,7 @@
   "button/button/variant/primary": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 12 0 12",
     "radius": 8
@@ -522,7 +522,7 @@
   "button/button/variant/quiet": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 12 0 12",
     "radius": 8
@@ -530,7 +530,7 @@
   "button/button/variant/reveal": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 12 0 12",
     "radius": 6
@@ -538,7 +538,7 @@
   "button/button/variant/row": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 12 0 12",
     "radius": 8
@@ -546,7 +546,7 @@
   "button/button/variant/secondary": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 12 0 12",
     "radius": 8
@@ -554,7 +554,7 @@
   "button/button/variant/subtle": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 12 0 12",
     "radius": 8
@@ -562,7 +562,7 @@
   "button/button/variant/warning": {
     "h": 30,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 13,
     "pad": "0 12 0 12",
     "radius": 8
@@ -826,7 +826,7 @@
   "left-column/button/size/default": {
     "h": 20,
     "text": 14,
-    "weight": "500",
+    "weight": "400",
     "line": 20,
     "pad": "0 8 0 8",
     "radius": 0
@@ -898,7 +898,7 @@
   "row/page-title-case/size/page": {
     "h": 17,
     "text": 13,
-    "weight": "500",
+    "weight": "400",
     "line": 20,
     "pad": "0 0 0 0",
     "radius": 0
@@ -906,7 +906,7 @@
   "row/text/size/wordmark": {
     "h": 28,
     "text": 20,
-    "weight": "600",
+    "weight": "580",
     "line": 28,
     "pad": "0 0 0 0",
     "radius": 0

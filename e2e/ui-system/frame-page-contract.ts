@@ -48,7 +48,7 @@ export const measureDestination = async (page: Page, query: string, widthKind: '
       return { size: parseFloat(css.fontSize), weight: css.fontWeight, family: css.fontFamily }
     })
     expect(titleStyle.size).toBe(14)
-    expect(titleStyle.weight).toBe('500')
+    expect(titleStyle.weight).toBe('400')
     expect(titleStyle.family).toContain('Geist')
     expect((await title.boundingBox())!.width).toBeGreaterThanOrEqual(FRAME.bar.titleMin - 1)
     if (actions.more !== 'absent') {

@@ -298,7 +298,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2200, 1440,
       const title = bar.locator('[data-topbar-title] [data-slot="text"]').first()
       await expect(title).toHaveText('Dashboard')
       const type = await title.evaluate(node => { const css = getComputedStyle(node); return { size: parseFloat(css.fontSize), weight: css.fontWeight, family: css.fontFamily } })
-      expect(type.size).toBe(14); expect(type.weight).toBe('500'); expect(type.family).toContain('Geist')
+      expect(type.size).toBe(14); expect(type.weight).toBe('400'); expect(type.family).toContain('Geist')
       const options = body.locator('[data-slot="page-options"]').first()
       expect((await body.getByRole('tablist', { name: 'Dashboard views' }).boundingBox())!.y).toBeLessThan((await options.boundingBox())!.y)
       const edges = await body.evaluate(node => { const start = node.getBoundingClientRect().left + parseFloat(getComputedStyle(node).paddingLeft); return [...node.children].filter(child => child.getClientRects().length > 0).map(child => child.getBoundingClientRect().left - start) })

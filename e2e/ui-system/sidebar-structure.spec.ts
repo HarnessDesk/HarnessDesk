@@ -192,7 +192,7 @@ for (const theme of ['light', 'dark'] as const) {
       await fixture.evaluate((node, size) => { (node as HTMLElement).style.width = `${size}px` }, width)
       const name = header.locator('[data-slot="sidebar-menu-label-content"]')
       await expect(header).toHaveCSS('font-size', `${FRAME.rail.label}px`)
-      await expect(header).toHaveCSS('font-weight', '500')
+      await expect(header).toHaveCSS('font-weight', '400')
       // A token's own text is spelled by whatever built the stylesheet (`rgb(27, 27, 27)` in source, `#1b1b1b` in a build), so the ink is resolved to the colour it computes to.
       const ink = await fixture.evaluate(node => {
         const resolve = (token: string) => { const probe = document.createElement('span'); probe.style.color = `var(${token})`; node.append(probe); const color = getComputedStyle(probe).color; probe.remove(); return color }

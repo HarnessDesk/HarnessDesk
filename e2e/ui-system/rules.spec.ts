@@ -105,12 +105,12 @@ const PROBE_HELPERS = `
  * caption and a declared figure.
  */
 const NAME_PAIRS: Record<string, { size: number; weight: number }> = {
-  wordmark: { size: 20, weight: 600 },
-  page: { size: 20, weight: 600 },
-  section: { size: 16, weight: 600 },
-  subject: { size: 14, weight: 500 },
+  wordmark: { size: 20, weight: 580 },
+  page: { size: 20, weight: 580 },
+  section: { size: 16, weight: 580 },
+  subject: { size: 14, weight: 400 },
   member: { size: 14, weight: 500 },
-  row: { size: 13, weight: 500 },
+  row: { size: 13, weight: 400 },
   navigation: { size: 13, weight: 400 },
   muted: { size: 13, weight: 400 },
 }
@@ -155,7 +155,7 @@ const namesViolations = (page: Page) =>
         : (el.getAttribute('data-role') ?? '')
       const basePair = (pairs as Record<string, { size: number; weight: number }>)[role]
       const wanted = el.matches('[data-slot="list-row-title"][data-role="subject"]') && el.closest('[data-hd-table]')?.getAttribute('data-hd-table') === 'compact'
-        ? { size: 13, weight: 500 }
+        ? { size: 13, weight: 400 }
         : basePair
       if (!wanted) continue
       if (!visible(el)) continue
@@ -262,7 +262,7 @@ test.describe('rule: names', () => {
     await page.addStyleTag({ content: '[data-slot="text"][data-role="row"] { font-size: 16px !important; }' })
     const after = await namesViolations(page)
     expect(after.out.length).toBeGreaterThan(before.out.length)
-    expect(after.out.some((f) => f.size === 16 && f.weight === 500 && f.role === 'role row')).toBe(true)
+    expect(after.out.some((f) => f.size === 16 && f.weight === 400 && f.role === 'role row')).toBe(true)
   })
 
   test('rule: names — the checker catches section pushed to another pair', async ({ page }) => {
@@ -271,7 +271,7 @@ test.describe('rule: names', () => {
     await page.addStyleTag({ content: '[data-slot="text"][data-role="section"] { font-size: 13px !important; font-weight: 500 !important; }' })
     const after = await namesViolations(page)
     expect(after.out.length).toBeGreaterThan(before.out.length)
-    expect(after.out.some((f) => f.reason.includes('role section wants 16/600'))).toBe(true)
+    expect(after.out.some((f) => f.reason.includes('role section wants 16/580'))).toBe(true)
   })
 
   test('rule: names — the checker catches an unclassified heading and skips preview chrome', async ({ page }) => {
@@ -330,7 +330,7 @@ test.describe('rule: names', () => {
       const mutation=await page.addStyleTag({content:'[data-test-seat-titles] [data-slot="list-row-title"][data-role="subject"] { font-weight:600 !important; }'})
       const after=await namesViolations(page)
       expect(after.out.length).toBeGreaterThan(before.out.length)
-      expect(after.out.some(f=>f.reason.includes('role subject wants 14/500')&&f.weight===600)).toBe(true)
+      expect(after.out.some(f=>f.reason.includes('role subject wants 14/400')&&f.weight===600)).toBe(true)
       await mutation.evaluate(style=>style.remove())
       await seats.evaluate(node=>node.removeAttribute('data-test-seat-titles'))
       expect((await namesViolations(page)).out).toEqual([])
@@ -338,7 +338,7 @@ test.describe('rule: names', () => {
     }
   })
 
-  test('rule: names — Details draws each Seat name in the subject pair (14/500)', async ({ page }) => {
+  test('rule: names — Details draws each Seat name in the subject pair (14/400)', async ({ page }) => {
     await gotoPreview(page)
     for (const theme of ['light', 'dark'] as const) {
       for (const look of ['desk', 'studio'] as const) {
@@ -351,7 +351,7 @@ test.describe('rule: names', () => {
           return {text:(el.textContent??'').trim(),role:el.getAttribute('data-role'),size:Math.round(parseFloat(cs.fontSize)),weight:Number(cs.fontWeight)}
         }))
         expect(titles.length, `${theme}/${look}: no member row was found`).toBeGreaterThan(0)
-        for (const title of titles) expect(title, `${theme}/${look}: ${title.text}`).toMatchObject({role:'subject',size:14,weight:500})
+        for (const title of titles) expect(title, `${theme}/${look}: ${title.text}`).toMatchObject({role:'subject',size:14,weight:400})
         await closeTeamDetails(frame)
       }
     }
@@ -375,7 +375,7 @@ test.describe('rule: names', () => {
 type GroupLabelFinding = { text: string; transform: string; weight: number }
 
 /** The label weight each interface sets: medium in Desk and Studio. */
-const LABEL_WEIGHT = { desk: 500, studio: 500 } as const
+const LABEL_WEIGHT = { desk: 400, studio: 400 } as const
 
 const groupLabelViolations = (page: Page, expectedWeight: number = LABEL_WEIGHT.desk) =>
   page.evaluate((expected) => {

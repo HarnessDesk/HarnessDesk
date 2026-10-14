@@ -132,9 +132,9 @@ test('Settings group labels and destinations use the named frame type pairs', as
     title.evaluate(node => parseFloat(getComputedStyle(node).fontSize)),
     label.evaluate(node => parseFloat(getComputedStyle(node).fontSize)),
   ])
-  expect(sizes).toEqual([13,13])
+  expect(sizes).toEqual([FRAME.rail.settingsLabel,FRAME.rail.label])
   await expect(title).toHaveCSS('font-weight','400')
-  await expect(label).toHaveCSS('font-weight','500')
+  await expect(label).toHaveCSS('font-weight','400')
 })
 
 test('a destination title computes the frame bar type', async ({ page }) => {

@@ -377,7 +377,7 @@
 --hd-warning-ink = rgb(150, 100, 0)
 --hd-weight-medium = 400
 --hd-weight-normal = 400
---hd-weight-semibold = 600
+--hd-weight-semibold = 580
 --hd-z-base = 0
 --hd-z-dialog = 100
 --hd-z-drawer = 40
@@ -933,7 +933,7 @@
 --hd-warning-ink = rgb(232, 168, 68)
 --hd-weight-medium = 400
 --hd-weight-normal = 400
---hd-weight-semibold = 600
+--hd-weight-semibold = 580
 --hd-z-base = 0
 --hd-z-dialog = 100
 --hd-z-drawer = 40
@@ -1498,7 +1498,7 @@
 --hd-warning-ink = rgb(150, 100, 0)
 --hd-weight-medium = 400
 --hd-weight-normal = 400
---hd-weight-semibold = 600
+--hd-weight-semibold = 580
 --hd-z-base = 0
 --hd-z-dialog = 100
 --hd-z-drawer = 40
@@ -2063,7 +2063,7 @@
 --hd-warning-ink = rgb(232, 168, 68)
 --hd-weight-medium = 400
 --hd-weight-normal = 400
---hd-weight-semibold = 600
+--hd-weight-semibold = 580
 --hd-z-base = 0
 --hd-z-dialog = 100
 --hd-z-drawer = 40

@@ -342,7 +342,7 @@ body {
 
   --hd-weight-normal: 400;
   --hd-weight-medium: 400; /* desk: 500 → 400, a lighter medium */
-  --hd-weight-semibold: 600;
+  --hd-weight-semibold: 580; /* desk: 600 → 580, slightly lighter (Geist is variable) */
   /* Content names: chat senders and inline MemberName share this one weight.
      Set it back to 600 to restore the treatment before 2026-10-03. */
   --hd-member-weight: 500;
