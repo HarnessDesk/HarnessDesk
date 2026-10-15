@@ -62,6 +62,7 @@ import {
   FileCode2,
   FileDiff,
   FileText,
+  Flag,
   Folder,
   FolderOpen,
   FoldVertical,
@@ -185,6 +186,7 @@ const icon = (Glyph: LucideIcon, name: string) => {
 // --- Navigation and layout -------------------------------------------------
 
 export const PlusIcon = icon(Plus, 'PlusIcon')
+export const FlagIcon = icon(Flag, 'FlagIcon')
 export const SearchIcon = icon(Search, 'SearchIcon')
 export const SettingsIcon = icon(Settings, 'SettingsIcon')
 export const SlidersIcon = icon(SlidersHorizontal, 'SlidersIcon')

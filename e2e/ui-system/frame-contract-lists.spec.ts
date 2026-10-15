@@ -12,7 +12,7 @@ test('Lists R9 empty Teams centres the complete empty state in the page body', a
   const empty = body.locator('[data-slot="empty-state"][data-variant="panel"]')
   await expect(empty).toBeVisible()
   await expect(empty.locator('svg')).toHaveCount(1)
-  await expect(empty.getByRole('heading', { name: 'No active Teams', exact: true })).toBeVisible()
+  await expect(empty.getByRole('heading', { name: 'No Teams yet', exact: true })).toBeVisible()
   await expect(empty.getByText(/Create a Team/)).toBeVisible()
   await expect(empty.getByRole('button', { name: 'New Team', exact: true })).toBeVisible()
 

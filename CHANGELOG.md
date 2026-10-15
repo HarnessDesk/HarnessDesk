@@ -7,6 +7,11 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Teams shows what needs you.** The page is a board with Needs you, Working
+  and Ready to wrap columns, searchable across projects. Cards show the ask,
+  current step or outcome, the Run's path and its Seats. Wrapped receipts fold
+  below Ready to wrap, and narrow windows stack the columns in reading order.
+
 - **DeepSeek shows the key it is really using.** From DeepSeek Harness
   0.2.1-alpha.3 a key saved in its own store is used ahead of the one this app
   hands it, so with both present the account row said "stored here" about a key

@@ -1,269 +1,88 @@
-import { expect, test, type Page } from '@playwright/test'
+import { expect, test } from '@playwright/test'
+import { openFrame } from './frame-contract-helpers'
 
-const returnToTeams = async (page: Page, scene: string) => {
-  const frame = page.locator(`#teams-page-${scene}`)
-  const button = frame.locator('[data-left-column]').getByRole('button', { name: 'Teams', exact: true })
-  if (!(await button.isVisible())) await frame.getByRole('button', { name: 'Show sidebar', exact: true }).click()
-  await button.click()
-}
-
-const openTeams = async (page: Page, theme: 'light' | 'dark') => {
-  await page.goto('/preview.html?teams-page')
-  await page.locator('label').filter({ hasText: /^theme/ }).locator('select').first().selectOption(theme)
-  await expect(page.locator('html')).toHaveCSS('color-scheme', theme)
-}
-
-for (const theme of ['light', 'dark'] as const) {
-  test(`Teams page: the whole stack and remainder fit inside the table lead in ${theme}`, async ({ page }) => {
-    await openTeams(page, theme)
-    const row = page.locator('#teams-page-active [data-team-row="team-2"]')
-    await expect(row.locator('[data-slot="avatar-stack"]')).toHaveAccessibleName('6 seats')
-    await expect(row.locator('[data-slot="avatar-stack"] [data-shape="face"]')).toHaveCount(4)
-    await expect(row.locator('[data-slot="avatar-stack"]')).toContainText('+2')
-    expect(await row.evaluate(row => {
-      const lead = row.querySelector('[data-slot="table-cell-lead"]')!.getBoundingClientRect()
-      const stack = row.querySelector('[data-slot="avatar-stack"]')!
-      return [...stack.querySelectorAll('[data-shape="face"]'), stack.lastElementChild!].every(el => {
-        const box = el.getBoundingClientRect(); return box.left >= lead.left - 1 && box.right <= lead.right + 1 && box.top >= lead.top - 1 && box.bottom <= lead.bottom + 1
-      })
-    })).toBe(true)
-  })
-  test(`Teams page: precedence, folding, Hide, face geometry and complete reasons in ${theme}`, async ({ page }) => {
-    await openTeams(page, theme)
-    const frame = page.locator('#teams-page-active')
-    await expect(frame.locator('[data-team-row]')).toHaveCount(3)
-    expect(await frame.locator('[data-team-row]').evaluateAll(rows => rows.map(row => row.getAttribute('data-team-row')))).toEqual(['team-0', 'team-1', 'team-2'])
-    await expect(async () => {
-      const dot = await frame.locator('[data-team-row="team-0"] [data-slot="dot"]').boundingBox()
-      expect(dot?.width).toBe(6); expect(dot?.height).toBe(6)
-    }).toPass()
-    await expect(frame.getByRole('tab', { name: /^Active(?: \d+)?$/ })).toHaveAttribute('aria-selected', 'true')
-    const fold = frame.getByRole('button', { name: 'Ready to wrap · 2' })
-    await expect(fold).toHaveAttribute('aria-expanded', 'false'); await fold.click()
-    await expect(frame.locator('[data-team-row]')).toHaveCount(5)
-    const chips = frame.locator('[data-team-row] [data-slot="chip"]')
-    await expect(chips).toHaveCount(3)
-    for (const chip of await chips.all()) await expect(chip).toHaveAttribute('data-variant', 'default')
-    for (const [id, turns] of [[0, 21], [1, 8], [2, 137], [3, 46], [4, 92]]) await expect(frame.locator(`[data-team-row="team-${id}"] td[data-align="end"]`).nth(1)).toHaveText(String(turns))
-    await expect(frame.locator('[data-team-row="team-3"] [data-slot="team-detail"]')).toHaveText('Review accepted the invoice rounding change.')
-    await expect(frame.locator('[data-team-row="team-4"] [data-slot="team-detail"]')).toHaveCount(0)
-    const ready = frame.locator('[data-team-row="team-3"]')
-    await ready.getByTitle('More', { exact: true }).click()
-    const hide = page.getByRole('menuitem', { name: 'Hide', exact: true })
-    await expect(hide).toBeVisible()
-    // A nested menu must collide with its window, not the larger catalogue
-    // viewport: a taller row can otherwise put Hide under the next window.
-    await expect.poll(async () => {
-      const menu = await hide.boundingBox(), win = await frame.locator('[data-slot="fixed-shell"]').boundingBox()
-      return !!menu && !!win && menu.y >= win.y && menu.y + menu.height <= win.y + win.height
-    }).toBe(true)
-    await expect.poll(() => hide.evaluate(el => {
-      const box = el.getBoundingClientRect()
-      return el.contains(document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2))
-    })).toBe(true)
-    await page.getByRole('menuitem', { name: 'Hide', exact: true }).click()
-    await expect(frame.locator('[data-team-row]')).toHaveCount(4)
-    await frame.getByRole('tab', { name: /^Settled(?: \d+)?$/ }).click()
-    await expect(frame.locator('[data-team-row]')).toHaveCount(2)
-    await frame.locator('[data-team-row="team-3"]').getByTitle('More', { exact: true }).click()
-    await expect(page.getByRole('menuitem', { name: 'Show in Active' })).toBeVisible()
-    await page.keyboard.press('Escape')
-    await page.evaluate(() => document.fonts.ready)
-    for (const row of await frame.locator('[data-team-row]').all()) {
-      await expect(row.locator('[data-shape="face"]')).toHaveCount(2)
-      expect(await row.evaluate(e => e.scrollWidth <= e.clientWidth)).toBe(true)
-    }
-    const attention = page.locator('#teams-page-needs-you [data-team-row="team-0"] [data-slot="team-detail"]')
-    expect(await attention.evaluate(e => ({ fits: e.scrollWidth <= e.clientWidth && e.scrollHeight <= e.clientHeight, whiteSpace: getComputedStyle(e).whiteSpace }))).toEqual({ fits: true, whiteSpace: 'normal' })
-    await expect(attention).toHaveAttribute('title', /choose whether to keep the original payment method/)
-  })
-  test(`Teams page: 375px and 720px keep navigation and all readings inside the page in ${theme}`, async ({ page }) => {
-    for (const width of [375, 720]) {
-      await page.setViewportSize({ width, height: 900 })
-      await openTeams(page, theme)
-      const frame = page.locator('#teams-page-active')
-      await frame.scrollIntoViewIfNeeded()
-      const pageBox = frame.locator('[data-page-destination="teams"]:visible [data-slot="page-records"]')
-      await expect(pageBox).toBeVisible()
-      if ((await pageBox.boundingBox())!.width < 600) {
-        await expect(pageBox).toHaveAttribute('data-layout', 'narrow')
-        await expect(frame.locator('[data-team-row][data-slot="list-row"]')).toHaveCount(3)
-      }
-      for (const item of await frame.locator('[data-slot="fixed-shell"], [data-page-destination="teams"]:visible, [data-team-row]').all()) {
-        const geometry = await item.evaluate(e => ({ slot: e.getAttribute('data-slot'), row: e.getAttribute('data-team-row'), scroll: e.scrollWidth, client: e.clientWidth, children: [...e.querySelectorAll<HTMLElement>('*')].filter(n => n.scrollWidth > n.clientWidth + 1 || n.getBoundingClientRect().right > e.getBoundingClientRect().right + 1).map(n => ({ slot: n.getAttribute('data-slot'), class: n.className, scroll: n.scrollWidth, client: n.clientWidth, min: getComputedStyle(n).minWidth, position: getComputedStyle(n).position, right: n.getBoundingClientRect().right, after: getComputedStyle(n, '::after').width })).slice(0, 12) }))
-        expect(geometry.scroll, JSON.stringify(geometry)).toBeLessThanOrEqual(geometry.client + 1)
-      }
-      // Below the desktop's 720px minimum this embedded specimen keeps its
-      // body allocated; the More controls remain keyboard reachable.
-      if (width === 375) {
-        await expect(frame.locator('[data-slot="status-bar"]')).toHaveCount(0)
-        const more = frame.getByRole('button', { name: 'More', exact: true })
-        await more.focus()
-        expect(await more.evaluate(node => {
-          const row = node.closest('[data-slot="top-bar"]')!.getBoundingClientRect(), button = node.getBoundingClientRect()
-          return document.activeElement === node && button.left >= row.left - 1 && button.right <= row.right + 1
-        })).toBe(true)
-      }
-      await expect(frame.getByRole('tab', { name: /^Needs you(?: \d+)?$/ })).toBeVisible()
-      const filters = await Promise.all(['Active', 'Needs you', 'Settled'].map(name => frame.getByRole('tab', { name: new RegExp(`^${name}(?: \\d+)?$`) }).boundingBox()))
-      expect(filters.every(box => box !== null)).toBe(true)
-      const inOneRow = filters.every(box => Math.abs(box!.y - filters[0]!.y) < 1)
-      const inOneColumn = filters.every(box => Math.abs(box!.x - filters[0]!.x) < 1)
-      expect(inOneRow || inOneColumn, `filters at ${width}px: ${JSON.stringify(filters)}`).toBe(true)
-      for (const label of await frame.locator('[data-slot="sidebar-menu-label-content"]:visible').all()) {
-        const geometry = await label.evaluate(e => ({ label: e.textContent, scroll: e.scrollWidth, width: e.clientWidth, overflow: getComputedStyle(e).overflow, textOverflow: getComputedStyle(e).textOverflow, title: e.closest('button')?.title }))
-        if (geometry.scroll > geometry.width + 1) {
-          expect(geometry.overflow).toBe('hidden')
-          expect(geometry.textOverflow).toBe('ellipsis')
-          expect(geometry.title).toContain(geometry.label?.trim())
-        }
-      }
-    }
-  })
-}
-
-for (const theme of ['light', 'dark'] as const) {
-  {
-
-    for (const [item0, scene] of (['active', 'needs-you', 'settled', 'empty', 'pending', 'failed', 'narrow']).entries()) test(`Teams page: every production rig state renders in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
-      await openTeams(page, theme)
-      await page.evaluate(() => document.fonts.ready)
-      const frame = page.locator(`#teams-page-${scene}`)
-      const destination = frame.locator('[data-page-destination="teams"]:visible')
-      await expect(destination).toBeVisible()
-      const pageBox = destination.locator('[data-slot="page-records"]')
-      if (scene !== 'empty') await expect(pageBox).toBeVisible()
-      if (scene !== 'empty' && (await pageBox.boundingBox())!.width < 600) {
-        await expect(pageBox).toHaveAttribute('data-layout', 'narrow')
-        await expect(frame.locator('[data-team-row][data-slot="list-row"]')).toHaveCount(3)
-      }
-      if (scene === 'pending') await expect(frame.getByText('Reading recorded usage…')).toBeVisible()
-      if (scene === 'failed') await expect(frame.getByText('The Team usage record could not be read')).toBeVisible()
-      if (scene === 'empty') await expect(frame.getByText('No active Teams')).toBeVisible()
-      await frame.locator(':scope > div').screenshot({ path: `output/playwright/teams-page/${scene}-${theme}.png` })
-
-      const active = page.locator('#teams-page-active')
-      await active.getByRole('button', { name: 'Ready to wrap · 2' }).click()
-      await active.screenshot({ path: `output/playwright/teams-page/ready-open-${theme}.png` })
-      await active.locator('[data-team-row="team-4"]').getByTitle('More', { exact: true }).click()
-      await page.getByRole('menuitem', { name: 'Hide', exact: true }).click()
-      await active.screenshot({ path: `output/playwright/teams-page/hidden-${theme}.png` })
-    })
+for (const theme of ['light','dark'] as const) {
+ for (const width of [1440,1100,720,375]) test(`Teams board keeps three equal columns or stacks in reading order ${width} ${theme}`,async({page})=>{
+  await openFrame(page,'frame-wall=teams',theme,width)
+  const board=page.locator('[data-slot="teams-board"]:visible')
+  const columns=board.locator('[data-slot="teams-board-column"]')
+  await expect(columns).toHaveCount(3)
+  expect(await columns.evaluateAll(nodes=>nodes.map(node=>node.getAttribute('aria-label')))).toEqual(['Needs you','Working','Ready to wrap'])
+  const boxes=await columns.evaluateAll(nodes=>nodes.map(node=>{const b=node.getBoundingClientRect();return {x:b.x,y:b.y,w:b.width}}))
+  const stacked=(await board.boundingBox())!.width<=760
+  if(stacked){
+   expect(boxes[0]!.y).toBeLessThan(boxes[1]!.y);expect(boxes[1]!.y).toBeLessThan(boxes[2]!.y)
+   expect(boxes.every(box=>Math.abs(box.x-boxes[0]!.x)<1)).toBe(true)
+  }else{
+   expect(boxes.every(box=>Math.abs(box.y-boxes[0]!.y)<1 && Math.abs(box.w-boxes[0]!.w)<1)).toBe(true)
+   const toolbar=page.locator('[data-slot="teams-board-toolbar"]')
+   const create=(await toolbar.getByRole('button',{name:'New Team',exact:true}).boundingBox())!
+   const search=(await toolbar.getByRole('searchbox',{name:'Search Teams'}).boundingBox())!
+   expect(Math.abs(create.y-search.y)).toBeLessThanOrEqual(2)
+   expect(search.width).toBeCloseTo(240,0)
   }
-}
-
-for (const theme of ['light', 'dark'] as const) {
-  test(`unread Team title and detail share one edge in ${theme}`, async ({ page }) => {
-    await page.goto(`/preview.html?teams-page&theme=${theme}`)
-    for (const width of [1440, 720]) {
-      await page.setViewportSize({ width, height: 1000 })
-      const row = page.locator('#teams-page-active [data-team-row]').first()
-      const delta = await row.evaluate(el => {
-        const title = el.querySelector('[data-role="subject"]')!
-        const detail = el.querySelector('[data-slot="team-detail"]')!
-        const a = document.createRange(), b = document.createRange(); a.selectNodeContents(title); b.selectNodeContents(detail)
-        return Math.abs(a.getClientRects()[0]!.left - b.getClientRects()[0]!.left)
-      })
-      expect(delta).toBeLessThan(1)
-      await expect(row.locator('[aria-label="Unread changes"]')).toBeVisible()
-    }
-  })
-}
-
-for (const theme of ['light', 'dark'] as const) {
-  test(`read and unread Teams keep the same name edge in ${theme}`, async ({ page }) => {
-    await openTeams(page, theme)
-    const rows = page.locator('#teams-page-active [data-team-row]')
-    const first = rows.nth(0), second = rows.nth(1)
-    const nameLeft = async (row: typeof first) => (await row.locator('[data-role="subject"]').boundingBox())!.x
-    const before = await nameLeft(first)
-    await first.locator('[data-role="subject"]').click()
-    await page.locator('#teams-page-active [data-left-column]').getByRole('button', { name: 'Teams', exact: true }).click()
-    await expect(first.locator('[aria-label="Unread changes"]')).toHaveCount(0)
-    await expect(second.locator('[aria-label="Unread changes"]')).toBeVisible()
-    expect(Math.abs(await nameLeft(first) - before)).toBeLessThan(1)
-    expect(Math.abs(await nameLeft(first) - await nameLeft(second))).toBeLessThan(1)
-  })
-}
-
-for (const theme of ['light', 'dark'] as const) {
-  {
-
-    for (const [item0, scene] of (['active', 'narrow']).entries()) test(`Teams row readings remain hit targets and buttons keep one hover and focus mark in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
-      await openTeams(page, theme)
-      const row = page.locator(`#teams-page-${scene} [data-team-row="team-0"]`)
-      const open = row.getByRole('button', { name: 'Open Review the checkout retry', exact: true })
-      await expect(open).toBeVisible()
-      await row.scrollIntoViewIfNeeded()
-      for (const titled of await row.locator('[title]').all()) {
-        const report = await titled.evaluate(el => {
-          const box = el.getBoundingClientRect(), hit = document.elementFromPoint(box.x + box.width / 2, box.y + box.height / 2)
-          return { reached: hit !== null && el.contains(hit), title: el.getAttribute('title'), hit: hit?.outerHTML.slice(0, 200), box: { x: box.x, y: box.y, width: box.width, height: box.height } }
-        })
-        expect(report.reached, JSON.stringify(report)).toBe(true)
-      }
-      await expect(row).not.toHaveAttribute('tabindex')
-      await expect(row.locator('[data-slot="list-row-trail"] > span:empty')).toHaveCount(0)
-      await expect(row.locator('[aria-label="Unread changes"]')).toBeVisible()
-      const point = await row.evaluate(e => {
-        const detail = e.querySelector('[data-slot="team-detail"]')!
-        const range = document.createRange(); range.selectNodeContents(detail)
-        const reading = range.getClientRects()[0]!
-        const x = reading.x + reading.width / 2, y = reading.y + reading.height / 2
-        return { x, y, reading: Boolean(document.elementFromPoint(x, y)?.closest('[data-slot="team-detail"]')) }
-      })
-      expect(point.reading).toBe(true)
-      await page.mouse.click(point.x, point.y)
-      await returnToTeams(page, scene)
-      await expect(row.locator('[aria-label="Unread changes"]')).toHaveCount(0)
-      const box = await open.boundingBox()
-      expect(box!.height).toBeGreaterThanOrEqual(24)
-      expect(box!.width).toBeGreaterThanOrEqual(24)
-      await open.hover()
-      await expect(open).toHaveCSS('background-color', 'rgba(0, 0, 0, 0)')
-      const markBox = () => open.evaluate(el => {
-        const mark = getComputedStyle(el, '::after')
-        return { width: mark.width, height: mark.height }
-      })
-      const beforePress = await markBox()
-      expect(parseFloat(beforePress.width)).toBeGreaterThan(box!.width)
-      await page.mouse.down()
-      expect(await markBox()).toEqual(beforePress)
-      expect(await open.evaluate(el => ({ translate: getComputedStyle(el).translate, events: getComputedStyle(el, '::after').pointerEvents }))).toEqual({ translate: 'none', events: 'none' })
-      await page.mouse.up()
-      await returnToTeams(page, scene)
-      await open.focus()
-      await page.keyboard.press('Tab')
-      await page.keyboard.press('Shift+Tab')
-      await expect(open).toBeFocused()
-      await expect(open).toHaveCSS('outline-style', 'none')
-      expect(await open.evaluate(el => getComputedStyle(el, '::after').boxShadow)).not.toBe('none')
-      expect(await open.evaluate(el => getComputedStyle(el, '::after').boxShadow)).toContain('inset')
-      await page.evaluate(() => document.documentElement.dataset.focusInput = 'pointer')
-      await expect(open).toBeFocused()
-      expect(await open.evaluate(el => getComputedStyle(el, '::after').boxShadow)).toBe('none')
-      await page.mouse.click(point.x, point.y)
-      await returnToTeams(page, scene)
-      await expect(row.locator('[aria-label="Unread changes"]')).toHaveCount(0)
-
-
-    })
+  await expect(board.locator('[data-team-row]')).toHaveCount(5)
+  const card=board.locator('[data-team-row="team-2"]')
+  await expect(card.locator('[data-slot="avatar-stack"]')).toHaveAccessibleName('6 seats')
+  await expect(card.locator('[data-shape="face"]')).toHaveCount(4)
+  await expect(card.locator('[data-slot="avatar-stack"]')).toContainText('+2')
+  for(const node of await board.locator('[data-team-row], [data-slot="team-detail"], [data-slot="avatar-stack"]').all()){
+   expect(await node.evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true)
   }
-}
-
-
-for (const theme of ['light', 'dark'] as const) {
-  {
-
-    for (const [item0, scene] of (['active', 'narrow']).entries()) test(`short Team openers keep a 24px target in both layouts in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
-      await openTeams(page, theme)
-      const opener = page.locator(`#teams-page-${scene} [data-team-row="team-0"]`).getByRole('button', { name: /^Open / })
-      await opener.locator('[data-role="subject"]').evaluate(node => { node.textContent = 'A' })
-      const box = (await opener.boundingBox())!
-      expect(box.width).toBeGreaterThanOrEqual(24)
-      expect(box.height).toBeGreaterThanOrEqual(24)
-
-
-    })
+  const reason=board.locator('[data-team-row="team-0"] [data-slot="team-detail"]')
+  await expect(reason).toContainText('choose whether to keep the original payment method')
+  await expect(reason).toHaveCSS('white-space','normal')
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+ })
+ test(`Teams board filters every column and folds only wrapped receipts ${theme}`,async({page})=>{
+  await openFrame(page,'frame-wall=teams',theme,1440)
+  const board=page.locator('[data-slot="teams-board"]')
+  const fold=board.getByRole('button',{name:'Wrapped · 1',exact:true})
+  await expect(fold).toHaveAttribute('aria-expanded','false')
+  await expect(board.locator('[data-team-row="team-5"]')).toHaveCount(0)
+  await fold.click()
+  await expect(fold).toHaveAttribute('aria-expanded','true')
+  await expect(board.locator('[data-team-row]')).toHaveCount(6)
+  await fold.click()
+  await page.getByRole('searchbox',{name:'Search Teams',exact:true}).fill('invoice')
+  await expect(board.locator('[data-team-row]')).toHaveCount(1)
+  await expect(board.locator('[data-team-row="team-3"]')).toBeVisible()
+  await page.getByRole('searchbox',{name:'Search Teams',exact:true}).fill('')
+  await page.getByRole('button',{name:'All projects',exact:true}).click()
+  await page.getByRole('menuitemradio',{name:'billing',exact:true}).click()
+  await expect(board.locator('[data-team-row]')).toHaveCount(1)
+  await page.getByRole('button',{name:'billing',exact:true}).last().click()
+  await page.getByRole('menuitemradio',{name:'All projects',exact:true}).click()
+  await page.getByRole('searchbox',{name:'Search Teams',exact:true}).fill('no matching team')
+  await expect(board.locator('[data-team-row]')).toHaveCount(0)
+  await expect(page.getByText('No Teams match this search and project.')).toBeVisible()
+ })
+ test(`Teams cards retain full brief hover, truthful path and one keyboard opening ${theme}`,async({page})=>{
+  await openFrame(page,'frame-wall=teams',theme,1440)
+  const card=page.locator('[data-team-row="team-2"]')
+  await expect(card.locator('[aria-label="Unread changes"]')).toHaveCount(1)
+  await expect(card).toHaveAccessibleDescription(/Reviewer.*round 2.*storefront/)
+  await expect(card.locator('[data-slot="team-title"]')).toHaveAttribute('title','Retry the checkout call on a 502')
+  await expect(card.locator('[data-step-state="done"]')).toHaveCount(1)
+  await expect(card.locator('[data-step-state="current"]')).toHaveCount(1)
+  await expect(card.locator('[data-step-state="future"]')).toHaveCount(2)
+  expect(await card.locator('[data-slot="avatar-stack"]').evaluate(el=>{
+   const parent=el.closest('[data-team-row]')!.getBoundingClientRect()
+   return [...el.querySelectorAll('[data-shape="face"]')].every(face=>{const b=face.getBoundingClientRect();return b.left>=parent.left&&b.right<=parent.right})
+  })).toBe(true)
+  await card.focus();await page.keyboard.press('Enter')
+  await expect(page.locator('[data-slot="retained-work"]')).toBeVisible()
+  await page.keyboard.press('Meta+[')
+  await expect(page.locator('[data-page-destination="teams"]:visible')).toHaveCount(1)
+  await expect(card.locator('[aria-label="Unread changes"]')).toHaveCount(0)
+ })
+ test(`Teams preview states render the production board ${theme}`,async({page})=>{
+  await page.goto(`/preview.html?teams-page&theme=${theme}`)
+  for(const scene of ['active','needs-you','settled','empty','pending','failed','narrow']){
+   const frame=page.locator(`#teams-page-${scene}`)
+   if(scene==='empty')await expect(frame.getByRole('heading',{name:'No Teams yet'})).toBeVisible()
+   else await expect(frame.locator('[data-slot="teams-board"]')).toBeVisible()
+   if(scene==='failed')await expect(frame.getByText('The Team usage record could not be read')).toBeVisible()
   }
+ })
 }

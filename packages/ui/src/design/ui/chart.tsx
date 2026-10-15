@@ -339,6 +339,7 @@ const SegmentMeter = ({
   tone = 'neutral',
   segments = 40,
   parts,
+  steps,
   label,
   ...props
 }: Omit<React.ComponentProps<'div'>, 'children'> & {
@@ -355,9 +356,18 @@ const SegmentMeter = ({
    * remainder — a distribution has nothing to protect from reading empty.
    */
   parts?: readonly { key: string; tint: Tint; value: number }[]
+  /** An observed path: completed steps, the current work and steps not reached. */
+  steps?: readonly { key:string; label:string; state:'done'|'current'|'future' }[]
   /** What this meter measures, for the accessibility tree. */
   label: string
 }) => {
+  if (steps) return <div data-slot="segment-meter" data-variant="steps" role="img" aria-label={label}
+    className={cn('flex h-1.5 w-full gap-1',className)} {...props}>
+    {steps.map(step=><span key={step.key} data-step-state={step.state} title={`${step.label}: ${step.state==='future'?'not reached':step.state}`}
+      className={cn('min-w-0 flex-1 rounded-(--hd-radius-xs) border',step.state==='done'
+        ? 'border-(--hd-muted-foreground) bg-(--hd-muted-foreground)'
+        : step.state==='current' ? 'border-(--hd-accent) bg-(--hd-accent)' : 'border-dashed border-(--hd-border-strong)')}/>)}
+  </div>
   if (parts) {
     const total = parts.reduce((sum, part) => sum + Math.max(0, part.value), 0)
     return (

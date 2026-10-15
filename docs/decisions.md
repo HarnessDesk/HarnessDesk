@@ -463,28 +463,27 @@ hold. This model adds no screen or read method; those follow in the
 [approved Teams/Runs plan](https://github.com/HarnessDesk/HarnessDesk/pull/1272).
 
 The Teams page uses the same Overview facts. A Run settling does not settle
-its Goal's dependencies or follow-up cards; only quiet work with nothing
-remaining folds into Ready to wrap. Hide and read marks bind to the observed
-Team change in machine preferences, so a later lifecycle or attention change
-returns hidden work without deleting it. Usage refreshes do not count as a
-new revision. Known waits order the page; an absent state timestamp remains
-unknown rather than borrowing the Run's age.
+its Goal's dependencies or follow-up cards. One pure board function puts every
+Team in Needs you, Working or Ready to wrap. Stopped work needs the person;
+stopping and wrapping remain Working. Ready work is always visible, regardless
+of an earlier Hide preference. Wrapped receipts fold below Ready to wrap.
+Read marks still bind to the observed Team change in machine preferences;
+usage refreshes do not count as a new revision. This implements the owner's
+approved D3 board in [#1657](https://github.com/HarnessDesk/HarnessDesk/issues/1657).
 
-The page reads what its open tab shows, and no more. Usage is asked for the
-rows on screen, in one `insight/goals` request that reads the usage sources
-once for every project in it and attributes them per Team, and lands in one
-update. Once per project was not enough: on a desk where each Team has a
-clone of its own, every Team is its own project. A Run and its
-review are read for every Team that is not wrapped, because either can move a
-Team into Needs you and the counts would otherwise be wrong. A wrapped Team's
-Run is read once its row is shown, for its faces, and its review never:
-nothing on a wrapped row follows one, so its unread mark leaves the review out
-too. Successful reads are kept while the page is open; a failed Run or review
+The page reads what its filtered board shows. Usage is asked for in one
+`insight/goals` request that reads the usage sources once for every project in
+it and attributes them per Team, and lands in one update. A Run and its review
+are read for every Team that is not wrapped, because either can move a Team
+into Needs you. A wrapped Team's Run is read once its group is unfolded, for its
+faces, and its review never: nothing on a wrapped card follows one, so its read
+mark leaves the review out too. Successful reads are kept while the page is
+open; a failed Run or review
 read gets at most two retries, five seconds apart, and an in-flight read is
 never duplicated. Asking again for every
 Run still missing whenever one landed sent a large desk's Settled tab
-thousands of reads. Time in a state is said in its largest unit (`47m`, `5h`,
-`2d`), and only those cells follow a minute clock. A desk with about 500
+thousands of reads. Card age is said in its largest unit (`47m`, `5h`, `2d`),
+and only those age labels follow a minute clock. A desk with about 500
 Teams had made one full ledger scan per Team on every open, and a one-second
 clock re-rendered the whole table
 ([#1567](https://github.com/HarnessDesk/HarnessDesk/issues/1567)).
