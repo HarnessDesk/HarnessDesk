@@ -41,6 +41,28 @@ it('draws in the frame Lucide would, so a screen cannot tell which drew it', () 
   expect(renderToStaticMarkup(<BellIcon aria-label="Alerts" />)).not.toContain('aria-hidden')
 })
 
+it('draws the plain Lucide drawing, with nothing scheduled, until a pointer reaches the control', () => {
+  vi.useFakeTimers()
+  try {
+    mount(<button type="button"><SettingsIcon /></button>)
+    // A motion component asks for a frame as it mounts; an icon nobody hovers must not.
+    expect(vi.getTimerCount()).toBe(0)
+    expect(gear().getAttribute('class')).toBe('lucide lucide-settings')
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it('swaps to the animated drawing in place the first time the control is hovered', async () => {
+  mount(<button type="button"><SettingsIcon size={20} /></button>)
+  const before = gear()
+  hover()
+  await wait(50)
+  expect(gear()).not.toBe(before)
+  expect(gear().getAttribute('class')).toBe('lucide lucide-settings')
+  expect(gear().getAttribute('width')).toBe('20')
+})
+
 it('plays while the pointer is over the control that holds the glyph', async () => {
   mount(<button type="button"><SettingsIcon /></button>)
   expect(turned()).toBe(false)
