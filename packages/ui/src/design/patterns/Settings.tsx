@@ -820,16 +820,20 @@ export const Text = ({
  * row lays the two out on their first baseline, so the mark sits on the
  * middle of the label's first line however many lines the label wraps to and
  * whatever box the label is drawn in. `role` is the label's.
+ * A status mark that carries meaning of its own takes a `label`; decorative
+ * marks stay hidden from assistive technology.
  */
 export const TextMark = ({
   role = 'navigation',
   tone,
+  label,
   className,
   children,
 }: {
   role?: TextRole
   /** A mark that judges — a finished step, a failed one — takes its tone's ink; every other mark is muted. */
   tone?: Tone
+  label?: string
   className?: string
   children: ReactNode
 }) => (
@@ -837,7 +841,8 @@ export const TextMark = ({
     role={role}
     ink="muted"
     {...(tone ? { tone } : {})}
-    aria-hidden="true"
+    aria-hidden={label ? undefined : true}
+    aria-label={label}
     data-mark=""
     className={cx('inline-flex w-3 shrink-0 items-center justify-center', className)}
   >

@@ -294,6 +294,58 @@ test('DeepSeek Harness is bound to its balance by runtime, and the desk’s own 
   }
 })
 
+test('the DeepSeek meter is told the build each read, so the key it asks about is the one the agent sends', async () => {
+  const home = tempDir('hd-dsh-version-')
+  writeFileSync(join(home, '.credentials.yaml'), 'version: 1\nrefs:\n  DEEPSEEK_API_KEY: sk-in-the-store\n')
+  const dsh = row({
+    id: 'dsh',
+    command: 'dsh',
+    args: ['--profile', 'acp'],
+    env: { DSH_HOME: home },
+    secrets: [
+      {
+        env: 'DEEPSEEK_API_KEY',
+        label: 'DeepSeek API key',
+        alsoAt: [
+          {
+            path: '${DSH_HOME:-~/.dsh}/.credentials.yaml',
+            format: 'yaml' as const,
+            label: "DeepSeek's own store",
+            outranksEnvFrom: '0.2.1-alpha.3',
+          },
+        ],
+      },
+    ],
+  })
+  const originalFetch = globalThis.fetch
+  const sent: (string | null)[] = []
+  globalThis.fetch = (async (_url: string | URL | Request, init?: RequestInit) => {
+    sent.push((init?.headers as Record<string, string> | undefined)?.['Authorization'] ?? null)
+    return new Response(JSON.stringify({ is_available: true, balance_infos: [{ currency: 'USD', total_balance: '1' }] }), { status: 200 })
+  }) as typeof globalThis.fetch
+  try {
+    let version: string | null | undefined
+    const broker = () => 'sk-broker-key'
+    const bound = localUsageFor(dsh, knowledge('dsh'), broker, () => version)
+    const unwired = localUsageFor(dsh, knowledge('dsh'), broker)
+    version = '0.2.0-rc.2'
+    await bound?.meter?.read()
+    version = '0.2.1-alpha.3'
+    await bound?.meter?.read()
+    version = null
+    await bound?.meter?.read()
+    await unwired?.meter?.read()
+    assert.deepEqual(sent, [
+      'Bearer sk-broker-key', // a build that reads its environment first sends the key HarnessDesk holds
+      'Bearer sk-in-the-store', // the build that reads its store first sends that one, with no rebuild of the binding
+      'Bearer sk-broker-key', // a build nobody has read keeps the older order
+      'Bearer sk-broker-key', // and so does a binding wired without a way to ask
+    ])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('OpenRouter is bound to every row with no stronger meter of its own, whether or not it has a key yet', () => {
   // A row with no other meter at all — the "mine" row from above, now
   // carrying an OpenRouter key — gains one.

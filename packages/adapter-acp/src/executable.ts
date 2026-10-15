@@ -110,6 +110,50 @@ export const versionIn = (printed: string | null): string | null => {
   return match ? match[0].replace(/[.-]+$/, '') : printed.trim() || null
 }
 
+const numeric = /^\d+$/
+
+/** Semver precedence between two prerelease tags (`alpha.2` before `alpha.3`, `rc.2` before `rc.10`). */
+const comparePrerelease = (a: readonly string[], b: readonly string[]): number => {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    const x = a[i]!
+    const y = b[i]!
+    if (x === y) continue
+    const xn = numeric.test(x)
+    const yn = numeric.test(y)
+    if (xn && yn) return Number(x) - Number(y)
+    // A numeric identifier is older than an alphanumeric one.
+    if (xn !== yn) return xn ? -1 : 1
+    return x < y ? -1 : 1
+  }
+  return a.length - b.length
+}
+
+/**
+ * Whether `printed` is at least `floor`, by semver precedence.
+ *
+ * Prerelease counts, which a bare `major.minor.patch` comparison cannot say:
+ * `0.2.1-alpha.2` is older than `0.2.1-alpha.3`, and both are older than
+ * `0.2.1`. A version that cannot be read is not at least anything, so a gate
+ * on it stays shut rather than opening on a guess.
+ */
+export const versionAtLeast = (printed: string | null | undefined, floor: string): boolean => {
+  const have = versionIn(printed ?? null)
+  const need = versionIn(floor)
+  const parse = (value: string | null) =>
+    value ? /^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?/.exec(value) : null
+  const a = parse(have)
+  const b = parse(need)
+  if (!a || !b) return false
+  for (const i of [1, 2, 3] as const) {
+    const delta = Number(a[i]) - Number(b[i])
+    if (delta !== 0) return delta > 0
+  }
+  // Equal triples: a release outranks any of its own prereleases.
+  if (a[4] === undefined) return true
+  if (b[4] === undefined) return false
+  return comparePrerelease(a[4].split('.'), b[4].split('.')) >= 0
+}
+
 export const resolveExecutable = async (
   spec: AcpExecutableSpec,
   options: ExecutableResolverOptions = {},

@@ -2,6 +2,7 @@ export {
   AcpRuntime,
   isDirectory,
   readKeyValue,
+  secretReadOrder,
   secretSourcePath,
   type AcpAgentConfig,
   type AcpLaunchDecision,
@@ -14,6 +15,7 @@ export type { AcpUsage } from '@harnessdesk/transport-acp'
 export { parseStatus, type AcpAccountCommands, type AcpCommandSpec, type AcpLoginSpec } from './account.js'
 export {
   resolveExecutable,
+  versionAtLeast,
   versionIn,
   type AcpExecutableSpec,
   type ResolvedExecutable,
