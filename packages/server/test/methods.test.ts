@@ -958,3 +958,12 @@ test('the most recent workspace answers with an empty git status, repo and check
   assert.equal(recent[0]?.repo, null, 'a stalled repoOf answers null once the bound is reached')
   assert.equal(recent[0]?.checkoutRoot, null, 'a stalled topLevel answers null once the bound is reached')
 })
+
+test('library/source/fetch delegates only to the host source reader', async () => {
+  const calls: unknown[] = []
+  const result = { commit: 'a'.repeat(40), skills: [], refused: [] }
+  const ctx = { librarySources: () => ({ fetch: async (params: unknown) => { calls.push(params); return result } }) } as unknown as HostContext
+  const params = { url: 'https://github.com/acme-dev/skills', ref: 'main', path: 'tools' }
+  assert.equal(await dispatch(ctx, 'library/source/fetch' as never, params as never), result)
+  assert.deepEqual(calls, [params])
+})

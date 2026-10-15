@@ -159,6 +159,7 @@ import { dropFlowBase, fetchFlowBase } from './flow-base.js'
 import { samePath, shellCheckoutIdentity, Worktrees, createDetached, managedWorktreePath, openRepositoryRoot, remove as removeWorktree, removeCheckoutsLeftBehind, repositoryOf } from './worktree.js'
 import { commitCardWork } from './card-commit.js'
 import type { InventoryAgent } from '@harnessdesk/agent-inventory'
+import { LibrarySources, type LibrarySourcesOptions } from './library-sources.js'
 import { LibraryUsageReader } from './library-usage.js'
 import type { Logger } from './log.js'
 import { SessionRegistry, seatedSession, seatedSettings, type SessionRecord } from './registry.js'
@@ -447,6 +448,8 @@ export const reportedProvider = async (runtime: AgentRuntime, cwd: string, throu
 export type QuestionTimers = Pick<QuestionPort, 'setTimer' | 'clearTimer'>
 
 export interface HostOptions {
+  /** Public skill source transport and bounds; tests use temporary bare repositories. */
+  readonly librarySources?: LibrarySourcesOptions
   /** How the forge plane reaches `gh`, and how long it trusts an answer. Tests substitute a forge. */
   readonly forge?: ForgePlaneOptions
   /**
@@ -726,6 +729,7 @@ export class Host {
   readonly #indexTeams = new Map<string, string>()
   /** The transcript as the host watched it, for reads the backend returns thin. */
   readonly #transcripts: TranscriptStore
+  #librarySources: LibrarySources | null = null
   #libraryUsage: LibraryUsageReader | null = null
   /** The archive for runtimes with none of their own. See `SessionArchive`. */
   readonly #archive: SessionArchive
@@ -4529,6 +4533,7 @@ export class Host {
       },
       insight: this.#insight,
       intake: this.#intake,
+      librarySources: () => this.#librarySources ??= new LibrarySources(join(this.#state.directory, 'library'), this.options.librarySources),
       libraryUsage: () => {
         // Lazy: the reader is only built when the page first asks, and the
         // first read pays for the transcripts it walks. Every read after is

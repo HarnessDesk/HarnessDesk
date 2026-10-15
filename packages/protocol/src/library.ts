@@ -345,11 +345,33 @@ export interface LibraryUsage {
  * backup.
  */
 
+/** A public repository revision and the path of one skill within it. */
+export interface LibrarySkillOrigin {
+  readonly url: string
+  readonly ref: string
+  readonly commit: string
+  readonly path: string
+}
+
+export interface LibrarySourceResult extends LibrarySkillOrigin {
+  readonly repo: string
+  readonly skills: readonly {
+    readonly name: string
+    readonly dir: string
+    readonly sourcePath: string
+    readonly files: number
+    readonly bytes: number
+    readonly bundle: string
+  }[]
+  readonly refused: readonly { readonly dir: string; readonly reason: string }[]
+}
+
 /** What the person asked for, before any path or diff exists. */
 export type LibraryIntent =
   /** Copy a skill that exists somewhere into one agent's own directory. */
   | {
       readonly kind: 'installSkill'
+      readonly origin?: LibrarySkillOrigin & { readonly bundle: string }
       readonly name: string
       /** The copy to install from — a bundle directory or a flat `.md` file. */
       readonly sourcePath: string
@@ -447,6 +469,7 @@ export interface LibraryPlannedOp {
   readonly guardBundle?: string | null
   /** Skill definition and supporting bytes the operation will carry. */
   readonly sourceBundle?: string
+  readonly origin?: LibrarySkillOrigin & { readonly bundle: string }
   /** The op will file a copy of what it replaces or removes before acting. */
   readonly backup: boolean
 }

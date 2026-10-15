@@ -2,11 +2,12 @@ import { randomUUID } from 'node:crypto'
 import { closeSync, constants, existsSync, fstatSync, lstatSync, openSync, readdirSync, readFileSync, readSync, realpathSync, statSync } from 'node:fs'
 import { cp, mkdir, open, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 
 import { shortPath } from '@harnessdesk/protocol'
 import type {
   LibraryIntent,
+  LibrarySkillOrigin,
   LibraryKind,
   LibraryOpResult,
   LibraryPlan,
@@ -14,6 +15,9 @@ import type {
   RuntimeId,
 } from '@harnessdesk/protocol'
 
+import { parseGithubSource } from './github-source.js'
+import { isSafePathSegment, isSafeSkillRelativePath, validSkillName } from './skill-paths.js'
+export { isSafePathSegment, isSafeSkillRelativePath, validSkillName } from './skill-paths.js'
 import { bundleDigest, digestOf } from './digest.js'
 import { unifiedDiff } from './diff.js'
 import {
@@ -75,22 +79,8 @@ export interface WriteContext {
 
 /** Caps on what an install will carry: past these, a bundle is a project. */
 export const MAX_BUNDLE_FILES = 200
-const MAX_BUNDLE_BYTES = 20 * 1024 * 1024
+export const MAX_BUNDLE_BYTES = 20 * 1024 * 1024
 
-/**
- * Whether a string could ever be one path segment: never empty, never a
- * climb (`.` or `..`), and never carrying a separator or a NUL a filesystem
- * would refuse outright. Exported so a caller with its own length policy —
- * a skill or MCP server's name here, an Agent backup's path segment in
- * `agent-files.ts` — states that policy as one extra check on top of this,
- * rather than a second near-identical rule that quietly disagrees with this
- * one at an edge nobody is looking at.
- */
-export const isSafePathSegment = (name: string): boolean =>
-  name !== '' && name !== '.' && name !== '..' && !name.includes('/') && !name.includes('\\') && !name.includes('\0')
-
-/** A name is a path segment, short enough for a skill or MCP server's own name. */
-const validName = (name: string): boolean => isSafePathSegment(name) && name.length <= 128
 
 interface Definition {
   /** The bundle directory or the flat file itself. */
@@ -284,6 +274,7 @@ const dirHasEntries = (path: string): boolean => {
 
 interface PlanState {
   readonly agents: readonly WriteAgent[]
+  readonly libraryDir: string
   readonly manifest: LibraryManifest
   readonly home: string
   readonly cwd: string | undefined
@@ -397,7 +388,7 @@ const insideRootsReal = (path: string, roots: readonly string[]): boolean => {
 
 const planInstallSkill = (
   state: PlanState,
-  intent: { name: string; sourcePath: string; targetRuntime: RuntimeId },
+  intent: { name: string; sourcePath: string; targetRuntime: RuntimeId; origin?: LibrarySkillOrigin & { bundle: string } },
   content?: string,
   extras?: { files: readonly string[]; sourcePath: string },
 ): void => {
@@ -424,7 +415,8 @@ const planInstallSkill = (
   let files: readonly string[] = extras?.files ?? []
   let sourcePath = extras?.sourcePath
   if (text === undefined) {
-    const skillRoots = knownRoots('skill', state.home, state.cwd)
+    checkFetchedOrigin(intent.sourcePath, intent.origin, state.libraryDir)
+    const skillRoots = [...knownRoots('skill', state.home, state.cwd), ...(intent.origin ? [join(state.libraryDir, 'sources')] : [])]
     if (!insideRootsReal(intent.sourcePath, skillRoots)) {
       refuse(state, 'skill', name, '', 'The source is not in any directory this library reads.', targetRuntime)
       return
@@ -506,6 +498,7 @@ const planInstallSkill = (
       kind: 'skill',
       name,
       action: 'update',
+      ...(intent.origin ? { origin: intent.origin } : {}),
       targetPath,
       targetRuntime,
       preview: unifiedDiff(existing.text, text, { fromLabel: label, toLabel: label }),
@@ -514,7 +507,7 @@ const planInstallSkill = (
       content: text,
       ...(existing.flat ? { flat: true } : {}),
       ...(!existing.flat && files.length > 0 ? { extraFiles: files } : {}),
-      ...(!existing.flat && sourcePath !== undefined ? { sourcePath } : {}),
+      ...((!existing.flat || intent.origin) && sourcePath !== undefined ? { sourcePath } : {}),
     })
     return
   }
@@ -523,6 +516,7 @@ const planInstallSkill = (
     kind: 'skill',
     name,
     action: hollow ? 'replace' : 'create',
+    ...(intent.origin ? { origin: intent.origin } : {}),
     targetPath: bundleTarget,
     targetRuntime,
     preview: unifiedDiff('', text, {
@@ -544,7 +538,7 @@ const planSyncSkill = (
 ): void => {
   const { name } = intent
   const skillRoots = knownRoots('skill', state.home, state.cwd)
-  if (!insideRootsReal(intent.sourcePath, skillRoots)) {
+  if (insideRoots(intent.sourcePath, [join(state.libraryDir, 'sources')]) || !insideRootsReal(intent.sourcePath, skillRoots)) {
     refuse(state, 'skill', name, '', 'The winning copy is not in any directory this library reads.')
     return
   }
@@ -1029,6 +1023,7 @@ export const planLibrary = async (
   context: WriteContext,
 ): Promise<LibraryPlan> => {
   const state: PlanState = {
+    libraryDir: context.libraryDir,
     agents,
     manifest: await LibraryManifest.load(context.libraryDir),
     home: context.home ?? homedir(),
@@ -1038,7 +1033,7 @@ export const planLibrary = async (
   }
 
   for (const intent of intents) {
-    if (!validName(intent.name)) {
+    if (!validSkillName(intent.name)) {
       refuse(state, intent.kind.endsWith('Mcp') ? 'mcp' : 'skill', intent.name, '', 'Not a name a directory can carry.')
       continue
     }
@@ -1113,23 +1108,6 @@ const withLock = async <T>(key: string, fn: () => Promise<T>): Promise<T> => {
  * One op, performed. Throws with the sentence the result should carry;
  * `applyLibrary` catches per op.
  */
-/**
- * A skill bundle relative path must stay strictly inside the bundle: no
- * traversal or `.` segments, no empty segments, no NUL, no absolute paths
- * (POSIX or Windows), no drive letters (C:), and no UNC prefixes
- * (\\server\share). A bundle may be authored on either platform, so both
- * `/` and `\` are read as separators — the one difference from
- * `isSafePathSegment`'s own callers, which is why this splits on both before
- * handing each piece to that same one rule, rather than folding its own
- * near-copy of it back in.
- */
-export const isSafeSkillRelativePath = (relative: string): boolean => {
-  if (isAbsolute(relative) || /^[A-Za-z]:[\\/]/.test(relative) || relative.startsWith('\\\\') || relative.startsWith('//')) {
-    return false
-  }
-  return relative.split(/[/\\]/).every(isSafePathSegment)
-}
-
 /** A leaf link can be replaced, but no directory on the way may be followed. */
 const checkSkillWriteParents = (root: string, path: string): void => {
   for (let at = dirname(path); insideRoots(at, [root]); at = dirname(at)) {
@@ -1166,11 +1144,40 @@ const writeSkillFile = async (path: string, bytes: Buffer, mode?: number): Promi
   }
 }
 
+/** Sources are install-only, and the fetched bundle must still match its receipt. */
+const checkFetchedOrigin = (source: string | undefined, origin: LibraryPlannedOp['origin'], libraryDir: string): void => {
+  const root = join(libraryDir, 'sources')
+  const inSources = source !== undefined && (insideRoots(source, [root]) || insideRootsReal(source, [root]))
+  if (!inSources && origin === undefined) return
+  if (!inSources || origin === undefined || !/^[a-f0-9]{40}$/i.test(origin.commit)) {
+    throw new Error('A fetched source needs its repository origin and full commit hash; other sources cannot carry an origin.')
+  }
+  parseGithubSource(origin.url, origin.ref, origin.path)
+  if (lstatSync(root).isSymbolicLink() || !insideRootsReal(source!, [root])) throw new Error('The fetched copy changed — fetch again.')
+  const inspect = (dir: string): void => {
+    for (const name of readdirSync(dir)) {
+      const path = join(dir, name)
+      const stats = lstatSync(path)
+      if (stats.isSymbolicLink() || name.toLowerCase() === '.git' || /[\x00-\x1f\x7f]/.test(name)) throw new Error('The fetched copy changed — fetch again.')
+      if (stats.isDirectory()) inspect(path)
+    }
+  }
+  if (!lstatSync(source!).isDirectory()) throw new Error('The fetched copy changed — fetch again.')
+  inspect(source!)
+  if (currentSkillBundleDigest(source!) !== origin.bundle) {
+    throw new Error('The fetched copy changed — fetch again.')
+  }
+}
+
 const applyOne = async (
   op: LibraryPlannedOp,
   manifest: LibraryManifest,
   context: Required<Pick<WriteContext, 'libraryDir'>> & { home: string; cwd: string | undefined },
 ): Promise<LibraryOpResult> => {
+  checkFetchedOrigin(op.sourcePath, op.origin, context.libraryDir)
+  if (op.origin && (op.kind !== 'skill' || op.content !== readDefinition(op.sourcePath!)?.text)) {
+    throw new Error('The fetched copy changed — fetch again.')
+  }
   const roots = knownRoots(op.kind, context.home, context.cwd)
   if (!insideRoots(op.targetPath, roots)) {
     throw new Error('The target is not in any directory this library manages.')
@@ -1182,6 +1189,7 @@ const applyOne = async (
     !insideRootsReal(op.sourcePath, [
       ...knownRoots('skill', context.home, context.cwd),
       join(context.libraryDir, 'backups'),
+      ...(op.origin ? [join(context.libraryDir, 'sources')] : []),
     ])
   ) {
     throw new Error('The source is not in any directory this library reads.')
@@ -1284,6 +1292,7 @@ const applyOne = async (
         bundle: currentSkillBundleDigest(op.targetPath)!,
         at: Date.now(),
         ...(op.sourcePath !== undefined ? { source: op.sourcePath } : {}),
+        ...(op.origin ? { origin: { url: op.origin.url, ref: op.origin.ref, commit: op.origin.commit, path: op.origin.path } } : {}),
       })
       await saveManifest.save()
     })
@@ -1404,7 +1413,7 @@ export const applyLibrary = async (
       results.push({ id: op.id, outcome: 'skipped', ...(op.reason !== undefined ? { detail: op.reason } : {}) })
       continue
     }
-    if (!validName(op.name) || basename(op.targetPath) === '') {
+    if (!validSkillName(op.name) || basename(op.targetPath) === '') {
       results.push({ id: op.id, outcome: 'failed', detail: 'Not a name a directory can carry.' })
       continue
     }

@@ -22,6 +22,7 @@ import {
  * would be a test hook, and a second `createHash` somewhere else would be a
  * second answer about trailing whitespace.
  */
+export { parseGithubSource } from './github-source.js'
 export { bundleDigest, digestOf } from './digest.js'
 export { unifiedDiff } from './diff.js'
 export { LibraryManifest, type ManifestEntry } from './manifest.js'
@@ -37,6 +38,9 @@ export {
 export {
   applyLibrary,
   isSafePathSegment,
+  isSafeSkillRelativePath,
+  validSkillName,
+  MAX_BUNDLE_BYTES,
   MAX_BUNDLE_FILES,
   planLibrary,
   type WriteAgent,

@@ -210,9 +210,12 @@ const seatListValidator: Validator<FlowSeat[]> = (value, path = '') => {
   return seats
 }
 
+const libraryOriginValidator = shape({ url: isString, ref: isString, commit: isString, path: isString, bundle: isString })
+
 const libraryIntentValidator: Validator<LibraryIntent> = taggedUnion('kind', {
   installSkill: shape({
     kind: literalUnion('installSkill'),
+    origin: optional(libraryOriginValidator),
     name: isString,
     sourcePath: isString,
     targetRuntime: isRuntimeId,
@@ -271,6 +274,7 @@ const libraryPlannedOpValidator: Validator<LibraryPlannedOp> = shape({
   flat: optional(isBoolean),
   guardDigest: nullableString,
   guardBundle: (value, path) => value === undefined ? undefined : nullableString(value, path),
+  origin: optional(libraryOriginValidator),
   sourceBundle: (value, path) => value === undefined ? undefined : isString(value, path),
   backup: isBoolean,
 }) as Validator<LibraryPlannedOp>
@@ -998,6 +1002,11 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'runtime/skills': shape({ runtime: isString, cwd: optional(isString) }),
   'runtime/skills/setEnabled': shape({ runtime: isString, name: isString, path: optional(isString), enabled: isBoolean }),
   'runtime/hooks': shape({ runtime: isString, cwd: optional(isString) }),
+  'library/source/fetch': shape({
+    url: isString,
+    ref: (value, path) => value === undefined ? undefined : isString(value, path),
+    path: (value, path) => value === undefined ? undefined : isString(value, path),
+  }),
   'library/read': shape({ cwd: optional(isString) }),
   'library/definition': shape({
     kind: isString,
