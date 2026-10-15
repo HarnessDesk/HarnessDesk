@@ -69,10 +69,11 @@ describe('history search request ordering', () => {
     const older = deferred<{ data: readonly SessionSummary[]; nextCursor: null }>()
     request.mockImplementation(((method: HostMethodName) => {
       if (method === 'session/search') return older.promise
-      if (method === 'session/list') return Promise.resolve({ data: [summary('reset-history')], nextCursor: null })
+      if (method === 'session/index') return Promise.resolve({ data: [summary('reset-history')], nextCursor: null })
       return Promise.resolve(null)
     }) as never)
 
+    await store.loadHistory({ reset: true })
     const first = store.searchHistory('slow')
     const clear = store.searchHistory('')
     await clear
@@ -110,4 +111,17 @@ describe('history search request ordering', () => {
 
     expect(store.getSnapshot().history).toEqual([])
   })
+  it('matches the displayed title across worktrees of one repository even when remote search misses it', async () => {
+    const rows = ['/work/storefront/.worktrees/lead', '/work/storefront/.worktrees/review'].map((cwd, i) => ({
+      ...summary(`worktree-${i}`), cwd, title: i === 0 ? 'Lead' : 'Review',
+      repo: { root: '/work/storefront', worktree: true },
+    }))
+    request.mockImplementation(((method: HostMethodName) => Promise.resolve(
+      method === 'session/index' ? { data: rows, nextCursor: null } : method === 'session/search' ? { data: [], nextCursor: null } : null
+    )) as never)
+    await store.loadHistory({ reset: true })
+    await store.searchHistory('Lead')
+    expect(store.getSnapshot().history.map(row => row.title)).toEqual(['Lead'])
+  })
+
 })

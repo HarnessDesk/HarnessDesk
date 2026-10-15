@@ -3,10 +3,11 @@ import { expect, it } from 'vitest'
 import { Section } from './section'
 import { Table } from './table'
 
-it('a page section can align its label with a row body', () => {
+it('a page section keeps its heading on the page text edge when its body is inset', () => {
   const host = document.createElement('div')
   host.innerHTML = renderToStaticMarkup(<Section title="Agents" inset="row"><div>Rows</div></Section>)
-  expect(host.querySelector('[data-slot="section-head"]')!.className).toContain('px-(--hd-inset-row)')
+  expect(host.querySelector('[data-slot="section-head"]')!.className).not.toContain('px-(--hd-inset-row)')
+  expect(host.querySelector('[data-slot="section-head"]')!.className).not.toContain('has-[+[data-slot=rows]]')
 })
 
 it('a framed table can share the row inset of the list replacing it', () => {

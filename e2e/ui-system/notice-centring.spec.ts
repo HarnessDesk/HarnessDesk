@@ -254,3 +254,41 @@ test('narrow Banner moves actions below wrapped copy and keeps the wrapped lead 
   expect(action).not.toBeNull()
   expect(action!.y, 'narrow Banner action follows the copy').toBeGreaterThanOrEqual(textBox!.y + textBox!.height)
 })
+
+test('a strip notice gives its message the room it needs before it clips', async ({ page }) => {
+  await openBoard(page, 'Notices')
+  const strip = page.locator('[data-alignment-board-id="notices"] [data-slot="notice-strip"]')
+    .filter({ hasText: 'Alpha can continue.' }).first()
+  await expect(strip).toBeVisible()
+  const line = strip.locator('[data-slot="notice-message-line"]')
+  // The message and the spacer that pushes the pager to the edge both grew, so
+  // they split the slack: a sentence wider than half of it was cut with an
+  // ellipsis while the other half of the row stood empty. Lengthen the message
+  // past half the row and check it still fits.
+  await strip.evaluate((element) => {
+    const title = element.querySelector('[data-part="notice-title"]')!
+    const message = element.querySelector('[data-slot="notice-message-line"]') as HTMLElement
+    const half = element.getBoundingClientRect().width / 2
+    while (message.scrollWidth < half) title.textContent = `${title.textContent} and then some`
+  })
+  const { shown, needed } = await line.evaluate((element) => ({ shown: element.clientWidth, needed: element.scrollWidth }))
+  expect(shown, 'the message is not clipped while the row has room').toBeGreaterThanOrEqual(needed)
+})
+
+test('a strip message too long for its row gives up its own width, never the pager', async ({ page }) => {
+  await openBoard(page, 'Notices')
+  const strip = page.locator('[data-alignment-board-id="notices"] [data-slot="notice-strip"]')
+    .filter({ has: page.locator('[data-slot="notice-pager"]') }).first()
+  await expect(strip).toBeVisible()
+  const pager = strip.locator('[data-slot="notice-pager"]')
+  const [stripBefore, pagerBefore] = await Promise.all([strip.boundingBox(), pager.boundingBox()])
+  // With the message sized to its text, a sentence longer than the row leaves
+  // no free space, so everything that may shrink does. The pager's "1 of 2"
+  // breaks at its spaces, which made the strip taller.
+  await strip.locator('[data-part="notice-title"]').evaluate((title) => {
+    title.textContent = `${title.textContent} ${'and a great deal more to say about it '.repeat(40)}`
+  })
+  const [stripAfter, pagerAfter] = await Promise.all([strip.boundingBox(), pager.boundingBox()])
+  expect(stripAfter!.height, 'the strip stays one line tall').toBeCloseTo(stripBefore!.height, 0)
+  expect(pagerAfter!.width, 'the pager keeps its width').toBeCloseTo(pagerBefore!.width, 0)
+})

@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 
 import {
-  activityOf, checkedDependencies, flowStepOf, placeCard,
+  activityOf, checkedDependencies, flowStepOf, evidenceForCard, placeCard,
   type BoardEvidence, type CarryFindingsInput, type EvidenceRecord, type FindingReceipt, type FlowExecution, type FlowPermission, type FlowRun, type FlowSeat,
   type Goal, type GoalCitation, type GoalCreateInput, type GoalMemoryIndex, type GoalOrigin, type GoalReceiptEvidenceSeat, type GoalReceipt, type GoalSeatRequest, type GoalView,
   type Intent, type SeatId, type SeatRecord, type SessionPointer, type TeamState,
@@ -91,6 +91,8 @@ export interface GoalPlanePort extends GoalOperationPort {
     readonly gaps: readonly string[]
   }>
   revision(cwd: string): Promise<{ readonly head: string | null; readonly dirty: boolean | null }>
+  /** True only when a checkout has no tracked, untracked or ignored work; an unreadable inventory is unknown. */
+  checkoutUnused?(cwd: string): Promise<boolean>
   /**
    * A Goal's view moved. `install: false` when the caller only wants windows
    * told — a flow run's own state changed and the Goal store did not — so a
@@ -285,12 +287,14 @@ export class GoalPlane {
       ?? executions.find((one) => one.state === 'running' || one.state === 'stalled')
       ?? executions.find((one) => one.id === origin)
       ?? (named === null ? executions.at(-1) : undefined)
+    const currentSeats = new Set(current?.rounds.flatMap(round => round.seats) ?? [])
     const endingNeedsYou = current?.end?.kind === 'unrouted' || current?.end?.kind === 'budget' || current?.end?.kind === 'stalled'
     const placements = board.intents.map((intent) => {
       const step = flowStepOf(intent, run, executions)
       return placeCard({
         intent,
-        evidence: evidence?.cards.find((card) => card.card === intent.id),
+        evidence: evidenceForCard(intent, board.intents, evidence, run, executions),
+        flowStep: step,
         stranded: this.port.stranded(id, intent.id),
         holderWaits: intent.claim ? this.port.waits(intent.claim) : false,
         forPerson: step?.kind === 'person',
@@ -316,7 +320,7 @@ export class GoalPlane {
         const found = dependencies.find((one) => one.id === dependency)
         return found?.state === 'wrapped' ? [] : [{ id: dependency, sentence: found?.sentence ?? 'A missing Goal' }]
       }),
-      members, board, receipt: document.receipt,
+      members, pastMembers: this.port.seats.all().filter(seat => seat.board === id && seat.closed !== null && !seat.restored && currentSeats.has(seat.id)), board, receipt: document.receipt,
       problem: document.restored ? 'This Goal came from a backup. Start a new Goal to continue its work.' : problem,
       ...(document.flowReservation ? { reservation: { run: document.flowReservation.run } } : {}),
     }
@@ -1224,14 +1228,23 @@ export class GoalPlane {
     if (!isolate) return open(goal)
     if (!this.#lanes || !this.#lanePreferences) throw new Error('Read the lane settings before seating this Goal.')
     const lane = await this.#lanes.allocate(goal.id, randomUUID(), this.#lanePreferences(), cut)
+    const before = await this.port.revision(lane.cwd).catch(() => null)
     try {
       const seat = await open({ ...goal, cwd: lane.cwd })
       if (seat.board !== goal.id || seat.checkout.cwd !== lane.cwd) throw new Error('The recorded Seat did not use its allocated checkout. Finish recovery before dispatching work.')
       await this.#lanes.bind(lane.id, seat.id)
       return seat
     } catch (error) {
-      await this.#lanes.retain(lane.id)
-      throw new Error(`${error instanceof Error ? error.message : String(error)} Lane ${lane.id} was retained for review; its checkout and ports were kept.`)
+      const after = await this.port.revision(lane.cwd).catch(() => null)
+      let released = false
+      if (before?.head && before.dirty === false && after?.head === before.head && after.dirty === false &&
+        await this.port.checkoutUnused?.(lane.cwd).catch(() => false)) {
+        // Release refuses a surviving Seat, turn or server. Unknown or changed
+        // work is retained, including a clean commit made during opening.
+        released = await this.#lanes.release(lane.id).then(() => true, () => false)
+      }
+      if (!released) await this.#lanes.retain(lane.id)
+      throw new Error(`${error instanceof Error ? error.message : String(error)} ${released ? 'The unused checkout’s ports were released.' : 'Its checkout and ports were kept for review.'}`)
     }
   }
 

@@ -1574,6 +1574,8 @@ test('deleteSession removes temporary artifacts left by tool plugins and image s
     },
   })
   await runtime.start()
+  assert.equal(runtime.info.capabilities.deleteHistory, 'trash')
+  assert.equal(runtime.info.capabilities.readableHistory, false)
   try {
     const session = await runtime.createSession({ cwd: WORKDIR })
     const scratchDir = join(SCRATCH_TMP, 'harnessdesk-cursor-acp', String(session.id))

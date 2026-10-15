@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import type { Intent } from '@harnessdesk/protocol'
-import { EmptyState, Menu, MenuItem, MenuLabel, MenuSeparator, MenuToggle, PanelFilter, PanelFooter, PanelPill, PaneColumn, Popover, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, GroupLabel, Text } from '../design'
+import { EmptyState, Menu, MenuItem, MenuLabel, MenuSeparator, MenuToggle, PanelFilter, PanelFooter, Tabs, TabsList, TabsTrigger, PaneColumn, Popover, Table, TableBody, TableCell, TableHead, TableHeader, TableRow, GroupLabel, Text } from '../design'
 import { MoreIcon } from './Icons'
 import { FACT_COLUMNS, type FactColumn, type Placement } from '../lib/board-facts'
 
@@ -87,14 +87,15 @@ export const TeamBoardList = ({ intents, placed, renderRow, defaultColumns = ALL
   return <PaneColumn ref={root} inset="reading" className="flex flex-col gap-3" data-slot="board-list" data-grouped={grouped || undefined}>
     <div className="flex flex-wrap items-center gap-2">
       <div className="min-w-0 basis-48"><PanelFilter value={query} placeholder="Filter jobs" onChange={setQuery} /></div>
-      <PanelPill pressed={state === 'all'} onClick={() => setState('all')}>All <Text role="meta" numeric>{intents.length}</Text></PanelPill>
+      <Tabs value={state} onValueChange={value => setState(value as typeof state)}><TabsList><TabsTrigger value="all" count={intents.length}>All </TabsTrigger>
       {filters.map(id => {
         const column = FACT_COLUMNS.find(one => one.id === id)!
         if (id === 'aside' && count(id) === 0 && state !== id) return null
-        return <PanelPill key={id} pressed={state === id} onClick={() => setState(id)}>{column.title} <Text role="meta" numeric>{count(id)}</Text></PanelPill>
+        return <TabsTrigger key={id} value={id} count={count(id)}>{column.title} </TabsTrigger>
       })}
+      </TabsList></Tabs>
       <span className="flex-1" />
-      <Popover label={<MoreIcon />} title="View: columns and sort" align="right">
+      <Popover label={<MoreIcon />} title="View: columns and sort" align="right" icons="none">
         {close => <Menu close={close}>
           <MenuLabel>Sort</MenuLabel>
           <MenuItem label="Needs you first" current={sort === 'state'} onSelect={() => setSort('state')} />

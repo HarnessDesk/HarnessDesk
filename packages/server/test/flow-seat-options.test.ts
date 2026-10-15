@@ -68,6 +68,13 @@ const rig = async (t: TestContext, kind: 'codex' | 'acp' | 'variant' | 'controls
   const root = join(base, 'project')
   const stateDir = join(base, 'state')
   await mkdir(root)
+  // An isolated Seat needs a committed project before preview can offer Start.
+  // Keep the option checks on the same valid checkout opening will use.
+  const git = promisify(execFile)
+  await git('git', ['init', '-q', '-b', 'main', root])
+  await writeFile(join(root, 'README.md'), 'Synthetic project for Seat options.\n')
+  await git('git', ['-C', root, 'add', 'README.md'])
+  await git('git', ['-C', root, '-c', 'user.name=Jane Doe', '-c', 'user.email=dev@example.com', 'commit', '-q', '-m', 'Initial project'])
   await mkdir(join(stateDir, 'agents', 'writer'), { recursive: true })
   await writeFile(join(stateDir, 'agents', 'writer', 'AGENT.md'), '---\nname: Writer\nceiling: edit\nanswers: [done]\n---\nCompare the change.\n')
   const runtime: AgentRuntime = kind === 'codex'
@@ -79,6 +86,9 @@ const rig = async (t: TestContext, kind: 'codex' | 'acp' | 'variant' | 'controls
   host.register(runtime)
   t.after(() => host.dispose())
   await host.start()
+  // These tests also call the raw adapter directly. Join its background
+  // launch before exercising those live option reads.
+  await host.call('runtime/models', { runtime: runtime.info.id })
   await host.call('workspace/open', { path: root })
   return { host, root, runtime, stateDir }
 }

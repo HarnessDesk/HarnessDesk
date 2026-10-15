@@ -81,7 +81,7 @@ export const browserPlugin: HarnessPlugin = {
       ctx.context.register({
         label: 'Current page screenshot',
         form: 'resource',
-        chip: { description: 'What the browser shows right now, as an image.' },
+        chip: { description: 'What the browser shows right now, as an image.', icon: 'image' },
         resolve: async () => {
           const shot = await ctx.browser.screenshot()
           const page = await ctx.browser.page()
@@ -121,6 +121,7 @@ export const browserPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'browser_open',
+        title: 'Open a page',
         description:
           'Open a URL in the browser and return a screenshot. A screenshot\'s pixels are the coordinates a click takes.',
         inputSchema: {
@@ -150,6 +151,7 @@ export const browserPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'browser_screenshot',
+        title: 'Screenshot',
         description:
           'Screenshot the browser as it is right now — the viewport, the whole scrollable page, or one element.',
         inputSchema: {
@@ -174,6 +176,7 @@ export const browserPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'browser_read_page',
+        title: 'Read the page',
         description:
           'What is on the page: an accessibility outline whose interactive parts carry ref_N handles the other tools take, or the page as plain text. Prefer this over measuring a screenshot. ' +
           'A password or one-time-code field reads as "secret filled" or "secret empty" rather than carrying its value — that is deliberate and not a gap to work around; you can still fill one with browser_fill.',
@@ -205,6 +208,7 @@ export const browserPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'browser_click',
+        title: 'Click',
         description:
           'Click an element by its ref, or at screenshot pixels (origin top-left). Returns a fresh screenshot.',
         inputSchema: {
@@ -240,6 +244,7 @@ export const browserPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'browser_pointer',
+        title: 'Pointer',
         description:
           'Pointer gestures beyond a click: hover to open a menu, scroll a list, or drag one place to another.',
         inputSchema: {
@@ -294,6 +299,7 @@ export const browserPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'browser_key',
+        title: 'Press a key',
         description:
           'Press a key, optionally several times and with modifiers held — use Enter, Tab, Escape, Backspace, Delete, Home, End, PageUp, PageDown, ArrowLeft, ArrowUp, ArrowRight, ArrowDown, space, or a single character. Returns a fresh screenshot.',
         inputSchema: {
@@ -314,6 +320,7 @@ export const browserPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'browser_type',
+        title: 'Type',
         description:
           'Type a whole string, optionally into a field named by its ref first, and optionally press Enter after. For a select, a checkbox, or replacing an existing value, use browser_fill.',
         inputSchema: {
@@ -336,6 +343,7 @@ export const browserPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'browser_fill',
+        title: 'Fill a form',
         description:
           'Set a form control to a value — text field, textarea, select (by value or label), or checkbox (true/false). Fires the events a framework listens for, so a React form really does hold the value.',
         inputSchema: {
@@ -357,6 +365,7 @@ export const browserPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'browser_page',
+        title: 'The page itself',
         description:
           'The page itself: go back or forward, reload, wait for something to appear, emulate a device or colour scheme, save it as a PDF file, or hand files to a file input.',
         inputSchema: {
@@ -448,6 +457,7 @@ export const browserPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'browser_console',
+        title: 'Read the console',
         description:
           'What the page has logged since it was opened — console calls, uncaught exceptions, and the browser\'s own complaints (a blocked load, a CSP refusal).',
         inputSchema: {
@@ -471,6 +481,7 @@ export const browserPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'browser_network',
+        title: 'Read network activity',
         description:
           'What the page asked the network for since it was opened, one line per request. Pass a requestId to read that response\'s body in full.',
         inputSchema: {
@@ -499,6 +510,7 @@ export const browserPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'browser_evaluate',
+        title: 'Run page script',
         description:
           'Evaluate a JavaScript expression in the page and return its JSON value — for state a screenshot cannot show, like a score variable. ' +
           'Its result is returned unredacted, so an expression that reads a password or card field puts that value in the transcript: this tool does what you ask it, and what you ask for is on you.',
@@ -515,6 +527,7 @@ export const browserPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'browser_cdp',
+        title: 'Use browser protocol',
         description:
           'Send any Chrome DevTools Protocol command to the page and return its result — Accessibility, DOM, Storage, Performance, Debugger, anything the other tools do not model. With events: true, read the raw event stream instead. ' +
           'Results come back as the protocol gives them, with none of the redaction browser_read_page applies — Accessibility.getFullAXTree and DOM.getOuterHTML both carry secret field values.',
@@ -550,6 +563,7 @@ export const browserPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'browser_close',
+        title: 'Close the browser',
         description: 'Close the browser and end its profile session.',
         inputSchema: { type: 'object', properties: {} },
         execute: async () => {

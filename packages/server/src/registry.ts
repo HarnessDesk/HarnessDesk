@@ -256,6 +256,7 @@ const charsOf = (input: readonly UserContent[]): number =>
  */
 export class SessionRegistry {
   readonly #records = new Map<SessionKey, SessionRecord>()
+  readonly #removed = new Map<SessionKey, { record: SessionRecord; undoUntil: number }>()
   readonly #pendingNotices = new PendingConversationNotices()
   /**
    * Where a conversation seen for the first time learns which Agent it was
@@ -363,9 +364,42 @@ export class SessionRegistry {
     return this.#records.get(sessionKey(runtime, id))
   }
 
+  /** Reopen may read Undo's held picks without admitting a removed record. */
+  forReopen(runtime: RuntimeId, id: SessionId): SessionRecord | undefined {
+    const active = this.get(runtime, id)
+    if (active) return active
+    const held = this.#removed.get(sessionKey(runtime, id))
+    return held && Date.now() < held.undoUntil ? held.record : undefined
+  }
+
   delete(runtime: RuntimeId, id: SessionId): void {
     this.#pendingNotices.delete(runtime, id)
     this.#records.delete(sessionKey(runtime, id))
+    this.#removed.delete(sessionKey(runtime, id))
+  }
+
+  /** Keep Undo's queue and picks outside every active lookup and sync projection. */
+  holdRemoved(runtime: RuntimeId, id: SessionId, undoUntil: number): void {
+    const key = sessionKey(runtime, id)
+    const record = this.#records.get(key)
+    if (!record) return
+    this.#removed.set(key, { record, undoUntil })
+    this.#records.delete(key)
+  }
+
+  restoreRemoved(runtime: RuntimeId, id: SessionId): SessionRecord | undefined {
+    const key = sessionKey(runtime, id)
+    const held = this.#removed.get(key)
+    this.#removed.delete(key)
+    if (!held || Date.now() >= held.undoUntil) return undefined
+    this.#records.set(key, held.record)
+    return held.record
+  }
+
+  removalDeadlines(): number[] { return [...this.#removed.values()].map(held => held.undoUntil) }
+
+  sweepRemoved(now: number): void {
+    for (const [key, held] of this.#removed) if (now >= held.undoUntil) this.#removed.delete(key)
   }
 
   all(): SessionRecord[] {

@@ -1,5 +1,7 @@
 import { realpathSync } from 'node:fs'
+import { stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
+import { join, relative, isAbsolute, sep } from 'node:path'
 import {
   CodexAppServer,
   CodexError,
@@ -43,6 +45,7 @@ import {
   type RuntimeHealth,
   type RuntimeId,
   type RuntimeInfo,
+  type RuntimeObservations,
   type InstallationCheck,
   type Session,
   type SessionId,
@@ -91,7 +94,7 @@ import {
 import { CODEX_RUNTIME_ID, mapSession, mapSummary } from './mapping/session.js'
 import { isClosingRefusal, ThreadReleases } from './releases.js'
 import { ReviewTurns } from './review-turns.js'
-import { salvageSession } from './salvage.js'
+import { findRollout, salvageSession } from './salvage.js'
 import { CodexSession } from './session.js'
 import { ApprovalRouter } from './approvals.js'
 import { holderOf, isBusyRefusal, sessionStoreOf } from './writer-lock.js'
@@ -179,6 +182,7 @@ const CLOSING_ATTEMPTS = 6
 const CLOSING_WAIT_MS = 2_000
 
 const CAPABILITIES = {
+  sourceTranscript: true,
   sessionEnvironment: true,
   resume: true,
   fork: true,
@@ -200,7 +204,8 @@ const CAPABILITIES = {
   review: true,
   archiveHistory: true,
   nameHistory: true,
-  deleteHistory: true,
+  deleteHistory: 'erase',
+  readableHistory: true,
   extensionStore: true,
   hooks: true,
   pluginTools: true,
@@ -288,7 +293,7 @@ export class CodexRuntime implements AgentRuntime {
   readonly #healthListeners = new Set<(health: RuntimeHealth) => void>()
   #version: string | null = null
   #disposeServer: Unsubscribe[] = []
-  #idleStopped = false
+  #idleStopped = true
   #lastAccount: AccountStatus | null = null
   #lastRateLimits: RateLimits | null = null
   #lastAccountActivity: AccountActivity | null = null
@@ -307,6 +312,8 @@ export class CodexRuntime implements AgentRuntime {
   readonly #sharesHistory: boolean
   /** How long a thread's settings change waits for Codex's word on it; see `CodexSession.setOption`. */
   readonly #settleMs: number | undefined
+  /** Source paths observed on native reads, creates and resumes. */
+  readonly #sourcePaths = new Map<SessionId, string>()
   /** Where this instance's Codex keeps its rollouts, for `salvageSession`. */
   readonly #codexHome: string | null
   /** Resolved once and refreshed on start; see `AgentRuntime.sessionStore`. */
@@ -381,6 +388,7 @@ export class CodexRuntime implements AgentRuntime {
   }
 
   get info(): RuntimeInfo {
+    if (this.health().state !== 'ready' && this.#idleInfo) return this.#idleInfo
     return {
       id: this.#id,
       name: this.#name,
@@ -452,6 +460,8 @@ export class CodexRuntime implements AgentRuntime {
     this.#providerRead = this.#readProvider()
     await this.#spawnServer()
     await this.#providerRead
+    this.#restored = null
+    this.#idleInfo = null
     // The links a slot's home is made of are relaid on every start, and a home
     // that had never held a thread now has a `sessions` directory to resolve.
     this.#sessionStore = sessionStoreOf(this.#codexHome)
@@ -493,6 +503,33 @@ export class CodexRuntime implements AgentRuntime {
 
   /** Whether the app-server has ever answered — what makes `CAPABILITIES` a claim with evidence. */
   #everStarted = false
+  #lastModels: readonly ModelInfo[] | undefined
+  #lastOptions: readonly ConfigOption[] | undefined
+  #lastSessionOptions: readonly ConfigOption[] | undefined
+  #restored: RuntimeObservations | null = null
+  #idleInfo: RuntimeInfo | null = null
+
+  historyAuthorityKnown(): boolean {
+    return this.#everStarted || this.#restored?.info !== undefined
+  }
+
+  observations(): RuntimeObservations {
+    const commands = this.#lastSkills.get('')
+    return {
+      ...(this.#lastModels ? { models: this.#lastModels } : {}),
+      ...(this.#lastOptions ? { options: this.#lastOptions } : {}),
+      ...(this.#lastSessionOptions ? { sessionOptions: this.#lastSessionOptions } : {}),
+      ...(commands ? { commands } : {}),
+      ...(this.#lastAccount ? { account: this.#lastAccount } : {}),
+      info: { version: this.info.version, capabilities: this.info.capabilities },
+    }
+  }
+
+  restoreObservations(observations: RuntimeObservations): void {
+    if (this.health().state !== 'idle') return
+    this.#restored = observations
+    this.#idleInfo = { ...this.info, ...observations.info }
+  }
   readonly #infoListeners = new Set<() => void>()
 
   onInfoChange(listener: () => void): Unsubscribe {
@@ -577,8 +614,10 @@ export class CodexRuntime implements AgentRuntime {
   // ------------------------------------------------------------- capabilities
 
   async listModels(): Promise<readonly ModelInfo[]> {
+    if (this.health().state !== 'ready' && this.#restored?.models) return this.#restored.models
+    if (this.#idleStopped && !this.#everStarted) throw new Error('Models are not known yet; start the runtime first.')
     const models = await this.#catalog.models()
-    return models
+    return this.#lastModels = models
       .filter((model) => !model.hidden)
       .map((model) => ({
         id: model.id,
@@ -595,7 +634,9 @@ export class CodexRuntime implements AgentRuntime {
 
   /** Experimental features, as runtime-wide toggles. */
   async listOptions(): Promise<readonly ConfigOption[]> {
-    return runtimeOptions(await this.#listFeatures())
+    if (this.health().state !== 'ready' && this.#restored?.options) return this.#restored.options
+    if (this.#idleStopped && !this.#everStarted) throw new Error('Options are not known yet; start the runtime first.')
+    return this.#lastOptions = runtimeOptions(await this.#listFeatures())
   }
 
   /**
@@ -635,6 +676,7 @@ export class CodexRuntime implements AgentRuntime {
     cwd?: string,
     values?: Readonly<Record<string, OptionValue>>,
   ): Promise<readonly ConfigOption[]> {
+    if (this.health().state !== 'ready' && this.#restored?.sessionOptions && !cwd && !values) return this.#restored.sessionOptions
     // Named no folder, the draft is read as the user's own, as the ACP
     // adapter's is. This process's working directory depends on how the app
     // was started — `/` from Finder, the checkout under `pnpm dev` — so a
@@ -657,10 +699,12 @@ export class CodexRuntime implements AgentRuntime {
     let state = stateFromConfig(effective, catalog, where)
     const ordinary = withoutProfile(values)
     if (Object.keys(ordinary).length > 0) state = overlayDraftValues(state, ordinary, catalog)
-    return [
+    const options = [
       ...noteUnservedModel(sessionOptions(state, catalog), effective.model, catalog),
       profileOption(profiles, selected),
     ]
+    if (!cwd && !values) this.#lastSessionOptions = options
+    return options
   }
 
   async #listFeatures(): Promise<CodexProtocol.v2.ExperimentalFeature[]> {
@@ -680,6 +724,12 @@ export class CodexRuntime implements AgentRuntime {
   }
 
   async getAccount(): Promise<AccountStatus> {
+    const restoredAccount = this.health().state !== 'ready' ? this.#restored?.account : undefined
+    if (restoredAccount) return {
+      accounts: restoredAccount.accounts,
+      signInMethods: signInMethods(null).filter(method => restoredAccount.signInFlows?.includes(method.flow)),
+    }
+    if (this.#idleStopped && !this.#everStarted) throw new Error('Account status is not known yet; start the runtime first.')
     if (this.#idleStopped && this.#lastAccount) return this.#lastAccount
     const [response, forced] = await Promise.all([
       this.#server.request('account/read', {}),
@@ -745,6 +795,7 @@ export class CodexRuntime implements AgentRuntime {
    * available from two roots is still one skill.
    */
   async listSkills(cwd?: string): Promise<readonly SkillInfo[]> {
+    if (!cwd && this.health().state !== 'ready' && this.#restored?.commands) return this.#restored.commands
     const key = cwd ?? ''
     if (this.#idleStopped) {
       const skills = this.#lastSkills.get(key)
@@ -934,8 +985,8 @@ export class CodexRuntime implements AgentRuntime {
   canReadWhileIdle(read: IdleRuntimeRead): boolean {
     switch (read.method) {
       case 'listSessions': return this.#lastListings.has(this.#listingKey(read.query))
-      case 'defaultSessionOptions': return this.#lastDefaults.has(read.cwd ?? homedir())
-      case 'listSkills': return this.#lastSkills.has(read.cwd ?? '')
+      case 'defaultSessionOptions': return (!read.cwd && !read.values && this.#restored?.sessionOptions !== undefined) || this.#lastDefaults.has(read.cwd ?? homedir())
+      case 'listSkills': return (!read.cwd && this.#restored?.commands !== undefined) || this.#lastSkills.has(read.cwd ?? '')
       case 'listSkillProblems': return this.#lastSkillProblems.has(read.cwd ?? '')
     }
   }
@@ -988,6 +1039,23 @@ export class CodexRuntime implements AgentRuntime {
     }
   }
 
+  async sourceOf(id: SessionId) {
+    if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(id)) return null
+    const metadata = async (path: string) => {
+      try { const facts = await stat(path); return { path, mtimeMs: facts.mtimeMs, size: facts.size } }
+      catch (error) {
+        if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) return null
+        throw error
+      }
+    }
+    const known = this.#sourcePaths.get(id)
+    if (known) { const source = await metadata(known); if (source) return source }
+    const path = await findRollout(this.#codexHome, id, true)
+    if (!path) return null
+    this.#sourcePaths.set(id, path)
+    return metadata(path)
+  }
+
   /**
    * Reads a full transcript without making the session live.
    *
@@ -1001,6 +1069,7 @@ export class CodexRuntime implements AgentRuntime {
     let thread: CodexProtocol.v2.Thread
     try {
       const { thread: head } = await this.#server.request('thread/read', { threadId: id })
+      if (head.path) this.#sourcePaths.set(id, head.path)
       thread = { ...head, turns: await readHistory(this.#server, head) }
     } catch (error) {
       // Codex refuses a whole thread over one item it cannot deserialize — a
@@ -1015,7 +1084,14 @@ export class CodexRuntime implements AgentRuntime {
       }
       throw error
     }
-    return mapSession(thread, {
+    const home = this.#codexHome ?? join(homedir(), '.codex')
+    const inside = (folder: string) => {
+      if (!thread.path) return false
+      const path = relative(join(home, folder), thread.path)
+      return path !== '..' && !path.startsWith(`..${sep}`) && !isAbsolute(path)
+    }
+    const archived = inside('archived_sessions') ? true : inside('sessions') ? false : undefined
+    return { ...(archived === undefined ? {} : { archived }), ...mapSession(thread, {
       runtime: this.#id,
       skip: this.#automatic(),
       // Whole by construction when paged. A turn read whole says for itself,
@@ -1026,7 +1102,7 @@ export class CodexRuntime implements AgentRuntime {
       // read path `AcpSession` already has. A thread this process never
       // opened has none, and the ring stays off until its next turn.
       usage: this.#sessions.get(id)?.usage ?? null,
-    })
+    }) }
   }
 
   async archiveSession(id: SessionId, archived: boolean): Promise<void> {
@@ -1375,6 +1451,7 @@ export class CodexRuntime implements AgentRuntime {
       readonly runtimeServers?: readonly string[] | undefined
     } = {},
   ): Promise<CodexSession> {
+    if (thread.path) this.#sourcePaths.set(makeSessionId(thread.id), thread.path)
     const created = opened.created ?? false
     // Whatever was heard of this thread before it was opened here is over.
     this.#reviewTurns.forget(thread.id)

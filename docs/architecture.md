@@ -45,10 +45,10 @@ Twenty packages make up the repository:
 | Package | Role | Allowed imports |
 | --- | --- | --- |
 | `packages/protocol` | Domain vocabulary, wire methods, validators | Zero dependencies |
-| `packages/desktop` | Electron shell, Keychain broker, packaging, the command-line launcher | `server`, `claude-acp`, `cursor-acp` |
+| `packages/desktop` | Electron shell, Keychain broker, packaging, the command-line launcher | `server`, `claude-acp`, `cursor-acp`, `cli`, `mcp-tools` |
 | `packages/client` | Transport-independent client calls and events; local I/O in its `node` entry | `protocol`, and `ws`/Node in the Node entry |
 | `packages/cli` | The `harnessdesk` command line over the client library; the app bundles it and installs a launcher for it, and `docs/cli.md` is its reference, generated from its command table | `client`, `protocol` |
-| `packages/ui` | Renderer: Zustand store, slot layout, panels | `protocol` (browser context only, no `node:*`) |
+| `packages/ui` | Renderer: AppStore snapshots, slot layout, panels | `protocol`, `client/views` (browser context only, no `node:*`) |
 | `packages/server` | Host process: sessions, git, approvals, wire | `protocol`, adapters, `cordis-host`, `plugins`, `extension-host`, `agent-inventory`, `responses-gateway`, `mcp-tools` |
 | `packages/adapter-codex` | Native Codex adapter for `codex app-server` | `protocol`, `codex` |
 | `packages/codex` | Generated Codex JSON-RPC protocol client | Zero dependencies |
@@ -154,6 +154,13 @@ files, durable transcript metadata, Seats and immutable Goal documents. It has
 no evidence or receipt writer port. Its wire methods return source and
 coverage-qualified observations; a local seating apply accepts only a
 host-minted reviewed stamp and checks the seating file in its write queue.
+A read for many Teams (`insight/goals`) makes one pass over the usage sources
+for all of their projects (`Ledger.readInsights`: roots over the same range
+share a pass, which carries each read's byte budget and files its samples by
+folder once), attributes each
+sample to its Seat once per project, then draws every Team's report from
+that; one read shares its folder identities rather than resolving a path per
+sample.
 
 `packages/server` owns everything that must not live in a browser:
 
@@ -171,7 +178,23 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   one warning with the runtime named. Removing or replacing the registration and
   closing the host clear its deadline and reject callers still waiting.
 - **Sessions and events.** One registry, fanned out to every connected client;
-  the host keeps its own copy of each session so a reload rebuilds without
+  the sidebar reads `session/index` from `sessions.sqlite`, a host-owned
+  metadata index. Lifecycle writes and settled transcript observations update
+  its rows, while `session/indexChanged` carries incremental changes. Its
+  first page consults neither an agent nor Git. Repository cache misses run
+  in the background, four at a time; the upgrade seed reads the old stores
+  once without changing them. Native archive rows start unresolved, and background
+  listings confirm only indexed ids. Cached folder identities and Git configuration
+  fingerprints are revalidated without holding up a listing. Reconnects reconcile
+  the window's loaded index pages; agent filters page their accounts. Team members are excluded from loose rows.
+  `session/list` retains the runtime history contract through
+  `historyClient.nativeList`; Archive pages the local index instead.
+  Managed checkout inventory lives separately from session rows and survives
+  body or row removal. Archive, delayed Remove sweeps and deletion share the
+  checkout cleanup path; returning restores the retained branch before resume.
+  After full native archive listings, unresolved indexed ids are read individually,
+  three at a time, without delaying an index page.
+  The host keeps its own copy of each session so a reload rebuilds without
   asking the backend to replay. An agent restarting under an open conversation
   — a catalogue refresh when the window regains focus, a stored key changing —
   drops the live handle but not the transcript, and the next thing said in that
@@ -183,11 +206,27 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   agent's `session/list` records — or, for an agent that keeps no listing, the
   one it accepted when this run of the app opened the conversation — never in
   the host's own working directory.
+- **History imports** (`history-import.ts`) — on-request, cancellable metadata
+  scans in the existing `sessions.sqlite`. The `history/*` methods expose import,
+  status, cancellation, title-filtered pages, removal and cached-body clearing.
+  `historyClient` in `@harnessdesk/client` takes the authenticated host transport's
+  request function; these storage operations are outside the tiered external
+  `Client`. Settings and the palette reach a separately paged, windowed History view.
+  Import progress lives in the renderer snapshot; host events invalidate its
+  pages, and opening a preview does not seed the sidebar.
 - **Transcripts** (`transcripts.ts`) — the host records what the backend does
   not keep. Codex's own protocol says it "explicitly do[es] not persist all
   agent interactions, such as command executions"; Cursor keeps nothing
   readable; ACP replay is lossy. The host's copy is what a reopened
   conversation shows, enriched with tokens remembered across restarts.
+  Closed, quiet conversations retain only metadata and reopen state in the
+  registry. Their bodies, watched-turn ids, write queues, fingerprints and
+  insight contexts leave memory after a successful SQLite save. A failed save
+  keeps the body; a read or reopen overtaking the save keeps its newer state.
+  Reading a closed conversation returns its full durable transcript without
+  retaining the body in the next sync. Working conversations keep their live
+  bodies, approvals and queued input. Removed workspace folders are excluded
+  from capture and roster watches when the project set next reconciles.
 - **Approvals and the permission engine** — one policy, applied before any
   backend's own question reaches the user, and one append-only audit log
   (`audit.ndjson`).
@@ -274,6 +313,8 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   archiving a quiet resumable conversation releases its handle the same way.
   All use the same host close-and-resume seam
   ([ACP release lifecycle](decisions.md#acp-sessions-release-what-they-opened)).
+  The host persists display observations in `runtime-cache.json` beside `state.json`,
+  without credentials. Launch starts only the default runtime, in the background.
   Idle health preserves learned capabilities, models, account and cached history;
   new work waits for the stop barrier and shares `#ensureStarted`. Other runtimes
   retain their live sessions. Opening
@@ -349,6 +390,14 @@ host-minted reviewed stamp and checks the seating file in its write queue.
   host never writes memory itself, and no citation, live or backup-restored,
   authorizes anything beyond satisfying the one dependency edge it created.
 
+The window's door checks Host and Origin. HTTP requests and WebSocket upgrades
+must name `127.0.0.1` or `localhost` with the bound port in Host. Upgrades and
+HTTP methods other than GET, HEAD and OPTIONS accept a present Origin only
+when it is this server's HTTP origin or one explicitly supplied through
+`ServeOptions.allowedOrigins`. Clients without Origin retain the existing
+token gates. The packaged window, development window and native rigs load
+the server's own origin; the UI's standalone dev server has no host proxy.
+
 The wire is a token-gated loopback WebSocket. `packages/protocol/src/wire.ts`
 declares every method with its params and result, `wire-validators.ts` checks
 every inbound frame before the host sees it, and one module under
@@ -393,7 +442,10 @@ flow across several domains through the context the host really builds.
 State lives in `~/.harnessdesk/` (overridable by `HARNESSDESK_HOME`):
 `state.json` (workspaces and UI preferences), `agents.json` (the ACP registry
 and fallback commands), `credentials.json`, `usage.sqlite` (the spend ledger),
-`transcripts/`, `plugins/`, `worktrees/`, `logs/` (`host.ndjson`),
+`sessions.sqlite` (the conversation index, turn metadata, items and search),
+`sessions-YYYY-MM-DD.sqlite` (the newest three daily snapshots),
+`transcripts/` (legacy files retained after the list-only seed),
+`plugins/`, `worktrees/`, `logs/` (`host.ndjson`),
 `audit.ndjson`, `run/` (`tools.sock`), `accounts.json`, `archive.json`,
 `names.json`, `team/`, `acp-registry.json`, `downloads/`,
 `attachment-trust.json` and `attachments/seats/` (a person's local approvals
@@ -471,7 +523,34 @@ rendered.
 Pure logic lives in `lib/` and is unit-tested away from React: `handoff.ts`
 (the cross-agent packet), `trace.ts` (what an agent is doing right now),
 `turn-summary.ts` (what a turn amounted to), `projects.ts` (sessions grouped
-by repository), `context-usage.ts`, `limits.ts`, `diff.ts`, `images.ts`.
+by repository), `context-usage.ts`, `limits.ts`, `images.ts`; diff parsing
+and counting are public editor helpers.
+
+File rendering and editing live in `packages/ui/src/editor`, with imports
+from other modules held to its public `index.ts` by the UI architecture gate.
+CodeView, MergeView and MarkdownView share FileView between main's editor tabs
+and the Changes tool's file modes. CodeMirror, merge, editing keys and the
+optional minimap load through lazy editor chunks; Markdown still passes
+through `lib/sanitize.ts`.
+
+The store keeps a persisted window mode and bounded per-conversation tab/view/
+Explorer metadata in the host's `app/state`. Effective Editor mode requires
+main to be a loaded conversation. Renderer-only `editorDocuments` holds dirty
+documents for tab/close decisions; `editorLiveDocuments` retains full clean
+and dirty baselines for simultaneous surfaces, and line targets are transient.
+None of those file bytes or hashes are serialized into app state. Explicit
+saves use the existing `file/save` expected-hash contract; disk reads and
+mtime checks drive quiet reload or the conflict choices. The Explorer uses
+confined `workspace/browse` entry reads, existing file search and Git status,
+rooted in the conversation's own cwd. No editor-specific wire method exists.
+
+Main remains the conversation's work subject while its body shows EditorMain.
+Editor mode adds the Conversation tool before the four existing work tools;
+only that tool mounts the live transcript/composer, and leaving the mode
+restores the prior tool. Review, file links and Pop out enter through the
+store's conversation-bound file entry, preserving the full unsaved document
+and its hash across panel/main. Ask appends an editable quote to the owning
+conversation's draft and never starts a turn.
 
 The interface those pieces build is described in [interface.md](interface.md).
 
@@ -492,7 +571,11 @@ These only exist because no vendor owns the desk:
   Scans skills and MCP server definitions across all installed agents without
   booting them. Translates configurations across agent dialects via a canonical
   specification, generates unified diff previews, takes automatic file backups,
-  and records every change in `audit.ndjson`.
+  and records every change in `audit.ndjson`. Skill writes compare and guard the
+  whole bundle, including scripts and references; apply writes the source bytes
+  it checked, and an edited supporting file requires a backup to replace.
+  Updates check the retained-plus-incoming bundle limits at preview and before
+  writing; apply also checks that the source file list matches the preview.
 - **One history, one search** across every backend, grouped by repository so
   a project is one row whichever agent worked in it.
 - **One permission policy and one audit log.**

@@ -43,6 +43,7 @@
   "scripts": {
     "build": "pnpm run build:node && pnpm --filter @harnessdesk/ui run build",
     "build:node": "tsc -b && node script/copy-fixtures.mjs && node script/prune-dist.mjs",
+    "build:e2e": "pnpm --filter @harnessdesk/ui run build:e2e",
     "clean": "rm -rf packages/*/dist",
     "typecheck": "tsc -b --noEmit && pnpm --filter @harnessdesk/ui run typecheck",
     "test": "pnpm run build:node && bash -c \"node --test --test-timeout=120000 \\$(find packages/*/dist/test -name '*.test.js' ! -path 'packages/server/dist/test/flow-host-evidence-*.test.js' ! -path 'packages/server/dist/test/intake-*.test.js' ! -path 'packages/cli/dist/test/e2e*.test.js')\" && node --test --test-timeout=600000 \"packages/server/dist/test/flow-host-evidence-*.test.js\" && node --test --test-timeout=600000 \"packages/server/dist/test/intake-*.test.js\" && node --test --test-timeout=600000 \"packages/cli/dist/test/e2e*.test.js\" && pnpm --filter @harnessdesk/ui run test && pnpm --filter @harnessdesk/desktop run test",
@@ -54,6 +55,7 @@
     "codex:protocol": "node script/generate-codex-protocol.mjs",
     "codex:drift": "node script/generate-codex-protocol.mjs --check",
     "verify": "node script/verify.mjs",
+    "check:push": "node script/check-push.mjs",
     "design:tokens": "node script/check-design-tokens.mjs",
     "design:audit": "node script/design-audit.mjs",
     "design:doc": "node script/design-doc.mjs",
@@ -86,6 +88,9 @@
       "@xmldom/xmldom@>=0.7.0 <=0.8.14": "~0.8.15",
       "js-yaml@<4.3.2": "^4.3.2",
       "hono@<4.13.5": "^4.13.5"
+    },
+    "patchedDependencies": {
+      "@replit/codemirror-minimap@0.5.2": "patches/codemirror-minimap-0.5.2.patch"
     }
   }
 }

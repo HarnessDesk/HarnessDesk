@@ -1,10 +1,25 @@
+import { FRAME } from '../design/frame'
+import { DOCUMENT_DIFF } from './run-shapes-fixture'
+import { panes, type TeamChatLayout, type TeamFramePage } from '../state/layout'
+import { replaceTeamPayload } from '../state/workbench'
+import { toStored, type SideBySideState } from '../lib/side-by-side'
+import { fixedToolRefusal, supportsFixedTool, admitFixedTool, chooseTool, toolOf, revealFixedTool, type WorkTool } from '../state/frame-tools'
+import { activeView, fixedSubject, dockViews } from '../state/workbench'
+import { browserView, drivenBrowserTab, findPane, show as showPane, type PaneView } from '../state/layout'
+import { BrowserTileRegistry, type BrowserTileMount } from '../lib/browser-tiles'
+import { addBrowserTab, patchBrowserTab, type BrowserView } from '../state/layout'
+import { replaceView, viewAt } from '../state/workbench'
+import { destinationOf, stepDestination, visitDestination } from '../state/destinations'
 import type { ReactNode } from 'react'
 
 import {
   matchPlanSuggestion,
   runtimeId,
+  splitSessionKey,
+  orderTasks,
   sessionKey,
   type AgentAttachmentsView,
+  type BackgroundTask,
   type AgentEntry,
   type AgentFieldEdit,
   type AgentNotesView,
@@ -37,6 +52,7 @@ import {
   type RuntimeId,
   type RuntimeInfo,
   type SeatRecord,
+  type SeatAttachmentsRecord,
   type SeatCeiling,
   type SeatPlan,
   type Session,
@@ -47,7 +63,7 @@ import {
   type TeamState,
 } from '@harnessdesk/protocol'
 
-import { AppWindowMode } from '../components/AppWindow'
+import { SignInMode } from '../components/SignInMode'
 import { EMPTY_FINDINGS_STATE, findingDetail, findingsListState } from './findings-fixture'
 import { focus as focusPaneIn } from '../state/layout'
 import type { FindingFilter } from '../lib/findings'
@@ -57,8 +73,10 @@ import { emptySnapshot, type AppSnapshot, type AppStore, type AuditRow } from '.
 import { withClosedTurnFiles } from '../state/snapshot'
 import {
   activate,
+  collapseDock,
   dock,
   areaVisible,
+  areaOfMount,
   sidebarCannotHaveColumn,
   focusView,
   moveView,
@@ -786,6 +804,19 @@ const applyAgentFieldEdit = (source: string, edit: AgentFieldEdit): string => {
  * page can show the loaded state directly, beside the loading one — the
  * store's own `readGoalInsight` returns the identical shape.
  */
+/**
+ * `insight/goals` answered from a fixture's own one-Team read, so a fixture
+ * that answers, delays or fails one Team does the same inside a batch.
+ */
+export const goalInsightsFrom = (read: (goal: string) => Promise<import('@harnessdesk/protocol').InsightReport>) =>
+  async (goals: readonly string[]): Promise<import('@harnessdesk/protocol').InsightGoalsReport> => {
+    const answers = await Promise.allSettled(goals.map(goal => read(goal)))
+    return {
+      reports: answers.flatMap((answer, index) => answer.status === 'fulfilled' ? [{ ...answer.value, goal: goals[index]! }] : []),
+      failed: goals.filter((_, index) => answers[index]!.status === 'rejected'),
+    }
+  }
+
 export const insightReportFor = (goal: string): import('@harnessdesk/protocol').InsightReport => {
   const metric = (value: number): import('@harnessdesk/protocol').InsightMetric => ({
     value, quality: 'exact', unit: 'usd', basis: 'vendorMetered', sourceIds: [0, 1, 2, 3].map(n => `src-preview-${n}`), coverage: 'complete', missing: [],
@@ -900,6 +931,7 @@ export const PREVIEW_PLANS: ReadonlyMap<string, SeatPlan> = new Map([
 /** The smallest store the mounted screens call. */
 class PreviewStore {
   #snapshot: AppSnapshot
+  #teamFrameSerial = 0
   #listeners = new Set<() => void>()
 
   constructor(seed: Partial<AppSnapshot> = {}) {
@@ -1208,9 +1240,10 @@ class PreviewStore {
 
   /* The window's width, as the app's store takes it (`setWindowWidth`): a frame
      that stands for a narrow window states the width rather than a flag. */
-  setWindowWidth(width: number): void {
-    if (width === this.#snapshot.windowWidth) return
-    this.patch({ windowWidth: width })
+  setWindowWidth(width: number): void { this.setWindowSize(width, this.#snapshot.windowHeight) }
+  setWindowSize(width: number, height: number): void {
+    if (width === this.#snapshot.windowWidth && height === this.#snapshot.windowHeight) return
+    this.patch({ windowWidth: width, windowHeight: height })
   }
 
   /* Closing a turn-files card, with the function the app's store runs. */
@@ -1239,15 +1272,205 @@ class PreviewStore {
      is not a model of the panel system: it is the panel system, minus the
      socket. What a reader sees on the Panels tab when they collapse a dock is
      what the app would do, because it is the code the app would run. */
+  readonly #browserTileRegistry = new BrowserTileRegistry()
+  mountBrowserTile(profile: string | null, mount: BrowserTileMount): () => void {
+    return this.#browserTileRegistry.mount(profile, mount, browserTiles => this.patch({ browserTiles }))
+  }
+  loadLanePreferences = async (): Promise<void> => {}
+  #browser(id: string, change: (view: BrowserView) => BrowserView): void {
+    const view = viewAt(this.#snapshot.workbench, id)
+    if (view?.kind === 'browser') this.#workbench(replaceView(this.#snapshot.workbench, id, change(view)))
+  }
+  noteBrowserUrl(id: string, tab: string, url: string): void {
+    this.#browser(id, view => patchBrowserTab(view, tab, { url }))
+  }
+  selectBrowserTab(id: string, tab: string): void {
+    this.#browser(id, view => ({ ...view, active: tab }))
+  }
+  newBrowserTab(id: string, url = 'about:blank'): void {
+    this.#browser(id, view => addBrowserTab(view, url))
+  }
+
   #workbench(next: AppSnapshot['workbench']): void {
-    this.patch({ workbench: next })
+    const view = findPane(next.main, next.main.focused)?.view
+    const navigation = next.navigation === this.#snapshot.workbench.navigation && next.navigation.current.kind === 'work'
+      && (view?.kind === 'conversation' || view?.kind === 'room')
+      ? visitDestination(next.navigation, destinationOf(view), true) : next.navigation
+    const workbench = navigation === next.navigation ? next : { ...next, navigation }
+    this.patch({ workbench, layout: workbench.main, navCanBack: navigation.back.length > 0, navCanForward: navigation.forward.length > 0 })
   }
-  showViewIn(area: AreaId, view: import('../state/layout').PaneView): void {
-    if (area === 'main' || !permits(view, area)) return
-    this.#workbench(dock(this.#snapshot.workbench, area, view))
+  openTeamMemberChat(room: string, member: SessionKey): void {
+    const pane = panes(this.#snapshot.workbench.main.root).find(one => one.view.kind === 'room' && one.view.room === room)
+    if (pane?.view.kind !== 'room') return
+    const view = { ...pane.view, framePage: 'room' as const, chatLayout: 'thread' as const, chatMember: member }
+    const workbench = replaceTeamPayload(this.#snapshot.workbench, pane.id, view)
+    this.#workbench({ ...workbench, navigation: visitDestination(workbench.navigation, destinationOf(view)) })
   }
+  #navigateHistory(direction: 'back' | 'forward'): void {
+    const after = stepDestination(this.#snapshot.workbench.navigation, direction)
+    if (!after) return
+    if (after.current.kind !== 'work') {
+      this.#workbench({ ...this.#snapshot.workbench, navigation: after })
+      return
+    }
+    const before = this.#snapshot.workbench
+    const main = showPane(before.main, before.main.focused, after.current.view)
+    this.#workbench({ ...before, main, navigation: after })
+  }
+  navigateBack(): Promise<void> { this.#navigateHistory('back'); return Promise.resolve() }
+  navigateForward(): Promise<void> { this.#navigateHistory('forward'); return Promise.resolve() }
+  setTeamFramePage(room: string, framePage: TeamFramePage, chatLayout?: TeamChatLayout): void {
+    const pane = panes(this.#snapshot.workbench.main.root).find(one => one.view.kind === 'room' && one.view.room === room)
+    if (pane?.view.kind !== 'room' || pane.view.framePage === framePage && (chatLayout === undefined || pane.view.chatLayout === chatLayout)) return
+    this.#workbench(replaceTeamPayload(this.#snapshot.workbench, pane.id, { ...pane.view, framePage, ...(chatLayout ? { chatLayout } : {}) }))
+  }
+  setRoomWatching(id: string, watching: readonly import('@harnessdesk/protocol').SessionKey[]): void {
+    const current = viewAt(this.#snapshot.workbench, id)
+    if (current?.kind !== 'room' || JSON.stringify(current.watching ?? []) === JSON.stringify(watching)) return
+    this.#workbench(replaceTeamPayload(this.#snapshot.workbench, id, { ...current, watching: [...watching] }))
+  }
+  setRoomSideBySide(id: string, state: SideBySideState): void {
+    const current = viewAt(this.#snapshot.workbench, id)
+    if (current?.kind !== 'room') return
+    const next = toStored(state)
+    if (JSON.stringify(current.sideBySide ?? null) === JSON.stringify(next ?? null)) return
+    const { sideBySide: _old, ...rest } = current
+    this.#workbench(replaceTeamPayload(this.#snapshot.workbench, id, next ? { ...rest, sideBySide: next } : rest))
+  }
+  workSubject(): string | null { return fixedSubject(this.#snapshot.workbench.main) }
+  chooseWorkTool(tool: WorkTool, mode: string = tool, toggle = false): void {
+    const subject = this.workSubject()
+    if (!subject) { this.resultNotice('warning', 'Open a conversation or Team before opening this tool.'); return }
+    const before = this.#snapshot.workbench, intent = chooseTool(before.frameTools[subject], tool, mode, toggle)
+    if (intent.open && mode === tool && (tool === 'changes' || tool === 'activity')
+      && !dockViews(before.right).some(one => before.toolOwners[one.id] === subject && one.view.kind === tool)) {
+      this.showViewIn('right', { kind: tool }); return
+    }
+    const pane = findPane(before.main, before.main.focused)!
+    const candidates = dockViews(before.right).filter(one => before.toolOwners[one.id] === subject && one.view.kind === mode)
+    const active = activeView(before.right)
+    const cached = candidates.find(one => one.id === active?.id && supportsFixedTool(one.view, this.#snapshot.contributions))
+      ?? candidates.find(one => supportsFixedTool(one.view, this.#snapshot.contributions)) ?? candidates[0]
+    const refusal = cached && fixedToolRefusal(before, cached.id, this.#snapshot.contributions)
+    if (refusal) { this.resultNotice('warning', refusal); return }
+    const selected = cached && intent.open ? activate(before, 'right', cached.id) : before
+    this.#workbench({ ...selected, right: { ...selected.right, collapsed: !intent.open },
+      frameTools: { ...before.frameTools, [subject]: intent },
+      frameSubjects: { ...before.frameSubjects, [subject]: { paneId: pane.id, view: pane.view } } })
+  }
+  toggleWorkPanel(): void {
+    const subject = this.workSubject()
+    if (!subject) return
+    const current = this.#snapshot.workbench.frameTools[subject] ?? { tool: 'details', mode: 'details', open: false }
+    this.chooseWorkTool(current.tool, current.mode, true)
+  }
+  showViewIn(area: AreaId, view: PaneView): void {
+    if (view.kind === 'plugin' && !supportsFixedTool(view, this.#snapshot.contributions)) {
+      this.resultNotice('warning', 'This plugin panel does not support the fixed right panel.'); return
+    }
+    const routed = admitFixedTool(this.#snapshot.workbench, view)
+    if (routed) { this.#workbench(routed); return }
+    if (view.kind === 'terminal') this.#workbench(dock(this.#snapshot.workbench, 'bottom', view))
+    else if (view.kind === 'board') this.requestTeamFrame(view.room, 'board')
+    else if (view.kind === 'run-steps') {
+      const pane = findPane(this.#snapshot.workbench.main, this.#snapshot.workbench.main.focused)
+      if (pane?.view.kind === 'room') this.requestTeamFrame(pane.view.room, 'run', 'timeline')
+      else this.resultNotice('warning', 'Open a Team to view its Run Timeline.')
+    }
+    else if (area === 'main') { const before = this.#snapshot.workbench; this.#workbench({ ...before, main: showPane(before.main, before.main.focused, view) }) }
+  }
+  setDetailsTab(kind: 'changes' | 'activity' | 'trajectory' | 'agents' | 'tasks' | null): void {
+    if (kind === null) { const subject = this.workSubject(); if (subject && this.#snapshot.workbench.frameTools[subject]?.open) this.toggleWorkPanel(); return }
+    const next = admitFixedTool(this.#snapshot.workbench, { kind }, true)
+    if (next) this.#workbench(next)
+  }
+  openDetailsTab(kind: 'changes' | 'activity' | 'trajectory' | 'agents' | 'tasks'): void { this.showViewIn('right', { kind }) }
+  showView(kind: PaneView['kind']): void {
+    if (kind === 'changes' || kind === 'activity' || kind === 'trajectory' || kind === 'agents' || kind === 'tasks') this.setDetailsTab(kind)
+    else if (kind === 'browser') this.openBrowser()
+    else if (kind === 'terminal') void this.openTerminal()
+    else if (kind === 'git') this.openGitHistory()
+    else if (kind === 'run-steps') this.showViewIn('right', { kind })
+    else if (kind === 'board') this.openTeamBoard()
+  }
+  openBrowser(url?: string, options: { readonly split?: 'row' | 'column' | null; profile?: string | null } = {}): void {
+    const profile = options.profile ?? null
+    if (profile !== null && (!/^lane-[A-Za-z0-9-]{1,100}$/.test(profile) || profile.endsWith('\n'))) throw new Error('Invalid browser profile.')
+    const before = this.#snapshot.workbench
+    const browsers = dockViews(before.right).filter(one => one.view.kind === 'browser' && (one.view.profile ?? null) === profile)
+    const held = browsers[0]
+    if (held?.view.kind === 'browser') {
+      const tab = drivenBrowserTab(held.view)
+      const updated = url ? replaceView(before, held.id, { ...patchBrowserTab(held.view, tab.id, { url }), active: tab.id }) : before
+      this.#workbench(updated)
+      this.revealView(held.id)
+      return
+    }
+    this.showViewIn('right', browserView(url ?? 'about:blank', profile))
+  }
+  openGitHistory(): void { this.showViewIn('right', { kind: 'git', root: PREVIEW_ROOT }) }
+  openFile(path: string): void { if (this.#snapshot.activeRuntime) this.showViewIn('right', { kind: 'file', path, runtime: this.#snapshot.activeRuntime }) }
+  openPreview(path: string): void { if (this.#snapshot.activeRuntime) this.showViewIn('right', { kind: 'preview', path, runtime: this.#snapshot.activeRuntime }) }
+  async openTerminal(): Promise<void> {
+    if (this.#snapshot.windowHeight < FRAME.bottomPanel.min * 2) {
+      this.resultNotice('warning', 'The terminal needs a window at least 240px tall.')
+      return
+    }
+    if (!this.#snapshot.activeRuntime) return
+    this.showViewIn('bottom', { kind: 'terminal', terminalId: 'frame-pty', runtime: this.#snapshot.activeRuntime, cwd: PREVIEW_ROOT })
+  }
+  closeTerminalDock(): void {
+    let workbench = this.#snapshot.workbench
+    for (const area of ['bottom', 'right'] as const) {
+      for (const one of dockViews(workbench[area])) if (one.view.kind === 'terminal') workbench = undock(workbench, one.id)
+    }
+    this.#workbench(workbench)
+  }
+  requestTeamFrame(room: string, page: 'board' | 'run', runView?: 'timeline' | 'flow'): void {
+    const before = this.#snapshot.workbench, pane = findPane(before.main, before.main.focused)!
+    this.#workbench({ ...before, main: showPane(before.main, pane.id, { kind: 'room', room }) })
+    this.#teamFrameSerial = Math.max(this.#teamFrameSerial, ...Object.values(this.#snapshot.teamFrameRequests).map(one => one.serial)) + 1
+    this.patch({ teamFrameRequests: { ...this.#snapshot.teamFrameRequests,
+      [room]: { serial: this.#teamFrameSerial, page, ...(runView ? { runView } : {}) } } })
+  }
+  consumeTeamFrame(room: string, serial: number): boolean {
+    if (this.#snapshot.teamFrameRequests[room]?.serial !== serial) return false
+    const { [room]: _request, ...teamFrameRequests } = this.#snapshot.teamFrameRequests
+    this.patch({ teamFrameRequests })
+    return true
+  }
+  revealView(id: string): void {
+    const before = this.#snapshot.workbench
+    const refusal = fixedToolRefusal(before, id, this.#snapshot.contributions)
+    if (refusal) { this.resultNotice('warning', refusal); return }
+    const fixed = revealFixedTool(before, id)
+    if (fixed) { this.#workbench(fixed); return }
+    const area = areaOfMount(before, id)
+    if (area === 'main') { this.focusPane(id); return }
+    this.#workbench(focusView(activate(before, area, id), id))
+  }
+  resultNotice(level: 'warning' | 'error' | 'info', message: string): void {
+    const at = Date.now()
+    this.patch({ notices: [...this.#snapshot.notices.slice(-4), { id: `frame-${at}`, level, message, at }] })
+  }
+  openTeamBoard(room?: string): void {
+    const pane = findPane(this.#snapshot.layout, this.#snapshot.layout.focused)
+    const base = room ?? (pane?.view.kind === 'room' ? pane.view.room : undefined)
+    if (base) this.requestTeamFrame(base, 'board')
+  }
+  openTeamRoom(room: string): void { this.showViewIn('main', { kind: 'room', room }) }
+
   togglePanel(area: DockId): void {
     this.#workbench(toggleDock(this.#snapshot.workbench, area))
+  }
+  collapsePanel(area: DockId, collapsed: boolean): void {
+    this.#workbench(collapseDock(this.#snapshot.workbench, area, collapsed))
+  }
+  zoomMainPane(paneId: string, scope: Zoom['scope']): void {
+    const workbench = this.#snapshot.workbench
+    const leaving = workbench.zoom?.area === 'main' && workbench.zoom.scope === scope
+    const main = { ...workbench.main, expanded: leaving ? null : paneId, focused: paneId }
+    this.#workbench(zoomArea({ ...workbench, main }, 'main', scope))
   }
   zoomPanel(area: AreaId, scope: Zoom['scope']): void {
     this.#workbench(zoomArea(this.#snapshot.workbench, area, scope))
@@ -1262,7 +1485,7 @@ class PreviewStore {
     this.#workbench(undock(this.#snapshot.workbench, id))
   }
   resizePanel(area: DockId, size: number): void {
-    this.#workbench(resizeDock(this.#snapshot.workbench, area, size))
+    this.#workbench(resizeDock(this.#snapshot.workbench, area, size, this.#snapshot.windowHeight))
   }
   splitPanel(id: MountedId, direction: 'row' | 'column', place: 'before' | 'after' = 'after'): void {
     this.#workbench(splitDock(this.#snapshot.workbench, id, direction, place))
@@ -1305,6 +1528,7 @@ class PreviewStore {
     this.#snapshot = {
       ...this.#snapshot,
       windowWidth: width,
+      windowHeight: window.innerHeight,
       narrowWindow: sidebarCannotHaveColumn(this.#snapshot.workbench, width),
     }
     let frame: number | null = null
@@ -1312,7 +1536,7 @@ class PreviewStore {
       if (frame !== null) return
       frame = window.requestAnimationFrame(() => {
         frame = null
-        this.patch({ windowWidth: window.innerWidth })
+        this.setWindowSize(window.innerWidth, window.innerHeight)
       })
     })
   }
@@ -1324,6 +1548,7 @@ class PreviewStore {
   }
 
   loadBoardEvidence = async (): Promise<void> => {}
+  readSeatAttachments = async (): Promise<SeatAttachmentsRecord | null> => null
   runCheck = async (): Promise<{ readonly kind: 'unseen'; readonly unseen: CheckUnseen }> => ({
     kind: 'unseen',
     unseen: PREVIEW_UNSEEN,
@@ -1409,6 +1634,7 @@ class PreviewStore {
     mode === 'update' ? PREVIEW_FLOW_UPDATE : PREVIEW_FLOW_CUSTOMIZE
   applyFlowUpdate = async (): Promise<FlowUpdateResult> => ({ state: 'applied', written: PREVIEW_FLOW_UPDATE.edits.map((edit) => edit.path), message: 'The flow update was applied.' })
   readFlowExecution = async (): Promise<FlowExecution> => { throw new Error('[preview] no live flow execution to read here') }
+  readFlowExecutions = async (): Promise<void> => {}
   /** `run-preview-ended` is a Run that has settled: the host refuses in its own sentence and mints no token. */
   previewFlowRetry = async (run?: string): Promise<FlowPreview> => run === 'run-preview-ended' ? {
     ...FIX_PREVIEW,
@@ -1628,8 +1854,10 @@ class PreviewStore {
     }))
   }
 
-  teamMessaging = async (_root: string, on: boolean) => {
-    this.#team((team) => ({ ...team, messaging: on }))
+  teamMessaging = async (room: string, on: boolean) => {
+    const team = this.#snapshot.teams.get(room)
+    if (!team) return
+    this.patch({ teams: new Map(this.#snapshot.teams).set(room, { ...team, messaging: on }) })
   }
 
   teamDeliver = async (_root: string, id: string) => {
@@ -1667,7 +1895,7 @@ class PreviewStore {
     { name: 'fix/worktree-listing', current: false, committedAt: now - 86_400_000 },
   ]
   agentCatalog = async () => []
-  agentsIn = async (): Promise<readonly AgentEntry[]> => PREVIEW_AGENTS
+  agentsIn = async (): Promise<readonly AgentEntry[]> => this.#snapshot.agents ?? PREVIEW_AGENTS
   /* `AgentFields`, `AgentNotes` and the two field-edit dialogs all wait on
      this read before they draw anything — without it `AgentPage` falls back
      to its no-document branch and none of them ever mount. The source is
@@ -1870,7 +2098,7 @@ class PreviewStore {
    * which would leave `GoalFindings` reading "Reading findings…" forever.
    */
   loadFindings = async (goal: string, filter: FindingFilter = 'all'): Promise<void> => {
-    const state = goal === PREVIEW_GOAL.goal.id ? findingsListState(filter) : EMPTY_FINDINGS_STATE
+    const state = goal === PREVIEW_GOAL.goal.id ? findingsListState(filter) : { ...EMPTY_FINDINGS_STATE, filter }
     this.patch({ findings: new Map(this.#snapshot.findings).set(goal, state) })
   }
 
@@ -1886,6 +2114,18 @@ class PreviewStore {
    * error boundary. A real implementation, even a small one, is the fix —
    * the same shape the real `Store.loadAudit` returns, never the floor.
    */
+  refreshTasks = async (key: SessionKey | null = this.#snapshot.activeSessionKey): Promise<void> => {
+    if (!key) return
+    const address = splitSessionKey(key)
+    const runtime = this.#snapshot.runtimes.find(one => one.id === address.runtime)
+    if (runtime && !runtime.capabilities.backgroundTasks) return
+    const tasks = await this.transport.request('tasks/list', { runtime: address.runtime, sessionId: address.id }) as readonly BackgroundTask[]
+    const next = new Map(this.#snapshot.tasks)
+    if (tasks.length === 0) next.delete(key)
+    else next.set(key, orderTasks(tasks))
+    this.patch({ tasks: next })
+  }
+  readWorkDiff = async (_root: string, _from: string, _to: string): Promise<{ diff: string }> => ({ diff: DOCUMENT_DIFF })
   loadAudit = async (): Promise<readonly AuditRow[]> => AUDIT_ROWS
 
   /**
@@ -1896,6 +2136,7 @@ class PreviewStore {
    * One breakdown, one row, is enough to draw the real thing.
    */
   readGoalInsight = async (goal: string): Promise<import('@harnessdesk/protocol').InsightReport> => insightReportFor(goal)
+  readGoalInsights = goalInsightsFrom(async goal => insightReportFor(goal))
   readAgentInsight = async (): Promise<import('@harnessdesk/protocol').InsightReport> => insightReportFor('preview-agent')
 
   carryFindings = async (_input: CarryFindingsInput): Promise<readonly FindingView[]> => []
@@ -1922,8 +2163,28 @@ class PreviewStore {
   }
 
   // --- the wire, method-aware ----------------------------------------------
+  #previewTicket = 0
   transport = {
     request: async (method: string, params?: unknown): Promise<unknown> => {
+      if (method === 'session/index') {
+        const query = params as { runtimes?: string[]; archived?: string }
+        if (query.archived !== 'only') return { data: [], nextCursor: null }
+        return { data: (query.runtimes ?? []).map((runtime, index) => ({
+          id: `archived-${runtime}`, runtime, title: 'Review the workspace settings', preview: null,
+          cwd: PREVIEW_ROOT, status: { type: 'notLoaded' }, createdAt: now - 86_400_000,
+          updatedAt: now - 3_600_000, archived: true,
+          ...(index === 0 ? { worktree: { path: '/synthetic/worktrees/storefront/review-settings', branch: 'harnessdesk/review-settings', state: 'kept' } } : {}),
+        })), nextCursor: null }
+      }
+      if (method === 'session/worktreePreview') return { changes: {
+        modified: 1, untracked: 1, unpushedCommits: 2, files: ['src/settings.ts', 'notes.txt'],
+        ignored: ['.env', 'build/'], ignoredCount: 2,
+      }, stamp: 'synthetic-confirmation' }
+      if (method === 'session/discardWorktree') return { discarded: true }
+      if (method === 'worktree/changes') return {
+        modified: 1, untracked: 1, unpushedCommits: 2, files: ['src/settings.ts', 'notes.txt'],
+        ignored: ['.env', 'build/'], ignoredCount: 2,
+      }
       if (method === 'session/list') {
         const runtime = (params as { runtime: string }).runtime
         return { data: [{ id: `archived-${runtime}`, runtime, title: 'Review the workspace settings', preview: null, cwd: PREVIEW_ROOT, status: { type: 'notLoaded' }, createdAt: now - 86_400_000, updatedAt: now - 3_600_000, archived: true }], nextCursor: null }
@@ -1968,8 +2229,15 @@ class PreviewStore {
          `terminal-fixture.ts`. Writes and resizes answer `null`, as the host
          does — there is no shell here to receive them. */
       if (method === 'terminal/attach') return terminalAttach()
+      if (method === 'tasks/list') {
+        const address = params as { runtime: string; sessionId: string }
+        return this.#snapshot.tasks.get(sessionKey(address.runtime, address.sessionId)) ?? []
+      }
+      if (method === 'preview/ticket') return { ticket: `frame-preview-synthetic-${++this.#previewTicket}` }
       if (method === 'workspace/readFile') {
         const path = (params as { path?: string } | undefined)?.path ?? ''
+        if (path.endsWith('README.md')) return { kind: 'text', content: '# Storefront\n\nRecorded checkout work.', truncated: false, hash: 'fixture-readme' }
+        if (path.endsWith('preview.html')) return { kind: 'text', content: '<!doctype html><html><body><h1>Storefront preview</h1><p>Synthetic checkout recovery · 長い記録</p></body></html>', truncated: false, hash: 'fixture-preview' }
         if (path.endsWith('lib/brands.ts'))
           return { kind: 'text', content: editorSource, truncated: false, hash: `len-${editorSource.length}` }
         return { kind: 'missing' }
@@ -2035,7 +2303,7 @@ class PreviewStore {
  * empty — takes one of these instead, so its state cannot leak into a screen
  * or a spec that did not ask for it.
  */
-export const previewStore = (seed: Partial<AppSnapshot> = {}): AppStore => new Proxy(new PreviewStore(seed), {
+export const previewStore = (seed: Partial<AppSnapshot> = {}): AppStore & Pick<PreviewStore, 'patch'> => new Proxy(new PreviewStore(seed), {
   get(target, property, receiver) {
     if (Reflect.has(target, property)) {
       const value = Reflect.get(target, property, target)
@@ -2060,7 +2328,7 @@ export const previewStore = (seed: Partial<AppSnapshot> = {}): AppStore => new P
       console.warn(`[preview] store.${String(property)} is not implemented here`, ...args)
     }
   },
-}) as unknown as AppStore
+}) as unknown as AppStore & Pick<PreviewStore, 'patch'>
 
 export const store = previewStore()
 
@@ -2083,16 +2351,16 @@ export const libraryColumnsFor = (ids: readonly RuntimeId[]): readonly { readonl
  * it, and one screen's crash kept to one screen.
  *
  * The app gives a screen a store through context and tells it, through
- * `AppWindowMode`, whether it is standing in a window of its own. A screen
+ * `SignInMode`, whether it is standing in a window of its own. A screen
  * mounted without those does not render a *simpler* version of itself — it
  * throws, or it renders the branch the app never shows. So every surface goes
  * through here, and what the catalogue draws is what the app draws.
  */
 export const Mount = ({ children, with: own }: { children: ReactNode; with?: AppStore }) => (
   <StoreProvider store={own ?? store}>
-    <AppWindowMode.Provider value="embedded">
+    <SignInMode.Provider value="embedded">
       <Boundary>{children}</Boundary>
-    </AppWindowMode.Provider>
+    </SignInMode.Provider>
   </StoreProvider>
 )
 

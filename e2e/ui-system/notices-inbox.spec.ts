@@ -12,7 +12,7 @@ for (const scene of ['startup', 'inbox', 'conversation', 'settings']) {
     const before = process.env.NOTICE_FRAME_PREFIX === 'before'
     if (scene === 'inbox') {
       await page.locator('[data-slot="inbox-button"]').locator('..').click()
-      if (!before) await page.getByRole('button', { name: /ignored 2 settings/ }).click()
+      if (!before) await page.getByRole('menuitem', { name: /ignored 2 settings/ }).click()
     }
     if (!before) {
       const dot = page.locator('[data-slot="inbox-dot"]')
@@ -28,18 +28,21 @@ for (const scene of ['startup', 'inbox', 'conversation', 'settings']) {
     if (scene === 'startup') await expect(page.locator('[data-slot="inbox-button"][data-unread]')).toHaveCount(1)
     if (scene === 'conversation') await expect(frame.getByText('Context was compacted to make room for more of this conversation.')).toBeVisible()
     if (scene === 'inbox') {
-      const inbox = page.locator('[data-slot="inbox-list"]')
+      const inbox = page.locator('[role="menu"]')
       await expect(inbox.getByText('×3')).toBeVisible()
-      const title = inbox.getByRole('button', { name: /ignored 2 settings/ })
-      expect(await title.evaluate(element => element.getBoundingClientRect().height <= parseFloat(getComputedStyle(element).lineHeight) + 1)).toBe(true)
+      const title = inbox.getByRole('menuitem', { name: /ignored 2 settings/ }).locator('[data-menu-label]')
+      expect(await title.evaluate(element => element.scrollWidth <= element.clientWidth && element.getBoundingClientRect().height >= parseFloat(getComputedStyle(element).lineHeight))).toBe(true)
       await expect(inbox.locator('[data-part="inbox-full-title"]')).toHaveText(/ignored 2 settings/)
       await expect(inbox.getByText('Ignored configuration settings', { exact: false })).toBeVisible()
-      await expect(inbox.getByText('~/.codex/config.toml', { exact: false })).toBeVisible()
-      await inbox.getByRole('button', { name: 'Open the file' }).click()
-      expect(await page.evaluate(() => (window as unknown as { noticeReveals: unknown[] }).noticeReveals)).toEqual([{ path: '/Users/user/.codex/config.toml' }])
-      await inbox.getByRole('button', { name: "Don't show this again" }).click()
-      await expect(inbox.getByRole('button', { name: "Don't show this again" })).toHaveCount(0)
-      await inbox.getByRole('button', { name: 'Mark all read' }).click()
+      await expect(inbox.getByText('~/.agent/config.toml', { exact: false })).toBeVisible()
+      await inbox.getByRole('menuitem', { name: 'Open the file' }).click()
+      expect(await page.evaluate(() => (window as unknown as { noticeReveals: unknown[] }).noticeReveals)).toEqual([{ path: '/workspace/.agent/config.toml' }])
+      await page.locator('[data-slot="inbox-button"]').locator('..').click()
+      await inbox.getByRole('menuitem', { name: /ignored 2 settings/ }).click()
+      await inbox.getByRole('menuitem', { name: "Don't show this again" }).click()
+      await expect(inbox.getByRole('menuitem', { name: "Don't show this again" })).toHaveCount(0)
+      await page.locator('[data-slot="inbox-button"]').locator('..').click()
+      await inbox.getByRole('menuitem', { name: 'Mark all read' }).click()
       await expect(page.locator('[data-slot="inbox-button"][data-unread]')).toHaveCount(0)
     }
     if (scene === 'settings') {
@@ -54,14 +57,14 @@ for (const scene of ['startup', 'inbox', 'conversation', 'settings']) {
 test('expanded title-only Inbox guidance wraps completely inside the panel', async ({ page }) => {
   await page.goto('/preview.html?notices=inbox&longNotice=1')
   await page.locator('[data-slot="inbox-button"]').locator('..').click()
-  const inbox = page.locator('[data-slot="inbox-list"]')
-  const title = inbox.getByRole('button', { name: /background configuration warning/ })
-  expect(await title.evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true)
+  const inbox = page.locator('[role="menu"]')
+  const title = inbox.getByRole('menuitem', { name: /background configuration warning/ })
+  expect(await title.locator('[data-menu-label]').evaluate(element => element.scrollWidth <= element.clientWidth && element.getBoundingClientRect().height > parseFloat(getComputedStyle(element).lineHeight))).toBe(true)
   await title.click()
   const full = inbox.locator('[data-part="inbox-full-title"]')
   await expect(full).toHaveText(/including the final instruction: check the configuration file before the next run\.$/)
   expect(await full.evaluate(element => {
-    const panel = element.closest('[data-slot="inbox-list"]')!.getBoundingClientRect()
+    const panel = element.closest('[role="menu"]')!.getBoundingClientRect()
     const rect = element.getBoundingClientRect()
     return rect.height > parseFloat(getComputedStyle(element).lineHeight) && element.scrollWidth <= element.clientWidth && rect.right <= panel.right && rect.left >= panel.left
   })).toBe(true)
@@ -102,7 +105,7 @@ test('the receiving window reflects another window read, clear and mute, and sta
   })
   await expect.poll(() => page.evaluate(() => (window as any).noticeStore.getSnapshot().inbox.length)).toBe(1)
   await page.locator('[data-slot="inbox-button"]').locator('..').click()
-  await expect(page.getByRole('button', { name: /Shared configuration warning/ })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: /Shared configuration warning/ })).toBeVisible()
   await page.evaluate(() => {
     const w = window as any
     w.noticeRow = w.noticeStore.getSnapshot().inbox.find((entry: { title: string }) => entry.title.includes('Shared configuration warning')).id
@@ -113,13 +116,13 @@ test('the receiving window reflects another window read, clear and mute, and sta
   await expect(page.locator('[data-slot="inbox-button"][data-unread]')).toHaveCount(0)
   // A different message is unread, so opening its stale row really sends a read.
   await page.evaluate(() => { const w = window as any; w.noticePush(w.noticeOther, 3, 'Shared configuration warning changed'); w.noticePush(w.noticeStore, 3, 'Shared configuration warning changed') })
-  await expect(page.getByRole('button', { name: /Shared configuration warning changed/ })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: /Shared configuration warning changed/ })).toBeVisible()
   await expect.poll(() => (preferences['inbox'] as unknown[]).length).toBe(2)
   // Clear and mute in the first window, then interact with the still-cached row.
   await page.evaluate(() => { const w = window as any; w.noticeOther.clearInbox(); w.noticeOther.setNoticeMuted('runtime:warning', true) })
   await expect.poll(() => preferences['inbox']).toEqual([])
-  await page.getByRole('button', { name: /Shared configuration warning changed/ }).click()
-  await expect(page.getByRole('button', { name: /Shared configuration warning/ })).toHaveCount(0)
+  await page.getByRole('menuitem', { name: /Shared configuration warning changed/ }).click()
+  await expect(page.getByRole('menuitem', { name: /Shared configuration warning/ })).toHaveCount(0)
   expect(preferences['inbox']).toEqual([])
   await page.evaluate(() => { const w = window as any; w.noticePush(w.noticeStore, 4, 'Shared configuration warning changed') })
   await expect.poll(() => page.evaluate(() => (window as any).noticeStore.getSnapshot().noticePolicy.muted)).toContain('runtime:warning')

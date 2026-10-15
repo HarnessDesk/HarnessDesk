@@ -37,6 +37,8 @@ test('command output and fenced prose share one code plate', async ({ page }) =>
 
   await expect(block).toBeVisible()
   await expect(fenced).toBeVisible()
+  // Grammar loading replaces the fenced plate; measure its rendered replacement.
+  await expect(fencedSample.locator('pre.shiki')).toBeVisible()
   await expect(fencedSample.locator('[data-code-language]')).toHaveText('ts')
   await expect(fencedSample.getByRole('button', { name: 'Copy this code' })).toBeVisible()
   await expect(diff).not.toContainText('diff --git')

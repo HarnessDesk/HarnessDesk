@@ -18,7 +18,7 @@ export interface InsightCostProps {
 
 /** Shared, deliberately textual accounting presentation: unknown is never formatted as free. */
 const labelFor = (dimension: InsightDimension): string => ({
-  goal: 'By Goal', agent: 'By Agent', seat: 'By Seat',
+  goal: 'By Team', agent: 'By agent', seat: 'By seat',
 })[dimension]
 
 const sourceWords = (source: InsightReport['sources'][number]): string => {

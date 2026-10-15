@@ -86,6 +86,8 @@ export interface IntentClaim {
    * commits were made in it. Null when there was none.
    */
   readonly upstream?: string | null
+  /** Host-only checkout-move history at claim time; null when it could not be read. */
+  readonly checkoutMark?: string | null
   /**
    * Paths the checkout already showed changed or untracked the moment this
    * ownership began — a shared checkout's own pre-existing dirt, kept only so
@@ -112,7 +114,10 @@ export interface IntentClaim {
    * is later added inside it.
    */
   readonly dirtyPaths?: readonly string[] | null
-  /** Host-only checkout identity for retaining this card's work on a hand-back. */
+  /**
+   * Host-only checkout identity for file claims and retained work. Absent on
+   * older claims, which still contend with every checkout.
+   */
   readonly cwd?: string
   /** The dirty snapshot comes from this conversation's earlier claim of this card. */
   readonly resumed?: boolean
@@ -123,7 +128,8 @@ export interface IntentClaim {
  *
  * `files` is what makes parallel edits safe without a merge queue: claiming
  * an intent claims its paths, and the board refuses a claim whose paths
- * overlap a live one. `handoff` is the context package the finisher left —
+ * overlap a live one in the same checkout. Isolated checkouts may own the same
+ * relative paths. `handoff` is the context package the finisher left —
  * the actual contract, not "the file changed" — read by whoever works the
  * intents that depended on this one.
  */
@@ -188,6 +194,8 @@ export interface Intent {
    * claim measures to HEAD, not to where it last stopped.
    */
   readonly until?: string | null
+  /** Branch read with `until` at the end of this claim; absent on older cards. */
+  readonly untilBranch?: string | null
   /** Why it is blocked, when someone said so rather than a dependency. */
   readonly blockedReason?: string | null
   /**
@@ -231,6 +239,7 @@ export interface Intent {
 export type TeamActor =
   | { readonly kind: 'user' }
   | { readonly kind: 'trigger'; readonly trigger: string }
+  | { readonly kind: 'flow'; readonly name: string }
   | {
       readonly kind: 'agent'
       readonly runtime: RuntimeId

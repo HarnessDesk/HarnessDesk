@@ -1,3 +1,4 @@
+import { createPortal } from 'react-dom'
 import { Dialog as DialogPrimitive } from '@base-ui/react/dialog'
 import { forwardRef, useState } from 'react'
 import type * as React from 'react'
@@ -19,6 +20,9 @@ const Dialog = ({ ...props }: React.ComponentProps<typeof DialogPrimitive.Root>)
 const DialogTrigger = ({ ...props }: React.ComponentProps<typeof DialogPrimitive.Trigger>) => (
   <DialogPrimitive.Trigger data-slot="dialog-trigger" {...props} />
 )
+
+/** Inserts a shell row into its registered host without creating another overlay. */
+const renderShellSlot = (children: React.ReactNode, host: HTMLElement) => createPortal(children, host)
 
 const DialogPortal = ({ ...props }: React.ComponentProps<typeof DialogPrimitive.Portal>) => (
   <DialogPrimitive.Portal data-slot="dialog-portal" {...props} />
@@ -78,6 +82,14 @@ const DialogContent = forwardRef<
     showCloseButton?: boolean
     portalled?: boolean
     overlayClassName?: string
+    /** Keeps tall content inside the dialog's shared viewport measure. */
+    viewportBounded?: boolean
+    /** Aligns a transient command surface to the viewport's upper edge. */
+    placement?: 'center' | 'top'
+    /** A dialog wider than the ordinary question surface. */
+    width?: 'default' | 'wide'
+    /** Adds the shared reading inset to a surface using its own layout. */
+    inset?: 'dialog'
     /**
      * A sheet rather than a prompt: it lays itself out and states its own
      * width, and this stands out of the way.
@@ -99,12 +111,15 @@ const DialogContent = forwardRef<
      */
     bleed?: boolean
   }
->(({ className, children, showCloseButton = true, portalled = true, overlayClassName, bleed = false, ...props }, ref) => {
+>(({ className, children, showCloseButton = true, portalled = true, overlayClassName, bleed = false, viewportBounded = false, placement = 'center', width = 'default', inset, ...props }, ref) => {
   const [inlineHost, setInlineHost] = useState<HTMLDivElement | null>(null)
   const content = (
     <>
     <DialogOverlay className={overlayClassName} />
-    <DialogPrimitive.Viewport className="fixed inset-0 z-(--hd-z-dialog) grid place-items-center p-4">
+    <DialogPrimitive.Viewport className={cn(
+      'fixed inset-0 z-(--hd-z-dialog) grid',
+      placement === 'top' ? 'place-items-start justify-items-center p-6' : 'place-items-center p-4',
+    )}>
       <DialogPrimitive.Popup
         ref={ref}
         data-slot="dialog-content"
@@ -113,6 +128,9 @@ const DialogContent = forwardRef<
           'bg-popover relative max-w-[calc(100%-2rem)] rounded-xl shadow-(--hd-surface-shadow)',
           SURFACE_FOCUS,
           bleed || 'grid w-full gap-4 p-(--hd-inset-dialog) sm:max-w-md',
+          bleed && inset === 'dialog' && 'p-(--hd-inset-dialog)',
+          viewportBounded && 'max-h-(--hd-dialog-max-height)',
+          width === 'wide' && 'sm:max-w-2xl',
           className,
         )}
         {...props}
@@ -123,7 +141,7 @@ const DialogContent = forwardRef<
         {showCloseButton && (
           <DialogPrimitive.Close
             data-slot="dialog-close"
-            className="absolute top-3.5 right-3.5 grid size-6 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none"
+            className="absolute top-(--hd-inset-dialog) right-(--hd-inset-dialog) grid size-6 place-items-center rounded-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none"
           >
             <CrossIcon size={13} />
             <span className="sr-only">Close</span>
@@ -177,7 +195,7 @@ const DialogTitle = ({
 }: React.ComponentProps<typeof DialogPrimitive.Title>) => (
   <DialogPrimitive.Title
     data-slot="dialog-title"
-    className={cn('text-base leading-none font-medium', className)}
+    className={cn('text-(length:--hd-text-lg) leading-(--hd-line-lg) font-semibold', className)}
     {...props}
   />
 )
@@ -202,6 +220,7 @@ export {
   DialogHeader,
   DialogOverlay,
   DialogPortal,
+  renderShellSlot,
   DialogPopup,
   DialogTitle,
   DialogTrigger,

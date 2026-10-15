@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="450" viewBox="0 0 980 450" role="img" aria-labelledby="title desc">
+<title id="title">A race Flow</title>
+<desc id="desc">Brief splits into two parallel writer steps, Codex and Claude Code. Both send their attempts to the Gemini judge, which picks Attempt A. The eight-second loop carries a baton between steps; reduced motion shows the completed Flow.</desc>
+<style>
+:root {--page:#ffffff;--surface:#ffffff;--muted:#f5f5f5;--ink:#1b1b1b;--secondary:#313131;--tertiary:#474747;--line:#090c110d;--edge:#090c111f;--accent:#3458f0;--success:#007e3f;--success-fill:#41bd6f24;--codex-fill:#5b7eed24;--codex-ink:#4563c6;--claude-fill:#e9772926;--claude-ink:#ac4f00;--gemini-fill:#9b5cd724;--gemini-ink:#854dbb;--ease:cubic-bezier(0.22,1,0.36,1);}
+svg {background:var(--page);color:var(--ink);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
+text {fill:var(--ink);font-size:14px;}
+.secondary {fill:var(--secondary);} .tertiary {fill:var(--tertiary);}
+.edge {fill:none;stroke:var(--edge);stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+.passed {stroke:var(--accent);animation:var(--reveal) 8s var(--ease) infinite;}
+.baton {fill:var(--accent);offset-distance:100%;animation:var(--travel) 8s var(--ease) infinite;}
+.card {fill:var(--surface);stroke:var(--edge);}
+.halo {fill:none;stroke:var(--accent);stroke-width:2;opacity:0;animation:var(--active) 8s var(--ease) infinite;}
+.done {animation:var(--reveal) 8s var(--ease) infinite;}
+.done circle {fill:var(--accent);stroke:var(--page);stroke-width:3;}
+.done path {fill:none;stroke:var(--page);stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
+.label {font-size:16px;font-weight:500;}
+.detail {font-size:13px;fill:var(--tertiary);}
+.agent-icon {fill:none;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;}
+.picked,.choice {animation:pick 8s var(--ease) infinite;}
+.pending {opacity:0;animation:pending 8s var(--ease) infinite;}
+@keyframes pending {0%,85.99% {opacity:1;} 86%,100% {opacity:0;}}
+@keyframes pick {0%,85.99% {opacity:0;} 86%,100% {opacity:1;}}
+@keyframes pass-to-a {0%,26.99% {opacity:0;} 27%,100% {opacity:1;}}
+@keyframes travel-to-a {0%,13.99% {opacity:0;offset-distance:0%;} 14% {opacity:1;offset-distance:0%;} 26.99% {opacity:1;offset-distance:100%;} 27%,100% {opacity:0;offset-distance:100%;}}
+@keyframes pass-to-b {0%,26.99% {opacity:0;} 27%,100% {opacity:1;}}
+@keyframes travel-to-b {0%,13.99% {opacity:0;offset-distance:0%;} 14% {opacity:1;offset-distance:0%;} 26.99% {opacity:1;offset-distance:100%;} 27%,100% {opacity:0;offset-distance:100%;}}
+@keyframes pass-from-a {0%,65.99% {opacity:0;} 66%,100% {opacity:1;}}
+@keyframes travel-from-a {0%,53.99% {opacity:0;offset-distance:0%;} 54% {opacity:1;offset-distance:0%;} 65.99% {opacity:1;offset-distance:100%;} 66%,100% {opacity:0;offset-distance:100%;}}
+@keyframes pass-from-b {0%,65.99% {opacity:0;} 66%,100% {opacity:1;}}
+@keyframes travel-from-b {0%,53.99% {opacity:0;offset-distance:0%;} 54% {opacity:1;offset-distance:0%;} 65.99% {opacity:1;offset-distance:100%;} 66%,100% {opacity:0;offset-distance:100%;}}
+@keyframes pass-to-pick {0%,85.99% {opacity:0;} 86%,100% {opacity:1;}}
+@keyframes travel-to-pick {0%,79.99% {opacity:0;offset-distance:0%;} 80% {opacity:1;offset-distance:0%;} 85.99% {opacity:1;offset-distance:100%;} 86%,100% {opacity:0;offset-distance:100%;}}
+@keyframes active-brief {0%,14% {opacity:1;} 14.01%,100% {opacity:0;}}
+@keyframes done-brief {0%,13.99% {opacity:0;} 14%,100% {opacity:1;}}
+@keyframes active-writer {0%,26.99% {opacity:0;} 27%,54% {opacity:1;} 54.01%,100% {opacity:0;}}
+@keyframes done-writer {0%,53.99% {opacity:0;} 54%,100% {opacity:1;}}
+@keyframes active-judge {0%,65.99% {opacity:0;} 66%,80% {opacity:1;} 80.01%,100% {opacity:0;}}
+@keyframes done-judge {0%,79.99% {opacity:0;} 80%,100% {opacity:1;}}
+@keyframes active-pick {0%,85.99% {opacity:0;} 86%,90% {opacity:1;} 90.01%,100% {opacity:0;}}
+@keyframes done-pick {0%,85.99% {opacity:0;} 86%,100% {opacity:1;}}
+@media (prefers-reduced-motion: reduce) {
+ .passed,.done,.picked,.choice {animation:none;opacity:1;} .halo,.baton,.pending {animation:none;opacity:0;}
+}
+
+</style>
+<defs>
+ <pattern id="dots" width="20" height="20" patternUnits="userSpaceOnUse"><circle cx="10" cy="10" r="1" fill="var(--edge)"/></pattern>
+ <marker id="arrow" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M1 1 L5 3.5 L1 6" fill="none" stroke="var(--edge)" stroke-width="1.3"/></marker>
+ <marker id="arrow-passed" markerWidth="7" markerHeight="7" refX="6" refY="3.5" orient="auto"><path d="M1 1 L5 3.5 L1 6" fill="none" stroke="var(--accent)" stroke-width="1.3"/></marker>
+</defs>
+<rect x=".5" y=".5" width="979" height="449" rx="14" fill="var(--page)" stroke="var(--edge)"/>
+<text x="28" y="36" font-weight="500">Race</text><text x="82" y="36" class="tertiary">Two attempts, one pick</text>
+<rect x="887" y="18" width="64" height="28" rx="7" fill="var(--muted)"/><text x="919" y="37" text-anchor="middle">Flow</text>
+<path d="M1 62 H979" stroke="var(--line)"/>
+<rect x="20" y="82" width="940" height="294" fill="url(#dots)"/>
+<text x="272" y="108" class="detail">In parallel</text>
+<path class="edge" d="M190 248 H220 Q232 248 232 236 V188 Q232 176 244 176 H272" marker-end="url(#arrow)"/>
+<path class="edge passed" style="--reveal:pass-to-a" d="M190 248 H220 Q232 248 232 236 V188 Q232 176 244 176 H272" marker-end="url(#arrow-passed)"/>
+<circle r="4" class="baton" style="offset-path:path('M190 248 H220 Q232 248 232 236 V188 Q232 176 244 176 H272');--travel:travel-to-a"/>
+<path class="edge" d="M190 248 H220 Q232 248 232 260 V308 Q232 320 244 320 H272" marker-end="url(#arrow)"/>
+<path class="edge passed" style="--reveal:pass-to-b" d="M190 248 H220 Q232 248 232 260 V308 Q232 320 244 320 H272" marker-end="url(#arrow-passed)"/>
+<circle r="4" class="baton" style="offset-path:path('M190 248 H220 Q232 248 232 260 V308 Q232 320 244 320 H272');--travel:travel-to-b"/>
+<path class="edge" d="M472 176 H516 Q528 176 528 188 V236 Q528 248 540 248 H578" marker-end="url(#arrow)"/>
+<path class="edge passed" style="--reveal:pass-from-a" d="M472 176 H516 Q528 176 528 188 V236 Q528 248 540 248 H578" marker-end="url(#arrow-passed)"/>
+<circle r="4" class="baton" style="offset-path:path('M472 176 H516 Q528 176 528 188 V236 Q528 248 540 248 H578');--travel:travel-from-a"/>
+<path class="edge" d="M472 320 H516 Q528 320 528 308 V260 Q528 248 540 248 H578" marker-end="url(#arrow)"/>
+<path class="edge passed" style="--reveal:pass-from-b" d="M472 320 H516 Q528 320 528 308 V260 Q528 248 540 248 H578" marker-end="url(#arrow-passed)"/>
+<circle r="4" class="baton" style="offset-path:path('M472 320 H516 Q528 320 528 308 V260 Q528 248 540 248 H578');--travel:travel-from-b"/>
+<path class="edge" d="M738 248 H798" marker-end="url(#arrow)"/>
+<path class="edge passed" style="--reveal:pass-to-pick" d="M738 248 H798" marker-end="url(#arrow-passed)"/>
+<circle r="4" class="baton" style="offset-path:path('M738 248 H798');--travel:travel-to-pick"/>
+<g transform="translate(44 208)">
+ <rect class="card" width="146" height="80" rx="12"/>
+ <rect class="halo" x="-3" y="-3" width="152" height="86" rx="15" style="--active:active-brief"/>
+ <rect x="14" y="16" width="28" height="28" rx="7" fill="var(--muted)"/>
+ <path class="agent-icon" d="M7 4 H15 L20 9 V21 H7 Z M15 4 V9 H20 M10 13 H17 M10 17 H16" transform="translate(16 18)" stroke="var(--tertiary)"/>
+ <text x="52" y="35" class="label">Brief</text><text x="14" y="62" class="detail">One shared ask</text>
+ <g class="done" style="--reveal:done-brief"><circle cx="144" cy="2" r="10"/><path d="M-4 0 L-1 3 L4 -3" transform="translate(144 2)"/></g>
+</g>
+<g transform="translate(272 136)">
+ <rect class="card" width="200" height="80" rx="12"/>
+ <rect class="halo" x="-3" y="-3" width="206" height="86" rx="15" style="--active:active-writer"/>
+ <rect x="14" y="16" width="28" height="28" rx="7" fill="var(--codex-fill)"/>
+ <path class="agent-icon" d="M5 9 H19 V19 H5 Z M12 5 V9 M10 5 H14 M2 12 V16 M22 12 V16 M9 13 V14 M15 13 V14 M9 17 H15" transform="translate(16 18)" stroke="var(--codex-ink)"/>
+ <text x="52" y="35" class="label">Write</text><text x="14" y="62" class="detail">Codex · Attempt A</text>
+ <g class="done" style="--reveal:done-writer"><circle cx="198" cy="2" r="10"/><path d="M-4 0 L-1 3 L4 -3" transform="translate(198 2)"/></g>
+</g>
+<g transform="translate(272 280)">
+ <rect class="card" width="200" height="80" rx="12"/>
+ <rect class="halo" x="-3" y="-3" width="206" height="86" rx="15" style="--active:active-writer"/>
+ <rect x="14" y="16" width="28" height="28" rx="7" fill="var(--claude-fill)"/>
+ <path class="agent-icon" d="M5 9 H19 V19 H5 Z M12 5 V9 M10 5 H14 M2 12 V16 M22 12 V16 M9 13 V14 M15 13 V14 M9 17 H15" transform="translate(16 18)" stroke="var(--claude-ink)"/>
+ <text x="52" y="35" class="label">Write</text><text x="14" y="62" class="detail">Claude Code · Attempt B</text>
+ <g class="done" style="--reveal:done-writer"><circle cx="198" cy="2" r="10"/><path d="M-4 0 L-1 3 L4 -3" transform="translate(198 2)"/></g>
+</g>
+<g transform="translate(578 208)">
+ <rect class="card" width="160" height="80" rx="12"/>
+ <rect class="halo" x="-3" y="-3" width="166" height="86" rx="15" style="--active:active-judge"/>
+ <rect x="14" y="16" width="28" height="28" rx="7" fill="var(--gemini-fill)"/>
+ <path class="agent-icon" d="M5 9 H19 V19 H5 Z M12 5 V9 M10 5 H14 M2 12 V16 M22 12 V16 M9 13 V14 M15 13 V14 M9 17 H15" transform="translate(16 18)" stroke="var(--gemini-ink)"/>
+ <text x="52" y="35" class="label">Judge</text><text x="14" y="62" class="detail">Gemini</text>
+ <g class="done" style="--reveal:done-judge"><circle cx="158" cy="2" r="10"/><path d="M-4 0 L-1 3 L4 -3" transform="translate(158 2)"/></g>
+</g>
+<g transform="translate(798 208)">
+ <rect class="card" width="138" height="80" rx="12"/>
+ <rect class="halo" x="-3" y="-3" width="144" height="86" rx="15" style="--active:active-pick"/>
+ <rect x="14" y="16" width="28" height="28" rx="7" fill="var(--success-fill)"/>
+ <path class="agent-icon" d="M6 12 L10 16 L18 8" transform="translate(16 18)" stroke="var(--success)"/>
+ <text x="52" y="35" class="label">Picked</text><text x="14" y="62" class="detail pending">One attempt</text><text x="14" y="62" class="detail choice">Attempt A</text>
+ <g class="done" style="--reveal:done-pick"><circle cx="136" cy="2" r="10"/><path d="M-4 0 L-1 3 L4 -3" transform="translate(136 2)"/></g>
+</g>
+<g class="picked"><rect x="28" y="397" width="22" height="22" rx="6" fill="var(--success-fill)"/><path d="M34 408 L38 412 L45 404" fill="none" stroke="var(--success)" stroke-width="1.5"/><text x="60" y="413" class="secondary">Both attempts are kept in the Run.</text></g>
+</svg>

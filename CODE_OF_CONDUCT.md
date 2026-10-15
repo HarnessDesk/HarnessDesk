@@ -55,11 +55,9 @@ an individual is officially representing the community in public spaces.
 
 ## Enforcement
 
-Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported to the maintainers privately through GitHub — a direct message to
-[@iamenahs](https://github.com/iamenahs), or the repository's private
-reporting routes. All complaints will be reviewed and investigated promptly
-and fairly.
+Report unacceptable behavior privately to the maintainers through the
+repository’s private reporting route. All complaints will be reviewed and
+investigated promptly and fairly.
 
 All community leaders are obligated to respect the privacy and security of the
 reporter of any incident.

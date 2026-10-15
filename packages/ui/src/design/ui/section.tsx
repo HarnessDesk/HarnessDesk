@@ -28,8 +28,8 @@ import { GroupLabel } from './group-label'
  *                               warns looks like the four that natter. Give a
  *                               section a description when it needs one.
  *
- *   The footer is for actions.   Not for a summary, not for a count. A bar at
- *                               the bottom of a card promises something to press.
+ *   The default footer is for actions. A bar at the bottom of a card promises
+ *   something to press. Quiet facts use the facts variant with natural height.
  *
  * It comes in two forms, chosen by whether it has a `title`. With one, it is a
  * section of a page: the label over a card, the spacing owned (below). Without
@@ -52,10 +52,10 @@ const sectionVariants = cva('flex flex-col', {
          taller than the column allots its panels (`--panel-max`, which the
          column sets), so a long one scrolls inside itself instead of taking
          the column's list away. */
-      panel: 'max-h-(--panel-max,none) gap-2 border-t border-(--hd-border) p-(--hd-inset-row)',
+      panel: 'max-h-(--panel-max,none) gap-(--hd-card-gap) border-t border-(--hd-border) p-(--hd-inset-row)',
       /* A section of a page, with its label outside and over its card. Drawn
          only through `title` (below), which is what gives it its head. */
-      page: 'mt-(--hd-space-8) min-w-0 gap-(--hd-space-2) first:mt-0 *:my-0! [&>[data-section-head]]:mt-(--hd-space-4)! [&>button]:self-start',
+      page: 'mt-(--hd-space-8) min-w-0 gap-(--hd-card-gap) first:mt-0 *:my-0! [&>[data-section-head]]:mt-(--hd-space-3)! [&>button]:self-start',
     },
   },
   defaultVariants: { variant: 'card' },
@@ -72,19 +72,19 @@ const sectionVariants = cva('flex flex-col', {
  * cards read as a list of floating grey words. So the section owns the rhythm,
  * and a screen that composes sections writes no margin of its own:
  *
- *   heading → content      8px (`--hd-space-2`), the label belongs to its card.
+ *   heading → content      12px (`--hd-card-gap`), the label belongs to its card.
  *                          The heading sits on its card: an action taller than
  *                          the label grows upward, so every label on a page is
- *                          the same 8px above what it names
+ *                          the same 12px above what it names
  *   section → section      32px (`--hd-space-8`); after a page or detail head
  *                          the head's own 24px collapses into it, so the first
  *                          section sits at the same 32px as every other one
- *   inside, child → child  8px; a card's or a note's own margin is dropped,
+ *   inside, child → child  12px (`--hd-card-gap`); a card's or a note's own margin is dropped,
  *                          so nothing inside can reopen the gap. A card
  *                          fills the column; a lone button keeps its own
  *                          width at the start, never a full-width bar.
  *   a sub-group inside     a `SectionHead` among its children is a sub-head:
- *                          24px above it (16 on the gap), 8px to its card —
+ *                          24px above it (12 on the gap), 12px to its card —
  *                          a step between the two, so Permissions' twelve
  *                          runtimes read as groups of one section rather
  *                          than twelve sections
@@ -103,7 +103,7 @@ type PageSectionProps = Omit<React.ComponentProps<'section'>, 'title'> & {
   title: string
   description?: React.ReactNode
   action?: React.ReactNode
-  /** Match a row or card body without adding a second inset to that body. */
+  /** @deprecated Page section headings stay on their content edge. */
   inset?: 'row' | 'card'
   variant?: never
 }
@@ -131,6 +131,7 @@ const useInPageSection = (): boolean => useContext(InPageSection)
 const Section = (props: SectionProps) => {
   if (isPageSection(props)) {
     const { className, title, description, action, inset, children, ...rest } = props
+    void inset
     return (
       <section
         data-slot="section"
@@ -141,38 +142,25 @@ const Section = (props: SectionProps) => {
       >
         <div
           data-slot="section-head"
-          /* The head sits above the card it names rather than inside it, so
-             without an inset of its own its label started at the column's
-             edge while the card's border and `--hd-inset-row` put every row
-             a border-width and a card-padding in — a `SectionAction`'s own
-             `justify-self-end` line answers a different question (the card's
-             own header) and does not reach a page section's plain card.
-
-             Earned only when a `Rows` card is the very next thing the head
-             sits over (`has-[+…]` reads the next sibling): a section whose
-             body is a `Note` or a plain button — ProjectTriggers' own body,
-             say — has no such card to answer to, and the same inset put its
-             label a row inset right of a body that starts flush with the page. */
-          className={cn('flex min-w-0 items-end gap-(--hd-space-3)',
-            inset === 'row' ? 'px-(--hd-inset-row)' : inset === 'card' ? 'px-(--hd-inset-card)'
-              : 'has-[+[data-slot=rows]]:px-[calc(var(--hd-border-width)+var(--hd-table-edge))] has-[+[role=radiogroup]]:px-[calc(var(--hd-border-width)+var(--hd-table-edge))]',
-          )}
+          /* This is page furniture. A body's card or row inset belongs to
+             that body and never moves the heading away from the page edge.
+             The description is a full-width flex item that cannot shrink
+             beside the title, so it always starts below the heading. */
+          className="flex min-w-0 flex-wrap items-end gap-x-(--hd-space-3) gap-y-(--hd-space-0-5)"
         >
-          <div className="flex min-w-0 flex-1 flex-col gap-(--hd-space-0-5)">
-            <GroupLabel as="h2">{title}</GroupLabel>
-            {description != null && (
-              <p
-                data-slot="section-description"
-                className="m-0 max-w-[62ch] text-(length:--hd-text-sm) leading-(--hd-line-sm) text-(--hd-muted-foreground)"
-              >
-                {description}
-              </p>
-            )}
-          </div>
+          <GroupLabel as="h2" data-section-name="" className="min-w-0 flex-[1_1_20ch] truncate">{title}</GroupLabel>
           {action != null && (
-            <div data-slot="section-action" className="flex flex-none items-center gap-(--hd-space-2)">
+            <div data-slot="section-action" className="flex max-w-full flex-none flex-wrap items-center gap-(--hd-space-2)">
               {action}
             </div>
+          )}
+          {description != null && (
+            <p
+              data-slot="section-description"
+              className="m-0 basis-full shrink-0 text-(length:--hd-text-sm) leading-(--hd-line-sm) text-(--hd-muted-foreground)"
+            >
+              <span className="inline-block max-w-[62ch]">{description}</span>
+            </p>
           )}
         </div>
         <InPageSection.Provider value>{children}</InPageSection.Provider>
@@ -249,7 +237,7 @@ const SectionBody = ({
   ...props
 }: React.ComponentProps<'div'> & {
   inset?: boolean
-  spacing?: 'default' | 'compact' | 'inline'
+  spacing?: 'default' | 'compact' | 'inline' | 'tool-prose'
 }) => (
   <div
     data-slot="section-body"
@@ -257,18 +245,25 @@ const SectionBody = ({
     className={cn(
       spacing === 'default' && 'py-4 first:pt-4 [&:not(:first-child)]:pt-3',
       spacing === 'compact' && 'py-3',
-      inset && (spacing === 'inline' ? 'px-(--hd-inset-row)' : spacing === 'compact' ? 'px-3' : 'px-4'),
+      inset && (spacing === 'tool-prose' ? 'px-(--hd-space-4)' : spacing === 'inline' ? 'px-(--hd-inset-row)' : spacing === 'compact' ? 'px-3' : 'px-4'),
       className,
     )}
     {...props}
   />
 )
 
-const SectionFooter = ({ className, ...props }: React.ComponentProps<'div'>) => (
+/** Quiet facts wrap at natural height; action footers retain their existing spacing. */
+const SectionFooter = ({ className, variant = 'actions', ruled = true, ...props }: React.ComponentProps<'div'> & {
+  variant?: 'actions' | 'facts'
+  ruled?: boolean
+}) => (
   <div
     data-slot="section-footer"
+    data-variant={variant}
     className={cn(
-      'mt-auto flex items-center gap-2 border-t border-(--hd-border) px-4 py-3',
+      variant === 'actions' ? 'mt-auto flex items-center gap-2 border-t border-(--hd-border) px-4 py-3'
+        : 'flex shrink-0 flex-wrap items-center gap-(--hd-bar-gap) px-(--hd-inset-row) py-(--hd-space-1)',
+      variant === 'facts' && ruled && 'border-t border-(--hd-border)',
       className,
     )}
     {...props}

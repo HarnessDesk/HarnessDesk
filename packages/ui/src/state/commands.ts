@@ -89,6 +89,7 @@ export const optionCommands = (snapshot: AppSnapshot): CommandDefinition[] =>
   )
 
 export const BUILTIN_COMMANDS: readonly CommandDefinition[] = [
+  { name: 'run-steps', description: 'Run Timeline', kind: { type: 'action', run: store => store.showView('run-steps') } },
   {
     name: 'new',
     description: 'Start a new session in this workspace',
@@ -124,11 +125,10 @@ export const BUILTIN_COMMANDS: readonly CommandDefinition[] = [
    * Back and forward, as commands as well as keys.
    *
    * The arrows in the window controls were the only route to
-   * `navigateBack`/`navigateForward`, and a header narrower than 520px folds
-   * them — which a 1000px window reaches with a panel docked and the sidebar
-   * away. The palette and the composer read this one list, so an entry here is
+   * `navigateBack`/`navigateForward`; narrow windows now keep those arrows
+   * in the floating sidebar. The palette and the composer read this one list, so an entry here is
    * a palette row and a slash command at once, and neither depends on how much
-   * room the header has. The arrows are unchanged; this is a second way in.
+   * room the header has. The palette remains a second way in.
    *
    * Offered exactly when there is somewhere to go, which is what the arrows
    * say by being enabled. A palette has no greyed row, so the alternative to
@@ -342,8 +342,8 @@ export const availableCommands = (snapshot: AppSnapshot): CommandDefinition[] =>
  * `/board`. A plugin's arrives beside them rather than needing a place of its
  * own to be discovered.
  *
- * The command opens it in the first area the contribution declares; where it
- * goes after that is the person's, and is remembered per project.
+ * The command uses the declared mount at admission; compatible contributions
+ * become Details sections, and unsupported sidebar/bottom-only mounts refuse.
  */
 const panelCommands = (
   snapshot: AppSnapshot,

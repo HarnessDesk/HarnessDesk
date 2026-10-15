@@ -49,7 +49,7 @@ test('a confirm with a long line and a tall body wraps the line, scrolls the bod
 
   const held = await dialog.evaluate(node => {
     const box = node.getBoundingClientRect()
-    const body = node.querySelector('[data-slot="confirm-body"]') as HTMLElement
+    const body = node.querySelector('[data-slot="modal-dialog-body"]') as HTMLElement
     const long = node.querySelector('[data-testid="long"]') as HTMLElement
     return {
       over: [...node.querySelectorAll('*')]

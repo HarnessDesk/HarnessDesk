@@ -29,10 +29,15 @@ export type GroupLabelProps = Omit<ComponentProps<'span'>, 'children'> & {
   children: ReactNode
   /** Muted for a quiet navigation band; other section labels keep secondary ink. */
   ink?: 'secondary' | 'muted'
+  /** A tool group's label stays on the rows' edge, above its body. */
+  surface?: 'default' | 'tool' | 'navigation'
+  /** Match the navigation row or the sidebar's filter-bar text column. */
+  /** Action headers include the end button's target air in their text inset. */
+  navigationInset?: 'bar' | 'nav' | 'row' | 'action'
 }
 
 export const groupLabelClass =
   'm-0 text-(length:--hd-text-sm) leading-(--hd-line-sm) font-(weight:--hd-label-weight) text-(--hd-secondary-foreground)'
 
-export const GroupLabel = ({ as = 'span', className, ink = 'secondary', children, ...props }: GroupLabelProps) =>
-  createElement(as, { 'data-slot': 'group-label', className: cn(groupLabelClass, ink === 'muted' && 'text-(--hd-muted-foreground)', className), ...props }, children)
+export const GroupLabel = ({ as = 'span', className, ink = 'secondary', surface = 'default', navigationInset = 'bar', children, ...props }: GroupLabelProps) =>
+  createElement(as, { 'data-slot': 'group-label', 'data-group-surface': surface, className: cn(groupLabelClass, surface === 'tool' && 'flex items-center gap-(--hd-space-2) px-(--hd-inset-row) pb-(--hd-space-2)', surface === 'navigation' && 'shrink-0 flex items-center gap-(--hd-space-1-5) pt-[var(--hd-label-space,var(--hd-space-1-5))] pb-(--hd-space-1)', surface === 'navigation' && navigationInset !== 'row' && navigationInset !== 'action' && 'pe-(--hd-sidebar-end-header-inset)', surface === 'navigation' && navigationInset === 'bar' && 'ps-[calc(var(--hd-rail-inset)+var(--hd-sidebar-start-inset))]', surface === 'navigation' && (navigationInset === 'row' || navigationInset === 'action') && 'ps-(--hd-space-2)', surface === 'navigation' && navigationInset === 'row' && 'pe-(--hd-space-2)', surface === 'navigation' && navigationInset === 'action' && 'pe-(--hd-space-3)', surface === 'navigation' && navigationInset === 'nav' && 'pl-(--hd-nav-inset)', ink === 'muted' && 'text-(--hd-muted-foreground)', className), ...props }, children)

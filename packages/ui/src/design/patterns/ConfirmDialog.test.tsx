@@ -99,10 +99,18 @@ const open = (props: Partial<Props> = {}): HTMLElement => {
 }
 
 const button = (surface: HTMLElement, label: string): HTMLButtonElement => {
-  const found = [...surface.querySelectorAll('button')].find((each) => each.textContent === label)
+  const found = [...surface.querySelectorAll('button')].find(
+    (each) => each.textContent === label || each.getAttribute('aria-label') === label,
+  )
   if (!found) throw new Error(`no "${label}" button`)
   return found
 }
+
+it('uses the Dialog primitive’s named small width', () => {
+  const surface = open()
+  expect(surface.className).toContain('w-[min(460px,100%)]')
+  expect(surface.className).toContain('max-w-none')
+})
 
 /**
  * A flex row's children, left to right, as a browser paints them: the tree
@@ -218,13 +226,13 @@ it.each([
  */
 it('asks in the ordinary tone unless the caller says it destroys something', () => {
   const consent = open({ title: 'Arm this trigger', confirmLabel: 'Arm' })
-  expect(consent.querySelector('[data-slot="alert-dialog-header"]')?.hasAttribute('data-tone')).toBe(false)
+  expect(consent.querySelector('[data-slot="dialog-head"]')?.hasAttribute('data-tone')).toBe(false)
   expect(button(consent, 'Arm').getAttribute('data-variant')).toBe('default')
   act(() => root.unmount())
   root = createRoot(container)
 
   const removal = open({ tone: 'destructive' })
-  expect(removal.querySelector('[data-slot="alert-dialog-header"]')?.getAttribute('data-tone')).toBe('destructive')
+  expect(removal.querySelector('[data-slot="dialog-head"]')?.getAttribute('data-tone')).toBe('destructive')
   expect(button(removal, 'Delete').getAttribute('data-variant')).toBe('danger')
 })
 
@@ -242,6 +250,17 @@ it('proceeds from the right-hand button and keeps from the left-hand one', () =>
   expect(onCancel).toHaveBeenCalledTimes(1)
 })
 
+it('uses the shared header close control to keep things as they are', () => {
+  const onConfirm = vi.fn()
+  const onCancel = vi.fn()
+  const surface = open({ onConfirm, onCancel })
+
+  act(() => button(surface, 'Close').click())
+
+  expect(onCancel).toHaveBeenCalledTimes(1)
+  expect(onConfirm).not.toHaveBeenCalled()
+})
+
 it('holds the action in its place while it waits', () => {
   // `pending`: still counting what confirming would cost. The button stays
   // where the pointer is heading rather than appearing there later.
@@ -253,10 +272,11 @@ it('holds the action in its place while it waits', () => {
   expect(paintedLeftToRight(go.parentElement as HTMLElement)).toEqual([keep, go])
 })
 
-it('hands the first Tab from the opener to Keep, and the next to the proceeding action', async () => {
+it('hands Tab from the opener to Keep, then cycles through Close and the proceeding action', async () => {
   const { opener, surface } = await openFromOpener()
   const go = button(surface, 'Delete')
   const keep = button(surface, 'Keep')
+  const close = button(surface, 'Close')
   expect(document.activeElement).toBe(opener)
 
   await pressTab()
@@ -267,10 +287,15 @@ it('hands the first Tab from the opener to Keep, and the next to the proceeding 
   expect(document.activeElement).toBe(keep)
 
   await pressTab()
+  expect(document.activeElement).toBe(close)
+
+  await pressTab()
   expect(document.activeElement).toBe(go)
 
   await pressTab()
   expect(document.activeElement).toBe(keep)
+  await pressTab()
+  expect(document.activeElement).toBe(close)
 })
 
 it('never hands Tab to an action that is waiting', async () => {
@@ -279,10 +304,8 @@ it('never hands Tab to an action that is waiting', async () => {
 
   await pressTab()
   expect(document.activeElement).toBe(keep)
-  // Past Keep, the guard after the popup wraps to its first control that can
-  // take focus — Keep again, not the disabled action.
   await pressTab()
-  expect(document.activeElement).toBe(keep)
+  expect(document.activeElement).toBe(button(surface, 'Close'))
 })
 
 it('focuses nothing when it opens, so a held Return confirms nothing', async () => {
@@ -309,15 +332,25 @@ it('a confirm holds whatever it is asked to confirm: the popup is bounded by the
   expect(content.display).toBe('flex')
   expect(content.flexDirection).toBe('column')
   expect(content.maxHeight).toMatch(/--hd-dialog-max-height|100dvh/)
-  const body = surface.querySelector<HTMLElement>('[data-slot="confirm-body"]')!
+  const body = surface.querySelector<HTMLElement>('[data-slot="modal-dialog-body"]')!
   expect(getComputedStyle(body).overflowY).toBe('auto')
   expect(getComputedStyle(body).minHeight).toMatch(/^0(px)?$/)
   const code = surface.querySelector<HTMLElement>('[data-testid="code"]')!
   expect(getComputedStyle(code).whiteSpace).toBe('pre-wrap')
   expect(getComputedStyle(code).overflowWrap).toBe('anywhere')
   // Header and footer never give up their height to a tall body.
-  for (const slot of ['alert-dialog-header', 'alert-dialog-footer']) {
+  for (const slot of ['dialog-head', 'dialog-footer']) {
     const part = surface.querySelector<HTMLElement>(`[data-slot="${slot}"]`)!
     expect(getComputedStyle(part).flexShrink).toBe('0')
   }
+})
+
+it('offers an independent middle action while keeping Cancel last in keyboard order', () => {
+  const discard = vi.fn(), save = vi.fn(), cancel = vi.fn()
+  const surface = open({ confirmLabel: 'Save', cancelLabel: 'Cancel', onConfirm: save, onCancel: cancel,
+    alternative: { label: "Don't save", onClick: discard } })
+  const answers = [...surface.querySelectorAll('[data-slot="dialog-footer"] button')]
+  expect(answers.map(node => node.textContent)).toEqual(['Save', "Don't save", 'Cancel'])
+  act(() => button(surface, "Don't save").click())
+  expect(discard).toHaveBeenCalledOnce(); expect(save).not.toHaveBeenCalled(); expect(cancel).not.toHaveBeenCalled()
 })

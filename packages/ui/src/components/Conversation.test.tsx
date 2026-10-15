@@ -1,14 +1,18 @@
+import { FRAME } from '../design/frame'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { wrapContext, reduceSession, sessionId, sessionKey, turnId, itemId, type AgentEntry, type GoalView, type Session } from '@harnessdesk/protocol'
+import { wrapContext, reduceSession, runtimeId, sessionId, sessionKey, turnId, itemId, type AgentEntry, type GoalView, type Session } from '@harnessdesk/protocol'
 
 import { seatAgentKey } from '../lib/agents'
 import { PaneProvider, StoreProvider } from '../state/context'
-import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { AppStore, emptySnapshot, type AppSnapshot } from '../state/store'
 import { Conversation } from './Conversation'
 import styles from './Conversation.module.css'
+import { TopBarProvider, TopBarOutlet, WorkDetailsOutlet } from '../panels/top-bar'
+import * as harness from '../preview/harness'
+import { FrameWall } from '../preview/frames-frame-wall'
 
 /**
  * What a conversation says when it has nothing to show.
@@ -29,14 +33,34 @@ import styles from './Conversation.module.css'
 let container: HTMLDivElement
 let root: Root
 
+// These body/data tests give their standalone bar enough measured title room.
+// jsdom supplies neither flex geometry nor tokens; real fold widths are pinned
+// by TopBar's measurement tests and frame-contract, not the body rig's viewport.
+let restoreBarGeometry = () => {}
 beforeEach(() => {
+  const bounds = HTMLElement.prototype.getBoundingClientRect
+  const geometry = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    return this.matches('[data-topbar-title], [data-topbar="place"]') ? new DOMRect(0, 0, FRAME.bar.titleMin, FRAME.bar.height) : bounds.call(this)
+  })
+  const computed = getComputedStyle
+  const token = vi.spyOn(globalThis, 'getComputedStyle').mockImplementation((node, pseudo) => {
+    const result = computed(node, pseudo)
+    if (!node.matches('[data-slot="top-bar"]')) return result
+    return new Proxy(result, { get(target, property) {
+      if (property === 'getPropertyValue') return (name: string) => name === '--hd-bar-title-min'
+        ? `${FRAME.bar.titleMin}px` : target.getPropertyValue(name)
+      const value = Reflect.get(target, property, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    } })
+  })
+  restoreBarGeometry = () => { token.mockRestore(); geometry.mockRestore() }
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
 })
 afterEach(() => {
-  act(() => root.unmount())
-  container.remove()
+  try { act(() => root.unmount()); container.remove() }
+  finally { restoreBarGeometry() }
 })
 
 // jsdom does not track keyboard/pointer modality across these rendered rigs.
@@ -89,6 +113,7 @@ const rig = (
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
+    workSubject: () => one ? `session:${KEY}` : 'draft:p1',
     send: vi.fn(),
     setOption: vi.fn(),
     notice: vi.fn(),
@@ -114,24 +139,26 @@ const rig = (
   return { store }
 }
 
-const render = (store: AppStore, key: string | null = KEY): void => {
+const render = (store: AppStore, key: string | null = KEY, props: Partial<React.ComponentProps<typeof Conversation>> = {}): void => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <PaneProvider
+        <TopBarProvider><PaneProvider
           scope={{
             paneId: 'p1',
             view: { kind: 'conversation', session: key as never },
             sessionKey: key as never,
           }}
         >
+          <TopBarOutlet owner="p1" fallback={{ place: 'New session', more: () => null }} /><WorkDetailsOutlet owner="p1" />
           <Conversation
+            {...props}
             onChooseProject={() => undefined}
             onSignIn={() => undefined}
             onOpenUsage={() => undefined}
             onOpenRuntimes={() => undefined}
           />
-        </PaneProvider>
+        </PaneProvider></TopBarProvider>
       </StoreProvider>,
     )
   })
@@ -143,6 +170,8 @@ const expectNoticeBelowEmptyState = () => {
   const notice = transcript?.querySelector('[data-turn^="notice:"]')
   expect(empty).not.toBeNull()
   expect(empty?.getAttribute('data-height')).toBe('content')
+  // Empty-state height belongs to the reading pane, not the measured turn body.
+  expect(empty?.parentElement === transcript).toBe(true)
   expect(notice).not.toBeNull()
   expect(empty!.compareDocumentPosition(notice!) & Node.DOCUMENT_POSITION_FOLLOWING).not.toBe(0)
 }
@@ -192,6 +221,30 @@ it('keeps the opening pitch above a notice-only conversation', () => {
   expectNoticeBelowEmptyState()
 })
 
+it('keeps a saved conversation identity visible when its runtime is absent', () => {
+  const runtime = runtimeId('synthetic-missing')
+  const saved = session({
+    runtime,
+    title: 'Judge the storefront layout',
+    turns: [],
+    itemsLoaded: false,
+  })
+  const { store } = rig(null)
+  const key = sessionKey(runtime, saved.id)
+  Object.assign(store.getSnapshot(), {
+    sessions: new Map([[key, saved]]),
+    activeSessionKey: key,
+  })
+
+  render(store, key)
+
+  expect(container.textContent).toContain('Judge the storefront layout')
+  expect(container.textContent).toContain('Add it in Settings')
+  expect(container.textContent).not.toContain('What should we build?')
+  expect(container.textContent).not.toContain('Waiting for the runtime')
+  expect(container.querySelector('textarea')).toBeNull()
+})
+
 it('keeps the restore explanation above a notice-only conversation', () => {
   const id = sessionId('s-1')
   const withNotice = reduceSession(session({ updatedAt: 9_000 }), { type: 'notice', sessionId: id, class: 'conversation', level: 'warning', message: 'No tools declared', id: 'tools-1' })
@@ -204,7 +257,7 @@ it('keeps the restore explanation above a notice-only conversation', () => {
 })
 
 it.each([
-  ['unavailable', 'Codex isn’t available', {
+  ['unavailable', 'The agent could not start. Check the runtime in Settings, then reopen this conversation.', {
     healthByRuntime: { codex: { state: 'unavailable', message: 'The agent could not start.' } },
   }],
   ['signed out', 'Sign in to Codex', {
@@ -260,6 +313,16 @@ it('with no session at all, offers the opening pitch rather than a failure', () 
   expect(container.textContent).not.toContain('restore')
 })
 
+it('names the chosen project in the empty draft pitch', () => {
+  const { store } = rig(null, new Map(), {
+    workspace: { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 },
+  })
+  render(store, null)
+
+  expect(container.textContent).toContain('Describe what you want done in storefront.')
+  expect(container.textContent).not.toContain('Pick a project folder')
+})
+
 it('a ready, empty pane whose folder is known offers to start with a team there', async () => {
   const { store } = rig(session())
   render(store)
@@ -291,7 +354,7 @@ it('carries the window’s own controls whenever the sidebar is not standing bes
     act(() => {
       root.render(
         <StoreProvider store={{ ...store, getSnapshot: () => snapshot } as unknown as AppStore}>
-          <PaneProvider
+          <TopBarProvider><TopBarOutlet owner={snapshot.layout.focused} fallback={{ place: 'New session', more: () => null }} /><PaneProvider
             scope={{ paneId: paneId as never, view: { kind: 'conversation', session: KEY as never }, sessionKey: KEY as never }}
           >
             <Conversation
@@ -300,7 +363,7 @@ it('carries the window’s own controls whenever the sidebar is not standing bes
               onOpenUsage={() => undefined}
               onOpenRuntimes={() => undefined}
             />
-          </PaneProvider>
+          </PaneProvider></TopBarProvider>
         </StoreProvider>,
       )
     })
@@ -323,37 +386,21 @@ it('carries the window’s own controls whenever the sidebar is not standing bes
   expect(toggle()).toBeNull()
 })
 
-it('marks a door to fold into ⋯ only where there is a ⋯ to fold it into', () => {
-  const browser = (): Element | null => container.querySelector('header button[aria-label="Open browser"]')
-  const menu = (): Element | null => container.querySelector('header button[aria-label="Conversation"]')
-
-  // A draft has no conversation menu, so its browser button must stay put: a
-  // narrow header that folded it left the draft with no way to the browser.
-  render(rig(null).store, null)
-  expect(menu()).toBeNull()
-  expect(browser()).not.toBeNull()
-  expect(browser()?.hasAttribute('data-folds')).toBe(false)
-
-  // With a conversation the ⋯ is there, and both doors fold into its View group.
-  render(rig(session()).store)
-  expect(menu()).not.toBeNull()
-  expect(browser()?.hasAttribute('data-folds')).toBe(true)
-  expect(container.querySelector('header button[aria-label="Open terminal"]')?.hasAttribute('data-folds')).toBe(true)
+it('draft and conversation keep the fixed browser door and More in the shell', () => {
+  for (const one of [null, session()]) {
+    render(rig(one).store, one ? KEY : null)
+    expect(container.querySelector('header button[aria-label="Browser"]')).not.toBeNull()
+    expect(container.querySelector('header button[aria-label="More"]')).not.toBeNull()
+    expect(container.querySelector('header button[aria-label="Browser"]')?.hasAttribute('data-folds')).toBe(false)
+  }
 })
 
-it('the chips a narrow header folds still say their words in the shared card', () => {
-  const { store } = rig(session())
-  const snapshot = {
-    ...store.getSnapshot(),
-    tasks: new Map([[KEY, [{ id: 't1', label: 'npm run dev', kind: 'command', state: 'running' }]]]),
-  } as unknown as AppSnapshot
-  render({ ...store, getSnapshot: () => snapshot } as unknown as AppStore)
-  keyboardFocus(container.querySelector<HTMLElement>('header [aria-label="Conversation status"]')!)
-  const card = document.querySelector('[data-slot="hover-card-content"]')!
-  expect(card.textContent).toContain('Folderrepo — /repo')
-  expect(card.textContent).toContain('Background tasks1 running in the background')
-  expect(container.querySelector('[data-testid="tasks-chip"]')?.getAttribute('aria-label')).toBe('1 running in the background')
-  expect(container.querySelector('[data-testid="tasks-chip"]')?.getAttribute('title')).toBeNull()
+it('folder facts remain readable in Details when the shell title folds', () => {
+  render(rig(session()).store)
+  const facts = container.querySelector('[aria-label="Conversation facts"]')!
+  expect(facts.textContent).toContain('Folder/repo')
+  expect(facts.querySelector('[data-slot="middle-truncate"]')).not.toBeNull()
+  expect(container.querySelector('header [aria-label="Conversation status"]')).toBeNull()
 })
 
 it('the empty pane’s Sign in names this pane’s agent, not the default', () => {
@@ -442,29 +489,22 @@ it('a plain conversation’s header is unchanged, and asks nothing about an Agen
   expect(store.readSeatAgent).not.toHaveBeenCalled()
 })
 
-it('a conversation seated as an Agent carries its ceiling beside its title — held or asked — and a plain one carries none', () => {
-  render(
-    rig(
-      session({
-        settings: { cwd: '/repo', model: 'gpt-5.6', agent: 'reviewer', ceiling: { level: 'read', hold: 'held' }, ceilingNote: 'Read-only sandbox; anything past it asks you' },
-      }),
-    ).store,
-  )
-  const chip = container.querySelector('header [data-ceiling]') as HTMLElement | null
-  expect(chip?.textContent).toBe('Read only')
-  keyboardFocus(container.querySelector<HTMLElement>('header [aria-label="Conversation status"]')!)
-  expect(document.querySelector('[data-slot="hover-card-content"]')?.textContent).toMatch(/Ceiling.*Held: Read-only sandbox/)
-
+it('Details reports the recorded held or asked ceiling, and leaves unknown facts unknown', () => {
+  render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6', agent: 'reviewer', ceiling: { level: 'read', hold: 'held' }, ceilingNote: 'Read-only sandbox; anything past it asks you' } })).store)
+  const facts = () => container.querySelector('[aria-label="Conversation facts"]')?.textContent
+  expect(facts()).toContain('Read only')
+  expect(facts()).toContain('Held: Read-only sandbox')
+  expect(container.querySelector('header [data-ceiling]')).toBeNull()
   render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6', agent: 'writer', ceiling: { level: 'edit', hold: 'asked' } } })).store)
-  expect(container.querySelector('header [data-ceiling]')?.getAttribute('data-hold')).toBe('asked')
-
+  expect(facts()).toContain('Edit · asked, not enforced')
   render(rig(session({ settings: { cwd: '/repo', model: 'gpt-5.6' } })).store)
-  expect(container.querySelector('[data-ceiling]')).toBeNull()
+  expect(facts()).not.toContain('Ceiling')
+  expect(container.textContent).toContain('Permission level not reported for this conversation.')
 })
 
 it('the conversation’s menu offers Save as an Agent…', () => {
   render(rig(session()).store)
-  act(() => container.querySelector<HTMLButtonElement>('header button[aria-label="Conversation"]')?.click())
+  act(() => container.querySelector<HTMLButtonElement>('header button[aria-label="More"]')?.click())
   const item = [...document.body.querySelectorAll<HTMLButtonElement>('button')].find((one) =>
     one.textContent?.startsWith('Save as an Agent…'),
   )
@@ -492,7 +532,7 @@ const wrappedTeam = (...kept: readonly string[]): ReadonlyMap<string, GoalView> 
   } as unknown as GoalView]])
 
 const compactRow = (): HTMLButtonElement | undefined => {
-  act(() => container.querySelector<HTMLButtonElement>('header button[aria-label="Conversation"]')?.click())
+  act(() => container.querySelector<HTMLButtonElement>('header button[aria-label="More"]')?.click())
   return [...document.body.querySelectorAll<HTMLButtonElement>('button')].find((one) =>
     one.textContent?.startsWith('Compact now'),
   )
@@ -506,7 +546,7 @@ it('the conversation’s menu cannot compact a wrapped Team’s conversation —
 
   const row = compactRow()
   if (!row) throw new Error('no Compact now in the menu')
-  expect(row.disabled).toBe(true)
+  expect(row.getAttribute('aria-disabled')).toBe('true')
   expect(row.title).toBe('This Team is wrapped')
   expect(row.textContent).toContain('This Team is wrapped')
   expect(row.textContent).not.toContain('Summarise older turns')
@@ -531,7 +571,7 @@ it('the conversation’s menu still compacts one outside a wrapped Team — the 
   const row = compactRow()
   if (!row) throw new Error('no Compact now in the menu')
   expect(row.disabled).toBe(false)
-  expect(row.textContent).toContain('Summarise older turns')
+  expect(row.title).toBe('Summarise older turns to free up context.')
   act(() => row.click())
   expect(compact).toHaveBeenCalledWith(KEY)
 })
@@ -560,6 +600,35 @@ const transcriptSession = (): Session =>
       },
     ],
   })
+
+it('follows transcript and dock geometry changes until the reader scrolls up', () => {
+  const resize: (() => void)[] = []
+  vi.stubGlobal('ResizeObserver', class {
+    active = false
+    constructor(callback: ResizeObserverCallback) { resize.push(() => {if (this.active) callback([], this as unknown as ResizeObserver)}) }
+    observe() { this.active = true }
+    disconnect() { this.active = false }
+    unobserve() {}
+  })
+  try {
+    render(rig(transcriptSession()).store)
+    const scroll = container.querySelector<HTMLElement>('[data-live-transcript]')!
+    let height = 800
+    Object.defineProperties(scroll, {scrollHeight:{get:() => height}, clientHeight:{get:() => 400}})
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(800)
+    height = 1000
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(1000)
+    // A real reader scroll, rather than the delayed event from our own write.
+    delete scroll.dataset.autoscrolling
+    act(() => {scroll.scrollTop = 100; scroll.dispatchEvent(new Event('scroll', {bubbles:true}))})
+    expect(jumpToLatest()).toBeDefined()
+    height = 1200
+    act(() => resize.forEach(callback => callback()))
+    expect(scroll.scrollTop).toBe(100)
+  } finally { vi.unstubAllGlobals() }
+})
 
 it('a click on a link inside the transcript releases the pin', () => {
   render(rig(transcriptSession()).store)
@@ -741,20 +810,37 @@ it('heads a recorded typed lookalike with its pasted first line', () => {
   expect(container.querySelector('header')?.textContent).toContain('<context source="Git"')
 })
 
-it('groups and names the header facts for keyboard readers', () => {
+it('Details names the conversation facts and keeps the fresh checkout branch', () => {
   render(rig(session({ git: { branch: 'main' } as Session['git'] })).store)
-  const group = container.querySelector<HTMLElement>('header [role="group"][aria-label="Conversation status"]')
-  expect(group).not.toBeNull()
-  keyboardFocus(group!)
-  const card = document.querySelector('[data-slot="hover-card-content"]')!
-  expect(card.textContent).toContain('StatusIdle')
-  expect(card.textContent).toContain('Branchmain')
+  const facts = container.querySelector('[aria-label="Conversation facts"]')!
+  expect(facts).not.toBeNull()
+  expect(facts.textContent).toContain('Branchmain')
+  expect(container.querySelector('header')?.textContent).toContain('Idle')
 })
 
-it('marks a running status for its stationary shape as well as its pulse', () => {
+it('the shell records running status in its one state slot', () => {
   render(rig(session({ turns: [{ id: turnId('running'), status: 'inProgress', items: [] }] })).store)
-  const dot = container.querySelector('header [data-slot="dot"][data-pulse]')!
-  expect(dot.getAttribute('data-shape')).toBe('square')
+  expect(container.querySelector('[data-topbar="state"]')?.textContent).toBe('Working')
+})
+
+it('Details renders the latest recorded plan states and respects an explicit clear', () => {
+  const old = { id: turnId('older-plan'), status: 'completed' as const, items: [], plan: [{ step: 'Old plan', status: 'pending' as const }] }
+  const latest = { id: turnId('latest-plan'), status: 'completed' as const, items: [], plan: [
+    { step: 'Finished step', status: 'completed' as const },
+    { step: 'Review \u001b[31m<script>unsafe()</script>\u001b[0m changes', status: 'inProgress' as const },
+    { step: 'Next step', status: 'pending' as const },
+  ] }
+  render(rig(session({ turns: [old, latest] })).store)
+  const plan = container.querySelector('[data-slot="tool-body"] [aria-label="Plan"]')!
+  expect([...plan.querySelectorAll('[data-slot="checklist-item"]')].map(one => one.getAttribute('data-state'))).toEqual(['done', 'active', 'pending'])
+  expect(plan.textContent).not.toContain('Old plan')
+  expect(plan.querySelector('script')).toBeNull()
+  expect(plan.textContent).toContain('Review <script>unsafe()</script> changes')
+  expect(plan.textContent).not.toContain('\u001b')
+  render(rig(session({ turns: [old, { ...latest, plan: [] }] })).store)
+  const cleared = container.querySelector('[data-slot="tool-body"] [aria-label="Plan"]')!
+  expect(cleared.querySelector('[data-slot="checklist"]')).toBeNull()
+  expect(cleared.textContent).toContain('No plan yet.')
 })
 
 it('leaves no ceiling wrapper on the plain conversation path', () => {
@@ -762,9 +848,182 @@ it('leaves no ceiling wrapper on the plain conversation path', () => {
   expect(container.querySelector('header [data-slot="ceiling-wrap"]')).toBeNull()
 })
 
-it('allocates no empty git slot when a draft has no folder', () => {
+it('a draft with no folder has a truthful Details fact and no folder action', () => {
   render(rig(null, new Map(), { workspace: null }).store, null)
-  const emptySlots = [...container.querySelectorAll('header [data-slot="chip-words"] > div:empty')]
-  // The extension slot already has an :empty fold; git must not leave another.
-  expect(emptySlots.every((node) => node.classList.contains(styles.headerSlot!))).toBe(true)
+  expect(container.querySelector('[aria-label="Conversation facts"]')?.textContent).toContain('Choose a project folder')
+  expect(container.querySelector('button[aria-label="Folder actions"]')).toBeNull()
+})
+
+it('shows one quiet copy notice using the agent presentation name', () => {
+  const one = session({ turns: [{ id: turnId('copy-turn'), status: 'completed', items: [{ id: itemId('copy-answer'), type: 'assistantMessage', text: 'Kept answer' }] }], ...({ deskCopy: true } as Partial<Session>) })
+  const { store } = rig(one, new Map(), { runtimes: [{ id: one.runtime, name: 'Internal registry name', presentation: { name: 'Demo Agent' }, capabilities: {} }] as unknown as AppSnapshot['runtimes'] })
+  render(store)
+  expect(container.textContent).toContain('HarnessDesk’s copy — Demo Agent’s own record is unavailable.')
+  expect(container.textContent?.split('HarnessDesk’s copy').length).toBe(2)
+  expect(container.querySelector('[data-live-transcript]')?.textContent).toContain('Kept answer')
+})
+
+it('Undo leaves the menu before asking, and Keep never rolls back', async () => {
+  const store = harness.previewStore()
+  const fixture = vi.spyOn(harness, 'previewStore').mockReturnValue(store)
+  const previousURL = location.href
+  history.replaceState(null, '', '/preview.html?frame-wall=conversation&frame-conversation-actions=1')
+  const rollback = vi.fn()
+  Object.defineProperty(store, 'rollback', { configurable: true, value: rollback })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  const click = async (label: string, role?: string) => {
+    const candidates = [...document.querySelectorAll<HTMLElement>(role ? `[role="${role}"]` : 'button')]
+    const found = candidates.find(n => n.getAttribute('aria-label') === label || n.textContent?.trim() === label)
+    expect(found, label).toBeTruthy()
+    await act(async () => { found!.click() })
+  }
+  try {
+    await act(async () => { root.render(<StoreProvider store={store}><FrameWall /></StoreProvider>) })
+    await click('More')
+    const memory = document.querySelector('[role="switch"]')
+    expect(memory?.hasAttribute('data-menu-row')).toBe(true)
+    expect(memory?.getAttribute('title')).toContain('carry what it learns here into new ones.')
+    const undo = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(n => n.textContent?.startsWith('Undo the last turn'))
+    expect(undo).toBeTruthy()
+    await act(async () => { undo!.click() })
+    expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
+    expect(document.querySelector('[role="menu"]')).toBeNull()
+    expect(rollback).not.toHaveBeenCalled()
+    await click('Keep')
+    expect(rollback).not.toHaveBeenCalled()
+  } finally {
+    await act(async () => { root.unmount() })
+    host.remove()
+    fixture.mockRestore()
+    history.replaceState(null, '', previousURL)
+  }
+})
+
+it('a failed runtime keeps the transcript and replaces the composer with one actionable reason', () => {
+  const reason = 'The agent failed its version check.'
+  const one = session({ turns: [{ id: turnId('kept-turn'), status: 'completed', items: [
+    { id: itemId('kept-message'), type: 'assistantMessage', text: 'First kept message' },
+  ] }] })
+  render(rig(one, new Map(), { healthByRuntime: { [one.runtime]: {
+    state: 'unavailable', reason: 'unreadable', message: reason, remediation: 'Choose a working installation in Settings.',
+  } } }).store)
+  expect(container.querySelector('[data-live-transcript]')?.textContent).toContain('First kept message')
+  expect(container.querySelector('textarea')).toBeNull()
+  expect(container.textContent?.split(reason).length).toBe(2)
+  expect(container.textContent).toContain('Choose a working installation in Settings.')
+})
+
+
+it('member Memory and Undo target their scoped conversation when the main view is a Team', async () => {
+  const one=session()
+  const fixture=rig(one,new Map(),{activeSessionKey:null,runtimes:[{
+    id:'codex',name:'Fixture',presentation:{name:'Fixture'},capabilities:{memory:true,undo:true,compaction:true},
+  }] as unknown as AppSnapshot['runtimes']}).store
+  const store=Object.assign(new AppStore('ws://localhost:0/'),fixture)
+  const wire=vi.spyOn(store.transport,'request').mockResolvedValue(null as never)
+  render(store)
+  const click=async (label:string) => {
+    const button=[...document.querySelectorAll<HTMLElement>('button,[role="menuitem"]')].find(node=>node.getAttribute('aria-label')===label || node.textContent?.trim().startsWith(label))
+    expect(button,label).toBeTruthy()
+    await act(async()=>button!.click())
+  }
+  await click('More')
+  await act(async()=>document.querySelector<HTMLElement>('[role="switch"]')!.click())
+  expect(wire).toHaveBeenCalledWith('session/memory',{runtime:'codex',sessionId:'s-1',enabled:true})
+  await click('More'); await click('Undo the last turn'); await click('Undo turn')
+  expect(wire).toHaveBeenCalledWith('session/rollback',{runtime:'codex',sessionId:'s-1',turns:1})
+})
+
+it('failed-runtime history refuses live agent verbs and keeps copy without edit or commit', async () => {
+  const reason='The agent could not start.'
+  const one=session({turns:[{id:turnId('kept'),status:'completed',items:[
+    {id:itemId('question'),type:'userMessage',content:[{type:'text',text:'Kept question'}]},
+    {id:itemId('answer'),type:'assistantMessage',text:'Kept answer'},
+  ]}]})
+  const {store}=rig(one,new Map(),{healthByRuntime:{codex:{state:'unavailable',reason:'unreadable',message:reason}},
+    runtimes:[{id:'codex',name:'Fixture',presentation:{name:'Fixture'},capabilities:{memory:true,undo:true,compaction:true,review:true}}] as unknown as AppSnapshot['runtimes']})
+  render(store)
+  expect(container.querySelector<HTMLButtonElement>('[aria-label="Ask the agent to try again"]')?.disabled).toBe(true)
+  expect(container.querySelector('[aria-label="Edit this message"]')).toBeNull()
+  await act(async()=>container.querySelector<HTMLButtonElement>('[aria-label="More"]')!.click())
+  for(const label of ['Compact now','Undo the last turn','Remember this conversation']) {
+    const row=[...document.querySelectorAll<HTMLElement>('[data-menu-row]')].find(node=>node.textContent?.includes(label))
+    expect(row,label).toBeTruthy()
+    expect(row?.getAttribute('aria-disabled') === 'true' || row?.hasAttribute('disabled')).toBe(true)
+    expect(row?.getAttribute('title')).toContain(reason)
+  }
+  expect([...document.querySelectorAll('[data-menu-row]')].some(node=>node.textContent?.includes('Commit the changes'))).toBe(false)
+})
+
+
+it('uses the conversation file crumb and replaces the transcript while retaining conversation tools', async () => {
+  const { store } = rig(session({ title: 'Review checkout' }))
+  const mode = vi.fn()
+  Object.assign(store, { setWindowMode: mode })
+  Object.assign(store.getSnapshot(), { editorState: [{ subject: `session:${KEY}`, state: { tabs: [{ path: '/repo/src/code.ts', view: 'source' }], active: '/repo/src/code.ts', preview: null, filter: null, expanded: [] } }] })
+  await act(async () => render(store, KEY, { mainContent: <div data-testid="editor-main">File body</div> }))
+  expect(container.querySelector('[data-testid="editor-main"]')).not.toBeNull()
+  expect(container.querySelector('[data-live-transcript]')).toBeNull()
+  expect(container.querySelector('textarea')).toBeNull()
+  expect(container.querySelector('[data-topbar-title]')?.firstElementChild?.textContent).toBe('src/code.ts')
+  const crumb = container.querySelector<HTMLButtonElement>('[data-topbar="place"] > button')!
+  expect(crumb.textContent).toContain('Review checkout')
+  await act(async () => crumb.click()); expect(mode).toHaveBeenCalledWith('conversation')
+  expect(container.querySelector('[data-work-panel-toggle]')).not.toBeNull()
+})
+
+it('reattaches transcript follow after returning from editor main', async () => {
+  const resize: (() => void)[] = []
+  vi.stubGlobal('ResizeObserver', class {
+    active = false
+    constructor(callback: ResizeObserverCallback) { resize.push(() => { if (this.active) callback([], this as unknown as ResizeObserver) }) }
+    observe() { this.active = true }
+    disconnect() { this.active = false }
+    unobserve() {}
+  })
+  try {
+    const { store } = rig(session({ updatedAt: 9000, turns: [{ id: turnId('t-1'), status: 'completed', items: [{ id: itemId('i-1'), type: 'assistantMessage', text: 'see the log for details' }] }] }))
+    await act(async () => render(store))
+    const original = container.querySelector<HTMLElement>('[data-live-transcript]')!
+    Object.defineProperties(original, { scrollHeight: { get: () => 800 }, clientHeight: { get: () => 400 } })
+    act(() => resize.forEach(callback => callback()))
+    expect(original.scrollTop).toBe(800)
+    await act(async () => render(store, KEY, { mainContent: <div>Editor</div> }))
+    await act(async () => render(store))
+    const restored = container.querySelector<HTMLElement>('[data-live-transcript]')!
+    expect(restored).not.toBe(original)
+    Object.defineProperties(restored, { scrollHeight: { get: () => 800 }, clientHeight: { get: () => 400 } })
+    act(() => resize.forEach(callback => callback()))
+    expect(restored.scrollTop).toBe(800)
+  } finally { vi.unstubAllGlobals() }
+})
+
+it('a transcript path:line targets its own conversation, while external and modified links retain navigation', async () => {
+  const { store } = rig(session({ turns: [{ id: turnId('links'), status: 'completed', items: [{ id: itemId('links-message'), type: 'assistantMessage', text: '[notes](src/file.ts:2) [website](https://example.com)' }] }] }))
+  const enter = vi.fn(() => true); store.enterEditorFile = enter
+  render(store); await act(async () => {})
+  const notes = [...container.querySelectorAll('a')].find(a => a.textContent === 'notes')!
+  expect(notes.getAttribute('href')).toBe('src/file.ts:2')
+  const click = new MouseEvent('click', { bubbles: true, cancelable: true })
+  act(() => notes.dispatchEvent(click))
+  expect(click.defaultPrevented).toBe(true)
+  expect(enter).toHaveBeenCalledWith(KEY, '/repo/src/file.ts', { view: 'source', line: 2 })
+  const modified = new MouseEvent('click', { bubbles: true, cancelable: true, metaKey: true })
+  act(() => notes.dispatchEvent(modified))
+  expect(modified.defaultPrevented).toBe(false)
+  const website = [...container.querySelectorAll('a')].find(a => a.textContent === 'website')!
+  act(() => website.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true })))
+  expect(enter).toHaveBeenCalledTimes(1)
+})
+
+it('a refused local file entry consumes the link instead of falling through to browser navigation', () => {
+  const { store } = rig(transcriptSession()); store.enterEditorFile = vi.fn(() => false)
+  render(store)
+  const link = document.createElement('a'); link.setAttribute('href', '/repo/file.ts:12')
+  container.getElementsByClassName(styles.scroll!)[0]!.append(link)
+  const event = new MouseEvent('click', { bubbles: true, cancelable: true })
+  act(() => link.dispatchEvent(event))
+  expect(event.defaultPrevented).toBe(true)
 })

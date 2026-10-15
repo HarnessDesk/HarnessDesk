@@ -243,6 +243,7 @@ export const deleteStep = (document: BuilderDocument, id: string): BuilderDocume
   })
   let policy = {
     ...document.policy, rules,
+    ...(document.policy.complete === undefined ? {} : { complete: Object.fromEntries(Object.entries(document.policy.complete).filter(([role]) => role !== name)) }),
     roles: document.policy.roles.filter((role) => role.id !== name).map((role) => role.kind === 'agent' && role.independentOf.includes(name)
       ? { ...role, independentOf: role.independentOf.filter((parent) => parent !== name) } : role),
   }

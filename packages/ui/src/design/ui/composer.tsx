@@ -68,14 +68,14 @@ const ComposerShell = ({ className, ...props }: React.ComponentProps<'div'>) => 
     data-slot="composer"
     className={cn(
       'flex flex-col rounded-(--hd-radius-lg) bg-(--hd-card)',
-      'shadow-(--hd-shadow-xs) ring-1 ring-(--hd-border-emphasis) ring-inset',
+      'shadow-(--hd-composer-shell-shadow) ring-1 ring-(--hd-border-emphasis) ring-inset',
       'data-[dropping]:shadow-(--hd-shadow-raised) data-[dropping]:ring-2 data-[dropping]:ring-(--hd-primary)',
       // The focused shadow carries `--hd-composer-ring` ahead of it, exactly as
       // the module does. Under Desk that token is `none` and this is one
       // shadow; under Studio it is the app's focus ring, and without it here
       // the two composers announced focus differently in the same interface —
       // one of them one keystroke from the other.
-      'transition-shadow focus-within:shadow-[var(--hd-composer-ring,0_0_0_0_transparent),var(--hd-shadow-raised)]',
+      'transition-shadow focus-within:shadow-[var(--hd-composer-ring,0_0_0_0_transparent),var(--hd-composer-shell-shadow-focus)]',
       'focus-within:ring-(--hd-border-heavy)',
       className,
     )}
@@ -122,7 +122,7 @@ const ComposerTools = ({ className, ...props }: React.ComponentProps<'div'>) => 
   <div
     data-slot="composer-tools"
     data-surface=""
-    className={cn('flex min-w-0 items-center gap-1.5 pt-1 pr-2 pb-2 pl-2.5', className)}
+    className={cn('flex min-w-0 items-center gap-1 pt-1 pr-2 pb-2 pl-2.5', className)}
     {...props}
   />
 )
@@ -164,7 +164,7 @@ const ComposerSend = ({ className, ...props }: React.ComponentProps<'button'>) =
          Composer.module.css was written to prevent. A different hue is what
          makes "this will go when the turn ends" read as a state rather than
          as an unavailable button. */
-      'inline-grid size-7.5 shrink-0 place-items-center rounded-full bg-(--hd-solid) text-(--hd-solid-foreground)',
+      'inline-grid size-(--hd-composer-send-size) shrink-0 place-items-center rounded-full bg-(--hd-solid) text-(--hd-solid-foreground)',
       'transition-[background,transform] hover:bg-(--hd-solid-hover) active:scale-90',
       'disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-(--hd-solid)',
       'data-[when=later]:bg-[color-mix(in_srgb,var(--hd-accent)_22%,transparent)]',

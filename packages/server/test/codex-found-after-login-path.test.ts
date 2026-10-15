@@ -15,7 +15,7 @@ import { silent } from './fixtures/harness.js'
  * The desk's real order, with a Codex that only the login shell's PATH can see.
  *
  * `createDefaultHost` asks the person's shell for its PATH in the background
- * and the desk starts every runtime without waiting for the answer. A Codex
+ * and the desk starts its default runtime without waiting for the answer. A Codex
  * installed where only that PATH looks — a folder in `.zshrc`, a version
  * manager — is therefore not on the PATH the first start reads, and the start
  * said "Codex is not installed". Nothing looked again: the verdict stood until
@@ -58,21 +58,16 @@ test('a Codex only the login shell knows about is found when its PATH lands', { 
   })
   const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')), version: '9.9.9', catalogRefreshMs: 0 })
   host.register(runtime)
-  t.after(async () => {
-    if (launched === undefined) delete process.env['PATH']
-    else process.env['PATH'] = launched
-    await host.dispose()
-    await rm(root, { recursive: true, force: true })
-  })
-
-  // The shell answers a moment after the desk is up, as a profile that does real work does.
+  let answerPath!: () => void
+  const pathAnswer = new Promise<void>(resolve => { answerPath = resolve })
+  // Hold the shell's answer until the background first lookup has failed.
   const applied = applyLoginShellPath({
     home: join(root, 'home'),
     env: { SHELL: '/bin/sh', PATH: empty },
     exists: (path) => path === '/bin/sh',
     list: () => [],
     run: async () => {
-      await new Promise((resolve) => setTimeout(resolve, 400))
+      await pathAnswer
       return `__HARNESSDESK_PATH__${tools}:${empty}__HARNESSDESK_PATH__`
     },
   })
@@ -81,11 +76,21 @@ test('a Codex only the login shell knows about is found when its PATH lands', { 
   void applied.settled.then(() => {
     if (process.env['PATH'] !== pathAtStart) void host.retryProgramLookup()
   })
+  t.after(async () => {
+    answerPath()
+    await applied.settled
+    if (launched === undefined) delete process.env['PATH']
+    else process.env['PATH'] = launched
+    await host.dispose()
+    await rm(root, { recursive: true, force: true })
+  })
 
   await host.start()
+  await until(() => runtime.health().state === 'unavailable', 'the background first lookup never answered')
   const first = runtime.health()
   assert.ok(first.state === 'unavailable' && first.reason === 'notInstalled', `before the shell has answered Codex cannot be seen: ${JSON.stringify(first)}`)
 
+  answerPath()
   await applied.settled
   await until(() => runtime.health().state === 'ready', `the desk never found the Codex the shell's PATH names: ${JSON.stringify(runtime.health())}`)
   assert.equal(runtime.info.version, 'codex-cli 0.149.0')
@@ -104,7 +109,7 @@ test('a Codex only the login shell knows about is found when its PATH lands', { 
  * No `env` is handed to discovery and nothing is shortened: the probe reads the
  * live `process.env`, as the desk's does, and the host keeps its own schedule.
  */
-const launcherMachine = async (t: TestContext, options: Partial<HostOptions> = {}) => {
+const launcherMachine = async (t: TestContext, options: Partial<HostOptions> = {}, finishLookup?: () => Promise<void>) => {
   const root = await mkdtemp(join(tmpdir(), 'hd-codex-launcher-path-'))
   const bin = join(root, 'bin')
   const tools = join(root, 'tools')
@@ -128,6 +133,7 @@ const launcherMachine = async (t: TestContext, options: Partial<HostOptions> = {
   const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')), version: '9.9.9', catalogRefreshMs: 0, ...options })
   host.register(runtime)
   t.after(async () => {
+    await finishLookup?.()
     if (launched === undefined) delete process.env['PATH']
     else process.env['PATH'] = launched
     await host.dispose()
@@ -140,6 +146,7 @@ const openedWithoutWaiting = async (host: Host, runtime: CodexRuntime, codex: st
   const began = Date.now()
   await host.start()
   assert.ok(Date.now() - began < 5_000, 'the desk opened without waiting for a Codex that would not answer')
+  await until(() => runtime.health().state === 'unavailable', 'the background launcher lookup never answered')
   const first = runtime.health()
   assert.ok(first.state === 'unavailable' && first.reason === 'unreadable', `a copy that is there is not "not installed": ${JSON.stringify(first)}`)
   assert.ok(first.message.includes(codex), `it names the copy: ${first.message}`)
@@ -147,16 +154,21 @@ const openedWithoutWaiting = async (host: Host, runtime: CodexRuntime, codex: st
 }
 
 test('a Codex whose launcher needs the login shell\'s PATH is run once that PATH lands', { skip: process.platform === 'win32', timeout: 30_000 }, async (t) => {
+  let answerPath!: () => void
+  const pathAnswer = new Promise<void>(resolve => { answerPath = resolve })
+  let pathSettled: Promise<unknown> = Promise.resolve()
   // No schedule: this is the look the PATH's own arrival makes.
-  const { host, runtime, codex, bin, tools } = await launcherMachine(t, { retryDelaysMs: [] })
-
+  const { host, runtime, codex, bin, tools } = await launcherMachine(t, { retryDelaysMs: [] }, async () => {
+    answerPath()
+    await pathSettled
+  })
   const applied = applyLoginShellPath({
     home: join(tools, 'home'),
     env: { SHELL: '/bin/sh', PATH: bin },
     exists: (path) => path === '/bin/sh',
     list: () => [],
     run: async () => {
-      await new Promise((resolve) => setTimeout(resolve, 400))
+      await pathAnswer
       return `__HARNESSDESK_PATH__${tools}:${bin}__HARNESSDESK_PATH__`
     },
   })
@@ -165,9 +177,11 @@ test('a Codex whose launcher needs the login shell\'s PATH is run once that PATH
   void applied.settled.then(() => {
     if (process.env['PATH'] !== pathAtStart) void host.retryProgramLookup()
   })
+  pathSettled = applied.settled
 
   await openedWithoutWaiting(host, runtime, codex)
 
+  answerPath()
   await applied.settled
   await until(() => runtime.health().state === 'ready', `the desk never ran the Codex once its PATH had node: ${JSON.stringify(runtime.health())}`)
   assert.equal(runtime.info.version, 'codex-cli 0.149.0')

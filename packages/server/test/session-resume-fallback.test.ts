@@ -65,16 +65,20 @@ const fakeTranscript = (cwd: string): Session =>
 const contextFor = (options: {
   readonly seatCwd: string | null
   readonly ceiling?: 'read' | 'edit'
+  readonly indexed?: Session[]
   readonly resumeSession: (id: SessionId, opts: Record<string, unknown>) => Promise<AgentSession>
 }): HostContext => {
   const runtime = {
     info: { id: RUNTIME, presentation: { name: 'Antigravity' } } as unknown as RuntimeInfo,
     resumeSession: options.resumeSession,
   } as unknown as AgentRuntime
+  const indexed = options.indexed ?? []
 
   return {
-    runtimes: { resolve: () => runtime },
-    registry: { get: () => undefined, upsert: (session: Session, live: AgentSession) => ({ session, live }) },
+    sessionIndex: { reopen: () => {}, record: (session: Session) => indexed.push(session) },
+    sessionWorktrees: { prepare: async () => ({}) },
+    runtimes: { resolve: () => runtime, ensureStarted: async () => {} },
+    registry: { forReopen: () => undefined, upsert: (session: Session, live: AgentSession) => ({ session, live }) },
     laneEnvironment: { forSession: async () => undefined },
     evidence: {
       seats: {
@@ -94,7 +98,9 @@ const contextFor = (options: {
 
 test("a flow Seat's own recorded folder resumes a conversation its agent does not list yet", async () => {
   const calls: Array<Record<string, unknown>> = []
+  const indexed: Session[] = []
   const ctx = contextFor({
+    indexed,
     seatCwd: KNOWN_CWD,
     resumeSession: async (_id, opts) => {
       calls.push(opts)
@@ -106,6 +112,7 @@ test("a flow Seat's own recorded folder resumes a conversation its agent does no
   const result = await sessionMethods['session/resume'](ctx, { runtime: RUNTIME, sessionId: SESSION })
 
   assert.equal(result.cwd, KNOWN_CWD)
+  assert.deepEqual(indexed, [result], 'only the successfully resumed conversation is indexed')
   // Asked twice: once plain (refused), once with the Seat's own known folder,
   // in the host-only field the adapter reads — never as `cwd`, which a
   // caller on the wire can also write.
@@ -117,8 +124,10 @@ test("a flow Seat's own recorded folder resumes a conversation its agent does no
 test('the recorded ceiling is supplied on both resume attempts', async () => {
   for (const ceiling of ['read', 'edit'] as const) {
     const calls: Array<Record<string, unknown>> = []
-    const ctx = contextFor({ seatCwd: KNOWN_CWD, ceiling, resumeSession: adapterLike(calls) })
-    await sessionMethods['session/resume'](ctx, { runtime: RUNTIME, sessionId: SESSION })
+    const indexed: Session[] = []
+    const ctx = contextFor({ seatCwd: KNOWN_CWD, ceiling, indexed, resumeSession: adapterLike(calls) })
+    const result = await sessionMethods['session/resume'](ctx, { runtime: RUNTIME, sessionId: SESSION })
+    assert.deepEqual(indexed, [result])
     assert.equal(calls.length, 2)
     assert.deepEqual(calls.map(call => call.requestedCeiling), [ceiling, ceiling])
   }

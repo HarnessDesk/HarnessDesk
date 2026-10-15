@@ -3,6 +3,7 @@ import { expect, it } from 'vitest'
 import composerCss from '../../components/Composer.module.css?raw'
 import conversationComposer from '../../components/Composer.tsx?raw'
 import composerSystem from './composer.tsx?raw'
+import foundation from '../foundation/tokens.css?raw'
 
 /**
  * The conversation and room composers share one presentation implementation.
@@ -45,9 +46,9 @@ it('the shared shell owns its resting and focused surface', () => {
   for (const utility of [
     'rounded-(--hd-radius-lg)',
     'bg-(--hd-card)',
-    'shadow-(--hd-shadow-xs)',
+    'shadow-(--hd-composer-shell-shadow)',
     'ring-(--hd-border-emphasis)',
-    'focus-within:shadow-[var(--hd-composer-ring,0_0_0_0_transparent),var(--hd-shadow-raised)]',
+    'focus-within:shadow-[var(--hd-composer-ring,0_0_0_0_transparent),var(--hd-composer-shell-shadow-focus)]',
     'focus-within:ring-(--hd-border-heavy)',
   ]) {
     expect(composerSystem).toContain(utility)
@@ -59,11 +60,12 @@ it('the shared text and send roles keep the canonical measures', () => {
     'leading-(--hd-composer-line)',
     'min-h-(--hd-composer-min)',
     'max-h-(--hd-composer-max)',
-    'size-7.5',
+    'size-(--hd-composer-send-size)',
     'rounded-full',
     'bg-(--hd-solid)',
     'text-(--hd-solid-foreground)',
   ]) {
     expect(composerSystem).toContain(utility)
   }
+  expect(foundation).toMatch(/--hd-composer-send-size:\s*30px;/)
 })

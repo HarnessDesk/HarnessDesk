@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, type ReactNode } from 'react'
 import { TeamOverview } from '../components/TeamOverview'
-import { TeamRoomPane } from '../components/TeamRoomPane'
+import { TeamFramePreview } from './TeamFramePreview'
 import { SessionTree } from '../components/SessionTree'
 import { RailSection } from '../design'
 import { StoreProvider } from '../state/context'
@@ -41,7 +41,7 @@ export const TeamOverviewFrames = () => {
  const liveStores=useMemo(() => (['running','needs-you','stalled','waiting-evidence','unreadable-ledger','findings-and-posting','stopped-unknown','unrouted'] as const).map(scene=>({scene,store:overviewTeamStore(scene)})),[])
  return <div className="flex flex-col gap-4 p-4">{OVERVIEW_STATES.map(scene=><section key={scene} id={`team-overview-${scene}`} className={scene==='narrow'?'max-w-sm':''}><h2>{scene}</h2><div className={scene==='narrow'?'max-w-sm':''}><OverviewExample scene={scene} /></div></section>)}
  {NEEDS_YOU_STATES.map(scene=><section key={scene} id={`team-overview-answer-${scene}`} className={scene==='narrow'?'max-w-sm':''}><h2>answer {scene}</h2><NeedsYouExample scene={scene} /></section>)}
- {liveStores.map(({scene,store})=><section key={scene} id={`team-overview-live-${scene}`} className="h-144"><StoreProvider store={store}><TeamRoomPane room="overview-team" /></StoreProvider></section>)}
- <section id="team-overview-team" className="h-96"><StoreProvider store={store}><TeamRoomPane room="overview-team" /></StoreProvider></section>
+ {liveStores.map(({scene,store})=><section key={scene} id={`team-overview-live-${scene}`} className="h-144"><StoreProvider store={store}><TeamFramePreview room="overview-team" /></StoreProvider></section>)}
+ <section id="team-overview-team" className="h-96"><StoreProvider store={store}><TeamFramePreview room="overview-team" /></StoreProvider></section>
  <section id="team-overview-sidebar" className="w-72"><StoreProvider store={sidebarStore}><RailSection stretch="list"><SessionTree now={Date.now()} /></RailSection></StoreProvider></section></div>
 }

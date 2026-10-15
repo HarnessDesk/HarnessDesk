@@ -3,12 +3,11 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { Approval, ApprovalOption } from '@harnessdesk/protocol'
 
 import { useIsFocusedPane, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
-import { wholeFileOf } from '../lib/diff'
+import { wholeFileOf, DiffView } from '../editor'
 import { boardToolPhrase } from '../lib/tool-names'
 import { approvalChoiceOrder } from '../lib/approval-order'
 import { boardToolLabel, boardToolNamedBy, boardToolNote, boardToolPlacement, offersPermanentGrant } from '../lib/board-tool-note'
 import { folderShown } from '../lib/projects'
-import { DiffView } from './Diff'
 import { AlertIcon, CheckAllIcon, CheckIcon, CrossIcon } from './Icons'
 import {
   ApprovalChoiceHint,

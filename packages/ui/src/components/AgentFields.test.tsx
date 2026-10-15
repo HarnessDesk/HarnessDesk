@@ -7,6 +7,7 @@ import type { AgentEntry, AuthoringDocument, AuthoringSavePreview, RuntimeInfo }
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { AgentFields, FieldEditDialog, PreferFieldDialog } from './AgentFields'
+import { DestinationPageScope } from '../panels/destination-page'
 
 /**
  * Task 5's editable Agent metadata: one field, previewed then saved, never
@@ -87,6 +88,18 @@ const mount = (store: AppStore, doc: AuthoringDocument = DOCUMENT) => {
   return { onEdit, onOpenFile }
 }
 
+it('dismisses a retained field editor on hide and does not restore it on return', async () => {
+  const store = storeFor()
+  const render = (active: boolean) => act(async () => root.render(<StoreProvider store={store}><DestinationPageScope owner="destination:agents" active={active}><AgentFields document={DOCUMENT} entry={ENTRY} busy={false} onEdit={() => {}} onOpenFile={() => {}} /></DestinationPageScope></StoreProvider>))
+  await render(true)
+  await act(async () => editButtonFor('Description').click())
+  expect(document.querySelector('[role="dialog"]')).not.toBeNull()
+  await render(false)
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+  await render(true)
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+})
+
 const editButtonFor = (label: string): HTMLButtonElement => {
   const row = [...container.querySelectorAll('[data-slot="row"], div, section')]
     .find((el) => el.textContent?.startsWith(label) && el.querySelector('button'))
@@ -139,6 +152,7 @@ it('one key produces one previewed patch, bound to the original digest, then an 
 
   act(() => editButtonFor('Description').click())
   await settle()
+  expect(document.querySelector('[data-slot="dialog-footer-actions"] button')?.hasAttribute('data-filled')).toBe(true)
   await type(dialogInput(), 'New words.')
   await settle()
 
@@ -362,6 +376,7 @@ it('prefer edits as the ordered list it is: adding a seat previews it, and Save 
   await settle()
 
   expect(document.body.textContent).toContain('It prefers no seat yet')
+  expect(document.querySelector('[data-slot="dialog-footer-actions"] button')?.hasAttribute('data-filled')).toBe(true)
   // "Add a seat" opens a menu of runtimes; choosing one adds it directly —
   // no separate inline form with its own Add and Cancel.
   act(() => dialogButton('Add a seat').click())
@@ -460,4 +475,31 @@ it('no second default button sits beside Save, and the seating copy names no loc
   // A literal markdown asterisk is not emphasis in plain JSX text — it just
   // shows up as a character.
   expect(document.body.textContent).not.toContain('*')
+})
+
+
+it('filters the six-seat preference menu without dropping existing model or effort', async () => {
+  const runtimes = Array.from({ length: 6 }, (_, at) => ({
+    id: `agent-${at}`, presentation: { name: at === 5 ? '发布前检查' : `Agent ${at}` },
+  })) as unknown as readonly RuntimeInfo[]
+  const initial = [{ runtime: 'agent-0', model: 'review-model', effort: 'high' }]
+  const snapshot = { ...emptySnapshot(), runtimes } as AppSnapshot
+  const store = preferStoreFor({ getSnapshot: () => snapshot })
+  act(() => root.render(<StoreProvider store={store}><PreferFieldDialog entry={ENTRY} target={AGENT_TARGET}
+    digest="digest-1" initial={initial} onOpenFile={() => {}} onClose={() => {}} onSaved={() => {}} /></StoreProvider>))
+  await settle()
+  act(() => dialogButton('Add a seat').click())
+  await settle()
+  const input = document.querySelector<HTMLInputElement>('input[aria-label="Search Agents"]')!
+  expect(input).not.toBeNull()
+  const filter = (value: string) => act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, value)
+    input.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  filter('missing')
+  expect(document.body.textContent).toContain('No Agents match.')
+  filter('发布')
+  act(() => menuItem('发布前检查').click())
+  await settle()
+  expect(store.previewAgentEdit).toHaveBeenLastCalledWith(AGENT_TARGET, 'digest-1', { key: 'prefer', value: [...initial, { runtime: 'agent-5' }] })
 })

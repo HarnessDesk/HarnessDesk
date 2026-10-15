@@ -1,3 +1,4 @@
+import { ConversationFrame } from './ConversationFrame'
 import { useMemo } from 'react'
 import type { Session } from '@harnessdesk/protocol'
 import { Conversation } from '../components/Conversation'
@@ -14,7 +15,7 @@ const ReadCeilingConversation = () => {
     <Frame id="read-ceiling-conversation" title="Asked read seat — refused tool">
       <div className="h-[820px]">
         <PaneProvider scope={{ paneId: 'read-ceiling-preview' as never, view: { kind: 'conversation', session: key }, sessionKey: key }}>
-          <Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} />
+          <ConversationFrame><Conversation onChooseProject={() => {}} onSignIn={() => {}} onOpenUsage={() => {}} onOpenRuntimes={() => {}} /></ConversationFrame>
         </PaneProvider>
       </div>
     </Frame>

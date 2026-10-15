@@ -1,15 +1,18 @@
+import { runBar, selectRunView } from './run-frame-actions'
 import { expect, test } from '@playwright/test'
 import path from 'node:path'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
 import { minimapOverlaps, zoomOf } from './canvas-minimap'
+import { FRAME } from '../../packages/ui/src/design/frame'
+import { closeTeamDetails, selectTeamDestination, selectTeamPage, teamBar, teamDetails, teamSeats } from './team-frame-actions'
 
 for (const theme of ['light', 'dark'] as const) {
   test(`the docked Run Flow fills its pane and contains every step in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?run-dock&theme=${theme}`)
     const frame = page.locator('#run-dock-frame')
-    await frame.locator('[data-team-page="run"]').click()
-    await frame.getByRole('radio', { name: 'Flow', exact: true }).click()
+    await selectTeamPage(frame, 'run')
+    await selectRunView(frame, 'Flow')
     const canvas = frame.locator('[data-slot="workbench-main"] [data-slot="flow-canvas"]')
     await expect(canvas.locator('.react-flow__node')).toHaveCount(4)
     const capture = async () => {
@@ -32,32 +35,31 @@ for (const theme of ['light', 'dark'] as const) {
     }
   })
 
-  test(`a narrow docked Run leaves its Steps to the dock and keeps the minimap clear in ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme })
-    // A 950 to 1100px window with the dock open leaves the Run pane 440 to 600px wide.
-    for (const width of [950, 1000, 1100]) {
+  {
+
+    for (const [item0, width] of ([480, 520, 560, 600]).entries()) test(`native narrow Run Flow keeps its Steps and geometry in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: theme })
       await page.setViewportSize({ width, height: 700 })
       await page.goto(`/preview.html?run-dock&theme=${theme}`)
       const frame = page.locator('#run-dock-frame')
-      await frame.locator('[data-team-page="run"]').click()
-      await frame.getByRole('radio', { name: 'Flow', exact: true }).click()
+      await selectTeamDestination(frame, 'run')
+      await selectRunView(frame, 'Flow')
       const main = frame.locator('[data-slot="workbench-main"]')
-        const canvas = main.locator('[data-slot="flow-canvas"]')
+      const canvas = main.locator('[data-slot="flow-canvas"]')
       const list = main.locator('[data-slot="flow-list"]')
       await expect(canvas.locator('.react-flow__node')).toHaveCount(4)
       await expect.poll(() => zoomOf(canvas)).toBeLessThan(0.6)
-      if (process.env.FLOW_DOCK_FRAMES_DIR && width !== 950) {
+      if (process.env.FLOW_DOCK_FRAMES_DIR) {
         await page.evaluate(async () => { await document.fonts.ready })
         expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
         await frame.screenshot({ path: path.join(process.env.FLOW_DOCK_FRAMES_DIR, `round5-run-dock-${width}-${theme}-${process.env.FLOW_DOCK_FRAME_PHASE ?? 'after'}.png`) })
       }
-      // The dock lists the Steps, so the pane keeps only the text alternative, which takes no room.
-      await expect.soft(list, `list at ${width}px`).toHaveAttribute('data-placement', 'dock')
-      expect.soft(await list.evaluate(el => { const box = el.getBoundingClientRect(); return box.width <= 1 && box.height <= 1 }), `list at ${width}px`).toBe(true)
-      // The drawing has the whole pane, not a strip scaled to its width, and holds every step.
+      await expect.soft(list, `list at ${width}px`).toHaveAttribute('data-placement', 'below')
+      expect.soft(await list.locator('[data-step-row]').count(), `step rows at ${width}px`).toBeGreaterThan(0)
+      expect.soft((await list.locator('[data-step-row]').first().boundingBox())!.width, `step row at ${width}px`).toBeGreaterThan(200)
       const drawn = (await canvas.boundingBox())!.height
       expect.soft(drawn, `canvas at ${width}px`).toBeGreaterThan(300)
-      expect.soft((await main.locator('[data-slot="run-flow"]').boundingBox())!.height - drawn, `canvas at ${width}px`).toBeLessThan(2)
+      expect.soft((await main.locator('[data-slot="run-flow"]').boundingBox())!.height - drawn, `readable Steps at ${width}px`).toBeGreaterThan(0)
       expect.soft(await canvas.evaluate(el => {
         const clip = el.getBoundingClientRect()
         return [...el.querySelectorAll('.react-flow__node')].every(node => {
@@ -65,140 +67,142 @@ for (const theme of ['light', 'dark'] as const) {
           return box.top >= clip.top && box.bottom <= clip.bottom + 0.5 && box.left >= clip.left && box.right <= clip.right + 0.5
         })
       }), `steps at ${width}px`).toBe(true)
-      // A drawn minimap never covers the title, the tools or a step.
       expect.soft(await minimapOverlaps(canvas), `minimap at ${width}px`).toEqual([])
-    }
-  })
 
-  test(`a docked Run lists its own Steps and Rules when the dock is put away in ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme })
-    // With the sidebar open, a 720 to 840px window has no room for the dock beside the Run, so the dock is put away.
-    for (const width of [720, 780, 840]) {
+
+    })
+  }
+
+  {
+
+    for (const [item0, width] of ([720, 780, 840]).entries()) test(`Timeline keeps every original round and unreached Step when Details is put away in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: theme })
       await page.setViewportSize({ width, height: 800 })
       await page.goto(`/preview.html?run-dock&theme=${theme}`)
       const frame = page.locator('#run-dock-frame')
       await frame.getByRole('button', { name: 'Show sidebar', exact: true }).click()
-      await frame.locator('[data-team-page="run"]').click()
-      await frame.getByRole('radio', { name: 'Flow', exact: true }).click()
+      await expect(frame.locator('[data-slot="workbench-scrim"]')).toBeVisible()
+      await frame.locator('[data-slot="workbench-scrim"]').click()
+      await expect(frame.locator('[data-slot="workbench-scrim"]')).toBeHidden()
+      await selectTeamPage(frame, 'run')
+      await selectRunView(frame, 'Flow')
+      await closeTeamDetails(frame)
       const main = frame.locator('[data-slot="workbench-main"]')
       const canvas = main.locator('[data-slot="flow-canvas"]')
       const scroll = main.locator('[data-slot="run-scroll"]')
-      const list = main.locator('[data-slot="flow-list"]')
+      const rules = main.locator('[data-slot="flow-list"] section[aria-label="Rules"]')
+      await expect(rules).toHaveCount(1)
       await expect(canvas.locator('.react-flow__node')).toHaveCount(4)
+      await selectRunView(frame, 'Timeline')
+      const list = main.locator('[data-slot="run-steps"]')
       await expect(frame.locator('[data-slot="dock-panel"][data-edge="left"]'), `dock at ${width}px`).toHaveCount(0)
       if (process.env.FLOW_DOCK_FRAMES_DIR) {
         await page.evaluate(async () => { await document.fonts.ready })
         expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
         await frame.screenshot({ path: path.join(process.env.FLOW_DOCK_FRAMES_DIR, `round6-run-put-away-${width}-${theme}-${process.env.FLOW_DOCK_FRAME_PHASE ?? 'after'}.png`) })
       }
-      // Nothing else lists the Steps, so the pane does: under the drawing, in rows as wide as the pane.
-      await expect.soft(list, `list at ${width}px`).toHaveAttribute('data-placement', 'below')
-      const rows = list.locator('[data-step-row]')
+      await expect(list, `Timeline at ${width}px`).toBeVisible()
+      const rows = list.locator('[data-step-row][data-row]')
+      await expect(rows).toHaveCount(4)
       expect.soft(await rows.count(), `step rows at ${width}px`).toBeGreaterThan(0)
       expect.soft(await rows.first().evaluate(el => el.getBoundingClientRect().width), `step row at ${width}px`).toBeGreaterThan(200)
-      // The pane scrolls to them, and on to the Rules, by wheel.
       const area = (await scroll.boundingBox())!
       await page.mouse.move(area.x + area.width / 2, area.y + area.height - 30)
       await page.mouse.wheel(0, 2000)
       await expect.poll(() => scroll.evaluate(el => el.scrollTop + el.clientHeight >= el.scrollHeight - 1), `end of the pane at ${width}px`).toBe(true)
-      await expect.soft(list.locator('section[aria-label="Rules"]'), `rules at ${width}px`).toBeInViewport()
-    }
-  })
+      await expect.soft(list.locator('[data-step-row="person"]'), `unreached Step at ${width}px`).toBeInViewport()
 
-  test(`a docked Run lists its own Steps while the dock shows something else in ${theme}`, async ({ page }) => {
+
+    })
+  }
+
+  test(`Timeline keeps its original Steps while Details or Activity occupies the panel in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
-    // A 1000px window leaves the Run 540px wide beside the open dock.
+    // Floating tools do not replace the main Timeline.
     await page.setViewportSize({ width: 1000, height: 800 })
     await page.goto(`/preview.html?run-dock&theme=${theme}`)
     const frame = page.locator('#run-dock-frame')
-    await frame.locator('[data-team-page="run"]').click()
-    await frame.getByRole('radio', { name: 'Flow', exact: true }).click()
-    const dock = frame.locator('[data-slot="dock-panel"][data-edge="left"]')
-    const list = frame.locator('[data-slot="workbench-main"] [data-slot="flow-list"]')
-    await expect(dock.getByRole('tab', { name: 'Steps', exact: true })).toHaveAttribute('aria-selected', 'true')
-    await expect(list, 'the dock draws the Steps').toHaveAttribute('data-placement', 'dock')
-    await dock.getByRole('tab', { name: 'Run details', exact: true }).click()
-    await expect(list, 'the dock shows the Run details').toHaveAttribute('data-placement', 'below')
-    await dock.getByRole('tab', { name: 'Steps', exact: true }).click()
-    await expect(list, 'the dock draws the Steps again').toHaveAttribute('data-placement', 'dock')
+    await selectTeamPage(frame, 'run')
+    await selectRunView(frame, 'Timeline')
+    const list = frame.locator('[data-slot="workbench-main"] [data-slot="run-steps"]')
+    await teamDetails(frame)
+    await expect(list, 'canonical Run facts do not hide the Steps').toBeVisible()
+    await teamBar(frame).locator('[data-work-tool="activity"]').click()
+    await expect(list, 'Activity does not own a readable Steps list').toBeVisible()
+    await teamDetails(frame)
+    await expect(list, 'returning to Details keeps the Steps readable').toBeVisible()
   })
 
-  test(`Run details and Steps use the workbench dock in ${theme}`, async ({ page }) => {
+  test(`Team Details keeps Run facts, Seats and selected inspection in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?run-dock&theme=${theme}`)
     const frame = page.locator('#run-dock-frame')
-    await frame.locator('[data-team-page="run"]').click()
+    await selectTeamPage(frame, 'run')
     const main = frame.locator('[data-slot="workbench-main"]')
-    const dock = frame.locator('[data-slot="dock-panel"][data-edge="left"]')
-    await expect(dock).toBeVisible()
-    await expect(main.locator('[data-slot="run-inspector"]')).toHaveCount(0)
-    await expect(dock.getByRole('tab', { name: 'Run details', exact: true })).toHaveAttribute('aria-selected', 'true')
-    const summary = dock.locator('[data-slot="run-inspector"]')
-    await expect(summary).toContainText('Pull request #412')
-    await expect(summary).toContainText('fix/checkout-502')
-    await expect(summary).toContainText('1 failed·1 passed')
-    await expect(summary).toContainText('3 of 24 rounds')
-    await expect(summary.locator('[data-slot="inspector-row-mark"]')).toHaveCount(2)
-    await expect(summary.locator('[data-slot="card"]')).toHaveCount(4)
-    await expect(summary.getByRole('progressbar', { name: 'Budget', exact: true })).toHaveAttribute('aria-valuenow', '3')
-    await expect(summary.getByRole('progressbar', { name: 'Without progress', exact: true })).toHaveAttribute('aria-valuemax', '3')
-    await expect(summary.locator('[data-slot="card-title"] [data-slot="chip"][data-tone="success"]')).toHaveText('Open')
-    const keyValues = await summary.evaluate(element => {
-      const rows = [...element.querySelectorAll('[data-slot="key-value-row"]')]
-      return rows.map(row => {
-        const value = row.querySelector(':scope > dd')!
-        return { left: Math.round(value.getBoundingClientRect().left), align: getComputedStyle(value).textAlign,
-          numeric: row.hasAttribute('data-numeric') }
-      })
-    })
+    const summary = await teamDetails(frame)
+    const facts = summary.locator('[aria-label="Team Run facts"]')
+    await expect(facts).toContainText('#412')
+    await expect(facts).toContainText('fix/checkout-502')
+    await expect(facts).toContainText('3 of 24 rounds')
+    await expect(facts).toContainText('1 of 3 rounds')
+    await expect(summary.locator('[data-slot="card"]')).toHaveCount(0)
+    await expect(summary.locator('[data-slot="run-inspector"]')).toHaveCount(0)
+    await expect((await teamSeats(frame)).locator('[data-slot="list-row"]')).toHaveCount(2)
+    const keyValues = await facts.evaluate(element => [...element.querySelectorAll('[data-slot="summary-item"]')].map(row => {
+      const key = row.querySelector('dt')!.getBoundingClientRect()
+      const value = row.querySelector('[data-slot="summary-value"]')!
+      return { left: Math.round(value.getBoundingClientRect().left), key: Math.round(key.width), align: getComputedStyle(value).textAlign }
+    }))
     expect(new Set(keyValues.map(value => value.left)).size).toBe(1)
-    expect(keyValues.every(value => value.align === 'left' && !value.numeric)).toBe(true)
-    const brief = summary.locator('[data-slot="card"]').first()
-    const header = brief.locator('[data-slot="card-header"]')
-    const prose = brief.locator('[data-slot="card-content"]')
-    expect(Math.abs((await header.boundingBox())!.x - (await prose.boundingBox())!.x)).toBeLessThan(1)
-    expect(await brief.evaluate(el => {
-      const card = el.getBoundingClientRect()
-      const body = el.querySelector('[data-slot="card-content"]')!.getBoundingClientRect()
-      return body.x - card.x
-    })).toBeGreaterThan(0)
+    expect(keyValues.every(value => value.key === FRAME.summaryKey.panel && value.align === 'left')).toBe(true)
     expect(await summary.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.RUN_DOCK_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.RUN_DOCK_FRAMES_DIR, `details-after-${theme}.png`) })
     await summary.getByRole('button', { name: 'Flow file', exact: true }).click()
-    await expect(page.getByRole('dialog')).toContainText('This is the file as it is now.')
+    const flowDialog = page.getByRole('dialog')
+    await expect(flowDialog).toContainText('This is the file as it is now.')
+    await expect(flowDialog).toBeFocused()
     await page.keyboard.press('Escape')
-    await frame.getByRole('radio', { name: 'Flow', exact: true }).click()
-    await expect(dock.getByRole('tab', { name: 'Steps', exact: true })).toHaveAttribute('aria-selected', 'true')
-    const steps = dock.locator('[data-slot="run-steps"]')
-    await expect(steps).toContainText('Taken 4')
-    await expect(steps).toContainText('Not reached 1')
-    await expect(steps.locator('[data-step-row]')).toHaveCount(5)
+    await expect(flowDialog).toHaveCount(0)
+    // Four recorded round visits and the unreached person remain in Timeline; Flow shows four step identities.
+    // Switching representations neither admits a Steps tool nor discards selection.
+    await selectRunView(frame, 'Timeline')
+    const timelineSteps = main.locator('[data-slot="run-steps"]')
+    for (const id of ['card-1-1', 'check-2-2', 'card-3-3', 'card-4-4']) await expect(timelineSteps.locator(`[data-row="${id}"]`)).toHaveCount(1)
+    await expect(frame.locator('[data-slot="tool-body"] [data-slot="run-steps"]')).toHaveCount(0)
+    await expect(timelineSteps.locator('[data-step-row][data-selected="true"]')).toHaveCount(0)
+    await timelineSteps.locator('[data-row="card-4-4"] button').first().click()
+    await expect(timelineSteps.locator('[data-row="card-4-4"]')).toHaveAttribute('data-selected', 'true')
+    await selectRunView(frame, 'Flow')
+    const steps = main.locator('[data-slot="flow-list"]')
+    await expect(steps.locator('[data-step-row]')).toHaveCount(4)
     await expect(steps.locator('[data-slot="chip"][data-tone="info"]')).toHaveText('Working')
     await expect(steps.locator('[data-slot="chip"][data-tone="warning"]')).toHaveText('Request changes')
-    const flowRow = main.locator('[data-step-row="reviewer"]')
-    const dockRow = steps.locator('[data-step-row="reviewer"]')
-    await expect(dockRow.locator('[data-slot="chip"][data-tint]')).toHaveText(await flowRow.locator('[data-slot="chip"][data-tint]').innerText())
-    await expect(dockRow.locator('[data-slot="icon-tile"]')).toHaveAttribute('data-tint', (await flowRow.locator('[data-slot="icon-tile"]').getAttribute('data-tint'))!)
-    await expect(dockRow.locator('[data-slot="list-row-subtitle"]')).toHaveText('Round 3')
-    await expect(dockRow.locator('[data-slot="list-row-trail"]')).toContainText('1 run')
-    await expect(steps.locator('[data-selected]')).toContainText('Round 4')
-    await steps.getByRole('button').filter({ hasText: 'Round 3' }).click()
-    await expect(main.locator('[data-step="reviewer"]')).toHaveAttribute('data-selected', 'true')
-    await steps.getByRole('button').filter({ hasText: 'Not reached' }).click()
+    const flowNode = main.locator('[data-step="reviewer"]')
+    const row = steps.locator('[data-step-row="reviewer"]')
+    await expect(row.locator('[data-slot="list-row-subtitle"]')).toContainText('request-changes')
+    await expect(row.locator('[data-slot="list-row-trail"]')).toContainText('1 run')
+    await flowNode.click()
+    await expect(flowNode).toHaveAttribute('data-selected', 'true')
+    await expect((await teamDetails(frame)).locator('[data-slot="run-inspector"]')).toHaveCount(0)
+    await expect((await teamDetails(frame)).getByText('Seats', { exact: true })).toBeVisible()
+    await selectRunView(frame, 'Timeline')
+    await main.locator('[data-row="card-3-3"]').click()
+    await expect(timelineSteps.locator('[data-row="card-3-3"]')).toHaveAttribute('data-selected', 'true')
+    await selectRunView(frame, 'Flow')
+    await expect(flowNode).toHaveAttribute('data-selected', 'true')
+    await closeTeamDetails(frame)
+    await main.locator('[data-step="person"]').click()
     await expect(main.locator('[data-step="person"]')).toHaveAttribute('data-selected', 'true')
-    expect(await steps.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
+    expect(await main.locator('[data-slot="run-flow"]').evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.RUN_DOCK_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.RUN_DOCK_FRAMES_DIR, `steps-after-${theme}.png`) })
-    await dock.getByRole('button', { name: 'Give this panel the whole area', exact: true }).click()
-    await expect(main).toBeHidden()
-    await expect(steps).toBeVisible()
-    await dock.getByRole('button', { name: 'Back to the layout', exact: true }).click()
+    await closeTeamDetails(frame)
+    await teamBar(frame).getByRole('button', { name: 'Toggle right panel', exact: true }).click()
+    await expect(frame.locator('[data-slot="tool-body"]:visible')).toHaveCount(1)
+    await expect(frame.locator('[data-slot="tool-body"]:visible')).toContainText('Seats')
+    await closeTeamDetails(frame)
     await expect(main).toBeVisible()
-    await frame.getByRole('button', { name: 'Hide the right panel', exact: true }).click()
-    await expect(dock).toHaveCount(0)
-    await frame.getByRole('button', { name: 'Show the right panel — 2 views', exact: true }).click()
-    await expect(frame.locator('[data-slot="run-steps"]')).toBeVisible()
   })
 
   test(`an 800px Run stays visible until its details are explicitly opened in ${theme}`, async ({ page }) => {
@@ -206,56 +210,72 @@ for (const theme of ['light', 'dark'] as const) {
     await page.setViewportSize({ width: 800, height: 900 })
     await page.goto(`/preview.html?run-dock&theme=${theme}`)
     const frame = page.locator('#run-dock-frame')
-    await frame.locator('[data-team-page="run"]').click()
+    await selectTeamPage(frame, 'run')
     const main = frame.locator('[data-slot="workbench-main"]')
-    const dock = frame.locator('[data-slot="dock-panel"][data-edge="left"]')
-    const opensOnFirstVisit = await dock.count() > 0
+    const details = frame.locator('[data-slot="tool-body"]:visible')
+    const opensOnFirstVisit = await details.count() > 0
     expect.soft(opensOnFirstVisit).toBe(false)
-    if (opensOnFirstVisit) await frame.getByRole('button', { name: 'Hide the right panel', exact: true }).click()
+    if (opensOnFirstVisit) await frame.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
     await expect(main).toBeVisible()
-    await frame.getByRole('radio', { name: 'Flow', exact: true }).click()
-    const opensOnFlow = await dock.count() > 0
+    await selectRunView(frame, 'Flow')
+    const opensOnFlow = await details.count() > 0
     expect.soft(opensOnFlow).toBe(false)
-    if (opensOnFlow) await frame.getByRole('button', { name: 'Hide the right panel', exact: true }).click()
+    if (opensOnFlow) await frame.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
     await expect(main).toBeVisible()
-    await frame.getByRole('radio', { name: 'Timeline', exact: true }).click()
-    await main.locator('[data-row="round-1"]').click()
-    await expect(dock).toBeVisible()
-    await expect(dock.getByRole('tab', { name: 'Run details', exact: true })).toHaveAttribute('aria-selected', 'true')
-    await expect(main.locator('[data-row="round-1"]')).toHaveAttribute('aria-current', 'true')
-    await dock.getByRole('button', { name: 'Hide this panel', exact: true }).click()
-    await frame.getByRole('button', { name: 'Run details', exact: true }).click()
-    await expect(dock).toBeVisible()
+    await selectRunView(frame, 'Timeline')
+    await runBar(frame).getByRole('button', { name: 'Details', exact: true }).click()
+    await expect(details).toBeVisible()
+    await expect(details).toContainText('Seats')
+    await expect(details.locator('[data-slot="run-inspector"]')).toHaveCount(0)
+    await expect(main.locator('[data-step-row][data-selected="true"]')).toHaveCount(0)
+    await closeTeamDetails(frame)
+    await frame.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
+    await expect(details).toBeVisible()
+    await expect(details.locator('[data-slot="run-inspector"]')).toHaveCount(0)
+    await closeTeamDetails(frame)
+    await main.locator('[data-row][data-kind="card"]').first().click()
+    await expect(details.locator('[data-slot="run-inspector"]')).toBeVisible()
+    await expect(details.locator('[aria-label="Seats"]')).toBeVisible()
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.RUN_DOCK_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.RUN_DOCK_FRAMES_DIR, `dock-800-after-${theme}.png`) })
     // Leave while the dock is open, then return at a width where it overlays.
     await page.setViewportSize({ width: 1440, height: 900 })
-    await frame.locator('[data-team-page="overview"]').click()
-    await expect(dock).toHaveCount(0)
+    await selectTeamPage(frame, 'overview')
+    await expect(details).toBeVisible()
+    await expect(details.locator('[data-slot="run-inspector"]')).toHaveCount(0)
+    await expect(details).toContainText('Seats')
     await page.setViewportSize({ width: 800, height: 900 })
-    await frame.locator('[data-team-page="run"]').click()
+    await selectTeamPage(frame, 'run')
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.RUN_DOCK_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.RUN_DOCK_FRAMES_DIR, `return-800-after-${theme}.png`) })
+    await expect(details).toBeVisible()
+    await closeTeamDetails(frame)
     await expect(main).toBeVisible()
-    await expect(dock).toHaveCount(0)
+    await expect(main.locator('[data-row="card-1-1"]')).toBeVisible()
   })
 
   test(`an older Run omits unrecorded facts and the narrow window uses the same dock in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
-    await page.setViewportSize({ width: 680, height: 900 })
+    await page.setViewportSize({ width: 720, height: 900 })
     await page.goto(`/preview.html?run-dock&older&theme=${theme}`)
     const frame = page.locator('#run-dock-frame')
-    await frame.locator('[data-team-page="run"]').click()
+    await selectTeamPage(frame, 'run')
     await expect(frame.locator('[data-slot="dock-panel"][data-edge="left"]')).toHaveCount(0)
-    await frame.getByRole('button', { name: 'Show the right panel — 2 views', exact: true }).click()
-    const inspector = frame.locator('[data-slot="run-inspector"]:visible')
-    await expect(inspector.locator('[data-slot="run-recording-gaps"]')).toContainText('base, budget, Seat details, Seat costs')
-    await expect(inspector.locator('[data-slot="card-title"]').filter({ hasText: /^Seats/ })).toHaveCount(0)
-    await expect(inspector).not.toContainText('Not recorded')
+    await frame.getByRole('button', { name: 'Toggle right panel', exact: true }).click()
+    const inspector = frame.locator('[data-slot="tool-body"]:visible')
+    await expect(inspector.locator('[data-slot="summary-item"]').filter({ hasText: /^Budget/ })).toHaveCount(0)
+    await expect(inspector).toContainText('budget')
+    await expect(inspector.locator('[data-slot="summary-item"]').filter({ hasText: /^No progress/ })).toHaveCount(0)
+    await expect(inspector).toContainText('no-progress limit')
+    await expect(inspector.locator('[data-slot="summary-item"]').filter({ hasText: /^Seat cost/ })).toHaveCount(0)
+    await expect(inspector).toContainText('Seat costs')
+    await expect(inspector).toContainText('Not recorded for this Run:')
+    await expect(inspector.getByText('Seats', { exact: true })).toBeVisible()
+    await expect(inspector.locator('[data-slot="card"]')).toHaveCount(0)
     expect(await inspector.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true)
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.RUN_DOCK_FRAMES_DIR) await frame.screenshot({ path: path.join(process.env.RUN_DOCK_FRAMES_DIR, `older-narrow-after-${theme}.png`) })
-    await frame.getByRole('button', { name: 'Hide this panel', exact: true }).click()
+    await closeTeamDetails(frame)
     await expect(frame.locator('[data-slot="workbench-main"]')).toBeVisible()
   })
 }

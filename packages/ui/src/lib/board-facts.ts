@@ -8,6 +8,7 @@ export {
   FACT_COLUMNS,
   flowRoleOf,
   flowStepOf,
+  evidenceForCard,
   placeCard,
   type FactColumn,
   type FlowStep,

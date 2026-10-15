@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test'
+import { closeTeamDetails, teamSeats } from './team-frame-actions'
 
 /**
  * The UI consistency programme's rules, rendered and mutation-tested.
@@ -47,7 +48,7 @@ const setPreviewDials = async (page: Page, theme: 'light' | 'dark', look: 'desk'
 const gotoPreview = async (page: Page) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.goto('/preview.html')
-  await page.waitForSelector('[data-region="session-row"] [data-slot="sidebar-menu-button"]')
+  await page.waitForSelector('[data-frame-id="sidebar-column"] [data-left-column] [data-left-row] [data-slot="sidebar-menu-button"]')
   await page.evaluate(async () => { await document.fonts.ready })
 }
 
@@ -78,7 +79,7 @@ const PROBE_HELPERS = `
     const r = el.getBoundingClientRect()
     if (r.width < 1 || r.height < 1) return false
     const c = getComputedStyle(el)
-    return c.visibility !== 'hidden' && c.display !== 'none'
+    return c.visibility !== 'hidden' && c.display !== 'none' && c.clipPath !== 'inset(50%)'
   }
 `
 
@@ -104,12 +105,12 @@ const PROBE_HELPERS = `
  * caption and a declared figure.
  */
 const NAME_PAIRS: Record<string, { size: number; weight: number }> = {
-  wordmark: { size: 20, weight: 600 },
-  page: { size: 20, weight: 600 },
-  section: { size: 16, weight: 600 },
-  subject: { size: 14, weight: 500 },
+  wordmark: { size: 20, weight: 580 },
+  page: { size: 20, weight: 580 },
+  section: { size: 16, weight: 580 },
+  subject: { size: 14, weight: 400 },
   member: { size: 14, weight: 500 },
-  row: { size: 13, weight: 500 },
+  row: { size: 13, weight: 400 },
   navigation: { size: 13, weight: 400 },
   muted: { size: 13, weight: 400 },
 }
@@ -142,7 +143,7 @@ const namesViolations = (page: Page) =>
       const style = getComputedStyle(html)
       const rect = html.getBoundingClientRect()
       return (html.offsetParent !== null || style.position === 'fixed') &&
-        style.visibility !== 'hidden' && style.display !== 'none' && rect.width >= 1 && rect.height >= 1
+        style.visibility !== 'hidden' && style.display !== 'none' && style.clip !== 'rect(0px, 0px, 0px, 0px)' && style.clipPath !== 'inset(50%)' && rect.width >= 1 && rect.height >= 1
     }
     // A readout is declared, never guessed from its text: a title that
     // happens to be a number is still a name.
@@ -154,7 +155,7 @@ const namesViolations = (page: Page) =>
         : (el.getAttribute('data-role') ?? '')
       const basePair = (pairs as Record<string, { size: number; weight: number }>)[role]
       const wanted = el.matches('[data-slot="list-row-title"][data-role="subject"]') && el.closest('[data-hd-table]')?.getAttribute('data-hd-table') === 'compact'
-        ? { size: 13, weight: 500 }
+        ? { size: 13, weight: 400 }
         : basePair
       if (!wanted) continue
       if (!visible(el)) continue
@@ -261,7 +262,7 @@ test.describe('rule: names', () => {
     await page.addStyleTag({ content: '[data-slot="text"][data-role="row"] { font-size: 16px !important; }' })
     const after = await namesViolations(page)
     expect(after.out.length).toBeGreaterThan(before.out.length)
-    expect(after.out.some((f) => f.size === 16 && f.weight === 500 && f.role === 'role row')).toBe(true)
+    expect(after.out.some((f) => f.size === 16 && f.weight === 400 && f.role === 'role row')).toBe(true)
   })
 
   test('rule: names — the checker catches section pushed to another pair', async ({ page }) => {
@@ -270,7 +271,7 @@ test.describe('rule: names', () => {
     await page.addStyleTag({ content: '[data-slot="text"][data-role="section"] { font-size: 13px !important; font-weight: 500 !important; }' })
     const after = await namesViolations(page)
     expect(after.out.length).toBeGreaterThan(before.out.length)
-    expect(after.out.some((f) => f.reason.includes('role section wants 16/600'))).toBe(true)
+    expect(after.out.some((f) => f.reason.includes('role section wants 16/580'))).toBe(true)
   })
 
   test('rule: names — the checker catches an unclassified heading and skips preview chrome', async ({ page }) => {
@@ -315,38 +316,43 @@ test.describe('rule: names', () => {
     expect(after.out.some((finding) => finding.text === '4096')).toBe(false)
   })
 
-  test('rule: names — the checker reads a mounted member title against its navigation role', async ({ page }) => {
+  test('rule: names — the checker reads a mounted Seat title against its subject role', async ({ page }) => {
     await gotoPreview(page)
     for (const theme of ['light','dark'] as const) {
       await setPreviewDials(page,theme,'desk')
-      await page.locator('[data-frame-id="goal-roster"]').getByRole('button',{name:'Team members',exact:true}).click()
-      const rows=page.locator('[data-slot="team-members"] [data-slot="list-row-title"][data-role="navigation"]')
+      const frame=page.locator('[data-frame-id="goal-roster"]')
+      const seats=await teamSeats(frame)
+      const rows=seats.locator('[data-slot="list-row-title"][data-role="subject"]')
       await expect(rows.first()).toBeVisible()
       const before=await namesViolations(page)
-      const mutation=await page.addStyleTag({content:'[data-slot="team-members"] [data-slot="list-row-title"][data-role="navigation"] { font-weight:600 !important; }'})
+      expect(before.out).toEqual([])
+      await seats.evaluate(node=>node.setAttribute('data-test-seat-titles',''))
+      const mutation=await page.addStyleTag({content:'[data-test-seat-titles] [data-slot="list-row-title"][data-role="subject"] { font-weight:600 !important; }'})
       const after=await namesViolations(page)
       expect(after.out.length).toBeGreaterThan(before.out.length)
-      expect(after.out.some(f=>f.reason.includes('role navigation wants 13/400')&&f.weight===600)).toBe(true)
+      expect(after.out.some(f=>f.reason.includes('role subject wants 14/400')&&f.weight===600)).toBe(true)
       await mutation.evaluate(style=>style.remove())
-      await page.keyboard.press('Escape')
+      await seats.evaluate(node=>node.removeAttribute('data-test-seat-titles'))
+      expect((await namesViolations(page)).out).toEqual([])
+      await closeTeamDetails(frame)
     }
   })
 
-  test('rule: names — Team members draws each name in the navigation pair (13/400)', async ({ page }) => {
+  test('rule: names — Details draws each Seat name in the subject pair (14/400)', async ({ page }) => {
     await gotoPreview(page)
     for (const theme of ['light', 'dark'] as const) {
       for (const look of ['desk', 'studio'] as const) {
         await setPreviewDials(page, theme, look)
-        await page.locator('[data-frame-id="goal-roster"]').getByRole('button',{name:'Team members',exact:true}).click()
-        const members=page.locator('[data-slot="team-members"]')
+        const frame=page.locator('[data-frame-id="goal-roster"]')
+        const members=await teamSeats(frame)
         await expect(members).toBeVisible()
         const titles=await members.locator('[data-slot="list-row-title"]').evaluateAll(nodes=>nodes.map(el=>{
           const cs=getComputedStyle(el)
           return {text:(el.textContent??'').trim(),role:el.getAttribute('data-role'),size:Math.round(parseFloat(cs.fontSize)),weight:Number(cs.fontWeight)}
         }))
         expect(titles.length, `${theme}/${look}: no member row was found`).toBeGreaterThan(0)
-        for (const title of titles) expect(title, `${theme}/${look}: ${title.text}`).toMatchObject({role:'navigation',size:13,weight:400})
-        await page.keyboard.press('Escape')
+        for (const title of titles) expect(title, `${theme}/${look}: ${title.text}`).toMatchObject({role:'subject',size:14,weight:400})
+        await closeTeamDetails(frame)
       }
     }
   })
@@ -369,7 +375,7 @@ test.describe('rule: names', () => {
 type GroupLabelFinding = { text: string; transform: string; weight: number }
 
 /** The label weight each interface sets: medium in Desk and Studio. */
-const LABEL_WEIGHT = { desk: 500, studio: 500 } as const
+const LABEL_WEIGHT = { desk: 400, studio: 400 } as const
 
 const groupLabelViolations = (page: Page, expectedWeight: number = LABEL_WEIGHT.desk) =>
   page.evaluate((expected) => {
@@ -430,26 +436,21 @@ test.describe('rule: group labels', () => {
  * — the stable row slot reused from `sidebar-roles.spec.ts`), every
  * settings/usage rail row (`AppWindow.tsx`'s `WindowNavItem`, every row in
  * `[data-slot="app-window-nav"]` — both windows share this file), and
- * a dropdown menu item (`design/ui/dropdown-menu.tsx`). All three carry the
- * Tailwind `size="navigation"` recipe
- * (`min-h-(--hd-nav-h)`, `py-1`, `text-(length:--hd-text-sm)`,
- * `leading-(--hd-line-sm)`). The Sidebar menu wrapper scopes the session
- * list; selecting its button slot excludes the sibling hover action.
+ * a canonical one-line menu item (`design/ui/menu-row.tsx`). The sidebar's
+ * LeftColumnRow, the settings navigation recipe and the menu's row anatomy
+ * share the frame's 30px rung. Selecting the sidebar button slot excludes
+ * the sibling hover action.
  *
  * Measured on every instance, not one sample per kind. Every row of every
  * kind is at least `--hd-nav-h` tall, every row of one kind agrees with its
  * own siblings, and the kinds agree with each other — in both interfaces.
- * Studio's rows are 34px. Desk's are 30px since #1073: `--hd-nav-h` used to
- * be solved from the type alone (29px), so the sidebar's session rows and
- * the menu item, whose line, block padding and border add up to 30, stood a
- * pixel taller than the rail's rows on the floor. It is now solved from
- * that same box, and every kind stands on it.
+ * Both interfaces use the app frame's 30px row. The floor and agreement
+ * checks still reject a kind that retains a different interface height.
  *
  * Agreement across kinds is a claim about one-line rows, measured at the
- * session list's compact density, which is what the preview renders. At
- * comfortable density a session row carries a second line and more air —
- * a preview, or a chip on a row that needs you — and stands taller by
- * design; it is still floored at --hd-nav-h, but it is not the rail's row.
+ * session list's fixed single-line anatomy. A menu's profile, account or
+ * earned second line is a different anatomy; sample Settings explicitly,
+ * and require that it has no hint before including it in this agreement.
  *
  * The settings rail's identity row was the one row of a kind that disagreed
  * with its siblings: its 28px face in a 29px row with 1px borders pushed it
@@ -471,8 +472,8 @@ const destinationRowViolations = (page: Page, menuHeight?: number, kindsAgree = 
         .filter(visible)
         .map((el) => Math.round(el.getBoundingClientRect().height))
       const groups = {
-        'sidebar session row': measure('[data-region="session-row"] [data-slot="sidebar-menu-button"]'),
-        'settings/usage rail row': measure('[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"]'),
+        'sidebar session row': measure('[data-frame-id="sidebar-column"] [data-left-row] [data-slot="sidebar-menu-button"]'),
+        'settings/usage rail row': measure('[data-frame-id="settings-sheet"] [data-left-row] [data-slot="sidebar-menu-button"]'),
       }
       if (menuH != null) groups['menu item'] = [menuH]
       const representative = {}
@@ -488,6 +489,14 @@ const destinationRowViolations = (page: Page, menuHeight?: number, kindsAgree = 
           representative[where] = list[0]
         }
       }
+      // The Settings rail stands one rung roomier than the working rows (32 against 30), by decision;
+      // it is checked against its own value and the other kinds agree with each other.
+      const SETTINGS_ROW = 32
+      const settingsKind = 'settings/usage rail row'
+      if (representative[settingsKind] !== undefined && representative[settingsKind] !== SETTINGS_ROW) {
+        out.push({ where: settingsKind, height: representative[settingsKind], navH, reason: 'destination-row kinds disagree: ' + settingsKind + ' stands ' + representative[settingsKind] + ', not ' + SETTINGS_ROW })
+      }
+      delete representative[settingsKind]
       const acrossKinds = new Set(Object.values(representative))
       if (acrossKindsToo && acrossKinds.size > 1) {
         for (const [where, height] of Object.entries(representative)) {
@@ -500,7 +509,7 @@ const destinationRowViolations = (page: Page, menuHeight?: number, kindsAgree = 
 
 /** Opens the sidebar footer's account menu (reused from `visual-contracts.spec.ts`). */
 const openAccountMenu = async (page: Page) => {
-  const trigger = page.locator('button[class*="accountRow"]')
+  const trigger = page.locator('[data-frame-id="sidebar-column"] button[class*="accountRow"]')
   await trigger.scrollIntoViewIfNeeded()
   await trigger.click()
   await expect(page.locator('[data-slot="popover-popup"]')).toBeVisible()
@@ -517,7 +526,20 @@ test.describe('rule: destination rows', () => {
         // opens this same popover: a real DropdownMenuItem, not a fixture —
         // folded into the same agreement set the sidebar and rail rows are.
         await openAccountMenu(page)
-        const menuHeight = await page.locator('[role="menuitem"]').first().evaluate((el) => Math.round(el.getBoundingClientRect().height))
+        const menuLabel = page.locator('[data-slot="popover-popup"] [data-menu-label]').filter({ hasText: /^Settings$/ })
+        await expect(menuLabel).toHaveCount(1)
+        const menuRow = page.locator('[data-slot="popover-popup"] [role="menuitem"][data-menu-row]').filter({
+          has: page.locator('[data-menu-label]').filter({ hasText: /^Settings$/ }),
+        })
+        await expect(menuRow).toHaveCount(1)
+        await expect(menuRow).toHaveAttribute('data-menu-row', '')
+        const shortcut = menuRow.locator('[data-menu-trailing]')
+        await expect(shortcut).toHaveCount(1)
+        const shortcutText = (await shortcut.innerText()).trim()
+        expect(shortcutText).not.toBe('')
+        await expect(menuRow).toHaveAccessibleName(`Settings ${shortcutText}`)
+        await expect(menuRow).not.toHaveAttribute('data-has-hint')
+        const menuHeight = await menuRow.evaluate((el) => Math.round(el.getBoundingClientRect().height))
         await page.keyboard.press('Escape')
         const { out, measured, counts } = await destinationRowViolations(page, menuHeight)
         // A check that measures nothing must fail, not pass by default — and
@@ -539,7 +561,7 @@ test.describe('rule: destination rows', () => {
     await setPreviewDials(page, 'light', 'desk')
     const before = await destinationRowViolations(page, undefined, false)
     expect(before.out).toEqual([])
-    await page.addStyleTag({ content: '[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"] { min-height: 10px !important; height: 10px !important; padding-top: 0 !important; padding-bottom: 0 !important; }' })
+    await page.addStyleTag({ content: '[data-frame-id="settings-sheet"] [data-left-row] [data-slot="sidebar-menu-button"] { min-height: 10px !important; height: 10px !important; padding-top: 0 !important; padding-bottom: 0 !important; }' })
     const after = await destinationRowViolations(page, undefined, false)
     expect(after.out.some((f) => f.reason === 'shorter than --hd-nav-h')).toBe(true)
   })
@@ -550,8 +572,8 @@ test.describe('rule: destination rows', () => {
     const before = await destinationRowViolations(page, undefined, false)
     expect(before.out).toEqual([])
     // What the settings rail's identity row did with a 28px face in a 29px row.
-    await page.locator('[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"]').first().evaluate((row) => row.setAttribute('data-test-row-mutation', ''))
-    await page.addStyleTag({ content: '[data-test-row-mutation] { min-height: calc(var(--hd-nav-h) + 1px) !important; }' })
+    await page.locator('[data-frame-id="settings-sheet"] [data-left-row] [data-slot="sidebar-menu-button"]:visible').first().evaluate((row) => row.setAttribute('data-test-row-mutation', ''))
+    await page.addStyleTag({ content: '[data-test-row-mutation] { min-height: calc(var(--hd-nav-h) + 3px) !important; }' })
     const after = await destinationRowViolations(page, undefined, false)
     expect(after.out.some((f) => f.reason.includes("own rows disagree"))).toBe(true)
   })
@@ -565,7 +587,7 @@ test.describe('rule: destination rows', () => {
       expect(before.counts['settings/usage rail row']).toBeGreaterThan(0)
       // What Desk was before #1073, the other way round: one kind a pixel off
       // the others while agreeing with its own siblings.
-      await page.addStyleTag({ content: '[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"] { min-height: calc(var(--hd-nav-h) + 1px) !important; }' })
+      await page.addStyleTag({ content: '[data-frame-id="settings-sheet"] [data-left-row] [data-slot="sidebar-menu-button"] { min-height: calc(var(--hd-nav-h) + 3px) !important; }' })
       const after = await destinationRowViolations(page)
       expect(after.out.some((f) => f.reason.startsWith('destination-row kinds disagree'))).toBe(true)
     })
@@ -619,7 +641,7 @@ const fieldViolations = (page: Page, look: 'desk' | 'studio') =>
       if (inComfortable) measuredComfortable += 1
       // Only Studio's comfortable scope raises the rung; Desk's own
       // comfortable windows stay on the ordinary 30px field.
-      const wantHeight = interfaceName === 'studio' && inComfortable ? 36 : 30
+      const wantHeight = interfaceName === 'studio' && inComfortable ? 36 : 32
       const cs = getComputedStyle(field)
       fontSizes.add(cs.fontSize)
       const height = Math.round(field.getBoundingClientRect().height)
@@ -646,7 +668,7 @@ const fieldViolations = (page: Page, look: 'desk' | 'studio') =>
   }, look)
 
 test.describe('rule: fields', () => {
-  test('rule: fields — default fields are 30px/14px (36px in Studio\'s comfortable scope), and every filter uses one Search pattern', async ({ page }) => {
+  test('rule: fields — default fields are 32px/14px (36px in Studio\'s comfortable scope), and every filter uses one Search pattern', async ({ page }) => {
     await gotoPreview(page)
     const findings: (FieldFinding & { where: string })[] = []
     for (const theme of ['light', 'dark'] as const) {
@@ -664,7 +686,7 @@ test.describe('rule: fields', () => {
     expect(findings).toEqual([])
   })
 
-  test('rule: fields — the checker catches a default field pushed off 30px/14px', async ({ page }) => {
+  test('rule: fields — the checker catches a default field pushed off 32px/14px', async ({ page }) => {
     await gotoPreview(page)
     const before = await fieldViolations(page, 'desk')
     await page.addStyleTag({ content: '[data-slot="input"][data-size="default"] { height: 40px !important; font-size: 16px !important; }' })
@@ -708,13 +730,13 @@ const realSelectionViolations = (page: Page) =>
     }
     compare(
       'sidebar session row',
-      '[data-region="session-row"] [data-slot="sidebar-menu-button"][data-active="true"]',
-      '[data-region="session-row"] [data-slot="sidebar-menu-button"]:not([data-active])',
+      '[data-frame-id="sidebar-column"] [data-left-row] [data-slot="sidebar-menu-button"][data-active="true"]',
+      '[data-frame-id="sidebar-column"] [data-left-row] [data-slot="sidebar-menu-button"]:not([data-active])',
     )
     compare(
       'settings/usage rail row',
-      '[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"][aria-current="page"]',
-      '[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"]:not([aria-current="page"])',
+      '[data-frame-id="settings-sheet"] [data-left-row] [data-slot="sidebar-menu-button"][aria-current="page"]',
+      '[data-frame-id="settings-sheet"] [data-left-row] [data-slot="sidebar-menu-button"]:not([aria-current="page"])',
     )
     return { out, measured }
   })

@@ -1,3 +1,8 @@
+import { Input, Text } from '../design'
+import { SettingsPreviewScope } from './settings-pages'
+import { MessageActions } from '../components/MessageActions'
+import { TopBarProvider } from '../panels/top-bar'
+import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 import { useEffect, useRef, useState } from 'react'
 
 import { runtimeId, type FlowPreview, type UsageReport } from '@harnessdesk/protocol'
@@ -22,10 +27,10 @@ import { libraryColumnsFor, LIBRARY, PREVIEW_AGENTS, PREVIEW_ROOM, PREVIEW_SESSI
 import { PREVIEW_ROOT, previewUsage } from './sidebar-fixture'
 import { GEMINI_UNTRUSTED_PREVIEW, REVIEWER_REASONS_PREVIEW } from './flow-fixture'
 import { ShellProvider } from '../panels/views'
-import { StoreProvider } from '../state/context'
+import { StoreProvider, PaneProvider } from '../state/context'
 import type { AppStore } from '../state/store'
 import type { LayoutNode } from '../state/layout'
-import { emptyWorkbench } from '../state/workbench'
+import { dockViews, emptyWorkbench, fixedSubject, normalizeFixedWorkbench } from '../state/workbench'
 import { Workbench } from '../panels/Workbench'
 
 const COLUMNS = libraryColumnsFor(LIBRARY.runtimes)
@@ -97,7 +102,7 @@ const noticeLayoutStore = (id: string, options: {
     kind: 'split' as const, id: `${id}-split`, direction: 'row' as const, ratio: 0.5,
         first: { kind: 'pane' as const, id: paneId, view }, second,
   } : { kind: 'pane' as const, id: paneId, view }
-  const workbench = {
+  const legacyWorkbench = {
     ...noticeWorkbench,
     main: { root, focused: second ? second.id : paneId, expanded: null },
     ...(options.zoom === 'sidebar' ? {
@@ -109,6 +114,16 @@ const noticeLayoutStore = (id: string, options: {
     ...(options.zoom === 'right' ? { zoom: { area: 'right' as const, scope: 'window' as const } } : {}),
     ...(options.zoom === 'sidebar' ? { zoom: { area: 'sidebar' as const, scope: 'window' as const } } : {}),
   }
+  // Legacy saved docks enter through the production fixed-frame migration;
+  // retired zoom and sidebar docks cannot create a second notice host.
+  const subject = fixedSubject(legacyWorkbench.main)
+  const focused = second ?? { kind: 'pane' as const, id: paneId, view }
+  const workbench = subject ? {
+    ...legacyWorkbench,
+    frameTools: { [subject]: { tool: 'activity' as const, mode: 'activity', open: true } },
+    toolOwners: Object.fromEntries(dockViews(legacyWorkbench.right).map(one => [one.id, subject])),
+    frameSubjects: { [subject]: { paneId: focused.id, view: focused.view } },
+  } : legacyWorkbench
   const active = noticeBase.sessions.get(PREVIEW_SESSION_KEY)!
   const approvalKey = noticeBase.teams.get(PREVIEW_ROOM)?.members[0] ?? PREVIEW_SESSION_KEY
   const result = previewStore({
@@ -123,14 +138,13 @@ const noticeLayoutStore = (id: string, options: {
     noticePolicy: { muted: [], records: {}, seen: [], surfaces: {}, kept: [] },
     narrowWindow: options.narrow ?? false,
     usage: [noticePace],
-    workbench,
+    workbench: normalizeFixedWorkbench(workbench).workbench,
     ...(options.pendingRoomApproval ? { approvals: [{ key: approvalKey, approval: { id: 'preview-room-approval', type: 'command', kind: 'shell', command: 'pnpm test', cwd: PREVIEW_ROOT } }] as never } : {}),
     layout: { ...noticeBase.layout, root, focused: second ? second.id : paneId, expanded: null },
     sessions: new Map([[PREVIEW_SESSION_KEY, active]]),
     ...(options.folderGone ? { foldersGone: new Map([[active.cwd, 'The preview folder is unavailable.']]) } : {}),
   } as never)
-  // Under the window's narrow threshold, and narrower than a right panel needs
-  // beside a readable conversation: the panel covers the main area.
+  // Below the fixed fold, the right tool floats beside the visible composer.
   if (options.narrow) result.setWindowWidth(679)
   return result
 }
@@ -144,7 +158,7 @@ const NoticeLayoutFrame = ({ id, title, options }: { readonly id: string; readon
     >
       <StoreProvider store={noticeLayoutStore(id, options)}>
         <ShellProvider actions={{ chooseProject: () => {}, signIn: () => {}, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
-          <Workbench sidebar={<div className="p-2">Preview sidebar</div>} />
+          <TopBarProvider><ShellHostsProvider><Workbench sidebar={<div className="p-2">Preview sidebar</div>} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
         </ShellProvider>
       </StoreProvider>
     </div>
@@ -230,8 +244,19 @@ export const CoverageFrames = () => {
         {dialog === 'resolve' && <ResolveDialog entry={LIBRARY.entries[0]! as never} columns={COLUMNS} onClose={() => setDialog('off')} onPlan={() => setDialog('plan')} />}
         {dialog === 'plan' && <PlanDialog title="Preview library change" intents={[]} columns={COLUMNS} cwd={PREVIEW_ROOT} onClose={() => setDialog('off')} onApplied={() => setDialog('off')} />}
         {dialog === 'library flow' && <LibraryFlows flow={{ type: 'import' }} setFlow={() => setDialog('off')} library={LIBRARY as never} columns={COLUMNS} cwd={PREVIEW_ROOT} onApplied={() => setDialog('off')} />}
-        {dialog === 'add agents' && <AddAgents onBack={() => setDialog('off')} onDone={() => setDialog('off')} />}
+        {dialog === 'add agents' && <SettingsPreviewScope><AddAgents onBack={() => setDialog('off')} onDone={() => setDialog('off')} /></SettingsPreviewScope>}
       </Boundary>
+      <Frame id="coverage-field-density" title="Fields — comfortable density">
+        <div data-hd-density="comfortable" className="flex flex-col gap-3 p-4">
+          <Text as="h2" role="section">Field measures</Text>
+          <Input aria-label="Comfortable field" defaultValue="Review the change" />
+        </div>
+      </Frame>
+      <Frame id="coverage-answer-actions" title="Answer actions">
+        <PaneProvider scope={{ paneId: 'coverage-answer-actions', view: { kind: 'conversation', session: PREVIEW_SESSION_KEY }, sessionKey: PREVIEW_SESSION_KEY }}>
+          <div className="p-4"><MessageActions text="A recorded placeholder answer." /></div>
+        </PaneProvider>
+      </Frame>
       <Frame id="coverage-agent-fields" title="Agent — editable field sections">
         <div className="p-4"><AgentPageSections entry={entry}><StepNameScope items={[]} root={PREVIEW_ROOT}><PlanSteps todos={[{ label: 'Read the Agent file', done: true }, { label: 'Preview the saved edit', done: false }] as never} /></StepNameScope></AgentPageSections></div>
       </Frame>

@@ -1,3 +1,4 @@
+import { readStored, writeStored, editStoredTurn } from './fixtures/stored-transcripts.js'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
@@ -22,6 +23,7 @@ import {
   type GoalView,
   type HostMethodName,
   type HostParams,
+  type HostResult,
   type HostToClient,
   type Session,
   type SessionSummary,
@@ -1394,6 +1396,13 @@ test('file reads go through the runtime\'s own view when it declares one', async
     entries: { name: string }[]
   }
   assert.deepEqual(browsed.entries.map((entry) => entry.name), ['src'])
+  const tree = await client.call('workspace/browse', { mode: 'entries', root: '/w', runtime: FAKE_RUNTIME_ID }) as HostResult<'workspace/browse'>
+  assert.equal(tree.parent, null)
+  assert.deepEqual(tree.entries, [
+    { name: 'src', path: '/w/src', kind: 'directory' },
+    { name: 'README.md', path: '/w/README.md', kind: 'file' },
+  ])
+  await assert.rejects(() => client.call('workspace/browse', { mode: 'entries', root: '/w', path: harness.stateDir, runtime: FAKE_RUNTIME_ID }), /outside every open workspace/)
   assert.ok(harness.runtime.files.calls.some((call) => call.startsWith('read /w/README.md')))
 })
 
@@ -1801,22 +1810,10 @@ test('a completed desk scan pushes the fresh turn count through the host', async
   const updatesBeforeTurn = client.notifications.length
   live.finish()
   await client.until(() => client.events.some((event) => event.type === 'turn/completed'))
-  const transcriptPath = join(harness.stateDir, 'transcripts', encodeURIComponent(FAKE_RUNTIME_ID), `${encodeURIComponent(session.id)}.json`)
-  await client.until(() => {
-    if (!existsSync(transcriptPath)) return false
-    try {
-      const saved = JSON.parse(readFileSync(transcriptPath, 'utf8')) as { turns?: { status: string }[] }
-      return saved.turns?.some((turn) => turn.status === 'completed') ?? false
-    } catch {
-      return false
-    }
-  }, 5_000, 'the completed synthetic transcript')
-  // The fake runtime omits wall-clock metadata. Give its synthetic stored
-  // turn a start time so the ledger can place it in today's scan window.
-  const saved = JSON.parse(readFileSync(transcriptPath, 'utf8')) as { turns: { startedAt?: number; status: string }[] }
-  assert.ok(saved.turns[0])
-  saved.turns[0].startedAt = Date.now()
-  await writeFile(transcriptPath, JSON.stringify(saved))
+  await client.until(() => readStored(harness.stateDir, FAKE_RUNTIME_ID, String(session.id))?.turns.some(turn => turn.status === 'completed') ?? false,
+    5_000, 'the completed synthetic transcript')
+  // The fake omits clocks; place its stored turn in today's ledger window.
+  editStoredTurn(harness.stateDir, FAKE_RUNTIME_ID, String(session.id), turn => { turn.startedAt = Date.now() })
   await client.until(() => client.notifications.slice(updatesBeforeTurn).some((message) =>
     'method' in message && message.method === 'usage/updated' && message.params.report.runtime === FAKE_RUNTIME_ID && !message.params.report.turns,
   ), 5_000, 'the turn-completion meter refresh')
@@ -1837,12 +1834,10 @@ test('a desk turn without a meter still creates a pushed and queryable usage rep
   harness.host.bindUsage(FAKE_RUNTIME_ID, { deskTurns: true })
   assert.deepEqual(await client.call('usage/reports', {}), [], 'no meter and no recorded turn starts without a card')
 
-  const runtimeDir = join(harness.stateDir, 'transcripts', encodeURIComponent(FAKE_RUNTIME_ID))
-  await mkdir(runtimeDir, { recursive: true })
-  await writeFile(join(runtimeDir, 'session-1.json'), JSON.stringify({
+  await writeStored(harness.stateDir, FAKE_RUNTIME_ID, 'session-1', {
     version: 1, runtime: FAKE_RUNTIME_ID, id: 'session-1', savedAt: Date.now(), cwd: harness.stateDir,
     turns: [{ id: 'turn-1', startedAt: Date.now(), status: 'completed', items: [{ type: 'userMessage', content: [] }] }],
-  }))
+  })
   const before = client.notifications.length
   await client.call('usage/scan', {})
   await client.until(() => client.notifications.slice(before).some((message) =>
@@ -3073,8 +3068,9 @@ seed: { role: worker, title: "Do it" }
     assert.deepEqual(await list(opened), {
       listed: [
         ['alignment.yml', 'Alignment'],
-        ['comparison.yml', 'Comparison'],
+        ['comparison.yml', 'Side by side'],
         ['fan-out.yml', 'Fan-out review'],
+        ['fix-and-review.yml', 'Write and review'],
         ['.harnessdesk/flows/here.yml', 'Here'],
         ['independent-review.yml', 'Independent review'],
         ['investigation.yml', 'Investigation'],
@@ -3100,8 +3096,9 @@ seed: { role: worker, title: "Do it" }
     assert.deepEqual(await list(main), {
       listed: [
         ['alignment.yml', 'Alignment'],
-        ['comparison.yml', 'Comparison'],
+        ['comparison.yml', 'Side by side'],
         ['fan-out.yml', 'Fan-out review'],
+        ['fix-and-review.yml', 'Write and review'],
         ['independent-review.yml', 'Independent review'],
         ['investigation.yml', 'Investigation'],
         ['.harnessdesk/flows/main.yml', 'In the main checkout'],
@@ -3713,18 +3710,28 @@ test('HTTP token gate cannot be bypassed by non-root SPA routes (#429)', async (
   await writeFile(join(uiDir, 'bundle.js'), 'console.log("bundle")')
 
   const stateDir = await mkdtemp(join(tmpdir(), 'harnessdesk-gate-state-'))
-  t.after(() => rm(stateDir, { recursive: true, force: true }))
+  let disposeHost: (() => Promise<void>) | undefined
+  let closeServer: (() => Promise<void>) | undefined
+  t.after(async () => {
+    try {
+      await closeServer?.()
+    } finally {
+      try {
+        await disposeHost?.()
+      } finally {
+        await rm(stateDir, { recursive: true, force: true })
+      }
+    }
+  })
 
   const host = new Host({
     logger: silent,
     state: new StateStore(join(stateDir, 'state.json')),
   })
+  disposeHost = () => host.dispose()
   await host.start()
   const server = await serve({ host, logger: silent, port: 0, uiRoot: uiDir, token: 'secret-token' })
-  t.after(async () => {
-    await server.close()
-    await host.dispose()
-  })
+  closeServer = () => server.close()
 
   // 1. Root without token -> 401
   const resRootNoToken = await fetch(`${server.url}/`)

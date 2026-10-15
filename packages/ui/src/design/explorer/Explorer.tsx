@@ -26,6 +26,7 @@ import { COMPOSITION_BOARDS } from './boards-compositions'
  * every tab then looks like it loads all of them.
  */
 const RunAgainSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.RunAgainSurface })))
+const TeamStartSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.TeamStartSurface })))
 const FlowBriefSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.FlowBriefSurface })))
 const ComposerSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ComposerSurface })))
 const ComposerSlotsSurface = lazy(() => import('../surfaces/surfaces').then((m) => ({ default: m.ComposerSlotsSurface })))
@@ -133,6 +134,7 @@ const DIALS = [
  * tab renders is the same lie as a drawing, in words.
  */
 const SURFACES = [
+  { id: 'team-start', title: 'New Team', about: 'The shipped picker, compact forms and start menu on placeholder data. Open a surface to inspect it in either theme.', render: TeamStartSurface },
   { id: 'run-again', title: 'Run again', about: 'A fresh start from recorded inputs, with editable seating; ready, empty, reading and refused.', render: RunAgainSurface },
   { id: 'flow-brief', title: 'Flow brief', about: 'The shipped Brief input: empty, filled, long, refused file and reading. Switch the theme or narrow the window to inspect the same control.', render: FlowBriefSurface },
   {

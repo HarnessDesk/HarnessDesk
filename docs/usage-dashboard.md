@@ -814,7 +814,7 @@ nothing measurable, `'none'` last of all. Built on `design/ui/table`, with Accou
 
 Left is one reading per shape: a continuous bar and percent for a window or allowance, the prepaid amount and a known approximate turn count for a balance, remaining budget for a metered key, and “No limit” for a free tier or unbudgeted key. The status says Ready, Low, On overage, Out or Not reporting, using the same word and tone in the row and its expanded frame. Below 640px, Account, Status, Left and the detail button remain. Enter, Space or a click on its Details button expands the row, and Escape collapses it and returns focus to the button.
 
-Project usage compares named Goals or Agents in a table, with Run and Seat counts and Cost when amounts exist. Team and frozen Run records supply names, flow and branch facts; unread Run counts remain a dash, with a visible note and Try again action when a Team's history could not be read. Entering By Goal or By Agent retries refused Teams while retaining successful reads. A shared row note appears once under the table; varying notes stay beside their row. The unattributed reason is shown when it adds to the label. Cost cells use a short Estimate or At least qualifier and their coverage phrase; the full basis and source age remain in the title. Project usage labels its own Last 30 days or Last 24 hours range, offers a return to 30 days, and resets to 30 days when the project changes. A range whose amounts cannot be read has one unknown-amounts warning; a partial read with figures says amounts are incomplete and keeps the known-subtotal qualification in the Cost cell. Both offer Last 24 hours until that range is already active. Unattributed usage is the footer. Receipt Cost uses numeric KeyValue rows, with varying notes, the unattributed reason and total source age on full-width lines below each pair. A shared row note appears once below the list. Recorded usage sits under a strong footer rule; repeated source labels are named once with their file count; Sources keeps each full source sentence.
+Project usage compares named Goals or Agents in a table, with Run and Seat counts and Cost when amounts exist. Team and frozen Run records supply names, flow and branch facts; unread Run counts remain a dash, with a visible note and Try again action when a Team's history could not be read. Entering By Goal or By Agent retries refused Teams while retaining successful reads. A shared row note appears once under the table; varying notes stay beside their row. The unattributed reason is shown when it adds to the label. Cost cells use a short Estimate or At least qualifier and their coverage phrase; the full basis and source age remain in the title. Project usage labels its own Last 30 days or Last 24 hours range, offers a return to 30 days, and resets to 30 days when the project changes. A range whose amounts cannot be read has one unknown-amounts warning; a partial read with figures says amounts are incomplete and keeps the known-subtotal qualification in the Cost cell. A partial read offers Last 24 hours until that range is already active; missing attribution alone does not. With no records the page has one empty sentence. With records but no attribution it names the selected grouping once, and the heading follows that grouping. Unattributed usage is the footer. Receipt Cost uses numeric KeyValue rows, with varying notes, the unattributed reason and total source age on full-width lines below each pair. A shared row note appears once below the list. Recorded usage sits under a strong footer rule; repeated source labels are named once with their file count; Sources keeps each full source sentence.
 
 Meter lists in an account card, plan popover, roster and composer quota popover use the same name, bar, percent and countdown arrangement. Standalone readings say “N% left”; inside What is left they say “N%”. Their fixed reading/countdown tracks align consecutive 4px meters; the roster separates each account from its agent’s name. The narrow account menu and context panel omit the bar but keep the name, remaining figure and reset. Plain meter names reveal a title only when clipped; the roster keeps a full-name title for its separately clipped agent and account, and reset countdowns carry the reset clock time in their title. A lane blocked behind a longer spent window says “blocked” and its title names when that hold lifts. Reset readings share “in 3 d” / “in 2 h 14 m”, with a quiet dash for missing facts.
 
@@ -1046,18 +1046,12 @@ label, and a change is computed only where the whole earlier period is loaded
 too. The window's own total is the headline above them and is never repeated
 as a third tile.
 
-**The comparison windows end at the last complete day, and today is its own
-tile.** A day still running measured against a whole one falls every morning
-and recovers by evening, which is a property of the clock rather than of the
-spending. It is worst at one day, where the figure can be a tenth of what it
-will be, and it is still a systematic understatement of up to a seventh over a
-week — on a real account the seven-day change read −64% with the running day
-included and −27% without it, and the difference is a spending drop that never
-happened. So the multi-day windows drop the running day from *both* sides, and
-today keeps a tile of its own with **so far** under it and no percentage,
-because there is nothing it can honestly be compared against. The pair reads
-correctly together: those two words are what tell you that the window beside
-them is a finished one.
+**Every “Last N days” figure includes today.** The shorter figures and the
+selected range sum the same local-day buckets. They carry **so far** because
+the last day is still running, and those partial tiles have no comparison
+percentage. The selected range can still name its separate previous-period
+comparison. Missing scan dates are gaps in both chart modes; an explicitly
+recorded zero remains zero. Partial scan coverage is stated beside the figure.
 
 **Days are stepped by the calendar, never by 86,400,000 ms.** The host buckets
 by *local* midnight, and local midnights are 23 or 25 hours apart across a
@@ -1571,7 +1565,11 @@ write-ahead-log changes) are read whole when changed. Files last modified before
 the requested range are skipped before reading their contents.
 
 Each request keeps the existing shared 64 MiB source-data budget and 10,000-file
-ceiling. A JSONL prefix stopped by the byte budget is cached with its cursor, so
+ceiling. A request for several projects at once (`insight/goals`, the Teams
+page) makes one pass over the sources for all of them and carries 64 MiB for
+each Team in it, spent once: no Team reads less than its own request would
+have. A
+JSONL prefix stopped by the byte budget is cached with its cursor, so
 later reads can continue. An oversized whole-file source stays partial. The
 Insight response qualifies totals and carries `scan: 'partial'` when a scan
 limit was reached; Projects shows **Partial** in a chip. Missing measurements

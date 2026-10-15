@@ -5,7 +5,7 @@ import type { FileChange, Turn } from '@harnessdesk/protocol'
 import { totalsByFile } from '../lib/turn-view'
 import { useSelect, useSessionKey, useStore } from '../state/context'
 import { closedTurnFilesKey } from '../state/snapshot'
-import { Button, Card, ChangeStats, Chip, CodeText, IconTile, Separator, Text } from '../design'
+import { Button, Card, ChangeStats, Chip, CodeText, IconTile, MiddleTruncate, Separator, Text } from '../design'
 import { CrossIcon, DiffIcon, RedoIcon, UndoIcon } from './Icons'
 import styles from './TurnFiles.module.css'
 
@@ -14,7 +14,7 @@ import styles from './TurnFiles.module.css'
  *
  * One file is named with its counts in the head. Several get three rows and
  * an explicit way to reveal the rest; the rows open each diff, Review opens
- * the Changes panel, and Undo asks the host to put exactly this turn's edits
+ * Editor mode, and Undo asks the host to put exactly this turn's edits
  * back — the turn's diff reversed, refused whole if a file was touched since.
  *
  * An undo is offered back as a Redo, because the edits it removed exist
@@ -98,7 +98,7 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
         </IconTile>
         <span className={styles.title}>
           <Text role="subject" className={styles.titleLine}>
-            {verb} {one ? basename(one.path) : `${files.length} files`}{' '}
+            {one ? <MiddleTruncate>{`${verb} ${basename(one.path)}`}</MiddleTruncate> : `${verb} ${files.length} files`}{' '}
             <ChangeStats added={added} removed={removed} />
             {reverted && <Chip tone="neutral" size="sm">put back</Chip>}
           </Text>
@@ -141,8 +141,8 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
             ))}
           <Button
             variant="quiet" size="sm" className={styles.action}
-            onClick={() => store.setDetailsTab('changes')}
-            title="Open the Changes panel"
+            onClick={() => key && store.reviewEditorFiles(key, files[0]!.path)}
+            title="Review in Editor mode"
           >
             Review
           </Button>

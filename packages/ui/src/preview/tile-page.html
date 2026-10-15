@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Demo page</title>
+<style>
+body { margin: 0; padding: 28px; font: 16px system-ui, sans-serif; color: #17243c; background: #f2f6fc; }
+body[data-seat="beta"] { color: #24382d; background: #f2f8f3; }
+h1 { margin: 8px 0 20px; font-size: 32px; }
+article { max-width: 440px; padding: 24px; border-radius: 16px; background: white; }
+button { padding: 10px 18px; border: 0; border-radius: 8px; background: #17243c; color: white; font: inherit; cursor: pointer; }
+p { line-height: 1.5; }
+</style>
+<body>
+<p id="label"></p>
+<h1 id="title"></h1>
+<article>
+<h2 id="project"></h2>
+<p>Built in this Seat’s own workspace. This page stays live while its neighbour works.</p>
+<button id="add" type="button">Add a note</button>
+<p id="count">No notes yet</p>
+</article>
+<script>
+const seat = new URL(location.href).searchParams.get('seat') === 'beta' ? 'beta' : 'alpha';
+document.body.dataset.seat = seat;
+const name = seat === 'alpha' ? 'Alpha' : 'Beta';
+document.title = name + ' demo';
+document.querySelector('#label').textContent = name + ' workspace';
+document.querySelector('#title').textContent = seat === 'alpha' ? 'The daily planner' : 'The reading shelf';
+document.querySelector('#project').textContent = seat === 'alpha' ? 'Today’s notes' : 'Reading notes';
+let notes = 0;
+document.querySelector('#add').onclick = () => { document.querySelector('#count').textContent = ++notes + (notes === 1 ? ' note saved' : ' notes saved'); };
+</script>
+</body>
+</html>

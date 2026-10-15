@@ -92,6 +92,8 @@ export interface ToolContribution extends ContributionBase {
   /** Namespaced so two plugins can both offer `search` without colliding. */
   readonly namespace: string
   readonly name: string
+  /** Short human label for screens that show the description as a second line. */
+  readonly title?: string
   readonly description: string
   readonly inputSchema: JsonSchema
   /** Ask the user before every call, regardless of the plugin's granted permissions. */
@@ -123,7 +125,12 @@ export interface ContextChip {
   readonly prompt?: string
   /** A regular-expression source matched against pasted text. */
   readonly match?: string
+  /** The context source's mark in the composer's Add menu. */
+  readonly icon?: ContextChipIcon
 }
+
+/** Small semantic vocabulary for context-chip marks; unknown or omitted marks use the form default. */
+export type ContextChipIcon = 'image' | 'diff' | 'issue' | 'check' | 'terminal' | 'team'
 
 /**
  * A picture a context chip resolved to — a screenshot, mostly. Text remains

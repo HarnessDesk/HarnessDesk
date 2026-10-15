@@ -1,3 +1,7 @@
+import { readKeptTranscriptFile } from './kept-transcript.js'
+import { Storage } from './storage.js'
+import { SessionWorktrees } from './session-worktrees.js'
+import { archiveConversation } from './methods/sessions.js'
 import { readProcessTable, resourcesFromProcessTable } from './runtime-resources.js'
 import { retainRuntimeNotice } from './runtime-notices.js'
 import { AccountReads } from './account-reads.js'
@@ -5,9 +9,10 @@ import { resumeSeatSession } from './session-resume.js'
 import { SeatActivities, deriveSeatActivity } from './seat-activity.js'
 import { CLIENT_TIERS_GRANTED_BY_DEFAULT, type ClientTier, type SeatActivity } from '@harnessdesk/protocol'
 import { createHash, randomBytes } from 'node:crypto'
-import { readFile, realpath, stat } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { access, readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, isAbsolute, join, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import type { BrowserSettings } from '@harnessdesk/cordis-host'
@@ -52,7 +57,9 @@ import {
   type AgentRuntime,
   type ArchiveFilter,
   type AgentSession,
+  type SessionSource,
   type ConfigOption,
+  type OptionValue,
   type FlowSeat,
   type TurnId,
   type CapabilityRegistry,
@@ -67,6 +74,7 @@ import {
   type HostResult,
   type RuntimeHealth,
   type RuntimeInfo,
+  type RuntimeObservations,
   type RuntimeUpdate,
   type PluginSource,
   type RuntimeFiles,
@@ -127,6 +135,7 @@ import { holdCeiling, type SeatHold } from './ceilings/hold.js'
 import type { InstallService } from './installs/service.js'
 import { AuditLog, type ClientAuditEntry } from './audit.js'
 import { CatalogRefresher } from './catalog-refresher.js'
+import { RuntimeCache, type CachedRuntime } from './runtime-cache.js'
 import {
   Ledger,
   defaultCorpora,
@@ -165,9 +174,9 @@ import { AttachmentsPlane, receiptFrom, type AttachmentSubject as PlaneAttachmen
 import { ATTACHMENT_TRUST_FILE, AttachmentTrust } from './attachments/trust.js'
 import { resolveAttachmentDeclarations } from './attachments/catalog.js'
 import { ghInCheckout, type GhInCheckout } from './evidence/forge.js'
-import { projectOf, revisionOf, upstreamTipOf } from './evidence/revision.js'
+import { checkoutMarkOf, projectOf, revisionOf, upstreamTipOf } from './evidence/revision.js'
 import type { SeatOpening } from './evidence/records.js'
-import { SEEN_FILE } from './evidence/seen.js'
+import { incarnationOf, SEEN_FILE } from './evidence/seen.js'
 import { Terminals } from './terminals.js'
 import { SeatHeldCards } from './seat-held-cards.js'
 import { SessionArchive } from './archive.js'
@@ -196,6 +205,9 @@ import { acquireDeskWriter } from './goals/writer-lease.js'
 import { carryCardWork } from './card-claims.js'
 import { Team, type TeamPeer, type TeamSender, type TeamTurnFailure } from './team.js'
 import { TranscriptStore } from './transcripts.js'
+import { HistoryImport } from './history-import.js'
+import { SESSION_REMOVE_UNDO_MS, SessionIndex } from './session-index.js'
+import { SessionIndexRepos } from './session-index-repos.js'
 import { InsightPlane } from './insight/plane.js'
 import { IntakePlane, type IntakeTimers } from './intake/plane.js'
 import { NO_WAITS, actorWords, type HostWaits } from './intake/waits.js'
@@ -442,8 +454,8 @@ export interface HostOptions {
    * else, where the desk's own `gh` adapter is composed.
    */
   readonly findingForge?: FindingForgePort
-  /** How the evidence plane reads a branch's pull request with `gh`. Tests answer as the forge would. */
-  readonly evidence?: { readonly gh?: GhInCheckout }
+  /** The evidence plane's forge and clock. Tests answer as the forge would and control refresh time. */
+  readonly evidence?: { readonly gh?: GhInCheckout; readonly now?: () => number }
   readonly logger: Logger
   /**
    * How stored credentials are protected at rest. The desktop shell passes a
@@ -480,6 +492,8 @@ export interface HostOptions {
    * one, `RuntimeInfo.update` is never set and nothing else changes.
    */
   readonly updates?: { updateFor(info: RuntimeInfo): Promise<RuntimeUpdate | null> }
+  /** Maximum retained preview payload bytes; full and live bodies are never evicted. */
+  readonly cachedBodyCapBytes?: number
   /**
    * How often to re-ask runtimes what they offer — see `CatalogRefresher`.
    * Zero disables the timer; "Refresh models" still works.
@@ -618,7 +632,7 @@ const REOPEN_REFUSALS_TO_LET_GO = 2
 const IDLE_STOP_MS = 10 * 60_000
 const SEAT_REST_MS = IDLE_STOP_MS
 const LIVE_RUNTIME_METHODS = new Set<PropertyKey>([
-  'createSession', 'resumeSession', 'forkSession', 'readSession', 'searchSessions', 'archiveSession',
+  'createSession', 'resumeSession', 'forkSession', 'readSession', 'sourceOf', 'searchSessions', 'archiveSession',
   'deleteSession', 'setOption', 'setSkillEnabled', 'login', 'cancelLogin', 'submitLoginCode',
   'logout', 'refreshCatalog', 'checkInstallation', 'listHooks',
 ])
@@ -633,11 +647,11 @@ const findingDecisionRefusal = (store: GoalStore, goal: string): string | null =
   try {
     document = store.read(goal)
   } catch {
-    return 'There is no such Goal on this desk.'
+    return 'There is no such Team on this desk.'
   }
-  if (document.restored) return 'This Goal came from a backup. Its findings are history here; start a new Goal to decide them.'
-  if (document.goal.state === 'wrapped') return 'This Goal is wrapped. Its findings are history here; carry them into an open Goal to decide them.'
-  if (document.goal.state !== 'open') return 'This Goal is being wrapped, so nothing more is decided on it.'
+  if (document.restored) return 'This Team came from a backup. Its findings are history here; start a new Team to decide them.'
+  if (document.goal.state === 'wrapped') return 'This Team is wrapped. Its findings are history here; carry them into an open Team to decide them.'
+  if (document.goal.state !== 'open') return 'This Team is being wrapped, so nothing more is decided on it.'
   return null
 }
 
@@ -656,8 +670,16 @@ export class Host {
     send: (activity) => this.#push({ method: 'seat/activity', params: activity }),
   })
   readonly #runtimes = new Map<string, AgentRuntime>()
+  readonly #coldRuntimes = new Set<string>()
+  readonly #runtimeSources = new Map<string, AgentRuntime>()
+  readonly #runtimeCache: RuntimeCache
+  readonly #observingRuntimes = new Map<string, Promise<void>>()
+  readonly #modelsReadyAt = new Map<string, number>()
+  /** Native metadata before registry rows are added, with the same lifecycle guard. */
+  readonly #runtimeHistoryReaders = new WeakMap<AgentRuntime, (query?: ListSessionsQuery, startIfNeeded?: boolean) => Promise<Page<SessionSummary> | null>>()
   readonly #accountReads = new Map<string, AccountReads>()
   readonly #startingRuntimes = new Map<string, Promise<void>>()
+  readonly #directRuntimeStarts = new Map<string, { startedAt: number; promise: Promise<void>; resolve: () => void; reject: (error: Error) => void }>()
   readonly #stoppingRuntimes = new Map<string, Promise<boolean>>()
   readonly #runtimeActivity = new Map<string, number>()
   readonly #runtimeReads = new Map<string, number>()
@@ -687,6 +709,20 @@ export class Host {
   readonly #credentials: CredentialBroker
   readonly #gateways: GatewaySupervisor
   readonly #audit: AuditLog
+  /** Sidebar metadata; the transcript store continues to own conversation bodies. */
+  readonly #historyImport: HistoryImport
+  #cacheEvictionTimer: ReturnType<typeof setTimeout> | undefined
+  readonly #storage: Storage
+  readonly #sessionWorktrees: SessionWorktrees
+  readonly #sessionIndex: SessionIndex
+  readonly #sessionIndexRepos: SessionIndexRepos
+  #sessionIndexSeed: Promise<void> = Promise.resolve()
+  readonly #sessionIndexAbort = new AbortController()
+  readonly #indexPending = new Map<string, Session>()
+  #removalSweep: ReturnType<typeof setTimeout> | undefined
+  #removalSweepWork: Promise<void> | null = null
+  readonly #indexTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  readonly #indexTeams = new Map<string, string>()
   /** The transcript as the host watched it, for reads the backend returns thin. */
   readonly #transcripts: TranscriptStore
   #libraryUsage: LibraryUsageReader | null = null
@@ -803,6 +839,7 @@ export class Host {
    * roster's watch, so a quit that lands first leaves none to leak.
    */
   #disposed = false
+  #startCalled = false
   /** Which board a folder belongs to, cached; cleared when workspaces change. */
   readonly #boardRoots = new Map<string, string | null>()
   /**
@@ -891,6 +928,9 @@ export class Host {
   constructor(private readonly options: HostOptions) {
     this.#logger = options.logger.child('host')
     this.#state = options.state ?? new StateStore()
+    this.#runtimeCache = new RuntimeCache(join(this.#state.directory, 'runtime-cache.json'), error => {
+      this.#logger.warn('runtime observations could not be saved or read', { error: String(error) })
+    })
     this.#goalStore = new GoalStore(this.#state.directory)
     this.#worktrees = new Worktrees(this.#state.directory)
     this.#laneStore = new LaneStore(this.#state.directory)
@@ -942,8 +982,39 @@ export class Host {
     this.#audit = new AuditLog(join(this.#state.directory, 'audit.ndjson'))
     this.#transcripts = new TranscriptStore(join(this.#state.directory, 'transcripts'), (message, details) =>
       this.#logger.warn(message, details),
+      () => this.#scheduleCacheEviction(),
     )
+    this.#sessionIndex = new SessionIndex(join(this.#state.directory, 'sessions.sqlite'), (change) => {
+      const firstPage = this.#listSessionIndex({})
+      if (change.resolveRepos !== false) for (const row of firstPage.data) this.#sessionIndexRepos.read(row.cwd)
+      this.#push({ method: 'session/indexChanged', params: { upserted: change.upserted.filter(row => this.#runtimes.has(row.runtime)).map(row => this.#indexStatus(row)), removed: change.removed, firstPageCursor: firstPage.nextCursor ?? null } })
+    })
+    this.#sessionWorktrees = new SessionWorktrees(this.#sessionIndex, this.#state.directory, path =>
+      this.registry.snapshot().some(session => (samePath(session.cwd, path) || session.cwd.startsWith(path + '/')) &&
+        (isBusy(session) || (this.registry.get(session.runtime, session.id)?.running.size ?? 0) > 0)),
+      (runtime, id) => { const entry = this.registry.get(runtime, id); return !!entry && (entry.live !== null || entry.running.size > 0 || isBusy(entry.session)) },
+      undefined,
+      path => this.registry.snapshot().some(session => (samePath(session.cwd, path) || session.cwd.startsWith(path + '/')) &&
+        !!this.registry.get(session.runtime, session.id)?.live))
+    this.#storage = new Storage(this.#sessionIndex, this.#state.directory, usage => this.#push({ method: 'storage/usageChanged', params: usage }))
+    this.#sessionIndexRepos = new SessionIndexRepos(this.#sessionIndex)
     this.#archive = new SessionArchive(join(this.#state.directory, 'archive.json'))
+    this.#historyImport = new HistoryImport({
+      index: this.#sessionIndex, archive: this.#archive,
+      resolve: runtime => this.#runtime({ runtime }),
+      start: runtime => this.#ensureStarted(runtime),
+      list: async (runtime, query) => (await this.#runtimeHistoryReaders.get(runtime)!(query))!,
+      archiveGuard: runtime => {
+        const revisions = new Map(this.#indexArchiveChanges)
+        return id => {
+          const key = String(sessionKey(runtime, id))
+          return this.#indexArchiveChanges.get(key) === revisions.get(key)
+        }
+      },
+      changed: (runtime, state) => this.#push({ method: 'history/importChanged', params: { runtime, ...state } }),
+    })
+    this.#evictCached()
+
     this.#seatHeldCards = new SeatHeldCards(join(this.#state.directory, 'seat-held-cards.json'))
     this.#names = new SessionNames(join(this.#state.directory, 'names.json'))
     // Beside `agents.json` and everything else the desk keeps, so a test rig or
@@ -962,6 +1033,7 @@ export class Host {
         dir: join(this.#state.directory, 'evidence'),
         seenFile: join(this.#state.directory, SEEN_FILE),
         ...(options.evidence?.gh ? { gh: options.evidence.gh } : {}),
+        ...(options.evidence?.now ? { now: options.evidence.now } : {}),
         cipher: options.credentialCipher ?? plainCipher,
       },
       {
@@ -1164,8 +1236,8 @@ export class Host {
       notifyPerson: (notice) => this.#push({ method: 'person/notice', params: { notice } }),
       // Built inside the Goal's queue, from the Team's copy as it is when the save runs.
       startOf: async (cwd) => {
-        const [revision, upstream] = await Promise.all([revisionOf(cwd), upstreamTipOf(cwd)])
-        return revision ? { head: revision.head, upstream, dirtyPaths: revision.dirtyPaths } : null
+        const [revision, upstream, checkoutMark] = await Promise.all([revisionOf(cwd), upstreamTipOf(cwd), checkoutMarkOf(cwd)])
+        return revision ? { head: revision.head, branch: revision.branch, upstream, dirtyPaths: revision.dirtyPaths, checkoutMark } : null
       },
       cwdOf: (runtime, sessionId) => this.#sessionCwd(runtime, sessionId),
       // A refused save is put back before the Goal's queue runs anything else.
@@ -1211,6 +1283,7 @@ export class Host {
         return {
           goal: seat.board, seat: bound.seat as SeatId, answers: bound.answers, round: bound.round,
           subjects: bound.subjects, unsettled: bound.unsettled,
+          ...(bound.refusal ? { refusal: bound.refusal } : {}),
         }
       },
       personBindingFor: async (run, card) => {
@@ -1281,6 +1354,7 @@ export class Host {
       builtinRoot: options.builtinFlows ?? builtinFlowRoot(),
       confine: (root) => this.#confineRoom(root),
     }), new FlowExecutions(new ExecutionFiles(join(this.#state.directory, 'flows-v2')), this.#team, {
+      reviewTarget: (goal, card, number, checkout) => this.#evidence.reviewTarget(goal, card, number, checkout),
       fetchBase: async (root, base, run) => {
         await this.#confineRoom(root)
         return fetchFlowBase(root, base, run)
@@ -1322,6 +1396,28 @@ export class Host {
         const record = this.registry.get(seat.session.runtime as RuntimeId, makeSessionId(seat.session.sessionId))
         return record ? this.#queueBusy(record) : false
       },
+      settleApprovals: async (seat, reason) => {
+        const runtime = runtimeId(seat.session.runtime), id = makeSessionId(seat.session.sessionId)
+        const record = this.registry.get(runtime, id)
+        if (!record) return
+        for (const approval of [...record.approvals.values()]) {
+          // Revoke before asking the runtime: a delayed reply must neither
+          // leave Allow usable nor hold up interruption of this or later Seats.
+          this.#onEvent(runtime, {
+            type: 'approval/resolved', sessionId: id, approvalId: approval.id,
+            resolution: { outcome: 'abandoned', reason },
+          })
+          this.#abandonedApprovals.add(`${runtime}\u0000${id}\u0000${approval.id}`)
+          if (this.#abandonedApprovals.size > 2000) this.#abandonedApprovals.delete(this.#abandonedApprovals.values().next().value!)
+          const answer = this.#heldAnswers.get(String(approval.id))
+          if (answer) {
+            this.#heldAnswers.delete(String(approval.id))
+            answer('refused')
+          } else {
+            void Promise.resolve().then(() => record.live?.respondToApproval(approval.id, { type: 'cancel' })).catch(() => {})
+          }
+        }
+      },
       // A trigger's run interrupts each Seat it lets go, closed or not: no turn it started outlives it.
       interrupt: async (seat) => {
         const record = this.registry.get(seat.session.runtime as RuntimeId, makeSessionId(seat.session.sessionId))
@@ -1346,7 +1442,7 @@ export class Host {
       headOf: async (cwd) => {
         const revision = await revisionOf(cwd)
         return revision
-          ? { at: revision.head, dirty: revision.dirty, dirtyFiles: revision.dirtyFiles, dirtyPaths: revision.dirtyPaths }
+          ? { at: revision.head, branch: revision.branch, dirty: revision.dirty, dirtyFiles: revision.dirtyFiles, dirtyPaths: revision.dirtyPaths }
           : { at: null, dirty: false, dirtyFiles: null, dirtyPaths: null }
       },
       // The host commits a card's own work for its Seat, git hardened (`commit_work`, #1074).
@@ -1600,6 +1696,16 @@ export class Host {
       // `this.#context` is assigned once the whole constructor has run; every
       // wire call this preview port answers happens long after that.
       previewAgent: (root, agent, seats, grant, options) => previewAgent(this.#context, root, agent, seats, grant, options),
+      preflightAttachments: async (root, entry, seat, ceiling) => this.#context.attachments!.preflight({
+        project: root,
+        incarnation: await incarnationOf(root),
+        agent: entry.id,
+        origin: entry.origin,
+        agentDigest: entry.digest!,
+        runtime: seat.runtime,
+        build: this.#runtimes.get(runtimeId(seat.runtime))?.info.version ?? '',
+        ceiling,
+      }),
       seatOptionsProblem: async (seat, cwd) => {
         // Independence can leave a later, untried candidate in the preview.
         // A bare Seat asks for no controls, so do not resolve its runtime just
@@ -1607,10 +1713,12 @@ export class Host {
         if (!seat.effort && seat.thinking === undefined) return null
         const runtime = this.#runtimes.get(runtimeId(seat.runtime))
         if (!runtime) return { text: `${seat.runtime} is not available, so this Seat's options cannot be checked.`, availability: true }
+        await this.#context.runtimes.prepareIntent(runtime)
         return seatOptionsProblem(runtime, seat, cwd, this.options.seatReadDeadlineMs)
       },
       providerOf: (runtime, cwd) => this.#providerOf(runtime, cwd),
       checkoutPath: previewCheckout,
+      seatProjectProblem: (root, cwd, isolate) => this.#teamSeatProjectProblem(root, cwd, isolate),
       pluginToolsProblem: async (runtimeName, root, lane) => {
         const runtime = this.#runtimes.get(runtimeId(runtimeName))
         if (!runtime || !runtime.info.capabilities.pluginTools) return null
@@ -1768,6 +1876,10 @@ export class Host {
       revision: async (cwd: string) => {
         const revision = await revisionOf(cwd)
         return revision ? { head: revision.head, dirty: revision.dirty } : { head: null, dirty: null }
+      },
+      checkoutUnused: async (cwd: string) => {
+        const changes = await this.#worktrees.changes(cwd)
+        return changes.modified === 0 && changes.untracked === 0 && changes.ignoredCount === 0
       },
       changed: (view, options) => {
         if (options?.install !== false && !this.#publishingTeamProjection) {
@@ -2079,10 +2191,13 @@ export class Host {
   register(runtime: AgentRuntime): void {
     const id = runtime.info.id
     if (this.#runtimes.has(id)) {
+      this.#historyImport.cancel(id)
       this.#logger.warn('a runtime with this id was already registered; replacing it', {
         runtime: id,
       })
       this.#invalidateDelegations(id)
+      this.#directRuntimeStarts.get(String(id))?.reject(new Error('The agent was replaced.'))
+      this.#directRuntimeStarts.delete(String(id))
       this.#accountReads.get(id)?.dispose()
       for (const unsubscribe of this.#runtimeSubscriptions.get(id) ?? []) unsubscribe()
       this.#runtimeSubscriptions.delete(id)
@@ -2094,6 +2209,17 @@ export class Host {
     const surfaces = new WeakMap<object, object>()
     const accountReads = new AccountReads(id, this.#logger)
     this.#accountReads.set(id, accountReads)
+    const listHistory = (query?: ListSessionsQuery, startIfNeeded = true) => this.#withRuntimeRead(runtime, async () => {
+      await this.#waitForRuntimeStop(runtime)
+      const starting = this.#startingRuntimes.get(String(id)) ?? this.#directRuntimeStarts.get(String(id))?.promise
+      if (starting) await starting
+      if (!startIfNeeded && (!['ready', 'idle'].includes(runtime.health().state) || runtime.health().state === 'idle' &&
+        runtime.canReadWhileIdle?.({ method: 'listSessions', query }) === false)) return null
+      if (runtime.health().state === 'idle' && runtime.canReadWhileIdle?.({
+        method: 'listSessions', query,
+      }) === false) await this.#ensureStarted(runtime)
+      return runtime.listSessions(query)
+    })
     const managed = new Proxy(runtime, {
       get: (target, key) => {
         const member = Reflect.get(target, key, target) as unknown
@@ -2116,28 +2242,21 @@ export class Host {
         }
         if (typeof member !== 'function') return member
         if (key === 'listSessions') {
-          return (...args: unknown[]) => this.#withRuntimeRead(target, async () => {
-            await this.#waitForRuntimeStop(target)
-            const starting = this.#startingRuntimes.get(String(target.info.id))
-            if (starting) await starting
-            if (target.health().state === 'idle' && target.canReadWhileIdle?.({
-              method: 'listSessions', query: args[0] as ListSessionsQuery | undefined,
-            }) === false) await this.#ensureStarted(target)
-            const page = await Reflect.apply(member, target, args) as Page<SessionSummary>
-            return this.#withHostHistory(target.info.id, page, args[0] as ListSessionsQuery | undefined)
-          })
+          return async (query?: ListSessionsQuery) => this.#withHostHistory(id, (await listHistory(query))!, query)
         }
         if (CACHED_RUNTIME_READ_METHODS.has(key) || key === 'listSkills' || key === 'listSkillProblems') {
           const read = (...args: unknown[]) => this.#withRuntimeRead(target, async () => {
             await this.#waitForRuntimeStop(target)
-            const starting = this.#startingRuntimes.get(String(target.info.id))
-            if (starting) await starting
+            const starting = this.#startingRuntimes.get(String(target.info.id)) ?? this.#directRuntimeStarts.get(String(target.info.id))?.promise
+            if (starting && !(this.#coldRuntimes.has(String(id)) && this.#hasObservation(id, key, args))) await starting
             if (target.health().state === 'idle' &&
                 (key === 'defaultSessionOptions' || key === 'listSkills' || key === 'listSkillProblems') &&
-                target.canReadWhileIdle?.({ method: key, cwd: args[0] as string | undefined }) === false) {
+                target.canReadWhileIdle?.({ method: key, cwd: args[0] as string | undefined, ...(key === 'defaultSessionOptions' ? { values: args[1] as Readonly<Record<string, OptionValue>> | undefined } : {}) }) === false) {
               await this.#ensureStarted(target)
             }
-            return Reflect.apply(member, target, args)
+            const answer: unknown = await Reflect.apply(member, target, args)
+            if (target.health().state === 'ready') this.#rememberObservation(target, key, answer, args)
+            return answer
           })
           return key === 'getAccount'
             ? () => accountReads.read(() => read() as ReturnType<AgentRuntime['getAccount']>)
@@ -2147,12 +2266,29 @@ export class Host {
           return (...args: unknown[]) => this.#withRuntimeActivity(target, async () => {
             if (key !== 'listHooks' && typeof args[0] === 'string') await this.#restingSessions.get(sessionKey(id, args[0]))
             await this.#ensureStarted(target)
-            return Reflect.apply(member, target, args)
-          }, typeof args[0] === 'string' && key !== 'readSession' && key !== 'searchSessions' && key !== 'listHooks' ? args[0] : undefined)
+            // A runtime can answer create/fork with an id the desk already holds.
+            // Snapshot before its registration event, which also seeds genuinely new ids.
+            const held = key === 'createSession' || key === 'forkSession'
+              ? new Set(this.registry.all().filter(record => record.runtime === id).map(record => record.session.id))
+              : null
+            const result = await Reflect.apply(member, target, args)
+            if (held) {
+              const live = result as AgentSession
+              if (!held.has(live.id)) {
+                this.#attach(managed, live.id, live)
+                this.#sessionIndex.promote(id, live.id)
+              }
+            }
+            return result
+          }, typeof args[0] === 'string' && key !== 'readSession' && key !== 'sourceOf' && key !== 'searchSessions' && key !== 'listHooks' ? args[0] : undefined)
         }
         return member.bind(target)
       },
     })
+    this.#coldRuntimes.add(String(id))
+    this.#runtimeSources.set(String(id), runtime)
+    runtime.restoreObservations?.(this.#runtimeCache.get(String(id)))
+    this.#runtimeHistoryReaders.set(managed, listHistory)
     this.#runtimes.set(id, managed)
     this.#catalogs.watch(managed)
     this.#runtimeSubscriptions.set(id, [
@@ -2180,6 +2316,7 @@ export class Host {
    * keep sending turns to a runtime nothing can resolve.
    */
   async unregister(id: RuntimeId): Promise<void> {
+    this.#historyImport.cancel(id)
     const runtime = this.#runtimes.get(id)
     if (!runtime) return
     this.registry.detachAll(id)
@@ -2190,6 +2327,11 @@ export class Host {
     this.#runtimeSubscriptions.delete(id)
     this.#catalogs.forget(id)
     this.#runtimes.delete(id)
+    this.#runtimeSources.delete(String(id))
+    this.#coldRuntimes.delete(String(id))
+    this.#modelsReadyAt.delete(String(id))
+    this.#directRuntimeStarts.get(String(id))?.reject(new Error('The agent was removed.'))
+    this.#directRuntimeStarts.delete(String(id))
     this.#accountReads.get(id)?.dispose()
     this.#accountReads.delete(id)
     this.#idleSince.delete(String(id))
@@ -2333,8 +2475,21 @@ export class Host {
   }
 
   async start(): Promise<void> {
-    this.#goalWriter = await acquireDeskWriter(this.#state.directory)
+    if (this.#disposed) return
+    this.#startCalled = true
+    const writer = await acquireDeskWriter(this.#state.directory)
+    if (this.#disposed) {
+      await writer.release()
+      return
+    }
+    this.#goalWriter = writer
     await this.#state.load()
+    if (this.#disposed) return
+    await this.#sweepRemoved(Date.now() - SESSION_REMOVE_UNDO_MS)
+    if (this.#disposed) return
+    this.#scheduleRemovalSweep()
+    await this.#runtimeCache.load()
+    for (const runtime of this.#runtimes.values()) runtime.restoreObservations?.(this.#runtimeCache.get(String(runtime.info.id)))
     await this.#seatHeldCards.load().catch((error: unknown) => {
       this.#logger.warn('the Seat held-card history could not be read; unknown work will not rest', {
         error: error instanceof Error ? error.message : String(error),
@@ -2443,6 +2598,19 @@ export class Host {
     // a room built before the file was read would show every conversation
     // wearing its agent's name and settle only on the next refresh.
     await this.#names.load()
+    if (this.#disposed) return
+    for (const state of this.#team.states()) this.#indexTeam(state)
+    this.#sessionIndexSeed = this.#sessionIndex.seed(this.#state.directory, {
+      signal: this.#sessionIndexAbort.signal,
+      teamOf: (runtime, id) => this.#indexTeamOf(runtime, id),
+      titleOf: (runtime, id) => this.#names.nameOf(runtime, id),
+      archiveCapability: (runtime) => this.#runtimes.get(runtime)?.info.capabilities.archiveHistory,
+    }).then(async () => {
+      for (const row of this.#sessionIndex.managedCandidates(this.#state.directory)) {
+        if (this.#disposed) return
+        await this.#sessionWorktrees.remember(row.runtime, row.id).catch(() => {})
+      }
+    }).catch((error: unknown) => this.#logger.warn('the sidebar index upgrade did not finish', { error: String(error) }))
     // Start capture after the stored names and rooms have recovered, so its
     // first project snapshot cannot describe a partially restored desk.
     this.#provenanceStart = this.#provenance.start().then(() => this.#captureProjects()).catch(() => {
@@ -2471,11 +2639,10 @@ export class Host {
       })
     }
     this.#scheduleRetries()
-    await Promise.all([...this.#runtimes.values()].map((runtime) => this.#startOne(runtime)))
-    /* And only now wake what stopped while the desk was down. Reconciling a
-       run's rounds is board work and belongs above; *sending* to a seat needs
-       the agent that holds it to be running, and asking a moment too early
-       answers "Cursor is not running" for every seat of every flow. */
+    const preferred = this.#state.state.preferences['activeRuntime']
+    const defaultRuntime = (typeof preferred === 'string' ? this.#runtimes.get(preferred) : undefined) ?? this.#runtimes.values().next().value
+    if (defaultRuntime) void this.#startOne(defaultRuntime)
+    /* Recovery sends enter the same live-operation start barrier as new work. */
     /* Held firings are released through their gates, and only then is any
        source read: a trigger's run never dispatches before its runtime is up. */
     /* In the documented order: held firings released through their gates
@@ -2572,7 +2739,10 @@ export class Host {
    */
   async #startOne(runtime: AgentRuntime, prepared = false): Promise<void> {
     const limit = this.options.startTimeoutMs ?? START_TIMEOUT_MS
-    const attempt = this.#beginRuntimeStart(runtime, prepared).then(() => true, () => false)
+    const attempt = this.#waitForRuntimeStop(runtime).then(() => {
+      if (runtime.health().state === 'ready') return
+      return this.#beginRuntimeStart(runtime, prepared)
+    }).then(() => true, () => false)
     let timer: ReturnType<typeof setTimeout> | undefined
     const deadline = new Promise<'timeout'>((resolve) => {
       // Not unref'd: a runtime that never settles is the case this deadline is
@@ -2594,22 +2764,87 @@ export class Host {
 
   #beginRuntimeStart(runtime: AgentRuntime, prepared: boolean): Promise<void> {
     const id = String(runtime.info.id)
-    const existing = this.#startingRuntimes.get(id)
+    const existing = this.#startingRuntimes.get(id) ?? this.#directRuntimeStarts.get(id)?.promise
     if (existing) return existing
-    // Registration stays eager for now. True lazy start can omit the #startOne
-    // loop in Host.start(); every later live operation already enters here.
     const attempt = Promise.resolve().then(async () => {
+      if (this.#disposed) throw new Error('The desk is closing.')
       if (!prepared) await this.#prepareGateway(runtime)
+      const startedAt = performance.now()
       await runtime.start()
+      if (this.#disposed) return
+      const readyAt = performance.now()
+      this.#runtimeCache.update(id, { start: { readyMs: readyAt - startedAt, modelsMs: null } })
       this.#announceReady(runtime)
+      void this.#observeRuntime(runtime, readyAt)
     }).catch((error: unknown) => {
       this.#logger.warn('runtime failed to start', { runtime: runtime.info.id, error: String(error) })
       throw error
     }).finally(() => {
+      this.#coldRuntimes.delete(id)
       if (this.#startingRuntimes.get(id) === attempt) this.#startingRuntimes.delete(id)
     })
     this.#startingRuntimes.set(id, attempt)
     return attempt
+  }
+
+  #warmRuntime(runtime: AgentRuntime): void {
+    if (this.#disposed || runtime.health().state === 'ready' || runtime.health().state === 'starting' || this.#startingRuntimes.has(String(runtime.info.id))) return
+    const cost = this.#runtimeCache.get(String(runtime.info.id)).start
+    if (cost && cost.modelsMs !== null && cost.readyMs + cost.modelsMs < 500) return
+    void this.#ensureStarted(runtime).catch(() => {})
+  }
+
+  #hasObservation(id: string, method: PropertyKey, args: readonly unknown[]): boolean {
+    const cache = this.#runtimeCache.get(id)
+    if (method === 'listModels' || method === 'knownModels') return cache.models !== undefined
+    if (method === 'getAccount') return cache.account !== undefined
+    if (method === 'listOptions') return cache.options !== undefined
+    if (method === 'defaultSessionOptions') return !args[0] && !args[1] && !(args[2] as { fresh?: boolean } | undefined)?.fresh && cache.sessionOptions !== undefined
+    if (method === 'listSkills') return !args[0] && cache.commands !== undefined
+    return false
+  }
+
+  #rememberObservation(runtime: AgentRuntime, method: PropertyKey, answer: unknown, args: readonly unknown[]): void {
+    if (this.#disposed || this.#runtimeSources.get(String(runtime.info.id)) !== runtime) return
+    const field = method === 'listModels' || method === 'knownModels' ? 'models'
+      : method === 'getAccount' ? 'account' : method === 'listOptions' ? 'options'
+      : method === 'defaultSessionOptions' && !args[0] && !args[1] ? 'sessionOptions'
+      : method === 'listSkills' && !args[0] ? 'commands' : null
+    if (field && answer !== null) this.#recordObservations(runtime, { [field]: answer } as RuntimeObservations)
+  }
+
+  #recordObservations(runtime: AgentRuntime, observations: RuntimeObservations): void {
+    const id = String(runtime.info.id)
+    if (this.#disposed || this.#runtimeSources.get(id) !== runtime) return
+    const readyAt = this.#modelsReadyAt.get(id)
+    const cost = this.#runtimeCache.get(id).start
+    const measured = observations.models !== undefined && readyAt !== undefined && cost
+    const patch: CachedRuntime = measured ? { ...observations, start: { ...cost, modelsMs: performance.now() - readyAt } } : observations
+    if (measured) this.#modelsReadyAt.delete(id)
+    this.#runtimeCache.update(id, patch)
+  }
+
+  #observeRuntime(runtime: AgentRuntime, readyAt?: number): Promise<void> {
+    const id = String(runtime.info.id)
+    if (readyAt !== undefined) this.#modelsReadyAt.set(id, readyAt)
+    if (!runtime.observations) return Promise.resolve()
+    runtime = this.#runtimeSources.get(id) ?? runtime
+    const existing = this.#observingRuntimes.get(id)
+    if (existing) return existing
+    const observation = this.#withRuntimeRead(runtime, async () => {
+      const models = await (runtime.knownModels ? runtime.knownModels() : runtime.listModels()).catch(() => null)
+      if (this.#disposed || this.#runtimeSources.get(id) !== runtime || runtime.health().state !== 'ready') return
+      if (models !== null) this.#recordObservations(runtime, { models })
+      this.#recordObservations(runtime, runtime.observations!())
+      this.#push({ method: 'event', params: { runtime: runtime.info.id, event: { type: 'catalog/changed', runtime: runtime.info.id } } })
+      this.#push({ method: 'event', params: { runtime: runtime.info.id, event: { type: 'account/changed', runtime: runtime.info.id } } })
+    }).catch(error => {
+      this.#logger.debug('runtime observations did not answer', { runtime: id, error: String(error) })
+    }).finally(() => {
+      if (this.#observingRuntimes.get(id) === observation) this.#observingRuntimes.delete(id)
+    })
+    this.#observingRuntimes.set(id, observation)
+    return observation
   }
 
   async #ensureStarted(runtime: AgentRuntime): Promise<void> {
@@ -2734,6 +2969,7 @@ export class Host {
         if (record.live === live) {
           record.live = null
           record.detached = false
+          await this.#releaseSessionBody(record)
         }
       })
       this.#restingSessions.set(key, resting)
@@ -2844,7 +3080,11 @@ export class Host {
       try {
         await live.close()
       } finally {
-        if (record.live === live) { record.live = null; record.detached = false }
+        if (record.live === live) {
+          record.live = null
+          record.detached = false
+          await this.#releaseSessionBody(record)
+        }
       }
     })
     this.#restingSessions.set(key, resting)
@@ -2905,11 +3145,18 @@ export class Host {
   #announceReady(runtime: AgentRuntime): void {
     this.#logger.info('runtime ready', { runtime: runtime.info.id, version: runtime.info.version })
     void this.#checkForUpdate(this.#runtimes.get(runtime.info.id) ?? runtime)
+    void this.#reconcileIndexArchive(runtime)
   }
 
   async dispose(): Promise<void> {
     // Set before anything below can yield: see the guard where `start()` makes the roster's watch.
     this.#disposed = true
+    this.#sessionIndexAbort.abort()
+    clearTimeout(this.#removalSweep)
+    this.#historyImport.close()
+    clearTimeout(this.#cacheEvictionTimer)
+    for (const start of this.#directRuntimeStarts.values()) start.reject(new Error('The desk is closing.'))
+    this.#directRuntimeStarts.clear()
     for (const reads of this.#accountReads.values()) reads.dispose()
     this.#accountReads.clear()
     this.#seatActivities.dispose()
@@ -2978,12 +3225,25 @@ export class Host {
     for (const list of this.#runtimeSubscriptions.values()) for (const off of list) off()
     this.#runtimeSubscriptions.clear()
     await this.#terminals.dispose()
+    clearTimeout(this.#removalSweep)
     await this.#transcripts.flush()
+    await this.#removalSweepWork
+    for (const session of this.#indexPending.values()) this.#recordSessionIndex(session, true)
+    await this.#sessionIndexSeed
+    // No page or readiness retry can start after the disposed flag above.
+    // Drain existing authority reads before closing their index and repo queue.
+    await Promise.all(this.#indexArchiveReads.values())
+    await this.#sessionIndexRepos.close()
+    await this.#storage.close()
+    await this.#sessionWorktrees.settled()
+    this.#sessionIndex.close()
     await this.#gateways.dispose()
     this.#usage?.dispose()
     this.#ledger?.close()
     await runtimesGone
+    await this.#runtimeCache.flush()
     await Promise.all(this.#runtimeNoticeWrites)
+    await this.#transcripts.close()
     this.#runtimes.clear()
     /* Every seat parked inside `await_work` is a tool call held open, and a
        held tool call across a quit is a turn that never ends. */
@@ -3410,6 +3670,7 @@ export class Host {
 
   /** Closing membership never turns a wrapped conversation into a loose one. */
   #assertDispatchable(params: { runtime: RuntimeId; sessionId: SessionId }): void {
+    if (this.#sessionIndex.isRemoved(params.runtime, params.sessionId)) throw new Error('Open this conversation again before sending a message.')
     if (this.#keptByWrappedTeam(params)) throw new Error('This Team is wrapped')
   }
 
@@ -3459,7 +3720,74 @@ export class Host {
   #shellProject: string | null = null
   #shellCheckoutRoot: string | null = null
 
-  /** Only person-opened projects admit shell authority; session listings never do. */
+  /** A preview may inspect the selected folder; only Start persists its admission. */
+  async #teamProjectIdentity(folder: string): Promise<ShellProjectIdentity> {
+    await this.#confineRoom(folder)
+    const real = await realpath(folder)
+    if (!(await stat(real)).isDirectory()) throw new Error('Choose a project folder, then preview again.')
+    const selected = this.#state.state.workspaces.find(entry => samePath(entry.path, folder))
+    if (selected && isShellProjectIdentity(selected.shellIdentity) &&
+      (typeof selected.realPath !== 'string' || !samePath(selected.realPath, real) ||
+        !await shellProjectUnchanged(selected.realPath, selected.shellIdentity))) {
+      throw new Error('The project checkout changed. Open the project folder again, then preview again.')
+    }
+    // An existing identity must still agree. Starting a Team never silently
+    // replaces a captured boundary that changed since the person opened it.
+    await this.#admitShellProject(real, real)
+    // Another opened checkout may admit this repository, but its identity
+    // cannot be saved as this folder's: the next Seat validates that pairing.
+    return captureShellProject(real)
+  }
+
+  async #admitTeamProject(folder: string): Promise<void> {
+    const shellIdentity = await this.#teamProjectIdentity(folder)
+    const realPath = await realpath(folder)
+    const described = await describeWorkspace(folder)
+    await this.#state.touchWorkspace({ ...described, lastOpenedAt: Date.now(), realPath, shellIdentity })
+    this.#boardRoots.clear()
+    void this.#watchProjects()
+  }
+
+  async #teamSeatProjectProblem(root: string, cwd: string, isolate: boolean): Promise<string | null> {
+    try {
+      const identity = await this.#teamProjectIdentity(root)
+      const real = await realpath(cwd)
+      const checkout = await shellCheckoutIdentity(real)
+      const checkoutRoot = checkout?.checkoutRoot ?? real
+      if (checkout && (!identity.gitCommonDir || !samePath(checkout.gitCommonDir, identity.gitCommonDir))) {
+        return 'The Team checkout belongs to another project. Open the project folder again, then preview again.'
+      }
+      if (!samePath(checkoutRoot, identity.checkoutRoot) &&
+        !samePath(await this.#worktrees.shellRoot(identity.project, checkoutRoot, identity.gitCommonDir, identity.checkoutRoot), checkoutRoot)) {
+        return 'The Team checkout is no longer available. Open the project folder again, then preview again.'
+      }
+      if (isolate) {
+        if (!identity.gitCommonDir || !(await revisionOf(real))?.head) return 'Choose a Git project with an initial commit, then preview again.'
+        // Follow the same main-checkout resolution as allocation, without
+        // creating its container. The nearest existing parent must be usable.
+        let parent = dirname(await managedWorktreePath(real, this.#state.directory, 'lane-preview'))
+        for (;;) {
+          const info = await stat(parent).catch(error => {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+            throw error
+          })
+          if (info) {
+            if (!info.isDirectory()) throw new Error('The checkout parent is not a folder')
+            await access(parent, constants.W_OK | constants.X_OK)
+            break
+          }
+          const above = dirname(parent)
+          if (above === parent) throw new Error('No checkout parent is available')
+          parent = above
+        }
+      }
+      return null
+    } catch {
+      return 'The project cannot open its attempts here. Open the project folder again, then preview again.'
+    }
+  }
+
+  /** Only person-opened or explicitly selected Team projects admit shell authority; session listings never do. */
   async #admitShellProject(project: string | null | undefined, checkout?: string): Promise<ShellProjectIdentity | undefined> {
     if (!project || !isAbsolute(project)) return undefined
     const real = await realpath(project).catch(() => undefined)
@@ -3492,9 +3820,33 @@ export class Host {
   async #shellWorkspace(scope: ScopeQuery): Promise<WorkspaceAdmission | undefined> {
     const record = scope.runtime && scope.sessionId ? this.registry.get(scope.runtime, scope.sessionId) : undefined
     // Durable records are candidates, re-admitted against person-opened projects on every invocation.
-    const kept = record && !record.shellCheckout ? this.#evidence.seats.latestKeptOf(record.runtime, record.session.id) : null
-    const checkout = record?.shellCheckout ?? kept?.checkout
-    const admitted = await this.#admitShellProject(checkout?.project, checkout?.cwd)
+    const retained = record ? this.#evidence.seats.latestKeptOf(record.runtime, record.session.id) : null
+    const kept = record && !record.shellCheckout ? retained : null
+    let checkout = record?.shellCheckout ?? kept?.checkout
+    let admitted: ShellProjectIdentity | undefined
+    let ordinaryRoot: string | undefined
+    // Runtime cwd is only a candidate for an ordinary conversation, never a replacement for Seat placement.
+    if (record && !retained && !record.seatedAs && !this.#seating.has(sessionKey(record.runtime, record.session.id)) &&
+      (!record.shellCheckout || record.shellCheckout.source === 'fallback') && isAbsolute(record.session.cwd)) {
+      const realCwd = await realpath(record.session.cwd).catch(() => undefined)
+      const requested = realCwd ? await shellCheckoutIdentity(realCwd) : null
+      if (realCwd && requested && !samePath(requested.gitDir, requested.gitCommonDir) &&
+        (samePath(realCwd, requested.checkoutRoot) || realCwd.startsWith(`${requested.checkoutRoot}${sep}`))) {
+        const openedCheckoutRoots = this.#state.state.workspaces.flatMap((entry) =>
+          isShellProjectIdentity(entry.shellIdentity) ? [entry.shellIdentity.checkoutRoot] : [])
+        const eligible = await this.#worktrees.shellCheckoutEligible(requested.checkoutRoot, requested.checkoutRoot, openedCheckoutRoots)
+        const candidate = eligible ? await this.#admitShellProject(requested.checkoutRoot, requested.checkoutRoot) : undefined
+        if (candidate && !samePath(requested.checkoutRoot, candidate.project) && samePath(requested.gitCommonDir, candidate.gitCommonDir ?? '')) {
+          const root = await this.#worktrees.shellRoot(candidate.project, requested.checkoutRoot, candidate.gitCommonDir, candidate.checkoutRoot)
+          if (samePath(root, requested.checkoutRoot)) {
+            checkout = { project: candidate.project, cwd: root, source: 'own' }
+            admitted = candidate
+            ordinaryRoot = root
+          }
+        }
+      }
+    }
+    admitted ??= await this.#admitShellProject(checkout?.project, checkout?.cwd)
     const identity = admitted ?? await this.#admitShellProject(this.#shellProject)
     if (!identity) {
       if (this.#shellProject) throw new Error('The project checkout changed or is no longer open. Open it again before running shell commands.')
@@ -3502,11 +3854,11 @@ export class Host {
     }
     // A foreign or stale project loses its cwd as well; it cannot authorize a lane of the fallback project.
     const project = identity.project
-    const cwd = await this.#worktrees.shellRoot(project, admitted ? checkout?.cwd : undefined, identity.gitCommonDir, identity.checkoutRoot)
+    const cwd = ordinaryRoot ?? await this.#worktrees.shellRoot(project, admitted ? checkout?.cwd : undefined, identity.gitCommonDir, identity.checkoutRoot)
     // A Seat owns its placement only while shellRoot can still return that admitted checkout.
     const placement = checkout && (kept ? await realpath(checkout.cwd).catch(() => undefined) : checkout.cwd)
     const source = admitted && checkout && placement && samePath(cwd, placement)
-      ? record?.shellCheckout?.source ?? (kept ? 'own' : 'fallback')
+      ? ordinaryRoot ? 'own' : record?.shellCheckout?.source ?? (kept ? 'own' : 'fallback')
       : 'fallback'
     if (record) record.shellCheckout = { project, cwd, source }
     return { root: cwd, enterCheckout: source === 'own' && !samePath(cwd, this.#shellCheckoutRoot ?? '') }
@@ -3526,7 +3878,7 @@ export class Host {
     return this.#claimableIn(this.#goalIntents(goal), goal, card, runtime, sessionId)
   }
 
-  #claimableIn(intents: readonly Intent[], goal: string, card: number, runtime: string, sessionId: string): boolean {
+  #claimableIn(intents: readonly Intent[], goal: string, card: number, runtime: string, sessionId: string, cwd?: string): boolean {
     /* A card a flow bound to one Seat is that Seat's alone; while the Seat is
        still opening, only that opening's own claim — the one GoalPlane.seat
        makes inside the same transaction — may take it. */
@@ -3542,7 +3894,7 @@ export class Host {
     })
     if (waits) return false
     // A card whose paths overlap a live claim is not claimable, exactly as `claim` refuses it for an agent.
-    if (this.#team.refuseOverlap(goal, intents, card, runtime, sessionId) !== null) return false
+    if (this.#team.refuseOverlap(goal, intents, card, runtime, sessionId, cwd) !== null) return false
     return !intents.some((one) =>
       one.id !== card && one.state === 'claimed' && one.claim?.runtime === runtime && one.claim.sessionId === sessionId,
     )
@@ -3649,18 +4001,19 @@ export class Host {
        from a checkout's pre-existing dirt; a failed read leaves it null,
        which is a finish's own signal to never refuse for dirt it cannot
        attribute (#1049). */
-    const [upstream, dirtyPaths] = await Promise.all([
+    const [upstream, dirtyPaths, checkoutMark] = await Promise.all([
       upstreamTipOf(opening.checkout.cwd).catch(() => null),
       revisionOf(opening.checkout.cwd).then((revision) => revision?.dirtyPaths ?? null).catch(() => null),
+      checkoutMarkOf(opening.checkout.cwd).catch(() => null),
     ])
     await this.#goalPlaneWrite(goal, (intents) => {
       const current = intents.find((one) => one.id === card)
       if (!current) throw new Error('Choose an existing card.')
       if (current.state === 'claimed' && current.claim?.runtime === runtime && current.claim.sessionId === sessionId) return intents
-      if (!this.#claimableIn(intents, goal, card, runtime, sessionId)) {
+      if (!this.#claimableIn(intents, goal, card, runtime, sessionId, opening.checkout.cwd)) {
         /* A file conflict says which paths, and which card holds them: the
            person reading the stalled run has to know what to untangle. */
-        const overlap = this.#team.refuseOverlap(goal, intents, card, runtime, sessionId)
+        const overlap = this.#team.refuseOverlap(goal, intents, card, runtime, sessionId, opening.checkout.cwd)
         if (overlap) throw new Error(`Refused: ${overlap}`)
         throw new Error('This card cannot be assigned now. Resolve its dependency, role or file conflict first.')
       }
@@ -3669,9 +4022,10 @@ export class Host {
         ...intent,
         state: 'claimed' as const,
         // Where the Seat's checkout stood as it took the card: the start of this card's work.
-        claim: { runtime: runtime as RuntimeId, sessionId, at, cwd: opening.checkout.cwd, head: opening.checkout.head, upstream, dirtyPaths },
+        claim: { runtime: runtime as RuntimeId, sessionId, at, cwd: opening.checkout.cwd, head: opening.checkout.head, upstream, dirtyPaths, checkoutMark },
         // A live claim measures to HEAD, not to wherever it last stopped.
         until: null,
+        untilBranch: undefined,
         updatedAt: at,
         blockedBy: null,
         blockedReason: null,
@@ -3762,6 +4116,21 @@ export class Host {
     }
   }
 
+  async #archiveTeamMembers(team: string): Promise<{ archived: number; stayed: number }> {
+    let archived = 0, stayed = 0
+    const known = this.#sessionIndex.teamMembers(team)
+    for (const row of known) {
+      const record = this.registry.get(row.runtime, row.id)
+      if (record && (record.running.size > 0 || isBusy(record.session) || record.queue.messages.length > 0)) { stayed++; continue }
+      if (row.archived) { archived++; continue }
+      try {
+        await archiveConversation(this.#context, { runtime: row.runtime, sessionId: row.id, archived: true })
+        archived++
+      } catch { stayed++ }
+    }
+    return { archived, stayed }
+  }
+
   async #finishGoalWrap(operation: Extract<GoalOperation, { kind: 'wrap' }>): Promise<void> {
     const document = this.#goalStore.read(operation.goal)
     if (document.operation === null && document.receipt?.id === operation.receipt.id) return
@@ -3779,8 +4148,10 @@ export class Host {
     const unreviewed = { resolution: 'dropped' as const, reason: 'Added while the Goal was wrapping, so it was never reviewed.' }
     const setAside = document.board.intents.filter((intent) => !resolutions.has(intent.id))
       .map((intent) => ({ id: intent.id, ...unreviewed }))
-    const receipt: GoalReceipt = setAside.length === 0 ? operation.receipt
-      : { ...operation.receipt, cards: [...operation.receipt.cards, ...setAside] }
+    const archiveResult = await this.#archiveTeamMembers(operation.goal)
+    const archivedReceipt = { ...operation.receipt, conversations: archiveResult }
+    const receipt: GoalReceipt = setAside.length === 0 ? archivedReceipt
+      : { ...archivedReceipt, cards: [...operation.receipt.cards, ...setAside] }
     /*
      * Every card a receipt Seat held already lost its claim, and had its stop
      * recorded, before this ever ran (`GoalPlane#stageWrap` reads it, and
@@ -3964,9 +4335,98 @@ export class Host {
       audit: this.#audit,
       transcripts: this.#transcripts,
       archive: this.#archive,
+      sessionIndex: {
+        list: (params) => {
+          const page = this.#listSessionIndex(params)
+          if (params.archived === 'only') {
+            for (const runtime of this.#runtimes.values()) {
+              const last = this.#archiveViewRefresh.get(runtime.info.id) ?? 0
+              if (Date.now() - last < 60_000) continue
+              this.#archiveViewRefresh.set(runtime.info.id, Date.now())
+              void this.#reconcileIndexArchive(runtime)
+            }
+          }
+          for (const row of page.data) this.#sessionIndexRepos.read(row.cwd, true)
+          return page
+        },
+        record: (session) => this.#recordSessionIndex(session, true),
+        reopen: (session) => {
+          if (!this.#sessionIndex.admitReopened(session.runtime, session.id)) return
+          const restored = this.registry.restoreRemoved(session.runtime, session.id)
+          this.#recordSessionIndex(session, true)
+          this.#transcripts.record(session, { now: true })
+          this.#scheduleRemovalSweep()
+          if (restored) this.#pushQueue(restored)
+        },
+        setTitle: (runtime, id, title) => {
+          this.#flushSessionIndex(runtime, id)
+          this.#sessionIndex.setTitle(runtime, id, title)
+        },
+        setArchived: (runtime, id, archived) => {
+          this.#flushSessionIndex(runtime, id)
+          this.#indexArchiveChanges.set(String(sessionKey(runtime, id)), (this.#indexArchiveChanges.get(String(sessionKey(runtime, id))) ?? 0) + 1)
+          this.#sessionIndex.setArchived(runtime, id, archived)
+        },
+        setRemoved: (runtime, id, removed) => {
+          this.#flushSessionIndex(runtime, id)
+          const undoUntil = removed ? this.#sessionIndex.remove(runtime, id) : (this.#sessionIndex.undoRemove(runtime, id), null)
+          if (undoUntil !== null) this.registry.holdRemoved(runtime, id, undoUntil)
+          else {
+            const restored = this.registry.restoreRemoved(runtime, id)
+            if (restored) this.#pushQueue(restored)
+          }
+          this.#scheduleRemovalSweep()
+          return { undoUntil }
+        },
+        deleted: (runtime, id) => {
+          this.#cancelSessionIndex(runtime, id)
+          this.#sessionIndex.deleted(runtime, id)
+        },
+        remove: (runtime, id) => {
+          this.#cancelSessionIndex(runtime, id)
+          this.#sessionIndex.remove(runtime, id)
+        },
+      },
+      history: {
+        import: runtime => this.#historyImport.import(runtime),
+        cancel: runtime => this.#historyImport.cancel(runtime),
+        status: runtime => this.#historyImport.status(runtime),
+        list: async params => {
+          if (params.repoRoot !== undefined) {
+            // A cold folder cannot match repo_root yet. Resolve the candidate
+            // folders through the bounded pass before applying that filter.
+            const folders = new Set<string>()
+            let cursor: string | undefined
+            do {
+              const candidates = this.#sessionIndex.history({ ...params, repoRoot: undefined, cursor, pageSize: 500 })
+              for (const row of candidates.data) folders.add(row.cwd)
+              cursor = candidates.nextCursor ?? undefined
+            } while (cursor)
+            for (const cwd of folders) this.#sessionIndexRepos.read(cwd, true)
+            await this.#sessionIndexRepos.flush()
+          }
+          const page = this.#sessionIndex.history(params)
+          for (const row of page.data) this.#sessionIndexRepos.read(row.cwd, true)
+          return { ...page, data: page.data.map(row => ({ ...row, ...this.#indexStatus(row) })) }
+        },
+        removeImported: async runtime => {
+          this.#historyImport.cancel(runtime)
+          await this.#transcripts.flush()
+          const removed = this.#sessionIndex.removeImported(runtime)
+          this.#transcripts.forgetMemory(removed)
+          for (const row of removed) this.#cancelSessionIndex(row.runtime, row.id)
+          return { removed: removed.length }
+        },
+        clearCached: async () => {
+          await this.#transcripts.flush()
+          return this.#evictCached(0)
+        },
+      },
       names: this.#names,
       terminals: this.#terminals,
       worktrees: this.#worktrees,
+      sessionWorktrees: this.#sessionWorktrees,
+      storage: this.#storage,
       team: this.#team,
       flows: this.#flows,
       flowPreviews: this.#flowPreviews,
@@ -4016,6 +4476,7 @@ export class Host {
       evidence: this.#evidence,
       attachments: {
         prepare: (subject) => this.#attachments.prepare(subject),
+        preflight: (subject) => this.#attachments.preflight(subject),
         record: (seat, prepared, receipt) => this.#attachments.record(seat, prepared, receipt),
         trust: {
           preview: (subject, entries, options) => this.#attachmentTrust.preview(subject, entries, options),
@@ -4094,7 +4555,17 @@ export class Host {
               canRecycle, reason: canRecycle ? null : !runtime.stopForIdle ? 'This runtime cannot recycle while idle.' : runtime.health().state !== 'ready' ? 'This runtime is not running.' : 'Close its conversations and let its work finish before recycling.' }
           })
         },
-        recycle: (runtime) => this.#recycleRuntime(runtime),
+        recycle: async runtime => {
+          // A click during the default's background launch stops that launch's
+          // process once it is up; it never starts an idle runtime to stop it.
+          await this.#startingRuntimes.get(String(runtime.info.id))?.catch(() => {})
+          return this.#recycleRuntime(runtime)
+        },
+        warm: (runtime) => this.#warmRuntime(runtime),
+        ensureStarted: (runtime) => this.#ensureStarted(runtime),
+        prepareIntent: async runtime => {
+          if (this.#coldRuntimes.has(String(runtime.info.id)) || this.#startingRuntimes.has(String(runtime.info.id)) || this.#directRuntimeStarts.has(String(runtime.info.id))) await this.#startOne(runtime)
+        },
         start: (runtime) => this.#startOne(runtime),
         bindUsage: (runtime, binding) => this.bindUsage(runtime, binding),
       },
@@ -4104,10 +4575,17 @@ export class Host {
         live: (params) => this.#live(params),
         record: (params) => this.#record(params),
         read: (runtime, id) => this.#read(runtime, id),
+        releaseBody: async (params) => {
+          const record = this.registry.get(params.runtime, makeSessionId(params.sessionId))
+          if (record) await this.#releaseSessionBody(record)
+        },
         attach: (runtime, id, live) => this.#attach(runtime, id, live),
         withRepos: (page) => this.#withRepos(page),
         routeToHolders: (runtime, page) => this.#routeToHolders(runtime, page),
-        applyArchive: (runtime, page, filter) => this.#applyArchive(runtime, page, filter),
+        applyArchive: (runtime, page, filter) => {
+          if (runtime.info.capabilities.archiveHistory && filter === 'only') void this.#reconcileIndexArchive(runtime)
+          return this.#applyArchive(runtime, page, filter)
+        },
         busyElsewhere: (runtime, id, error) => this.#busyElsewhere(runtime, id, error),
         cannotReopen: (runtime, error) => this.#cannotReopen(runtime, error),
         releaseQuiet: async (params) => {
@@ -4188,6 +4666,7 @@ export class Host {
         topLevel: (path, signal) => gitOps.topLevel(path, signal),
         realPath: (path) => this.#realPath(path),
         confineRoom: (folder) => this.#confineRoom(folder),
+        admitTeamProject: (folder) => this.#admitTeamProject(folder),
         open: (path) => this.#openWorkspace(path),
         gitStatus: (path, signal) => gitService.status(path, signal),
         repoOf: (cwd) => this.#repoOf(cwd),
@@ -4636,7 +5115,23 @@ export class Host {
         continue
       }
       const outcome = await this.#transcripts.importOne(entry.runtime, entry.id, entry.data)
-      if (outcome === 'restored') transcripts.restored += 1
+      if (outcome === 'restored') {
+        transcripts.restored += 1
+        const restored = await this.#transcripts.readSummary(runtimeId(entry.runtime), makeSessionId(entry.id))
+        if (restored) {
+          await this.#archive.load()
+          const native = this.#runtimes.get(restored.runtime)?.info.capabilities.archiveHistory
+          const title = this.#names.nameOf(restored.runtime, restored.id) ?? restored.title ?? null
+          // A verified restore is an explicit metadata replacement, not a listing.
+          this.#sessionIndex.setTitle(restored.runtime, restored.id, title)
+          this.#sessionIndex.upsert({ ...restored, title }, {
+            teamId: this.#indexTeamOf(restored.runtime, restored.id),
+            ...(native !== false ? { archived: null } : { archived: this.#archive.has(restored.runtime, restored.id) }),
+          })
+          const authority = this.#runtimes.get(restored.runtime)
+          if (authority) void this.#reconcileIndexArchive(authority)
+        }
+      }
       else transcripts.skipped += 1
     }
 
@@ -5209,7 +5704,8 @@ export class Host {
 
   /**
    * Reads what the reopened conversation actually loaded, appends it as the
-   * Seat's next epoch, and records the Seat beside the session again. A
+   * Seat's next epoch. The caller records the Seat beside the session only
+   * after admitting and upserting its registry entry. A
    * failure closes the reopened handle rather than leave it running on a
    * filter nobody could record.
    */
@@ -5217,7 +5713,6 @@ export class Host {
     try {
       const receipt = await receiptFrom(runtime, live.id, reopened.prepared.input.key, { reopen: reopened.prepared, seatKeys: this.#attachments.keysOf(reopened.seat.id) })
       await this.#attachments.record(reopened.seat, reopened.prepared, receipt)
-      this.registry.recordAttachmentSeat(runtime.info.id, live.id, reopened.seat.id)
     } catch (error) {
       await this.#letGo(runtime.info.id, live.id, live)
       throw new Error(
@@ -5248,9 +5743,17 @@ export class Host {
     if (!seat) return null
     if (!(await this.#carriesFilter(seat, 'read'))) return null
     const kept = await this.#transcripts.recover(runtime.info.id, id)
-    if (kept) return kept
-    const live = await this.#liveFor(runtime.info.id, id)
-    return this.#transcripts.enrich(await runtime.readSession(live.id))
+    const source = await this.#sourceState(runtime, id)
+    if (kept && (!source || source.kind !== 'changed')) return { ...kept, ...(source ? { deskCopy: source.kind === 'gone' } : {}) }
+    try {
+      const live = await this.#liveFor(runtime.info.id, id)
+      const session = await this.#transcripts.enrich(await runtime.readSession(live.id))
+      if (source) return this.#cacheRead(session, source.source)
+      return this.#preserveReadRecency(session)
+    } catch (error) {
+      if (kept && source) return { ...kept, deskCopy: true }
+      throw error
+    }
   }
 
   /**
@@ -5361,6 +5864,8 @@ export class Host {
   }
 
   readonly #heldAnswers = new Map<string, (answer: 'allowed' | 'refused' | 'unanswered') => void>()
+  /** Recent Stop settlements: a delayed runtime reply cannot replace abandonment. */
+  readonly #abandonedApprovals = new Set<string>()
 
   #conversationName(runtime: string, sessionId: string): string {
     const record = this.registry.get(runtimeId(runtime), makeSessionId(sessionId))
@@ -5405,7 +5910,7 @@ export class Host {
       })
     })
     this.#heldAnswers.delete(String(id))
-    this.#onEvent(record.runtime, {
+    if (record.approvals.has(String(id))) this.#onEvent(record.runtime, {
       type: 'approval/resolved',
       sessionId: record.session.id,
       approvalId: id,
@@ -5726,6 +6231,13 @@ export class Host {
     this.#teamRefusals.delete(sessionKey(runtime, id))
     const record = this.registry.get(runtime, id)
     if (record) record.reopenRefusals = 0
+    // Membership changes precede the queued projection save/notification.
+    // Read the Team's current members so an immediate index read sees it too.
+    const key = sessionKey(runtime, id)
+    this.#indexTeams.delete(String(key))
+    const team = this.#team.states().find(state => state.members.includes(key))
+    if (team) this.#indexTeams.set(String(key), team.id)
+    this.#sessionIndex.setTeam(runtime, id, this.#indexTeamOf(runtime, id))
   }
 
   /** Why a conversation would not come back, in the agent's name and its own words. */
@@ -5826,7 +6338,7 @@ export class Host {
    * every reopen after it.
    */
   async #restoreRestedPicks(runtime: AgentRuntime, live: AgentSession, id: SessionId): Promise<void> {
-    const held = this.registry.get(runtime.info.id, id)
+    const held = this.registry.forReopen(runtime.info.id, id)
     if (!held?.restedOptions) return
     try {
       for (const [optionId, value] of Object.entries(held.restedOptions)) {
@@ -5847,6 +6359,7 @@ export class Host {
   }
 
   async #reattach(runtime: AgentRuntime, id: SessionId, route?: ResolvedModelRoute): Promise<AgentSession> {
+    if (this.#coldRuntimes.has(String(runtime.info.id)) || this.#startingRuntimes.has(String(runtime.info.id))) await this.#ensureStarted(runtime)
     const name = runtime.info.presentation.name
     const health = runtime.health()
     if (health.state !== 'ready' && health.state !== 'idle') {
@@ -5866,11 +6379,13 @@ export class Host {
     // — never on the runtime's own defaults, which would load every ambient
     // skill and server its approval was there to keep out.
     const reopened = await this.#reopenAttachments(runtime, id)
+    const restored = await this.#sessionWorktrees.prepare(runtime.info.id, id)
     try {
       const environment = await this.#context.laneEnvironment.forSession(String(runtime.info.id), String(id))
       const frozen = this.#evidence.seats.latestKeptOf(runtime.info.id, String(id))
       const standing = this.#evidence.seats.latestOf(runtime.info.id, String(id))?.standing
       live = await resumeSeatSession(runtime, id, {
+        ...(restored.cwd ? { cwd: restored.cwd, knownCwd: restored.cwd } : {}),
         ...(route ? { route } : {}),
         ...(frozen?.runtimeServers !== undefined ? { runtimeServers: frozen.runtimeServers } : {}),
         ...(standing?.kind === 'ceiling' ? { requestedCeiling: standing.level } : {}),
@@ -5908,8 +6423,17 @@ export class Host {
     // settings and options from the handle, which is the only place they are.
     const transcript = await this.#read(runtime, live.id)
     const session: Session = { ...transcript, settings: live.settings(), options: live.options() }
+    const removed = this.#sessionIndex.isRemoved(runtime.info.id, id)
+    if (removed) {
+      // Keep the record withheld through every part of the open that can
+      // fail, then restore its queue before attaching the resumed handle.
+      if (reopened) await this.#finishReopen(runtime, live, reopened)
+      this.#context.sessionIndex.reopen(session)
+    }
     const record = this.registry.upsert(session, live)
-    if (reopened) await this.#finishReopen(runtime, live, reopened)
+    this.#recordSessionIndex(record.session, true)
+    if (reopened && !removed) await this.#finishReopen(runtime, live, reopened)
+    if (reopened) this.registry.recordAttachmentSeat(runtime.info.id, live.id, reopened.seat.id)
     this.#logger.info('reopened a conversation whose agent had restarted', {
       runtime: runtime.info.id,
       session: String(id),
@@ -5934,6 +6458,30 @@ export class Host {
     return record.live ?? live
   }
 
+  /** A cheap stat of the previously named source needs no agent process or body read. */
+  async #sourceState(runtime: AgentRuntime, id: SessionId) {
+    if (!runtime.info.capabilities.sourceTranscript || !runtime.sourceOf) return null
+    const saved = await this.#transcripts.source(runtime.info.id, id)
+    if (saved) {
+      try {
+        const current = await stat(saved.path)
+        const source = { path: saved.path, mtimeMs: current.mtimeMs, size: current.size }
+        return { kind: source.mtimeMs === saved.mtimeMs && source.size === saved.size ? 'unchanged' as const : 'changed' as const, source }
+      } catch (error) {
+        if (['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) {
+          // Archive or a project move may relocate the same agent-owned record.
+          try {
+            const source = await runtime.sourceOf(id)
+            return source ? { kind: 'changed' as const, source } : { kind: 'gone' as const, source: null }
+          } catch { return { kind: 'changed' as const, source: null } }
+        }
+        // Permission and I/O errors are not evidence that a record is gone.
+      }
+    }
+    try { return { kind: 'changed' as const, source: await runtime.sourceOf(id) } }
+    catch { return { kind: 'changed' as const, source: null } }
+  }
+
   /**
    * A session's transcript, for a client that is about to show it.
    *
@@ -5946,12 +6494,70 @@ export class Host {
    * asked, and what it says is folded in (`SessionRegistry.upsert`).
    */
   async #read(runtime: AgentRuntime, id: SessionId): Promise<Session> {
+    const indexed = this.#sessionIndex.get(runtime.info.id, id)
+    if (indexed?.archived) await archiveConversation(this.#context, { runtime: runtime.info.id, sessionId: id, archived: false })
+    const restored = await this.#sessionWorktrees.prepare(runtime.info.id, id)
+    const read = await this.#readTranscript(runtime, id)
+    const cwd = restored.cwd || indexed?.cwd || read.cwd
+    const session = this.#preserveReadRecency({ ...read, cwd, ...(restored.warning ? { worktreeWarning: restored.warning } : {}) })
+    this.#recordSessionIndex(session, true)
+    this.#sessionIndex.opened(runtime.info.id, id)
+    // A closed source-less replay may contain new work without desk events.
+    // Save its new version before release reuses the persisted timestamp.
+    if (!runtime.info.capabilities.sourceTranscript &&
+      (this.#sessionIndex.isImported(runtime.info.id, id) || !this.registry.get(runtime.info.id, id)?.live)) {
+      await this.#transcripts.refresh(session, null)
+    }
+    return session
+  }
+
+  #preserveReadRecency(session: Session): Session {
+    const key = String(sessionKey(session.runtime, session.id))
+    const indexed = this.#indexPending.get(key) ?? this.#sessionIndex.get(session.runtime, session.id)
+    // A held body owns its timing; index rows can be sparse lifecycle metadata.
+    const held = this.registry.get(session.runtime, session.id)?.session
+    const timing = held?.itemsLoaded ? held : indexed
+    return timing ? { ...session, ...(held?.itemsLoaded ? { createdAt: held.createdAt } : {}), updatedAt: timing.updatedAt } : session
+  }
+
+  async #cacheRead(session: Session, source: SessionSource | null): Promise<Session> {
+    const stable = this.#preserveReadRecency(session)
+    this.#recordSessionIndex(stable, true)
+    await this.#transcripts.refresh(stable, source)
+    return stable
+  }
+
+  async #readTranscript(runtime: AgentRuntime, id: SessionId): Promise<Session> {
     const held = this.registry.get(runtime.info.id, id)
     if (held?.live && held.session.itemsLoaded && held.running.size > 0) return held.session
+    // Reading the desk's own history needs no working agent process.
+    const health = runtime.health()
+    if (health.state === 'unavailable' && health.reason !== 'unknown' && !held?.live) {
+      const kept = await this.#transcripts.recover(runtime.info.id, id) ??
+        await readKeptTranscriptFile(join(this.#state.directory, 'transcripts'), runtime.info.id, id)
+      if (kept) return { ...kept, deskCopy: true }
+    }
     const scoped = await this.#scopedRead(runtime, id)
     if (scoped) return scoped
+    const source = await this.#sourceState(runtime, id)
+    if (source && source.kind !== 'changed') {
+      const cached = await this.#transcripts.recover(runtime.info.id, id)
+      if (cached) return { ...held?.session, ...cached, deskCopy: source.kind === 'gone' }
+    }
     try {
-      return await this.#transcripts.enrich(await runtime.readSession(id))
+      const session = { ...await this.#transcripts.enrich(await runtime.readSession(id)),
+        ...(runtime.info.capabilities.sourceTranscript ? { deskCopy: false } : {}) }
+      if (this.#sessionIndex.fillMissingMetadata(session)) this.#sessionIndexRepos.read(session.cwd)
+      session.cwd = this.#sessionIndex.get(runtime.info.id, id)?.cwd || session.cwd
+      // Read the fingerprint before replay, so a concurrent append always forces another refresh.
+      if (source) return this.#cacheRead(session, source.source)
+      else if (runtime.info.capabilities.sourceTranscript && runtime.sourceOf) {
+        // Startup can negotiate this capability inside readSession. A stat
+        // taken now could include an append the replay missed, so leave it
+        // unstamped until a subsequent read captures metadata before replay.
+        return this.#cacheRead(session, null)
+      }
+      return this.#preserveReadRecency(session)
     } catch (error) {
       // A conversation this host started and is still holding open was
       // watched item by item; what the registry has *is* the transcript.
@@ -5968,17 +6574,18 @@ export class Host {
         // freshly mapped session, and returning the registry's own object
         // here would let a caller that edits what it was given edit the
         // record the host is holding.
-        return { ...held.session }
+        return { ...held.session, ...(source ? { deskCopy: true } : {}) }
       }
       // The backend cannot serve it — but the host may have watched it
       // happen. A read-only copy beats an unopenable conversation.
-      const recovered = await this.#transcripts.recover(runtime.info.id, id)
+      const recovered = await this.#transcripts.recover(runtime.info.id, id) ??
+        await readKeptTranscriptFile(join(this.#state.directory, 'transcripts'), runtime.info.id, id)
       if (!recovered) throw error
       this.#logger.warn(`session/read fell back to the stored transcript for ${id}`, {
         runtime: runtime.info.id,
         error: error instanceof Error ? error.message : String(error),
       })
-      return recovered
+      return { ...recovered, deskCopy: true }
     }
   }
 
@@ -6209,6 +6816,7 @@ export class Host {
       throw new Error('The Seat checkout is not admitted for this project. Open that checkout first.')
     }
     const runtime = this.#runtime({ runtime: seat.runtime })
+    await this.#ensureStarted(runtime)
     // The lane is found by its checkout, from the desk's own lane record; the
     // cwd is the confinement and every runtime takes it. The six values go to
     // a runtime that can take them per session, and are said in the standing
@@ -6268,6 +6876,7 @@ export class Host {
       this.registry.get(runtime.info.id, live.id)!.shellCheckout = { ...checkout, source: 'own' }
       await live.setTitle(where.title).catch(() => {})
       await this.#names.set(runtime.info.id, live.id, where.title)
+      this.#sessionIndex.setTitle(runtime.info.id, live.id, where.title)
       await this.#applySeatPicks(live, seat)
       const ran = live.options()
       return {
@@ -6455,7 +7064,7 @@ export class Host {
    * What the desk does about one still there is its caller's (`#archiveSeat`).
    */
   async #askToDelete(owner: AgentRuntime, id: SessionId): Promise<'deleted' | 'cannot' | { readonly refused: string }> {
-    if (!owner.info.capabilities.deleteHistory) return 'cannot'
+    if (owner.info.capabilities.deleteHistory !== 'trash') return 'cannot'
     try {
       await owner.deleteSession(id)
       return 'deleted'
@@ -6551,7 +7160,25 @@ export class Host {
     if (live && record.live === live) {
       record.live = null
       record.detached = false
+      await this.#releaseSessionBody(record)
     }
+  }
+
+  /** Closed bodies live in SQLite; sync needs only their identity and reopen state. */
+  async #releaseSessionBody(record: SessionRecord): Promise<void> {
+    const quiet = () => !record.live && !record.detached && record.running.size === 0 &&
+      record.approvals.size === 0 && record.queue.messages.length === 0 &&
+      !record.tasks.some(task => task.state === 'running') && !this.#queueBusy(record) &&
+      !this.#reattaching.has(recordKey(record)) && !this.#draining.has(recordKey(record))
+    if (!quiet() || !record.session.itemsLoaded) return
+    const session = record.session
+    if (!await this.#transcripts.release(session)) return
+    // A read, late event or reopen that overtook the save owns the newer body.
+    if (record.session !== session || !quiet()) return
+    this.#flushSessionIndex(record.runtime, session.id)
+    record.session = { ...session, turns: [], itemsLoaded: false }
+    record.watched.clear()
+    this.#turnInsight.forget(record.runtime, session.id)
   }
 
   /**
@@ -6633,10 +7260,219 @@ export class Host {
       .join(' · ')
   }
 
+  /** A Team owns its conversations after wrapping as well as while it runs. */
+  #indexTeamOf(runtime: RuntimeId, id: SessionId): string | null {
+    const held = this.#indexTeams.get(String(sessionKey(runtime, id)))
+    if (held) return held
+    const seat = this.#evidence?.seats.latestOf(runtime, id)
+    return seat?.board ?? this.#goalStore.keptBy(runtime, id)[0] ?? null
+  }
+
+  #indexTeam(state: TeamState): void {
+    const before = [...this.#indexTeams].filter(([, team]) => team === state.id).map(([key]) => key)
+    const members = new Set(state.members.map(String))
+    for (const key of before) if (!members.has(key)) this.#indexTeams.delete(key)
+    for (const key of members) this.#indexTeams.set(key, state.id)
+    for (const key of new Set([...before, ...members])) {
+      const { runtime, id } = splitSessionKey(key as import('@harnessdesk/protocol').SessionKey)
+      this.#sessionIndex.setTeam(runtime, id, this.#indexTeamOf(runtime, id))
+    }
+  }
+
+  #indexStatus(row: SessionSummary): SessionSummary {
+    const record = this.registry.get(row.runtime, row.id)
+    return { ...row, status: record?.live ? record.running.size > 0 ? { type: 'active' }
+      : record.session.status.type === 'active' ? { type: 'idle' } : record.session.status : { type: 'notLoaded' } }
+  }
+
+  #listSessionIndex(params: import('@harnessdesk/protocol').HostParams<'session/index'>): Page<SessionSummary> {
+    const runtimes = [...this.#runtimes.keys()].map(runtimeId).filter(id => params.runtimes === undefined || params.runtimes.includes(id))
+    const page = this.#sessionIndex.list({ ...params, runtimes })
+    return { ...page, data: page.data.map(row => this.#indexStatus(row)) }
+  }
+
+  readonly #archiveViewRefresh = new Map<RuntimeId, number>()
+  readonly #indexArchiveReads = new Map<RuntimeId, Promise<void>>()
+  readonly #indexArchiveChanges = new Map<string, number>()
+  readonly #indexFolderBackfills = new Set<RuntimeId>()
+
+  /** Native history confirms archives and repairs metadata, without adopting unrelated ids. */
+  #reconcileIndexArchive(runtime: AgentRuntime): Promise<void> {
+    if (this.#disposed || !['ready', 'idle'].includes(runtime.health().state)) return Promise.resolve()
+    const existing = this.#indexArchiveReads.get(runtime.info.id)
+    if (existing) return existing
+    const read = Promise.resolve().then(async () => {
+      await this.#sessionIndexSeed
+      if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
+      if (!runtime.info.capabilities.archiveHistory) {
+        await this.#archive.load()
+        if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
+        for (const id of this.#sessionIndex.unresolvedArchive(runtime.info.id)) {
+          this.#sessionIndex.confirmArchived(runtime.info.id, id, this.#archive.has(runtime.info.id, id))
+        }
+        if (!runtime.info.capabilities.listHistory || this.#indexFolderBackfills.has(runtime.info.id) || !this.#sessionIndex.hasMissingFolders(runtime.info.id)) return
+        // One launch pass, at most 10,000 history rows. It observes ready agents
+        // through their guarded native reader and never starts one for history.
+        let cursor: string | undefined
+        const seen = new Set<string>()
+        for (let pageNumber = 0; pageNumber < 20; pageNumber++) {
+          if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime || !['ready', 'idle'].includes(runtime.health().state)) return
+          const page = await this.#runtimeHistoryReaders.get(runtime)!({ pageSize: 500, ...(cursor ? { cursor } : {}) }, false)
+          if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
+          // A guarded refusal is not an empty listing. Consume the launch pass
+          // only after the agent actually answers its first page.
+          if (page === null) return
+          this.#indexFolderBackfills.add(runtime.info.id)
+          for (const row of page.data.slice(0, 500)) {
+            if (this.#sessionIndex.fillMissingMetadata({ ...row, runtime: runtime.info.id })) this.#sessionIndexRepos.read(row.cwd)
+          }
+          cursor = page.nextCursor ?? undefined
+          if (!cursor || !this.#sessionIndex.hasMissingFolders(runtime.info.id)) return
+          if (seen.has(cursor)) throw new Error('Folder listing repeated its cursor')
+          seen.add(cursor)
+        }
+        return
+      }
+      const revisions = new Map(this.#indexArchiveChanges)
+      for (const archived of ['only', 'exclude'] as const) {
+        let cursor: string | undefined
+        const seen = new Set<string>()
+        const confirmed: SessionSummary[] = []
+        do {
+          if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
+          const page = (await this.#runtimeHistoryReaders.get(runtime)!({ archived, pageSize: 500, ...(cursor ? { cursor } : {}) }))!
+          if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
+          confirmed.push(...page.data)
+          cursor = page.nextCursor ?? undefined
+          if (cursor && seen.has(cursor)) throw new Error('Archive listing repeated its cursor')
+          if (cursor) seen.add(cursor)
+        } while (cursor)
+        if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
+        for (const row of confirmed) {
+          if (this.#sessionIndex.fillMissingMetadata({ ...row, runtime: runtime.info.id })) this.#sessionIndexRepos.read(row.cwd)
+          const key = String(sessionKey(runtime.info.id, row.id))
+          if (this.#indexArchiveChanges.get(key) !== revisions.get(key)) continue
+          this.#sessionIndex.confirmArchived(runtime.info.id, row.id, archived === 'only')
+        }
+      }
+      // Some native listings omit their own ids. Only a per-thread answer
+      // can resolve them; absence and failed reads prove nothing.
+      const omitted = [...this.#sessionIndex.unresolvedArchive(runtime.info.id)]
+      let next = 0
+      await Promise.all(Array.from({ length: Math.min(3, omitted.length) }, async () => {
+        while (next < omitted.length) {
+          const id = omitted[next++]!
+          if (this.#disposed || this.#runtimes.get(runtime.info.id) !== runtime) return
+          const key = String(sessionKey(runtime.info.id, id))
+          try {
+            const read = await runtime.readSession(id)
+            if (!this.#disposed && this.#runtimes.get(runtime.info.id) === runtime && this.#sessionIndex.fillMissingMetadata(read)) this.#sessionIndexRepos.read(read.cwd)
+            if (!this.#disposed && this.#runtimes.get(runtime.info.id) === runtime &&
+              this.#indexArchiveChanges.get(key) === revisions.get(key) && typeof read.archived === 'boolean') {
+              this.#sessionIndex.confirmArchived(runtime.info.id, id, read.archived)
+            }
+          } catch { /* Retry unresolved rows on the next completed pass. */ }
+        }
+      }))
+      if (!this.#disposed && this.#runtimes.get(runtime.info.id) === runtime) this.#sessionIndex.clearArchiveError(runtime.info.id)
+    }).catch((error: unknown) => {
+      if (!this.#disposed) this.#sessionIndex.archiveError(runtime.info.id, String(error))
+      this.#logger.warn('the sidebar archive authority could not be reconciled', { runtime: runtime.info.id, error: String(error) })
+    }).finally(() => { if (this.#indexArchiveReads.get(runtime.info.id) === read) this.#indexArchiveReads.delete(runtime.info.id) })
+    this.#indexArchiveReads.set(runtime.info.id, read)
+    return read
+  }
+
+  #sweepRemoved(before: number): Promise<void> {
+    if (!this.#startCalled || this.#disposed) return Promise.resolve()
+    if (this.#removalSweepWork) return this.#removalSweepWork
+    this.#removalSweepWork = (async () => {
+      const records = this.#sessionIndex.expiredWorktrees(before)
+      await this.#transcripts.sweepRemoved(before)
+      for (const row of records) {
+        if (this.#disposed) return
+        if (!this.#sessionIndex.isRemoved(row.runtime, row.id)) continue
+        const warning = await this.#sessionWorktrees.cleanup(row.runtime, row.id)
+        if (warning) this.#push({ method: 'session/worktreeKept', params: { runtime: row.runtime, sessionId: row.id, message: warning } })
+      }
+    })().finally(() => { this.#removalSweepWork = null })
+    return this.#removalSweepWork
+  }
+
+  #scheduleRemovalSweep(): void {
+    clearTimeout(this.#removalSweep)
+    if (!this.#startCalled || this.#disposed) return
+    const removals = this.#transcripts.removedBodies()
+    const deadlines = [...removals.map(row => row.removed_at + SESSION_REMOVE_UNDO_MS), ...this.registry.removalDeadlines(), ...this.#sessionIndex.expiredWorktrees(Number.MAX_SAFE_INTEGER).map(row => {
+      const dbRow = this.#sessionIndex.removalTime(row.runtime, row.id); return (dbRow ?? Date.now()) + SESSION_REMOVE_UNDO_MS
+    })]
+    if (deadlines.length === 0 || this.#disposed) return
+    const due = Math.min(...deadlines)
+    this.#removalSweep = setTimeout(() => {
+      this.registry.sweepRemoved(Date.now())
+      void this.#sweepRemoved(Date.now() - SESSION_REMOVE_UNDO_MS).then(() => this.#scheduleRemovalSweep())
+        .catch(error => this.#logger.warn('removed conversation bodies could not be swept', { error: String(error) }))
+    }, Math.max(0, due - Date.now()))
+    this.#removalSweep.unref()
+  }
+
+  #evictCached(cap = this.options.cachedBodyCapBytes ?? 500 * 1024 * 1024): { count: number; bytes: number } {
+    return this.#transcripts.evictCached(cap, (runtime, id) => Boolean(this.registry.get(runtime, id)?.live))
+  }
+
+  #scheduleCacheEviction(): void {
+    if (this.#disposed || this.#cacheEvictionTimer) return
+    this.#cacheEvictionTimer = setTimeout(() => {
+      this.#cacheEvictionTimer = undefined
+      try { this.#evictCached() }
+      catch (error) { this.#logger.warn('cached bodies could not be evicted', { error: String(error) }) }
+    }, 800)
+    this.#cacheEvictionTimer.unref()
+  }
+
+  #cancelSessionIndex(runtime: RuntimeId, id: SessionId): void {
+    const key = String(sessionKey(runtime, id))
+    const timer = this.#indexTimers.get(key)
+    if (timer) clearTimeout(timer)
+    this.#indexTimers.delete(key)
+    this.#indexPending.delete(key)
+  }
+
+  #flushSessionIndex(runtime: RuntimeId, id: SessionId): void {
+    const pending = this.#indexPending.get(String(sessionKey(runtime, id)))
+    if (pending) this.#recordSessionIndex(pending, true)
+  }
+
+  /** Shares the transcript writer's settle window; completed turns land at once. */
+  #recordSessionIndex(session: Session, now = false): void {
+    const key = String(sessionKey(session.runtime, session.id))
+    this.#cancelSessionIndex(session.runtime, session.id)
+    if (!now) {
+      this.#indexPending.set(key, session)
+      const timer = setTimeout(() => this.#recordSessionIndex(session, true), 800)
+      timer.unref()
+      this.#indexTimers.set(key, timer)
+      return
+    }
+    const named = this.#names.nameOf(session.runtime, session.id)
+    this.#sessionIndex.upsert({
+      id: session.id, runtime: session.runtime, cwd: session.cwd,
+      title: named ?? session.title ?? null, preview: session.preview ?? null,
+      createdAt: session.createdAt, updatedAt: session.updatedAt,
+      status: session.status, git: session.git ?? null,
+    }, { origin: 'imported', teamId: this.#indexTeamOf(session.runtime, session.id) })
+    if (this.#startCalled && !this.#disposed) {
+      void this.#sessionWorktrees.remember(session.runtime, session.id).catch(error => this.#logger.warn('conversation worktree inventory could not be read', { error: String(error) }))
+    }
+  }
+
   #attach(runtime: AgentRuntime, id: Session['id'], live: Awaited<ReturnType<AgentRuntime['createSession']>>) {
+    this.#sessionIndex.admitCreated(runtime.info.id, id)
     const existing = this.registry.get(runtime.info.id, id)
     if (existing) {
       existing.live = live
+      this.#recordSessionIndex(existing.session, true)
+      this.#sessionIndex.opened(runtime.info.id, id)
       return existing.session
     }
     // `session/started` normally arrives first and seeds the registry; this is
@@ -6653,7 +7489,10 @@ export class Host {
       turns: [],
       itemsLoaded: true,
     }
-    return this.registry.upsert(seeded, live).session
+    const session = this.registry.upsert(seeded, live).session
+    this.#recordSessionIndex(session, true)
+    this.#sessionIndex.opened(runtime.info.id, id)
+    return session
   }
 
   #runtime(params: unknown): AgentRuntime {
@@ -6702,11 +7541,23 @@ export class Host {
   }
 
   #onEvent(runtime: RuntimeId, event: AgentEvent): void {
+    if (this.#disposed) return
+    const id = event.type === 'session/started' ? event.session.id : event.type === 'approval/requested' ? event.approval.sessionId : 'sessionId' in event ? event.sessionId : undefined
+    if (id && this.#sessionIndex.isRemoved(runtime, id)) return
     if (event.type === 'account/changed') this.#accountReads.get(runtime)?.invalidate()
+    if (event.type === 'catalog/changed' || event.type === 'runtime/options') {
+      const owner = this.#runtimeSources.get(String(runtime))
+      if (owner?.observations && owner.health().state === 'ready') this.#recordObservations(owner, owner.observations())
+    }
     withCanonicalPaths(() => this.#foldEvent(runtime, event))
   }
 
   #foldEvent(runtime: RuntimeId, event: AgentEvent): void {
+    if (event.type === 'approval/requested') {
+      this.#abandonedApprovals.delete(`${runtime}\u0000${event.approval.sessionId}\u0000${event.approval.id}`)
+    } else if (event.type === 'approval/resolved' && this.#abandonedApprovals.has(`${runtime}\u0000${event.sessionId}\u0000${event.approvalId}`)) {
+      return
+    }
     if (event.type === 'notice') {
       event = { ...event, id: event.id ?? `notice-${randomBytes(8).toString('hex')}`, at: event.at ?? Date.now() }
       const rawCounts = this.#state.state.preferences['runtimeNoticeCounts']
@@ -6746,6 +7597,7 @@ export class Host {
     ) {
       return
     }
+    if (event.type === 'session/title') this.#sessionIndex.setTitle(runtime, event.sessionId, event.title)
     this.#noteDelegation(runtime, event)
     if (event.type === 'turn/started') {
       const key = String(sessionKey(runtime, event.sessionId))
@@ -6827,6 +7679,9 @@ export class Host {
       if (seated?.board) this.#intake.turn(seated, event.type === 'turn/started' ? 'started' : 'ended')
     }
     if (event.type === 'turn/started' && record) {
+      // The opened row already owns its Team facts. Promotion publishes it immediately;
+      // ordinary metadata follows the settle window without another dispatch lookup.
+      this.#sessionIndex.promote(runtime, record.session.id)
       this.#sendingNow.delete(recordKey(record))
       const seat = this.#evidence.seats.all().find((candidate) => candidate.session.runtime === runtime && candidate.session.sessionId === record.session.id && !candidate.closed && !candidate.restored)
       this.#turnInsight.start({ runtime, session: record.session.id, turn: String(event.turn.id), at: Date.now(), seat: seat?.id ?? null, before: record.session.usage ?? null })
@@ -6864,6 +7719,7 @@ export class Host {
     if (record && event.type !== 'approval/requested' && event.type !== 'approval/resolved') {
       if (event.type === 'turn/completed') this.#turnInsight.complete(runtime, record.session.id, String(event.turn.id), Date.now(), record.session.usage ?? null)
       this.#transcripts.record(record.session, { now: event.type === 'turn/completed', insight: this.#turnInsight.forSession(runtime, record.session.id) })
+      this.#recordSessionIndex(record.session, event.type === 'turn/completed' || event.type === 'session/started' || event.type === 'session/title')
     }
     // The numbers moved because a turn just spent some: re-read that agent
     // only, and only when someone could be looking. Cheaper and fresher than
@@ -7491,6 +8347,9 @@ export class Host {
     const generation = ++this.#provenanceGeneration
     const roots = this.#openRoots()
     void Promise.all(roots.map(async (root) => {
+      // A removed workspace is history, not a repository to keep polling.
+      const exists = await stat(root).then(info => info.isDirectory(), () => false)
+      if (!exists) return []
       const [checkout, repository] = await Promise.all([this.#topLevelOf(root), this.#repoOf(root)])
       return [checkout ?? root, ...(repository === null ? [] : [repository.root])]
     }))
@@ -7502,9 +8361,12 @@ export class Host {
   }
 
   #repoOf(cwd: string): Promise<RepoInfo | null> {
+    const cached = this.#sessionIndex.repo(cwd)
+    if (cached) return Promise.resolve(cached.repo)
     const held = this.#repos.get(cwd)
     if (held) return held
-    const asked = repositoryOf(cwd).catch(() => null)
+    this.#sessionIndexRepos.read(cwd)
+    const asked = this.#sessionIndexRepos.flush().then(() => this.#sessionIndex.repo(cwd)?.repo ?? null)
     this.#repos.set(cwd, asked)
     return asked
   }
@@ -7747,6 +8609,42 @@ export class Host {
   }
 
   #onHealthChange(runtime: RuntimeId, health: RuntimeHealth): void {
+    const id = String(runtime)
+    const authority = this.#runtimes.get(runtime)
+    if (health.state === 'ready' && authority && !authority.info.capabilities.archiveHistory && !this.#indexFolderBackfills.has(runtime)) {
+      // A ready signal may arrive while the guarded idle read is settling.
+      // Retry after it, without turning a background read into an agent start.
+      void (this.#indexArchiveReads.get(runtime) ?? Promise.resolve()).then(() => this.#reconcileIndexArchive(authority))
+    }
+    // Background startup returns before readiness. Count its quiet time from
+    // readiness too, rather than adding a whole interval after a delayed poll.
+    if (health.state === 'ready' && this.#runtimeIsIdle(runtime, false)) {
+      if (!this.#idleSince.has(id)) this.#idleSince.set(id, Date.now())
+    } else this.#idleSince.delete(id)
+    // Installation checks and explicit catalogue refresh can restart inside the
+    // adapter. They pay the same measured cost as a host-owned start.
+    if (health.state === 'starting' && !this.#startingRuntimes.has(id)) {
+      if (!this.#directRuntimeStarts.has(id)) {
+        let resolve!: () => void
+        let reject!: (error: Error) => void
+        const promise = new Promise<void>((yes, no) => { resolve = yes; reject = no })
+        // No caller need be waiting yet; a failed adapter start is still handled.
+        void promise.catch(() => {})
+        this.#directRuntimeStarts.set(id, { startedAt: performance.now(), promise, resolve, reject })
+      }
+    } else if (health.state !== 'starting') {
+      const direct = this.#directRuntimeStarts.get(id)
+      this.#directRuntimeStarts.delete(id)
+      if (direct) this.#coldRuntimes.delete(id)
+      if (health.state === 'ready') direct?.resolve()
+      else direct?.reject(new Error(health.state === 'unavailable' ? health.message ?? 'The agent did not start.' : 'The agent stopped while starting.'))
+      const owner = this.#runtimeSources.get(id)
+      if (health.state === 'ready' && direct && owner) {
+        const readyAt = performance.now()
+        this.#runtimeCache.update(id, { start: { readyMs: readyAt - direct.startedAt, modelsMs: null } })
+        void this.#observeRuntime(owner, readyAt)
+      }
+    }
     if (health.state !== 'ready' && health.state !== 'idle') {
       this.#invalidateDelegations(runtime)
       for (const record of this.registry.detachAll(runtime)) this.#pushQueue(record)
@@ -7760,6 +8658,11 @@ export class Host {
   }
 
   #push(notification: WireNotification): void {
+    if (!this.#disposed && notification.method === 'team/changed') this.#indexTeam(notification.params.state)
+    if (!this.#disposed && notification.method === 'session/removed' && !this.#sessionIndex.isRemoved(notification.params.runtime, notification.params.sessionId)) {
+      this.#cancelSessionIndex(notification.params.runtime, notification.params.sessionId)
+      this.#sessionIndex.remove(notification.params.runtime, notification.params.sessionId)
+    }
     if (!this.#disposed) {
       if (notification.method === 'team/changed') this.#refreshSeatActivities(notification.params.state.id, notification.params.state.intents)
       else if (notification.method === 'goal/changed') this.#refreshSeatActivities(notification.params.view.goal.id)

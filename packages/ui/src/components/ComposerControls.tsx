@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { ConfigOption, OptionChoice, RuntimeId, RuntimeInfo, SeatAttachmentsRecord, SelectOption } from '@harnessdesk/protocol'
 
-import { Button, Chip, CodeText, Dialog, RowChoice, Search, Text } from '../design'
+import { Button, Chip, ComposerTrack, Dialog, RowChoice, Text, TextMark } from '../design'
 import { Badge } from '../design'
 import { runtimeLabel } from '../lib/accounts'
 import { CARRY_OPTIONS, type Carry } from '../lib/handoff'
@@ -11,7 +11,8 @@ import { brandOf } from '../lib/identity'
 import { describesEveryChoice, riskTone, selectedChoice } from '../lib/options'
 import { matchPreset, presetsFor } from '../state/presets'
 import { describeChecked, describeUpdate, describeVersion } from '../lib/versions'
-import { useActiveSession, useRuntime, useSnapshot, useStore } from '../state/context'
+import { openExternal } from '../lib/desktop'
+import { useActiveSession, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { useSeatAgent } from '../state/seat-agent'
 import { optionsBySlot, slotForCategory, type ComposerOptionSlot, type StaleDefault } from '../lib/composer-slots'
 import {
@@ -42,7 +43,7 @@ import {
   ZapIcon,
 } from './Icons'
 import { ModelMark, RuntimeMark } from './BrandIcons'
-import { Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, RefusedAction, Submenu } from '../design'
+import { Menu, MenuItem, MenuLabel, MenuNote, MenuSearch, MenuSeparator, MenuToggle, RefusedAction, Submenu } from '../design'
 import { useOptionConfirm } from './OptionConfirm'
 import { Popover } from '../design'
 import sheet from './ComposerControls.module.css'
@@ -63,16 +64,22 @@ import sheet from './ComposerControls.module.css'
  * never heard of lands in "More" with a working menu.
  */
 
-const Chevron = () => <ChevronIcon size={11} style={{ transform: 'rotate(90deg)' }} />
+const Chevron = ({ size = 11 }: { size?: number }) => <ChevronIcon size={size} style={{ transform: 'rotate(90deg)' }} />
 
-const FOLD_ORDER = ['agent', 'work-in', 'more', 'mode', 'permissions', 'model'] as const
+const FOLD_ORDER = ['agent', 'more', 'context', 'mode', 'permissions', 'model'] as const
 type FoldableTrack = (typeof FOLD_ORDER)[number]
+type ToolbarTrack = FoldableTrack | 'work-in'
 type ToolbarStep = { folded: number; tight: boolean }
 
+const WIDE_TRACKS_WITH_OWN_MEASURE = new Set(['permissions', 'mode', 'context'])
 const trackToken = (track: string, size: 'wide' | 'folded' | 'tight'): string =>
-  `--hd-composer-track-${track}${size === 'wide' ? '' : `-${size}`}`
+  `--hd-composer-track-${track}${size === 'wide' ? (WIDE_TRACKS_WITH_OWN_MEASURE.has(track) ? '-wide' : '') : `-${size}`}`
 
-const px = (value: string): number => Number.parseFloat(value) || 0
+const px = (value: string, style?: CSSStyleDeclaration): number => {
+  const resolved = value.replace(/var\((--[\w-]+)(?:,\s*([^)]+))?\)/g, (_match, name: string, fallback: string | undefined) =>
+    style?.getPropertyValue(name).trim() || fallback || '')
+  return Number.parseFloat(resolved) || 0
+}
 
 /** The fold thresholds describe the toolbar's content box, not its padding. */
 const contentBoxWidth = (toolbar: HTMLElement): number => {
@@ -85,25 +92,41 @@ const contentBoxWidth = (toolbar: HTMLElement): number => {
     - px(style.borderRightWidth)
 }
 
-/** Read the active foundation once and measure fold steps from its tracks and gaps. */
+const wideTrackMeasurements = new WeakMap<HTMLElement, Map<string, number>>()
+
+/** Read the active foundation and current selected values before choosing fold steps. */
 const toolbarStepper = (toolbar: HTMLElement): ((width: number) => ToolbarStep) => {
   const style = getComputedStyle(toolbar)
   const layout = toolbar.dataset.composerLayout
   const tracks = ['add', ...(layout === 'live' ? [] : ['work-in']), 'agent', 'permissions', 'mode', 'extension', 'more', 'context', 'model', 'send']
-  // Reserve the populated Extension width regardless of whether an action is
-  // present; its presence varies by agent, but the fold steps must not.
-  const wideWidths = new Map(tracks.map((track) => [
-    track,
-    px(style.getPropertyValue(trackToken(track, 'wide'))),
-  ]))
+  const measuredWidths = wideTrackMeasurements.get(toolbar) ?? new Map<string, number>()
+  for (const trackName of tracks) {
+    const track = toolbar.querySelector<HTMLElement>(`[data-composer-track="${trackName}"]`)
+    if (!track || track.hasAttribute('data-folded') || track.hasAttribute('data-tight')) continue
+    const previousShrink = track.style.flexShrink
+    if (trackName === 'work-in') track.style.flexShrink = '0'
+    const width = track.getBoundingClientRect().width
+    track.style.flexShrink = previousShrink
+    measuredWidths.set(trackName, width)
+  }
+  wideTrackMeasurements.set(toolbar, measuredWidths)
+  const extension = toolbar.querySelector<HTMLElement>('[data-composer-track="extension"]')
+  const wideWidths = new Map(tracks.map((trackName) => {
+    const tokenWidth = px(style.getPropertyValue(trackToken(trackName, 'wide')), style)
+    const measured = measuredWidths.get(trackName) ?? 0
+    const width = trackName === 'extension' && extension?.childElementCount === 0
+      ? px(style.getPropertyValue('--hd-composer-track-extension-empty'), style)
+      : Math.max(tokenWidth, measured)
+    return [trackName, width]
+  }))
   const gap = px(style.columnGap) || px(style.gap)
   // ComposerGap is itself a flex child between the tracks, so there is one
   // more flex gap than there are spaces between the named tracks.
   const gaps = tracks.length * gap
   const total = (widths: ReadonlyMap<string, number>): number =>
     [...widths.values()].reduce((sum, trackWidth) => sum + trackWidth, gaps)
-  const order = FOLD_ORDER.filter((track) => layout !== 'live' || track !== 'work-in')
-  const foldedWidths = new Map(order.map((track) => [track, px(style.getPropertyValue(trackToken(track, 'folded')))]))
+  const order = FOLD_ORDER
+  const foldedWidths = new Map(order.map((track) => [track, px(style.getPropertyValue(trackToken(track, 'folded')), style)]))
   return (width) => {
     const widths = new Map(wideWidths)
     let folded = 0
@@ -123,7 +146,7 @@ const toolbarStepper = (toolbar: HTMLElement): ((width: number) => ToolbarStep) 
  * nothing — its options arrive after the runtime does — and starts watching
  * only once it has drawn something.
  */
-const useNarrowToolbar = (name: FoldableTrack): {
+export const useNarrowToolbar = (name: ToolbarTrack): {
   ref: (node: HTMLSpanElement | null) => void
   folded: boolean
   tight: boolean
@@ -155,6 +178,7 @@ const useNarrowToolbar = (name: FoldableTrack): {
     const onViewportResize = () => update()
     window.addEventListener('resize', onViewportResize)
     mutationObserver?.observe(toolbar, { attributes: true })
+    mutationObserver?.observe(toolbar, { childList: true, subtree: true })
     if (document.documentElement) mutationObserver?.observe(document.documentElement, { attributes: true })
     if (document.body) mutationObserver?.observe(document.body, { attributes: true })
     return () => {
@@ -163,8 +187,9 @@ const useNarrowToolbar = (name: FoldableTrack): {
       window.removeEventListener('resize', onViewportResize)
     }
   }, [toolbar, layout])
-  const order = FOLD_ORDER.filter((track) => toolbar?.dataset.composerLayout !== 'live' || track !== 'work-in')
-  return { ref, folded: step.folded >= order.indexOf(name) + 1, tight: step.tight }
+  const foldIndex = FOLD_ORDER.indexOf(name as FoldableTrack)
+  const foldable = foldIndex >= 0
+  return { ref, folded: foldable && step.folded >= foldIndex + 1, tight: foldable && step.tight }
 }
 
 /** A control's wrapper: no box of its own, just a way to reach the toolbar. */
@@ -194,7 +219,7 @@ const useStaleDefaults = (slot: ComposerOptionSlot): readonly StaleDefault[] => 
   return (runtime ? snapshot.staleDraftDefaults[runtime] ?? [] : []).filter((one) => slotForCategory(one.category) === slot)
 }
 
-const DefaultWarning = () => <Text aria-label="Stale saved default" tone="warning" className="inline-flex shrink-0"><AlertIcon size={13} /></Text>
+const DefaultWarning = () => <TextMark label="Stale saved default" tone="warning"><AlertIcon size={12} /></TextMark>
 
 const StaleDefaultRows = ({ stale }: { stale: readonly StaleDefault[] }) => {
   const store = useStore()
@@ -211,78 +236,13 @@ const MissingOptionControl = ({ stale, label, reason, narrow, tight, children }:
   stale: readonly StaleDefault[]; label: string; reason: string; narrow: boolean; tight: boolean; children: ReactNode
 }) => stale.length > 0 ? (
   <Popover fullWidth tightTrigger={tight} title={`${label} — stale saved default`} drop="up"
-    label={<>{children}<DefaultWarning />{!narrow && <Text role="row">{label}</Text>}{!tight && <Chevron />}</>}>
+    label={<>{!tight && children}<DefaultWarning />{!narrow && <Text role="row">{label}</Text>}{!tight && <Chevron />}</>}>
     {(close) => <Menu close={close}><StaleDefaultRows stale={stale} /><MenuNote>{reason}</MenuNote></Menu>}
   </Popover>
 ) : <RefusedComposerControl label={label} reason={reason} narrow={narrow} tight={tight}>{children}</RefusedComposerControl>
 
 const UnavailableChoice = ({ option }: { option: ConfigOption }) => option.type === 'select' && !selectedChoice(option)
   ? <MenuItem icon={<AlertIcon size={14} />} label={currentLabel(option)} disabled="This current value is no longer offered." onSelect={() => undefined} /> : null
-
-export type ComposerTrackName =
-  | 'add'
-  | 'work-in'
-  | 'agent'
-  | 'permissions'
-  | 'mode'
-  | 'extension'
-  | 'more'
-  | 'context'
-  | 'model'
-  | 'send'
-
-const wideTrackClass: Record<ComposerTrackName, string> = {
-  add: sheet.trackAdd!,
-  'work-in': sheet.trackWorkIn!,
-  agent: sheet.trackAgent!,
-  permissions: sheet.trackPermissions!,
-  mode: sheet.trackMode!,
-  extension: sheet.trackExtension!,
-  more: sheet.trackMore!,
-  context: sheet.trackContext!,
-  model: sheet.trackModel!,
-  send: sheet.trackSend!,
-}
-
-const foldedTrackClass: Partial<Record<ComposerTrackName, string>> = {
-  'work-in': sheet.trackWorkInFolded!,
-  agent: sheet.trackAgentFolded!,
-  permissions: sheet.trackPermissionsFolded!,
-  mode: sheet.trackModeFolded!,
-  more: sheet.trackMoreFolded!,
-  model: sheet.trackModelFolded!,
-}
-
-const tightTrackClass: Partial<Record<ComposerTrackName, string>> = {
-  'work-in': sheet.trackWorkInTight!,
-  agent: sheet.trackAgentTight!,
-  permissions: sheet.trackPermissionsTight!,
-  mode: sheet.trackModeTight!,
-  more: sheet.trackMoreTight!,
-  model: sheet.trackModelTight!,
-}
-
-/** One named, token-sized position in the composer's toolbar. */
-export const ComposerTrack = ({
-  name,
-  folded = false,
-  tight = false,
-  children,
-}: {
-  name: ComposerTrackName
-  folded?: boolean
-  tight?: boolean
-  children?: ReactNode
-}) => (
-  <div
-    data-composer-track={name}
-    data-folded={folded || undefined}
-    data-tight={tight || undefined}
-    className={`${sheet.track} ${wideTrackClass[name]} ${folded ? foldedTrackClass[name] ?? '' : ''} ${tight ? tightTrackClass[name] ?? '' : ''}`}
-  >
-    {children}
-  </div>
-)
 
 const RefusedComposerControl = ({
   label,
@@ -369,6 +329,7 @@ const ChoiceRows = ({
   choices?: readonly OptionChoice[]
 }) => {
   const store = useStore()
+  const key = useSessionKey()
   const agent = brandForRuntime(useRuntime())
   const column = describesEveryChoice(option)
   const groups = new Map<string | undefined, OptionChoice[]>()
@@ -388,10 +349,12 @@ const ChoiceRows = ({
               icon={choiceIcon(option, choice, agent)}
               selected={choice.value === option.currentValue}
               label={choiceLabel(option, choice)}
-              {...(column && choice.description ? { hint: choice.description } : {})}
+              {...(choice.description && !(option.category === '_profile' && choice.value === '') && (option.category === '_permissions'
+                ? choice.group === 'Profiles' || choice.risk === 'high' && (choice.label === 'Full access' || choice.label === 'Never ask')
+                : column) ? { hint: choice.description } : {})}
               {...(choice.description ? { title: choice.description } : {})}
               disabled={option.disabled || choice.disabled}
-              onSelect={() => void store.setOption(option.id, choice.value)}
+              onSelect={() => void (key ? store.setOption(option.id, choice.value, key) : store.setOption(option.id, choice.value))}
             />
           ))}
         </div>
@@ -403,6 +366,7 @@ const ChoiceRows = ({
 /** One option, whole: its heading, its reason when refused, and its rows. */
 const OptionRows = ({ option }: { option: ConfigOption }) => {
   const store = useStore()
+  const key = useSessionKey()
   const { ask, dialog } = useOptionConfirm()
   return (
     <>
@@ -415,7 +379,7 @@ const OptionRows = ({ option }: { option: ConfigOption }) => {
           hint={option.disabled ?? option.description}
           checked={option.currentValue}
           disabled={option.disabled}
-          onChange={(next) => ask(option, next, () => void store.setOption(option.id, next))}
+          onChange={(next) => ask(option, next, () => void (key ? store.setOption(option.id, next, key) : store.setOption(option.id, next)))}
         />
       ) : (
         <>
@@ -441,8 +405,9 @@ const FIELD_KEYS = new Set(['Backspace', 'Delete', 'ArrowLeft', 'ArrowRight', 'H
 
 const FilterableChoices = ({ option, close }: { option: SelectOption; close: () => void }) => {
   const store = useStore()
+  const key = useSessionKey()
   const [query, setQuery] = useState('')
-  if (option.choices.length <= 8) return <ChoiceRows option={option} />
+  if (option.choices.length < 6) return <ChoiceRows option={option} />
   const needle = query.trim().toLowerCase()
   const filtered = needle
     ? option.choices.filter(
@@ -452,16 +417,9 @@ const FilterableChoices = ({ option, close }: { option: SelectOption; close: () 
     : option.choices
   return (
     <>
-      {/* The list's filter is the one every list draws: the compact field, a
-          line among the menu's borderless rows rather than a form to fill in.
-          The margin sets it on the rows' own inset. */}
-      <Search
-        size="compact"
-        icon="filter"
-        className="mx-1 mt-1 mb-0.5"
-        // eslint-disable-next-line jsx-a11y/no-autofocus
+      <MenuSearch
         autoFocus
-        placeholder={`Type to filter ${option.choices.length} choices…`}
+        label={`Type to filter ${option.choices.length} choices…`}
         value={query}
         onChange={setQuery}
         onKeyDown={(event) => {
@@ -479,7 +437,7 @@ const FilterableChoices = ({ option, close }: { option: SelectOption; close: () 
           event.preventDefault()
           const first = filtered.find((choice) => !choice.disabled)
           if (first) {
-            void store.setOption(option.id, first.value)
+            void (key ? store.setOption(option.id, first.value, key) : store.setOption(option.id, first.value))
             close()
           }
         }}
@@ -499,6 +457,8 @@ const currentLabel = (option: SelectOption): string =>
 /** Permissions and approvals, plus saved presets that set several at once. */
 export const PermissionControl = () => {
   const store = useStore()
+  const key = useSessionKey()
+  const runtime = useRuntime()?.id
   const snapshot = useSnapshot()
   const { ref, folded, tight } = useNarrowToolbar('permissions')
   const all = useComposerOptions()
@@ -517,14 +477,14 @@ export const PermissionControl = () => {
     )
   }
 
-  const presets = presetsFor(snapshot.activeRuntime, snapshot.customPresets)
-  const preset = matchPreset(snapshot.activeRuntime ?? '', all, presets)
+  const presets = presetsFor(runtime, snapshot.customPresets)
+  const preset = matchPreset(runtime ?? '', all, presets)
   const tone = riskTone(options)
   const first = options[0]
   const current = first?.type === 'select' ? currentLabel(first) : first?.label
 
   return (
-    <ComposerTrack name="permissions" folded={folded} tight={tight}>
+    <ComposerTrack name="permissions" folded={folded} tight={tight} contentSized={!folded && !tight}>
       <InToolbar refer={ref}>
         <Popover
           fullWidth
@@ -535,13 +495,13 @@ export const PermissionControl = () => {
           tone={tone}
           label={
             <>
-              {shieldFor(tone)}
+              {(!tight || stale.length === 0) && shieldFor(tone)}
               {stale.length > 0 && <DefaultWarning />}
               {!folded && <Text role="row" className="truncate">{current}</Text>}
               {!tight && <Chevron />}
             </>
           }
-        >
+         panelWidth="wide" icons="none">
           {(close) => (
             <Menu close={close}>
               <StaleDefaultRows stale={stale} />
@@ -555,7 +515,7 @@ export const PermissionControl = () => {
                       selected={entry.id === preset?.id}
                       label={entry.name}
                       hint={entry.description}
-                      onSelect={() => void store.applyPreset(entry)}
+                      onSelect={() => void (key ? store.applyPreset(entry, key) : store.applyPreset(entry))}
                     />
                   ))}
                 </>
@@ -595,6 +555,7 @@ const FOLD_FROM = FEATURED_MODELS + 2
  */
 export const ModelControl = () => {
   const store = useStore()
+  const key = useSessionKey()
   const snapshot = useSnapshot()
   const { ref, folded, tight } = useNarrowToolbar('model')
   const session = useActiveSession()
@@ -676,7 +637,7 @@ export const ModelControl = () => {
           drop="up"
           label={
             <>
-              {!session && activeRoute ? (
+              {(!tight || stale.length === 0) && (!session && activeRoute ? (
                 <RouteIcon size={13} />
               ) : model.type === 'select' && selectedChoice(model) ? (
                 <ModelMark
@@ -686,16 +647,16 @@ export const ModelControl = () => {
                 />
               ) : (
                 <ModelIcon size={13} />
-              )}
+              ))}
               {stale.length > 0 && <DefaultWarning />}
               {/* The model reads as the subject, its effort as the qualifier. */}
-              {!folded && <Text role="row" className="min-w-0 flex-1 truncate">{name}</Text>}
+              {!folded && <Text role="row" truncate>{name}</Text>}
               {unavailable && !folded && <Chip tone="warning" size="sm" variant="quiet">Unavailable</Chip>}
               {effort && !folded && !unavailable && <Text ink="muted">{effort}</Text>}
               {!tight && <Chevron />}
             </>
           }
-        >
+         panelWidth="wide" icons="none">
           {(close) => (
             <Menu close={close}>
               <StaleDefaultRows stale={stale} />
@@ -727,8 +688,8 @@ export const ModelControl = () => {
                   label={option.label}
                   value={currentLabel(option)}
                   disabled={option.disabled}
-                  width={280}
-                >
+
+                 wide icons="none">
                   {option.description && <MenuNote>{option.description}</MenuNote>}
                   <UnavailableChoice option={option} />
                   <ChoiceRows option={option} />
@@ -744,7 +705,7 @@ export const ModelControl = () => {
                           checked={toggle.currentValue}
                           disabled={toggle.disabled}
                           onChange={(next) =>
-                            ask(toggle, next, () => void store.setOption(toggle.id, next))
+                            ask(toggle, next, () => void (key ? store.setOption(toggle.id, next, key) : store.setOption(toggle.id, next)))
                           }
                         />
                       ) : null,
@@ -760,7 +721,7 @@ export const ModelControl = () => {
                       hint={toggle.description}
                       checked={toggle.currentValue}
                       disabled={toggle.disabled}
-                      onChange={(next) => ask(toggle, next, () => void store.setOption(toggle.id, next))}
+                      onChange={(next) => ask(toggle, next, () => void (key ? store.setOption(toggle.id, next, key) : store.setOption(toggle.id, next)))}
                     />
                   ) : null,
                 )}
@@ -777,7 +738,7 @@ export const ModelControl = () => {
                 />
               )}
               {rest.length > 0 && model.type === 'select' && (
-                <Submenu icon={<ModelIcon size={14} />} label="More models" value={`${rest.length}`} width={300}>
+                <Submenu icon={<ModelIcon size={14} />} label="More models" value={`${rest.length}`}  wide icons="none">
                   <FilterableChoices option={{ ...model, choices: rest }} close={close} />
                 </Submenu>
               )}
@@ -787,8 +748,8 @@ export const ModelControl = () => {
                   icon={<RouteIcon size={14} />}
                   label="Model route"
                   value={activeRoute ? activeRoute.name : 'Direct'}
-                  width={300}
-                >
+
+                 wide icons="none">
                   <MenuItem
                     selected={snapshot.draftRouteId === null}
                     label="Direct"
@@ -823,10 +784,10 @@ export const ModelControl = () => {
 }
 
 /**
- * Which build this list came from, at the foot of the menu — and, when a
- * newer one is published, the fact and the command. The list is whatever the
- * running agent declared; a model that is "missing" is nearly always an agent
- * that is behind, and this is the one place a person looks when they notice.
+ * Which build this list came from, at the foot of the menu. When a newer one
+ * is available, its install action is one row and the command stays in the
+ * title. The list is whatever the running agent declared; a model that is
+ * "missing" is nearly always an agent that is behind.
  */
 const RuntimeBuildNote = () => {
   const store = useStore()
@@ -853,18 +814,15 @@ const RuntimeBuildNote = () => {
             {checked && ` · ${checked}`}
           </div>
         )}
-        {update && (
-          /* A shade warmer than the note around it. The command is the shared
-             command block — the muted plate Settings sets a command on — on a
-             line of its own, folding only when it is wider than the menu. */
-          <Text as="div" role="muted" className="mt-1" data-testid="runtime-update">
-            {update.text}
-            {update.command && (
-              <CodeText as="pre" block ground="muted" wrap className="mt-1">{update.command}</CodeText>
-            )}
-          </Text>
-        )}
       </MenuNote>
+      {update && <MenuItem
+        label={`Update ${runtime.presentation.name} to ${runtime.update?.version ?? ''}`}
+        title={update.command ?? update.url ?? undefined}
+        onSelect={() => {
+          if (update.command) void navigator.clipboard?.writeText(update.command)
+          else if (update.url) void openExternal(update.url)
+        }}
+      />}
     </>
   )
 }
@@ -872,6 +830,7 @@ const RuntimeBuildNote = () => {
 /** The runtime's collaboration modes — plan first, act directly, whatever it offers. */
 export const ModeControl = () => {
   const { ref, folded, tight } = useNarrowToolbar('mode')
+  const live = Boolean(useActiveSession())
   const all = useComposerOptions()
   const modes = optionsBySlot(all).mode
   const stale = useStaleDefaults('mode')
@@ -889,11 +848,20 @@ export const ModeControl = () => {
   }
   const current = mode.type === 'select' ? selectedChoice(mode) : undefined
   const label = mode.type === 'select' ? currentLabel(mode) : mode.label
+  const singleValue = mode.type === 'select' && mode.choices.length === 1 && current !== undefined && stale.length === 0
+  const showFoldedMark = singleValue && folded && !live
 
   return (
-    <ComposerTrack name="mode" folded={folded} tight={tight}>
+    <ComposerTrack name="mode" folded={folded} tight={tight} contentSized={singleValue && !tight && (!folded || live)}>
       <InToolbar refer={ref}>
-        <Popover
+        {singleValue ? (
+          tight ? null : showFoldedMark ? (
+            <Chip tone="neutral" title={label}>
+              <ZapIcon size={13} />
+              <span className="sr-only">{label}</span>
+            </Chip>
+          ) : <Chip tone="neutral">{label}</Chip>
+        ) : <Popover
           fullWidth
           tightTrigger={tight}
           title={folded ? `${label} — ${mode.description ?? mode.label}` : mode.description ?? mode.label}
@@ -901,13 +869,13 @@ export const ModeControl = () => {
           align="left"
           label={
             <>
-              {current ? choiceIcon(mode, current) : <ZapIcon size={13} />}
+              {(!tight || stale.length === 0) && (current ? choiceIcon(mode, current) : <ZapIcon size={13} />)}
               {stale.length > 0 && <DefaultWarning />}
               {!folded && <Text role="row" className="truncate">{label}</Text>}
               {!tight && <Chevron />}
             </>
           }
-        >
+         panelWidth="wide" icons="none">
           {(close) => (
             <Menu close={close}>
               <StaleDefaultRows stale={stale} />
@@ -916,7 +884,7 @@ export const ModeControl = () => {
               ))}
             </Menu>
           )}
-        </Popover>
+        </Popover>}
       </InToolbar>
     </ComposerTrack>
   )
@@ -940,13 +908,13 @@ export const MoreControl = () => {
             drop="up"
             label={
               <>
-                <SlidersIcon size={13} />
+                {(!tight || stale.length === 0) && <SlidersIcon size={13} />}
                 {stale.length > 0 && <DefaultWarning />}
                 {!folded && <Text role="row" className="truncate">More</Text>}
                 {!tight && <Chevron />}
               </>
             }
-          >
+           panelWidth="wide" icons="none">
             {(close) => (
               <Menu close={close}>
                 <StaleDefaultRows stale={stale} />
@@ -1033,6 +1001,9 @@ export const AgentControl = () => {
     )
   }
   const seat = session?.settings?.seatLabel ?? owner.presentation.name
+  const warm = (runtime: RuntimeId): void => {
+    void store.transport.request('runtime/warm', { runtime }).catch(() => {})
+  }
   const others = snapshot.runtimes.filter((entry) => entry.id !== owner.id)
   const target = handoff ? snapshot.runtimes.find((entry) => entry.id === handoff) ?? null : null
   // Two accounts of one agent are two entries here, and the agent's name
@@ -1062,7 +1033,7 @@ export const AgentControl = () => {
             {!tight && <Chevron />}
           </>
         }
-        >
+         panelWidth="wide" icons="all">
           {(close) => (
             <Menu close={close}>
               {session ? (
@@ -1084,20 +1055,23 @@ export const AgentControl = () => {
                       same for all of them, so N copies of it are N times the
                       height and none of the information. One runtime has
                       nowhere to hand off to. */}
-                  {others.length > 0 && (
-                    <>
-                      <MenuLabel>Hand off</MenuLabel>
-                      <MenuNote>Starts a new conversation there with what happened here.</MenuNote>
-                      {others.map((entry) => (
-                        <MenuItem
-                          key={entry.id}
-                          icon={<RuntimeMark runtime={entry} />}
-                          label={`Hand off to ${label(entry)}…`}
-                          onSelect={() => setHandoff(entry.id)}
-                        />
-                      ))}
-                    </>
-                  )}
+                  {others.length > 0 && <Submenu
+                    label="Hand off to"
+                    icon={<HandoffIcon size={16} />}
+                    wide
+                    icons="all"
+                  >
+                    <MenuNote>Starts a new conversation there with what happened here.</MenuNote>
+                    {others.map((entry) => (
+                      <MenuItem
+                        key={entry.id}
+                        icon={<RuntimeMark runtime={entry} />}
+                        label={label(entry)}
+                        onHighlight={() => warm(entry.id)}
+                        onSelect={() => { warm(entry.id); setHandoff(entry.id) }}
+                      />
+                    ))}
+                  </Submenu>}
               </>
             ) : (
               <>
@@ -1122,8 +1096,13 @@ export const AgentControl = () => {
                       // where choosing is the whole task.
                       hint={down ? 'This agent cannot start right now. Selecting it shows what to fix.' : undefined}
                       title={down ? undefined : entry.presentation.tagline}
+                      onHighlight={() => warm(entry.id)}
                       onSelect={() => {
-                        if (entry.id !== owner.id) void store.selectRuntime(entry.id)
+                        warm(entry.id)
+                        if (entry.id !== owner.id) void store.selectRuntime(entry.id).then(() => {
+                          // A cheap idle agent stays idle; no ready event will load its cached draft controls.
+                          if (store.getSnapshot().activeRuntime === entry.id && store.getSnapshot().health?.state === 'idle') void store.loadDraftOptions()
+                        })
                       }}
                     />
                   )
@@ -1242,12 +1221,12 @@ export const PlaceControl = () => {
   const store = useStore()
   const snapshot = useSnapshot()
   const session = useActiveSession()
-  const { ref, folded, tight } = useNarrowToolbar('work-in')
+  const { ref } = useNarrowToolbar('work-in')
   const workspace = snapshot.workspace
   if (session) return null
   if (!workspace) {
     return (
-      <ComposerTrack name="work-in" folded={folded} tight={tight}>
+      <ComposerTrack name="work-in">
         <InToolbar refer={ref}>{null}</InToolbar>
       </ComposerTrack>
     )
@@ -1329,16 +1308,15 @@ export const PlaceControl = () => {
       ? leaf(chosen.branch, chosenMain ? 'Local' : 'Worktree')
       : linked
         ? leaf(branch, 'Worktree')
-        : 'Local'
+        : folder
   const tagged = !armed && !chosenMain && (chosen !== null || linked)
 
   return (
-    <ComposerTrack name="work-in" folded={folded} tight={tight}>
+    <ComposerTrack name="work-in" contentSized shrinkable>
       <InToolbar refer={ref}>
         <Popover
           fullWidth
-          tightTrigger={tight}
-          title={folded ? `${word} — ${title}` : title}
+          title={title}
           drop="up"
           align="left"
           onOpenChange={(open) => open && void store.loadWorktrees()}
@@ -1351,16 +1329,14 @@ export const PlaceControl = () => {
             ) : (
               <LocalIcon size={13} />
             )}
-            {!folded && (
-              armed
-                ? <Text role="row" tone="brand" className={sheet.word}>{word}</Text>
-                : <Text role="row" className={sheet.word}>{word}</Text>
-            )}
-            {!folded && tagged && <Badge variant="secondary">worktree</Badge>}
-            {!tight && <Chevron />}
+            {armed
+              ? <Text role="row" tone="brand" className={sheet.word}>{word}</Text>
+              : <Text role="row" truncate title={workspace.path} className={sheet.word}>{word}</Text>}
+            {tagged && <Badge variant="secondary">worktree</Badge>}
+            <Chevron size={12} />
           </>
         }
-        >
+         panelWidth="wide" icons="none">
           {(close) => (
             <Menu close={close}>
               <MenuLabel>Work in</MenuLabel>

@@ -47,6 +47,12 @@ test('the method table is the allowlist', () => {
   assert.equal(isKnownMethod('turn/definitely-not-real'), false)
 })
 
+test('git merge validates an optional destination branch', () => {
+  const request = {id:1, method:'git/merge', params:{root:'/workspace/demo', ref:'main', expectedBranch:'main'}}
+  assert.equal(parseClientMessage(request).method, 'git/merge')
+  assert.throws(() => parseClientMessage({...request, params:{...request.params, expectedBranch:42}}), ValidationError)
+})
+
 test('parseClientMessage accepts a well-formed request', () => {
   const message = parseClientMessage({
     id: 7,

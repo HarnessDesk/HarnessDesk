@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { InsightDimension, InsightReport, RuntimeId } from '@harnessdesk/protocol'
 
+import { folderName } from '../lib/projects'
 import { commonRowNote, metricWords } from '../lib/insight'
+import { useDestinationActive } from '../panels/destination-page'
 import { useSnapshot, useStore } from '../state/context'
-import { Banner, Button, Chip, EmptyState, IconTile, Note, Row, Rows, Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow, Text } from '../design'
+import { DashboardTable, Banner, Button, Chip, EmptyState, IconTile, Note, Row, Rows, Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow, Text } from '../design'
 import { GoalIcon, ArrowRightIcon } from './Icons'
 
 export interface InsightUsageProps {
@@ -25,18 +27,19 @@ export interface InsightUsageProps {
 }
 
 export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedReport, problem: suppliedProblem, onShorterRange, rangeDays }: InsightUsageProps) => {
+  const active = useDestinationActive()
   const snapshot = useSnapshot()
   const [days, setDays] = useState(30)
   const store = useStore(); const [ownReport, setOwnReport] = useState<InsightReport | null>(null); const [ownProblem, setOwnProblem] = useState<string | null>(null)
   const owned = suppliedReport === undefined
   useEffect(() => {
-    if (!owned) return
+    if (!active || !owned) return
     setOwnReport(null); setOwnProblem(null)
     if (!root) return
     let current = true; const to = Date.now(); const from = to - days * 86_400_000
     void store.readUsageInsight({ root, from, to, ...(runtime ? { runtime } : {}) }).then((next) => { if (current) setOwnReport(next) }).catch((error: unknown) => { if (current) setOwnProblem(error instanceof Error ? error.message : 'Recorded usage could not be read.') })
     return () => { current = false }
-  }, [store, root, runtime, owned, days])
+  }, [active, store, root, runtime, owned, days])
   const report = owned ? ownReport : (suppliedReport ?? null)
   const problem = owned ? ownProblem : (suppliedProblem ?? null)
   const dimension: InsightDimension = view
@@ -70,7 +73,7 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
     return [...ids]
   }, [report, breakdown, view])
   useEffect(() => {
-    if (!report || !root) return
+    if (!active || !report || !root) return
     let current = true
     history.goals ??= store.loadGoals ? store.loadGoals(root).catch(() => undefined) : Promise.resolve()
     void (async () => {
@@ -96,10 +99,12 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
       if (current) redrawHistory(value => value + 1)
     })()
     return () => { current = false }
-  }, [store, report, root, teamIds, history, historyAttempt])
-  if (!root) return <Note>Choose a project to see its Goals.</Note>
+  }, [active, store, report, root, teamIds, history, historyAttempt])
+  if (!root) return <Note>Open a project to see its Team usage.</Note>
   if (problem) return <Note tone="warn">{problem}</Note>
   if (!report) return <Note>Reading recorded usage…</Note>
+  const hasRecords = report.recordedSpend.length > 0 || report.breakdowns.some(group => group.rows.length > 0) || Object.values(report.totals).some(value => value.value !== null && value.value > 0)
+  if (!hasRecords && report.sources.every(source => source.problem === null) && report.scan !== 'partial') return <Text role="muted">{`No Team usage in ${folderName(root)} in the last ${(rangeDays ?? days) === 1 ? '24 hours' : `${rangeDays ?? days} days`}`}</Text>
   const failedSources = report.sources.filter((source) => source.problem !== null)
   const hasAmounts = report.totals.usd.value !== null || (breakdown?.rows.some(row => row.amounts.usd.value !== null) ?? false) || breakdown?.unattributed.usd.value != null
   const incomplete = report.scan === 'partial'
@@ -115,18 +120,22 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
   }
   const groupNote = commonRowNote(breakdown?.rows ?? [])
   const retrying = teamIds.some(team => history.retrying.has(team))
-  const unattributedLabel = view === 'goal' ? 'Not attributed to a Goal' : 'Not attributed to an Agent'
+  const unattributedLabel = view === 'goal' ? 'Not attributed to a Team' : 'Not attributed to an Agent'
   const unattributedReason = breakdown?.reason ?? 'No unique historical Seat could be established.'
   const showReason = unattributedReason.replace(/[.]$/, '') !== unattributedLabel
+  const emptyAttribution = !breakdown || breakdown.rows.length === 0
+  const emptyTitle = `Recorded usage has no ${view === 'goal' ? 'Team' : 'agent'} attribution.`
+  if (emptyAttribution && !incomplete && failedSources.length === 0) return <Text role="muted">{emptyTitle}</Text>
+  const emptyDescription = breakdown?.reason ?? 'Unknown historical usage remains unassigned.'
   return <>
-    {rangeWarning ? <Banner tone="warning" title={hasAmounts ? 'Amounts are incomplete for this range' : 'Amounts are unknown for this range'} actions={(owned ? days !== 1 : rangeDays !== 1) && (owned || onShorterRange) && <Button variant="outline" size="sm" onClick={shorter}>Last 24 hours</Button>}>{reason}</Banner> : null}
-    {!breakdown || breakdown.rows.length === 0 ? <Rows><EmptyState variant="row" title={!breakdown ? `Recorded usage has no ${view} attribution.` : view === 'goal' ? 'No Goal usage was recorded' : 'No Agent usage was recorded'} description={breakdown?.reason ?? 'Unknown historical usage remains unassigned.'} /></Rows> : null}
-    {breakdown && <Table variant="framed" className="table-fixed">
+    {rangeWarning ? <Banner tone="warning" title={hasAmounts ? 'Amounts are incomplete for this range' : 'Amounts are unknown for this range'} actions={incomplete && (owned ? days !== 1 : rangeDays !== 1) && (owned || onShorterRange) && <Button variant="outline" size="sm" onClick={shorter}>Last 24 hours</Button>}>{reason}{emptyAttribution && <> {emptyTitle} {emptyDescription}</>}</Banner> : null}
+    {emptyAttribution && !rangeWarning ? <Rows><EmptyState variant="row" title={emptyTitle} description={emptyDescription} /></Rows> : null}
+    {breakdown && !emptyAttribution && <DashboardTable kind="insight">
       <TableHeader><TableRow>
-        <TableHead className="w-1/2">{view === 'goal' ? 'Goal' : 'Agent'}</TableHead>
+        <TableHead>{view === 'goal' ? 'Team' : 'Agent'}</TableHead>
         <TableHead numeric>Runs</TableHead><TableHead numeric>Seats</TableHead>
         {hasAmounts && <TableHead numeric>Cost</TableHead>}
-        {view === 'goal' && <TableHead className="w-12"><span className="sr-only">Open</span></TableHead>}
+        {view === 'goal' && <TableHead><span className="sr-only">Open</span></TableHead>}
       </TableRow></TableHeader>
       <TableBody>{breakdown.rows.map(row => {
         const goal = row.goal ? snapshot.goals.get(row.goal) : undefined
@@ -143,7 +152,7 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
         const open = view === 'goal' && row.goal ? () => onGoal(row.goal!) : null
         return <TableRow key={row.key} interactive={open !== null} onClick={open ?? undefined}>
           <TableCell lead={view === 'goal' ? <IconTile shape="face" tone="neutral"><GoalIcon /></IconTile> : undefined}>
-            <div className="min-w-0 flex-1"><Text as="div" role="subject" truncate>{name}</Text>
+            <div><Text as="div" role="subject" truncate>{name}</Text>
             {row.note && row.note !== groupNote && <Text as="div" role="meta" className="whitespace-normal">{row.note}</Text>}
             {facts && <Text as="div" role="meta" truncate title={facts}>{facts}</Text>}</div>
           </TableCell>
@@ -154,11 +163,11 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
         </TableRow>
       })}</TableBody>
       <TableFooter variant="plain"><TableRow>
-        <TableCell colSpan={3}><div className="flex min-w-0 flex-col items-start"><Text role="muted">{unattributedLabel}</Text>{showReason && <Text as="div" role="meta" className="whitespace-normal">{unattributedReason}</Text>}</div></TableCell>
+        <TableCell colSpan={3}><div><Text role="muted">{unattributedLabel}</Text>{showReason && <Text as="div" role="meta" className="whitespace-normal">{unattributedReason}</Text>}</div></TableCell>
         {hasAmounts && <TableCell numeric>{cost(breakdown.unattributed.usd)}</TableCell>}
         {view === 'goal' && <TableCell />}
       </TableRow></TableFooter>
-    </Table>}
+    </DashboardTable>}
     {groupNote && <Note>{groupNote}</Note>}
     {(retrying || teamIds.some(team => unavailableTeams.has(team))) && <Note tone="warn" action={<Button variant="outline" size="sm" disabled={retrying} focusableWhenDisabled onClick={() => {
       if (retrying) return
@@ -166,6 +175,8 @@ export const InsightUsage = ({ root, runtime, view, onGoal, report: suppliedRepo
       retryHistory(value => value + 1)
     }}>{retrying ? 'Trying again…' : 'Try again'}</Button>}>Run counts are unavailable for some Teams.</Note>}
     {failedSources.length > 0 && <Rows>{failedSources.map(source => <Row key={source.id} title={source.label} desc={source.problem ?? undefined} control={<Chip tone="warning">Unavailable</Chip>} />)}</Rows>}
-    {report.gaps.filter(gap => gap !== scanGap).map(gap => <Note key={gap} tone="warn">{gap}</Note>)}
+    {report.gaps.filter(gap => gap !== scanGap).map(gap => gap === 'No recorded usage was found for this scope.'
+      ? <EmptyState key={gap} variant="inline" align="start" title={gap} />
+      : <Note key={gap} tone="warn">{gap}</Note>)}
   </>
 }

@@ -10,6 +10,8 @@ export interface TeamListInput {
  readonly goal: GoalView | null
  readonly execution: FlowExecution | null
  readonly overview: ReturnType<typeof teamOverview>
+ /** The ended Run still owns a live original turn, as the timeline reads it. */
+ readonly stopping?: boolean
  readonly total?: { readonly money: number | null; readonly turns: number | null }
 }
 export interface TeamsPrefs {
@@ -17,7 +19,7 @@ export interface TeamsPrefs {
  readonly seen: Readonly<Record<string, string>>
 }
 export type TeamFilter = 'active' | 'needs-you' | 'settled'
-export type TeamListState = SeatRow['state'] | 'settled' | 'wrapped' | 'wrapping' | 'stopped'
+export type TeamListState = SeatRow['state'] | 'settled' | 'wrapped' | 'wrapping' | 'stopped' | 'stopping'
 export interface TeamListRow {
  readonly id: string
  readonly project: string
@@ -48,7 +50,7 @@ const firstTime = (values: readonly (number | null | undefined)[]): number | nul
  return known.length ? Math.min(...known) : null
 }
 
-export const teamListRow = ({team,goal,execution,overview,total}: TeamListInput, prefs: TeamsPrefs = emptyPrefs): TeamListRow => {
+export const teamListRow = ({team,goal,execution,overview,total,stopping}: TeamListInput, prefs: TeamsPrefs = emptyPrefs): TeamListRow => {
  const seats = overview.seats
  const wrapped = goal?.goal.state === 'wrapped'
  const waiting = overview.needsYou[0]
@@ -60,9 +62,9 @@ export const teamListRow = ({team,goal,execution,overview,total}: TeamListInput,
  const settled = !needs && workingSeats.length === 0 && !unfinished && !goal?.waitingOn?.length &&
   execution?.state !== 'running' && execution?.state !== 'stalled' &&
   (goal ? goal.activity === 'ready-to-wrap' : execution?.state === 'settled')
- const state: TeamListState = wrapped ? 'wrapped' : needs ? 'needs-you' : unreadSeats.length ? 'unread'
-  : goal?.goal.state === 'wrapping' ? 'wrapping' : workingSeats.length ? 'working' : settled ? 'settled'
-   : execution?.state === 'stopped' ? 'stopped' : 'idle'
+ const state: TeamListState = wrapped ? 'wrapped' : execution?.state === 'stopped' && stopping ? 'stopping' : needs ? 'needs-you' : unreadSeats.length ? 'unread'
+  : goal?.goal.state === 'wrapping' ? 'wrapping' : execution?.state === 'stopped' ? 'stopped' : workingSeats.length ? 'working'
+   : settled ? 'settled' : 'idle'
  const ready = settled && !wrapped && state === 'settled'
  const active = !wrapped && !ready
  // The Run has start/end stamps, but no per-round transition timestamps.
@@ -80,17 +82,19 @@ export const teamListRow = ({team,goal,execution,overview,total}: TeamListInput,
  const detail = rawDetail
  // Usage refreshes and clock ticks do not unhide work. Identity, lifecycle and
  // observed attention do; these marks contain no transcript or command text.
+ // A wrapped Team's review is left out: nothing on its row follows one, so the
+ // list never reads it, and the copy its room loads would mark it unread again.
  const change = JSON.stringify([team.updatedAt,goal?.goal.updatedAt ?? null,goal?.goal.state ?? null,goal?.activity ?? null,
   execution?.id ?? null,execution?.state ?? null,execution?.endedAt ?? null,execution?.reason ?? null,execution?.pendingReleaseNote ?? null,
   execution?.rounds.map(one => [one.n,one.state,one.cards,one.seats]) ?? [],
-  [overview.run?.findingRun?.publication ?? null,overview.run?.publicationOn ?? null,overview.run?.findingRun?.reason ?? null],
+  wrapped ? null : [overview.run?.findingRun?.publication ?? null,overview.run?.publicationOn ?? null,overview.run?.findingRun?.reason ?? null],
   seats.map(one => [one.seat,one.state,one.since,one.card?.id ?? null]),
   overview.needsYou.map(one => [one.kind,one.seat,one.card,one.since])])
  return {id:team.id,project:team.root,sentence:goal ? goalName(goal.goal) : team.name,seats,state,since,detail,
   total:total ?? round?.total ?? {money:null,turns:null},active,ready,change,
   unread:prefs.seen[team.id] !== change,hidden:ready && prefs.hidden[team.id] === change}
 }
-const precedence: Record<TeamListState,number> = {'needs-you':0,unread:1,working:2,wrapping:2,idle:3,stopped:3,settled:4,wrapped:5}
+const precedence: Record<TeamListState,number> = {'needs-you':0,unread:1,working:2,wrapping:2,stopping:2,idle:3,stopped:3,settled:4,wrapped:5}
 const grouped = (rows: readonly TeamListRow[]): TeamListGroup[] => {
  const groups = new Map<string,TeamListRow[]>()
  for (const row of rows) groups.set(row.project,[...(groups.get(row.project) ?? []),row])

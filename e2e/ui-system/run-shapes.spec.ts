@@ -1,46 +1,63 @@
+import { runBar } from './run-frame-actions'
 import { test, expect } from '@playwright/test'
 import path from 'node:path'
 import { mkdir } from 'node:fs/promises'
 import { COLLECT, textReasons } from '../../script/shots/audit.mjs'
 const scenes = ['shapes', 'comparison', 'independent-review', 'alignment', 'investigation'] as const
 for (const theme of ['light', 'dark'] as const) {
-  test(`Run flow shapes and synthetic frames in ${theme}`, async ({ page }) => {
-    await page.emulateMedia({ colorScheme: theme })
-    await page.setViewportSize({ width: 1440, height: 1440 })
-    for (const scene of scenes) {
+  {
+
+    for (const [item0, scene] of (scenes).entries()) test(`Run flow shapes and synthetic frames in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
+      await page.emulateMedia({ colorScheme: theme })
+      await page.setViewportSize({ width: 1440, height: 1440 })
       await page.goto(`/preview.html?run-shapes=${scene}&theme=${theme}`)
       const frame = page.locator('#run-shapes-frame')
-      await expect(frame.locator('[data-slot="run-header"]')).toBeVisible()
+      await expect(runBar(frame)).toBeVisible()
+      await expect(frame.locator('[data-slot="run-header"]')).toHaveCount(0)
       await page.evaluate(async () => { await document.fonts.ready })
       if (process.env.SHAPES_PHASE !== 'before') {
+        const story = frame.locator('[data-slot="workbench-main"] [data-slot="run-steps"]')
+        const inspection = frame.locator('[data-slot="run-inspector"]')
         if (scene === 'comparison') {
-          const a = frame.locator('[data-row="card-1-1"]'); const b = frame.locator('[data-row="card-1-2"]')
-          expect((await a.boundingBox())!.y).toBe((await b.boundingBox())!.y)
-          await expect(frame.getByText('on Attempt A', { exact: true })).toBeVisible()
-          await expect(frame.getByText('on Attempt B', { exact: true })).toBeVisible()
-          await expect(frame.locator('[data-row="card-3-5"]')).toContainText('aaaaaaa')
+          await expect(story.locator('[data-step-row][data-row]')).toHaveCount(4)
+          await story.locator('[data-row="card-1-1"] button').click()
+          const a = inspection.locator('[data-row="card-1-1"]'), b = inspection.locator('[data-row="card-1-2"]')
+          await expect(a).toContainText('Attempt A'); await expect(b).toContainText('Attempt B')
           await expect(a).toHaveAttribute('data-keep', 'kept'); await expect(b).toHaveAttribute('data-keep', 'not-kept')
-          await a.getByRole('button', { name: 'Attempt A', exact: true }).click()
-          await expect(a).toHaveAttribute('data-selected', 'true')
-          await expect(frame.locator('[data-slot="run-inspector"]')).toContainText('Recorded the result')
-          // Return the inspector to Run details for the frame.
-          await frame.getByRole('button', { name: 'Run details', exact: true }).click()
-          await expect(frame.locator('[data-slot="run-inspector"]')).toContainText('Not kept')
+          await expect(a).toContainText('Picked'); await expect(b).toContainText('Not kept')
+          await b.getByRole('button', { name: 'Attempt B', exact: true }).click()
+          await expect(b).toHaveAttribute('data-selected', 'true')
+          await expect(inspection).toContainText('Recorded the result')
+          await runBar(frame).getByRole('button', { name: 'Details', exact: true }).click()
+          await expect(inspection).toHaveCount(0)
+          await runBar(frame).getByRole('button', { name: 'Details', exact: true }).click()
+          await expect(frame.locator('[aria-label="Team Run facts"]')).toBeVisible()
+          await story.locator('[data-row="check-2-3"] button').click()
+          await expect(inspection.locator('[data-row="check-2-3"]')).toContainText('on Attempt A')
+          await expect(inspection.locator('[data-row="check-2-4"]')).toContainText('on Attempt B')
+          await story.locator('[data-row="card-3-5"] button').click()
+          await expect(inspection).toContainText('aaaaaaa')
         }
         if (scene === 'independent-review' || scene === 'shapes') {
-          const cards = frame.locator('[data-slot="timeline-card-grid"][data-count="3"] [data-slot="timeline-card"]')
+          await expect(story.locator('[data-step-row][data-row]')).toHaveCount(2)
+          await expect(story.getByText(/Blind until the round closes/)).toHaveCount(1)
+          await story.locator('[data-row="card-2-2"] button').click()
+          const cards = inspection.locator('[data-slot="timeline-card-grid"][data-count="3"] [data-slot="timeline-card"]')
           await expect(cards).toHaveCount(3)
-          expect((await cards.nth(0).boundingBox())!.y).toBe((await cards.nth(2).boundingBox())!.y)
-          await expect(frame.getByText('Blind until the round closes', { exact: true })).toHaveCount(1)
+          await cards.nth(2).getByRole('button').first().click()
+          await expect(cards.nth(2)).toHaveAttribute('data-selected', 'true')
         }
         if (scene === 'alignment') {
-          await expect(frame.locator('[data-kind="person"][data-slot="timeline-card"]')).toContainText('You')
-          await expect(frame.locator('[data-slot="timeline-item"]:has([data-kind="ahead"])').first()).toHaveAttribute('data-state', 'pending')
+          await expect(story.locator('[data-kind="person"][data-step-row]')).toContainText('Person')
+          await expect(story.locator('[data-step-row][data-flow-state="future"]').first()).toBeVisible()
+          await story.locator('[data-kind="person"] button').click()
+          await expect(inspection).toContainText('Agree on the plan before work starts')
         }
         if (scene === 'investigation') {
-          await expect(frame.locator('[data-slot="timeline-document"]')).toContainText('docs/answer.md')
-          await expect(frame.locator('[data-slot="timeline-document-body"]')).toContainText('Investigation answer')
-          await expect(frame.locator('[data-slot="run-header"]')).toContainText('Answer committed at')
+          await story.locator('[data-row="card-1-1"] button').click()
+          await expect(inspection.locator('[data-slot="timeline-document"]')).toContainText('docs/answer.md')
+          await expect(inspection.locator('[data-slot="timeline-document-body"]')).toContainText('Investigation answer')
+          await expect(frame.locator('[aria-label="Team Run facts"] [data-slot="summary-item"]').filter({ hasText: /^Answer at/ })).toContainText('aaaaaaa')
           await expect(frame.getByRole('button', { name: /Pull request/ })).toHaveCount(0)
         }
         expect(await frame.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
@@ -50,17 +67,21 @@ for (const theme of ['light', 'dark'] as const) {
         await mkdir(process.env.SHAPES_FRAMES_DIR, { recursive: true })
         await frame.screenshot({ path: path.join(process.env.SHAPES_FRAMES_DIR, `${scene}-${theme}-${process.env.SHAPES_PHASE ?? 'after'}.png`) })
       }
-    }
-  })
-  test(`round geometry follows its column and lists beyond three in ${theme}`, async ({ page }) => {
-    test.skip(process.env.SHAPES_PHASE === 'before')
-    await page.emulateMedia({ colorScheme: theme })
-    for (const [width, count, columns] of [[1050, 2, 2], [1050, 3, 3], [1050, 4, 1], [420, 2, 1], [420, 3, 1]] as const) {
+
+
+    })
+  }
+  {
+
+    for (const [item0, [width, count, columns]] of ([[1050, 2, 2], [1050, 3, 3], [1050, 4, 1], [420, 2, 1], [420, 3, 1]] as const).entries()) test(`round geometry follows its column and lists beyond three in ${theme} [item ${[item0].join('-')}]`, async ({ page }) => {
+      test.skip(process.env.SHAPES_PHASE === 'before')
+      await page.emulateMedia({ colorScheme: theme })
       await page.setViewportSize({ width, height: 1100 })
       await page.goto(`/preview.html?run-shapes=shapes&standalone&count=${count}&theme=${theme}`)
       const cards = page.locator(`[data-slot="timeline-card-grid"][data-count="${count}"] [data-slot="timeline-card"]`)
       await expect(cards).toHaveCount(count)
-      const first = (await cards.nth(0).boundingBox())!; const last = (await cards.nth(count - 1).boundingBox())!
+      const first = (await cards.nth(0).boundingBox())!;
+      const last = (await cards.nth(count - 1).boundingBox())!
       if (columns === 1) expect(last.y).toBeGreaterThan(first.y)
       else expect(last.y).toBe(first.y)
       const reading = page.locator('[data-slot="run-reading"]')
@@ -69,8 +90,10 @@ for (const theme of ['light', 'dark'] as const) {
         expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
         await page.locator('#run-shapes-frame').screenshot({ path: path.join(process.env.SHAPES_FRAMES_DIR, `shapes-narrow-${theme}-after.png`) })
       }
-    }
-  })
+
+
+    })
+  }
 }
 
 for (const theme of ['light', 'dark'] as const) {
@@ -85,18 +108,25 @@ for (const theme of ['light', 'dark'] as const) {
     })
     await page.goto(`/preview.html?run-shapes=comparison&theme=${theme}`)
     const frame = page.locator('#run-shapes-frame')
-    await expect(frame.locator('[data-slot="run-header"]')).toBeVisible()
+    await expect(runBar(frame)).toBeVisible()
+    await expect(frame.locator('[data-slot="run-header"]')).toHaveCount(0)
     await page.evaluate(async () => { await document.fonts.ready })
     expect(textReasons(await page.evaluate(COLLECT))).toEqual([])
     if (process.env.CHECK_LABEL_FRAMES_DIR) {
       await mkdir(process.env.CHECK_LABEL_FRAMES_DIR, { recursive: true })
       await frame.screenshot({ path: path.join(process.env.CHECK_LABEL_FRAMES_DIR, `equal-revisions-${theme}-${process.env.CHECK_LABEL_PHASE ?? 'after'}.png`) })
     }
-    await expect(frame.locator('[data-row="check-2-3"]')).toContainText('on Attempt A')
-    await expect(frame.locator('[data-row="check-2-3"]')).toContainText('Passed')
-    await expect(frame.locator('[data-row="check-2-4"]')).toContainText('on Attempt B')
-    await expect(frame.locator('[data-row="check-2-4"]')).toContainText('Failed')
-    await expect(frame.locator('[data-row="card-3-5"]')).toContainText('Attempt B at aaaaaaa')
+    const story = frame.locator('[data-slot="workbench-main"] [data-slot="run-steps"]')
+    const inspection = frame.locator('[data-slot="run-inspector"]')
+    await story.locator('[data-row="check-2-3"] button').click()
+    await expect(inspection.locator('[data-row="check-2-3"]')).toContainText('on Attempt A')
+    await expect(inspection.locator('[data-row="check-2-3"]')).toContainText('Passed')
+    await expect(inspection.locator('[data-row="check-2-4"]')).toContainText('on Attempt B')
+    await expect(inspection.locator('[data-row="check-2-4"]')).toContainText('Failed')
+    await inspection.locator('[data-row="check-2-4"] button').first().click()
+    await expect(inspection).toContainText('/repo/attempt-1')
+    await story.locator('[data-row="card-3-5"] button').click()
+    await expect(inspection).toContainText('Attempt B at aaaaaaa')
     expect(await frame.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
   })
 }

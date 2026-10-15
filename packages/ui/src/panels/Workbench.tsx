@@ -1,67 +1,52 @@
+import { effectiveWindowMode } from '../editor'
+import { tileBrowserWorkbench } from '../lib/browser-tiles'
+import { WorkDetailsOutlet, useRegisteredOwner } from './top-bar'
+import { useShellHosts } from './shell-hosts'
 import { RunDockProvider } from './run-dock'
 import {
   createContext,
-  useCallback,
   useContext,
   useEffect,
   useLayoutEffect,
   useRef,
-  useState,
-  type DragEvent,
-  type PointerEvent as ReactPointerEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type CSSProperties,
   type ReactNode,
   type RefObject,
 } from 'react'
 
-import { DockDropEdge, DockDropTarget, ResizeHandle, WorkbenchCanvas, WorkbenchRail, WorkbenchScrim } from '../design'
-import {
-  DockPanel,
-  DockPanelActions,
-  DockPanelBar,
-  DockPanelBody,
-  DockPanelTab,
-  DockPanelTabs,
-  PanelSeam,
-} from '../design'
-import { Menu, MenuItem, MenuLabel, Popover, dismissOverlays } from '../design'
-import { CaretIcon, ExpandIcon, MoreIcon, RestoreIcon } from '../components/Icons'
+import { MainDestination, FRAME, FixedShell, ShellNoticeHost, FixedPanelFrame, FixedPanelBody, FixedToolLayer, TerminalShellTabs, ToolBody, ToolBodySections, ToolFooterProvider, ToolFooterScope, ToolFooterOutlet, WorkbenchRail, WorkbenchScrim, useEscapeSurface } from '../design'
+import { DockPanelBody, PanelSeam } from '../design'
+import { dismissOverlays } from '../design'
 import { ComposerMountsProvider, NoticeStripFallback, NoticeStripOutlet } from '../components/Notices'
 import { Panes } from '../components/Panes'
-import { PaneProvider, useSnapshot, useStore } from '../state/context'
+import { terminalCwdForSnapshot } from '../lib/terminal-scope'
+import { terminalName, terminalPathTitle } from '../lib/terminal-labels'
+import { KeyboardHereContext, PaneProvider, useSnapshot, useStore, type PaneScope } from '../state/context'
 import { findPane, sameView, type PaneView } from '../state/layout'
+import type { TerminalView } from '../state/layout'
 import {
-  AREA_EDGE,
-  AREA_NAME,
-  VIEW_DRAG_TYPE,
-  areaOfMount,
   areaVisible,
   cornerArea,
   rightPanelOverlays,
   dockLimits,
+  effectiveRightWidth,
+  effectiveBottomHeight,
   MIN_READING,
   SEAM,
   dockViews,
-  MAX_RATIO,
-  MIN_RATIO,
+  activeView,
   noticeArea,
   rightPanelDrawn,
+  fixedSubject,
   sidebarPlacement,
-  stackOf,
-  stackView,
-  type AreaId,
-  type DockBranch,
   type DockId,
-  type DockNode,
-  type DockStack,
-  type Workbench as WorkbenchModel,
+  type Mounted,
 } from '../state/workbench'
 import { hasTrafficLights } from '../lib/desktop'
-import { beginResize, endResize, markDragging } from '../lib/resizing'
-import { registerSlot } from '../slots/registry'
+import { supportsFixedTool, toolOf } from '../state/frame-tools'
 import { MountProvider } from './mount'
-import { PanelActions } from './PanelActions'
-import { ViewHost, iconOf, useViewTitle, views } from './views'
+import { ViewHost } from './views'
 import styles from './Workbench.module.css'
 
 import './builtins'
@@ -96,33 +81,6 @@ import './builtins'
  * out of, and neither answers a question this app's users are asking.
  */
 
-const LABEL: Record<DockId, string> = {
-  sidebar: 'Sidebar panels',
-  right: 'Right panel',
-  bottom: 'Bottom panel',
-}
-
-/** The drag payload, shared with every drop target — see `VIEW_DRAG_TYPE`. */
-const DRAG_TYPE = VIEW_DRAG_TYPE
-
-type Dragging = { readonly id: string; readonly view: PaneView } | null
-
-/**
- * What is being dragged, if anything.
- *
- * A context rather than a prop because the sidebar's panels are rendered
- * through the slot registry — from inside `Sidebar`, where the account row can
- * stay at the bottom of the column where it belongs — and a prop cannot reach
- * across that. Reading it off the drag event is not an option either: the
- * specification hides `dataTransfer` outside `drop` for privacy, so a drop
- * zone that could not see the payload could not tell whether it would accept
- * it, and could not light up.
- */
-const DragContext = createContext<{
-  readonly dragging: Dragging
-  readonly setDragging: (next: Dragging) => void
-}>({ dragging: null, setDragging: () => undefined })
-
 /**
  * The shell element, for the seams that resize against it.
  *
@@ -147,23 +105,26 @@ const ShellContext = createContext<RefObject<HTMLDivElement | null>>({ current: 
  * not a decision anything else in the app should read or theme.
  */
 const LIVE: Record<DockId, string> = {
-  sidebar: '--panel-sidebar-drag',
-  right: '--panel-right-drag',
-  bottom: '--panel-bottom-drag',
+  sidebar: '--frame-left-drag',
+  right: '--frame-right-drag',
+  bottom: '--frame-bottom-drag',
 }
 
-export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
+const WorkActive = createContext(true)
+const RightWorkActive = createContext(true)
+
+export const Workbench = ({ sidebar, suspended = false, pages, pageActive = false }: { sidebar: ReactNode; suspended?: boolean; pages?: ReactNode; pageActive?: boolean }) => {
+  const { topRef, mainRef } = useShellHosts('work')
   const store = useStore()
   const snapshot = useSnapshot()
-  const { workbench } = snapshot
-  const zoom = workbench.zoom
+  const workbench = tileBrowserWorkbench(snapshot)
 
-  const [dragging, setDragging] = useState<Dragging>(null)
   const shell = useRef<HTMLDivElement>(null)
   const main = useRef<HTMLDivElement>(null)
   const mainFocus = useRef<{ target: HTMLElement; paneId: string; view: PaneView } | null>(null)
   const rightPanelFocus = useRef<HTMLElement | null>(null)
   const wasRightPanelDrawn = useRef(false)
+  const wasBottomPanelDrawn = useRef(false)
 
   /*
    * Where the sidebar is, and whether it is on screen at all. A narrow window
@@ -182,12 +143,15 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   const rightPanelOverlay = rightPanelOverlays(workbench, snapshot.windowWidth)
 
   useLayoutEffect(() => {
-    if (rightPanelDrawn(workbench)) {
-      wasRightPanelDrawn.current = true
-      return
-    }
-    if (!wasRightPanelDrawn.current) return
-    wasRightPanelDrawn.current = false
+    if (suspended || pageActive) return
+    const rightDrawn = rightPanelDrawn(workbench)
+    const bottomDrawn = !workbench.bottom.collapsed && areaVisible(workbench, 'bottom') &&
+      dockViews(workbench.bottom).some(one => one.view.kind === 'terminal')
+    const rightClosed = wasRightPanelDrawn.current && !rightDrawn
+    const bottomClosed = wasBottomPanelDrawn.current && !bottomDrawn
+    wasRightPanelDrawn.current = rightDrawn
+    wasBottomPanelDrawn.current = bottomDrawn
+    if (!rightClosed && !bottomClosed) return
     // A right panel has no resting strip, so hiding it returns focus to the
     // conversation target it displaced. This covers both wide docks and the
     // narrow overlay; widening alone leaves the panel drawn.
@@ -196,6 +160,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
     const active = document.activeElement
     const focusWasStranded = active === document.body || (
       active instanceof HTMLElement && (
+        (rightClosed && active.matches('[data-work-panel-toggle]')) ||
         active === rightPanelFocus.current ||
         (!active.isConnected && rightPanelFocus.current?.contains(active) === true)
       )
@@ -228,7 +193,7 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
     store.focusPane(focused.id)
     const back = target ?? firstFocusable ?? pane
     back?.focus({ preventScroll: true })
-  }, [snapshot.layout, store, workbench])
+  }, [snapshot.layout, store, workbench, suspended, pageActive])
 
   /*
    * Which area the macOS window buttons are sitting over, named on the shell
@@ -244,219 +209,201 @@ export const Workbench = ({ sidebar }: { sidebar: ReactNode }) => {
   const corner = hasTrafficLights() ? cornerArea(workbench, column, snapshot.windowWidth) : null
 
   const sidebarBox = useRef<HTMLDivElement>(null)
-  const content = useRef<HTMLDivElement>(null)
-  useFloatingSidebar(floating, sidebarBox, content)
-
-  return (
-    <RunDockProvider><ComposerMountsProvider>
-    <DragContext.Provider value={{ dragging, setDragging }}>
-    <ShellContext.Provider value={shell}>
-    <WorkbenchCanvas
-      ref={shell}
-      className={styles.shell}
-      /* Each dock's committed size, as a property the panel reads and a seam
-         can override for the length of a drag without a render. */
-      style={
-        {
-          '--panel-sidebar-w': `${workbench.sidebar.size}px`,
-          '--panel-right-w': `${workbench.right.size}px`,
-          '--panel-bottom-h': `${workbench.bottom.size}px`,
-        } as CSSProperties
-      }
-      {...(zoom ? { 'data-zoom': zoom.scope } : {})}
-      {...(corner ? { 'data-lights': corner } : {})}
-      {...(dragging ? { 'data-dragging': '' } : {})}
-      {...(narrow ? { 'data-narrow': '' } : {})}
-      {...(rightPanelOverlay ? { 'data-right-overlay': '' } : {})}
-    >
-      {/* The dim behind a floating sidebar. Pressing it is the plainest way
-          to put the sidebar away, and it is what keeps a press meant for the
-          sidebar from landing on the conversation underneath. Before the
-          sidebar in the markup, so the sidebar paints over it at one layer. */}
-      {narrow && (
-        <WorkbenchScrim
-          className={styles.scrim}
-          {...(floating ? { 'data-open': '' } : {})}
-          aria-hidden
-          /* Not a control, so a press on it keeps focus where it is: pressed
-             while it still fades after Escape, it would otherwise drop the
-             focus Escape has just given back. */
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => store.closeFloatingSidebar()}
-        />
-      )}
-      <WorkbenchRail
-        ref={sidebarBox}
-        className={styles.sidebar}
-        /* The column animates to nothing; its contents keep the width they had
-           and are clipped by it. Letting them reflow instead turns every
-           collapse into a half-second of the sidebar rewrapping itself at
-           widths nobody asked to see.
-
-           The width is a name rather than a number so that a drag can move it
-           without going anywhere near React — see `AreaSeam`. Still inline,
-           though, and not moved into the stylesheet: a zoom already sets these
-           boxes from `.shell[data-zoom] …`, which outranks a plain class rule,
-           and the two would then be arguing about who decides a width.
-
-           Floating, it keeps its width either way and slides instead: it
-           covers the conversation rather than sharing the window with it, so
-           there is nothing for a changing width to hand back. */
-        style={{ width: showSidebar || narrow ? 'var(--panel-sidebar)' : 0 }}
+  useFloatingSidebar(floating && !suspended, sidebarBox, main)
+  const standingSidebar = column ? workbench.sidebar.size : 0
+  const rightWidth = pageActive ? 0 : effectiveRightWidth(workbench, snapshot.windowWidth, standingSidebar)
+  const bottomHeight = terminalCwdForSnapshot(snapshot) ? effectiveBottomHeight(workbench, snapshot.windowHeight) : 0
+  const retainedRight = Math.min(workbench.right.size, Math.max(0, snapshot.windowWidth - FRAME.page.canvasGutter))
+  const frameStyle = {
+    '--frame-left-size': `${standingSidebar}px`, '--frame-left': 'var(--frame-left-drag, var(--frame-left-size))',
+    '--frame-left-open': `${workbench.sidebar.size}px`,
+    '--frame-right-size': pageActive || !rightPanelDrawn(workbench) ? '0px' : `${workbench.right.size}px`, '--frame-right': 'var(--frame-right-effective)',
+    '--frame-right-open': pageActive ? '0px' : `${rightWidth || retainedRight}px`, '--frame-right-retained': `${retainedRight}px`,
+    '--frame-bottom-size': `${bottomHeight}px`, '--frame-bottom': 'var(--frame-bottom-drag, var(--frame-bottom-size))',
+    '--frame-bottom-retained': `${Math.max(FRAME.bottomPanel.min, Math.min(workbench.bottom.size, Math.floor(snapshot.windowHeight / 2)))}px`,
+  } as CSSProperties
+  return <WorkActive.Provider value={!suspended}><KeyboardHereContext.Provider value={suspended ? false : null}><RunDockProvider><ComposerMountsProvider><ShellContext.Provider value={shell}>
+    <FixedShell ref={shell} viewportWidth={snapshot.windowWidth} style={frameStyle} className={styles.shell}
+      leftFloating={narrow} panelFloating={!pageActive && rightPanelOverlay} leftOpen={showSidebar} rightOpen={!suspended && !pageActive && rightPanelDrawn(workbench)} bottomOpen={!suspended && bottomHeight > 0} inert={suspended}
+      {...(corner ? { 'data-lights': corner } : {})} {...(narrow ? { 'data-narrow': '' } : {})}
+      onFocusCapture={event => { rightPanelFocus.current = event.target instanceof HTMLElement && event.target.closest('[data-fixed-tool-frame]') ? event.target : null }}
+      left={<><WorkbenchRail ref={sidebarBox} className={styles.sidebar}
         {...(showSidebar ? {} : { 'data-hidden': '' })}
-        /* Floating, it is a surface laid over the page and it takes focus as
-           one, so it says what it is — its role and its name — rather than
-           arriving as an unnamed group. Not flagged as modal for assistive
-           technology: what it covers is really inert, which is all that flag
-           would say. */
-        {...(floating ? { 'data-floating': '', tabIndex: -1, role: 'dialog', 'aria-label': 'Sidebar' } : {})}
-      >
-        {/* The sidebar's own panels are rendered from inside `Sidebar`, at the
-            `sidebar.panel` slot it has always had — between the session list
-            and the account row, so the account stays at the bottom of the
-            column where a person looks for it. That slot is the plugin
-            mounting point too, which is the arrangement worth keeping: the
-            app's own panels arrive by the same door a plugin's will. */}
-        {noticeArea(workbench, snapshot.windowWidth) === 'sidebar' && <NoticeStripFallback area="sidebar" />}
+        {...(floating ? { 'data-floating': '', tabIndex: -1, role: 'dialog', 'aria-label': 'Sidebar' } : {})}>
         {sidebar}
-        <DropZone area="sidebar" />
-      </WorkbenchRail>
-      {column && (
-        <AreaSeam area="sidebar" orientation="vertical" label="Resize the sidebar" direction={1} />
-      )}
+      </WorkbenchRail>{column && <AreaSeam area="sidebar" orientation="vertical" label="Resize the sidebar" direction={1} />}</>}
+      top={<div ref={topRef} data-shell-host="top" />}
+      main={<div ref={main} className={styles.main} data-slot="workbench-main" data-notice-bounds=""
+        onFocusCapture={event => {
+          if (!(event.target instanceof HTMLElement) || event.target === main.current) return
+          const paneId = event.target.closest<HTMLElement>('[data-pane-id]')?.dataset.paneId
+          const pane = paneId ? findPane(snapshot.layout, paneId) : undefined
+          if (pane) mainFocus.current = { target: event.target, paneId: pane.id, view: pane.view }
+        }}><ShellNoticeHost ref={mainRef} /><NoticeStripFallback area="main" /><MainDestination page={pageActive} work={<KeyboardHereContext.Provider value={pageActive ? false : null}><Panes /></KeyboardHereContext.Provider>} pages={pages} /></div>}
+      right={<RightWorkActive.Provider value={!pageActive}><RightPanel /></RightWorkActive.Provider>} bottom={<BottomPanel />}>
+      {narrow && <WorkbenchScrim className={styles.scrim} {...(floating ? { 'data-open': '' } : {})} aria-hidden
+        onMouseDown={event => event.preventDefault()} onClick={() => store.closeFloatingSidebar()} />}
+    </FixedShell>
+  </ShellContext.Provider></ComposerMountsProvider></RunDockProvider></KeyboardHereContext.Provider></WorkActive.Provider>
 
-      {/* `data-notice-bounds`: the box the desk's floating notices never
-          leave (#896) — every pane and panel, never the sidebar. */}
-      <div ref={content} className={styles.content} data-notice-bounds="">
-        {/* The row holding the split tree and the right panel. It collapses as
-            a unit when neither is on screen — a zoomed bottom panel would
-            otherwise sit under the empty space where they were, which reads as
-            a panel that failed to expand rather than one that did. */}
-        <div
-          className={styles.middle}
-          onFocusCapture={(event) => {
-            const target = event.target
-            rightPanelFocus.current = target instanceof HTMLElement &&
-              target.closest('[data-slot="dock-panel"]')
-              ? target
-              : null
-          }}
-          {...(areaVisible(workbench, 'main') || areaVisible(workbench, 'right')
-            ? {}
-            : { 'data-hidden': '' })}
-        >
-          <div
-            ref={main}
-            className={styles.main}
-            data-slot="workbench-main"
-            {...(areaVisible(workbench, 'main') ? {} : { 'data-hidden': '' })}
-            {...(rightPanelOverlay ? { 'data-right-panel-overlay': '', inert: true } : {})}
-            onFocusCapture={(event) => {
-              if (!(event.target instanceof HTMLElement) || event.target === main.current) return
-              const owner = event.target.closest<HTMLElement>('[data-pane-id]')
-              const paneId = owner?.dataset.paneId
-              const pane = paneId ? findPane(snapshot.layout, paneId) : undefined
-              if (pane) mainFocus.current = { target: event.target, paneId: pane.id, view: pane.view }
-            }}
-          >
-            {noticeArea(workbench, snapshot.windowWidth) === 'main' && <NoticeStripFallback area="main" />}
-            <Panes />
-            <DropZone area="main" />
-          </div>
-          <RightPanel />
+}
+
+/** A retained cache captures provenance at admission, never from the newly focused work. */
+const RetainedTool = ({ entry, shown, section = false }: { entry: ReturnType<typeof dockViews>[number]; shown: boolean; section?: boolean }) => {
+  const store = useStore(), snapshot = useSnapshot()
+  const owner = snapshot.workbench.toolOwners[entry.id]
+  const remembered = owner ? snapshot.workbench.frameSubjects[owner] : undefined
+  const admitted = supportsFixedTool(entry.view, snapshot.contributions)
+  const captured = useRef<PaneScope | null>(null)
+  if (remembered && admitted) captured.current = { paneId: remembered.paneId, keyboardMountId: entry.id, view: remembered.view,
+    sessionKey: remembered.view.kind === 'conversation' ? remembered.view.session : null }
+  const scope = captured.current
+  if (!scope || !admitted) return null
+  const visible = shown && Boolean(remembered)
+  return <FixedToolLayer data-tool-mount={entry.id} section={section && visible} className={styles.layer}
+    {...(visible ? {} : { 'data-hidden': '', inert: true })}
+    onPointerDownCapture={() => { if (visible) store.focusView(entry.id) }}
+    onFocusCapture={() => { if (visible) store.focusView(entry.id) }}>
+    <KeyboardHereContext.Provider value={visible ? null : false}><PaneProvider scope={scope}>
+      <MountProvider scope={{ area: 'right', id: entry.id, view: entry.view, fixed: true }}>
+        <ToolFooterScope id={entry.id}><ViewHost view={entry.view} /></ToolFooterScope>
+      </MountProvider>
+    </PaneProvider></KeyboardHereContext.Provider>
+  </FixedToolLayer>
+}
+
+const WorkToolBodies = ({ drawn }: { drawn: boolean }) => {
+  const store = useStore(), snapshot = useSnapshot()
+  const subject = store.workSubject(), owner = snapshot.layout.focused
+  const selected = subject ? snapshot.workbench.frameTools[subject] : undefined
+  const entries = dockViews(snapshot.workbench.right)
+  const focused = findPane(snapshot.layout, owner)
+  const current = activeView(snapshot.workbench.right)
+  const matching = entries.filter(entry => snapshot.workbench.toolOwners[entry.id] === subject &&
+    toolOf(entry.view.kind) === selected?.tool && entry.view.kind === selected?.mode && supportsFixedTool(entry.view, snapshot.contributions))
+  const active = matching.find(entry => entry.id === current?.id)?.id ?? matching[0]?.id ?? null
+  const registered = useRegisteredOwner(owner)
+  const open = Boolean(drawn && subject && focused && selected?.open)
+  const editor = effectiveWindowMode(snapshot.windowMode, snapshot.workbench) === 'editor'
+  const conversation = editor && focused?.view.kind === 'conversation' && focused.view.session !== null
+  const conversationShown = open && selected?.tool === 'conversation'
+  const details = open && registered && selected?.tool === 'details'
+  const detailsId = `details:${owner}`
+  const plugin = details && selected?.mode === 'plugin' ? active : null
+  const escapeTool = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (!open || event.key !== 'Escape' || event.defaultPrevented || !(event.target instanceof Node) || !event.currentTarget.contains(event.target)) return
+    event.preventDefault(); event.stopPropagation()
+    store.toggleWorkPanel()
+    requestAnimationFrame(() => {
+      if (!subject || store.workSubject() !== subject) return
+      const currentTool = store.getSnapshot().workbench.frameTools[subject]?.tool ?? 'details'
+      const opener = document.querySelector<HTMLButtonElement>(`[data-work-tool="${currentTool}"]`)
+      const target = opener && !opener.disabled && !opener.closest('[inert]') ? opener : document.querySelector<HTMLButtonElement>('[data-work-panel-toggle]')
+      if (target && !target.closest('[inert]')) target.focus()
+    })
+  }
+  return <ToolFooterProvider>
+    <FixedPanelBody onKeyDown={escapeTool} data-slot="work-tools" data-open={open} data-tool={selected?.tool} inert={!open}>
+      <DockPanelBody className={styles.layers}>
+        {conversation && <FixedToolLayer className={styles.layer} data-conversation-tool="" {...(conversationShown ? {} : { 'data-hidden': '', inert: true })}
+          onPointerDownCapture={() => store.focusPane(owner)} onFocusCapture={() => store.focusPane(owner)}>
+          <KeyboardHereContext.Provider value={conversationShown ? null : false}>
+            <PaneProvider scope={{ paneId: owner, view: focused.view, sessionKey: focused.view.session }}>
+              <MountProvider scope={{ area: 'right', id: `conversation:${owner}`, view: focused.view, fixed: true }}>
+                <ViewHost view={focused.view} />
+              </MountProvider>
+            </PaneProvider>
+          </KeyboardHereContext.Provider>
+        </FixedToolLayer>}
+        <div className={styles.layer} {...(details ? {} : { 'data-hidden': '', inert: true })}>
+          <KeyboardHereContext.Provider value={details ? null : false}>
+            <ToolFooterScope id={detailsId}><ToolBody><ToolBodySections>
+              {focused && <PaneProvider scope={{ paneId: owner, view: focused.view,
+                sessionKey: focused.view.kind === 'conversation' ? focused.view.session : null }}><WorkDetailsOutlet owner={owner} /></PaneProvider>}
+              {entries.filter(entry => entry.view.kind === 'plugin').map(entry => <RetainedTool key={entry.id} entry={entry} shown={entry.id === plugin} section />)}
+            </ToolBodySections></ToolBody></ToolFooterScope>
+          </KeyboardHereContext.Provider>
         </div>
-        <BottomPanel />
-      </div>
-    </WorkbenchCanvas>
-    </ShellContext.Provider>
-    </DragContext.Provider>
-    </ComposerMountsProvider></RunDockProvider>
-  )
+        {entries.filter(entry => entry.view.kind !== 'plugin').map(entry => <RetainedTool key={entry.id} entry={entry}
+          shown={open && !details && entry.id === active} />)}
+      </DockPanelBody>
+      <ToolFooterOutlet id={open ? details ? plugin ?? detailsId : active : null} />
+    </FixedPanelBody>
+  </ToolFooterProvider>
 }
 
 const RightPanel = () => {
-  const store = useStore()
   const snapshot = useSnapshot()
-  const workbench = snapshot.workbench
-  // A panel with nothing in it is not a panel. Its seam, its strip and its
-  // border would all be furniture around an empty box — and the way back is
-  // the control that put something there in the first place.
-  // Collapsed means gone, for this one area. The bottom panel and the sidebar
-  // stack collapse to their tab strips because a horizontal strip is a
-  // legitimate resting state; a column has none — a vertical panel showing
-  // only a row of tabs is a column of nothing with a border. The way back is
-  // the control that opened it, which is where it has always been.
-  // An area with nothing in it draws no panel — but it must still be a place
-  // you can drag something to, or the only way to fill it is the ⋯ menu and
-  // the drag is a gesture that silently does nothing.
-  if (!rightPanelDrawn(workbench)) return <EdgeDropZone area="right" />
-  // A zoomed panel takes the room rather than its remembered width, and the
-  // seam goes with it: there is nothing on the other side of it to resize
-  // against, and a handle that moves nothing is a handle that looks broken.
-  const zoomed = workbench.zoom?.area === 'right'
-  // When fewer than 400px remain beside the panel, it covers the conversation
-  // and the seam goes for the same reason it goes in a zoom: nothing beside it
-  // to trade with.
+  const workbench = tileBrowserWorkbench(snapshot)
+  const workActive = useContext(WorkActive)
+  const rightActive = useContext(RightWorkActive)
+  const drawn = workActive && rightActive && rightPanelDrawn(workbench)
   const overlay = rightPanelOverlays(workbench, snapshot.windowWidth)
-  const sized = !zoomed && !overlay
-  // Zoomed, or laid over the main area, this is the panel being
-  // read, and the strip above the panes rides here instead of the main area.
-  const noticeHost = noticeArea(workbench, snapshot.windowWidth) === 'right'
+  const sized = !overlay
+  const noticeHost = drawn && noticeArea(workbench, snapshot.windowWidth) === 'right'
   const min = dockLimits('right').min
-  const max = Math.max(
-    min,
-    Math.min(
-      dockLimits('right').max,
-      snapshot.windowWidth -
-        (sidebarPlacement(snapshot) === 'column' ? workbench.sidebar.size + SEAM : 0) -
-        SEAM -
-        MIN_READING,
-    ),
-  )
-  return (
-    <>
-      {sized && (
-        <AreaSeam area="right" orientation="vertical" label="Resize the right panel" direction={-1} max={max} />
-      )}
-      <div
-        className={styles.right}
-        style={sized ? { width: 'var(--panel-right)' } : undefined}
-        {...(noticeHost ? { 'data-notice-host': '' } : {})}
-      >
-        {noticeHost && <NoticeStripOutlet host area="right" hostId="workbench:right" />}
-        {noticeHost && <NoticeStripFallback area="right" />}
-        <PanelArea area="right" />
-      </div>
-    </>
-  )
+  const max = Math.max(min, Math.min(dockLimits('right').max, snapshot.windowWidth -
+    (sidebarPlacement(snapshot) === 'column' ? workbench.sidebar.size + SEAM : 0) - SEAM - MIN_READING))
+  return <>
+    {drawn && sized && <AreaSeam area="right" orientation="vertical" label="Resize the right panel" direction={-1} max={max} />}
+    <FixedPanelFrame edge="right" open={drawn} className={styles.right} data-fixed-tool-frame="" style={{ width: '100%', height: '100%' }}
+       {...(noticeHost ? { 'data-notice-host': '' } : {})}>
+      {noticeHost && <NoticeStripOutlet host area="right" hostId="workbench:right" />}
+      {noticeHost && <NoticeStripFallback area="right" />}
+      <WorkToolBodies drawn={drawn} />
+    </FixedPanelFrame>
+  </>
 }
 
+/** Only process documents share the bottom frame; closing the region retains every xterm. */
 const BottomPanel = () => {
-  const store = useStore()
-  const snapshot = useSnapshot()
-  const workbench = snapshot.workbench
-  const dock = workbench.bottom
-  const shown = areaVisible(workbench, 'bottom')
-  if (dockViews(dock).length === 0 || !shown) return <EdgeDropZone area="bottom" />
-  const zoomed = workbench.zoom?.area === 'bottom'
-  const height = dock.collapsed || zoomed ? undefined : 'var(--panel-bottom)'
-  const noticeHost = noticeArea(workbench, snapshot.windowWidth) === 'bottom'
-  return (
-    <>
-      {!dock.collapsed && !zoomed && (
-        <AreaSeam area="bottom" orientation="horizontal" label="Resize the bottom panel" direction={-1} />
-      )}
-      <div
-        className={styles.bottom}
-        style={height ? { height } : undefined}
-        {...(noticeHost ? { 'data-notice-host': '' } : {})}
-      >
-        {noticeHost && <NoticeStripOutlet host area="bottom" hostId="workbench:bottom" />}
-        {noticeHost && <NoticeStripFallback area="bottom" />}
-        <PanelArea area="bottom" />
-      </div>
-    </>
+  const store = useStore(), snapshot = useSnapshot()
+  const workbench = tileBrowserWorkbench(snapshot), dock = workbench.bottom
+  const entries = dockViews(dock).filter(
+    (entry): entry is Mounted & { readonly view: TerminalView } => entry.view.kind === 'terminal',
   )
+  const current = activeView(dock)
+  const active = entries.find(entry => entry.id === current?.id) ?? entries[0]
+  const activeTerminal = active?.view.kind === 'terminal' ? active.view : undefined
+  const occurrences = new Map<string, number>()
+  const terminalTabs = entries.map(entry => {
+    const name = terminalName(entry.view)
+    const occurrence = (occurrences.get(name) ?? 0) + 1
+    occurrences.set(name, occurrence)
+    return {
+      id: entry.id,
+      label: terminalName(entry.view, occurrence),
+      title: terminalPathTitle(entry.view.cwd, snapshot.home),
+      onClose: () => store.closeTerminal(entry.view.terminalId),
+    }
+  })
+  const workActive = useContext(WorkActive)
+  const shown = workActive && Boolean(terminalCwdForSnapshot(snapshot)) && effectiveBottomHeight(workbench, snapshot.windowHeight) > 0
+  const noticeHost = shown && noticeArea(workbench, snapshot.windowWidth) === 'bottom'
+  return <>
+    {shown && <AreaSeam area="bottom" orientation="horizontal" label="Resize the bottom panel" direction={-1} />}
+    <FixedPanelFrame edge="bottom" open={shown} className={styles.bottom} data-terminal-frame=""
+       {...(noticeHost ? { 'data-notice-host': '' } : {})}>
+      {noticeHost && <NoticeStripOutlet host area="bottom" hostId="workbench:bottom" />}
+      {noticeHost && <NoticeStripFallback area="bottom" />}
+      {activeTerminal && <TerminalShellTabs
+        tabs={terminalTabs}
+        value={active?.id ?? null}
+        newShellTitle={`New shell in ${terminalPathTitle(activeTerminal.cwd, snapshot.home)}`}
+        onValueChange={id => store.activateView('bottom', id)}
+        onNewShell={() => void store.openTerminal({ cwd: activeTerminal.cwd })}
+        onCloseTerminal={() => store.closeTerminalDock()}
+      />}
+      <DockPanelBody className={styles.layers}>
+        {entries.map(entry => <div key={entry.id} data-terminal-mount={entry.id} className={styles.layer}
+          {...(shown && entry.id === active?.id ? {} : { 'data-hidden': '', inert: true })}>
+          <KeyboardHereContext.Provider value={shown && entry.id === active?.id ? null : false}>
+            <MountProvider scope={{ area: 'bottom', id: entry.id, view: entry.view, fixed: true }}><ViewHost view={entry.view} /></MountProvider>
+          </KeyboardHereContext.Provider>
+        </div>)}
+      </DockPanelBody>
+    </FixedPanelFrame>
+  </>
 }
 
 /**
@@ -464,9 +411,8 @@ const BottomPanel = () => {
  * it is: focus goes into it, what it covers cannot be reached until it goes,
  * Escape puts it away, and focus comes back to where it was.
  *
- * Escape is heard on the window, in the bubble phase — after everything inside
- * the sidebar has had its turn. A menu, a filter field or a rename that spends
- * the key says so with `preventDefault`, and then the sidebar stays: one press
+ * Escape joins the shared surface stack. A menu, a filter field or a rename
+ * registered above it gets the key first and keeps the sidebar open: one press
  * closes one thing. A dialog opened from the sidebar never lets the key get
  * this far at all (see `Dialog`).
  */
@@ -476,6 +422,7 @@ const useFloatingSidebar = (
   content: RefObject<HTMLDivElement | null>,
 ): void => {
   const store = useStore()
+  useEscapeSurface(floating, () => store.closeFloatingSidebar())
   const opener = useRef<HTMLElement | null>(null)
   // So that putting it away is told apart from never having opened it.
   const floated = useRef(false)
@@ -510,21 +457,33 @@ const useFloatingSidebar = (
        * for its own reasons stays so.
        */
       const beside = Array.from(document.querySelectorAll('[data-over-conversation]'))
-      const covered = [content.current, ...beside].filter(
+      const regions = content.current?.closest('[data-slot="fixed-shell"]')?.querySelectorAll('[data-frame-region="top"], [data-frame-region="right"], [data-frame-region="bottom"]') ?? []
+      const covered = [content.current, ...regions, ...beside].filter(
         (element): element is HTMLElement => element instanceof HTMLElement && !element.hasAttribute('inert'),
       )
       for (const element of covered) element.setAttribute('inert', '')
       // The surface, as a dialog does, rather than the first row in it: landing
       // on a row means a stray Return opens a conversation nobody chose.
       sidebar.current?.focus({ preventScroll: true })
-      const onKeyDown = (event: KeyboardEvent): void => {
-        if (event.key !== 'Escape' || event.defaultPrevented) return
-        event.preventDefault()
-        store.closeFloatingSidebar()
+      const cycleFocus = (event: KeyboardEvent): void => {
+        const surface = sidebar.current
+        const active = document.activeElement
+        // Portalled menus own their keys; wrap only the sidebar's own boundary.
+        if (event.key !== 'Tab' || event.defaultPrevented || !surface || !surface.contains(active)) return
+        const controls = [...surface.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], [tabindex]')]
+          .filter(element => element.tabIndex >= 0 && !element.matches(':disabled')
+            && !element.closest('[inert], [hidden]') && element.getClientRects().length > 0
+            && getComputedStyle(element).display !== 'none' && getComputedStyle(element).visibility !== 'hidden')
+        const first = controls[0], last = controls.at(-1)
+        if (!first || !last) { event.preventDefault(); surface.focus(); return }
+        if (active === surface || (event.shiftKey ? active === first : active === last)) {
+          event.preventDefault()
+          ;(event.shiftKey ? last : first).focus({ preventScroll: true })
+        }
       }
-      window.addEventListener('keydown', onKeyDown)
+      document.addEventListener('keydown', cycleFocus)
       return () => {
-        window.removeEventListener('keydown', onKeyDown)
+        document.removeEventListener('keydown', cycleFocus)
         for (const element of covered) element.removeAttribute('inert')
       }
     }
@@ -552,319 +511,6 @@ const useFloatingSidebar = (
     if (stranded && back.isConnected) back.focus({ preventScroll: true })
   }, [floating, sidebar, content, store])
 }
-
-/**
- * One docked area: a tab strip, the panel's controls, and every view it holds.
- *
- * Every view stays mounted and the ones not on screen are hidden rather than
- * unmounted — `visibility`, not `display`. A terminal under `display: none`
- * measures zero columns and reflows its whole screen when it comes back; a
- * `<webview>` tears down its rendering surface and returns blank. Hiding costs
- * a little memory and keeps a diff's scroll position, a shell's screen and a
- * page's history exactly where they were.
- */
-const PanelArea = ({ area }: { area: DockId }) => {
-  const dock = useSnapshot().workbench[area]
-  if (dockViews(dock).length === 0) return null
-  return <DockNodeView area={area} node={dock.root} collapsed={dock.collapsed} />
-}
-
-/**
- * A dock's tree, drawn.
- *
- * A stack is a panel; a branch is two of them sharing the space with a seam
- * between. Collapsed, the branch layout is dropped and the strips are stacked
- * in a column — two half-width tab bars side by side would be a puzzle, and
- * the strip's only job while collapsed is to be the way back.
- */
-const DockNodeView = ({
-  area,
-  node,
-  collapsed,
-}: {
-  area: DockId
-  node: DockNode
-  collapsed: boolean
-}) =>
-  node.kind === 'stack' ? (
-    <StackPanel area={area} stack={node} collapsed={collapsed} />
-  ) : collapsed ? (
-    <div className={styles.strips}>
-      <DockNodeView area={area} node={node.first} collapsed />
-      <DockNodeView area={area} node={node.second} collapsed />
-    </div>
-  ) : (
-    <DockSplit area={area} branch={node} />
-  )
-
-/**
- * The seam between two halves of a panel.
- *
- * A ratio rather than pixels, because this is a split *within* an area whose
- * own size is already settled: the two halves share what the area was given,
- * the way two documents share a column.
- *
- * The ratio is a custom property on the split, and the halves are sized off it
- * in CSS — so a drag is one property write per frame and the browser does the
- * arithmetic, rather than a `setState` that re-renders both panels and
- * everything mounted inside them. The store hears the number it lands on.
- */
-const DockSplit = ({ area, branch }: { area: DockId; branch: DockBranch }) => {
-  const store = useStore()
-  const container = useRef<HTMLDivElement>(null)
-  const grab = useRef<{ readonly at: number; readonly ratio: number; readonly span: number } | null>(
-    null,
-  )
-  const live = useRef(branch.ratio)
-
-  const clear = (): void => {
-    container.current?.style.removeProperty('--split-drag')
-  }
-
-  /* The committed ratio is in; the drag's override goes, in the same paint. */
-  /* Wrapped, not passed: `removeProperty` answers with the value it removed,
-     and a layout effect that returns a string is a cleanup function as far
-     as React is concerned. */
-  useLayoutEffect(() => {
-    clear()
-  }, [branch.ratio])
-
-  const show = (next: number): void => {
-    live.current = next
-    /* Four decimals: finer than a split can be seen, and it keeps
-       `0.15000000000000002` out of the CSSOM and the inspector. */
-    container.current?.style.setProperty('--split-drag', next.toFixed(4))
-  }
-
-  /**
-   * The end of a gesture, however it ended, and only once — see `SplitView`
-   * in `Panes.tsx`, which carries the same four entry points for the same
-   * reasons. The guard is first because `endResize` is counted.
-   */
-  const stop = (node: Element | null, commit: boolean): void => {
-    if (grab.current === null) return
-    grab.current = null
-    markDragging(node, false)
-    markDragging(container.current, false)
-    endResize()
-    if (!commit) {
-      clear()
-      return
-    }
-    // Ending where it started commits a ratio the store already holds, so
-    // nothing re-renders and the layout effect never fires; the override has
-    // to come off here or it outlives the gesture and shadows this split for
-    // the rest of the session.
-    if (live.current === branch.ratio) clear()
-    else store.resizePanelSplit(area, branch.id, live.current)
-  }
-
-  const onUnmount = useRef(stop)
-  onUnmount.current = stop
-  useEffect(() => () => onUnmount.current(null, false), [])
-
-  return (
-    <div
-      ref={container}
-      className={styles.split}
-      data-direction={branch.direction}
-      style={{ '--split-ratio': branch.ratio } as CSSProperties}
-    >
-      <div className={styles.half} data-side="first">
-        <DockNodeView area={area} node={branch.first} collapsed={false} />
-      </div>
-      <ResizeHandle
-        className={styles.splitSeam}
-        appearance="line"
-        orientation={branch.direction === 'row' ? 'vertical' : 'horizontal'}
-        label="Resize these panels"
-        value={branch.ratio}
-        min={MIN_RATIO}
-        max={MAX_RATIO}
-        onChange={show}
-        onCommit={(next) => store.resizePanelSplit(area, branch.id, next)}
-        onPointerDown={(event) => {
-          /* A grab is already held: a second finger on the seam, or a pen
-             beside a mouse. `beginResize` is counted and `stop` runs once, so
-             a second begin here would be a suppression nothing ever gives
-             back — the window left with no transitions, a frozen cursor and
-             inert guest frames for the rest of the session (#252). The drag in
-             progress keeps the seam. */
-          if (grab.current !== null) return
-          const bounds = container.current?.getBoundingClientRect()
-          if (!bounds) return
-          event.preventDefault()
-          event.currentTarget.setPointerCapture(event.pointerId)
-          markDragging(event.currentTarget, true)
-          markDragging(container.current, true)
-          beginResize(branch.direction === 'row' ? 'vertical' : 'horizontal')
-          live.current = branch.ratio
-          grab.current = {
-            at: branch.direction === 'row' ? event.clientX : event.clientY,
-            ratio: branch.ratio,
-            span: branch.direction === 'row' ? bounds.width : bounds.height,
-          }
-        }}
-        /* A delta from where the pointer went down, not the pointer's own
-           position in the box: the seam is nine pixels of hit area around a
-           one-pixel line, and measuring absolutely made it jump to centre
-           itself under the pointer the instant you grabbed its edge. */
-        onPointerMove={(event) => {
-          const start = grab.current
-          if (!start || start.span === 0) return
-          const now = branch.direction === 'row' ? event.clientX : event.clientY
-          show(Math.min(MAX_RATIO, Math.max(MIN_RATIO, start.ratio + (now - start.at) / start.span)))
-        }}
-        onPointerUp={(event) => stop(event.currentTarget, true)}
-        onPointerCancel={(event) => stop(event.currentTarget, false)}
-        onLostPointerCapture={(event) => stop(event.currentTarget, true)}
-      />
-      <div className={styles.half} data-side="second">
-        <DockNodeView area={area} node={branch.second} collapsed={false} />
-      </div>
-    </div>
-  )
-}
-
-/** One stack of tabs: the thing a person calls "a panel". */
-const StackPanel = ({
-  area,
-  stack,
-  collapsed,
-}: {
-  area: DockId
-  stack: DockStack
-  collapsed: boolean
-}) => {
-  const store = useStore()
-  const { setDragging } = useContext(DragContext)
-  const snapshot = useSnapshot()
-  const workbench = snapshot.workbench
-  const titleOf = useViewTitle()
-  const shown = stackView(stack)
-
-  /*
-   * A strip above the view answers two questions: what else is in here, and
-   * what can I do to this panel. When the stack holds one view that draws its
-   * own header — the browser's tab row, a terminal's path line — it answers
-   * neither: the first has no other answer, and the second moves into that
-   * header. Drawing it anyway is what put a tab row above the browser's tab
-   * row, with expand and close in both.
-   */
-  const owns = shown ? views.get(shown.view.kind)?.ownsChrome === true : false
-  /*
-   * Collapsed, the strip is drawn whatever the stack holds — because the body
-   * is not. A lone view that draws its own header was the one case with
-   * neither: "collapse to the tabs" hid the layer that held the header, the
-   * section was left empty (1199 × 1 px, with one file docked at the bottom),
-   * and nothing in the dock could bring it back (#232). `mount.tsx` reads the
-   * same rule for `chrome`, so while the strip is the panel's, the verbs are
-   * the panel's too, and the ✕ is not drawn twice.
-   */
-  const strip = collapsed || !(owns && stack.views.length === 1)
-
-  return (
-    <DockPanel edge={AREA_EDGE[area]} collapsed={collapsed} className={styles.panel}>
-      {strip && (
-      <DockPanelBar>
-        <DockPanelTabs
-          label={LABEL[area]}
-          value={shown?.id ?? null}
-          onValueChange={(id) => store.activateView(area, id)}
-        >
-          {stack.views.map((mounted) => {
-            const Glyph = iconOf(mounted.view)
-            return (
-              <span
-                key={mounted.id}
-                draggable
-                onDragStart={(event: DragEvent<HTMLSpanElement>) => {
-                  event.dataTransfer.setData(DRAG_TYPE, mounted.id)
-                  event.dataTransfer.effectAllowed = 'move'
-                  setDragging({ id: mounted.id, view: mounted.view })
-                }}
-                onDragEnd={() => setDragging(null)}
-              >
-                <DockPanelTab
-                  value={mounted.id}
-                  label={titleOf(mounted.view)}
-                  icon={Glyph ? <Glyph size={14} /> : undefined}
-                  live={views.get(mounted.view.kind)?.live?.(snapshot) === true}
-                  onClose={() => store.closeView(mounted.id)}
-                />
-              </span>
-            )
-          })}
-        </DockPanelTabs>
-        <DockPanelActions>
-          {/* The actions act on the view the strip is showing, so they are
-              given its mount to read — the same one the view itself gets. */}
-          {shown && (
-            <MountProvider scope={{ area, id: shown.id, view: shown.view }}>
-              <PanelActions where="strip" />
-            </MountProvider>
-          )}
-        </DockPanelActions>
-      </DockPanelBar>
-      )}
-      {!collapsed && (
-        /* Under a strip, the views are no longer in the window's corner — the
-           strip is — so the room reserved for the window buttons is spent
-           there and put back to zero here. Without a strip this panel's one
-           view draws the corner row itself and keeps it. */
-        <DockPanelBody className={styles.layers} {...(strip ? { 'data-under-bar': '' } : {})}>
-          {stack.views.map((mounted) => (
-            <div
-              key={mounted.id}
-              className={styles.layer}
-              {...(mounted.id === shown?.id ? {} : { 'data-hidden': '' })}
-              // Working in a panel makes it the one the sidebar, the palette
-              // and the window title are about. Capture phase, so a click on a
-              // control inside it counts too.
-              onPointerDownCapture={() => store.focusView(mounted.id)}
-              onFocusCapture={() => store.focusView(mounted.id)}
-            >
-              <MountProvider scope={{ area, id: mounted.id, view: mounted.view }}>
-                <Scoped view={mounted.view} id={mounted.id}>
-                  <ViewHost view={mounted.view} />
-                </Scoped>
-              </MountProvider>
-            </div>
-          ))}
-          <DropZone area={area} stack={stack.id} />
-        </DockPanelBody>
-      )}
-    </DockPanel>
-  )
-}
-
-/**
- * The session scope a docked panel gets — for a conversation, and only for a
- * conversation.
- *
- * A docked transcript is about *its own* session: its composer sends there,
- * its approvals belong to it, its header names it. Every other panel is about
- * whichever conversation is in front — Changes shows what *that* one edited —
- * and giving those a scope of their own would pin them to nothing, because
- * `useSessionKey` reads the scope first and only falls back to the focused
- * conversation when there is none.
- *
- * So the rule is exactly one line long, and it is this one.
- */
-const Scoped = ({
-  view,
-  id,
-  children,
-}: {
-  view: PaneView
-  id: string
-  children: ReactNode
-}) =>
-  view.kind === 'conversation' ? (
-    <PaneProvider scope={{ paneId: id, view, sessionKey: view.session }}>{children}</PaneProvider>
-  ) : (
-    <>{children}</>
-  )
 
 /**
  * A seam between two areas: dragged on the DOM, committed once.
@@ -898,139 +544,23 @@ const AreaSeam = ({
 }) => {
   const store = useStore()
   const shell = useContext(ShellContext)
-  const size = useSnapshot().workbench[area].size
-
-  /*
-   * The committed size has landed, so the drag's override has to go — or it
-   * outranks every later change and the panel stops answering to anything but
-   * its own seam. A layout effect, so the removal and the new committed value
-   * are the same paint and there is no frame showing the old width.
-   */
-  useLayoutEffect(() => {
-    shell.current?.style.removeProperty(LIVE[area])
-  }, [shell, area, size])
-
-  const limits = dockLimits(area)
+  const snapshot = useSnapshot()
+  const requested = snapshot.workbench[area].size
+  const limits = dockLimits(area, snapshot.windowHeight)
   const max = maxOverride === undefined ? limits.max : Math.min(limits.max, maxOverride)
-  /* What the store will hold once it is told `next` — the same clamp and the
-     same rounding `resizeDock` applies, so the two can be compared. */
-  const landing = (next: number): number =>
-    Math.min(limits.max, Math.max(limits.min, Math.round(next)))
-
-  return (
-    <PanelSeam
-      orientation={orientation}
-      label={label}
-      size={size}
-      min={limits.min}
-      max={max}
-      direction={direction}
-      onResize={(next) => shell.current?.style.setProperty(LIVE[area], `${Math.round(next)}px`)}
-      /* Abandoned: the override is the only thing holding the size the pointer
-         reached, and no commit is coming to replace it. */
-      onCancel={() => shell.current?.style.removeProperty(LIVE[area])}
-      onCommit={(next) => {
-        /* A drag that ends on the size the store already holds changes
-           nothing, so this component never re-renders and the layout effect
-           above never runs — the override would stay on the shell for the rest
-           of the session and shadow every later change to this panel. It is
-           safe to drop it here for the one reason that matters: the value did
-           not move, so what the override paints is what the committed size
-           paints. Anything that *did* move is left to the effect, which clears
-           it in the same paint the new size arrives — never a frame earlier,
-           or the panel flicks back to where the drag began. */
-        if (landing(next) === size) shell.current?.style.removeProperty(LIVE[area])
-        else store.resizePanel(area, next)
-      }}
-    />
-  )
+  const landing = (next: number) => Math.min(max, Math.max(limits.min, Math.round(next)))
+  const size = landing(requested)
+  useLayoutEffect(() => { shell.current?.style.removeProperty(LIVE[area]) }, [shell, area, requested, max, snapshot.windowWidth, snapshot.windowHeight])
+  const commit = (next: number) => {
+    const value = landing(next)
+    // Keep the live projection until the requested-size layout effect paints
+    // its replacement; removing it here briefly restores the previous width.
+    if (value !== requested) store.resizePanel(area, value)
+    else shell.current?.style.removeProperty(LIVE[area])
+  }
+  const defaults = { sidebar: FRAME.sidebar.width, right: FRAME.rightPanel.width, bottom: FRAME.bottomPanel.height }
+  return <PanelSeam orientation={orientation} label={label} size={size} min={limits.min} max={max} direction={direction}
+    onResize={next => shell.current?.style.setProperty(LIVE[area], `${landing(next)}px`)}
+    onCancel={() => shell.current?.style.removeProperty(LIVE[area])}
+    onCommit={commit} onDoubleClick={() => commit(defaults[area])} />
 }
-
-/**
- * The landing strip for an area that has nothing in it yet.
- *
- * A dock with no views draws no panel, which left the right and bottom edges
- * un-droppable: you could only put something there through the ⋯ menu, and the
- * drag — the gesture everyone reaches for first — did nothing at all. This is
- * a thin band along the edge, present only while a drag that it would accept
- * is in flight.
- */
-const EdgeDropZone = ({ area }: { area: 'right' | 'bottom' }) => {
-  const { dragging } = useContext(DragContext)
-  if (!dragging || !views.permits(dragging.view, area)) return null
-  return (
-    <DockDropEdge area={area}>
-      <DropZone area={area} />
-    </DockDropEdge>
-  )
-}
-
-/**
- * Where a dragged tab may be dropped.
- *
- * Inert and invisible until a drag is in flight, and then only over areas the
- * dragged view actually declares — a zone that lights up and then refuses the
- * drop is worse than no zone at all, because the person learns the wrong rule
- * and tries again.
- *
- * `stack` is set for the zone covering one stack's body, and it is what makes a
- * split panel reversible: without it a drop into the other half of the right
- * panel was a move from `right` to `right`, which the model reads as "already
- * where you asked" and answers by doing nothing. The zone lit up, took the
- * drop and left the tab where it was — the very failure the paragraph above
- * describes, at the one target a person reaches for to undo a split.
- *
- * Which is also why the same id decides whether to light up at all: a drop
- * that would land a view exactly where it already is now draws no zone.
- */
-const DropZone = ({ area, stack }: { area: AreaId; stack?: string }) => {
-  const store = useStore()
-  const workbench = useSnapshot().workbench
-  const { dragging } = useContext(DragContext)
-  const [over, setOver] = useState(false)
-
-  const from = dragging ? areaOfMount(workbench, dragging.id) : null
-  const fromStack =
-    dragging && from !== null && from !== 'main' ? (stackOf(workbench[from], dragging.id)?.id ?? null) : null
-  const accepts =
-    dragging !== null &&
-    views.permits(dragging.view, area) &&
-    (area !== from || (stack !== undefined && stack !== fromStack))
-
-  const onDrop = useCallback(
-    (event: DragEvent<HTMLDivElement>) => {
-      event.preventDefault()
-      setOver(false)
-      const id = event.dataTransfer.getData(DRAG_TYPE)
-      if (id) store.moveView(id, area, stack)
-    },
-    [area, stack, store],
-  )
-
-  if (!accepts) return null
-
-  return (
-    <DockDropTarget
-      label={`Dock in ${AREA_NAME[area]}`}
-      active={over}
-      data-area={area}
-      aria-hidden
-      onDragEnter={() => setOver(true)}
-      onDragLeave={() => setOver(false)}
-      onDragOver={(event) => {
-        event.preventDefault()
-        event.dataTransfer.dropEffect = 'move'
-      }}
-      onDrop={onDrop}
-    />
-  )
-}
-
-/**
- * The sidebar's panels, registered into the slot the sidebar already had.
- *
- * Registered here, at module scope, rather than in `builtins.tsx`: that file is
- * imported by this one, and a registration living there would have to import
- * `PanelArea` back out of it.
- */
-registerSlot('sidebar.panel', 'hd.panels', () => <PanelArea area="sidebar" />, { order: 50 })

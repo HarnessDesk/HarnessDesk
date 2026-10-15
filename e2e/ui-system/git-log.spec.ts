@@ -54,7 +54,7 @@ for (const theme of ['light', 'dark'] as const) {
     expect(await header.getByRole('columnheader').first().evaluate(el => {
       const style = getComputedStyle(el.querySelector('[data-slot="text"]')!)
       return [style.fontSize, style.fontWeight]
-    })).toEqual(['12px', '500'])
+    })).toEqual(['12px', '400'])
     expect(await header.getByRole('columnheader').first().locator('[data-slot="text"]').evaluate(el => {
       const probe = document.createElement('span')
       probe.style.color = 'var(--hd-table-head-ink)'
@@ -100,7 +100,7 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(library.locator('[data-slot="separator"]')).toHaveCount(0)
     const item = library.getByRole('listitem').first()
     expect(await item.evaluate(el => getComputedStyle(el.firstElementChild!).alignItems)).toBe('center')
-    expect(await item.locator('[data-slot="text"]').first().evaluate(el => getComputedStyle(el).fontVariantNumeric)).toBe('tabular-nums')
+    expect(await item.locator('[data-slot="text"][data-role="meta"]').first().evaluate(el => getComputedStyle(el).fontVariantNumeric)).toBe('tabular-nums')
     expect(await item.getByRole('button', { name: 'Restore…' }).getAttribute('data-variant')).toBe('outline')
     await page.locator('select').filter({ has: page.locator('option[value="worktree manager"]') }).selectOption('worktree manager')
     const dialog = page.getByRole('dialog', { name: 'Worktrees', exact: true })

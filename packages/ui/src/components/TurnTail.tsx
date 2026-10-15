@@ -120,7 +120,7 @@ export const TurnTail = ({
         </ActionError>
       )}
       {(actions || when !== null) && (
-        <Text as="div" role="meta" numeric className={styles.turnTail}>
+        <Text as="div" role="meta" numeric className={styles.turnTail} data-turn-tail>
           {actions && <MessageActions text={answer} />}
           <span className={styles.turnTailSpacer} />
           {when !== null && figures.length > 0 ? (

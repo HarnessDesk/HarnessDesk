@@ -7,6 +7,7 @@ import type { FlowEntry, FlowExecution, FlowPreview, FrontDoorPreview, HostMetho
 import { StoreProvider } from '../state/context'
 import { AppStore } from '../state/store'
 import { FrontDoor } from './FrontDoor'
+import { CONTEST_START_POLICY } from '../lib/contest-start-fixture'
 
 /**
  * The front door: choose a file-based shape, read its populated dry run,
@@ -92,6 +93,326 @@ const requestSpy = (store: AppStore, handlers: Partial<Record<HostMethodName, (p
     if (handler) return handler(params)
     return null
   }) as never)
+
+it('focuses search, filters by summary, and picks with the keyboard', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, {
+    'flow/catalog': () => [ENTRY('review', 'Review', { summary: 'Security specialists.' }), ENTRY('other', 'Other')],
+    'agent/list': () => [], 'flow/source': () => 'source',
+    'authoring/start/preview': () => previewOf(emptyFlow('token')),
+  })
+  render(store)
+  await settle()
+  const search = document.querySelector<HTMLInputElement>('[aria-label="Search shapes"]')!
+  expect(search).not.toBeNull()
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(search, 'security')
+    search.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(document.body.textContent).toContain('Review')
+  expect(document.body.textContent).not.toContain('Other')
+  act(() => search.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })))
+  act(() => search.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })))
+  await settle()
+  expect(document.body.textContent).toContain('Done when · optional')
+})
+
+it('Continue opens the highlighted shape', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, {
+    'flow/catalog': () => [ENTRY('review', 'Review'), ENTRY('other', 'Other')],
+    'agent/list': () => [],
+    'flow/source': () => 'source',
+    'authoring/start/preview': () => previewOf(emptyFlow('token')),
+  })
+  render(store)
+  await settle()
+
+  const first = rowFor('Other')
+  act(() => first.focus())
+  act(() => first.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true })))
+  expect(rowFor('Review').getAttribute('data-selected')).toBe('')
+
+  act(() => button('Continue').click())
+  await settle()
+  expect(document.body.querySelector('[role="dialog"]')?.getAttribute('aria-label')).toBe('Review')
+})
+
+it('gives the shape search its search glyph and a plain Search placeholder', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, {
+    'flow/catalog': () => [ENTRY('review', 'Review')], 'agent/list': () => [], 'flow/source': () => 'source',
+  })
+  render(store)
+  await settle()
+
+  const search = document.querySelector<HTMLElement>('[data-slot="search"]')
+  expect(search?.querySelector('svg')).not.toBeNull()
+  expect(search?.querySelector<HTMLInputElement>('input[type="search"]')?.placeholder).toBe('Search shapes…')
+})
+
+it('uses a distinct icon for Fan-out review and Staged relay', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, {
+    'flow/catalog': () => [ENTRY('fan-out', 'Fan-out review'), ENTRY('staged-relay', 'Staged relay')],
+    'agent/list': () => [], 'flow/source': () => 'source',
+  })
+  render(store)
+  await settle()
+
+  const icon = (name: string): string | null => rowFor(name).querySelector('svg')?.getAttribute('class') ?? null
+  expect(icon('Fan-out review')).not.toBe(icon('Staged relay'))
+})
+
+it('Back keeps the task and Done when is the sentence sent to start', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const base = emptyFlow('token')
+  const flow: FlowPreview = { ...base, compiled: { ...base.compiled, document: { format: 'agents', flow: {
+    ...(base.compiled.document.format === 'agents' ? base.compiled.document.flow : neverFlow()),
+    inputs: [{ id: 'task', label: 'Task' }],
+  } } } }
+  const spy = requestSpy(store, {
+    'flow/catalog': () => [ENTRY('review', 'Review')], 'agent/list': () => [], 'flow/source': () => 'source',
+    'authoring/start/preview': params => previewOf(flow, { vars: (params as { vars: Record<string, string> }).vars }),
+    'flow/start-goal': () => EXECUTION,
+  })
+  render(store)
+  await settle()
+  act(() => rowFor('Review').click())
+  await settle()
+  const task = document.querySelector<HTMLTextAreaElement>('[aria-label="What should they do?"]')!
+  expect(task).not.toBeNull()
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(task, 'Fix the cart')
+    task.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  act(() => button('Back').click())
+  act(() => rowFor('Review').click())
+  await settle()
+  expect(document.querySelector<HTMLTextAreaElement>('textarea')!.value).toBe('Fix the cart')
+  const done = document.querySelector<HTMLInputElement>('[aria-label="Done when · optional"]')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(done, 'The cart test passes')
+    done.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  act(() => button('Start').click())
+  await settle()
+  expect(spy.mock.calls.find(call => call[0] === 'flow/start-goal')?.[1]).toMatchObject({ sentence: 'The cart test passes', vars: { task: 'Fix the cart' } })
+})
+
+const neverFlow = (): never => { throw new Error('expected current format') }
+
+it.each([['comparison', 'Side by side', 'judge', 'to-judge'], ['mechanical-contest', 'Mechanical contest', 'referee', 'to-person']])('prefills %s’s project check, previews edits, and keeps an empty check after Back', async (id, name, destination, route) => {
+  const { TEAM_START_POLICIES } = await import('../preview/team-start-fixture')
+  const original: import('@harnessdesk/protocol').FlowPolicy = id === 'mechanical-contest' ? CONTEST_START_POLICY : TEAM_START_POLICIES.comparison
+  const policy = { ...original, inputs: [{ id: 'task', label: 'Task', default: 'Fix the cart' }], roles: original.roles.filter(role => role.kind !== 'check'), rules: [
+    { id: route, on: 'competitor', then: { role: destination, title: 'Choose an attempt' } },
+    ...original.rules.filter(rule => rule.on === 'judge'),
+  ] }
+  const store = new AppStore('ws://localhost:0/')
+  const spy = requestSpy(store, {
+    'flow/catalog': () => [ENTRY(id, name)], 'agent/list': () => [], 'flow/source': () => JSON.stringify(policy),
+    'authoring/shape/render': params => ({ source: JSON.stringify((params as { policy: unknown }).policy), issues: [] }),
+    'authoring/start/preview': params => {
+      const input = params as { source: string; vars: Record<string, string> }
+      const base = emptyFlow('token')
+      return { ...previewOf({ ...base, compiled: { ...base.compiled, document: { format: 'agents', flow: JSON.parse(input.source) } } }, { source: input.source, vars: input.vars }), projectCheckCommand: 'pnpm test' }
+    },
+    'flow/start-goal': () => EXECUTION,
+  })
+  render(store)
+  await settle()
+  act(() => rowFor(name).click())
+  await settle()
+  const check = (): HTMLInputElement => {
+    const label = [...document.querySelectorAll('label')].find(one => one.textContent?.includes('Check each attempt with'))
+    expect(label).toBeDefined()
+    return document.getElementById(label!.htmlFor) as HTMLInputElement
+  }
+  expect(check().value).toBe('pnpm test')
+  const type = async (value: string) => {
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(check(), value)
+      check().dispatchEvent(new Event('input', { bubbles: true }))
+    })
+  }
+  await type('node check.mjs')
+  const edited = store.getSnapshot().frontDoor!.preview!
+  expect(edited.flow.compiled.document.flow.roles.find(role => role.id === 'verify')).toMatchObject({ check: { run: 'node check.mjs' } })
+  await type('')
+  act(() => button('Back').click())
+  act(() => rowFor(name).click())
+  await settle()
+  expect(check().value).toBe('')
+  act(() => button('Start').click())
+  await settle()
+  const started = spy.mock.calls.find(call => call[0] === 'flow/start-goal')?.[1] as { source: string }
+  expect(JSON.parse(started.source).roles.some((role: { kind: string }) => role.kind === 'check')).toBe(false)
+  expect(JSON.parse(started.source).rules.find((rule: { id: string }) => rule.id === route).on).toBe('competitor')
+})
+
+it.each(['render', 'preview'])('holds Back and Details inputs until a policy %s settles, then keeps the edit', async phase => {
+  const { TEAM_START_POLICIES } = await import('../preview/team-start-fixture')
+  const policy = { ...TEAM_START_POLICIES['fix-and-review'], inputs: [{ id: 'task', label: 'Task', default: 'Fix the cart' }, { id: 'ticket', label: 'Ticket', default: '42' }] }
+  const store = new AppStore('ws://localhost:0/')
+  let release!: () => void
+  const delayed = new Promise<void>(resolve => { release = resolve })
+  const spy = requestSpy(store, {
+    'flow/catalog': () => [ENTRY('fix-and-review', 'Write and review')], 'agent/list': () => [], 'flow/source': () => JSON.stringify(policy),
+    'authoring/shape/render': async params => {
+      if (phase === 'render') await delayed
+      return { source: JSON.stringify((params as { policy: unknown }).policy), issues: [] }
+    },
+    'authoring/start/preview': async params => {
+      const input = params as { source: string; vars: Record<string, string> }
+      const flow = JSON.parse(input.source) as typeof policy
+      if (phase === 'preview' && flow.budget?.rounds === 5) await delayed
+      const base = emptyFlow('token')
+      return previewOf({ ...base, compiled: { ...base.compiled, document: { format: 'agents', flow } } }, { source: input.source, vars: input.vars })
+    },
+    'flow/start-goal': () => EXECUTION,
+  })
+  render(store)
+  await settle()
+  act(() => rowFor('Write and review').click())
+  await settle()
+  act(() => button('2').click())
+  await settle()
+  expect(button('Start').disabled).toBe(true)
+  expect(button('Back').disabled).toBe(true)
+  const ticket = [...document.querySelectorAll<HTMLInputElement>('input')].find(one => one.value === '42')!
+  expect(ticket.disabled).toBe(true)
+  act(() => button('Back').click())
+  expect(document.querySelector('[aria-label="Search shapes"]')).toBeNull()
+  await act(async () => release())
+  expect(button('Back').disabled).toBe(false)
+  expect(ticket.disabled).toBe(false)
+  act(() => button('Back').click())
+  act(() => rowFor('Write and review').click())
+  await settle()
+  expect(button('2').getAttribute('aria-pressed')).toBe('true')
+  act(() => button('Start').click())
+  await settle()
+  const started = spy.mock.calls.find(call => call[0] === 'flow/start-goal')?.[1] as { source: string }
+  expect(JSON.parse(started.source).budget.rounds).toBe(5)
+})
+
+it('retires Start during a policy edit and ignores an older refused render', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const base = emptyFlow('old-token')
+  const policy = { ...(base.compiled.document.format === 'agents' ? base.compiled.document.flow : neverFlow()),
+    inputs: [{ id: 'task', label: 'Task', default: 'Fix the cart' }],
+    roles: [{ id: 'verify', kind: 'check' as const, check: { run: 'pnpm test', timeout: 60, exits: { '0': 'pass' }, otherwise: 'fail' } }],
+  }
+  let refuse!: (value: { source: string; issues: { at: string; text: string; fix: null }[] }) => void
+  const delayed = new Promise<{ source: string; issues: { at: string; text: string; fix: null }[] }>(resolve => { refuse = resolve })
+  let renders = 0
+  requestSpy(store, {
+    'flow/catalog': () => [ENTRY('check', 'Check')], 'agent/list': () => [], 'flow/source': () => JSON.stringify(policy),
+    'authoring/start/preview': params => {
+      const input = params as { source: string; vars: Record<string, string> }
+      return previewOf({ ...base, token: 'new-token', compiled: { ...base.compiled, document: { format: 'agents', flow: JSON.parse(input.source) } } }, { vars: input.vars })
+    },
+    'authoring/shape/render': params => {
+      if (++renders === 1) return delayed
+      if (renders === 3) return { source: '', issues: [{ at: 'roles.verify', text: 'A command is required.', fix: null }] }
+      return { source: JSON.stringify((params as { policy: unknown }).policy), issues: [] }
+    },
+  })
+  render(store)
+  await settle()
+  act(() => rowFor('Check').click())
+  await settle()
+  expect(button('Start').disabled).toBe(false)
+  const command = (): HTMLInputElement => [...document.querySelectorAll('input')].find(one => one.value.startsWith('pnpm') || one.value === '')!
+  const edit = (value: string): void => {
+    const field = command()
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, value)
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+  }
+  act(() => edit('pnpm slow'))
+  expect(button('Start').disabled).toBe(true)
+  expect(store.getSnapshot().frontDoor?.preview).toBeNull()
+  act(() => edit('pnpm good'))
+  await settle()
+  expect(button('Start').disabled).toBe(false)
+  await act(async () => refuse({ source: '', issues: [{ at: 'roles.verify', text: 'Old refusal', fix: null }] }))
+  expect(document.body.textContent).not.toContain('Old refusal')
+  expect(button('Start').disabled).toBe(false)
+  act(() => edit(''))
+  await settle()
+  expect(button('Start').disabled).toBe(true)
+  expect(document.body.textContent).toContain('A command is required.')
+})
+
+it('Just a Team creates a flow-less Team with the typed completion sentence', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const spy = requestSpy(store, { 'flow/catalog': () => [], 'agent/list': () => [] })
+  vi.spyOn(store, 'loadAgents').mockResolvedValue(undefined)
+  const create = vi.spyOn(store, 'createGoal').mockResolvedValue({ goal: { id: 'team-1' } } as import('@harnessdesk/protocol').GoalView)
+  const open = vi.spyOn(store, 'openGoal').mockImplementation(() => {})
+  const add = vi.spyOn(store, 'teamAdd').mockResolvedValue(undefined)
+  const { onClose } = render(store)
+  await settle()
+  act(() => rowFor('Just a Team').click())
+  await settle()
+  const task = document.querySelector<HTMLTextAreaElement>('textarea')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(task, 'Investigate the cart')
+    task.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  const done = document.querySelector<HTMLInputElement>('[aria-label="Done when · optional"]')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(done, 'The cause is documented')
+    done.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  act(() => button('Start').click())
+  await settle()
+  expect(create).toHaveBeenCalledWith({ root: '/repo', sentence: 'The cause is documented', checkout: 'shared' })
+  expect(add).toHaveBeenCalledWith('team-1', { title: 'Investigate the cart' })
+  expect(open).toHaveBeenCalledWith('team-1')
+  expect(onClose).toHaveBeenCalledOnce()
+  expect(spy.mock.calls.some(call => call[0] === 'flow/start-goal')).toBe(false)
+})
+
+it('the seed preview follows input defaults, edits and clearing in the front door', async () => {
+  const base = emptyFlow('token')
+  const flow: FlowPreview = {
+    ...base,
+    compiled: {
+      ...base.compiled,
+      document: { format: 'agents', flow: {
+        version: 2, name: 'Review', inputs: [{ id: 'task', label: 'Task', default: 'Initial task' }],
+        roles: [], seed: { role: 'reviewer', title: '{{ task }}' },
+        rules: [{ id: 'check', on: 'reviewer', then: { role: 'verify', title: 'Check the task' } }],
+        messaging: 'board-only', wait: 240,
+      } },
+    },
+  }
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, {
+    'flow/catalog': () => [ENTRY('review', 'Review')],
+    'agent/list': () => [],
+    'flow/source': () => 'saved flow',
+    'authoring/start/preview': params => previewOf(flow, { vars: (params as { vars: Record<string, string> }).vars }),
+  })
+  render(store)
+  await settle()
+  act(() => rowFor('Review').click())
+  await settle()
+  const rounds = () => document.body.querySelector('[aria-label="Rounds and rules"]')!.textContent
+  expect(rounds()).toContain('Seed round — Initial task')
+  for (const [value, expected] of [['Edited task', 'Edited task'], ['Keep {{task}} literal', 'Keep {{task}} literal'], ['', 'Task']]) {
+    const label = [...document.body.querySelectorAll('label')].find(one => one.textContent === 'What should they do?')!
+    const field = document.getElementById(label.htmlFor) as HTMLTextAreaElement
+    act(() => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(field, value)
+      field.dispatchEvent(new Event('input', { bubbles: true }))
+    })
+    await settle()
+    expect(rounds()).toContain(`Seed round — ${expected}`)
+  }
+})
 
 it('review is choice then Start: two clicks, one start call', async () => {
   const preview = previewOf(emptyFlow('strict-token'))
@@ -248,7 +569,7 @@ it('choosing a different shape clears the old dry run and its token immediately,
   await settle()
   expect(button('Start').hasAttribute('disabled')).toBe(false)
 
-  act(() => button('Choose a different shape').click())
+  act(() => button('Back').click())
   await settle()
   act(() => rowFor('Review B').click())
 
@@ -260,7 +581,7 @@ it('choosing a different shape clears the old dry run and its token immediately,
   await settle()
 })
 
-it('"Choose a different shape" reads before "Every time…" in the footer', async () => {
+it('Back sits in the footer while Every time stays with the shape details', async () => {
   const preview = previewOf(emptyFlow('strict-token'))
   const store = new AppStore('ws://localhost:0/')
   requestSpy(store, {
@@ -275,28 +596,20 @@ it('"Choose a different shape" reads before "Every time…" in the footer', asyn
   act(() => rowFor('Review').click())
   await settle()
 
-  const labels = [...document.body.querySelectorAll('button')].map((one) => one.textContent?.trim())
-  const chooseIndex = labels.indexOf('Choose a different shape')
-  const everyTimeIndex = labels.indexOf('Every time…')
-  expect(chooseIndex).toBeGreaterThan(-1)
-  expect(everyTimeIndex).toBeGreaterThan(-1)
-  expect(chooseIndex).toBeLessThan(everyTimeIndex)
+  const footer = document.body.querySelector('[data-slot="dialog-footer"]')!
+  expect([...footer.querySelectorAll('button')].map(button => button.textContent?.trim())).toContain('Back')
+  expect(button('Every time…').closest('[data-slot="dialog-footer"]')).toBeNull()
 })
 
-it('before a shape is chosen, the lone Cancel in the footer is the filled act — a dialog footer never holds an unfilled lone button', async () => {
+it('the picker footer opens a solo session directly', async () => {
   const store = new AppStore('ws://localhost:0/')
-  requestSpy(store, {
-    'flow/catalog': () => [ENTRY('review', 'Review')],
-    'agent/list': () => [],
-  })
-
-  render(store)
+  requestSpy(store, { 'flow/catalog': () => [], 'agent/list': () => [] })
+  const draft = vi.spyOn(store, 'newDraft').mockImplementation(() => {})
+  const { onClose } = render(store)
   await settle()
-
-  const footer = document.body.querySelector('[data-slot="dialog-footer"]')!
-  const buttons = [...footer.querySelectorAll('button')]
-  expect(buttons.map((one) => one.textContent?.trim())).toEqual(['Cancel'])
-  expect(buttons[0]!.getAttribute('data-variant')).toBe('default')
+  act(() => button('New session ⌘N').click())
+  expect(draft).toHaveBeenCalledOnce()
+  expect(onClose).toHaveBeenCalledOnce()
 })
 
 it('names no internal path or layout key in its copy', async () => {
@@ -338,7 +651,7 @@ it('passes a reused empty Goal through to "Your own shape", its dry run and Star
     )
   })
   await settle()
-  act(() => rowFor('Your own shape').click())
+  act(() => rowFor('Build your own').click())
   await settle()
 
   const previewCalls = spy.mock.calls.filter((call) => call[0] === 'authoring/start/preview')

@@ -34,7 +34,7 @@ afterEach(() => {
 
 const PROJECT = { path: '/repos/harness-desk', name: 'harness-desk', lastOpenedAt: 1 }
 
-const rig = ({ here = true, armed = true }: { here?: boolean; armed?: boolean } = {}) => {
+const rig = ({ here = true, armed = true, manyBranches = false }: { here?: boolean; armed?: boolean; manyBranches?: boolean } = {}) => {
   const snapshot = {
     ...emptySnapshot(),
     status: 'open',
@@ -52,6 +52,12 @@ const rig = ({ here = true, armed = true }: { here?: boolean; armed?: boolean } 
     listBranches: vi.fn().mockResolvedValue([
       { name: 'main', current: true, committedAt: 2 },
       { name: 'feat/docs', current: false, committedAt: 1 },
+      ...(manyBranches ? [
+        { name: 'feat/search', current: false, committedAt: 3 },
+        { name: 'fix/dialogs', current: false, committedAt: 4 },
+        { name: 'release/next', current: false, committedAt: 5 },
+        { name: 'topic/preview', current: false, committedAt: 6 },
+      ] : []),
     ]),
   } as unknown as AppStore
   return { store }
@@ -88,7 +94,7 @@ it('starts from the branch you are on unless you pick another', async () => {
   await render(store)
   await type('parser fix')
 
-  await act(async () => button('Start in a new worktree').click())
+  await act(async () => button('Open new session').click())
 
   expect(store.armWorktree).toHaveBeenCalledWith('/repos/harness-desk', 'parser fix', 'main')
 })
@@ -99,7 +105,7 @@ it('sends the branch that was picked', async () => {
   await type('parser fix')
 
   await act(async () => button('feat/docs').click())
-  await act(async () => button('Start in a new worktree').click())
+  await act(async () => button('Open new session').click())
 
   expect(store.armWorktree).toHaveBeenCalledWith('/repos/harness-desk', 'parser fix', 'feat/docs')
 })
@@ -110,7 +116,7 @@ it('makes nothing on disk: the draft is pointed, and the host cuts it on send', 
   await render(store, onClose)
   await type('parser fix')
 
-  await act(async () => button('Start in a new worktree').click())
+  await act(async () => button('Open new session').click())
 
   expect(store.newSession).not.toHaveBeenCalled()
   expect(onClose).toHaveBeenCalled()
@@ -124,7 +130,7 @@ it('stays open when the draft could not be pointed', async () => {
   await render(store, onClose)
   await type('parser fix')
 
-  await act(async () => button('Start in a new worktree').click())
+  await act(async () => button('Open new session').click())
 
   expect(onClose).not.toHaveBeenCalled()
 })
@@ -138,28 +144,49 @@ it('shows the branch the name will really become', async () => {
   expect(document.body.textContent).toContain('harnessdesk/fix-the-thing')
 })
 
-it('names the project it is about, with enough path to tell two apart', async () => {
+it('names the project in a header context chip with the full path on hover', async () => {
   const { store } = rig()
+  const path = '/projects/checkouts/harness-desk/parser'
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
-        {/* A path deep enough that the strip has to trim it. Two checkouts of
-            one repository have the same folder name, which is the whole
-            reason the path is here. */}
-        <NewWorktree root="/Users/me/.harnessdesk/worktrees/harness-desk-7ae59f/parser" onClose={() => {}} />
+        <NewWorktree root={path} onClose={() => {}} />
       </StoreProvider>,
     )
   })
 
-  const strip = [...document.querySelectorAll<HTMLElement>('[title]')].find(
-    (element) => element.title.startsWith('/Users/me/.harnessdesk'),
-  )
-  // Trimmed from the front, so the half that distinguishes it survives; and
-  // the last segment is its own element, because it is the one the
-  // stylesheet must never be allowed to shorten.
-  expect(strip?.textContent?.startsWith('…/worktrees/harness-desk-7ae59f/parser')).toBe(true)
-  expect([...(strip?.children ?? [])].some((child) => child.textContent === 'parser')).toBe(true)
-  expect(strip?.title).toBe('/Users/me/.harnessdesk/worktrees/harness-desk-7ae59f/parser')
+  const header = document.querySelector<HTMLElement>('[data-slot="dialog-head"]')
+  const chip = header?.querySelector<HTMLElement>('[data-slot="chip"]')
+  expect(chip?.textContent).toBe('parser')
+  expect(chip?.getAttribute('title')).toBe(path)
+  expect(header?.querySelector('[data-slot="dialog-description"]')?.textContent).toBe('Switches to this folder first')
+})
+
+it('keeps the complete source path in the project chip title', async () => {
+  const { store } = rig({ here: false })
+  const path = '/work/checkouts/storefront'
+  await act(async () => {
+    root.render(
+      <StoreProvider store={store}>
+        <NewWorktree root={path} onClose={() => {}} />
+      </StoreProvider>,
+    )
+  })
+
+  const header = document.querySelector<HTMLElement>('[data-slot="dialog-head"]')
+  const chip = header?.querySelector<HTMLElement>('[data-slot="chip"]')
+  expect(chip?.textContent).toBe('storefront')
+  expect(chip?.getAttribute('title')).toBe(path)
+  expect(header?.querySelector('[data-slot="dialog-description"]')?.textContent).toBe('Switches to this folder first')
+})
+
+it('uses the shared search glyph and a plain Search placeholder for branches', async () => {
+  const { store } = rig({ manyBranches: true })
+  await render(store)
+
+  const search = document.querySelector<HTMLElement>('[data-slot="search"]')
+  expect(search?.querySelector('svg')).not.toBeNull()
+  expect(search?.querySelector<HTMLInputElement>('input[type="search"]')?.placeholder).toBe('Search branches…')
 })
 
 it('says it will switch to a project that is not the one open, before you commit', async () => {
@@ -167,7 +194,7 @@ it('says it will switch to a project that is not the one open, before you commit
   const { store } = rig({ here: false })
   await render(store)
 
-  expect(document.body.textContent).toContain('switches to this folder first')
+  expect(document.body.textContent).toContain('Switches to this folder first')
 })
 
 it('says nothing about switching when the project is the one open', async () => {
@@ -181,11 +208,11 @@ it('waits to be typed in before it says anything is wrong', async () => {
   const { store } = rig()
   await render(store)
 
-  expect(button('Start in a new worktree').disabled).toBe(true)
+  expect(button('Open new session').disabled).toBe(true)
   expect(document.body.textContent).not.toContain('Give it a name.')
 
   await type('///')
 
-  expect(button('Start in a new worktree').disabled).toBe(true)
+  expect(button('Open new session').disabled).toBe(true)
   expect(document.body.textContent).toContain('Give it a name.')
 })

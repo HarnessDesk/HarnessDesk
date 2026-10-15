@@ -5,7 +5,6 @@ import { useActiveSession, useSessionKey, useSnapshot, useStore } from '../state
 import { applyPlanEdits, type ShownTodo } from '../lib/plan-edits'
 import { sessionPlan, todoState } from '../lib/todos'
 import { PanelSection } from '../slots/PanelBlocks'
-import { registerSlot } from '../slots/registry'
 import styles from './TaskPanel.module.css'
 
 /**
@@ -194,4 +193,3 @@ export const TaskPanel = () => {
  * with the session list it describes, and anything a person dragged into the
  * sidebar themselves sits under it.
  */
-registerSlot('sidebar.panel', 'hd.tasks', TaskPanel, { order: 40 })

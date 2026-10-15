@@ -1,3 +1,4 @@
+import { useDestinationActive } from '../panels/destination-page'
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import { Button, Chip, Note, Row, Rows, Section, Switch } from '../design'
@@ -6,6 +7,8 @@ import { useSnapshot, useStore } from '../state/context'
 
 /** The saved host value stays visible until a reversible preference write settles. */
 export const ProjectProvenance = ({ root }: { readonly root: string }) => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const snapshot = useSnapshot()
   const [loading, setLoading] = useState(true)
@@ -23,12 +26,14 @@ export const ProjectProvenance = ({ root }: { readonly root: string }) => {
     )
   }, [store, root, snapshot.status, knownNonGit])
   useEffect(() => {
+    if (!destinationActive) return
+
     activeRoot.current = root
     setBusy(false)
     setProblem(null)
     if (knownNonGit) { setLoading(false); setFailed(false); return }
     refresh()
-  }, [root, knownNonGit, refresh])
+  }, [destinationActive, root, knownNonGit, refresh])
   const health = knownNonGit ? undefined : captureForRoot(root, snapshot.captureHealth, snapshot.workspaces)
   const change = async (enabled?: boolean) => {
     if (!health || busy || (enabled === undefined && !health.enabled)) return

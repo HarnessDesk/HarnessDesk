@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
 import { runtimeId, sessionId, sessionKey, type ConfigOption, type RuntimeInfo, type Session } from '@harnessdesk/protocol'
-import { AgentControl, ComposerTrack, ModeControl, ModelControl, MoreControl, PermissionControl } from '../components/ComposerControls'
+import { AgentControl, ModeControl, ModelControl, MoreControl, PermissionControl } from '../components/ComposerControls'
+import { PlusIcon, SendIcon } from '../components/Icons'
 import { ContextUsage } from '../components/ContextUsage'
 import { NewSessionDefaults } from '../components/SettingsAgents'
-import { Button, ComposerGap, ComposerSend, ComposerTools, Text } from '../design'
+import { Button, ComposerGap, ComposerSend, ComposerTools, ComposerTrack, Page, Text } from '../design'
 import type { TransportEvents } from '../lib/transport'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { AppStore } from '../state/store'
@@ -57,21 +58,21 @@ export const ComposerStalenessContent = () => {
   const [counts, setCounts] = useState({ setters: 0, sends: 0 })
   useEffect(() => { void rig.start().then(() => setReady(true)); return rig.store.subscribe(() => setCounts(rig.counts())) }, [rig])
   if (!ready) return null
-  return <section data-composer-staleness className="grid gap-4 p-4">
+  return <Page data-composer-staleness width="canvas">
     <Text as="h3" role="section">Live configuration and saved defaults</Text>
     <Button variant="outline" size="sm" data-replace-options onClick={() => { rig.replace(); setCounts(rig.counts()) }}>Replace configuration</Button>
     <StoreProvider store={rig.store}>
       <PaneProvider scope={{ paneId: 'preview-staleness' as never, view: { kind: 'conversation', session: key }, sessionKey: key }}>
         <ComposerTools data-composer-layout="live">
-          <ComposerTrack name="add"><Button variant="ghost" size="sm" aria-label="Add">+</Button></ComposerTrack>
+          <ComposerTrack name="add"><Button variant="ghost" size="sm" aria-label="Add"><PlusIcon size={15} /></Button></ComposerTrack>
           <AgentControl /><PermissionControl /><ModeControl /><ComposerTrack name="extension" /><ComposerGap />
           <MoreControl /><ContextUsage /><ModelControl />
-          <ComposerTrack name="send"><ComposerSend aria-label="Send" onClick={() => { void rig.store.send([{ type: 'text', text: 'A placeholder prompt.' }], key).then(() => setCounts(rig.counts())) }}>↑</ComposerSend></ComposerTrack>
+          <ComposerTrack name="send"><ComposerSend aria-label="Send" onClick={() => { void rig.store.send([{ type: 'text', text: 'A placeholder prompt.' }], key).then(() => setCounts(rig.counts())) }}><SendIcon size={15} /></ComposerSend></ComposerTrack>
         </ComposerTools>
       </PaneProvider>
       <NewSessionDefaults info={runtime} />
     </StoreProvider>
     <Text role="muted" data-setter-count>Selection changes: {counts.setters}</Text>
     <Text role="muted" data-send-count>Messages sent: {counts.sends}</Text>
-  </section>
+  </Page>
 }

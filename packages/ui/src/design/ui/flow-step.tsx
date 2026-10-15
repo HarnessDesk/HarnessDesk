@@ -1,9 +1,6 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { AgentIcon, CheckIcon } from '../../components/Icons'
+import { CheckIcon } from '../../components/Icons'
 import type { FlowStepState } from '../../lib/flow-overlay'
-import type { Tint } from './tone'
-import { IconTile } from './icon-tile'
-import { AvatarStack } from './avatar-stack'
 import { Card } from './card'
 import { Chip, Text } from '../patterns/Settings'
 import styles from './flow-step.module.css'
@@ -17,12 +14,12 @@ export const FlowStepSurface = ({ state, selected, children, duration, runs, onC
     {(state === 'working' || state === 'waiting') && <span data-slot="flow-ring" data-state={state}
       className={`absolute -inset-1 rounded-lg ${styles.ring} ${state === 'waiting' ? 'ring-4 ring-(--hd-warning)/20' : 'ring-4 ring-(--hd-accent)/20'}`} />}
     <Card variant="raised" spacing="compact" onClick={onClick}
-      className={`absolute inset-0 grid grid-cols-[auto_minmax(0,1fr)] grid-rows-[var(--hd-space-8)_auto] content-start items-center gap-y-0 ${onClick ? 'cursor-pointer' : ''} ${selected ? 'outline-2 outline-offset-4 outline-(--hd-accent)' : ''} ${
+      className={`absolute inset-0 grid grid-cols-[auto_minmax(0,1fr)] grid-rows-[var(--hd-space-8)_auto] content-start items-center gap-y-0 ${onClick ? 'cursor-pointer' : ''} ${selected ? 'outline-2 outline-offset-4 outline-(--hd-border-strong)' : ''} ${
         state === 'future' ? 'border-dashed' : state === 'working' ? 'border-(--hd-accent) ring-1 ring-(--hd-accent)' : state === 'waiting' ? 'border-(--hd-warning) ring-1 ring-(--hd-warning)' : state === 'done' ? 'border-(--hd-accent)/40' : ''}`}>
       {children}
     </Card>
     {state === 'done' && <span data-slot="flow-complete" className="absolute -right-2 -top-2 inline-flex size-6 items-center justify-center rounded-full bg-(--hd-accent) text-(--hd-accent-foreground) ring-2 ring-(--hd-background)"><CheckIcon size={14} /></span>}
-    {(state === 'working' || state === 'waiting' || state === 'blocked') && <span data-slot="flow-state" className="absolute right-2 top-2 pointer-events-none"><Chip size="sm" tone={state === 'waiting' ? 'warning' : state === 'working' ? 'info' : 'neutral'}>{state === 'waiting' ? 'Needs you' : state === 'working' ? 'Working' : 'Waiting'}</Chip></span>}
+    {(state === 'working' || state === 'waiting' || state === 'blocked') && <span data-slot="flow-state" className="absolute right-2 top-0 -translate-y-1/2 pointer-events-none"><Chip size="sm" tone={state === 'waiting' ? 'warning' : state === 'working' ? 'info' : 'neutral'}>{state === 'waiting' ? 'Waiting for you' : state === 'working' ? 'Working' : 'Waiting'}</Chip></span>}
     {(duration !== null || (runs !== undefined && runs !== null && runs > 1)) && <span data-slot="flow-duration" className="absolute bottom-0 left-3 translate-y-1/2 pointer-events-none"><Chip size="sm" tone="neutral">{[duration, runs !== undefined && runs !== null && runs > 1 ? `×${runs}` : null].filter(Boolean).join(' · ')}</Chip></span>}
   </>
 )
@@ -48,13 +45,6 @@ export const FlowBaton = ({ path }: { path: string }) => {
     <span className="absolute right-0 top-0 size-2 rounded-full bg-(--hd-accent) ring-4 ring-(--hd-accent)/20" />
   </span>
 }
-
-/** The marks of the actual Seats occupying a graph node, overlapping when the round fans out. */
-export const FlowFaces = ({ seats, faces, tints, size, fallback }: { seats?: readonly string[]; faces?: ReadonlyMap<string, ReactNode>; tints?: ReadonlyMap<string, Tint>; size?: 'sm'; fallback: ReactNode }) =>
-  seats?.length ? seats.length > 1
-    ? <span data-slot="flow-faces"><AvatarStack size="stack" aria-label={`${seats.length} ${seats.length === 1 ? 'seat' : 'seats'}`} max={seats.length} members={seats.map(id => ({id, tint: tints?.get(id) ?? 'violet', mark: faces?.get(id) ?? <AgentIcon />}))} /></span>
-    : <span data-slot="flow-faces"><IconTile shape="face" size={size ?? 'default'} tint={tints?.get(seats[0]!) ?? 'violet'}>{faces?.get(seats[0]!) ?? <AgentIcon />}</IconTile></span>
-    : fallback
 
 /** A travelled loop's count has an opaque ground, so the curve never crosses its words. */
 export const FlowRouteLabel = ({ travelled, children }: { travelled: boolean; children: ReactNode }) =>

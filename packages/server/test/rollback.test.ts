@@ -1,5 +1,5 @@
+import { readStored } from './fixtures/stored-transcripts.js'
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync } from 'node:fs'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -49,11 +49,9 @@ const threeTurns = async () => {
     live.finish()
     await client.until(() => client.events.filter((event) => event.type === 'turn/completed').length > done)
   }
-  // Where the store keeps it, spelled as the store spells it.
-  const file = join(harness.stateDir, 'transcripts', encodeURIComponent(FAKE_RUNTIME_ID), `${encodeURIComponent(session.id)}.json`)
-  const onDisk = (): string[] =>
-    existsSync(file) ? spoken((JSON.parse(readFileSync(file, 'utf8')) as { turns: Session['turns'] }).turns) : []
-  await client.until(() => onDisk().length === 3, 5_000, 'three turns on disk')
+  const stored = () => readStored(harness.stateDir, FAKE_RUNTIME_ID, String(session.id))
+  const onDisk = (): string[] => spoken(stored()?.turns ?? [])
+  await client.until(() => onDisk().length === 3, 5_000, 'three turns in the database')
   let halted = false
   const close = async (): Promise<void> => {
     if (halted) return
@@ -61,7 +59,7 @@ const threeTurns = async () => {
     client.close()
     await halt(harness)
   }
-  return { harness, client, session, file, onDisk, close }
+  return { harness, client, session, stored, onDisk, close }
 }
 
 /**
@@ -86,10 +84,10 @@ const reopened = async (stateDir: string, session: Session, past?: Session['turn
 }
 
 test('a rollback reaches the transcript store, and after a relaunch the dropped turn stays gone (#156)', async () => {
-  const { harness, client, session, file, onDisk, close } = await threeTurns()
+  const { harness, client, session, stored, onDisk, close } = await threeTurns()
   try {
     // The turns as the agent lists them once it has dropped the last: their ids, with nothing in them.
-    const theirs = (JSON.parse(readFileSync(file, 'utf8')) as { turns: Session['turns'] }).turns
+    const theirs = stored()!.turns
       .slice(0, 2)
       .map((turn) => ({ ...turn, items: [] }))
     await client.call('session/rollback', { runtime: FAKE_RUNTIME_ID, sessionId: session.id, turns: 1 })
@@ -149,11 +147,11 @@ test('a rollback reaches a second window, which drops the turns without asking (
 })
 
 test('a rollback of every turn forgets the transcript, and after a relaunch nothing comes back (#156)', async () => {
-  const { harness, client, session, file, close } = await threeTurns()
+  const { harness, client, session, stored, close } = await threeTurns()
   try {
     await client.call('session/rollback', { runtime: FAKE_RUNTIME_ID, sessionId: session.id, turns: 1 })
     await client.call('session/rollback', { runtime: FAKE_RUNTIME_ID, sessionId: session.id, turns: 2 })
-    assert.equal(existsSync(file), false)
+    assert.equal(stored(), null)
     await close()
     assert.deepEqual((await reopened(harness.stateDir, session)).turns, [])
   } finally {

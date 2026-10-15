@@ -133,10 +133,10 @@ test('a comparison seats both competitors in their own lanes — the runtime tha
   const claude = claudeBridge(home, envLog)
   const plain = plainPeer()
   const d = await deskWith(t, claude, plain)
+  const started = await startComparison(d)
   assert.equal(claude.info.capabilities.sessionEnvironment, true, 'the shipped bridge claims lanes in its handshake')
   assert.equal(plain.info.capabilities.sessionEnvironment, false, 'the plain peer claims nothing')
 
-  const started = await startComparison(d)
   const run = await settledFirstRound(d, started.id)
   assert.equal(run.state, 'running', run.reason ?? '')
 
@@ -196,7 +196,7 @@ test('a round whose first Seat will not open stalls naming the sibling it held b
   const reason = run.reason ?? ''
   assert.match(reason, /^The Seat for card #1 could not be opened: /)
   assert.match(reason, /\nA round’s cards start together, so card #2 was not started either\.\n/)
-  assert.match(reason, /\nNext: wrap this Goal, which stops this run, then fix what stopped card #1 and start the flow again in a new Goal\.$/)
+  assert.match(reason, /\nNext: fix what stopped card #1, then choose Run again\.$/)
 
   // Nothing is left open, in a lane or in the main checkout.
   const view = await d.host.call('goal/read', { goal: run.goal }) as GoalView

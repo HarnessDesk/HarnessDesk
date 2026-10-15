@@ -37,7 +37,7 @@ export const actorWords = (
       ? 'you'
       : actor.kind === 'trigger'
         ? `the trigger ${actor.trigger}`
-        : actor.title || conversationName(actor.runtime, actor.sessionId)
+        : actor.kind === 'flow' ? `the Flow ${actor.name}` : actor.title || conversationName(actor.runtime, actor.sessionId)
 
 /** What the host itself holds on a Goal for a person, read as a snapshot. */
 export interface HostWaits {

@@ -1,8 +1,7 @@
-import { Button, Chip, CodeText, PopoverGroupLabel, PopoverSurface, Text } from '../design'
-import { useEffect, useRef, type ReactNode } from 'react'
+import { Chip, CodeText, MenuPresentation, MenuListboxOption, MiddleTruncate, PopoverGroupLabel, PopoverSurface } from '../design'
+import { useEffect, useRef, type ReactNode, type RefObject } from 'react'
 
-import { CheckIcon, FileIcon, SessionIcon, SlashIcon, SparkIcon } from './Icons'
-import styles from './TriggerMenu.module.css'
+import { CheckIcon } from './Icons'
 
 /**
  * The menu behind `/` and `@`, and the chooser commands open.
@@ -35,6 +34,8 @@ export interface TriggerItem {
    * the caller's fact and this menu must not learn about runtimes.
    */
   readonly mark?: ReactNode
+  /** A refused pick remains visible, with the reason in the row. */
+  readonly disabled?: string
 }
 
 export const TriggerMenu = ({
@@ -44,6 +45,8 @@ export const TriggerMenu = ({
   onHover,
   onPick,
   emptyLabel,
+  anchor,
+  onDismiss,
 }: {
   title?: string
   items: readonly TriggerItem[]
@@ -51,6 +54,8 @@ export const TriggerMenu = ({
   onHover: (index: number) => void
   onPick: (item: TriggerItem) => void
   emptyLabel?: string
+  anchor?: RefObject<HTMLElement | null>
+  onDismiss?: () => void
 }): ReactNode => {
   const container = useRef<HTMLDivElement>(null)
 
@@ -61,55 +66,27 @@ export const TriggerMenu = ({
   }, [activeIndex])
 
   return (
-    <PopoverSurface className={styles.menu} ref={container} role="listbox" limit="trigger">
-      {title && <PopoverGroupLabel>{title}</PopoverGroupLabel>}
-      {items.length === 0 && <div className="hd-empty-line">{emptyLabel ?? 'No matches'}</div>}
-      {items.map((item, index) => (
-        <Button
-          key={item.id}
-          type="button"
-          role="option"
-          aria-selected={index === activeIndex} variant="navigation" size="navigation" className={styles.row}
-          {...(index === activeIndex ? { 'data-selected': '' } : {})}
-          onMouseEnter={() => onHover(index)}
-          onClick={() => onPick(item)}
-        >
-          <Text role="meta" tone="brand" className={styles.check}>{item.selected && <CheckIcon size={13} />}</Text>
-          {item.mark ? (
-            <Text role="meta" ink="secondary" className={styles.mark}>{item.mark}</Text>
-          ) : item.pathStyle ? (
-            <FileIcon size={13} />
-          ) : item.badge === 'skill' ? (
-            <SparkIcon size={13} />
-          ) : item.badge === 'session' ? (
-            <SessionIcon size={13} />
-          ) : item.mono && item.name.startsWith('/') ? (
-            <SlashIcon size={13} />
-          ) : null}
-          <Text role="row" className={styles.name}>
-            {item.mono ? <CodeText size="inherit">{item.name}</CodeText> : item.name}
-          </Text>
-          {item.hint && (
-            <Text role="muted" {...(item.pathStyle ? { truncateFrom: 'start' as const } : { truncate: true })} className={styles.hint}>
-              {item.pathStyle ? <CodeText size="inherit">{item.hint}</CodeText> : item.hint}
-            </Text>
-          )}
-          {item.badge && (
-            <Chip
-              size="sm"
-              tone={item.badgeTone === 'live'
-                ? 'success'
-                : item.badgeTone === 'warn'
-                  ? 'warning'
-                  : item.badgeTone === 'muted'
-                    ? 'neutral'
-                    : 'brand'}
-            >
-              {item.badge}
-            </Chip>
-          )}
-        </Button>
-      ))}
-    </PopoverSurface>
+    <MenuPresentation icons="none" wide>
+      <PopoverSurface anchor={anchor} onDismiss={onDismiss} ref={container} role="listbox" limit="trigger">
+        {title && <PopoverGroupLabel>{title}</PopoverGroupLabel>}
+        {items.length === 0 && <div data-menu-note="">{emptyLabel ?? 'No matches'}</div>}
+        {items.map((item, index) => {
+          const data = {
+            label: item.pathStyle ? <MiddleTruncate>{item.name}</MiddleTruncate> : item.mono ? <CodeText size="inherit">{item.name}</CodeText> : item.name,
+            hint: item.disabled ?? (item.pathStyle ? item.hint : undefined),
+            trailing: item.selected ? <CheckIcon size={16} /> : undefined,
+            badge: item.badge ? <Chip size="sm" tone={item.badgeTone === 'live' ? 'success' : item.badgeTone === 'warn' ? 'warning' : item.badgeTone === 'muted' ? 'neutral' : 'brand'}>{item.badge}</Chip> : undefined,
+          }
+          return <MenuListboxOption key={item.id} data={data}
+            aria-selected={index === activeIndex}
+            disabled={Boolean(item.disabled)} aria-disabled={Boolean(item.disabled)}
+            title={item.disabled ?? (!item.pathStyle ? item.hint : undefined)}
+            data-selected={index === activeIndex ? '' : undefined}
+            onMouseDown={event => event.preventDefault()}
+            onMouseEnter={() => onHover(index)}
+            onClick={() => { if (!item.disabled) onPick(item) }} />
+        })}
+      </PopoverSurface>
+    </MenuPresentation>
   )
 }

@@ -55,3 +55,11 @@ it('a growing bar keeps the bar height as its floor and is otherwise sized by it
   expect(fixed).toContain('h-(--hd-bar-h)')
   expect(fixed).not.toContain('h-auto')
 })
+
+it('can paint a seam while retaining the entire bar control height', () => {
+  const status = classOf(renderToStaticMarkup(<Bar as="footer" rule="top" paintedRule>Facts</Bar>))
+  expect(status).toContain('after:top-0')
+  expect(status).toContain('after:h-(--hd-border-width)')
+  expect(status).not.toContain('border-t')
+  expect(classOf(renderToStaticMarkup(<Bar rule="top">Ordinary bar</Bar>))).toContain('border-t')
+})

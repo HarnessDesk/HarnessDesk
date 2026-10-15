@@ -18,6 +18,7 @@ import { REVIEW_OWN_GOAL } from '../flow-execution.js'
 import { GOAL_TAKEN } from '../goals/operations.js'
 import { isRevisionName } from '../git-revision.js'
 import { readShapeLayout } from './model.js'
+import { projectCheckCommand } from './project-check.js'
 
 /**
  * A front-door start: what it is about, resolved on the host, and the phase-6
@@ -258,6 +259,7 @@ export async function previewStart(port: FrontDoorPort, input: FrontDoorPreviewI
     target: { label: facts.label, base: facts.base, head: facts.head, dirty: facts.dirty, independence },
     vars,
     source: input.source,
+    projectCheckCommand: context.kind === 'project' ? await projectCheckCommand(context.root) : null,
     sentence: `${policy?.name ?? 'Flow'} — ${facts.label}`,
     goal,
   }

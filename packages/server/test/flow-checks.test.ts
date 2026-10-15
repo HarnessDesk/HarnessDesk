@@ -38,6 +38,10 @@ test('a check retains its output and waits for durable evidence before completin
   const gate = board.intents.find((one) => one.role === 'gate')
   assert.equal(gate?.state, 'done')
   assert.equal(gate?.outcome, 'fail', 'a fresh failure defeats the default, mapped by the exact exit code')
+  const completed = board.channel.find(one => one.kind === 'signal' && one.intent === gate?.id && one.signal === 'completed')
+  assert.ok(completed?.kind === 'signal')
+  assert.deepEqual(completed.by, { kind: 'flow', name: 'One writer, one gate' })
+  assert.equal(completed.detail, 'check answered fail')
 })
 
 test('a check whose evidence cannot be saved stalls the run rather than completing on an unsaved fact', async (t) => {

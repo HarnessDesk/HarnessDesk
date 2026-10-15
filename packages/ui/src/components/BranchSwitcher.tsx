@@ -2,8 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { useStore } from '../state/context'
 import { BranchIcon, PlusIcon } from './Icons'
-import { ActionError, Button, Input, MenuItem, MenuLabel, MenuNote, Search } from '../design'
-import styles from './BranchSwitcher.module.css'
+import { ActionError, MenuItem, MenuLabel, MenuNote, MenuSearch, MenuSeparator, MiddleTruncate } from '../design'
 
 /**
  * The branches of a folder, as the level behind the branch row.
@@ -29,13 +28,11 @@ const relativeTime = (at: number, now: number): string => {
 
 const FILTER_FROM = 6
 
-export const BranchSwitcher = ({ root, onDone }: { root: string; onDone: () => void }) => {
+export const BranchSwitcher = ({ root, onDone, onCreate }: { root: string; onDone: () => void; onCreate: () => void }) => {
   const store = useStore()
   const createRow = useRef<HTMLButtonElement>(null)
   const [branches, setBranches] = useState<readonly { name: string; current: boolean; committedAt: number }[] | null>(null)
   const [query, setQuery] = useState('')
-  const [creating, setCreating] = useState(false)
-  const [name, setName] = useState('')
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const now = useMemo(() => Date.now(), [])
@@ -72,14 +69,14 @@ export const BranchSwitcher = ({ root, onDone }: { root: string; onDone: () => v
     return () => { cancelled = true }
   }, [shown])
 
-  const checkout = async (branch: string, create: boolean): Promise<void> => {
+  const checkout = async (branch: string): Promise<void> => {
     if (busy !== null) return
     setBusy(branch)
     setError(null)
     try {
-      const ok = await store.checkoutBranch(root, branch, { create })
+      const ok = await store.checkoutBranch(root, branch, { create: false })
       if (ok) onDone()
-      else setError(create ? `Could not create ${branch}.` : `Could not switch to ${branch}. The working tree may have uncommitted changes.`)
+      else setError(`Could not switch to ${branch}. The working tree may have uncommitted changes.`)
     } finally {
       setBusy(null)
     }
@@ -88,73 +85,36 @@ export const BranchSwitcher = ({ root, onDone }: { root: string; onDone: () => v
   return (
     <>
       {branches && branches.length >= FILTER_FROM && (
-        <div className={styles.search}>
-          <Search
-            className={styles.filter}
-            placeholder={`Search ${folder} branches`}
-            value={query}
-            autoFocus
-            onChange={setQuery}
-          />
-        </div>
+        <MenuSearch label={`Search ${folder} branches`} value={query} onChange={setQuery} autoFocus />
       )}
       <MenuLabel>Branches</MenuLabel>
-      <div className={styles.list}>
-        {branches === null && <MenuNote>Reading branches…</MenuNote>}
-        {branches !== null && shown.length === 0 && (
-          <MenuNote>{query ? 'No branch matches.' : 'No branches — not a git repository?'}</MenuNote>
-        )}
-        {shown.map((branch) => (
-          <MenuItem
-            key={branch.name}
-            icon={<BranchIcon size={15} />}
-            label={branch.name}
-            value={busy === branch.name ? '…' : relativeTime(branch.committedAt, now)}
-            selected={branch.current}
-            disabled={busy !== null}
-            keepOpen
-            onSelect={() => (branch.current ? onDone() : void checkout(branch.name, false))}
-          />
-        ))}
-      </div>
+      {branches === null && <MenuNote>Reading branches…</MenuNote>}
+      {branches !== null && shown.length === 0 && (
+        <MenuNote>{query ? 'No branch matches.' : 'No branches — not a git repository?'}</MenuNote>
+      )}
+      {shown.map((branch) => (
+        <MenuItem
+          key={branch.name}
+          icon={<BranchIcon size={16} />}
+          label={<MiddleTruncate>{branch.name}</MiddleTruncate>}
+          value={busy === branch.name ? '…' : relativeTime(branch.committedAt, now)}
+          selected={branch.current}
+          disabled={busy !== null}
+          keepOpen
+          onSelect={() => (branch.current ? onDone() : void checkout(branch.name))}
+        />
+      ))}
       {error && (
         <ActionError>{error}</ActionError>
       )}
-      {creating ? (
-        <form
-          className={styles.create}
-          onSubmit={(event) => {
-            event.preventDefault()
-            if (name.trim()) void checkout(name.trim(), true)
-          }}
-        >
-          <Input
-            variant="quiet" controlSize="compact" className={styles.filter}
-            placeholder="new-branch-name"
-            value={name}
-            autoFocus
-            spellCheck={false}
-            onChange={(event) => setName(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                event.stopPropagation()
-                setCreating(false)
-              }
-            }}
-          />
-          <Button type="submit" variant="default" size="sm" className={styles.createButton} disabled={!name.trim() || busy !== null}>
-            Create
-          </Button>
-        </form>
-      ) : (
-        <MenuItem
-          ref={createRow}
-          icon={<PlusIcon size={15} />}
-          label="Create and checkout new branch…"
-          keepOpen
-          onSelect={() => setCreating(true)}
-        />
-      )}
+      <MenuSeparator />
+      <MenuItem
+        ref={createRow}
+        icon={<PlusIcon size={16} />}
+        label="Create and checkout new branch…"
+        onSelect={() => { onDone(); onCreate() }}
+      />
+      <MenuNote>Checking out a branch keeps the existing folder.</MenuNote>
     </>
   )
 }

@@ -16,9 +16,15 @@ import {
 
 import { Host, Logger, StateStore } from '../src/index.js'
 import { ProvenancePlane } from '../src/provenance/plane.js'
+import { RefObserver } from '../src/provenance/observer.js'
+import { EvidenceStore } from '../src/evidence/store.js'
+import type { EvidencePlane } from '../src/evidence/plane.js'
 import { Team } from '../src/team.js'
+import { SessionIndex } from '../src/session-index.js'
+import { TranscriptStore } from '../src/transcripts.js'
 import { FAKE_RUNTIME_ID, FakeRuntime, type FakeSession } from './fixtures/fake-runtime.js'
 import { shippedAgentsCopy } from './fixtures/harness.js'
+import { makeRepo } from './fixtures/provenance-repo.js'
 
 /**
  * The quit reaches every runtime before a catalogue re-read can resume.
@@ -41,6 +47,45 @@ import { shippedAgentsCopy } from './fixtures/harness.js'
  */
 
 const silent = new Logger('test', { level: 'error', console: false })
+
+test('a failed main-checkout admission does not orphan an already admitted worktree observer', async t => {
+  const repo = await makeRepo()
+  const base = await repo.commitTree(null, { one: 'synthetic base\n' }, 'Synthetic initial commit')
+  await repo.git('update-ref', 'refs/heads/main', base)
+  const checkout = join(repo.dir, '..', 'a-checkout')
+  await repo.git('worktree', 'add', '--detach', checkout, base)
+  const store = new EvidenceStore(join(repo.stateDir, 'evidence'))
+  const plane = new ProvenancePlane({
+    evidence: { store, seats: { byId: () => null } } as unknown as EvidencePlane,
+    stateDir: repo.stateDir, projects: () => [checkout, repo.dir], push: () => {}, log: () => {},
+  })
+  const opened = new Set<RefObserver>()
+  const closed = new Set<RefObserver>()
+  const start = RefObserver.prototype.start
+  const close = RefObserver.prototype.close
+  t.mock.method(RefObserver.prototype, 'start', async function (this: RefObserver, ...args: Parameters<RefObserver['start']>) {
+    opened.add(this)
+    await start.apply(this, args)
+    // The linked checkout is admitted first. Make the main checkout's next
+    // admission fail after the observer exists, without racing filesystem timing.
+    await fs.rename(repo.dir, `${repo.dir}-moved`)
+  })
+  t.mock.method(RefObserver.prototype, 'close', async function (this: RefObserver) {
+    closed.add(this)
+    await close.call(this)
+  })
+  try {
+    await plane.start()
+    await plane.backup() // Joins the queued registration of both roots.
+    assert.equal(opened.size, 1)
+    await plane.close()
+    assert.deepEqual(closed, opened, 'every admitted observer belongs to the quit, even after another root fails')
+  } finally {
+    await plane.close()
+    // A failing regression must still close the orphan it exposed.
+    for (const observer of opened) await close.call(observer)
+  }
+})
 
 /**
  * An agent whose catalogue re-read parks, and which keeps the two adapters'
@@ -98,7 +143,7 @@ class RestartingRuntime extends FakeRuntime {
   }
 }
 
-const hostWith = async (t: TestContext, runtimes: readonly RestartingRuntime[]): Promise<Host> => {
+const hostWith = async (t: TestContext, runtimes: readonly RestartingRuntime[]) => {
   const stateDir = await mkdtemp(join(tmpdir(), 'hd-dispose-'))
   t.after(() => rm(stateDir, { recursive: true, force: true }))
   const host = new Host({
@@ -110,7 +155,7 @@ const hostWith = async (t: TestContext, runtimes: readonly RestartingRuntime[]):
     catalogRefreshMs: 0,
   })
   for (const runtime of runtimes) host.register(runtime as never)
-  return host
+  return { host, stateDir }
 }
 
 /**
@@ -134,8 +179,12 @@ const hostWith = async (t: TestContext, runtimes: readonly RestartingRuntime[]):
 test('a re-read that wakes inside the quit finds its runtime already disposed', async (t) => {
   const first = new RestartingRuntime({ id: runtimeId('fake'), name: 'Fake' })
   const last = new RestartingRuntime({ id: runtimeId('fake-two'), name: 'Fake Two' })
-  const host = await hostWith(t, [first, last])
+  const { host, stateDir } = await hostWith(t, [first, last])
   await host.start()
+  // Launch starts only the default in the background; these are two live agents.
+  for (const runtime of [first, last]) {
+    await host.call('session/create', { runtime: runtime.info.id, options: { cwd: stateDir } })
+  }
   assert.deepEqual([first.starts, last.starts], [1, 1], 'both up once')
 
   const refresh = host.call('runtime/refreshCatalog', { runtime: last.info.id })
@@ -162,7 +211,7 @@ test('one runtime that will not shut down cleanly does not strand the others', a
   const angry = new RestartingRuntime({ id: runtimeId('angry'), name: 'Angry' })
   angry.disposeThrows = true
   const calm = new RestartingRuntime({ id: runtimeId('calm'), name: 'Calm' })
-  const host = await hostWith(t, [angry, calm])
+  const { host } = await hostWith(t, [angry, calm])
   await host.start()
 
   await host.dispose()
@@ -320,4 +369,50 @@ test('a host disposed before start() ever runs makes no roster watch', async (t)
     [],
     'a host disposed before start() ever ran made no watch to notice this',
   )
+})
+
+test('session observations before start do not schedule worktree inventory reads', async t => {
+  const stateDir = await mkdtemp(join(tmpdir(), 'hd-dispose-inventory-'))
+  const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), catalogRefreshMs: 0 })
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  const runtime = new FakeRuntime()
+  host.register(runtime)
+  const original = SessionIndex.prototype.worktree
+  let reads = 0
+  t.mock.method(SessionIndex.prototype, 'worktree', function (this: SessionIndex, ...args: Parameters<SessionIndex['worktree']>) {
+    reads++
+    return original.apply(this, args)
+  })
+  await runtime.createSession({ cwd: stateDir })
+  assert.equal(reads, 0)
+})
+
+test('the quit waits for a removal sweep parked during startup before closing its database', async t => {
+  const stateDir = await mkdtemp(join(tmpdir(), 'hd-dispose-sweep-'))
+  const host = new Host({ logger: silent, state: new StateStore(join(stateDir, 'state.json')), catalogRefreshMs: 0 })
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  let arrive!: () => void
+  const parked = new Promise<void>(resolve => { arrive = resolve })
+  t.after(async () => { release(); await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  const original = TranscriptStore.prototype.sweepRemoved
+  t.mock.method(TranscriptStore.prototype, 'sweepRemoved', async function (this: TranscriptStore, before: number) {
+    arrive()
+    await gate
+    await original.call(this, before)
+  })
+  const starting = host.start()
+  await parked
+  let closed = false
+  const quitting = host.dispose().then(() => { closed = true })
+  // Join the quit at its database boundary without a timing assumption.
+  const indexClosed = new Promise<void>(resolve => {
+    const close = SessionIndex.prototype.close
+    t.mock.method(SessionIndex.prototype, 'close', function (this: SessionIndex) { close.call(this); resolve() })
+  })
+  // A correct quit waits here; release from the next event-loop turn.
+  await new Promise<void>(resolve => setImmediate(resolve))
+  assert.equal(closed, false)
+  release()
+  await Promise.all([starting, quitting, indexClosed])
 })

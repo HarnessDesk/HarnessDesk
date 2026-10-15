@@ -61,7 +61,7 @@ it('sends one final commit and preserves the draft on a stale stamp refusal', as
   act(() => { second.value = 'finished'; second.dispatchEvent(new Event('change', { bubbles: true })) })
   act(() => [...document.querySelectorAll('button')].find((one) => one.textContent === 'Review receipt')!.click())
   await act(async () => {})
-  const wrap = [...document.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.textContent === 'Wrap Goal')!
+  const wrap = [...document.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.textContent === 'Wrap Team')!
   act(() => { wrap.click(); wrap.click() })
   await act(async () => {})
   expect(store.wrapGoal).toHaveBeenCalledTimes(1)
@@ -84,7 +84,7 @@ it('stops offering to wrap a Goal that is wrapped while its receipt is under rev
   act(() => { second.value = 'finished'; second.dispatchEvent(new Event('change', { bubbles: true })) })
   act(() => [...document.querySelectorAll('button')].find((one) => one.textContent === 'Review receipt')!.click())
   await act(async () => {})
-  const wrap = (): HTMLButtonElement => [...document.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.textContent === 'Wrap Goal')!
+  const wrap = (): HTMLButtonElement => [...document.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.textContent === 'Wrap Team')!
   expect(wrap().disabled).toBe(false)
   expect(document.body.textContent).not.toContain('This Team is wrapped')
 
@@ -116,7 +116,7 @@ it('does not announce the wrap it is itself in the middle of making', async () =
   act(() => { second.value = 'finished'; second.dispatchEvent(new Event('change', { bubbles: true })) })
   act(() => [...document.querySelectorAll('button')].find((one) => one.textContent === 'Review receipt')!.click())
   await act(async () => {})
-  await act(async () => { [...document.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.textContent === 'Wrap Goal')!.click() })
+  await act(async () => { [...document.querySelectorAll<HTMLButtonElement>('button')].find((one) => one.textContent === 'Wrap Team')!.click() })
   expect(wrapGoal).toHaveBeenCalledTimes(1)
 
   const wrapped = { ...view, goal: { ...view.goal, state: 'wrapped' } } as unknown as GoalView
@@ -145,4 +145,11 @@ it('a card added while the dialog is open is one more to choose for, never a cra
   expect(review().disabled).toBe(true)
   pickFinished(document.querySelector<HTMLSelectElement>('[aria-label="Disposition for Added later"]')!)
   expect(review().disabled).toBe(false)
+})
+
+it('names the Team in its wrap question', () => {
+  const store = { subscribe: () => () => {}, getSnapshot: () => emptySnapshot() } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><GoalWrap view={view} onClose={vi.fn()} /></StoreProvider>))
+  expect(document.body.textContent).toContain('Wrap this Team')
+  expect(document.body.textContent).not.toContain('Wrap this Goal')
 })

@@ -36,6 +36,8 @@ export interface ServeOptions {
   readonly uiRoot?: string | null
   /** Supply to pin the token, e.g. from the desktop shell. */
   readonly token?: string
+  /** Additional renderer origins explicitly supplied by the desktop shell. */
+  readonly allowedOrigins?: readonly string[]
 }
 
 export interface RunningServer {
@@ -69,18 +71,43 @@ const tokenMatches = (expected: string, provided: string | null): boolean => {
   return timingSafeEqual(a, b)
 }
 
+const hostMatches = (request: IncomingMessage, port: number): boolean => {
+  const hosts = request.headersDistinct['host']
+  return hosts?.length === 1 &&
+    (hosts[0] === `127.0.0.1:${port}` || hosts[0] === `localhost:${port}`)
+}
+
+const originMatches = (request: IncomingMessage, port: number, allowedOrigins: ReadonlySet<string>): boolean => {
+  const origins = request.headersDistinct['origin']
+  if (!origins) return true
+  if (origins.length !== 1) return false
+  const origin = origins[0]!
+  return origin === `http://127.0.0.1:${port}` ||
+    origin === `http://localhost:${port}` || allowedOrigins.has(origin)
+}
+
 export const serve = async (options: ServeOptions): Promise<RunningServer> => {
   const logger = options.logger.child('server')
   const token = options.token ?? randomBytes(32).toString('hex')
   const uiRoot = options.uiRoot ? resolve(options.uiRoot) : null
+  const allowedOrigins = new Set(options.allowedOrigins)
 
   const http = createServer((request, response) => {
+    if (!hostMatches(request, port) ||
+      (!['GET', 'HEAD', 'OPTIONS'].includes(request.method ?? '') && !originMatches(request, port, allowedOrigins))) {
+      response.writeHead(403).end('Forbidden')
+      return
+    }
     void handleHttp(request, response, { uiRoot, token, logger, host: options.host })
   })
 
   const sockets = new WebSocketServer({ noServer: true })
 
   http.on('upgrade', (request, socket, head) => {
+    if (!hostMatches(request, port) || !originMatches(request, port, allowedOrigins)) {
+      socket.destroy()
+      return
+    }
     const url = new URL(request.url ?? '/', 'http://127.0.0.1')
     if (url.pathname !== '/ws' || !tokenMatches(token, url.searchParams.get('token'))) {
       socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n')

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { TeamRoomPane } from '../src/components/TeamRoomPane'
+import { TeamFramePreview } from '../src/preview/TeamFramePreview'
 import { AgentIcon, CheckIcon, DevToolsIcon } from '../src/components/Icons'
 import { Button, Chip, FlowGraph, PaneColumn, Text } from '../src/design'
 import { flowModel, ceilingsOfRun, stepName } from '../src/lib/flow-model'
@@ -74,12 +74,13 @@ export const RunDemo = ({ run, poster, frozen = false }: { run: StagedRun; poste
         <Button size="sm" variant="outline" onClick={() => { setPaused(true); run.pause(); run.next() }}>Next step</Button>
       </span>}
     </PaneColumn>
-    {poster ? <Poster run={run} /> : <div className="site-run-pane"><TeamRoomPane room={RUN_TEAM} /></div>}
+    {poster ? <Poster run={run} /> : <div className="site-run-pane"><TeamFramePreview room={RUN_TEAM} /></div>}
   </div>
 }
 
 /** The same scene in preview.html, for publishable frames without a real desk. */
 const StagedScene = ({ preview }: { preview: boolean }) => {
+  const ready = useRef(false)
   const knobs = new URLSearchParams(window.location.search)
   const poster = knobs.get(preview ? 'site-run' : 'view') === 'poster'
   const run = useMemo(() => {
@@ -89,6 +90,18 @@ const StagedScene = ({ preview }: { preview: boolean }) => {
     if (theme === 'light' || theme === 'dark') run.store.setTheme(theme)
     return run
   }, [])
+  useEffect(() => {
+    if (preview || ready.current) return
+    // The first callback runs before paint; the second follows the first
+    // drawn scene. Cancel the pending callback during StrictMode's remount.
+    let frame = window.requestAnimationFrame(() => {
+      frame = window.requestAnimationFrame(() => {
+        ready.current = true
+        window.parent.postMessage({ type: 'hdDemoReady' }, '*')
+      })
+    })
+    return () => window.cancelAnimationFrame(frame)
+  }, [preview])
   useEffect(() => {
     if (!preview) (window as unknown as { __hdStore?: typeof run.store }).__hdStore = run.store
     const changed = (event: MessageEvent) => {

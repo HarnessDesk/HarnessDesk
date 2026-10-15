@@ -2,6 +2,8 @@ import { expect, it } from 'vitest'
 
 import host from './Workbench.module.css?raw'
 import workbench from './Workbench.tsx?raw'
+import panelSeam from '../design/patterns/DockPanel.tsx?raw'
+import fixedShellCss from '../design/patterns/FixedShell.module.css?raw'
 import resizeHandle from '../design/ui/resize-handle.tsx?raw'
 
 /**
@@ -88,7 +90,7 @@ const atRules = (sheet: string): string[] => {
 /** A sheet as the flat matcher can read it: no comments, and no at-rule blocks, which it would read into. */
 const flat = (sheet: string): string => atRules(bare(sheet)).reduce((rest, block) => rest.replace(block, ''), bare(sheet))
 
-it('collapses a panel to its tabs in the sidebar only (review of #183, rounds 5 and 6)', () => {
+it('fixed panel hiding keeps its full box instead of shrinking it to tabs (review of #183, rounds 5 and 6)', () => {
   // The rule matcher below is flat: a [data-collapsed] rule inside an at-rule, or nested in another rule,
   // would drop out of the comparison without a word. An at-rule holding one fails here, and the rest are taken
   // out before the matcher reads, as the workbench's reduced-motion block is (#192); nesting fails outright.
@@ -100,14 +102,35 @@ it('collapses a panel to its tabs in the sidebar only (review of #183, rounds 5 
       .filter((rule) => /flex:\s*none/.test(rule[2] ?? ''))
       .flatMap((rule) => (rule[1] ?? '').split(',').map((selector) => selector.trim()))
       .filter((selector) => selector.includes('[data-collapsed]'))
-  expect(collapsing(host).length).toBeGreaterThan(0)
-  // Only the sidebar lays its panels out in a column. In the row docks, flex: none gives back width,
-  // and a collapsed bottom strip shrank to its tabs (353 px of 1199 in the app).
-  for (const selector of collapsing(host)) expect(selector.startsWith('.sidebar ')).toBe(true)
+  // Phase B retires sidebar panel docking and tab-strip collapse entirely.
+  // The original regression still matters: a closed native body must keep its
+  // useful width rather than shrink to its tabs (353 px of 1199 in the app).
+  expect(collapsing(host)).toEqual([])
+  expect(collapsing(fixedShellCss)).toEqual([])
+  const declarations = (selector: string) => [...flat(fixedShellCss).matchAll(/([^{}]+)\{([^}]*)\}/g)]
+    .find(rule => rule[1]?.trim() === selector)?.[2]
+  // Read the individual geometry rule, not the shared visibility selector list.
+  const hiddenRight = declarations(".shell[data-right-open='false'] .right")
+  const hiddenBottom = declarations(".shell[data-bottom-open='false'] .bottom")
+  expect(hiddenRight).toContain('width: var(--frame-right-retained)')
+  expect(hiddenBottom).toContain('left: var(--frame-left)')
+  expect(hiddenBottom).toContain('right: 0')
+  for (const rule of [hiddenRight, hiddenBottom]) {
+    expect(rule).toContain('position: absolute')
+    expect(rule).not.toMatch(/display:\s*none|width:\s*(?:0|fit-content)|flex:\s*none/)
+  }
+  expect(flat(host)).not.toContain('[data-collapsed]')
+  expect(workbench).not.toContain('DockPanelTabs')
+  for (const area of ['right', 'bottom']) {
+    expect(fixedShellCss).toContain(`.shell[data-${area}-open='false'] .${area}`)
+  }
+  expect(fixedShellCss).toContain('visibility: hidden; pointer-events: none;')
+  expect(fixedShellCss).toContain('var(--frame-bottom-retained)')
 })
 
 it('the seam has a place to grab wider than the line it draws (review of #183, round 7; #202)', () => {
-  expect(workbench).toContain('appearance="line"')
+  expect(workbench).toContain('<PanelSeam orientation={orientation}')
+  expect(panelSeam).toMatch(/<ResizeHandle[\s\S]*?data-slot="panel-seam"[\s\S]*?appearance="line"/)
   expect(resizeHandle).toContain("after:-inset-x-1")
   expect(resizeHandle).toContain("after:-inset-y-1")
 })

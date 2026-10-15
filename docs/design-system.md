@@ -37,6 +37,15 @@ on hover, as `title` — same string, later. The tests, the exceptions (a
 refused row keeps its reason on screen; Settings is a document, not a menu)
 and the ledger of what moved are docs/design.md.
 
+Menus fit their rows within 200–340px: a 6px plate inset, shared 16px
+content edges, and 12px between row text and a one-line trailing value.
+Action menus give every row an icon, including destructive rows in danger
+ink; choice menus have no row icons and put the selected check at the end.
+Agent/account lists show each entry's mark. Labels are unique and group
+labels have no icons. Permissions keep visible reasons only for Full access
+and Never ask; a model update is one row with its command in the title.
+The popup-wall contract enforces the full rule in docs/design.md.
+
 ## Foundation
 
 ### Cjk faces
@@ -64,12 +73,6 @@ Geist carries the interface, bundled at packages/ui/src/assets/fonts and never f
 | `--hd-font-display` | `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans CJK KR', 'Helvetica Neue', Helvetica, Arial, sans-serif` |
 | `--hd-font-heading` | `'Geist', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', 'PingFang TC', 'Microsoft JhengHei', 'Noto Sans CJK TC', 'Hiragino Sans', 'Yu Gothic', 'Meiryo', 'Noto Sans CJK JP', 'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans CJK KR', 'Helvetica Neue', Helvetica, Arial, sans-serif` |
 | `--hd-tracking-heading` | `-0.01em` |
-| `--hd-title-rule` | `rgba(9, 12, 17, 0.05)` |
-| `--hd-title-rule-width` | `1px` |
-| `--hd-title-rule-gap` | `12px` |
-| `--hd-title-rule-mark` | `rgb(52, 88, 240)` |
-| `--hd-title-rule-mark-width` | `24px` |
-| `--hd-title-rule-mark-height` | `2px` |
 | `--hd-accent` | `rgb(52, 88, 240)` |
 | `--hd-accent-foreground` | `rgb(255, 255, 255)` |
 | `--hd-accent-hover` | `rgb(38, 70, 214)` |
@@ -207,8 +210,8 @@ Two default running sizes: 13px for chrome and 14px for reading. 12px carries me
 | `--hd-line-title` | `30px` |
 | `--hd-line-display` | `40px` |
 | `--hd-weight-normal` | `400` |
-| `--hd-weight-medium` | `500` |
-| `--hd-weight-semibold` | `600` |
+| `--hd-weight-medium` | `400` |
+| `--hd-weight-semibold` | `580` |
 | `--hd-member-weight` | `500` |
 
 ### Measure
@@ -217,6 +220,9 @@ Controls are one height so a row of them lines up without anyone counting pixels
 
 | token | value |
 | --- | --- |
+| `--hd-file-tabs-h` | `36px` |
+| `--hd-file-bar-h` | `38px` |
+| `--hd-file-document-w` | `720px` |
 | `--hd-control-h` | `<cycle>` |
 | `--hd-target-min` | `24px` |
 | `--hd-control-h-sm` | `24px` |
@@ -237,29 +243,41 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-table-name-size` | `14px` |
 | `--hd-table-fact-size` | `12px` |
 | `--hd-table-sentence-size` | `13px` |
-| `--hd-table-line-gap` | `2px` |
+| `--hd-table-line-gap` | `4px` |
 | `--hd-table-end-gap` | `12px` |
 | `--hd-history-detail-min-h` | `160px` |
-| `--hd-field-h` | `30px` |
+| `--hd-field-h` | `32px` |
+| `--hd-table-page-max-height` | `50dvh` |
+| `--hd-field-name-width` | `220px` |
+| `--hd-field-path-width` | `280px` |
 | `--hd-control-h-lg` | `<cycle>` |
 | `--hd-chip-h` | `22px` |
 | `--hd-chip-radius-sm` | `calc(6px * 5 / 6)` |
 | `--hd-row-h` | `calc(20px + 4px * 2 + 2px)` |
 | `--hd-icon-target` | `24px` |
 | `--hd-icon-target-sm` | `20px` |
-| `--hd-bar-h` | `46px` |
+| `--hd-bar-h` | `40px` |
+| `--hd-bar-divider-h` | `14px` |
+| `--hd-bar-title-min` | `180px` |
 | `--hd-bar-gap` | `6px` |
 | `--hd-bar-pad` | `8px` |
 | `--hd-rail-inset` | `8px` |
 | `--hd-bar-ink` | `calc(8px + 8px + 1px)` |
 | `--hd-column` | `736px` |
-| `--hd-popover-width-wide` | `320px` |
+| `--hd-page-wide` | `1320px` |
+| `--hd-page-gutter` | `24px` |
+| `--hd-menu-min` | `200px` |
+| `--hd-popover-width-wide` | `340px` |
+| `--hd-menu-row-radius` | `calc(10px - 6px)` |
+| `--hd-info-card-width` | `288px` |
 | `--hd-fade-edge` | `16px` |
 | `--hd-fade` | `linear-gradient(to right, #000 calc(100% - 16px), transparent)` |
 | `--hd-composer-min` | `44px` |
 | `--hd-composer-max` | `320px` |
 | `--hd-composer-line` | `20px` |
 | `--hd-composer-radius` | `28px` |
+| `--hd-composer-shell-shadow` | `0 4px 20px rgba(0, 0, 0, 0.035)` |
+| `--hd-composer-shell-shadow-focus` | `0 4px 20px rgba(0, 0, 0, 0.035)` |
 | `--hd-composer-track-add` | `32px` |
 | `--hd-composer-track-work-in` | `84px` |
 | `--hd-composer-track-work-in-folded` | `48px` |
@@ -283,6 +301,7 @@ Controls are one height so a row of them lines up without anyone counting pixels
 | `--hd-composer-track-model-folded` | `48px` |
 | `--hd-composer-track-model-tight` | `24px` |
 | `--hd-composer-track-send` | `32px` |
+| `--hd-composer-send-size` | `30px` |
 | `--hd-composer-slots-preview-narrow` | `560px` |
 | `--hd-composer-slots-preview-tight` | `360px` |
 | `--hd-dialog-max-height` | `calc(100dvh - 2 * 24px)` |
@@ -404,7 +423,7 @@ A navigation column is its own small design system, and shadcn treats it as one:
 | `--hd-sidebar-muted-foreground` | `rgb(71, 71, 71)` |
 | `--hd-sidebar-border` | `rgba(9, 12, 17, 0.05)` |
 | `--hd-sidebar-hover` | `rgba(9, 12, 17, 0.05)` |
-| `--sidebar-width` | `` |
+| `--hd-sidebar-width` | `256px` |
 | `--hd-sidebar-width-icon` | `48px` |
 
 ### The nav row
@@ -415,11 +434,15 @@ One row in a navigation list — the sidebar's sessions, the settings sheet's pa
 | --- | --- |
 | `--hd-nav-h` | `calc(20px + 4px * 2 + 2px)` |
 | `--hd-nav-h-group` | `calc(20px + 4px * 2 + 2px)` |
+| `--hd-left-row-h` | `30px` |
+| `--hd-left-row-gap` | `0px` |
+| `--hd-left-menu-gap` | `8px` |
+| `--hd-frame-icon-button` | `28px` |
 | `--hd-nav-radius` | `10px` |
 | `--hd-nav-gap` | `8px` |
 | `--hd-nav-inset` | `8px` |
 | `--hd-nav-padding` | `0 8px` |
-| `--hd-label-weight` | `500` |
+| `--hd-label-weight` | `400` |
 
 ### The section label
 
@@ -438,15 +461,22 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-card-padding` | `16px` |
 | `--hd-card-gap` | `12px` |
 | `--hd-seg-pad` | `2px` |
+| `--hd-mode-switch-cell-w` | `26px` |
+| `--hd-mode-switch-cell-h` | `24px` |
 | `--hd-seg-trim` | `calc(2px * 2)` |
 | `--hd-seg-text` | `12px` |
+| `--hd-switcher-pad` | `1px` |
+| `--hd-switcher-item-h` | `30px` |
+| `--hd-switcher-item-inset` | `12px` |
+| `--hd-tabs-h` | `32px` |
+| `--hd-tabs-inset` | `12px` |
 | `--hd-chip-radius` | `9999px` |
 | `--hd-chip-fill` | `rgb(245, 245, 245)` |
 | `--hd-chip-fill-hover` | `color-mix(in srgb, rgb(245, 245, 245) 92%, rgb(27, 27, 27))` |
 | `--hd-toggle-knob` | `rgb(255, 255, 255)` |
 | `--hd-toggle-knob-on` | `rgb(255, 255, 255)` |
 | `--hd-toggle-track` | `rgba(9, 12, 17, 0.14)` |
-| `--hd-toggle-on` | `rgb(52, 88, 240)` |
+| `--hd-toggle-on` | `rgb(27, 27, 27)` |
 | `--hd-toggle-width` | `34px` |
 | `--hd-toggle-width-sm` | `30px` |
 | `--hd-toggle-height-sm` | `18px` |
@@ -458,6 +488,7 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-external-canvas` | `rgb(255, 255, 255)` |
 | `--hd-secondary-foreground` | `rgb(49, 49, 49)` |
 | `--hd-tertiary-foreground` | `rgb(71, 71, 71)` |
+| `--hd-disabled-foreground` | `color-mix(in srgb, rgb(177, 177, 177) 80%, rgb(27, 27, 27))` |
 | `--hd-sidebar-plate` | `rgb(249, 249, 249)` |
 | `--hd-chip-fill-hover` | `color-mix(in srgb, rgb(245, 245, 245) 92%, rgb(27, 27, 27))` |
 | `--hd-shadow-xs` | `0 1px 2px rgba(0, 0, 0, 0.05)` |
@@ -476,7 +507,6 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-accent-dim` | `rgba(52, 88, 240, 0.12)` |
 | `--hd-accent-foreground` | `rgb(255, 255, 255)` |
 | `--hd-primary-foreground` | `rgb(255, 255, 255)` |
-| `--hd-toggle-knob-on` | `rgb(255, 255, 255)` |
 | `--hd-sidebar-selected` | `color-mix(in srgb, rgb(27, 27, 27) 12%, transparent)` |
 | `--hd-sidebar-selected-foreground` | `` |
 | `--hd-sidebar-selected-muted-foreground` | `` |
@@ -491,8 +521,6 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-card-radius` | `` |
 | `--hd-composer-ring` | `` |
 | `--hd-control-h-lg` | `<cycle>` |
-| `--hd-page-row-h` | `` |
-| `--hd-page-row-padding` | `` |
 | `--hd-seg-trim` | `calc(2px * 2)` |
 | `--hd-page-group-gap` | `` |
 | `--hd-btn-shadow` | `none` |
@@ -503,9 +531,13 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-ring-muted` | `rgb(52, 88, 240)` |
 | `--hd-card-fill` | `` |
 | `--hd-ring-muted` | `rgb(52, 88, 240)` |
-| `--hd-field-h` | `30px` |
-| `--hd-btn-h` | `30px` |
-| `--hd-field-h` | `30px` |
+| `--hd-left-row-h` | `30px` |
+| `--hd-left-row-gap` | `0px` |
+| `--hd-left-menu-gap` | `8px` |
+| `--hd-nav-radius` | `10px` |
+| `--hd-field-h` | `32px` |
+| `--hd-btn-h` | `32px` |
+| `--hd-field-h` | `32px` |
 | `--hd-btn-h-sm` | `28px` |
 
 ### Table density
@@ -524,11 +556,35 @@ A table scope owns its density, including list and settings examples. Restating 
 | `--hd-table-head-ink` | `rgb(49, 49, 49)` | `rgb(49, 49, 49)` |
 | `--hd-table-head-size` | `13px` | `12px` |
 | `--hd-table-lead-gap` | `12px` | `10px` |
-| `--hd-table-line-gap` | `2px` | `2px` |
+| `--hd-table-line-gap` | `4px` | `4px` |
 | `--hd-table-name-size` | `14px` | `13px` |
+| `--hd-table-page-max-height` | `50dvh` | `50dvh` |
 | `--hd-table-row-min` | `56px` | `40px` |
 | `--hd-table-row-min-bare` | `44px` | `32px` |
 | `--hd-table-sentence-size` | `13px` | `12px` |
+
+### Popup rows
+
+App-frame row leading and height are independent of navigation density. The facts card keeps its key column in the same foundation contract.
+
+| token | value |
+| --- | --- |
+| `--hd-menu-row-h` | `30px` |
+| `--hd-menu-label-line` | `18px` |
+| `--hd-menu-search-h` | `28px` |
+| `--hd-info-card-key` | `96px` |
+
+### Composer selected values
+
+These wide tracks name the selected values themselves. The earlier base tracks remain the compact measure; a visible short choice gets enough room for its icon, word and chevron before the toolbar starts folding.
+
+| token | value |
+| --- | --- |
+| `--hd-composer-track-permissions-wide` | `132px` |
+| `--hd-composer-track-mode-wide` | `68px` |
+| `--hd-composer-track-context-wide` | `24px` |
+| `--hd-composer-track-context-folded` | `24px` |
+| `--hd-composer-track-context-tight` | `24px` |
 
 ## When to use which
 
@@ -822,11 +878,11 @@ having written the judgement down.
 
 ### `one step`
 
-**Use** — Every page head, a list page's `PageHead` and a drilled-into `DetailHead` alike: the page-title step, 20px semibold — the wordmark's own type.
+**Use** — A destination is named once by its permanent top bar, using the subject step: 14px medium. The wordmark keeps its own type role.
 
-**Not** — A second size for a detail page. What tells a detail page apart is its mark and its owner chip, never a bigger or lighter name.
+**Not** — A second title block in the page body, or another type size for a detail destination.
 
-**Why** — At 24px regular a drilled-into page read lighter and less finished than the list it came from, and the sidebar's wordmark beside it. The owner settled it in #832: page titles match the wordmark.
+**Why** — A retained destination shares the same shell and title position as work. Its content starts at the Page gutter.
 
 ### `GroupLabel`
 
@@ -949,7 +1005,7 @@ rather than passed. The rest of this page is judgement; this part is enforced.
 
 | slot | what it is | may be | rung | ink actions | why |
 | --- | --- | --- | --- | --- | --- |
-| `pageAction` | the `actions` of a `PageHead` | `outline`, `default`, `primary`, `destructive`, `danger` | `--hd-btn-h` | one | It sits on the page's own ground with nothing enclosing it, so it needs an edge or a fill. The unqualified grey and `ghost` both vanish there — which is exactly how one settings window came to carry four different treatments of one slot. |
+| `pageAction` | the historical page action slot, retained only for migration checks | `outline`, `default`, `primary`, `destructive`, `danger` | `--hd-btn-h` | one | Retired page actions remain checked until their last caller is removed. Destinations now put their verbs in the permanent top bar. |
 | `sectionAction` | the `action` of a `SectionHead` or a titled `Section` | `outline`, `destructive`, `danger` | `--hd-btn-h-sm` | any | One rung down, because a section heading is one rank down and its action should not outweigh the page's. `default` is missing on purpose: the page gets one ink action, and a section that claims a second one takes the first's meaning with it. |
 | `dialogFooter` | the `footer` of a `Dialog` | `default`, `primary`, `secondary`, `quiet`, `danger`, `outline` | `--hd-btn-h` | one | Every footer has exactly one filled act: the confirm, `default` — or `danger` when it destroys — never none (three text buttons with no default) and never two. A lone button is that act, filled: a lone `secondary` is a frame the grey of the footer under it. Cancel and Close are `secondary`, which the footer draws quiet when a filled act stands beside it, or `quiet` itself. Write the proceeding action first; the footer is `row-reverse`, so it paints rightmost and is the first a Tab reaches. A disabled act is dimmed toward the footer ground, never faded to half opacity. `destructive` is not allowed: soft red text is a page's remove action, not a confirm's act. Nor is `ghost`: its ink is the full foreground, so beside the confirm it reads as a second answer of equal weight. The audit reads every branch of the footer and its `footerAside`. |
 
@@ -1028,26 +1084,6 @@ With `description`, the small face stays beside the name while the prose
 sits directly under the name, in that same text column. `meta` is the
 role or other recorded fact beside the name.
 
-### `AppWindowSurface`
-
-`packages/ui/src/design/patterns/AppWindow.tsx`
-
-The full-window destination shell shared by Settings and Dashboard.
-Base UI still owns focus and modality; this pattern owns the window ground
-and the two plates that meet inside it.
-
-### `AppWindowRailTop`
-
-`packages/ui/src/design/patterns/AppWindow.tsx`
-
-The window rail's head, under the window buttons: the system's rail section.
-
-### `AppWindowRailScroll`
-
-`packages/ui/src/design/patterns/AppWindow.tsx`
-
-The window rail's scrolling list: the system's rail section.
-
 ### `ApprovalReason`
 
 `packages/ui/src/design/patterns/ApprovalDialog.tsx`
@@ -1121,6 +1157,12 @@ off: one line, quiet, never a slab, because thirty of them is a normal
 afternoon and they are read as a sequence rather than one at a time. The
 transcript's light register, like a step inside a turn's work.
 
+The sentence is who did what to which card; `detail` is what they reported
+with it — a verdict, a pull request, a list of checks — and it can run to
+a page. Joined into the sentence it made every completion a slab of the same
+grey as the line it explained. It sits under the sentence in the secondary
+ink, at most two lines until the reader asks for the rest.
+
 ### `ChannelNotice`
 
 `packages/ui/src/design/patterns/ChannelMessage.tsx`
@@ -1145,6 +1187,84 @@ steps — so a screen reader hears them as a sequence, not a set.
 `packages/ui/src/design/patterns/CodeBlock.tsx`
 
 Exact command text and its output, drawn as one readable plate.
+
+### `CommandPalettePanel`
+
+`packages/ui/src/design/patterns/CommandPalette.tsx`
+
+The fixed, viewport-bounded surface shared by the search palette.
+
+### `CommandPaletteSearch`
+
+`packages/ui/src/design/patterns/CommandPalette.tsx`
+
+Header search without a second box or icon inset inside the panel.
+
+### `CommandPaletteControls`
+
+`packages/ui/src/design/patterns/CommandPalette.tsx`
+
+Type tabs and their tool-output filter share one toolbar row.
+
+### `CommandPaletteDivider`
+
+`packages/ui/src/design/patterns/CommandPalette.tsx`
+
+Divider between the search controls, results and keyboard hints.
+
+### `CommandPaletteResults`
+
+`packages/ui/src/design/patterns/CommandPalette.tsx`
+
+Scrollable result list, inset to the panel's content edge.
+
+### `CommandPaletteResult`
+
+`packages/ui/src/design/patterns/CommandPalette.tsx`
+
+A title-led palette result with a trailing, right-aligned fact.
+
+### `CommandPaletteEmpty`
+
+`packages/ui/src/design/patterns/CommandPalette.tsx`
+
+An inline empty result state that stays on the list's reading edge.
+
+### `CommandPaletteFooter`
+
+`packages/ui/src/design/patterns/CommandPalette.tsx`
+
+The compact keyboard-hint footer below the result list.
+
+### `CommandPaletteKeyHint`
+
+`packages/ui/src/design/patterns/CommandPalette.tsx`
+
+A named action and the key that invokes it.
+
+### `ComparisonDecision`
+
+`packages/ui/src/design/patterns/ComparisonDecision.tsx`
+
+A recorded recommendation and the person's next decision, above the shared composer.
+
+### `ComparisonNotice`
+
+`packages/ui/src/design/patterns/ComparisonNotice.tsx`
+
+A comparison’s quiet result shelf, composed from Alert. Its fixed grid track keeps the tiles still; long recorded text scrolls whole while actions remain visible.
+
+### `ComparisonSummary`
+
+`packages/ui/src/design/patterns/ComparisonSummary.tsx`
+
+The reading page in the same Side by side body, once the person has merged.
+
+### `ComposerTrack`
+
+`packages/ui/src/design/patterns/ComposerTrack.tsx`
+
+A token-sized position in the composer toolbar.
 
 ### `ConfirmDialog`
 
@@ -1185,6 +1305,72 @@ this layer has no store — so it is handed back rather than dropped. A row
 that stays shown while the tick is up hears about it through
 `onCopiedChange`.
 
+### `DashboardBands`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+Recorded facts and quantitative figures; controls belong to the shared section head.
+
+### `DashboardColumns`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+Overview's two related sections; the secondary column yields on narrow pages.
+
+### `DashboardAccounts`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+Plan readings share a responsive card grid.
+
+### `DashboardFigure`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+A plan's measured figure and its qualifiers, never a new control.
+
+### `DashboardLanes`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+Related meter rows inside one account.
+
+### `DashboardReadingNote`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+A complete note next to its source glyph.
+
+### `DashboardFact`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+A single quantitative fact; groups keep the same key column.
+
+### `DashboardTable`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+Tables carry their shared account/reading/action column geometry in the system.
+
+### `DashboardStats`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+Periods and heatmap facts compose the canonical numeric tiles.
+
+### `DashboardAccountActivity`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+A borrowed reading's activity summary belongs to that account, in one band.
+
+### `DashboardOverviewStats`
+
+`packages/ui/src/design/patterns/DashboardBands.tsx`
+
+Paid plus the three chart measures, using the shared stat and button contracts.
+
 ### `DialogFormScope`
 
 `packages/ui/src/design/patterns/DialogForm.tsx`
@@ -1202,6 +1388,12 @@ Whether this part is drawn inside a dialog's body.
 `packages/ui/src/design/patterns/DialogForm.tsx`
 
 The class a dialog's body and an in-dialog `FormStack` share.
+
+### `dialogSectionStackClass`
+
+`packages/ui/src/design/patterns/DialogForm.tsx`
+
+A named group separation for related controls inside a dialog form.
 
 ### `FieldsetLegend`
 
@@ -1320,7 +1512,7 @@ The one highlighted landing target under a dragged panel tab.
 
 `packages/ui/src/design/patterns/DockPanel.tsx`
 
-The frame: a column with a rule on the edge it hugs, and its own ground.
+The frame: a column with its own ground and an optional edge rule.
 
 One component for the right panel, the bottom panel and the sidebar's lower
 stack, because those three differ in exactly two ways — which edge they sit
@@ -1411,6 +1603,36 @@ a caller that does not re-render mid-drag has been passing this component
 the *committed* size all along, and committing that put the panel straight
 back where it started.
 
+### `FixedPanelFrame`
+
+`packages/ui/src/design/patterns/DockPanel.tsx`
+
+Fixed shell regions retain native guest/grid geometry while out of the row.
+
+### `FixedPanelRow`
+
+`packages/ui/src/design/patterns/DockPanel.tsx`
+
+The retained frame's containing block, shared by standing and floating modes.
+
+### `FixedToolLayer`
+
+`packages/ui/src/design/patterns/DockPanel.tsx`
+
+Plugin sections join Details' flow; hidden native layers keep their existing boxes.
+
+### `FixedShell`
+
+`packages/ui/src/design/patterns/FixedShell.tsx`
+
+Five stable regions: folding and closing affect geometry, never body identity.
+
+### `ShellNoticeHost`
+
+`packages/ui/src/design/patterns/FixedShell.tsx`
+
+A notice portal contributes only its Banner's height, including in flex main.
+
 ### `FlowCanvas`
 
 `packages/ui/src/design/patterns/FlowCanvas.tsx`
@@ -1436,13 +1658,25 @@ Read an agent-authored line as safe words, the same way the Flow drawing does.
 
 `packages/ui/src/design/patterns/FlowStepRow.tsx`
 
-A recorded step or Seat state, toned once for the Flow list and Run dock. Unknown outcomes stay neutral.
+A recorded step or Seat state, toned once for the Flow list and main Run Timeline. Unknown outcomes stay neutral.
 
 ### `FlowStepRow`
 
 `packages/ui/src/design/patterns/FlowStepRow.tsx`
 
-A step in the Flow list or dock: kind and seated faces, a recorded state, and trailing time and run count. The caller owns its earned second line and selection.
+A step in the Flow list or Timeline: kind and seated faces, a recorded state, and trailing time and run count. The caller owns its earned second line and selection.
+
+### `MergeDialog`
+
+`packages/ui/src/design/patterns/GitComparisonDialogs.tsx`
+
+The toolbar's Merge: pick what joins the current branch.
+
+### `DiffRangeDialog`
+
+`packages/ui/src/design/patterns/GitComparisonDialogs.tsx`
+
+“Diff against current”: the plain difference between two revisions.
 
 ### `useHeaderStatusGroup`
 
@@ -1464,6 +1698,34 @@ minute-by-minute countdowns cannot leave the card holding an older fact.
 
 Works outside a group too; only grouped readings contribute to its card.
 
+### `LeftColumnTop`
+
+`packages/ui/src/design/patterns/LeftColumn.tsx`
+
+The column's top controls share the window's edge row and keep the drag
+region around every control. The row has no separator hairline beneath it;
+the column's own spacing marks the transition to its brand row. The mode
+switch takes the reserved right edge, stays when history folds, and is
+absent in Settings. Its compact cells use the shared switcher appearance.
+
+### `LeftColumnSeat`
+
+`packages/ui/src/design/patterns/LeftColumn.tsx`
+
+The account row closes the column without a separator hairline above it.
+
+### `LeftColumnExplorerHead`
+
+`packages/ui/src/design/patterns/LeftColumn.tsx`
+
+Explorer occupies the same column; its header and foot share the row inset.
+
+### `LibraryMatrix`
+
+`packages/ui/src/design/patterns/LibraryMatrix.tsx`
+
+Availability geometry belongs to this data block; Page owns the outer measure.
+
 ### `Lightbox`
 
 `packages/ui/src/design/patterns/Lightbox.tsx`
@@ -1483,66 +1745,29 @@ Base UI owns the modal lifecycle, focus containment and return, outside
 press, portal and topmost Escape policy; this owns the gallery's position
 and the picture's facts.
 
-### `Menu`
+### `MainDestination`
 
-`packages/ui/src/design/patterns/Menu.tsx`
+`packages/ui/src/design/patterns/MainDestination.tsx`
 
-A HarnessDesk menu level. Base UI owns item collection, roving focus,
-selection, Escape and submenu coordination; this wrapper carries the
-product-level close callback used by async actions.
+Keep work and visited pages mounted; only the active main layer is interactive.
 
-Tab and Shift+Tab leave a menu and close every level of it (WAI-ARIA APG,
-menu pattern). The menu stands in the tab order just after its trigger,
-where Base UI places a Popover: Tab moves on to what follows the trigger,
-and Shift+Tab goes back to the trigger, as Escape does. A panel of plain
-buttons in a menu keeps Tab for going from one to the next, and leaves by
-it after the last.
+### `DestinationBody`
+
+`packages/ui/src/design/patterns/MainDestination.tsx`
+
+Each visited page owns one scroll element for the current project.
 
 ### `MenuAccountGroup`
 
 `packages/ui/src/design/patterns/Menu.tsx`
 
-Several accounts of one agent, under one heading. `heading={false}` keeps
-the group — so a row does not change parent, and lose focus, when the
-heading comes and goes — but draws no heading and steps nothing in: one
-account of the agent on show, as one row wearing its own mark.
-
-The heading wears the agent's mark once and names it; it is not a choice,
-so it takes no hover and no press, and it is the group's accessible name —
-`aria-labelledby`, the wiring the vendored group label would give. Plain
-elements rather than `DropdownMenuGroup`/`DropdownMenuLabel`: one screen
-composes this, and the audit's single-area primitive ceiling may only
-fall. The `account` rows under a heading step in so that, after an
-`AccountMark size="dot"` (the account's colour), their names start on the
-heading's name column; the heading already drew whose they are.
+A stable account group whose heading shares the level's text edge.
 
 ### `MenuAccountRow`
 
 `packages/ui/src/design/patterns/Menu.tsx`
 
-One account in the seat menu: a leading mark, the name and its identity,
-the tag that only exists to tell two same-named rows apart, and the
-trailing figure. `AccountFooter` (`components/Sidebar.tsx`) composes this
-from the running app, and the catalogue's Foundation propagation page
-composes the identical part from the same shape of props (#993) — the
-layout no longer exists twice.
-
-`mark` is handed over already built — an `AccountMark` wrapped in its own
-hover card, or a bare `size="dot"` mark under a heading — because the card
-is the app's own account-specific chrome and has no business in a part
-shared with the catalogue. `identity` is kept as `title` and
-`data-identity` on the name's own block, not the row's, exactly as the
-seat menu drew it before this moved.
-
-Every `MenuItem` prop a seat row still needs passes straight through:
-`current`, `expanded`, `keepOpen`, `onSelect`, and — set by the caller as
-ever, since it is a React reserved prop rather than one this component
-reads — `key`.
-
-The layout is the row's own and is kept to layout properties only (flex,
-gap, min/max-width, overflow, white-space): a pattern with one screen
-consumer is charged for anything else it draws itself (docs/design.md).
-Ink and type come from `Text`.
+An account identity, badge and figure rendered by the canonical row.
 
 ### `MenuToggle`
 
@@ -1554,36 +1779,34 @@ A switch stays open; Base UI supplies checkbox-menu keyboard semantics.
 
 `packages/ui/src/design/patterns/ModalDialog.tsx`
 
-The head every dialog wears: its mark, its name, and the way out.
+The head every dialog wears: its name, context, short description, and way out.
 
 `Dialog` draws it, and so does a sheet that lays out its own body — the
 skill sheet — so a dialog's name is one step, one inset and one rule under
-it whichever of them is open. The name is the subject step (14/21, medium):
-a dialog names one question or one thing, and a page names a place.
+it whichever of them is open. The name is the title step (16/24, semibold).
 
-`aside` sits on the name's own line (a kind badge); `children` are the lines
+`aside` sits after the name on its line (a context chip); `children` are one
 under it — an identifier, the sentence saying what the thing is — and the
-head then aligns to its top, so the mark and the way out stay beside the
+head then aligns to its top, so the title and the way out stay beside the
 name rather than drifting to the middle of a paragraph.
-
-### `DialogSubhead`
-
-`packages/ui/src/design/patterns/ModalDialog.tsx`
-
-Under the head, above the body, and outside the scroll: a breadcrumb, or
-the view switch of a document, still there after the body has scrolled.
 
 ### `DialogBody`
 
 `packages/ui/src/design/patterns/ModalDialog.tsx`
 
-A dialog's body, which scrolls and is inset the dialog's step.
+A dialog's body, which scrolls and keeps 24px on every side in every layout.
 
-`form` (what `Dialog` draws unless it is `flush`) is the form stack: its
-children are 16px apart, a `SectionHead` in it is a legend, and a `Rows`
-radio group is a compact `ChoiceList`. `flush` is a list whose rows reach
-the edges. `reading` is inset like a form and is not one — a document, or
-the facts beside it — so its parts keep their own rhythm.
+Every body keeps the dialog inset on all four sides. `form` (what `Dialog`
+draws unless it is `flush`) is the form stack: its children are 16px apart,
+a `SectionHead` in it is a legend, and a `Rows` radio group is a compact
+`ChoiceList`. `flush` changes the child grammar for a list; it does not
+remove the body's inset. `reading` is an inset document or facts column.
+
+### `DialogFooter`
+
+`packages/ui/src/design/patterns/ModalDialog.tsx`
+
+One same-height footer band, with an optional quiet link at the left and actions at the right.
 
 ### `Dialog`
 
@@ -1596,8 +1819,8 @@ footer and measured sizes.
 The body is a form stack (`DialogForm`) unless it is `flush`: its children
 are 16px apart, a `SectionHead` in it is a legend on the group it names,
 and a `Rows` radio group of `RowChoice` rows is a compact `ChoiceList`.
-Nothing in the body needs spacing of its own. A `flush` body is a list and
-is not a form, so it keeps the page's parts.
+The body keeps its 24px inset in every layout. A `flush` body is a list and
+is not a form, so it keeps the page's parts inside that inset.
 
 ### `NoticeCard`
 
@@ -1650,8 +1873,7 @@ last time; actions name their destination.
 `packages/ui/src/design/patterns/Notices.tsx`
 
 The bell and the inbox behind it. The bell carries the unread count in its
-own tint; the inbox opens beside it as a panel of its own, wide enough for
-a card to read in two lines, rather than folding into a menu.
+own tint; the wide menu keeps complete message facts and their actions.
 
 ### `showToast`
 
@@ -1667,6 +1889,86 @@ Sonner so every toast in the app looks the same.
 A result that takes a moment: one toast that says it is under way and then
 turns into how it ended, rather than a spinner somewhere and a second toast
 later. The promise's own value can name the ending.
+
+### `Page`
+
+`packages/ui/src/design/patterns/Page.tsx`
+
+A page's column — the one way a page sets its width and its margins.
+
+A screen says what kind of page it is and passes its blocks; it does not
+write a max-width, a padding or an outer margin of its own. `reading` is the
+app's reading measure (`--hd-column`), centred: a conversation, a setting, a
+round's findings. `wide` is for tables and card grids (`--hd-page-wide`),
+centred. `canvas` fills the width and keeps `PaneColumn`'s dense canvas
+inset (`--hd-space-2`) on all four edges. A canvas may name a `measure` for
+its page blocks: the canvas keeps its frame inset while those blocks use the
+chosen centred page measure. A dense canvas with topInset="page" replaces
+its smaller top inset with the page's top content inset while keeping the
+same full-width canvas frame.
+Reading and wide pages keep the reading inset (`--hd-page-gutter`) on all
+four edges. A surface that brings its own geometry — a terminal, a diff,
+a graph — bleeds instead of taking a page.
+
+Blocks inside sit one stack gap (`--hd-card-gap`) apart; a `Section` brings
+its own larger step. A Team's Findings drew its
+facts against the sidebar, a button across the window and a switch in the
+middle of it because nothing told the page what width it was.
+
+### `PageControls`
+
+`packages/ui/src/design/patterns/PageControls.tsx`
+
+Labelled search and choices, using the Settings row control slots.
+
+### `ShortcutKeys`
+
+`packages/ui/src/design/patterns/PageControls.tsx`
+
+A keyboard chord, with one keycap per key.
+
+### `PageExplanation`
+
+`packages/ui/src/design/patterns/PageControls.tsx`
+
+A complete page explanation in the prose role.
+
+### `PreservedText`
+
+`packages/ui/src/design/patterns/PageControls.tsx`
+
+Source prose retaining its line breaks, wrapping within the page.
+
+### `InlineQualifier`
+
+`packages/ui/src/design/patterns/PageControls.tsx`
+
+A short qualifier beside the fact it belongs to.
+
+### `PageNotes`
+
+`packages/ui/src/design/patterns/PageControls.tsx`
+
+Complete supporting notes that belong to a page group.
+
+### `PageOptions`
+
+`packages/ui/src/design/patterns/PageOptions.tsx`
+
+Current choices, search and read actions in the first body block; long menu choices wrap within the page.
+
+### `PageRecordViews`
+
+`packages/ui/src/design/patterns/PageRecords.tsx`
+
+A record page's views belong in its first body row, using the shared tab switcher.
+
+### `PageRecords`
+
+`packages/ui/src/design/patterns/PageRecords.tsx`
+
+Records share a table above 600px of content, and whole earned sentences in list rows below it.
+Row actions and portalled menus never activate the record; the title is its keyboard button.
 
 ### `PaneColumn`
 
@@ -1691,6 +1993,12 @@ carries it, not to a sibling), and `dock` is the element to measure —
 typically the strip holding the bars and the composer together. A screen
 wires the two refs to its own markup; the observing and the `setProperty`
 call are this hook's alone.
+
+### `ReadingMeasure`
+
+`packages/ui/src/design/patterns/PaneColumn.tsx`
+
+A notice in the transcript or composer follows the same capped reading measure.
 
 ### `PlanCard`
 
@@ -1722,7 +2030,7 @@ that cannot be clicked through it — the board's card menu, until it took part
 Answers Escape while it is the surface on top.
 
 Orders screen-level surfaces after nested menus and dialogs have had the
-key. AppWindow uses canonical dialog modality but explicitly delegates
+key. destination uses canonical dialog modality but explicitly delegates
 Escape here, retaining the window stack's ordering and approval boundary.
 Other dialogs consume Escape themselves; see `lib/overlays.ts`.
 
@@ -1755,6 +2063,12 @@ The glyph for what was published: a pull request, a review, a comment, an issue.
 `packages/ui/src/design/patterns/PublicationCard.tsx`
 
 A pull request's state in a word, toned as the judgement it is: merged is good news, closed without merging is not.
+
+### `SelectionAction`
+
+`packages/ui/src/design/patterns/SelectionAction.tsx`
+
+A selection keeps focus while its one action floats above the selected text.
 
 ### `Dot`
 
@@ -1865,7 +2179,8 @@ one long label ("Detail optional").
 
 Fields, stacked — the body of a dialog that asks for more than one thing.
 Inside a dialog it keeps the dialog's form rhythm (`DialogForm`): 16px
-between fields, a legend 6px over its group.
+between fields by default, a named 24px section gap when requested, and a
+legend 6px over its group.
 
 ### `Note`
 
@@ -1906,13 +2221,11 @@ The canonical toggle group supplies radio semantics and roving focus while
 this pattern supplies the settings-specific segmented appearance.
 An unavailable answer takes a disabled reason, kept in its hover title.
 
-### `PageHead`
+### `SegmentedReadout`
 
 `packages/ui/src/design/patterns/Settings.tsx`
 
-The page's 20px semibold name, matching the wordmark, one line saying what
-it is for, and anything it acts on. Actions wrap below the copy when the
-container cannot keep a readable description beside them.
+The same segmented setting when it reports a value instead of changing it.
 
 ### `Text`
 
@@ -1931,6 +2244,8 @@ zero-width space is the line's strut), with the mark centred in it; the
 row lays the two out on their first baseline, so the mark sits on the
 middle of the label's first line however many lines the label wraps to and
 whatever box the label is drawn in. `role` is the label's.
+A status mark that carries meaning of its own takes a `label`; decorative
+marks stay hidden from assistive technology.
 
 ### `NavigationGroupHeader`
 
@@ -1949,6 +2264,13 @@ rule in the middle of a form. Inside a dialog, a card that is a radio group
 of `RowChoice` rows and nothing else is a `ChoiceList` — no card, and each
 row a compact radio row. A radio group of anything else (a branch picker of
 row buttons) keeps its card, its edge and its ground.
+
+### `Row`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+A named row with optional text below it. Keep the title scannable and put
+its full sentence in `desc`, where it wraps as an earned second line.
 
 ### `RowButton`
 
@@ -1985,14 +2307,6 @@ the title's line and the description under it in the hint step — unless it
 stands in a card of rows, where it stays the settings row the card is
 built for.
 
-### `BackLink`
-
-`packages/ui/src/design/patterns/Settings.tsx`
-
-The way back out of a detail page. It names where it goes rather than saying
-"Back", so it reads the same whether you arrived from the list or from a
-link somewhere else.
-
 ### `Face`
 
 `packages/ui/src/design/patterns/Settings.tsx`
@@ -2026,8 +2340,9 @@ One line of text that ellipsises, and says itself whole on hover — only
 while it is cut. A title on text that is not cut repeats what you are
 reading and hides the tooltip of whatever holds it (the seat's "New
 sessions run as …"), so the title is decided as the pointer arrives, from
-whether the text overflows its box right then. The ellipsis is the
-caller's class: `overflow: hidden`, `text-overflow: ellipsis`, `nowrap`.
+whether the text overflows its box right then. Pass `truncate` for the
+one-line ellipsis; the caller's class supplies width and minimum-size
+constraints.
 
 ### `RowValue`
 
@@ -2093,6 +2408,30 @@ Initials inside a row's neutral mark. They identify the thing without becoming i
 
 Compact facts whose dot separators belong to the role, not to each caller.
 
+### `InlineParts`
+
+`packages/ui/src/design/patterns/Settings.tsx`
+
+Inline parts of one value, wrapped together with the shared chip gap.
+
+### `PictureChoices`
+
+`packages/ui/src/design/patterns/SettingsChoices.tsx`
+
+Pictures as one radio group; arrows choose across an eight-column grid and unknown pictures check nothing.
+
+### `AccentChoices`
+
+`packages/ui/src/design/patterns/SettingsChoices.tsx`
+
+Accent colours as radio choices, with palette values supplied by the caller.
+
+### `RingChoices`
+
+`packages/ui/src/design/patterns/SettingsChoices.tsx`
+
+Account ring colours, keeping the selected mark and current tint callback.
+
 ### `SettingsRowMenu`
 
 `packages/ui/src/design/patterns/SettingsRowMenu.tsx`
@@ -2105,6 +2444,30 @@ A Settings record's actions: its name and distinguishing location, with destruct
 
 A quiet conversation or room state ends on the inset rail and folds to a dot for its own row's actions.
 
+### `SignInRail`
+
+`packages/ui/src/design/patterns/SignInRail.tsx`
+
+The sign-in boundary's own navigation ground.
+
+### `TerminalShellTabs`
+
+`packages/ui/src/design/patterns/TerminalShellTabs.tsx`
+
+The shell tabs and panel actions share one row above the terminal screen.
+
+### `ToolProse`
+
+`packages/ui/src/design/patterns/ToolBody.tsx`
+
+A missing-fact note uses the row edge and second-line type; prose keeps its reading inset.
+
+### `TopBarToolButton`
+
+`packages/ui/src/design/patterns/TopBar.tsx`
+
+A fixed tool's 28px door with the drawing's small activity dot.
+
 ### `UsageMeterRow`
 
 `packages/ui/src/design/patterns/UsageMeterRow.tsx`
@@ -2112,6 +2475,11 @@ A quiet conversation or room state ends on the inset rail and folds to a dot for
 The same four readings in a plan card, a quota popover and an account menu.
 Fixed foundation tracks align the reading and reset columns across rows.
 The 4px meter and its row use phrasing content so they can sit in a button.
+
+A row with nothing to read — no usage reported, a sign-in needed — passes
+`note` instead of a reading: the sentence takes the meter's, the figure's
+and the reset's columns, so it starts where the bars do in the rows above
+rather than straight after its name, and the name column stays one width.
 
 ## Known drift
 
@@ -2127,7 +2495,7 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawWeight` | 0 | The scale is three rungs and the app writes the numbers, so moving a rung means finding every screen that guessed it. |
 | `patternClass` | 0 | Two screens still draw their own empty state. Each is a different shape — a whole conversation or a pane — so the last of these is a component question rather than a line. |
 | `screenAppearance` | 0 | A change to the component that owns the role never reaches this screen, so each system edit leaves the copy behind. The count spans all three spellings a screen has for the same appearance: a literal declaration in its `.module.css`, a Tailwind utility in its `className`, and a key in an inline `style` object — moving one into another does not lower this number, only composing the role does. It also reaches into `design/patterns/`: a composition whose every screen consumer sits in one screen family is that screen's own appearance parked in the design folder, charged the same way. `design/ui/` primitives are never charged here — see `singleAreaPrimitive` below — and the workbench dock chrome (`design/patterns/DockPanel.tsx`) is a named, documented exemption: there is exactly one workbench, by design. A hard zero since #838: the Git pane's two own declarations are named, reasoned exemptions (`SCREEN_APPEARANCE_DECLARATION_EXEMPTIONS`), matched by sheet, selector, property and value. |
-| `singleAreaPrimitive` | 18 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. Named data-geometry and native-boundary exemptions in `SINGLE_AREA_PRIMITIVE_EXEMPTIONS` remain exempt only while each export stays single to its recorded area. |
+| `singleAreaPrimitive` | 11 | A `design/ui/` primitive every current screen consumer reaches for from one screen family is not charged as that screen's own appearance the way a `design/patterns/` composition is — a primitive is meant to exist before it has a second caller — but a rule that only ever watched would let one move out of `design/patterns/` specifically to dodge the charge, or sit unexamined forever. Named data-geometry and native-boundary exemptions in `SINGLE_AREA_PRIMITIVE_EXEMPTIONS` remain exempt only while each export stays single to its recorded area. |
 | `uppercaseLabel` | 0 | A label a screen shouts in 12px tracked capitals is a second group-label style beside `GroupLabel`, and a column of six of them reads as shouted — the one label that does need finding stops standing out. |
 | `screenUnclassified` | 0 | An unclassified property can be appearance that passes the screen gate silently, so the boundary stops being total. |
 | `visualKindUnion` | 0 | One component becomes dozens of unrelated roles, so moving it into design changes the directory without creating one implementation per role. |
@@ -2145,4 +2513,6 @@ list only goes down, except when the audit learns to see something it was blind 
 | `rawDuration` | 0 | Will not follow a change to how fast the app moves — every other surface speeds up and this one keeps its own clock. |
 | `rawColour` | 0 | Will not follow a palette or theme change. |
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
-
+| `retiredComponent` | 5 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
+| `pageMeasureInScreen` | 20 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
+| `screenLayout` | 2092 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |

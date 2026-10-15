@@ -122,6 +122,28 @@ test('record_review refuses a candidate whose head moved since it was offered', 
   )
 })
 
+for (const changed of ['branch', 'cwd'] as const) {
+  test(`record_review refuses a candidate whose ${changed} changed at the same commit`, async () => {
+    const port = new FakePort()
+    const scope = scopeOf('alpha', 's1')
+    const binding: ReviewBinding = {
+      goal: 'goal-1', seat: 'seat-reviewer', answers: ['approve'], round: 1,
+      subjects: [{ card: 1, round: 1, checkout: { cwd: '/repo', branch: 'work' }, at: SHA_A }],
+    }
+    port.bindings.set(`3\u0000${port.key('alpha', 's1')}`, binding)
+    const review = new FlowReview(port)
+    const [candidate] = await review.candidates(3, scope)
+    port.bindings.set(`3\u0000${port.key('alpha', 's1')}`, {
+      ...binding, subjects: [{ ...binding.subjects[0]!, checkout: { ...binding.subjects[0]!.checkout, [changed]: 'elsewhere' } }],
+    })
+    assert.equal(await review.held(candidate!.id, 3, scope), null, 'findings cannot retain the old checkout either')
+    await assert.rejects(() => review.record({ intent: 3, candidate: candidate!.id, verdict: 'approve' }, scope), /moved on/)
+    const [fresh] = await review.candidates(3, scope)
+    const recorded = await review.record({ intent: 3, candidate: fresh!.id, verdict: 'approve' }, scope)
+    assert.equal(recorded.checkout![changed], 'elsewhere')
+  })
+}
+
 test('a verdict outside the Agent’s declared answers is refused', async () => {
   const port = new FakePort()
   const scope = scopeOf('alpha', 's1')
@@ -210,6 +232,24 @@ test('a person review records the stable person marker on a held candidate and r
   )
   assert.equal(port.facts_.get('goal-1')?.length, 2)
 })
+
+for (const changed of ['branch', 'cwd'] as const) {
+  test(`a person review refuses a candidate whose ${changed} changed at the same commit`, async () => {
+    const port = new FakePort()
+    const binding: ReviewBinding = {
+      goal: 'goal-1', seat: PERSON_REVIEWER_ID, answers: ['picked'], round: 4,
+      subjects: [{ card: 7, round: 2, checkout: { cwd: '/repo/attempt', branch: 'attempt-one' }, at: SHA_A }],
+    }
+    port.personBindings.set('run-1\u00005', binding)
+    const review = new FlowReview(port)
+    const [candidate] = await review.personCandidates('run-1', 5)
+    port.personBindings.set('run-1\u00005', {
+      ...binding, subjects: [{ ...binding.subjects[0]!, checkout: { ...binding.subjects[0]!.checkout, [changed]: 'elsewhere' } }],
+    })
+    await assert.rejects(() => review.recordPerson('run-1', 5, candidate!.id, 'picked'), /moved on/)
+    assert.equal(port.facts_.get('goal-1')?.length ?? 0, 0)
+  })
+}
 
 test('a person review candidate that moved after it was offered is refused with the agent-review wording', async () => {
   const port = new FakePort()

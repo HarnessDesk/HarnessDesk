@@ -1,13 +1,15 @@
+import { TopBarProvider } from '../panels/top-bar'
+import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { Workbench } from '../panels/Workbench'
 import '../panels/builtins'
 import { StoreProvider } from '../state/context'
-import { dock, emptyWorkbench } from '../state/workbench'
+import { dockViews, emptyWorkbench } from '../state/workbench'
 import { BLANK } from '../state/layout'
 import { runtimeId } from '@harnessdesk/protocol'
-import { AppWindowMode } from '../components/AppWindow'
+import { SignInMode } from '../components/SignInMode'
 import { PREVIEW_SESSION_KEY, previewStore } from './harness'
 import '../styles/app.css'
 
@@ -34,7 +36,7 @@ const views = {
   tasks: { kind: 'tasks' },
 } as const
 const panelView = views[requestedView as keyof typeof views] ?? views.trajectory
-const workbench = { ...dock(emptyWorkbench(), 'right', panelView as never), main }
+const workbench = { ...emptyWorkbench(), main }
 const usage = previewStore().getSnapshot().usage.map((report) =>
   report.source.kind === 'file'
     ? {
@@ -52,6 +54,14 @@ const store = previewStore({
   sidebarCollapsed: true,
   usage,
 })
+// The synthetic shell closes the actual mounted resource through the same
+// view lifecycle as the host-backed store's terminal-id convenience method.
+Object.assign(store, { closeTerminal: (terminalId: string) => {
+  const entry = dockViews(store.getSnapshot().workbench.bottom).find(one => one.view.kind === 'terminal' && one.view.terminalId === terminalId)
+  if (entry) store.closeView(entry.id)
+} })
+
+store.showViewIn(panelView.kind === 'terminal' ? 'bottom' : 'right', panelView as never)
 
 ;(window as Window & { __narrowOverlayStore?: typeof store }).__narrowOverlayStore = store
 
@@ -61,9 +71,9 @@ if (!root) throw new Error('#root is missing from narrow-overlay.html')
 createRoot(root).render(
   <StrictMode>
     <StoreProvider store={store}>
-      <AppWindowMode.Provider value="embedded">
-        <Workbench sidebar={<div />} />
-      </AppWindowMode.Provider>
+      <SignInMode.Provider value="embedded">
+        <TopBarProvider><ShellHostsProvider><Workbench sidebar={<div />} /><ShellOutlets activeOwner={null} /></ShellHostsProvider></TopBarProvider>
+      </SignInMode.Provider>
     </StoreProvider>
   </StrictMode>,
 )

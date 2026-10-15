@@ -1,0 +1,655 @@
+import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
+import { mkdir, open, readdir, rm, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { Readable } from 'node:stream'
+import { test } from 'node:test'
+import { Host } from '../src/host.js'
+import { StateStore } from '../src/state.js'
+import { SessionIndex } from '../src/session-index.js'
+import { FakeRuntime } from './fixtures/fake-runtime.js'
+import { silent } from './fixtures/harness.js'
+import { tempDir } from './scratch.js'
+
+const deferred = () => {
+  let resolve!: () => void
+  const promise = new Promise<void>(yes => { resolve = yes })
+  return { promise, resolve }
+}
+
+for (const reading of ['folder page', 'archive page', 'omitted read'] as const) test(`shutdown drains a late index ${reading} without applying it`, { timeout: 10_000 }, async t => {
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const nativeArchive = reading !== 'folder page'
+  const root = tempDir('hd-index-shutdown-')
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: nativeArchive } })
+  runtime.setHealth({ state: 'ready' })
+  const row = { runtime: runtime.info.id, id: sessionId('old'), cwd: '', title: null,
+    createdAt: 1, updatedAt: 1, status: { type: 'notLoaded' as const } }
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  index.upsert(row, { archived: nativeArchive ? null : false })
+  index.close()
+  const entered = deferred(), answer = deferred(), stopping = deferred()
+  let settled = false, listings = 0, writes = 0
+  const late = async () => {
+    entered.resolve()
+    await answer.promise
+    settled = true
+    return { ...row, cwd: '/synthetic/recovered', archived: true, turns: [], itemsLoaded: true }
+  }
+  runtime.listSessions = async () => {
+    listings++
+    if (reading === 'omitted read') return { data: [], nextCursor: null }
+    return { data: [await late()], nextCursor: 'next' }
+  }
+  runtime.readSession = late
+  const dispose = runtime.dispose.bind(runtime)
+  runtime.dispose = async () => { stopping.resolve(); await dispose() }
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(async () => { answer.resolve(); await host.dispose() })
+  host.register(runtime)
+  await host.call('session/index', { archived: 'only' })
+  await entered.promise
+  // Count even attempted writes: a closed SQLite handle must never be reached.
+  for (const method of ['fillMissingMetadata', 'confirmArchived', 'clearArchiveError', 'archiveError'] as const) {
+    const original = SessionIndex.prototype[method]
+    t.mock.method(SessionIndex.prototype, method, function (this: SessionIndex, ...args: unknown[]) {
+      writes++
+      return Reflect.apply(original, this, args)
+    })
+  }
+  const close = SessionIndex.prototype.close
+  t.mock.method(SessionIndex.prototype, 'close', function (this: SessionIndex) {
+    assert.equal(settled, true, 'index closes only after its in-flight authority read settles')
+    return close.call(this)
+  })
+  let disposed = false
+  runtime.setHealth({ state: 'ready' }) // Queue a readiness retry behind the current read.
+  const shutdown = host.dispose().then(() => { disposed = true })
+  void shutdown.catch(() => {})
+  await stopping.promise
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(disposed, false)
+  answer.resolve()
+  await shutdown
+  assert.equal(settled, true)
+  assert.equal(writes, 0, 'late answers are abandoned once shutdown starts')
+  assert.equal(listings, reading === 'omitted read' ? 2 : 1, 'no next page or readiness retry starts')
+  const persisted = new SessionIndex(join(root, 'sessions.sqlite'))
+  assert.equal(persisted.get(row.runtime, row.id)?.cwd, '')
+  close.call(persisted)
+  await rm(root, { recursive: true, force: true })
+  runtime.setHealth({ state: 'ready' })
+  await new Promise(resolve => setImmediate(resolve))
+  await assert.rejects(readdir(root), { code: 'ENOENT' })
+})
+
+test('shutdown waits for the seed first-prompt stream to finish', { timeout: 10_000 }, async t => {
+  const root = tempDir('hd-seed-shutdown-')
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false } })
+  const folder = join(root, 'transcripts', runtime.info.id)
+  await mkdir(folder, { recursive: true })
+  const file = join(folder, 'old.json')
+  await writeFile(file, JSON.stringify({ version: 1, runtime: runtime.info.id, id: 'old', cwd: '', updatedAt: 1,
+    turns: [{ items: [{ type: 'userMessage', content: [{ type: 'text', text: 'Synthetic first prompt' }] }] }] }))
+  const handle = await open(file, 'r')
+  const prototype = Object.getPrototypeOf(handle) as typeof handle
+  await handle.close()
+  const stream = prototype.createReadStream
+  const entered = deferred(), answer = deferred(), stopping = deferred()
+  let finished = false
+  t.mock.method(prototype, 'createReadStream', function (this: typeof handle, ...args: Parameters<typeof stream>) {
+    const original = stream.apply(this, args)
+    return Readable.from((async function* () {
+      entered.resolve()
+      await answer.promise
+      try { for await (const chunk of original) yield chunk }
+      finally { finished = true }
+    })())
+  })
+  const dispose = runtime.dispose.bind(runtime)
+  runtime.dispose = async () => { stopping.resolve(); await dispose() }
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library'), catalogRefreshMs: 0, idleStopMs: 0 })
+  t.after(async () => { answer.resolve(); await host.dispose() })
+  host.register(runtime)
+  await host.start()
+  await entered.promise
+  const close = SessionIndex.prototype.close
+  t.mock.method(SessionIndex.prototype, 'close', function (this: SessionIndex) {
+    assert.equal(finished, true, 'the seed stream finishes before the index closes')
+    return close.call(this)
+  })
+  const shutdown = host.dispose()
+  await stopping.promise
+  assert.equal(finished, false)
+  answer.resolve()
+  await shutdown
+  assert.equal(finished, true)
+  const persisted = new SessionIndex(join(root, 'sessions.sqlite'))
+  assert.equal(persisted.list().data.length, 0, 'a late seed batch is abandoned')
+  await persisted.seed(root)
+  assert.equal(persisted.list().data[0]?.preview, 'Synthetic first prompt', 'the next launch can finish the seed')
+  close.call(persisted)
+  await rm(root, { recursive: true, force: true })
+  await new Promise(resolve => setImmediate(resolve))
+  await assert.rejects(readdir(root), { code: 'ENOENT' })
+})
+
+for (const nativeArchive of [false, true]) test(`listing recovers only missing folders and names (native archive: ${nativeArchive})`, async t => {
+  const { SessionIndex } = await import('../src/session-index.js')
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const root = tempDir('hd-folder-backfill-')
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  const runtime = new FakeRuntime()
+  Object.assign(runtime.info.capabilities, { archiveHistory: nativeArchive })
+  const summary = (id: string, cwd: string, title: string | null) => ({ runtime: runtime.info.id, id: sessionId(id), cwd, title,
+    createdAt: 1, updatedAt: 10, status: { type: 'notLoaded' as const } })
+  for (const row of [summary('missing', '', null), summary('known', '/synthetic/accepted', 'Accepted title'), summary('absent', '', null)]) {
+    index.upsert(row, { archived: nativeArchive ? null : false })
+  }
+  index.close()
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  let calls = 0
+  let listed!: () => void
+  const listing = new Promise<void>(resolve => { listed = resolve })
+  runtime.listSessions = async query => {
+    calls++
+    if (query?.archived === 'only') return { data: [], nextCursor: null }
+    if (!query?.cursor) return { data: [summary('known', '/synthetic/other', 'Other title')], nextCursor: 'next' }
+    listed()
+    return { data: [summary('missing', '/synthetic/recovered', 'Recovered title')], nextCursor: null }
+  }
+  host.register(runtime)
+  assert.equal(calls, 0)
+  await host.start()
+  await Promise.race([listing, new Promise<never>((_, reject) => { const timer = setTimeout(() => reject(new Error('folder backfill never listed')), 2_000); timer.unref() })])
+  // The observable index notification is the completion signal, not a sleep.
+  for (let turn = 0; turn < 100; turn++) {
+    const rows = (await host.call('session/index', {})).data
+    if (rows.find(row => row.id === 'missing')?.cwd) break
+    await new Promise(resolve => setImmediate(resolve))
+  }
+  const persisted = new SessionIndex(join(root, 'sessions.sqlite'))
+  t.after(() => persisted.close())
+  assert.equal(persisted.get(runtime.info.id, sessionId('missing'))?.cwd, '/synthetic/recovered')
+  assert.equal(persisted.get(runtime.info.id, sessionId('missing'))?.title, 'Recovered title')
+  assert.equal(persisted.get(runtime.info.id, sessionId('known'))?.cwd, '/synthetic/accepted')
+  assert.equal(persisted.get(runtime.info.id, sessionId('known'))?.title, 'Accepted title')
+  assert.equal(persisted.get(runtime.info.id, sessionId('absent'))?.cwd, '')
+  const previous = calls
+  await host.call('session/index', { archived: 'only' })
+  await new Promise(resolve => setImmediate(resolve))
+  if (!nativeArchive) assert.equal(calls, previous, 'remaining unknown rows do not trigger another launch pass')
+  runtime.history.push(summary('absent', '/synthetic/opened', 'Recovered on open'), summary('known', '/synthetic/other', 'Other title'))
+  await host.call('session/read', { runtime: runtime.info.id, sessionId: sessionId('absent') })
+  await host.call('session/read', { runtime: runtime.info.id, sessionId: sessionId('known') })
+  assert.equal(persisted.get(runtime.info.id, sessionId('absent'))?.cwd, '/synthetic/opened')
+  assert.equal(persisted.get(runtime.info.id, sessionId('absent'))?.title, 'Recovered on open')
+  assert.equal(persisted.get(runtime.info.id, sessionId('known'))?.cwd, '/synthetic/accepted')
+  assert.equal(persisted.get(runtime.info.id, sessionId('known'))?.title, 'Accepted title')
+})
+
+test('folder backfill never starts an idle agent whose history needs a process', async t => {
+  const { SessionIndex } = await import('../src/session-index.js')
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const root = tempDir('hd-folder-backfill-idle-')
+  const runtime = new FakeRuntime()
+  Object.assign(runtime.info.capabilities, { archiveHistory: false })
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  index.upsert({ runtime: runtime.info.id, id: sessionId('old'), cwd: '', title: null, createdAt: 1, updatedAt: 1, status: { type: 'notLoaded' } })
+  index.close()
+  let starts = 0, listings = 0
+  let inspected!: () => void
+  const inspection = new Promise<void>(resolve => { inspected = resolve })
+  runtime.health = () => ({ state: 'idle' })
+  runtime.start = async () => { starts++; throw new Error('background history must not start an agent') }
+  runtime.listSessions = async () => { listings++; return { data: [], nextCursor: null } }
+  Object.assign(runtime, { canReadWhileIdle: () => { inspected(); return false } })
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  host.register(runtime)
+  await host.call('session/index', { archived: 'only' })
+  await inspection
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(starts, 0)
+  assert.equal(listings, 0)
+})
+
+for (const refused of [true, false]) for (const earlyReady of [false, true]) test(`folder backfill retries on ready after ${refused ? 'an idle refusal' : 'a failed first listing'} (ready while settling: ${earlyReady})`, async t => {
+  const { SessionIndex } = await import('../src/session-index.js')
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const root = tempDir('hd-folder-backfill-retry-')
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false } })
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  const row = { runtime: runtime.info.id, id: sessionId('old'), cwd: '', title: null,
+    createdAt: 1, updatedAt: 1, status: { type: 'notLoaded' as const } }
+  index.upsert(row)
+  index.upsert({ ...row, id: sessionId('absent') })
+  index.close()
+  runtime.setHealth({ state: refused ? 'idle' : 'ready' })
+  let starts = 0, listings = 0
+  runtime.start = async () => { starts++; throw new Error('background history must not start an agent') }
+  let finished!: () => void
+  const firstAttempt = new Promise<void>(resolve => { finished = resolve })
+  Object.assign(runtime, { canReadWhileIdle: () => { finished(); return false } })
+  runtime.listSessions = async () => {
+    listings++
+    if (!refused && listings === 1) { finished(); throw new Error('temporary listing failure') }
+    return { data: [{ ...row, cwd: '/synthetic/recovered' }], nextCursor: null }
+  }
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  host.register(runtime)
+  await host.call('session/index', { archived: 'only' })
+  await firstAttempt
+  if (!earlyReady) await new Promise(resolve => setImmediate(resolve))
+  assert.equal(starts, 0)
+  assert.equal(listings, refused ? 0 : 1)
+  const recovered = new Promise<void>(resolve => host.addBroadcaster(event => {
+    if (event.method === 'session/indexChanged' && event.params.upserted.some(one => one.id === row.id && one.cwd)) resolve()
+  }))
+  runtime.setHealth({ state: 'ready' })
+  await Promise.race([recovered, new Promise<never>((_, reject) => {
+    const timer = setTimeout(() => reject(new Error('folder backfill did not retry on ready')), 2_000)
+    timer.unref()
+  })])
+  const rows = (await host.call('session/index', {})).data
+  assert.equal(rows.find(one => one.id === row.id)?.cwd, '/synthetic/recovered')
+  assert.equal(rows.find(one => one.id === 'absent')?.cwd, '', 'absence leaves metadata unchanged')
+  assert.equal(starts, 0)
+  assert.equal(listings, refused ? 1 : 2)
+  runtime.setHealth({ state: 'ready' })
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal(listings, refused ? 1 : 2, 'a completed pass is not repeated')
+})
+
+test('the first sidebar page asks no runtime, even without a selected agent', async (t) => {
+  const root = tempDir('hd-index-host-')
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  const runtime = new FakeRuntime()
+  let asked = 0
+  runtime.listSessions = async () => { asked++; throw new Error('the sidebar must not ask the agent') }
+  runtime.start = async () => { asked++; throw new Error('the sidebar must not start an agent') }
+  host.register(runtime)
+  assert.deepEqual((await host.call('session/index', {})).data, [])
+  assert.equal(asked, 0)
+})
+
+test('a 5,000-row host first page spawns neither an agent nor Git', () => {
+  const root = tempDir('hd-index-first-frame-')
+  // Patch the process boundary before the isolated child imports the host.
+  // This counts the actual path used by both repository readers and adapters.
+  const driver = `
+    import cp from 'node:child_process';
+    import { syncBuiltinESMExports } from 'node:module';
+    let git = 0, measuring = false;
+    const original = cp.execFile;
+    cp.execFile = (...args) => { if (measuring && args[0] === 'git') git++; return original(...args); };
+    syncBuiltinESMExports();
+    const { SessionIndex } = await import(${JSON.stringify(new URL('../src/session-index.js', import.meta.url).href)});
+    const index = new SessionIndex(${JSON.stringify(join(root, 'sessions.sqlite'))});
+    for (let i = 0; i < 5000; i++) index.upsert({ runtime:'fake',id:'row-'+i,cwd:'/synthetic/project-'+(i%450),
+      title:'Synthetic task '+i,createdAt:1,updatedAt:5000-i,status:{type:'notLoaded'} });
+    index.close();
+    const { Host } = await import(${JSON.stringify(new URL('../src/host.js', import.meta.url).href)});
+    const { StateStore } = await import(${JSON.stringify(new URL('../src/state.js', import.meta.url).href)});
+    const { FakeRuntime } = await import(${JSON.stringify(new URL('./fixtures/fake-runtime.js', import.meta.url).href)});
+    const { Logger } = await import(${JSON.stringify(new URL('../src/log.js', import.meta.url).href)});
+    const host = new Host({ state:new StateStore(${JSON.stringify(join(root, 'state.json'))}),
+      logger:new Logger('test',{level:'error',console:false}),builtinAgents:${JSON.stringify(join(root, 'agents'))},libraryHome:${JSON.stringify(join(root, 'library'))} });
+    const runtime = new FakeRuntime(); let agent = 0;
+    runtime.listSessions = async () => { agent++; throw new Error('agent history was asked'); };
+    runtime.start = async () => { agent++; throw new Error('agent was started'); };
+    host.register(runtime);
+    measuring = true;
+    const start = performance.now(); const page = await host.call('session/index',{}); const elapsed = performance.now()-start;
+    measuring = false;
+    console.log(JSON.stringify({ rows:page.data.length,git,agent,elapsed }));
+    await host.dispose();
+  `
+  const output = execFileSync(process.execPath, [...process.execArgv.filter(arg => arg !== '--test'), '--input-type=module', '-e', driver], { encoding: 'utf8' })
+  const measured = JSON.parse(output.trim()) as { rows: number; git: number; agent: number; elapsed: number }
+  assert.equal(measured.rows, 50)
+  assert.equal(measured.git, 0)
+  assert.equal(measured.agent, 0)
+  assert.ok(measured.elapsed < 50, `first host page took ${measured.elapsed.toFixed(2)} ms`)
+  console.log(`Indexed host first page: ${measured.elapsed.toFixed(2)} ms; 0 agent/Git processes`)
+})
+
+test('desk lifecycle and title/archive changes update the index across a restart', async (t) => {
+  const root = tempDir('hd-index-writes-')
+  execFileSync('git', ['init', '-q', root])
+  const options = { logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') }
+  const host = new Host(options)
+  let disposed = false
+  t.after(() => disposed ? undefined : host.dispose())
+  const runtime = new FakeRuntime()
+  host.register(runtime)
+  await host.start()
+  const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } })
+  assert.equal((await host.call('session/index', {})).data[0]?.id, session.id)
+  await host.call('session/setTitle', { runtime: runtime.info.id, sessionId: session.id, title: 'Review the cache' })
+  assert.equal((await host.call('session/index', {})).data[0]?.title, 'Review the cache')
+  const live = runtime.sessions.get(String(session.id))!
+  await live.send([{ type: 'text', text: 'Check the synthetic cache' }])
+  live.finish('Checked')
+  const completed = (await host.call('session/index', {})).data[0]!
+  assert.deepEqual(completed.status, { type: 'idle' })
+  assert.ok(completed.updatedAt >= session.updatedAt)
+  await host.call('session/close', { runtime: runtime.info.id, sessionId: session.id })
+  await host.call('session/resume', { runtime: runtime.info.id, sessionId: session.id })
+  assert.equal((await host.call('session/index', {})).data[0]?.id, session.id)
+  await host.call('session/archive', { runtime: runtime.info.id, sessionId: session.id, archived: true })
+  assert.equal((await host.call('session/index', {})).data.length, 0)
+  assert.equal((await host.call('session/index', { archived: 'only' })).data[0]?.id, session.id)
+  await host.call('session/archive', { runtime: runtime.info.id, sessionId: session.id, archived: false })
+  assert.equal((await host.call('session/index', {})).data[0]?.id, session.id)
+  const forked = await host.call('session/fork', { runtime: runtime.info.id, sessionId: session.id })
+  assert.ok((await host.call('session/index', {})).data.some(row => row.id === forked.id))
+  const team = await host.teamPlane.createRoom(root, 'Review the cache')
+  await host.teamPlane.joinRoom(team.id, runtime.info.id, String(forked.id))
+  assert.ok(!(await host.call('session/index', {})).data.some(row => row.id === forked.id))
+  assert.ok(host.teamPlane.stateFor(team.id).members.includes(`${runtime.info.id}\u0000${forked.id}` as import('@harnessdesk/protocol').SessionKey))
+  await host.call('session/delete', { runtime: runtime.info.id, sessionId: forked.id })
+  assert.ok(!(await host.call('session/index', {})).data.some(row => row.id === forked.id))
+  await host.dispose()
+  disposed = true
+  const reopened = new Host({ ...options, state: new StateStore(join(root, 'state.json')) })
+  reopened.register(new FakeRuntime())
+  t.after(() => reopened.dispose())
+  assert.equal((await reopened.call('session/index', {})).data[0]?.title, 'Review the cache')
+})
+
+test('accepted agent titles replace an already-titled desk row', async (t) => {
+  for (const nameHistory of [false, true]) await t.test(nameHistory ? 'native naming' : 'host naming', async (t) => {
+    const root = tempDir('hd-index-title-')
+    const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+      builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+    t.after(() => host.dispose())
+    const runtime = new FakeRuntime({ capabilities: { nameHistory } })
+    host.register(runtime)
+    await host.start()
+    const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } })
+    const live = runtime.sessions.get(String(session.id))!
+    await live.setTitle('Earlier task')
+    assert.equal((await host.call('session/index', {})).data[0]?.title, 'Earlier task')
+    await live.setTitle('Review the cache')
+    assert.equal(host.registry.get(runtime.info.id, session.id)?.session.title, 'Review the cache')
+    assert.equal((await host.call('session/index', {})).data[0]?.title, 'Review the cache')
+  })
+})
+
+test('an accepted native title clear removes the indexed title', async (t) => {
+  const root = tempDir('hd-index-title-clear-')
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  const runtime = new FakeRuntime({ capabilities: { nameHistory: true } })
+  host.register(runtime)
+  await host.start()
+  const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } })
+  const live = runtime.sessions.get(String(session.id))!
+  await live.setTitle('Earlier task')
+  assert.equal((await host.call('session/index', {})).data[0]?.title, 'Earlier task')
+  live.title = null
+  runtime.emit({ type: 'session/title', sessionId: session.id, title: null })
+  assert.equal(host.registry.get(runtime.info.id, session.id)?.session.title, null)
+  assert.equal((await host.call('session/index', {})).data[0]?.title, null)
+})
+
+test('a host rename rejects later agent titles and clears, including after a refresh', async (t) => {
+  const root = tempDir('hd-index-title-guard-')
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  const runtime = new FakeRuntime({ capabilities: { nameHistory: false } })
+  host.register(runtime)
+  await host.start()
+  const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } })
+  const title = 'Person chose this name'
+  await host.call('session/setTitle', { runtime: runtime.info.id, sessionId: session.id, title })
+  const agentTitleBefore = host.registry.get(runtime.info.id, session.id)?.session.title
+  for (const agentTitle of ['Agent chose this name', null]) {
+    runtime.emit({ type: 'session/title', sessionId: session.id, title: agentTitle })
+    assert.equal(host.registry.get(runtime.info.id, session.id)?.session.title, agentTitleBefore)
+    assert.equal((await host.call('session/index', {})).data[0]?.title, title)
+  }
+  await host.call('session/read', { runtime: runtime.info.id, sessionId: session.id })
+  assert.equal((await host.call('session/index', {})).data[0]?.title, title)
+})
+
+test('removed runtimes stay absent from later pages and a fresh host', async (t) => {
+  const root = tempDir('hd-index-removed-')
+  const options = { logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') }
+  const host = new Host(options)
+  const runtime = new FakeRuntime()
+  host.register(runtime)
+  await host.start()
+  const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } })
+  assert.equal((await host.call('session/index', {})).data[0]?.id, session.id)
+  await host.unregister(runtime.info.id)
+  assert.deepEqual((await host.call('session/index', {})).data, [])
+  await host.dispose()
+  const reopened = new Host({ ...options, state: new StateStore(join(root, 'state.json')) })
+  t.after(() => reopened.dispose())
+  assert.deepEqual((await reopened.call('session/index', {})).data, [])
+})
+
+test('index status follows the live handle, not a persisted active state', async (t) => {
+  const root = tempDir('hd-index-status-')
+  const options = { logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') }
+  const host = new Host(options)
+  const runtime = new FakeRuntime()
+  host.register(runtime)
+  await host.start()
+  const session = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } })
+  const live = runtime.sessions.get(String(session.id))!
+  await live.send([{ type: 'text', text: 'Synthetic active turn' }])
+  assert.deepEqual((await host.call('session/index', {})).data[0]?.status, { type: 'active' })
+  live.finish('Finished')
+  assert.deepEqual((await host.call('session/index', {})).data[0]?.status, { type: 'idle' })
+  await host.call('session/close', { runtime: runtime.info.id, sessionId: session.id })
+  assert.deepEqual((await host.call('session/index', {})).data[0]?.status, { type: 'notLoaded' })
+  await host.dispose()
+  const reopened = new Host({ ...options, state: new StateStore(join(root, 'state.json')) })
+  reopened.register(new FakeRuntime())
+  t.after(() => reopened.dispose())
+  assert.deepEqual((await reopened.call('session/index', {})).data[0]?.status, { type: 'notLoaded' })
+})
+
+test('verified backup restores update a seeded index immediately and on restart', async (t) => {
+  const root = tempDir('hd-index-backup-')
+  const options = { logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') }
+  const host = new Host(options)
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false } })
+  host.register(runtime)
+  await host.start()
+  const backup = await host.call('backup/export', {})
+  const payload = { ...backup, transcripts: [{ runtime: runtime.info.id, id: 'restored', data: {
+    version: 1, runtime: runtime.info.id, id: 'restored', savedAt: 10, updatedAt: 9,
+    createdAt: 2, title: 'Restored synthetic task', cwd: root, turns: [],
+  } }] }
+  const report = await host.call('backup/import', { backup: payload })
+  assert.equal(report.transcripts.restored, 1)
+  assert.equal((await host.call('session/index', {})).data[0]?.title, 'Restored synthetic task')
+  const newer = { ...payload, transcripts: payload.transcripts.map(entry => ({ ...entry,
+    data: { ...entry.data, savedAt: 20, updatedAt: 19, title: 'Newer restored task' } })) }
+  await host.call('backup/import', { backup: newer })
+  assert.equal((await host.call('session/index', {})).data[0]?.title, 'Newer restored task')
+  await host.call('backup/import', { backup: payload })
+  assert.equal((await host.call('session/index', {})).data[0]?.title, 'Newer restored task')
+  await host.dispose()
+  const reopened = new Host({ ...options, state: new StateStore(join(root, 'state.json')) })
+  reopened.register(runtime)
+  t.after(() => reopened.dispose())
+  assert.equal((await reopened.call('session/index', {})).data[0]?.title, 'Newer restored task')
+})
+
+test('native archive seed waits for authority, retries a failure and never adopts unindexed history', async (t) => {
+  const { mkdir, writeFile } = await import('node:fs/promises')
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const root = tempDir('hd-index-native-')
+  const folder = join(root, 'transcripts', 'fake')
+  await mkdir(folder, { recursive: true })
+  for (const id of ['archived', 'unarchived', 'absent']) await writeFile(join(folder, `${id}.json`), JSON.stringify({
+    version: 1, runtime: 'fake', id, savedAt: 10, title: `Synthetic ${id}`, cwd: root, turns: [],
+  }))
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  const runtime = new FakeRuntime()
+  runtime.history.push(...['archived', 'unarchived', 'not-a-desk-row'].map(id => ({ runtime: runtime.info.id, id: sessionId(id),
+    title: id, cwd: root, createdAt: 1, updatedAt: 10, status: { type: 'notLoaded' as const } })))
+  runtime.archived.add('archived')
+  // A held/closed record is useful to session/list, but cannot answer whether
+  // the native store archived it (or whether that store still lists it at all).
+  for (const id of ['archived', 'absent']) host.registry.upsert({
+    runtime: runtime.info.id, id: sessionId(id), title: `Held ${id}`, cwd: root,
+    createdAt: 1, updatedAt: 10, status: { type: 'idle' }, turns: [], itemsLoaded: true,
+  }, null)
+  const original = runtime.listSessions.bind(runtime)
+  let release!: () => void
+  const delay = new Promise<void>(resolve => { release = resolve })
+  runtime.listSessions = async () => { await delay; throw new Error('Synthetic listing failed') }
+  host.register(runtime)
+  await host.start()
+  await new Promise(resolve => setTimeout(resolve, 40))
+  assert.deepEqual((await host.call('session/index', {})).data, [])
+  assert.deepEqual((await host.call('session/index', { archived: 'only' })).data, [])
+  release()
+  await new Promise(resolve => setImmediate(resolve))
+  runtime.listSessions = original
+  await host.call('session/list', { runtime: runtime.info.id, archived: 'only' })
+  // The archive-view refresh retries both authoritative listings to completion.
+  for (let i = 0; i < 30 && !(await host.call('session/index', {})).data.length; i++) await new Promise(resolve => setTimeout(resolve, 10))
+  assert.deepEqual((await host.call('session/index', {})).data.map(row => row.id), ['unarchived'])
+  assert.deepEqual((await host.call('session/index', { archived: 'only' })).data.map(row => row.id), ['archived'])
+  const managed = await host.call('session/list', { runtime: runtime.info.id })
+  assert.ok(managed.data.some(row => row.id === 'absent'), 'ordinary history still includes held records')
+  assert.equal(runtime.history.length, 3)
+})
+
+test('a persisted active row without a live handle is not loaded after restart', async (t) => {
+  const { SessionIndex } = await import('../src/session-index.js')
+  const { runtimeId, sessionId } = await import('@harnessdesk/protocol')
+  const root = tempDir('hd-index-stale-active-')
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  index.upsert({ runtime: runtimeId('fake'), id: sessionId('stale'), title: 'Synthetic old turn', cwd: root,
+    createdAt: 1, updatedAt: 2, status: { type: 'active' } })
+  index.close()
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  host.register(new FakeRuntime())
+  t.after(() => host.dispose())
+  assert.deepEqual((await host.call('session/index', {})).data[0]?.status, { type: 'notLoaded' })
+})
+
+test('reading and resuming external history previews it until its first turn', async t => {
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const root = tempDir('hd-index-preview-')
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false } })
+  const external = await runtime.createSession({ cwd: root })
+  const id = sessionId(String(external.id))
+  host.register(runtime)
+  await host.start()
+  await host.call('session/read', { runtime: runtime.info.id, sessionId: id })
+  assert.deepEqual((await host.call('session/index', {})).data, [])
+  await host.call('session/resume', { runtime: runtime.info.id, sessionId: id })
+  assert.deepEqual((await host.call('session/index', {})).data, [], 'resume is a preview too')
+  const changes: import('@harnessdesk/protocol').WireNotification[] = []
+  host.addBroadcaster(event => changes.push(event))
+  await runtime.sessions.get(String(id))!.send([{ type: 'text', text: 'Continue this synthetic conversation' }])
+  await new Promise(resolve => setImmediate(resolve))
+  assert.equal((await host.call('session/index', {})).data[0]?.id, id)
+  assert.equal(changes.filter(event => event.method === 'session/indexChanged' && event.params.upserted.some(row => row.id === id)).length, 1)
+})
+
+test('a Team preview promotes on its turn while staying out of the sidebar', async t => {
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const { SessionIndex } = await import('../src/session-index.js')
+  const { DatabaseSync } = await import('node:sqlite')
+  const root = tempDir('hd-index-team-preview-')
+  execFileSync('git', ['init', '-q', root])
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  const runtime = new FakeRuntime({ capabilities: { archiveHistory: false } })
+  const external = await runtime.createSession({ cwd: root })
+  host.register(runtime)
+  await host.start()
+  await host.call('session/resume', { runtime: runtime.info.id, sessionId: external.id })
+  const index = new SessionIndex(join(root, 'sessions.sqlite'))
+  index.setTeam(runtime.info.id, sessionId(String(external.id)), 'synthetic-team')
+  index.close()
+  const room = await host.teamPlane.createRoom(root, 'Synthetic Team')
+  await host.teamPlane.joinRoom(room.id, runtime.info.id, String(external.id))
+  await external.send([{ type: 'text', text: 'Continue this synthetic Team task' }])
+  assert.equal((await host.call('session/index', {})).data.length, 0)
+  const db = new DatabaseSync(join(root, 'sessions.sqlite'))
+  try {
+    assert.equal(db.prepare('SELECT origin FROM sessions WHERE id=?').get(external.id)?.origin, 'desk')
+    assert.equal(db.prepare('SELECT team_id FROM sessions WHERE id=?').get(external.id)?.team_id, room.id)
+  } finally { db.close() }
+})
+
+test('reading an existing conversation does not promote it in project recency', async t => {
+  const { sessionId } = await import('@harnessdesk/protocol')
+  const root = tempDir('hd-index-read-recency-')
+  const runtime = new FakeRuntime()
+  const old = { runtime: runtime.info.id, id: sessionId('fourth-conversation'), cwd: root,
+    title: 'Fourth conversation', preview: null, createdAt: 10, updatedAt: 100,
+    status: { type: 'notLoaded' as const }, repo: null }
+  const newer = { ...old, id: sessionId('newer-conversation'), title: 'Newer conversation', updatedAt: 200 }
+  runtime.history.push(old, newer)
+  runtime.readSession = async id => {
+    const source = runtime.history.find(row => row.id === id)
+    if (!source) throw new Error('Unknown synthetic conversation')
+    return { ...source, createdAt: Date.now(), updatedAt: Date.now(), turns: [], itemsLoaded: true }
+  }
+  const seed = new SessionIndex(join(root, 'sessions.sqlite'))
+  seed.upsert(old)
+  seed.upsert(newer)
+  seed.close()
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library') })
+  t.after(() => host.dispose())
+  host.register(runtime)
+
+  const before = await host.call('session/index', {})
+  await host.call('session/read', { runtime: runtime.info.id, sessionId: old.id })
+  const after = await host.call('session/index', {})
+
+  assert.deepEqual(after.data.map(row => row.id), before.data.map(row => row.id))
+  assert.equal(after.data.find(row => row.id === old.id)?.updatedAt, old.updatedAt)
+})
+
+test('reading a held body retains its creation time instead of sparse index or replay timing', async t => {
+  const root = tempDir('hd-index-held-time-')
+  const runtime = new FakeRuntime()
+  const host = new Host({ logger: silent, state: new StateStore(join(root, 'state.json')),
+    builtinAgents: join(root, 'agents'), libraryHome: join(root, 'library'), catalogRefreshMs: 0 })
+  t.after(() => host.dispose())
+  host.register(runtime)
+  await host.start()
+  const opened = await host.call('session/create', { runtime: runtime.info.id, options: { cwd: root } })
+  const record = host.registry.get(runtime.info.id, opened.id)!
+  record.session = { ...record.session, itemsLoaded: true, createdAt: 10, updatedAt: 100 }
+  runtime.readSession = async () => ({ ...record.session, createdAt: 500, updatedAt: 500 })
+  const read = await host.call('session/read', { runtime: runtime.info.id, sessionId: opened.id })
+  assert.equal(read.createdAt, 10)
+  assert.equal(read.updatedAt, 100)
+})

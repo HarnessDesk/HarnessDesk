@@ -13,7 +13,7 @@ import { appendFileSync, existsSync, readFileSync, mkdirSync, readdirSync, write
 import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { scriptedFlow } from './scripted-flow.mjs'
+import { scriptedFlow, scriptedFlowPrompt } from './scripted-flow.mjs'
 
 // A real file on disk, so the adapter's icon inlining is exercised rather than
 // mocked. Codex resolves an installed package's icon to an absolute path.
@@ -304,7 +304,7 @@ const thread = (overrides = {}) => {
     createdAt: 1_700_000_000,
     updatedAt: 1_700_000_100,
     status: workingThreads.has(overrides.id ?? THREAD) ? { type: 'active', activeFlags: [] } : { type: 'idle' },
-    path: '/tmp/rollout.jsonl',
+    path: process.env.FAKE_CODEX_ROLLOUT_HOME ? `${process.env.FAKE_CODEX_ROLLOUT_HOME}/${archivedThreads.has(describedId) ? 'archived_sessions' : 'sessions'}/rollout.jsonl` : '/tmp/rollout.jsonl',
     cwd: cwdByThread.get(describedId) ?? settingsState.cwd,
     cliVersion: version,
     source: 'vscode',
@@ -1859,7 +1859,7 @@ rl.on('line', (line) => {
         return
       }
       const child = spawn(params.command[0], params.command.slice(1), {
-        cwd: process.cwd(),
+        cwd: params.cwd,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, FAKE_TTY: params.tty ? '1' : '0' },
       })
@@ -2252,6 +2252,7 @@ rl.on('line', (line) => {
       // A thread the listing does not hold is one this process started, or
       // one of the unlisted histories.
       const stored = storedThreads().find((entry) => entry.id === params.threadId) ?? thread({ id: params.threadId, sessionId: params.threadId, parentThreadId: childParents.get(params.threadId) ?? null })
+      if (process.env.FAKE_CODEX_ROLLOUT_HOME) stored.path = thread({ id: params.threadId }).path
       const history = historyOf(params.threadId)
       if (!params.includeTurns) {
         replyAfterHold(childParents.has(params.threadId) ? process.env.FAKE_CODEX_DELEGATE_READ_GATE : null,
@@ -2499,7 +2500,7 @@ rl.on('line', (line) => {
         send({ id, result: { turn: { id: turnId, items: [], status: 'inProgress', error: null } } })
         const cwd = cwdByThread.get(threadId)
         const tools = flowTools.get(threadId) ?? []
-        setImmediate(() => void flowWorker.play({ threadId, turnId, cwd, tools, prompt: said }))
+        setImmediate(() => void flowWorker.play({ threadId, turnId, cwd, tools, prompt: scriptedFlowPrompt(params.input) }))
         return
       }
       // A child can keep working after its parent finishes.

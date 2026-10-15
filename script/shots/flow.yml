@@ -10,6 +10,7 @@ roles:
     otherwise: fail
   review: { kind: agent, uses: [code-reviewer], grant: read, independentOf: [] }
   land: { kind: person, outcomes: [landed] }
+complete: { land: [landed] }
 seed: { role: write, title: Build the retry change, detail: RIG_FLOW_WRITE, files: [rig-retry.txt] }
 rules:
   - id: check-work

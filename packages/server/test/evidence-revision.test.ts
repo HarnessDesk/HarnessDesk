@@ -1,11 +1,11 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { mkdir, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
-import { DIRTY_PATHS_CAP, diffOf, freshnessOf, projectOf, revisionOf, tipOf, upstreamTipOf } from '../src/evidence/revision.js'
+import { checkoutMarkOf, DIRTY_PATHS_CAP, diffOf, freshnessOf, projectOf, revisionOf, tipOf, upstreamTipOf } from '../src/evidence/revision.js'
 import { makeRepo } from './fixtures/evidence-desk.js'
 import { tempDir } from './scratch.js'
 
@@ -15,6 +15,28 @@ import { tempDir } from './scratch.js'
  */
 
 const run = promisify(execFile)
+
+test('checkout marks ignore commits, detect a switch and return, and stay local to a worktree', async () => {
+  const { dir, git } = await makeRepo()
+  const initial = await checkoutMarkOf(dir)
+  assert.ok(initial)
+  await writeFile(join(dir, 'README.md'), 'next\n')
+  await git('commit', '-q', '-am', 'next')
+  assert.equal(await checkoutMarkOf(dir), initial, 'ordinary work does not look like a branch switch')
+  const lane = join(tempDir('hd-mark-lane-'), 'checkout')
+  await git('worktree', 'add', '-q', '-b', 'lane', lane)
+  const isolated = await checkoutMarkOf(lane)
+  await git('switch', '-c', 'other')
+  const moved = await checkoutMarkOf(dir)
+  assert.notEqual(moved, initial)
+  await git('switch', 'main')
+  assert.notEqual(await checkoutMarkOf(dir), moved)
+  assert.notEqual(await checkoutMarkOf(dir), initial, 'same branch and SHA do not hide the excursion')
+  assert.equal(await checkoutMarkOf(lane), isolated, 'the person switch leaves a lane alone')
+  await git('config', 'core.logAllRefUpdates', 'false')
+  await rm(join(dir, '.git', 'logs', 'HEAD'))
+  assert.equal(await checkoutMarkOf(dir), null, 'missing history is unknown')
+})
 
 test('a revision is the commit, the branch, and whether the tree holds changes not committed', async () => {
   const { dir, git } = await makeRepo()
@@ -83,6 +105,44 @@ test('unknown says why: the checkout is gone, the branch is gone, or it left the
   assert.deepEqual(await freshnessOf({ cwd: dir, branch: 'work' }, at, { project: await projectOf(dir) }), { state: 'fresh' })
   await rm(dir, { recursive: true, force: true })
   assert.deepEqual(await freshnessOf({ cwd: dir, branch: 'work' }, at), { state: 'unknown', why: 'its checkout is gone' })
+})
+
+test('a checkout that is gone is its own project without asking git, and callers asking at once share one answer', async (t) => {
+  const { dir } = await makeRepo()
+  const bin = tempDir('hd-evidence-bin-')
+  const calls = join(bin, 'calls')
+  const git = (await run('sh', ['-c', 'command -v git'])).stdout.trim()
+  await writeFile(join(bin, 'git'), `#!/bin/sh\necho "$*" >> '${calls}'\nexec '${git}' "$@"\n`, { mode: 0o755 })
+  const path = process.env.PATH
+  process.env.PATH = `${bin}:${path}`
+  t.after(() => { process.env.PATH = path })
+  const asked = () => readFile(calls, 'utf8').catch(() => '')
+
+  const gone = join(tempDir('hd-evidence-gone-'), 'trashed-checkout')
+  assert.equal(await projectOf(gone), gone)
+  assert.equal(await asked(), '', 'a folder that is not there is answered without git')
+  assert.equal(await projectOf(join(dir, '.')), await realpath(dir))
+  const once = (await asked()).split('\n').length
+  assert.ok(once > 1, 'a folder that is there is still asked about')
+
+  // Asked about at once, as every open Team's review read does: one set of questions.
+  const answers = await Promise.all(Array.from({ length: 20 }, () => projectOf(dir)))
+  assert.deepEqual(new Set(answers), new Set([await realpath(dir)]))
+  assert.equal((await asked()).split('\n').length, 2 * once - 1, 'twenty callers at once start git as one does')
+  await projectOf(dir)
+  assert.equal((await asked()).split('\n').length, 3 * once - 2, 'and a later question is asked afresh')
+})
+
+test('concurrent project reads preserve traversal through a symlink before its parent', async () => {
+  const first = await makeRepo()
+  const second = await makeRepo()
+  await mkdir(join(second.dir, 'child'))
+  await symlink(join(second.dir, 'child'), join(first.dir, 'link'))
+  // Joining or resolving this spelling would erase the symlink traversal.
+  const throughLink = `${first.dir}/link/..`
+  const expected = [await realpath(second.dir), await realpath(first.dir)]
+  assert.deepEqual(await Promise.all([projectOf(throughLink), projectOf(first.dir)]), expected)
+  assert.deepEqual(await Promise.all([projectOf(first.dir), projectOf(throughLink)]), [...expected].reverse())
 })
 
 test('a merged pull request is final only when its branch is gone; commits after the merge still leave it behind', async () => {

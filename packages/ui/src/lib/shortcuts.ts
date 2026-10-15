@@ -32,6 +32,8 @@ export interface Shortcut {
   readonly label: string
   /** The letter or punctuation, lower-case; matched against `event.key`. */
   readonly key: string
+  /** A Control chord even on macOS, where Command otherwise owns window keys. */
+  readonly controlOnly?: boolean
   /** The physical key code, used where a modifier changes the reported key. */
   readonly code?: string
   /** Whether Shift is part of the chord. Absent means it must not be held. */
@@ -43,14 +45,17 @@ export interface Shortcut {
 }
 
 export const SHORTCUTS: readonly Shortcut[] = [
+  { action: 'new-team', label: 'New Team…', key: 'n', shift: true, group: 'Sessions' },
   { action: 'new-session', label: 'New session', key: 'n', group: 'Sessions' },
   { action: 'open-folder', label: 'Open folder…', key: 'o', group: 'Sessions' },
   { action: 'close-pane', label: 'Close the focused pane', key: 'w', group: 'Sessions' },
+  { action: 'toggle-terminal', label: 'Show or hide Terminal', key: '`', controlOnly: true, group: 'Window' },
+  { action: 'ask-in-chat', label: 'Ask in chat', key: 'l', group: 'Window' },
+  { action: 'toggle-editor-mode', label: 'Switch Conversation and Editor mode', key: 'g', group: 'Window' },
   { action: 'toggle-sidebar', label: 'Show or hide the sidebar', key: 'b', group: 'Window' },
-  /* Back and forward through what the middle has shown. The header's arrows
-     are the other route and they fold away in a header under 520px, which a
-     wide window reaches as soon as a panel is docked beside the conversation
-     — so the pair needs a way in that no width can take. ⌘[ and ⌘] because
+  /* Back and forward through what the middle has shown. The lead's arrows
+     are the other route; narrow windows keep them in the floating sidebar.
+     The pair also needs a way in that no width can take. ⌘[ and ⌘] because
      that is what a browser binds them to, and because the browser pane
      already answers to them for its own page: its handler runs in the
      capture phase and stops the event, so a focused page still wins. */
@@ -65,6 +70,7 @@ export const SHORTCUTS: readonly Shortcut[] = [
   { action: 'settings', label: 'Settings', key: ',', group: 'Window' },
   { action: 'usage', label: 'Dashboard', key: 'u', group: 'Window' },
   { action: 'palette', label: 'Command palette', key: 'k', group: 'Finding things' },
+  { action: 'go-to-file', label: 'Go to file in Editor mode', key: 'p', group: 'Finding things' },
 ]
 
 /**
@@ -102,6 +108,7 @@ export const shortcutFor = (event: {
   return (
     SHORTCUTS.find(
       (shortcut) =>
+        (!shortcut.controlOnly || event.ctrlKey && !event.metaKey) &&
         Boolean(shortcut.alt) === event.altKey &&
         Boolean(shortcut.shift) === event.shiftKey &&
         (shortcut.alt ? event.code === shortcut.code : shortcut.key === key),
@@ -114,7 +121,7 @@ export const chordParts = (shortcut: Shortcut): readonly string[] => {
   const key = shortcut.key === 'enter' ? '↵'
     : shortcut.key.length === 1 ? shortcut.key.toUpperCase()
       : shortcut.key.charAt(0).toUpperCase() + shortcut.key.slice(1).toLowerCase()
-  return [...(shortcut.alt ? ['⌥'] : []), ...(shortcut.shift ? ['⇧'] : []), '⌘', key]
+  return [...(shortcut.alt ? ['⌥'] : []), ...(shortcut.shift ? ['⇧'] : []), shortcut.controlOnly ? '⌃' : '⌘', key]
 }
 
 /** How a chord is written where a person reads it: ⌥⌘1, ⇧⌘D, ⌘,. */

@@ -4,7 +4,7 @@ import { IconTile } from '../design/ui/icon-tile'
 import type { LucideIcon, LucideProps } from 'lucide-react'
 import {
   Activity,
-  AppWindow,
+  AppWindow as DesktopIconGlyph,
   Archive,
   ArrowDownAZ,
   ArrowDownToLine,
@@ -59,6 +59,7 @@ import {
   CalendarDays,
   ExternalLink,
   File,
+  FileCode2,
   FileDiff,
   FileText,
   Folder,
@@ -99,6 +100,9 @@ import {
   Monitor,
   MonitorSmartphone,
   PanelLeft,
+  PanelRight,
+  SquareMenu,
+  FilePlus2,
   Paperclip,
   Pencil,
   Pin,
@@ -209,6 +213,9 @@ export const SidebarIcon = icon(PanelLeft, 'SidebarIcon')
 export const SideBySideIcon = icon(Columns2, 'SideBySideIcon')
 /** A plugin's panel contribution. */
 export const PanelIcon = icon(LayoutPanelLeft, 'PanelIcon')
+export const PanelRightIcon = icon(PanelRight, 'PanelRightIcon')
+export const SquareMenuIcon = icon(SquareMenu, 'SquareMenuIcon')
+export const FilePlusIcon = icon(FilePlus2, 'FilePlusIcon')
 
 // --- Status ----------------------------------------------------------------
 
@@ -461,8 +468,9 @@ export const EffortMaxIcon = icon(Signal, 'EffortMaxIcon')
 export const ResponsiveIcon = icon(MonitorSmartphone, 'ResponsiveIcon')
 export const MobileIcon = icon(Smartphone, 'MobileIcon')
 export const TabletIcon = icon(Tablet, 'TabletIcon')
-export const DesktopIcon = icon(AppWindow, 'DesktopIcon')
+export const DesktopIcon = icon(DesktopIconGlyph, 'DesktopIcon')
 /** Chromium's own inspector, on the page in the pane. */
+export const EditorIcon = icon(FileCode2, 'EditorIcon')
 export const DevToolsIcon = icon(Code, 'DevToolsIcon')
 /** The same thing, in a full window. */
 export const ExpandIcon = icon(Maximize2, 'ExpandIcon')

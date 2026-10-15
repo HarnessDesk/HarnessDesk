@@ -9,23 +9,21 @@ test('the sidebar and Agents window mark agents and align names with their secti
   const frame = page.locator('[data-frame-id="agents-roster"]')
   await expect(frame).toBeVisible()
 
-  const allAgents = frame.getByRole('button', { name: 'All Agents' })
-  await expect(allAgents.locator('[data-slot="sidebar-menu-icon"] svg')).toHaveClass(/lucide-bot/)
-
-  const nav = frame.getByRole('navigation', { name: 'Window navigation' })
-  const builtIn = nav.locator('[data-slot="sidebar-group"]').filter({ hasText: 'Built in' })
-  const agent = builtIn.getByRole('button', { name: 'Implementer' })
+  await expect(frame.locator('[data-topbar-title]')).toHaveText('Agents')
+  await expect(frame.getByRole('navigation', { name: 'Window navigation' })).toHaveCount(0)
+  const builtIn = frame.getByRole('region', { name: 'Built in', exact: true })
+  const agent = builtIn.getByRole('button', { name: /Implementer/ }).first()
   await expect(agent.locator('[data-slot="sidebar-menu-icon"]')).toHaveCount(0)
+  await expect(agent.locator('[data-slot="row-face"]')).toBeVisible()
+  const edges = await builtIn.evaluate(section => {
+    const title = section.querySelector('[data-section-name]')!
+    const labels = [...section.querySelectorAll('[data-slot="row-title"]')]
+    return { heading: title.getBoundingClientRect().left, page: section.getBoundingClientRect().left,
+      labels: labels.map(label => label.getBoundingClientRect().left) }
+  })
+  expect(Math.abs(edges.heading - edges.page)).toBeLessThan(1)
+  for (const label of edges.labels) expect(Math.abs(label - edges.labels[0]!)).toBeLessThan(1)
 
-  const textStart = async (locator: typeof builtIn) =>
-    locator.evaluate((element) => {
-      const range = document.createRange()
-      range.selectNodeContents(element)
-      return range.getBoundingClientRect().x
-    })
-  const heading = await textStart(builtIn.locator(':scope > [data-slot="group-label"]'))
-  const label = await textStart(agent.locator('[data-slot="sidebar-menu-label"]'))
-  expect(Math.abs(label - heading)).toBeLessThan(1)
 })
 
 for (const theme of ['light', 'dark'] as const) {

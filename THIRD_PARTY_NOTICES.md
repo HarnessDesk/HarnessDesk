@@ -77,6 +77,9 @@ the packaged app.
 | `ws` | MIT | The host's WebSocket transport |
 | `marked` | MIT | Markdown parsing |
 | `shiki` | MIT | Syntax highlighting |
+| `@replit/codemirror-vscode-keymap` | MIT | File editing keyboard bindings |
+| `@codemirror/merge` | MIT | Editable unified file changes |
+| `@replit/codemirror-minimap` | MIT | Optional editor document overview |
 | `@base-ui/react` | MIT | The primitives behind the vendored components |
 | `radix-ui` | MIT | The primitives for components not yet on Base UI |
 | `tailwindcss` | MIT | The utility layer those components are written in |

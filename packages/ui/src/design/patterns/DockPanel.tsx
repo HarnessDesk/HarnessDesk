@@ -8,7 +8,7 @@ import {
   type ReactNode,
   type RefObject,
 } from 'react'
-import { forwardRef } from 'react'
+import { createElement, forwardRef } from 'react'
 
 import { CrossIcon } from '../../components/Icons'
 import { beginResize, endResize, markDragging } from '../../lib/resizing'
@@ -58,18 +58,13 @@ export const WorkbenchCanvas = forwardRef<HTMLDivElement, React.ComponentProps<'
 WorkbenchCanvas.displayName = 'WorkbenchCanvas'
 
 /** The navigation plate down the workbench's side. */
-export const WorkbenchRail = forwardRef<HTMLDivElement, React.ComponentProps<'div'>>(
-  ({ className, ...props }, ref) => (
-    <div
-      ref={ref}
-      data-slot="workbench-rail"
-      className={cn(
-        'bg-(--hd-sidebar-plate) outline-none data-[floating]:shadow-(--hd-shadow-lg)',
-        className,
-      )}
-      {...props}
-    />
-  ),
+export const WorkbenchRail = forwardRef<HTMLElement, React.ComponentProps<'nav'> & { readonly as?: 'div' | 'nav' }>(
+  ({ as = 'div', className, ...props }, ref) => createElement(as, {
+    ref,
+    'data-slot': 'workbench-rail',
+    className: cn('bg-(--hd-sidebar) outline-none data-[floating]:shadow-(--hd-shadow-lg)', className),
+    ...props,
+  }),
 )
 WorkbenchRail.displayName = 'WorkbenchRail'
 
@@ -199,8 +194,15 @@ const RULE: Record<PanelEdge, string> = {
   bottom: 'border-b border-(--hd-border)',
 }
 
+const PAINTED_RULE: Record<PanelEdge, string> = {
+  left: 'after:inset-y-0 after:left-0 after:w-(--hd-border-width)',
+  right: 'after:inset-y-0 after:right-0 after:w-(--hd-border-width)',
+  top: 'after:inset-x-0 after:top-0 after:h-(--hd-border-width)',
+  bottom: 'after:inset-x-0 after:bottom-0 after:h-(--hd-border-width)',
+}
+
 /**
- * The frame: a column with a rule on the edge it hugs, and its own ground.
+ * The frame: a column with its own ground and an optional edge rule.
  *
  * One component for the right panel, the bottom panel and the sidebar's lower
  * stack, because those three differ in exactly two ways — which edge they sit
@@ -210,16 +212,20 @@ const RULE: Record<PanelEdge, string> = {
 export const DockPanel = ({
   edge,
   collapsed,
+  paintedRule = false,
+  rule = true,
+  floating = false,
   className,
   ...props
-}: React.ComponentProps<'section'> & { edge: PanelEdge; collapsed?: boolean }) => (
+}: React.ComponentProps<'section'> & { edge: PanelEdge; collapsed?: boolean; paintedRule?: boolean; rule?: boolean; floating?: boolean }) => (
   <section
     data-slot="dock-panel"
     data-edge={edge}
     {...(collapsed ? { 'data-collapsed': '' } : {})}
     className={cn(
       'flex min-h-0 min-w-0 flex-col overflow-hidden bg-(--hd-card)',
-      RULE[edge],
+      floating && '[box-shadow:var(--hd-shadow-lg)]',
+      rule && (paintedRule ? cn('relative after:absolute after:pointer-events-none after:bg-(--hd-border)', PAINTED_RULE[edge]) : RULE[edge]),
       className,
     )}
     {...props}
@@ -233,7 +239,7 @@ export const DockPanel = ({
  * its own expand button is a view that knows where it lives, which is the
  * coupling the whole panel system exists to remove.
  */
-export const DockPanelBar = ({ className, ...props }: React.ComponentProps<'header'>) => (
+export const DockPanelBar = ({ className, contentInset, ...props }: React.ComponentProps<'header'> & { contentInset?: 'tool' }) => (
   <header
     data-slot="dock-panel-bar"
     className={cn(
@@ -242,7 +248,10 @@ export const DockPanelBar = ({ className, ...props }: React.ComponentProps<'head
          beside it put a step in the one horizontal line the eye follows
          across the window. */
       // A plain view title shares the inspector search's leading glyph inset.
-      'flex h-(--hd-bar-h) shrink-0 items-center gap-1 border-b border-(--hd-border) px-2 [&>[data-slot=text]]:ml-2.5',
+      'flex h-(--hd-bar-h) shrink-0 items-center gap-1 border-b border-(--hd-border)',
+      contentInset === 'tool'
+        ? 'px-(--hd-inset-row)'
+        : 'px-2 [&>[data-slot=text]]:ml-2.5',
       /* And a top row is a handle for the window, like every other one: the
          conversation's header, a tool's, the sidebar's title bar. This strip
          was the only chrome in the app that was not, so a room or a board in
@@ -255,7 +264,9 @@ export const DockPanelBar = ({ className, ...props }: React.ComponentProps<'head
          to fill the window, a board in the middle with the sidebar away — so
          its left padding is the greater of its own and whatever room the shell
          says this box owes them. See `--titlebar-inset` in `app.css`. */
-      'pl-[max(var(--hd-space-2),var(--titlebar-inset,0px))]',
+      contentInset === 'tool'
+        ? 'pl-[max(var(--hd-inset-row),var(--titlebar-inset,0px))]'
+        : 'pl-[max(var(--hd-space-2),var(--titlebar-inset,0px))]',
       className,
     )}
     {...props}
@@ -383,6 +394,8 @@ export const DockPanelTab = ({
   onClose,
   label,
   live,
+  closeOnHover = false,
+  unsaved,
   className,
   ...props
 }: Omit<React.ComponentProps<typeof TabsTrigger>, 'children'> & {
@@ -396,6 +409,10 @@ export const DockPanelTab = ({
    * tab still says there is something in here to look at.
    */
   live?: boolean
+  /** Keep the close control hidden on the active tab until hover or keyboard focus. */
+  closeOnHover?: boolean
+  /** Document edits occupy the same trailing slot as the hover close control. */
+  unsaved?: boolean
 }) => (
   /* Out of the strip's drag region, and the *tab* rather than the tab list:
      the list is `w-full`, so no-dragging it would hand the whole strip back
@@ -498,7 +515,7 @@ export const DockPanelTab = ({
          * It also drops focus-on-press, which is why the ✕ still reveals itself
          * on `focus-visible` for anyone reaching it by keyboard.
          */
-        data-slot="dock-panel-tab-close"
+        data-slot={unsaved !== undefined ? "file-tab-trailing" : "dock-panel-tab-close"}
         draggable={false}
         onMouseDown={(event) => {
           event.preventDefault()
@@ -508,9 +525,8 @@ export const DockPanelTab = ({
          * on the trigger and never read by anything; the reveal hung off
          * `group/panel`, so pointing anywhere in the panel lit up every tab's
          * ✕ at once and pointing at a tab in a panel you were not over lit
-         * none. The active tab keeps its ✕ shown unconditionally — that is the
-         * tab you are looking at, and every tabbed interface on this machine
-         * offers to close it without being asked twice.
+         * none. By default the active tab keeps its ✕ shown; `closeOnHover`
+         * opts into the quieter hover-and-focus reveal used by shell tabs.
          *
          * `group-hover/panel` is gone rather than kept as a wider reveal: with
          * it here the paragraph above was a description of what the code did
@@ -528,9 +544,18 @@ export const DockPanelTab = ({
          * ever reach it: the ✕ did nothing when clicked. Positioning it puts it
          * back on top, where being the later sibling wins.
          */
-        className="relative -ml-5 inline-flex size-4 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) opacity-0 hover:bg-(--hd-hover) hover:text-(--hd-foreground) focus-visible:opacity-100 peer-data-active/tab:opacity-100 group-hover/tab:opacity-100 [&_svg]:size-3.5"
+        className={cn(
+          'relative -ml-5 inline-flex size-4 items-center justify-center rounded-(--hd-radius-sm) text-(--hd-muted-foreground) opacity-0 hover:bg-(--hd-hover) hover:text-(--hd-foreground) focus-visible:opacity-100 group-hover/tab:opacity-100 [&_svg]:size-3.5',
+          !closeOnHover && 'peer-data-active/tab:opacity-100',
+          unsaved !== undefined && 'ml-[calc(-1*var(--hd-icon-target-sm))] size-(--hd-icon-target-sm)',
+          unsaved && 'opacity-100',
+          unsaved !== undefined && 'group-focus-within/tab:opacity-100',
+        )}
       >
-        <CrossIcon />
+        {unsaved !== undefined ? <>
+          {unsaved && <span data-slot="file-tab-unsaved" aria-hidden className="absolute size-1.5 rounded-full bg-(--hd-foreground) group-hover/tab:opacity-0 group-focus-within/tab:opacity-0" />}
+          <CrossIcon className="opacity-0 group-hover/tab:opacity-100 group-focus-within/tab:opacity-100" />
+        </> : <CrossIcon />}
       </Button>
     )}
   </span>
@@ -641,21 +666,22 @@ export const PanelSeam = ({
 
   const onPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (captured.current !== null) return
       event.preventDefault()
       event.currentTarget.setPointerCapture(event.pointerId)
       captured.current = { node: event.currentTarget, pointer: event.pointerId }
       markDragging(event.currentTarget, true)
       beginResize(orientation)
-      live.current = size
-      from.current = { at: orientation === 'vertical' ? event.clientX : event.clientY, size }
+      live.current = clamp(size)
+      from.current = { at: orientation === 'vertical' ? event.clientX : event.clientY, size: clamp(size) }
     },
-    [orientation, size],
+    [orientation, size, clamp],
   )
 
   const onPointerMove = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
       const start = from.current
-      if (!start) return
+      if (!start || captured.current?.pointer !== event.pointerId) return
       const now = orientation === 'vertical' ? event.clientX : event.clientY
       push(clamp(start.size + (now - start.at) * direction))
     },
@@ -686,10 +712,10 @@ export const PanelSeam = ({
       markDragging(held?.node, false)
       captured.current = null
       endResize()
-      if (commit) onCommit?.(live.current)
+      if (commit) onCommit?.(clamp(live.current))
       else onCancel?.()
     },
-    [onCommit, onCancel],
+    [onCommit, onCancel, clamp],
   )
 
   /*
@@ -720,7 +746,7 @@ export const PanelSeam = ({
       /* The keyboard's own commit. Without it an arrow key moved the preview
          and nothing else — the nudge was drawn and then forgotten, so a panel
          resized from the keyboard snapped back at the next render. */
-      onCommit={() => onCommit?.(live.current)}
+      onCommit={() => onCommit?.(clamp(live.current))}
       /* `direction` says which way the panel grows, and the keyboard has to
          agree with the screen: on the right and bottom panels a larger size
          moves the seam *toward* the start, so ArrowRight there would have
@@ -729,12 +755,12 @@ export const PanelSeam = ({
       invert={direction === -1}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
-      onPointerUp={() => stop(true)}
-      onPointerCancel={() => stop(false)}
+      onPointerUp={event => { if (captured.current?.pointer === event.pointerId) stop(true) }}
+      onPointerCancel={event => { if (captured.current?.pointer === event.pointerId) stop(false) }}
       /* Capture can end without either of those: the browser drops it when the
          captured node is removed, and some inputs surrender it on their own.
          That path used to leave the drag running forever. */
-      onLostPointerCapture={() => stop(true)}
+      onLostPointerCapture={event => { if (captured.current?.pointer === event.pointerId) stop(true) }}
       className={cn(
         'z-10 transition-colors',
         orientation === 'vertical' ? 'w-px cursor-col-resize' : 'h-px cursor-row-resize',
@@ -748,3 +774,18 @@ export const PanelSeam = ({
     />
   )
 }
+
+/** Fixed shell regions retain native guest/grid geometry while out of the row. */
+export const FixedPanelFrame = ({ open, edge, style, className, ...props }: React.ComponentProps<'div'> & { open: boolean; edge: 'right' | 'bottom' }) => <div
+  {...(open ? {} : { 'data-hidden': '', inert: true })}
+  className={cn('flex flex-col data-[hidden]:absolute data-[hidden]:inset-y-0 data-[hidden]:right-0 data-[hidden]:invisible data-[hidden]:pointer-events-none data-[hidden]:overflow-hidden', edge === 'bottom' && 'data-[hidden]:left-0', className)}
+  style={{ ...(edge === 'bottom' ? { height: open ? '100%' : 'var(--frame-bottom-retained)' } : {}), ...style }} {...props} />
+
+/** The retained frame's containing block, shared by standing and floating modes. */
+export const FixedPanelRow = ({ className, ...props }: React.ComponentProps<'div'>) => <div className={cn('relative', className)} {...props} />
+
+export const FixedPanelBody = ({ className, ...props }: React.ComponentProps<'div'>) => <div
+  className={cn('flex min-h-0 min-w-0 flex-1 flex-col', className)} {...props} />
+/** Plugin sections join Details' flow; hidden native layers keep their existing boxes. */
+export const FixedToolLayer = ({ section, className, ...props }: React.ComponentProps<'div'> & { section?: boolean }) => <div
+  className={cn(section ? 'flex min-h-0 min-w-0 flex-col' : className)} {...props} />

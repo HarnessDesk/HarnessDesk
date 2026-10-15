@@ -12,6 +12,8 @@ import {
   type AgentRuntime,
   type AgentSession,
   type Session,
+  type RuntimeId,
+  type SessionId,
 } from '@harnessdesk/protocol'
 
 import * as gitOps from '../git-ops.js'
@@ -62,12 +64,49 @@ const announceUnavailableToolsOnce = async (ctx: HostContext, runtime: AgentRunt
   })
 }
 
+const closeSession = async (ctx: HostContext, params: { runtime: RuntimeId; sessionId: SessionId }): Promise<null> => {
+  const record = ctx.registry.get(params.runtime, makeSessionId(params.sessionId))
+  // The handle takes the person's picks with it unless they are kept for the
+  // reopen, as the quiet release and archive keep them. A pane closes at
+  // once, whatever is happening in it, so there is no quiet to wait for.
+  ctx.sessions.holdPicks({ runtime: params.runtime, sessionId: makeSessionId(params.sessionId) })
+  await record?.live?.close()
+  if (record) {
+    record.live = null
+    /* Closed on purpose, so the handle was not *lost* — which is all
+       `detached` has ever meant. It no longer decides whether this
+       conversation is in a room: membership does, and a member of a room
+       that is not open is drawn as such and reopened by the next thing
+       addressed to it. Closing a pane is window management; leaving a room
+       is releasing its durable Goal Seat. */
+    record.detached = false
+    await ctx.sessions.releaseBody(params)
+  }
+  return null
+}
+
+/** Archive authority and worktree cleanup are shared by the row and Team wrap. */
+export const archiveConversation = async (ctx: HostContext, params: { runtime: RuntimeId; sessionId: SessionId; archived: boolean }) => {
+  const runtime = ctx.runtimes.resolve(params)
+  const id = makeSessionId(params.sessionId)
+  if (runtime.historyAuthorityKnown?.() === false) await ctx.runtimes.ensureStarted(runtime)
+  const remembered = await ctx.sessionWorktrees.remember(runtime.info.id, id, true).then(() => true, () => false)
+  const restored = params.archived ? {} : await ctx.sessionWorktrees.prepare(runtime.info.id, id)
+  if (runtime.info.capabilities.archiveHistory) await runtime.archiveSession(id, params.archived)
+  else await ctx.archive.set(runtime.info.id, id, params.archived)
+  if (params.archived && runtime.info.capabilities.resume) await ctx.sessions.releaseQuiet({ runtime: runtime.info.id, sessionId: id })
+  ctx.sessionIndex.setArchived(runtime.info.id, id, params.archived)
+  const warning = params.archived ? await ctx.sessionWorktrees.cleanup(runtime.info.id, id, !remembered) : restored.warning
+  return warning ? { warning } : null
+}
+
 /**
  * Conversations as the host holds them: listing and search across the
  * runtime's own store and the host's, opening, reopening, forking, and the
  * verbs on one conversation that are not a turn.
  */
 export const sessionMethods = {
+  'session/index': (ctx, params) => ctx.sessionIndex.list(params),
   'session/list': async (ctx, params) => {
     assertAbsoluteCwd(params)
     const runtime = ctx.runtimes.resolve(params)
@@ -92,13 +131,16 @@ export const sessionMethods = {
     )
   },
 
-  'transcripts/search': (ctx, params) => ctx.transcripts.search(params.query),
+  'transcripts/search': (ctx, params) => ctx.transcripts.search(params.query, { includeTools: params.includeTools }),
 
   'session/read': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
     const session = await ctx.sessions.read(runtime, makeSessionId(params.sessionId))
-    // Cache it so a reconnecting client gets the transcript from sync.
-    return ctx.registry.upsert(session, ctx.registry.get(session.runtime, session.id)?.live ?? null).session
+    ctx.sessionIndex.reopen(session)
+    const record = ctx.registry.upsert(session, ctx.registry.get(session.runtime, session.id)?.live ?? null)
+    const read = record.session
+    if (!record.live) await ctx.sessions.releaseBody({ runtime: read.runtime, sessionId: read.id })
+    return read
   },
 
   'session/create': async (ctx, params) => {
@@ -126,6 +168,7 @@ export const sessionMethods = {
     }
     // A lane's checkout is its cwd, which every runtime takes; its variables
     // go only to a runtime that can take them per session (`laneEnvironmentFor`).
+    await ctx.runtimes.ensureStarted(runtime)
     const environment = laneEnvironmentFor(runtime, ctx.laneEnvironment.forCheckout(options.cwd))
     const live = await runtime.createSession({ ...options, ...(environment ? { environment } : {}) })
     const session = await ctx.sessions.attach(runtime, live.id, live)
@@ -157,13 +200,16 @@ export const sessionMethods = {
     const standing = ctx.evidence.seats.latestOf(runtime.info.id, params.sessionId)?.standing
     if (frozenSeat?.runtimeServers !== undefined) options = { ...options, runtimeServers: frozenSeat.runtimeServers }
     if (standing?.kind === 'ceiling') options = { ...options, requestedCeiling: standing.level }
-    const record = ctx.registry.get(runtime.info.id, sessionId)
+    const restored = await ctx.sessionWorktrees.prepare(runtime.info.id, sessionId)
+    if (restored.cwd) options = { ...options, cwd: restored.cwd, knownCwd: restored.cwd }
+    const record = ctx.registry.forReopen(runtime.info.id, sessionId)
     const scoped = !record?.live && (record?.restedOptions !== undefined || ((await ctx.attachments?.carriesFilter(runtime.info.id, sessionId)) ?? false))
     const resolve = async (): Promise<AgentSession> => {
       // The host's reopen puts the held picks back, and the picks the person
       // left win over any the caller names. A route is not a pick: it is where
       // the conversation runs, so the reopen runs on the one the caller asked for.
       if (scoped) return ctx.sessions.live({ runtime: runtime.info.id, sessionId, ...(options.route ? { route: options.route } : {}) })
+      await ctx.runtimes.ensureStarted(runtime)
       const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
       return resumeSeatSession(runtime, sessionId, { ...options, ...(environment ? { environment } : {}) },
         ctx.evidence.seats.latestOf(runtime.info.id, params.sessionId)?.checkout.cwd)
@@ -194,7 +240,9 @@ export const sessionMethods = {
     // render.
     const transcript = await ctx.sessions.read(runtime, live.id)
     const session: Session = { ...transcript, settings: live.settings(), options: live.options() }
+    ctx.sessionIndex.reopen(session)
     const resumed = ctx.registry.upsert(session, live).session
+    ctx.sessionIndex.record(resumed)
     await announceUnavailableTools(ctx, runtime, resumed)
     return resumed
   },
@@ -214,6 +262,7 @@ export const sessionMethods = {
     if (ctx.evidence.seats.latestKeptOf(runtime.info.id, params.sessionId)?.runtimeServers !== undefined) throw new Error('This Seat has a frozen native server selection; start a new Seat to choose its servers.')
     const refusal = await ctx.attachments?.forkRefusal(runtime.info.id, makeSessionId(params.sessionId))
     if (refusal) throw new Error(refusal)
+    await ctx.runtimes.ensureStarted(runtime)
     const environment = await ctx.laneEnvironment.forSession(String(runtime.info.id), params.sessionId)
     const live = await runtime.forkSession(makeSessionId(params.sessionId), {
       ...options,
@@ -222,37 +271,48 @@ export const sessionMethods = {
     return ctx.sessions.attach(runtime, live.id, live)
   },
 
-  'session/archive': async (ctx, params) => {
+  'session/archive': archiveConversation,
+  'session/worktreePreview': (ctx, params) => ctx.sessionWorktrees.preview(params.runtime, makeSessionId(params.sessionId)),
+  'session/discardWorktree': async (ctx, params) => {
+    const result = await ctx.sessionWorktrees.discard(params.runtime, makeSessionId(params.sessionId), params.stamp)
+    if (result.discarded) await ctx.storage.refresh()
+    return result
+  },
+
+  'session/remove': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
     const id = makeSessionId(params.sessionId)
-    // The runtime's own archive when it has one, the host's when it does
-    // not. Never both: see `SessionArchive`.
-    if (runtime.info.capabilities.archiveHistory) {
-      await runtime.archiveSession(id, params.archived)
-    } else {
-      await ctx.archive.set(runtime.info.id, id, params.archived)
+    if (params.removed) {
+      const remembered = await ctx.sessionWorktrees.remember(runtime.info.id, id, true).then(() => true, () => false)
+      await closeSession(ctx, { runtime: runtime.info.id, sessionId: id })
+      await ctx.transcripts.flushSession(runtime.info.id, id)
+      const result = ctx.sessionIndex.setRemoved(runtime.info.id, id, true)
+      ctx.push({ method: 'session/removed', params: { runtime: runtime.info.id, sessionId: id, deleted: false } })
+      return { ...result, ...(!remembered ? { warning: 'The worktree stayed because its inventory could not be read.' } : {}) }
     }
-    // The release the quiet sweep makes, so unarchiving reopens the
-    // conversation with the picks it was left with.
-    if (params.archived && runtime.info.capabilities.resume) {
-      await ctx.sessions.releaseQuiet({ runtime: runtime.info.id, sessionId: id })
-    }
-    return null
+    const result = ctx.sessionIndex.setRemoved(runtime.info.id, id, false)
+    await ctx.sessionWorktrees.prepare(runtime.info.id, id)
+    return result
   },
 
   'session/delete': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
     const id = makeSessionId(params.sessionId)
-    if (!runtime.info.capabilities.deleteHistory) {
-      throw new Error(`${runtime.info.presentation.name} cannot delete a stored conversation.`)
+    await ctx.runtimes.ensureStarted(runtime)
+    if (runtime.info.capabilities.deleteHistory !== 'trash') {
+      throw new Error(`${runtime.info.presentation.name} cannot move a stored conversation to the Trash.`)
     }
-    // The agent's copy first: if it refuses, nothing here is thrown away,
-    // and the conversation is exactly as it was.
+    await closeSession(ctx, { runtime: runtime.info.id, sessionId: id })
+    // The agent's copy first: if it refuses, the stopped conversation's
+    // index and body remain available here.
+    const remembered = await ctx.sessionWorktrees.remember(runtime.info.id, id, true).then(() => true, () => false)
     const outcome = await runtime.deleteSession(id)
     // Then everything the host was holding about it. A transcript left
     // behind would be re-enriched onto the next session that reused the
     // id, and an archive mark left behind is a row hidden forever.
-    await ctx.transcripts.forget(runtime.info.id, id)
+    await ctx.transcripts.forget(runtime.info.id, id, { deleteIndex: true })
+    ctx.sessionIndex.deleted(runtime.info.id, id)
+    const warning = await ctx.sessionWorktrees.cleanup(runtime.info.id, id, !remembered)
     await ctx.archive.forget(runtime.info.id, id)
     await ctx.names.forget(runtime.info.id, id)
     const record = ctx.registry.get(runtime.info.id, id)
@@ -266,33 +326,17 @@ export const sessionMethods = {
     // Every window, not only the one that asked: another may be drawing it.
     ctx.push({ method: 'session/removed', params: { runtime: runtime.info.id, sessionId: id, deleted: true } })
     return {
-      disposition: outcome?.disposition ?? 'removed',
+      ...(warning ? { warning } : {}),
+      disposition: outcome?.disposition ?? 'trash',
       ...(outcome?.removed !== undefined ? { removed: outcome.removed } : {}),
     }
   },
 
-  'session/close': async (ctx, params) => {
-    const record = ctx.registry.get(params.runtime, makeSessionId(params.sessionId))
-    // The handle takes the person's picks with it unless they are kept for the
-    // reopen, as the quiet release and archive keep them. A pane closes at
-    // once, whatever is happening in it, so there is no quiet to wait for.
-    ctx.sessions.holdPicks({ runtime: params.runtime, sessionId: makeSessionId(params.sessionId) })
-    await record?.live?.close()
-    if (record) {
-      record.live = null
-      /* Closed on purpose, so the handle was not *lost* — which is all
-         `detached` has ever meant. It no longer decides whether this
-         conversation is in a room: membership does, and a member of a room
-         that is not open is drawn as such and reopened by the next thing
-         addressed to it. Closing a pane is window management; leaving a room
-         is releasing its durable Goal Seat. */
-      record.detached = false
-    }
-    return null
-  },
+  'session/close': closeSession,
 
   'session/setTitle': async (ctx, params) => {
     const runtime = ctx.runtimes.resolve(params)
+    if (runtime.historyAuthorityKnown?.() === false) await ctx.runtimes.ensureStarted(runtime)
     // The runtime's own name when it keeps one, the host's when it does
     // not. Never both: see `SessionNames`. ACP has no way to name a
     // session at all, so this used to reach the adapter and throw — the
@@ -304,6 +348,7 @@ export const sessionMethods = {
     } else {
       await ctx.names.set(runtime.info.id, makeSessionId(params.sessionId), params.title)
     }
+    ctx.sessionIndex.setTitle(runtime.info.id, makeSessionId(params.sessionId), params.title.trim() || null)
     return null
   },
 

@@ -1,4 +1,8 @@
-import { act } from 'react'
+import { act, useState } from 'react'
+import { TopBarProvider, TopBarOutlet } from '../panels/top-bar'
+import { DestinationPageScope } from '../panels/destination-page'
+import { installTopBarTestLayout } from '../test/top-bar-layout'
+installTopBarTestLayout()
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
@@ -38,7 +42,7 @@ const agent = (
 ): AgentEntry => ({
   id,
   origin,
-  path: origin === 'user' ? `/Users/dev/.harnessdesk/agents/${id}/AGENT.md` : `/w/storefront/.harnessdesk/agents/${id}/AGENT.md`,
+  path: origin === 'user' ? `/home/dev/.harnessdesk/agents/${id}/AGENT.md` : `/w/storefront/.harnessdesk/agents/${id}/AGENT.md`,
   digest: 'd',
   shadows: [],
   problems: [],
@@ -71,13 +75,13 @@ const ROSTER: readonly AgentEntry[] = [
   }),
 ]
 
-const taken = (id: string, label: string): SeatPlan => ({
+const taken = (id: string, label: string, runtime = 'runtime-one'): SeatPlan => ({
   id,
   from: 'prefer',
   winner: 0,
   blocked: null,
   ceiling: { level: 'edit', hold: 'asked' },
-  candidates: [{ seat: { runtime: 'claude-code' }, label, runtimeName: 'Claude', state: 'taken', reason: null, fix: null }],
+  candidates: [{ seat: { runtime }, label, runtimeName: label.split(' · ')[0] ?? label, state: 'taken', reason: null, fix: null }],
 })
 
 const PLANS = new Map<string, SeatPlan>([
@@ -106,12 +110,21 @@ const PLANS = new Map<string, SeatPlan>([
   ],
 ])
 
-const mount = (over: Partial<AppSnapshot> = {}, storeOver: Record<string, unknown> = {}): AppStore => {
+const RosterHarness = ({ focus: supplied, onFocus }: {
+  readonly focus?: string | null; readonly onFocus?: (id: string | null) => void
+}) => {
+  const [own, setOwn] = useState<string | null>(null)
+  return <TopBarProvider><DestinationPageScope owner="destination:agents" active>
+    <AgentsRosterSection focus={supplied === undefined ? own : supplied} onFocus={id => { setOwn(id); onFocus?.(id) }} />
+  </DestinationPageScope><TopBarOutlet owner="destination:agents" fallback={{ place: 'Agents', more: () => null }} /></TopBarProvider>
+}
+
+const mount = (over: Partial<AppSnapshot> = {}, storeOver: Record<string, unknown> = {}, selection: { focus?: string | null; onFocus?: (id: string | null) => void } = {}): AppStore => {
   const snapshot = {
     ...emptySnapshot(),
     status: 'open',
-    home: '/Users/dev',
-    stateDir: '/Users/dev/.harnessdesk',
+    home: '/home/dev',
+    stateDir: '/home/dev/.harnessdesk',
     workspace: { path: '/w/storefront', name: 'storefront', lastOpenedAt: 1 },
     runtimes: [{ id: runtimeId('claude-code'), capabilities: {}, presentation: { name: 'Claude' } } as unknown as RuntimeInfo],
     agents: ROSTER,
@@ -128,6 +141,7 @@ const mount = (over: Partial<AppSnapshot> = {}, storeOver: Record<string, unknow
     discardAuthoringSave: vi.fn(async () => []),
     applyAuthoringSave: vi.fn(async () => ({ state: 'refused', written: [], message: 'not wired in this test' })),
     loadAgents: vi.fn(async () => {}),
+    loadSeating: vi.fn(async () => {}),
     readAuthoring: vi.fn(async (target: { readonly id?: string }) => ({
       target,
       source: '---\nname: x\n---\nBrief.\n',
@@ -142,7 +156,7 @@ const mount = (over: Partial<AppSnapshot> = {}, storeOver: Record<string, unknow
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <AgentsRosterSection />
+        <RosterHarness {...selection} />
       </StoreProvider>,
     )
   })
@@ -154,7 +168,8 @@ const sectionText = (label: string): string =>
 
 it('heads the page as the roadmap says', () => {
   mount()
-  expect(container.querySelector('[data-slot="page-title"]')?.textContent).toBe('Agents')
+  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Agents')
+  expect(container.querySelector('[data-slot="page-title"]')).toBeNull()
   expect(container.textContent).toContain('Who does the work: a brief, the most it may do, and the seats it prefers.')
 })
 
@@ -162,9 +177,22 @@ it('lists three sections in precedence order, each naming the folder it reads', 
   mount()
   const headings = [...container.querySelectorAll('section[aria-label]')].map((one) => one.getAttribute('aria-label'))
   expect(headings).toEqual(['In storefront', 'Yours', 'Built in'])
-  expect(sectionText('In storefront')).toContain('Read from /w/storefront/.harnessdesk/agents')
-  expect(sectionText('Yours')).toContain('Read from ~/.harnessdesk/agents')
+  const projectSource = container.querySelector('section[aria-label="In storefront"] [data-slot="middle-truncate"]')!
+  expect(projectSource.textContent).toContain('storefront/.harnessdesk/agents')
+  expect(projectSource.getAttribute('title')).toBe('/w/storefront/.harnessdesk/agents')
+  expect(sectionText('Yours')).toContain('~/.harnessdesk/agents')
   expect(sectionText('Built in')).toContain('Ships with HarnessDesk')
+})
+
+it('middle-truncates the Yours source path and keeps its full title', async () => {
+  mount()
+  await act(async () => {})
+  const note = container.querySelector<HTMLElement>('section[aria-label="Yours"] [data-slot="note"]')!
+  const path = note.querySelector<HTMLElement>('[data-slot="middle-truncate"]')
+  expect(path).not.toBeNull()
+  expect(path?.getAttribute('title')).toBe('/home/dev/.harnessdesk/agents')
+  expect(path?.textContent).toContain('~/.harnessdesk/agents')
+  expect(note.dataset['layout']).toBe('inline')
 })
 
 it('shows each Agent with what it is for, its ceiling as asked, and the seat it would take here', () => {
@@ -177,6 +205,94 @@ it('shows each Agent with what it is for, its ceiling as asked, and the seat it 
   // No wire: never the spec, never the digest.
   expect(container.textContent).not.toContain('claude-code')
   expect(container.textContent).not.toContain('=opus')
+})
+
+it('uses a seat mark and an Agent name avatar when no seat can be taken', async () => {
+  const store = mount()
+  const runtime = store.getSnapshot().runtimes[0]!.id
+  const reviewer = PLANS.get('code-reviewer')!
+  const plans = new Map(PLANS)
+  plans.set('code-reviewer', {
+    ...reviewer,
+    candidates: reviewer.candidates.map(candidate => ({ ...candidate, seat: { ...candidate.seat, runtime } })),
+  })
+  mount({ agentPlans: plans })
+  await act(async () => {})
+
+  const row = (name: string) => [...container.querySelectorAll<HTMLButtonElement>('button[data-kind="record"]')]
+    .find((one) => one.textContent?.includes(name))!
+  const marked = row('Storefront reviewer').querySelector('[data-slot="row-face"]')!
+  expect(marked.querySelector('svg[class*="brand-"]')).not.toBeNull()
+  expect(marked.querySelector('svg.lucide-bot')).toBeNull()
+  expect(row('Security reviewer').querySelector('[data-slot="row-face"] [data-slot="monogram"]')?.textContent).toBe('SR')
+  expect(row('draft').querySelector('[data-slot="row-face"] [data-slot="monogram"]')?.textContent).toBe('D')
+})
+
+it('uses the Agent name avatar when a seated runtime has no mark', async () => {
+  const id = runtimeId('unbranded-runtime')
+  const info = { id, capabilities: {}, presentation: { name: 'General runtime' } } as unknown as RuntimeInfo
+  mount({
+    runtimes: [info],
+    agentPlans: new Map([['code-reviewer', taken('code-reviewer', 'Seat A', id)]]),
+  })
+  await act(async () => {})
+  const face = container.querySelector('section[aria-label="In storefront"] button[data-kind="record"] [data-slot="row-face"]')!
+  expect(face.querySelector('svg')).toBeNull()
+  expect(face.querySelector('[data-slot="monogram"]')?.textContent).toBe('SR')
+})
+
+it('keeps legacy ceiling sentences out of roster rows and group notes', async () => {
+  const release = agent('release', 'Release', 'user')
+  const scout = agent('scout', 'Scout', 'user')
+  const safety = agent('safety', 'Safety', 'user', {
+    definition: { ...agent('safety', 'Safety', 'user').definition!, ceiling: 'publish' },
+  })
+  const plans = new Map(PLANS)
+  plans.set('release', taken('release', 'Seat A'))
+  plans.set('safety', { ...taken('safety', 'Seat B'), ceiling: { level: 'publish', hold: 'asked' } })
+  mount({
+    agents: [release, scout, safety],
+    agentPlans: plans,
+  })
+  await act(async () => {})
+
+  const yours = container.querySelector('section[aria-label="Yours"]')!
+  const sentence = "Set by this file's older permission line"
+  const rows = [...yours.querySelectorAll<HTMLButtonElement>('button[data-kind="record"]')]
+  expect(yours.textContent).not.toContain(sentence)
+  expect(rows.every((row) => !row.querySelector('[data-slot="row-desc"]')?.textContent?.includes(sentence))).toBe(true)
+  expect(rows.map((row) => row.querySelector('[data-ceiling]')?.textContent).filter(Boolean)).toEqual(['Publish · asked, not enforced'])
+})
+
+it('shows only the brief and the seat result on the second line when a stale winner cannot run here', async () => {
+  const candidate = {
+    seat: { runtime: 'runtime-gamma' },
+    label: 'Gamma',
+    runtimeName: 'Gamma',
+    state: 'passed' as const,
+    reason: { kind: 'signedOut' as const },
+    fix: { kind: 'signIn' as const, runtime: 'runtime-gamma' },
+  }
+  const plan = PLANS.get('code-reviewer')!
+  mount({ agentPlans: new Map([...PLANS, ['code-reviewer', { ...plan, from: 'machine', winner: 0, candidates: [candidate] }]]) })
+  await act(async () => {})
+
+  const reviewer = container.querySelector('section[aria-label="In storefront"] button[data-kind="record"]')!
+  const desc = reviewer.querySelector<HTMLElement>('[data-slot="row-desc"]')?.textContent ?? ''
+  expect(desc).toBe('Storefront reviewer does the work. · Gamma is signed out')
+  expect(desc).not.toContain("Set by this file's older permission line")
+  expect(reviewer.querySelector('[data-slot="chip"]')?.textContent).toBe("Can't seat here")
+})
+
+it('middle-truncates a project Agents folder in its quiet source note', async () => {
+  mount()
+  await act(async () => {})
+  const note = container.querySelector('section[aria-label="In storefront"] [data-slot="middle-truncate"]')
+  expect(note).not.toBeNull()
+  expect(note?.textContent).toContain('storefront/.harnessdesk/agents')
+  expect(note?.getAttribute('title')).toBe('/w/storefront/.harnessdesk/agents')
+  expect(note?.className).not.toContain('flex-1')
+  expect(note?.closest('[data-slot="note"]')?.getAttribute('data-layout')).toBe('inline')
 })
 
 /** A refusal is the row’s one reading; the ceiling is not repeated beside it. */
@@ -199,16 +315,12 @@ it('keeps an Agent that cannot be seated here, with the first reason on screen',
 
 it('lists a shadowed copy where it lives, in the Plugins-superseded idiom — a value and a sentence', () => {
   mount()
-  const text = sectionText('Built in')
-  expect(text).toContain('Shadowed')
-  expect(text).toContain('Shadowed by the one in storefront')
-  // A copy that is not used is a fact, not a warning (usage.ts, `tone`).
-  const value = [...container.querySelectorAll('section[aria-label="Built in"] *')]
-    .find((one) => one.children.length === 0 && one.textContent === 'Shadowed')
-  expect(value).toBeDefined()
-  expect(value?.closest('[data-tone]')).toBeNull()
-  expect(value?.className ?? '').not.toContain('warning')
-  expect(value?.closest('[data-slot="row"]')?.className).not.toContain('opacity-50')
+  const row = [...container.querySelectorAll('section[aria-label="Built in"] [data-slot="row"]')]
+    .find((one) => one.textContent?.includes('Shadowed by the one in storefront'))!
+  const chip = row.querySelector<HTMLElement>('[data-slot="row-ctl"] [data-slot="chip"]')
+  expect(row.textContent).toContain('Shadowed by the one in storefront')
+  expect(chip?.textContent).toBe('Shadowed')
+  expect(chip?.getAttribute('data-tone')).toBe('neutral')
 })
 
 it('lists a file that will not parse, with why', () => {
@@ -252,8 +364,10 @@ it('flags an Agent still on permission: or on no ceiling, and draws the seat’s
       said('tidy', 'Tidy', 'user', 'ceiling'),
     ],
   })
-  expect(sectionText('In storefront')).toContain("Storefront reviewer does the work. Set by this file's older permission line, which counts as Edit.")
-  expect(sectionText('Yours')).toContain('Scout does the work. No ceiling written, so it runs as read.')
+  expect(sectionText('In storefront')).toContain('Storefront reviewer does the work.')
+  expect(sectionText('In storefront')).not.toContain("Set by this file's older permission line")
+  expect(sectionText('Yours')).toContain('Scout does the work.')
+  expect(sectionText('Yours')).not.toContain('No ceiling written, so it runs as read.')
   expect(sectionText('Yours')).toContain('Tidy does the work.')
   expect(sectionText('Yours')).not.toContain("Tidy does the work. Set by")
   expect(sectionText('Yours')).not.toContain('Tidy does the work. No ceiling')
@@ -342,10 +456,13 @@ it('gives each roster record one reading, and moves its seat and refusal reason 
   expect(refused.querySelector('[data-slot="row-desc"]')?.textContent).toContain('Cursor is signed out')
 })
 
-it('names the linked checkout that was actually read rather than the main checkout', () => {
+it('names the linked checkout that was actually read rather than the main checkout', async () => {
   mount({ agentsProject: '/w/review-copy', workspace: { path: '/w/review-copy', checkoutRoot: '/w/review-copy', name: 'storefront', lastOpenedAt: 1, repo: { root: '/w/main', worktree: true, key: 'root:/w/main' } } as AppSnapshot['workspace'] })
-  expect(container.textContent).toContain('/w/review-copy/.harnessdesk/agents')
-  expect(container.textContent).not.toContain('/w/main/.harnessdesk/agents')
+  await act(async () => {})
+  const source = container.querySelector('section[aria-label="In review-copy"] [data-slot="middle-truncate"]')!
+  expect(source.getAttribute('title')).toBe('/w/review-copy/.harnessdesk/agents')
+  expect(source.textContent).toContain('review-copy/.harnessdesk/agents')
+  expect(source.getAttribute('title')).not.toContain('/w/main/.harnessdesk/agents')
 })
 
 it('names no folder for a roster still read for the workspace open before', () => {
@@ -354,4 +471,15 @@ it('names no folder for a roster still read for the workspace open before', () =
   expect(sectionText('In storefront')).toContain('Read from the Agents folder, and committed with the code')
   expect(container.textContent).not.toContain('/w/storefront/.harnessdesk/agents')
   expect(container.textContent).not.toContain('undefined')
+})
+
+it('the supplied Agent route is authoritative and its parent records the list route', () => {
+  const onFocus = vi.fn()
+  mount({}, { readAgentAttachments: vi.fn(async () => ({ declarations: [], support: [] })), readAgentNotes: vi.fn(async () => ({ text: null })) }, { focus: ROSTER[0]!.id, onFocus })
+  const parent = [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Agents ›')
+  expect(parent).toBeTruthy()
+  act(() => parent!.click())
+  expect(onFocus).toHaveBeenCalledWith(null)
+  mount({}, {}, { focus: null, onFocus })
+  expect(container.textContent).toContain('Who does the work: a brief, the most it may do, and the seats it prefers.')
 })

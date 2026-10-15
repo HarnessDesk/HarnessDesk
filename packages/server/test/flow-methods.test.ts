@@ -22,6 +22,7 @@ const fakeCtx = (overrides: Partial<{
   startCalls: unknown[]
   updateCalls: unknown[]
   customizeCalls: unknown[]
+  admissionCalls: string[]
 }> = {}): HostContext => {
   const previewCalls = overrides.previewCalls ?? []
   const redeemCalls = overrides.redeemCalls ?? []
@@ -78,6 +79,7 @@ const fakeCtx = (overrides: Partial<{
     },
     workspaces: {
       confineRoom: async () => {},
+      admitTeamProject: async (root: string) => { overrides.admissionCalls?.push(root) },
     },
   } as unknown as HostContext
 }
@@ -101,11 +103,13 @@ test('flow/preview routes to FlowPreviews with exactly the declared params', asy
 test('flow/start-goal redeems the token through FlowPreviews before ever calling Flows.startGoal', async () => {
   const redeemCalls: unknown[] = []
   const startCalls: unknown[] = []
-  const ctx = fakeCtx({ redeemCalls, startCalls })
+  const admissionCalls: string[] = []
+  const ctx = fakeCtx({ redeemCalls, startCalls, admissionCalls })
   const execution = await flowMethods['flow/start-goal'](ctx, { root: '/repo', source: 'version: 2', token: 'tok-1', sentence: 'Go' })
   assert.equal(execution.id, 'flow-1')
   assert.equal(redeemCalls.length, 1)
   assert.equal(startCalls.length, 1)
+  assert.deepEqual(admissionCalls, ['/repo'], 'only the redeemed request project is admitted')
   const started = startCalls[0] as { compiled: unknown; source: string; root: string }
   assert.equal(started.root, '/repo')
   assert.equal(started.source, 'version: 2')
@@ -114,10 +118,12 @@ test('flow/start-goal redeems the token through FlowPreviews before ever calling
 
 test('flow/start-goal never calls Flows.startGoal when the token does not redeem', async () => {
   const startCalls: unknown[] = []
-  const ctx = fakeCtx({ startCalls })
+  const admissionCalls: string[] = []
+  const ctx = fakeCtx({ startCalls, admissionCalls })
   ;(ctx.flowPreviews as unknown as { redeem: () => Promise<null> }).redeem = async () => null
   await assert.rejects(() => flowMethods['flow/start-goal'](ctx, { root: '/repo', source: 'version: 2', token: 'stale', sentence: 'Go' }))
   assert.equal(startCalls.length, 0, 'a refused redeem never reaches Flows.startGoal')
+  assert.deepEqual(admissionCalls, [])
 })
 
 test('flow/start-goal passes lineage to the host after redeeming its preview', async () => {

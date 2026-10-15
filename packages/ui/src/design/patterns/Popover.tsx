@@ -1,4 +1,4 @@
-import { createElement, forwardRef, isValidElement, useEffect, useId, useRef, useState, type ButtonHTMLAttributes, type HTMLAttributes, type ReactNode, type Ref } from 'react'
+import { forwardRef, isValidElement, useEffect, useLayoutEffect, useId, useRef, useState, type HTMLAttributes, type ReactNode, type Ref, type RefObject } from 'react'
 
 import { escapeSurface, onDismissOverlays, type DismissDetail } from '../../lib/overlays'
 import {
@@ -12,7 +12,9 @@ import { cn } from '@/lib/utils'
 
 import { buttonEdge, buttonVariants } from '../ui/button'
 
+import { MenuPresentation, useMenuPresentation, type MenuIcons } from '../ui/menu-row'
 import styles from './Popover.module.css'
+import { registerMenu } from '../ui/popup-state'
 import { useHeaderStatusGroup } from './HeaderStatusGroup'
 
 /* The contract itself is in `lib/overlays.ts`, free of React so that anything
@@ -44,7 +46,7 @@ export const useDismissOverlays = (
  * Answers Escape while it is the surface on top.
  *
  * Orders screen-level surfaces after nested menus and dialogs have had the
- * key. AppWindow uses canonical dialog modality but explicitly delegates
+ * key. destination uses canonical dialog modality but explicitly delegates
  * Escape here, retaining the window stack's ordering and approval boundary.
  * Other dialogs consume Escape themselves; see `lib/overlays.ts`.
  */
@@ -95,6 +97,10 @@ const hasText = (node: ReactNode): boolean => {
 export const Popover = ({
   label,
   title,
+  'aria-label': ariaLabel,
+  disabled = false,
+  reason,
+  narrowed = false,
   drop = 'down',
   align = 'right',
   side,
@@ -103,6 +109,7 @@ export const Popover = ({
   tone = 'calm',
   fullWidth = false,
   panelWidth = 'content',
+  icons = 'none',
   tightTrigger = false,
   triggerClassName,
   triggerVariant,
@@ -114,6 +121,11 @@ export const Popover = ({
 }: {
   label: ReactNode
   title?: string
+  /** A stable control name when the visible label is a changing value. */
+  'aria-label'?: string
+  disabled?: boolean
+  reason?: string
+  narrowed?: boolean
   /** Replaces the default trigger look, for a button that already has one. */
   triggerClassName?: string
   /**
@@ -134,10 +146,11 @@ export const Popover = ({
   /** Remove horizontal inset and keep icon marks full-size in a tight trigger. */
   tightTrigger?: boolean
   /**
-   * `trigger` follows the anchor width; `wide` uses the foundation's shared
-   * wide-panel width while still respecting the viewport clamp.
+   * Every menu sizes to its content within the foundation's shared minimum
+   * and maximum. `wide` gives nested choices the wide menu presentation.
    */
-  panelWidth?: 'content' | 'trigger' | 'wide'
+  panelWidth?: 'content' | 'wide'
+  icons?: MenuIcons
   onOpenChange?: (open: boolean) => void
   /** Colours the trigger by risk, for controls where neutral would mislead. */
   tone?: 'calm' | 'warn' | 'alert'
@@ -154,12 +167,15 @@ export const Popover = ({
 }) => {
   const grouped = useHeaderStatusGroup()
   const [open, setOpenState] = useState(false)
+  const menuId = useRef(Symbol('popover-menu'))
+  useLayoutEffect(() => open ? registerMenu(menuId.current) : undefined, [open])
   // What the caller was last told, kept beside the state rather than read out
   // of an updater: an updater runs during render (twice, in StrictMode), and a
   // caller's `onOpenChange` sets the caller's own state — so telling it from
   // there updated one component while React was rendering another (#973).
   const told = useRef(false)
   const setOpen = (next: boolean): void => {
+    if (next && disabled) return
     setOpenState(next)
     if (next === told.current) return
     told.current = next
@@ -206,11 +222,12 @@ export const Popover = ({
     // press: the window moves and the button only fires when the pointer
     // happened not to travel, which reads as a control that works every other
     // time. app-region is a property of a box, and this anchor is the box.
+    <MenuPresentation icons={icons} wide={panelWidth === 'wide'}>
     <BasePopover
       open={open}
       onOpenChange={(next, details) => {
         if (!next && details.reason === 'escape-key') trigger.current?.focus()
-        setOpen(next)
+        setOpen(next && !disabled)
       }}
     >
       <div className={`${styles.anchor} hd-no-drag`} data-drop={drop} data-align={align} data-full-width={fullWidth || undefined}>
@@ -225,14 +242,16 @@ export const Popover = ({
           style={edge?.style}
           {...(open ? { 'data-open': '' } : {})}
           data-tone={tone}
-          title={grouped ? undefined : title}
+          data-filtered={narrowed || undefined}
+          disabled={disabled}
+          title={grouped ? undefined : reason ?? title}
         /* Icon-only triggers use their title as a name. Outside a status
            group, words (including text in fragments) name themselves.
            Grouped triggers instead use the title to keep folded words and
            facts accessible without a second tooltip; their caller must
            include every visible word in that title, including countdowns,
            so voice commands can still match the control (WCAG 2.5.3). */
-          {...(title === undefined || (!grouped && hasText(label)) ? {} : { 'aria-label': title })}
+          aria-label={ariaLabel ?? (title !== undefined && (grouped || !hasText(label)) ? title : undefined)}
         >
           {label}
         </PopoverTrigger>
@@ -246,18 +265,19 @@ export const Popover = ({
             // Base UI nests this portal beside the window's popup. Its
             // clipping ancestors therefore miss the window itself: a menu
             // near the bottom can open beyond it, under another surface.
-            collisionBoundary={trigger.current?.closest('[data-slot="app-window"]') ?? undefined}
+            collisionBoundary={trigger.current?.closest('[data-slot="app-window"], [data-slot="fixed-shell"]') ?? undefined}
             /* A row unfolded may flip to the row's other side, never off to a
                third one: short of room it scrolls under `--available-height`,
                the way Base UI's own dropdowns do. */
-            {...(panelWidth === 'trigger' ? { collisionAvoidance: { fallbackAxisSide: 'none' as const } } : {})}
+            {...(panelWidth !== 'content' ? { collisionAvoidance: { fallbackAxisSide: 'none' as const } } : {})}
             className={styles.positioner}
           >
             <PopoverPopup
               ref={panel}
+              data-popup-kind={panelWidth === 'wide' ? 'wide-menu' : 'menu'}
+              data-menu-icons={icons}
               aria-labelledby={triggerId}
               className={styles.panel}
-              data-width={panelWidth === 'trigger' || panelWidth === 'wide' ? panelWidth : undefined}
               initialFocus={false}
               finalFocus={() => {
                 const requested = externalReturnFocus.current
@@ -271,6 +291,7 @@ export const Popover = ({
         </PopoverPortal>
       </div>
     </BasePopover>
+    </MenuPresentation>
   )
 }
 
@@ -283,9 +304,8 @@ export const PopoverGroupLabel = ({
   inset?: boolean
 }) => (
   <div
-    data-slot="group-label"
+    data-menu-group=""
     data-inset={String(inset)}
-    className={styles.groupLabel}
   >
     {children}
   </div>
@@ -294,57 +314,48 @@ export const PopoverGroupLabel = ({
 /** The floating plate shared by anchored menus and inline trigger pickers. */
 export const PopoverSurface = forwardRef<
   HTMLDivElement,
-  HTMLAttributes<HTMLDivElement> & { limit?: 'trigger' }
->(({ className, limit, ...props }, ref) => (
-  <div
+  HTMLAttributes<HTMLDivElement> & {
+    limit?: 'trigger'
+    /** A typing picker escapes its anchor's scroll clip without taking focus. */
+    anchor?: RefObject<HTMLElement | null>
+    /** Lets a controlled typing picker clear its owner's active query. */
+    onDismiss?: () => void
+    /** Selection geometry, anchored by the same floating and dismissal policy. */
+    rect?: DOMRect
+  }
+>(({ className, limit, anchor, rect, onDismiss, ...props }, ref) => {
+  const { icons, wide } = useMenuPresentation()
+  const menuId = useRef(Symbol('popover-surface'))
+  useLayoutEffect(() => registerMenu(menuId.current), [])
+  useDismissOverlays(Boolean(anchor || rect), () => onDismiss?.())
+  const surface = <div
     ref={ref}
     {...props}
     data-slot="popover-surface"
+    data-popup-kind={wide ? 'wide-menu' : 'menu'}
+    data-menu-icons={icons}
     {...(limit ? { 'data-limit': limit } : {})}
+    {...((anchor || rect) ? { 'data-anchor': '' } : {})}
     className={`${styles.panel}${className ? ` ${className}` : ''}`}
   />
-))
+  if (!anchor && !rect) return surface
+  return (
+    <BasePopover open modal={false} onOpenChange={open => { if (!open) onDismiss?.() }}>
+      <PopoverPortal>
+        <PopoverPositioner
+          anchor={rect ? { getBoundingClientRect: () => rect } : anchor}
+          positionMethod="fixed"
+          side="top"
+          align="start"
+          sideOffset={6}
+          collisionPadding={8}
+          collisionBoundary={anchor?.current?.closest('[data-slot="app-window"], [data-slot="fixed-shell"]') ?? undefined}
+          className={styles.positioner}
+        >
+          <PopoverPopup render={surface} initialFocus={false} finalFocus={false} onMouseDown={event => event.preventDefault()} />
+        </PopoverPositioner>
+      </PopoverPortal>
+    </BasePopover>
+  )
+})
 PopoverSurface.displayName = 'PopoverSurface'
-
-export const PopoverOption = ({
-  as = 'button',
-  className,
-  children,
-  ...props
-}: {
-  as?: 'button' | 'div'
-  className?: string
-  children: ReactNode
-} & ButtonHTMLAttributes<HTMLButtonElement> & HTMLAttributes<HTMLDivElement>) => createElement(
-  as,
-  {
-    ...props,
-    ...(as === 'button' ? { type: props.type ?? 'button' } : {}),
-    className: `${styles.option}${className ? ` ${className}` : ''}`,
-  },
-  children,
-)
-
-export const PopoverOptionMark = ({
-  checked = false,
-  children,
-}: {
-  checked?: boolean
-  children?: ReactNode
-}) => <span className={checked ? styles.optionCheck : styles.optionIcon}>{children}</span>
-
-export const PopoverOptionBody = ({ children }: { children: ReactNode }) => (
-  <span className={styles.optionBody}>{children}</span>
-)
-
-export const PopoverOptionLabel = ({ children }: { children: ReactNode }) => (
-  <span className={styles.optionLabel}>{children}</span>
-)
-
-export const PopoverOptionHint = ({ children, className }: { children: ReactNode; className?: string }) => (
-  <span className={`${styles.optionHint}${className ? ` ${className}` : ''}`}>{children}</span>
-)
-
-export const PopoverOptionLive = ({ label = 'Live' }: { label?: string }) => (
-  <span className={styles.optionLive} aria-label={label} />
-)

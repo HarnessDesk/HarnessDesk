@@ -1,9 +1,10 @@
+import { seatRefused } from '../src/flow-execution.js'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import type { TeamEntry, TeamSignal } from '@harnessdesk/protocol'
 
-import { BRIEF_CHANGED, INDEPENDENT, type StoredFlowExecution } from '../src/flow-execution.js'
+import { agreedSplit, BRIEF_CHANGED, INDEPENDENT, sourceDigest, type StoredFlowExecution } from '../src/flow-execution.js'
 import { overlaps } from '../src/team.js'
 import { agent, goalRig } from './fixtures/flow-goal-rig.js'
 
@@ -23,6 +24,13 @@ rules:
   - { id: decide, on: reviewer, when: { every: [approve] }, then: { role: person, title: Decide } }
 `
 const AGENTS = [agent('writer-a', ['done']), agent('writer-b', ['done']), agent('reviewer', ['approve'])]
+
+test('a missing file split points to Run again without asking for another Team', () => {
+  const reason = agreedSplit([], 1, 'Planner', 'Builder', 2, [])
+  assert.equal(typeof reason, 'string')
+  assert.match(reason as string, /Next: choose Run again\./)
+  assert.doesNotMatch(reason as string, /wrap|Goal|new Team/)
+})
 
 test('a closed Seat no longer governs a v2 flow conversation', async (t) => {
   const rig = await goalRig(t)
@@ -380,14 +388,13 @@ test('a round whose first Seat will not open says its sibling was not started, a
     now.reason,
     `The Seat for card #1 could not be opened: ${refusal}\n` +
       'A round’s cards start together, so card #2 was not started either.\n' +
-      'Next: wrap this Goal, which stops this run, then fix what stopped card #1 and start the flow again in a new Goal.',
+      'Next: fix what stopped card #1, then choose Run again.',
   )
 
-  // The facts the advice rests on. Wrapping is what stops a stalled run — the
-  // wrap barrier, `stopGoal` — and the run it stops is this one.
+  // Wrapping remains able to stop a stalled run, but is not required to retry it.
   await rig.flows.stopGoal(run.goal, 'the Goal was wrapped')
   assert.equal(rig.flows.executionsFor(run.goal)[0]!.state, 'stopped')
-  // And starting the flow again opens a Goal of its own, not this one.
+  // A separate start, without a continuation, still opens its own Team.
   rig.beforeOpen = null
   const again = await rig.start(THREE_STAGES, AGENTS)
   assert.notEqual(again.goal, run.goal)
@@ -792,7 +799,7 @@ rules:
  * channel showed "You added #1 — …" for a card admission opened while nobody
  * was at the keyboard (#898).
  */
-test('a card a trigger’s run opens names the trigger, and a card a person’s run opens still names the person', async (t) => {
+test('a card a trigger’s run opens names the trigger, and a card a person’s run opens names the Flow', async (t) => {
   const rig = await goalRig(t)
   const SEED_ONLY = `
 version: 2
@@ -810,7 +817,7 @@ rules: []
 
   const started = await rig.start(SEED_ONLY, agents)
   const startedAdd = addedSignal(rig.board(started.goal).channel)
-  assert.deepEqual(startedAdd?.by, { kind: 'user' })
+  assert.deepEqual(startedAdd?.by, { kind: 'flow', name: 'Review a change' })
 })
 
 const TWO_REVIEWERS = `
@@ -1289,7 +1296,7 @@ test('a split round whose agreeing card recorded no split stops, opening no card
   const now = rig.flows.executionsFor(run.goal)[0]!
   assert.equal(now.state, 'stalled')
   assert.match(now.reason ?? '', /The 2 "dev" cards were not opened: the "contract" round \(card #1\) finished without recording a split of the files, so each card cannot be held to its own files\./)
-  assert.match(now.reason ?? '', /the "contract" card has to record its split of the files when it finishes/)
+  assert.match(now.reason ?? '', /The "contract" card needs to record its split of the files when it finishes/)
   assert.doesNotMatch(now.reason ?? '', /complete_claim/, 'a person reads this, not a tool name')
   assert.equal(rig.board(run.goal).intents.length, 1, 'no card was opened with a shared list')
   assert.deepEqual(opens(rig.events), ['open:seat-1'])
@@ -1330,7 +1337,7 @@ test('two sibling cards whose paths overlap are never both claimed', async (t) =
   const intents = [...state.intents, sibling(5, ['src/**'], 'first'), sibling(6, ['src/app.ts'], null)]
   assert.equal(
     rig.team.refuseOverlap(run.goal, intents, 6, 'alpha', 'second'),
-    'the files of card #6 overlap a live claim — src/** is held by #5 (a conversation that is not running). Two cards whose paths overlap are never worked at once.',
+    'the files of card #6 overlap a live claim — src/** is held by #5 (a conversation that is not running). Two cards whose paths overlap in one checkout are never worked at once.',
   )
   assert.equal(rig.team.refuseOverlap(run.goal, intents, 6, 'alpha', 'first'), null, 'its own claim is not a conflict')
 })
@@ -1940,4 +1947,201 @@ test('a resumed commit caps its path answer and counts the rest (#1403)', async 
   assert.match(answer, /file-19\.md/)
   assert.doesNotMatch(answer, /file-20\.md/)
   assert.match(answer, /… and 5 more/)
+})
+
+for (const kind of ['pull-request', 'branch', 'diff'] as const) {
+  test(`a ${kind} review preserves its frozen target despite a different live PR`, async (t) => {
+    const frozen = 'a'.repeat(40)
+    const live = 'b'.repeat(40)
+    let reads = 0
+    let observed = live
+    const requested: { title: string; number: number | null | undefined }[] = []
+    const rig = await goalRig(t, { reviewTarget: async (_goal, card, number) => {
+      reads += 1
+      requested.push({ title: card.title, number })
+      return { at: observed, number: number ?? 8 }
+    } })
+    const entry = agent('reviewer', ['approve'])
+    const reviewer = { ...entry, definition: { ...entry.definition!, ceiling: 'read' as const, produces: ['review' as const] } }
+    const source = `version: 2
+name: Pinned review
+roles:
+  reviewer: { kind: agent, uses: reviewer, grant: read }
+seed: { role: reviewer, title: "Review pull request #8" }
+rules: []
+`
+    rig.heads.set('/repo', { at: frozen, dirty: false })
+    rig.heads.set('/repo/.lanes/1', { at: live, dirty: false })
+    const run = await rig.flows.startGoal({
+      root: '/repo', sentence: 'Review the frozen change', source, sourcePath: null, compiled: rig.compile(source, [reviewer]),
+      requireHeld: true,
+      target: { kind, label: 'frozen change', base: null, head: frozen, pr: kind === 'pull-request' ? 7 : null, dirty: false },
+      authorization: { sourceDigest: sourceDigest(source), commandDigest: sourceDigest(''), approvedAt: 1, start: 'front-door' },
+    })
+    assert.equal(run.state, 'running', run.reason ?? '')
+    assert.equal(rig.executions.stored(run.id)!.seatPlans?.['1']?.base, null, 'the Goal pin supplies the checkout, not a fresh PR head')
+    assert.equal(rig.seats.get('seat-1')!.checkout.cwd, '/repo')
+    assert.equal(reads, 0, 'seating a frozen target never reselects it from a card or Team PR')
+    const scope = rig.sessionOf('seat-1')
+    if (kind === 'pull-request') {
+      await assert.rejects(() => rig.review.candidates(1, scope), /Pull request #7.*moved/)
+      assert.deepEqual(requested, [{ title: '', number: 7 }], 'candidate observation keeps the frozen PR identity')
+      observed = frozen
+    }
+    const [candidate] = await rig.review.candidates(1, scope)
+    assert.equal(candidate?.at, frozen)
+    await rig.review.record({ intent: 1, candidate: candidate!.id, verdict: 'approve' }, scope)
+    if (kind !== 'pull-request') assert.equal(reads, 0, 'a branch or diff review never adopts a PR binding')
+  })
+}
+
+for (const binding of ['card', 'run'] as const) for (const dirty of [true, false]) {
+  test(`a working-diff review keeps its checkout despite a ${binding} PR (dirty=${dirty})`, async (t) => {
+    const head = 'a'.repeat(40)
+    let reads = 0
+    const rig = await goalRig(t, { reviewTarget: async () => {
+      reads += 1
+      return { at: head, number: 7 }
+    } })
+    const entry = agent('reviewer', ['approve'])
+    const reviewer = { ...entry, definition: { ...entry.definition!, ceiling: 'read' as const, produces: ['review' as const] } }
+    const source = `version: 2
+name: Working tree review
+roles:
+  reviewer: { kind: agent, uses: reviewer, grant: read }
+seed: { role: reviewer, title: "${binding === 'card' ? 'Review pull request #7' : 'Review the working changes'}" }
+rules: []
+`
+    rig.heads.set('/repo', { at: head, dirty })
+    rig.heads.set('/repo/.lanes/1', { at: head, dirty: false })
+    const run = await rig.flows.startGoal({
+      root: '/repo', sentence: 'Review the working changes', source, sourcePath: null, compiled: rig.compile(source, [reviewer]),
+      vars: binding === 'run' ? { pr: '7' } : {}, requireHeld: true,
+      target: { kind: 'working-diff', label: 'Working tree (not committed)', base: head, head: null, pr: null, dirty },
+      authorization: { sourceDigest: sourceDigest(source), commandDigest: sourceDigest(''), approvedAt: 1, start: 'front-door' },
+    })
+    assert.equal(run.state, 'running', run.reason ?? '')
+    assert.equal(rig.executions.stored(run.id)!.seatPlans?.['1']?.base, null)
+    assert.equal(rig.seats.get('seat-1')!.checkout.cwd, '/repo')
+    assert.equal(reads, 0, 'seating must not observe a PR for a working-tree target')
+    await assert.rejects(() => rig.review.candidates(1, rig.sessionOf('seat-1')), /working tree.*committed/i)
+    assert.equal(reads, 0, 'candidate resolution must not adopt a PR even when the working tree is clean')
+    assert.match(rig.board(run.goal).intents[0]!.detail ?? '', /working tree.*committed/i)
+  })
+}
+
+const LAND_END = `
+version: 2
+name: Successful landing
+roles:
+  land: { kind: person, outcomes: [landed, waiting, failed] }
+seed: { role: land, title: Land the change }
+rules:
+  - { on: land, when: { every: [waiting] }, then: { role: land, title: Try again } }
+complete: { land: [landed] }
+`
+
+test('a declared successful outcome completes a ruled role without asking for a person (#1548)', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.start(LAND_END, [])
+  await rig.team.intentAction(run.goal, 1, 'done', undefined, 'landed')
+  await rig.flows.flush()
+  const ended = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(ended.state, 'settled')
+  assert.deepEqual(ended.end, { kind: 'complete' })
+  assert.doesNotMatch(ended.reason ?? '', /waits for you/)
+  assert.deepEqual(await rig.flows.stopRun(run.id), ended, 'a settled end is never rewritten')
+})
+
+test('a successful check completes after its retry rule declines (#1548)', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.start(LAND_END.replace('kind: person, outcomes: [landed, waiting, failed]', 'kind: check, run: "true", timeout: 10, exits: { 0: landed }, otherwise: waiting'), [])
+  await rig.flows.flush()
+  assert.deepEqual(rig.flows.executionsFor(run.goal)[0]!.end, { kind: 'complete' })
+})
+
+test('undeclared outcomes still wait and matching retry rules still open a round (#1548)', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.start(LAND_END, [])
+  await rig.team.intentAction(run.goal, 1, 'done', undefined, 'waiting')
+  await rig.flows.flush()
+  assert.equal(rig.board(run.goal).intents.length, 2)
+  await rig.team.intentAction(run.goal, 2, 'done', undefined, 'failed')
+  await rig.flows.flush()
+  assert.deepEqual(rig.flows.executionsFor(run.goal)[0]!.end, { kind: 'unrouted', card: 2, outcome: 'failed' })
+})
+
+test('stopping abandons only this run’s unanswered person cards and survives a retry (#1548)', async t => {
+  const rig = await goalRig(t)
+  const run = await rig.start(LAND_END.replace('complete: { land: [landed] }', ''), [])
+  rig.team.addIntentAsUser(run.goal, {title: 'Unrelated follow-up'})
+  const stopped = await rig.flows.stopRun(run.id)
+  const cards = rig.board(run.goal).intents
+  assert.equal(cards.find(card => card.id === 1)?.state, 'abandoned')
+  assert.equal(cards.find(card => card.id === 2)?.state, 'open')
+  assert.deepEqual(stopped.end, { kind: 'stopped', by: 'person' })
+  assert.deepEqual(await rig.flows.stopRun(run.id), stopped)
+  await rig.flows.flush()
+  assert.equal(rig.board(run.goal).intents.length, 2, 'cleanup fires no retry rule')
+})
+
+test('failed Stop cleanup reports failure and restart retries only its unanswered person cards (#1548)', async t => {
+  let refuseAbandon = true
+  const rig = await goalRig(t, {
+    mutate: async (snapshot, refused) => {
+      const board = snapshot()
+      if (refuseAbandon && board?.intents.some(card => card.id === 1 && card.state === 'abandoned')) {
+        const error = new Error('the person-card save failed')
+        refused?.(error)
+        throw error
+      }
+    },
+  })
+  const run = await rig.start(LAND_END, [])
+  rig.team.addIntentAsUser(run.goal, { title: 'Unrelated follow-up' })
+  await rig.team.flush()
+  await assert.rejects(rig.flows.stopRun(run.id, 'Stopped for review'), /person card #1.*could not be saved/i)
+  const stopped = rig.flows.executionsFor(run.goal)[0]!
+  assert.equal(stopped.state, 'stopped')
+  assert.equal(rig.board(run.goal).intents[0]?.state, 'open', 'a failed board save rolled back')
+  await assert.rejects(rig.flows.stopRun(run.id), /person card #1.*could not be saved/i, 'the public Stop retry still attempts cleanup')
+
+  await rig.restart()
+  assert.equal(rig.board(run.goal).intents[0]?.state, 'open', 'failed startup cleanup remains pending')
+  assert.ok(rig.logs.some(line => /person.*restart/i.test(line)), 'startup says why cleanup failed')
+  refuseAbandon = false
+  await rig.restart()
+  assert.equal(rig.board(run.goal).intents[0]?.state, 'abandoned')
+  assert.equal(rig.board(run.goal).intents[1]?.state, 'open')
+  assert.deepEqual(rig.flows.executionsFor(run.goal)[0], stopped, 'cleanup preserves the recorded end')
+  assert.deepEqual(await rig.flows.stopRun(run.id), stopped, 'Stop remains idempotent')
+  assert.equal(rig.board(run.goal).intents.length, 2, 'cleanup dispatches no retry round')
+})
+
+test('successful ends require all siblings and never count an abandoned card (#1548)', async t => {
+ for(const outcome of ['landed','failed',null]) {
+  const rig=await goalRig(t)
+  const source=`version: 2
+name: Sibling ends
+roles:
+  land: {kind: agent, uses: implementer, count: 2}
+seed: {role: land, title: Finish}
+rules:
+  - {on: land, when: {every: [waiting]}, then: {role: land, title: Retry}}
+complete: {land: [landed]}
+`
+  const run=await rig.start(source,[agent('implementer',['landed','waiting','failed'])])
+  await rig.team.complete(1,{outcome:'landed'},rig.sessionOf('seat-1'))
+  await rig.flows.flush()
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.state,'running')
+  if(outcome===null) await rig.team.intentAction(run.goal,2,'abandon')
+  else await rig.team.complete(2,{outcome},rig.sessionOf('seat-2'))
+  await rig.flows.flush()
+  assert.equal(rig.flows.executionsFor(run.goal)[0]!.end?.kind,outcome==='landed'?'complete':'unrouted')
+ }
+})
+
+test('project and model opening refusals name their own recovery', () => {
+  assert.match(seatRefused(1, [1, 2], 'The Seat project is outside every project opened here. Open it first.'), /Next: open the project folder again, then choose Run again\./)
+  assert.match(seatRefused(1, [1], 'the model is unavailable'), /Next: choose an available model, then choose Run again\./)
 })

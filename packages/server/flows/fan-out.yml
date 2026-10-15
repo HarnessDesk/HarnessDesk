@@ -1,5 +1,6 @@
 version: 2
 name: "Fan-out review"
+summary: "Several reviewers; every one must approve."
 description: "Several reviewers read the same change at once; every one of them has to approve before it ships."
 inputs:
   task:

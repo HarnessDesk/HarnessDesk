@@ -122,7 +122,7 @@ export interface AuthMethod {
 /** Reads whose observed answers can be retained across an idle stop. */
 export type IdleRuntimeRead =
   | { readonly method: 'listSessions'; readonly query?: ListSessionsQuery }
-  | { readonly method: 'defaultSessionOptions' | 'listSkills' | 'listSkillProblems'; readonly cwd?: string }
+  | { readonly method: 'defaultSessionOptions' | 'listSkills' | 'listSkillProblems'; readonly cwd?: string; readonly values?: Readonly<Record<string, OptionValue>> }
 
 export interface AccountStatus {
   readonly accounts: readonly Account[]
@@ -197,6 +197,8 @@ export interface RuntimeCapabilities {
   readonly steer: boolean
   readonly interrupt: boolean
   readonly listHistory: boolean
+  /** Can name the file behind a conversation through `sourceOf`. */
+  readonly sourceTranscript?: boolean
   readonly searchHistory: boolean
   readonly imageInput: boolean
   readonly mcp: boolean
@@ -242,14 +244,10 @@ export interface RuntimeCapabilities {
    * flag exists.
    */
   readonly nameHistory: boolean
-  /**
-   * The runtime can remove a stored conversation for good — `deleteSession`.
-   *
-   * The one capability the interface must not guess at. An agent that cannot
-   * delete gets a disabled row with the reason, never a Delete that throws
-   * after the confirmation has already promised the conversation is gone.
-   */
-  readonly deleteHistory: boolean
+  /** Native deletion's declared destination; Delete everywhere admits only Trash. */
+  readonly deleteHistory: false | 'trash' | 'erase'
+  /** False when the agent's durable history cannot serve a readable body. */
+  readonly readableHistory?: boolean
   /** Surfaces a plugin catalogue — `RuntimeExtensions.catalog`. */
   readonly extensionStore: boolean
   /** Exposes configured hooks — `AgentRuntime.listHooks`. */
@@ -709,6 +707,7 @@ export type ArchiveFilter = 'exclude' | 'only'
  * would be the worst kind of reassuring.
  */
 export interface SessionDeletion {
+  readonly warning?: string
   readonly disposition: 'trash' | 'removed'
   /** How many files or folders moved, when the runtime counted them. */
   readonly removed?: number
@@ -983,8 +982,37 @@ export interface CatalogRefresh {
 /** What telling a runtime its secret changed actually achieved. */
 export type SecretReload = 'restarted' | 'busy' | 'unsupported'
 
+/** Host-owned display observations; absent fields mean not known yet. No credentials. */
+export interface RuntimeObservations {
+  readonly models?: readonly ModelInfo[]
+  readonly options?: readonly ConfigOption[]
+  readonly sessionOptions?: readonly ConfigOption[]
+  readonly commands?: readonly SkillInfo[]
+  readonly account?: AccountStatus & {
+    /** Observed permitted flow kinds, without descriptors or login payloads. Absent means unknown. */
+    readonly signInFlows?: readonly AuthMethod['flow'][]
+  }
+  readonly info?: Pick<RuntimeInfo, 'version' | 'capabilities'>
+}
+
+export interface SessionSource {
+  readonly path: string
+  readonly mtimeMs: number
+  readonly size: number
+}
+
 export interface AgentRuntime {
+  /** Restore last live observations before starting a process. */
+  restoreObservations?(observations: RuntimeObservations): void
+  /** Answers already learned; taking this snapshot never opens a probe. */
+  observations?(): RuntimeObservations
   readonly info: RuntimeInfo
+  /**
+   * Whether archiveHistory and nameHistory already identify their authority.
+   * False means an unstarted adapter has not learned them yet; start it before
+   * choosing local storage. Absent means those declarations are settled.
+   */
+  historyAuthorityKnown?(): boolean
 
   /**
    * Where this runtime's conversations are stored, when the store is one it
@@ -1178,6 +1206,8 @@ export interface AgentRuntime {
   searchSessions(query: string): Promise<Page<SessionSummary>>
   /** Load a transcript without making the session live. */
   readSession(id: SessionId): Promise<Session>
+  /** Metadata only; null when no source can be named. Never reads the body. */
+  sourceOf?(id: SessionId): Promise<SessionSource | null>
   /**
    * Move a conversation into or out of the runtime's own archive.
    *
@@ -1193,9 +1223,11 @@ export interface AgentRuntime {
    * host clears what *it* holds about the session — its transcript, its
    * archive mark — whether or not the runtime had anything to remove.
    *
-   * What it answers with is what the interface then tells the user, so a
-   * runtime that moved files to the Trash should say so and one that erased
-   * them should not claim otherwise. Answering nothing reads as `removed`.
+   * The declared disposition is known before invoking this method. A
+   * runtime that moved files to the Trash should report `trash`; an erasing
+   * runtime reports `removed`. The host's Delete everywhere verb admits only
+   * a declared Trash operation and falls back to that declaration when this
+   * method returns no receipt.
    */
   deleteSession(id: SessionId): Promise<SessionDeletion | void>
 

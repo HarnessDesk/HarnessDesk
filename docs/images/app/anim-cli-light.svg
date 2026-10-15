@@ -1,0 +1,160 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="520" viewBox="0 0 980 520" role="img" aria-labelledby="title desc">
+<title id="title">The same Run, from a terminal</title>
+<desc id="desc">A synthetic split screen: the terminal starts race with work from game.md and watches r_7 until settled. The HarnessDesk window follows the same Run: Codex and Claude Code work, each passes four checks, then Gemini judges. Claude Code is Picked and Codex is Not kept as the stream settles with exit 0. The ten-second loop becomes this final state with reduced motion.</desc>
+<style>
+:root {--page:#ffffff;--surface:#ffffff;--muted:#f5f5f5;--ink:#1b1b1b;--secondary:#313131;--tertiary:#474747;--line:#090c110d;--edge:#090c111f;--accent:#3458f0;--success:#007e3f;--success-fill:#41bd6f24;--codex-fill:#5b7eed24;--codex-ink:#4563c6;--claude-fill:#e9772926;--claude-ink:#ac4f00;--gemini-fill:#9b5cd724;--gemini-ink:#854dbb;--ease:cubic-bezier(0.22,1,0.36,1);}
+svg {background:var(--page);color:var(--ink);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;}
+text {fill:var(--ink);font-size:13px;} .secondary {fill:var(--secondary);} .tertiary {fill:var(--tertiary);} .success {fill:var(--success);} .accent {fill:var(--accent);}
+.mono {font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,"Liberation Mono",monospace;} .command {font-size:13px;} .event {font-size:12px;fill:var(--tertiary);} .small {font-size:12px;} .label {font-size:15px;font-weight:500;} .chip {font-size:11px;} .agent-mark {font-family:ui-monospace,"SFMono-Regular",Menlo,Consolas,"Liberation Mono",monospace;font-size:10px;font-weight:600;} .agent-mark[fill] {fill:inherit;}
+.reveal,.character {animation:var(--reveal) 10s steps(1,end) infinite;}
+.transient,.cursor {opacity:0;animation:var(--active) 10s linear infinite;}
+.pulse {animation:pulse 1.1s ease-in-out infinite;transform-box:fill-box;transform-origin:center;}
+@keyframes pulse {0%,100% {opacity:.35;} 50% {opacity:1;}}
+@media (prefers-reduced-motion: reduce) {
+ .reveal,.character {animation:none;opacity:1;}
+ .transient,.cursor,.pulse {animation:none;opacity:0;}
+}
+.codex-mark {fill:var(--codex-ink);}.claude-mark {fill:var(--claude-ink);}.gemini-mark {fill:var(--gemini-ink);}
+@keyframes start-prompt {0%,1.49% {opacity:0;} 1.5%,100% {opacity:1;}}
+@keyframes start-command-0 {0%,1.73138% {opacity:0;} 1.74138%,100% {opacity:1;}}
+@keyframes start-command-1 {0%,1.97276% {opacity:0;} 1.98276%,100% {opacity:1;}}
+@keyframes start-command-2 {0%,2.21414% {opacity:0;} 2.22414%,100% {opacity:1;}}
+@keyframes start-command-3 {0%,2.45552% {opacity:0;} 2.46552%,100% {opacity:1;}}
+@keyframes start-command-4 {0%,2.6969% {opacity:0;} 2.7069%,100% {opacity:1;}}
+@keyframes start-command-5 {0%,2.93828% {opacity:0;} 2.94828%,100% {opacity:1;}}
+@keyframes start-command-6 {0%,3.17966% {opacity:0;} 3.18966%,100% {opacity:1;}}
+@keyframes start-command-7 {0%,3.42103% {opacity:0;} 3.43103%,100% {opacity:1;}}
+@keyframes start-command-8 {0%,3.66241% {opacity:0;} 3.67241%,100% {opacity:1;}}
+@keyframes start-command-9 {0%,3.90379% {opacity:0;} 3.91379%,100% {opacity:1;}}
+@keyframes start-command-10 {0%,4.14517% {opacity:0;} 4.15517%,100% {opacity:1;}}
+@keyframes start-command-11 {0%,4.38655% {opacity:0;} 4.39655%,100% {opacity:1;}}
+@keyframes start-command-12 {0%,4.62793% {opacity:0;} 4.63793%,100% {opacity:1;}}
+@keyframes start-command-13 {0%,4.86931% {opacity:0;} 4.87931%,100% {opacity:1;}}
+@keyframes start-command-14 {0%,5.11069% {opacity:0;} 5.12069%,100% {opacity:1;}}
+@keyframes start-command-15 {0%,5.35207% {opacity:0;} 5.36207%,100% {opacity:1;}}
+@keyframes start-command-16 {0%,5.59345% {opacity:0;} 5.60345%,100% {opacity:1;}}
+@keyframes start-command-17 {0%,5.83483% {opacity:0;} 5.84483%,100% {opacity:1;}}
+@keyframes start-command-18 {0%,6.07621% {opacity:0;} 6.08621%,100% {opacity:1;}}
+@keyframes start-command-19 {0%,6.31759% {opacity:0;} 6.32759%,100% {opacity:1;}}
+@keyframes start-command-20 {0%,6.55897% {opacity:0;} 6.56897%,100% {opacity:1;}}
+@keyframes start-command-21 {0%,6.80034% {opacity:0;} 6.81034%,100% {opacity:1;}}
+@keyframes start-command-22 {0%,7.04172% {opacity:0;} 7.05172%,100% {opacity:1;}}
+@keyframes start-command-23 {0%,7.2831% {opacity:0;} 7.2931%,100% {opacity:1;}}
+@keyframes start-command-24 {0%,7.52448% {opacity:0;} 7.53448%,100% {opacity:1;}}
+@keyframes start-command-25 {0%,7.76586% {opacity:0;} 7.77586%,100% {opacity:1;}}
+@keyframes start-command-26 {0%,8.00724% {opacity:0;} 8.01724%,100% {opacity:1;}}
+@keyframes start-command-27 {0%,8.24862% {opacity:0;} 8.25862%,100% {opacity:1;}}
+@keyframes start-command-28 {0%,8.49% {opacity:0;} 8.5%,100% {opacity:1;}}
+@keyframes start-input-0 {0%,8.76586% {opacity:0;} 8.77586%,100% {opacity:1;}}
+@keyframes start-input-1 {0%,9.04172% {opacity:0;} 9.05172%,100% {opacity:1;}}
+@keyframes start-input-2 {0%,9.31759% {opacity:0;} 9.32759%,100% {opacity:1;}}
+@keyframes start-input-3 {0%,9.59345% {opacity:0;} 9.60345%,100% {opacity:1;}}
+@keyframes start-input-4 {0%,9.86931% {opacity:0;} 9.87931%,100% {opacity:1;}}
+@keyframes start-input-5 {0%,10.1452% {opacity:0;} 10.1552%,100% {opacity:1;}}
+@keyframes start-input-6 {0%,10.421% {opacity:0;} 10.431%,100% {opacity:1;}}
+@keyframes start-input-7 {0%,10.6969% {opacity:0;} 10.7069%,100% {opacity:1;}}
+@keyframes start-input-8 {0%,10.9728% {opacity:0;} 10.9828%,100% {opacity:1;}}
+@keyframes start-input-9 {0%,11.2486% {opacity:0;} 11.2586%,100% {opacity:1;}}
+@keyframes start-input-10 {0%,11.5245% {opacity:0;} 11.5345%,100% {opacity:1;}}
+@keyframes start-input-11 {0%,11.8003% {opacity:0;} 11.8103%,100% {opacity:1;}}
+@keyframes start-input-12 {0%,12.0762% {opacity:0;} 12.0862%,100% {opacity:1;}}
+@keyframes start-input-13 {0%,12.3521% {opacity:0;} 12.3621%,100% {opacity:1;}}
+@keyframes start-input-14 {0%,12.6279% {opacity:0;} 12.6379%,100% {opacity:1;}}
+@keyframes start-input-15 {0%,12.9038% {opacity:0;} 12.9138%,100% {opacity:1;}}
+@keyframes start-input-16 {0%,13.1797% {opacity:0;} 13.1897%,100% {opacity:1;}}
+@keyframes start-input-17 {0%,13.4555% {opacity:0;} 13.4655%,100% {opacity:1;}}
+@keyframes start-input-18 {0%,13.7314% {opacity:0;} 13.7414%,100% {opacity:1;}}
+@keyframes start-input-19 {0%,14.0072% {opacity:0;} 14.0172%,100% {opacity:1;}}
+@keyframes start-input-20 {0%,14.2831% {opacity:0;} 14.2931%,100% {opacity:1;}}
+@keyframes start-input-21 {0%,14.559% {opacity:0;} 14.569%,100% {opacity:1;}}
+@keyframes start-input-22 {0%,14.8348% {opacity:0;} 14.8448%,100% {opacity:1;}}
+@keyframes start-input-23 {0%,15.1107% {opacity:0;} 15.1207%,100% {opacity:1;}}
+@keyframes start-input-24 {0%,15.3866% {opacity:0;} 15.3966%,100% {opacity:1;}}
+@keyframes start-input-25 {0%,15.6624% {opacity:0;} 15.6724%,100% {opacity:1;}}
+@keyframes start-input-26 {0%,15.9383% {opacity:0;} 15.9483%,100% {opacity:1;}}
+@keyframes start-input-27 {0%,16.2141% {opacity:0;} 16.2241%,100% {opacity:1;}}
+@keyframes start-input-28 {0%,16.49% {opacity:0;} 16.5%,100% {opacity:1;}}
+@keyframes start-cursor {0%,1.49% {opacity:0;transform:translateX(0);} 1.5% {opacity:1;transform:translateX(0);animation-timing-function:steps(28,end);} 8.5% {opacity:1;transform:translateX(218.4px);} 8.51%,100% {opacity:0;transform:translateX(218.4px);}}
+@keyframes input-cursor {0%,8.49% {opacity:0;transform:translateX(0);} 8.5% {opacity:1;transform:translateX(0);animation-timing-function:steps(28,end);} 16.5% {opacity:1;transform:translateX(218.4px);} 16.51%,100% {opacity:0;transform:translateX(218.4px);}}
+@keyframes preview {0%,17.49% {opacity:0;} 17.5%,100% {opacity:1;}}
+@keyframes run-created {0%,20.99% {opacity:0;} 21%,100% {opacity:1;}}
+@keyframes watch-prompt {0%,24.99% {opacity:0;} 25%,100% {opacity:1;}}
+@keyframes watch-command-0 {0%,25.1528% {opacity:0;} 25.1628%,100% {opacity:1;}}
+@keyframes watch-command-1 {0%,25.3156% {opacity:0;} 25.3256%,100% {opacity:1;}}
+@keyframes watch-command-2 {0%,25.4784% {opacity:0;} 25.4884%,100% {opacity:1;}}
+@keyframes watch-command-3 {0%,25.6412% {opacity:0;} 25.6512%,100% {opacity:1;}}
+@keyframes watch-command-4 {0%,25.804% {opacity:0;} 25.814%,100% {opacity:1;}}
+@keyframes watch-command-5 {0%,25.9667% {opacity:0;} 25.9767%,100% {opacity:1;}}
+@keyframes watch-command-6 {0%,26.1295% {opacity:0;} 26.1395%,100% {opacity:1;}}
+@keyframes watch-command-7 {0%,26.2923% {opacity:0;} 26.3023%,100% {opacity:1;}}
+@keyframes watch-command-8 {0%,26.4551% {opacity:0;} 26.4651%,100% {opacity:1;}}
+@keyframes watch-command-9 {0%,26.6179% {opacity:0;} 26.6279%,100% {opacity:1;}}
+@keyframes watch-command-10 {0%,26.7807% {opacity:0;} 26.7907%,100% {opacity:1;}}
+@keyframes watch-command-11 {0%,26.9435% {opacity:0;} 26.9535%,100% {opacity:1;}}
+@keyframes watch-command-12 {0%,27.1063% {opacity:0;} 27.1163%,100% {opacity:1;}}
+@keyframes watch-command-13 {0%,27.2691% {opacity:0;} 27.2791%,100% {opacity:1;}}
+@keyframes watch-command-14 {0%,27.4319% {opacity:0;} 27.4419%,100% {opacity:1;}}
+@keyframes watch-command-15 {0%,27.5947% {opacity:0;} 27.6047%,100% {opacity:1;}}
+@keyframes watch-command-16 {0%,27.7574% {opacity:0;} 27.7674%,100% {opacity:1;}}
+@keyframes watch-command-17 {0%,27.9202% {opacity:0;} 27.9302%,100% {opacity:1;}}
+@keyframes watch-command-18 {0%,28.083% {opacity:0;} 28.093%,100% {opacity:1;}}
+@keyframes watch-command-19 {0%,28.2458% {opacity:0;} 28.2558%,100% {opacity:1;}}
+@keyframes watch-command-20 {0%,28.4086% {opacity:0;} 28.4186%,100% {opacity:1;}}
+@keyframes watch-command-21 {0%,28.5714% {opacity:0;} 28.5814%,100% {opacity:1;}}
+@keyframes watch-command-22 {0%,28.7342% {opacity:0;} 28.7442%,100% {opacity:1;}}
+@keyframes watch-command-23 {0%,28.897% {opacity:0;} 28.907%,100% {opacity:1;}}
+@keyframes watch-command-24 {0%,29.0598% {opacity:0;} 29.0698%,100% {opacity:1;}}
+@keyframes watch-command-25 {0%,29.2226% {opacity:0;} 29.2326%,100% {opacity:1;}}
+@keyframes watch-command-26 {0%,29.3853% {opacity:0;} 29.3953%,100% {opacity:1;}}
+@keyframes watch-command-27 {0%,29.5481% {opacity:0;} 29.5581%,100% {opacity:1;}}
+@keyframes watch-command-28 {0%,29.7109% {opacity:0;} 29.7209%,100% {opacity:1;}}
+@keyframes watch-command-29 {0%,29.8737% {opacity:0;} 29.8837%,100% {opacity:1;}}
+@keyframes watch-command-30 {0%,30.0365% {opacity:0;} 30.0465%,100% {opacity:1;}}
+@keyframes watch-command-31 {0%,30.1993% {opacity:0;} 30.2093%,100% {opacity:1;}}
+@keyframes watch-command-32 {0%,30.3621% {opacity:0;} 30.3721%,100% {opacity:1;}}
+@keyframes watch-command-33 {0%,30.5249% {opacity:0;} 30.5349%,100% {opacity:1;}}
+@keyframes watch-command-34 {0%,30.6877% {opacity:0;} 30.6977%,100% {opacity:1;}}
+@keyframes watch-command-35 {0%,30.8505% {opacity:0;} 30.8605%,100% {opacity:1;}}
+@keyframes watch-command-36 {0%,31.0133% {opacity:0;} 31.0233%,100% {opacity:1;}}
+@keyframes watch-command-37 {0%,31.176% {opacity:0;} 31.186%,100% {opacity:1;}}
+@keyframes watch-command-38 {0%,31.3388% {opacity:0;} 31.3488%,100% {opacity:1;}}
+@keyframes watch-command-39 {0%,31.5016% {opacity:0;} 31.5116%,100% {opacity:1;}}
+@keyframes watch-command-40 {0%,31.6644% {opacity:0;} 31.6744%,100% {opacity:1;}}
+@keyframes watch-command-41 {0%,31.8272% {opacity:0;} 31.8372%,100% {opacity:1;}}
+@keyframes watch-command-42 {0%,31.99% {opacity:0;} 32%,100% {opacity:1;}}
+@keyframes watch-cursor {0%,24.99% {opacity:0;transform:translateX(0);} 25% {opacity:1;transform:translateX(0);animation-timing-function:steps(41,end);} 32% {opacity:1;transform:translateX(319.8px);} 32.01%,100% {opacity:0;transform:translateX(319.8px);}}
+@keyframes hello-event {0%,32.49% {opacity:0;} 32.5%,100% {opacity:1;}}
+@keyframes running-event {0%,32.99% {opacity:0;} 33%,100% {opacity:1;}}
+@keyframes codex-event {0%,33.99% {opacity:0;} 34%,100% {opacity:1;}}
+@keyframes claude-event {0%,33.99% {opacity:0;} 34%,100% {opacity:1;}}
+@keyframes codex-check-event {0%,51.99% {opacity:0;} 52%,100% {opacity:1;}}
+@keyframes claude-check-event {0%,61.99% {opacity:0;} 62%,100% {opacity:1;}}
+@keyframes judge-event {0%,65.99% {opacity:0;} 66%,100% {opacity:1;}}
+@keyframes judge-pick-event {0%,76.99% {opacity:0;} 77%,100% {opacity:1;}}
+@keyframes settled-event {0%,76.99% {opacity:0;} 77%,100% {opacity:1;}}
+@keyframes end-event {0%,76.99% {opacity:0;} 77%,100% {opacity:1;}}
+@keyframes exit-zero {0%,76.99% {opacity:0;} 77%,100% {opacity:1;}}
+@keyframes empty-run {0%,20.99% {opacity:1;} 21%,100% {opacity:0;}}
+@keyframes run-working {0%,20.99% {opacity:0;} 21%,76.99% {opacity:1;} 77%,100% {opacity:0;}}
+@keyframes run-settled {0%,76.99% {opacity:0;} 77%,100% {opacity:1;}}
+@keyframes codex-starting {0%,20.99% {opacity:0;} 21%,33.99% {opacity:1;} 34%,100% {opacity:0;}}
+@keyframes codex-working {0%,33.99% {opacity:0;} 34%,51.99% {opacity:1;} 52%,100% {opacity:0;}}
+@keyframes codex-checks {0%,51.99% {opacity:0;} 52%,100% {opacity:1;}}
+@keyframes codex-checks-pending {0%,20.99% {opacity:0;} 21%,51.99% {opacity:1;} 52%,100% {opacity:0;}}
+@keyframes codex-ready {0%,51.99% {opacity:0;} 52%,76.99% {opacity:1;} 77%,100% {opacity:0;}}
+@keyframes codex-outcome {0%,76.99% {opacity:0;} 77%,100% {opacity:1;}}
+@keyframes claude-starting {0%,20.99% {opacity:0;} 21%,33.99% {opacity:1;} 34%,100% {opacity:0;}}
+@keyframes claude-working {0%,33.99% {opacity:0;} 34%,61.99% {opacity:1;} 62%,100% {opacity:0;}}
+@keyframes claude-checks {0%,61.99% {opacity:0;} 62%,100% {opacity:1;}}
+@keyframes claude-checks-pending {0%,20.99% {opacity:0;} 21%,61.99% {opacity:1;} 62%,100% {opacity:0;}}
+@keyframes claude-ready {0%,61.99% {opacity:0;} 62%,76.99% {opacity:1;} 77%,100% {opacity:0;}}
+@keyframes claude-outcome {0%,76.99% {opacity:0;} 77%,100% {opacity:1;}}
+@keyframes picked-ring {0%,76.99% {opacity:0;} 77%,100% {opacity:1;}}
+@keyframes judge-reading {0%,65.99% {opacity:0;} 66%,76.99% {opacity:1;} 77%,100% {opacity:0;}}
+@keyframes judge-verdict {0%,76.99% {opacity:0;} 77%,100% {opacity:1;}}
+@keyframes judge-surface {0%,65.99% {opacity:0;} 66%,100% {opacity:1;}}
+@keyframes live-run {0%,20.99% {opacity:0;} 21%,100% {opacity:1;}}
+</style>
+<defs><filter id="shadow" x="-10%" y="-10%" width="120%" height="125%"><feDropShadow dx="0" dy="5" stdDeviation="7" flood-color="#07090e" flood-opacity=".08"/></filter></defs>
+<rect x="16" y="30" width="464" height="460" rx="14" fill="var(--surface)" stroke="var(--edge)" filter="url(#shadow)"/><path d="M17 74 H479" stroke="var(--line)"/><g fill="var(--muted)" stroke="var(--edge)"><circle cx="36" cy="52" r="4.5"/><circle cx="51" cy="52" r="4.5"/><circle cx="66" cy="52" r="4.5"/></g><text x="248" y="57" class="secondary" text-anchor="middle">Terminal</text><rect x="500" y="30" width="464" height="460" rx="14" fill="var(--surface)" stroke="var(--edge)" filter="url(#shadow)"/><path d="M501 74 H963" stroke="var(--line)"/><g fill="var(--muted)" stroke="var(--edge)"><circle cx="520" cy="52" r="4.5"/><circle cx="535" cy="52" r="4.5"/><circle cx="550" cy="52" r="4.5"/></g><text x="732" y="57" class="secondary" text-anchor="middle">HarnessDesk</text><g id="start-prompt" class="reveal" style="--reveal:start-prompt"><text x="34" y="106" class="mono accent" >$</text></g><text id="start-command" x="50" y="106" class="mono command" xml:space="preserve"><tspan class="character" style="--reveal:start-command-0">h</tspan><tspan class="character" style="--reveal:start-command-1">a</tspan><tspan class="character" style="--reveal:start-command-2">r</tspan><tspan class="character" style="--reveal:start-command-3">n</tspan><tspan class="character" style="--reveal:start-command-4">e</tspan><tspan class="character" style="--reveal:start-command-5">s</tspan><tspan class="character" style="--reveal:start-command-6">s</tspan><tspan class="character" style="--reveal:start-command-7">d</tspan><tspan class="character" style="--reveal:start-command-8">e</tspan><tspan class="character" style="--reveal:start-command-9">s</tspan><tspan class="character" style="--reveal:start-command-10">k</tspan><tspan class="character" style="--reveal:start-command-11"> </tspan><tspan class="character" style="--reveal:start-command-12">f</tspan><tspan class="character" style="--reveal:start-command-13">l</tspan><tspan class="character" style="--reveal:start-command-14">o</tspan><tspan class="character" style="--reveal:start-command-15">w</tspan><tspan class="character" style="--reveal:start-command-16"> </tspan><tspan class="character" style="--reveal:start-command-17">s</tspan><tspan class="character" style="--reveal:start-command-18">t</tspan><tspan class="character" style="--reveal:start-command-19">a</tspan><tspan class="character" style="--reveal:start-command-20">r</tspan><tspan class="character" style="--reveal:start-command-21">t</tspan><tspan class="character" style="--reveal:start-command-22"> </tspan><tspan class="character" style="--reveal:start-command-23">r</tspan><tspan class="character" style="--reveal:start-command-24">a</tspan><tspan class="character" style="--reveal:start-command-25">c</tspan><tspan class="character" style="--reveal:start-command-26">e</tspan><tspan class="character" style="--reveal:start-command-27"> </tspan><tspan class="character" style="--reveal:start-command-28">\</tspan></text><text id="start-input" x="50" y="129" class="mono command" xml:space="preserve"><tspan class="character" style="--reveal:start-input-0"> </tspan><tspan class="character" style="--reveal:start-input-1"> </tspan><tspan class="character" style="--reveal:start-input-2">-</tspan><tspan class="character" style="--reveal:start-input-3">-</tspan><tspan class="character" style="--reveal:start-input-4">i</tspan><tspan class="character" style="--reveal:start-input-5">n</tspan><tspan class="character" style="--reveal:start-input-6">p</tspan><tspan class="character" style="--reveal:start-input-7">u</tspan><tspan class="character" style="--reveal:start-input-8">t</tspan><tspan class="character" style="--reveal:start-input-9"> </tspan><tspan class="character" style="--reveal:start-input-10">w</tspan><tspan class="character" style="--reveal:start-input-11">o</tspan><tspan class="character" style="--reveal:start-input-12">r</tspan><tspan class="character" style="--reveal:start-input-13">k</tspan><tspan class="character" style="--reveal:start-input-14">=</tspan><tspan class="character" style="--reveal:start-input-15">@</tspan><tspan class="character" style="--reveal:start-input-16">g</tspan><tspan class="character" style="--reveal:start-input-17">a</tspan><tspan class="character" style="--reveal:start-input-18">m</tspan><tspan class="character" style="--reveal:start-input-19">e</tspan><tspan class="character" style="--reveal:start-input-20">.</tspan><tspan class="character" style="--reveal:start-input-21">m</tspan><tspan class="character" style="--reveal:start-input-22">d</tspan><tspan class="character" style="--reveal:start-input-23"> </tspan><tspan class="character" style="--reveal:start-input-24">-</tspan><tspan class="character" style="--reveal:start-input-25">-</tspan><tspan class="character" style="--reveal:start-input-26">y</tspan><tspan class="character" style="--reveal:start-input-27">e</tspan><tspan class="character" style="--reveal:start-input-28">s</tspan></text><rect x="50" y="94" width="1.5" height="15" class="cursor" style="--active:start-cursor"/><rect x="50" y="117" width="1.5" height="15" class="cursor" style="--active:input-cursor"/><g id="preview" class="reveal" style="--reveal:preview"><text x="34" y="152" class="event mono" >Race with a judge  ·  preview</text></g><g id="run-created" class="reveal" style="--reveal:run-created"><text x="34" y="175" class="mono accent" >r_7  t_7</text></g><g id="watch-prompt" class="reveal" style="--reveal:watch-prompt"><text x="34" y="212" class="mono accent" >$</text></g><text id="watch-command" x="50" y="212" class="mono command" xml:space="preserve"><tspan class="character" style="--reveal:watch-command-0">h</tspan><tspan class="character" style="--reveal:watch-command-1">a</tspan><tspan class="character" style="--reveal:watch-command-2">r</tspan><tspan class="character" style="--reveal:watch-command-3">n</tspan><tspan class="character" style="--reveal:watch-command-4">e</tspan><tspan class="character" style="--reveal:watch-command-5">s</tspan><tspan class="character" style="--reveal:watch-command-6">s</tspan><tspan class="character" style="--reveal:watch-command-7">d</tspan><tspan class="character" style="--reveal:watch-command-8">e</tspan><tspan class="character" style="--reveal:watch-command-9">s</tspan><tspan class="character" style="--reveal:watch-command-10">k</tspan><tspan class="character" style="--reveal:watch-command-11"> </tspan><tspan class="character" style="--reveal:watch-command-12">w</tspan><tspan class="character" style="--reveal:watch-command-13">a</tspan><tspan class="character" style="--reveal:watch-command-14">t</tspan><tspan class="character" style="--reveal:watch-command-15">c</tspan><tspan class="character" style="--reveal:watch-command-16">h</tspan><tspan class="character" style="--reveal:watch-command-17"> </tspan><tspan class="character" style="--reveal:watch-command-18">-</tspan><tspan class="character" style="--reveal:watch-command-19">-</tspan><tspan class="character" style="--reveal:watch-command-20">r</tspan><tspan class="character" style="--reveal:watch-command-21">u</tspan><tspan class="character" style="--reveal:watch-command-22">n</tspan><tspan class="character" style="--reveal:watch-command-23"> </tspan><tspan class="character" style="--reveal:watch-command-24">r</tspan><tspan class="character" style="--reveal:watch-command-25">_</tspan><tspan class="character" style="--reveal:watch-command-26">7</tspan><tspan class="character" style="--reveal:watch-command-27"> </tspan><tspan class="character" style="--reveal:watch-command-28">-</tspan><tspan class="character" style="--reveal:watch-command-29">-</tspan><tspan class="character" style="--reveal:watch-command-30">u</tspan><tspan class="character" style="--reveal:watch-command-31">n</tspan><tspan class="character" style="--reveal:watch-command-32">t</tspan><tspan class="character" style="--reveal:watch-command-33">i</tspan><tspan class="character" style="--reveal:watch-command-34">l</tspan><tspan class="character" style="--reveal:watch-command-35"> </tspan><tspan class="character" style="--reveal:watch-command-36">s</tspan><tspan class="character" style="--reveal:watch-command-37">e</tspan><tspan class="character" style="--reveal:watch-command-38">t</tspan><tspan class="character" style="--reveal:watch-command-39">t</tspan><tspan class="character" style="--reveal:watch-command-40">l</tspan><tspan class="character" style="--reveal:watch-command-41">e</tspan><tspan class="character" style="--reveal:watch-command-42">d</tspan></text><rect x="50" y="200" width="1.5" height="15" class="cursor" style="--active:watch-cursor"/><g id="hello-event" class="reveal" style="--reveal:hello-event"><text x="34" y="244" class="event mono" >hello</text></g><g id="running-event" class="reveal" style="--reveal:running-event"><text x="34" y="267" class="event mono" >run.changed  r_7  running</text></g><g id="codex-event" class="reveal" style="--reveal:codex-event"><text x="34" y="290" class="event mono" >seat.changed  Codex  working</text></g><g id="claude-event" class="reveal" style="--reveal:claude-event"><text x="34" y="313" class="event mono" >seat.changed  Claude Code  working</text></g><g id="codex-check-event" class="reveal" style="--reveal:codex-check-event"><text x="34" y="336" class="event mono" >card.changed  1  done</text></g><g id="claude-check-event" class="reveal" style="--reveal:claude-check-event"><text x="34" y="359" class="event mono" >card.changed  2  done</text></g><g id="judge-event" class="reveal" style="--reveal:judge-event"><text x="34" y="382" class="event mono" >seat.changed  Gemini  working</text></g><g id="judge-pick-event" class="reveal" style="--reveal:judge-pick-event"><text x="34" y="405" class="event mono" >card.changed  3  done  second</text></g><g id="settled-event" class="reveal" style="--reveal:settled-event"><text x="34" y="428" class="event mono success" >run.changed  r_7  settled</text></g><g id="end-event" class="reveal" style="--reveal:end-event"><text x="34" y="451" class="event mono success" >end  until</text></g><g id="exit-zero" class="reveal" style="--reveal:exit-zero"><text x="34" y="475" class="mono accent" >$</text><text x="54" y="475" class="small mono success" >exit 0</text><text x="178" y="475" class="small success" >Picked: Claude Code</text></g><g id="empty-run" class="transient" style="--active:empty-run"><text x="732" y="265" class="tertiary" text-anchor="middle">Waiting for a Run</text></g><g id="live-run" class="reveal" style="--reveal:live-run"><text x="518" y="110" class="label" >Race</text><text x="563" y="110" class="mono small accent" >r_7</text><g id="run-working" class="transient" style="--active:run-working"><rect x="870" y="93" width="76" height="22" rx="5" fill="var(--muted)" /><text x="908.0" y="108" class="chip secondary" text-anchor="middle">Running</text></g><g id="run-settled" class="reveal" style="--reveal:run-settled"><rect x="872" y="93" width="74" height="22" rx="5" fill="var(--success-fill)" /><text x="909.0" y="108" class="chip success" text-anchor="middle">Settled</text></g><rect x="518" y="128" width="428" height="32" rx="8" fill="var(--muted)" /><text x="530" y="149" class="small secondary" >Build the game from game.md.</text><g id="codex-tile"><rect x="518" y="177" width="206" height="180" rx="8" fill="var(--surface)" stroke="var(--edge)"/><rect x="530" y="189" width="22" height="22" rx="6" fill="var(--codex-fill)" /><text x="541" y="204" class="agent-mark codex-mark" text-anchor="middle">C</text><text x="560" y="204" font-weight="500">Codex</text><text x="530" y="235" class="small tertiary" >Implementer</text><g id="codex-starting" class="transient" style="--active:codex-starting"><rect x="530" y="251" width="182" height="36" rx="8" fill="var(--muted)" /><circle class="pulse" cx="543" cy="269" r="3" fill="var(--accent)"/><text x="555" y="274" class="small secondary" >Starting the attempt</text></g><g id="codex-working" class="transient" style="--active:codex-working"><rect x="530" y="251" width="182" height="36" rx="8" fill="var(--muted)" /><circle class="pulse" cx="543" cy="269" r="3" fill="var(--accent)"/><text x="555" y="274" class="small secondary" >Working from the brief</text></g><g id="codex-checks" class="reveal" style="--reveal:codex-checks"><rect x="530" y="251" width="182" height="36" rx="8" fill="var(--surface)" stroke="var(--edge)"/><path d="M542 270 l3 3 6 -7" fill="none" stroke="var(--success)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><text x="560" y="274" class="small success" >Checks 4/4</text></g><g id="codex-checks-pending" class="transient" style="--active:codex-checks-pending"><text x="530" y="322" class="small tertiary" >Checks pending</text></g><g id="codex-ready" class="transient" style="--active:codex-ready"><text x="530" y="322" class="small tertiary" >Ready for the judge</text></g><g id="codex-outcome" class="reveal" style="--reveal:codex-outcome"><rect x="530" y="307" width="70" height="22" rx="5" fill="var(--muted)" /><text x="565.0" y="322" class="chip secondary" text-anchor="middle">Not kept</text></g></g><g id="claude-tile"><rect x="740" y="177" width="206" height="180" rx="8" fill="var(--surface)" stroke="var(--edge)"/><rect x="752" y="189" width="22" height="22" rx="6" fill="var(--claude-fill)" /><text x="763" y="204" class="agent-mark claude-mark" text-anchor="middle">CC</text><text x="782" y="204" font-weight="500">Claude Code</text><text x="752" y="235" class="small tertiary" >Implementer</text><g id="claude-starting" class="transient" style="--active:claude-starting"><rect x="752" y="251" width="182" height="36" rx="8" fill="var(--muted)" /><circle class="pulse" cx="765" cy="269" r="3" fill="var(--accent)"/><text x="777" y="274" class="small secondary" >Starting the attempt</text></g><g id="claude-working" class="transient" style="--active:claude-working"><rect x="752" y="251" width="182" height="36" rx="8" fill="var(--muted)" /><circle class="pulse" cx="765" cy="269" r="3" fill="var(--accent)"/><text x="777" y="274" class="small secondary" >Working from the brief</text></g><g id="claude-checks" class="reveal" style="--reveal:claude-checks"><rect x="752" y="251" width="182" height="36" rx="8" fill="var(--surface)" stroke="var(--edge)"/><path d="M764 270 l3 3 6 -7" fill="none" stroke="var(--success)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><text x="782" y="274" class="small success" >Checks 4/4</text></g><g id="claude-checks-pending" class="transient" style="--active:claude-checks-pending"><text x="752" y="322" class="small tertiary" >Checks pending</text></g><g id="claude-ready" class="transient" style="--active:claude-ready"><text x="752" y="322" class="small tertiary" >Ready for the judge</text></g><g id="claude-outcome" class="reveal" style="--reveal:claude-outcome"><rect x="752" y="307" width="58" height="22" rx="5" fill="var(--success-fill)" /><text x="781.0" y="322" class="chip success" text-anchor="middle">Picked</text></g><g id="picked-ring" class="reveal" style="--reveal:picked-ring"><rect x="741" y="178" width="204" height="178" rx="7" fill="none" stroke="var(--success)" stroke-width="1.5"/></g></g><g id="judge-surface" class="reveal" style="--reveal:judge-surface"><rect x="518" y="375" width="428" height="95" rx="14" fill="var(--surface)" stroke="var(--edge)"/><rect x="534" y="391" width="22" height="22" rx="6" fill="var(--gemini-fill)" /><text x="545" y="406" class="agent-mark gemini-mark" text-anchor="middle">G</text><text x="564" y="407" font-weight="500">Gemini</text><text x="616" y="407" class="small tertiary" >Judge</text><g id="judge-reading" class="transient" style="--active:judge-reading"><rect x="873" y="391" width="57" height="22" rx="5" fill="var(--muted)" /><text x="901.5" y="406" class="chip secondary" text-anchor="middle">Reading</text><text x="534" y="443" class="secondary" >Comparing both attempts.</text></g><g id="judge-verdict" class="reveal" style="--reveal:judge-verdict"><text x="534" y="443" class="secondary" >Claude Code is the stronger attempt.</text></g></g></g>
+</svg>

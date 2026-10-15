@@ -294,11 +294,16 @@ export class AgentWatch {
     const watchedScopes = new Set([...this.#watchers.values()].map((one) => one.scope))
     await Promise.all(
       [...next]
-        .filter((project) => !watchedScopes.has(project))
         .map(async (project) => {
           const within = await realpath(project).catch(() => null)
+          if (this.#projects !== next || this.#disposed) return
           // A project that is not there has nothing to watch; opening it again re-points the watch, once it is.
-          if (within === null) return
+          if (within === null) {
+            this.#projects.delete(project)
+            this.#drop(project)
+            return
+          }
+          if (watchedScopes.has(project)) return
           await this.#follow({ scope: project, target: join(within, '.harnessdesk', 'agents'), within })
         }),
     )

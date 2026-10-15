@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type CSSProperties, type Dispatch, type SetStateAction } from 'react'
+import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ComponentProps, type CSSProperties, type Dispatch, type ReactNode, type SetStateAction } from 'react'
 import type { SessionKey, Turn } from '@harnessdesk/protocol'
 
 import {
@@ -9,6 +9,8 @@ import {
   focusTile,
   pinTile,
   removeTile,
+  SEAM_WIDTH,
+  setTileMode,
   type SideBySideState,
 } from '../lib/side-by-side'
 import { KeyboardHereContext, PaneProvider, useIsFocusedPane } from '../state/context'
@@ -17,16 +19,18 @@ import type { SeatCeilingShown } from '../lib/ceilings'
 import { BrandMark } from './BrandIcons'
 import { CeilingChip } from './CeilingChip'
 import { Conversation } from './Conversation'
+import { SeatBrowser } from './SeatBrowser'
 import {
   AgentIcon,
-  CollapseIcon,
-  ExpandIcon,
   MoreIcon,
+  GlobeIcon,
+  CommentIcon,
 } from './Icons'
 import {
   Bar,
   Button,
   Chip,
+  ComposerDock,
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -38,32 +42,42 @@ import {
   TabsTrigger,
   Text,
   Dot,
+  useComposerHeightVar,
+  PaneColumn,
 } from '../design'
 import styles from './SideBySide.module.css'
 
 /** What a tile's header reads about its member. The room supplies it. */
 export type TileEntry = {
+  readonly label?: string
   readonly tint?: ComponentProps<typeof IconTile>['tint']
   readonly brand?: ComponentProps<typeof BrandMark>['brand'] | null
   readonly busy?: boolean
   readonly waitingForYou?: boolean
+  /** A user message is waiting behind this member's current turn. */
+  readonly queued?: boolean
   /** How its last turn ended, while it is neither working nor waiting: done, or stopped short. */
   readonly ended?: 'done' | 'stopped'
+  /** The Run's recorded outcome for this competitor, independent of its conversation state. */
+  readonly keep?: 'kept' | 'not-kept' | null
   /** What it may do unasked, when held under a ceiling — the safety fact the conversation's own header carried. */
   readonly ceiling?: SeatCeilingShown | null
 }
 
 /** Resolve the room facts into the entry the shipped tile draws. */
 export const sideBySideTileEntry = (
-  entry: Pick<TileEntry, 'tint' | 'brand' | 'busy' | 'waitingForYou' | 'ceiling'> & {
+  entry: Pick<TileEntry, 'tint' | 'brand' | 'busy' | 'waitingForYou' | 'queued' | 'ceiling' | 'keep' | 'label'> & {
     readonly lastTurnStatus?: Turn['status']
   },
 ): TileEntry => ({
+  label: entry.label,
   tint: entry.tint,
   brand: entry.brand,
   busy: entry.busy,
   waitingForYou: entry.waitingForYou,
+  queued: entry.queued,
   ceiling: entry.ceiling,
+  keep: entry.keep,
   ...(entry.lastTurnStatus === 'completed'
     ? { ended: 'done' as const }
     : entry.lastTurnStatus === 'interrupted' || entry.lastTurnStatus === 'failed'
@@ -80,6 +94,9 @@ export const SideBySide = ({
   entryOf,
   onOpenMember,
   conversationProps,
+  notice,
+  composer,
+  decision,
   card = (_key, who) => who,
 }: {
   state: SideBySideState
@@ -90,6 +107,11 @@ export const SideBySide = ({
   entryOf: (key: SessionKey) => TileEntry | null
   onOpenMember: (key: SessionKey) => void
   conversationProps: ConversationProps
+  notice?: React.ReactNode
+  /** The comparison decision clears tile content together with the shared dock. */
+  decision?: ReactNode
+  /** The room's shared composer addresses exactly the members displayed by the grid. */
+  composer?: (shown: readonly SessionKey[]) => ReactNode
   /**
    * Wraps a tile's identity — its mark, name and model — in whatever card the
    * caller hangs on a member (the room's member hover card). Passed in so the
@@ -98,16 +120,27 @@ export const SideBySide = ({
   card?: (key: SessionKey, who: React.ReactNode) => React.ReactNode
 }) => {
   const gridRef = useRef<HTMLDivElement>(null)
+  const stripRef = useRef<HTMLDivElement>(null)
+  /* The dock ref stays mounted even with one tile showing, so the system's
+     observer sees it appear, disappear and grow with all its notices. */
+  const composerRef = useComposerHeightVar(gridRef)
   const [width, setWidth] = useState(0)
+  const [room, setRoom] = useState({ height: 0, dock: 0, browserTile: 0 })
+  const [composing, setComposing] = useState(false)
   const focusedPane = useIsFocusedPane()
   /* A tile never claims the keyboard that what encloses the grid says is
      elsewhere; it can only narrow it to one tile. */
   const keyboardAbove = useContext(KeyboardHereContext) !== false
-  const shown = displayFor(state, width)
-  /* Narrow is about the room's width, not about what is shown: an expanded
-     tile in a narrow room keeps the strip, so the member can still be
-     switched without first pressing Esc. */
-  const narrow = state.tiles.length > 1 && columnsThatFit(width) < 2
+  const fitting = displayFor(state, width)
+  const fittingRows = Math.ceil(fitting.shown.length / fitting.columns)
+  const shortBrowserGrid = fittingRows > 1 && fitting.shown.some(key => state.modes[key] === 'browser')
+    && room.height > 0 && (room.height - (composer ? room.dock : 0) - SEAM_WIDTH) / fittingRows < room.browserTile
+  const shown = shortBrowserGrid ? displayFor(state, 0) : fitting
+  const sharedComposer = composer !== undefined && shown.shown.length >= 2
+  /* Tabs select a member when width or Browser height constrains the grid.
+     An expanded tile in a narrow room also keeps the strip, so the member
+     can still be switched without first pressing Esc. */
+  const narrow = state.tiles.length > 1 && (columnsThatFit(width) < 2 || shortBrowserGrid)
   /* The tile a chord just chose, whose composer takes the keyboard once it
      is drawn: a chord moves the keys, not only the highlight. */
   const typeInto = useRef<SessionKey | null>(null)
@@ -136,6 +169,59 @@ export const SideBySide = ({
     observer.observe(grid)
     return () => observer.disconnect()
   }, [])
+
+  useLayoutEffect(() => {
+    const grid = gridRef.current
+    const dock = composerRef.current
+    if (!grid || !dock) return
+    const chromeRows = (): Element[][] => [...grid.querySelectorAll('[data-mode="browser"]')].flatMap(body => {
+      const pane = body.querySelector('[data-slot="tool-pane"]')
+      if (!pane) return []
+      const bars = [...pane.children]
+        .filter(child => child.getAttribute('data-slot') !== 'tool-pane-body')
+      return [body.previousElementSibling ? [body.previousElementSibling, ...bars] : bars]
+    })
+    const measure = (): void => {
+      const tokens = getComputedStyle(grid)
+      // The embedded browser has a tile header, slim address bar and footer.
+      // Keep a usable page below them even before its live surface mounts.
+      const fallbackChrome = 2 * parseFloat(tokens.getPropertyValue('--hd-bar-h')) + parseFloat(tokens.getPropertyValue('--hd-control-h'))
+      const mountedChrome = chromeRows().map(rows =>
+        rows.reduce((height, row) => height + row.getBoundingClientRect().height, 0))
+      const chrome = mountedChrome.length ? Math.max(...mountedChrome) : fallbackChrome || 0
+      const browserTile = chrome + 80
+      setRoom(was => {
+        // Hiding the shared dock for the fallback must not immediately bring
+        // the cramped grid back. Retain its clearance until it is shown again.
+        // The fallback's tabs disappear with it: count their space when
+        // asking whether the two-row grid can return after chrome shrinks.
+        const height = grid.getBoundingClientRect().height + (stripRef.current?.getBoundingClientRect().height ?? 0)
+        const next = { height, dock: dock.hidden ? was.dock : dock.offsetHeight, browserTile }
+        return next.height === was.height && next.dock === was.dock && next.browserTile === was.browserTile ? was : next
+      })
+    }
+    measure()
+    const gridObserver = new ResizeObserver(measure)
+    const dockObserver = new ResizeObserver(measure)
+    const chromeObserver = new ResizeObserver(measure)
+    let observedChrome = new Set<Element>()
+    const watchChrome = (): void => {
+      const next = new Set(chromeRows().flat())
+      let changed = false
+      for (const row of observedChrome) if (!next.has(row)) { chromeObserver.unobserve(row); changed = true }
+      for (const row of next) if (!observedChrome.has(row)) { chromeObserver.observe(row); changed = true }
+      observedChrome = next
+      if (changed) measure()
+    }
+    // Find and a late-mounted live Browser change chrome without resizing the
+    // room or dock. Observe their rows, including rows added after this effect.
+    watchChrome()
+    const chromeMounts = new MutationObserver(watchChrome)
+    chromeMounts.observe(grid, { childList: true, subtree: true })
+    gridObserver.observe(grid)
+    dockObserver.observe(dock)
+    return () => { gridObserver.disconnect(); dockObserver.disconnect(); chromeObserver.disconnect(); chromeMounts.disconnect() }
+  }, [composerRef, state.modes])
 
   useEffect(() => {
     const onCommand = (event: Event): void => {
@@ -173,11 +259,11 @@ export const SideBySide = ({
     onChange((was) => expandTile(was, null))
   }, [entryOf, onChange, state.expanded])
 
-  const focus = (key: SessionKey) => onChange((was) => focusTile(was, key))
+  const focus = useCallback((key: SessionKey) => onChange((was) => focusTile(was, key)), [onChange])
   /*
    * Where each shown tile sits. The grid's tracks alternate tiles and one-
-   * hairline seams, and the system's Separator draws each seam — the screen
-   * places, it never paints. Every tile stays a direct child of the grid in
+   * pixel seams. The system's unpainted Separator retains their geometry
+   * under the no-column-line rule. Every tile stays a direct child of the grid in
    * tile order, whatever is shown: moving one into a row of its own would
    * remount it, and a remount loses a transcript's scroll and reloads a page.
    * A short last row's last tile spans to the grid's end.
@@ -186,7 +272,14 @@ export const SideBySide = ({
   const rows = Math.max(1, Math.ceil(shown.shown.length / columns))
   const track = (count: number) =>
     Array.from({ length: count }, () => 'minmax(0, 1fr)').join(' var(--hd-space-px) ')
-  const gridStyle = { gridTemplateColumns: track(columns), gridTemplateRows: track(rows) } as CSSProperties
+  // The bottom track includes the dock's clearance, leaving equal usable
+  // tile heights instead of taking all that space from half-height tiles.
+  const gridStyle = {
+    gridTemplateColumns: track(columns),
+    gridTemplateRows: sharedComposer && rows === 2
+      ? 'minmax(0, calc((100% - var(--composer-h, 0px) - var(--hd-space-px)) / 2)) var(--hd-space-px) minmax(0, calc((100% + var(--composer-h, 0px) - var(--hd-space-px)) / 2))'
+      : track(rows),
+  } as CSSProperties
   const place = (key: SessionKey): CSSProperties | undefined => {
     const at = shown.shown.indexOf(key)
     if (at < 0) return undefined
@@ -210,10 +303,12 @@ export const SideBySide = ({
 
   return (
     <div className={styles.root} onKeyDown={onKeyDown}>
-      {/* One tile at a time when the room is too narrow for two: the system's
+      {notice}
+      {!sharedComposer && decision && <PaneColumn inset="bars">{decision}</PaneColumn>}
+      {/* One tile at a time when the room cannot fit the grid: the system's
           tabs pick which, with their arrow keys and roving focus. */}
       {narrow && (
-        <div className={styles.strip}>
+        <div ref={stripRef} className={styles.strip}>
           <Tabs value={state.focused ?? state.tiles[0] ?? ''} onValueChange={(next) => focus(next as SessionKey)}>
             <TabsList aria-label="Side by side tiles">
               {state.tiles.map((key) => (
@@ -232,11 +327,13 @@ export const SideBySide = ({
         {state.tiles.map((key) => {
           const member = memberOf(key)
           const entry = entryOf(key)
+          const letter = entry?.label ?? String.fromCharCode(65 + state.tiles.indexOf(key))
           const nickname = member?.nickname ?? 'Member'
           const isFocused = state.focused === key
           const isExpanded = state.expanded === key
           const isHidden = !shown.shown.includes(key)
-          const model = [member?.agent === nickname ? null : member?.agent, member?.model].filter(Boolean).join(' · ')
+          const clearsComposer = sharedComposer && !isHidden && Math.floor(shown.shown.indexOf(key) / columns) === rows - 1
+          const model = member?.model
           return (
             <section
               key={key}
@@ -255,78 +352,71 @@ export const SideBySide = ({
               onClick={() => focus(key)}
               /* Keyboard entry counts as choosing the tile, the same as a
                  click: Tab into its composer and the keys are its keys. */
-              onFocusCapture={() => focus(key)}
+              onFocusCapture={() => { setComposing(false); focus(key) }}
             >
-              <Bar as="header" rule="bottom" active={isFocused && shown.shown.length > 1}
-                /* Agent and model detail give way before the name; a name
-                   longer than its column wraps and the bar grows to hold it. */
-                grow
-                className={styles.header}>
+              <Bar as="header" rule="bottom" active={isFocused && shown.shown.length > 1} className={styles.header}>
+                <Chip tone={(letter.charCodeAt(0) - 65) % 2 ? 'info' : 'brand'} size="sm" title={`Attempt ${letter}`}>{letter}</Chip>
                 {card(key, (
                   <span className={styles.member}>
                     <span className={styles.mark}>
                       <IconTile size="sm" shape="face" tint={entry?.tint ?? 'blue'}>
                         {entry?.brand ? <BrandMark brand={entry.brand} size={13} /> : <AgentIcon />}
                       </IconTile>
-                      {entry?.busy && <Dot state="ready" variant="presence" pulse aria-hidden />}
                     </span>
-                    <Text role="row" className={styles.nickname}>{nickname}</Text>
+                    <Text role="row" className={styles.nickname} truncate title={member?.agent ?? nickname}>{member?.agent ?? nickname}</Text>
                     {model && <Text role="meta" className={styles.model} truncate>{model}</Text>}
                   </span>
                 ))}
+                {(entry?.waitingForYou || entry?.busy || entry?.ended) && <span className={styles.state}>
+                  <Dot tone={entry.waitingForYou ? 'warning' : entry.busy ? 'success' : 'neutral'} pulse={entry.busy && !entry.waitingForYou} aria-hidden />
+                  <Text role="meta">{entry.waitingForYou ? 'Waiting' : entry.busy ? 'Working' : entry.ended === 'done' ? 'Done' : 'Stopped'}</Text>
+                </span>}
+                {entry?.keep && <Chip tone={entry.keep === 'kept' ? 'success' : 'neutral'} size="sm">{entry.keep === 'kept' ? 'Picked' : 'Not kept'}</Chip>}
                 {entry?.ceiling && <CeilingChip ceiling={entry.ceiling.ceiling} note={entry.ceiling.note} />}
-                {/* Waiting outranks working, as it does everywhere a pane's
-                    state is told (`paneStatus`): a turn held on an approval
-                    is still in progress, and the question is what needs the
-                    person. */}
-                {entry?.waitingForYou ? (
-                  <Chip tone="warning" size="sm">Waiting for you</Chip>
-                ) : entry?.busy ? (
-                  <Chip state="ready" size="sm">Working</Chip>
-                ) : entry?.ended === 'done' ? (
-                  <Chip tone="neutral" size="sm">Done</Chip>
-                ) : entry?.ended === 'stopped' ? (
-                  <Chip tone="neutral" size="sm">Stopped</Chip>
-                ) : null}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${nickname}`}
-                  title={isExpanded ? 'Return to the grid' : 'Expand tile'}
-                  onClick={(event) => {
+                {entry?.queued && <Chip tone="neutral" size="sm" title="Queued — next after this turn">Queued</Chip>}
+                <span className={styles.view}><Button type="button" variant="ghost" size="icon-sm"
+                  aria-label={state.modes[key] === 'browser' ? 'Back to the conversation' : 'Show the browser'}
+                  title={state.modes[key] === 'browser' ? 'Conversation' : 'Browser'}
+                  onClick={event => {
                     event.stopPropagation()
-                    onChange((was) => expandTile(was, isExpanded ? null : key))
-                  }}
-                >
-                  {isExpanded ? <CollapseIcon size={14} /> : <ExpandIcon size={14} />}
-                </Button>
-                <DropdownMenu>
+                    onChange(was => setTileMode(focusTile(was, key), key, was.modes[key] === 'browser' ? 'conversation' : 'browser'))
+                  }}>
+                  {state.modes[key] === 'browser' ? <CommentIcon size={14} /> : <GlobeIcon size={14} />}
+                </Button></span>
+                <DropdownMenu icons="none">
                   <DropdownMenuTrigger render={<Button type="button" variant="ghost" size="icon-sm" aria-label={`${nickname} actions`} title="Tile actions"><MoreIcon size={14} /></Button>} />
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem onClick={(event) => { event.stopPropagation(); onOpenMember(key) }}>Open conversation</DropdownMenuItem>
+                    <DropdownMenuItem aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ${nickname}`} onClick={event => {
+                      event.stopPropagation()
+                      onChange(was => expandTile(was, isExpanded ? null : key))
+                    }} label={isExpanded ? 'Return to the grid' : 'Expand tile'} />
+                    <DropdownMenuItem onClick={(event) => { event.stopPropagation(); onOpenMember(key) }} label={"Open conversation"} />
                     <DropdownMenuItem onClick={(event) => {
                       event.stopPropagation()
                       onChange((was) => pinTile(was, key, !was.pinned.includes(key)))
-                    }}>
-                      {state.pinned.includes(key) ? 'Unpin' : 'Pin to the grid'}
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={(event) => { event.stopPropagation(); onChange((was) => removeTile(was, key)) }}>Take off the grid</DropdownMenuItem>
+                    }} label={state.pinned.includes(key) ? 'Unpin' : 'Pin to the grid'} />
+                    <DropdownMenuItem onClick={(event) => { event.stopPropagation(); onChange((was) => removeTile(was, key)) }} label={"Take off the grid"} />
                   </DropdownMenuContent>
                 </DropdownMenu>
               </Bar>
-              <div className={styles.body}>
+              <div className={styles.body} data-mode={state.modes[key] ?? 'conversation'} {...(clearsComposer ? { 'data-clear-composer': '' } : {})}>
                 {/* One tile has the keyboard. The others read as unfocused
                     panes to everything inside them — their composers take
                     no compose events, their approvals answer no keys and
                     take no focus — so one press reaches one member. */}
-                <KeyboardHereContext.Provider value={keyboardAbove && isFocused && !isHidden}>
+                <KeyboardHereContext.Provider value={keyboardAbove && isFocused && !isHidden && !(sharedComposer && composing)}>
                   <PaneProvider scope={{ paneId: `${paneId}:${key}`, view: { kind: 'conversation', session: key }, sessionKey: key }}>
                     {/* One tile alone on screen — expanded, or the narrow
                         room's one tab — keeps its own composer; on a grid of
                         two or more, one composer below speaks for them all. */}
-                    <Conversation {...conversationProps} header={false} composer={shown.shown.length < 2} />
-                    <Approvals />
+                    {state.modes[key] === 'browser' ? (
+                      <SeatBrowser paneId={paneId} session={key} onFocus={focus} />
+                    ) : (
+                      <>
+                        <Conversation {...conversationProps} header={false} composer={shown.shown.length < 2} />
+                        <Approvals />
+                      </>
+                    )}
                   </PaneProvider>
                 </KeyboardHereContext.Provider>
               </div>
@@ -334,8 +424,15 @@ export const SideBySide = ({
           )
         })}
         {seams.map((seam) => (
-          <Separator key={seam.key} orientation={seam.orientation} style={seam.style} />
+          <Separator key={seam.key} orientation={seam.orientation} painted={false} style={seam.style} />
         ))}
+        <ComposerDock floating ref={composerRef} data-shared-composer="" data-decision={decision ? '' : undefined} hidden={!sharedComposer} className={styles.dock} onFocusCapture={() => setComposing(true)}>
+          {sharedComposer && composer && (
+            <ComposerDock>
+              <div className={styles.composer}>{decision}{composer(shown.shown)}</div>
+            </ComposerDock>
+          )}
+        </ComposerDock>
       </div>
     </div>
   )

@@ -9,146 +9,12 @@
   container: hd-room / inline-size;
 }
 
-/* --- the room's one top row ----------------------------------------------
- *
- * The window's `Bar`, like every other edge row in the window — the
- * conversation's header, a tool's, a panel's tab strip. That is what makes the
- * horizontal line under it continue straight into whatever is beside the room
- * instead of stepping, and what clears the macOS window buttons when the
- * sidebar is away (`Bar corner`).
- */
-.bar {
-  /* A pane's top row, under the name every top row folds by — so the window's
-     own controls fold their arrows here at the width they do in a
-     conversation's header (`WindowControls.module.css`). */
-  container: hd-header / inline-size;
-  /* `.barName` and `.barFacts` shrink to their own floors before anything
-     else does, but the row's own fixed-width members — the window's own
-     controls, the state chip, the origin chip, the rule, the verbs — do not
-     shrink at all, and a room narrower than their sum still has to fit
-     somewhere. Clipped here, at the row's own edge, rather than spilling past
-     the pane's bounds into whatever a split view puts beside it — a docked
-     board's own tab strip, measured colliding with an unclipped header at a
-     narrow room width. */
-  overflow: hidden;
-}
-
-.members {
-  display: flex;
-  flex-direction: column;
-  width: 232px; /* The portalled list owns its width, outside the pane's cascade. */
-  max-width: 100%;
-  max-height: 70vh;
-  overflow-y: auto;
-}
-
-.tabs {
-  flex: none;
-  min-width: 0;
-  overflow-x: auto;
-}
-
-.barName {
-  /* Shrinkable, with a floor. `flex: none` here meant the row could never be
-     narrower than the room's own name: measured at a 380px room called "Final
-     round — nine pull requests", the messaging switch and the expand button
-     were pushed 9px past the bar's right edge and off the screen, with no
-     scroll and no wrap to reach them. The name gives way *second* — the facts
-     beside it carry a much larger shrink factor — and ellipsises rather than
-     taking the verbs with it. */
-  flex: 0 1 auto;
-  /* Three characters and an ellipsis. Measured: at 4rem the row still spilled
-     its verbs at a 280px room carrying the 78px the macOS buttons take —
-     narrower than anything this layout can currently produce, but a floor that
-     can still overflow is not a floor. The name is the last thing to give way
-     and the verbs are never it. */
-  min-width: 2rem;
-  max-width: 22rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* What is happening in the room, beside its name rather than under it: at one
-   bar height there is no second line, and these are four short numbers. They
-   give way before the name does — a room with no width left says which room it
-   is and stops counting. */
-.barFacts {
-  display: flex;
-  align-items: center;
-  gap: 0.25em;
-  /* The first thing to go. A hundred to the name's one, so a narrowing row
-     spends the whole deficit here before it touches which room this is. */
-  flex: 0 100 auto;
-  min-width: 0;
-  overflow: visible; /* desk: the header clips at its edge; this inner box must leave the members focus ring whole. */
-  white-space: nowrap;
-  text-overflow: ellipsis; /* desk: it now carries the project and origin too, and a bare clip mid-word read as broken. */
-}
-
-/* What the row does, at its end, behind the divider that separates it from
-   what the row says. */
-.barVerbs {
-  display: flex;
-  align-items: center;
-  gap: var(--hd-space-0-5);
-  flex: none;
-  margin-left: auto;
-}
-
-.barFacts [data-team-trigger-label='short'] {
-  display: none;
-}
-
-/* Narrow headers put their tools in the existing overflow menu. */
-.barWrapFull {
-  display: inline-flex;
-}
-.barWrapFull[hidden] {
-  display: none;
-}
-
 /* The two halves, under the row that names them both. */
 .split {
   display: flex;
   flex: 1;
   min-height: 0;
   min-width: 0;
-}
-
-/* The job line's own "#1 Seat 1" pairs a number with a name a person did
-   not write to fit this column — `wrapSubtitle` wraps it, correctly, but the
-   shared row's own `overflow-wrap: anywhere` will still split a word that
-   does not fit rather than only breaking between words. A member's name is
-   not the unbroken URL or hash that rule exists for. */
-.memberRow [data-slot="list-row-subtitle"] {
-  overflow-wrap: normal;
-}
-
-/* The sidebar's own filter field, on the rail's gutter. */
-.railFilter {
-  flex-shrink: 0;
-  margin: 0 var(--hd-bar-pad) var(--hd-space-1);
-}
-
-/* The long list, which scrolls under the head (`RailSection stretch="list"`). */
-.railList {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-}
-
-.railEmpty {
-  margin: 0;
-}
-
-/* `margin-left: auto` here and nowhere else in the row. The roster heading
-   carried it on the count *and* on the + beside it, and two auto margins in
-   one flex line split the free space between them — which left the count
-   stranded in the middle of the heading with a gap on either side, reading as
-   a number that belongs to nothing. */
-.count {
-  margin-left: auto;
 }
 
 /* --- a member ------------------------------------------------------------
@@ -249,14 +115,22 @@
   min-height: 0;
   overflow-y: auto;
   scrollbar-gutter: stable both-edges;
+  /* A column so a short thread can sit on the composer (below). */
+  display: flex;
+  flex-direction: column;
 }
 
 /* The app's reading column, around rows that would otherwise be as wide as the
    window. The rows keep their own gutter inside it — a chat has faces and a
-   transcript does not — but the column they hang in is the same one. */
+   transcript does not — but the column they hang in is the same one.
+
+   A chat reads upward from where you type: a thread shorter than the pane
+   sits on the composer, not at the top of an empty page with the gap between
+   it and the box you answer in. Longer, it scrolls as before. */
 .streamColumn {
+  width: 100%;
   max-width: var(--hd-column);
-  margin-inline: auto;
+  margin: auto auto 0;
 }
 
 /* How far behind the reader is, and the way back.
@@ -293,34 +167,6 @@
 .composerShell {
   max-width: var(--hd-column);
   margin-inline: auto;
-}
-
-@container hd-header (max-width: 56rem) {
-  .barFacts [data-team-trigger-source],
-  .barFacts [data-team-pinned-at] {
-    display: none;
-  }
-}
-
-@container hd-header (max-width: 38rem) {
-  /* Consent and Run state stay whole; the source uses its short label. */
-  .barFacts [data-team-trigger-label='full'] {
-    display: none;
-  }
-
-  .barFacts [data-team-trigger-label='short'] {
-    display: inline;
-  }
-
-  .barFacts > [data-role='meta'] {
-    display: none;
-  }
-}
-
-@container hd-header (max-width: 22rem) {
-  .barFacts [data-team-members-count] {
-    display: none;
-  }
 }
 
 /*

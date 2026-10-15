@@ -21,6 +21,10 @@ export interface ComposeAttachment {
 
 export interface ComposeRequest {
   readonly text: string
+  /** An explicit sender's conversation pane; another focused pane cannot take it. */
+  readonly paneId?: string
+  /** Fence a delayed handoff when the main pane has navigated elsewhere. */
+  readonly sessionKey?: string
   readonly replace?: boolean
   readonly attachments?: readonly ComposeAttachment[]
 }

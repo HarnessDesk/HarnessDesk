@@ -163,3 +163,10 @@ describe('HeatLegend', () => {
     expect(container.textContent).not.toContain('No record yet')
   })
 })
+
+it('keeps a final month label inside the last grid column', () => {
+  mount(<HeatGrid label="Year" rows={longRow(53)} columns={53} columnLabels={[{ index: 52, label: 'Oct' }]} />)
+  const label = [...container.querySelectorAll('span')].find(node => node.textContent === 'Oct' && node.hasAttribute('style'))!
+  expect(label.style.gridColumn).toBe('53 / -1')
+  expect(label.style.justifySelf).toBe('end')
+})

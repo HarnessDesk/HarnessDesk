@@ -1,10 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useId, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
-import { DEFAULT_FLOW_BUDGET, type AgentEntry, type FlowEntry, type FlowPolicy, type FlowPreview, type FlowPreviewSeat, type FlowProblem, type FlowRunOptions, type FlowSeat, type SeatCandidate } from '@harnessdesk/protocol'
+import { runtimeId, DEFAULT_FLOW_BUDGET, type AgentEntry, type FlowAgentRole, type FlowEntry, type FlowPolicy, type FlowPreview, type FlowPreviewSeat, type FlowProblem, type FlowRunOptions, type FlowSeat, type ModelInfo, type SeatCandidate } from '@harnessdesk/protocol'
 
-import { ActionError, Banner, Button, Chip, CodeText, Field, Input, NativeSelect, Note, NoteList, Rows, Row, SectionHead, Text, Textarea } from '../design'
+import { ActionError, Banner, Button, Chip, CodeText, DisclosureChevron, Field, Input, NativeSelect, Note, NoteList, Rows, Row, SectionHead, Segmented, Switch, Text, Textarea } from '../design'
 import { agentName, firstReason, fixWords, markFor, reasonWords, seatTaken } from '../lib/agents'
+import { boundInputValues } from '../lib/shapes'
+import { supportsAttemptCheck, withAttemptCheck } from '../lib/team-start'
 import { evidenceGuardsWords, messagingWords } from '../lib/flows'
+import { stepName } from '../lib/flow-model'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { AgentIcon } from './Icons'
@@ -48,9 +51,12 @@ export interface FlowStartProps {
   readonly onChange: (choice: FlowChoice | null) => void
   /** A Run's exact saved text and inputs, rather than the current catalogue file. */
   readonly initial?: { readonly source: string; readonly vars: Readonly<Record<string, string>> } & FlowRunOptions
+  readonly team?: TeamFormProps
 }
 
-export const FlowStart = ({ root, disabled, onChange, initial, continues }: FlowStartProps) => {
+export const FlowStart = (props: FlowStartProps) => props.team ? <TeamForm {...props.team} /> : <FlowStartContents {...props} />
+
+const FlowStartContents = ({ root, disabled, onChange, initial, continues }: FlowStartProps) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [entries, setEntries] = useState<readonly FlowEntry[] | null>(null)
@@ -249,7 +255,7 @@ export const FlowStart = ({ root, disabled, onChange, initial, continues }: Flow
             disabled={disabled || entries === null}
             onChange={(event) => void choose(event.target.value)}
           >
-            <option value={NONE}>{entries === null ? 'Looking…' : 'No flow — an ordinary Goal'}</option>
+            <option value={NONE}>{entries === null ? 'Looking…' : 'No fixed steps — just a Team'}</option>
             {(entries ?? []).map((entry) => (
               <option key={entry.id} value={entry.id}>{entry.problem ? `${entry.name} — will not run` : entry.name}</option>
             ))}
@@ -262,7 +268,7 @@ export const FlowStart = ({ root, disabled, onChange, initial, continues }: Flow
 
       {legacy && (
         <Banner tone="warning" title="This flow uses the old format">
-          Update it from the project’s Flows list before it can start a Goal here. The update shows every file
+          Update it from the project’s Flows list before it can start a Team here. The update shows every file
           it would write before it writes any.
         </Banner>
       )}
@@ -279,19 +285,7 @@ export const FlowStart = ({ root, disabled, onChange, initial, continues }: Flow
         </Banner>
       )}
 
-      {flow && flow.inputs.map((input) => input.id === 'brief' ? (
-        <BriefInput key={`${root}:${id}:brief`} value={vars.brief ?? ''} disabled={disabled} onChange={(value) => setVar('brief', value)} onReadingChange={readingBrief} />
-      ) : (
-        <Field key={input.id} label={input.label}>
-          {(control) => (
-            <Input
-              {...control}
-              value={vars[input.id] ?? ''}
-              onChange={(event) => setVar(input.id, event.target.value)}
-            />
-          )}
-        </Field>
-      ))}
+      <FlowInputFields flow={flow} scope={`${root}:${id}`} vars={vars} disabled={disabled} onChange={setVar} onReadingChange={readingBrief} />
 
       {initial && preview?.seats.map(seat => {
         const slots = preview.seats.filter(one => one.role === seat.role).sort((a, b) => a.index - b.index)
@@ -316,10 +310,26 @@ export const FlowStart = ({ root, disabled, onChange, initial, continues }: Flow
         </NativeSelect>}
       </Field>})}
 
-      {preview && flow && !legacy && <FlowPreviewReport preview={preview} flow={flow} warnings={warnings} roster={roster} />}
+      {preview && flow && !legacy && <FlowPreviewReport preview={preview} flow={flow} warnings={warnings} roster={roster} vars={vars} />}
     </div>
   )
 }
+
+/** The declared inputs, shared by the full start form and its compact excerpt. */
+export const FlowInputFields = ({ flow, scope, vars, disabled, onChange, onReadingChange }: {
+  readonly flow: FlowPolicy | null
+  readonly scope: string
+  readonly vars: Readonly<Record<string, string>>
+  readonly disabled?: boolean
+  readonly onChange: (id: string, value: string) => void
+  readonly onReadingChange: (reading: boolean) => void
+}) => <>{flow?.inputs.map(input => input.id === 'brief' ? (
+  <BriefInput key={`${scope}:brief`} value={vars.brief ?? ''} disabled={disabled} onChange={value => onChange('brief', value)} onReadingChange={onReadingChange} />
+) : (
+  <Field key={input.id} label={input.label}>
+    {control => <Input {...control} disabled={disabled} value={vars[input.id] ?? ''} onChange={event => onChange(input.id, event.target.value)} />}
+  </Field>
+))}</>
 
 /** Files are imported into the variable, never attached to the Run. */
 const BRIEF_FILE_CAP = 64 * 1024
@@ -410,28 +420,42 @@ const BriefInput = ({ value, disabled, onChange, onReadingChange }: {
   )
 }
 
+/** The report's complete Seat section, including Agent identities and candidates. */
+export const FlowPreviewSeats = ({ preview, roster }: {
+  readonly preview: FlowPreview
+  readonly roster: ReadonlyMap<string, AgentEntry>
+}) => (
+  <section aria-label="Seats this would open">
+    <SectionHead name={preview.seats.length === 0 ? 'It opens no Agents' : `It opens ${preview.seats.length} ${preview.seats.length === 1 ? 'seat' : 'seats'}`} />
+    <Rows>
+      {preview.seats.length === 0 && <Row title="This flow names no Agent role" />}
+      {preview.seats.map(seat => <SeatPreviewRows key={`${seat.role}-${seat.index}`} seat={seat} roster={roster} />)}
+    </Rows>
+  </section>
+)
+
 /**
  * The dry run's own report — every seat, every command verbatim, every
  * round and guard, the messaging disclosure and the cost note — shared by
  * `FlowStart` and `RaceStart` so a race's dry run reads exactly like every
  * other flow's rather than a second, narrower rendering of the same data.
  */
+const seedTitleOf = (flow: FlowPolicy, vars: Readonly<Record<string, string>>): string =>
+  // Like a Run's card title, substitute once: input text may itself contain braces.
+  flow.seed.title.replace(/\{\{\s*([A-Za-z0-9_.-]+)\s*\}\}/g, (_slot, name: string) =>
+    vars[name]?.trim() ? vars[name]! : flow.inputs.find(input => input.id === name)?.label ?? name)
+
 export const FlowPreviewReport = ({
-  preview, flow, warnings, roster,
+  preview, flow, warnings, roster, vars = {},
 }: {
   readonly preview: FlowPreview
   readonly flow: FlowPolicy | null
   readonly warnings: readonly FlowProblem[]
+  readonly vars?: Readonly<Record<string, string>>
   readonly roster: ReadonlyMap<string, AgentEntry>
 }) => (
   <>
-    <section aria-label="Seats this would open">
-      <SectionHead name={preview.seats.length === 0 ? 'It opens no Agents' : `It opens ${preview.seats.length} ${preview.seats.length === 1 ? 'seat' : 'seats'}`} />
-      <Rows>
-        {preview.seats.length === 0 && <Row title="This flow names no Agent role" />}
-        {preview.seats.map((seat) => <SeatPreviewRows key={`${seat.role}-${seat.index}`} seat={seat} roster={roster} />)}
-      </Rows>
-    </section>
+    <FlowPreviewSeats preview={preview} roster={roster} />
 
     {preview.commands.length > 0 && (
       <section aria-label="Commands it runs">
@@ -452,7 +476,7 @@ export const FlowPreviewReport = ({
       <section aria-label="Rounds and rules">
         <SectionHead name="Its rounds" />
         <Rows>
-          <Row title={flow.seed.role} desc={`Seed round — ${flow.seed.title}`} />
+          <Row title={flow.seed.role} desc={`Seed round — ${seedTitleOf(flow, vars)}`} />
           {flow.rules.map((rule) => {
             const guard = preview.guards.find((one) => one.rule === rule.id)
             // A guard's requirement is a sentence, not a value — it belongs
@@ -560,4 +584,142 @@ const SeatPreviewRows = ({ seat, roster }: { readonly seat: FlowPreviewSeat; rea
       })}
     </>
   )
+}
+
+interface TeamFormProps {
+  readonly flow: FlowPolicy
+  readonly template: FlowPolicy
+  readonly preview: FlowPreview
+  readonly roster: ReadonlyMap<string, AgentEntry>
+  readonly vars: Readonly<Record<string, string>>
+  readonly primary?: string
+  readonly disabled?: boolean
+  readonly editingDisabled?: boolean
+  readonly done?: ReactNode
+  readonly details?: ReactNode
+  readonly onVar: (id: string, value: string) => void
+  readonly onReadingChange: (reading: boolean) => void
+  readonly onPolicy: (flow: FlowPolicy) => void
+}
+
+/** The compact start form composes the same input and dry-run contracts as a saved Run. */
+const TeamForm = ({ flow, template, preview, roster, vars, primary, disabled, editingDisabled, done, details, onVar, onReadingChange, onPolicy }: TeamFormProps) => {
+  const snapshot = useSnapshot()
+  const checkId = useId()
+  const detailsId = useId()
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const hasReviewLoop = flow.rules.some(rule => rule.on === 'reviewer' && rule.then.role === flow.seed.role)
+  const mergeRules = template.rules.filter(rule => rule.then.role === 'referee')
+  const hasReviewOptions = hasReviewLoop && !template.roles.some(role => role.kind === 'check') && mergeRules.length > 0 && mergeRules.every(rule => rule.on === 'reviewer')
+  const hasJudge = template.roles.some(role => role.id === 'judge') && template.roles.some(role => role.id === 'competitor')
+  const hasAttemptCheck = supportsAttemptCheck(template)
+  const judgeOn = flow.roles.some(role => role.id === 'judge')
+  const attemptCheck = flow.roles.find(role => role.id === 'verify' && role.kind === 'check')
+  const checkBefore = attemptCheck ? 'verify' : 'competitor'
+  const incoming = flow.rules.find(rule => rule.on === checkBefore && (rule.then.role === 'judge' || rule.then.role === 'referee'))
+  const checkHint = judgeOn ? 'Leave empty to let the judge read the attempts directly.' : 'Leave empty to choose from the attempts directly.'
+  const checkControl = (control: { id: string; 'aria-describedby'?: string }) => <Input {...control} disabled={editingDisabled} value={attemptCheck?.kind === 'check' ? attemptCheck.check.run : ''} onChange={event => onPolicy(withAttemptCheck(flow, template, event.target.value))} />
+  const editRole = (role: FlowAgentRole): void => onPolicy({ ...flow, roles: flow.roles.map(one => one.id === role.id ? role : one) })
+  return <div className={styles.flow}>
+    <section aria-label="Who does what">
+      <SectionHead name="Who does what" />
+      <Rows>{preview.seats.map(seat => {
+        const role = flow.roles.find(one => one.id === seat.role)
+        if (role?.kind !== 'agent') return null
+        const slots = preview.seats.filter(one => one.role === role.id).sort((a, b) => a.index - b.index)
+        const configured = role.seats[seat.index] ?? role.seats[0]
+        const automatic = seatTaken(seat.plan)
+        const picked = configured ?? automatic?.seat
+        const automaticName = automatic
+          ? snapshot.runtimes.find(one => one.id === automatic.seat.runtime)?.presentation.name ?? automatic.runtimeName
+          : null
+        const label = role.id === flow.seed.role && hasReviewLoop ? 'Writes' : role.id === 'reviewer' ? 'Reviews' : role.id === 'competitor' ? `Attempt ${String.fromCharCode(65 + seat.index)}` : role.id === 'judge' ? 'Judge' : stepName(role.id)
+        const repeatsInReviewLoop = seat.reviews && flow.rules.some(rule => rule.on === seat.role && rule.then.role === flow.seed.role)
+        return <Row key={`${role.id}-${seat.index}`} title={<span className={styles.roleTitle}>{label}{repeatsInReviewLoop && <Chip tone="neutral" size="sm">Fresh each round</Chip>}</span>} desc={!seatTaken(seat.plan) ? firstReason(seat.plan) ?? undefined : undefined}
+          mark={picked ? <RuntimeMark runtime={snapshot.runtimes.find(one => one.id === picked.runtime) ?? { id: picked.runtime, presentation: { name: 'Selected agent' } }} size={16} /> : <AgentIcon size={16} />}
+          control={<div className={styles.roleControls}>
+            <TeamSeatControls label={label} seat={configured} automaticName={automaticName} disabled={disabled} onChange={next => {
+              const seats = slots.map(one => one.index === seat.index ? next : role.seats[one.index] ?? role.seats[0] ?? seatTaken(one.plan)?.seat)
+              if (seats.every((one): one is FlowSeat => one !== undefined)) editRole({ ...role, seats })
+            }} />
+          </div>} />
+      })}</Rows>
+    </section>
+    {hasReviewOptions && <div className={styles.options}>
+      <Field label="Review rounds, at most">{() => <Segmented label="Review rounds, at most" value={String(Math.max(1, Math.min(3, Math.floor(((flow.budget?.rounds ?? 7) - 1) / 2))))} options={['1', '2', '3'].map(value => ({ value, label: value, disabled }))} onChange={value => onPolicy({ ...flow, budget: { rounds: Number(value) * 2 + 1, withoutProgress: flow.budget?.withoutProgress ?? 2 } })} />}</Field>
+      <Field label="When the review approves">{() => <Segmented label="When the review approves" value={flow.roles.find(one => one.id === 'referee')?.kind === 'agent' ? 'merge' : 'wait'} options={[{ value: 'merge', label: 'Merge it', disabled }, { value: 'wait', label: 'Wait for me', disabled }]} onChange={value => onPolicy({ ...flow,
+        roles: flow.roles.map(one => one.id !== 'referee' ? one : value === 'merge'
+          ? { id: 'referee', kind: 'agent', uses: ['merger'], seats: [], isolate: false, grant: 'merge', independentOf: [] }
+          : { id: 'referee', kind: 'person', outcomes: ['merged', 'dropped'] }),
+        rules: flow.rules.map(rule => rule.then.role !== 'referee' ? rule : { ...rule, when: value === 'merge' ? { evidence: [{ review: 'approve' }, { pr: 'open' }] } : { every: ['approve'], evidence: [{ review: 'approve' }] }, then: { ...rule.then, title: value === 'merge' ? 'Merge the reviewed pull request' : 'Merge it — the reviewer approved', detail: value === 'merge' ? 'Merge only the approved revision after its required checks pass.' : 'Merging is yours; no agent in this Team may do it.' } }),
+      })} />}</Field>
+    </div>}
+    {hasJudge && <Rows><Row title="A judge picks the better one" control={<Switch aria-label="A judge picks the better one" checked={judgeOn} disabled={disabled} onCheckedChange={on => onPolicy({ ...flow,
+      roles: on ? [...flow.roles, ...template.roles.filter(role => role.id === 'judge')] : flow.roles.filter(role => role.id !== 'judge'),
+      rules: on ? [...flow.rules.filter(rule => rule.id !== 'to-person'), ...template.rules.filter(rule => rule.on === 'judge' || rule.then.role === 'judge').map(rule => {
+        if (rule.then.role !== 'judge') return rule
+        const when = attemptCheck ? (rule.on === 'verify' ? rule.when : { any: ['pass'] }) : incoming?.when
+        return { id: rule.id, on: checkBefore, ...(when ? { when } : {}), then: rule.then }
+      })]
+        : [...flow.rules.filter(rule => rule.on !== 'judge' && rule.then.role !== 'judge'), { id: 'to-person', on: checkBefore, ...(incoming?.when ? { when: incoming.when } : {}), then: { role: 'referee', title: 'Choose and merge an attempt' } }],
+    })} />} /></Rows>}
+    {hasAttemptCheck && (hasJudge
+      ? <Field label="Check each attempt with" hint={checkHint}>{checkControl}</Field>
+      : <Rows><Row title={<label htmlFor={checkId}>Check each attempt with</label>} desc={<span id={`${checkId}-hint`}>{checkHint}</span>} control={checkControl({ id: checkId, 'aria-describedby': `${checkId}-hint` })} /></Rows>)}
+    {flow.roles.filter(role => role.kind === 'check' && (!hasAttemptCheck || role.id !== 'verify')).map(role => role.kind === 'check' && <Field key={role.id} label={`Check · ${role.id}`}>{control => <Input {...control} disabled={editingDisabled} value={role.check.run} onChange={event => onPolicy({ ...flow, roles: flow.roles.map(one => one.id === role.id ? { ...role, check: { ...role.check, run: event.target.value } } : one) })} />}</Field>)}
+    {done}
+    <div className={styles.flow}>
+      <Button className="self-start" variant="quiet" size="inline-link" aria-expanded={detailsOpen} aria-controls={detailsId} onClick={() => setDetailsOpen(open => !open)}>
+        <DisclosureChevron open={detailsOpen} size="sm" />
+        <Text as="span" role="muted">Details</Text>
+      </Button>
+      <div id={detailsId} data-flow-details hidden={!detailsOpen} className={detailsOpen ? styles.flow : undefined}>
+      {details}
+      <Rows>{preview.seats.map(seat => {
+        const role = flow.roles.find(one => one.id === seat.role)
+        if (role?.kind !== 'agent') return null
+        const slots = preview.seats.filter(one => one.role === role.id).sort((a, b) => a.index - b.index)
+        return <Row key={`${role.id}-${seat.index}`} title={`Instructions · ${role.id}${slots.length > 1 ? ` ${seat.index + 1}` : ''}`} control={<NativeSelect aria-label={`Instructions for ${role.id} ${seat.index + 1}`} disabled={disabled} value={seat.agent ?? ''} onChange={event => {
+          editRole({ ...role, uses: slots.map(one => one.index === seat.index ? event.target.value : one.agent ?? role.uses[0] ?? ''), count: undefined })
+        }}>
+          {seat.agent && !roster.has(seat.agent) && <option value={seat.agent}>{seat.agent}</option>}
+          {[...roster.values()].filter(one => one.definition).map(one => <option key={one.id} value={one.id}>{agentName(one)}</option>)}
+        </NativeSelect>} />
+      })}</Rows>
+      <FlowInputFields flow={{ ...flow, inputs: flow.inputs.filter(input => input.id !== primary && !boundInputValues(flow).has(input.id)) }} scope="team-start" vars={vars} disabled={disabled} onChange={onVar} onReadingChange={onReadingChange} />
+      <FlowPreviewReport preview={preview} flow={flow} warnings={preview.problems.filter(one => one.level === 'warning')} roster={roster} vars={vars} />
+      </div>
+    </div>
+  </div>
+}
+
+const TeamSeatControls = ({ label, seat, automaticName, disabled, onChange }: { readonly label: string; readonly seat?: FlowSeat; readonly automaticName: string | null; readonly disabled?: boolean; readonly onChange: (seat: FlowSeat) => void }) => {
+  const store = useStore()
+  const snapshot = useSnapshot()
+  const [models, setModels] = useState<readonly ModelInfo[]>([])
+  useEffect(() => {
+    let live = true
+    setModels([])
+    if (seat) void store.modelsFor(runtimeId(seat.runtime)).then(found => { if (live) setModels(found) }, () => { if (live) setModels([]) })
+    return () => { live = false }
+  }, [seat?.runtime, store])
+  const model = models.find(one => one.id === seat?.model) ?? models.find(one => one.isDefault)
+  const selectedRuntime = snapshot.runtimes.find(one => one.id === seat?.runtime)
+  return <>
+    <NativeSelect className={styles.agentSelect} aria-label={`Agent for ${label}`} title={selectedRuntime?.presentation.name ?? automaticName ?? undefined} disabled={disabled} value={seat?.runtime ?? ''} onChange={event => onChange({ runtime: event.target.value })}>
+      {!seat && <option value="">{automaticName ? `Automatic · ${automaticName}` : 'Automatic · Nothing can run'}</option>}
+      {seat && !snapshot.runtimes.some(one => one.id === seat.runtime) && <option value={seat.runtime}>Selected agent</option>}
+      {snapshot.runtimes.map(one => <option key={one.id} value={one.id}>{one.presentation.name}</option>)}
+    </NativeSelect>
+    <NativeSelect aria-label={`Model for ${label}`} disabled={disabled || !seat} value={seat?.model ?? ''} onChange={event => seat && onChange({ ...seat, model: event.target.value || undefined, effort: undefined })}>
+      <option value="">Default model</option>
+      {seat?.model && !models.some(one => one.id === seat.model) && <option value={seat.model}>{seat.model}</option>}
+      {models.filter(one => !one.hidden).map(one => <option key={one.id} value={one.id}>{one.displayName}</option>)}
+    </NativeSelect>
+    <NativeSelect aria-label={`Effort for ${label}`} disabled={disabled || !seat || !model?.reasoningLevels.length} value={seat?.effort ?? ''} onChange={event => seat && onChange({ ...seat, effort: event.target.value || undefined })}>
+      <option value="">Default effort</option>
+      {seat?.effort && !model?.reasoningLevels.some(one => one.id === seat.effort) && <option value={seat.effort}>{seat.effort}</option>}
+      {model?.reasoningLevels.map(one => <option key={one.id} value={one.id}>{one.label}</option>)}
+    </NativeSelect>
+  </>
 }

@@ -1,3 +1,12 @@
+import { effectiveWindowMode, sameFileDocument, isDirtyDocument, type FileTransfer, type EditorLineTarget } from '../editor'
+import { filePathInRoot } from '../lib/file-link'
+import { destinationOf, leaveSettingsDestination, sameDestination, visitDestination, stepDestination, type PageDestination, type WorkView, type DestinationHistory } from './destinations'
+import { FRAME } from '../design/frame'
+import { terminalCwdForSnapshot } from '../lib/terminal-scope'
+import { type TeamChatLayout, type TeamFramePage } from './layout'
+import { replaceTeamPayload } from './workbench'
+import { settleConversationTool, conversationToolContext, fixedToolRefusal, forgetFrameSubject, supportsFixedTool, admitFixedTool, chooseTool, toolOf, revealFixedTool, type WorkTool } from './frame-tools'
+import { activeView, fixedSubject, normalizeFixedWorkbench } from './workbench'
 import { readTeamsPrefs, teamListRow } from '../lib/teams-list'
 import { teamsInput } from '../lib/teams-snapshot'
 import {
@@ -12,6 +21,8 @@ import {
   orderTasks,
   reduceSession,
   sessionKey,
+  sessionIndexCursorOf,
+  sessionIndexCompare,
   splitSessionKey,
   typedUserText,
   type AccountStatus,
@@ -115,6 +126,7 @@ import {
   type UserContent,
   type WireNotification,
   type InsightQuery,
+  type InsightGoalsReport,
   type InsightReport,
   type InsightCompareQuery,
   type InsightComparison,
@@ -139,7 +151,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { staleDefaults, type StaleDefault } from '../lib/composer-slots'
-import type { AccountPrefs, AccountPrefsMap } from '../lib/accounts'
+import { agentKeyOf, type AccountPrefs, type AccountPrefsMap } from '../lib/accounts'
 import type { ApprovalResponseResult } from '../lib/needs-you'
 import { isAvatarId } from '../lib/avatars'
 import { applyProfile, readProfile, sameProfile, storedProfile, type ProfilePatch } from '../lib/profile'
@@ -147,17 +159,23 @@ import { coalesce } from '../lib/coalesce'
 import { acceptedFindingEvidence, emptyFindingsState, type FindingFilter, type FindingsListState } from '../lib/findings'
 import { openExternal, setDockIcon } from '../lib/desktop'
 import { openingOfContent, splitContext, wrapContext } from '../lib/context-envelope'
-import { readEditorPrefs } from '../lib/editor-prefs'
+import {
+  readEditorPrefs, editorConversation, updateEditorConversation, openEditorTab, keepEditorTab,
+  closeEditorTab, setEditorTabView, readEditorState, persistEditorState,
+  type WindowMode, type ExplorerFilter, type EditorConversation, type FileDocumentState, type FileLiveDocumentState, type FileViewMode, type OpenEditorTabOptions,
+} from '../editor'
 import { readColumnWidths } from '../lib/git-columns'
 import { readSystemNotifications } from '../lib/system-notifications'
 import { sessionLabel, shortLabel } from '../lib/sessions'
+import { seatLabelsOf } from '../lib/seat-names'
 import { isStale } from '../lib/versions'
 import { isPathInside } from '../lib/paths'
 import { buildHandoff, type Carry } from '../lib/handoff'
 import { livePlanEdits, withPlanEdit, type PlanEdit } from '../lib/plan-edits'
 import type { Todo } from '../lib/todos'
 import { crossings, toastName, usageAccount } from '../lib/usage-alerts'
-import { toStored, type SideBySideState } from '../lib/side-by-side'
+import { BrowserTileRegistry, browserProfileKey, type BrowserTileMount } from '../lib/browser-tiles'
+import { focusTile, fromStored, toStored, type SideBySideState } from '../lib/side-by-side'
 import { anyOpened, blockedWords, refusalOf, seatAgentKey } from '../lib/agents'
 import { kept as keptInInbox, repeated as repeatedInInbox, markedRead, readInbox, type InboxEntry } from '../lib/inbox'
 import {
@@ -332,6 +350,10 @@ const FORGOTTEN_FOLDERS_KEPT = 2000
 export type UnheldCeilings = 'seat' | 'refuse'
 
 export class AppStore {
+  #windowModeChanged = false
+  #editorPreferencesLoaded = false
+  readonly #editorChanged = new Set<string>()
+  readonly #editorTouched = new Set<string>()
   /** What each conversation has typed and not sent. See `state/drafts`. */
   readonly drafts: Drafts
   #captureEpoch = 0
@@ -550,7 +572,15 @@ export class AppStore {
   }
 
   #snapshot: AppSnapshot = emptySnapshot()
+  #teamFrameSerial = 0
+  readonly #sessionRemovalRevisions = new Map<SessionKey, number>()
   #listeners = new Set<() => void>()
+  readonly #storageListeners = new Set<(usage: import('@harnessdesk/protocol').StorageUsage) => void>()
+  subscribeStorageUsage(listener: (usage: import('@harnessdesk/protocol').StorageUsage) => void): () => void {
+    this.#storageListeners.add(listener)
+    return () => { this.#storageListeners.delete(listener) }
+  }
+
   readonly transport: Transport
 
   constructor(url = transportUrl()) {
@@ -567,13 +597,22 @@ export class AppStore {
           if (revision > (this.#snapshot.provenanceRevision.get(project) ?? -1)) this.#keepCaptureHealth(health)
         }
         if (notification.method === 'sync') {
-          const sessions = new Map(this.#snapshot.sessions)
+          const sessions = new Map<SessionKey, Session>()
           const rawSessions = Array.isArray(notification.params.sessions)
             ? notification.params.sessions
             : []
           for (const session of rawSessions) {
             if (session && typeof session === 'object' && session.runtime && session.id) {
-              sessions.set(sessionKey(session.runtime, session.id), this.#pendingConversationNotices.apply(session))
+              const key = sessionKey(session.runtime, session.id)
+              const held = this.#snapshot.sessions.get(key)
+              // A closed body's metadata is silent about the transcript this
+              // window already shows. A full sync still replaces it outright.
+              const synced = !session.itemsLoaded && held
+                // Entire turns may have arrived while disconnected. Keep the
+                // displayed text until the visible pane reads the latest body.
+                ? { ...mergeRead(held, session), turns: held.turns, itemsLoaded: false }
+                : session
+              sessions.set(key, this.#pendingConversationNotices.apply(synced))
             }
           }
           // Replaced, not merged: the host sends every queue that has anything
@@ -609,7 +648,10 @@ export class AppStore {
             activeRuntime:
               this.#snapshot.activeRuntime ?? runtimes[0]?.id ?? null,
           })
+          for (const runtime of runtimes) this.#historyRemovedRuntimes.delete(runtime.id)
+          if (this.#historyLoaded || this.#historyPageChanges) void this.loadHistory({ reset: true, reconcile: true })
           void this.refreshRuntime()
+          void this.#resumeVisible()
         }
         if (notification.method === 'extension') {
           this.#onExtensionEvent(notification.params.event)
@@ -647,6 +689,7 @@ export class AppStore {
           // than re-synced: a full sync would drop the panes' scroll and the
           // history page the user is halfway down.
           const { info } = notification.params
+          this.#historyRemovedRuntimes.delete(info.id)
           if (!this.#snapshot.runtimes.some((entry) => entry.id === info.id)) {
             this.#patch({ runtimes: [...this.#snapshot.runtimes, info] })
           }
@@ -657,33 +700,46 @@ export class AppStore {
         if (notification.method === 'runtime/removed') {
           const { runtime } = notification.params
           // In-flight searches include this runtime's response. Invalidate
-          // the request before filtering the visible history so a late page
-          // cannot put its rows back.
+          // the request before filtering visible history so a late response
+          // cannot put this runtime's rows back. A combined search is then
+          // started again against the runtimes still present.
           this.#historyRequestId += 1
+          this.#historyPageRemovedRuntimes?.add(runtime)
+          this.#historyRemovedRuntimes.add(runtime)
+          this.#historyRows = this.#historyRows.filter(row => row.runtime !== runtime)
           const runtimes = this.#snapshot.runtimes.filter((entry) => entry.id !== runtime)
+          const activeRuntime = this.#snapshot.activeRuntime === runtime
+            ? (runtimes[0]?.id ?? null)
+            : this.#snapshot.activeRuntime
+          const searchQuery = this.#historyQuery
+          const restartSearch = Boolean(searchQuery && activeRuntime && runtimes.some((entry) => entry.capabilities.searchHistory))
           const accountsByRuntime = { ...this.#snapshot.accountsByRuntime }
           delete accountsByRuntime[runtime]
           const healthByRuntime = { ...this.#snapshot.healthByRuntime }
           delete healthByRuntime[runtime]
-          // Nothing may stay pointed at a runtime that no longer resolves —
-          // the list's paging anchor and its cursor included.
-          const anchored = this.#historyAnchor === runtime
-          if (anchored) this.#historyAnchor = null
           this.#patch({
             runtimes,
-            historyLoading: false,
+            historyLoading: searchQuery ? restartSearch : this.#historyPageChanges !== null,
             accountsByRuntime,
             healthByRuntime,
-            activeRuntime:
-              this.#snapshot.activeRuntime === runtime
-                ? (runtimes[0]?.id ?? null)
-                : this.#snapshot.activeRuntime,
+            activeRuntime,
             historyIdentity: this.#snapshot.historyIdentity.filter((entry) => entry.runtime !== runtime),
             history: this.#snapshot.history.filter((entry) => entry.runtime !== runtime),
-            historyCursor: anchored ? null : this.#snapshot.historyCursor,
           })
+          if (restartSearch) void this.searchHistory(searchQuery)
           // Whatever a plan had it seated on may no longer be offered at all.
           if (this.#agentsRequested) void this.loadAgentPlans()
+        }
+        if (notification.method === 'storage/usageChanged') for (const listener of this.#storageListeners) listener(notification.params)
+        if (notification.method === 'history/importChanged') {
+          const { runtime, ...state } = notification.params
+          this.#historyImportReads.set(runtime, (this.#historyImportReads.get(runtime) ?? 0) + 1)
+          this.#patch({ historyImports: { ...this.#snapshot.historyImports, [runtime]: state },
+            ...(state.state !== 'running' ? { historyRevision: this.#snapshot.historyRevision + 1 } : {}) })
+        }
+        if (notification.method === 'session/indexChanged') {
+          this.#patch({ historyRevision: this.#snapshot.historyRevision + 1 })
+          this.#changeHistory(notification.params.upserted, notification.params.removed, notification.params.firstPageCursor)
         }
         if (notification.method === 'session/removed') {
           this.#dropRemoved(
@@ -759,6 +815,7 @@ export class AppStore {
         if (notification.method === 'usage/scanProgress') {
           this.#patch({ scan: notification.params.progress })
         }
+        if (notification.method === 'session/worktreeKept') this.resultNotice('info', notification.params.message)
         if (notification.method === 'person/notice') {
           this.#personNotice(notification.params.notice)
         }
@@ -888,10 +945,12 @@ export class AppStore {
       stateDir: hello.stateDir,
       goalMigrationPending: hello.goalMigrationPending,
     })
+    // The local index does not wait for an agent or its account catalogue.
+    const history = this.loadHistory({ reset: true })
     // Preferences first: they may restore the runtime the user last worked
     // with, and everything below loads for whichever runtime is active.
     await this.loadPreferences()
-    await Promise.all([this.refreshRuntime(), this.loadWorkspaces(), this.loadPlugins(), this.loadAccounts()])
+    await Promise.all([history, this.refreshRuntime(), this.loadWorkspaces(), this.loadPlugins(), this.loadAccounts()])
     // Goal history is additive to the ordinary conversation path. A damaged
     // migration stays visible as Goal-specific recovery state without making
     // the rest of the desk unusable.
@@ -970,18 +1029,11 @@ export class AppStore {
     // Choosing a crashed agent is also "selecting it again": it comes back
     // up, and its health change re-reads the surface once it is ready.
     if (crashed) void this.refreshCatalog()
-    await this.refreshRuntime({ history: false })
+    await this.refreshRuntime()
   }
 
-  /**
-   * Reloads everything that depends on which runtime is selected.
-   *
-   * `history: false` keeps the session list as it is. A switch of the default
-   * agent asks for this — the list is every agent's and a re-page would drop
-   * the reader back to the first page — while an agent coming up or signing
-   * in does not, since its history just became readable.
-   */
-  async refreshRuntime(options: { readonly history?: boolean } = {}): Promise<void> {
+  /** Reloads the selected agent's catalogue; the sidebar belongs to the host index. */
+  async refreshRuntime(): Promise<void> {
     const runtime = this.#snapshot.activeRuntime
     if (!runtime) return
     const [health, [accountRead, accountAnswer], limits, models, runtimeOptions] = await Promise.all([
@@ -1010,7 +1062,6 @@ export class AppStore {
       ...(health ? { healthByRuntime: { ...this.#snapshot.healthByRuntime, [runtime]: health } } : {}),
     })
     if (health?.state === 'ready') {
-      if (options.history !== false) void this.loadHistory({ reset: true })
       void this.loadSkills()
       void this.loadDraftOptions()
     }
@@ -1069,6 +1120,10 @@ export class AppStore {
   }
 
   /** What every agent did here, whichever vendor made it. */
+  readWorkDiff(root: string, from: string, to: string): Promise<{ diff: string }> {
+    return this.transport.request('git/diffRange', { root, from, to })
+  }
+
   async loadAudit(sinceDays = 7): Promise<readonly AuditRow[]> {
     const root = this.#snapshot.workspace?.path
     return this.transport
@@ -1200,64 +1255,146 @@ export class AppStore {
 
   // ------------------------------------------------------------ navigation
 
-  /**
-   * What the middle showed, so ← and → can retrace it.
-   *
-   * `PaneView`, not `SessionKey`. It held session keys while a room lived
-   * *beside* the conversation — you never navigated away from one, so there was
-   * nothing to come back to. Making main a slot changed that and I shipped it
-   * without changing this: opening a session replaced the room, and the only
-   * way back was to find it in the tree again. Back is what turns a slot from a
-   * thing that loses your place into a jump.
-   */
-  #visitedBack: PaneView[] = []
-  /** The other half of the same stack; see `#visitedBack`. */
-  #visitedForward: PaneView[] = []
-  #navigating = false
+  #navigationQueue: Promise<void> = Promise.resolve()
+  #navigationEpoch = 0
 
-  /** Reopens the previously focused conversation, like a browser's back. */
-  async navigateBack(): Promise<void> {
-    const target = this.#visitedBack.pop()
-    if (!target) return
-    const current = this.#mainView()
-    if (current) this.#visitedForward.push(current)
-    await this.#navigateTo(target)
+  openDestination(page: PageDestination): void {
+    this.#navigationEpoch += 1
+    this.#setWorkbench({ ...this.#snapshot.workbench,
+      navigation: visitDestination(this.#snapshot.workbench.navigation, page) })
+    this.closeFloatingSidebar()
   }
-
-  async navigateForward(): Promise<void> {
-    const target = this.#visitedForward.pop()
-    if (!target) return
-    const current = this.#mainView()
-    if (current) this.#visitedBack.push(current)
-    await this.#navigateTo(target)
+  replaceDestination(page: PageDestination): void {
+    this.#navigationEpoch += 1
+    this.#setWorkbench({ ...this.#snapshot.workbench,
+      navigation: visitDestination(this.#snapshot.workbench.navigation, page, true) })
   }
-
-  /** What the middle is showing, when it is showing one of the two things. */
-  #mainView(): PaneView | null {
+  returnToWork(): void {
     const view = focusedPane(this.#snapshot.layout).view
-    if (view.kind === 'room') return view
-    return view.kind === 'conversation' && view.session ? view : null
+    if (view.kind === 'conversation' || view.kind === 'room') this.#selectWork(view)
   }
-
-  async #navigateTo(target: PaneView): Promise<void> {
-    this.#navigating = true
-    try {
-      if (target.kind === 'room') {
-        // The stored view, not a fresh one built from its root. A room view
-        // carries what it was watching, and `openTeamRoom` constructs a new
-        // one from the root alone — so going back to a room you had arranged
-        // returned an empty one, which is the same "lost your place" that Back
-        // exists to prevent, one level further down.
-        this.showViewIn('main', target)
-      } else if (target.kind === 'conversation' && target.session) {
-        const { runtime, id } = splitSessionKey(target.session)
-        await this.openSession(id, { runtime })
+  openReview(): void {
+    const view = focusedPane(this.#snapshot.layout).view
+    if (view.kind !== 'conversation' && view.kind !== 'room') return
+    const session = view.kind === 'conversation' && view.session ? this.#snapshot.sessions.get(view.session) : null
+    this.openDestination({ kind: 'changes-review', root: session?.cwd ?? this.#snapshot.workspace?.path ?? null, returnTo: view })
+  }
+  /** Select already mounted work for a review quote, without resuming or sending. */
+  selectWork(view: WorkView): boolean {
+    if (view.kind === 'conversation' && view.session && !this.#snapshot.sessions.has(view.session)) return false
+    this.#selectWork(view)
+    return true
+  }
+  #selectWork(request: WorkView): void {
+    const remembered = focusedPane(this.#snapshot.layout).view
+    // Opening a Team by identity returns to its remembered view; an explicit
+    // history payload must instead be restored in full, even for the same room.
+    const previous = [this.#snapshot.workbench.navigation.current, ...this.#snapshot.workbench.navigation.back.slice().reverse()]
+      .find((entry) => entry.kind === 'work' && entry.view.kind === 'room' && request.kind === 'room' && entry.view.room === request.room)
+    const view = request.kind === 'room' && Object.keys(request).length === 2
+      ? remembered.kind === 'room' && remembered.room === request.room ? remembered
+        : previous?.kind === 'work' ? previous.view : request
+      : request
+    const main = (remembered.kind === 'conversation' || remembered.kind === 'room')
+      && sameDestination(destinationOf(remembered), destinationOf(view)) ? this.#snapshot.layout
+      : settleExpansion(singleConversation(onlyIn(this.#snapshot.layout, view)))
+    this.#navigationEpoch += 1
+    this.#setWorkbench({ ...this.#snapshot.workbench, main,
+      navigation: visitDestination(this.#snapshot.workbench.navigation, destinationOf(view)) })
+  }
+  #recordSelectedWork(before: DestinationHistory): void {
+    const view = focusedPane(this.#snapshot.layout).view
+    if (view.kind !== 'conversation' && view.kind !== 'room') return
+    this.#navigationEpoch += 1
+    this.#setWorkbench({ ...this.#snapshot.workbench,
+      navigation: visitDestination(before, destinationOf(view)) })
+  }
+  /** Forget unreadable work visits without discarding the pages around them. */
+  #withoutSessionHistory(key: SessionKey): DestinationHistory {
+    const history = this.#snapshot.workbench.navigation
+    const keep = (entry: DestinationHistory['current']) => !(entry.kind === 'work' && entry.view.kind === 'conversation' && entry.view.session === key)
+    const clearReturn = (entry: DestinationHistory['current']): DestinationHistory['current'] =>
+      entry.kind === 'changes-review' && entry.returnTo.kind === 'conversation' && entry.returnTo.session === key
+        ? { ...entry, returnTo: { kind: 'conversation', session: null } } : entry
+    return { current: clearReturn(history.current), back: history.back.filter(keep).map(clearReturn), forward: history.forward.filter(keep).map(clearReturn) }
+  }
+  #enqueueHistory(direction: 'back' | 'forward'): Promise<void> {
+    const project = this.#snapshot.workspace?.path ?? null
+    const epoch = this.#navigationEpoch
+    const stillSelected = () => epoch === this.#navigationEpoch && (this.#snapshot.workspace?.path ?? null) === project
+    const step = async (): Promise<void> => {
+      if (!stillSelected()) return
+      while (stillSelected()) {
+        const after = stepDestination(this.#snapshot.workbench.navigation, direction)
+        if (!after) return
+        const target = after.current
+        if (target.kind === 'work' && target.view.kind === 'conversation' && target.view.session) {
+          const { runtime, id } = splitSessionKey(target.view.session)
+          if (!await this.openSession(id, { runtime, reveal: false, preserveLayoutOnReadFailure: true })) {
+            if (!stillSelected()) return
+            this.#setWorkbench({ ...this.#snapshot.workbench, navigation: this.#withoutSessionHistory(target.view.session) })
+            continue
+          }
+        }
+        if (!stillSelected()) return
+        const remembered = focusedPane(this.#snapshot.layout).view
+        const unchanged = target.kind !== 'work' || ((remembered.kind === 'conversation' || remembered.kind === 'room')
+          && sameDestination(destinationOf(remembered), target))
+        const main = unchanged || target.kind !== 'work' ? this.#snapshot.layout
+          : settleExpansion(singleConversation(onlyIn(this.#snapshot.layout, target.view)))
+        this.#setWorkbench({ ...this.#snapshot.workbench, main, navigation: after })
+        this.closeFloatingSidebar()
+        return
       }
-    } finally {
-      this.#navigating = false
-      this.#patch({})
     }
+    const next = this.#navigationQueue.then(step, step)
+    this.#navigationQueue = next.catch(() => {})
+    return next
   }
+  leaveSettings(): Promise<void> {
+    const project = this.#snapshot.workspace?.path ?? null
+    const epoch = this.#navigationEpoch
+    const stillSelected = () => epoch === this.#navigationEpoch && (this.#snapshot.workspace?.path ?? null) === project
+    const step = async (): Promise<void> => {
+      if (!stillSelected()) return
+      let skipped = false
+      while (stillSelected()) {
+        const history = this.#snapshot.workbench.navigation
+        const after = leaveSettingsDestination(history)
+        if (!after) {
+          if (history.current.kind === 'settings') {
+            if (skipped) this.newDraft()
+            else this.returnToWork()
+          }
+          return
+        }
+        const target = after.current
+        if (target.kind === 'work' && target.view.kind === 'conversation' && target.view.session) {
+          const { runtime, id } = splitSessionKey(target.view.session)
+          if (!await this.openSession(id, { runtime, reveal: false, preserveLayoutOnReadFailure: true })) {
+            if (!stillSelected()) return
+            this.#setWorkbench({ ...this.#snapshot.workbench, navigation: this.#withoutSessionHistory(target.view.session) })
+            skipped = true
+            continue
+          }
+        }
+        if (!stillSelected()) return
+        const remembered = focusedPane(this.#snapshot.layout).view
+        const unchanged = target.kind !== 'work' || ((remembered.kind === 'conversation' || remembered.kind === 'room')
+          && sameDestination(destinationOf(remembered), target))
+        const main = unchanged || target.kind !== 'work' ? this.#snapshot.layout
+          : settleExpansion(singleConversation(onlyIn(this.#snapshot.layout, target.view)))
+        this.#setWorkbench({ ...this.#snapshot.workbench, main, navigation: after })
+        this.closeFloatingSidebar()
+        return
+      }
+    }
+    const next = this.#navigationQueue.then(step, step)
+    this.#navigationQueue = next.catch(() => {})
+    return next
+  }
+  navigateBack(): Promise<void> { return this.#enqueueHistory('back') }
+  navigateForward(): Promise<void> { return this.#enqueueHistory('forward') }
 
   /** One click on a workspace group's +: that folder, a fresh draft. */
   async startSessionIn(path: string): Promise<void> {
@@ -1370,17 +1507,19 @@ export class AppStore {
 
   /**
    * Archives every session in a project, each on the runtime that owns it,
-   * and reloads the list once rather than once per session.
+   * applying each successful archive to the index rows.
    */
   async archiveSessions(sessions: readonly SessionSummary[]): Promise<void> {
-    let failed = 0
+    let failed = 0, kept = 0
     for (const summary of sessions) {
       try {
-        await this.transport.request('session/archive', {
+        const outcome = await this.transport.request('session/archive', {
           runtime: summary.runtime,
           sessionId: summary.id,
           archived: true,
         })
+        if (outcome?.warning) kept++
+        this.#changeHistory([{ ...summary, archived: true }])
         const key = sessionKey(summary.runtime, summary.id)
         const pane = panes(this.#snapshot.layout.root).find((entry) => sessionOf(entry) === key)
         if (pane) this.closePane(pane.id)
@@ -1388,10 +1527,8 @@ export class AppStore {
         failed += 1
       }
     }
-    if (failed > 0) {
-      this.resultNotice('error', `${failed} of ${sessions.length} sessions could not be archived.`)
-    }
-    await this.loadHistory({ reset: true })
+    if (failed > 0) this.resultNotice('error', `${failed} of ${sessions.length} sessions could not be archived.`)
+    if (kept > 0) this.resultNotice('info', `${kept} worktree${kept === 1 ? '' : 's'} stayed. Review them in Archive.`)
   }
 
   /** Drops a folder from the opened list; the folder itself is untouched. */
@@ -2008,6 +2145,8 @@ export class AppStore {
 
   /** Insight is intentionally pull-only: hidden screens never trigger a corpus read. */
   readGoalInsight(goal: string): Promise<InsightReport> { return this.transport.request('insight/goal', { goal }) }
+  /** Several Teams at once, at most `INSIGHT_GOALS_LIMIT`: the host reads each project's ledger once for all of them. */
+  readGoalInsights(goals: readonly string[]): Promise<InsightGoalsReport> { return this.transport.request('insight/goals', { goals }) }
   readUsageInsight(query: InsightQuery): Promise<InsightReport> { return this.transport.request('insight/usage', query) }
   readAgentInsight(root: string | undefined, agent: string, origin: AgentOrigin): Promise<InsightReport> {
     return this.transport.request('insight/agent', { ...(root ? { root } : {}), agent, origin })
@@ -2051,79 +2190,178 @@ export class AppStore {
     }
   }
 
+  #historyImportReads = new Map<RuntimeId, number>()
+
+  async loadHistoryImport(runtime: RuntimeId): Promise<void> {
+    const read = (this.#historyImportReads.get(runtime) ?? 0) + 1
+    this.#historyImportReads.set(runtime, read)
+    const state = await this.transport.request('history/status', { runtime })
+    if (this.#historyImportReads.get(runtime) !== read) return
+    this.#patch({ historyImports: { ...this.#snapshot.historyImports, [runtime]: state } })
+  }
+
   // ------------------------------------------------------------------ history
 
-  /**
-   * One history across every backend. The active runtime is paged as
-   * before; the others contribute their first page, merged by recency. Every
-   * row carries its runtime, so opening one opens it where it lives.
-   */
-  async loadHistory(options: { reset?: boolean } = {}): Promise<void> {
-    // A page continues the list it is a page of. The list is paged around
-    // one agent — the anchor — with a first page of every other; a reset
-    // rebuilds it around the default agent, and every page after continues
-    // along the same anchor even if the default has changed since, because a
-    // cursor handed to a different agent names nothing.
-    const runtime =
-      options.reset || !this.#historyAnchor ? this.#snapshot.activeRuntime : this.#historyAnchor
-    if (!runtime || (this.#snapshot.historyLoading && !options.reset)) return
-    const requestId = ++this.#historyRequestId
-    this.#historyAnchor = runtime
-    this.#patch({ historyLoading: true })
+  /** Pages desk conversations from the host's local index, independently of agents. */
+  async loadHistory(options: { reset?: boolean; reconcile?: boolean } = {}): Promise<void> {
+    if ((this.#historyQuery && !options.reconcile) || (this.#snapshot.historyLoading && !options.reset)) return
+    const requestId = ++this.#historyPageRequestId
+    const capacity = options.reconcile ? this.#historyCapacity : options.reset || !this.#historyLoaded ? 50 : this.#historyCapacity + 50
+    // Notifications received after this read started are newer than its page.
+    const changes = new Map<SessionKey, SessionSummary | null>()
+    this.#historyPageChanges = changes
+    this.#historyPageFirstCursor = undefined
+    const removedRuntimes = new Set<RuntimeId>()
+    this.#historyPageRemovedRuntimes = removedRuntimes
+    // A background reconciliation must not take ownership of search loading.
+    if (!this.#historyQuery) this.#patch({ historyLoading: true })
     try {
-      // Only agents that have their own history to give. An account sharing
-      // another's session store declares `listHistory: false`, so the shared
-      // list is listed once rather than once per account.
-      const others = this.#snapshot.runtimes
-        .filter((entry) => entry.capabilities.listHistory)
-        .map((entry) => entry.id)
-        .filter((id) => id !== runtime)
-      const [page, ...extra] = await Promise.all([
-        this.transport.request('session/list', {
-          runtime,
-          pageSize: 40,
-          ...(options.reset ? {} : { cursor: this.#snapshot.historyCursor }),
-        }),
-        ...others.map((id) =>
-          this.transport
-            .request('session/list', { runtime: id, pageSize: 20 })
-            .then((result) => result.data)
-            .catch(() => [] as SessionSummary[]),
-        ),
-      ])
-      const merged = [...page.data, ...extra.flat()].sort((a, b) => b.updatedAt - a.updatedAt)
-      if (requestId !== this.#historyRequestId) return
-      const nextFoldersGone = this.#foldersGoneFor(merged)
-      const mergeHistory = (current: readonly SessionSummary[]) => options.reset
-        ? merged
-        : [
-            ...current,
-            ...merged.filter((entry) => !current.some(
-              (existing) => existing.id === entry.id && existing.runtime === entry.runtime,
-            )),
-          ]
+      const runtimes = this.#snapshot.listPrefs.agent === null ? undefined : this.#snapshot.runtimes
+        .filter(info => agentKeyOf(info.id, this.#snapshot.runtimes) === this.#snapshot.listPrefs.agent).map(info => info.id)
+      const pageSize = options.reconcile ? Math.min(500, capacity) : 50
+      let page = await this.transport.request('session/index', {
+        pageSize, ...(runtimes ? { runtimes } : {}),
+        ...(!options.reset && this.#historyCursor ? { cursor: this.#historyCursor } : {}),
+      })
+      while (options.reconcile && capacity > 500 && page.data.length < capacity && page.nextCursor) {
+        if (requestId !== this.#historyPageRequestId) return
+        const next = await this.transport.request('session/index', {
+          pageSize: Math.min(500, capacity - page.data.length), cursor: page.nextCursor,
+          ...(runtimes ? { runtimes } : {}),
+        })
+        page = { data: [...page.data, ...next.data], nextCursor: next.nextCursor }
+      }
+      if (requestId !== this.#historyPageRequestId) return
+      const rows = new Map<SessionKey, SessionSummary>()
+      if (!options.reset) {
+        for (const row of this.#historyRows) rows.set(sessionKey(row.runtime, row.id), row)
+      }
+      for (const row of page.data) {
+        const key = sessionKey(row.runtime, row.id)
+        if ((rows.get(key)?.updatedAt ?? -Infinity) > row.updatedAt) continue
+        rows.set(key, row)
+      }
+      for (const [key, row] of changes) {
+        if (row) rows.set(key, row)
+        else rows.delete(key)
+      }
+      const merged = [...rows.values()].filter(row => !row.archived && !removedRuntimes.has(row.runtime) && this.#historyEligible(row)).sort(sessionIndexCompare)
+      const history = merged.slice(0, capacity)
+      const identity = new Map(this.#snapshot.historyIdentity.map(row => [sessionKey(row.runtime, row.id), row]))
+      if (options.reset && this.#historyAgent === this.#snapshot.listPrefs.agent) for (const row of this.#historyRows) identity.delete(sessionKey(row.runtime, row.id))
+      for (const row of history) {
+        identity.set(sessionKey(row.runtime, row.id), row)
+        this.#historyExcluded.delete(sessionKey(row.runtime, row.id))
+      }
+      for (const [key, row] of changes) { if (row && identity.has(key)) identity.set(key, row); else if (!row) identity.delete(key) }
+      this.#historyRows = history
+      this.#historyAgent = this.#snapshot.listPrefs.agent
+      const nextFoldersGone = this.#foldersGoneFor(history)
+      this.#historyCapacity = capacity
+      this.#historyLoaded = true
+      const removedFromPage = page.data.some(row => changes.get(sessionKey(row.runtime, row.id)) === null)
+      this.#historyCursor = merged.length > capacity
+        ? sessionIndexCursorOf(history.at(-1)!)
+        : removedFromPage && page.nextCursor
+          ? history.length > 0 ? sessionIndexCursorOf(history.at(-1)!) : page.nextCursor
+          : capacity === 50 && this.#historyPageFirstCursor !== undefined
+          ? this.#historyPageFirstCursor
+          : page.nextCursor ?? null
       this.#patch({
+        previewSessions: new Set([...this.#snapshot.previewSessions].filter(key => !page.data.some(row => sessionKey(row.runtime, row.id) === key))),
         ...(nextFoldersGone ? { foldersGone: nextFoldersGone } : {}),
-        historyIdentity: mergeHistory(this.#snapshot.historyIdentity),
-        history: mergeHistory(this.#snapshot.history),
-        historyCursor: page.nextCursor ?? null,
+        historyIdentity: [...identity.values()].filter(row => !this.#historyRemovedRuntimes.has(row.runtime)),
+        ...(!this.#historyQuery ? { history, historyCursor: this.#historyCursor } : {}),
       })
     } catch (error) {
       this.#backgroundNotice('warning', describe(error))
     } finally {
-      if (requestId === this.#historyRequestId) this.#patch({ historyLoading: false })
+      if (requestId === this.#historyPageRequestId) {
+        this.#historyPageChanges = null
+        this.#historyPageRemovedRuntimes = null
+        if (!this.#historyQuery) this.#patch({ historyLoading: false })
+      }
     }
+  }
+
+  #historyEligible(row: SessionSummary): boolean {
+    return !this.#historyRemovedRuntimes.has(row.runtime) && (this.#snapshot.listPrefs.agent === null ||
+      agentKeyOf(row.runtime, this.#snapshot.runtimes) === this.#snapshot.listPrefs.agent)
+  }
+
+  /** Applies an index change without disturbing a live search or its results. */
+  #changeHistory(
+    upserted: readonly SessionSummary[],
+    removed: readonly { runtime: RuntimeId; id: SessionId }[] = [],
+    firstPageCursor?: string | null,
+  ): void {
+    const changes = new Map<SessionKey, SessionSummary | null>()
+    for (const row of upserted.filter(row => !this.#historyRemovedRuntimes.has(row.runtime))) changes.set(sessionKey(row.runtime, row.id), row.archived ? null : row)
+    for (const row of removed) changes.set(sessionKey(row.runtime, row.id), null)
+    for (const [key, row] of changes) {
+      this.#historyPageChanges?.set(key, row)
+      if (row) this.#historyExcluded.delete(key)
+      else this.#historyExcluded.add(key)
+    }
+    const identity = new Map(this.#snapshot.historyIdentity.map(row => [sessionKey(row.runtime, row.id), row]))
+    for (const [key, row] of changes) { if (row && identity.has(key)) identity.set(key, row); else if (!row) identity.delete(key) }
+    const rows = new Map(this.#historyRows.map(row => [sessionKey(row.runtime, row.id), row]))
+    for (const [key, row] of changes) {
+      if (row && this.#historyEligible(row)) rows.set(key, row)
+      else rows.delete(key)
+    }
+    const merged = [...rows.values()].sort(sessionIndexCompare)
+    const history = merged.slice(0, this.#historyCapacity)
+    if (this.#snapshot.listPrefs.agent === null && this.#historyCapacity === 50 && firstPageCursor !== undefined) {
+      const removedFromWindow = this.#historyRows.some(row =>
+        changes.get(sessionKey(row.runtime, row.id)) === null,
+      )
+      // The host's replacement at row fifty may be a row this window has not
+      // read yet. Keep the loaded boundary through later metadata notices too.
+      if (this.#historyCursor === null) this.#historyCursor = firstPageCursor
+      else if (removedFromWindow && history.length > 0) {
+        this.#historyCursor = sessionIndexCursorOf(history.at(-1)!)
+      }
+      this.#historyPageFirstCursor = this.#historyCursor
+    }
+    if (merged.length > this.#historyCapacity) {
+      this.#historyCursor = sessionIndexCursorOf(history.at(-1)!)
+      if (this.#historyCapacity === 50) this.#historyPageFirstCursor = this.#historyCursor
+    }
+    this.#historyRows = history
+    for (const row of history) identity.set(sessionKey(row.runtime, row.id), row)
+    let sessions = this.#snapshot.sessions
+    for (const row of upserted) {
+      const key = sessionKey(row.runtime, row.id)
+      const live = sessions.get(key)
+      if (!live) continue
+      const title = row.title === undefined ? live.title : row.title
+      const archived = row.archived === undefined ? live.archived : row.archived
+      if (live.title === title && live.archived === archived) continue
+      const next = new Map(sessions)
+      next.set(key, { ...live, title, archived })
+      sessions = next
+    }
+    const nextFoldersGone = this.#foldersGoneFor(upserted)
+    this.#patch({
+      previewSessions: new Set([...this.#snapshot.previewSessions].filter(key => !upserted.some(row => sessionKey(row.runtime, row.id) === key))),
+      ...(nextFoldersGone ? { foldersGone: nextFoldersGone } : {}),
+      historyIdentity: [...identity.values()],
+      ...(sessions !== this.#snapshot.sessions ? { sessions } : {}),
+      ...(!this.#historyQuery ? { history, historyCursor: this.#historyCursor } : {}),
+    })
   }
 
   /** One search across every backend that can search. */
   async searchHistory(query: string): Promise<void> {
-    const runtime = this.#snapshot.activeRuntime
-    if (!runtime) return
     this.#historyQuery = query.trim()
-    if (query.trim().length === 0) {
-      await this.loadHistory({ reset: true })
+    if (!this.#historyQuery) {
+      this.#historyRequestId += 1
+      this.#patch({ history: this.#historyRows, historyCursor: this.#historyCursor, historyLoading: this.#historyPageChanges !== null })
       return
     }
+    const runtime = this.#snapshot.activeRuntime
+    if (!runtime) return
     const requestId = ++this.#historyRequestId
     this.#patch({ historyLoading: true })
     try {
@@ -2137,7 +2375,16 @@ export class AppStore {
               .catch(() => [] as SessionSummary[]),
           ),
       )
-      const results = pages.flat()
+      const labels = seatLabelsOf(this.#snapshot)
+      const needle = query.trim().toLocaleLowerCase()
+      const local = this.#snapshot.historyIdentity.filter(row => {
+        const key = sessionKey(row.runtime, row.id)
+        const live = this.#snapshot.sessions.get(key)
+        const first = live?.turns.flatMap(turn => turn.items).find(item => item.type === 'userMessage')
+        const preview = first?.type === 'userMessage' ? first.content.filter(part => part.type === 'text').map(part => part.text).join('') : null
+        return sessionLabel(live?.title ?? row.title, live?.preview ?? preview ?? row.preview, labels.get(String(key))).toLocaleLowerCase().includes(needle)
+      })
+      const results = [...new Map([...pages.flat(), ...local].map(row => [String(sessionKey(row.runtime, row.id)), row])).values()]
         .filter((row) => this.#snapshot.runtimes.some((entry) => entry.id === row.runtime))
         .sort((a, b) => b.updatedAt - a.updatedAt)
       if (requestId !== this.#historyRequestId) return
@@ -2193,20 +2440,27 @@ export class AppStore {
     return changed ? next : null
   }
 
+  /** A saved pane carries a key, not an origin. The desk index confirms adoption. */
+  #markPreview(key: SessionKey): void {
+    if (this.#snapshot.previewSessions.has(key) || this.#snapshot.historyIdentity.some(row => sessionKey(row.runtime, row.id) === key)) return
+    this.#patch({ previewSessions: new Set([...this.#snapshot.previewSessions, key]) })
+  }
+
   #ensureHistorySummary(session: Session): void {
-    const key = String(sessionKey(session.runtime, session.id))
-    const summary = summaryOfSession(session)
-    const has = (rows: readonly SessionSummary[]) =>
-      rows.some((entry) => String(sessionKey(entry.runtime, entry.id)) === key)
-    const history = this.#snapshot.history
-    const historyIdentity = this.#snapshot.historyIdentity
-    if (has(history) && has(historyIdentity)) return
-    this.#patch({
-      history: has(history) ? history : [...history, summary].sort((a, b) => b.updatedAt - a.updatedAt),
-      historyIdentity: has(historyIdentity)
-        ? historyIdentity
-        : [...historyIdentity, summary].sort((a, b) => b.updatedAt - a.updatedAt),
-    })
+    const key = sessionKey(session.runtime, session.id)
+    if (this.#snapshot.previewSessions.has(key) || session.archived || this.#snapshot.sessions.get(key)?.archived || this.#historyExcluded.has(key)) return
+    if ([...this.#snapshot.teams.values()].some(team => team.members.includes(key))) return
+    if (this.#snapshot.historyIdentity.some(row => sessionKey(row.runtime, row.id) === key)) return
+    this.#changeHistory([summaryOfSession(session)])
+  }
+
+  #archiveHistory(runtime: RuntimeId, id: SessionId): void {
+    const key = sessionKey(runtime, id)
+    const live = this.#snapshot.sessions.get(key)
+    const row = this.#snapshot.historyIdentity.find(one => sessionKey(one.runtime, one.id) === key)
+      ?? (live ? summaryOfSession(live) : null)
+    if (row) this.#changeHistory([{ ...row, archived: true }])
+    else this.#changeHistory([], [{ runtime, id }])
   }
 
   // ----------------------------------------------------------------- sessions
@@ -2237,6 +2491,8 @@ export class AppStore {
        * harness is doing while you work with this one.
        */
       readonly area?: AreaId
+      /** Read imported history without adding a sidebar summary before adoption. */
+      readonly preview?: boolean
       /** A layout restore rather than a person's click. */
       readonly restoring?: boolean
       /**
@@ -2252,11 +2508,15 @@ export class AppStore {
        * nobody had opened this run — which it now does, deliberately — and
        * clicking it mounted a transcript with no session behind it.
        */
+      readonly preserveLayoutOnReadFailure?: boolean
       readonly reveal?: boolean
     },
-  ): Promise<void> {
+  ): Promise<boolean> {
     const { runtime } = options
     const key = sessionKey(runtime, id)
+    const removalRevision = this.#sessionRemovalRevisions.get(key) ?? 0
+    const stillHeld = () => (this.#sessionRemovalRevisions.get(key) ?? 0) === removalRevision
+    if (options.preview || options.restoring) this.#markPreview(key)
     // Reading the conversation a draft is carrying — the chip's own link —
     // is not abandoning the hand-off. It waits for the next empty draft.
     const carried = this.#snapshot.draftHandoff
@@ -2266,11 +2526,15 @@ export class AppStore {
     // already on screen included, which moves nothing the rule in `#patch` sees.
     if (options.reveal !== false && !options.restoring) this.closeFloatingSidebar()
     this.#setLoading(key, true)
+    let readSucceeded = false
     try {
       const session = await this.transport.request('session/read', { runtime, sessionId: id })
+      if (!stillHeld()) return false
       this.#setSession(session)
-      this.#ensureHistorySummary(session)
+      readSucceeded = true
+      if (!options.preview && !options.restoring) this.#ensureHistorySummary(session)
       const live = await this.transport.request('session/resume', { runtime, sessionId: id })
+      if (!stillHeld()) return false
       this.#setSession(live)
       // A conversation that reopened is the only evidence its refusal — gone
       // folder or not — no longer holds.
@@ -2281,6 +2545,7 @@ export class AppStore {
         this.#patch({ foldersGone: left })
       }
     } catch (error) {
+      if (!stillHeld()) return false
       // A conversation another writer holds is a special kind of failure: the
       // read above already succeeded, so the transcript is on screen and whole
       // — what is missing is only the ability to add to it. The pane keeps
@@ -2291,6 +2556,26 @@ export class AppStore {
          when the agent will not — but on a conversation this desk has never
          opened there is no host copy either, and then both halves fail. */
       const painted = this.#snapshot.sessions.get(key)
+      const savedIdentity = painted ? null : (
+        this.#snapshot.historyIdentity.find((row) => row.runtime === runtime && row.id === id) ??
+        this.#snapshot.history.find((row) => row.runtime === runtime && row.id === id) ??
+        null
+      )
+      const runtimeHealth = this.#snapshot.healthByRuntime[runtime] ??
+        (runtime === this.#snapshot.activeRuntime ? this.#snapshot.health : null)
+      const runtimeCannotRun = !this.#snapshot.runtimes.some((entry) => entry.id === runtime) ||
+        runtimeHealth?.state === 'unavailable'
+      const keptIdentity = Boolean(savedIdentity && runtimeCannotRun && !painted)
+      if (savedIdentity && runtimeCannotRun && !painted) {
+        // The index owns identity, not messages. Keep its title and folder in
+        // the selected pane, but never promote its preview into a transcript.
+        this.#setSession({
+          ...savedIdentity,
+          status: { type: 'idle' },
+          turns: [],
+          itemsLoaded: false,
+        })
+      }
       /* The folder it ran in, whether or not its transcript arrived: the
          sidebar row carries the folder too, and where nothing was painted the
          row is the only place it is written down. */
@@ -2308,7 +2593,7 @@ export class AppStore {
       if (goneFolder !== null) {
         this.#patch({ foldersGone: new Map(this.#snapshot.foldersGone).set(goneFolder, describe(error)) })
       }
-      if (!painted || (options.restoring && !isHeldElsewhere(error) && !isFolderGone(error))) {
+      if (!keptIdentity && !options.preserveLayoutOnReadFailure && (!painted || (options.restoring && !readSucceeded && !isHeldElsewhere(error) && !isFolderGone(error)))) {
         // The composer stays editable while reading. Save its live draft
         // before clearing the key, where the fresh composer can restore it.
         // A repeated refusal must not save the same draft a second time.
@@ -2324,8 +2609,8 @@ export class AppStore {
         }
         // Without a transcript this is a draft, so its next message must
         // create a conversation rather than address the failed one. On a
-        // restore, keep the existing cleanup for other reopening failures;
-        // held or folder-gone transcripts remain readable. Match the key,
+        // restore, keep the existing cleanup when the read itself failed;
+        // a refused resume cannot erase readable history. Match the key,
         // because a delayed refusal may arrive after the person moved on.
         const pane = panes(this.#snapshot.layout.root).find(
           (candidate) => sessionOf(candidate) === key,
@@ -2339,7 +2624,11 @@ export class AppStore {
           if (docked) this.#setWorkbench(undockIn(this.#snapshot.workbench, docked.mounted.id))
         }
       }
-      if (isHeldElsewhere(error)) {
+      if (readSucceeded && this.#snapshot.healthByRuntime[runtime]?.state === 'unavailable') {
+        // The transcript's continuation line owns this persistent refusal.
+      } else if (keptIdentity) {
+        // The selected pane carries the saved identity and an inline reason.
+      } else if (isHeldElsewhere(error)) {
         this.resultNotice('error', describe(error), {
           label: 'Open a copy',
           run: () => void this.forkSession(key),
@@ -2378,6 +2667,7 @@ export class AppStore {
     } finally {
       this.#setLoading(key, false)
     }
+    return readSucceeded
   }
 
   /**
@@ -2409,6 +2699,10 @@ export class AppStore {
       readonly reveal?: boolean
     } = {},
   ): Promise<SessionKey | null> {
+    const candidate = focusedPane(this.#snapshot.layout)
+    const draftPane = options.reveal !== false && options.split === undefined && (!options.area || options.area === 'main')
+      && candidate.view.kind === 'conversation' && candidate.view.session === null ? candidate : null
+    const draftSubject = draftPane ? `draft:${draftPane.id}` : null
     const runtime = options.runtime ?? this.#snapshot.activeRuntime
     const workspace = options.cwd ?? this.#snapshot.workspace?.path
     /* A folder this app has proof is gone is never where a session starts.
@@ -2445,10 +2739,7 @@ export class AppStore {
       // never opens.
       // Validate saved picks at the creation boundary: declarations may have
       // changed since the draft last read them.
-      if (Object.keys(this.#draftsByRuntime[runtime] ?? {}).length > 0) {
-        await this.newSessionDefaultsFor(runtime, cwd)
-      }
-      const values = this.#draftsByRuntime[runtime] ?? {}
+      const values = await this.#newSessionValues(runtime, cwd)
       const session = await this.transport.request('session/create', {
         runtime,
         options: {
@@ -2459,8 +2750,25 @@ export class AppStore {
       })
       this.#setSession(session)
       const key = sessionKey(runtime, session.id)
-      if (options.reveal !== false) this.#showInPane(key, options.split, options.area)
-      void this.loadHistory({ reset: true })
+      if (options.reveal !== false) {
+        this.#showInPane(key, options.split, options.area, draftPane?.id)
+        const promoted = focusedPane(this.#snapshot.layout)
+        if (draftSubject && promoted.id === draftPane?.id && promoted.view.kind === 'conversation' && promoted.view.session === key) {
+          const before = this.#snapshot.workbench
+          const { [draftSubject]: intent, ...frameTools } = before.frameTools
+          const { [draftSubject]: scope, ...frameSubjects } = before.frameSubjects
+          if (intent || scope) {
+            const subject = `session:${key}`
+            const pane = focusedPane(before.main)
+            this.#setWorkbench({ ...before,
+              frameTools: intent ? { ...frameTools, [subject]: intent } : frameTools,
+              frameSubjects: { ...frameSubjects, [subject]: { paneId: pane.id, view: pane.view } },
+              toolOwners: Object.fromEntries(Object.entries(before.toolOwners).map(([id, owner]) => [id, owner === draftSubject ? subject : owner])),
+            })
+          }
+        }
+      }
+      this.#ensureHistorySummary(session)
       return key
     } catch (error) {
       this.resultNotice('error', describe(error))
@@ -2629,6 +2937,7 @@ export class AppStore {
    * abandoned "new session" leaves nothing behind in the backend's history.
    */
   newDraft(options: { readonly split?: Split['direction'] } = {}): void {
+    const navigation = this.#snapshot.workbench.navigation
     const layout = this.#snapshot.layout
     if (options.split) {
       this.#setLayout(splitIn(layout, layout.focused, options.split, emptyView()))
@@ -2650,6 +2959,7 @@ export class AppStore {
           : onlyIn(layout, emptyView()),
       )
     }
+    this.#recordSelectedWork(navigation)
     // A hand-off belongs to the draft it was handed to: "New session" must
     // not carry the last one into a conversation that was asked to be empty.
     // The exception is the one set aside to read its own source — that is
@@ -2658,7 +2968,7 @@ export class AppStore {
     this.#parkedHandoff = null
     // And it starts in the open folder: a worktree chosen for the last draft
     // is a decision about that one, and "New session" is asked to be empty.
-    this.#patch({ draftHandoff: parked, draftPlace: null })
+    this.#patch({ draftHandoff: parked, draftPlace: null, sidebarFloating: false })
     // Hand the keyboard to the composer, the only thing to do in an empty pane.
     window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: '' }))
   }
@@ -2713,7 +3023,7 @@ export class AppStore {
       const session = await this.transport.request('session/fork', { runtime, sessionId: id })
       this.#setSession(session)
       this.#showInPane(sessionKey(runtime, session.id), 'row')
-      void this.loadHistory({ reset: true })
+      this.#ensureHistorySummary(session)
     } catch (error) {
       this.resultNotice('error', describe(error))
     }
@@ -2861,12 +3171,12 @@ export class AppStore {
    */
   async archiveSession(id: SessionId, owner: RuntimeId, label?: string): Promise<void> {
     try {
-      await this.transport.request('session/archive', { runtime: owner, sessionId: id, archived: true })
+      const result = await this.transport.request('session/archive', { runtime: owner, sessionId: id, archived: true })
+      this.#archiveHistory(owner, id)
       const key = sessionKey(owner, id)
       const pane = panes(this.#snapshot.layout.root).find((entry) => sessionOf(entry) === key)
       if (pane) this.closePane(pane.id)
-      await this.loadHistory({ reset: true })
-      this.resultNotice('info', label ? `Archived "${label}".` : 'Archived.', {
+      this.resultNotice('info', [label ? `Archived "${label}".` : 'Archived.', result?.warning].filter(Boolean).join(' '), {
         label: 'Undo',
         run: () => void this.unarchiveSession(id, owner),
       })
@@ -2875,14 +3185,38 @@ export class AppStore {
     }
   }
 
-  /** Puts one back in the list. Reloads it, so the row reappears at once. */
-  async unarchiveSession(id: SessionId, owner: RuntimeId): Promise<void> {
+  /** Puts one back in the index; the host pushes the restored summary. */
+  async unarchiveSession(id: SessionId, owner: RuntimeId): Promise<boolean> {
     try {
-      await this.transport.request('session/archive', { runtime: owner, sessionId: id, archived: false })
-      await this.loadHistory({ reset: true })
+      const result = await this.transport.request('session/archive', { runtime: owner, sessionId: id, archived: false })
+      if (result?.warning) this.resultNotice('info', result.warning)
+      return true
     } catch (error) {
       this.resultNotice('error', describe(error))
+      return false
     }
+  }
+
+  /** Remove only the desk's row and copy, with the host's bounded Undo. */
+  async removeSession(id: SessionId, owner: RuntimeId): Promise<void> {
+    const key = sessionKey(owner, id)
+    this.#deleting.add(key)
+    try {
+      const { undoUntil, warning } = await this.transport.request('session/remove', { runtime: owner, sessionId: id, removed: true })
+      this.#dropRemoved(key, false)
+      this.resultNotice('info', warning ? `Removed from HarnessDesk. ${warning}` : 'Removed from HarnessDesk', {
+        label: 'Undo',
+        ...(undoUntil === null ? {} : { expiresAt: undoUntil }),
+        run: () => void this.undoRemoveSession(id, owner),
+      })
+    } catch (error) {
+      this.resultNotice('error', describe(error))
+    } finally { this.#deleting.delete(key) }
+  }
+
+  async undoRemoveSession(id: SessionId, owner: RuntimeId): Promise<void> {
+    try { await this.transport.request('session/remove', { runtime: owner, sessionId: id, removed: false }) }
+    catch (error) { this.resultNotice('error', describe(error)) }
   }
 
   /**
@@ -2904,7 +3238,7 @@ export class AppStore {
     // session and nothing else ever reads them again, so left behind they are
     // a preference that only grows and is sent on every state sync.
     this.forgetPlanEdits(key)
-    await this.loadHistory({ reset: true })
+    this.#dropRemoved(key, true)
     return outcome
   }
 
@@ -2936,7 +3270,12 @@ export class AppStore {
    * again for a conversation it never showed.
    */
   #dropRemoved(key: SessionKey, deleted: boolean): void {
+    // Reads already in flight cannot recreate what the host has confirmed gone.
+    this.#sessionRemovalRevisions.set(key, (this.#sessionRemovalRevisions.get(key) ?? 0) + 1)
     const { runtime, id } = splitSessionKey(key)
+    this.#historyPageChanges?.set(key, null)
+    this.#historyExcluded.add(key)
+    this.#historyRows = this.#historyRows.filter(row => sessionKey(row.runtime, row.id) !== key)
     this.#pendingConversationNotices.delete(runtime, id)
     const { sessions, queues, tasks, history, historyIdentity, approvals } = this.#snapshot
     const shown = panes(this.#snapshot.layout.root).filter((pane) => sessionOf(pane) === key)
@@ -2948,8 +3287,12 @@ export class AppStore {
     const waiting = approvals.some((entry) => entry.key === key)
     const held = sessions.has(key) || queues.has(key) || tasks.has(key) || listed || known || waiting ||
       shown.length > 0 || docked.length > 0 ||
+      this.#snapshot.workbench.frameSubjects[`session:${key}`] !== undefined ||
+      this.#snapshot.workbench.frameTools[`session:${key}`] !== undefined ||
       (deleted && (this.drafts.live(key) !== null || this.drafts.recoverable(key).length > 0))
-    if (!held) return
+    const navigation = this.#withoutSessionHistory(key)
+    const historyChanged = JSON.stringify(navigation) !== JSON.stringify(this.#snapshot.workbench.navigation)
+    if (!held && !historyChanged) return
     // Where it was on screen first, so the focus moves with the panes rather
     // than being left on a conversation nothing can open any more.
     const closing = this.#deleting.has(key)
@@ -2958,6 +3301,8 @@ export class AppStore {
       this.#setLayout(closing ? closePaneIn(layout, pane.id) : showIn(layout, pane.id, emptyView()))
     }
     for (const entry of docked) this.#setWorkbench(undockIn(this.#snapshot.workbench, entry.mounted.id))
+    const retained = forgetFrameSubject(this.#snapshot.workbench, `session:${key}`)
+    if (retained !== this.#snapshot.workbench || historyChanged) this.#setWorkbench({ ...retained, navigation: this.#withoutSessionHistory(key) })
     const nextSessions = new Map(sessions)
     const nextQueues = new Map(queues)
     const nextTasks = new Map(tasks)
@@ -2979,20 +3324,15 @@ export class AppStore {
     if (!key) return
     try {
       await this.transport.request('session/setTitle', { ...address(key), title })
-      /*
-       * The open conversation takes the name now, rather than waiting for the
-       * history reload to bring it back. An agent that keeps no name of its
-       * own — every ACP one — reports whatever it always reported, so the
-       * reload is not what tells this window the new name; the host is, and it
-       * has already agreed.
-       */
+      // The confirmed name patches both the open conversation and its indexed row.
       const open = this.#snapshot.sessions.get(key)
       if (open) {
         const sessions = new Map(this.#snapshot.sessions)
         sessions.set(key, { ...open, title: title.trim() === '' ? null : title.trim() })
         this.#patch({ sessions })
       }
-      void this.loadHistory({ reset: true })
+      const known = this.#snapshot.historyIdentity.find(row => sessionKey(row.runtime, row.id) === key)
+      if (known) this.#changeHistory([{ ...known, title: title.trim() || null }])
     } catch (error) {
       this.resultNotice('error', describe(error))
     }
@@ -3057,15 +3397,13 @@ export class AppStore {
    * file opened into the middle came back on the next launch as a tab in the
    * right panel, having moved itself overnight with nobody's hand on it.
    *
-   * `split` is still honoured, because `/open --split` and the pane menu are
-   * a person saying "the middle" out loud, and a person may.
+   * `split` remains accepted for command compatibility; files use the fixed right panel.
    */
   openFile(path: string, options: { readonly split?: Split['direction'] | null } = {}): void {
     const runtime = this.#snapshot.activeRuntime
     if (!runtime) return
     const view: PaneView = { kind: 'file', path, runtime }
-    if (options.split) this.#showView(view, options.split)
-    else this.openDefaultView(view)
+    this.openDefaultView(view)
   }
 
   /**
@@ -3136,8 +3474,7 @@ export class AppStore {
     const runtime = this.#snapshot.activeRuntime
     if (!runtime) return
     const view: PaneView = { kind: 'preview', path, runtime }
-    if (options.split) this.#showView(view, options.split)
-    else this.openDefaultView(view)
+    this.openDefaultView(view)
   }
 
   /**
@@ -3157,13 +3494,22 @@ export class AppStore {
    * pushes, so unlike `openGitHistory` there is nothing to resolve and no race
    * to guard.
    */
+  requestTeamFrame(room: string, page: 'board' | 'run', runView?: 'timeline' | 'flow'): void {
+    this.openTeamRoom(room)
+    this.#teamFrameSerial = Math.max(this.#teamFrameSerial, ...Object.values(this.#snapshot.teamFrameRequests).map(one => one.serial)) + 1
+    this.#patch({ teamFrameRequests: { ...this.#snapshot.teamFrameRequests,
+      [room]: { serial: this.#teamFrameSerial, page, ...(runView ? { runView } : {}) } } })
+  }
+  /** Synchronous compare-and-consume: an old component cannot acknowledge a newer opener. */
+  consumeTeamFrame(room: string, serial: number): boolean {
+    if (this.#snapshot.teamFrameRequests[room]?.serial !== serial) return false
+    const { [room]: _request, ...teamFrameRequests } = this.#snapshot.teamFrameRequests
+    this.#patch({ teamFrameRequests })
+    return true
+  }
   openTeamBoard(room?: string): void {
     const base = this.#roomToShow(room)
-    if (!base) return
-    /* The board declares the edges and not the middle, and the middle enforces
-       that on the way back in — so opening it as a pane put a board beside the
-       room it belongs to and then dropped it at the next launch. */
-    this.openDefaultView({ kind: 'board', room: base })
+    if (base) this.requestTeamFrame(base, 'board')
   }
 
   /**
@@ -3256,6 +3602,25 @@ export class AppStore {
     return view?.kind === 'browser' ? { id, view } : null
   }
 
+  readonly #browserTileRegistry = new BrowserTileRegistry()
+
+  mountBrowserTile(profile: string | null, mount: BrowserTileMount): () => void {
+    return this.#browserTileRegistry.mount(profile, mount, browserTiles => this.#patch({ browserTiles }))
+  }
+
+  #frontBrowserTile(profile: string | null): boolean {
+    const tile = this.#snapshot.browserTiles.get(browserProfileKey(profile))
+    if (!tile) return false
+    const room = viewAt(this.#snapshot.workbench, tile.paneId)
+    if (room?.kind !== 'room') return false
+    tile.focus?.()
+    this.setRoomSideBySide(tile.paneId, focusTile(fromStored(room.sideBySide, room.watching), tile.key))
+    this.revealView(tile.paneId)
+    if (this.#snapshot.layout.expanded !== null && this.#snapshot.layout.expanded !== tile.paneId) this.#setLayout(collapseIn(this.#snapshot.layout))
+    if (this.#snapshot.workbench.zoom && !areaVisibleIn(this.#snapshot.workbench, areaOfMount(this.#snapshot.workbench, tile.paneId))) this.unzoomPanel()
+    return true
+  }
+
   /** Applies a change to the browser's view, wherever it is mounted. */
   #patchBrowser(id: string, change: (view: BrowserView) => BrowserView | null): void {
     const current = viewAt(this.#snapshot.workbench, id)
@@ -3278,13 +3643,31 @@ export class AppStore {
    * since the slot is exactly what Back exists to compensate for. On the view
    * it rides in the workbench, which is persisted per workspace.
    */
+  setTeamFramePage(room: string, framePage: TeamFramePage, chatLayout?: TeamChatLayout): void {
+    const pane = panes(this.#snapshot.workbench.main.root).find(one => one.view.kind === 'room' && one.view.room === room)
+    if (pane?.view.kind !== 'room') return
+    const { chatMember: _chatMember, ...current } = pane.view
+    if (pane.view.chatMember === undefined && current.framePage === framePage && (chatLayout === undefined || current.chatLayout === chatLayout)) return
+    this.#setWorkbench(replaceTeamPayload(this.#snapshot.workbench, pane.id, { ...current, framePage, ...(chatLayout ? { chatLayout } : {}) }))
+  }
+
+  /** Opens one Team member's Chat while keeping the Team tab in the one Back history. */
+  openTeamMemberChat(room: string, member: SessionKey): void {
+    const pane = panes(this.#snapshot.workbench.main.root).find(one => one.view.kind === 'room' && one.view.room === room)
+    if (pane?.view.kind !== 'room') return
+    const view = { ...pane.view, framePage: 'room' as const, chatLayout: 'thread' as const, chatMember: member }
+    const workbench = replaceTeamPayload(this.#snapshot.workbench, pane.id, view)
+    const navigation = visitDestination(this.#snapshot.workbench.navigation, destinationOf(view))
+    this.#setWorkbench({ ...workbench, navigation })
+  }
+
   setRoomWatching(id: string, watching: readonly SessionKey[]): void {
     const current = viewAt(this.#snapshot.workbench, id)
     if (current?.kind !== 'room') return
     const before = current.watching ?? []
     if (before.length === watching.length && before.every((key, at) => key === watching[at])) return
     this.#setWorkbench(
-      replaceViewIn(this.#snapshot.workbench, id, { ...current, watching: [...watching] }),
+      replaceTeamPayload(this.#snapshot.workbench, id, { ...current, watching: [...watching] }),
     )
   }
 
@@ -3295,22 +3678,20 @@ export class AppStore {
     const next = toStored(state)
     if (JSON.stringify(current.sideBySide ?? null) === JSON.stringify(next ?? null)) return
     const { sideBySide: _old, ...rest } = current
-    this.#setWorkbench(replaceViewIn(this.#snapshot.workbench, id, next ? { ...rest, sideBySide: next } : rest))
+    this.#setWorkbench(replaceTeamPayload(this.#snapshot.workbench, id, next ? { ...rest, sideBySide: next } : rest))
   }
 
   /**
    * Opens the browser pane, at `url` when given, else where it last was.
    * One browser per layout, several tabs inside it.
    *
-   * A URL goes to the **driven** tab and brings it to the front — this is
-   * what an agent's `browser_open` reaches from the desktop shell, and the
-   * pane's contract is that the page the tools drive is a page on screen.
-   * Chromium freezes a `<webview>` nobody is looking at, so a driven tab
-   * hidden behind another would screenshot as a stale frame.
+   * A URL goes to the driven tab. Explicit opens reveal its recorded work;
+   * the desktop shell marks agent opens as driven so updating a retained
+   * browser cannot replace the destination the person is reading.
    */
   openBrowser(
     url?: string,
-    options: { readonly split?: Split['direction'] | null; readonly profile?: string | null } = {},
+    options: { readonly split?: Split['direction'] | null; readonly profile?: string | null; readonly driven?: boolean } = {},
   ): void {
     const profile = options.profile ?? null
     if (profile !== null && (!/^lane-[A-Za-z0-9-]{1,100}$/.test(profile) || profile.endsWith('\n'))) {
@@ -3324,7 +3705,8 @@ export class AppStore {
     }
     if (existing) {
       if (url) this.#patchBrowser(existing.id, sendDriven)
-      this.revealView(existing.id)
+      if (options.driven) this.focusDrivenBrowserTab(profile)
+      else if (!this.#frontBrowserTile(profile)) this.revealView(existing.id)
       return
     }
     // A closed panel gets its pages back — including when it is an agent
@@ -3333,15 +3715,9 @@ export class AppStore {
     const restored = this.#closedBrowsers.get(profile ?? 'default')
     this.#closedBrowsers.delete(profile ?? 'default')
     const view = sendDriven(restored ?? browserView(BLANK, profile))
-    // An explicit split is still a split — `/browser --split` and the pane
-    // menu both mean the middle. Otherwise it goes where its definition says,
-    // which is the right-hand edge: a page you are working *from* belongs
-    // beside the conversation, not in place of it.
-    if (options.split) {
-      this.#showView(view, options.split)
-      return
-    }
+    // Legacy split arguments normalize to the fixed right panel.
     this.openDefaultView(view)
+    this.#frontBrowserTile(profile)
   }
 
   /**
@@ -3352,6 +3728,8 @@ export class AppStore {
    * open something.
    */
   openDefaultView(view: PaneView): void {
+    if ((view.kind !== 'conversation' && toolOf(view.kind)) || view.kind === 'board' || view.kind === 'run-steps') { this.showViewIn('right', view); return }
+    if (view.kind === 'terminal') { this.showViewIn('bottom', view); return }
     const area = defaultArea(view)
     if (area) {
       this.showViewIn(area, view)
@@ -3364,10 +3742,22 @@ export class AppStore {
     this.#showOnly(view)
   }
 
-  /** Brings the driven tab to the front, before the tools act on it. */
+  /** Selects the driven tab before tools act, without changing unrelated work. */
   focusDrivenBrowserTab(profile: string | null = null): void {
     const pane = this.#browserPane(profile)
     if (!pane) return
+    if (this.#snapshot.workbench.navigation.current.kind === 'work' && this.#frontBrowserTile(profile)) {
+      this.#patchBrowser(pane.id, view => view.active === view.driven ? view : { ...view, active: view.driven })
+      return
+    }
+    const workbench = this.#snapshot.workbench
+    const owner = workbench.toolOwners[pane.id]
+    if (workbench.navigation.current.kind !== 'work' || (owner && owner !== fixedSubject(workbench.main))) {
+      // Retained native layers keep their layout box offscreen. An agent
+      // can select its driven tab without changing the person's destination.
+      this.#patchBrowser(pane.id, view => view.active === view.driven ? view : { ...view, active: view.driven })
+      return
+    }
     this.revealView(pane.id)
     // A browser hidden behind another pane's expansion cannot paint, and a
     // frozen webview screenshots as a stale frame — the tools are about to
@@ -3508,10 +3898,14 @@ export class AppStore {
       readonly size?: TerminalSize
     } = {},
   ): Promise<void> {
+    if (this.#snapshot.windowHeight < FRAME.bottomPanel.min * 2) {
+      this.resultNotice('warning', 'The terminal needs a window at least 240px tall.')
+      return
+    }
     const runtime = this.#snapshot.activeRuntime
     const sessionKeyNow = this.#snapshot.activeSessionKey
     const session = sessionKeyNow ? this.#snapshot.sessions.get(sessionKeyNow) : undefined
-    const cwd = options.cwd ?? session?.cwd ?? this.#snapshot.workspace?.path
+    const cwd = options.cwd ?? terminalCwdForSnapshot(this.#snapshot)
     if (!runtime || !cwd) {
       this.resultNotice('warning', 'Choose a project folder before opening a terminal.')
       return
@@ -3681,12 +4075,21 @@ export class AppStore {
     this.#setLayout(resizeIn(this.#snapshot.layout, splitId, ratio))
   }
 
-  #showInPane(key: SessionKey, _split?: Split['direction'], area?: AreaId): void {
+  #showInPane(key: SessionKey, _split?: Split['direction'], area?: AreaId, draftPaneId?: PaneId): void {
     if (area && area !== 'main') {
       // Nothing declares an edge for a conversation any more, so `showViewIn`
       // refuses this — kept as the one place that would have to change if a
       // conversation ever became dockable again.
       this.showViewIn(area, { kind: 'conversation', session: key })
+      return
+    }
+    const draft = draftPaneId ? findPane(this.#snapshot.layout, draftPaneId) : undefined
+    if (draft?.view.kind === 'conversation' && draft.view.session === null) {
+      const view = { kind: 'conversation' as const, session: key }
+      const main = focusPaneIn(showIn(this.#snapshot.layout, draft.id, view), draft.id)
+      this.#navigationEpoch += 1
+      this.#setWorkbench({ ...this.#snapshot.workbench, main,
+        navigation: visitDestination(this.#snapshot.workbench.navigation, destinationOf(view)) })
       return
     }
     // A session replaces whatever the middle held, including a room. Splitting
@@ -3716,7 +4119,12 @@ export class AppStore {
    * project it belongs to.
    */
   #setWorkbench(next: Workbench): void {
-    const workbench = settleWorkbench(next)
+    let workbench = settleWorkbench(next)
+    if (workbench.navigation === this.#snapshot.workbench.navigation && workbench.navigation.current.kind === 'work') {
+      const view = focusedPane(workbench.main).view
+      if (view.kind === 'conversation' || view.kind === 'room') workbench = { ...workbench,
+        navigation: visitDestination(workbench.navigation, destinationOf(view), true) }
+    }
     this.#patch({ workbench, layout: workbench.main, detailsTab: visibleInspector(workbench) })
     // What the patch settled on, which is not always what was asked for: a
     // panel expanded in a sidebar that is not on screen is put back.
@@ -3744,8 +4152,9 @@ export class AppStore {
 
   /** Brings back the panels saved for this workspace, or starts with one empty pane. */
   #restoreLayout(workspace: string | null): void {
+    this.#navigationEpoch += 1
     const raw = workspace ? this.#layouts?.[workspace] : null
-    const saved = readWorkbench(raw)
+    const saved = readWorkbench(raw, this.#snapshot.windowHeight)
     // Pages belong to the project they were opened for: a browser closed in
     // one workspace must not reappear in the next one.
     this.#closedBrowsers.clear()
@@ -3771,22 +4180,18 @@ export class AppStore {
           strayTerminals(raw).reduce((acc, view) => dockIn(acc, 'bottom', view), saved),
         )
       : null
-    const restored = rehomed
-      ? DOCKS.reduce((current, area) => {
-          const entries = dockViews(current[area])
-          const runOnly = entries.length > 0 && entries.every(one => one.view.kind === 'run-details' || one.view.kind === 'run-steps')
-          if (runOnly) return collapseDockIn(current, area, true)
-          return entries.filter(one => one.view.kind === 'run-details' || one.view.kind === 'run-steps')
-            .reduce((next, one) => undockIn(next, one.id), current)
-        }, rehomed)
-      : null
-    const workbench = restored ?? emptyWorkbench()
+    const migration = rehomed ? normalizeFixedWorkbench(rehomed, true) : null
+    const restored = migration ? settleWorkbench(migration.workbench) : emptyWorkbench()
+    const workbench = settleConversationTool(restored, effectiveWindowMode(this.#snapshot.windowMode, restored) === 'editor', true)
     // Persisting what was just read back would be a no-op write; set directly.
     this.#patch({
       workbench,
       layout: workbench.main,
       detailsTab: visibleInspector(workbench),
     })
+    for (const view of migration?.legacyRoutes ?? []) {
+      if (view.kind === 'board') this.openTeamBoard(view.room)
+    }
     // Unless the patch settled on something else: a panel saved expanded in a
     // sidebar that opens put away comes back put away, and the document
     // should say so rather than drop the zoom again on every open.
@@ -3805,8 +4210,70 @@ export class AppStore {
    * only says which of them a click meant.
    */
 
+  workSubject(): string | null {
+    const pane = findPane(this.#snapshot.layout, this.#snapshot.layout.focused)
+    const view = pane?.view
+    if (view?.kind === 'room') return `team:${view.room}`
+    if (view?.kind === 'conversation') return view.session === null ? `draft:${pane!.id}` : `session:${view.session}`
+    return null
+  }
+  chooseWorkTool(tool: WorkTool, mode: string = tool, toggle = false): void {
+    const subject = this.workSubject()
+    if (!subject) return
+    const before = this.#snapshot.workbench
+    if (tool === 'conversation') {
+      const pane = findPane(before.main, before.main.focused)!
+      const next = admitFixedTool(before, pane.view, toggle, conversationToolContext(before, effectiveWindowMode(this.#snapshot.windowMode, before) === 'editor'))
+      if (next) this.#setWorkbench(next)
+      return
+    }
+    const intent = chooseTool(before.frameTools[subject], tool, mode, toggle)
+    if (intent.open && mode === tool && (tool === 'changes' || tool === 'activity')
+      && !dockViews(before.right).some(one => before.toolOwners[one.id] === subject && one.view.kind === tool)) {
+      this.showViewIn('right', { kind: tool })
+      return
+    }
+    const pane = findPane(before.main, before.main.focused)!
+    const candidates = dockViews(before.right).filter(one => before.toolOwners[one.id] === subject && one.view.kind === mode)
+    const active = activeView(before.right)
+    const cached = candidates.find(one => one.id === active?.id && supportsFixedTool(one.view, this.#snapshot.contributions))
+      ?? candidates.find(one => supportsFixedTool(one.view, this.#snapshot.contributions)) ?? candidates[0]
+    const refusal = cached && fixedToolRefusal(before, cached.id, this.#snapshot.contributions)
+    if (refusal) { this.resultNotice('warning', refusal); return }
+    const selected = cached && intent.open ? activateIn(before, 'right', cached.id) : before
+    this.#setWorkbench({ ...selected, right: { ...selected.right, collapsed: !intent.open },
+      frameTools: { ...before.frameTools, [subject]: intent },
+      frameSubjects: { ...before.frameSubjects, [subject]: { paneId: pane.id, view: pane.view } } })
+  }
+  toggleWorkPanel(): void {
+    const subject = this.workSubject()
+    if (!subject) return
+    const before = this.#snapshot.workbench
+    const current = before.frameTools[subject] ?? { tool: 'details', mode: 'details', open: false } as const
+    this.chooseWorkTool(current.tool, current.mode, true)
+  }
+
   /** Mounts a view in an area, bringing it forward if it is already somewhere. */
   showViewIn(area: AreaId, view: PaneView): void {
+    if (view.kind === 'board') { this.openTeamBoard(view.room); return }
+    if (view.kind === 'run-steps') {
+      const room = this.#roomToShow()
+      if (room) this.requestTeamFrame(room, 'run', 'timeline')
+      else this.resultNotice('warning', 'Open a Team to view its Run Timeline.')
+      return
+    }
+    if (toolOf(view.kind) && (view.kind !== 'conversation' || area !== 'main')) {
+      if (view.kind === 'plugin' && !supportsFixedTool(view, this.#snapshot.contributions)) {
+        this.resultNotice('warning', 'This plugin panel does not support the fixed right panel.')
+        return
+      }
+      const next = admitFixedTool(this.#snapshot.workbench, view, false, conversationToolContext(this.#snapshot.workbench, effectiveWindowMode(this.#snapshot.windowMode, this.#snapshot.workbench) === 'editor'))
+      if (!next) { this.resultNotice('warning', 'Open a conversation or Team before opening this tool.'); return }
+      this.#setWorkbench(next)
+      return
+    }
+    if (view.kind === 'terminal') area = 'bottom'
+
     if (!permits(view, area)) return
     if (area === 'main') {
       // Main is a slot: whatever was there is replaced, never split beside.
@@ -3833,7 +4300,8 @@ export class AppStore {
    * that is where releasing belongs.
    */
   #showOnly(view: PaneView): void {
-    this.#setLayout(onlyIn(this.#snapshot.layout, view))
+    if (view.kind !== 'conversation' && view.kind !== 'room') return
+    this.#selectWork(view)
   }
 
   /** Closes a docked view, releasing whatever it was holding open. */
@@ -3867,6 +4335,28 @@ export class AppStore {
    * nothing at least once.
    */
   revealView(id: string): void {
+    const refusal = fixedToolRefusal(this.#snapshot.workbench, id, this.#snapshot.contributions)
+    if (refusal) { this.resultNotice('warning', refusal); return }
+    const fixed = revealFixedTool(this.#snapshot.workbench, id)
+    if (fixed) {
+      const work = focusedPane(fixed.main).view
+      const navigation = work.kind === 'conversation' || work.kind === 'room'
+        ? visitDestination(this.#snapshot.workbench.navigation, destinationOf(work)) : fixed.navigation
+      if (navigation !== this.#snapshot.workbench.navigation) this.#navigationEpoch += 1
+      this.#setWorkbench({ ...fixed, navigation })
+      // Hidden subject scopes can survive a cold restore without a loaded
+      // conversation. Restore its body in place, without displacing the tool.
+      const owner = fixed.toolOwners[id]
+      const scope = owner ? fixed.frameSubjects[owner]?.view : undefined
+      const key = scope?.kind === 'conversation' ? scope.session : null
+      const known = key ? this.#snapshot.sessions.get(key) : undefined
+      if (key && !this.#snapshot.loadingSessions.has(key)
+        && !(known?.itemsLoaded && (known.status.type === 'active' || known.status.type === 'idle'))) {
+        const { runtime, id: sessionId } = splitSessionKey(key)
+        void this.openSession(sessionId, { runtime, reveal: false, restoring: true })
+      }
+      return
+    }
     const area = areaOfMount(this.#snapshot.workbench, id)
     if (area === 'main') {
       this.focusPane(id)
@@ -3885,6 +4375,9 @@ export class AppStore {
    */
   showView(kind: PaneView['kind']): void {
     switch (kind) {
+      case 'run-steps':
+        this.showViewIn('right', { kind: 'run-steps' })
+        return
       case 'git':
         this.openGitHistory()
         return
@@ -3923,7 +4416,7 @@ export class AppStore {
   }
 
   resizePanel(area: DockId, size: number): void {
-    this.#setWorkbench(resizeDockIn(this.#snapshot.workbench, area, size))
+    this.#setWorkbench(resizeDockIn(this.#snapshot.workbench, area, size, this.#snapshot.windowHeight))
   }
 
   /**
@@ -3946,6 +4439,11 @@ export class AppStore {
   /** Collapses a panel to its tab strip, or brings it back. */
   togglePanel(area: DockId): void {
     this.#setWorkbench(toggleDockIn(this.#snapshot.workbench, area))
+  }
+
+  /** Sets panel visibility without changing its selected retained view. */
+  collapsePanel(area: DockId, collapsed: boolean): void {
+    this.#setWorkbench(collapseDockIn(this.#snapshot.workbench, area, collapsed))
   }
 
   /** Gives an area the main content area, or the whole window. Again to leave. */
@@ -4009,13 +4507,14 @@ export class AppStore {
       ...panes(this.#snapshot.layout.root).map((pane) => ({ view: pane.view, docked: false })),
       ...mountedViewsIn(this.#snapshot.workbench).map((entry) => ({ view: entry.mounted.view, docked: true })),
     ]
-    for (const { view, docked } of onScreen) {
+    for (const { view } of onScreen) {
       const session = view.kind === 'conversation' ? view.session : null
       if (!session) continue
+      this.#markPreview(session)
       const known = this.#snapshot.sessions.get(session)
-      if (known?.status.type === 'active' || known?.status.type === 'idle') continue
+      if (known?.itemsLoaded && (known.status.type === 'active' || known.status.type === 'idle')) continue
       const { runtime, id } = splitSessionKey(session)
-      await this.openSession(id, { runtime, restoring: true, ...(docked ? { reveal: false } : {}) })
+      await this.openSession(id, { runtime, restoring: true, reveal: false })
     }
   }
 
@@ -4349,6 +4848,7 @@ export class AppStore {
   async wrapGoal(goal: GoalId, stamp: string, choices: WrapChoices): Promise<GoalReceipt> {
     const receipt = await this.transport.request('goal/wrap', { goal, stamp, choices })
     await this.#refreshGoal(goal)
+    if (receipt.conversations?.stayed) this.resultNotice('info', `${receipt.conversations.stayed} member conversation${receipt.conversations.stayed === 1 ? '' : 's'} stayed in the list.`)
     return receipt
   }
 
@@ -4752,6 +5252,28 @@ export class AppStore {
     flowExecutions.set(execution.id, execution)
     this.#patch({ flowExecutions })
     return execution
+  }
+
+  /**
+   * Several runs a list needs, eight requests at a time like a Team's
+   * history, kept in one state update when the last lands: one patch per
+   * answer re-renders the whole list as many times. A run that cannot be
+   * read is left out; one a push brought meanwhile is kept as it is.
+   */
+  async readFlowExecutions(runs: readonly string[]): Promise<void> {
+    const ids = [...new Set(runs)]
+    const read: PromiseSettledResult<FlowExecution>[] = []
+    for (let start = 0; start < ids.length; start += 8) {
+      read.push(...await Promise.allSettled(ids.slice(start, start + 8).map(run => this.transport.request('flow/execution', { run }))))
+    }
+    const flowExecutions = new Map(this.#snapshot.flowExecutions)
+    let changed = false
+    for (const result of read) {
+      if (result.status === 'rejected' || flowExecutions.has(result.value.id)) continue
+      flowExecutions.set(result.value.id, result.value)
+      changed = true
+    }
+    if (changed) this.#patch({ flowExecutions })
   }
 
   /** Stop one Run; the returned record also covers a stale view of a Run that already ended. */
@@ -5326,7 +5848,7 @@ export class AppStore {
       this.#setSession(session)
       const key = sessionKey(session.runtime, session.id)
       if (options.reveal !== false) this.#showInPane(key)
-      void this.loadHistory({ reset: true })
+      this.#ensureHistorySummary(session)
       return key
     } catch (error) {
       const candidates = refusalOf(error)
@@ -5560,6 +6082,28 @@ export class AppStore {
     await this.setNewSessionDefault(runtime, id, value)
   }
 
+  #creationDefaults: Partial<Record<RuntimeId, Promise<Readonly<Record<string, OptionValue>>>>> = {}
+
+  /** Capture validated start values without competing starts invalidating each other. */
+  async #newSessionValues(runtime: RuntimeId, cwd: string): Promise<Readonly<Record<string, OptionValue>>> {
+    const previous = this.#creationDefaults[runtime] ?? Promise.resolve({})
+    const validation = previous.catch(() => ({})).then(async () => {
+      if (Object.keys(this.#draftsByRuntime[runtime] ?? {}).length === 0) return {}
+      let revision: number
+      do {
+        const checking = this.newSessionDefaultsFor(runtime, cwd)
+        revision = this.#draftRevisions[runtime]!
+        await checking
+        // A refresh or a user pick may supersede a pending validation.
+        // Its cached answer is not permission to send the old defaults.
+      } while (this.#draftRevisions[runtime] !== revision)
+      return this.#draftsByRuntime[runtime] ?? {}
+    })
+    this.#creationDefaults[runtime] = validation
+    try { return await validation }
+    finally { if (this.#creationDefaults[runtime] === validation) delete this.#creationDefaults[runtime] }
+  }
+
   /**
    * What a new session on this agent would start with, the stored picks
    * applied. The same question the composer asks for its pre-session
@@ -5571,11 +6115,23 @@ export class AppStore {
     const params = { runtime, ...(cwd ? { cwd } : {}) }
     try {
       // Discover first: an obsolete saved value never rides the next request.
-      const declared = await this.transport.request('runtime/sessionDefaults', params)
+      let declared = await this.transport.request('runtime/sessionDefaults', params)
       if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
+      // Reasoning and other controls can depend on the selected model. Resolve
+      // a valid saved model (or profile that chooses one) before judging its
+      // dependent saved values against the agent's default declarations.
+      const selectors = Object.fromEntries(Object.entries(asked).filter(([id]) =>
+        declared.some((one) => one.id === id && (one.category === 'model' || one.category === '_profile'))))
+      const invalidSelectors = new Set(staleDefaults(selectors, declared)
+        .filter((one) => one.reason !== 'The agent returned a different value.').map((one) => one.id))
+      const selectorValues = modelFirstValues(Object.fromEntries(Object.entries(selectors).filter(([id]) => !invalidSelectors.has(id))), declared)
+      if (Object.keys(selectorValues).length > 0 && Object.keys(asked).some((id) => !(id in selectors))) {
+        declared = await this.transport.request('runtime/sessionDefaults', { ...params, values: selectorValues })
+        if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
+      }
       const invalid = new Set(staleDefaults(asked, declared, this.#draftOptionsByRuntime[runtime])
         .filter((one) => one.reason !== 'The agent returned a different value.').map((one) => one.id))
-      const applicable = Object.fromEntries(Object.entries(asked).filter(([id]) => !invalid.has(id)))
+      const applicable = modelFirstValues(Object.fromEntries(Object.entries(asked).filter(([id]) => !invalid.has(id))), declared)
       const options = Object.keys(applicable).length > 0
         ? await this.transport.request('runtime/sessionDefaults', { ...params, values: applicable }) : declared
       if (this.#draftRevisions[runtime] !== revision) return this.#draftOptionsByRuntime[runtime] ?? []
@@ -5634,7 +6190,7 @@ export class AppStore {
     value: OptionValue,
   ): Promise<readonly ConfigOption[]> {
     const revision = this.#nextDraftRevision(runtime)
-    const asked = { ...(this.#draftsByRuntime[runtime] ?? {}), [id]: value }
+    const asked = modelFirstValues({ ...(this.#draftsByRuntime[runtime] ?? {}), [id]: value }, this.#draftOptionsByRuntime[runtime] ?? [])
     try {
       const options = await this.transport.request('runtime/sessionDefaults', {
         runtime,
@@ -5881,7 +6437,7 @@ export class AppStore {
       if (!side) return
       this.#setSession(side)
       this.#showInPane(sessionKey(side.runtime, side.id))
-      void this.loadHistory({ reset: true })
+      this.#ensureHistorySummary(side)
     } catch (error) {
       this.resultNotice('error', describe(error))
     }
@@ -6203,6 +6759,19 @@ export class AppStore {
   async loadPreferences(): Promise<void> {
     try {
       const preferences = await this.transport.request('app/state/get', {})
+      const loadedEditor = readEditorState(preferences['editorState'])
+      const localEditor = this.#snapshot.editorState.filter(one => this.#editorChanged.has(one.subject) || this.#editorTouched.has(one.subject))
+      const editorState = [
+        ...localEditor.map(one => this.#editorChanged.has(one.subject) ? one
+          : { subject: one.subject, state: loadedEditor.find(saved => saved.subject === one.subject)?.state ?? one.state }),
+        ...loadedEditor.filter(one => !this.#editorChanged.has(one.subject) && !this.#editorTouched.has(one.subject)),
+      ]
+      this.#patch({ editorState, ...(!this.#windowModeChanged
+        ? { windowMode: preferences['windowMode'] === 'editor' ? 'editor' : 'conversation' } : {}) })
+      // Until this read and merge, local metadata has stayed in memory.
+      // Now persist the complete projection, including restored peers.
+      this.#editorPreferencesLoaded = true
+      if (localEditor.length) void this.#writePreference({ editorState: persistEditorState(editorState) }, 'The open files')
       this.#infoPreferencesLoaded = true
       this.#pendingInfo.unshift(...readRuntimeNotices(preferences['runtimeNotices']).reverse().map(entry => ({ runtime: entry.runtime, event: entry.event })))
       // The runtime the user last selected comes back, provided it still
@@ -6466,6 +7035,7 @@ export class AppStore {
    * layout is put away and this one's comes back.
    */
   async openWorkspace(path: string): Promise<void> {
+    this.#navigationEpoch += 1
     try {
       const workspace = await this.transport.request('workspace/open', { path })
       this.#flowGeneration += 1
@@ -6554,17 +7124,13 @@ export class AppStore {
    * sites has always meant.
    */
   setDetailsTab(tab: AppSnapshot['detailsTab']): void {
-    const showing = tab === null ? this.#snapshot.detailsTab : tab
-    if (tab === null || this.#snapshot.detailsTab === tab) {
-      // Put away the area that is actually holding it. Collapsing `right`
-      // unconditionally meant that with Changes dragged to the bottom, its
-      // own toggle folded away an unrelated panel and left Changes on screen.
-      const where = showing ? findViewIn(this.#snapshot.workbench, { kind: showing }) : null
-      const area = where && where.area !== 'main' ? where.area : 'right'
-      this.#setWorkbench(collapseDockIn(this.#snapshot.workbench, area, true))
+    if (tab === null) {
+      const subject = this.workSubject()
+      if (subject && this.#snapshot.workbench.frameTools[subject]?.open) this.toggleWorkPanel()
       return
     }
-    this.openDetailsTab(tab)
+    const next = admitFixedTool(this.#snapshot.workbench, { kind: tab }, true)
+    if (next) this.#setWorkbench(next)
   }
 
   /**
@@ -6612,9 +7178,10 @@ export class AppStore {
    * narrowing a window is not a request to cover the conversation, and
    * widening one gives back the column as it was left.
    */
-  setWindowWidth(width: number): void {
-    if (width === this.#snapshot.windowWidth) return
-    this.#patch({ windowWidth: width })
+  setWindowWidth(width: number): void { this.setWindowSize(width, this.#snapshot.windowHeight) }
+  setWindowSize(width: number, height: number): void {
+    if (width === this.#snapshot.windowWidth && height === this.#snapshot.windowHeight) return
+    this.#patch({ windowWidth: width, windowHeight: height })
   }
   /**
    * The window's width, known before the first frame. Learned after the first
@@ -6630,13 +7197,13 @@ export class AppStore {
     if (typeof window === 'undefined') return
     const width = window.innerWidth
     const narrowWindow = sidebarCannotHaveColumn(this.#snapshot.workbench, width)
-    this.#snapshot = { ...this.#snapshot, windowWidth: width, narrowWindow }
+    this.#snapshot = { ...this.#snapshot, windowWidth: width, windowHeight: window.innerHeight, narrowWindow }
     let frame: number | null = null
     window.addEventListener('resize', () => {
       if (frame !== null) return
       frame = window.requestAnimationFrame(() => {
         frame = null
-        this.#patch({ windowWidth: window.innerWidth })
+        this.setWindowSize(window.innerWidth, window.innerHeight)
       })
     })
   }
@@ -6692,6 +7259,150 @@ export class AppStore {
   setTheme(theme: AppSnapshot['theme']): void {
     this.#patch({ theme })
     void this.#writePreference({ theme }, 'The theme')
+  }
+
+  setWindowMode(windowMode: WindowMode): void {
+    this.#windowModeChanged = true
+    this.#patch({ windowMode })
+    void this.#writePreference({ windowMode }, 'The window mode')
+  }
+
+  #setEditorConversation(subject: string, state: EditorConversation): void {
+    this.#editorChanged.add(subject)
+    this.#saveEditorConversation(subject, state)
+  }
+
+  #saveEditorConversation(subject: string, state: EditorConversation): void {
+    const editorState = updateEditorConversation(this.#snapshot.editorState, subject, state)
+    this.#patch({ editorState })
+    if (this.#editorPreferencesLoaded) void this.#writePreference({ editorState: persistEditorState(editorState) }, 'The open files')
+  }
+
+  touchEditorConversation(subject: string): void {
+    // A mount can precede preference hydration. Recency alone must not replace
+    // that conversation's saved tabs with an empty initial state.
+    this.#editorTouched.add(subject)
+    this.#saveEditorConversation(subject, editorConversation(this.#snapshot.editorState, subject))
+  }
+
+  openEditorFile(subject: string, path: string, options: OpenEditorTabOptions & { readonly document?: FileDocumentState | null } = {}): boolean {
+    const retained = this.#snapshot.editorDocuments.get(subject)?.get(path)
+    if (options.document && retained && !sameFileDocument(options.document, retained)) {
+      this.notice('warning', 'This file has another unsaved draft in Editor mode. Both drafts are kept; open the editor draft before transferring this one.')
+      return false
+    }
+    let state = editorConversation(this.#snapshot.editorState, subject)
+    // A preview with a retained document is never replaced, even if a caller
+    // captured the draft before mounting the editor shell.
+    if (state.preview && this.#snapshot.editorDocuments.get(subject)?.has(state.preview)) state = keepEditorTab(state, state.preview)
+    state = openEditorTab(state, path, options)
+    this.#setEditorConversation(subject, state)
+    if (options.document) this.setEditorLiveDocument(subject, path, options.document)
+    return true
+  }
+
+  /** Entries already carry a loaded owner; revealing it must not resume an agent. */
+  enterEditorFile(key: SessionKey, path: string, options: OpenEditorTabOptions & { readonly line?: number; readonly document?: FileDocumentState | null } = {}): boolean {
+    const session = this.#snapshot.sessions.get(key)
+    const absolute = session && filePathInRoot(path, session.cwd)
+    if (!session || !absolute) return false
+    const subject = `session:${key}`
+    if (!this.openEditorFile(subject, absolute, { ...options, keep: true })) return false
+    if (options.view) this.setEditorFileView(subject, absolute, options.view)
+    if (options.line) {
+      const editorLineTargets = new Map(this.#snapshot.editorLineTargets), files = new Map(editorLineTargets.get(subject))
+      const previous = files.get(absolute)
+      files.set(absolute, { line: options.line, request: (previous?.request ?? 0) + 1 } satisfies EditorLineTarget)
+      editorLineTargets.set(subject, files); this.#patch({ editorLineTargets })
+    }
+    this.#showInPane(key)
+    this.setWindowMode('editor')
+    return true
+  }
+
+  clearEditorLineTarget(subject: string, path: string, request: number): void {
+    const held = this.#snapshot.editorLineTargets.get(subject)
+    if (held?.get(path)?.request !== request) return
+    const editorLineTargets = new Map(this.#snapshot.editorLineTargets), files = new Map(held)
+    files.delete(path)
+    if (files.size) editorLineTargets.set(subject, files)
+    else editorLineTargets.delete(subject)
+    this.#patch({ editorLineTargets })
+  }
+
+  reviewEditorFiles(key: SessionKey, path: string): void {
+    if (this.enterEditorFile(key, path, { view: 'changes' })) this.setEditorExplorerFilter(`session:${key}`, 'changed')
+  }
+
+  popOutEditorFile(file: FileTransfer): boolean {
+    if (!file.subject?.startsWith('session:')) return false
+    const key = file.subject.slice('session:'.length) as SessionKey, session = this.#snapshot.sessions.get(key)
+    if (!session || session.runtime !== file.runtime || (file.root !== null && session.cwd !== file.root)) return false
+    return this.enterEditorFile(key, file.path, { view: file.view, document: file.document })
+  }
+
+  selectEditorFile(subject: string, path: string): void {
+    const state = editorConversation(this.#snapshot.editorState, subject)
+    if (state.tabs.some(tab => tab.path === path)) this.#setEditorConversation(subject, { ...state, active: path })
+  }
+
+  keepEditorFile(subject: string, path: string): void {
+    const state = editorConversation(this.#snapshot.editorState, subject)
+    const next = keepEditorTab(state, path)
+    if (next !== state) this.#setEditorConversation(subject, next)
+  }
+
+  /** False means a ConfirmDialog is needed. The confirmed call passes discard=true. */
+  closeEditorFile(subject: string, path: string, discard = false): boolean {
+    if (!discard && this.#snapshot.editorDocuments.get(subject)?.has(path)) return false
+    const state = editorConversation(this.#snapshot.editorState, subject)
+    const next = closeEditorTab(state, path)
+    if (next !== state) this.#setEditorConversation(subject, next)
+    this.setEditorDocument(subject, path, null)
+    this.setEditorLiveDocument(subject, path, null)
+    return true
+  }
+
+  setEditorFileView(subject: string, path: string, view: FileViewMode): void {
+    const state = editorConversation(this.#snapshot.editorState, subject)
+    const next = setEditorTabView(state, path, view)
+    if (next !== state) this.#setEditorConversation(subject, next)
+  }
+
+  setEditorExplorerFilter(subject: string, filter: ExplorerFilter): void {
+    this.#setEditorConversation(subject, { ...editorConversation(this.#snapshot.editorState, subject), filter })
+  }
+
+  setEditorExpandedFolders(subject: string, expanded: readonly string[]): void {
+    this.#setEditorConversation(subject, { ...editorConversation(this.#snapshot.editorState, subject), expanded: [...new Set(expanded)] })
+  }
+
+  /** Full shared snapshots propagate edits and a save's new clean base to every mounted surface. */
+  setEditorLiveDocument(subject: string, path: string, document: FileLiveDocumentState | null): void {
+    const previous = this.#snapshot.editorLiveDocuments.get(subject)?.get(path)
+    if (sameFileDocument(previous, document)) return
+    const editorLiveDocuments = new Map(this.#snapshot.editorLiveDocuments), live = new Map(editorLiveDocuments.get(subject))
+    live.set(path, document); editorLiveDocuments.set(subject, live)
+    const editorDocuments = new Map(this.#snapshot.editorDocuments), dirty = new Map(editorDocuments.get(subject))
+    if (document && isDirtyDocument(document)) dirty.set(path, document)
+    else dirty.delete(path)
+    if (dirty.size) editorDocuments.set(subject, dirty)
+    else editorDocuments.delete(subject)
+    this.#patch({ editorLiveDocuments, editorDocuments })
+    if (document && isDirtyDocument(document)) this.keepEditorFile(subject, path)
+  }
+
+  setEditorDocument(subject: string, path: string, document: FileDocumentState | null): void {
+    const state = editorConversation(this.#snapshot.editorState, subject)
+    if (document && !state.tabs.some(tab => tab.path === path)) return
+    const editorDocuments = new Map(this.#snapshot.editorDocuments)
+    const files = new Map(editorDocuments.get(subject))
+    if (document) files.set(path, document)
+    else files.delete(path)
+    if (files.size) editorDocuments.set(subject, files)
+    else editorDocuments.delete(subject)
+    this.#patch({ editorDocuments })
+    if (document) this.keepEditorFile(subject, path)
   }
 
   setPalette(palette: AppSnapshot['palette']): void {
@@ -6832,8 +7543,10 @@ export class AppStore {
   }
 
   setListPrefs(patch: Partial<AppSnapshot['listPrefs']>): void {
+    const previousAgent = this.#snapshot.listPrefs.agent
     const listPrefs = { ...this.#snapshot.listPrefs, ...patch }
     this.#patch({ listPrefs })
+    if (patch.agent !== undefined && patch.agent !== previousAgent) void this.loadHistory({ reset: true, reconcile: true })
     void this.#writePreference({ listPrefs }, 'The list settings')
   }
 
@@ -7080,7 +7793,7 @@ export class AppStore {
     this.resultNotice(level, message, action)
   }
 
-  private resultNotice(level: NoticeLevel, message: string, action?: NoticeAction): void {
+  resultNotice(level: NoticeLevel, message: string, action?: NoticeAction): void {
     // The same failure often reaches us twice — once as the turn's error and
     // once as the runtime's error notification. One toast is information;
     // two identical toasts is a bug report about the toasts. A toast that
@@ -7402,48 +8115,22 @@ export class AppStore {
     if (event.type === 'session/options' && Object.keys(this.#draftsByRuntime[runtime] ?? {}).length > 0) {
       void this.newSessionDefaultsFor(runtime)
     }
-    // The sidebar reads the backend's list, which learns about a conversation
-    // only once it has something to say about it: a brand-new session has no
-    // ask to show until its first turn starts, and a title arrives later
-    // still. Those are the moments to read the list again, not a timer —
-    // `turn/started` among them, because that is when a row that was created
-    // empty gains both its opening line and its place in the "Working" band.
-    if (
-      event.type === 'session/title' ||
-      event.type === 'turn/started' ||
-      event.type === 'turn/completed'
-    ) {
-      this.#scheduleHistoryRefresh()
-    }
   }
 
-  #historyRefresh: ReturnType<typeof setTimeout> | null = null
-  /** Newer history reads supersede older replies, including a reset after search. */
+  /** Newer history reads supersede older replies, including a clear after search. */
   #historyRequestId = 0
-  /** The sidebar's live filter, so a re-read keeps showing what was searched. */
+  #historyPageRequestId = 0
   #historyQuery = ''
-  /** The agent the list is paged around; see `loadHistory`. */
-  #historyAnchor: RuntimeId | null = null
-
-  /**
-   * One re-read per burst of events, a beat after the last of them.
-   *
-   * A read already in flight cannot be joined — `loadHistory` refuses a
-   * second one — and dropping this one would lose the very change that asked
-   * for it, so it waits its turn instead. That is how a name that arrives
-   * while the list is being read still reaches the sidebar.
-   */
-  #scheduleHistoryRefresh(): void {
-    if (this.#historyRefresh) clearTimeout(this.#historyRefresh)
-    this.#historyRefresh = setTimeout(() => {
-      if (this.#snapshot.historyLoading) {
-        this.#scheduleHistoryRefresh()
-        return
-      }
-      this.#historyRefresh = null
-      void (this.#historyQuery ? this.searchHistory(this.#historyQuery) : this.loadHistory({ reset: true }))
-    }, 600)
-  }
+  #historyCursor: string | null = null
+  #historyCapacity = 50
+  #historyLoaded = false
+  #historyRows: readonly SessionSummary[] = []
+  #historyAgent: RuntimeId | null = null
+  readonly #historyRemovedRuntimes = new Set<RuntimeId>()
+  #historyPageFirstCursor: string | null | undefined = undefined
+  #historyPageChanges: Map<SessionKey, SessionSummary | null> | null = null
+  #historyPageRemovedRuntimes: Set<RuntimeId> | null = null
+  readonly #historyExcluded = new Set<SessionKey>()
 
   readonly #pendingConversationNotices = new PendingConversationNotices()
 
@@ -7456,7 +8143,10 @@ export class AppStore {
     // carries metadata but no transcript, and a read taken while a turn is
     // running knows less about that turn than this window does — it watched it
     // stream. Reopening a working conversation goes through here.
-    sessions.set(key, existing ? mergeRead(existing, session) : session)
+    const read = existing?.archived !== undefined && session.archived === undefined
+      ? { ...session, archived: existing.archived }
+      : session
+    sessions.set(key, existing ? mergeRead(existing, read) : read)
     this.#patch({ sessions })
   }
 
@@ -7468,6 +8158,10 @@ export class AppStore {
    */
   #patch(patch: Partial<AppSnapshot>): void {
     const next = { ...this.#snapshot, ...patch }
+    if (patch.windowMode !== undefined || patch.workbench !== undefined) {
+      next.workbench = settleConversationTool(next.workbench, effectiveWindowMode(next.windowMode, next.workbench) === 'editor')
+      next.detailsTab = visibleInspector(next.workbench)
+    }
     // Whether the sidebar can have a column follows the window and the docks,
     // so it is settled here, where both change, rather than by each caller —
     // and again below if this method rewrites the workbench itself.
@@ -7478,7 +8172,7 @@ export class AppStore {
         next.sidebarFloating = false
       }
     }
-    if (patch.windowWidth !== undefined || patch.workbench !== undefined) settleNarrow()
+    if (patch.windowWidth !== undefined || next.workbench !== this.#snapshot.workbench) settleNarrow()
     // The focused conversation: the focused pane's, or — when a tool pane has
     // focus — the conversation it belongs to, so the composer's commands and
     // the details column stay on the work the tool was opened for.
@@ -7494,32 +8188,10 @@ export class AppStore {
       (pane.view.kind === 'terminal' ? (pane.view.session ?? null) : null) ??
       panes(next.layout.root).map(sessionOf).find((key) => key !== null) ??
       null
-    /* Navigation history: every change of what the *middle* shows is a step
-       ← and → can retrace — a conversation or a room, because those are the
-       two things it can be and losing either one is losing your place. */
-    const previousMain = this.#mainView()
-    const nextMain =
-      next.layout === this.#snapshot.layout ? previousMain : focusedPaneViewOf(next.layout)
-    if (previousMain && nextMain && !sameView(previousMain, nextMain) && !this.#navigating) {
-      this.#visitedBack.push(previousMain)
-      if (this.#visitedBack.length > 50) this.#visitedBack.shift()
-      this.#visitedForward = []
-    }
-    next.navCanBack = this.#visitedBack.length > 0
-    next.navCanForward = this.#visitedForward.length > 0
-    /* A sidebar floating over a narrow window is open to choose where to go,
-       and once the middle shows something else it has done its job — however
-       the choice was made: a row, ⌘K, New session, Back. Compared by view
-       rather than by layout object, so a pane that is merely drawn again does
-       not shut it; a draft is never the same view as the one before it. */
-    if (
-      next.sidebarFloating &&
-      patch.sidebarFloating === undefined &&
-      next.layout !== this.#snapshot.layout &&
-      !sameView(focusedPane(this.#snapshot.layout).view, focusedPane(next.layout).view)
-    ) {
-      next.sidebarFloating = false
-    }
+    next.navCanBack = next.workbench.navigation.back.length > 0
+    next.navCanForward = next.workbench.navigation.forward.length > 0
+    if (next.sidebarFloating && patch.sidebarFloating === undefined
+      && !sameDestination(this.#snapshot.workbench.navigation.current, next.workbench.navigation.current)) next.sidebarFloating = false
     /* Nor is it ever open and hidden at once: a panel given the whole window
        puts it away. Left open, it moved focus and came out from under `inert`
        while nothing was drawn, and the next ⌘B only closed it. */
@@ -7579,6 +8251,16 @@ export type TerminalNotification = Extract<
   { method: 'terminal/output' } | { method: 'terminal/exited' }
 >
 
+/** Agents apply entries in order; a model must precede its dependent picks. */
+const modelFirstValues = (
+  values: Readonly<Record<string, OptionValue>>,
+  options: readonly ConfigOption[],
+): Readonly<Record<string, OptionValue>> => {
+  const models = new Set(options.filter((one) => one.category === 'model').map((one) => one.id))
+  const entries = Object.entries(values)
+  return Object.fromEntries([...entries.filter(([id]) => models.has(id)), ...entries.filter(([id]) => !models.has(id))])
+}
+
 /**
  * The picks that actually landed: the ones the runtime's fresh list agrees
  * with. Anything else was refused or has no control on the model now chosen,
@@ -7595,20 +8277,13 @@ const kept = (
   previous: readonly ConfigOption[] = [],
 ): Readonly<Record<string, OptionValue>> => {
   const rejected = new Set(staleDefaults(asked, options, previous).map((one) => one.id))
-  return Object.fromEntries(Object.entries(asked).filter(([id]) => !rejected.has(id)))
+  return modelFirstValues(Object.fromEntries(Object.entries(asked).filter(([id]) => !rejected.has(id))), options)
 }
 
 /** The `(runtime, sessionId)` pair a session-scoped wire method takes. */
 const address = (key: SessionKey): { runtime: RuntimeId; sessionId: SessionId } => {
   const { runtime, id } = splitSessionKey(key)
   return { runtime, sessionId: id }
-}
-
-/** What the middle of a layout is showing, when it is one of the two things. */
-const focusedPaneViewOf = (layout: Layout): PaneView | null => {
-  const view = focusedPane(layout).view
-  if (view.kind === 'room') return view
-  return view.kind === 'conversation' && view.session ? view : null
 }
 
 /**

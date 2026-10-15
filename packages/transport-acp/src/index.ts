@@ -134,7 +134,7 @@ export const ACP_TASKS_CAPABILITY = 'backgroundTasks'
  * A bridge that knows where its agent writes — `@harnessdesk/claude-acp` for
  * Claude Code's `~/.claude/projects`, `@harnessdesk/cursor-acp` for Cursor's
  * `~/.cursor/chats` — declares this in `initialize`'s `_meta` under
- * `harnessdesk.deleteSession` and answers the one request. An agent that does
+ * `harnessdesk.deleteSession` as `'trash'` or `'erase'` and answers the one request. An agent that does
  * not declare it is never asked, and the interface offers no Delete for it
  * rather than one that throws after the confirmation has already promised the
  * conversation is gone.
@@ -1246,3 +1246,7 @@ export class AcpConnection {
     this.#pending.clear()
   }
 }
+
+/** Source-file metadata extension; copied in the bridge's session-source-wire.ts. */
+export const ACP_SESSION_SOURCE = '_harnessdesk/session/source'
+export const ACP_SESSION_SOURCE_CAPABILITY = 'sourceTranscript'

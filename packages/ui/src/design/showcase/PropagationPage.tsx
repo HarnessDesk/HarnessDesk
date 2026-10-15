@@ -1,13 +1,13 @@
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 
 import { RuntimeMark } from '../../components/BrandIcons'
-import { CodeEditor } from '../../components/CodeEditor'
+import { CodeView } from '../../editor'
 import { FolderIcon, SendIcon } from '../../components/Icons'
 import { terminalAppearance } from '../adapters/terminal'
 import { Dialog } from '../patterns/ModalDialog'
 import { Menu, MenuAccountGroup, MenuAccountRow, MenuItem, MenuSeparator } from '../patterns/Menu'
 import { Popover } from '../patterns/Popover'
-import { AccountMark, PageHead, Row, RowChoice, Rows } from '../patterns/Settings'
+import { AccountMark, SectionHead, Row, RowChoice, Rows } from '../patterns/Settings'
 import {
   Board,
   BoardCard,
@@ -43,10 +43,10 @@ export const PropagationPage = () => {
   return (
     <div className={styles.page}>
       <section data-testid="prop-settings">
-        <PageHead
-          title="Appearance"
-          blurb="The real Settings page furniture and controls."
-          actions={<Button data-testid="prop-button">Save</Button>}
+        <SectionHead
+          name="Appearance"
+          description="The real Settings page furniture and controls."
+          action={<Button variant="outline" size="sm" data-testid="prop-button">Save</Button>}
         />
         <Rows>
           <Row
@@ -224,13 +224,15 @@ export const PropagationPage = () => {
       <section data-testid="prop-editor">
         <h2 className={styles.heading}>Specialized renderer adapter</h2>
         <div className={styles.editor}>
-          <CodeEditor
-            value={'const shared = "foundation"\n'}
-            path="foundation.ts"
-            dark={false}
-            look={{ fontFamily: 'var(--hd-font-code)', fontSize: 12, lineHeight: 1.5 }}
-            ariaLabel="Foundation adapter editor"
-          />
+          <Suspense fallback={null}>
+            <CodeView
+              value={'const shared = "foundation"\n'}
+              path="foundation.ts"
+              dark={false}
+              look={{ fontFamily: 'var(--hd-font-code)', fontSize: 12, lineHeight: 1.5 }}
+              ariaLabel="Foundation adapter editor"
+            />
+          </Suspense>
         </div>
         <div
           className={styles.terminalProbe}

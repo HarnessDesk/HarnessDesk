@@ -198,12 +198,13 @@ export interface GoalRig {
 
 export const goalRig = async (
   t: { after(fn: () => Promise<void>): void },
-  options: { readonly releaseStallMs?: number; readonly publicationChanged?: (goal: string) => void; readonly fetchBase?: FlowExecutionPort['fetchBase']; readonly checkoutAt?: FlowExecutionPort['checkoutAt']; readonly dropBase?: (root: string, run: string) => Promise<void> } = {},
+  options: { readonly mutate?: TeamPort['mutate']; readonly releaseStallMs?: number; readonly publicationChanged?: (goal: string) => void; readonly reviewTarget?: FlowExecutionPort['reviewTarget']; readonly fetchBase?: FlowExecutionPort['fetchBase']; readonly checkoutAt?: FlowExecutionPort['checkoutAt']; readonly dropBase?: (root: string, run: string) => Promise<void>; readonly settleApprovals?: FlowExecutionPort['settleApprovals'] } = {},
 ): Promise<GoalRig> => {
   const dir = await mkdtemp(join(tmpdir(), 'hd-flow-goal-'))
   const peers: TeamPeer[] = []
   const boardHook: { fn: ((state: TeamState) => void) | null } = { fn: null }
   const teamPort: TeamPort = {
+    ...(options.mutate ? { mutate: options.mutate } : {}),
     peers: () => peers,
     rootOf: async (cwd) => (cwd.startsWith('/repo') ? '/repo' : null),
     send: async () => {},
@@ -339,6 +340,7 @@ export const goalRig = async (
     if (record) rig.seats.set(id, { ...record, closed: { at: Date.now(), why: 'released' } })
   }
   const port: FlowExecutionPort = {
+    ...(options.reviewTarget ? { reviewTarget: options.reviewTarget } : {}),
     ...(options.fetchBase ? { fetchBase: options.fetchBase } : {}),
     ...(options.dropBase ? { dropBase: options.dropBase } : {}),
     providerOf: async (runtime) => rig.providers.get(runtime) ?? null,
@@ -385,6 +387,7 @@ export const goalRig = async (
       rig.onOrder?.(seat)
     },
     busy: (seat) => rig.busySeats.has(String(seat.id)),
+    ...(options.settleApprovals ? { settleApprovals: options.settleApprovals } : {}),
     interrupt: async (seat) => {
       rig.events.push(`interrupt:${seat.id}`)
       if (rig.turnsEndLater) setTimeout(() => rig.busySeats.delete(String(seat.id)), rig.turnEndDelayMs)
@@ -458,7 +461,9 @@ export const goalRig = async (
       if (!goal) return null
       const bound = await rig.flows.reviewBindingFor(goal, intent, { runtime: scope.runtime, sessionId: scope.sessionId })
       if (!bound) return null
-      return { goal, seat: bound.seat as SeatRecord['id'], answers: bound.answers, round: bound.round, subjects: bound.subjects, unsettled: bound.unsettled }
+      return { goal, seat: bound.seat as SeatRecord['id'], answers: bound.answers, round: bound.round, subjects: bound.subjects, unsettled: bound.unsettled,
+        ...(bound.refusal ? { refusal: bound.refusal } : {}),
+      }
     },
     personBindingFor: async (run, card) => {
       const bound = await rig.flows.personReviewBinding(run, card)

@@ -7,8 +7,7 @@ import { emptySnapshot, type AppStore } from '../state/store'
 import { ChangesView, TrajectoryView } from './Details'
 
 /**
- * Staged and Timed are filters you press, drawn as the one drawing for that
- * (`PanelPill`): each says whether it is pressed, and pressing flips it.
+ * Staged preserves its boolean filter; Timed preserves its All/Timed choice.
  */
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -41,26 +40,42 @@ const toggle = (title: string): HTMLButtonElement => {
   return button
 }
 
-for (const [name, View, title] of [
-  ['Staged', ChangesView, 'Show what is staged'],
-  ['Timed', TrajectoryView, 'Show only steps the runtime timed'],
-] as const) {
-  it(`${name} is a pressed-or-not filter pill`, () => {
-    act(() => root.render(<StoreProvider store={store}><View /></StoreProvider>))
-    const button = toggle(title)
-    expect(button.textContent).toBe(name)
-    expect(button.getAttribute('aria-pressed')).toBe('false')
-    expect(button.hasAttribute('data-on')).toBe(false)
+it('Staged is a switch that changes the same diff filter', () => {
+  act(() => root.render(<StoreProvider store={store}><ChangesView /></StoreProvider>))
+  const switchOf = () => container.querySelector<HTMLButtonElement>('[role="switch"]')!
+  expect(switchOf().getAttribute('aria-checked')).toBe('false')
+  act(() => switchOf().click())
+  expect(switchOf().getAttribute('aria-checked')).toBe('true')
+  act(() => switchOf().click())
+  expect(switchOf().getAttribute('aria-checked')).toBe('false')
+})
+it('replaces Changes controls with one empty state for a clean working tree', async () => {
+  const cleanSnapshot = { ...snapshot, workspace: { path: '/work/storefront', name: 'storefront' } }
+  const cleanStore = {
+    ...store,
+    getSnapshot: () => cleanSnapshot,
+    transport: { request: async (method: string) => method === 'git/status'
+      ? { root: '/work/storefront', branch: 'main', ahead: 0, behind: 0, files: [] }
+      : { diff: '' } },
+  } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={cleanStore}><ChangesView /></StoreProvider>))
+  await act(async () => { await Promise.resolve(); await Promise.resolve() })
 
-    act(() => button.click())
-    expect(toggle(title).getAttribute('aria-pressed')).toBe('true')
-    expect(toggle(title).hasAttribute('data-on')).toBe(true)
-    expect(toggle(title).className).toContain('bg-(--hd-accent-dim)')
-
-    act(() => toggle(title).click())
-    expect(toggle(title).getAttribute('aria-pressed')).toBe('false')
-  })
-}
+  expect(container.textContent).toContain('No changes yet')
+  expect(container.querySelector('[aria-label="Filter files"]')).toBeNull()
+  expect(container.querySelector('[role="switch"]')).toBeNull()
+  expect(container.querySelector('[aria-label="Open review"]')).toBeNull()
+  expect(container.querySelector('[aria-label="Export this session as Markdown"]')).toBeNull()
+})
+it('Timed is a mutually exclusive All/Timed choice preserving the filter', () => {
+  act(() => root.render(<StoreProvider store={store}><TrajectoryView /></StoreProvider>))
+  const choice = (label: string) => [...container.querySelectorAll<HTMLButtonElement>('[role="tab"]')].find(one => one.textContent === label)!
+  expect(choice('All').getAttribute('aria-selected')).toBe('true')
+  act(() => choice('Timed').click())
+  expect(choice('Timed').getAttribute('aria-selected')).toBe('true')
+  act(() => choice('All').click())
+  expect(choice('All').getAttribute('aria-selected')).toBe('true')
+})
 
 it('puts the export glyph on the Details toolbar edge', () => {
   act(() => root.render(<StoreProvider store={store}><ChangesView /></StoreProvider>))

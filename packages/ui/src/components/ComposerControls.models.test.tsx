@@ -187,6 +187,33 @@ it('flags a stale saved model in the control and offers one click to clear its o
   expect(clearNewSessionDefault).toHaveBeenCalledWith(cursor.id, 'model')
 })
 
+it.each(['stale default', 'unavailable current value'] as const)('keeps a single mode actionable for a %s', (state) => {
+  const clearNewSessionDefault = vi.fn()
+  const setOption = vi.fn()
+  const mode: ConfigOption = { id: 'mode', label: 'Mode', category: 'mode', type: 'select',
+    currentValue: state === 'stale default' ? 'plan' : 'retired', choices: [{ value: 'plan', label: 'Plan' }] }
+  const snapshot: AppSnapshot = { ...emptySnapshot(), status: 'open', runtimes: [cursor], activeRuntime: cursor.id, draftOptions: [mode],
+    staleDraftDefaults: { [cursor.id]: state === 'stale default'
+      ? [{ id: 'mode', label: 'Mode', category: 'mode', value: 'retired', valueLabel: 'Retired mode', reason: 'This value is no longer offered.' }] : [] } }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, clearNewSessionDefault, setOption } as unknown as AppStore
+  act(() => root.render(<StoreProvider store={store}><ModeControl /></StoreProvider>))
+  const trigger = container.querySelector<HTMLButtonElement>('button[aria-haspopup="dialog"]')!
+  expect(trigger).toBeTruthy()
+  click(trigger)
+  if (state === 'stale default') {
+    expect(trigger.querySelector('[aria-label="Stale saved default"]')).not.toBeNull()
+    const clear = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find((one) => one.textContent?.includes('Use the agent’s current value'))!
+    expect(clear.textContent).toContain('Retired mode')
+    click(clear)
+    expect(clearNewSessionDefault).toHaveBeenCalledWith(cursor.id, 'mode')
+  } else {
+    expect(trigger.textContent).toContain('retired — Unavailable')
+    const valid = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find((one) => one.textContent?.includes('Plan'))!
+    click(valid)
+    expect(setOption).toHaveBeenCalledWith('mode', 'plan')
+  }
+})
+
 it.each([['model', ModelControl], ['mode', ModeControl], ['_permissions', PermissionControl], ['_custom', MoreControl]] as const)('keeps the stale %s pick reachable after the whole option disappears', (category, Control) => {
   const clearNewSessionDefault = vi.fn()
   const snapshot: AppSnapshot = { ...emptySnapshot(), status: 'open', runtimes: [cursor], activeRuntime: cursor.id, draftOptions: [],

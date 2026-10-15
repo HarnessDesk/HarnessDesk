@@ -2,7 +2,7 @@ import { act, useRef } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { PaneColumn, useComposerHeightVar } from './PaneColumn'
+import { PaneColumn, ReadingMeasure, useComposerHeightVar } from './PaneColumn'
 
 /**
  * The column inset four screens shared with no owner: the reading column the
@@ -65,7 +65,7 @@ it('clears the floating composer only when asked, on top of a notice inset', () 
   act(() => root.render(<PaneColumn inset="reading" clearComposer>turns</PaneColumn>))
   const column = container.firstElementChild as HTMLElement
   expect(column.style.padding).toBe(
-    'calc(8px + var(--hd-notice-inset, 0px)) var(--hd-space-6) calc(var(--composer-h, 150px) + 16px)',
+    'calc(8px + var(--hd-notice-inset, 0px)) var(--hd-space-6) calc(var(--composer-h, 150px) + var(--shared-composer-h, 0px) + 16px)',
   )
 })
 
@@ -96,4 +96,11 @@ it('measures the dock and sets --composer-h on the root it is given', () => {
   } finally {
     if (originalHeight) Object.defineProperty(HTMLElement.prototype, 'offsetHeight', originalHeight)
   }
+})
+
+it('caps and centers a transcript or composer notice on the reading measure', () => {
+  act(() => root.render(<ReadingMeasure>Kept copy</ReadingMeasure>))
+  const measure = container.firstElementChild as HTMLElement
+  expect(measure.style.maxWidth).toBe('var(--hd-column)')
+  expect(measure.style.marginInline).toBe('auto')
 })

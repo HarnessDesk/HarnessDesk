@@ -8,6 +8,7 @@ import { PopoverSurface } from './Popover'
 
 let container: HTMLDivElement
 let root: Root
+let input: HTMLTextAreaElement | undefined
 
 beforeEach(() => {
   container = document.createElement('div')
@@ -18,6 +19,8 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  input?.remove()
+  input = undefined
 })
 
 it('exposes the canonical floating surface to composite pickers', () => {
@@ -26,4 +29,17 @@ it('exposes the canonical floating surface to composite pickers', () => {
   expect(surface?.getAttribute('role')).toBe('listbox')
   expect(surface?.getAttribute('data-limit')).toBe('trigger')
   expect(surface?.textContent).toBe('Commands')
+})
+
+it('positions an anchored picker outside its scrolling parent without taking typing focus', async () => {
+  input = document.createElement('textarea')
+  container.before(input)
+  input.focus()
+  const anchor = { current: input }
+  await act(async () => root.render(
+    <PopoverSurface {...{ anchor }} role="listbox" limit="trigger">Recipients</PopoverSurface>,
+  ))
+  expect(container.querySelector('[data-slot="popover-surface"]')).toBeNull()
+  expect(document.body.querySelector('[data-slot="popover-surface"]')?.textContent).toBe('Recipients')
+  expect(document.activeElement).toBe(input)
 })

@@ -1,9 +1,38 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { followOf, type FlowPolicy, type FlowPolicyRule } from '@harnessdesk/protocol'
+import { completesRound, followOf, type FlowPolicy, type FlowPolicyRule } from '@harnessdesk/protocol'
 
 import { decide } from '../src/flow-execution.js'
+import { parseFlowPolicy } from '../src/flow-policy.js'
+import { builtinFlowRoot } from '../src/host.js'
+
+test('the documented landing retry routes non-success exits and completes landed (#1548)', async () => {
+  const doc = await readFile(join(builtinFlowRoot(), '..', '..', '..', 'docs', 'flows.md'), 'utf8')
+  const section = doc.slice(doc.indexOf('**Route a non-landing outcome back to a check.**'))
+  const source = /```yaml\n([\s\S]*?)```/.exec(section)?.[1]
+  assert.ok(source, 'the guide carries an executable policy')
+  const parsed = parseFlowPolicy(source)
+  assert.deepEqual(parsed.problems, [])
+  assert.ok(parsed.document?.format === 'agents')
+  const flow = parsed.document.flow
+  for (const outcome of ['retry', 'no-pr', 'landed']) {
+    const outcomes = [outcome]
+    const engine = await decide(flow, 'land', outcomes, async () => ({ state: 'matched', evidence: [] }))
+    const read = followOf(flow, 'land', outcomes)
+    if (outcome === 'landed') {
+      assert.equal(engine.kind, 'none')
+      assert.deepEqual(read, { kind: 'none', ruled: false })
+      assert.equal(completesRound(flow, 'land', outcomes), true)
+    } else {
+      assert.equal(engine.kind, 'fire', `${outcome} opens the retry`)
+      assert.equal(read.kind, 'opens')
+      assert.equal(completesRound(flow, 'land', outcomes), false)
+    }
+  }
+})
 
 /**
  * The window says what an answer or an abandoned card will do before it is

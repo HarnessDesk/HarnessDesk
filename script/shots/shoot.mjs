@@ -46,6 +46,8 @@ import { runScene } from './scene.mjs'
 import { selectScenes } from './selection.mjs'
 import { startStaticServer } from './static-server.mjs'
 import { LEDGER, SCAN, USAGE } from './usage.mjs'
+import { shootStills } from './stills.mjs'
+import { shootClips } from './clips.mjs'
 
 /**
  * What is on the board, and what has been said in the room.
@@ -105,6 +107,19 @@ const PROVENANCE_SHOTS = (() => {
   const file = join(HOME, 'provenance-shots.json')
   try { return JSON.parse(readFileSync(file, 'utf8')) } catch { return [] }
 })()
+
+// This route mounts only synthetic preview stores and opens no desktop window.
+if (has('site-clips')) {
+  if (!flag('out')) throw new Error('--site-clips requires --out <dir>; media never defaults to the repository assets.')
+  await shootClips({ app: APP, out: OUT, themes: THEMES,
+    requested: argv.flatMap((one, i) => one === '--scene' && argv[i + 1] ? [argv[i + 1]] : []) })
+  process.exit(0)
+}
+if (has('release-stills')) {
+  await shootStills({ app: APP, out: OUT, themes: THEMES,
+    requested: argv.flatMap((one, i) => one === '--scene' && argv[i + 1] ? [argv[i + 1]] : []) })
+  process.exit(0)
+}
 
 requireSeeded()
 
@@ -469,7 +484,7 @@ try {
           const name = row.querySelector('[class*="acctName"]')?.getBoundingClientRect()
           if (meter && (meter.width < box.width / 2 || meter.top - name.bottom < 3)) faults.push('Dashboard meter lost its grid track')
         }
-        for (const option of document.querySelectorAll(':is(section, [role="dialog"])[aria-label="Settings"] [data-slot="toggle-group-item"]')) {
+        for (const option of document.querySelectorAll('[data-page-destination="settings"]:not([hidden]) [data-slot="toggle-group-item"]')) {
           if (!visible(option)) continue
           const box = option.getBoundingClientRect(), css = getComputedStyle(option)
           const range = document.createRange()
@@ -644,8 +659,8 @@ try {
     return click(text, within)
   }
 
-  /** Opens the non-default start kind from the sidebar's secondary start menu. */
-  const openStartingKind = async (kind) => {
+  /** Opens the Team picker directly from the sidebar's secondary start menu. */
+  const openNewTeam = async () => {
     const opened = await cdp.eval(`(() => {
       const trigger = document.querySelector('nav[aria-label="Workspace actions"] button[title="More ways to start"]')
       if (!trigger) return false
@@ -653,16 +668,10 @@ try {
       return true
     })()`)
     if (!opened) throw new Error('no More ways to start control in the sidebar')
-    if (!(await click(`${kind}…`, '[role="menu"]'))) throw new Error(`no ${kind}… choice in More ways to start`)
-    const chooser = '[role="dialog"][aria-label="What are you starting?"]'
-    await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(chooser)}) !== null`), Boolean)
-    const selected = await cdp.eval(`(() => {
-      const root = document.querySelector(${q(chooser)})
-      return [...(root?.querySelectorAll('[role="radio"]') ?? [])]
-        .some((one) => one.getAttribute('aria-checked') === 'true' && (one.textContent ?? '').trim().startsWith(${q(kind)}))
-    })()`)
-    if (!selected) throw new Error(`${kind} was not selected in the New session dialog`)
-    return chooser
+    if (!(await click('New Team…', '[role="menu"]'))) throw new Error('no New Team… choice in More ways to start')
+    const picker = '[role="dialog"][aria-label="New Team"]'
+    await waitForSnapshot(() => cdp.eval(`document.querySelector(${q(`${picker} input[aria-label="Search shapes"]`)}) !== null`), Boolean)
+    return picker
   }
 
   /**
@@ -743,6 +752,9 @@ rules:
   let boardRevert = null
   const stageRoom = async () => {
     if (roomId) return roomId
+    // Seeded workspace metadata does not grant shell authority. Open the
+    // rig's project through the same verb a person uses before seating.
+    await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
     const keys = []
     // The fake Codex app-server deliberately reports `/w` as its transcript
     // cwd. That is useful adapter coverage, but a real room correctly refuses
@@ -887,25 +899,11 @@ rules:
     return roomId
   }
 
-  /**
-   * Leave the Dashboard, if it is up.
-   *
-   * It is a full-window overlay, not a pane, so `openGitHistory` and
-   * `openBrowser` happily open *behind* it and change nothing on screen. The
-   * first take of the git scene was a photograph of the Dashboard, filed under
-   * `git-dark.png` — and because that run predated the ledger stub, it was a
-   * photograph of the real machine's real spend, under a name that said it was
-   * something else. A picture that is wrong about what it shows is worse than
-   * no picture, because it is evidence.
-   */
+  /** Return retained main pages to work before staging the next destination. */
   const leaveOverlay = async () => {
-    // Scene changes must dismiss floating menus as well as full-screen pages.
-    // Otherwise the expanded account menu survives into the hover photographs.
     await cdp.eval(`document.dispatchEvent(new CustomEvent('hd:dismiss-overlays', { detail: { returnFocus: true } })); true`)
     await sleep(200)
-    for (let remaining = 0; remaining < 4; remaining += 1) {
-      if (!await click('Back to app')) break
-    }
+    await cdp.eval(`${STORE}.returnToWork(); true`)
     await sleep(600)
   }
 
@@ -1367,11 +1365,17 @@ rules:
     } },
 
     /** The repository pane, expanded: a real, tangled graph over real git objects. */
-    git: { leaveOverlay: true, expect: 'History', run: async () => {
+    git: { leaveOverlay: true, expect: 'Repository history', run: async () => {
       await cdp.eval(`${STORE}.openGitHistory(${q(REPO)}); true`)
       await sleep(2200)
       await expandPaneOf()
       await sleep(400)
+    }, verify: async () => {
+      await waitForSnapshot(() => cdp.eval(`(() => {
+        const grid = document.querySelector('[role="grid"][aria-label="Commits"]')
+        const box = grid?.getBoundingClientRect()
+        return Boolean(box?.width && box?.height && grid.querySelector('[role="row"][aria-rowindex="2"]'))
+      })()`), Boolean)
     } },
 
     /** CodeMirror behind the canonical editor theme bridge. */
@@ -1519,10 +1523,71 @@ rules:
     } },
 
     /** The same room, as a room: several agents' turns side by side. */
-    room: { leaveOverlay: true, expect: 'Agents', run: async () => {
+    room: { leaveOverlay: true, verify: async () => {
+      const ready = await cdp.eval(`(() => {
+        const grid = document.querySelector('[data-slot="side-by-side-grid"]')
+        if (!grid) return false
+        const tiles = [...grid.querySelectorAll('[data-slot="side-by-side-tile"]')].filter(one => !one.hasAttribute('data-hidden') && !one.hasAttribute('inert') && getComputedStyle(one).visibility !== 'hidden' && one.getBoundingClientRect().height > 0)
+        const composer = tiles.length === 1 ? tiles[0].querySelector('[data-slot="composer"] textarea') : document.querySelector('button[aria-label="Send to"]')
+        return Boolean(composer && composer.getBoundingClientRect().height > 0)
+      })()`)
+      if (!ready) throw new Error('room: Side by side and its visible composer are not on screen')
+    }, run: async () => {
       await stageRoom()
       await cdp.eval(`${STORE}.openTeamRoom(${q(roomId)}); true`)
-      await sleep(2200)
+      // Opening a Team restores its selected page; explicitly choose Chat
+      // through the current tab or folded destination menu for this scene.
+      // Measurement can replace expanded tabs with their folded menu. Choose
+      // the reachable control, rather than a transient DOM-presence snapshot.
+      if (!await press({ selector: '[role="tab"][data-team-page="room"]' }, { stable: true })) {
+        if (!await press({ selector: 'button[title="Destination views"]' }, { stable: true })) throw new Error('room: Destination views is not reachable')
+        await waitForSnapshot(() => cdp.eval(`Boolean(document.querySelector('[role="menuitemradio"][data-team-page="room"]'))`), Boolean).catch(async (error) => {
+          const controls = await cdp.json(`(() => ({
+            bars: [...document.querySelectorAll('[data-slot="top-bar"]')].map(bar => ({ text: bar.innerText, height: bar.getBoundingClientRect().height, hidden: Boolean(bar.closest('[inert], [aria-hidden="true"]')) })),
+            menus: [...document.querySelectorAll('[role="menu"]')].map(menu => ({ text: menu.innerText, height: menu.getBoundingClientRect().height })),
+          }))()`)
+          const shot = await cdp.send('Page.captureScreenshot', { format: 'png' })
+          writeFileSync(`${OUT}/room-controls-unready.png`, Buffer.from(shot.data, 'base64'))
+          throw new Error(`${error.message}; room controls: ${JSON.stringify(controls)}`)
+        })
+        if (!await press({ selector: '[role="menuitemradio"][data-team-page="room"]' }, { stable: true })) throw new Error('room: folded Chat is not reachable')
+      }
+      await waitForSnapshot(() => cdp.eval(`Boolean(document.querySelector('[data-topbar="view"] button'))`), Boolean)
+      if (!await press({ selector: '[data-topbar="view"] button' }, { stable: true })) throw new Error('room: View is not reachable')
+      await waitForSnapshot(() => cdp.eval(`[...document.querySelectorAll('[role="menuitemradio"]')].some(one => one.textContent.trim() === 'Side by side')`), Boolean).catch(async (error) => {
+          const controls = await cdp.json(`(() => ({
+            bars: [...document.querySelectorAll('[data-slot="top-bar"]')].map(bar => ({ text: bar.innerText, height: bar.getBoundingClientRect().height, hidden: Boolean(bar.closest('[inert], [aria-hidden="true"]')) })),
+            menus: [...document.querySelectorAll('[role="menu"]')].map(menu => ({ text: menu.innerText, height: menu.getBoundingClientRect().height })),
+          }))()`)
+          const shot = await cdp.send('Page.captureScreenshot', { format: 'png' })
+          writeFileSync(`${OUT}/room-controls-unready.png`, Buffer.from(shot.data, 'base64'))
+          throw new Error(`${error.message}; room controls: ${JSON.stringify(controls)}`)
+        })
+      if (!await press({ text: 'Side by side' }, { stable: true })) throw new Error('room: Side by side is not reachable')
+      await waitForSnapshot(() => cdp.eval(`(() => {
+        const grid = document.querySelector('[data-slot="side-by-side-grid"]')
+        if (!grid) return false
+        const tiles = [...grid.querySelectorAll('[data-slot="side-by-side-tile"]')].filter(one => !one.hasAttribute('data-hidden') && !one.hasAttribute('inert') && getComputedStyle(one).visibility !== 'hidden' && one.getBoundingClientRect().height > 0)
+        const composer = tiles.length === 1 ? tiles[0].querySelector('[data-slot="composer"] textarea') : document.querySelector('button[aria-label="Send to"]')
+        return Boolean(composer && composer.getBoundingClientRect().height > 0)
+      })()`), Boolean).catch(async (error) => {
+        const rendered = await cdp.json(`(() => ({
+          grids: [...document.querySelectorAll('[data-slot="side-by-side-grid"]')].map(grid => ({
+            hidden: Boolean(grid.closest('[data-hidden], [inert]')),
+            tiles: [...grid.querySelectorAll('[data-slot="side-by-side-tile"]')].map(tile => ({
+              hidden: tile.hasAttribute('data-hidden'), inert: tile.hasAttribute('inert'),
+              visibility: getComputedStyle(tile).visibility,
+              height: tile.getBoundingClientRect().height,
+              composer: Boolean(tile.querySelector('[data-slot="composer"] textarea')),
+              text: tile.innerText.slice(-800),
+            })),
+          })),
+          roomComposer: [...document.querySelectorAll('button[aria-label="Send to"]')].map(button => ({ height: button.getBoundingClientRect().height })),
+        }))()`)
+        const shot = await cdp.send('Page.captureScreenshot', { format: 'png' })
+        writeFileSync(`${OUT}/room-unready.png`, Buffer.from(shot.data, 'base64'))
+        throw new Error(`${error.message}; room rendered state: ${JSON.stringify(rendered)}`)
+      })
     } },
 
     /**
@@ -1531,13 +1596,11 @@ rules:
     flow: { expect: 'Checkout hardening', run: async () => {
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
       await sleep(1200)
-      // New session now opens a draft directly. The Goal… menu item enters
-      // the same chooser with Goal selected, then Continue opens GoalCreate.
-      const chooser = await openStartingKind('Goal')
-      if (!(await clickScrolled('Continue', chooser))) throw new Error('no Continue button in the Goal chooser')
-      await waitForSnapshot(() => cdp.eval(`document.querySelector('input[aria-label="What finishes this?"]') !== null`), Boolean)
-      if (!(await fill('What finishes this?', 'Checkout hardening'))) throw new Error('no Goal sentence field')
-      if (!(await click('Create Goal'))) throw new Error('no Create Goal button')
+      const picker = await openNewTeam()
+      if (!(await clickScrolled('Just a Team', picker))) throw new Error('no Just a Team choice')
+      await waitForSnapshot(() => cdp.eval(`document.querySelector('textarea[aria-label="What should they do?"]') !== null`), Boolean)
+      if (!(await fill('What should they do?', 'Checkout hardening'))) throw new Error('no Team task field')
+      if (!(await click('Start', '[role="dialog"][aria-label="Just a Team"]'))) throw new Error('no Team Start button')
       // A fixed sleep here is a bet on how long creating and loading the Goal
       // takes, and a bet that lost silently left the frame short of what its
       // own filename claims — `shoot()`'s own text check would then be the
@@ -1550,9 +1613,8 @@ rules:
     } },
 
     /**
-     * Starting a shipped shape through the front door itself — "Start with a
-     * team" in the New session chooser, a shape from the catalogue this
-     * project ships (never a project's own file or a person's), its own
+     * Starting a shipped shape through New Team's picker, from the catalogue
+     * this project ships (never a project's own file or a person's), its own
      * input filled in, and Start — reaching the Goal page the held start
      * actually opens (#927).
      *
@@ -1568,32 +1630,25 @@ rules:
     'front-door': { expect: 'Ship it once every specialist approves', run: async () => {
       await cdp.eval(`${STORE}.openWorkspace(${q(REPO)})`, 120_000)
       await sleep(1200)
-      // Team starts live behind More ways to start; that menu opens this same
-      // chooser with Team selected, and Continue opens the front door.
-      const chooser = await openStartingKind('Team')
-      if (!(await clickScrolled('Continue', chooser))) throw new Error('no Continue button in the Team chooser')
-      await waitForSnapshot(
-        () => cdp.eval(`document.querySelector('[role="dialog"][aria-label="Start a team"]') !== null`),
-        Boolean,
-      )
+      const picker = await openNewTeam()
       // "Independent review" is a plain-project shape this repository ships
       // (`packages/server/flows/independent-review.yml`) whose seed role,
       // `implementer`, is the exact Agent the native-Codex seating in #927's
       // own regression proves holds. Any other project-context shipped shape
       // would seat the same way; this one is first in the catalogue's own
       // order.
-      if (!(await clickScrolled('Independent review', '[role="dialog"][aria-label="Start a team"]'))) {
+      if (!(await clickScrolled('Independent review', picker))) {
         throw new Error('no "Independent review" shape in the front door catalogue')
       }
       // The chosen shape's own dry run reads its file and previews it before
-      // "Task" (its one input) exists to fill — waited for by name rather than
+      // its task field exists to fill — waited for by name rather than
       // by a fixed pause, the same reason `click` itself waits.
       await waitForSnapshot(
-        () => cdp.eval(`[...document.querySelectorAll('label')].some((one) => one.textContent.trim() === 'Task')`),
+        () => cdp.eval(`[...document.querySelectorAll('label')].some((one) => one.textContent.trim() === 'What should they do?')`),
         Boolean,
       )
-      if (!(await fill('Task', 'Add 502 to the retryable status set'))) throw new Error('no Task field in the front door')
-      if (!(await fill('What finishes this?', 'Ship it once every specialist approves'))) {
+      if (!(await fill('What should they do?', 'Add 502 to the retryable status set'))) throw new Error('no Task field in the front door')
+      if (!(await fill('Done when · optional', 'Ship it once every specialist approves'))) {
         throw new Error('no sentence field in the front door')
       }
       // Start is refused until the dry run this fill just changed comes back
@@ -1605,7 +1660,7 @@ rules:
         })()`),
         Boolean,
       )
-      if (!(await click('Start', '[role="dialog"][aria-label="Start Independent review"]'))) {
+      if (!(await click('Start', '[role="dialog"][aria-label="Independent review"]'))) {
         throw new Error('no enabled Start button in the front door')
       }
       await waitForSnapshot(() => cdp.eval(`document.body.innerText.includes('Ship it once every specialist approves')`), Boolean)
@@ -1719,14 +1774,20 @@ rules:
     } },
   }
 
-  // The review sweep records every Settings destination, including the rich
-  // rows that a single Appearance frame cannot exercise.
+  // Historical scene names follow the frame destination they now open.
+  // Retained hidden pages never count as the visible destination.
   for (const section of ['profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'runtimes', 'models', 'skills', 'library', 'plugins', 'permissions', 'browser']) {
     SCENES[`settings-${section}`] = { leaveOverlay: true, run: async () => {
       await cdp.eval(`${STORE}.askSettings(${q(section)}); true`)
       await sleep(1200)
-      if (!await cdp.eval(`Boolean(document.querySelector(':is(section, [role="dialog"])[aria-label="Settings"]')) && !document.querySelector(':is(section, [role="dialog"])[aria-label="Dashboard"]')`)) {
-        throw new Error('Settings did not become the visible window for ' + section)
+      const destination = section === 'library' ? 'library' : section === 'plugins' ? 'plugins' : 'settings'
+      if (!await cdp.eval(`(() => {
+        const page = document.querySelector('[data-page-destination="${destination}"]:not([hidden])')
+        const dashboard = document.querySelector('[data-page-destination="dashboard"]:not([hidden])')
+        const box = page?.getBoundingClientRect()
+        return Boolean(box?.width && box?.height && !dashboard)
+      })()`)) {
+        throw new Error(destination + ' did not become the visible destination for ' + section)
       }
       if (section === 'runtimes') {
         // Keep an account in the frame so header and nested-row containment
@@ -1960,10 +2021,15 @@ rules:
         const real = store.transport.request.bind(store.transport)
         store.transport.request = async (method, params) => {
           const result = await real(method, params)
-          if (method !== 'session/list') return result
-          return { ...result, data: result.data.map((row, index) => row.cwd !== root || index > 1 ? row : {
-            ...row, cwd: root + '/.worktrees/sidebar-' + index,
-            repo: { root, worktree: true }, git: { branch: 'fix/sidebar-' + index }, folderGone: index === 1,
+          if (method !== 'session/index') return result
+          let marked = 0
+          return { ...result, data: result.data.map(row => {
+            if (row.cwd !== root || marked >= 2) return row
+            const index = marked++
+            return {
+              ...row, cwd: root + '/.worktrees/sidebar-' + index,
+              repo: { root, worktree: true }, git: { branch: 'fix/sidebar-' + index }, folderGone: index === 1,
+            }
           }) }
         }
         store.__shotsSidebarMarks = true
@@ -1979,9 +2045,13 @@ rules:
     await sleep(200)
   } }
   const hover = async (selector) => {
+    // A prior row's tooltip can cover this row's action. Leave its trigger
+    // and wait for the popup to go before choosing a new pointer target.
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: 0, y: 0 })
+    await waitForSnapshot(() => cdp.eval(`!document.querySelector('[role="tooltip"]')`), Boolean)
     // Hover-only actions have no box until their row is entered.
     const rowPoint = await cdp.json(`(() => {
-      const node = document.querySelector(${q(selector)})?.closest('[data-slot="sidebar-menu-item"]')
+      const node = document.querySelector(${q(selector)})?.closest('[data-left-row]')
       if (!node) throw new Error('missing hover row')
       const rect = node.getBoundingClientRect()
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 }
@@ -1998,10 +2068,10 @@ rules:
     let previousGeometry
     await waitForSnapshot(() => cdp.json(`(() => {
       const target = document.querySelector(${q(selector)})
-      const row = target?.closest('[data-slot="sidebar-menu-item"]')
+      const row = target?.closest('[data-left-row]')
       if (!target || !row) throw new Error('missing hover target')
-      const actions = [...row.querySelectorAll(':scope > [data-slot="sidebar-menu-action"], :scope > div > [data-slot="sidebar-menu-action"]')]
-      const marks = [...row.querySelectorAll(':scope > [data-slot="sidebar-menu-badge"], :scope > div > [data-slot="sidebar-menu-badge"]')]
+      const actions = [...row.querySelectorAll('[data-slot="sidebar-menu-action"]')]
+      const marks = [...row.querySelectorAll('[data-left-mark]')]
       const moving = document.getAnimations().some(animation =>
         animation.playState === 'running' && animation.effect?.getComputedTiming().endTime !== Infinity)
       return {
@@ -2014,12 +2084,12 @@ rules:
       return settled
     })
   }
-  const workspaceHoverAction = '[data-slot="sidebar-menu-item"]:has(> [data-slot="sidebar-menu-button"][aria-expanded]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]'
+  const workspaceHoverAction = '[data-left-row][data-left-project] [data-slot="sidebar-menu-action"][aria-label^="New session in "]'
   SCENES['workspace-hover'] = { leaveOverlay: true, hover: workspaceHoverAction, run: async () => {
     await stageSidebarMarks()
     await hover(workspaceHoverAction)
   } }
-  const sessionHoverAction = '[data-region="session-row"] [data-slot="sidebar-menu-item"]:has(> [data-slot="sidebar-menu-badge"][aria-label^="Worktree "]) > [data-slot="sidebar-menu-action"][aria-haspopup="menu"]'
+  const sessionHoverAction = '[data-region="session-row"] [data-left-row]:has([data-left-mark][aria-label^="Worktree "]) [data-slot="sidebar-menu-action"][aria-haspopup="menu"]'
   SCENES['session-hover'] = { leaveOverlay: true, hover: sessionHoverAction, run: async () => {
     await stageSidebarMarks()
     await hover(sessionHoverAction)
@@ -2078,7 +2148,7 @@ rules:
    * events a pointer sends — where `click` calls the element's own `click()`.
    * Found by a selector, or by the text it starts with.
    */
-  const press = async ({ selector = null, text = null }, { wait = 4000 } = {}) => {
+  const press = async ({ selector = null, text = null }, { wait = 4000, stable = false } = {}) => {
     const locate = () => cdp.json(`(() => {
       const wanted = ${q(text)}
       const all = ${selector ? `[...document.querySelectorAll(${q(selector)})]` : `[...document.querySelectorAll('button, [role="button"], [role="menuitem"]')].filter((e) => (e.textContent ?? '').trim().startsWith(wanted) || e.getAttribute('aria-label') === wanted)`}
@@ -2092,8 +2162,37 @@ rules:
       const el = ${selector ? 'shown[0]' : 'shown.sort((a, b) => (a.textContent ?? \'\').length - (b.textContent ?? \'\').length)[0]'}
       if (!el) return null
       const r = el.getBoundingClientRect()
-      return { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+      const point = { x: r.left + r.width / 2, y: r.top + r.height / 2 }
+      if (!${stable}) return point
+      const fold = el.closest('[data-slot="top-bar"]')?.getAttribute('data-fold')
+      return new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => {
+        const after = el.getBoundingClientRect()
+        const unchanged = el.isConnected && after.width > 0 && after.height > 0 && !el.closest('[aria-hidden="true"], [inert]')
+          && fold === el.closest('[data-slot="top-bar"]')?.getAttribute('data-fold')
+          && after.left + after.width / 2 === point.x && after.top + after.height / 2 === point.y
+          && el.contains(document.elementFromPoint(point.x, point.y))
+        resolve(unchanged ? point : null)
+      })))
     })()`)
+    if (stable) {
+      // Room navigation can arrive while the bar is measuring its folds.
+      // Revalidate the same hit-tested point after moving the pointer, so a
+      // moved destination trigger cannot activate its adjacent View control.
+      const deadline = Date.now() + wait
+      while (Date.now() < deadline) {
+        const point = await locate()
+        if (!point) { await sleep(200); continue }
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', ...point })
+        const current = await locate()
+        if (!current || current.x !== point.x || current.y !== point.y) { await sleep(200); continue }
+        if (Date.now() >= deadline) return false
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...current, button: 'left', clickCount: 1 })
+        await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...current, button: 'left', clickCount: 1 })
+        await sleep(900)
+        return true
+      }
+      return false
+    }
     let point = await locate()
     for (let waited = 0; !point && waited < wait; waited += 200) {
       await sleep(200)
@@ -2107,7 +2206,9 @@ rules:
     return true
   }
   const openGitMenu = async () => {
-    if (!(await press({ selector: 'header button[aria-label*=" — "]' }))) throw new Error('no git control in the conversation header')
+    const shown = await cdp.json(`Boolean(document.querySelector('[data-slot="tool-body"] button[aria-label="Folder actions"]'))`)
+    if (!shown && !(await press({ selector: 'header [data-work-tool="details"]' }))) throw new Error('no Details control in the conversation header')
+    if (!(await press({ selector: '[data-slot="tool-body"] button[aria-label="Folder actions"]' }))) throw new Error('no Folder actions control in conversation Details')
   }
   /**
    * What the store holds once the item is chosen, checked beside the frame:
@@ -2418,8 +2519,8 @@ rules:
     await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...spot, button: 'left', clickCount: 1 })
     await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...spot, button: 'left', clickCount: 1 })
     await sleep(1200)
-    if (!await cdp.eval(`Boolean(document.querySelector('[class*="detailHead"]'))`)) {
-      throw new Error('the agent page did not draw its detail head')
+    if (!await cdp.eval(`Boolean(document.querySelector('[data-page-destination="settings"]:not([hidden])')) && Boolean(document.querySelector('[data-slot="top-bar"] [data-topbar-title]'))`)) {
+      throw new Error('the agent page did not draw its destination bar')
     }
   } }
 
@@ -2443,8 +2544,8 @@ rules:
     await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', ...spot, button: 'left', clickCount: 1 })
     await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', ...spot, button: 'left', clickCount: 1 })
     await sleep(1200)
-    if (!await cdp.eval(`Boolean(document.querySelector('[class*="detailHead"]'))`)) {
-      throw new Error('the account page did not draw its detail head')
+    if (!await cdp.eval(`Boolean(document.querySelector('[data-page-destination="settings"]:not([hidden])')) && Boolean(document.querySelector('[data-slot="top-bar"] [data-topbar-title]'))`)) {
+      throw new Error('the account page did not draw its destination bar')
     }
   } }
 
@@ -2579,7 +2680,10 @@ rules:
     const tag = [...document.querySelectorAll('label')].find((one) => one.textContent.trim() === ${q(label)})
     const input = (tag && document.getElementById(tag.getAttribute('for'))) || document.querySelector('[aria-label=' + JSON.stringify(${q(label)}) + ']')
     if (!input) return false
-    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, ${q(value)})
+    const prototype = input instanceof window.HTMLTextAreaElement
+      ? window.HTMLTextAreaElement.prototype
+      : window.HTMLInputElement.prototype
+    Object.getOwnPropertyDescriptor(prototype, 'value').set.call(input, ${q(value)})
     input.dispatchEvent(new Event('input', { bubbles: true }))
     return true
   })()`)
@@ -2591,22 +2695,29 @@ rules:
       if (!(await click('Agents'))) throw new Error('no Agents row in the sidebar')
       await sleep(1400)
       await cdp.eval(`(() => {
-        const dialog = document.querySelector('[role="dialog"][aria-label="Agents"]')
-        const scroller = [...(dialog?.querySelectorAll('*') ?? [])]
-          .find((node) => node.scrollHeight > node.clientHeight + 300)
+        const dialog = document.querySelector('[data-page-destination="agents"]:not([hidden])')
+        const scroller = [dialog, ...(dialog?.querySelectorAll('*') ?? [])]
+          .find((node) => node && node.scrollHeight > node.clientHeight + 300)
         if (!scroller) return false
         scroller.scrollTop = scroller.scrollHeight
         scroller.dispatchEvent(new Event('scroll', { bubbles: true }))
         return true
       })()`)
       await sleep(500)
+    }, verify: async () => {
+      await waitForSnapshot(() => cdp.eval(`(() => {
+        const row = [...document.querySelectorAll('[data-page-destination="agents"]:not([hidden]) [data-slot="row-desc"]')]
+          .find(node => node.textContent.startsWith('Shadowed by the one in storefront'))
+        const box = row?.getBoundingClientRect()
+        return Boolean(box?.width && box?.height && box.top >= 0 && box.bottom <= innerHeight)
+      })()`), Boolean)
     } },
 
     /** An Agent's page: its file, its ceiling, its own seats muted, and this Mac's. */
     'agent-page': { leaveOverlay: true, expect: 'On this Mac', run: async () => {
       await openStorefront()
       if (!(await click('Agents'))) throw new Error('no Agents row in the sidebar')
-      if (!(await click('Code reviewer', '[role="dialog"][aria-label="Agents"]'))) throw new Error('no Code reviewer in the Agents window')
+      if (!(await click('Code reviewer', '[data-page-destination="agents"]:not([hidden])'))) throw new Error('no Code reviewer in the Agents window')
       await sleep(1400)
     } },
 
@@ -2617,15 +2728,13 @@ rules:
       await sleep(1400)
     } },
 
-    /** The new-session dialog's Session option and its "Run as" choices. */
-    'new-session-agents': { leaveOverlay: true, expect: 'Run as', run: async () => {
+    /** A plain Team's Agent choices, reached through the sidebar picker. */
+    'new-session-agents': { leaveOverlay: true, expect: 'Who does what', run: async () => {
       await openStorefront()
-      // Reach the chooser from the supported secondary start route, then
-      // select Session to photograph its Run as control without starting it.
-      const chooser = await openStartingKind('Team')
-      if (!(await clickScrolled('Session', chooser))) throw new Error('no Session choice in the New session dialog')
-      await waitForSnapshot(() => cdp.eval(`document.querySelector('${chooser} select') !== null`), Boolean)
-      if (!(await cdp.eval(`Boolean(document.querySelector('${chooser} select option[value="plain"]')?.textContent === 'Default agent')`))) throw new Error('the dialog offers no Default agent choice under Run as')
+      const picker = await openNewTeam()
+      if (!(await clickScrolled('Just a Team', picker))) throw new Error('no Just a Team choice')
+      const team = '[role="dialog"][aria-label="Just a Team"]'
+      await waitForSnapshot(() => cdp.eval(`document.querySelector('${team} [role="checkbox"][aria-label^="Seat "]') !== null`), Boolean)
     } },
 
     /** Command palette, through the sidebar's magnifier: an Agent to start as. */

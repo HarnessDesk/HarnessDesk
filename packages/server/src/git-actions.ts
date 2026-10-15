@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 
 import { concluding } from './git.js'
+import { withGitMutation } from './git-mutation.js'
 import { isRevisionName, isSha } from './git-revision.js'
 import { parsePorcelain } from './porcelain.js'
 
@@ -152,6 +153,7 @@ export interface MergeOutcome {
   readonly summary: string
   /** Paths left conflicted in the working tree; empty when the verb concluded. */
   readonly conflicts: readonly string[]
+  readonly merged?: { readonly branch: string; readonly commit: string }
 }
 
 // ------------------------------------------------------------------- commit
@@ -199,7 +201,7 @@ export const commitAll = async (
   root: string,
   message: string,
   paths?: readonly string[],
-): Promise<{ sha: string }> => {
+): Promise<{ sha: string }> => withGitMutation(root, async () => {
   if (message.trim().length === 0) throw new Error('A commit needs a message.')
   if (paths !== undefined && paths.length === 0) {
     throw new Error('No files were chosen — pick the files to commit, or commit everything.')
@@ -242,7 +244,7 @@ export const commitAll = async (
     fail('Could not commit', error)
   }
   return { sha: (await head(root)) ?? '' }
-}
+})
 
 // ------------------------------------------------------------ pull and push
 
@@ -254,7 +256,7 @@ export const commitAll = async (
  * the one state this module refuses to leave behind, and an unset
  * `pull.rebase` on modern git refuses divergence outright.
  */
-export const pull = async (root: string): Promise<MergeOutcome> => {
+export const pull = async (root: string): Promise<MergeOutcome> => withGitMutation(root, async () => {
   const before = await head(root)
   try {
     await git(root, ['pull', '--no-rebase', '--no-edit'], NETWORK)
@@ -275,7 +277,7 @@ export const pull = async (root: string): Promise<MergeOutcome> => {
     summary: Number.isFinite(count) && count > 0 ? `Pulled ${count} commit${count === 1 ? '' : 's'}.` : 'Pulled.',
     conflicts: [],
   }
-}
+})
 
 /**
  * Pushes the current branch. A branch that tracks nothing yet is pushed
@@ -333,11 +335,15 @@ export const fetch = async (root: string): Promise<{ summary: string }> => {
 // --------------------------------------------------------- merge and rebase
 
 /** Merges a revision into the current branch, leaving conflicts in place. */
-export const merge = async (root: string, ref: string): Promise<MergeOutcome> => {
+export const merge = async (root: string, ref: string, expectedBranch?: string): Promise<MergeOutcome> => withGitMutation(root, async () => {
   const before = await head(root)
-  await resolveCommitish(root, ref)
+  const revision = await resolveCommitish(root, ref)
+  const branch = await currentBranch(root)
+  if (expectedBranch !== undefined && branch !== expectedBranch) {
+    throw new Error('The destination branch changed. Close this question and check Changes before merging.')
+  }
   try {
-    await git(root, ['merge', '--no-edit', ref])
+    await git(root, ['merge', '--no-edit', revision])
   } catch (error) {
     const conflicts = await conflictedFiles(root).catch(() => [])
     if (conflicts.length > 0) {
@@ -348,19 +354,22 @@ export const merge = async (root: string, ref: string): Promise<MergeOutcome> =>
     }
     fail(`Could not merge ${ref}`, error)
   }
-  const after = await head(root)
+  // Capture the destination while competing host checkout and ref mutations
+  // still wait on this operation, then return that observation with the result.
+  const after = branch ? await resolveCommitish(root, `refs/heads/${branch}`) : await head(root)
   return {
     summary: before === after ? `Already up to date with ${ref}.` : `Merged ${ref}.`,
     conflicts: [],
+    ...(branch && after ? {merged:{branch, commit:after}} : {}),
   }
-}
+})
 
 /**
  * Rebases the current branch onto a revision — and aborts itself on
  * conflict, reporting that nothing changed. See the module note: a paused
  * rebase is a state this app has no surface for.
  */
-export const rebase = async (root: string, onto: string): Promise<{ summary: string }> => {
+export const rebase = async (root: string, onto: string): Promise<{ summary: string }> => withGitMutation(root, async () => {
   await resolveCommitish(root, onto)
   try {
     await git(root, ['rebase', onto])
@@ -380,7 +389,7 @@ export const rebase = async (root: string, onto: string): Promise<{ summary: str
     )
   }
   return { summary: `Rebased onto ${onto}.` }
-}
+})
 
 // ------------------------------------------------- revert and cherry-pick
 
@@ -389,7 +398,7 @@ export const rebase = async (root: string, onto: string): Promise<{ summary: str
  * client assumes. Conflicts stay in the tree; committing concludes the
  * revert, exactly as with a merge.
  */
-export const revertCommit = async (root: string, sha: string): Promise<MergeOutcome> => {
+export const revertCommit = async (root: string, sha: string): Promise<MergeOutcome> => withGitMutation(root, async () => {
   if (!isSha(sha)) throw new Error(`"${sha}" is not a commit id.`)
   const parents = (await git(root, ['show', '-s', '--format=%P', sha])).trim().split(' ').filter(Boolean)
   const mainline = parents.length > 1 ? ['-m', '1'] : []
@@ -406,10 +415,10 @@ export const revertCommit = async (root: string, sha: string): Promise<MergeOutc
     fail('Could not revert', error)
   }
   return { summary: `Reverted ${sha.slice(0, 7)}.`, conflicts: [] }
-}
+})
 
 /** Cherry-picks one commit onto the current branch. Merges are refused. */
-export const cherryPick = async (root: string, sha: string): Promise<MergeOutcome> => {
+export const cherryPick = async (root: string, sha: string): Promise<MergeOutcome> => withGitMutation(root, async () => {
   if (!isSha(sha)) throw new Error(`"${sha}" is not a commit id.`)
   const parents = (await git(root, ['show', '-s', '--format=%P', sha])).trim().split(' ').filter(Boolean)
   if (parents.length > 1) {
@@ -428,7 +437,7 @@ export const cherryPick = async (root: string, sha: string): Promise<MergeOutcom
     fail('Could not cherry-pick', error)
   }
   return { summary: `Cherry-picked ${sha.slice(0, 7)}.`, conflicts: [] }
-}
+})
 
 // -------------------------------------------------------------------- reset
 
@@ -440,7 +449,7 @@ export type ResetMode = 'soft' | 'mixed' | 'hard'
  * that erases uncommitted work, and it runs only because the dialog that
  * calls it says so in red and asks again.
  */
-export const reset = async (root: string, to: string, mode: ResetMode): Promise<void> => {
+export const reset = async (root: string, to: string, mode: ResetMode): Promise<void> => withGitMutation(root, async () => {
   if (mode !== 'soft' && mode !== 'mixed' && mode !== 'hard') throw new Error(`"${mode}" is not a reset mode.`)
   const target = await resolveCommitish(root, to)
   try {
@@ -448,7 +457,7 @@ export const reset = async (root: string, to: string, mode: ResetMode): Promise<
   } catch (error) {
     fail('Could not reset', error)
   }
-}
+})
 
 // ----------------------------------------------------------------- checkout
 
@@ -457,18 +466,18 @@ export const reset = async (root: string, to: string, mode: ResetMode): Promise<
  * The same dirty-tree refusal every checkout gets applies; the caller runs
  * that preflight, the way `git/createBranch` composes it.
  */
-export const checkoutCommit = async (root: string, sha: string): Promise<void> => {
+export const checkoutCommit = async (root: string, sha: string): Promise<void> => withGitMutation(root, async () => {
   if (!isSha(sha)) throw new Error(`"${sha}" is not a commit id.`)
   try {
     await git(root, ['checkout', '--detach', sha])
   } catch (error) {
     fail('Could not check the commit out', error)
   }
-}
+})
 
 // ----------------------------------------------------------------- branches
 
-export const renameBranch = async (root: string, from: string, to: string): Promise<void> => {
+export const renameBranch = async (root: string, from: string, to: string): Promise<void> => withGitMutation(root, async () => {
   await checkBranchName(root, from)
   await checkBranchName(root, to)
   try {
@@ -476,14 +485,14 @@ export const renameBranch = async (root: string, from: string, to: string): Prom
   } catch (error) {
     fail(`Could not rename ${from}`, error)
   }
-}
+})
 
 /**
  * Deletes a branch. Unmerged work refuses unless forced — that refusal is
  * git's own and it is the right one — and the current branch refuses
  * always, in words, before git says something less helpful.
  */
-export const deleteBranch = async (root: string, name: string, force = false): Promise<void> => {
+export const deleteBranch = async (root: string, name: string, force = false): Promise<void> => withGitMutation(root, async () => {
   await checkBranchName(root, name)
   if ((await currentBranch(root)) === name) {
     throw new Error(`${name} is checked out; switch away before deleting it.`)
@@ -493,7 +502,7 @@ export const deleteBranch = async (root: string, name: string, force = false): P
   } catch (error) {
     fail(`Could not delete ${name}`, error)
   }
-}
+})
 
 // --------------------------------------------------------------------- tags
 

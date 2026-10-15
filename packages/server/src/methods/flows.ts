@@ -99,6 +99,7 @@ export const flowMethods = {
        is refused, and nothing here can turn it into an ordinary start. */
     const bound = redeemed.frontDoor
     if (JSON.stringify(bound?.goal ?? null) !== JSON.stringify(params.goal ?? null)) throw Object.assign(new Error(CHANGED_PREVIEW), { wireCode: 'refused' })
+    await ctx.workspaces.admitTeamProject(params.root)
     return ctx.flows.startGoal({
       root: params.root,
       sentence: params.sentence,

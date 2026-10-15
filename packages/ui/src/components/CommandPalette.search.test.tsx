@@ -22,6 +22,7 @@ let container: HTMLDivElement
 let root: Root
 
 beforeEach(() => {
+  localStorage.clear()
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
@@ -59,7 +60,7 @@ const LISTED_ACP: SessionSummary = {
   updatedAt: 2,
 }
 
-const mount = async (runtimes: AppSnapshot['runtimes'] = []): Promise<{ request: ReturnType<typeof vi.fn> }> => {
+const mount = async (runtimes: AppSnapshot['runtimes'] = [], withWorkspace = false): Promise<{ request: ReturnType<typeof vi.fn> }> => {
   const request = vi.fn(async (method: string) => {
     if (method === 'transcripts/search') return [HIT]
     if (method === 'session/search') return { data: [LISTED_ACP], nextCursor: null }
@@ -70,6 +71,7 @@ const mount = async (runtimes: AppSnapshot['runtimes'] = []): Promise<{ request:
     status: 'open',
     runtimes,
     history: [],
+    ...(withWorkspace ? { workspace: { path: '/repo' } as never } : {}),
   } as AppSnapshot
   const store = {
     subscribe: () => () => {},
@@ -97,7 +99,7 @@ const mount = async (runtimes: AppSnapshot['runtimes'] = []): Promise<{ request:
 }
 
 const type = (value: string): void => {
-  const field = container.querySelector('input')
+  const field = document.body.querySelector<HTMLInputElement>('[aria-label="Command palette"] input')
   if (!field) throw new Error('no palette input')
   act(() => {
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
@@ -115,11 +117,11 @@ it('a transcript-only conversation surfaces with the store’s matching line mar
   })
 
   expect(request).toHaveBeenCalledWith('transcripts/search', { query: 'treasure' })
-  expect(container.textContent).toContain('The forgotten thread')
+  expect(document.body.querySelector('[aria-label="Command palette"]')?.textContent).toContain('The forgotten thread')
   // The matched words are lifted to full ink and the semibold weight inside
   // the match line — the text role's own ink step, not a ground of their own,
   // so they still read on a highlighted row whose line is already full ink.
-  const mark = container.querySelector('b[data-slot="text"]')
+  const mark = document.body.querySelector('[aria-label="Command palette"] b[data-slot="text"]')
   expect(mark?.textContent).toBe('treasure')
   expect(mark?.getAttribute('data-role')).toBe('meta')
   expect(mark?.getAttribute('data-ink')).toBe('primary')
@@ -137,6 +139,45 @@ it('nothing is asked for a single character', async () => {
   expect(request).not.toHaveBeenCalledWith('transcripts/search', expect.anything())
 })
 
+it('keeps the palette open when an unavailable preview search has no result list', async () => {
+  const { request } = await mount([], true)
+  request.mockImplementation(async (method: string) => {
+    if (method === 'workspace/files' || method === 'transcripts/search') return null as never
+    return { data: [], nextCursor: null }
+  })
+  // A real wire reply is always a list. The preview harness answers unimplemented
+  // methods with null, and that must not take down the palette while typing.
+  type('flaky')
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 160))
+  })
+
+  expect(document.body.querySelector('[aria-label="Command palette"]')).not.toBeNull()
+})
+
+it('tool output is requested only when the viewer enables it and is rendered as text', async () => {
+  const { request } = await mount()
+  request.mockImplementation(async (method: string, params: { includeTools?: boolean }) => {
+    if (method === 'transcripts/search') return params.includeTools ? [{ ...HIT, source: 'tool', line: '<img src=x onerror=alert(1)> treasure output', start: 27, end: 35 }] : []
+    return { data: [], nextCursor: null }
+  })
+  type('treasure')
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 160)) })
+  const control = document.body.querySelector('[aria-label="Command palette"] button[aria-label="Include tool output"]') as HTMLElement
+  expect(control).not.toBeNull()
+  expect(control.getAttribute('aria-pressed')).toBe('false')
+  act(() => control.click())
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 160)) })
+  expect(request).toHaveBeenLastCalledWith('transcripts/search', { query: 'treasure', includeTools: true })
+  expect(document.body.querySelector('[aria-label="Command palette"]')?.textContent).toContain('<img src=x onerror=alert(1)> treasure output')
+  expect(document.body.querySelector('[aria-label="Command palette"]')?.textContent).toContain('Tool output')
+  expect(document.body.querySelector('[aria-label="Command palette"] img[src="x"]')).toBeNull()
+  act(() => control.click())
+  await act(async () => { await new Promise(resolve => setTimeout(resolve, 160)) })
+  expect(request).toHaveBeenLastCalledWith('transcripts/search', { query: 'treasure' })
+  expect(document.body.querySelector('[aria-label="Command palette"]')?.textContent).not.toContain('treasure output')
+})
+
 it('searches listed ACP history through the runtime capability', async () => {
   const { request } = await mount([{
     id: 'acp-cline',
@@ -150,5 +191,5 @@ it('searches listed ACP history through the runtime capability', async () => {
   })
 
   expect(request).toHaveBeenCalledWith('session/search', { runtime: 'acp-cline', query: 'Older listed' })
-  expect(container.textContent).toContain('Older listed ACP conversation')
+  expect(document.body.querySelector('[aria-label="Command palette"]')?.textContent).toContain('Older listed ACP conversation')
 })

@@ -75,6 +75,32 @@ const makeHost = async (runtime: FakeRuntime, idleStopMs = 25, seatRestMs = 25) 
   return { host, stateDir }
 }
 
+test('a delayed first reaper poll counts quiet time from readiness and leaves the stopped runtime idle', async (t) => {
+  const runtime = new IdleRuntime()
+  const { host, stateDir } = await makeHost(runtime, 60_000)
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
+  t.mock.timers.enable({ apis: ['Date', 'setInterval'], now: Date.now() })
+  await host.start()
+  await host.call('runtime/models', { runtime: runtime.info.id })
+  await pause(5)
+  assert.equal(runtime.health().state, 'ready')
+
+  // No poll has run yet. Model a busy event loop's first overdue tick.
+  t.mock.timers.tick(60_001)
+  await pause(5)
+  assert.equal(runtime.stops, 1, 'the first poll uses the time the process became quiet')
+  assert.equal(runtime.health().state, 'idle')
+  t.mock.timers.tick(120_000)
+  await host.call('session/list', { runtime: runtime.info.id })
+  await host.call('runtime/models', { runtime: runtime.info.id })
+  await pause(5)
+  assert.equal(runtime.health().state, 'idle')
+  assert.equal(runtime.starts, 1, 'background polls and cached reads leave it stopped')
+
+  await host.call('session/create', { runtime: runtime.info.id, options: { cwd: '/w' } })
+  assert.equal(runtime.starts, 2, 'live work performs the next start')
+})
+
 test('stops an unused runtime and starts it again when a session is created', async (t) => {
   const runtime = new IdleRuntime({ id: 'idle-test' as never, name: 'Idle Test' })
   const { host, stateDir } = await makeHost(runtime)
@@ -465,8 +491,9 @@ test('concurrent session creates share one restart after idle stop', async (t) =
     await rm(stateDir, { recursive: true, force: true })
   })
   await host.start()
-  await new Promise((resolve) => setTimeout(resolve, 80))
+  await until(() => runtime.stops > 0)
   assert.equal(runtime.health().state, 'idle')
+  assert.equal(runtime.starts, 1, 'no background work restarts the stopped runtime')
   runtime.holdNextStart()
   const a = host.call('session/create', { runtime: runtime.info.id, options: { cwd: '/w' } })
   const b = host.call('session/create', { runtime: runtime.info.id, options: { cwd: '/w' } })
@@ -484,8 +511,9 @@ test('an on-demand start failure reaches the waiting operation with its reason',
     await rm(stateDir, { recursive: true, force: true })
   })
   await host.start()
-  await new Promise((resolve) => setTimeout(resolve, 80))
+  await until(() => runtime.stops > 0)
   assert.equal(runtime.health().state, 'idle')
+  assert.equal(runtime.starts, 1, 'no background work restarts the stopped runtime')
   runtime.nextFailure = 'scripted bridge refusal'
   const [a, b] = await Promise.allSettled([
     host.call('session/create', { runtime: runtime.info.id, options: { cwd: '/w' } }),
@@ -516,11 +544,12 @@ test('a session arriving during idle stop waits, then starts the helper', async 
   assert.equal(runtime.starts, 2)
 })
 
-test('shutdown with an idle-stopped runtime completes cleanly', async () => {
+test('shutdown with an idle-stopped runtime completes cleanly', async (t) => {
   const runtime = new IdleRuntime({ id: 'idle-shutdown-test' as never, name: 'Idle Shutdown Test' })
   const { host, stateDir } = await makeHost(runtime)
+  t.after(async () => { await host.dispose(); await rm(stateDir, { recursive: true, force: true }) })
   await host.start()
-  await new Promise((resolve) => setTimeout(resolve, 80))
+  await until(() => runtime.stops > 0)
   assert.equal(runtime.health().state, 'idle')
   await host.dispose()
   assert.equal(runtime.starts, 1)

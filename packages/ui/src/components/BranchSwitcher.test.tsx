@@ -1,4 +1,4 @@
-import { act } from 'react'
+import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
@@ -6,6 +6,7 @@ import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { Menu, Submenu } from '../design'
 import { BranchSwitcher } from './BranchSwitcher'
+import { BranchCreateDialog } from './BranchCreateDialog'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -42,18 +43,19 @@ const rig = async (options: {
   } as unknown as AppStore
 
   const onDone = vi.fn()
+  const onCreate = vi.fn()
 
   await act(async () => {
     root.render(
       <StoreProvider store={store}>
         <Menu close={onDone}>
-          <BranchSwitcher root="/repo" onDone={onDone} />
+          <BranchSwitcher root="/repo" onDone={onDone} onCreate={onCreate} />
         </Menu>
       </StoreProvider>,
     )
   })
 
-  return { store, checkoutBranch, onDone }
+  return { store, checkoutBranch, onDone, onCreate }
 }
 
 it('disables the in-flight branch and prevents duplicate checkouts (#391)', async () => {
@@ -123,17 +125,18 @@ const delayedRig = async (entry = 'ArrowRight') => {
     listBranches: vi.fn(() => new Promise((resolve) => { read = resolve })),
     checkoutBranch: vi.fn(async () => true),
   } as unknown as AppStore
-  act(() => {
-    root.render(
-      <StoreProvider store={store}>
-        <Menu close={() => {}}>
-          <Submenu label="Branch main">
-            <BranchSwitcher root="/repo" onDone={() => {}} />
-          </Submenu>
-        </Menu>
-      </StoreProvider>,
-    )
-  })
+  const Host = () => {
+    const [creating, setCreating] = useState(false)
+    return <>
+      <Menu close={() => {}}>
+        <Submenu label="Branch main">
+          <BranchSwitcher root="/repo" onDone={() => {}} onCreate={() => setCreating(true)} />
+        </Submenu>
+      </Menu>
+      {creating && <BranchCreateDialog root="/repo" onDone={() => {}} onClose={() => setCreating(false)} />}
+    </>
+  }
+  act(() => root.render(<StoreProvider store={store}><Host /></StoreProvider>))
   const frame = () => act(async () => { await new Promise((resolve) => requestAnimationFrame(resolve)) })
   const button = (label: string) =>
     [...document.querySelectorAll<HTMLButtonElement>('button')].find((node) => node.textContent?.startsWith(label))
@@ -212,7 +215,7 @@ it('keeps navigation usable with no matches and after clearing the filter', asyn
 it('does not take focus from the create field when branches arrive', async () => {
   const { read, button, frame } = await delayedRig()
   act(() => button('Create and checkout new branch')!.click())
-  const input = document.querySelector<HTMLInputElement>('input[placeholder="new-branch-name"]')!
+  const input = document.querySelector<HTMLInputElement>('input[placeholder="feature/storefront-search"]')!
   expect(document.activeElement).toBe(input)
   await act(async () => { read([{ name: 'main', current: true, committedAt: 1000 }]) })
   await frame()
@@ -228,4 +231,16 @@ it('keeps the search autofocus when a searchable list arrives', async () => {
   })
   await frame()
   expect(document.activeElement).toBe(document.querySelector('input[placeholder="Search repo branches"]'))
+})
+
+
+it('closes the branch menu before requesting persistent creation, without an inline form', async () => {
+  const { onDone, onCreate, checkoutBranch } = await rig()
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')]
+    .find(one => one.textContent?.startsWith('Create and checkout'))!.click())
+  expect(onDone).toHaveBeenCalled()
+  expect(onCreate).toHaveBeenCalled()
+  expect(onDone.mock.invocationCallOrder[0]).toBeLessThan(onCreate.mock.invocationCallOrder[0]!)
+  expect(checkoutBranch).not.toHaveBeenCalled()
+  expect(container.querySelector('form')).toBeNull()
 })

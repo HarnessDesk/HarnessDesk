@@ -10,9 +10,9 @@ import type { FlowPolicy, FlowPolicyRule } from './flow-policy.js'
  * it does not, so a caller can say only that it may open that role.
  *
  * `none` is a round no rule continues from, which is how a Run ends. `ruled`
- * says whether the role has any rule at all: a role no rule starts from is a
- * last step, and answering it completes the Run, while a role whose rules all
- * decline the round leaves the Run ended without a next step.
+ * says the answers have no successful end: a declared successful round, or
+ * an answered role with no rules or declaration, completes the Run. Other
+ * answers of a ruled role leave the Run ended without a next step.
  */
 export type FlowFollow =
   | { readonly kind: 'opens'; readonly rule: string; readonly role: string; readonly guarded: boolean }
@@ -42,7 +42,7 @@ const answers = (rule: FlowPolicyRule, outcomes: readonly (string | null)[]): bo
  * reply to either says nothing of it.
  */
 export const followOf = (
-  flow: Pick<FlowPolicy, 'rules'>,
+  flow: Pick<FlowPolicy, 'rules' | 'complete'>,
   role: string,
   outcomes: readonly (string | null)[],
 ): FlowFollow => {
@@ -50,5 +50,11 @@ export const followOf = (
   const found = own.find((rule) => answers(rule, outcomes))
   return found
     ? { kind: 'opens', rule: found.id, role: found.then.role, guarded: (found.when?.evidence?.length ?? 0) > 0 }
-    : { kind: 'none', ruled: own.length > 0 }
+    : { kind: 'none', ruled: Object.hasOwn(flow.complete ?? {}, role) ? !completesRound(flow, role, outcomes) : own.length > 0 }
+}
+
+/** Explicit success needs an answer from every card; an abandoned card cannot complete a Run. */
+export const completesRound = (flow: Pick<FlowPolicy, 'complete'>, role: string, outcomes: readonly (string | null)[]): boolean => {
+  const complete = Object.hasOwn(flow.complete ?? {}, role) ? flow.complete![role] : undefined
+  return complete !== undefined && outcomes.length > 0 && outcomes.every(word => word !== null && complete.includes(word))
 }

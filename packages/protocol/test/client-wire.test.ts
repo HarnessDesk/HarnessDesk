@@ -31,3 +31,13 @@ test('a check’s recorded attempts are a window read, so the client door does n
   assert.equal(clientTierFor('flow/check/attempts', { run: 'r1', card: 1 }), null)
   assert.equal(Object.hasOwn(CLIENT_METHODS, 'flow/check/attempts'), false)
 })
+
+test('library reads are on the read tier while plan and apply stay off the client surface', () => {
+  for (const method of ['library/read', 'library/definition', 'library/usage']) {
+    assert.equal(clientTierFor(method), 'read', method)
+  }
+  for (const method of ['library/plan', 'library/apply']) {
+    assert.equal(clientTierFor(method), null, method)
+    assert.equal(Object.hasOwn(CLIENT_METHODS, method), false, method)
+  }
+})

@@ -319,3 +319,13 @@ test('a runtime that declines to re-read is reported as such, not as a success',
     reason: 'A turn is in flight.',
   })
 })
+
+test('automatic refresh leaves idle runtimes asleep while explicit refresh remains intent', async () => {
+  const runtime = stub('cold', { health: { state: 'idle' }, check: async () => ({ changed: false }), refresh: async () => ({ refreshed: true }) })
+  const refresher = new CatalogRefresher()
+  refresher.watch(runtime)
+  await refresher.refreshAll()
+  assert.deepEqual(runtime.calls, [])
+  await refresher.refresh(runtime.info.id)
+  assert.deepEqual(runtime.calls, ['check', 'refresh'])
+})

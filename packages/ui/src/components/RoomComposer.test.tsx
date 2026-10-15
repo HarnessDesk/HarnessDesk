@@ -2,9 +2,10 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { sessionKey, type SessionKey, type TeamPeerInfo } from '@harnessdesk/protocol'
+import { sessionKey, type SessionKey, type TeamMessage, type TeamPeerInfo } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
+import { dismissOverlays, escapeSurface } from '../lib/overlays'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { RoomComposer, type RoomComposerHandle, type RoomMember } from './RoomComposer'
 
@@ -82,29 +83,36 @@ const GEMINI = member(peer('cursor', 'g1', 'Gemini'))
 /* One snapshot object for every rig. `useSyncExternalStore` compares identity,
    so a getter that mints a fresh snapshot re-renders forever — the same trap
    the room pane keeps `NO_ENTRIES` for. */
-const rig = (members: readonly RoomMember[] | null = [OPUS, GPT, GEMINI], messaging = true) => {
+const rig = (members: readonly RoomMember[] | null = [OPUS, GPT, GEMINI], messaging = true, defaultAudience?: readonly SessionKey[], view: AppSnapshot = snapshot, tileLabels?: ReadonlyMap<SessionKey, string>, messagingControl: { onMessaging?: () => Promise<void>; reason?: string } = {}) => {
   const store = {
     subscribe: () => () => {},
-    getSnapshot: (): AppSnapshot => snapshot,
+    getSnapshot: (): AppSnapshot => view,
     teamPost: vi.fn().mockResolvedValue(undefined),
     teamHandout: vi.fn().mockResolvedValue({ batch: 'b1', delivered: 2, queued: 0, refused: 0 }),
+    interrupt: vi.fn().mockResolvedValue(undefined),
   } as unknown as AppStore
   const trouble = vi.fn()
   const posted = vi.fn()
-  act(() => {
+  const onMessaging = messagingControl.onMessaging ?? vi.fn().mockResolvedValue(undefined)
+  const render = (nextMessaging = messaging) => act(() => {
     root.render(
       <StoreProvider store={store}>
         <RoomComposer
           room={ROOM}
           members={members}
-          messaging={messaging}
+          messaging={nextMessaging}
+          onMessaging={onMessaging}
+          messagingReason={messagingControl.reason}
+          defaultAudience={defaultAudience}
+          tileLabels={tileLabels}
           onTrouble={trouble}
           onPosted={posted}
         />
       </StoreProvider>,
     )
   })
-  return { store, trouble, posted }
+  render()
+  return { store, trouble, posted, onMessaging, render }
 }
 
 const box = (): HTMLTextAreaElement => container.querySelector('textarea') as HTMLTextAreaElement
@@ -146,7 +154,7 @@ const chips = (): readonly string[] =>
     (one) => one.textContent?.replace(/\s+/g, ' ').trim() ?? '',
   )
 
-const menu = (): HTMLElement | null => container.querySelector('[role="listbox"]')
+const menu = (): HTMLElement | null => document.body.querySelector('[role="listbox"]')
 
 /* The audience anchor and the menu it opens. The menu is portalled to the body
    — a fixed panel inside an overflowing pane is a panel with a scrollbar — so
@@ -184,6 +192,57 @@ it('@ addresses a member, and the token it matched leaves the words', () => {
   expect(menu()).toBeNull()
 })
 
+it('the explicit grid default keeps an unavailable recipient and reports its refusal', async () => {
+  const unavailable = { ...GPT, unavailable: 'The agent is unavailable on this machine.' }
+  const { store, trouble } = rig([OPUS, unavailable, GEMINI], true, [OPUS.key, GPT.key])
+  act(() => type('Compare these two'))
+  act(() => anchor().click())
+  const row = [...document.querySelectorAll<HTMLButtonElement>('[role="switch"]')].find((one) => one.textContent?.includes('GPT'))
+  expect(row?.getAttribute('aria-disabled')).toBe('true')
+  expect(row?.textContent).toContain(unavailable.unavailable)
+  act(() => anchor().click())
+  ;(store.teamHandout as ReturnType<typeof vi.fn>).mockResolvedValue({ batch: 'b1', delivered: 1, queued: 0, refused: 1 })
+  act(() => press('Enter'))
+  await act(async () => {})
+  expect(store.teamHandout).toHaveBeenCalledExactlyOnceWith(ROOM, 'Compare these two', [
+    { runtime: OPUS.peer.runtime, sessionId: OPUS.peer.sessionId },
+    { runtime: GPT.peer.runtime, sessionId: GPT.peer.sessionId },
+  ])
+  expect(trouble).toHaveBeenCalledWith('1 of 2 did not take it. The row in the channel says why.')
+})
+
+it('keeps an explicit grid draft until its visible recipients are loaded', () => {
+  const { store } = rig(null, true, [OPUS.key, GPT.key])
+  act(() => type('Keep this until the Seats are known'))
+  expect(send().disabled).toBe(true)
+  act(() => press('Enter'))
+  expect(store.teamHandout).not.toHaveBeenCalled()
+  expect(store.teamPost).not.toHaveBeenCalled()
+  expect(box().value).toBe('Keep this until the Seats are known')
+  expect(container.textContent).toContain('Loading the visible Seats')
+})
+
+it('Stop on the grid interrupts only addressed working members', async () => {
+  const { store } = rig([{ ...OPUS, busy: true }, { ...GPT, busy: true }, GEMINI], true, [OPUS.key, GPT.key])
+  act(() => type('@op'))
+  act(() => press('Enter'))
+  const stop = container.querySelector<HTMLButtonElement>('button[aria-label="Stop addressed agents"]')
+  expect(stop).not.toBeNull()
+  act(() => stop!.click())
+  await act(async () => {})
+  expect(store.interrupt).toHaveBeenCalledExactlyOnceWith(OPUS.key)
+})
+
+it('an unavailable Seat stays greyed with its reason in the mention list', () => {
+  rig([{ ...GPT, unavailable: 'The agent could not start.' }], true, [GPT.key])
+  act(() => type('@gp'))
+  const option = menu()?.querySelector('[role="option"]')
+  expect(option?.getAttribute('aria-disabled')).toBe('true')
+  expect(option?.textContent).toContain('The agent could not start.')
+  act(() => press('Enter'))
+  expect(chips()).toEqual([])
+})
+
 it('keeps the room toolbar and flexible gap shrinkable in a narrow composer column', () => {
   container.style.width = 'var(--hd-composer-slots-preview-tight)'
   rig()
@@ -212,6 +271,35 @@ it('Escape puts the menu away and leaves the words alone', () => {
   act(() => press('Escape'))
   expect(menu()).toBeNull()
   expect(box().value).toBe('@op')
+})
+
+it('the shared recipient picker dismisses when another surface opens without losing the draft', async () => {
+  rig([OPUS, GPT], true, [OPUS.key, GPT.key])
+  await act(async () => type('Review this @op'))
+  expect(menu()).not.toBeNull()
+  await act(async () => dismissOverlays())
+  expect(menu()).toBeNull()
+  expect(box().value).toBe('Review this @op')
+
+  const closeWindow = vi.fn(() => true)
+  const leave = escapeSurface(closeWindow)
+  try {
+    act(() => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true })))
+    expect(closeWindow).toHaveBeenCalledOnce()
+  } finally {
+    leave()
+  }
+})
+
+it('Escape outside the shared recipient picker closes it and retains the draft', async () => {
+  rig([OPUS, GPT], true, [OPUS.key, GPT.key])
+  await act(async () => type('Review this @op'))
+  expect(menu()).not.toBeNull()
+  await act(async () => {
+    document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
+  })
+  expect(menu()).toBeNull()
+  expect(box().value).toBe('Review this @op')
 })
 
 it('Enter over a menu that matches nobody puts it away rather than sending', () => {
@@ -448,16 +536,17 @@ it('counts towards the limit only near it, and refuses to send past it', () => {
 
   act(() => type('x'.repeat(16_001)))
   expect(send().disabled).toBe(true)
-  expect(container.textContent).toContain("the room's limit is 16,000")
+  expect(container.textContent).toContain("the Team's limit is 16,000")
 })
 
 it('an empty room says so, and a roster not yet answered does not', () => {
   rig([])
-  expect(container.textContent).toContain('No agents in this room yet')
+  expect(container.textContent).toContain('No agents in this Team yet. Add one from Seats in Details.')
+  expect(container.textContent).not.toContain('room')
 
   act(() => root.render(<div />))
   const fresh = rig(null)
-  expect(container.textContent).not.toContain('No agents in this room yet')
+  expect(container.textContent).not.toContain('No agents in this Team yet')
   expect(fresh.store).toBeDefined()
 })
 
@@ -474,7 +563,7 @@ it('an empty room says so, and a roster not yet answered does not', () => {
 it('says that sending will open the members that are not open', () => {
   rig([member(peer('claude', 'k1', 'Opus', { here: false })), GPT])
   const text = container.textContent ?? ''
-  expect(text).not.toContain('No agents in this room yet')
+  expect(text).not.toContain('No agents in this Team yet')
   expect(text).toContain('Opus is not open')
   // The other one is open, so this is the "and them too" wording.
   expect(text).toContain('sending opens it too')
@@ -498,6 +587,7 @@ it('an addressed member that leaves takes its chip with it', () => {
           room={ROOM}
           members={[GPT]}
           messaging
+          onMessaging={() => Promise.resolve()}
           onTrouble={vi.fn()}
           onPosted={vi.fn()}
         />
@@ -579,7 +669,7 @@ it('the audience menu toggles members without closing under the pointer', () => 
 
   /* Everyone is the one row that *is* a decision, so it closes — and it clears
      the audience rather than adding to it. */
-  act(() => audienceRow('Everyone in the room').click())
+  act(() => audienceRow('Everyone in the Team').click())
   expect(chips()).toEqual([])
   expect(anchor().textContent).toContain('Everyone')
 })
@@ -613,6 +703,7 @@ it('a chip carries the room’s own name card, and the ✕ stays outside it', ()
           room={ROOM}
           members={[OPUS, GPT]}
           messaging
+          onMessaging={() => Promise.resolve()}
           /* The pane's own reader turns a member into card facts; this only
              proves the composer asks for one per chip and wraps what it is
              given. A card built in here would be the second reader the rail
@@ -686,6 +777,7 @@ it('another surface in the room can address a member through the handle', () => 
           room={ROOM}
           members={[OPUS, GPT]}
           messaging
+          onMessaging={() => Promise.resolve()}
           onTrouble={vi.fn()}
           onPosted={vi.fn()}
         />
@@ -712,6 +804,7 @@ it('another surface in the room can address a member through the handle', () => 
           room={ROOM}
           members={[OPUS, GPT, GEMINI]}
           messaging
+          onMessaging={() => Promise.resolve()}
           onTrouble={vi.fn()}
           onPosted={vi.fn()}
         />
@@ -726,9 +819,152 @@ it('every member has a key of its own', () => {
   expect(new Set([OPUS, GPT, GEMINI].map(key)).size).toBe(3)
 })
 
+it('shows each latest shared copy as delivered, queued or refused with the host reason', () => {
+  const batch = { id: 'latest', size: 3, template: 'Compare approaches' }
+  const channel: readonly TeamMessage[] = [
+    { id: 'old', at: 1, kind: 'message', from: { kind: 'user' }, text: 'Older words', state: 'delivered', batch: { ...batch, id: 'old' } },
+    ...([OPUS, GPT, GEMINI] as const).map((one, index) => ({
+      id: `copy-${index}`, at: 2, kind: 'message' as const, from: { kind: 'user' as const },
+      to: { runtime: one.peer.runtime, sessionId: one.peer.sessionId, title: one.peer.nickname },
+      text: batch.template, batch,
+      state: (['delivered', 'queued', 'refused'] as const)[index]!,
+      ...(index === 2 ? { reason: 'Connection unavailable. Restart it to continue.' } : {}),
+    })),
+  ]
+  const view = { ...snapshot, teams: new Map([[ROOM, { channel } as never]]) }
+  rig([OPUS, GPT, GEMINI], true, [OPUS.key, GPT.key, GEMINI.key], view)
+  const outcomes = container.querySelector('[data-slot="room-composer-outcomes"]')
+  expect(outcomes?.getAttribute('role')).toBe('status')
+  expect(outcomes?.textContent).toContain('Opus: delivered')
+  expect(outcomes?.textContent).toContain('GPT: Queued — next after this turn')
+  expect(outcomes?.textContent).toContain('Gemini: refused — Connection unavailable. Restart it to continue.')
+  expect(outcomes?.textContent).not.toContain('Older words')
+})
+
 
 it('a wrapped Team disables the room composer with its reason', () => {
  Object.assign(snapshot,{goals:new Map([[ROOM,{goal:{id:ROOM,state:'wrapped'}} as never]])})
  try { rig();expect(box().disabled).toBe(true);expect(box().placeholder).toBe('This Team is wrapped') }
  finally {Object.assign(snapshot,{goals:new Map()})}
+})
+
+const tileLabels = new Map([[OPUS.key, 'A'], [GPT.key, 'B']])
+const recipient = () => container.querySelector<HTMLButtonElement>('button[title^="This message reaches"]')!
+const pickRecipient = (label: string) => {
+  act(() => recipient().click())
+  const option = [...document.body.querySelectorAll<HTMLElement>('[role^="menuitem"]')].find(one => one.textContent?.trim() === label)!
+  expect(option).toBeDefined()
+  act(() => option.click())
+}
+it('names the actual visible letters when the original A tile is absent', () => {
+  rig([OPUS, GPT], true, [OPUS.key, GPT.key], snapshot, new Map([[OPUS.key,'B'],[GPT.key,'C']]))
+  expect(box().placeholder).toBe('Message both, or @B / @C')
+})
+it('routes To: Both, A and B through the shared draft and existing delivery paths', async () => {
+  const { store } = rig([OPUS, GPT], true, [OPUS.key, GPT.key], snapshot, tileLabels)
+  expect(box().placeholder).toBe('Message both, or @A / @B')
+  expect(recipient().textContent).toContain('To: Both')
+  act(() => type('both'))
+  act(() => send().click())
+  await act(async () => {})
+  expect(store.teamHandout).toHaveBeenLastCalledWith(ROOM, 'both', [{ runtime:'claude', sessionId:'k1' }, { runtime:'codex', sessionId:'c1' }])
+  pickRecipient('A')
+  expect(recipient().textContent).toContain('To: A')
+  act(() => type('only A'))
+  act(() => send().click())
+  await act(async () => {})
+  expect(store.teamPost).toHaveBeenLastCalledWith(ROOM, 'only A', { runtime:'claude', sessionId:'k1' })
+  pickRecipient('B')
+  act(() => type('only B'))
+  act(() => send().click())
+  await act(async () => {})
+  expect(store.teamPost).toHaveBeenLastCalledWith(ROOM, 'only B', { runtime:'codex', sessionId:'c1' })
+  pickRecipient('Both')
+  expect(recipient().textContent).toContain('To: Both')
+})
+it('keeps @A and @B picks in step with the To control', () => {
+  rig([OPUS, GPT], true, [OPUS.key, GPT.key], snapshot, tileLabels)
+  act(() => type('@B'))
+  act(() => press('Enter'))
+  expect(chips()).toEqual(['GPT'])
+  expect(recipient().textContent).toContain('To: B')
+  act(() => type('@A'))
+  act(() => press('Enter'))
+  expect(chips()).toEqual(['GPT', 'Opus'])
+  expect(recipient().textContent).toContain('To: Both')
+})
+it('shows the quiet queue hint while either tile is working', () => {
+  rig([{...OPUS, busy:true}, GPT], true, [OPUS.key, GPT.key], snapshot, tileLabels)
+  expect(container.textContent).toContain('Waits for their turns')
+})
+
+
+for (const layout of ['thread', 'side-by-side'] as const) {
+  it(`holds messages from Send to without changing the ${layout} draft, audience or person's send`, async () => {
+    let release!: () => void
+    const onMessaging = vi.fn(() => new Promise<void>(resolve => { release = resolve }))
+    const { render, store } = rig([OPUS, GPT], true, layout === 'side-by-side' ? [OPUS.key, GPT.key] : undefined,
+      snapshot, layout === 'side-by-side' ? tileLabels : undefined, { onMessaging })
+    act(() => type('@op'))
+    act(() => press('Enter'))
+    act(() => type('Check the retry budget'))
+    expect(anchor().getAttribute('aria-label')).toBe('Send to')
+    expect(anchor().title).toBe('This message reaches Opus')
+    expect(anchor().textContent).toContain(layout === 'side-by-side' ? 'To: A' : 'Opus')
+    act(() => anchor().click())
+    const hold = audienceRow('Board-only')
+    expect(hold.getAttribute('aria-checked')).toBe('false')
+    act(() => hold.click())
+    expect(onMessaging).toHaveBeenCalledTimes(1)
+    expect(audienceMenu()).toBeNull()
+    expect(box().value).toBe('Check the retry budget')
+    expect(chips()).toEqual(['Opus'])
+    await act(async () => release())
+    render(false)
+    expect(chips()).toEqual(['Opus', 'Board-only'])
+    expect([...container.querySelectorAll('[data-slot="composer-chip"]')].find(chip => chip.textContent === 'Board-only')?.getAttribute('title')).toBe('Agents cannot message each other. Change Board-only in Send to.')
+    expect(box().value).toBe('Check the retry budget')
+    expect(box().disabled).toBe(false)
+    expect(send().disabled).toBe(false)
+    expect(container.textContent).toContain('You still can')
+    act(() => anchor().click())
+    expect(audienceRow('Board-only').getAttribute('aria-checked')).toBe('true')
+    act(() => anchor().click())
+    await act(async () => send().click())
+    expect(store.teamPost).toHaveBeenCalledWith(ROOM, 'Check the retry budget', { runtime: 'claude', sessionId: 'k1' })
+    render(true)
+    expect(chips()).toEqual(['Opus'])
+  })
+}
+
+it('refuses Hold with its whole reason while leaving the person able to post', () => {
+  const reason = 'The Team messaging setting is unavailable until its connection returns.'
+  const { onMessaging } = rig([OPUS, GPT], true, undefined, snapshot, undefined, { reason })
+  act(() => type('carry on'))
+  act(() => anchor().click())
+  const hold = audienceRow('Board-only')
+  expect(hold.getAttribute('aria-disabled')).toBe('true')
+  expect(hold.title).toBe(reason)
+  expect(hold.textContent).toContain(reason)
+  act(() => hold.click())
+  expect(onMessaging).not.toHaveBeenCalled()
+  expect(box().disabled).toBe(false)
+  expect(send().disabled).toBe(false)
+})
+
+it('a wrapped record refuses Hold with the record reason ahead of any caller reason', () => {
+  const view = { ...snapshot, goals: new Map([[ROOM, { goal: { id: ROOM, state: 'wrapped' } } as never]]) }
+  const before = JSON.stringify([...view.goals])
+  const { onMessaging, store } = rig([OPUS, GPT], false, undefined, view, undefined, { reason: 'Connection unavailable' })
+  act(() => anchor().click())
+  const hold = audienceRow('Board-only')
+  expect(hold.getAttribute('aria-disabled')).toBe('true')
+  expect(hold.getAttribute('aria-checked')).toBe('true')
+  expect(hold.title).toBe('This Team is wrapped')
+  expect(hold.textContent).toContain('This Team is wrapped')
+  act(() => hold.click())
+  expect(onMessaging).not.toHaveBeenCalled()
+  expect(store.teamPost).not.toHaveBeenCalled()
+  expect(box().disabled).toBe(true)
+  expect(JSON.stringify([...view.goals])).toBe(before)
 })

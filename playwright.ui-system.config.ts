@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { hasE2EBuild } from './script/ui-system-run.mjs'
 
 import { defineConfig, devices } from '@playwright/test'
 
@@ -29,6 +30,12 @@ const repoRoot = path.dirname(fileURLToPath(import.meta.url))
 const envPort = Number(process.env.PLAYWRIGHT_UI_SYSTEM_PORT)
 const port = Number.isInteger(envPort) && envPort > 0 ? envPort : derivedPort(repoRoot)
 const origin = `http://127.0.0.1:${port}`
+const staticServer = process.env.UI_SYSTEM_SERVER === 'static'
+if (staticServer && !hasE2EBuild(repoRoot)) {
+  throw new Error('Missing packages/ui/dist-e2e; run pnpm run build:node then pnpm run build:e2e before UI_SYSTEM_SERVER=static.')
+}
+const reportGroup = process.env.UI_SYSTEM_REPORT_GROUP
+const reportRoot = `./output/playwright/ui-system${reportGroup === 'static' || reportGroup === 'dev' ? `/${reportGroup}` : ''}`
 
 /**
  * How many browsers run at once. One anywhere but CI: a Mac that other work
@@ -51,9 +58,44 @@ const workers =
         ? Math.max(1, Math.floor(os.availableParallelism() / 2))
         : 1
 
+/**
+ * What a pull request reads of the frame contracts, and what it leaves for `main`.
+ *
+ * The frame contracts run each geometry check in both themes. A theme here is a
+ * set of colour variables and nothing else (every `body[data-hd-dark-theme]`
+ * rule rewrites a colour or a border alpha, none a size or a position), so a box
+ * measured in the dark theme is the box measured in the light one, and a pull
+ * request pays for the second measurement without learning anything from it.
+ * With `UI_SYSTEM_MATRIX=pr` (CI sets it for a pull request whose diff does not
+ * touch a theme, a stylesheet of the shared build or the suite itself; see
+ * `script/ci-changes.mjs`) the frame specs below skip the cases whose title names
+ * the dark theme. Push to `main`, a manual run and every other command read both,
+ * and the colour contracts listed here read both in every run.
+ *
+ * Skipped by default is wrong for a new spec, so the list is the other way
+ * round: a `frame-*` spec is a geometry spec until it is named here. The
+ * popup contracts check the ink of a disabled or destructive row against the
+ * same token in whichever theme runs; they stay on the geometry side because
+ * both ends of that comparison come from the active theme.
+ * `script/ci-browser-plan.test.mjs` fails a spec that asserts a colour and is
+ * not listed.
+ */
+export const COLOUR_SPECS = [
+  'frame-contract-conversation', 'frame-contract-left-headings', 'frame-contract-left-surfaces', 'frame-contract-menus',
+  'frame-contract-palette', 'frame-contract-reconcile', 'frame-contract-teams', 'frame-contract-tools',
+  'frame-contract-top-bar', 'frame-final-columns', 'frame-final-selection', 'frame-final-tiles',
+  'frame-fix9', 'frame-fix10', 'frame-owner5d',
+] as const
+// Playwright matches `grep` against the project name, the file and the title joined by spaces.
+export const geometryInDark = new RegExp(`^ *(?!(?:${COLOUR_SPECS.join('|')})\\.spec\\.ts )frame-[\\w-]+\\.spec\\.ts .*\\bdark\\b`)
+const pullRequestMatrix = process.env.UI_SYSTEM_MATRIX === 'pr'
+
 export default defineConfig({
   testDir: './e2e/ui-system',
-  outputDir: './output/playwright/ui-system/results',
+  outputDir: `${reportRoot}/results`,
+  // The frame wall's approved frames (frame-wall.spec.ts): local only, under
+  // output/, never committed.
+  snapshotPathTemplate: './output/playwright/ui-system/approved/{arg}{ext}',
   // Every test starts from its own page, and none reads what another left
   // behind, so with several workers they are dealt out one by one rather than
   // a file at a time: a file of sixty tests then keeps all of them busy
@@ -61,12 +103,13 @@ export default defineConfig({
   fullyParallel: workers > 1,
   workers,
   retries: 0,
+  ...(pullRequestMatrix ? { grepInvert: geometryInDark } : {}),
   // The defaults (30s a test, 5s an assertion) are sized for a browser that has
   // the machine to itself. Beside another, and the dev server, a test that takes
   // twenty seconds alone takes longer; the limit is for a test that is stuck,
   // not for one that is slow because its neighbour is busy.
   ...(workers > 1 ? { timeout: 90_000, expect: { timeout: 10_000 } } : {}),
-  reporter: [['list'], ['html', { outputFolder: './output/playwright/ui-system/report', open: 'never' }]],
+  reporter: [['list'], ['html', { outputFolder: `${reportRoot}/report`, open: 'never' }]],
   use: {
     baseURL: origin,
     ...devices['Desktop Chrome'],
@@ -77,7 +120,9 @@ export default defineConfig({
     screenshot: 'only-on-failure',
   },
   webServer: {
-    command: `pnpm --filter @harnessdesk/ui exec vite --host 127.0.0.1 --port ${port}`,
+    command: staticServer
+      ? `pnpm --filter @harnessdesk/ui exec vite preview --outDir dist-e2e --host 127.0.0.1 --port ${port} --strictPort`
+      : `pnpm --filter @harnessdesk/ui exec vite --host 127.0.0.1 --port ${port}`,
     url: `${origin}/design.html?view=propagation`,
     reuseExistingServer: false,
     timeout: 120_000,

@@ -455,7 +455,7 @@ it('offers abandoning a card that has not finished, before its conversation link
     const dialog = document.body.querySelector('[role="alertdialog"]')
     expect(dialog?.textContent).toContain('Abandon card #4?')
     // The fixture Run's frozen Flow carries the rule `written`, which hands a writer's round to the verify check.
-    expect(dialog?.querySelector('[data-slot="confirm-body"] p')?.textContent).toBe('The rule that follows the writer role still fires, so abandoning this card opens the verify check.')
+    expect(dialog?.querySelector('[data-slot="modal-dialog-body"] p')?.textContent).toBe('The rule that follows the writer role still fires, so abandoning this card opens the verify check.')
     expect(dialog?.textContent).toContain('Alpha holds this card now.')
   } finally {
     act(() => [...document.body.querySelectorAll<HTMLButtonElement>('[role="alertdialog"] button')].find(one => one.textContent === 'Keep it')?.click())
@@ -568,23 +568,23 @@ it('shortens the selected check command and keeps the full command on hover', ()
   } finally { view.close() }
 })
 
-it('uses cards, toned Seat states and two-column facts for the Run summary', () => {
+it('uses flat sections, toned Seat states and canonical panel facts for the Run summary', () => {
   const fixture = runFixture()
   const view = render({ input: { ...fixture, execution: { ...fixture.execution, base: { remote: 'origin', branch: 'main', at: 'abc123' } } },
     seats: [{ id: 'seat-0', name: 'Alpha', override: 'Balanced · Medium', cost: { unit: 'turns', value: 3, estimated: false } }] })
   try {
-    expect([...view.container.querySelectorAll('[data-slot="card-title"]')].map(one => one.textContent)).toEqual(['Brief', 'Seats 2', 'Run'])
+    expect([...view.container.querySelectorAll('[data-slot="tool-section"]')].map(one => one.getAttribute('aria-label'))).toEqual(['Brief', 'Seats 2', 'Run'])
     expect(view.container.querySelector('[data-slot="icon-tile"]')?.getAttribute('data-tint')).toBe('violet')
     expect(view.container.querySelector('[data-slot="chip"][data-tone="info"]')?.textContent).toBe('Working')
-    expect(view.container.querySelector('[data-slot="key-value"]')).not.toBeNull()
-    expect(view.container.querySelector('[data-slot="inspector-footer"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-slot="summary-card"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-slot="content-footer"]')).not.toBeNull()
   } finally { view.close() }
 })
-it('omits the Seats card when the Run recorded no Seat details', () => {
+it('omits the Seats section when the Run recorded no Seat details', () => {
   const fixture = runFixture()
   const view = render({ input: fixture, seats: [] })
   try {
-    expect([...view.container.querySelectorAll('[data-slot="card-title"]')].some(one => /^Seats\b/.test(one.textContent ?? ''))).toBe(false)
+    expect([...view.container.querySelectorAll('[data-slot="tool-section"]')].some(one => /^Seats\b/.test(one.getAttribute('aria-label') ?? ''))).toBe(false)
     expect(view.container.querySelector('[data-slot="run-recording-gaps"]')?.textContent).toContain('Seat details')
   } finally { view.close() }
 })
@@ -599,11 +599,11 @@ it('gives the observed pull request its state and check counts, and the recorded
     evidence: { ...fixture.evidence, cards: [{ card: 1, running: [], facts: facts.map((fact, n) => ({ by: null, freshness: { state: 'fresh' as const }, record: { id: `summary-${n}`, observedAt: n, round: 1, fact, checkout: { root: '/work/demo', cwd: '/work/demo', commonDir: '/work/demo/.git', head: 'abc123', branch: 'fix/checkout' } } })) }] } }
   const view = render({ input, flowFile: <button>Flow file</button> })
   try {
-    const cards = [...view.container.querySelectorAll('[data-slot="card"]')]
-    expect(cards.map(one => one.querySelector('[data-slot="card-title"]')?.textContent)).toEqual(['Brief', 'Pull request #412Open', 'Run'])
+    const cards = [...view.container.querySelectorAll('[data-slot="tool-section"]')]
+    expect(cards.map(one => one.getAttribute('aria-label'))).toEqual(['Brief', 'Pull request #412', 'Run'])
     const pr = cards[1]!
     expect(pr.querySelector('[data-slot="chip"][data-tone="success"]')?.textContent).toBe('Open')
-    expect(pr.querySelector('[data-slot="card-action"]')?.textContent).toBe('Open')
+    expect(pr.querySelector('[data-slot="group-label"] button')?.textContent).toBe('Open')
     expect(pr.querySelector('[data-slot="code-text"]')?.textContent).toBe('fix/checkout')
     expect(pr.querySelector('[data-slot="text"][data-tone="danger"]')?.textContent).toBe('1 failed')
     expect(pr.querySelector('[data-slot="change-stats"]')).not.toBeNull()
@@ -613,7 +613,7 @@ it('gives the observed pull request its state and check counts, and the recorded
       expect(meter?.getAttribute('aria-valuemax')).toBe(String(max))
       expect(meter?.textContent).toContain(reading)
     }
-    expect(cards[2]!.querySelector('[data-slot="card-action"]')?.textContent).toBe('Flow file')
+    expect(cards[2]!.querySelector('[data-slot="group-label"] button')?.textContent).toBe('Flow file')
   } finally { view.close() }
 })
 it('omits unavailable summary facts and names the missing recordings once', () => {
@@ -639,8 +639,8 @@ it('uses a singular footer for a Run with one round', () => {
   const fixture = runFixture()
   const view = render({ input: { ...fixture, execution: { ...fixture.execution, rounds: fixture.execution.rounds.slice(0, 1) } } })
   try {
-    expect(view.container.querySelector('[data-slot="inspector-footer"]')?.textContent).toContain('1 round')
-    expect(view.container.querySelector('[data-slot="inspector-footer"]')?.textContent).not.toContain('1 rounds')
+    expect(view.container.querySelector('[data-slot="content-footer"]')?.textContent).toContain('1 round')
+    expect(view.container.querySelector('[data-slot="content-footer"]')?.textContent).not.toContain('1 rounds')
   } finally { view.close() }
 })
 
@@ -668,11 +668,26 @@ it.each(['other Run', 'restored', 'stale CI', 'other-head CI', 'dirty diff', 'ot
     ] } }
     const view = render({ input })
     try {
-      const pr = [...view.container.querySelectorAll('[data-slot="card"]')].find(card => card.querySelector('[data-slot="card-title"]')?.textContent?.startsWith('Pull request'))!
-      expect(pr.querySelector('[data-slot="card-title"]')?.textContent).toBe('Pull request #412Open')
+      const pr = [...view.container.querySelectorAll('[data-slot="tool-section"]')].find(section => section.getAttribute('aria-label')?.startsWith('Pull request'))!
+      expect(pr.getAttribute('aria-label')).toBe('Pull request #412')
+      expect(pr.querySelector('[data-slot="chip"]')?.textContent).toBe('Open')
       expect(pr.textContent).toContain('1 passed')
       expect(pr.textContent).not.toContain('failed')
       expect(pr.querySelector('[data-slot="change-stats"]')?.textContent).toBe('+177−82')
     } finally { view.close() }
   },
 )
+it.each([null, 'run', 'missing-selection'])('inspectionOnly adds no Summary for selection %s', selectedRow => {
+  const view = render({ inspectionOnly: true, selectedRow })
+  try { expect(view.container.textContent).toBe(''); expect(view.container.querySelector('[data-slot="run-inspector"]')).toBeNull() }
+  finally { view.close() }
+})
+it('inspectionOnly retains a valid selected step without another Run or Seats summary', () => {
+  const view = render({ inspectionOnly: true, selectedRow: 'person-4-4' })
+  try {
+    expect(view.container.textContent).toContain('Answer the review')
+    expect(view.container.querySelector('[data-slot="run-inspector"]')).not.toBeNull()
+    expect(view.container.querySelector('[data-slot="panel-frame"]')).toBeNull()
+    expect(view.container.textContent).not.toContain('This Run did not record:')
+  } finally {view.close()}
+})

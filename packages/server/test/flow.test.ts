@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
-import { existsSync, readFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { test } from 'node:test'
 
 import type { Flow, FlowRole } from '@harnessdesk/protocol'
+import { builtinFlowRoot } from '../src/host.js'
+import { parseFlowPolicy } from '../src/flow-policy.js'
 
 import {
   dryRun,
@@ -33,20 +34,9 @@ import {
  * will happen rather than a second implementation that agrees for now.
  */
 
-/** This file runs from `dist/test`, so find the checkout rather than count `..`. */
-const checkout = (): string => {
-  let root = dirname(fileURLToPath(import.meta.url))
-  while (!existsSync(join(root, 'pnpm-workspace.yaml'))) {
-    const up = dirname(root)
-    assert.notEqual(up, root, 'ran outside the checkout')
-    root = up
-  }
-  return root
-}
-
 /** The flows this repository ships, read from where a person would find them. */
 const shipped = (name: string): string =>
-  readFileSync(join(checkout(), '.harnessdesk', 'flows', name), 'utf8')
+  readFileSync(join(builtinFlowRoot(), name), 'utf8')
 
 const REVIEW = `
 name: Fix and review
@@ -108,44 +98,6 @@ const errors = (source: string): string[] => {
     .filter((one) => one.level === 'error')
     .map((one) => `${one.at}: ${one.text}`)
 }
-
-test('the flow this repository ships reads, and says what a person meant', () => {
-  const flow = read(shipped('fix-and-review.yml'))
-  assert.equal(flow.name, 'Fix and review')
-  assert.deepEqual(
-    flow.roles.map((role) => [role.id, role.kind, role.count, role.permission]),
-    [
-      ['fixer', 'agent', 1, 'publish'],
-      ['reviewer', 'agent', 3, 'read'],
-      ['referee', 'person', 1, 'read'],
-    ],
-  )
-  assert.equal(seatAt(flow.roles[1]!, 2).model, 'gemini-3.8-flash')
-  assert.equal(flow.rules.map((rule) => rule.id).join(','), 'review-it,fix-again,hand-to-the-person')
-  assert.deepEqual(validateFlow(flow), [])
-})
-
-test('the race flow gives each card of one round its own seat', () => {
-  const flow = read(shipped('race.yml'))
-  const competitor = flow.roles.find((role) => role.id === 'competitor')!
-  assert.equal(competitor.count, 2)
-  assert.equal(competitor.isolate, true)
-  assert.equal(seatAt(competitor, 0).model, 'gpt-5.3-codex')
-  assert.equal(seatAt(competitor, 1).model, 'claude-4.6-opus')
-  assert.equal(seatAt(competitor, 1).thinking, true)
-  assert.deepEqual(validateFlow(flow), [])
-})
-
-test('a reserved layout key is carried and never read', () => {
-  const flow = read(shipped('fix-and-review.yml'))
-  // Carried, so a canvas that wrote it finds it again…
-  assert.deepEqual((flow.layout as Record<string, unknown>)['fixer'], { x: 40, y: 40 })
-  // …and invisible to everything that decides anything: the same flow with a
-  // different layout dry-runs identically.
-  const moved = read(shipped('fix-and-review.yml').replace('x: 40, y: 40', 'x: 900, y: 900'))
-  const both = [flow, moved].map((one) => JSON.stringify(dryRun(one).trace))
-  assert.equal(both[0], both[1])
-})
 
 test('the first matching rule fires, so the unhappy branch can be written first', () => {
   const flow = read(REVIEW)
@@ -572,26 +524,22 @@ seed:
   assert.match(customOrder, /You are grasshopper in run flow-5678\./)
 })
 
-test("every shipped flow's role order renders with no unresolved slots", () => {
-  for (const name of ['fix-and-review.yml', 'race.yml']) {
-    const flow = read(shipped(name))
-    for (const role of flow.roles) {
-      if (role.kind !== 'agent') continue
-      const order = renderOrder(
-        orderVars(role, flow, {
-          name: 'Agent',
-          member: 'Agent',
-          room: 'Room',
-          repo: '/repo',
-          runtime: 'cursor',
-          run: 'flow-test',
-        }),
-      )
-      const remainingSlots = slotsIn(order)
+test("the writing and comparison shapes' card instructions render with no unresolved slots", () => {
+  for (const name of ['fix-and-review.yml', 'comparison.yml']) {
+    const parsed = parseFlowPolicy(shipped(name))
+    assert.deepEqual(parsed.problems, [])
+    assert.ok(parsed.document?.format === 'agents')
+    const flow = parsed.document.flow
+    const vars = {
+      ...Object.fromEntries([...BUILT_IN_SLOTS, ...flow.inputs.map(input => input.id)].map(key => [key, 'Test value'])),
+      'evidence.review.at': 'a'.repeat(40),
+    }
+    for (const step of [flow.seed, ...flow.rules.map(rule => rule.then)]) {
+      const remainingSlots = slotsIn(renderFlowTemplate(`${step.title}\n${step.detail ?? ''}`, vars))
       assert.deepEqual(
         remainingSlots,
         [],
-        `flow ${name} role ${role.id} order has unresolved slots: ${remainingSlots.join(', ')}`,
+        `flow ${name} role ${step.role} has unresolved slots: ${remainingSlots.join(', ')}`,
       )
     }
   }
@@ -851,4 +799,3 @@ rules:
   assert.equal(validationProblems[0]?.at, 'rules[1]')
   assert.match(validationProblems[0]?.text ?? '', /nothing builder can answer reaches this rule/)
 })
-

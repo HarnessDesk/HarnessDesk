@@ -1,3 +1,4 @@
+import { forgetStored } from './fixtures/stored-transcripts.js'
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
 import { mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
@@ -5,7 +6,7 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 
-import type { AttachmentReview, Session } from '@harnessdesk/protocol'
+import type { AttachmentReview, FlowPreview, Session } from '@harnessdesk/protocol'
 
 import { attachmentGateway } from '../src/attachments/wiring.js'
 import { ToolGateway } from '../src/tool-gateway.js'
@@ -100,6 +101,20 @@ export const recordOf = async (desk: Desk, session: Session) => {
 
 const statuses = (record: { readonly results: readonly { identity: { kind: string; name: string }; status: string }[] }) =>
   record.results.map((one) => `${one.identity.kind}:${one.identity.name}:${one.status}`)
+
+test('Flow preview uses the opening subject and effective ceiling without opening a session', async t => {
+  const desk = await deskWithMergeAgent(t)
+  await reviewAndApprove(desk)
+  const source = 'version: 2\nname: Attachment preflight\nroles:\n  reader: { kind: agent, uses: reviewer, grant: read }\nseed: { role: reader, title: Read }\nrules: []\n'
+  const preview = await desk.client.call('flow/preview', { root: desk.work, source }) as FlowPreview
+  assert.ok(preview.token, JSON.stringify(preview.problems))
+  const attachments = preview.seats[0]!.attachments
+  assert.ok(attachments)
+  assert.deepEqual(attachments.declarations.map(one => [one.name, one.problem]), [
+    ['demo', null], ['reviewer-tools', 'This attachment exceeds the Seat ceiling.'],
+  ], 'the approval covers this exact project, origin, digest, runtime and build at the narrower ceiling')
+  assert.equal(desk.runtime.sessions.size, 0)
+})
 
 test('review, approve, then agent/seat: a merge-ceiling Agent loads its skill and its server at merge, and its skill at the default ceiling', async (t) => {
   const desk = await deskWithMergeAgent(t)
@@ -462,7 +477,7 @@ test('a conversation seated as an Agent whose file is gone, with no record of it
   await desk.halt()
   await rm(agentDir, { recursive: true, force: true })
   // And no transcript kept here either: a read has to go to the agent.
-  await rm(join(desk.harness.stateDir, 'transcripts'), { recursive: true, force: true })
+  await forgetStored(desk.harness.stateDir, String(session.runtime), String(session.id))
 
   const runtime = capableRuntime()
   const again = await start({ libraryHome: tempDir('hd-attach-life-gone-home-') }, desk.harness.stateDir, runtime)

@@ -162,10 +162,10 @@ it ships. **This paragraph is not that revision.** Naming a direction is not
 the same as deciding to be that.
 
 After that, each lane is a change of degree, and amending a vision for every
-execution topology is a rule people route around rather than follow — your own
-Coder workspace, a vendor's cloud, a connected repository and an enterprise's
-VPC are four different data movements and none of them is a new principle. What
-each one owes instead: **before it can be switched on, it states exactly what
+execution topology is a rule people route around rather than follow — a
+workspace on infrastructure you control, a vendor's cloud, a connected
+repository and an enterprise's VPC are four different data movements and none
+of them is a new principle. What each one owes instead: **before it can be switched on, it states exactly what
 leaves this machine, where it is kept, for how long, and how you turn it off
 and have it deleted** — and no new lane may quietly widen a boundary you
 already agreed to. Those live in

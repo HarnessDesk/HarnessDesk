@@ -119,7 +119,7 @@ it('a signed-out agent gets its sign-in, a healthy one the offer to work', async
     'out',
   )
 
-  expect(container.textContent).toContain('Signed out — a session sent to it would not start.')
+  expect(container.textContent).toContain('Signed out. Sign in to start a session.')
   expect(container.textContent).toContain("Healthy's tagline.")
   button('Sign in')?.click()
   expect(onSignIn).toHaveBeenCalledWith('out')

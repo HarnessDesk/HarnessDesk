@@ -71,6 +71,7 @@ test('disallowed means no menu item and never a network call', () => {
 test('the one menu item follows the phase from check to restart', () => {
   const { updater, flow } = rig()
   assert.equal(flow.menu().label, 'Check for Updates…')
+  assert.equal(flow.menu().enabled, true)
 
   flow.check(false)
   updater.emit('checking-for-update')
@@ -79,6 +80,7 @@ test('the one menu item follows the phase from check to restart', () => {
 
   updater.emit('update-available', { version: '0.2.0' })
   assert.equal(flow.menu().label, 'Downloading Update…')
+  assert.equal(flow.menu().enabled, false)
 
   updater.emit('update-downloaded', { version: '0.2.0' })
   assert.equal(flow.menu().label, 'Restart to Update (0.2.0)')
@@ -347,4 +349,68 @@ test('an install that fails the way electron-updater fails is said, from the men
     assert.equal(flow.menu().label, 'Restart to Update (0.2.0)', `${route}: the update is still there`)
     flow.dispose()
   }
+})
+
+
+const bridgeRig = async () => {
+  const { attachAppUpdateBridge } = await import('./app-updates.mjs')
+  assert.equal(typeof attachAppUpdateBridge, 'function')
+  const handlers = new Map(), actions = new Map(), sent = []
+  let item = null
+  let window = { isDestroyed: () => false, webContents: { send: (...args) => sent.push(args) } }
+  const bridge = attachAppUpdateBridge({
+    ipcMain: { handle: (name, run) => handlers.set(name, run), on: (name, run) => actions.set(name, run) },
+    currentWindow: () => window, currentMenu: () => item,
+  })
+  return { bridge, sent, read: sender => handlers.get('harnessdesk:app-update-read')({ sender }),
+    action: sender => actions.get('harnessdesk:app-update-action')({ sender }),
+    window: () => window, setWindow: value => { window = value }, setMenu: value => { item = value } }
+}
+test('the registered update bridge reads only current window facts and preserves current action guards', async () => {
+  const rig = await bridgeRig(), sender = rig.window().webContents
+  assert.equal(rig.read(sender), null)
+  assert.throws(() => rig.read({}), /Only the app window/)
+  let clicks = 0
+  rig.setMenu({ label: 'Checking for Updates…', enabled: false, click: () => { clicks += 1 }, action: 'none' })
+  rig.action(sender); assert.equal(clicks, 0)
+  rig.setMenu({ label: 'Restart to Update (1.0.0)', enabled: true, click: () => { clicks += 1 }, action: 'install' })
+  assert.deepEqual(rig.read(sender), { label: 'Restart to Update (1.0.0)', enabled: true })
+  rig.action({}); assert.equal(clicks, 0)
+  rig.action(sender); assert.equal(clicks, 1)
+  const replacement = { isDestroyed: () => false, webContents: { send: () => {} } }
+  rig.setWindow(replacement)
+  assert.throws(() => rig.read(sender), /Only the app window/)
+  rig.action(sender); assert.equal(clicks, 1)
+  rig.action(replacement.webContents); assert.equal(clicks, 2)
+})
+test('the registered update bridge skips absent/destroyed windows and publishes null without inventing a fact', async () => {
+  const rig = await bridgeRig()
+  rig.bridge.publish()
+  assert.deepEqual(rig.sent, [['harnessdesk:app-update', null]])
+  rig.setMenu({ label: 'Downloading Update…', enabled: false, click: () => {}, action: 'none' })
+  rig.bridge.publish()
+  assert.deepEqual(rig.sent[1], ['harnessdesk:app-update', { label: 'Downloading Update…', enabled: false }])
+  rig.setWindow({ isDestroyed: () => true, webContents: { send: () => assert.fail('destroyed window push') } })
+  rig.bridge.publish()
+  assert.throws(() => rig.read(rig.window().webContents), /Only the app window/)
+  rig.setWindow(null); rig.bridge.publish()
+  assert.throws(() => rig.read(undefined), /Only the app window/)
+})
+
+test('the registered update action invokes the existing updater check and ready restart policy', async () => {
+  const bridge = await bridgeRig(), { updater, flow } = rig()
+  try {
+    const sender = bridge.window().webContents
+    bridge.setMenu(flow.menu()); bridge.action(sender)
+    assert.equal(updater.calls.checks, 1)
+    updater.emit('checking-for-update')
+    bridge.setMenu(flow.menu()); bridge.action(sender)
+    assert.equal(updater.calls.checks, 1)
+    updater.emit('update-available', { version: '1.0.0' })
+    bridge.setMenu(flow.menu()); bridge.action(sender)
+    assert.equal(updater.calls.checks, 1)
+    updater.emit('update-downloaded', { version: '1.0.0' })
+    bridge.setMenu(flow.menu()); bridge.action(sender)
+    assert.equal(updater.calls.installs, 1)
+  } finally { flow.dispose() }
 })

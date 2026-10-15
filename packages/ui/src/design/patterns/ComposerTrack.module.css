@@ -1,0 +1,58 @@
+.track {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  overflow: hidden;
+}
+
+/* The folder name may yield, but its glyphs retain their measured size. */
+.track :global(svg) { flex-shrink: 0; }
+
+.trackAdd { width: var(--hd-composer-track-add); }
+.trackWorkIn { width: var(--hd-composer-track-work-in); }
+.trackWorkInFolded { width: var(--hd-composer-track-work-in-folded); }
+.trackWorkInTight { width: var(--hd-composer-track-work-in-tight); }
+.trackAgent { width: var(--hd-composer-track-agent); }
+.trackAgentFolded { width: var(--hd-composer-track-agent-folded); }
+.trackAgentTight { width: var(--hd-composer-track-agent-tight); }
+.trackPermissions { width: var(--hd-composer-track-permissions-wide); }
+.trackPermissionsFolded { width: var(--hd-composer-track-permissions-folded); }
+.trackPermissionsTight { width: var(--hd-composer-track-permissions-tight); }
+.trackMode { width: var(--hd-composer-track-mode-wide); }
+.trackModeFolded { width: var(--hd-composer-track-mode-folded); }
+.trackModeTight { width: var(--hd-composer-track-mode-tight); }
+.trackExtension { width: var(--hd-composer-track-extension); }
+.trackExtension:empty { width: var(--hd-composer-track-extension-empty); }
+.trackMore { width: var(--hd-composer-track-more); }
+.trackMoreFolded { width: var(--hd-composer-track-more-folded); }
+.trackMoreTight { width: var(--hd-composer-track-more-tight); }
+.trackContext { width: var(--hd-composer-track-context-wide); }
+.trackModel { width: var(--hd-composer-track-model); }
+.trackModelFolded { width: var(--hd-composer-track-model-folded); }
+.trackModelTight { width: var(--hd-composer-track-model-tight); }
+.trackSend { width: var(--hd-composer-track-send); }
+
+/* Selected values use their full content while the toolbar has room. The
+   shared trigger has to leave its label enough of its own row before it
+   shortens the word; this tighter inset and gap are only for content-sized
+   composer tracks. The flex row can still shrink them when it truly runs out
+   of room. */
+.trackContentSized,
+.trackPermissions:not([data-folded]):not([data-tight]),
+.trackMode:not([data-folded]):not([data-tight]) {
+  width: max-content;
+  flex: 0 0 auto;
+}
+
+/* Only the folder name is allowed to yield its content-sized width. */
+.trackShrinkable {
+  flex: 0 1 auto;
+}
+
+.trackContentSized :global([data-full-width][data-align] > button),
+.trackPermissions:not([data-folded]):not([data-tight]) :global([data-full-width][data-align] > button),
+.trackMode:not([data-folded]):not([data-tight]) :global([data-full-width][data-align] > button) {
+  gap: var(--hd-space-0-5);
+  padding-inline: var(--hd-space-1-5);
+}

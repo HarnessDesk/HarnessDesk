@@ -49,7 +49,7 @@ it('opens a question that says first what the rule after the card\'s role will d
   expect(dialog()).toBeNull()
   open()
   expect(dialog()?.textContent).toContain('Abandon card #5?')
-  const body = document.body.querySelector('[data-slot="confirm-body"]')!
+  const body = document.body.querySelector('[data-slot="modal-dialog-body"]')!
   expect(body.querySelector('p')?.textContent).toBe('The rule that follows the fixer role still fires, so abandoning this card opens a reviewer round.')
   expect([inDialog('Abandon card'), inDialog('Keep it')].every(Boolean)).toBe(true)
 })
@@ -57,7 +57,7 @@ it('opens a question that says first what the rule after the card\'s role will d
 it('says the Run ends, rather than that a rule fires, when no rule accepts the card', () => {
   draw({ execution: run([rule('ship', 'fixer', 'reviewer', { every: ['published'] })]) })
   open()
-  expect(document.body.querySelector('[data-slot="confirm-body"] p')?.textContent)
+  expect(document.body.querySelector('[data-slot="modal-dialog-body"] p')?.textContent)
     .toBe('No rule that follows the fixer role accepts a card with no answer, so abandoning this card ends the Run without a next step.')
 })
 
@@ -106,19 +106,19 @@ it('says the card is as it was when the host gives no reason', async () => {
 it('names the Seat that holds a claimed card, after the rule', () => {
   draw({ card: card({ state: 'claimed' }), holder: 'Alpha' })
   open()
-  const paragraphs = [...document.body.querySelectorAll('[data-slot="confirm-body"] p')].map((one) => one.textContent)
+  const paragraphs = [...document.body.querySelectorAll('[data-slot="modal-dialog-body"] p')].map((one) => one.textContent)
   expect(paragraphs[0]).toContain('The rule that follows the fixer role still fires')
   expect(paragraphs[1]).toBe('Alpha holds this card now. Abandoning takes it back, and Alpha cannot finish it.')
   expect(paragraphs).toHaveLength(2)
   // An open card has no holder to name.
   draw({ card: card({ state: 'open' }), holder: 'Alpha' })
-  expect(document.body.querySelectorAll('[data-slot="confirm-body"] p')).toHaveLength(1)
+  expect(document.body.querySelectorAll('[data-slot="modal-dialog-body"] p')).toHaveLength(1)
 })
 
 it('says a Seat holds a claimed card when it cannot name which', () => {
   draw({ card: card({ state: 'claimed' }), holder: null })
   open()
-  expect([...document.body.querySelectorAll('[data-slot="confirm-body"] p')][1]?.textContent)
+  expect([...document.body.querySelectorAll('[data-slot="modal-dialog-body"] p')][1]?.textContent)
     .toBe('A Seat holds this card now. Abandoning takes it back, and it cannot finish it.')
 })
 
@@ -126,7 +126,7 @@ it('draws the Flow\'s and the Seat\'s words as text, with terminal escapes dropp
   const execution = run([rule('review', 'fixer', '<img src=x onerror="alert(1)">\u001b[31m')])
   draw({ execution, card: card({ state: 'claimed' }), holder: '<b>Alpha</b>\u001b[0m' })
   open()
-  const body = document.body.querySelector('[data-slot="confirm-body"]')!
+  const body = document.body.querySelector('[data-slot="modal-dialog-body"]')!
   expect(body.querySelector('img, b')).toBeNull()
   expect(body.textContent).toContain('opens a <img src=x onerror="alert(1)"> round.')
   expect(body.textContent).toContain('<b>Alpha</b> holds this card now.')

@@ -1,3 +1,4 @@
+import { RuntimesTestPage as RuntimesSection } from '../test-support/settings-page'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -6,17 +7,7 @@ import { runtimeId, NO_CAPABILITIES, type AccountStatus, type PlanRead, type Run
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { RuntimesSection } from './SettingsAgents'
-
-/**
- * The Plan section on an account's own page: "Plan price" (not set with a
- * suggestion, not set without one, and set — "you set this") and "Monthly
- * budget" (a key account, a metered one, or one that already has a budget
- * stored — BLOCKING 3's fix reads both rows from the account's own stored
- * entry, `usage/plan/read`, never from `report.billing`).
- */
-
-;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let container: HTMLDivElement
 let root: Root
@@ -73,6 +64,7 @@ const mount = async (report: UsageReport, readPlan: () => Promise<PlanRead>): Pr
     usage: [report],
   } as unknown as AppSnapshot
   const store = {
+    transport: { request: vi.fn(async () => null) },
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     loadAccounts: vi.fn(async () => {}),
@@ -215,7 +207,8 @@ describe('two accounts on one runtime', () => {
       usage: [reportA, reportB],
     } as unknown as AppSnapshot
     const store = {
-      subscribe: () => () => {},
+      transport: { request: vi.fn(async () => null) },
+    subscribe: () => () => {},
       getSnapshot: () => snapshot,
       loadAccounts: vi.fn(async () => {}),
       limitsFor: vi.fn(async () => null),

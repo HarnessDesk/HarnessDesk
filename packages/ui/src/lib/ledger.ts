@@ -153,18 +153,10 @@ export interface PeriodTotal {
   /** "Today", "Last 7 days" — what the figure covers, in the band's own words. */
   readonly label: string
   readonly cost: number
-  /**
-   * True when the window ends on a day that is still running, and so cannot
-   * honestly be compared with a finished one.
-   */
-  readonly partial: boolean
-  /**
-   * Change against the period of the same length immediately before it, as a
-   * percentage. Null on a partial window, when the earlier period is not
-   * wholly in the window, or when it was zero — a rise from nothing has no
-   * percentage.
-   */
-  readonly change: number | null
+  /** No day in this figure has been read. */
+  readonly unknown: boolean
+  /** Days at or after the earliest retained usage record. */
+  readonly daysRead: number
 }
 
 /**
@@ -173,26 +165,18 @@ export interface PeriodTotal {
  * Derived entirely from the days already loaded: no wider scan, no second
  * request, and a period longer than the window is simply not offered rather
  * than being silently truncated into a smaller number wearing a bigger label.
- * A change is only computed where the *whole* earlier period is also loaded.
  *
- * **The comparison windows end at the last complete day, and today is its own
- * tile.** A day still running measured against a whole one falls every
- * morning and recovers by evening, which is a property of the clock rather
- * than of the spending — worst at one day, where the figure can be a tenth of
- * what it will be, and still a systematic understatement of up to a seventh
- * over a week. So the multi-day windows drop the running day from *both*
- * sides, and today keeps a tile of its own with no percentage on it, because
- * there is nothing it can honestly be compared against. The pair reads
- * correctly together on the page: the "so far" under today's figure is what
- * tells a reader the window beside it is a finished one.
+ * All ranges include today, matching the host query and selected figure.
+ * These inclusive ranges are still running. Their caller labels them "so far";
+ * comparisons belong to previousPeriod, which checks both windows.
  */
 export const periodTotals = (
   series: StackedSeries,
   spans: readonly number[] = [1, 7, 30],
 ): readonly PeriodTotal[] => {
   const totals = series.days.map((day) => day.total)
-  // Today is the last bucket, and it is the one still being written to.
-  const complete = totals.slice(0, -1)
+  // Today is the last bucket and belongs to every selected range.
+  const complete = totals
   const out: PeriodTotal[] = []
   for (const span of spans) {
     if (span === 1) {
@@ -200,24 +184,20 @@ export const periodTotals = (
       out.push({
         days: 1,
         label: 'Today',
+        unknown: series.days.at(-1)?.unknown ?? true,
+        daysRead: series.days.at(-1)?.unknown === false ? 1 : 0,
         cost: totals[totals.length - 1] ?? 0,
-        partial: true,
-        change: null,
       })
       continue
     }
     if (span > complete.length) continue
     const recent = sum(complete.slice(complete.length - span))
-    const earlier =
-      span * 2 <= complete.length
-        ? sum(complete.slice(complete.length - span * 2, complete.length - span))
-        : null
     out.push({
       days: span,
       label: `Last ${span} days`,
+      unknown: series.days.slice(-span).every(day => day.unknown),
+      daysRead: series.days.slice(-span).filter(day => !day.unknown).length,
       cost: recent,
-      partial: false,
-      change: earlier === null || earlier === 0 ? null : ((recent - earlier) / earlier) * 100,
     })
   }
   return out
@@ -238,8 +218,7 @@ export const periodTotals = (
  * `complete` is false when the older half is not wholly loaded — a ledger
  * that only reaches back `range * 1.4` days has an honest current period and
  * a previous one that is not comparable, and `change` is null in exactly that
- * case, the same rule `periodTotals` already keeps for a period longer than
- * what is loaded.
+ * case. A gap in the current half also prevents a percentage comparison.
  */
 export interface PreviousPeriod {
   readonly total: number
@@ -258,7 +237,8 @@ export const previousPeriod = (
   const end = Math.max(0, wide.days.length - range)
   const start = Math.max(0, end - range)
   const daily = wide.days.slice(start, end)
-  const complete = daily.length === range && daily.every((day) => !day.unknown)
+  const complete = daily.length === range && wide.days.slice(-range).length === range
+    && daily.every(day => !day.unknown) && wide.days.slice(-range).every(day => !day.unknown)
   const total = sum(daily.map((day) => day.total))
   const change = !complete || total === 0 ? null : ((currentTotal - total) / total) * 100
   return { total, daily, complete, change }

@@ -133,6 +133,7 @@ export class FlowCatalog {
       let format: FlowEntry['format'] = null
       let name = idOf(winner!.name)
       let description: string | null = null
+      let summary: string | null = null
       let source: string | null = null
       let frontDoor: FlowEntry['frontDoor'] = null
       if (!problem && winner!.tree) {
@@ -143,6 +144,7 @@ export class FlowCatalog {
           format = parsed.document?.format ?? null
           name = parsed.document?.flow.name ?? name
           description = parsed.document?.flow.description ?? null
+          summary = parsed.document?.format === 'agents' ? parsed.document.flow.summary ?? null : null
           // Read once, here, rather than by a second bulk call: this parse
           // already exists to learn the entry's own name and description.
           if (parsed.document?.format === 'agents') {
@@ -155,7 +157,7 @@ export class FlowCatalog {
         }
       }
       result.push({
-        entry: { id: winner!.id, origin: winner!.origin, path: winner!.path, name, description, format, problem, frontDoor,
+        entry: { id: winner!.id, origin: winner!.origin, path: winner!.path, name, description, summary, format, problem, frontDoor,
           shadows: shadows.map((shadow) => ({ origin: shadow.origin, path: shadow.path })) },
         source,
       })

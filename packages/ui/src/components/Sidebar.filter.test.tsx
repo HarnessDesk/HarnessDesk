@@ -1,4 +1,6 @@
-import { act } from 'react'
+import { previewStore } from '../preview/harness'
+import type { Section } from './Settings'
+import { act, useState } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
@@ -84,14 +86,51 @@ it('an empty filter lets Escape go on to what it would close; one with words spe
   type(filter, 'retry')
   expect(filter.value).toBe('retry')
   expect(filter.placeholder).toBe('Filter by title')
-  expect(container.querySelector('[data-slot="navigation-group-label"]')?.textContent).toContain('Filtered')
+  expect(container.querySelector('[data-left-projects-head]')?.textContent).toContain('Filtered')
   const clear = container.querySelector<HTMLButtonElement>('button[aria-label="Clear list filter"]')
   expect(clear).not.toBeNull()
   act(() => clear?.click())
   expect(filter.value).toBe('')
-  expect(container.querySelector('[data-slot="navigation-group-label"]')?.textContent).not.toContain('Filtered')
+  expect(container.querySelector('[data-left-projects-head]')?.textContent).not.toContain('Filtered')
 
   type(filter, 'retry')
   expect(escape(filter).defaultPrevented).toBe(true)
   expect(filter.value).toBe('')
+})
+
+it('two mounted columns share a filter and only work owns history search', async () => {
+  vi.useFakeTimers()
+  const store = previewStore()
+  const search = vi.fn(async () => {})
+  store.searchHistory = search
+  const common = {
+    onOpenSettings: () => {}, onOpenPlugins: () => {}, onOpenAgents: () => {}, onOpenTeams: () => {},
+    onOpenUsage: () => {}, onBrowseFolders: () => {}, onSignIn: () => {}, onSearch: () => {},
+  }
+  const Fixture = () => {
+    const [query, setQuery] = useState('retry')
+    const [section, setSection] = useState<false | Section>(false)
+    const listFilter = { value: query, onChange: setQuery }
+    return <StoreProvider store={store}>
+      <button aria-label="Visit preferences" onClick={() => setSection('general')}>Visit preferences</button>
+      <Sidebar {...common} active={section === false} listFilter={listFilter} />
+      {section !== false && <Sidebar {...common} listFilter={listFilter} sessionsOwner={false}
+        settings={{ section, onSection: setSection, onBack: () => setSection(false) }} />}
+    </StoreProvider>
+  }
+  try {
+    await act(async () => { root.render(<Fixture />) })
+    await act(async () => { await vi.advanceTimersByTimeAsync(221) })
+    search.mockClear()
+    const original = container.querySelector<HTMLElement>('[data-left-column] [data-region="sidebar-content"]')!
+    original.scrollTop = 40
+    act(() => container.querySelector<HTMLButtonElement>('button[aria-label="Visit preferences"]')!.click())
+    await act(async () => { await vi.advanceTimersByTimeAsync(221) })
+    expect(search).not.toHaveBeenCalled()
+    const active = [...container.querySelectorAll<HTMLElement>('[data-left-column]')].find(node => !node.hidden)!
+    act(() => active.querySelector<HTMLButtonElement>('[data-left-settings] button[aria-label="Back"]')!.click())
+    expect(container.querySelector('[data-left-column] [data-region="sidebar-content"]')).toBe(original)
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="Filter this list"]')!.value).toBe('retry')
+    expect(original.scrollTop).toBe(40)
+  } finally { vi.useRealTimers() }
 })

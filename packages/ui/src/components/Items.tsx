@@ -31,6 +31,8 @@ import type {
   WebSearchItem,
 } from '@harnessdesk/protocol'
 
+import { sessionUnavailable } from '../lib/session-unavailable'
+import { waitsForApproval } from '../lib/approval-wait'
 import { stripAnsi } from '../lib/ansi'
 import {
   ActionError,
@@ -50,6 +52,7 @@ import {
   Dot,
   KeyValue,
   KeyValueRow,
+  MiddleTruncate,
   Lightbox,
   ListRowDetail,
   Message,
@@ -68,7 +71,7 @@ import {
 import { instant } from '../lib/clock'
 import { openExternal } from '../lib/desktop'
 import { formatTokensWithFloor } from '../lib/context-usage'
-import { countFileChange, wholeFileOf } from '../lib/diff'
+import { countFileChange, wholeFileOf, DiffView } from '../editor'
 import {
   describedTitle,
   isSilentReasoning,
@@ -83,6 +86,8 @@ import {
 import { editOf } from '../lib/handoff'
 import { findTodos, planOf, todoState, type Todo } from '../lib/todos'
 import { readToolResult, resultPartsToDraw } from '../lib/tool-result'
+import { folderShown } from '../lib/projects'
+import { activityLabel } from '../lib/turn-view'
 import { effectiveItemStatus } from '../lib/turn-view'
 import {
   bareToolName,
@@ -93,7 +98,6 @@ import {
   wireNameOf,
   type ToolSentenceDetail,
 } from '../lib/tool-names'
-import { DiffView } from './Diff'
 import {
   SubagentIcon,
   AlertIcon,
@@ -113,7 +117,7 @@ import {
   ToolIcon,
 } from './Icons'
 import { surfaceFor } from '../lib/notice-policy'
-import { useActiveSession, useSnapshot, useStore } from '../state/context'
+import { useActiveSession, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { isAgentMessageSource, splitContextContent, wrapContext } from '../lib/context-envelope'
 import { drawsAsImage, isRenderableImageUrl, unshownImage } from '../lib/images'
 import { Markdown } from './Markdown'
@@ -368,21 +372,24 @@ const useCopyFailed = () => {
 
 const UserMessageFooter = ({ text, at }: { text: string; at: number | undefined }) => {
   const when = sentAt(at)
+  const unavailable = sessionUnavailable(useSnapshot(), useActiveSession())
   const copyFailed = useCopyFailed()
   return (
     <MessageFooter align="end" className="gap-(--hd-space-0-5)">
       {when && <Text as="span" role="meta" numeric className="mr-(--hd-space-1-5)">{when}</Text>}
-      <CopyButton text={text} label="Copy this message" onError={copyFailed} />
-      <Button
-        variant="quiet" size="icon-xs" edge="end" edgeGlyph={13}
-        title="Edit — puts this message in the composer"
-        aria-label="Edit this message"
-        onClick={() =>
-          window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: { text, replace: true } }))
-        }
-      >
-        <PencilIcon size={13} />
-      </Button>
+      <span data-message-actions="user" className={styles.actions}>
+        <CopyButton text={text} label="Copy this message" onError={copyFailed} />
+        {!unavailable && <Button
+          variant="quiet" size="icon-xs" edge="end" edgeGlyph={13}
+          title="Edit — puts this message in the composer"
+          aria-label="Edit this message"
+          onClick={() =>
+            window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: { text, replace: true } }))
+          }
+        >
+          <PencilIcon size={13} />
+        </Button>}
+      </span>
     </MessageFooter>
   )
 }
@@ -779,10 +786,18 @@ const Command = ({ item, root }: { item: CommandItem; root?: string }) => {
   const copyFailed = useCopyFailed()
   const labels = useContext(StepPathLabels)
   const described = describeCommand(item, root, labels)
+  const snapshot = useSnapshot()
+  const key = useSessionKey()
+  const waiting = item.status === 'inProgress' && waitsForApproval(snapshot.approvals, key, [item])
+  const folder = folderShown(item.cwd, snapshot.home, item.cwd)
+  const listing = item.actions.length === 1 && item.actions[0]?.type === 'listFiles'
+  const sentence = waiting ? `Waiting for approval · ${listing ? `List files in ${folder}` : shellCommandOf(item.command)}`
+    : listing ? `${item.status === 'completed' ? 'Listed' : item.status === 'failed' ? 'Could not list' : 'Listing'} files in ${folder}`
+      : item.status === 'inProgress' ? activityLabel(item) : described.sentence
   return (
     <Row
       icon={<TerminalIcon size={14} />}
-      title={described.sentence}
+      title={sentence}
       hoverTitle={described.path}
       meta={
         <>
@@ -790,7 +805,7 @@ const Command = ({ item, root }: { item: CommandItem; root?: string }) => {
           {formatDuration(item.durationMs)}
         </>
       }
-      status={effectiveItemStatus(item)}
+      status={waiting ? undefined : effectiveItemStatus(item)}
       defaultOpen={item.status === 'inProgress'}
       bareBody
     >
@@ -878,7 +893,7 @@ const FileEntry = ({
       <Button type="button" variant="quiet" size="content" className={styles.fileHeader} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
         <DisclosureChevron open={open} size="sm" />
         <Text role="muted" className={styles.filePath} title={change.path}>
-          {relativeTo(change.path, root)}
+          <MiddleTruncate>{relativeTo(change.path, root)}</MiddleTruncate>
         </Text>
         <ChangeStats added={added} removed={counts.removed} />
       </Button>
@@ -1082,6 +1097,8 @@ const VERB_ICON: Record<ToolCallVerb, typeof ToolIcon> = {
 const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
   const copyFailed = useCopyFailed()
   const snapshot = useSnapshot()
+  const key = useSessionKey()
+  const waiting = item.status === 'inProgress' && waitsForApproval(snapshot.approvals, key, [item])
   const labels = useContext(StepPathLabels)
   const sentences = useMemo(() => toolSentences(snapshot.contributions), [snapshot.contributions])
   const described = describedTitle(item)
@@ -1155,7 +1172,8 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
     (detail?.kind === 'command' && SHELL_TOOLS.test(bare) && /^[a-z]+$/.test(bare))
   const wire = saysOnlyTheVerb ? null : wireNameOf(item.tool)
   // An MCP tool's server is the one word that says whose tool ran.
-  const label = described ?? (item.source.kind === 'mcp' ? `${item.source.server} · ${said}` : said)
+  const recordedLabel = described ?? (item.source.kind === 'mcp' ? `${item.source.server} · ${said}` : said)
+  const label = waiting ? `Waiting for approval · ${recordedLabel}` : recordedLabel
   // A call the lookup has no grammar for carries no object in its sentence,
   // so its one telling argument — the page, the query — stands beside it.
   const argument = !described && !detail ? headlineArg(item.args, root) : null
@@ -1194,7 +1212,7 @@ const ToolCall = ({ item, root }: { item: ToolCallItem; root?: string }) => {
           formatDuration(item.durationMs)
         )
       }
-      status={effectiveItemStatus(item)}
+      status={waiting ? undefined : effectiveItemStatus(item)}
       defaultOpen={Boolean(change) || item.status === 'inProgress'}
       bareBody={Boolean(change) || Boolean(command) || recordsCommand}
     >

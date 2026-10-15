@@ -311,7 +311,11 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
     if (!policy) return
     const role = policy.roles[index]!
     if (!roleRemovable(policy, role.id)) return
-    void editPolicy({ ...policy, roles: policy.roles.filter((_, one) => one !== index) })
+    void editPolicy({
+      ...policy,
+      ...(policy.complete === undefined ? {} : { complete: Object.fromEntries(Object.entries(policy.complete).filter(([id]) => id !== role.id)) }),
+      roles: policy.roles.filter((_, one) => one !== index),
+    })
   }
   const moveRole = (index: number, delta: number): void => {
     if (!policy) return
@@ -471,27 +475,13 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
                         title={`${index + 1}. ${role.id}`}
                         desc={role.kind === 'agent' ? 'Agent' : role.kind === 'check' ? 'Check' : 'Person'}
                         control={(
-                          <DropdownMenu>
+                          <DropdownMenu icons="none">
                             <DropdownMenuTrigger disabled={!policy} render={<BoardMenuButton aria-label={`${role.id} actions`} />} />
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem disabled={index === 0} onClick={() => moveRole(index, -1)}>
-                                <MoveUpIcon size={14} />
-                                Move up
-                              </DropdownMenuItem>
-                              <DropdownMenuItem disabled={index === policy.roles.length - 1} onClick={() => moveRole(index, 1)}>
-                                <MoveDownIcon size={14} />
-                                Move down
-                              </DropdownMenuItem>
+                              <DropdownMenuItem disabled={index === 0} onClick={() => moveRole(index, -1)} label={"Move up"} icon={<MoveUpIcon size={14} />} />
+                              <DropdownMenuItem disabled={index === policy.roles.length - 1} onClick={() => moveRole(index, 1)} label={"Move down"} icon={<MoveDownIcon size={14} />} />
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                variant="destructive"
-                                disabled={!roleRemovable(policy, role.id)}
-                                title={roleRemovable(policy, role.id) ? undefined : 'The seed step, and a step a rule still points at, cannot be removed.'}
-                                onClick={() => removeRole(index)}
-                              >
-                                <TrashIcon size={14} />
-                                Remove step
-                              </DropdownMenuItem>
+                              <DropdownMenuItem variant="destructive" disabled={!roleRemovable(policy, role.id)} title={roleRemovable(policy, role.id) ? undefined : 'The seed step, and a step a rule still points at, cannot be removed.'} onClick={() => removeRole(index)} label={"Remove step"} icon={<TrashIcon size={14} />} />
                             </DropdownMenuContent>
                           </DropdownMenu>
                         )}
@@ -518,22 +508,13 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
                         title={`${index + 1}. ${rule.id}`}
                         desc={`${rule.on} → ${rule.then.role}`}
                         control={(
-                          <DropdownMenu>
+                          <DropdownMenu icons="none">
                             <DropdownMenuTrigger render={<BoardMenuButton aria-label={`Rule ${rule.id} actions`} />} />
                             <DropdownMenuContent align="end">
-                              <DropdownMenuItem disabled={index === 0} onClick={() => moveRule(index, -1)}>
-                                <MoveUpIcon size={14} />
-                                Move up
-                              </DropdownMenuItem>
-                              <DropdownMenuItem disabled={index === policy.rules.length - 1} onClick={() => moveRule(index, 1)}>
-                                <MoveDownIcon size={14} />
-                                Move down
-                              </DropdownMenuItem>
+                              <DropdownMenuItem disabled={index === 0} onClick={() => moveRule(index, -1)} label={"Move up"} icon={<MoveUpIcon size={14} />} />
+                              <DropdownMenuItem disabled={index === policy.rules.length - 1} onClick={() => moveRule(index, 1)} label={"Move down"} icon={<MoveDownIcon size={14} />} />
                               <DropdownMenuSeparator />
-                              <DropdownMenuItem variant="destructive" onClick={() => removeRule(index)}>
-                                <TrashIcon size={14} />
-                                Remove rule
-                              </DropdownMenuItem>
+                              <DropdownMenuItem variant="destructive" onClick={() => removeRule(index)} label={"Remove rule"} icon={<TrashIcon size={14} />} />
                             </DropdownMenuContent>
                           </DropdownMenu>
                         )}
@@ -620,7 +601,7 @@ export const ShapeEditor = ({ root, context, goal, document, initialSource, onCl
           )}
 
           {flow && compiled?.format === 'agents' && (
-            <FlowPreviewReport preview={flow} flow={compiled.flow} warnings={warnings} roster={roster} />
+            <FlowPreviewReport preview={flow} flow={compiled.flow} warnings={warnings} roster={roster} vars={vars} />
           )}
 
           {startProblem && <ActionError>{startProblem}</ActionError>}

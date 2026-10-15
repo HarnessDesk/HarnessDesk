@@ -25,7 +25,7 @@ const findingsRead = (list: FindingsListState | undefined): 'reading' | 'failed'
 }
 
 /** Reads only while the Run is mounted; the pane's rail owns conversation navigation. */
-export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFlow, attempts, incompleteAttempts, attemptsRead, ...view }: ComponentProps<typeof RunView> & {
+export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFlow, attempts, incompleteAttempts, attemptsRead, waitingSeats, ...view }: ComponentProps<typeof RunView> & {
   execution: RunTimelineInput['execution']
   origin: string | null
   onOpenSeat: (key: SessionKey) => void
@@ -35,10 +35,13 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFl
   incompleteAttempts?: ReadonlySet<number>
   /** Why a check's attempts are not in `attempts`: still being read, or the read failed. */
   attemptsRead?: 'reading' | 'failed'
+  /** The same pending-approval seats used by the Team Overview. */
+  waitingSeats?: ReadonlySet<string>
   /** Where a review step's attempt is chosen; without it a person's step reads as text. */
   onOpenBoard?: () => void
   drawFlow?: boolean
 }) => {
+  waitingSeats ??= new Set()
   const store = useStore()
   const snapshot = useSnapshot()
   const goal = snapshot.goals.get(execution.goal)
@@ -80,7 +83,7 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFl
   const stepRows = rowsForStep(execution, view.model.rows, selectedStep)
   const faceTints = new Map(seats.filter(hasConversation).map(seat => [seat.record.id, runtimeTint(runtimeId(seat.record.session.runtime), snapshot.accountsByRuntime, snapshot.accountPrefs)]))
   const flow = drawFlow ? <RunFlow execution={execution} root={goal?.goal.root ?? null} seats={goal?.members ?? []}
-    cards={cards} sessions={snapshot.sessions} attempts={attempts ? new Map([...attempts].map(([id, history]) => [id, { attempts: history, complete: attemptsRead !== 'failed' && !incompleteAttempts?.has(id) }])) : undefined} selectedStep={selectedStep} onSelectStep={id => {
+    cards={cards} sessions={snapshot.sessions} waitingSeats={waitingSeats} attempts={attempts ? new Map([...attempts].map(([id, history]) => [id, { attempts: history, complete: attemptsRead !== 'failed' && !incompleteAttempts?.has(id) }])) : undefined} selectedStep={selectedStep} onSelectStep={id => {
       const rows = rowsForStep(execution, view.model.rows, id)
       const latest = [...rows].reverse().find(id => view.model.rows.find(row => row.id === id)?.kind === 'round')
       view.onSelect(latest ?? `step:${id}`)
@@ -93,7 +96,7 @@ export const TeamRunView = ({ execution, origin, onOpenSeat, onOpenBoard, drawFl
     faceTints,
     pullRequest: view.pullRequest,
     flowFile: <RunFlowFile root={goal?.goal.root ?? null} name={execution.document.flow.name} compact />,
-    input: { execution, cards, origin, sessions: snapshot.sessions,
+    input: { execution, cards, origin, sessions: snapshot.sessions, waitingSeats,
       signals: (team?.channel ?? goal?.board.channel ?? []).filter((entry): entry is TeamSignal => entry.kind === 'signal'),
       evidence: snapshot.boardEvidence.get(execution.goal),
       findings: findingsList?.rows,

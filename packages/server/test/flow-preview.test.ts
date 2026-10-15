@@ -2,10 +2,13 @@ import { independentProviderReason } from '../src/flow-provider.js'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import type { AgentEntry, CeilingLevel, FlowSeat, SeatPlan } from '@harnessdesk/protocol'
+import type { AgentEntry, AttachmentDeclaration, CeilingLevel, FlowSeat, SeatPlan } from '@harnessdesk/protocol'
 
 import { CHANGED_PREVIEW, FlowPreviews, LEGACY_START, type FlowPreviewPort } from '../src/flow-preview.js'
 import { rig as consentRig } from './fixtures/intake-consent.js'
+import { AttachmentsPlane } from '../src/attachments/plane.js'
+import { bundleDigest } from '../src/attachments/catalog.js'
+import { tempDir } from './scratch.js'
 
 /*
  * A dry run spends nothing and opens nothing; its token authorizes exactly
@@ -57,6 +60,79 @@ const rig = (): Rig => {
   }
   return state
 }
+
+const attachmentRig = (suppress = true) => {
+  const state = rig()
+  const agent = AGENT('writer')
+  state.agentsRoster = [{ ...agent, definition: { ...agent.definition!, skills: ['approved', 'pending'] } }]
+  const resolved = ['approved', 'pending'].map(name => {
+    const files = [{ path: 'SKILL.md', bytes: Buffer.from(`Load ${name}.`) }]
+    return { identity: { kind: 'skill' as const, name, digest: bundleDigest(files), source: 'agent' as const, pathLabel: name }, files, server: null }
+  })
+  const declarations: AttachmentDeclaration[] = resolved.map(one => ({ kind: 'skill', name: one.identity.name, identity: one.identity, problem: null }))
+  const plane = new AttachmentsPlane(tempDir('hd-flow-preflight-'), {
+    resolve: async () => ({ declarations, resolved }),
+    permits: async (_subject, identity) => identity.name === 'approved',
+    support: () => ({ runtime: 'alpha', build: '1', skills: suppress ? 'scoped' : 'unsupported', mcp: 'unsupported', suppressUnapproved: suppress, reason: null }),
+    suppressUnapproved: async () => suppress,
+  })
+  let calls = 0
+  state.port.preflightAttachments = async (root, entry, seat, ceiling) => {
+    calls += 1
+    assert.equal(entry.id, 'writer')
+    assert.equal(seat.runtime, 'alpha')
+    assert.equal(ceiling, 'edit')
+    return plane.preflight({ project: root, incarnation: 'repo', agent: entry.id, origin: entry.origin,
+      agentDigest: entry.digest!, runtime: seat.runtime, build: '1', ceiling })
+  }
+  return { state, calls: () => calls }
+}
+
+test('preview reports approved skills and warnings for declared skills that will not load', async () => {
+  const { state, calls } = attachmentRig()
+  const preview = await new FlowPreviews(state.port).preview('/repo', FLOW)
+  const attachments = preview.seats[0]!.attachments
+  assert.ok(attachments, 'the winning Seat carries its attachment decisions')
+  assert.deepEqual(attachments.declarations.map((one: AttachmentDeclaration) => one.problem), [null, 'Review this content before loading it.'])
+  assert.equal(attachments.skillsMode, 'allowlist')
+  assert.equal(attachments.mcpMode, 'runtime-defaults')
+  assert.equal(attachments.refusal, null)
+  assert.ok(preview.token)
+  assert.equal(calls(), 1)
+  assert.ok(preview.problems.some(one => one.level === 'warning' && /author\[1\].*pending.*Review this content/.test(one.text)))
+})
+
+test('a runtime that cannot suppress unapproved declarations refuses Start in the preview', async () => {
+  const { state } = attachmentRig(false)
+  const preview = await new FlowPreviews(state.port).preview('/repo', FLOW)
+  assert.equal(preview.token, null)
+  assert.ok(preview.problems.some(one => one.level === 'error' && one.at === 'roles.author.seat' && /cannot be stopped.*Review it on the Agent page/.test(one.text)))
+  assert.match(preview.seats[0]!.attachments!.refusal!, /cannot be stopped/)
+})
+
+test('Agents with no declarations and blocked Seats do not run attachment preflight', async () => {
+  const { state, calls } = attachmentRig()
+  state.agentsRoster = [AGENT('writer')]
+  const previews = new FlowPreviews(state.port)
+  const empty = await previews.preview('/repo', FLOW)
+  assert.equal(empty.seats[0]!.attachments, undefined)
+  assert.equal(empty.problems.length, 0)
+  assert.equal(calls(), 0)
+  state.agentsRoster = attachmentRig().state.agentsRoster
+  state.port.previewAgent = async () => ({ id: 'writer', from: 'prefer', winner: null, blocked: 'Unavailable', ceiling: null, candidates: [] })
+  const blocked = await previews.preview('/repo', FLOW)
+  assert.equal(blocked.seats[0]!.attachments, undefined)
+  assert.equal(calls(), 0)
+})
+
+test('attachment warnings are not part of the preview token fingerprint', async () => {
+  const { state } = attachmentRig()
+  const previews = new FlowPreviews(state.port)
+  const dry = await previews.preview('/repo', FLOW)
+  assert.ok(dry.token)
+  state.port.preflightAttachments = async () => ({ skillsMode: 'allowlist', mcpMode: 'runtime-defaults', declarations: [], refusal: null })
+  assert.ok(await previews.redeem(dry.token, '/repo', FLOW, {}))
+})
 
 test('preview has no execution side effects, however many times it is asked', async () => {
   const state = rig()
@@ -453,6 +529,7 @@ test('strict token cannot downgrade', async () => {
   const startedAt = (index: number) => started[index]!
   const ctx = {
     flowPreviews: previews,
+    workspaces: { admitTeamProject: async () => {} },
     flows: { startGoal: async (request: never) => { started.push(request); return { id: 'run' } } },
   } as never
   const binding = { requireHeld: true as const, target: { context: { kind: 'project' as const, root: '/repo' }, facts: 'facts-1', resolved: null }, goal: { id: 'goal-1', revision: 4 } }

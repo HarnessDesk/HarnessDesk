@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { sessionKey } from '@harnessdesk/protocol'
 import type { RepoInfo, SessionSummary, TeamState, WorkspaceEntry } from '@harnessdesk/protocol'
 
 import { commandShown, folderShown, groupByProject, groupHolding, isWorktreeSession, migratedRoots, projectGroupRootOf, projectRootOf, repoKey, roomGroupRootOf } from './projects'
@@ -678,4 +679,11 @@ describe('commandShown', () => {
     expect(commandShown('node "/home/dev/.profile/tools/run" /home/dev/Xprofile/run', '/home/dev/.profile'))
       .toBe('node "~/tools/run" /home/dev/Xprofile/run')
   })
+})
+
+it('groups a managed Seat under its recorded project even before repository metadata arrives', () => {
+  const row = session('attempt', '/tmp/managed/lane-synthetic', null)
+  const projects = groupByProject([row], [workspace('/repo/storefront')], null, { seatProjects: new Map([[sessionKey('codex', 'attempt'), '/repo/storefront']]) })
+  expect(projects.map(one => one.root)).toEqual(['/repo/storefront'])
+  expect(projects[0]?.sessions[0]?.cwd).toBe(row.cwd)
 })

@@ -3,9 +3,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { AuthoringSaveInput, AuthoringSaveResult, AuthoringSavePreview } from '@harnessdesk/protocol'
 
 import { Banner, Button, Dialog, Field, Input, NoteList, RowChoice, Rows, Text } from '../design'
-import { wholeTextDiff } from '../lib/diff'
+import { wholeTextDiff, DiffView } from '../editor'
 import { useStore } from '../state/context'
-import { DiffView } from './Diff'
 
 /**
  * A shape's save, previewed whole before anything is written: scope (for

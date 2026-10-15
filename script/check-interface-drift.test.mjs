@@ -28,6 +28,35 @@ const here = path.dirname(fileURLToPath(import.meta.url))
 const repo = path.resolve(here, '..')
 const gate = path.join(here, 'check-interface-drift.mjs')
 
+test('shared dock clearance declares its Conversation and approval geometry', (t) => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-drift-dock-'))
+  t.after(() => fs.rmSync(dir, { recursive: true, force: true }))
+  const git = (...args) => execFileSync('git', ['-C', dir, ...args], {
+    stdio: 'pipe',
+    env: { ...process.env, GIT_AUTHOR_NAME: 'Test', GIT_AUTHOR_EMAIL: 'dev@example.com', GIT_COMMITTER_NAME: 'Test', GIT_COMMITTER_EMAIL: 'dev@example.com' },
+  })
+  const put = (file, text) => {
+    fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true })
+    fs.writeFileSync(path.join(dir, file), text)
+  }
+  git('init', '-q', '-b', 'main')
+  for (const file of TOKEN_SOURCES) put(file, fs.readFileSync(path.join(repo, file), 'utf8'))
+  const sheets = [
+    ['packages/ui/src/components/Conversation.module.css', (css) => css
+      .replace(/bottom: var\(--shared-composer-h, 0px\);[^\n]*/, 'bottom: 0;')
+      .replace(/bottom: calc\(var\(--composer-h, 150px\) \+ var\(--shared-composer-h, 0px\) \+ 14px\);[^\n]*/, 'bottom: calc(var(--composer-h, 150px) + 14px);')],
+    ['packages/ui/src/design/patterns/ApprovalDialog.module.css', (css) => css
+      .replace(/max-height: min\(72vh, 720px, 100%\);[^\n]*/, 'max-height: min(72vh, 720px);')],
+  ].map(([file, before]) => ({ file, before, css: fs.readFileSync(path.join(repo, file), 'utf8') }))
+  for (const { file, before, css } of sheets) put(file, before(css))
+  git('add', '-A')
+  git('commit', '-q', '-m', 'Before shared dock clearance')
+  for (const { file, css } of sheets) put(file, css)
+  const run = spawnSync(process.execPath, [gate, '--base', 'HEAD'], { cwd: dir, encoding: 'utf8' })
+  assert.equal(run.status, 0, run.stdout + run.stderr)
+  assert.match(run.stdout, /3 declaration\(s\) moved Desk on purpose/)
+})
+
 test('a stylesheet deleted but not yet staged is not a crash', (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-drift-'))
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }))

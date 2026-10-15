@@ -1,9 +1,24 @@
+import { useMenusOpen } from '../ui/popup-state'
 import { createContext, useCallback, useContext, useEffect, useId, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { HoverCard, HoverCardContent, HoverCardTrigger } from '../ui/hover-card'
-import { Chip, Text } from './Settings'
+import { InfoCardBody } from './InfoCard'
+import { Chip } from './Settings'
 import styles from './HeaderStatusGroup.module.css'
 
-type Reading = { readonly label: string; readonly detail: string }
+/**
+ * One fact the header shows. `detail` is the whole of it, said as a sentence:
+ * the accessible name, and the card's value when nothing shorter is given.
+ * `value` is the fact in a word or a phrase, and `note` the one line under it
+ * that the phrase cannot carry; a `notePath` gives up its middle, never breaks
+ * mid-word.
+ */
+type Reading = {
+  readonly label: string
+  readonly detail: string
+  readonly value?: string | undefined
+  readonly note?: string | undefined
+  readonly notePath?: boolean | undefined
+}
 type RegisteredReading = Reading & { readonly element: HTMLSpanElement }
 type Registry = {
   readonly put: (id: string, reading: RegisteredReading) => void
@@ -24,6 +39,8 @@ export const HeaderStatusGroup = ({ children, label = 'Conversation status', ope
 }) => {
   const [readings, setReadings] = useState<ReadonlyMap<string, RegisteredReading>>(() => new Map())
   const [open, setOpen] = useState(false)
+  const blockedByMenu = useMenusOpen()
+  useEffect(() => { if (blockedByMenu) setOpen(false) }, [blockedByMenu])
   const group = useRef<HTMLSpanElement>(null)
   const put = useCallback((id: string, reading: RegisteredReading) => {
     setReadings((held) => new Map(held).set(id, reading))
@@ -60,7 +77,7 @@ export const HeaderStatusGroup = ({ children, label = 'Conversation status', ope
         }
         setOpen(next)
       }}>
-        <HoverCardTrigger render={<span ref={group} role="group" tabIndex={0} />} aria-label={label}
+        <HoverCardTrigger data-info-source="header" render={<span ref={group} role="group" tabIndex={0} />} aria-label={label}
           className={`${styles.group} hd-no-drag`} hidden={readings.size === 0}
           onFocus={(event) => {
             if (event.currentTarget.contains(event.target)
@@ -76,15 +93,7 @@ export const HeaderStatusGroup = ({ children, label = 'Conversation status', ope
           <Chip tone="neutral" autoTitle={false} className={styles.chip}>{children}</Chip>
         </HoverCardTrigger>
         <HoverCardContent side="bottom" align="end">
-          <Text as="div" role="subject">{label}</Text>
-          <dl className={styles.facts}>
-            {[...readings].map(([id, reading]) => (
-              <div key={id} className={styles.fact}>
-                <dt><Text role="meta">{reading.label}</Text></dt>
-                <dd className={styles.detail}><Text role="prose">{reading.detail}</Text></dd>
-              </div>
-            ))}
-          </dl>
+          <InfoCardBody title={label} rows={[...readings].map(([id, reading]) => ({ id, label: reading.label, value: reading.value ?? reading.detail, note: reading.note, noteKind: reading.notePath ? 'path' : 'text' }))} />
         </HoverCardContent>
       </HoverCard>
     </StatusGroupContext.Provider>
@@ -92,11 +101,13 @@ export const HeaderStatusGroup = ({ children, label = 'Conversation status', ope
 }
 
 /** Works outside a group too; only grouped readings contribute to its card. */
-export const HeaderStatusReading = ({ label, detail, children, className }: Reading & { readonly children: ReactNode; readonly className?: string | undefined }) => {
+export const HeaderStatusReading = ({ label, detail, value, note, notePath, children, className }: Reading & { readonly children: ReactNode; readonly className?: string | undefined }) => {
   const registry = useContext(StatusGroupContext)
   const id = useId()
   const element = useRef<HTMLSpanElement>(null)
-  useEffect(() => { if (element.current) registry?.put(id, { label, detail, element: element.current }) }, [registry, id, label, detail])
+  useEffect(() => {
+    if (element.current) registry?.put(id, { label, detail, value, note, notePath, element: element.current })
+  }, [registry, id, label, detail, value, note, notePath])
   useEffect(() => () => registry?.remove(id), [registry, id])
   return <span ref={element} data-slot="header-status-reading" className={[styles.reading, className].filter(Boolean).join(' ')}>{children}</span>
 }

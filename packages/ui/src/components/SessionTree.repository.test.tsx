@@ -15,6 +15,8 @@ import {
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
+import { seatLabelsOf } from '../lib/seat-names'
+import { sessionLabel } from '../lib/sessions'
 import { SessionTree } from './SessionTree'
 
 /**
@@ -47,7 +49,7 @@ afterEach(() => {
 const runtime = {
   id: 'agent',
   name: 'Agent',
-  capabilities: { deleteHistory: true },
+  capabilities: { deleteHistory: 'trash' },
   presentation: { name: 'Agent' },
 } as unknown as RuntimeInfo
 
@@ -142,7 +144,7 @@ const mount = (
 /** The project rows, by the name each one shows. */
 const projects = (): string[] =>
   [...container.querySelectorAll<HTMLElement>('[draggable="true"]')].map(
-    (head) => head.querySelector('[data-draggable] [data-role="prose"]')?.textContent ?? '',
+    (head) => head.querySelector('[data-draggable] [data-slot="sidebar-menu-label-content"]')?.textContent ?? '',
   )
 
 /** Every conversation row's title, wherever it is drawn. */
@@ -224,7 +226,7 @@ for (const state of ['filtered', 'searching', 'loading'] as const) {
     act(() => project().querySelector<HTMLButtonElement>('[data-draggable]')!.click())
     expect(titles()).toEqual(state === 'filtered' ? ['clone'] : ['home', 'clone'])
     expect(rig.store.getSnapshot().listPrefs.collapsed).toEqual([untouched, 'unseen-team'])
-    act(() => project().querySelector<HTMLButtonElement>('[aria-label="Actions for widgets"]')!.click())
+    act(() => project().querySelector<HTMLButtonElement>('[data-draggable]')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
     const unpin = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent?.trim() === 'Unpin')
     expect(unpin).toBeDefined()
     act(() => unpin!.click())
@@ -251,9 +253,9 @@ it('moves a filtered project from its clone aliases using the effective pin orde
     listPrefs: { ...emptySnapshot().listPrefs, agent: runtime.id, pinned: [PLAN, WIDGETS, untouched] },
   })
   answerPreferences(rig)
-  act(() => container.querySelector<HTMLButtonElement>('[aria-label="Actions for widgets"]')!.click())
+  act(() => container.querySelector<HTMLButtonElement>('[data-draggable]')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true })))
   const menuItem = (label: string) => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
-    .find(one => one.querySelector('[class*="title"]')?.textContent?.trim() === label)!
+    .find(one => one.querySelector('[data-menu-label]')?.textContent?.trim() === label)!
   act(() => menuItem('Move').click())
   expect(menuItem('Move up').getAttribute('aria-disabled')).toBe('true')
   act(() => menuItem('Move down').click())
@@ -407,7 +409,8 @@ it('lists a pinned conversation whose folder is gone in Pinned, because somebody
   expect(projects()).toEqual(['widgets'])
   expect(container.querySelector('[data-sidebar-band="pinned"]')?.textContent).toContain('lost-but-pinned')
   // The folder is still said to be gone, on the row.
-  expect(container.querySelector('[data-sidebar-band="pinned"] [role="img"][aria-label^="Folder is gone"]')).not.toBeNull()
+  expect(container.querySelector('[data-sidebar-band="pinned"] [data-left-mark]')).not.toBeNull()
+  expect(container.querySelector('[data-sidebar-band="pinned"] [data-slot="sidebar-menu-button"]')?.getAttribute('title')).toContain('The transcript can be read; nothing more can be sent.')
 })
 
 it('lists them again while the list is being searched, because a search is asking for them', () => {
@@ -461,7 +464,7 @@ it('puts the line at the end of Other projects when that fold is drawn', () => {
   })
   const fold = [...container.querySelectorAll<HTMLElement>('[aria-expanded]')].find((one) => one.textContent?.startsWith('Other projects'))
   expect(fold).toBeDefined()
-  const block = fold!.closest('[data-slot="sidebar-menu"]')!.parentElement!
+  const block = fold!.closest('[data-left-row]')!.parentElement!
   expect(block.contains(goneLine())).toBe(true)
   expect(block.lastElementChild?.contains(goneLine())).toBe(true)
 })
@@ -484,17 +487,23 @@ const seatRig = (members: Array<{ id: string; role: string | null; name?: string
     members: members.map((member, index) => ({
       id: `seat-${index}`, session: { runtime: runtime.id, sessionId: member.id }, role: member.role, openedAt: 1,
       closed: null, agent: { name: member.name ?? 'Claude Code' }, seatLabel: 'agent · model',
+      checkout: { project: WIDGETS, cwd: WIDGETS, branch: 'feature/retry', isolated: false },
     })),
   } as unknown as GoalView
   const rig = mount(rows, { teams: new Map([[team.id, team]]), goals: new Map([[team.id, goal]]) })
-  // Seats start folded; inspect their names through the real disclosure.
-  act(() => container.querySelector<HTMLButtonElement>('[aria-label="Show the agents in Retry the checkout call"]')!.click())
-  return rig
+  expect(container.querySelector('[data-nested="true"]')).toBeNull()
+  expect(container.querySelector('[aria-label="Room Retry the checkout call"]')).not.toBeNull()
+  return { ...rig, names: () => {
+    const snapshot = rig.store.getSnapshot(), labels = seatLabelsOf(snapshot)
+    return rows.filter(one => !snapshot.foldersGone.has(one.cwd)).map(one =>
+      sessionLabel(one.title, one.preview, labels.get(String(sessionKey(one.runtime, one.id)))))
+  } }
 }
 
 it('names a seat nobody typed to by its job and its Team, never “Untitled session”', () => {
-  seatRig([{ id: 'seat-a', role: 'implementer' }, { id: 'seat-b', role: 'reviewer' }])
-  const names = titles()
+  const rig = seatRig([{ id: 'seat-a', role: 'implementer' }, { id: 'seat-b', role: 'reviewer' }])
+  const names = rig.names()
+  expect(titles()).toEqual([])
   expect(names).toContain('Implementer · Retry the checkout call')
   expect(names).toContain('Reviewer · Retry the checkout call')
   expect(names).not.toContain('Untitled session')
@@ -503,7 +512,7 @@ it('names a seat nobody typed to by its job and its Team, never “Untitled sess
 it('names a newly seated conversation by its job before its history arrives', () => {
   const rig = seatRig([{ id: 'seat-a', role: 'implementer' }])
   rig.update({ history: [] })
-  expect(titles()).toContain('Implementer · Retry the checkout call')
+  expect(rig.names()).toContain('Implementer · Retry the checkout call')
 })
 
 it('does not synthesize a hidden gone-folder conversation back into its Team', () => {
@@ -513,13 +522,13 @@ it('does not synthesize a hidden gone-folder conversation back into its Team', (
 })
 
 it('names a seat with no job by the agent it is, and still prefers what a person said', () => {
-  seatRig([{ id: 'seat-a', role: null, name: 'Claude Code' }])
-  expect(titles()).toContain('Claude Code · Retry the checkout call')
+  const first = seatRig([{ id: 'seat-a', role: null, name: 'Agent' }])
+  expect(first.names()).toContain('Agent · Retry the checkout call')
   act(() => root.unmount())
   root = createRoot(container)
-  seatRig([{ id: 'seat-a', role: 'implementer' }], { preview: 'Retry the checkout call on a 502' })
-  expect(titles()).toContain('Retry the checkout call on a 502')
-  expect(titles()).not.toContain('Implementer · Retry the checkout call')
+  const second = seatRig([{ id: 'seat-a', role: 'implementer' }], { preview: 'Retry the checkout call on a 502' })
+  expect(second.names()).toContain('Retry the checkout call on a 502')
+  expect(second.names()).not.toContain('Implementer · Retry the checkout call')
 })
 
 it('leaves a conversation that is no seat’s as “Untitled session”', () => {

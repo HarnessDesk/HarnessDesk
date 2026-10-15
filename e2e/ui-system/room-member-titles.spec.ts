@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { expect, test } from '@playwright/test'
 import { COLLECT, textReasons, USER } from '../../script/shots/audit.mjs'
+import { teamSeats } from './team-frame-actions'
 const MEMBERS = [
   ['Alpha', 'Retry the checkout call when the service is unavailable'],
   ['Beta', 'Review the retry budget and the final failure response'],
@@ -13,9 +14,8 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?side-by-side&theme=${theme}`)
     const frame = page.locator('[data-frame-id="side-by-side-two"]')
-    await frame.getByRole('button', { name: 'Team members', exact: true }).click()
-    const members = page.locator('[data-slot="team-members"]:visible')
-    await expect(members.locator('[data-slot="list-row"] button[aria-label^="Watch"]')).toHaveCount(4)
+    const members = await teamSeats(frame)
+    await expect(members.getByRole('button', { name: /^Actions for / })).toHaveCount(4)
     await page.evaluate(async () => { await document.fonts.ready })
 
     // Optional local evidence, from the same production pane and synthetic roster.
@@ -35,7 +35,7 @@ for (const theme of ['light', 'dark'] as const) {
     for (const width of [1440, 1000]) {
       await page.setViewportSize({ width, height: 1000 })
       for (const [nickname, title] of MEMBERS) {
-        const row = members.locator('[data-slot="list-row"]').filter({ has: page.getByRole('button', { name: `Watch ${nickname} beside the others`, exact: true }) })
+        const row = members.locator('[data-slot="list-row"]').filter({ has: page.getByRole('button', { name: `Actions for ${nickname}`, exact: true }) })
         const name = row.locator('[data-slot="list-row-title"]')
         await expect(name).not.toContainText(title)
         const subtitle = row.locator('[data-slot="list-row-subtitle"]')

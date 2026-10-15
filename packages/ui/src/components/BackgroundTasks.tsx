@@ -1,3 +1,4 @@
+import { ToolBodyControls } from '../design'
 import { useEffect, useMemo, useState } from 'react'
 
 import { isFinishedTask, type BackgroundTask } from '@harnessdesk/protocol'
@@ -6,7 +7,7 @@ import { Button, CodeBlock, EmptyState, Spinner, Text } from '../design'
 import { splitTasks, taskElapsed, taskKindWord, tasksCount, taskStateWord, taskTooltip } from '../lib/tasks'
 import { useActiveSession, useRuntime, useSessionKey, useSnapshot, useStore } from '../state/context'
 import { AlertIcon, BackgroundIcon, CheckIcon, StopIcon } from './Icons'
-import { PanelBody, PanelFrame, PanelRow, PanelTools } from './Panel'
+import { PanelBody, PanelFrame, PanelRow } from './Panel'
 
 /**
  * What the agent has running in the background — as a panel.
@@ -23,10 +24,9 @@ import { PanelBody, PanelFrame, PanelRow, PanelTools } from './Panel'
  * A panel has the room. Each task is a card: the sentence the agent named it
  * with, the kind and the state in words, a clock, a stop while it runs — and
  * then the command under a prompt mark and the output beneath, scrollable,
- * staying there after the turn. It is the fifth inspector, summoned from the
- * ⋯ menu and ⌘K like the other four, and it follows the focused conversation
- * the way they do. The header wears a chip while anything is listed, so the
- * panel does not have to be open for the work to be noticed.
+ * staying there after the turn. It leads the Activity tool, with the focused
+ * conversation's completed tasks retained beside running work across the app.
+ * Activity's tool button wears a dot while any task runs.
  *
  * Nothing here is derived: the host relays the runtime's own list, every
  * control is a request, and the rows redraw from the event that answers —
@@ -71,7 +71,7 @@ export const BackgroundTasksView = () => {
 
   return (
     <PanelFrame testId="background-tasks-panel">
-      <PanelTools>
+      <ToolBodyControls>
         <Text role="meta" truncate className="min-w-0 flex-1">
           {tasks.length > 0 ? tasksCount(split) : 'Background tasks'}
         </Text>
@@ -85,7 +85,7 @@ export const BackgroundTasksView = () => {
             Clear
           </Button>
         )}
-      </PanelTools>
+      </ToolBodyControls>
 
       <PanelBody>
         {tasks.length === 0 ? (

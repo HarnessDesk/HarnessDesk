@@ -1,3 +1,4 @@
+import { pageLayoutFindings } from './frame-page-layout.mjs'
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
@@ -52,6 +53,9 @@ import {
   squaresOf,
   STYLESHEET_OWNERS,
   uppercaseLabelsOf,
+  retiredComponentsOf,
+  pageMeasuresOf,
+  screenLayoutOf,
   visualKindUnionsOf,
 } from './design-audit.mjs'
 import { SECTIONS } from './design-sections.mjs'
@@ -850,10 +854,9 @@ test('screen families read correctly for known real cases, including the ones th
   assert.equal(screenAreaOf(trajectory), screenAreaOf(details))
   assert.equal(screenAreaOf(trajectory), 'details')
 
-  // Library.tsx is imported only by Settings.tsx, directly — one hop, not
-  // through ProjectPage or any other intermediary.
+  // Library is now a registered destination with its own controlled body.
   const library = path.join(repoRoot, 'packages/ui/src/components/Library.tsx')
-  assert.equal(screenAreaOf(library), 'settings')
+  assert.equal(screenAreaOf(library), 'library')
 
   // Two more single-host files, named so a future reader can check them by
   // hand against the real tree the same way: GitDialogs.tsx's only real
@@ -1006,14 +1009,11 @@ test('designImportsOf never resolves a target outside design/ (#914 review, item
  * have made the zero unreachable without faking a consumer away.
  */
 test('exportsReferencing finds only the exports that actually compose an import, real file (#914)', () => {
-  const appWindow = path.join(repoRoot, 'packages/ui/src/design/patterns/AppWindow.tsx')
-  const ast = parseScreenSource(appWindow, fs.readFileSync(appWindow, 'utf8'))
-  assert.deepEqual(
-    new Set(exportsReferencing(ast, 'RailSection')),
-    new Set(['AppWindowRailTop', 'AppWindowRailScroll']),
-  )
-  // Neither of these draws RailSection at all.
-  assert.equal(exportsReferencing(ast, 'DialogPopup').includes('AppWindowRailTop'), false)
+  const page = path.join(repoRoot, 'packages/ui/src/design/patterns/PageControls.tsx')
+  const ast = parseScreenSource(page, fs.readFileSync(page, 'utf8'))
+  assert.deepEqual(new Set(exportsReferencing(ast, 'Text')),
+    new Set(['PageExplanation', 'PreservedText', 'InlineQualifier', 'PageNotes']))
+  assert.equal(exportsReferencing(ast, 'Text').includes('PageControls'), false)
 })
 
 test('resolvedConsumersOf inherits the reach of every design export that composes one, cycles guarded (#914)', () => {
@@ -1640,7 +1640,6 @@ test('a named exemption that matches nothing is reported, so the list cannot out
 test('single-area exemptions (data geometry, native boundaries) name only the live usage exports and go stale with their contract', () => {
   const expected = new Map([
     ['design/ui/timeline.tsx', ['Timeline', 'TimelineItem']],
-    ['design/ui/timeline-cards.tsx', ['TimelineCards', 'TimelineCard', 'TimelineCardRow', 'TimelineCardWords', 'TimelineDocument']],
     ['design/ui/flow-step.tsx', ['FlowStepSurface', 'FlowDoingLine']],
     ['design/ui/chart.tsx', ['ChartCard', 'ChartFoot', 'ChartFrame', 'ChartTitle', 'SegmentMeter', 'BurnDown', 'ChartAxis', 'ChartHead', 'ChartHint', 'ChartTools', 'DayColumns', 'PaceBadge', 'ChartTip', 'ChartTipRow']],
     ['design/ui/heat-grid.tsx', ['HeatGrid', 'HeatLegend']],
@@ -1648,7 +1647,7 @@ test('single-area exemptions (data geometry, native boundaries) name only the li
     ['design/ui/tone.ts', ['tintFor', 'tintsFor']],
     ['design/adapters/terminal.ts', ['terminalAppearance']],
   ])
-  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 29)
+  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.reduce((count, entry) => count + entry.exports.length, 0), 24)
   assert.deepEqual(new Map(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.map(({ module, exports: names }) => [module, names])), expected)
   for (const entry of SINGLE_AREA_PRIMITIVE_EXEMPTIONS) {
     if (entry.kind === 'data-geometry') {
@@ -1820,7 +1819,7 @@ test('screen appearance uses one boundary for height, min-height and max-height'
 
 test('an unclassified screen property fails --strict and names the property and sheet', () => {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-  const file = path.join(root, 'packages/ui/src/components/AppWindow.module.css')
+  const file = path.join(root, 'packages/ui/src/components/SignIn.module.css')
   const original = fs.readFileSync(file, 'utf8')
   try {
     fs.writeFileSync(file, `${original}\n.unclassifiedGateProbe { speak: never; }\n`)
@@ -1829,7 +1828,7 @@ test('an unclassified screen property fails --strict and names the property and 
       encoding: 'utf8',
     })
     assert.notEqual(result.status, 0, 'an unclassified property must fail the strict audit')
-    assert.match(`${result.stdout}\n${result.stderr}`, /AppWindow\.module\.css: speak/)
+    assert.match(`${result.stdout}\n${result.stderr}`, /SignIn\.module\.css: speak/)
   } finally {
     fs.writeFileSync(file, original)
   }
@@ -1873,7 +1872,7 @@ test('screen appearance excludes the design system and its named specialized ren
   const files = [
     path.join(root, 'packages/ui/src/design/patterns/Role.module.css'),
     path.join(root, 'packages/ui/src/components/Markdown.module.css'),
-    path.join(root, 'packages/ui/src/components/Diff.module.css'),
+    path.join(root, 'packages/ui/src/editor/DiffView.module.css'),
   ]
   for (const file of files) {
     fs.mkdirSync(path.dirname(file), { recursive: true })
@@ -1999,7 +1998,7 @@ test('screen utility appearance excludes the design system, test files, and the 
     path.join(repoRoot, 'packages/ui/src/design/ui/button.tsx'),
     path.join(repoRoot, 'packages/ui/src/components/Example.test.tsx'),
     path.join(repoRoot, 'packages/ui/src/components/Markdown.tsx'),
-    path.join(repoRoot, 'packages/ui/src/components/Diff.tsx'),
+    path.join(repoRoot, 'packages/ui/src/editor/DiffView.tsx'),
     // The icon façade carries the same exemption the loose-icon rule gives it.
     path.join(repoRoot, 'packages/ui/src/components/Icons.tsx'),
   ]
@@ -4505,12 +4504,132 @@ test('timeline geometry exemption is confined to its two data-view exports and c
 test('round-card geometry exemption names only its recorded-data slots in the room', () => {
   const module = path.join(repoRoot, 'packages/ui/src/design/ui/timeline-cards.tsx')
   for (const name of ['TimelineCards', 'TimelineCard', 'TimelineCardRow', 'TimelineCardWords', 'TimelineDocument']) {
-    assert.equal(isSingleAreaPrimitiveExempt(module, name, 'room'), true)
+    assert.equal(isSingleAreaPrimitiveExempt(module, name, 'room'), false)
     assert.equal(isSingleAreaPrimitiveExempt(module, name, 'settings'), false)
     assert.equal(isSingleAreaPrimitiveExempt(path.join(repoRoot, 'packages/ui/src/design/ui/card.tsx'), name, 'room'), false)
   }
   assert.equal(isSingleAreaPrimitiveExempt(module, 'TimelineCardAction', 'room'), false)
-  const entry = SINGLE_AREA_PRIMITIVE_EXEMPTIONS.find(one => one.module === 'design/ui/timeline-cards.tsx')
+  // F21: cards now render both the Run page and Details; a room-only exemption is stale.
+  assert.equal(SINGLE_AREA_PRIMITIVE_EXEMPTIONS.find(one => one.module === 'design/ui/timeline-cards.tsx'), undefined)
+  const entry = {
+    module: 'design/ui/timeline-cards.tsx', area: 'room', kind: 'data-geometry',
+    exports: ['TimelineCards', 'TimelineCard', 'TimelineCardRow', 'TimelineCardWords', 'TimelineDocument'],
+  }
   assert.equal(staleSingleAreaPrimitiveExemptions([entry], () => 'settings').length, 5)
   assert.equal(staleSingleAreaPrimitiveExemptions([entry], () => undefined).length, 5)
+})
+/**
+ * The frame work's burn-downs (docs/superpowers/specs/2026-10-09-app-frame-design.md):
+ * frame parts a screen still draws, page measures a screen sets itself, and
+ * layout written in a screen. Each only falls.
+ */
+test('retiredComponent counts a screen drawing a frame part the shell will own', () => {
+  const screen = path.join(repoRoot, 'packages/ui/src/components/Example.tsx')
+  const pattern = path.join(repoRoot, 'packages/ui/src/design/patterns/Example.tsx')
+  const cases = [
+    [screen, 'export const A = () => <PageHead title="Teams" />\n', 1],
+    [screen, 'export const A = () => <><AppWindow label="x"><WindowPage /></AppWindow></>\n', 2],
+    [screen, 'export const A = () => <ToolPaneHeaderDivider />\n', 0],
+    [screen, 'export const A = () => <PopoverOptionMark />\n', 0],
+    [screen, '// <PageHead /> once lived here\nexport const A = () => null\n', 0],
+    [pattern, 'export const A = () => <PageHead title="x" />\n', 0],
+  ]
+  for (const [file, source, count] of cases) assert.equal(retiredComponentsOf(file, source).length, count, source)
+})
+
+test('pageMeasureInScreen counts a screen setting a page measure instead of using Page', () => {
+  const tsx = path.join(repoRoot, 'packages/ui/src/components/Example.tsx')
+  const css = path.join(repoRoot, 'packages/ui/src/components/Example.module.css')
+  const cases = [
+    [css, '.page { max-width: var(--hd-column); }', 1],
+    [css, '.page { max-width: var(--hd-page-wide); padding: var(--hd-page-gutter); }', 2],
+    [tsx, 'export const A = () => <PaneColumn inset="reading" page>x</PaneColumn>\n', 1],
+    [tsx, 'export const A = () => <PaneColumn inset="reading">x</PaneColumn>\n', 0],
+    [tsx, 'export const A = () => <Page width="reading">x</Page>\n', 0],
+  ]
+  for (const [file, source, count] of cases) assert.equal(pageMeasuresOf(file, source).length, count, source)
+})
+
+test('screenLayout counts layout declarations and layout utilities in a screen', () => {
+  const tsx = path.join(repoRoot, 'packages/ui/src/components/Example.tsx')
+  const css = path.join(repoRoot, 'packages/ui/src/components/Example.module.css')
+  assert.equal(screenLayoutOf(css, '.row { display: flex; gap: var(--hd-space-2); color: red; }').length, 2)
+  assert.equal(screenLayoutOf(tsx, 'export const A = () => <div className="flex min-w-0 gap-2 text-sm" />\n').length, 3)
+  assert.equal(screenLayoutOf(tsx, 'export const A = () => <div className="text-sm" />\n').length, 0)
+})
+
+
+test('screenLayout classifies intrinsic heights and arbitrary properties before the utility fallback', () => {
+  const file = path.join(repoRoot, 'packages/ui/src/components/Example.tsx')
+  const layout = ['h-full', 'min-h-0', 'max-h-screen', 'h-auto', 'h-min', 'h-max', 'h-fit', 'h-1/2', 'md:h-[100dvh]!', '[display:flex]', 'hover:[grid-template-columns:1fr_1fr]', 'text-left', 'text-nowrap']
+  const appearance = ['h-8', 'min-h-[24px]', 'size-6', '[color:red]', 'text-sm', 'px-4']
+  for (const token of layout) assert.equal(screenLayoutOf(file, `export const A = () => <div className="${token}" />`).length, 1, token)
+  for (const token of appearance) assert.equal(screenLayoutOf(file, `export const A = () => <div className="${token}" />`).length, 0, token)
+})
+
+test('retiredComponent follows named aliases and namespace JSX imports', () => {
+  const file = path.join(repoRoot, 'packages/ui/src/components/Example.tsx')
+  const cases = [
+    ['import { PageHead as Heading } from "../design"; export const A = () => <Heading title="Teams" />', 1],
+    ['import * as D from "../design"; export const A = () => <D.PageHead title="Teams" />', 1],
+    ['import { WindowPage as Page } from "../design"; export const A = () => <Page><span /></Page>', 1],
+    ['import { PageHead as Heading } from "../design"; export const A = () => <span title="<Heading />" />', 0],
+    ['import * as D from "../design"; export const A = () => <D.Page width="reading">content</D.Page>', 0],
+    ['import { PageHead as Heading } from "../design"; export const A = () => <><Heading title="One" /><Heading title="Two" /></>', 2],
+  ]
+  for (const [source, count] of cases) assert.equal(retiredComponentsOf(file, source).length, count, source)
+})
+
+test('page family scanner preserves the layout, measure and retired-head authorities', () => {
+  const clean = new Map([['Settings.tsx', 'export const Settings = () => <Page width="reading"><Rows /></Page>']])
+  assert.deepEqual(pageLayoutFindings('settings', clean), [])
+  const dirty = new Map([['Settings.tsx', 'export const Settings = () => <div className="flex p-6"><PageHead title="General" /><PaneColumn page /></div>']])
+  const findings = pageLayoutFindings('settings', dirty)
+  assert.ok(findings.some(value => value.endsWith(': flex')))
+  assert.ok(findings.some(value => value.includes('<PageHead>')))
+  assert.ok(findings.some(value => value.includes('<PaneColumn page>')))
+  assert.throws(() => pageLayoutFindings('unregistered'), /Unknown page family/)
+})
+test('E Settings screen layout, measures and old heads are zero', () => {
+  assert.deepEqual(pageLayoutFindings('settings'), [])
+})
+
+test('Dashboard family owns no screen layout, measure or retired heads', () => {
+  assert.deepEqual(pageLayoutFindings('dashboard'), [])
+})
+
+test('Agents family owns no screen layout, measure or retired heads', () => {
+  assert.deepEqual(pageLayoutFindings('agents'), [])
+})
+
+test('Teams family owns no screen layout, measure or retired heads', () => {
+  assert.deepEqual(pageLayoutFindings('teams'), [])
+})
+
+test('Library family owns no screen layout, measure or retired heads', () => {
+  assert.deepEqual(pageLayoutFindings('library'), [])
+})
+
+test('Plugins family owns no screen layout, measure or retired heads', () => {
+  assert.deepEqual(pageLayoutFindings('plugins'), [])
+})
+
+
+test('Changes review family has zero page layout, measure and retired-frame findings', () => {
+  assert.deepEqual(pageLayoutFindings('review'), [])
+})
+
+test('Phase E has retired destination windows, heads and title rules', () => {
+  const base = path.join(repoRoot, 'packages/ui/src')
+  const files = fs.readdirSync(base, { recursive: true })
+    .filter(file => typeof file === 'string' && /\.(tsx?|css)$/.test(file))
+  const bad = files.flatMap(file => {
+    const source = fs.readFileSync(path.join(base, file), 'utf8')
+    const cleaned = file === 'components/Icons.tsx' ? source.replace(/AppWindow as DesktopIcon/g, '') : source
+    return /\b(?:AppWindow\w*|WindowNav\w*|WindowGroup|WindowPage|PageHead|DetailHead|BackLink|PageHeading\w*|usePageHeading)\b|--hd-title-rule[\w-]*|Back to app/.test(cleaned) ? [file] : []
+  })
+  assert.deepEqual(bad, [])
+  for (const family of ['settings', 'dashboard', 'agents', 'teams', 'library', 'plugins', 'review']) {
+    assert.deepEqual(pageLayoutFindings(family), [], family)
+  }
 })

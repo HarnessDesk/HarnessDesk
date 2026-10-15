@@ -89,10 +89,11 @@ const VIEW = KNOBS.get('view') ?? 'hero'
 const ROOM_SEED = (wire as { room?: StagedSeed }).room ?? null
 export const ROOM_ID: string | null = ROOM_SEED?.id ?? null
 const DT = FAST ? 0.05 : 1
-const RECORDED_RUNTIME = TEMPLATES['turnStarted'].runtime
-const RECORDED_TURN_START = ((TEMPLATES['turnStarted'].event as { turn?: { startedAt?: number } }).turn?.startedAt) ?? CAPTURED_NOW
+const RECORDED_RUNTIME = TEMPLATES['turnStarted']!.runtime
+const RECORDED_TURN_START = ((TEMPLATES['turnStarted']!.event as { turn?: { startedAt?: number } }).turn?.startedAt) ?? CAPTURED_NOW
 
 const DOWNLOAD = 'https://github.com/HarnessDesk/HarnessDesk/releases/download/v0.4.0/HarnessDesk-0.4.0-arm64.dmg'
+const DOWNLOADS = `[Apple silicon](${DOWNLOAD}) · [Intel](${DOWNLOAD.replace('-arm64.dmg', '-x64.dmg')})`
 
 /**
  * What everything outside the demo's story answers with.
@@ -109,14 +110,14 @@ export const NOT_WIRED = 'Not wired in this web demo — the desktop app does th
 
 /** The follow-up turns: honest about the demo, pointing at the real thing. */
 const FOLLOW_UPS: string[] = [
-  'Fair warning: that first turn was staged. This window is the real HarnessDesk renderer — the same code the desktop app ships — but the agent behind it is a recording with no keys to anything.\n\nThe real desk runs your own Codex, Claude, and Cursor, on your machine, against your repositories. Download it and bring your agents:\n\n' + DOWNLOAD + '\n\nApple silicon · notarized · no account, ever.',
-  'Still me, still a recording. What you are poking at is the production interface — transcript, approvals, composer — wired to a replayed session instead of a live agent.\n\nTwo things the real desk does that this page cannot: run a second agent beside this one in its own worktree, and hand this conversation to it — goal, files, branch — when a plan runs dry. That second one is the reason it exists. The room further down this page is the board several of them share — staged, since none of them runs here.\n\n' + DOWNLOAD,
-  'The demo has exactly one trick and you have now seen it twice. The download is one file, it is notarized, and it never asks you to sign in:\n\n' + DOWNLOAD,
+  'Fair warning: that first turn was staged. This window is the real HarnessDesk renderer — the same code the desktop app ships — but the agent behind it is a recording with no keys to anything.\n\nThe real desk runs your own Codex, Claude, and Cursor, on your machine, against your repositories. Download it and bring your agents:\n\n' + DOWNLOADS + '\n\nNotarized · no account, ever.',
+  'Still me, still a recording. What you are poking at is the production interface — transcript, approvals, composer — wired to a replayed session instead of a live agent.\n\nTwo things the real desk does that this page cannot: run a second agent beside this one in its own worktree, and hand this conversation to it — goal, files, branch — when a plan runs dry. That second one is the reason it exists. The room further down this page is the board several of them share — staged, since none of them runs here.\n\n' + DOWNLOADS,
+  'The demo has exactly one trick and you have now seen it twice. The download for your Mac is notarized, and it never asks you to sign in:\n\n' + DOWNLOADS,
 ]
 
 /** The reply to a hand-off packet arriving in a second agent. */
 const HANDOFF_REPLY =
-  'Hand-off received. The packet above carried the goal, the changed files, and branch fix/checkout-retry — enough to keep going without retyping any of it.\n\nIn the desktop app this is a live second agent picking the work up in its own worktree; here it is a recording, so this is where the demo stops and the real thing starts:\n\n' + DOWNLOAD
+  'Hand-off received. The packet above carried the goal, the changed files, and branch fix/checkout-retry — enough to keep going without retyping any of it.\n\nIn the desktop app this is a live second agent picking the work up in its own worktree; here it is a recording, so this is where the demo stops and the real thing starts:\n\n' + DOWNLOADS
 
 const deepClone = <T,>(value: T): T => JSON.parse(JSON.stringify(value)) as T
 
@@ -241,7 +242,7 @@ export class FakeHostSocket {
       } else if (this.#turnsQueued === 1) {
         this.#playRecordedTurn(text || RECORDED_PROMPT)
       } else {
-        const answer = FOLLOW_UPS[Math.min(this.#turnsQueued - 2, FOLLOW_UPS.length - 1)]
+        const answer = FOLLOW_UPS[Math.min(this.#turnsQueued - 2, FOLLOW_UPS.length - 1)]!
         this.#playFollowUp(text || '…', answer, runtime, sessionId)
       }
       return
@@ -260,7 +261,7 @@ export class FakeHostSocket {
       // that asked — the synthesized turn events use the same session id.
       const runtime = typeof params['runtime'] === 'string' ? (params['runtime'] as string) : RECORDED_RUNTIME
       const recorded = RESPONSES['session/create:' + runtime] ?? RESPONSES['session/create:' + RECORDED_RUNTIME]
-      const body = deepClone(recorded)
+      const body = deepClone(recorded!)
       const result = body.result as Record<string, unknown> | null
       const model = MODEL_OF[runtime]
       if (result && typeof result === 'object') {
@@ -372,7 +373,7 @@ export class FakeHostSocket {
     const followShift = Date.now() - RECORDED_TURN_START
 
     const patch = (name: string, fn: (event: Record<string, unknown>) => void): WireEventParams => {
-      const cloned = shiftTimes(deepClone(TEMPLATES[name]), followShift)
+      const cloned = shiftTimes(deepClone(TEMPLATES[name]!), followShift)
       cloned.runtime = runtime
       fn(cloned.event as Record<string, unknown>)
       return cloned

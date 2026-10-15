@@ -37,3 +37,15 @@ it.each(['Working', 'Needs you', 'Approval', 'Queued message', 'Question', 'Wrap
   expect(full?.querySelector('[data-slot="chip"]')?.getAttribute('data-variant')).toBe('quiet')
   expect(compact?.querySelector('[data-slot="dot"]')?.getAttribute('data-variant')).toBe('navigation')
 })
+
+
+it('compact priority state has one named dot and no hidden chip', () => {
+  act(() => root.render(<SidebarMenuState label="Needs you" title="Needs you · 1 held message" tone="warning" state="limit" compact />))
+  const state = container.querySelector('[data-slot="sidebar-menu-state"]')!
+  expect(state.getAttribute('aria-label')).toBe('Needs you')
+  expect(state.getAttribute('title')).toBe('Needs you · 1 held message')
+  expect(state.querySelectorAll('[data-slot="dot"]')).toHaveLength(1)
+  expect(state.querySelector('[data-slot="dot"]')?.getAttribute('data-variant')).toBe('navigation')
+  expect(state.querySelector('[data-slot="chip"]')).toBeNull()
+  expect(state.querySelector('[data-sidebar-menu-state-full]')).toBeNull()
+})

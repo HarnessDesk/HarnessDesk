@@ -19,9 +19,14 @@ for (const seated of [true, false]) {
     const cwd = join(dir, 'work')
     await mkdir(cwd)
     const store = join(dir, 'sessions.json')
+    let host: Host | undefined
     const writer = new AcpRuntime({ id: 'reader', name: 'Reader', command: process.execPath, args: [PEER],
       env: { FAKE_ACP_STORE: store, FAKE_ACP_STORE_DRAFTS: '1' } })
-    t.after(async () => { await writer.dispose(); await rm(dir, { recursive: true, force: true }) })
+    t.after(async () => {
+      await host?.dispose()
+      await writer.dispose()
+      await rm(dir, { recursive: true, force: true })
+    })
     await writer.start()
     const created = await writer.createSession({ cwd })
     await created.close()
@@ -36,13 +41,21 @@ for (const seated of [true, false]) {
     }
     const runtime = new AcpRuntime({ id: 'reader', name: 'Reader', command: process.execPath, args: [PEER],
       env: { FAKE_ACP_STORE: store, FAKE_ACP_UNLISTED: String(created.id) } })
-    const host = new Host({ logger: new Logger('test', { console: false }), state: new StateStore(join(dir, 'state.json')),
+    host = new Host({ logger: new Logger('test', { console: false }), state: new StateStore(join(dir, 'state.json')),
       catalogRefreshMs: 0, idleStopMs: 0, sessionRestMs: 0, sendAcceptDeadlineMs: 100 })
-    t.after(() => host.dispose())
     host.register(runtime)
+    const ready = new Promise<void>(resolve => {
+      const off = runtime.onHealthChange(health => {
+        if (health.state === 'ready') { off(); resolve() }
+      })
+    })
     await host.start()
     const params = { runtime: runtime.info.id, sessionId: created.id }
-    if (!seated) await runtime.resumeSession(created.id, { knownCwd: cwd })
+    if (!seated) {
+      // This fixture seeds the adapter directly, outside the host's live-operation barrier.
+      await ready
+      await runtime.resumeSession(created.id, { knownCwd: cwd })
+    }
     await host.call('session/resume', params)
     await host.call('session/options/set', { ...params, optionId: 'model', value: 'large' })
     await host.call('session/options/set', { ...params, optionId: 'mode', value: 'terse' })

@@ -7,6 +7,7 @@ import type { AgentEntry, AgentNotesView } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { AgentNotes } from './AgentNotes'
+import { DestinationPageScope } from '../panels/destination-page'
 
 /**
  * `NOTES.md`, read and cleared from the Agent page. Rendered through the
@@ -51,6 +52,18 @@ const storeFor = (view: AgentNotesView, overrides: Record<string, unknown> = {})
     clearAgentNotes: vi.fn(async () => ({ ...view, text: '', digest: 'e'.repeat(64) })),
     ...overrides,
   }) as unknown as AppStore
+
+it('dismisses a retained notes confirmation on hide and does not restore it on return', async () => {
+  const store = storeFor({ path: '/NOTES.md', text: 'Keep small diffs.', digest: 'd'.repeat(64), writable: true, problem: null })
+  const render = (active: boolean) => act(async () => root.render(<StoreProvider store={store}><DestinationPageScope owner="destination:agents" active={active}><AgentNotes entry={ENTRY} /></DestinationPageScope></StoreProvider>))
+  await render(true)
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>('button')].find(node => node.textContent === 'Clear…')!.click())
+  expect(document.querySelector('[role="alertdialog"]')).not.toBeNull()
+  await render(false)
+  expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+  await render(true)
+  expect(document.querySelector('[role="alertdialog"]')).toBeNull()
+})
 
 it('a missing notes file says so, and offers no Clear control', async () => {
   const store = storeFor({ path: '/NOTES.md', text: null, digest: null, writable: true, problem: null })

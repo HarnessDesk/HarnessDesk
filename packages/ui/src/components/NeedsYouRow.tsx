@@ -1,5 +1,6 @@
-import { ActionError, ApprovalCode, Button, Chip, ListRow, Text } from '../design'
+import { ActionError, ApprovalCode, ApprovalMeta, Button, Chip, ListRow, Text } from '../design'
 import type { ApprovalDetail, NeedsYouAnswers } from '../lib/needs-you'
+import { folderName } from '../lib/projects'
 import { sanitizeHtml, sanitizeText } from '../lib/sanitize'
 import type { NeedsYouItem } from '../lib/team-overview'
 import { StepAnswer } from './StepAnswer'
@@ -14,6 +15,11 @@ const words = (value: string): string => {
 /** How many of a long list a row names before it says how many more. */
 const LISTED = 6
 
+const FolderMeta = ({ path }: { path: string }) => {
+  const clean = sanitizeText(path)
+  return <ApprovalMeta label="in" kind="folder" title={clean}>{folderName(clean)}</ApprovalMeta>
+}
+
 const Detail = ({ detail }: { detail: ApprovalDetail }) => (
   <>
     {detail.reason && <Text role="meta" as="div" className="[overflow-wrap:anywhere]">{sanitizeText(detail.reason)}</Text>}
@@ -24,9 +30,7 @@ const Detail = ({ detail }: { detail: ApprovalDetail }) => (
         <ApprovalCode>{sanitizeText(detail.inputTo.command)}</ApprovalCode>
       </div>
     )}
-    {detail.folder && <Text role="meta" as="div" title={sanitizeText(detail.folder)} className="[overflow-wrap:anywhere]">
-      <Text role="meta" ink="secondary">In</Text>{' '}{sanitizeText(detail.folder)}
-    </Text>}
+    {detail.folder && <FolderMeta path={detail.folder} />}
     {detail.lists?.map((list) => (
       <Text key={list.label} role="meta" as="div" className="[overflow-wrap:anywhere]" title={sanitizeText(list.items.join('\n'))}>
         <Text role="meta" ink="secondary">{list.label}</Text>{' '}

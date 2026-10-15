@@ -1,4 +1,5 @@
 import type { AgentDefinition, AgentEntry, SeatPlan } from './agent.js'
+import type { AttachmentDeclaration } from './attachments.js'
 import type { StartContext } from './authoring.js'
 import type { CeilingLevel } from './evidence.js'
 import type { FindingRunState } from './findings.js'
@@ -73,9 +74,13 @@ export interface FlowPolicy {
   readonly version: 2
   readonly name: string
   readonly description?: string
+  /** Short, single-line picker copy; the description remains the full explanation. */
+  readonly summary?: string
   readonly base?: FlowBase
   readonly inputs: readonly FlowInput[]
   readonly roles: readonly FlowPolicyRole[]
+  /** Successful outcomes by role, read after no continuation rule matches. */
+  readonly complete?: Readonly<Record<string, readonly string[]>>
   readonly rules: readonly FlowPolicyRule[]
   readonly seed: FlowThen
   readonly messaging: 'board-only' | 'members'
@@ -369,6 +374,7 @@ export interface FlowEntry {
   readonly path: string
   readonly name: string
   readonly description: string | null
+  readonly summary?: string | null
   readonly format: 'legacy' | 'agents' | null
   readonly problem: string | null
   readonly shadows: readonly { readonly origin: FlowOrigin; readonly path: string }[]
@@ -421,6 +427,14 @@ export interface FlowPreviewSeat {
   readonly atPredecessor?: 'always' | 'may'
   /** Whether this Seat is there to review, as the server decides it (`reviewsIn`): its round is a review series's round. */
   readonly reviews: boolean
+  /** Host-computed dry decisions for a winning Seat whose Agent declares attachments. */
+  readonly attachments?: {
+    readonly skillsMode: 'runtime-defaults' | 'allowlist'
+    readonly mcpMode: 'runtime-defaults' | 'allowlist'
+    /** A null problem means this declaration would load when the Seat opens. */
+    readonly declarations: readonly AttachmentDeclaration[]
+    readonly refusal: string | null
+  }
 }
 
 /**

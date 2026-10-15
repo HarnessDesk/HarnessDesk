@@ -1,3 +1,4 @@
+import { readStored } from './fixtures/stored-transcripts.js'
 import assert from 'node:assert/strict'
 import { randomUUID } from 'node:crypto'
 import { mkdirSync, readFileSync, rmSync } from 'node:fs'
@@ -1285,6 +1286,7 @@ test('a failed sidecar write blocks the first turn: the Seat is closed, the runt
   )
   let recordCalls = 0
   ;(seen.ctx as unknown as { attachments: HostContext['attachments'] }).attachments = {
+    preflight: async () => { throw new Error('not used by this test') },
     prepare: async (subject) => ({
       subject,
       input: { key: 'k', skills: null, mcp: [{ name: 'reviewer-tools', digest: 'd', endpoint: 'e' }] },
@@ -2394,7 +2396,7 @@ for (const [order, how] of [
       // not "does not offer" (#1023).
       assert.equal(
         error.message,
-        'No seat could be opened for this Agent:\n' + '  codex=gpt-5.5/high — codex runs it at low effort, not high.',
+        'No seat could be opened for this Agent:\n' + "  codex=gpt-5.5/high — codex runs it at low effort, not high. (the conversation it opened may stay in codex's own history, which the desk cannot delete from; it is in codex's own archive)",
       )
       return true
     })
@@ -2415,7 +2417,7 @@ for (const [order, how] of [
       assert.equal(
         error.message,
         'No seat could be opened for this Agent:\n' +
-          '  codex=gpt-5.5/high — codex runs it at low effort, not high.' +
+          "  codex=gpt-5.5/high — codex runs it at low effort, not high. (the conversation it opened may stay in codex's own history, which the desk cannot delete from; it is in codex's own archive)" +
           ' One more candidate was not tried: the effort asked for is this seat\'s to fix, not a reason to try another agent.',
       )
       return true
@@ -3990,10 +3992,9 @@ test('over Codex: a fuller completion and a cold read cannot turn the recorded b
   }
   assert.equal(record?.session.turns[0]?.status, 'completed', 'the fuller completion reached the host')
 
-  const transcript = join(stateDir, 'transcripts', 'codex', `${encodeURIComponent(session.id)}.json`)
   const transcriptDeadline = Date.now() + 5_000
   while (Date.now() < transcriptDeadline) {
-    if (await readFile(transcript, 'utf8').then(() => true, () => false)) break
+    if (readStored(stateDir, 'codex', String(session.id))) break
     await new Promise((wake) => setTimeout(wake, 10))
   }
   await host.call('session/close', { runtime: session.runtime, sessionId: session.id })

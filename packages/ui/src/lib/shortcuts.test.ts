@@ -34,6 +34,24 @@ const row = (action: string) => {
 }
 
 describe('the shortcut table', () => {
+  it('offers Go to file on the app modifier without claiming modified or handled P chords', () => {
+    expect(shortcutFor(chord('p'))?.action).toBe('go-to-file')
+    expect(shortcutFor({ ...chord('p'), metaKey: false, ctrlKey: true })?.action).toBe('go-to-file')
+    expect(shortcutFor({ ...chord('p'), shiftKey: true })).toBeNull()
+    expect(shortcutFor({ ...chord('p'), altKey: true })).toBeNull()
+    expect(shortcutFor({ ...chord('p'), defaultPrevented: true })).toBeNull()
+  })
+  it('toggles the window mode on Command-G while preserving handled and modified chords', () => {
+    expect(shortcutFor(chord('g'))?.action).toBe('toggle-editor-mode')
+    expect(shortcutFor({ ...chord('g'), defaultPrevented: true })).toBeNull()
+    expect(shortcutFor({ ...chord('g'), shiftKey: true })).toBeNull()
+    expect(chordOf(row('toggle-editor-mode'))).toBe('⌘G')
+  })
+  it('opens New Team with Shift while the plain chord still starts a session', () => {
+    expect(shortcutFor({ ...chord('N'), shiftKey: true })?.action).toBe('new-team')
+    expect(shortcutFor(chord('n'))?.action).toBe('new-session')
+    expect(appSource).toMatch(/case 'new-team':[\s\S]*?projectRootOf\(snapshot.workspace\)/)
+  })
   it('carries Back and Forward on ⌘[ and ⌘]', () => {
     expect(row('nav-back').key).toBe('[')
     expect(row('nav-forward').key).toBe(']')
@@ -92,8 +110,8 @@ describe('the handler behind the table', () => {
   it('and the two new ones reach the store verbs they exist for', () => {
     // A `case` alone would pass the check above while calling nothing, which
     // is exactly the dead command #254 warns about.
-    expect(appSource).toMatch(/case 'nav-back':\s*\n\s*void store\.navigateBack\(\)/)
-    expect(appSource).toMatch(/case 'nav-forward':\s*\n\s*void store\.navigateForward\(\)/)
+    expect(appSource).toMatch(/case 'nav-back':\s*\n\s*if \(snapshot\.workbench\.navigation\.current\.kind === 'settings'\) void store\.leaveSettings\(\)/)
+    expect(appSource).toMatch(/case 'nav-forward':\s*\n\s*if \(snapshot\.workbench\.navigation\.current\.kind !== 'settings'\) void store\.navigateForward\(\)/)
     // Controls: the source really was loaded, and the matcher can tell the
     // two verbs apart rather than passing on any `case` it finds.
     expect(appSource).toContain("case 'toggle-sidebar':")
@@ -129,7 +147,7 @@ describe('a chord the focused surface already answered', () => {
     // Control: with the flag down every row in the table still matches, so the
     // loop above cannot pass by the table being empty or the matcher broken.
     for (const one of SHORTCUTS) {
-      const fresh = { key: one.key, metaKey: true, ctrlKey: false, shiftKey: Boolean(one.shift), altKey: Boolean(one.alt), code: one.code }
+      const fresh = { key: one.key, metaKey: !one.controlOnly, ctrlKey: Boolean(one.controlOnly), shiftKey: Boolean(one.shift), altKey: Boolean(one.alt), code: one.code }
       expect(shortcutFor(fresh)?.action).toBe(one.action)
     }
   })

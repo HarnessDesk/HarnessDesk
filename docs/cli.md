@@ -76,10 +76,12 @@ Every command ends with one of these. A command's own section lists the codes th
 | [`run show`](#harnessdesk-run-show) | Shows the shared Run timeline: its header, brief, rounds, cards, check results, findings and ending. | read |
 | [`run stop`](#harnessdesk-run-stop) | Stops a run and interrupts its seats, without opening the next card. | run |
 | [`run wait`](#harnessdesk-run-wait) | Waits for a run to end, without polling, and says how it ended in its exit code. | read |
+| [`library list`](#harnessdesk-library-list) | Lists every skill and MCP server the desk can see, and how many agents load each one. | read |
+| [`library show`](#harnessdesk-library-show) | Shows one skill or MCP server, its copies, and which agents load it. | read |
 | [`card show`](#harnessdesk-card-show) | One card on a Team's board: its role, state, outcome, note and handoff. | read |
 | [`card handoff`](#harnessdesk-card-handoff) | Prints a card's handoff text and nothing else, so it can go down a pipe. | read |
 | [`card answer`](#harnessdesk-card-answer) | Answers a card a flow addressed to a person, with one of its role's outcomes. | answer |
-| [`card abandon`](#harnessdesk-card-abandon) | Abandons a card, though the rule after its role still fires. | run |
+| [`card abandon`](#harnessdesk-card-abandon) | Abandons a card. | run |
 | [`waiting`](#harnessdesk-waiting) | Everything waiting for a person: person cards, questions from seats and tool approvals. | read |
 
 ### `harnessdesk desks`
@@ -260,7 +262,7 @@ A single object, `{ "flows": [...] }`. Each flow has `id`, `origin` (`project`, 
 harnessdesk flow preview <flow> [--project PATH] [--title TEXT] [--brief-file PATH] [--input NAME=VALUE] [--seat ROLE=RUNTIME] [--unattended]
 ```
 
-Says what a flow would do, without doing it or spending anything. It lists the seats the flow would open (with any override beside the file's own), the check commands it would run, and everything wrong with it. A preview opens no session, spends nothing and starts nothing, so it is free to repeat. Warnings stay visible and do not stop a start.
+Says what a flow would do, without doing it or spending anything. It lists the seats the flow would open (with any override beside the file's own), which declared skills and servers would load and why any would not, the check commands it would run, and everything wrong with it. A seat that would be refused stops Start. A preview opens no session, spends nothing and starts nothing, so it is free to repeat. Warnings stay visible and do not stop a start.
 
 Needs the **read** tier.
 
@@ -388,7 +390,7 @@ Needs the **read** tier.
 
 **Flags**
 
-- `--timeout SECONDS`: Give up after this many seconds, counted from when the command starts, and exit 8. Any finite number from 0 up; leave it out to wait without a deadline.
+- `--timeout SECONDS`: Give up after this many seconds, counted from when the command starts, and exit 8. Accepts finite numbers from 0 through 2147483.647; leave it out to wait without a deadline.
 
 **With `--json`**
 
@@ -402,6 +404,60 @@ Needs the **read** tier.
 - `8`: The timeout passed first.
 - `130`: Interrupted with Ctrl-C.
 - `143`: Terminated.
+
+### `harnessdesk library list`
+
+```
+harnessdesk library list [--project PATH] [--kind skill|mcp] [--issues]
+```
+
+Lists every skill and MCP server the desk can see, and how many agents load each one.
+
+Needs the **read** tier.
+
+**Flags**
+
+- `--project PATH`: Include this project’s own skill and MCP folders. Symbolic links are followed. Defaults to the Git repository containing the current folder; outside a repository, only user scope is read.
+- `--kind skill|mcp`: Show only skills or only MCP servers.
+- `--issues`: Show only entries the Library identifies as having a problem.
+
+**With `--json`**
+
+A single object, `{ "home": "…", "runtimes": [...], "entries": [...] }`, from `library/read`; filters apply to `entries` only.
+
+**Exit codes**
+
+- `0`: Done.
+
+### `harnessdesk library show`
+
+```
+harnessdesk library show <name> [--project PATH] [--kind skill|mcp] [--text]
+```
+
+Shows one skill or MCP server, its copies, and which agents load it. Usage says "last unknown" when activations were counted without a recorded time. Its first read of `library/usage` walks every stored conversation and can take a while.
+
+Needs the **read** tier.
+
+**Arguments**
+
+- `<name>`: A skill or MCP server name as `harnessdesk library list` prints it.
+
+**Flags**
+
+- `--project PATH`: Include this project’s own skill and MCP folders. Symbolic links are followed. Defaults to the Git repository containing the current folder; outside a repository, only user scope is read.
+- `--kind skill|mcp`: Show only skills or only MCP servers.
+- `--text`: Print the first readable copy’s definition text by itself, for a pipe. Cannot be combined with `--json`; an unreadable or truncated definition exits 1 without printing text.
+
+**With `--json`**
+
+A single object, `{ "home": "…", "runtimes": [...], "entry": {...}, "usage": {...}, "definition": {...} }`; `definition` is null when no copy can be read.
+
+**Exit codes**
+
+- `0`: Shown.
+- `1`: No skill or server has that name here, or `--text` has no readable, complete definition.
+- `2`: A skill and an MCP server share the name; give `--kind`. Or `--text` was combined with `--json`.
 
 ### `harnessdesk card show`
 
@@ -487,7 +543,7 @@ Needs the **answer** tier.
 harnessdesk card abandon <team> <card> --reason TEXT [--yes]
 ```
 
-Abandons a card, though the rule after its role still fires. That rule may open the next role's card: before it asks, the command says which role that would be, and points to `run stop` as the way to end the work instead. On a terminal it asks `Abandon this card? [y/N]`; `--yes` answers for you, and is needed when there is no terminal.
+Abandons a card. Once every card in the round has finished, the run follows the first matching rule. If no rule matches, the run ends without opening another role. Before it asks, the command lists possible next roles and points to `run stop` as the way to end the work instead. On a terminal it asks `Abandon this card? [y/N]`; `--yes` answers for you, and is needed when there is no terminal.
 
 Needs the **run** tier.
 
@@ -540,6 +596,9 @@ A single object, `{ "waiting": [...] }`, each item with `id`, `team`, `kind` (`c
 ```sh
 # Is a desk running, and what is it doing?
 harnessdesk status
+
+# Open an existing project on this desk first.
+harnessdesk open ~/code/app
 
 # See what a flow would do in a project, then start it. Nothing is spent until the start.
 harnessdesk flow preview review-pr --project ~/code/app --input task="Fix the retry count"

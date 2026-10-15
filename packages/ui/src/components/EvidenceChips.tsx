@@ -98,7 +98,7 @@ export const ObservedDialog = ({
   return (
     <Dialog
       title={`What the desk observed on #${id}`}
-      subhead={title}
+      description={title}
       size="lg"
       onClose={onClose}
       footer={

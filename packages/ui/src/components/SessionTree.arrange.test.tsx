@@ -38,7 +38,7 @@ afterEach(() => {
 const runtime = {
   id: 'agent',
   name: 'Agent',
-  capabilities: { deleteHistory: true },
+  capabilities: { deleteHistory: 'trash' },
   presentation: { name: 'Agent' },
 } as unknown as RuntimeInfo
 
@@ -92,7 +92,7 @@ it('puts a pinned project mark in the row trailing slot beside its label', () =>
   })
   const head = heads()[0]
   const label = head?.querySelector('[data-slot="sidebar-menu-label"]')
-  const pin = head?.querySelector('[data-sidebar="menu-badge"][aria-label="Pinned"]')
+  const pin = head?.querySelector('[data-left-mark][aria-label="Pinned"]')
   expect(pin).not.toBeNull()
   expect(label?.contains(pin!)).toBe(false)
 })
@@ -296,22 +296,22 @@ it('expands a project folded under a clone while the agent filter delays migrati
 
 const openControlSubmenu = async (name: string): Promise<HTMLElement> => {
   const trigger = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
-    .find((item) => item.querySelector('[class*="title"]')?.textContent?.trim() === name)
+    .find((item) => item.querySelector('[data-menu-label]')?.textContent?.trim() === name)
   if (!trigger) throw new Error(`the ${name} submenu did not render`)
   act(() => trigger.dispatchEvent(new MouseEvent('click', { bubbles: true })))
   return trigger
 }
 
-it('keeps display controls to three flyouts and the project fold actions', () => {
+it('keeps display controls to two flyouts and the project fold actions', () => {
   const { store } = rig()
   act(() => root.render(<StoreProvider store={store}><SessionListControls /></StoreProvider>))
   const trigger = container.querySelector('button')!
   act(() => trigger.click())
   const menu = document.querySelector('[role="menu"]')!
   const labels = [...menu.querySelectorAll<HTMLElement>(':scope > [role="menuitem"]')]
-    .map((item) => item.querySelector('[class*="title"]')?.textContent?.trim())
-  expect(labels).toEqual(['Sort projects', 'Density', 'Show agents', 'Collapse all', 'Expand all'])
-  expect(menu.querySelectorAll(':scope > [role="menuitem"]')).toHaveLength(5)
+    .map((item) => item.querySelector('[data-menu-label]')?.textContent?.trim())
+  expect(labels).toEqual(['Sort projects', 'Show agents', 'Collapse all', 'Expand all'])
+  expect(menu.querySelectorAll(':scope > [role="menuitem"]')).toHaveLength(4)
   expect(menu.querySelector('[role="separator"]')).not.toBeNull()
   expect(container.querySelector('[data-filtered]')).toBeNull()
 })
@@ -324,22 +324,19 @@ it('keeps the filter dot on the display trigger while an agent filter hides rows
   expect(controls.querySelector('button[title="How this list is shown"]')).not.toBeNull()
 })
 
-it('sorts projects and changes density only through their flyouts', async () => {
+it('sorts projects through its flyout and leaves stored density without a menu', async () => {
   const { store } = rig()
   act(() => root.render(<StoreProvider store={store}><SessionListControls /></StoreProvider>))
   act(() => container.querySelector('button')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
   await openControlSubmenu('Sort projects')
   const name = [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
-    .find((item) => item.querySelector('[class*="title"]')?.textContent?.trim() === 'Name')!
+    .find((item) => item.querySelector('[data-menu-label]')?.textContent?.trim() === 'Name')!
   act(() => name.dispatchEvent(new MouseEvent('click', { bubbles: true })))
   expect(store.setListPrefs).toHaveBeenCalledWith({ sort: 'name' })
 
   act(() => container.querySelector('button')!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
-  await openControlSubmenu('Density')
-  const compact = [...document.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
-    .find((item) => item.querySelector('[class*="title"]')?.textContent?.trim() === 'Compact')!
-  act(() => compact.dispatchEvent(new MouseEvent('click', { bubbles: true })))
-  expect(store.setListPrefs).toHaveBeenCalledWith({ density: 'compact', densityPicked: true })
+  expect([...document.querySelectorAll('[role="menuitem"]')].some(item => item.textContent?.includes('Density'))).toBe(false)
+  expect(store.setListPrefs).not.toHaveBeenCalledWith(expect.objectContaining({ density: expect.anything() }))
 })
 
 it('shows every runtime in the Show agents flyout and filters by the chosen runtime', async () => {
@@ -352,10 +349,10 @@ it('shows every runtime in the Show agents flyout and filters by the chosen runt
   await openControlSubmenu('Show agents')
   const menus = [...document.querySelectorAll<HTMLElement>('[role="menu"]')]
   const labels = [...menus[1]!.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
-    .map((item) => item.querySelector('[class*="title"]')?.textContent?.trim())
+    .map((item) => item.querySelector('[data-menu-label]')?.textContent?.trim())
   expect(labels).toEqual(['All agents', 'Agent', 'Other Agent'])
   const other = [...menus[1]!.querySelectorAll<HTMLElement>('[role^="menuitem"]')]
-    .find((item) => item.querySelector('[class*="title"]')?.textContent?.trim() === 'Other Agent')!
+    .find((item) => item.querySelector('[data-menu-label]')?.textContent?.trim() === 'Other Agent')!
   act(() => other.dispatchEvent(new MouseEvent('click', { bubbles: true })))
   expect(storeWithRuntimes.setListPrefs).toHaveBeenCalledWith({ agent: 'other' })
 })

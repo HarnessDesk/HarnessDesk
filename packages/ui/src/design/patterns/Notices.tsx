@@ -3,6 +3,7 @@ import { useLayoutEffect, useRef, useState, type KeyboardEvent, type ReactNode }
 import { AlertIcon, ArrowLeftIcon, BellIcon, BellOffIcon, ChevronIcon, CrossIcon, InfoIcon, ShieldAlertIcon, TrashIcon } from '../../components/Icons'
 import { ContextMenu, MenuItem, type MenuPoint } from './Menu'
 import { Popover } from './Popover'
+import { InboxMenu } from './InboxMenu'
 import type { BannerTone } from '../primitives/Banner'
 import { cn } from '@/lib/utils'
 import { Button } from '../ui/button'
@@ -151,7 +152,7 @@ const Dismiss = ({ onDismiss, onMute }: { onDismiss: () => void; onMute?: (() =>
         <CrossIcon size={12} />
       </Button>
       {onMute ? (
-        <ContextMenu at={menuAt} label="Message options" onClose={() => setMenuAt(null)}>
+        <ContextMenu at={menuAt} label="Message options" onClose={() => setMenuAt(null)} icons="all">
           <MenuItem icon={<CrossIcon size={14} />} label="Dismiss" onSelect={onDismiss} />
           <MenuItem icon={<BellOffIcon size={14} />} label="Stop showing this" hint="Turn it back on in Settings › Notifications" onSelect={onMute} />
         </ContextMenu>
@@ -278,7 +279,7 @@ const ComposerNoticeRow = ({ message, onDismiss, onMute }: { message: NoticeMess
   const lineRef = useRef<HTMLSpanElement>(null)
   const wrapped = useWrappedText(lineRef, [message.title, message.body])
   return (
-    <div className={styles.composer} data-slot="composer-notice" data-tone={message.tone ?? 'neutral'} {...(wrapped ? { 'data-wrapped': '' } : {})} role="status">
+    <div className={styles.composer} data-slot="composer-notice" data-surface="" data-tone={message.tone ?? 'neutral'} {...(wrapped ? { 'data-wrapped': '' } : {})} role="status">
       <Lead message={message} />
       <span className={styles.line} data-slot="notice-message-line">
         <span ref={lineRef} className={styles.lineText}>
@@ -325,7 +326,7 @@ export const NoticeStrip = ({
   const message = messages[pager.at]
   if (!message) return null
   return (
-    <div className={styles.strip} data-slot="notice-strip" data-tone={message.tone ?? 'neutral'} role="status">
+    <div className={styles.strip} data-slot="notice-strip" data-surface="" data-tone={message.tone ?? 'neutral'} role="status">
       <Lead message={message} size="sm" />
       <span className={styles.line} data-slot="notice-message-line">
         <span className={styles.lineText}>
@@ -477,8 +478,7 @@ export const InboxList = ({
 
 /**
  * The bell and the inbox behind it. The bell carries the unread count in its
- * own tint; the inbox opens beside it as a panel of its own, wide enough for
- * a card to read in two lines, rather than folding into a menu.
+ * own tint; the wide menu keeps complete message facts and their actions.
  */
 export const InboxPanel = ({
   side = 'right',
@@ -498,8 +498,8 @@ export const InboxPanel = ({
           {unread > 0 ? <span className={styles.bellCount} data-slot="inbox-dot" aria-hidden /> : null}
         </span>
       }
-    >
-      {() => <InboxList {...list} />}
+      panelWidth="wide" icons="none">
+      {close => <InboxMenu {...list} close={close} />}
     </Popover>
   )
 }
@@ -510,19 +510,21 @@ export const InboxPanel = ({
  */
 export const showToast = (
   message: Omit<NoticeMessage, 'id'> & { id?: string },
-  how: { readonly persist?: boolean } = {},
+  how: { readonly persist?: boolean; readonly expiresAt?: number } = {},
 ): void => {
   const options = {
     ...(message.id ? { id: message.id } : {}),
+    ...(how.expiresAt === undefined ? {} : { duration: Math.max(0, how.expiresAt - Date.now()) }),
     // A failure stays until it is closed: a toast that left before it was
     // read is a failure nobody saw.
     ...(how.persist ? { duration: Number.POSITIVE_INFINITY, closeButton: true } : {}),
     ...(message.body ? { description: message.body } : {}),
     ...(message.action ? { action: { label: message.action.label, onClick: message.action.onSelect } } : {}),
   }
-  if (message.tone === 'danger') toast.error(message.title, options)
-  else if (message.tone === 'warning') toast.warning(message.title, options)
-  else toast(message.title, options)
+  const id = message.tone === 'danger' ? toast.error(message.title, options)
+    : message.tone === 'warning' ? toast.warning(message.title, options) : toast(message.title, options)
+  // Absolute Undo deadlines do not pause when the person hovers a toast.
+  if (how.expiresAt !== undefined) setTimeout(() => toast.dismiss(id), Math.max(0, how.expiresAt - Date.now()))
 }
 
 /**

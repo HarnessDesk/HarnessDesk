@@ -11,6 +11,131 @@ const declared: ConfigOption[] = [
   { id: 'mode', label: 'Mode', category: 'mode', type: 'select', currentValue: 'plan', choices: [{ value: 'plan', label: 'Plan' }] },
 ]
 
+it.each(['missing', 'different choices'] as const)('keeps saved reasoning for the saved model when discovery has %s', async (discovery) => {
+  const store = new AppStore('ws://localhost:0/')
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: { values?: Record<string, unknown> }) => {
+    if (method === 'runtime/sessionDefaults') {
+      const model = params.values?.model ?? 'old'
+      const effort: ConfigOption = { id: 'effort', label: 'Reasoning', category: 'thought_level', type: 'select',
+        currentValue: params.values?.effort === 'high' && model === 'current' ? 'high' : 'low',
+        choices: (model === 'current' ? ['low', 'high'] : ['low']).map((value) => ({ value, label: value })) }
+      return [{ ...declared[0]!, currentValue: model }, ...(model === 'current' || discovery === 'different choices' ? [effort] : [])]
+    }
+    if (method === 'session/create') return { runtime, id: sessionId('reasoning'), cwd: '/workspace', status: { type: 'idle' }, turns: [], createdAt: 0, updatedAt: 0 }
+    return {}
+  }) as never)
+  await store.setNewSessionDefault(runtime, 'model', 'current')
+  await store.setNewSessionDefault(runtime, 'effort', 'high')
+  request.mockClear()
+
+  await store.newSessionDefaultsFor(runtime)
+  expect(store.getSnapshot().staleDraftDefaults[runtime]).toEqual([])
+  await store.newSession({ runtime, cwd: '/workspace' })
+  expect(request.mock.calls.find(([method]) => method === 'session/create')?.[1])
+    .toMatchObject({ options: { options: { model: 'current', effort: 'high' } } })
+  expect(request.mock.calls.filter(([method]) => method === 'runtime/sessionDefaults').map(([, params]) => params))
+    .toContainEqual({ runtime, values: { model: 'current' } })
+})
+
+it('applies the saved model before reasoning even when reasoning was persisted first', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: { values?: Record<string, unknown> }) => {
+    if (method === 'app/state/get') return { draftValues: { [runtime]: { effort: 'high', model: 'current' } } }
+    if (method === 'runtime/sessionDefaults') {
+      let model = 'old'
+      let effort = 'low'
+      // Like an agent applying configuration entries in request order, each
+      // reasoning write must be valid for the model already selected.
+      for (const [id, value] of Object.entries(params.values ?? {})) {
+        if (id === 'model') model = String(value)
+        if (id === 'effort') {
+          if (model !== 'current' && value === 'high') throw new Error('This model has no high effort.')
+          effort = String(value)
+        }
+      }
+      return [{ ...declared[0]!, currentValue: model }, { id: 'effort', label: 'Reasoning', category: 'thought_level', type: 'select',
+        currentValue: effort, choices: (model === 'current' ? ['low', 'high'] : ['low']).map((value) => ({ value, label: value })) }]
+    }
+    if (method === 'session/create') return { runtime, id: sessionId('ordered'), cwd: '/workspace', status: { type: 'idle' }, turns: [], createdAt: 0, updatedAt: 0 }
+    return []
+  }) as never)
+  await store.loadPreferences()
+  await store.newSession({ runtime, cwd: '/workspace' })
+  expect(store.getSnapshot().staleDraftDefaults[runtime]).toEqual([])
+  expect(request.mock.calls.find(([method]) => method === 'session/create')?.[1])
+    .toMatchObject({ options: { options: { model: 'current', effort: 'high' } } })
+  const created = request.mock.calls.find(([method]) => method === 'session/create')?.[1] as { options: { options: Record<string, unknown> } }
+  expect(Object.keys(created.options.options)).toEqual(['model', 'effort'])
+})
+
+it('keeps saved reasoning when a saved profile selects the model that supports it', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: { values?: Record<string, unknown> }) => {
+    if (method === 'runtime/sessionDefaults') {
+      const profile = params.values?.profile ?? ''
+      return [{ ...declared[0]!, currentValue: profile === 'reasoning' ? 'current' : 'old' },
+        { id: 'profile', label: 'Profile', category: '_profile', type: 'select', currentValue: profile,
+          choices: [{ value: '', label: 'None' }, { value: 'reasoning', label: 'Reasoning profile' }] },
+        { id: 'effort', label: 'Reasoning', category: 'thought_level', type: 'select', currentValue: params.values?.effort ?? 'low',
+          choices: (profile === 'reasoning' ? ['low', 'high'] : ['low']).map((value) => ({ value, label: value })) }]
+    }
+    if (method === 'session/create') return { runtime, id: sessionId('profile'), cwd: '/workspace', status: { type: 'idle' }, turns: [], createdAt: 0, updatedAt: 0 }
+    return []
+  }) as never)
+  await store.setNewSessionDefault(runtime, 'profile', 'reasoning')
+  await store.setNewSessionDefault(runtime, 'effort', 'high')
+  await store.newSession({ runtime, cwd: '/workspace' })
+  expect(store.getSnapshot().staleDraftDefaults[runtime]).toEqual([])
+  expect(request.mock.calls.find(([method]) => method === 'session/create')?.[1])
+    .toMatchObject({ options: { options: { profile: 'reasoning', effort: 'high' } } })
+})
+
+it('revalidates session creation when another refresh supersedes its pending validation', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const pending: ((options: readonly ConfigOption[]) => void)[] = []
+  let reads = 0
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+    if (method === 'runtime/sessionDefaults') {
+      if (++reads === 1) return declared
+      if (reads <= 3) return new Promise<readonly ConfigOption[]>((resolve) => { pending.push(resolve) })
+      return [declared[1]!]
+    }
+    if (method === 'session/create') return { runtime, id: sessionId('racing'), cwd: '/workspace', status: { type: 'idle' }, turns: [], createdAt: 0, updatedAt: 0 }
+    return []
+  }) as never)
+  await store.setNewSessionDefault(runtime, 'model', 'old')
+  const creating = store.newSession({ runtime, cwd: '/workspace' })
+  await vi.waitFor(() => expect(pending).toHaveLength(1))
+  const refresh = store.newSessionDefaultsFor(runtime)
+  pending[0]!([declared[1]!])
+  await creating
+  pending[1]!([declared[1]!])
+  await refresh
+  expect(request.mock.calls.find(([method]) => method === 'session/create')?.[1])
+    .toEqual({ runtime, options: { cwd: '/workspace' } })
+  expect(store.getSnapshot().staleDraftDefaults[runtime]).toMatchObject([{ id: 'model', value: 'old' }])
+})
+
+it('serializes concurrent creations so their defaults validations do not invalidate one another', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  let reads = 0
+  let creates = 0
+  vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName) => {
+    if (method === 'runtime/sessionDefaults') {
+      // Bounded equal-latency replies reproduce competing revision retries,
+      // then answer immediately so an incorrect implementation can settle.
+      if (++reads <= 10) await new Promise((resolve) => setTimeout(resolve, 0))
+      return declared
+    }
+    if (method === 'session/create') return { runtime, id: sessionId(`parallel-${++creates}`), cwd: '/workspace', status: { type: 'idle' }, turns: [], createdAt: 0, updatedAt: 0 }
+    return []
+  }) as never)
+  await store.setNewSessionDefault(runtime, 'model', 'old')
+  await Promise.all([store.newSession({ runtime, cwd: '/workspace', reveal: false }), store.newSession({ runtime, cwd: '/workspace', reveal: false })])
+  expect(creates).toBe(2)
+  expect(reads).toBe(5) // One saved pick, then discovery and application per creation.
+})
+
 it('retains a rejected saved pick with its original value while accepted defaults still send', async () => {
   const store = new AppStore('ws://localhost:0/')
   let options = declared

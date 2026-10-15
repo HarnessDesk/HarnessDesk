@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 
 import type { PlanEntry, PlanSuggestion } from '@harnessdesk/protocol'
 
@@ -21,6 +21,7 @@ const domainOf = (url: string): string => {
 }
 
 export interface PlanCardProps {
+  readonly active?: boolean
   /** This account's own stored fee/budget — never a runtime's single cached report. */
   readonly entry: PlanEntry | null
   /** The one suggestion matching this account's own plan string, when known. `null` once a fee is already set. */
@@ -45,8 +46,9 @@ export interface PlanCardProps {
  * only thing that knows how to ask the host for them; this component would
  * look identical mounted from a fixture on the catalogue board.
  */
-export const PlanCard = ({ entry, suggestion, refusal, showBudget, onSetFee, onClearFee, onSetBudget, onClearBudget }: PlanCardProps) => {
+export const PlanCard = ({ active = true, entry, suggestion, refusal, showBudget, onSetFee, onClearFee, onSetBudget, onClearBudget }: PlanCardProps) => {
   const [editing, setEditing] = useState<'fee' | 'budget' | null>(null)
+  useEffect(() => { if (!active) setEditing(null) }, [active])
   const [busy, setBusy] = useState<'clearFee' | 'useSuggestion' | 'clearBudget' | null>(null)
   // Use and Clear write directly, with no dialog of their own to show a
   // failure in — so this is where BLOCKING 2's "the UI catches errors from
@@ -161,7 +163,7 @@ export const PlanCard = ({ entry, suggestion, refusal, showBudget, onSetFee, onC
           />
         )}
       </Rows>
-      {editing && (
+      {active && editing && (
         <PlanAmountDialog
           kind={editing}
           initial={editing === 'fee' ? fee : budget}

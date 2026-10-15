@@ -143,6 +143,25 @@ const proveWatching = async (probe: ReturnType<typeof recording>, dir: string, w
 /** A watcher that reports nothing on its own: for a test that says by hand what a watch reported. */
 const quietWatcher = (): FSWatcher => Object.assign(new EventEmitter(), { close: () => {} }) as unknown as FSWatcher
 
+test('a removed workspace releases its roster watch and timers when projects reconcile', async t => {
+  const project = tempDir('hd-agent-watch-removed-')
+  await mkdir(join(project, '.harnessdesk', 'agents'), { recursive: true })
+  const clock = fakeClock()
+  let closed = 0
+  const watchFn: WatchFn = () => Object.assign(new EventEmitter(), { close: () => { closed++ } }) as unknown as FSWatcher
+  const instance = new AgentWatch({ roots: [], changed: () => {}, watchFn, clock })
+  t.after(() => instance.dispose())
+  await instance.watchProjects([project])
+  await new Promise<void>(resolve => setImmediate(resolve))
+  await rm(project, { recursive: true })
+  await instance.watchProjects([project]) // the historical workspace row is still present
+  assert.equal(closed, 1)
+  assert.equal(clock.pendingCount(), 0)
+  await mkdir(join(project, '.harnessdesk', 'agents'), { recursive: true })
+  await instance.watchProjects([project])
+  assert.equal(closed, 1, 'reopening a recreated folder attaches a fresh watch')
+})
+
 /**
  * A clock a test moves by hand, for counting how many times a debounced
  * timer fires without betting on real time. Nothing scheduled through it

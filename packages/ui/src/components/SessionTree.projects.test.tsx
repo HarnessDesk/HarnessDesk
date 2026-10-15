@@ -37,7 +37,7 @@ afterEach(() => {
 const runtime = {
   id: 'agent',
   name: 'Agent',
-  capabilities: { deleteHistory: true },
+  capabilities: { deleteHistory: 'trash' },
   presentation: { name: 'Agent' },
 } as unknown as RuntimeInfo
 
@@ -97,15 +97,34 @@ const render = (history: SessionSummary[], open: WorkspaceEntry, over: Partial<A
 /** The project rows, by the name each one shows. */
 const projects = (): string[] =>
   [...container.querySelectorAll<HTMLElement>('[draggable="true"]')].map(
-    (head) => head.querySelector('[data-draggable] [data-role="prose"]')?.textContent ?? '',
+    (head) => head.querySelector('[data-draggable] [data-slot="sidebar-menu-label-content"]')?.textContent ?? '',
   )
 
 /** The row the list is calling the folder you are in. */
 const currentProject = (): string | null =>
-  container.querySelector<HTMLElement>('[data-current] [data-draggable] [data-role="prose"]')?.textContent ?? null
+  container.querySelector<HTMLElement>('[data-current] [data-draggable] [data-slot="sidebar-menu-label-content"]')?.textContent ?? null
 
 const currentProjectRoot = (): string | null =>
   container.querySelector<HTMLElement>('[data-current]')?.closest<HTMLElement>('[data-project-root]')?.dataset.projectRoot ?? null
+
+it('files unknown folders in one folded group after projects, keeping root and row actions', () => {
+  const unknown = (id: string) => ({ ...session(id, '', { root: '', worktree: false }), title: null, preview: `First prompt ${id}`, repo: null })
+  render([unknown('one'), unknown('two'), session('root', '/', { root: '/', worktree: false })], workspace(REPO, { root: REPO, worktree: false }), { listPrefs: { ...emptySnapshot().listPrefs, othersOpen: true } })
+  expect(projects()).toEqual(['repo', '/'])
+  const group = container.querySelector('[data-no-folder]')!
+  expect(group).not.toBeNull()
+  const head = group.querySelector<HTMLButtonElement>('button[aria-expanded]')!
+  expect(head.textContent).toContain('No folder')
+  expect(head.getAttribute('aria-expanded')).toBe('false')
+  expect(group.querySelector('[data-slot="sidebar-menu-action"]')).toBeNull()
+  expect(group.compareDocumentPosition(container.querySelector('[data-project-root="/"]')!) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+  expect(group.textContent).not.toContain('First prompt')
+  act(() => head.click())
+  expect(group.textContent).toContain('First prompt one')
+  expect(group.textContent).toContain('First prompt two')
+  expect(group.querySelectorAll('[data-region="session-row"]')).toHaveLength(2)
+  expect(group.querySelectorAll('[aria-label^="Actions for First prompt"]')).toHaveLength(2)
+})
 
 it('gives an open subfolder one row, not a second empty one for its repository', () => {
   // The subfolder is the project's home — grouping lets the folder you have
@@ -116,6 +135,27 @@ it('gives an open subfolder one row, not a second empty one for its repository',
 
   expect(projects()).toEqual(['ui'])
   expect(currentProject()).toBe('ui')
+})
+
+it('reveals an activated folderless row beyond overflow and preserves a later deliberate fold', () => {
+  const history = Array.from({ length: 15 }, (_, index) => ({
+    ...session(`unknown-${index}`, '', { root: '', worktree: false }), repo: null, updatedAt: 15 - index,
+  }))
+  const open = workspace(REPO, { root: REPO, worktree: false })
+  const activeSessionKey = sessionKey(runtime.id, history[14]!.id)
+  render(history, open)
+  expect(container.querySelector('[data-no-folder] button[aria-expanded]')?.getAttribute('aria-expanded')).toBe('false')
+  render(history, open, { activeSessionKey })
+  const group = container.querySelector('[data-no-folder]')!
+  const head = group.querySelector<HTMLButtonElement>('button[aria-expanded]')!
+  expect(head.getAttribute('aria-expanded')).toBe('true')
+  expect(group.querySelector('[aria-current="page"]')?.textContent).toContain('unknown-14')
+  expect(group.querySelectorAll('[data-region="session-row"]')).toHaveLength(15)
+  act(() => head.click())
+  render(history, open, { activeSessionKey, inbox: [] })
+  expect(head.getAttribute('aria-expanded')).toBe('false')
+  render(history, open, { activeSessionKey: sessionKey(runtime.id, history[0]!.id) })
+  expect(head.getAttribute('aria-expanded')).toBe('true')
 })
 
 it('keeps the cached home when an older unloaded match is returned while both clones are open', async () => {
@@ -129,10 +169,6 @@ it('keeps the cached home when an older unloaded match is returned while both cl
   // older matching conversation from another clone before pagination reaches it.
   const history = [{ ...home, createdAt: 10 }]
   let listCalls = 0
-  let resetHistory!: (value: { data: readonly SessionSummary[]; nextCursor: null }) => void
-  const delayedReset = new Promise<{ data: readonly SessionSummary[]; nextCursor: null }>((resolve) => {
-    resetHistory = resolve
-  })
   const opened = [
     workspace('/widgets', { root: '/widgets', worktree: false, origin: 'github.com/acme/widgets' }),
     workspace('/widgets-clone', { root: '/widgets-clone', worktree: false, origin: 'github.com/acme/widgets' }),
@@ -148,9 +184,9 @@ it('keeps the cached home when an older unloaded match is returned while both cl
     method: HostMethodName,
     params: { query?: string },
   ) => {
-    if (method === 'session/list') {
+    if (method === 'session/index') {
       listCalls += 1
-      return listCalls === 1 ? { data: history, nextCursor: null } : delayedReset
+      return { data: history, nextCursor: null }
     }
     if (method === 'session/search') return { data: [{ ...clone, createdAt: 1 }], nextCursor: null }
     if (method === 'workspace/recent') return opened
@@ -217,17 +253,15 @@ it('keeps the cached home when an older unloaded match is returned while both cl
   act(() => {
     renderTree()
   })
-  // Clearing the field precedes Sidebar's debounced full-history request.
-  // Keep the search response visible both before that request starts and
-  // while its replacement response is pending.
+  // Clearing the field restores cached identity without another request.
   expect(currentProjectRoot()).toBe('/widgets')
   let clear!: Promise<void>
   act(() => { clear = store.searchHistory('') })
   expect(currentProjectRoot()).toBe('/widgets')
   await act(async () => {
-    resetHistory({ data: history, nextCursor: null })
     await clear
   })
+  expect(listCalls).toBe(1)
   expect(store.getSnapshot().history.map((row) => row.id)).toEqual(['home-session'])
   expect(currentProjectRoot()).toBe('/widgets')
   expect(projects()).toEqual(['widgets'])
@@ -277,15 +311,13 @@ it('only a stopped project adds capture text, including its folded canonical ali
     workspace(tree, { root: REPO, worktree: true }),
     { captureHealth: new Map([[REPO, off]]) },
   )
-  expect(container.textContent).toContain('Capture stopped')
-  const state = container.querySelector<HTMLElement>('[data-slot="sidebar-menu-state"]')
-  expect(state?.getAttribute('aria-label')).toBe('Capture stopped')
+  const state = container.querySelector<HTMLElement>('[data-left-mark]')
+  expect(state?.getAttribute('aria-label')).toBe('Capture is off. Turn capture on.')
   expect(state?.getAttribute('title')).toBe('Capture is off. Turn capture on.')
-  expect(state?.hasAttribute('data-compact-at-narrow')).toBe(true)
-  expect(state?.querySelector('[data-slot="chip"]')?.getAttribute('data-variant')).toBe('quiet')
-  expect(container.querySelector('[data-project-root="/repo"] [data-role="prose"]')?.textContent).toBe('repo')
+  expect(state?.querySelector('[data-slot="dot"]')).not.toBeNull()
+  expect(container.querySelector('[data-project-root="/repo"] [data-slot="sidebar-menu-label-content"]')?.textContent).toBe('repo')
   render([session('a', REPO, { root: REPO, worktree: false })], workspace(REPO, { root: REPO, worktree: false }), { captureHealth: new Map([[REPO, { ...off, enabled: true, state: 'healthy' }]]) })
-  expect(container.textContent).not.toContain('Capture stopped')
+  expect(container.querySelector('[data-left-mark]')).toBeNull()
 })
 
 it('a trigger Goal’s room is named by its Goal, with no origin line of its own, and no row asks Intake for one', async () => {

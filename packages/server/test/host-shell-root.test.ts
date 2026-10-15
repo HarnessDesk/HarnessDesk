@@ -9,12 +9,13 @@ import { fileURLToPath } from 'node:url'
 
 import { AcpRuntime } from '@harnessdesk/adapter-acp'
 import { ExtensionKernel, type HarnessContext, type HarnessPlugin } from '@harnessdesk/cordis-host'
+import { gitPlugin } from '@harnessdesk/plugins'
 import { sessionId, type AgentRuntime, type Session } from '@harnessdesk/protocol'
 
 import { bridgeCallerFor } from '../src/bootstrap.js'
 import { invokeForBridge } from '../src/tool-gateway.js'
 import { Host } from '../src/host.js'
-import { Worktrees } from '../src/worktree.js'
+import { managedWorktreePath, Worktrees } from '../src/worktree.js'
 import { EvidenceStore } from '../src/evidence/store.js'
 import { captureShellProject, shellProjectUnchanged } from '../src/shell-project.js'
 import { LaneStore } from '../src/goals/lanes.js'
@@ -62,11 +63,16 @@ async function rig(t: TestContext, runtime?: AgentRuntime, collision = false) {
       },
     },
   } as HarnessPlugin)
+  await kernel.load(gitPlugin)
   await new Promise((resolve) => setTimeout(resolve, 60))
   const contexts = kernel.list('context')
-  const tool = kernel.list('tool')[0]!
+  const tool = kernel.list('tool').find((entry) => entry.name === 'where')!
   const where = contexts.find((entry) => entry.label === 'Where')!
   const diff = contexts.find((entry) => entry.label === 'Diff')!
+  const conversation = (cwd: string, id = 'ordinary') => {
+    host.registry.upsert({ id: sessionId(id), runtime: agent.info.id, cwd, status: { type: 'idle' }, createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true }, null)
+    return { runtime: agent.info.id, sessionId: sessionId(id) }
+  }
   const worktrees = new Worktrees(stateDir)
   const lane = await worktrees.create(project, { name: 'isolated' })
   const seat = async (cwd = lane.path) => {
@@ -75,8 +81,240 @@ async function rig(t: TestContext, runtime?: AgentRuntime, collision = false) {
     await writeFile(join(agentRoot, 'AGENT.md'), `---\nname: Probe\npermission: read\nprefer: [${agent.info.id}]\n---\nRead the checkout.\n`)
     return host.call('agent/seat', { id: 'probe', cwd, project })
   }
-  return { host, kernel, agent, base, project, other, stateDir, lane, seat, tool, where, diff, dispose }
+  return { host, kernel, agent, base, project, other, stateDir, lane, seat, conversation, tool, where, diff, dispose }
 }
+
+test('ordinary worktree conversation Git context and status use its checkout', async (t) => {
+  const d = await rig(t)
+  const checkout = await managedWorktreePath(d.project, d.stateDir, 'conversation')
+  await git(d.project, 'worktree', 'add', '-b', 'conversation-feature', checkout)
+  await writeFile(join(checkout, 'worktree.txt'), 'worktree original\n')
+  await git(checkout, 'add', '.')
+  await git(checkout, 'commit', '-qm', 'Worktree-only fixture')
+  await writeFile(join(checkout, 'worktree.txt'), 'worktree-only change\n')
+  await writeFile(join(d.project, 'main.txt'), 'main-only change\n')
+  const id = sessionId('ordinary-worktree')
+  const record = d.host.registry.upsert({ id, runtime: d.agent.info.id, cwd: checkout, status: { type: 'idle' }, createdAt: 0, updatedAt: 0, turns: [], itemsLoaded: true }, null)
+  assert.equal(record.shellCheckout, null)
+  const scope = { runtime: d.agent.info.id, sessionId: id }
+  const invoke = async (name: string, caller = scope) => {
+    const tool = d.kernel.list('tool').find((entry) => entry.name === name)!
+    const result = await d.kernel.invokeTool(tool.id, {}, caller)
+    if (!result.ok) assert.fail(result.error)
+    const part = result.content[0]
+    if (part?.type !== 'text') assert.fail('Git answers in text')
+    return part.text
+  }
+  // Check both symptoms before failing so the red run identifies the wrong checkout.
+  const context = (await d.kernel.resolveContext(scope)).filter((entry) => entry.label === 'Git')
+  const status = await invoke('git_status')
+  assert.deepEqual({ context, status }, {
+    context: [{ label: 'Git', text: 'The workspace is on git branch `conversation-feature`.' }],
+    status: '## conversation-feature\n M worktree.txt',
+  })
+  assert.match(await invoke('git_diff'), /\+worktree-only change/)
+  assert.match(await invoke('git_log'), /Worktree-only fixture/)
+  assert.deepEqual((await d.kernel.resolveContext(scope)).filter((entry) => entry.label === 'Git'), context)
+  assert.equal(await invoke('git_status'), status)
+  assert.equal(d.host.registry.get(d.agent.info.id, id)?.shellCheckout?.source, 'own')
+  const mainId = sessionId('ordinary-main')
+  d.host.registry.upsert({ ...record.session, id: mainId, cwd: d.project }, null)
+  const mainScope = { runtime: d.agent.info.id, sessionId: mainId }
+  assert.equal(await invoke('git_status', mainScope), '## main\n?? main.txt')
+  assert.deepEqual((await d.kernel.resolveContext(mainScope)).filter((entry) => entry.label === 'Git'),
+    [{ label: 'Git', text: 'The workspace is on git branch `main`.' }])
+})
+
+for (const spelling of ['canonical', 'symlink'] as const) {
+  for (const cached of [false, true]) {
+    test(`a ${spelling} main-checkout conversation bypasses stale project admission with ${cached ? 'cached' : 'fresh'} fallback`, async (t) => {
+      const d = await rig(t)
+      const alias = join(d.base, 'alias')
+      await symlink(d.project, alias)
+      const cwd = spelling === 'symlink' ? alias : d.project
+      const subfolder = join(cwd, 'src')
+      await mkdir(subfolder)
+      await d.host.call('workspace/open', { path: subfolder })
+      await d.host.call('workspace/forget', { path: d.project })
+      const scope = d.conversation(cwd)
+      assert.equal(d.host.registry.get(scope.runtime, scope.sessionId)?.shellCheckout, null)
+      await d.host.call('workspace/open', { path: d.other })
+      const expected = { ok: true, content: [{ type: 'text', text: d.other }] }
+      if (cached) {
+        assert.deepEqual(await d.kernel.invokeTool(d.tool.id, {}, scope), expected)
+        assert.deepEqual(d.host.registry.get(scope.runtime, scope.sessionId)?.shellCheckout,
+          { project: d.other, cwd: d.other, source: 'fallback' })
+      }
+      await rm(subfolder, { recursive: true })
+      assert.equal(await realpath(cwd), d.project, 'only the opened subfolder disappeared; the main checkout remains')
+      for (let repeat = 0; repeat < 2; repeat++) {
+        assert.deepEqual(await d.kernel.invokeTool(d.tool.id, {}, scope), expected)
+        assert.equal((await d.host.call('context/resolve', { id: d.where.id, ...scope })).text, d.other)
+        assert.deepEqual(d.host.registry.get(scope.runtime, scope.sessionId)?.shellCheckout,
+          { project: d.other, cwd: d.other, source: 'fallback' })
+      }
+    })
+  }
+}
+
+for (const cached of [false, true]) {
+  test(`an unopened unmanaged conversation checkout bypasses stale project admission with ${cached ? 'cached' : 'fresh'} fallback`, async (t) => {
+    const d = await rig(t)
+    const checkout = join(d.base, 'unopened-conversation')
+    await git(d.project, 'worktree', 'add', '-b', 'unopened-conversation', checkout)
+    assert.equal((await new Worktrees(d.stateDir).list(d.project)).find((entry) => entry.path === checkout)?.managed, false)
+    const subfolder = join(d.project, 'src')
+    await mkdir(subfolder)
+    await d.host.call('workspace/open', { path: subfolder })
+    await d.host.call('workspace/forget', { path: d.project })
+    const scope = d.conversation(checkout)
+    assert.equal(d.host.registry.get(scope.runtime, scope.sessionId)?.shellCheckout, null)
+    await d.host.call('workspace/open', { path: d.other })
+    const expected = { ok: true, content: [{ type: 'text', text: d.other }] }
+    if (cached) {
+      assert.deepEqual(await d.kernel.invokeTool(d.tool.id, {}, scope), expected)
+      assert.deepEqual(d.host.registry.get(scope.runtime, scope.sessionId)?.shellCheckout,
+        { project: d.other, cwd: d.other, source: 'fallback' })
+    }
+    await rm(subfolder, { recursive: true })
+    for (let repeat = 0; repeat < 2; repeat++) {
+      assert.deepEqual(await d.kernel.invokeTool(d.tool.id, {}, scope), expected)
+      assert.equal((await d.host.call('context/resolve', { id: d.where.id, ...scope })).text, d.other)
+      assert.deepEqual(d.host.registry.get(scope.runtime, scope.sessionId)?.shellCheckout,
+        { project: d.other, cwd: d.other, source: 'fallback' })
+    }
+  })
+}
+
+for (const kind of ['uncached', 'cached fallback', 'subdirectory', 'safe alias'] as const) {
+  test(`ordinary managed checkout admission handles ${kind} through bridge, tool and context calls`, async (t) => {
+    const d = await rig(t)
+    const alias = join(d.base, 'alias')
+    await symlink(d.lane.path, alias)
+    const subdirectory = join(d.lane.path, 'src')
+    await mkdir(subdirectory)
+    const scope = d.conversation(kind === 'safe alias' ? alias : kind === 'subdirectory' ? subdirectory : d.lane.path)
+    const record = d.host.registry.get(scope.runtime, scope.sessionId)!
+    if (kind === 'cached fallback') record.shellCheckout = { project: d.project, cwd: d.project, source: 'fallback' }
+    const caller = bridgeCallerFor(d.host, String(scope.runtime), String(scope.sessionId))
+    assert.equal(caller.workspaceRoot, kind === 'cached fallback' ? d.project : undefined)
+    assert.deepEqual(await invokeForBridge(d.kernel, new Map([['conversation-token', caller]]), {
+      namespace: d.tool.namespace, name: d.tool.name, args: { workspaceRoot: d.other }, caller: 'conversation-token',
+    }), { ok: true, content: [{ type: 'text', text: d.lane.path }] })
+    for (let repeat = 0; repeat < 2; repeat++) {
+      assert.deepEqual(await d.kernel.invokeTool(d.tool.id, { workspaceRoot: d.project }, { ...scope, workspaceRoot: d.other }),
+        { ok: true, content: [{ type: 'text', text: d.lane.path }] })
+      assert.equal((await d.host.call('context/resolve', { id: d.where.id, ...scope, workspaceRoot: d.project })).text, d.lane.path)
+    }
+    assert.deepEqual(record.shellCheckout, { project: d.project, cwd: d.lane.path, source: 'own' })
+    assert.equal(caller.workspaceRoot, d.lane.path)
+  })
+}
+
+test('an ordinary conversation in an opened linked checkout keeps admission and identity refusals after a workspace switch', async (t) => {
+  const d = await rig(t)
+  const checkout = join(d.base, 'opened-conversation')
+  const subfolder = join(checkout, 'src')
+  await git(d.project, 'worktree', 'add', '-b', 'opened-conversation', checkout)
+  await mkdir(subfolder)
+  await d.host.call('workspace/open', { path: subfolder })
+  await d.host.call('workspace/forget', { path: d.project })
+  const scope = d.conversation(checkout, 'linked-healthy')
+  const fresh = d.conversation(checkout, 'linked-fresh')
+  const cached = d.conversation(checkout, 'linked-cached')
+  d.host.registry.get(cached.runtime, cached.sessionId)!.shellCheckout = { project: d.other, cwd: d.other, source: 'fallback' }
+  await d.host.call('workspace/open', { path: d.other })
+  assert.deepEqual(await d.kernel.invokeTool(d.tool.id, {}, scope), { ok: true, content: [{ type: 'text', text: checkout }] })
+  assert.deepEqual(d.host.registry.get(scope.runtime, scope.sessionId)?.shellCheckout,
+    { project: d.project, cwd: checkout, source: 'own' })
+  assert.equal((await d.host.call('context/resolve', { id: d.where.id, ...scope })).text, checkout)
+  await rm(subfolder, { recursive: true })
+  for (const caller of [fresh, cached, scope]) {
+    await assert.rejects(d.kernel.invokeTool(d.tool.id, {}, caller), /project checkout changed or is no longer open/i)
+    await assert.rejects(d.host.call('context/resolve', { id: d.where.id, ...caller }), /project checkout changed or is no longer open/i)
+  }
+})
+
+for (const kind of ['foreign repository', 'non-git', 'bare repository', 'relative', 'empty', 'unopened linked checkout', 'symlink escape', 'core.worktree redirect', 'gitdir redirect'] as const) {
+  test(`ordinary conversation cwd naming ${kind} cannot admit a checkout`, async (t) => {
+    const d = await rig(t)
+    let cwd = d.other
+    if (kind === 'non-git') {
+      cwd = join(d.base, 'plain')
+      await mkdir(cwd)
+    } else if (kind === 'bare repository') {
+      cwd = join(d.base, 'bare.git')
+      await run('git', ['init', '--bare', '-q', cwd])
+    } else if (kind === 'relative' || kind === 'empty') cwd = kind === 'relative' ? '.' : ''
+    else if (kind === 'unopened linked checkout') {
+      cwd = join(d.base, 'unopened')
+      await git(d.project, 'worktree', 'add', '-b', 'unopened', cwd)
+    } else if (kind === 'symlink escape') {
+      cwd = join(d.lane.path, 'escape')
+      await symlink(d.other, cwd)
+    } else if (kind === 'core.worktree redirect') await git(d.other, 'config', 'core.worktree', d.project)
+    else if (kind === 'gitdir redirect') {
+      await rm(join(d.other, '.git'), { recursive: true })
+      await writeFile(join(d.other, '.git'), `gitdir: ${join(d.project, '.git')}\n`)
+    }
+    const scope = d.conversation(cwd)
+    assert.equal(d.host.registry.get(scope.runtime, scope.sessionId)?.shellCheckout, null)
+    for (let repeat = 0; repeat < 2; repeat++) {
+      assert.deepEqual(await d.kernel.invokeTool(d.tool.id, {}, scope), { ok: true, content: [{ type: 'text', text: d.project }] })
+      assert.equal((await d.host.call('context/resolve', { id: d.where.id, ...scope })).text, d.project)
+      assert.equal(d.host.registry.get(scope.runtime, scope.sessionId)?.shellCheckout?.source, 'fallback')
+    }
+  })
+}
+
+for (const replacement of ['deleted checkout', 'foreign repository', 'symlink to foreign repository', 'symlink to unmanaged checkout'] as const) {
+  test(`ordinary admission revalidates a ${replacement} at its checkout`, async (t) => {
+    const d = await rig(t)
+    const scope = d.conversation(d.lane.path)
+    assert.equal((await d.host.call('context/resolve', { id: d.where.id, ...scope })).text, d.lane.path)
+    await rm(d.lane.path, { recursive: true, force: true })
+    if (replacement === 'foreign repository') {
+      await run('git', ['init', '-q', '-b', 'main', d.lane.path])
+    } else if (replacement === 'symlink to foreign repository') await symlink(d.other, d.lane.path)
+    else if (replacement === 'symlink to unmanaged checkout') {
+      const unopened = join(d.base, 'unopened')
+      await git(d.project, 'worktree', 'add', '-b', 'unopened', unopened)
+      await symlink(unopened, d.lane.path)
+    }
+    for (let repeat = 0; repeat < 2; repeat++) {
+      assert.deepEqual(await d.kernel.invokeTool(d.tool.id, {}, scope), { ok: true, content: [{ type: 'text', text: d.project }] })
+      assert.equal((await d.host.call('context/resolve', { id: d.where.id, ...scope })).text, d.project)
+    }
+  })
+}
+
+test('ordinary cwd cannot admit a managed checkout after its project is forgotten', async (t) => {
+  const d = await rig(t)
+  const scope = d.conversation(d.lane.path)
+  await d.host.call('workspace/open', { path: d.other })
+  await d.host.call('workspace/forget', { path: d.project })
+  assert.equal((await d.host.call('context/resolve', { id: d.where.id, ...scope })).text, d.other)
+  assert.equal(d.host.registry.get(scope.runtime, scope.sessionId)?.shellCheckout?.source, 'fallback')
+})
+
+test('a Seat ignores an eligible managed sibling in runtime cwd even after placement falls back', async (t) => {
+  const d = await rig(t)
+  const opened = await d.seat()
+  const sibling = await new Worktrees(d.stateDir).create(d.project, { name: 'sibling' })
+  const record = d.host.registry.get(d.agent.info.id, opened.id)!
+  assert.ok(await d.host.call('evidence/seat', { runtime: d.agent.info.id, sessionId: opened.id }))
+  // Retained evidence must still classify a Seat when a live designation is absent and admission is cached.
+  record.seatedAs = null
+  d.host.registry.upsert({ ...record.session, cwd: sibling.path }, null)
+  const scope = { runtime: d.agent.info.id, sessionId: opened.id }
+  assert.equal((await d.host.call('context/resolve', { id: d.where.id, ...scope })).text, d.lane.path)
+  await rm(d.lane.path, { recursive: true, force: true })
+  for (let repeat = 0; repeat < 2; repeat++) {
+    assert.deepEqual(await d.kernel.invokeTool(d.tool.id, {}, scope), { ok: true, content: [{ type: 'text', text: d.project }] })
+    assert.equal((await d.host.call('context/resolve', { id: d.where.id, ...scope })).text, d.project)
+    assert.equal(record.shellCheckout?.source, 'fallback')
+  }
+})
 
 for (const forged of ['other repository', 'home'] as const) {
   test(`context/resolve ignores a forged workspaceRoot naming ${forged}`, async (t) => {
@@ -104,7 +342,7 @@ for (const kind of ['relative', 'empty', 'unregistered', 'symlink elsewhere', 'h
     const scope = { runtime: d.agent.info.id, sessionId: id, workspaceRoot: candidate }
     const result = await d.kernel.invokeTool(d.tool.id, {}, scope)
     assert.deepEqual(result, { ok: true, content: [{ type: 'text', text: d.project }] })
-    assert.deepEqual(await d.kernel.resolveContext(scope), [{ label: 'Automatic location', text: d.project }])
+    assert.deepEqual((await d.kernel.resolveContext(scope)).filter((entry) => entry.label === 'Automatic location'), [{ label: 'Automatic location', text: d.project }])
     assert.equal(record.shellCheckout?.source, 'fallback')
   })
 }
@@ -216,7 +454,7 @@ test('restart re-admits forged durable placement against opened projects', async
     },
   } } as HarnessPlugin)
   await new Promise((resolve) => setTimeout(resolve, 60))
-  assert.equal((await restarted.call('context/resolve', { id: kernel.list('context')[0]!.id, runtime: agent.info.id, sessionId: opened.id })).text, d.project)
+  assert.equal((await restarted.call('context/resolve', { id: kernel.list('context').find((entry) => entry.label === 'Restored location')!.id, runtime: agent.info.id, sessionId: opened.id })).text, d.project)
 })
 
 test('omitting project cannot relocate a new Seat from a foreign cwd to the opened project', async (t) => {
@@ -319,7 +557,7 @@ test('an explicitly opened unmanaged linked checkout starts its Agent and shell 
   const scope = { runtime: d.agent.info.id, sessionId: opened.id, workspaceRoot: d.other }
   assert.deepEqual(await d.kernel.invokeTool(d.tool.id, {}, scope), { ok: true, content: [{ type: 'text', text: checkout }] })
   assert.equal((await d.host.call('context/resolve', { id: d.where.id, ...scope })).text, checkout)
-  assert.deepEqual(await d.kernel.resolveContext(scope), [{ label: 'Automatic location', text: checkout }])
+  assert.deepEqual((await d.kernel.resolveContext(scope)).filter((entry) => entry.label === 'Automatic location'), [{ label: 'Automatic location', text: checkout }])
   await assert.rejects(d.host.call('agent/seat', { id: 'probe', project: checkout, cwd: sibling }), /Seat checkout.*not admitted/i)
   assert.equal(create.mock.callCount(), 1, 'opening one linked checkout never admits an unopened sibling')
   await d.host.call('workspace/open', { path: d.project })
@@ -333,6 +571,7 @@ for (const change of ['core.worktree=/', 'core.worktree=another repository', '.g
   test(`shell admission refuses ${change} after workspace open`, async (t) => {
     const d = await rig(t)
     const opened = await d.seat()
+    const ordinary = d.conversation(d.lane.path)
     if (change === '.git replaced by a gitdir file') {
       await rename(join(d.project, '.git'), join(d.base, 'original-git'))
       await writeFile(join(d.project, '.git'), `gitdir: ${join(d.other, '.git')}\n`)
@@ -355,6 +594,8 @@ for (const change of ['core.worktree=/', 'core.worktree=another repository', '.g
     assert.equal(create.mock.callCount(), 0, 'the refusal never starts another Agent')
     await assert.rejects(d.kernel.invokeTool(d.tool.id, {}, scope), /project checkout changed/i)
     await assert.rejects(d.kernel.resolveContext(scope), /project checkout changed/i)
+    await assert.rejects(d.kernel.invokeTool(d.tool.id, {}, ordinary), /project checkout changed/i)
+    await assert.rejects(d.kernel.resolveContext(ordinary), /project checkout changed/i)
   })
 }
 
@@ -388,7 +629,7 @@ test('restart retains the opened project identity after core.worktree changes', 
     },
   } } as HarnessPlugin)
   await new Promise((resolve) => setTimeout(resolve, 60))
-  await assert.rejects(restarted.call('context/resolve', { id: kernel.list('context')[0]!.id }), /project checkout changed/i)
+  await assert.rejects(restarted.call('context/resolve', { id: kernel.list('context').find((entry) => entry.label === 'Restart location')!.id }), /project checkout changed/i)
 })
 
 for (const kind of ['filesystem root', 'home directory'] as const) {

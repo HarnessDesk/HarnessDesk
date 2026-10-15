@@ -1,8 +1,10 @@
 import {
   runtimeId,
+  sessionId,
   sessionKey,
   type GoalView,
   type RepoInfo,
+  type Session,
   type SessionId,
   type SessionSummary,
   type TeamState,
@@ -38,6 +40,22 @@ import { captureHealth } from './provenance-fixture'
  */
 
 const CODEX = runtimeId('codex')
+
+/** Old conversations whose agent has not recovered their folder yet. */
+export const sidebarFolderlessFixture = (seed: AppSnapshot): AppSnapshot => {
+  const history: SessionSummary[] = [
+    { id: sessionId('folderless-one'), runtime: CODEX, title: null, preview: 'Restore the project picker', cwd: '', createdAt: 1, updatedAt: 10, status: { type: 'notLoaded' } },
+    { id: sessionId('folderless-two'), runtime: CODEX, title: null, preview: 'Explain the retry settings', cwd: '', createdAt: 1, updatedAt: 9, status: { type: 'notLoaded' } },
+    { id: sessionId('folderless-empty'), runtime: CODEX, title: null, preview: null, cwd: '', createdAt: 1, updatedAt: 8, status: { type: 'notLoaded' } },
+    { id: sessionId('root-folder'), runtime: CODEX, title: null, preview: 'Check the root folder', cwd: '/', createdAt: 1, updatedAt: 7, status: { type: 'notLoaded' } },
+    { id: sessionId('known-folder'), runtime: CODEX, title: 'Review the checkout retry', cwd: '/work/widgets', createdAt: 1, updatedAt: 6, status: { type: 'notLoaded' } },
+  ]
+  const workspace = { path: '/work/widgets', name: 'widgets', lastOpenedAt: 1 }
+  return { ...seed, history, historyIdentity: history, sessions: new Map(), workspace, workspaces: [workspace],
+    activeSessionKey: null, teams: new Map(), goals: new Map(), flowExecutions: new Map(),
+    foldersGone: new Map(), tasks: new Map(), queues: new Map(), inbox: [], approvals: [],
+    listPrefs: { ...seed.listPrefs, pinned: [], pinnedSessions: [], collapsed: [], othersOpen: true } }
+}
 const CLAUDE = runtimeId('claude')
 const CURSOR = runtimeId('cursor')
 
@@ -228,6 +246,39 @@ export const sidebarProjectsFixture = (base: AppSnapshot): AppSnapshot => {
   }
 }
 
+/** Four Storefront conversations in their real Recency-sorted project order. */
+export const sidebarStorefrontRecencyFixture = (base: AppSnapshot): AppSnapshot => {
+  const root = '/work/storefront'
+  const workspace = workspaceAt(root, repoAt(root))
+  const history = [
+    { id: 'storefront-one', runtime: CODEX, title: 'Review the checkout plan', cwd: root, repo: repoAt(root), ago: 1 },
+    { id: 'storefront-two', runtime: CODEX, title: 'Inspect basket validation', cwd: root, repo: repoAt(root), ago: 2 },
+    { id: 'storefront-three', runtime: CODEX, title: 'Adjust retry handling', cwd: root, repo: repoAt(root), ago: 3 },
+    { id: 'storefront-four', runtime: CODEX, title: 'Check payment edge cases', cwd: root, repo: repoAt(root), ago: 4 },
+  ].map(row)
+  const sessions = new Map(history.map(summary => {
+    const session: Session = {
+      id: summary.id, runtime: summary.runtime, cwd: root, title: summary.title, preview: summary.preview,
+      status: { type: 'idle' }, createdAt: summary.createdAt, updatedAt: summary.updatedAt, turns: [], itemsLoaded: true,
+    }
+    return [sessionKey(session.runtime, session.id), session] as const
+  }))
+  return {
+    ...base,
+    history,
+    historyIdentity: history,
+    foldersGone: new Map(),
+    sessions,
+    activeSessionKey: null,
+    workspace,
+    workspaces: [workspace],
+    teams: new Map(),
+    goals: new Map(),
+    flowExecutions: new Map(),
+    listPrefs: { ...base.listPrefs, sort: 'recency', pinned: [], pinnedSessions: [], collapsed: [], forgottenFolders: [], othersOpen: true },
+  }
+}
+
 /** The search result is older than the first loaded page but belongs here. */
 export const sidebarProjectsUnloadedSearchFixture = (
   base: AppSnapshot,
@@ -246,5 +297,41 @@ export const sidebarProjectsUnloadedSearchFixture = (
     goals: new Map(),
     flowExecutions: new Map(),
     captureHealth: new Map(),
+  }
+}
+
+/** An open conversation absent from history, while a title search has no matches. */
+export const sidebarOpenSearchFixture = (base: AppSnapshot): AppSnapshot => {
+  const path = '/work/sidebar-search'
+  const workspace = workspaceAt(path, repoAt(path))
+  const session: Session = {
+    id: sessionId('sidebar-open-search'),
+    runtime: CODEX,
+    title: 'Retry the inventory import',
+    preview: null,
+    cwd: path,
+    status: { type: 'idle' },
+    createdAt: 1,
+    updatedAt: 2,
+    turns: [],
+    itemsLoaded: true,
+  }
+  const fixture = sidebarProjectsFixture(base)
+  return {
+    ...fixture,
+    workspace,
+    workspaces: [workspace],
+    history: [],
+    historyIdentity: [],
+    historyCursor: null,
+    historyLoading: false,
+    sessions: new Map([[sessionKey(session.runtime, session.id), session]]),
+    activeSessionKey: null,
+    teams: new Map(),
+    goals: new Map(),
+    flowExecutions: new Map(),
+    foldersGone: new Map(),
+    captureHealth: new Map(),
+    listPrefs: { ...fixture.listPrefs, pinned: [], pinnedSessions: [], collapsed: [], othersOpen: true },
   }
 }

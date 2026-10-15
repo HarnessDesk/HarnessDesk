@@ -3,10 +3,12 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import type { InsightReport, SeatRecord } from '@harnessdesk/protocol'
 
+import { DestinationPageScope } from '../panels/destination-page'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
 import { InsightUsage } from './InsightUsage'
-import { Usage } from './Usage'
+import { DashboardTestPage as Usage } from '../test-support/dashboard-page'
+import { usagePreviewStore } from '../preview/usage-fixture'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -28,7 +30,7 @@ it('loads By Goal on the Dashboard’s Projects view', async () => {
   const openGoal = vi.fn()
   const snapshot = { ...emptySnapshot(), workspace: { path: '/repo', name: 'repo', lastOpenedAt: 0, repo: { root: '/repo' } } }
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, loadUsage: vi.fn(async () => {}), refreshUsage: vi.fn(async () => {}), ledger: vi.fn(async () => null), readUsageInsight, openGoal } as unknown as AppStore
-  await act(async () => { root.render(<StoreProvider store={store}><Usage view="projects" onClose={() => {}} /></StoreProvider>); await Promise.resolve() })
+  await act(async () => { root.render(<StoreProvider store={store}><Usage view="projects" /></StoreProvider>); await Promise.resolve() })
   expect(readUsageInsight).toHaveBeenCalledOnce()
   expect(container.textContent).toContain('Goal')
   expect(container.textContent).not.toContain('goal-1')
@@ -78,7 +80,7 @@ it('keeps safe unreadable-source warnings visible when the Dashboard has no attr
     await Promise.resolve()
   })
 
-  expect(container.textContent).toContain('Recorded usage has no goal attribution.')
+  expect(container.textContent).toContain('Recorded usage has no Team attribution.')
   expect(container.textContent).toContain('Recorded usage source could not be discovered.')
   expect(container.textContent).toContain('Recorded usage may be incomplete.')
   expect(container.textContent).toContain('Recorded usage')
@@ -209,7 +211,7 @@ it('keeps row notes and the compact Cost qualification visible while leaving the
  expect(costCell.querySelector('[title]')?.getAttribute('title')).toContain('Estimated known subtotal')
 })
 
-it('wraps the empty-state reason sentence instead of clipping it', async () => {
+it('replaces redundant unattributed explanation with one grouping sentence', async () => {
   const empty = {
     ...report(),
     breakdowns: [{ dimension: 'goal' as const, rows: [], unattributed: report().breakdowns[0]!.unattributed, reason: null }],
@@ -221,8 +223,7 @@ it('wraps the empty-state reason sentence instead of clipping it', async () => {
     await Promise.resolve()
   })
 
-  const row = [...container.querySelectorAll('[data-wrap]')].find((el) => el.textContent === 'Unknown historical usage remains unassigned.')
-  expect(row).toBeTruthy()
+  expect(container.textContent).toBe('Recorded usage has no Team attribution.')
 })
 
 it('retains source age and cost qualification on the numeric cost cell', async () => {
@@ -282,11 +283,20 @@ it('replaces unknown amounts with one range warning and offers a shorter read', 
  expect(container.textContent).toContain('64 MiB')
  expect(container.querySelectorAll('thead th').length).toBeGreaterThan(1)
  expect(container.querySelector('tbody')?.textContent).not.toContain('Unknown')
- expect(container.querySelector('tfoot')?.textContent).toContain('Not attributed to a Goal')
+ expect(container.querySelector('tfoot')?.textContent).toContain('Not attributed to a Team')
  const shorter=[...container.querySelectorAll('button')].find(b=>b.textContent==='Last 24 hours')!
  await act(async()=>{shorter.click();await Promise.resolve()})
  const query=readUsageInsight.mock.calls.at(-1)![0] as unknown as {from:number,to:number}
  expect(query.to-query.from).toBe(86400000)
+})
+
+it('shows the no-records gap as a neutral empty-state block', async () => {
+  const shown = { ...report(), gaps: ['No recorded usage was found for this scope.'] }
+  const store = { subscribe: () => () => {}, getSnapshot: (() => { const snapshot = emptySnapshot(); return () => snapshot })() } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} report={shown} /></StoreProvider>))
+  const empty = container.querySelector('[data-slot="empty-state"][data-variant="inline"]')
+  expect(empty?.textContent).toBe('No recorded usage was found for this scope.')
+  expect([...container.querySelectorAll('[data-slot="note"][data-tone="warn"]')].some(note => note.textContent === shown.gaps[0])).toBe(false)
 })
 
 it('reads Team names and range-scoped Run counts without showing the Goal brief', async () => {
@@ -350,14 +360,14 @@ it('labels Project usage’s range, restores it and resets it on a project switc
   let snapshot = { ...emptySnapshot(), workspace: { path: '/repo', name: 'repo', lastOpenedAt: 0, repo: { root: '/repo' } } }
   const listeners = new Set<() => void>()
   const store = { subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) }, getSnapshot: () => snapshot, loadUsage: vi.fn(async () => {}), refreshUsage: vi.fn(async () => {}), ledger: vi.fn(async () => null), readUsageInsight, openGoal: vi.fn() } as unknown as AppStore
-  await act(async () => { root.render(<StoreProvider store={store}><Usage view="projects" onClose={() => {}} /></StoreProvider>); await Promise.resolve() })
+  await act(async () => { root.render(<StoreProvider store={store}><Usage view="projects" /></StoreProvider>); await Promise.resolve() })
   const span = () => { const query = readUsageInsight.mock.calls.at(-1)![0] as unknown as { from: number; to: number }; return query.to - query.from }
-  const click = async (text: string) => { await act(async () => { [...container.querySelectorAll('button')].find(button => button.textContent === text)!.click(); await Promise.resolve() }) }
-  expect(container.querySelector('[aria-label="Project usage"]')?.textContent).toContain('Last 30 days')
+  const click = async (text: string) => { await act(async () => { const select=container.querySelector<HTMLSelectElement>('select[aria-label="Project usage range"]')!; const option=[...select.options].find(option=>option.textContent === text)!; select.value=option.value; select.dispatchEvent(new Event('change',{bubbles:true})); await Promise.resolve() }) }
+  expect(container.querySelector<HTMLSelectElement>('select[aria-label="Project usage range"]')?.value).toBe('30')
   expect(span()).toBe(30 * 86400000)
   await click('Last 24 hours')
   expect(span()).toBe(86400000)
-  expect(container.querySelector('[aria-label="Project usage"]')?.textContent).toContain('Last 24 hours')
+  expect(container.querySelector<HTMLSelectElement>('select[aria-label="Project usage range"]')?.value).toBe('1')
   expect([...container.querySelectorAll('button')].some(button => button.textContent === 'Last 24 hours')).toBe(false)
   await click('Last 30 days')
   expect(span()).toBe(30 * 86400000)
@@ -365,19 +375,30 @@ it('labels Project usage’s range, restores it and resets it on a project switc
   await act(async () => { snapshot = { ...snapshot, workspace: { path: '/other', name: 'other', lastOpenedAt: 0, repo: { root: '/other' } } }; listeners.forEach(listener => listener()); await Promise.resolve() })
   expect(span()).toBe(30 * 86400000)
   expect(readUsageInsight).toHaveBeenLastCalledWith(expect.objectContaining({ root: '/other' }))
-  expect(container.querySelector('[aria-label="Project usage"]')?.textContent).toContain('Last 30 days')
+  expect(container.querySelector<HTMLSelectElement>('select[aria-label="Project usage range"]')?.value).toBe('30')
 })
 
 
 it('states Historical Seats once beneath the table and omits a restated footer reason', async () => {
  const base = report(); const b = base.breakdowns[0]!
- const shown = { ...base, breakdowns: [{ ...b, reason: 'Not attributed to a Goal.', rows: [1, 2].map(n => ({ ...b.rows[0]!, key: `goal-${n}`, note: 'Historical Seats' })) }] }
+ const shown = { ...base, breakdowns: [{ ...b, reason: 'Not attributed to a Team.', rows: [1, 2].map(n => ({ ...b.rows[0]!, key: `goal-${n}`, note: 'Historical Seats' })) }] }
  const snapshot = emptySnapshot()
  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
  await act(async () => root.render(<StoreProvider store={store}><InsightUsage root="/repo" runtime={null} view="goal" onGoal={() => {}} report={shown} /></StoreProvider>))
  expect(container.querySelector('tbody')?.textContent).not.toContain('Historical Seats')
  expect([...container.querySelectorAll('[data-slot="note"]')].filter(n => n.textContent === 'Historical Seats')).toHaveLength(1)
- expect(container.querySelector('tfoot td')?.textContent).toBe('Not attributed to a Goal')
+ expect(container.querySelector('tfoot td')?.textContent).toBe('Not attributed to a Team')
+})
+
+it('shows the host Team attribution reason once in the realistic project usage preview', async () => {
+ const store = usagePreviewStore()
+ const shown = await store.readUsageInsight({ root: '/work/storefront', from: 0, to: 10 })
+ await act(async () => {
+   root.render(<StoreProvider store={store}><InsightUsage root="/work/storefront" runtime={null} view="goal" onGoal={() => {}} report={shown} /></StoreProvider>)
+   await Promise.resolve()
+ })
+ expect(shown.breakdowns.find(part => part.dimension === 'goal')?.reason).toBe('Not attributed to a Team.')
+ expect(container.querySelector('tfoot td')?.textContent).toBe('Not attributed to a Team')
 })
 
 it('uses only Known subtotal for an exact partial cost', async () => {
@@ -484,4 +505,42 @@ it('keeps the focused retry and refusal visible until a delayed retry settles', 
  expect(retry.getAttribute('aria-disabled')).not.toBe('true')
  expect(document.activeElement).toBe(retry)
  expect(container.textContent).toContain('Run counts are unavailable for some Teams.')
+})
+
+it('defers project attribution and Team history until the retained page is active',async()=>{
+ const readUsageInsight=vi.fn(async()=>report()),loadGoals=vi.fn(async()=>{}),loadTeamRunsBatch=vi.fn(async()=>({loaded:new Set(['goal-1']),unavailable:new Set<string>()}))
+ const snapshot=emptySnapshot()
+ const store={subscribe:()=>()=>{},getSnapshot:()=>snapshot,readUsageInsight,loadGoals,loadTeamRunsBatch} as unknown as AppStore
+ const draw=async(active:boolean)=>act(async()=>root.render(<StoreProvider store={store}><DestinationPageScope owner="destination:dashboard" active={active}><InsightUsage root="/work/storefront" runtime={null} view="goal" onGoal={()=>{}} /></DestinationPageScope></StoreProvider>))
+ await draw(false);expect(readUsageInsight).not.toHaveBeenCalled();expect(loadGoals).not.toHaveBeenCalled();expect(loadTeamRunsBatch).not.toHaveBeenCalled()
+ await draw(true);expect(readUsageInsight).toHaveBeenCalledTimes(1);expect(loadTeamRunsBatch).toHaveBeenCalledTimes(1)
+})
+
+it('shows one empty line without warnings or a shorter-range shortcut when no usage is recorded', async () => {
+  const empty = { ...report(), breakdowns: [], sources: [], gaps: [], recordedSpend: [], totals: { ...report().totals, usd: metric(null), turns: { ...metric(null), unit: 'count' as const, basis: 'observed' as const } } }
+  const snapshot = emptySnapshot()
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}><InsightUsage root="/work/storefront" runtime={null} view="goal" onGoal={() => {}} report={empty} onShorterRange={() => {}} rangeDays={30} /></StoreProvider>))
+  expect(container.textContent).toBe('No Team usage in storefront in the last 30 days')
+  expect(container.querySelector('[data-slot="banner"]')).toBeNull()
+})
+
+it.each(['goal', 'agent'] as const)('names an unattributed record by its display grouping %s once', async view => {
+  const snapshot = emptySnapshot(), unattributed = { ...report(), breakdowns: [], sources: [], gaps: [] }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}><InsightUsage root="/work/storefront" runtime={null} view={view} onGoal={() => {}} report={unattributed} /></StoreProvider>))
+  expect(container.textContent).toBe(`Recorded usage has no ${view === 'goal' ? 'Team' : 'agent'} attribution.`)
+})
+
+it('names the current project and range when no Team usage was recorded in either grouping', async () => {
+  const base = report()
+  const empty = { ...base, breakdowns: [], recordedSpend: [], totals: Object.fromEntries(Object.entries(base.totals).map(([key, value]) => [key, { ...value, value: 0 }])) as typeof base.totals }
+  const snapshot = emptySnapshot()
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  for (const view of ['goal', 'agent'] as const) {
+    await act(async () => root.render(<StoreProvider store={store}><InsightUsage root="/work/storefront" runtime={null} view={view} onGoal={() => {}} report={empty} rangeDays={30} /></StoreProvider>))
+    expect(container.textContent).toBe('No Team usage in storefront in the last 30 days')
+  }
+  await act(async () => root.render(<StoreProvider store={store}><InsightUsage root={null} runtime={null} view="goal" onGoal={() => {}} report={empty} /></StoreProvider>))
+  expect(container.textContent).toBe('Open a project to see its Team usage.')
 })

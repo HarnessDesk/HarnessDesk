@@ -7,6 +7,258 @@ the rule is the last line of its section.
 
 ---
 
+## A Team start admits only the project the person selected
+
+Starting a Team is an explicit choice of its project folder, as opening that
+folder is. Older remembered projects and folders known only from conversation
+history have no captured shell identity. The preview checks that the selected
+folder and the first round's checkout can be admitted, including the Git parent
+and writable destination of isolated attempts, without saving authority or
+allocating a lane. After redeeming that exact preview, Start captures the folder
+through the same `captureShellProject` path as workspace open.
+
+The admission belongs to the start request's project, never a folder named by
+the Flow, a card, an agent or a conversation listing. An existing captured
+identity is revalidated rather than silently replaced. Subsequent Seat openings
+still check the stored identity and the checkout's repository relationship.
+Thus a legacy record can start the Team the person chose without letting agent
+output or arbitrary checkout paths grant shell authority.
+
+If Seat opening fails, the host releases the unused lane's ports only when its
+revision is known, clean and unchanged since allocation, and no Seat, turn or
+server remains active. Changed or unreadable work is retained for review.
+
+---
+
+## Side by side freezes the project's chosen check as ordinary Flow source
+
+The comparison template has no mandatory application-wide check. New Team
+suggests the project's declared test script, using its declared package manager
+or an unambiguous lockfile. Missing or ambiguous declarations leave the field
+empty. The person can edit the command, and the form serializes its check role
+and routes into the concrete source the existing preview token freezes.
+
+Clearing the command removes the check round and routes the judge directly
+from the attempts, preserving both predecessor revisions. This uses the same
+policy editing and token contract as the other Team options; the engine needs
+neither a new conditional nor a guessed command for an unrelated project.
+
+---
+
+## Storage cleanup is reviewed on demand and keeps every branch
+
+Settings › Conversations › Storage measures the conversation database and its
+WAL files, daily snapshots, cached preview bodies and managed checkout containers.
+A bounded asynchronous filesystem walk never follows symlinks. The first read
+answers with Measuring; a host notification supplies the cached result. Cleanup
+and confirmed Discard refresh that measurement. A failed measurement stays
+unavailable with its reason rather than becoming a zero.
+
+Cleanup previews inactive worktrees after 30, 60 or 90 days, across conversation
+states. Live, busy, open and pinned conversations are excluded, as is a shared
+worktree when any owner is ineligible. Deleted conversations retain their title
+and last-active time with their checkout inventory; an older inventory whose
+activity is unknown is kept. Only present checkouts are bulk candidates; kept
+checkouts of removed or deleted conversations have their own Discard action.
+Age follows the latest observed conversation activity. Deferred metadata writes
+cannot move that time backwards, and reviewing cleanup does not change it.
+
+Clean worktrees are selected by default. A separate choice reveals the modified,
+untracked and ignored inventory before including those checkouts. Confirmation
+is bound to a host-held token over the non-clean inventories. The host recomputes
+eligibility and inventory immediately before removal and checks ownership again
+at the existing Git mutation boundary. A newly dirty tree stays; an inventory
+changed since review is refused. A refusal on one checkout does not stop the rest,
+and its reason stays in the result dialog. No worktree is removed in the background,
+no unmanaged checkout is removed, and no branch or conversation is deleted.
+
+**The rule:** confirm the shown inventory; recheck it and every owner before
+removing a checkout through the existing conversation worktree path.
+
+## Worktrees follow their conversations; wrapping a Team archives its members
+
+A managed worktree is part of the conversation's lifecycle. Archive removes a
+clean checkout at once; Remove waits for the body sweep and its Undo window;
+Delete everywhere cleans up after the agent accepts the deletion. None of
+these deletes a branch. Another active conversation sharing the checkout keeps
+it, as do uncommitted files, ignored content and a refused Git removal. A
+detached checkout stays too: without a branch, removing it could lose the only
+reference to its commits. Ownership is checked again after the removal's Git
+reads, immediately before the mutation. A cleanup refusal never undoes the
+conversation action.
+
+The index records the managed path, branch and whether the worktree is present,
+removed or kept. Its separate inventory survives even a deleted index row.
+Returning to a conversation recreates its checkout from the retained branch
+before resuming the agent. A missing branch opens the main checkout with one
+line explaining why.
+
+Archive reads the local index, including archived Team members. A kept worktree
+wears a chip whose tooltip counts changes and ignored entries. **Discard
+worktree…** and the explicitly selected dirty Storage cleanup force removal: the confirmation lists the inventory, and the host
+rechecks the full inventory, including files inside untracked and ignored
+directories, before removing it. If it changed, the person must
+review and confirm again. Discard also refuses a detached checkout; a branch
+must retain its current commit before its folder can go. This reads the live
+checkout, even when the inventory still records a former branch. The existing
+explicit worktree removal verb keeps its own policy.
+
+Wrapping a Team archives its idle member conversations through the same archive
+path, including the agent's archive when it has one. Working members and archive
+refusals stay; the saved receipt counts them. A completed native reconciliation
+also reads unresolved ids omitted by the listing, three at a time. A failed
+read or an answer without archive authority leaves the row unresolved for the
+next pass.
+
+## The sidebar reads the desk's conversation index
+
+The sidebar lists conversations started or continued in HarnessDesk, rather
+than asking every agent for its history at launch. A local SQLite metadata
+index answers the first page without an agent or a Git process; repository
+identities fill in from a persistent cache and background checks. Later
+changes update rows. The palette keeps its existing history read path; Archive
+now pages this index.
+
+An upgrade seeds the list once from the desk's transcript metadata and archive
+marks, in background batches. It migrates no bodies and leaves the old files
+unchanged. Native archive rows are withheld until the agent confirms their state;
+background reconciliation preserves the last confirmed answer when a listing fails.
+Cached repository identities answer first and are rechecked in bounded background
+passes, including after later list refreshes.
+
+Team runs are filed under their Team. Their conversations remain reachable
+through that row, and do not also appear as loose sidebar conversations.
+
+**The rule:** the first sidebar page reads local metadata; an upgrade carries
+the list over, and Team membership decides where a conversation is filed.
+
+## Opening history previews it; a new turn adopts it
+
+A conversation created or forked here is `desk`. An unknown conversation read,
+opened or resumed here is `imported`. Ordinary metadata and body writes retain
+that origin; only a new `turn/started` adopts a preview, turns its cached body
+into a full body and emits the sidebar upsert immediately. A Seat's turn does
+this too, while its Team membership keeps it filed under the Team. Upgrade
+rows remain desk conversations.
+
+History import is a per-runtime, on-request metadata job. It starts the runtime,
+pages its own history in transactions and records progress, failure or
+cancellation in the same database. Native archive state comes from both archive
+listings, while newer archive actions here win over an in-flight scan; other
+agents use the host's archive marks. Desk rows keep their origin
+and body, and removal tombstones are never revived. Imports and ordinary
+metadata observations fill a missing title without replacing one already kept;
+an explicit rename wins even before its metadata row arrives. Accepted agent
+title events explicitly replace or clear the indexed title; a host-owned name
+still refuses those events. Renaming a
+preview retains its imported origin. A verified backup restore can replace
+metadata with the restored version. Completed rescans are
+throttled to once a minute; failures and cancellation can be retried immediately.
+Import does no Git work. The History query matches titles literally and pages
+by update time, runtime and id. Unfiltered pages check only displayed folders;
+a project filter first resolves its candidate folders through the bounded
+repository pass, so a cold mapping cannot silently exclude a matching row.
+Removing an import deletes retained imported rows and their cached bodies,
+keeps desk rows and tombstones, and clears its scan state. Agent files stay untouched.
+Settings and the command palette open History; there is no fixed sidebar entry.
+The runtime's settings page owns import, progress, rescan and removal. A row
+opens as a preview, and only the host's adoption event adds it to the sidebar.
+
+Preview bodies are `cached`, with payload bytes counted on write and recency
+recorded on open. The host's default cap is 500 MiB, configurable through
+`HostOptions.cachedBodyCapBytes`. At launch and after settled writes, eviction
+drops the oldest cached bodies, including items, turns, search, usage and Insight
+context in one transaction. Full bodies and live conversations are retained.
+The clear-cache host operation uses the same policy, retaining live previews.
+Backups carry a preview's imported origin and opening time; restoring one keeps
+it outside the sidebar and subject to the cache cap. Older backups without an
+origin retain their desk semantics, and a restore never changes a local origin.
+
+**The rule:** opening reads history without adopting it; a new turn adopts it.
+Import and eviction alter only the host's own database.
+
+## The host's conversations live in SQLite
+
+The host keeps its conversation bodies in `sessions.sqlite`, beside their
+index rows. Versioned turn metadata, complete item payloads, usage and Insight
+context survive a cold recovery. Changed items update their existing occurrences;
+an unchanged turn writes nothing. Conversation facts occupy a small `bodies`
+table so deleting a body leaves the sidebar index to its own owner.
+
+Old transcript files are kept, not migrated (owner, 2026-10-08). The index's one-time metadata seed reads them. An on-demand host fallback also reads a kept
+file when the agent cannot answer and SQLite has no body; it never changes or
+migrates that file. The transcript store never reads,
+writes or removes them. Backups retain their existing transcript-entry format;
+a daily database snapshot runs on a worker and keeps the newest three copies.
+
+Search covers typed messages and answers by default, and tool output only
+when asked (owner, 2026-10-08). Tool output is capped at 3,000 characters in
+the index, with its complete payload retained for recovery. Reasoning and
+client context are excluded. The palette remembers its viewer's choice and
+renders every matching line as text.
+
+**The rule:** bodies, rollback and search update in one transaction; a stored
+conversation's only copy is kept in both the backup and the daily snapshot.
+
+---
+
+## Remove forgets the desk's copy; Delete everywhere goes to the Trash
+
+Remove from HarnessDesk takes a row out of the sidebar, sets its origin back
+to imported, and leaves the agent's files untouched. It stops an open handle
+through the same path as closing a pane. Undo restores the index facts and
+body during the eight-second toast window. Queued messages and held picks stay
+outside active lookups and client sync until Undo restores them, and are
+forgotten when the window ends. Archive retains its body and search.
+
+The body sweep runs on a timer after Remove and at launch. It drops items,
+turns, FTS entries, usage and Insight context in one transaction after the
+Undo window, keeping the removed index row. A launch schedules any remaining
+window too. Pending writes and late events cannot bring that copy back.
+An explicit read or resume that succeeds admits the removed row again before
+new work is accepted; a failed open leaves it removed. A direct resume during
+Undo reads the held picks without admitting the record, reapplies them through
+the shared reopen, then restores the queue and attaches the handle.
+
+Native deletion declares its destination before a click: `deleteHistory` is
+false, `trash` or `erase`. Both the host and the window admit Delete everywhere
+only for `trash`. The agent answers first; then one transaction drops the desk's
+index row and body. Agents that erase their own record keep the item greyed,
+with that consequence on its tooltip. An explicit readable-history declaration
+and a retained-copy flag identify when the desk holds the only readable body.
+
+**The rule:** Remove touches only the desk's records; Delete everywhere promises
+Trash before it is offered, and body cleanup is atomic after Undo expires.
+
+---
+
+## The agent’s record is the authority on reopen
+
+An adapter that can name a conversation’s source declares that capability and
+returns its path, modification time and size. The host saves those facts with
+the body in the same SQLite transaction. An unchanged file serves the stored
+body without reading the agent. A changed file is read through the agent and
+reconciled by `TranscriptStore.enrich` before it is saved: lossy replay keeps
+commands, reasoning, notices, publications and recorded context authorship.
+Empty and partial replay retain the history they did not answer for; rollback
+removes omitted work, search rows and Insight context together.
+
+A missing source, or an agent that cannot serve the conversation, leaves the
+desk’s copy readable. One quiet line names it as HarnessDesk’s copy and names
+the agent through its presentation. A filesystem read error does not prove
+that a source is gone. Runtimes without the source capability retain their
+existing read and reconciliation path. Nothing writes to or deletes the
+agent’s record, and old desk transcript files remain untouched.
+
+**The rule:** the agent’s file is the authority while it exists; the desk’s
+body is the fallback, and a failed refresh never updates its source fingerprint.
+Only a successful reconciliation saves a fingerprint captured before replay.
+Ordinary event writes invalidate it: a newer file may contain CLI work the
+held conversation never saw. A source capability learned during the first
+replay leaves that body unstamped until the next read can capture it safely.
+
+---
+
 ## Content names share one medium weight
 
 The owner's 2A decision on 2026-10-03 changes content person and agent names
@@ -185,7 +437,16 @@ agent's latest card lifecycle signal when release clears the claim, or through
 the Run's explicit seat/card journal. A later lifecycle transition supersedes
 the block; stop capture and other metadata updates do not. A refused claim's
 conflict signal leaves ownership unchanged. Neither a shared role name nor
-matching session ids across runtimes establish ownership. Completed cards
+matching session ids across runtimes establish ownership.
+
+Completed Flow obligations stay Ready without inventing a missing check.
+A current failed check, failed CI or closed pull request still needs attention;
+a completed obligation does not erase a failure. Downstream check facts
+qualify the attempt only through its recorded dependency, exact diff revision
+and checkout identity. Board placement and host attention use this same
+contract rather than omitting completed cards on the host alone.
+
+Completed cards
 retain the completing agent through the latest card lifecycle signal, including
 manual cards and cards from earlier Runs after the host clears their claims;
 refused claims and metadata capture leave that attribution intact.
@@ -208,6 +469,25 @@ Team change in machine preferences, so a later lifecycle or attention change
 returns hidden work without deleting it. Usage refreshes do not count as a
 new revision. Known waits order the page; an absent state timestamp remains
 unknown rather than borrowing the Run's age.
+
+The page reads what its open tab shows, and no more. Usage is asked for the
+rows on screen, in one `insight/goals` request that reads the usage sources
+once for every project in it and attributes them per Team, and lands in one
+update. Once per project was not enough: on a desk where each Team has a
+clone of its own, every Team is its own project. A Run and its
+review are read for every Team that is not wrapped, because either can move a
+Team into Needs you and the counts would otherwise be wrong. A wrapped Team's
+Run is read once its row is shown, for its faces, and its review never:
+nothing on a wrapped row follows one, so its unread mark leaves the review out
+too. Successful reads are kept while the page is open; a failed Run or review
+read gets at most two retries, five seconds apart, and an in-flight read is
+never duplicated. Asking again for every
+Run still missing whenever one landed sent a large desk's Settled tab
+thousands of reads. Time in a state is said in its largest unit (`47m`, `5h`,
+`2d`), and only those cells follow a minute clock. A desk with about 500
+Teams had made one full ledger scan per Team on every open, and a one-second
+clock re-rendered the whole table
+([#1567](https://github.com/HarnessDesk/HarnessDesk/issues/1567)).
 
 **The rule:** one plain-data contract derives the rows; no overview fact is
 invented to fill a missing observation.
@@ -717,7 +997,7 @@ narrower than 400px.
 
 ## Capabilities are negotiated, not normalised
 
-`RuntimeCapabilities` is a flat set of booleans an adapter declares about
+`RuntimeCapabilities` is a flat set of declarations an adapter makes about
 itself — resume, fork, steer, interrupt, reasoning, metered, skills, hooks and
 the rest; `packages/protocol` holds the current list. The desk reads them and
 draws accordingly: a control for something a runtime cannot do is not
@@ -955,6 +1235,63 @@ Capture's record of where it is, the checkpoint, says what is new or says nothin
 The private view capture reads through is a folder in the state directory. Whoever makes one removes it on every path they control (the reader closing, an admission abandoned half way, the process exiting), and at startup the views no live handle owns are swept, which is all that can be done about a process that was killed. A view's name carries its process id, so one desk never sweeps a view another running process is using.
 
 **The rule:** capture does bounded work, and none when nothing it reads has changed; it keeps only what Git cannot contradict and writes only what is new; and a view it makes is removed by whoever made it, or by the next start.
+
+## Passive provenance starts at the project and Seat window
+
+Capture walks back to the earlier of the project's first capture opening and
+its earliest local Seat opening, minus one day for clock skew. The opening and
+floor survive in the checkpoint. Older desks recover the opening from their
+oldest local commit observation; restored records never widen the local window.
+Reaching the floor finishes ancestry work, including a History request for an
+older commit: it remains unobserved rather than pending forever. Terminal range
+limits describe bounds already reached, not work still pending. Existing
+observations, decisions and backup history are retained.
+
+This is a bound on passive discovery, not an ownership test. `model.seed` binds
+a diff's observation time to the Seat's lifetime, and `model.reconcile` compares
+exact fingerprints; neither treats a Git author or commit clock as evidence.
+Commit clocks can be backdated. An admitted local diff fact therefore still
+supplies its source fingerprint even when its endpoints predate the passive
+window, preserving its explanation of a later rewrite. Missing commit clocks
+are handled conservatively rather than used to discard an observation.
+
+Reconciliation indexes patches and range dependencies, and capture work yields
+every 100 items or 20 ms. A journal retains every historical observation and
+only the latest complete checkpoint. Streaming an older journal discards
+superseded checkpoint bytes from memory, then writes the retained records to a
+synced temporary file and atomically replaces the original. A failed replacement
+leaves the original readable; checkpoint writes and replacements share a queue
+so a manifest never points at parts renumbered while it was being written.
+
+An earlier local Seat widens the saved window and restarts discovery from the
+unchanged tips. Capture reads the frontier's commit clocks in bounded batches
+before spending its observation budget, discarding every entry below the floor
+in the same scan. Frontier-only discards write no checkpoint: replaying that
+disposable work after a restart is safe and avoids rewriting a large journal's
+range index while no new observation is made. Completed range keys remain in
+the checkpoint because reconciliation uses them to avoid repeating Git work;
+the journal and backup formats keep their existing contracts.
+
+An in-window scan walks up to 200 commits or five seconds of elapsed Git and
+storage work, yielding every 100 items or 20 ms within that batch. It writes one
+checkpoint after the batch and immediately continues unfinished work. The scan's
+elapsed budget includes asynchronous I/O, so it is separate from the synchronous
+slice budget that keeps the host responsive. Walking an already journalled
+commit or peeling a tag does not move the capture clock. Frontier-only replay
+writes no checkpoint: the saved frontier and durable parent edges can repeat
+that work after a restart without losing an observation.
+
+A peeled tag target follows the same walk bookkeeping as a branch tip: its
+observation alone does not mean its ancestry was visited under the current
+floor. Widening the window therefore revisits tag-only ancestry too, including
+when a legacy checkpoint first acquires a floor.
+
+A failed object-clock batch falls back to individual reads. An already
+journalled commit whose object cannot be read still supplies its durable parent
+edges; an unavailable clock never proves that it is outside the window. Object
+failures remain visible as a history gap. Admission and storage failures still
+refuse progress, and an unreadable commit without durable edges ends the scan
+with that gap rather than starting a retry loop.
 
 ## A Goal is finite; Seats and receipts are the authority
 
@@ -2699,3 +3036,33 @@ measurement above and nothing else. Whether Codex says `account/updated` again
 later in a session, when another process refreshes the shared credential: it
 was not heard in a run of about seventeen seconds, which says nothing about an
 hour.
+
+## Agents start by measured cost
+
+Launching the desk starts only its default agent, in the background; the window
+waits for no agent. Every live operation shares the existing start and idle-stop
+barrier. Highlighting or choosing an agent, and opening its settings page, is
+intent: it starts an agent whose last observed process readiness plus first-model
+read cost at least 500 ms, or whose cost is not known. A cheaper agent waits for
+its first live operation. No agent-name table decides the split; each start is
+measured on this machine, with readiness and the first models answer kept apart.
+
+The host writes display observations to `runtime-cache.json` beside `state.json`,
+atomically, independently of conversation storage. Models, runtime and session
+options, loaded commands, learned capabilities and account display fields remain
+readable while the adapter is idle, including before its first start this launch.
+Missing observations mean not known yet. A live answer replaces them and sends
+the existing catalogue and account events. Account records keep only kind, name,
+plan and whether the name is anonymous; no email field, sign-in payload,
+credential, token or key is copied into this cache. Agent-owned authentication
+remains in the agent's home or the credential broker. The account observation
+also keeps only the permitted sign-in flow kinds, so restoring it cannot offer
+a method forbidden by the last effective configuration. Descriptors are rebuilt
+by the adapter; without an observed policy it offers no invented method. A live
+read replaces the recorded policy along with the account display fields.
+
+Automatic catalogue refresh skips idle agents. An explicit refresh is intent and
+still starts one through the host. File-based usage meters and process-cost
+observations keep their passive reads. Resuming a conversation or opening a Seat
+waits for current capabilities before making its live request. Sidebar hover
+intent follows when the conversation index is integrated.

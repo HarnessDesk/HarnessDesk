@@ -132,6 +132,29 @@ test('a conversation in the open folder runs its tool calls in that folder as it
   }
 })
 
+test('a main-checkout conversation follows a workspace switch before its first capability call', async (t) => {
+  const d = await rig(t)
+  const opened = join(d.linked, 'src')
+  for (const first of ['tool', 'context']) {
+    await d.host.call('workspace/open', { path: d.project })
+    const scope = await d.conversation(d.project)
+    const record = d.host.registry.get(d.agent.info.id, scope.sessionId as Session['id'])!
+    assert.equal(record.shellCheckout, null)
+    await d.host.call('workspace/open', { path: opened })
+    const expected = {
+      tool: { root: opened, branch: 'feature', read: 'linked src', names: ['file.txt'], editor: 'opened' },
+      context: { root: opened, branch: 'feature', read: 'linked src' },
+    }
+    const actual = first === 'tool'
+      ? { tool: await d.where(scope), context: await d.context(scope) }
+      : { context: await d.context(scope), tool: await d.where(scope) }
+    assert.deepEqual(actual, expected, first)
+    assert.deepEqual(await d.where(scope), expected.tool)
+    assert.deepEqual(await d.context(scope), expected.context)
+    assert.equal(d.host.registry.get(d.agent.info.id, scope.sessionId as Session['id'])?.shellCheckout?.source, 'fallback')
+  }
+})
+
 test('a Seat in a lane of its own runs its tool calls in the lane', async (t) => {
   const d = await rig(t)
   await d.host.call('workspace/open', { path: d.project })
@@ -144,6 +167,20 @@ test('a Seat in a lane of its own runs its tool calls in the lane', async (t) =>
   const scope = { runtime: String(d.agent.info.id), sessionId: String(seated.id) }
   assert.deepEqual(await d.where(scope), { root: lane.path, branch: null, read: 'lane', names: ['file.txt', 'src'], editor: 'opened' })
   // The person's own conversation in the open folder is not moved by the Seat's lane.
+  assert.deepEqual(await d.where(await d.conversation(d.project)), { root: d.project, branch: 'main', read: 'top', names: ['file.txt', 'src'], editor: 'opened' })
+})
+
+test('an ordinary conversation in a managed worktree shares that checkout across tool and context capabilities', async (t) => {
+  const d = await rig(t)
+  await d.host.call('workspace/open', { path: d.project })
+  const lane = await new Worktrees(d.stateDir).create(d.project, { name: 'conversation' })
+  await writeFile(join(lane.path, 'file.txt'), 'conversation\n')
+  await writeFile(join(lane.path, 'worktree.txt'), 'only here\n')
+  const scope = await d.conversation(lane.path)
+  for (let repeat = 0; repeat < 2; repeat++) {
+    assert.deepEqual(await d.where(scope), { root: lane.path, branch: null, read: 'conversation', names: ['file.txt', 'src', 'worktree.txt'], editor: 'opened' })
+    assert.deepEqual(await d.context(scope), { root: lane.path, branch: null, read: 'conversation' })
+  }
   assert.deepEqual(await d.where(await d.conversation(d.project)), { root: d.project, branch: 'main', read: 'top', names: ['file.txt', 'src'], editor: 'opened' })
 })
 
@@ -177,6 +214,27 @@ test('a Seat whose lane disappears follows the opened linked worktree for tools 
 
   assert.deepEqual(await d.where(scope), { root: d.linked, branch: 'feature', read: 'linked', names: ['file.txt', 'src'], editor: 'opened' })
   assert.deepEqual(await d.context(scope), { root: d.linked, branch: 'feature', read: 'linked' })
+})
+
+test('a cached Seat checkout replaced by a main-checkout symlink follows the opened workspace fallback', async (t) => {
+  const d = await rig(t)
+  await d.host.call('workspace/open', { path: d.project })
+  const lane = await new Worktrees(d.stateDir).create(d.project, { name: 'replaced-seat' })
+  const scope = await d.seat(lane.path)
+  const record = d.host.registry.get(d.agent.info.id, scope.sessionId as Session['id'])!
+  assert.deepEqual(record.shellCheckout, { project: d.project, cwd: lane.path, source: 'own' })
+  assert.ok(await d.host.call('evidence/seat', scope))
+  const opened = join(d.linked, 'src')
+  await d.host.call('workspace/open', { path: opened })
+  await rm(lane.path, { recursive: true })
+  await symlink(d.project, lane.path)
+  for (let repeat = 0; repeat < 2; repeat++) {
+    assert.deepEqual({ tool: await d.where(scope), context: await d.context(scope), source: record.shellCheckout?.source }, {
+      tool: { root: opened, branch: 'feature', read: 'linked src', names: ['file.txt'], editor: 'opened' },
+      context: { root: opened, branch: 'feature', read: 'linked src' },
+      source: 'fallback',
+    })
+  }
 })
 
 test('a restarted host re-admits a kept Seat and falls back when another Seat lane is missing', async (t) => {

@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import css from './Settings.module.css?raw'
-import { NoteList, PageHead, Row, RowChoice, Text } from './Settings'
+import { NoteList, Row, RowChoice, Text } from './Settings'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -21,10 +21,9 @@ afterEach(() => {
   container.remove()
 })
 
-it('sets PageHead and the page text role on the wordmark type', () => {
+it('sets the page text role on the wordmark type', () => {
   act(() => root.render(
     <>
-      <PageHead title="General" />
       <Text role="wordmark">HarnessDesk</Text>
       <Text role="page">Appearance</Text>
     </>,
@@ -42,11 +41,6 @@ it('sets PageHead and the page text role on the wordmark type', () => {
     .split(' ')
     .filter(name => /^(?:text-\(length|leading-|font-|tracking-)/.test(name))
   expect(typeClasses(page)).toEqual(typeClasses(wordmark))
-  expect(css).toMatch(/\.pageTitle\s*{[^}]*font-size:\s*var\(--hd-heading\)/s)
-  expect(css).toMatch(/\.pageTitle\s*{[^}]*line-height:\s*var\(--hd-line-heading\)/s)
-  expect(css).toMatch(/\.pageTitle\s*{[^}]*font-weight:\s*var\(--hd-weight-semibold\)/s)
-  expect(css).toMatch(/\.pageTitle\s*{[^}]*font-family:\s*var\(--hd-font-heading\)/s)
-  expect(css).toMatch(/\.pageTitle\s*{[^}]*letter-spacing:\s*var\(--hd-tracking-heading\)/s)
 })
 
 it('can preserve the end of a truncated path', () => {

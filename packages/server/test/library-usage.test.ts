@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import { errnoOf } from '../src/errno.js'
+import { DatabaseSync } from 'node:sqlite'
 import { LibraryUsageReader, internals } from '../src/library-usage.js'
+import { writeStored, forgetStored } from './fixtures/stored-transcripts.js'
 
 /**
  * The usage reader.
@@ -45,12 +46,40 @@ const withStore = async (
   }
 }
 
+test('skill usage reads new database bodies and ignores the retained transcript folder', async () => {
+  await withStore(async (transcripts, cache) => {
+    const data = JSON.parse(transcript(['browse'], 100))
+    data.turns[0].id = 'turn-1'
+    await writeStored(join(transcripts, '..'), 'codex', 'new', data)
+    await mkdir(join(transcripts, 'codex'), { recursive: true })
+    await writeFile(join(transcripts, 'codex', 'old.json'), transcript(['oldonly'], 1))
+    const usage = await new LibraryUsageReader(transcripts, cache).read()
+    assert.equal(usage.skills['browse']?.sessions, 1)
+    assert.equal(usage.skills['oldonly'], undefined)
+  })
+})
+
+const writeTranscript = async (path: string, raw: string): Promise<void> => {
+  const home = join(path, '../../..')
+  const runtime = path.split('/').at(-2)!
+  const id = path.split('/').at(-1)!.replace(/\.json$/, '')
+  const data = JSON.parse(raw)
+  data.runtime = runtime
+  data.id = id
+  data.turns.forEach((turn: { id?: string }, i: number) => { turn.id = `turn-${i}` })
+  await writeStored(home, runtime, id, data)
+}
+const editDatabase = (transcripts: string, change: (db: DatabaseSync) => void): void => {
+  const db = new DatabaseSync(join(transcripts, '..', 'sessions.sqlite'))
+  try { change(db) } finally { db.close() }
+}
+
 test('activations are counted per conversation with their latest time', async () => {
   await withStore(async (transcripts, cache) => {
     await mkdir(join(transcripts, 'claude-code'), { recursive: true })
     await mkdir(join(transcripts, 'codex'), { recursive: true })
-    await writeFile(join(transcripts, 'claude-code', 'a.json'), transcript(['browse', 'browse'], 100))
-    await writeFile(join(transcripts, 'codex', 'b.json'), transcript(['browse'], 500))
+    await writeTranscript(join(transcripts, 'claude-code', 'a.json'), transcript(['browse', 'browse'], 100))
+    await writeTranscript(join(transcripts, 'codex', 'b.json'), transcript(['browse'], 500))
     const usage = await new LibraryUsageReader(transcripts, cache).read()
     assert.equal(usage.sessionsScanned, 2)
     // Split by the runtime id each conversation was stored under — the
@@ -69,31 +98,13 @@ test('activations are counted per conversation with their latest time', async ()
 
 test('a second read is served from the cache, not a re-parse', async () => {
   await withStore(async (transcripts, cache) => {
-    // Seed a cache that contradicts the file on disk while matching its
-    // stat exactly. A reader that trusts its cache answers `cso`; one that
-    // quietly re-parses answers `qa!`. No mtime games — the contradiction
-    // is the proof.
-    await mkdir(join(transcripts, 'codex'), { recursive: true })
-    const path = join(transcripts, 'codex', 'a.json')
-    await writeFile(path, transcript(['qa!'], 100))
-    const info = await stat(path)
-    await mkdir(join(cache, '..'), { recursive: true })
-    await writeFile(
-      cache,
-      JSON.stringify({
-        version: 1,
-        files: {
-          'codex/a.json': {
-            mtimeMs: info.mtimeMs,
-            size: info.size,
-            skills: { cso: { n: 1, lastAt: 1 } },
-          },
-        },
-      }),
-    )
-    const again = await new LibraryUsageReader(transcripts, cache).read()
-    assert.equal(again.skills['cso']?.sessions, 1, 'cache hit: unchanged mtime+size is not re-read')
-    assert.equal(again.skills['qa!'], undefined)
+    await writeTranscript(join(transcripts, 'codex', 'a.json'), transcript(['qa'], 100))
+    const reader = new LibraryUsageReader(transcripts, cache)
+    assert.equal((await reader.read()).skills['qa']?.sessions, 1)
+    // Keep the durable fingerprint while corrupting its item out of band:
+    // re-parsing would lose the skill, so this proves the cache is used.
+    editDatabase(transcripts, db => db.prepare("UPDATE items SET payload='broken'").run())
+    assert.equal((await new LibraryUsageReader(transcripts, cache).read()).skills['qa']?.sessions, 1)
   })
 })
 
@@ -102,13 +113,13 @@ test('a changed file is re-read, and a deleted one leaves the count', async () =
     await mkdir(join(transcripts, 'codex'), { recursive: true })
     const a = join(transcripts, 'codex', 'a.json')
     const b = join(transcripts, 'codex', 'b.json')
-    await writeFile(a, transcript(['one'], 100))
-    await writeFile(b, transcript(['two'], 100))
+    await writeTranscript(a, transcript(['one'], 100))
+    await writeTranscript(b, transcript(['two'], 100))
     const reader = new LibraryUsageReader(transcripts, cache)
     await reader.read()
 
-    await writeFile(a, transcript(['one', 'three'], 200))
-    await rm(b)
+    await writeTranscript(a, transcript(['one', 'three'], 200))
+    await forgetStored(join(transcripts, '..'), 'codex', 'b')
     const usage = await reader.read()
     assert.equal(usage.sessionsScanned, 1)
     assert.equal(usage.skills['three']?.sessions, 1, 'grown file re-parsed')
@@ -121,71 +132,38 @@ test('extraction survives a file that is not what it claims', () => {
   assert.deepEqual(internals.extract('{"turns": "wrong shape"}'), {})
 })
 
-/*
- * A folder that cannot be opened is not a folder of conversations nobody had.
- *
- * The reader prunes every cached finding it did not see on this pass, which is
- * right for a conversation that was deleted — and it read a folder it could
- * not open as one with nothing in it. So a mode or a bad mount answered "no
- * skill has ever fired", and emptied the cache on the way: the next read
- * re-parses the whole store, measured at 184MB. The folders below point at
- * themselves, which is ELOOP for any user, root included.
- */
-
-/** Moves a folder to `away` and leaves one that points at itself in its place. */
-const loopAt = async (folder: string, away: string): Promise<void> => {
-  await rename(folder, away)
-  await symlink(folder, folder)
-}
-
-test('a transcripts folder that cannot be opened is raised, and its counts are kept', async () => {
+test('an unavailable database is raised and leaves its cached counts intact', async () => {
   await withStore(async (transcripts, cache) => {
-    await mkdir(join(transcripts, 'codex'), { recursive: true })
-    await writeFile(join(transcripts, 'codex', 'a.json'), transcript(['browse'], 100))
+    await writeTranscript(join(transcripts, 'codex', 'a.json'), transcript(['browse'], 100))
     const reader = new LibraryUsageReader(transcripts, cache)
     assert.equal((await reader.read()).skills['browse']?.sessions, 1)
-
-    const away = `${transcripts}.away`
-    await loopAt(transcripts, away)
-    await assert.rejects(reader.read(), (error: unknown) => {
-      assert.equal(errnoOf(error), 'ELOOP')
-      return true
-    })
-    await rm(transcripts)
-    await rename(away, transcripts)
-
+    const file = join(transcripts, '..', 'sessions.sqlite')
+    await rename(file, `${file}.away`)
+    await writeFile(file, 'not a database')
+    await assert.rejects(reader.read())
+    await rm(file)
+    await rename(`${file}.away`, file)
     const saved = JSON.parse(await readFile(cache, 'utf8')) as { files: Record<string, unknown> }
-    assert.ok(saved.files['codex/a.json'], 'the cache was not emptied by a folder it could not open')
-    assert.equal((await reader.read()).skills['browse']?.sessions, 1, 'and the count is still there')
+    assert.ok(saved.files['codex/a.json'])
+    assert.equal((await reader.read()).skills['browse']?.sessions, 1)
   })
 })
 
-test('an agent’s folder it cannot open keeps its counts, and says which', async () => {
+test('an unreadable conversation keeps its count while other conversations are still read', async () => {
   await withStore(async (transcripts, cache) => {
-    await mkdir(join(transcripts, 'codex'), { recursive: true })
-    await mkdir(join(transcripts, 'claude-code'), { recursive: true })
-    await writeFile(join(transcripts, 'codex', 'a.json'), transcript(['browse'], 100))
-    await writeFile(join(transcripts, 'claude-code', 'b.json'), transcript(['qa'], 200))
+    await writeTranscript(join(transcripts, 'codex', 'a.json'), transcript(['browse'], 100))
+    await writeTranscript(join(transcripts, 'claude-code', 'b.json'), transcript(['qa'], 200))
     const logged: string[] = []
-    const reader = new LibraryUsageReader(transcripts, cache, {
-      log: (message, details) => logged.push(`${message} ${JSON.stringify(details ?? {})}`),
-    })
+    const reader = new LibraryUsageReader(transcripts, cache, { log: (message, details) => logged.push(`${message} ${JSON.stringify(details)}`) })
     await reader.read()
-
-    const codex = join(transcripts, 'codex')
-    // Set aside beside the store rather than in it, where it would be read as an agent of its own.
-    await loopAt(codex, join(transcripts, '..', 'codex.away'))
-    /* A usage count is a scan, and one folder it cannot open must not cost it
-       the others — but what it counted there before is still true of
-       conversations that are still on disk, so it is kept rather than
-       forgotten, and the folder is named. */
+    editDatabase(transcripts, db => {
+      db.prepare("UPDATE items SET payload='broken' WHERE runtime='codex'").run()
+      db.prepare("UPDATE turns SET fingerprint='changed' WHERE runtime='codex'").run()
+    })
     const usage = await reader.read()
-    assert.equal(usage.skills['browse']?.sessions, 1, 'the conversations in it still count')
-    assert.equal(usage.skills['qa']?.sessions, 1, 'and the others were read')
-    assert.ok(
-      logged.some((line) => line.includes(codex) && line.includes('ELOOP')),
-      'and the folder that could not be read is named, with the reason',
-    )
+    assert.equal(usage.skills['browse']?.sessions, 1)
+    assert.equal(usage.skills['qa']?.sessions, 1)
+    assert.ok(logged.some(line => line.includes('codex') && line.includes('could not be read')))
   })
 })
 
@@ -196,7 +174,7 @@ test('a stray file beside the agents’ folders is nothing, and neither is a sto
     const reader = new LibraryUsageReader(transcripts, cache, { log: (message) => logged.push(message) })
     assert.equal((await reader.read()).sessionsScanned, 0)
     await mkdir(join(transcripts, 'codex'), { recursive: true })
-    await writeFile(join(transcripts, 'codex', 'a.json'), transcript(['browse'], 100))
+    await writeTranscript(join(transcripts, 'codex', 'a.json'), transcript(['browse'], 100))
     await writeFile(join(transcripts, '.DS_Store'), 'Finder was here')
     assert.equal((await reader.read()).skills['browse']?.sessions, 1)
     assert.deepEqual(logged, [])

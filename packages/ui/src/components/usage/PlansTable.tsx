@@ -19,7 +19,7 @@ import {
   CardContent,
   Chip,
   EmptyState,
-  Segmented,
+  ToggleGroup, ToggleGroupItem, DashboardTable, DashboardPlanName, DashboardPlanReading, DashboardAccountActivity,
   Progress,
   IconTile,
   Table,
@@ -40,7 +40,6 @@ import { Card } from './shared'
 import { AllowanceBody, BalanceBody, FreeBody, KeyBody } from './ShapeBodies'
 import { MoneyRowView } from './PlanFrame'
 import { entriesFromReports, NotReportingList } from './NotReporting'
-import styles from './usage.module.css'
 
 /**
  * The Plans table: shape filters above one table, one row per account, and
@@ -71,15 +70,11 @@ export const ShapeFilters = ({
   value: ShapeFilter
   onChange: (next: ShapeFilter) => void
 }) => (
-  <Segmented
-    label="Filter accounts by shape"
-    value={value}
-    onChange={(next) => onChange(next as ShapeFilter)}
-    options={[
-      { value: 'all' as const, label: `All · ${counts.all}` },
-      ...SHAPE_FILTER_ORDER.filter((shape) => counts[shape] > 0).map((shape) => ({ value: shape, label: `${SHAPE_CHIP_LABEL[shape]} · ${counts[shape]}` })),
-    ]}
-  />
+  <ToggleGroup type="single" aria-label="Filter accounts by shape" value={value}
+    onValueChange={next => { if (next) onChange(next as ShapeFilter) }}>
+    {[{value:'all',label:`All · ${counts.all}`},...SHAPE_FILTER_ORDER.filter(shape=>counts[shape]>0).map(shape=>({value:shape,label:`${SHAPE_CHIP_LABEL[shape]} · ${counts[shape]}`}))].map(item =>
+      <ToggleGroupItem key={item.value} value={item.value}>{item.label}</ToggleGroupItem>)}
+  </ToggleGroup>
 )
 
 // A not-reporting row has no shape to name — its own status chip already
@@ -133,15 +128,14 @@ export const PlansTable = ({
   }
 
   return (
-    <SurfaceCard className={styles.plansTable} data-slot="plans-table">
-      <Table containerClassName={styles.plansTableScroll}>
+    <DashboardTable kind="plans">
         <TableHeader>
           <TableRow>
-            <TableHead className={styles.colAccount}>Account</TableHead>
-            <TableHead className={styles.colStatus}>Status</TableHead>
-            <TableHead className={styles.colLeft} numeric>Left</TableHead>
-            <TableHead className={styles.colResets} collapseBelow="sm" numeric>Resets</TableHead>
-            <TableHead className={styles.colDetails}><span className="sr-only">Details</span></TableHead>
+            <TableHead>Account</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead numeric>Left</TableHead>
+            <TableHead collapseBelow="sm" numeric>Resets</TableHead>
+            <TableHead><span className="sr-only">Details</span></TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -179,8 +173,7 @@ export const PlansTable = ({
             )
           })}
         </TableBody>
-      </Table>
-    </SurfaceCard>
+    </DashboardTable>
   )
 }
 
@@ -191,15 +184,11 @@ const shapeWords = (row: PlanRow): string => ({
 
 const LeftCell = ({ row, name }: { row: PlanRow; name: string }) => {
   if (row.shape === 'free' || (row.shape === 'metered' && !row.report.billing?.budget)) return <Text role="muted">No limit</Text>
-  if (row.shape === 'balance') return <div className="flex flex-col items-end">
-    <Text role="value" numeric>{row.ownUnit.replace(/ balance$/, '')}</Text>
-    {row.approxTurns !== '—' && <Text role="meta" numeric>≈ {row.approxTurns.replace(/^~/, '')} turns</Text>}
-  </div>
+  if (row.shape === 'balance') return <DashboardPlanReading value={<Text role="value" numeric>{row.ownUnit.replace(/ balance$/, '')}</Text>}
+    estimate={row.approxTurns !== '—' ? <Text role="meta" numeric>≈ {row.approxTurns.replace(/^~/, '')} turns</Text> : undefined} />
   if (row.left.percent === null) return <Text role="meta">—</Text>
-  return <div className={styles.plansReading}>
-    <Progress value={row.left.percent} label={false} tone={statusPresentation(row.status).tone} aria-label={`${name} — what is left`} />
-    <Text className={styles.plansPercent} role="value" numeric tone={usageReadingTone(STATUS_TONE[row.status])}>{Math.round(row.left.percent)}%</Text>
-  </div>
+  return <DashboardPlanReading meter={<Progress value={row.left.percent} label={false} tone={statusPresentation(row.status).tone} aria-label={`${name} — what is left`} />}
+    value={<Text role="value" numeric tone={usageReadingTone(STATUS_TONE[row.status])}>{Math.round(row.left.percent)}%</Text>} />
 }
 
 const TableRowGroup = ({
@@ -239,22 +228,19 @@ const TableRowGroup = ({
 }) => (
   <>
     <TableRow data-state={isOpen ? 'selected' : undefined}>
-      <TableCell className={styles.colAccount} lead={info && <IconTile shape="face" badge={badge} {...(row.shape === 'metered' || row.shape === 'free' ? { tone: 'neutral' as const } : { tint })}><RuntimeMark runtime={info} /></IconTile>}>
-        <span className={styles.plansName}>
-          <Text role="subject" truncate>{row.report.account ?? name}</Text>
-          <Text role="meta" truncate>{[row.report.account && name, shapeWords(row)].filter(Boolean).join(' · ')}</Text>
-        </span>
+      <TableCell lead={info && <IconTile shape="face" badge={badge} {...(row.shape === 'metered' || row.shape === 'free' ? { tone: 'neutral' as const } : { tint })}><RuntimeMark runtime={info} /></IconTile>}>
+        <DashboardPlanName name={row.report.account ?? name} meta={[row.report.account && name, shapeWords(row)].filter(Boolean).join(' · ')} />
       </TableCell>
-      <TableCell className={styles.colStatus}>
+      <TableCell>
         <Chip tone={statusPresentation(row.status).tone} label={statusPresentation(row.status).label} />
       </TableCell>
-      <TableCell className={styles.colLeft} numeric>
+      <TableCell numeric>
         <LeftCell row={row} name={row.report.account ?? name} />
       </TableCell>
-      <TableCell className={styles.colResets} collapseBelow="sm" numeric>
+      <TableCell collapseBelow="sm" numeric>
         <Text role="muted" numeric>{row.resets}</Text>
       </TableCell>
-      <TableCell className={styles.colDetails} align="end">
+      <TableCell align="end">
         <Button ref={buttonRef} variant="ghost" size="icon-sm" aria-label={`Details for ${row.report.account ?? name}`} aria-expanded={isOpen} aria-controls={bodyId} onClick={onToggle} onKeyDown={(event) => {
           if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onToggle() }
           else if (event.key === 'Escape' && isOpen) { event.preventDefault(); onCollapse() }
@@ -354,25 +340,10 @@ const ExpandedBody = ({
 }
 
 export const AccountActivityBand = ({ summary }: { summary: AccountActivitySummary }) => (
-  <SurfaceCard variant="muted" data-slot="account-activity">
-    <CardContent className="flex flex-col gap-(--hd-space-2)">
-      <Text
-        role="meta"
-        title="The account's own count across every machine; the figures above come from this machine's transcripts."
-      >
-        All machines
-      </Text>
-      <div className="flex flex-wrap items-baseline gap-x-(--hd-space-3) gap-y-(--hd-space-1-5)">
-        {summary.last30 !== null && (
-          <Text role="value" numeric>{formatTokens(summary.last30)} tokens · 30d</Text>
-        )}
-        {summary.streak !== null && (
-          <Text role="value" numeric>{summary.streak}-day streak</Text>
-        )}
-        {summary.lifetime !== null && (
-          <Text role="value" numeric>{formatTokens(summary.lifetime)} lifetime</Text>
-        )}
-      </div>
-    </CardContent>
-  </SurfaceCard>
+  <DashboardAccountActivity label={<Text role="meta" title="The account's own count across every machine; the figures above come from this machine's transcripts.">All machines</Text>}
+    readings={[
+      summary.last30 !== null ? <Text key="last30" role="value" numeric>{formatTokens(summary.last30)} tokens · 30d</Text> : null,
+      summary.streak !== null ? <Text key="streak" role="value" numeric>{summary.streak}-day streak</Text> : null,
+      summary.lifetime !== null ? <Text key="lifetime" role="value" numeric>{formatTokens(summary.lifetime)} lifetime</Text> : null,
+    ]} />
 )

@@ -1,4 +1,6 @@
+import type { BrowserTileMount } from '../lib/browser-tiles'
 import type {
+  HistoryImportState,
   AccountStatus,
   CapabilityContribution,
   PluginInstance,
@@ -48,7 +50,7 @@ import type { AccountPrefsMap } from '../lib/accounts'
 
 import type { Profile } from '../lib/profile'
 
-import { DEFAULT_EDITOR_PREFS } from '../lib/editor-prefs'
+import { DEFAULT_EDITOR_PREFS, type WindowMode, type EditorState, type EditorDocuments, type EditorLiveDocuments, type EditorLineTargets } from '../editor'
 
 import type { GitColumnWidths } from '../lib/git-columns'
 
@@ -199,6 +201,8 @@ export interface Notice {
 }
 
 export interface NoticeAction {
+  /** A host-owned Undo window; hovering must not extend it. */
+  readonly expiresAt?: number
   readonly label: string
   readonly run: () => void
 }
@@ -249,7 +253,14 @@ export type DraftPlace =
   | { readonly kind: 'worktree'; readonly root: string; readonly name: string; readonly base?: string }
   | { readonly kind: 'existing'; readonly path: string; readonly branch: string | null }
 
+export interface TeamFrameRequest {
+  readonly serial: number
+  readonly page: 'board' | 'run'
+  readonly runView?: 'timeline' | 'flow'
+}
+
 export interface AppSnapshot {
+  readonly teamFrameRequests: Readonly<Record<string, TeamFrameRequest>>
   /** Per-project state of local, opt-in commit-to-Seat capture. */
   readonly captureHealth: ReadonlyMap<string, import('@harnessdesk/protocol').CaptureHealth>
   /** Latest host revision accepted for each capture-health entry. */
@@ -351,6 +362,11 @@ export interface AppSnapshot {
 
   /** Every conversation the host told us about, keyed by `(runtime, id)`. */
   readonly sessions: ReadonlyMap<SessionKey, Session>
+  /** Import progress read on demand and kept current by host notifications. */
+  readonly historyImports: Readonly<Record<string, HistoryImportState | null>>
+  readonly historyRevision: number
+  /** Open imports await an authoritative desk-index row before appearing in the sidebar. */
+  readonly previewSessions: ReadonlySet<SessionKey>
   /** Full, unfiltered conversation history used for stable project identity during search. */
   readonly historyIdentity: readonly SessionSummary[]
   readonly history: readonly SessionSummary[]
@@ -575,11 +591,12 @@ export interface AppSnapshot {
   readonly sidebarCollapsed: boolean
   /** The window's width in CSS pixels, known before the first frame and once per resize frame. */
   readonly windowWidth: number
+  /** Live CSS-pixel viewport height; passive shrink preserves PTY intent. */
+  readonly windowHeight: number
   /**
-   * The sidebar cannot have a column — a window under `NARROW_WINDOW`, or one
-   * too narrow for it, a drawn right panel and `MIN_READING` (see
-   * `sidebarCannotHaveColumn`). A fact derived from the window and the
-   * workbench rather than a choice, kept here because `toggleSidebar` has to
+   * The sidebar cannot have a column — a window under FRAME's 1000px fold
+   * (see `sidebarCannotHaveColumn`). A fact derived only from the window,
+   * kept here because `toggleSidebar` has to
    * know which of the two sidebar states it is flipping.
    */
   readonly narrowWindow: boolean
@@ -737,12 +754,20 @@ export interface AppSnapshot {
    * which is what keeps a palette change reaching the editor — a family
    * copied out of the token at pick time would freeze it.
    */
+  /** Stored preference; effectiveWindowMode applies it only to a conversation destination. */
+  readonly windowMode: WindowMode
+  readonly editorState: EditorState
+  readonly editorDocuments: EditorDocuments
+  /** Shared full baselines, including clean saves; renderer-only. Null explicitly discards. */
+  readonly editorLiveDocuments: EditorLiveDocuments
+  readonly editorLineTargets: EditorLineTargets
   readonly editorPrefs: {
     readonly fontFamily: string
     readonly fontSize: number
     readonly lineHeight: number
     readonly lineNumbers: boolean
     readonly wrap: boolean
+    readonly minimap: boolean
     readonly tabSize: number
   }
   /**
@@ -760,6 +785,8 @@ export interface AppSnapshot {
    * workspace's layout; whether this app keeps cookies is a standing
    * answer, so it lives here beside the theme.
    */
+  /** Live tile owners; never persisted with the workspace. */
+  readonly browserTiles: ReadonlyMap<string, BrowserTileMount>
   readonly browserPrefs: {
     /** Default-profile guests use a persistent partition when enabled; lane profiles are independently retained. */
     readonly persistSession: boolean
@@ -813,6 +840,7 @@ export const withClosedTurnFiles = (closed: ReadonlySet<string>, session: string
   new Set(closed).add(closedTurnFilesKey(session, turn))
 
 const EMPTY: AppSnapshot = {
+  teamFrameRequests: {},
   captureHealth: new Map(),
   provenanceRevision: new Map(),
   triggerRevisions: {},
@@ -848,6 +876,9 @@ const EMPTY: AppSnapshot = {
   queues: new Map(),
   recoverableDrafts: new Map(),
   tasks: new Map(),
+  historyImports: {},
+  historyRevision: 0,
+  previewSessions: new Set(),
   historyIdentity: [],
   history: [],
   historyLoading: false,
@@ -903,7 +934,8 @@ const EMPTY: AppSnapshot = {
   draftHandoff: null,
   draftPlace: null,
   sidebarCollapsed: false,
-  windowWidth: 1440,
+  windowWidth: typeof window === 'undefined' ? 1440 : window.innerWidth,
+  windowHeight: typeof window === 'undefined' ? 900 : window.innerHeight,
   narrowWindow: false,
   sidebarFloating: false,
   theme: 'system',
@@ -915,6 +947,11 @@ const EMPTY: AppSnapshot = {
   planEdits: {},
   listPrefs: { density: 'compact', agent: null, sort: 'recency', pinned: [], pinnedSessions: [], collapsed: [], panelsCollapsed: [], othersOpen: false },
   editorPrefs: DEFAULT_EDITOR_PREFS,
+  windowMode: 'conversation',
+  editorState: [],
+  editorDocuments: new Map(),
+  editorLiveDocuments: new Map(),
+  editorLineTargets: new Map(),
   editorPlane: [],
   usageOff: [],
   noticePolicy: emptyNoticePolicy(),
@@ -924,6 +961,7 @@ const EMPTY: AppSnapshot = {
   preferencesLoaded: false,
   // Cookies kept and links staying in the pane are what a person expects of
   // a browser; both are one row away in the pane's own menu.
+  browserTiles: new Map(),
   browserPrefs: {
     persistSession: true,
     linksInPane: true,
@@ -938,6 +976,11 @@ const EMPTY: AppSnapshot = {
 /** A blank snapshot, for tests that render a component against a made-up state. */
 export const emptySnapshot = (): AppSnapshot => ({
   ...EMPTY,
+  editorState: [],
+  editorDocuments: new Map(),
+  editorLiveDocuments: new Map(),
+  editorLineTargets: new Map(),
+  teamFrameRequests: {},
   captureHealth: new Map(),
   provenanceRevision: new Map(),
   triggerRevisions: {},
@@ -953,6 +996,7 @@ export const emptySnapshot = (): AppSnapshot => ({
   seating: null,
   seatAgents: new Map(),
   goals: new Map(),
+  browserTiles: new Map(),
   seatActivities: new Map(),
   findings: new Map(),
   findingRuns: new Map(),

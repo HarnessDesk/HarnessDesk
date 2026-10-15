@@ -7,6 +7,7 @@ import { TRIGGER_DAILY_USD_MAX, TRIGGER_ID } from './intake.js'
 import type { TriggerBudget, TriggerCommentFrom, TriggerDefinition, TriggerField, TriggerOn, TriggerSource } from './intake.js'
 import { QUESTION_WAIT_PREFERENCE, QUESTION_WAITS } from './question-wait.js'
 import { CEILING_LEVELS } from './ceiling.js'
+import { INSIGHT_GOALS_LIMIT } from './insight.js'
 import type {
   ClientToHost,
   GitWorktreeCheckout,
@@ -44,6 +45,11 @@ import type { ReviewRequest } from './runtime.js'
  * The host trusts nothing off the socket: even though the renderer is our own
  * code, the socket is a loopback port that other local processes can reach.
  */
+
+const storageAge: Validator<30 | 60 | 90> = (value, path = '') => {
+  if (value === 30 || value === 60 || value === 90) return value
+  throw new ValidationError(path, 'expected 30, 60 or 90 days')
+}
 
 const nonNegativeSafeInteger: Validator<number> = (value, path = '') => {
   const number = isNumber(value, path)
@@ -264,6 +270,8 @@ const libraryPlannedOpValidator: Validator<LibraryPlannedOp> = shape({
   sourcePath: optional(isString),
   flat: optional(isBoolean),
   guardDigest: nullableString,
+  guardBundle: (value, path) => value === undefined ? undefined : nullableString(value, path),
+  sourceBundle: (value, path) => value === undefined ? undefined : isString(value, path),
   backup: isBoolean,
 }) as Validator<LibraryPlannedOp>
 
@@ -694,6 +702,16 @@ const flowLayoutValidator: Validator<unknown> = (value, path = '') => {
   if (size > SHAPE_LAYOUT_SIZE_LIMIT) throw new ValidationError(path, 'expected layout metadata under 64 KiB')
   return value
 }
+const flowCompleteValidator: Validator<NonNullable<FlowPolicy['complete']>> = (value, path = '') => {
+  const record = isObject(value, path)
+  if (Object.keys(record).length > 64) throw new ValidationError(path, 'expected at most 64 roles')
+  return Object.fromEntries(Object.entries(record).map(([role, words]) => {
+    flowRoleId(role, `${path}.${role}`)
+    const outcomes = flowWordList(64, atMost(200, isFilled))(words, `${path}.${role}`)
+    if (!outcomes.length) throw new ValidationError(`${path}.${role}`, 'expected at least one successful outcome')
+    return [role, outcomes]
+  }))
+}
 const flowPolicyValidator: Validator<FlowPolicy> = goalShape({
   version: ((value: unknown, path = '') => {
     if (value !== 2) throw new ValidationError(path, 'expected 2')
@@ -701,9 +719,16 @@ const flowPolicyValidator: Validator<FlowPolicy> = goalShape({
   }) as Validator<2>,
   name: atMost(200, isFilled),
   description: optional(atMost(4000)),
+  summary: (value, path = '') => {
+    if (value === undefined) return undefined
+    const text = atMost(240, isFilled)(value, path)
+    if (/[\r\n]/.test(text)) throw new ValidationError(path, 'expected a single-line summary')
+    return text
+  },
   inputs: flowWordList(64, flowInputValidator) as unknown as Validator<FlowPolicy['inputs']>,
   roles: flowWordList(64, flowPolicyRoleValidator) as unknown as Validator<FlowPolicy['roles']>,
   rules: flowWordList(256, flowPolicyRuleValidator) as unknown as Validator<FlowPolicy['rules']>,
+  complete: (value, path) => value === undefined ? undefined : flowCompleteValidator(value, path),
   seed: flowThenValidator,
   messaging: literalUnion('board-only', 'members'),
   wait: goalInteger(1),
@@ -848,13 +873,14 @@ const insightSelector = goalShape({
   briefDigest: nullableString,
   seat: (value: unknown, path = '') => value === null ? null : flowSeatValidator(value, path),
 })
-const insightGoals: Validator<string[]> = (value, path = '') => {
+const distinctGoals = (limit: number): Validator<string[]> => (value, path = '') => {
   const goals = arrayOf(goalId)(value, path)
-  if (goals.length === 0 || goals.length > 50 || new Set(goals).size !== goals.length) {
-    throw new ValidationError(path, 'expected 1 to 50 distinct Goal ids')
+  if (goals.length === 0 || goals.length > limit || new Set(goals).size !== goals.length) {
+    throw new ValidationError(path, `expected 1 to ${limit} distinct Goal ids`)
   }
   return goals
 }
+const insightGoals = distinctGoals(50)
 const insightCompare = (value: unknown, path = '') => {
   const object = isObject(value, path)
   const query = insightQuery({ root: object.root, from: object.from, to: object.to }, path)
@@ -864,6 +890,7 @@ const insightCompare = (value: unknown, path = '') => {
 }
 const insightValidators = {
   'insight/goal': goalShape({ goal: goalId }),
+  'insight/goals': goalShape({ goals: distinctGoals(INSIGHT_GOALS_LIMIT) }),
   'insight/usage': insightQuery,
   'insight/agent': goalShape({ root: optional(atMost(4096, isFilled)), agent: goalIdentifier, origin: literalUnion('project', 'user', 'builtin') }),
   'insight/compare': insightCompare,
@@ -940,6 +967,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'runtime/recycle': shape({ runtime: isString }),
   'runtime/health': shape({ runtime: isString }),
   'diagnostics/bundle': isObject,
+  'runtime/warm': shape({ runtime: isString }),
   'runtime/models': shape({ runtime: isString }),
   'runtime/account': shape({ runtime: isString }),
   'runtime/limits': shape({ runtime: isString }),
@@ -1009,6 +1037,34 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   }),
   'runtime/account/remove': shape({ runtime: isString }),
 
+  'history/import': shape({ runtime: isString }),
+  'history/cancel': shape({ runtime: isString }),
+  'history/status': shape({ runtime: isString }),
+  'history/removeImported': shape({ runtime: isString }),
+  'storage/usage': shape({}),
+  'storage/kept': shape({}),
+  'storage/cleanupPreview': shape({ olderThanDays: storageAge, exclude: arrayOf(shape({ runtime: isString, sessionId: isString })) }),
+  'storage/cleanup': shape({ olderThanDays: storageAge, exclude: arrayOf(shape({ runtime: isString, sessionId: isString })), includeDirty: isBoolean, inventoryToken: isString }),
+  'history/clearCached': shape({}),
+  'history/list': shape({
+    runtimes: optional(arrayOf(isString)), repoRoot: optional(isString), query: optional(isString),
+    includeHidden: optional(isBoolean), cursor: optional(isString),
+    pageSize: optional((value, path) => {
+      const size = goalInteger(1)(value, path)
+      if (size > 500) throw new ValidationError(path ?? 'params.pageSize', 'pageSize must be at most 500')
+      return size
+    }),
+  }),
+  'session/index': shape({
+    runtimes: optional(arrayOf(isString)),
+    cursor: optional(isString),
+    pageSize: optional((value, path) => {
+      const size = goalInteger(1)(value, path)
+      if (size > 500) throw new ValidationError(path ?? 'params.pageSize', 'pageSize must be at most 500')
+      return size
+    }),
+    archived: optional(literalUnion('exclude', 'only')),
+  }),
   'session/list': shape({
     runtime: isString,
     cursor: optional(isString),
@@ -1017,14 +1073,17 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     archived: optional(literalUnion('exclude', 'only')),
   }),
   'session/search': shape({ runtime: isString, query: isString }),
-  'transcripts/search': shape({ query: isString }),
+  'transcripts/search': shape({ query: isString, includeTools: optional(isBoolean) }),
   'backup/export': isObject,
   'backup/import': shape({ backup: isObject }),
   'session/read': shape({ runtime: isString, sessionId: isString }),
   'session/create': shape({ runtime: isString, options: withoutHostOnly(shape({ cwd: isString })) }),
   'session/resume': shape({ runtime: isString, sessionId: isString, options: optional(withoutHostOnly(isObject)) }),
   'session/fork': shape({ runtime: isString, sessionId: isString, options: optional(withoutHostOnly(isObject)) }),
+  'session/worktreePreview': shape({ runtime: isString, sessionId: isString }),
+  'session/discardWorktree': shape({ runtime: isString, sessionId: isString, stamp: isString }),
   'session/archive': shape({ runtime: isString, sessionId: isString, archived: isBoolean }),
+  'session/remove': shape({ runtime: isString, sessionId: isString, removed: isBoolean }),
   'session/delete': shape({ runtime: isString, sessionId: isString }),
   'session/close': shape({ runtime: isString, sessionId: isString }),
   'session/setTitle': shape({ runtime: isString, sessionId: isString, title: isString }),
@@ -1103,7 +1162,12 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     limit: optional(isNumber),
     runtime: optional(isString),
   }),
-  'workspace/browse': shape({ path: optional(isString), runtime: optional(isString) }),
+  'workspace/browse': (value, path) => {
+    const source = isObject(value, path)
+    return source['mode'] === 'entries'
+      ? shape({ mode: literalUnion('entries'), root: isString, path: optional(isString), runtime: optional(isString) })(value, path)
+      : shape({ mode: optional(literalUnion('directories')), path: optional(isString), runtime: optional(isString) })(value, path)
+  },
   'workspace/readFile': shape({
     path: isString,
     maxBytes: optional(isNumber),
@@ -1221,6 +1285,8 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
 
   'flow/catalog': goalShape({ root: isString }),
   'flow/source': goalShape({ root: isString, id: isFilled, origin: optional(literalUnion('project', 'user', 'builtin')) }),
+  // Attachment decisions belong to the result. goalShape rejects a caller's
+  // attachments, just as it rejects caller-supplied ceilings and evidence.
   'flow/preview': goalShape({
     continues: optional(isFilled),
     seats: optional(flowSeatOverrides),
@@ -1384,7 +1450,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'git/pull': shape({ root: isString }),
   'git/push': shape({ root: isString }),
   'git/fetch': shape({ root: isString }),
-  'git/merge': shape({ root: isString, ref: isString }),
+  'git/merge': shape({ root: isString, ref: isString, expectedBranch: optional(isString) }),
   'git/rebase': shape({ root: isString, onto: isString }),
   'git/checkoutCommit': shape({ root: isString, sha: isString }),
   'git/renameBranch': shape({ root: isString, from: isString, to: isString }),

@@ -230,7 +230,7 @@ export const HeatGrid = ({
                   key={entry.index}
                   aria-hidden
                   className={styles.monthLabel}
-                  style={{ gridColumn: entry.index + 1 + headerCol, gridRow: 1 }}
+                  style={{ gridColumn: `${entry.index + 1 + headerCol} / -1`, gridRow: 1, justifySelf: columns - entry.index < 3 ? 'end' : 'start' }}
                 >
                   <Text role="meta">{entry.label}</Text>
                 </span>

@@ -3,6 +3,7 @@ import { overviewInput, overviewRun } from '../preview/team-overview-fixture'
 import { teamOverview } from './team-overview'
 import { teamsList, teamListRow, readTeamsPrefs, type TeamListInput } from './teams-list'
 import { PREVIEW_GOAL } from '../preview/goal-fixture'
+import type { FindingRunView } from '@harnessdesk/protocol'
 
 const input = (id: string, scene: Parameters<typeof overviewInput>[0] = 'idle', since = 100): { -readonly [K in keyof TeamListInput]: TeamListInput[K] } => {
  const facts = overviewInput(scene)
@@ -55,6 +56,17 @@ describe('Teams list', () => {
   expect(teamListRow(one,{hidden:{},seen:{one:token}}).unread).toBe(false)
   one.execution = {...one.execution!,state:'stalled'}
   expect(teamListRow(one,{hidden:{},seen:{one:token}}).unread).toBe(true)
+ })
+ it('a wrapped Team stays read when its review is loaded later, since its row follows none', () => {
+  const review: FindingRunView = { run: 'run', goal: 'team', round: 2, finished: 2, total: 3, embargoed: false, open: 1, blocking: 1,
+   reason: 'Posting stopped.', ceilingStop: false, stamp: 'read-1', publication: 'partial', rounds: [], reviewersFinished: null,
+   reviewersTotal: null, pendingExceptions: [], repair: null, boundPr: null, unbound: null, undecidable: null }
+  const wrapped = input('wrapped','done'); wrapped.goal = {...PREVIEW_GOAL,goal:{...PREVIEW_GOAL.goal,id:'wrapped',state:'wrapped'}}
+  const open = input('open','done')
+  const marks = {wrapped:teamListRow(wrapped).change,open:teamListRow(open).change}
+  for (const one of [wrapped,open]) one.overview.run = {...one.overview.run!,findingRun:{...review,run:one.execution!.id,goal:one.team.id},publicationOn:true}
+  expect(teamListRow(wrapped,{hidden:{},seen:marks}).unread).toBe(false)
+  expect(teamListRow(open,{hidden:{},seen:marks}).unread).toBe(true)
  })
  it('wrap records are settled and manual ready Goals fold; an idle Team remains active', () => {
   const manual=input('manual'); manual.execution=null; manual.overview.run=null; manual.goal={...PREVIEW_GOAL,goal:{...PREVIEW_GOAL.goal,id:'manual'},activity:'ready-to-wrap'}
@@ -132,4 +144,26 @@ it('does not make a new Run Needs you because an earlier Run left Goal findings 
  one.overview=teamOverview({...overviewInput('done'),team:one.team.id,run:{execution:one.execution!,startedAt:100},findingRun})
  expect(one.overview.run?.needsYou).toBe(false)
  expect(teamListRow(one).state).toBe('settled')
+})
+
+it('completed and stopped Runs need no person, and a stopped Run is not Ready to wrap (#1548)',()=>{
+ const complete=input('complete','done');complete.execution={...complete.execution!,end:{kind:'complete'}}
+ const stopped=input('stopped','done');stopped.execution={...stopped.execution!,state:'stopped',end:{kind:'stopped',by:'person'}}
+ stopped.goal={...PREVIEW_GOAL,goal:{...PREVIEW_GOAL.goal,id:'stopped'},activity:'ready-to-wrap',waitingOn:[]}
+ const list=teamsList([complete,stopped])
+ expect(list.counts['needs-you']).toBe(0)
+ expect(teamListRow(complete)).toMatchObject({state:'settled',ready:true})
+ expect(teamListRow(stopped)).toMatchObject({state:'stopped',ready:false})
+})
+
+
+it('stopped Runs distinguish an original turn finishing from claimed work', () => {
+ const one = input('stopped', 'running')
+ one.execution = { ...one.execution!, state: 'stopped', currentEndedAt: 300, endedAt: 300, end: { kind: 'stopped', by: 'person' } }
+ one.overview.seats = [{ ...one.overview.seats[0]!, state: 'working' }]
+ one.overview.needsYou = []
+ Object.assign(one, { stopping: true })
+ expect(teamListRow(one).state).toBe('stopping')
+ Object.assign(one, { stopping: false })
+ expect(teamListRow(one).state).toBe('stopped')
 })

@@ -7,7 +7,8 @@ import type { AgentEntry } from '@harnessdesk/protocol'
 
 import { Agents } from '../src/agents.js'
 import { builtinAgentRoot, builtinFlowRoot } from '../src/host.js'
-import { compileFlowPolicy, parseFlowPolicy } from '../src/flow-policy.js'
+import { compileFlowPolicy, parseFlowPolicy, serializeFlowPolicy } from '../src/flow-policy.js'
+import { FlowPreviews } from '../src/flow-preview.js'
 import { tempDir } from './scratch.js'
 
 /**
@@ -25,7 +26,43 @@ import { tempDir } from './scratch.js'
  * the shape itself is ordinary data today.
  */
 
-const SHIPPED = ['comparison', 'fan-out', 'independent-review', 'staged-relay', 'investigation', 'alignment', 'mechanical-contest', 'review-pr', 'review']
+const SHIPPED = ['comparison', 'fan-out', 'independent-review', 'staged-relay', 'investigation', 'alignment', 'mechanical-contest', 'review-pr', 'review', 'fix-and-review']
+
+test('Write and review has one independent reviewer and enough rounds for three reviews', async () => {
+  const compiled = compileShape(await readFile(join(builtinFlowRoot(), 'fix-and-review.yml'), 'utf8'), await agentsOf())
+  assert.ok(compiled.document.format === 'agents')
+  const flow = compiled.document.flow
+  assert.equal(flow.name, 'Write and review')
+  assert.equal(compiled.bindings.filter(one => one.role === 'reviewer').length, 1)
+  assert.deepEqual(flow.roles.find(one => one.id === 'reviewer' && one.kind === 'agent')?.kind === 'agent'
+    ? (flow.roles.find(one => one.id === 'reviewer') as import('@harnessdesk/protocol').FlowAgentRole).independentOf : [], ['fixer'])
+  assert.equal(flow.budget?.rounds, 7)
+})
+
+test('Write and review previews against shipped Agents, including its reviewed merge option', async () => {
+  const agents = await agentsOf()
+  const source = await readFile(join(builtinFlowRoot(), 'fix-and-review.yml'), 'utf8')
+  const previews = new FlowPreviews({
+    confine: async () => {}, agents: async () => agents, now: () => 1,
+    providerOf: async runtime => runtime,
+    previewAgent: async (_root, id, seats, grant) => {
+      const seat = seats[0] ?? { runtime: id === 'code-reviewer' ? 'beta' : 'alpha' }
+      return { id, from: 'prefer', winner: 0, blocked: null, ceiling: { level: grant, hold: 'held' }, candidates: [{ seat, label: seat.runtime, runtimeName: seat.runtime, state: 'taken', reason: null, fix: null }] }
+    },
+  })
+  const dry = await previews.preview('/work/project', source, { work: 'Fix the cart' }, undefined, { requireHeld: true, target: { context: { kind: 'project', root: '/work/project' }, facts: 'project', resolved: null }, goal: null })
+  assert.ok(dry.token, JSON.stringify(dry.problems))
+  assert.equal(dry.seats.length, 2)
+  assert.ok(dry.compiled.document.format === 'agents')
+  const flow = dry.compiled.document.flow
+  const automatic = { ...flow, complete: { referee: ['merged'] }, roles: flow.roles.map(role => role.id === 'referee'
+    ? { id: 'referee', kind: 'agent' as const, uses: ['merger'], seats: [], isolate: false, grant: 'merge' as const, independentOf: [] } : role),
+    rules: flow.rules.map(rule => rule.then.role === 'referee' ? { ...rule, when: { evidence: [{ review: 'approve' as const }, { pr: 'open' as const }] } } : rule),
+  }
+  const merge = await previews.preview('/work/project', serializeFlowPolicy(automatic), { work: 'Fix the cart' }, undefined, { requireHeld: true, target: { context: { kind: 'project', root: '/work/project' }, facts: 'project', resolved: null }, goal: null })
+  assert.ok(merge.token, JSON.stringify(merge.problems))
+  assert.equal(merge.seats.find(seat => seat.role === 'referee')?.plan.ceiling?.level, 'merge')
+})
 
 /** What a later phase would need to actually start this shape unattended — recorded, not implemented. */
 const FUTURE_TRIGGER_REQUIREMENTS: Readonly<Record<string, string>> = {
@@ -53,10 +90,10 @@ const compileShape = (source: string, agents: readonly AgentEntry[]) => {
   return compiled
 }
 
-test('the nine shipped flows parse, and name only Agents that actually ship', async () => {
+test('the ten shipped flows parse, and name only Agents that actually ship', async () => {
   const agents = await agentsOf()
   const files = (await readdir(builtinFlowRoot())).filter((name) => /\.ya?ml$/i.test(name)).map((name) => name.replace(/\.ya?ml$/i, ''))
-  assert.deepEqual(files.sort(), [...SHIPPED].sort(), 'exactly the nine named shapes ship, nothing else')
+  assert.deepEqual(files.sort(), [...SHIPPED].sort(), 'exactly the ten named shapes ship, nothing else')
   for (const id of SHIPPED) {
     const source = await readFile(join(builtinFlowRoot(), `${id}.yml`), 'utf8')
     const compiled = compileShape(source, agents)
@@ -90,6 +127,7 @@ test('renaming every role, and reordering equivalent role declarations, changes 
     .replace(new RegExp(`^(\\s*)${from}:`, 'm'), `$1${to}:`)
     .replace(new RegExp(`\\bon: ${from}\\b`, 'g'), `on: ${to}`)
     .replace(new RegExp(`\\brole: ${from}\\b`, 'g'), `role: ${to}`)
+    .replace(`complete: { ${from}:`, `complete: { ${to}:`)
     .replace(new RegExp(`independentOf: \\[${from}\\]`, 'g'), `independentOf: [${to}]`)
   const renamed = ['competitor', 'verify', 'judge', 'referee'].reduce(
     (text, name, index) => renameRole(text, name, ['alpha', 'beta', 'gamma', 'delta'][index]!),
@@ -107,22 +145,15 @@ test('renaming every role, and reordering equivalent role declarations, changes 
   assert.deepEqual(topologyOf(reordered), originalTopology, 'reordered role declarations compile to the identical shape')
 })
 
-test('mechanical-contest maps exit statuses to declared winners with no "winner" branch in the engine', async () => {
+test('mechanical-contest starts without a desk-specific script and lets the person choose when checks are skipped', async () => {
   const agents = await agentsOf()
   const source = await readFile(join(builtinFlowRoot(), 'mechanical-contest.yml'), 'utf8')
   const compiled = compileShape(source, agents)
   const document = compiled.document
   if (document.format !== 'agents') throw new Error('expected the current format')
-  const decide = document.flow.roles.find((role) => role.kind === 'check')
-  assert.ok(decide?.kind === 'check')
-  // The mapping lives entirely in ordinary file data — exits, and the rules
-  // reading their answers — never a kind the engine special-cases. A draw is
-  // its own distinct outcome, routed to a person; a missing result (the
-  // script's own error, `otherwise`) is not itself routed anywhere.
-  assert.deepEqual(decide.check.exits, { '0': 'first', '1': 'second', '2': 'draw' })
-  assert.equal(decide.check.otherwise, 'no-contest')
-  assert.ok(document.flow.rules.some((rule) => rule.when?.every?.includes('draw')), 'a draw is routed, distinctly from a missing result')
-  assert.ok(!document.flow.rules.some((rule) => rule.when?.every?.includes('no-contest') || rule.when?.any?.includes('no-contest')), 'a missing result opens nothing — it is not itself routed anywhere')
+  assert.doesNotMatch(source, /script\/flow-contest\.sh|pnpm verify/)
+  assert.equal(document.flow.roles.some(role => role.kind === 'check'), false)
+  assert.deepEqual(document.flow.rules, [{ id: 'to-person', on: 'competitor', then: { role: 'referee', title: 'Choose and merge an attempt' } }])
 })
 
 test('unattended: a topology only ever started by hand today, with its future trigger recorded rather than switched on', () => {

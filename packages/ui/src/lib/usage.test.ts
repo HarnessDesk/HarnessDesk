@@ -636,10 +636,10 @@ describe('pricedNote', () => {
 
   it('names the rows that are short, whatever priced the rest', () => {
     expect(pricedNote(1, 'mixed')).toBe(
-      'One of these rows includes a model with no public price, so its cost is lower than shown.',
+      'One of these rows includes a model with no public price, so the real cost is higher than shown.',
     )
     expect(pricedNote(3, 'listPrice')).toBe(
-      '3 of these rows include models with no public price, so their cost is lower than shown.',
+      '3 of these rows include models with no public price, so the real cost is higher than shown.',
     )
   })
 })
@@ -704,6 +704,11 @@ describe('formatting', () => {
     // Codex reports its login method, in lower case; Cursor already title-cases.
     expect(planLabel('team')).toBe('Team')
     expect(planLabel('pro trial')).toBe('Pro Trial')
+    // An identifier written with underscores reads as words, not as a symbol.
+    expect(planLabel('self_serve_team')).toBe('Self Serve Team')
+    expect(planLabel(' __team__ ')).toBe('Team')
+    // Nothing but underscores is no name, never a blank one.
+    expect(planLabel('___')).toBeNull()
     expect(planLabel('Max 20x')).toBe('Max 20x')
     expect(planLabel('Pro')).toBe('Pro')
     expect(planLabel('  ')).toBeNull()

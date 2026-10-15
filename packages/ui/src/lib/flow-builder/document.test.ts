@@ -7,13 +7,14 @@ import { writeShape } from '../../../../server/dist/src/authoring/model.js'
 import { flowLayout } from '../flow-layout'
 import { flowModel } from '../flow-model'
 import { emptyShapePolicy } from '../shapes'
+import { withAttemptCheck } from '../team-start'
 import {
   createDocument, documentGraph, graphDocument, sourceRequest, documentPolicy, builderProblems,
   addStep, moveStep, renameStep, deleteStep,
 } from './index'
 
 const shipped = import.meta.glob('../../../../server/flows/*.yml', { eager: true, query: '?raw', import: 'default' })
-const SHIPPED = ['alignment', 'comparison', 'fan-out', 'independent-review', 'investigation', 'mechanical-contest', 'review', 'review-pr', 'staged-relay']
+const SHIPPED = ['alignment', 'comparison', 'fan-out', 'fix-and-review', 'independent-review', 'investigation', 'mechanical-contest', 'review', 'review-pr', 'staged-relay']
 const policyOf = (source: string): FlowPolicy => {
   const parsed = parseFlowPolicy(source)
   expect(parsed.problems.filter((one) => one.level === 'error')).toEqual([])
@@ -208,7 +209,8 @@ describe('the builder document', () => {
 
   it('reports an independentOf parent whose predecessor path was removed', () => {
     const source = shipped['../../../../server/flows/comparison.yml'] as string
-    const document = createDocument(policyOf(source))
+    const template = policyOf(source)
+    const document = createDocument(withAttemptCheck(template, template, 'pnpm test'))
     const verify = document.steps.find((step) => step.role === 'verify')!
     const judge = document.steps.find((step) => step.role === 'judge')!
     const deleted = deleteStep(document, verify.id)

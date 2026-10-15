@@ -154,6 +154,37 @@ it('previews before it applies, and applies exactly what was previewed', async (
   )
 })
 
+it('puts the import explanation in the dialog head and gives agent marks their own title-line gap', async () => {
+  const columns: readonly LibraryColumn[] = [
+    { id: runtimeId('one'), label: 'Agent One', info: { id: 'agent-one', presentation: { name: 'Agent One' } } },
+    { id: runtimeId('two'), label: 'Agent Two', info: { id: 'agent-two', presentation: { name: 'Agent Two' } } },
+  ]
+  const library: Library = {
+    generatedAt: 1,
+    home: HOME,
+    runtimes: columns.map(column => column.id),
+    locations: [],
+    entries: [],
+    gaps: [],
+  }
+  await render(storeWith(async () => null), <ImportDialog library={library} columns={columns} onClose={() => {}} onPlan={() => {}} />)
+
+  const head = document.body.querySelector('[data-slot="dialog-head"]')!
+  expect(head.querySelector('[data-slot="dialog-description"]')?.textContent).toBe(
+    'Pick where to import from, and which agent should get it. Nothing changes until a preview is confirmed.',
+  )
+  const firstChoice = document.body.querySelector('[role="radiogroup"] [role="radio"] [data-slot="choice-title"]') as HTMLElement
+  expect(firstChoice.firstElementChild?.className).toContain('items-center')
+  expect(firstChoice.firstElementChild?.className).toContain('gap-2')
+  expect(firstChoice.querySelector('svg')).toBeTruthy()
+  expect(firstChoice.textContent).toContain('Agent One')
+  const body = document.body.querySelector('[data-slot="modal-dialog-body"]')!
+  const search = body.querySelector('[aria-label="Search imports"]')!
+  expect(body.querySelector('input')).toBe(search)
+  expect(body.firstElementChild?.contains(search)).toBe(true)
+  expect(body.textContent).not.toContain('Nothing changes until a preview is confirmed.')
+})
+
 it('a failed op wears its reason after apply; the batch reports per op', async () => {
   const ops: LibraryPlan['ops'] = [
     {
@@ -456,7 +487,7 @@ it('the import direction can be reversed on a machine with exactly two agents', 
     storeWith(async () => ({})),
     <ImportDialog library={value} columns={columns} onClose={() => {}} onPlan={onPlan} />,
   )
-  const picks = () => [...document.body.querySelectorAll('[data-slot="toggle-group-item"]')]
+  const picks = () => [...document.body.querySelectorAll('[role="radio"]')]
   const side = (name: string, which: 0 | 1): Element => {
     const hit = picks().filter((one) => one.textContent === name)[which]
     expect(hit, `no ${which === 0 ? 'From' : 'To'} option named ${name}`).toBeTruthy()
@@ -475,8 +506,8 @@ it('the import direction can be reversed on a machine with exactly two agents', 
   // Press the agent the other side is holding: the pair reverses rather than
   // colliding, which is the plainest way to say "the other direction".
   await click(from('Second Agent'))
-  expect(from('Second Agent').hasAttribute('data-pressed')).toBe(true)
-  expect(into('First Agent').hasAttribute('data-pressed')).toBe(true)
+  expect(from('Second Agent').getAttribute('aria-checked')).toBe('true')
+  expect(into('First Agent').getAttribute('aria-checked')).toBe('true')
 
   // And it is a real direction, not just two highlights: the plan now goes
   // the other way. The copy has to belong to the *source* — an import from
@@ -501,12 +532,12 @@ it('the import direction can be reversed on a machine with exactly two agents', 
     <ImportDialog library={reversed} columns={columns} onClose={() => {}} onPlan={onPlan} />,
   )
   await click(
-    [...document.body.querySelectorAll('[data-slot="toggle-group-item"]')].filter(
+    [...document.body.querySelectorAll('[role="radio"]')].filter(
       (one) => one.textContent === 'Second Agent',
     )[0],
   )
   await click(
-    [...document.body.querySelectorAll('[data-slot="toggle-group-item"]')].filter(
+    [...document.body.querySelectorAll('[role="radio"]')].filter(
       (one) => one.textContent === 'First Agent',
     )[1],
   )
@@ -527,4 +558,32 @@ it('renders the change log with centred rows, tabular dates and outline restore 
   expect(container.querySelector('[data-slot="separator"]')).toBeNull()
   expect(container.querySelector('[data-role="meta"]')?.className).toContain('tabular-nums')
   expect(container.querySelector('button')?.className).toContain('border-(--hd-btn-border)')
+})
+
+
+it('E6 import composes dialog slots without a title icon and gives search a glyph', async () => {
+  await render(storeWith(async () => ({})), <ImportDialog library={libraryWith([])} columns={columns} onClose={() => {}} onPlan={() => {}} />)
+  const dialog = document.body.querySelector('[role="dialog"]')!
+  const head = dialog.querySelector('[data-slot="dialog-head"]')!
+  expect(head.querySelector('h2 svg')).toBeNull()
+  expect(head.querySelectorAll('svg')).toHaveLength(1) // Close only.
+  expect(head.querySelector('[aria-label="Close"]')).not.toBeNull()
+  const body = dialog.querySelector('[data-slot="modal-dialog-body"]')!
+  expect(body.querySelector('[aria-label="Search imports"]')).not.toBeNull()
+  expect(body.querySelector('[data-slot="search"] svg')).not.toBeNull()
+  expect(body.querySelector('[aria-label="Import from"]')).not.toBeNull()
+  expect(body.querySelector('[aria-label="Import into"]')).not.toBeNull()
+  expect(dialog.querySelector('[data-slot="dialog-subhead"]')).toBeNull()
+  expect([...dialog.querySelectorAll('[data-slot="dialog-footer"] button')].map(button => button.textContent)).toEqual(['Preview', 'Cancel'])
+})
+
+it('separates a change time from its path so both facts remain readable', async () => {
+  const at = Date.UTC(2026, 8, 30, 9)
+  const path = `${HOME}/skills/review/SKILL.md`
+  const store = storeWith(async () => [{ kind: 'library/write', at, op: 'skill/update', name: 'Review', path, status: 'done', runtime: 'one' }])
+  await render(store, <LibraryHistory refreshedAt={0} home={HOME} onFlow={() => {}} />)
+  const desc = container.querySelector('[data-slot="row-desc"]')!
+  const date = new Date(at).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
+  expect(desc.textContent).toBe(`${date} · ~/skills/review/SKILL.md`)
+  expect(desc.querySelector('[title]')?.getAttribute('title')).toBe(path)
 })

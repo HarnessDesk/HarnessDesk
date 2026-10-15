@@ -382,3 +382,12 @@ describe('back and forward', () => {
     expect(neither).toContain('new')
   })
 })
+
+test('the historical Steps command delegates to Run Timeline without declaring a panel', async () => {
+  const command = BUILTIN_COMMANDS.find(one => one.name === 'run-steps')!
+  expect(command.description).toBe('Run Timeline')
+  expect(command.kind.type).toBe('action')
+  const calls: string[] = []
+  if (command.kind.type === 'action') await command.kind.run({ showView: (kind: string) => calls.push(kind) } as unknown as AppStore, '')
+  expect(calls).toEqual(['run-steps'])
+})

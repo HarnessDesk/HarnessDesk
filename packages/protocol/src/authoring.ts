@@ -188,6 +188,8 @@ export interface FrontDoorPreview {
   readonly target: FrontDoorTarget
   readonly vars: Readonly<Record<string, string>>
   readonly source: string
+  /** A declared project test command for the editable start form; this suggestion runs nothing and grants nothing. */
+  readonly projectCheckCommand?: string | null
   readonly sentence: string
   readonly goal: { readonly id: string; readonly revision: number } | null
 }

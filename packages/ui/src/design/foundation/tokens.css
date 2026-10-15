@@ -103,20 +103,6 @@ body {
   --hd-font-heading: var(--hd-font-family);
   --hd-tracking-heading: -0.01em;
 
-  /* The title block: the hairline a page head closes on, and the short mark
-     in the accent at its start (Settings.module.css `.pageHead`). The title
-     names the place; the rule sets it off from what is on it. The rule sits
-     inside the head's existing 24px — 12 above it, the hairline, 11 below — so
-     a page with a title block starts its content exactly where it did
-     without one. A foundation that wants no mark sets its
-     width to 0. */
-  --hd-title-rule: var(--hd-border);
-  --hd-title-rule-width: var(--hd-space-px);
-  --hd-title-rule-gap: var(--hd-space-3);
-  --hd-title-rule-mark: var(--hd-accent);
-  --hd-title-rule-mark-width: var(--hd-space-6);
-  --hd-title-rule-mark-height: var(--hd-space-0-5);
-
   /* HarnessDesk brand: Blueprint cobalt, the ink of an engineer's drawing.
      Deep enough that white reads on it at 5.5:1 — the lighter blue it
      replaced managed 4.1:1, short of AA for a 13px label on the fill. */
@@ -251,7 +237,7 @@ body {
   --hd-space-3: 12px;
   /* Trailing marks share the centre of one 24px action slot, 32px from the
      sidebar edge. The row-local rail subtracts the row gutter and half target;
-     AppWindow rows subtract their 20px group gutter. Header controls use the
+     Grouped navigation rows use their shared gutter. Header controls use the
      full-edge inset. Hover actions step by one target. */
   --hd-sidebar-start-inset: var(--hd-space-2);
   --hd-sidebar-end-column: var(--hd-space-8);
@@ -355,8 +341,8 @@ body {
   --hd-line-display: 40px;
 
   --hd-weight-normal: 400;
-  --hd-weight-medium: 500;
-  --hd-weight-semibold: 600;
+  --hd-weight-medium: 400; /* desk: 500 → 400, a lighter medium */
+  --hd-weight-semibold: 580; /* desk: 600 → 580, slightly lighter (Geist is variable) */
   /* Content names: chat senders and inline MemberName share this one weight.
      Set it back to 600 to restore the treatment before 2026-10-03. */
   --hd-member-weight: 500;
@@ -381,6 +367,9 @@ body {
      A group is read from this comment to the next one, so nothing inside it
      may open a comment of its own: doing that dropped both the token below and
      `--hd-column` out of the generated table without failing anything. */
+  --hd-file-tabs-h: 36px;
+  --hd-file-bar-h: 38px;
+  --hd-file-document-w: 720px;
   --hd-control-h: 26px;
   --hd-target-min: 24px;
   --hd-control-h-sm: 24px;
@@ -415,7 +404,7 @@ body {
   --hd-table-name-size: var(--hd-text);
   --hd-table-fact-size: var(--hd-text-xs);
   --hd-table-sentence-size: var(--hd-text-sm);
-  --hd-table-line-gap: var(--hd-space-0-5);
+  --hd-table-line-gap: var(--hd-space-1); /* desk: 2 → 4, the second line sits a little further from the first */
   --hd-table-end-gap: var(--hd-space-3);
   /* The floor of the history's resizable commit detail. Its action and
      filter bars stand on the tool pane's own bar rung now (`ToolPaneBar`). */
@@ -447,6 +436,9 @@ body {
    * a field.
    */
   --hd-field-h: var(--hd-btn-h);
+  --hd-table-page-max-height: 50dvh;
+  --hd-field-name-width: 220px;
+  --hd-field-path-width: 280px;
   /*
    * The third rung, and the one a settings or dashboard page is built on.
    *
@@ -495,10 +487,15 @@ body {
    */
   --hd-icon-target: 24px;
   --hd-icon-target-sm: 20px;
-  --hd-bar-h: 46px; /* The window's own bar. */
+  /* The one bar height (spec: one top bar, the left column's top row and its
+     seat row; a panel has no bar). The window's buttons are centred on it —
+     trafficLightPosition in packages/desktop/electron/main.mjs. */
+  --hd-bar-h: 40px; /* desk: 46 → 40, the app frame's one bar height */
   /* What a bar holds its controls at, and how far they stand from its ends.
      One pair for every bar in the window, so a control in the title row and a
      control in a pane's header sit on the same rhythm. */
+  --hd-bar-divider-h: 14px;
+  --hd-bar-title-min: 180px;
   --hd-bar-gap: var(--hd-space-1-5);
   /* Where a boxed control's edge sits. */
   --hd-bar-pad: var(--hd-space-2);
@@ -512,10 +509,21 @@ body {
      the bar shares one x. */
   --hd-bar-ink: calc(var(--hd-bar-pad) + var(--hd-nav-inset) + var(--hd-border-width));
   --hd-column: 736px;
-  /* A menu that keeps its own readable width while the control that opens it
-     sits in a column the person can drag: the seat menu's account rows and
-     usage line each fit on one line at this width. */
-  --hd-popover-width-wide: 320px;
+  /* A page's two other measures (`Page` in design/patterns). Wide is for
+     tables and card grids that read better than a reading column allows;
+     every page keeps one gutter on both sides of whichever measure it takes. */
+  --hd-page-wide: 1320px;
+  --hd-page-gutter: var(--hd-space-6);
+  /* A menu's room: at least 200, and a wide menu (a submenu, a long list with
+     search, agents with meters) at most 340 — long names wrap rather than
+     widen it. The seat menu's account rows and usage line fit at 340. */
+  --hd-menu-min: 200px;
+  --hd-popover-width-wide: 340px; /* desk: 320 → 340, the app frame's wide menu */
+  /* A menu row's corner runs parallel to the menu's: the surface's radius
+     less the 6px it is padded by. */
+  --hd-menu-row-radius: calc(var(--hd-radius) - var(--hd-space-1-5)); /* desk: 6px → 4px, row corners track the plate inset */
+  /* The info card: facts only, opened by hover or focus on a fact. */
+  --hd-info-card-width: 288px;
 
   /* A row whose trailing action floats over its own label rather than taking
      room from it. The label fades out under the action instead of stopping at
@@ -542,6 +550,9 @@ body {
   --hd-composer-max: 320px;
   --hd-composer-line: 20px; /* The interface line. */
   --hd-composer-radius: 28px;
+  /* The box's edge is carried by its ring; the shadow is only a soft lift, the same at rest and in focus. */
+  --hd-composer-shell-shadow: 0 4px 20px rgba(0, 0, 0, 0.035);
+  --hd-composer-shell-shadow-focus: var(--hd-composer-shell-shadow);
   /* The composer toolbar's decisions keep their places across agent shapes.
      The wide tracks fit the useful labels; each control's folded track keeps
      its place after the 560px label fold without borrowing another slot's
@@ -569,6 +580,7 @@ body {
   --hd-composer-track-model-folded: 48px;
   --hd-composer-track-model-tight: var(--hd-target-min);
   --hd-composer-track-send: 32px;
+  --hd-composer-send-size: 30px;
   --hd-composer-slots-preview-narrow: 560px;
   --hd-composer-slots-preview-tight: 360px;
 
@@ -751,6 +763,10 @@ body {
   --hd-card-raised: var(--hdp-alias-bg-layer-2, var(--hd-card));
   --hd-skeleton: var(--hdp-alias-bg-skeleton);
   --hd-placeholder-foreground: var(--hdp-alias-label-quaternary, var(--hd-muted-foreground));
+
+  /* A disabled popup row gets one quiet label ink. The palette's caption tier
+     is raised toward primary just enough to stay near 3:1 on a light surface. */
+  --hd-disabled-foreground: color-mix(in srgb, var(--hdp-alias-label-caption) 80%, var(--hd-foreground));
 
   /* Secondary text: present, readable, not the point of the sentence. */
   --hd-secondary-foreground: var(--hdp-static-grey-800); /* Secondary ink sits one tier under the foreground. */
@@ -1007,7 +1023,7 @@ body {
    * Where the two sit in one row the button is the taller by 2, which is
    * the same relationship the reference draws — never the reverse.
    */
-  --hd-btn-h: 30px; /* Solved for box/cap ≈ 3.2. */
+  --hd-btn-h: 32px; /* desk: 30 → 32, the ordinary button is two pixels taller */
   --hd-btn-h-sm: 28px; /* Solved for box/cap ≈ 3.2. */
   --hd-btn-radius: var(--hd-radius-md);
   --hd-btn-padding: 0 12px; /* 1.29 × the cap. */
@@ -1134,10 +1150,10 @@ body {
   --hd-sidebar-muted-foreground: var(--hd-tertiary-foreground);
   --hd-sidebar-border: var(--hd-border);
   --hd-sidebar-hover: var(--hdp-alias-interactive-bg-hover);
-  /* 256px is the reference's `--sidebar-width: 16rem`, and 48px its icon
-     rail. Named here rather than measured in a layout file, so the column and
-     everything that reserves room for it move together. */
-  --hd-sidebar-width: 275px;
+  /* The left column's default width (spec: 256, dragged 200–360). Named
+     here rather than measured in a layout file, so the column and everything
+     that reserves room for it move together. */
+  --hd-sidebar-width: 256px; /* desk: 240 → 256, owner 2026-10-10 left column */
   --hd-sidebar-width-icon: 48px;
 
   /* --- the nav row ---------------------------------------------------------
@@ -1154,6 +1170,11 @@ body {
   --hd-nav-h: calc(var(--hd-line-sm) + var(--hd-space-1) * 2 + 2px); /* Solved from the row's box. */
   /* Every row in a navigation column stands the same. */
   --hd-nav-h-group: var(--hd-nav-h); /* One height for every row in the column. */
+  /* Frame left-column rows have one size in both interfaces. */
+  --hd-left-row-h: 30px;
+  --hd-left-row-gap: 0px;
+  --hd-left-menu-gap: var(--hd-space-2);
+  --hd-frame-icon-button: 28px;
   --hd-nav-radius: var(--hd-radius); /* The row radius. */
   --hd-nav-gap: var(--hd-space-2);
   /* How far a row's text sits from its own edge. Named separately from the
@@ -1230,6 +1251,9 @@ body {
      inside it is sized by subtracting this — see `--hd-seg-trim` in the Studio
      block and `.segItem` in Kit. */
   --hd-seg-pad: var(--hd-space-0-5);
+  /* The two icon cells in the window's Conversation / Editor mode track. */
+  --hd-mode-switch-cell-w: 26px;
+  --hd-mode-switch-cell-h: var(--hd-target-min); /* desk: 22px → 24px so both mode buttons clear the target floor. */
   /*
    * How much the cell gives back to the track, per edge.
    *
@@ -1243,6 +1267,12 @@ body {
   --hd-seg-trim: calc(var(--hd-seg-pad) * 2); /* Both edges let the track meet the row. */
   /* The cell's label is the small rung's, with the small rung's box. */
   --hd-seg-text: var(--hd-btn-text-sm);
+  /* A switcher is a 32px track of 30px cells; the cell's room is 12px a side. */
+  --hd-switcher-pad: 1px; /* desk: 2 → 1, with the cell 24 → 30 the track is 32 */
+  --hd-switcher-item-h: 30px; /* desk: 24 → 30 */
+  --hd-switcher-item-inset: var(--hd-space-3); /* desk: 9 → 12 */
+  --hd-tabs-h: 32px; /* desk: 26 → 32, the line tabs match the switcher */
+  --hd-tabs-inset: var(--hd-space-3); /* desk: 8 → 12 */
 
   --hd-chip-radius: var(--hd-radius-full);
   --hd-chip-fill: var(--hd-muted);
@@ -1251,42 +1281,12 @@ body {
      the translucent hover that reads as nothing over grey. */
   --hd-chip-fill-hover: color-mix(in srgb, var(--hd-chip-fill) 92%, var(--hd-foreground));
 
-  /* The switch, the checkbox and the radio: three shapes, one question, which
-     is whether the control is on. On is the **accent**, and this token spent a
-     while on the solid, which was wrong.
-
-     The rule above is "ink is for what you press, the accent is for what is
-     yours", and a switch was filed under the first half because it is a thing
-     you press. But a switch is pressed in both states. If the ink were marking
-     pressability, an off switch would be ink too — it is not. What the fill
-     actually marks is that the control is *on*, and a state is what the accent
-     is for: the row you are on, the conversation you are in, the column a card
-     would land in, a progress bar filling. An on switch belongs in that list
-     and not beside the button, because pressing a button *does* the thing
-     while a switch's fill only reports.
-
-     The objection this replaces was that picking Violet turned the switch
-     violet one row under a sentence promising buttons are ink in every accent.
-     That sentence says buttons, and it is still true: the button beside it
-     stays ink. A switch that follows the dial is the dial showing its work —
-     which is what a person changing an accent on the Appearance page is
-     looking for, and what every platform this app is measured against does
-     with a system tint.
-
-     The knob is `--hd-primary-foreground` rather than a value of its own,
-     because that token is already solved for exactly this question — what
-     reads on the accent — per accent *and* per face: white where it carries,
-     `#171717` on green and orange, which are too light for it, and on the
-     lighter rose and mono dark faces. Naming a second answer here would be a
-     second place to get those six measurements wrong.
-
-     The track's off state is the third border step, which is a shade darker
-     than anything `--hd-border-*` names: an off switch has to read as a
-     control at rest rather than as a divider. */
+  /* On controls use the neutral solid pair. Accent belongs to keyboard focus
+     and primary actions, never a selected state. */
   --hd-toggle-knob: rgb(255, 255, 255);
-  --hd-toggle-knob-on: var(--hd-primary-foreground);
+  --hd-toggle-knob-on: var(--hd-solid-foreground); /* desk: knob follows the neutral on-state */
   --hd-toggle-track: var(--hdp-alias-border-l3);
-  --hd-toggle-on: var(--hd-accent); /* The dial reaches the accent. */
+  --hd-toggle-on: var(--hd-solid); /* desk: owner requires neutral on-state in both interfaces */
   --hd-toggle-width: 34px;
   --hd-toggle-width-sm: 30px;
   --hd-toggle-height-sm: 18px;
@@ -1333,6 +1333,8 @@ body[data-hd-dark-theme] {
      only asked of the light one. */
   --hd-secondary-foreground: var(--hdp-alias-label-secondary);
   --hd-tertiary-foreground: var(--hdp-alias-label-tertiary);
+  /* The dark caption tier already measures near 3:1 on a popup surface. */
+  --hd-disabled-foreground: var(--hdp-alias-label-caption);
   --hd-sidebar-plate: var(--hdp-static-grey-850); /* A plate above the page, the direction the column reads in. */
 
   /* A lighter grey needs a longer step to read as one: the same 8% on a dark
@@ -1368,7 +1370,6 @@ body[data-hd-dark-theme] {
   --hd-accent-dim: rgba(112, 142, 250, 0.12);
   --hd-accent-foreground: rgb(17, 17, 17); /* Near-black ink on the lifted accent. */
   --hd-primary-foreground: rgb(17, 17, 17); /* Near-black ink on the lifted accent. */
-  --hd-toggle-knob-on: rgb(255, 255, 255); /* the knob stays white on the lifted accent */
 }
 
 /*
@@ -1414,30 +1415,9 @@ body[data-hd-dark-theme] {
  * missing focus mark and a cascade bug, not a look — they are fixed in both.
  */
 body[data-hd-interface='studio'] {
-  /* 1 — selection */
-  /*
-   * The selected row is the brand, and it has to *stay* the brand.
-   *
-   * This was briefly a literal — the hue scaled to 90%, to lift white ink on
-   * it from 4.08:1 to 4.89:1. That bought contrast and broke the Accent dial:
-   * measured across all six accents, `--hd-primary` moved to violet, green,
-   * orange and near-black while the selected row stayed cobalt, so Mono — a
-   * palette chosen to have no colour — grew a blue row in three navigation
-   * columns. A literal hidden behind a custom property is exactly what
-   * AGENTS.md rule 11 forbids, and this is why.
-   *
-   * The contrast question is real and does not belong here. White on the
-   * default brand is 4.08:1, under the 4.5 that 14px text wants — but that is
-   * the pairing the app already puts on every primary button, and in the dark
-   * theme green (#22c55e) and orange (#f97316) are paler still. No single
-   * darkening fixes all twelve accent-and-theme combinations, because what is
-   * wrong is the palette's choice of ink for a pale accent, not this token.
-   * Fixing it belongs to `shadcn-themes.css`, where it would reach the button
-   * and the chips too; doing it here would make one row quietly better than
-   * the button beside it and leave the real defect in place.
-   */
-  --hd-sidebar-selected: var(--hd-primary);
-  --hd-sidebar-selected-foreground: var(--hd-primary-foreground);
+  /* Studio keeps a filled selection, using the neutral solid pair. */
+  --hd-sidebar-selected: var(--hd-solid); /* desk: owner requires neutral selection; Studio keeps the filled shape */
+  --hd-sidebar-selected-foreground: var(--hd-solid-foreground); /* desk: ink follows the neutral selection */
   /* The quieter marks inside a selected row — a subtitle, a count, a status
      glyph. White at 86% of the row's own ink, which keeps them secondary
      without dropping them off the fill; on the default accent that is 4.83:1
@@ -1447,9 +1427,8 @@ body[data-hd-interface='studio'] {
     var(--hd-sidebar-selected-foreground) 86%,
     transparent
   );
-  --hd-nav-h: 34px;
-  /* One height for every row in a navigation column, as Desk has too since
-     #1073 — only taller. */
+  --hd-nav-h: var(--hd-left-row-h); /* desk: shared 30px FRAME destination contract; Studio 34 → 30, Desk stays 30 */
+  /* One height for every row in a navigation column, shared with FRAME left-column and menu rows. */
   --hd-nav-h-group: var(--hd-nav-h); /* One height for every row in the column. */
   --hd-nav-radius: var(--hd-radius-sm);
   --hd-nav-inset: var(--hd-space-2-5);
@@ -1479,26 +1458,6 @@ body[data-hd-interface='studio'] {
      because there this token equals the ordinary one. */
   --hd-control-h-lg: 36px;
 
-  /*
-   * The settings and usage window's own column. Studio-only, with each Desk
-   * value spelled as the fallback at the call site, because this column and
-   * the sidebar are *not* the same row: the sidebar's is 31px with an 8px
-   * corner, and this one has never had a height at all — it is sized by
-   * `7px 9px` of padding, which comes out around 35. Giving both the same
-   * token took 9px off every row in this column, which is a redesign nobody
-   * asked for hiding inside a rename.
-   *
-   * These read `--hd-control-h-lg` and **not** `--hd-control-h`, and the
-   * difference is the whole trap this file warns about at the foot. A custom
-   * property is substituted where it is *declared*: these are declared on
-   * `body`, so `var(--hd-control-h)` would compute to 26px here and inherit
-   * that number frozen into the settings window — where the density scope has
-   * long since raised `--hd-control-h` to 36 and would be ignored. Written
-   * this way it is the literal 36px, which is what the scope resolves to
-   * anyway, and it cannot go stale.
-   */
-  --hd-page-row-h: var(--hd-control-h-lg);
-  --hd-page-row-padding: 0 var(--hd-space-2-5);
   /* Trim the segment by *both* of the track's edges rather than one, so a
      choice-of-three is exactly the control height instead of standing 2px
      over it. See Kit's `.segItem` for why Desk keeps the overhang. */
@@ -1540,6 +1499,15 @@ body[data-hd-interface='studio'][data-hd-dark-theme] {
   /* Same reason, the other direction: a 45% wash that reads as a halo on
      white disappears into a dark page. */
   --hd-ring-muted: color-mix(in srgb, var(--hd-ring) 55%, transparent);
+}
+
+/* The Settings menu stands one step roomier than the working sidebar: 32px
+   rows, 1px apart, 12px from icon to label, and the control radius. */
+[data-left-settings] {
+  --hd-left-row-h: 32px; /* desk: 30 → 32, Settings rows */
+  --hd-left-row-gap: 1px;
+  --hd-left-menu-gap: var(--hd-space-3);
+  --hd-nav-radius: var(--hd-radius-md);
 }
 
 /*
@@ -1632,4 +1600,37 @@ body[data-hd-interface='studio'] [data-hd-density='comfortable'] {
   --hd-table-name-size: var(--hd-text-sm);
   --hd-table-sentence-size: var(--hd-text-xs);
   --hd-table-end-gap: var(--hd-space-2);
+}
+
+/* --- popup rows -------------------------------------------------------------
+   App-frame row leading and height are independent of navigation density.
+   The facts card keeps its key column in the same foundation contract.
+*/
+:root {
+  --hd-menu-row-h: 30px;
+  --hd-menu-label-line: 18px;
+  --hd-menu-search-h: 28px;
+  --hd-info-card-key: 96px;
+}
+
+/* --- composer selected values --------------------------------------------
+   These wide tracks name the selected values themselves. The earlier base
+   tracks remain the compact measure; a visible short choice gets enough room
+   for its icon, word and chevron before the toolbar starts folding. */
+body {
+  --hd-composer-track-permissions-wide: 132px;
+  --hd-composer-track-mode-wide: 96px;
+  --hd-composer-track-context-wide: 52px;
+  --hd-composer-track-context-folded: 48px;
+  --hd-composer-track-context-tight: var(--hd-target-min);
+}
+
+/* --- composer selected-value fit ------------------------------------------
+   Permission and Mode keep their selected values whole before folding. The
+   Usage control reserves only the ring's width. */
+body {
+  --hd-composer-track-permissions-wide: 132px;
+  --hd-composer-track-mode-wide: 68px;
+  --hd-composer-track-context-wide: var(--hd-target-min);
+  --hd-composer-track-context-folded: var(--hd-target-min);
 }

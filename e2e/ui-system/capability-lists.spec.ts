@@ -5,7 +5,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto('/preview.html')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('library')
-    const sheet = page.locator('[data-frame-id="settings-sheet"]')
+    const sheet = page.locator('[data-frame-id="settings-sheet"] [data-page-destination]:visible')
     await expect(sheet.getByText('Not read yet by Gamma', { exact: true })).toBeVisible()
     await expect(sheet.getByText('Off in Alpha', { exact: true })).toBeVisible()
     for (const width of [1440, 1024]) {
@@ -13,7 +13,7 @@ for (const theme of ['light', 'dark'] as const) {
       for (const state of ['Ready', 'Off in Alpha', 'Not read yet by Gamma']) {
         const reading = sheet.getByText(state, { exact: true }).first()
         const bounds = await reading.evaluate(node => {
-          const cell = node.closest('td')!
+          const cell = node.closest('td') ?? node.closest('[data-slot="list-row"]')!
           const rect = cell.getBoundingClientRect()
           const style = getComputedStyle(cell)
           const range = document.createRange()
@@ -40,8 +40,8 @@ for (const theme of ['light', 'dark'] as const) {
     const first = library.locator('tbody tr').first()
     await expect(first.locator('[data-shape="face"]')).toHaveCount(1)
     const copy = await first.evaluate(row => {
-      const name = row.querySelector('[data-type="subject"]') ?? row.querySelector('button span span')!
-      const description = row.querySelector('button')!.lastElementChild!
+      const name = row.querySelector('[data-role="subject"]')!
+      const description = row.querySelector('[data-skill-description]')!
       const face = row.querySelector('[data-shape="face"]')!
       return { face: face.getBoundingClientRect().width, separateLines: description.getBoundingClientRect().top >= name.getBoundingClientRect().bottom }
     })
@@ -49,14 +49,15 @@ for (const theme of ['light', 'dark'] as const) {
     expect(copy.separateLines).toBe(true)
     await expect(library.locator('[data-slot="row-mark"]')).toHaveCount(0)
 
-    const sheet = page.locator('[data-frame-id="settings-sheet"]')
+    const sheet = page.locator('[data-frame-id="settings-sheet"] [data-page-destination]:visible')
     const dial = page.getByRole('combobox', { name: 'settings page', exact: true })
     await dial.selectOption('plugins')
     const pluginGeometry = await sheet.locator('[data-slot="row-title"]').evaluateAll(titles => titles.map(title => {
       const row = title.closest('button')!
       return { title: title.textContent, height: row.getBoundingClientRect().height, face: Boolean(row.querySelector('[data-slot="row-mark"]')) }
     }))
-    expect(pluginGeometry.map(row => row.height)).toEqual(Array(12).fill(44))
+    // 12px above and below a 23px control line, once past the 44px floor.
+    expect(pluginGeometry.map(row => row.height)).toEqual(Array(12).fill(47))
     expect(pluginGeometry.every(row => !row.face)).toBe(true)
     expect(pluginGeometry[2]?.title).toBe('Plugin 2')
     expect(pluginGeometry[10]?.title).toBe('Plugin 10')
@@ -64,7 +65,7 @@ for (const theme of ['light', 'dark'] as const) {
     await dial.selectOption('skills')
     await expect(sheet.locator('[data-slot="row-mark"]')).toHaveCount(2) // hooks, no repeated skill faces
     const description = sheet.locator('[data-slot="row-desc"]').nth(1)
-    expect(await description.locator('span').evaluate(node => getComputedStyle(node).webkitLineClamp)).toBe('3')
+    expect(await description.locator('span').evaluate(node => getComputedStyle(node).webkitLineClamp)).toBe('2')
     await expect(sheet.getByText('Hooks · 2', { exact: true })).toBeVisible()
     await expect(sheet.getByText('Trusted', { exact: true })).toBeVisible()
     await sheet.getByRole('button', { name: /Playwright/ }).click()
@@ -84,10 +85,10 @@ for (const theme of ['light', 'dark'] as const) {
       return {
         row: getComputedStyle(row).opacity,
         mark: read('[data-slot="row-mark"]'),
-        title: read('[data-slot="endpoint-name"]'),
+        title: read('[data-slot="row-title-name"]'),
         chip: read('[data-slot="chip"]'),
         description: read('[data-slot="row-desc"]'),
-        reason: read('[data-slot="row-desc"] span'),
+        reason: read('[data-slot="row-desc"] [data-slot="text"]'),
       }
     })
     expect(opacity).toEqual({ row: '1', mark: '0.55', title: '0.55', chip: '1', description: '1', reason: '1' })
@@ -96,10 +97,11 @@ for (const theme of ['light', 'dark'] as const) {
     const removeEndpoint = page.getByRole('menuitem', { name: 'Remove…', exact: true })
     await expect(removeEndpoint).toHaveAttribute('data-variant', 'destructive')
     const removeIcon = removeEndpoint.locator('svg')
-    await expect(removeIcon).toHaveCount(1)
-    await expect(removeIcon).toHaveCSS('color', await removeEndpoint.evaluate((node) => getComputedStyle(node).color))
+    await expect(removeIcon).toHaveCount(0)
+    await expect(removeEndpoint.locator('xpath=ancestor::*[@role="menu"]')).toHaveAttribute('data-menu-icons', 'none')
+    await expect(removeEndpoint.locator('xpath=ancestor::*[@role="menu"]').locator('svg')).toHaveCount(0)
     await removeEndpoint.click()
-    await expect(sheet.getByRole('heading', { name: 'Remove Team proxy?', exact: true })).toBeVisible()
+    await expect(page.getByRole('alertdialog', { name: 'Remove Team proxy?', exact: true }).getByRole('heading', { name: 'Remove Team proxy?', exact: true })).toBeVisible()
     await page.keyboard.press('Escape')
 
     await dial.selectOption('extensions')
@@ -125,11 +127,11 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto(`/preview.html?capability-lists=stress&theme=${theme}`)
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('library')
-    const sheet = page.locator('[data-frame-id="settings-sheet"]')
-    for (const width of [1024, 900, 720]) {
+    const sheet = page.locator('[data-frame-id="settings-sheet"] [data-page-destination]:visible')
+    for (const width of [1024, 900, 720, 560]) {
       await page.setViewportSize({ width, height: 900 })
       await expect(sheet.getByText('Shared review', { exact: true })).toBeVisible()
-      const narrow = width < 1024
+      const narrow = (await sheet.locator('[data-slot="skill-list"]').boundingBox())!.width < 600
       await expect(sheet.locator('[data-slot="skill-list"]')).toHaveAttribute('data-layout', narrow ? 'list' : 'table')
       const rows = sheet.locator('[data-slot="skill-row"]')
       const readability = await rows.evaluateAll(rows => rows.map(row => {
@@ -160,7 +162,7 @@ for (const theme of ['light', 'dark'] as const) {
       }))
       for (const reading of readability) {
         expect(reading.prefixRight, reading.name ?? '').toBeLessThanOrEqual(reading.nameRight)
-        expect(reading.clamp).toBe(narrow ? '2' : 'none')
+        expect(reading.clamp).toBe('2')
         expect(reading.lines.length).toBeGreaterThan(0)
         if (narrow && !reading.unbroken) {
           expect(reading.lines.length).toBeLessThanOrEqual(2)
@@ -223,7 +225,7 @@ for (const theme of ['light', 'dark'] as const) {
       if (!narrow) expect(await opener.evaluate(node => getComputedStyle(node).backgroundColor)).toBe('rgba(0, 0, 0, 0)')
       expect(await opener.evaluate(node => node.closest('[data-slot="skill-row"]')!.hasAttribute('data-problem'))).toBe(false)
       await sheet.getByRole('button', { name: /brainstorming/ }).click()
-      const detail = sheet.locator('[data-slot="dialog-description"]').getByText('Use before any creative work — creating features, building components, adding functionality. Explores intent and requirements before implementation.', { exact: true })
+      const detail = page.getByRole('dialog').getByText('Use before any creative work — creating features, building components, adding functionality. Explores intent and requirements before implementation.', { exact: true })
       await expect(detail).toBeVisible()
       expect(await detail.evaluate(node => getComputedStyle(node).webkitLineClamp)).toBe('none')
       await page.keyboard.press('Escape')
@@ -235,7 +237,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.goto(`/preview.html?capability-lists=stress&theme=${theme}`)
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('skills')
-    const sheet = page.locator('[data-frame-id="settings-sheet"]')
+    const sheet = page.locator('[data-frame-id="settings-sheet"] [data-page-destination]:visible')
     await expect(sheet.locator('[data-slot="row-mark"]')).toHaveCount(6) // four skills, two hooks
     for (const name of ['Brainstorming', 'Deploy Notes']) {
       const row = sheet.getByRole('button', { name: new RegExp(name) })
@@ -256,7 +258,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.setViewportSize({ width: 900, height: 900 })
     await page.goto(`/preview.html?capability-lists=stress&theme=${theme}`)
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
-    const sheet = page.locator('[data-frame-id="settings-sheet"]')
+    const sheet = page.locator('[data-frame-id="settings-sheet"] [data-page-destination]:visible')
     const dial = page.getByRole('combobox', { name: 'settings page', exact: true })
 
     await dial.selectOption('plugins')
@@ -271,20 +273,28 @@ for (const theme of ['light', 'dark'] as const) {
 
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`Library header actions wrap below readable copy at 720px and 560px in ${theme}`, async ({ page }) => {
+  test(`Library actions stay in the shared bar and copy keeps its body at 720px and 560px in ${theme}`, async ({ page }) => {
     await page.goto(`/preview.html?capability-lists=stress&theme=${theme}`)
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('library')
     const sheet = page.locator('[data-frame-id="settings-sheet"]')
     for (const width of [720, 560]) {
       await page.setViewportSize({ width, height: 1100 })
-      const head = sheet.locator('[data-slot="page-head"]')
-      const blurb = head.locator('p')
+      const head = sheet.locator('[data-slot="top-bar"]:visible')
+      const blurb = sheet.locator('[data-page-destination="library"]:visible p[data-role="prose"]')
       const actions = head.getByRole('button')
       const copy = (await blurb.boundingBox())!
-      const bounds = (await head.boundingBox())!
-      expect(copy.width).toBeGreaterThanOrEqual(bounds.width - 1)
-      for (const action of await actions.all()) expect((await action.boundingBox())!.y).toBeGreaterThanOrEqual(copy.y + copy.height)
+      const bounds = (await head.locator('..').boundingBox())!
+      const body = (await sheet.locator('[data-page-destination="library"]:visible [data-slot="page"]').boundingBox())!
+      expect(copy.width).toBeGreaterThanOrEqual(body.width - 2 * 24 - 1)
+      expect(copy.y).toBeGreaterThanOrEqual(bounds.y + bounds.height)
+      expect(bounds.height).toBe(40)
+      expect(await actions.count()).toBeGreaterThan(0)
+      for (const action of await actions.all()) {
+        const box = (await action.boundingBox())!
+        expect(box.x).toBeGreaterThanOrEqual(bounds.x - 1)
+        expect(box.x + box.width).toBeLessThanOrEqual(bounds.x + bounds.width + 1)
+      }
       expect(await head.evaluate(node => node.scrollWidth <= node.clientWidth)).toBe(true)
       await expect(sheet.locator('[data-slot="library-attention"] [data-part="banner-icon"]').first()).toBeVisible()
     }

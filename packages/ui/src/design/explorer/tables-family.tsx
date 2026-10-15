@@ -23,7 +23,7 @@ export const TablesFamily = () => (
       <section key={density} data-hd-table={density} className="flex min-w-0 flex-col gap-(--hd-space-4)">
         <h2 className="text-(length:--hd-text-lg) font-semibold">{density === 'comfortable' ? 'Comfortable' : 'Compact'}</h2>
         <SectionHead name="Data table · 3" />
-        <Table density={density} data-catalog-size={density} variant="framed" className="table-fixed">
+        <Table viewport={{}} density={density} data-catalog-size={density} variant="framed" className="table-fixed">
           <TableCaption variant="sr-only">Projects, their state, and recorded cost</TableCaption>
           <TableHeader><TableRow><TableHead className="w-1/2">Project</TableHead><TableHead>State</TableHead><TableHead numeric>Cost</TableHead></TableRow></TableHeader>
           <TableBody>

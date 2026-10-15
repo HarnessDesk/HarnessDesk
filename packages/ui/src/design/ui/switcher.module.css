@@ -1,0 +1,15 @@
+.track.track { display: inline-flex; width: max-content; height: auto; padding: var(--hd-switcher-pad); gap: var(--hd-border-width); border-radius: var(--hd-radius-md); background: var(--hd-muted); }
+.track .item.item { height: var(--hd-switcher-item-h); padding: 0 var(--hd-switcher-item-inset); gap: calc(var(--hd-space-1) + var(--hd-border-width)); border: 0; border-radius: var(--hd-radius-sm); font-size: var(--hd-text-sm); font-weight: var(--hd-weight-medium); color: var(--hd-secondary-foreground); background: transparent; white-space: nowrap; }
+.track .item:is([data-active], [data-pressed]) { background: var(--hd-background); color: var(--hd-foreground); box-shadow: 0 0 0 var(--hd-border-width) var(--hd-border-strong); }
+.track .item::after { display: none; }
+.track .item [data-slot="switcher-count"] { font-size: var(--hd-text-xs); color: var(--hd-tertiary-foreground); font-weight: var(--hd-weight-normal); font-variant-numeric: tabular-nums; }
+
+.track .item.item[data-icon-only="true"] { padding-inline: 0; }
+
+
+/* The window mode track uses the same switcher appearance in compact icon cells. */
+.track.track[data-size='mode'] { flex: none; padding: var(--hd-seg-pad); gap: var(--hd-space-0-5); border-radius: var(--hd-radius-full); }
+.track[data-size='mode'][aria-disabled='true'] { opacity: 0.5; }
+.track[data-size='mode'] .item.item { display: inline-flex; align-items: center; justify-content: center; width: var(--hd-mode-switch-cell-w); height: var(--hd-mode-switch-cell-h); padding: 0; border-radius: var(--hd-radius-full); }
+.track[data-size='mode'] .item:disabled { opacity: 1; }
+.track[data-size='mode'] .item[aria-pressed='true'] { background: var(--hd-background); color: var(--hd-foreground); box-shadow: var(--hd-shadow-sm); }

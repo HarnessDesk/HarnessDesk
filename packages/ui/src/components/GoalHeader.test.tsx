@@ -25,6 +25,7 @@ it('opens dependencies without repeating a wrapped Goal’s state', () => {
   const dep = [...document.querySelectorAll('button')].find(one => one.textContent?.includes('Prepare it'))!
   act(() => dep.click())
   expect(store.openGoal).toHaveBeenCalledWith('g0')
+  expect(document.body.textContent).toContain('This Team is waiting for it.')
   expect(document.body.textContent).not.toContain('receipt is kept here')
 })
 

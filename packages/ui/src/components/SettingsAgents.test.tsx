@@ -1,4 +1,7 @@
+import { RuntimesTestPage as RuntimesSection } from '../test-support/settings-page'
 import { act } from 'react'
+import { previewStore } from '../preview/harness'
+import { frameDestinationStore } from '../preview/frame-destination-store'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
@@ -14,18 +17,9 @@ import { NO_CAPABILITIES } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { AddAgents, RuntimesSection } from './SettingsAgents'
-
-/**
- * Adding an agent from the interface — the door the audit found missing.
- *
- * The catalogue is the host's; the page renders what it is given and never
- * names a runtime of its own. What it owes the user: a template that cannot
- * be added says why with the install command beside the reason, a registered
- * one says so instead of offering itself again, and the custom form sends
- * exactly what was typed.
- */
-
+import { AddAgentsTestPage as AddAgents } from '../test-support/settings-page'
+import { AddAgents as ControlledAddAgents } from './SettingsAgents'
+import { SettingsTestScope } from '../test-support/settings-page'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let container: HTMLDivElement
@@ -82,6 +76,7 @@ const mount = async (
   const acpRegistry = vi.fn(async () => ({ agents: registryAgents, fetchedAt: 1 }))
   const snapshot: AppSnapshot = { ...emptySnapshot(), status: 'open' } as AppSnapshot
   const store = {
+    transport: { request: vi.fn(async () => null) },
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     agentCatalog,
@@ -100,6 +95,14 @@ const mount = async (
 
 const button = (label: string): HTMLButtonElement | undefined =>
   [...document.body.querySelectorAll('button')].find((node) => node.textContent?.includes(label))
+
+it('shows Add a runtime under only its Runtimes crumb', async () => {
+  await mount()
+
+  const place = container.querySelector('[data-topbar="place"]')!
+  expect([...place.querySelectorAll('button')].map((node) => node.textContent?.trim())).toEqual(['Runtimes ›'])
+  expect(place.querySelector('[data-topbar-title]')?.textContent).toBe('Add a runtime')
+})
 
 /** A form field, by the visible label `Field` points at it — the name a person reads. */
 const byLabel = (text: string): string => {
@@ -293,12 +296,11 @@ it('renders the registry with the same honesty per row', async () => {
   // Every entry is a plate card, compact — the card the transcript's cards
   // are, not a box drawn for the registry alone.
   const cells = REGISTRY.map((agent) =>
-    [...document.body.querySelectorAll('[data-slot="card"]')].find((card) => card.textContent?.includes(agent.name)),
+    [...document.body.querySelectorAll('[data-slot="row"]')].find((card) => card.textContent?.includes(agent.name)),
   )
   expect(cells.every(Boolean)).toBe(true)
   for (const cell of cells) {
-    expect(cell?.getAttribute('data-variant')).toBe('plate')
-    expect(cell?.getAttribute('data-spacing')).toBe('compact')
+    expect(cell?.querySelector('[data-slot="row-title"]')).not.toBeNull()
   }
 })
 
@@ -405,6 +407,7 @@ const mountList = async (
     store: undefined,
   } as unknown as AppSnapshot
   const store = {
+    transport: { request: vi.fn(async () => null) },
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     loadAccounts: async () => {},
@@ -534,12 +537,12 @@ it.each([
   }],
 ])('does not claim sign-out for a runtime %s', async (_state, over) => {
   await mountList({ accountsByRuntime: {}, ...over })
-  expect(line('Gamma').textContent).not.toContain('Not signed in')
+  expect(line('Gamma').textContent).not.toContain('Signed out')
 })
 
 it('reports a confirmed sign-out and retains an anonymous sign-in', async () => {
   await mountList({ accountsByRuntime: { ...ROSTER.accountsByRuntime, beta: signedIn([{ anonymous: true }], []) } })
-  expect(line('Gamma').textContent).toContain('Not signed in')
+  expect(line('Gamma').textContent).toContain('Signed out')
   expect(line('Beta').textContent).toContain('Signed in')
 })
 
@@ -554,7 +557,7 @@ it("an agent's page says it has not answered yet, rather than that nobody is sig
   // Control: answered with no account is a real sign-out.
   await mountList()
   await act(async () => line('Gamma').click())
-  expect(document.body.textContent).toContain('Not signed in')
+  expect(document.body.textContent).toContain('Signed out')
   act(() => root.unmount())
   root = createRoot(container)
 
@@ -564,7 +567,7 @@ it("an agent's page says it has not answered yet, rather than that nobody is sig
   await act(async () => line('Gamma').click())
   expect(document.body.textContent).toContain('Not answered yet')
   expect(document.body.textContent).toContain('Its accounts show once it answers.')
-  expect(document.body.textContent).not.toContain('Not signed in')
+  expect(document.body.textContent).not.toContain('Signed out')
   expect(document.body.textContent).not.toContain('has no credential here yet')
 })
 
@@ -621,7 +624,7 @@ it("an extra account that could not start is not one the page is waiting on (#10
   })
   await act(async () => line('Alpha').click())
   // Nothing else is going to answer, so the claim is back.
-  expect(document.body.textContent).toContain('would not start')
+  expect(document.body.textContent).toContain('Signed out. Sign in to start a session.')
   expect(document.body.textContent).not.toContain('not answered yet.')
 })
 
@@ -672,7 +675,7 @@ it("an agent's page claims no session would fail while another of its accounts i
     accountsByRuntime: { ...ROSTER.accountsByRuntime, alpha: signedIn([], ['browser']), 'alpha#2': signedIn([], ['browser']) },
   })
   await act(async () => line('Alpha').click())
-  expect(document.body.textContent).toContain('would not start')
+  expect(document.body.textContent).toContain('Signed out. Sign in to start a session.')
   act(() => root.unmount())
   root = createRoot(container)
 
@@ -680,9 +683,9 @@ it("an agent's page claims no session would fail while another of its accounts i
   delete (accounts as Record<string, unknown>)['alpha#2']
   await mountList({ accountsByRuntime: accounts })
   await act(async () => line('Alpha').click())
-  expect(document.body.textContent).toContain('Not signed in')
+  expect(document.body.textContent).toContain('Signed out')
   expect(document.body.textContent).toContain('Another account has not answered yet.')
-  expect(document.body.textContent).not.toContain('would not start')
+  expect(document.body.textContent).not.toContain('Signed out. Sign in to start a session.')
   expect(button('Sign in')).toBeTruthy()
 })
 
@@ -1092,6 +1095,7 @@ it('a key-only agent hands its Sign in to the page that has a field, and a pendi
     logins: { gamma: { method: 'm0', start: { type: 'browser', loginId: 'l1' }, outcome: { type: 'pending' } } },
   } as unknown as AppSnapshot
   const store = {
+    transport: { request: vi.fn(async () => null) },
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     loadAccounts: async () => {},
@@ -1140,6 +1144,7 @@ it('opened on a second account\u2019s runtime, the page answers for the agent', 
     ...ROSTER,
   } as unknown as AppSnapshot
   const store = {
+    transport: { request: vi.fn(async () => null) },
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
     loadAccounts: async () => {},
@@ -1264,10 +1269,87 @@ it('unanswered extra account menus name the credential homes that distinguish th
   expect(names).toEqual(['Alpha actions · /tmp/alpha-2', 'Alpha actions · /tmp/alpha-3'])
 })
 
-it('a runtime detail mark follows the Faces setting through the shared detail pattern', async () => {
+it('a runtime destination bar keeps its 16px presentation mark', async () => {
   await mountList()
   await act(async () => line('Alpha').click())
-  const title = container.querySelector('[data-slot="detail-title"]')!
-  expect(title.textContent).toBe('Alpha')
-  expect(title.parentElement?.parentElement?.parentElement?.querySelector('[data-shape="face"]')).not.toBeNull()
+  const title = container.querySelector('[data-topbar-title]')!
+  expect(title.querySelector('[data-slot="text"]')?.textContent).toBe('Alpha')
+  expect(title.closest('[data-topbar="place"]')?.querySelector('[data-topbar-mark] svg[width="16"]')).not.toBeNull()
+})
+
+it.each(['template','registry'] as const)('a submitted %s add finishes without catalogue reads after hiding its owner',async(kind)=>{
+  let resolve!:(value:string|null)=>void
+  const pending=new Promise<string|null>(yes=>{resolve=yes})
+  const {store,agentCatalog,acpRegistry,addAgent}=await mount(CATALOG,REGISTRY,()=>pending)
+  const render=(active:boolean)=>act(async()=>root.render(<StoreProvider store={store}><SettingsTestScope active={active}><ControlledAddAgents onBack={()=>{}} onDone={()=>{}}/></SettingsTestScope></StoreProvider>))
+  await render(true);const beforeCatalog=agentCatalog.mock.calls.length,beforeRegistry=acpRegistry.mock.calls.length
+  if(kind==='template')act(()=>button('Add')!.click())
+  else act(()=>button('Download')!.click())
+  await render(false);await act(async()=>resolve('synthetic-added'))
+  expect(addAgent).toHaveBeenCalledTimes(1);expect(agentCatalog).toHaveBeenCalledTimes(beforeCatalog);expect(acpRegistry).toHaveBeenCalledTimes(beforeRegistry)
+})
+it('a submitted custom add finishes after dialog unmount without revisiting its old route',async()=>{
+  let resolve!:(value:string|null)=>void
+  const pending=new Promise<string|null>(yes=>{resolve=yes}),onDone=vi.fn()
+  const {store,addAgent}=await mount(CATALOG,[],()=>pending)
+  await act(async()=>root.render(<StoreProvider store={store}><AddAgents onBack={()=>{}} onDone={onDone}/></StoreProvider>))
+  act(()=>button('Set up…')!.click());type(byLabel('Name'),'Synthetic Agent');type(byLabel('Command'),'synthetic-agent')
+  act(()=>button('Add runtime')!.click());act(()=>root.render(<div>Work</div>));await act(async()=>resolve('synthetic-added'))
+  expect(addAgent).toHaveBeenCalledTimes(1);expect(onDone).not.toHaveBeenCalled();expect(container.textContent).toBe('Work')
+})
+
+it('an approved option write after unmount does not read options again',async()=>{
+  let resolve!:(value:boolean)=>void
+  const pending=new Promise<boolean>(yes=>{resolve=yes}),optionsFor=vi.fn(async()=>[{id:'bounded',type:'boolean',label:'Bounded',currentValue:false}]),setOptionFor=vi.fn(()=>pending)
+  await mountList({store:{optionsFor,setOptionFor}});await act(async()=>line('Alpha').click())
+  act(()=>[...container.querySelectorAll<HTMLButtonElement>('[role="switch"]')].find(node=>node.closest('[data-slot="row"]')?.textContent?.includes('Bounded'))!.click())
+  act(()=>root.render(<div>Work</div>));await act(async()=>resolve(true))
+  expect(setOptionFor).toHaveBeenCalledTimes(1);expect(optionsFor).toHaveBeenCalledTimes(1)
+})
+
+it('an approved runtime update after unmount does not read installs again',async()=>{
+  let resolve!:(value:boolean)=>void
+  const pending=new Promise<boolean>(yes=>{resolve=yes})
+  const copy={path:'/synthetic/agent',version:'1',channel:'managed' as const,channelLabel:'Managed',standing:'chosen' as const,managed:true}
+  const install={copies:[copy],chosen:copy,policy:'newest' as const,fallback:{command:copy.path,version:'1',managed:true},registryUpdate:{version:'2'},checkedAt:0}
+  const info=runtime({id:'synthetic',name:'Synthetic',presentation:{name:'Synthetic'},origin:'registry',install})
+  const installsFor=vi.fn(async()=>install),updateAgent=vi.fn(()=>pending)
+  await mountList({runtimes:[info],accountsByRuntime:{synthetic:signedIn([],[])},store:{installsFor,updateAgent}})
+  await act(async()=>line('Synthetic').click());act(()=>button('Update to 2')!.click())
+  act(()=>root.render(<div>Work</div>));await act(async()=>resolve(true))
+  expect(updateAgent).toHaveBeenCalledTimes(1);expect(installsFor).toHaveBeenCalledTimes(1)
+})
+it.each(['apiKey','browser'] as const)('a deferred %s account add keeps its approved mutation and suppresses obsolete sign-in UI',async(flow)=>{
+  let resolve!:(value:string|null)=>void
+  const pending=new Promise<string|null>(yes=>{resolve=yes}),onSignIn=vi.fn(),signInAgent=vi.fn(async()=>{})
+  const info=runtime({id:'synthetic',name:'Synthetic',presentation:{name:'Synthetic'},slot:{agent:'synthetic',canAdd:true}})
+  const snapshot={...emptySnapshot(),status:'open',activeRuntime:'synthetic',runtimes:[info],accountsByRuntime:{synthetic:signedIn([{email:'dev@example.com'}], [flow])}} as unknown as AppSnapshot
+  const store={subscribe:()=>()=>{},getSnapshot:()=>snapshot,transport:{request:vi.fn(async()=>null)},loadAccounts:async()=>{},healthFor:async()=>null,installsFor:async()=>null,optionsFor:async()=>[],newSessionDefaultsFor:async()=>({}),listModels:async()=>[],readPlan:async()=>({entry:null,suggestion:null,refusal:null}),addAccount:vi.fn(()=>pending),signInAgent} as unknown as AppStore
+  await act(async()=>root.render(<StoreProvider store={store}><RuntimesSection onSignIn={onSignIn}/></StoreProvider>));await act(async()=>line('Synthetic').click())
+  act(()=>button('Add account')!.click());act(()=>root.render(<div>Work</div>));await act(async()=>resolve('synthetic-extra'))
+  expect(store.addAccount).toHaveBeenCalledTimes(1);expect(onSignIn).not.toHaveBeenCalled()
+  if(flow==='browser')expect(signInAgent).toHaveBeenCalledWith('synthetic-extra');else expect(signInAgent).not.toHaveBeenCalled()
+})
+
+it('a successful current custom add visits its owner once',async()=>{
+  const {store}=await mount(),onDone=vi.fn()
+  await act(async()=>root.render(<StoreProvider store={store}><AddAgents onBack={()=>{}} onDone={onDone}/></StoreProvider>))
+  act(()=>button('Set up…')!.click());type(byLabel('Name'),'Synthetic Agent');type(byLabel('Command'),'synthetic-agent')
+  await act(async()=>button('Add runtime')!.click());expect(onDone).toHaveBeenCalledTimes(1)
+  expect(document.querySelector('[role="dialog"]')).toBeNull()
+})
+
+
+it('keeps Add a runtime reachable in a populated Settings body with a quiet bar', async () => {
+  const store = frameDestinationStore(previewStore())
+  store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'runtimes', focus: null } })
+  store.agentCatalog = async () => []
+  store.acpRegistry = async () => ({ agents: [], fetchedAt: 1 })
+  await act(async () => root.render(<StoreProvider store={store}><RuntimesSection onSignIn={() => {}} /></StoreProvider>))
+  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('')
+  const add = button('Add a runtime')
+  expect(add, 'a populated runtime list still has its entry action outside the quiet bar').toBeDefined()
+  expect(add!.closest('[data-slot="top-bar"]')).toBeNull()
+  await act(async () => add!.click())
+  expect(container.textContent).toContain('From the ACP registry')
 })

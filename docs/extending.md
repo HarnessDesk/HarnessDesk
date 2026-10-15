@@ -278,6 +278,10 @@ removable, with its weight visible, that **resolves at send** into the
 resource block over ACP) — so what varies by agent is fidelity, never whether
 the chip works.
 
+The optional `chip.icon` picks a semantic mark in the composer's Add menu:
+`image`, `diff`, `issue`, `check`, `terminal`, or `team`. Omit it to use the
+form's default mark (`instructions` or generic reference material).
+
 Why chips rather than pasting text:
 
 - **Agent neutrality.** No vendor can read another's thread, tool calls or
@@ -348,9 +352,11 @@ ctx.context.register({
   admitted checkout, resolution uses the open workspace.
 - Resolution receives `(scope, ref)` and can return a plain `string` or `{
   text?, image? }` (e.g. for a screenshot). It resolves over the wire as
-  `context/resolve { id, ref?, runtime?, workspaceRoot? }` → `{ label, text,
-  image? }`, under the plugin's own permissions. Whereas automatic context
-  times out after 5 s, chip resolution is allowed up to 30 s to accommodate
+  `context/resolve { id, ref?, runtime?, sessionId?, workspaceRoot? }` → `{ label,
+  text, image? }`, under the plugin's own permissions. Pass `runtime` and
+  `sessionId` for a conversation's chip so providers resolve that conversation's
+  state. Whereas automatic context times out after 5 s, chip resolution is
+  allowed up to 30 s to accommodate
   network calls and screenshot generation.
 - The result lands in the message as `<context source="label">…</context>`,
   the same envelope every other injected context uses, so the transcript
@@ -491,10 +497,9 @@ contributions, so pressing it runs in the plugin host under your permissions —
 never in the window. The manifest needs `ui: { contribute: true }`.
 
 Every panel's title folds it away, and the fold is remembered per panel across
-restarts. In the sidebar a panel is a guest in a column that belongs to the
-session list: it stands at most 320px tall and its body scrolls inside that.
-Docked into a pane it has the whole pane and no cap. Neither is yours to set —
-say what your panel *is*, and the host decides how much room it gets.
+restarts. The host controls its height and scrolling. Plugins do not set a
+fixed panel height. Say what your panel *is*, and the host decides how much
+room it gets.
 
 #### A slot, or a panel
 
@@ -778,7 +783,7 @@ privileged path:
 | search | `ctx.fs` | content and filename search |
 | task list | — | `todo_write` / `todo_read` for an agent whose runtime has no plan tool of its own; the sidebar's Tasks panel is the app's and is read from the conversation, not from here |
 | team | `ctx.team` | shared task board tools and cross-conversation messaging; the "Team board" context chip |
-| checkpoints | `ctx.shell` | snapshot and restore a working tree |
+| checkpoints | `ctx.shell` | record and list recoverable working-tree snapshots; provide the person's recovery command |
 | guardrails | hooks | repeated-identical-call escalation, destructive-command checks |
 | web | `ctx.http` | fetch a page as text |
 | browser | `ctx.browser` (CDP) | open, look, click, type, read the page as refs, console, network, and any DevTools method |
@@ -847,9 +852,9 @@ fixed in the same commit as the code that found the gap.
 
 ### Ground rules
 
-1. **Import only `@harnessdesk/protocol`.** The layering check fails the build
-   if an adapter imports another adapter or anything above itself. Shared needs
-   get lifted into `protocol`, never copied sideways.
+1. **Speak to the host through `@harnessdesk/protocol`.** Backend clients and
+   transport helpers stay inside the adapter; never import another adapter or
+   a layer above it. Tests may use `@harnessdesk/adapter-testkit`.
 2. **Never leak your backend's vocabulary.** Whatever your agent calls a
    thread, a profile, or a plan stays inside your package. The moment a caller
    needs your names, your mapping layer is incomplete.

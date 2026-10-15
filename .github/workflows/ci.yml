@@ -10,6 +10,16 @@ on:
   push:
     branches: [main]
   pull_request:
+  # A run on demand covers everything, as `main` does. `matrix: pr` asks for the
+  # pull-request theme matrix instead, to reproduce what a pull request ran.
+  # (GitHub offers a manual run only for a workflow that is on the default branch.)
+  workflow_dispatch:
+    inputs:
+      matrix:
+        description: Which themes the browser geometry contracts read
+        type: choice
+        options: [full, pr]
+        default: full
 
 # A superseded run has nothing to tell us; cancel it rather than queue behind it.
 concurrency:
@@ -29,6 +39,15 @@ jobs:
       browser: ${{ steps.paths.outputs.browser }}
       native: ${{ steps.paths.outputs.native }}
       server_specs: ${{ steps.paths.outputs.server_specs }}
+      browser_specs: ${{ steps.paths.outputs.browser_specs }}
+      matrix: ${{ steps.paths.outputs.matrix }}
+      shard_count: ${{ steps.paths.outputs.shard_count }}
+      shards: ${{ steps.paths.outputs.shards }}
+      record: ${{ steps.paths.outputs.record }}
+      unit_mode: ${{ steps.paths.outputs.unit_mode }}
+      unit_files: ${{ steps.paths.outputs.unit_files }}
+      unit_shard_count: ${{ steps.paths.outputs.unit_shard_count }}
+      unit_shards: ${{ steps.paths.outputs.unit_shards }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -36,20 +55,58 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
+      # What each spec ran on the last full run of main (script/ui-impact.mjs). Caches made on
+      # main are readable from a pull request; the newest one is the nearest to its base.
+      # Without one, or when it cannot speak for a file, a pull request runs every spec.
+      - name: Restore the impact map of main
+        if: github.event_name == 'pull_request'
+        uses: actions/cache/restore@v6
+        with:
+          path: ui-impact-map.json
+          key: ui-impact-map-none
+          restore-keys: ui-impact-map-
       - name: Select UI integration jobs
         id: paths
         env:
           EVENT_NAME: ${{ github.event_name }}
+          UI_IMPACT_MAP: ui-impact-map.json
+          # Only a run started by hand names its matrix; any other event leaves it to the selection.
+          UI_SYSTEM_MATRIX_REQUEST: ${{ inputs.matrix }}
         run: |
           list="$RUNNER_TEMP/ci-changed-paths"
+          theme=false
           if [ "$EVENT_NAME" = "pull_request" ]; then
             # Compare the merge to its base parent. Disable rename detection
             # so moving an input out of a tested directory still runs its suite.
             if ! git diff --no-renames --name-only -z HEAD^1 HEAD > "$list"; then
               rm -f "$list"
             fi
+            # A pull request reads the browser geometry contracts in one theme
+            # (playwright.ui-system.config.ts) unless its UI diff names a theme.
+            if git diff --no-renames -U0 HEAD^1 HEAD -- packages/ui | grep -E '^[+-]' | grep -Ev '^(\+\+\+|---)' | grep -Eiq 'dark|theme'; then
+              theme=true
+            fi
           fi
-          node script/ci-changes.mjs "$list" >> "$GITHUB_OUTPUT"
+          UI_THEME_TOUCHED="$theme" node script/ci-changes.mjs "$list" > "$RUNNER_TEMP/ci-plan"
+          cat "$RUNNER_TEMP/ci-plan" >> "$GITHUB_OUTPUT"
+          sed -n 's/^summary=//p' "$RUNNER_TEMP/ci-plan" >> "$GITHUB_STEP_SUMMARY"
+
+          # The same changed paths select unit tests once, before any install.
+          node script/ci-unit-tests.mjs "$list" > "$RUNNER_TEMP/ci-unit-plan"
+          sed -n 's/^mode=/unit_mode=/p; s/^files=/unit_files=/p' "$RUNNER_TEMP/ci-unit-plan" >> "$GITHUB_OUTPUT"
+          sed -n 's/^summary=//p' "$RUNNER_TEMP/ci-unit-plan" >> "$GITHUB_STEP_SUMMARY"
+          unit_mode=$(sed -n 's/^mode=//p' "$RUNNER_TEMP/ci-unit-plan")
+          unit_count=1
+          case "$unit_mode" in
+            all) unit_count=$(node script/ci-unit-shards.mjs --count) ;;
+            related) ;; # Vitest discovers related tests at run time: one shard.
+            none) unit_count=0 ;;
+            *) echo "Unknown unit mode: $unit_mode"; exit 1 ;;
+          esac
+          echo "unit_shard_count=$unit_count" >> "$GITHUB_OUTPUT"
+          # Keep [1] even when skipped, so the matrix is always well formed.
+          unit_shards=$(node -e 'console.log(JSON.stringify(Array.from({ length: Math.max(1, Number(process.argv[1])) }, (_, i) => i + 1)))' "$unit_count")
+          echo "unit_shards=$unit_shards" >> "$GITHUB_OUTPUT"
 
   # One job ran every step below in turn, and took as long as all of them added
   # together: the longest wait on every push, and the one that kept `package`
@@ -170,15 +227,17 @@ jobs:
       - name: CLI end-to-end tests
         run: node --test --test-timeout=600000 "packages/cli/dist/test/e2e*.test.js"
 
-  ui-tests:
-    name: UI tests
+  ui-typecheck:
+    name: UI typecheck and desktop tests
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    # These run once, alongside the shards. Fifteen minutes leaves ample room
+    # for install/build/typecheck and desktop tests while bounding a runaway.
+    timeout-minutes: 15
 
     steps:
       - uses: actions/checkout@v7
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
       - uses: pnpm/action-setup@v6
         with:
@@ -192,16 +251,91 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Build
-        run: pnpm run build
+        run: pnpm run build:node
 
       - name: UI typecheck
         run: pnpm --filter @harnessdesk/ui run typecheck
 
-      - name: UI tests
-        run: pnpm --filter @harnessdesk/ui run test
-
       - name: Desktop tests
         run: pnpm --filter @harnessdesk/desktop run test
+
+  ui-unit-tests:
+    name: UI unit tests shard ${{ matrix.shard }}/${{ needs.changes.outputs.unit_shard_count }}
+    needs: changes
+    if: needs.changes.outputs.unit_mode != 'none'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.changes.outputs.unit_shards) }}
+    # A full-suite deal plans about 125s of tests plus 60s of setup per shard.
+    # Related selections are undealt; 15 minutes covers the old serial run too.
+    timeout-minutes: 15
+    env:
+      UNIT_MODE: ${{ needs.changes.outputs.unit_mode }}
+      UNIT_FILES: ${{ needs.changes.outputs.unit_files }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 1
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.4.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # Vitest transforms UI source itself and reads workspace packages from
+      # dist. Verified list and a small deal with no UI dist: build:node suffices;
+      # building the renderer would add work without supplying test inputs.
+      - run: pnpm run build:node
+
+      - name: Deal UI tests
+        id: deal
+        if: needs.changes.outputs.unit_mode == 'all'
+        run: |
+          deal="$RUNNER_TEMP/unit-deal"
+          node script/ci-unit-shards.mjs ${{ matrix.shard }}/${{ needs.changes.outputs.unit_shard_count }} > "$deal"
+          # The empty-deal guard lives here, before the test step can run the whole suite.
+          test -s "$deal"
+          echo "files=$(paste -sd ' ' "$deal")" >> "$GITHUB_OUTPUT"
+
+      - name: UI tests
+        if: needs.changes.outputs.unit_mode == 'all'
+        env:
+          UNIT_DEAL: ${{ steps.deal.outputs.files }}
+        run: pnpm --filter @harnessdesk/ui run test $UNIT_DEAL
+
+      - name: UI tests that depend on the change
+        if: needs.changes.outputs.unit_mode == 'related'
+        run: pnpm --filter @harnessdesk/ui exec vitest related --run $UNIT_FILES
+
+  ui-tests:
+    name: UI tests
+    runs-on: ubuntu-latest
+    needs: [changes, ui-typecheck, ui-unit-tests]
+    if: always()
+    timeout-minutes: 5
+    steps:
+      - name: Require typecheck, desktop and the selected unit tests
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          UNIT_MODE: ${{ needs.changes.outputs.unit_mode }}
+          TYPECHECK_RESULT: ${{ needs.ui-typecheck.result }}
+          SHARDS_RESULT: ${{ needs.ui-unit-tests.result }}
+        run: |
+          if [ "$CHANGES_RESULT" != "success" ]; then
+            echo "UI unit input selection did not succeed ($CHANGES_RESULT)."
+            exit 1
+          fi
+          case "$TYPECHECK_RESULT/$SHARDS_RESULT/$UNIT_MODE" in
+            success/success/all|success/success/related|success/skipped/none)
+              exit 0
+              ;;
+          esac
+          echo "UI typecheck/unit results did not agree ($TYPECHECK_RESULT/$SHARDS_RESULT/$UNIT_MODE)."
+          exit 1
 
   gates:
     name: Gates
@@ -360,27 +494,85 @@ jobs:
           ./node_modules/.bin/electron-builder --mac dir
           -c.mac.identity=- -c.mac.notarize=false -c.mac.hardenedRuntime=false
 
-  ui-system-browser:
+  # Build the fixture pages once; the shards of a non-recording run share these
+  # bytes. A recording run builds them too, though its shards stay on the dev
+  # server: a build that no longer works then fails the run that broke it, not
+  # the next pull request that happens to select a static spec.
+  ui-system-build:
     needs: changes
     if: needs.changes.outputs.browser == 'all'
-    name: UI system browser integration shard ${{ matrix.shard }}/8
+    name: UI system pages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      UI_SYSTEM_MATRIX: pr
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10.4.1
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build:node
+      - run: pnpm run build:e2e
+      # A run that does not record serves every shard from this build, so the build is tested there.
+      # A recording run (`main`, or a change to the suite itself) runs its shards on the dev server, and
+      # a build that compiled but cannot run would go unnoticed until the next pull request met it. So
+      # it runs a few specs from each built page here, before any shard starts.
+      - name: Install the browser to try the build
+        if: needs.changes.outputs.record == 'true'
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Try the build
+        if: needs.changes.outputs.record == 'true'
+        env:
+          # The pages built above are the build under test.
+          UI_SYSTEM_PAGES: prebuilt
+        run: |
+          node script/ui-system-run.mjs e2e/ui-system/surfaces.spec.ts e2e/ui-system/narrow-right-panel-overlay.spec.ts e2e/ui-system/code-block.spec.ts
+          node script/ui-system-run.mjs e2e/ui-system/side-by-side.spec.ts --grep "two Seat browsers stay live"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ui-system-pages
+          path: packages/ui/dist-e2e/
+          retention-days: 1
+          if-no-files-found: error
+      # Keep diagnostics briefly after failures or cancellation.
+      - uses: actions/upload-artifact@v7
+        if: failure() || cancelled()
+        with:
+          name: ui-system-build-report
+          path: output/playwright/ui-system/
+          retention-days: 3
+          if-no-files-found: ignore
+
+  ui-system-browser:
+    needs: [changes, ui-system-build]
+    if: needs.changes.outputs.browser == 'all'
+    name: UI system browser integration shard ${{ matrix.shard }}/${{ needs.changes.outputs.shard_count }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
-    # Four shards took 14–17 minutes and a loaded runner reached the 20-minute
-    # job limit (#1140). Spread the suite further and leave room for setup,
-    # runner variation and the report upload after tests finish.
-    #
-    # Six shards dealt by Playwright's `--shard` took from 10 to 20 minutes,
-    # because it deals by the number of tests and they take two seconds to three
-    # minutes each. `script/ci-browser-shards.mjs` deals the spec files by the
-    # time they took instead, so the shards finish together, and each shard runs
-    # two browsers at once (`playwright.ui-system.config.ts`) rather than one on
-    # a four-core runner, and there are eight of them so that each has less to
-    # do.
-    timeout-minutes: 30
+        # As many shards as the work needs, from one to sixteen: each carries
+        # about 1,500 recorded dev-server seconds of tests. Static runs finish
+        # earlier; script/ci-browser-shards.mjs still sizes the shards from those
+        # times and script/ci-changes.mjs counts them. A change that reaches one
+        # spec gets one shard, a pull request that touches the UI thirteen, and
+        # `main` all sixteen. Always at least [1], so the matrix is well formed
+        # on the runs that skip this job.
+        shard: ${{ fromJSON(needs.changes.outputs.shards) }}
+    env:
+      # What this run is: its theme matrix and the specs it covers. The shards
+      # of one run read the same two values, so they deal the same plan.
+      UI_SYSTEM_MATRIX: ${{ needs.changes.outputs.matrix }}
+      UI_SYSTEM_SPECS: ${{ needs.changes.outputs.browser_specs }}
+    # A balanced full-suite shard takes about 22 minutes; the slowest of five
+    # recent recording runs took 28. The 90-second per-test timeout catches a
+    # hung test; this limit only stops a runaway.
+    timeout-minutes: 40
 
     steps:
       - uses: actions/checkout@v7
@@ -399,12 +591,40 @@ jobs:
       # A clean runner has none until the Node build creates them.
       - run: pnpm run build:node
       - run: pnpm exec playwright install --with-deps chromium
+      - uses: actions/download-artifact@v8
+        if: needs.changes.outputs.record != 'true'
+        with:
+          name: ui-system-pages
+          path: packages/ui/dist-e2e/
       - name: Run this shard's specs
+        env:
+          UI_IMPACT_SHARD: ${{ matrix.shard }}
+          # A run of the whole suite also records which UI modules each spec ran, for the
+          # pull requests that come after it (script/ui-impact.mjs); a pull request that
+          # runs part of it records nothing.
+          RECORD: ${{ needs.changes.outputs.record }}
+          UI_SYSTEM_SERVER: dev
+          # The pages downloaded above are the build under test; anywhere else the runner rebuilds them.
+          UI_SYSTEM_PAGES: prebuilt
         run: |
-          mapfile -t specs < <(node script/ci-browser-shards.mjs ${{ matrix.shard }}/8)
+          mapfile -t specs < <(node script/ci-browser-shards.mjs ${{ matrix.shard }}/${{ needs.changes.outputs.shard_count }})
           # An empty deal must never accidentally run the entire suite.
           test "${#specs[@]}" -gt 0
-          pnpm test:ui-system "${specs[@]}"
+          if [ "$RECORD" = "true" ]; then
+            mkdir -p output/ui-impact
+            UI_IMPACT_DIR="$PWD/output/ui-impact" pnpm test:ui-system --tsconfig script/ui-impact/tsconfig.json "${specs[@]}"
+            # How many tests each of these specs has: a record with fewer is partial, and its spec is not planned from it.
+            pnpm --silent test:ui-system --list --reporter=json "${specs[@]}" > "output/ui-impact/expected-$UI_IMPACT_SHARD.json"
+          else
+            node script/ui-system-run.mjs "${specs[@]}"
+          fi
+
+      - uses: actions/upload-artifact@v7
+        if: success() && needs.changes.outputs.record == 'true'
+        with:
+          name: ui-impact-${{ matrix.shard }}
+          path: output/ui-impact/
+          retention-days: 3
 
       # Keep diagnostics briefly after failures or cancellation (including partial runs).
       # Successful shards need no stored report.
@@ -414,6 +634,42 @@ jobs:
           name: ui-system-browser-report-${{ matrix.shard }}
           path: output/playwright/ui-system/
           retention-days: 3
+
+  # The records of a full run, folded into one map and kept for the pull requests
+  # that come next. Only a clean run makes one, and only main keeps it.
+  ui-impact-map:
+    name: UI impact map
+    needs: [changes, ui-system-browser]
+    if: needs.changes.outputs.record == 'true' && needs.ui-system-browser.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: ui-impact-*
+          path: impact-records
+          merge-multiple: true
+      # A run whose records cannot make a map fails this job, in the open. It gates nothing (the
+      # required checks do not wait for it), but a green job that saved no map is how a broken scan
+      # goes unseen: pull requests then plan without a map, which is slow and safe, and nobody knows.
+      - name: Merge the records into a map
+        run: |
+          node script/ui-impact.mjs merge impact-records --commit "$GITHUB_SHA" --out ui-impact-map.json
+          test -s ui-impact-map.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: ui-impact-map
+          path: ui-impact-map.json
+          retention-days: 14
+      - uses: actions/cache/save@v6
+        if: github.ref == 'refs/heads/main'
+        with:
+          path: ui-impact-map.json
+          key: ui-impact-map-${{ github.sha }}
 
   ui-system-server:
     needs: changes
@@ -458,7 +714,7 @@ jobs:
   ui-system-browser-integration:
     name: UI system browser integration
     runs-on: ubuntu-latest
-    needs: [changes, ui-system-browser, ui-system-server]
+    needs: [changes, ui-system-build, ui-system-browser, ui-system-server]
     if: always()
     timeout-minutes: 5
 
@@ -469,9 +725,18 @@ jobs:
           BROWSER: ${{ needs.changes.outputs.browser }}
           SHARDS_RESULT: ${{ needs.ui-system-browser.result }}
           SERVER_RESULT: ${{ needs.ui-system-server.result }}
+          BUILD_RESULT: ${{ needs.ui-system-build.result }}
         run: |
           if [ "$CHANGES_RESULT" != "success" ]; then
             echo "UI integration input selection did not succeed ($CHANGES_RESULT)."
+            exit 1
+          fi
+          expected_build=skipped
+          if [ "$BROWSER" = "all" ]; then
+            expected_build=success
+          fi
+          if [ "$BUILD_RESULT" != "$expected_build" ]; then
+            echo "UI pages build did not match the requested run ($BUILD_RESULT; expected $expected_build)."
             exit 1
           fi
           case "$BROWSER/$SHARDS_RESULT/$SERVER_RESULT" in

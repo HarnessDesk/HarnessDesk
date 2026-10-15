@@ -1,5 +1,6 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import { StoreProvider } from '../state/context'
@@ -8,6 +9,7 @@ import type { ProjectGroup } from '../lib/projects'
 import type { CaptureHealth, SessionSummary } from '@harnessdesk/protocol'
 import { captureHealth } from '../preview/provenance-fixture'
 import { WorkspaceMenu } from './WorkspaceMenu'
+import { ChevronIcon, MoveFolderIcon } from './Icons'
 
 /**
  * A project's Move rows are the sidebar's keyboard route through its arranged
@@ -69,7 +71,7 @@ const row = (label: string): HTMLElement => {
 }
 const moveRow = async (label: string): Promise<HTMLElement> => {
   const move = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
-    .find((one) => one.querySelector('[class*="title"]')?.textContent?.trim() === 'Move')
+    .find((one) => one.querySelector('[data-menu-label]')?.textContent?.trim() === 'Move')
   if (!move) throw new Error('no Move submenu')
   act(() => move.dispatchEvent(new MouseEvent('click', { bubbles: true })))
   return row(label)
@@ -122,7 +124,7 @@ it('groups project choices by task and puts movement in the Move flyout', async 
   }
   mount(['/a', '/home/dev/work/project', '/other'], project)
   const menu = document.querySelector('[role="menu"]')!
-  const labels = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((item) => item.querySelector('[class*="title"]')?.textContent?.trim())
+  const labels = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((item) => item.querySelector('[data-menu-label]')?.textContent?.trim())
   expect(labels).toEqual([
     'New session here', 'New worktree…',
     'Open workspace', 'Open terminal here', 'History', 'Copy path', 'Project settings',
@@ -132,10 +134,20 @@ it('groups project choices by task and puts movement in the Move flyout', async 
   expect(menu.querySelectorAll('[role="separator"]')).toHaveLength(3)
   const move = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) => item.textContent?.trim() === 'Move')!
   act(() => move.dispatchEvent(new MouseEvent('click', { bubbles: true })))
-  const allLabels = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((item) => item.querySelector('[class*="title"]')?.textContent?.trim())
+  const allLabels = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].map((item) => item.querySelector('[data-menu-label]')?.textContent?.trim())
   expect(allLabels).toContain('Move up')
   expect(allLabels).toContain('Move down')
   expect(allLabels).toContain('Back to automatic order')
+})
+
+it('uses a move glyph before the Move flyout chevron', () => {
+  mount(['/a', '/home/dev/work/project', '/other'], group('/home/dev/work/project', 'project'))
+  const move = row('Move')
+  const leading = move.querySelector('[data-menu-icon] svg')!
+  const trailing = move.querySelector('[data-menu-trailing] svg')!
+  expect(leading.outerHTML).toBe(renderToStaticMarkup(<MoveFolderIcon size={14} />))
+  expect(trailing.outerHTML).toBe(renderToStaticMarkup(<ChevronIcon size={16} />))
+  expect(leading.innerHTML).not.toBe(trailing.innerHTML)
 })
 
 it('keeps the first project Move up refusal reason in the flyout', async () => {
@@ -143,20 +155,24 @@ it('keeps the first project Move up refusal reason in the flyout', async () => {
   mount(['/first', '/second'], project)
   const menu = document.querySelector('[role="menu"]')!
   const move = [...menu.querySelectorAll<HTMLElement>('[role="menuitem"]')]
-    .find((item) => item.querySelector('[class*="title"]')?.textContent?.trim() === 'Move')!
+    .find((item) => item.querySelector('[data-menu-label]')?.textContent?.trim() === 'Move')!
   act(() => move.dispatchEvent(new MouseEvent('click', { bubbles: true })))
   const up = row('Move up')
   expect(up.getAttribute('aria-disabled')).toBe('true')
   expect(up.getAttribute('title')).toBe('Already first.')
 })
 
-it('shows a home-shortened path hint and copies the absolute project path', async () => {
+it('shows a one-line path hint, exposes its full value as a title, and copies the absolute path', async () => {
   const writeText = vi.fn(async () => {})
   Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
-  const absolute = '/home/dev/work/project'
+  const absolute = '/preview/projects/storefront/packages/a-very-long-checkout-directory'
   mount([], group(absolute, 'project'))
   const path = row('Copy path')
-  expect(path.querySelector('[class*="hint"]')?.textContent).toBe('~/work/project')
+  expect(path.getAttribute('title')).toBe(absolute)
+  const shown = path.querySelector<HTMLElement>('[data-menu-hint] [data-slot="middle-truncate"]')
+  expect(shown?.querySelector('.sr-only')?.textContent).toBe(absolute)
+  expect([...shown!.querySelectorAll<HTMLElement>('[data-part]')].map(part => part.textContent).join('')).toBe(absolute)
+  expect(shown?.className).toContain('whitespace-nowrap')
   act(() => path.dispatchEvent(new MouseEvent('click', { bubbles: true })))
   expect(writeText).toHaveBeenCalledWith(absolute)
 })
@@ -192,11 +208,11 @@ it('says a stopped capture in the menu and offers to retry it', () => {
   ])
   const [item, ...more] = captureItems()
   expect(more).toHaveLength(0)
-  expect(item?.querySelector('[class*="title"]')?.textContent).toBe('Capture stopped')
-  expect(item?.querySelector('[class*="value"]')?.textContent).toBe('Retry')
+  expect(item?.querySelector('[data-menu-label]')?.textContent).toBe('Capture stopped')
+  expect(item?.querySelector('[data-menu-trailing]')?.textContent).toBe('Retry')
   // The reason is on hover, in the host's own words; a menu row does not carry a sentence it did not earn.
   expect(item?.getAttribute('title')).toBe('Repository metadata is refused. Use a supported checkout.')
-  expect(item?.querySelector('[class*="hint"]')).toBeNull()
+  expect(item?.querySelector('[data-menu-hint]')).toBeNull()
   act(() => item!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
   expect(store.retryCapture).toHaveBeenCalledWith(PROJECT)
   expect(store.setCapture).not.toHaveBeenCalled()
@@ -207,8 +223,8 @@ it('offers to turn capture on when it was turned off', () => {
     captureHealth({ project: PROJECT, enabled: false, state: 'stopped', reason: 'Capture is off on this machine.', nextStep: 'Turn capture on.' }),
   ])
   const item = captureItems()[0]
-  expect(item?.querySelector('[class*="title"]')?.textContent).toBe('Capture stopped')
-  expect(item?.querySelector('[class*="value"]')?.textContent).toBe('Turn on')
+  expect(item?.querySelector('[data-menu-label]')?.textContent).toBe('Capture stopped')
+  expect(item?.querySelector('[data-menu-trailing]')?.textContent).toBe('Turn on')
   act(() => item!.dispatchEvent(new MouseEvent('click', { bubbles: true })))
   expect(store.setCapture).toHaveBeenCalledWith(PROJECT, true)
   expect(store.retryCapture).not.toHaveBeenCalled()
@@ -216,7 +232,7 @@ it('offers to turn capture on when it was turned off', () => {
 
 it('says a degraded capture too, and nothing at all for a healthy one or one it knows nothing of', () => {
   mountCapture(group(PROJECT, 'widgets'), [captureHealth({ project: PROJECT, state: 'degraded', reason: 'Watching failed; polling continues.', nextStep: 'Retry capture.' })])
-  expect(captureItems()[0]?.querySelector('[class*="title"]')?.textContent).toBe('Capture degraded')
+  expect(captureItems()[0]?.querySelector('[data-menu-label]')?.textContent).toBe('Capture degraded')
   mountCapture(group(PROJECT, 'widgets'), [captureHealth({ project: PROJECT })])
   expect(captureItems()).toHaveLength(0)
   mountCapture(group(PROJECT, 'widgets'), [])
@@ -238,6 +254,8 @@ it('reads the project’s own capture, wherever it is homed, and not a clone’s
 it('distinguishes resetting order from moving a project down', async () => {
   mount(['/a', '/b', '/c'], group('/b', 'billing'))
   const back = await moveRow('Back to automatic order')
-  expect(back.querySelector('svg')?.classList.contains('lucide-rotate-ccw')).toBe(true)
-  expect(row('Move down').querySelector('svg')?.classList.contains('lucide-move-down')).toBe(true)
+  expect(back.querySelector('[data-menu-label]')?.textContent).toBe('Back to automatic order')
+  expect(row('Move down').querySelector('[data-menu-label]')?.textContent).toBe('Move down')
+  expect(back.querySelector('[data-menu-icon]')).not.toBeNull()
+  expect(row('Move down').querySelector('[data-menu-icon]')).not.toBeNull()
 })

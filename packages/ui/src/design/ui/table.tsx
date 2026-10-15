@@ -1,4 +1,4 @@
-import type * as React from 'react'
+import * as React from 'react'
 
 import { cn } from '@/lib/utils'
 
@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils'
 const Table = ({
   className,
   containerClassName,
+  viewport,
   variant = 'default',
   inset,
   density = variant === 'panel' ? 'compact' : 'comfortable',
@@ -16,18 +17,23 @@ const Table = ({
   density?: 'comfortable' | 'compact'
   rows?: 'default' | 'bare'
   containerClassName?: string
+  /** Bounded page scroll owner, including its ref, events and data attributes. */
+  viewport?: React.ComponentProps<'div'> & { [attribute: `data-${string}`]: unknown }
   variant?: 'default' | 'framed' | 'panel'
   /** The table and its replacement list keep the same row-content edge. */
   inset?: 'row'
 }) => (
   <div
+    {...viewport}
     data-slot="table-container"
     data-variant={variant}
     className={cn(
       'relative w-full overflow-x-auto',
+      viewport && 'max-h-(--hd-table-page-max-height) overflow-auto',
       variant === 'framed' && 'rounded-(--hd-radius) shadow-(--hd-hairline)',
       variant === 'panel' && 'rounded-(--hd-radius-sm) border border-(--hd-border)',
       containerClassName,
+      viewport?.className,
     )}
   >
     <table
@@ -53,13 +59,21 @@ const TableHeader = ({ className, as: Tag = 'thead', variant = 'default', ...pro
   )} {...props} />
 )
 
-const TableBody = ({ className, ...props }: React.ComponentProps<'tbody'>) => (
-  <tbody
-    data-slot="table-body"
-    className={cn('[&_tr:last-child]:border-0', className)}
-    {...props}
-  />
-)
+/** Fixed-pitch rows, with geometry supplied by the scroll viewport. Only the
+ * visible children mount; spacer rows preserve native table columns. */
+const TableBody = ({ className, children, window: viewport, ...props }: React.ComponentProps<'tbody'> & {
+  window?: { top: number; height: number; pitch: number; columns: number }
+}) => {
+  const rows = React.Children.toArray(children)
+  const start = viewport ? Math.max(0, Math.floor(viewport.top / viewport.pitch) - 5) : 0
+  const end = viewport ? Math.min(rows.length, Math.ceil((viewport.top + viewport.height) / viewport.pitch) + 5) : rows.length
+  const space = (height: number, key: string) => height > 0 && <tr key={key} aria-hidden="true"><td colSpan={viewport?.columns} style={{ height, padding: 0, border: 0 }} /></tr>
+  return <tbody data-slot="table-body" className={cn('[&_tr:last-child]:border-0', className)} {...props}>
+    {viewport && space(start * viewport.pitch, 'before')}
+    {rows.slice(start, end)}
+    {viewport && space((rows.length - end) * viewport.pitch, 'after')}
+  </tbody>
+}
 
 const TableFooter = ({
   className,
@@ -197,7 +211,7 @@ const TableCell = ({
   >
     {lead != null ? (
       <div className="flex min-w-0 items-center gap-(--hd-table-lead-gap)">
-        <span data-slot="table-cell-lead" className="inline-flex size-(--hd-table-face) shrink-0 items-center justify-center overflow-hidden rounded-(--hd-table-face-radius) has-[[data-slot=avatar-stack]]:w-auto has-[[data-slot=avatar-stack]]:overflow-visible has-[[data-slot=face-badge]]:overflow-visible [&>*:not([data-slot=avatar-stack])]:size-full [&>*:not([data-slot=avatar-stack])]:rounded-[inherit]">{lead}</span>
+        <span data-slot="table-cell-lead" className="inline-flex size-(--hd-table-face) shrink-0 items-center justify-center overflow-hidden rounded-(--hd-table-face-radius) has-[[data-slot=avatar-stack]]:w-auto has-[[data-slot=avatar-stack]]:overflow-visible has-[[data-slot=face-badge]]:overflow-visible [&>*:not([data-slot=avatar-stack]):not([data-slot=series-dot])]:size-full [&>*:not([data-slot=avatar-stack]):not([data-slot=series-dot])]:rounded-[inherit]">{lead}</span>
         {children}
       </div>
     ) : children}

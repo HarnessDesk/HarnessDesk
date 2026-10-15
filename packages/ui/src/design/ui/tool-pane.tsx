@@ -90,6 +90,7 @@ const ToolPaneHeader = ({
   <header
     data-slot="tool-pane-header"
     data-variant={variant}
+    data-content-inset={contentInset}
     title={hint}
     {...(corner ? { 'data-corner': '' } : {})}
     className={cn(
@@ -98,7 +99,8 @@ const ToolPaneHeader = ({
          it happened to be, which put it at 45 — one off the bar above it, and
          one off the bar in the panel beside it, which was 47 by the same
          arithmetic. */
-      'flex h-(--hd-bar-h) shrink-0 items-center gap-(--hd-bar-gap) border-b border-(--hd-border)',
+      'flex shrink-0 items-center gap-(--hd-bar-gap) border-b border-(--hd-border)',
+      'h-(--hd-bar-h)',
       variant === 'default' && 'px-(--hd-bar-pad)',
       variant === 'window' && 'pr-3 pl-4',
       corner && 'pl-[max(var(--hd-space-4),var(--titlebar-inset,0px))]',
@@ -148,12 +150,18 @@ const ToolPaneHeader = ({
 const ToolPaneBody = ({
   className,
   bleed,
+  inset = 'dense',
   ...props
-}: React.ComponentProps<'div'> & { bleed?: boolean }) => (
+}: React.ComponentProps<'div'> & {
+  bleed?: boolean
+  /** `dense`: the canvas gutter; `page`: the reading gutter; `tool`: flat panel sections. */
+  inset?: 'dense' | 'page' | 'tool'
+}) => (
   <div
     data-slot="tool-pane-body"
     {...(bleed ? { 'data-bleed': '' } : {})}
-    className={cn('min-h-0 flex-1 overflow-auto', bleed ? 'p-0' : 'p-(--hd-inset-dense)', className)}
+    data-inset={inset}
+    className={cn('min-h-0 flex flex-col gap-(--hd-card-gap) flex-1 overflow-auto', bleed ? 'p-0' : inset === 'tool' ? 'py-(--hd-inset-row)' : inset === 'page' ? 'p-(--hd-page-gutter)' : 'p-(--hd-inset-dense)', className)}
     {...props}
   />
 )
@@ -173,7 +181,7 @@ const ToolPaneHeaderDivider = () => (
  * `tools` is the one whose controls are the tool's verbs and filters rather
  * than a single field — a repository's actions, its history's scope and
  * search, the head of the commit it has open. It stands at the same 36px as
- * `find`, and it is a floor rather than a height: a pane narrower than its
+ * `find`, and it is a floor rather than a height (the 32px switcher with 1px above and below and the border still fits it): a pane narrower than its
  * controls wraps them onto a second line, and the bar grows with them instead
  * of cutting the last one off. A bar whose one line must never break — a head
  * whose title ellipsises instead — says `flex-nowrap`. A bar that is a set of
@@ -186,16 +194,18 @@ const ToolPaneBar = ({
   ...props
 }: Omit<React.ComponentProps<'div'>, 'role'> & {
   as?: 'div' | 'form'
-  variant: 'terminal' | 'address' | 'find' | 'annotate' | 'tools'
+  variant: 'terminal' | 'address' | 'address-slim' | 'find' | 'annotate' | 'tools'
   role?: 'toolbar'
 }) => {
   const height =
     variant === 'terminal'
       ? 'h-(--hd-control-h)'
-      : variant === 'address'
+      : variant === 'address-slim'
+        ? 'h-(--hd-control-h)'
+        : variant === 'address'
         ? 'h-10'
         : variant === 'tools'
-          ? 'min-h-9 flex-wrap gap-y-1 py-0.5'
+          ? 'min-h-9 flex-wrap gap-y-1 py-px'
           : 'h-9'
   return React.createElement(as, {
     ...props,
@@ -408,9 +418,6 @@ const ToolPaneToolGroup = ({ className, ...props }: React.ComponentProps<'div'>)
   />
 )
 
-const ToolPaneReading = ({ className, ...props }: React.ComponentProps<'div'>) => (
-  <div data-slot="tool-pane-reading" className={cn('max-w-3xl px-6 py-4', className)} {...props} />
-)
 
 /**
  * The strip of tabs a tool pane can carry.
@@ -496,7 +503,6 @@ export {
   ToolPaneHeaderDivider,
   ToolPaneMessage,
   ToolPaneNotice,
-  ToolPaneReading,
   ToolPaneStage,
   ToolPaneTab,
   ToolPaneTabIcon,

@@ -5,7 +5,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { within, type Within } from '../seat-reads.js'
-import { asText, browseDirectories, confine, isBinaryFile, isMissingWorkspaceFileError, sha256 } from '../workspace.js'
+import { asText, browseDirectories, browseWorkspaceEntries, confine, isBinaryFile, isMissingWorkspaceFileError, sha256 } from '../workspace.js'
 import type { MethodsUnder } from './context.js'
 
 /**
@@ -120,7 +120,12 @@ export const workspaceMethods = {
     return ctx.runtimes.files(params.runtime).search([root], params.query, params.limit ?? 40)
   },
 
-  'workspace/browse': (ctx, params) => browseDirectories(ctx.runtimes.files(params.runtime), params.path),
+  'workspace/browse': (ctx, params) => {
+    if (params.mode !== 'entries') return browseDirectories(ctx.runtimes.files(params.runtime), params.path)
+    const root = confine(params.root, ctx.workspaces.fileRoots('read'))
+    const path = confine(params.path ?? root, [root])
+    return browseWorkspaceEntries(ctx.runtimes.files(params.runtime), root, path)
+  },
 
   'workspace/readFile': async (ctx, params) => {
     const path = confine(params.path, ctx.workspaces.fileRoots('read'))

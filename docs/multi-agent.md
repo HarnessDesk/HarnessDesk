@@ -120,11 +120,15 @@ reason.
 
 The comparison flow the dialog previews and starts is an ordinary policy:
 one implementer role on the two chosen seats, an isolated checkout each,
-`pnpm verify` (or whatever the project names) run against both branches, an
+the chosen project check run against both branches, an
 independent judge that reviews what it actually observed and records a
 structured verdict — never prose read as a winner — and a person who does
 the actual merge. `docs/flows.md`'s "Agents and Seats (v2)" section
 describes the shape in full; racing is that shape, not a shape of its own.
+
+New Team suggests the project's declared test script and package manager for
+**Check each attempt with**. The person can replace it or leave it empty to
+skip the check round; the preview freezes the resulting steps and command.
 
 ---
 
@@ -332,9 +336,9 @@ put. A card sits where its state and what the desk observed on it put it
 | Column | Contents |
 | --- | --- |
 | To do | Work nobody has started: open, or waiting on unfinished dependencies — it starts itself when they land. |
-| Working | Work its holder is on. |
+| Working | Work its holder is on, or an open check card whose automatic check is running. |
 | Needs you | Work that cannot move without a person: stopped by hand, a stranded claim, a holder waiting on your answer, a flow step addressed to you — or finished work whose facts are not good: a check or CI that failed, CI that was cancelled, a closed pull request, a fact gone stale or one nobody can place, or nothing checked at all. The card says which — *verify out of date*, *CI unknown*, *PR #12 out of date*. |
-| In review | Finished work whose evidence is still arriving: a check running, CI running, a pull request open. |
+| In review | Finished work whose evidence is still arriving: a check running on that work, CI running, a pull request open. |
 | Ready | Finished work a current fact says is good: a fresh passing check, fresh passing CI, or a merged pull request — fresh, or final once its branch is gone after the merge. Nothing else: not a pass gone stale, not a fact restored from a backup. |
 | Set aside | Work a person abandoned. Settled, never good news, and never *Ready* whatever was observed on it; the column is drawn only while it holds something. |
 
@@ -380,6 +384,21 @@ when the window comes back to the front, and every thirty seconds while it is
 on screen. The diff, pull request and CI are looked at when a card is finished
 and, at most every five minutes a card, when a board is read.
 
+Review candidates name the writer's current commit and branch, read from its
+own checkout rather than the branch its Seat opened on. If that checkout
+switched branches while the card ran, even if it switched back, the finished
+card's note says its work may span more than one branch and asks for a review
+of the final revision. An unreadable branch history says so too. A switch in
+the project's main checkout does not change an isolated attempt's evidence.
+A candidate whose commit, branch or checkout no longer matches what was
+offered must be requested again before a verdict can be recorded.
+The final branch is kept with the card's stopping commit: switching that
+checkout again after completion refuses review candidates until it returns,
+rather than substituting work on another branch.
+A stopped diff keeps that commit and branch on every later look. A new
+observation of the same fact on another branch is kept too; an unchanged
+payload does not preserve its earlier branch label.
+
 A project names its checks in `checks.yml` in its `.harnessdesk` folder —
 `verify: { run: pnpm verify, timeout: 1200 }` — and every card offers *Run
 verify*. What runs is the file as committed: a change in your working copy
@@ -410,10 +429,12 @@ An agent claims work using `claim_work(intent, files?)` or
 `claim_next(files?)`:
 - **Atomic check**: claims are refused if another agent claimed the intent
   first, if dependencies are unfinished, or if the declared file paths overlap
-  an active claim.
+  an active claim in the same checkout.
 - **File ownership**: `files` passed to `claim_work` are merged with the
   intent's declared paths. This union forms an exclusive lock, preventing
-  another agent from claiming overlapping files without using a worktree. Paths
+  another agent in that checkout from claiming overlapping files. Separate
+  isolated checkouts may claim the same relative paths. Older claims with no
+  recorded checkout still contend with every checkout. Paths
   are often unknown when an intent is created; allowing claims to declare files
   enables agents to register paths discovered during inspection. A claim
   owning no files states so in its return message.
@@ -464,6 +485,21 @@ retries automatically when the gate allows it, including after a restart. Its
 Run and round stay **Waiting to post**, with that reason visible, while held. A
 readiness check that cannot finish leaves a stated reason and waits for a
 person to post again.
+
+A review-first card can judge an open pull request the Team did not open:
+the host observes the Team's bound PR, or the PR number or GitHub pull-request
+URL named on the card, and seats the review at that head, including after
+a person or read-only step that supplied no writer revision. A Run started
+at a resolved branch, diff or PR keeps its frozen target; observing a moved
+PR refuses candidates instead of moving the review's checkout. `review_candidates`
+never substitutes a PR for a working-tree review: its reviewers keep the
+selected checkout, and the card explains that its snapshot has no committed
+candidate, even if the checkout later becomes clean. For a committed review it
+offers that observed revision for `raise_finding` and `record_review`; a moved
+head invalidates an earlier candidate. When no candidate is available, the
+card and the candidate call say why. Closing a review round without a recorded
+review refuses publication with a visible reason; a handoff verdict alone
+cannot count as a posted review.
 
 If an agent must abandon a task, it calls `release_claim(intent, reason?,
 blocked?)`:

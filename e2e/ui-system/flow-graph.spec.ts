@@ -1,3 +1,4 @@
+import { selectRunView, runBar } from './run-frame-actions'
 import { expect, test, type Page } from '@playwright/test'
 
 const SCENES = ['blueprint', 'straight', 'loop', 'fan-out', 'person', 'positions', 'long', 'legacy'] as const
@@ -38,8 +39,10 @@ for (const theme of ['light', 'dark'] as const) {
       else await expect(page.locator('body')).not.toHaveAttribute('data-hd-dark-theme', '')
     })
 
-    test('no label sits on a card or on another label, and no card on another, in any Flow', async ({ page }) => {
-      for (const scene of SCENES) {
+    {
+
+      for (const [item0, scene] of (SCENES).entries()) test(`no label sits on a card or on another label, and no card on another, in any Flow [item ${[item0].join('-')}]`, async ({ page }) => {
+
         await expect(page.locator(`#flow-graph-${scene} .react-flow__edge`)).not.toHaveCount(0)
         const drawn = await measure(page, scene)
         expect(drawn.steps.length, scene).toBeGreaterThan(1)
@@ -50,11 +53,15 @@ for (const theme of ['light', 'dark'] as const) {
         expect(clashes, scene).toEqual([])
         const outside = [...drawn.steps, ...drawn.words].filter((one) => one.x < 0 || one.y < 0 || one.x + one.w > drawn.stage.w + 0.5 || one.y + one.h > drawn.stage.h + 0.5)
         expect(outside.map((one) => one.id), `${scene} stays on its canvas`).toEqual([])
-      }
-    })
 
-    test('every arrowhead lands on the card its rule goes to', async ({ page }) => {
-      for (const scene of SCENES) {
+
+      })
+    }
+
+    {
+
+      for (const [item0, scene] of (SCENES).entries()) test(`every arrowhead lands on the card its rule goes to [item ${[item0].join('-')}]`, async ({ page }) => {
+
         await expect(page.locator(`#flow-graph-${scene} .react-flow__edge`)).not.toHaveCount(0)
         const drawn = await measure(page, scene)
         const card = new Map(drawn.steps.map((step) => [step.id, step]))
@@ -67,8 +74,10 @@ for (const theme of ['light', 'dark'] as const) {
           expect(Math.hypot(outsideX, outsideY), `${scene} ${tip.edge} stops short`).toBeLessThanOrEqual(1.5)
           expect(Math.max(inside, 0), `${scene} ${tip.edge} runs into the card`).toBeLessThanOrEqual(1.5)
         }
-      }
-    })
+
+
+      })
+    }
 
     test('reads left to right, with a loop under the line, and a person closing the line under what handed it over', async ({ page }) => {
       const { steps } = await measure(page, 'blueprint')
@@ -193,8 +202,10 @@ for (const theme of ['light', 'dark'] as const) {
       const centre = await canvas.evaluate(root => {
         const surface = root.getBoundingClientRect()
         const boxes = [...root.querySelectorAll('.react-flow__node')].map(el => el.getBoundingClientRect())
-        return { x: (Math.min(...boxes.map(box => box.left)) + Math.max(...boxes.map(box => box.right))) / 2 - (surface.left + surface.width / 2),
-          y: (Math.min(...boxes.map(box => box.top)) + Math.max(...boxes.map(box => box.bottom))) / 2 - (surface.top + surface.height / 2) }
+        return {
+          x: (Math.min(...boxes.map(box => box.left)) + Math.max(...boxes.map(box => box.right))) / 2 - (surface.left + surface.width / 2),
+          y: (Math.min(...boxes.map(box => box.top)) + Math.max(...boxes.map(box => box.bottom))) / 2 - (surface.top + surface.height / 2)
+        }
       })
       expect(Math.abs(centre.x)).toBeLessThan(1)
       expect(Math.abs(centre.y)).toBeLessThan(1)
@@ -212,33 +223,40 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(canvas.locator('.react-flow__node.draggable, .react-flow__handle.connectable')).toHaveCount(0)
     })
 
-    test('the Run’s header offers the Flow beside the timeline, and opens its file to read', async ({ page }) => {
-      const run = page.locator('#flow-graph-run [data-slot="run-view"]')
-      const choice = (name: string) => run.locator('[role="radiogroup"][aria-label="Show the Run as"]').getByRole('radio', { name, exact: true })
-      await expect(choice('Flow')).toBeChecked()
-      const head = run.locator('[data-slot="run-flow-head"]')
-      await expect(head).toContainText('Build and review')
-      await expect(head).toContainText('revision 3f9a1c')
-      await expect(head).toContainText('frozen when this Run started')
+    test('the Run View menu offers Flow and its Details action reads the current file', async ({ page }) => {
+      const frame = page.locator('#flow-graph-run')
+      const run = frame.locator('[data-slot="run-view"]')
+      const details = frame.locator('[data-preview-tool-placement]')
+      await expect(runBar(frame)).toBeVisible()
+      await expect(frame.locator('[data-slot="run-workspace"]')).toHaveAttribute('data-view', 'flow')
+      await expect(frame.locator('[data-slot="run-flow-head"]')).toHaveClass('sr-only')
+      await expect(frame.locator('[data-slot="run-flow-head"]')).toContainText('Build and review')
       await expect(run.locator('[data-slot="flow-step"]')).toHaveCount(4)
 
       // The Flow has the whole pane, so the drawing shows at an ordinary width; the inspector returns with the timeline.
       const workspace = page.locator('#flow-graph-run [data-slot="run-workspace"]')
-      await expect(workspace.locator('[data-slot="run-inspector"]')).toHaveCount(0)
+      await expect(details).toHaveCount(0)
       await expect(workspace.locator('[data-slot="flow-drawing"]')).toBeVisible()
       const pane = (await workspace.boundingBox())!
       const drawing = (await workspace.locator('[data-slot="flow-drawing"]').boundingBox())!
       expect(drawing.width).toBeGreaterThan(pane.width * 0.9)
 
-      await choice('Timeline').click()
+      await selectRunView(frame, 'Timeline')
       await expect(run.locator('[aria-label="Run timeline"]')).toBeVisible()
       await expect(run.locator('[data-slot="run-flow"]')).toHaveCount(0)
-      await expect(workspace.locator('[data-slot="run-inspector"]')).toBeVisible()
-      await choice('Flow').click()
+      await runBar(frame).getByRole('button', { name: 'Details', exact: true }).click()
+      await expect(details.locator('[aria-label="Team Run facts"]')).toBeVisible()
+      await selectRunView(frame, 'Flow')
       await expect(run.locator('[data-slot="run-flow"]')).toBeVisible()
-      await expect(workspace.locator('[data-slot="run-inspector"]')).toHaveCount(0)
+      await runBar(frame).getByRole('button', { name: 'Details', exact: true }).click()
+      await expect(details).toHaveCount(0)
 
-      const open = run.getByRole('button', { name: 'Open the file' })
+      await selectRunView(frame, 'Timeline')
+      await runBar(frame).getByRole('button', { name: 'Details', exact: true }).click()
+      const summary = details.locator('[aria-label="Team Run facts"]')
+      await expect(summary).toContainText('Build and review')
+      await expect(summary).toContainText('3f9a1c')
+      const open = summary.getByRole('button', { name: 'Flow file', exact: true })
       await open.click()
       const dialog = page.getByRole('dialog', { name: 'Build and review' })
       await expect(dialog).toContainText('.harnessdesk/flows/build-and-review.yml')

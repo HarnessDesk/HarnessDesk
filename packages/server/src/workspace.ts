@@ -371,3 +371,27 @@ export const describeWorkspace = async (
   if (!info.isDirectory()) throw new Error(`${resolved} is not a directory`)
   return { path: resolved, name: basename(resolved) || resolved }
 }
+
+/** Editor navigation opts in to files, inside an already admitted conversation root.
+ * Runtime entries are names only: reject path-shaped names and unknown kinds.
+ * Confinement inherits the runtime reader's documented lexical link policy.
+ */
+export const browseWorkspaceEntries = async (
+  files: RuntimeFiles,
+  root: string,
+  path = root,
+): Promise<{
+  path: string
+  parent: string | null
+  entries: { name: string; path: string; kind: 'file' | 'directory' }[]
+}> => {
+  const target = confine(path, [root])
+  const entries = (await files.list(target))
+    .filter((entry): entry is FileEntry & { kind: 'file' | 'directory' } =>
+      (entry.kind === 'file' || entry.kind === 'directory') && entry.name !== '.git' &&
+      entry.name.length > 0 && entry.name !== '.' && entry.name !== '..' &&
+      !entry.name.includes('/') && !entry.name.includes('\\') && !entry.name.includes('\0'))
+    .map((entry) => ({ name: entry.name, path: join(target, entry.name), kind: entry.kind }))
+    .sort((a, b) => (a.kind === b.kind ? 0 : a.kind === 'directory' ? -1 : 1) || a.name.localeCompare(b.name))
+  return { path: target, parent: target === root ? null : dirname(target), entries }
+}

@@ -10,8 +10,8 @@ import { ModelControl } from './ComposerControls'
 
 /**
  * The model picker draws with the system's parts, never its own: the trigger's
- * words are text roles, the long list's filter is the shared `Search`, and
- * the build's foot is a note in a text role with the command in the code face.
+ * words are text roles, the long list's filter is the shared `MenuSearch`, and
+ * an available update is one row whose title keeps its install command.
  */
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -65,13 +65,13 @@ const frame = () => act(async () => {
   await new Promise((resolve) => setTimeout(resolve, 30))
 })
 
-const mount = async () => {
+const mount = async (draftOptions = options) => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
     status: 'open',
     runtimes: [codex],
     activeRuntime: codex.id,
-    draftOptions: options,
+    draftOptions,
   }
   const store = {
     subscribe: () => () => {},
@@ -109,7 +109,7 @@ it('names the model in the row role and its effort in the muted ink', async () =
   expect(effort?.getAttribute('data-ink')).toBe('muted')
 })
 
-it('filters the long tail with the shared Search, and a letter typed there is the field’s', async () => {
+it('filters the long tail with the shared MenuSearch, and a letter typed there is the field’s', async () => {
   const store = await mount()
   await open()
   const more = row('More models')
@@ -119,7 +119,7 @@ it('filters the long tail with the shared Search, and a letter typed there is th
   await frame()
 
   const search = document.querySelector<HTMLElement>('[data-slot="search"]')
-  expect(search?.getAttribute('data-icon')).toBe('filter')
+  expect(search?.closest('[data-menu-search]')).not.toBeNull()
   expect(search?.getAttribute('data-size')).toBe('compact')
   const field = search!.querySelector('input')!
 
@@ -178,19 +178,34 @@ it('leaves ↓ with the menu: it moves from the field to a row', async () => {
   expect(document.activeElement).not.toBe(field)
 })
 
-it('sets the update in a text role and its command in the shared command block', async () => {
+it('keeps an available update as one row, with the install command in its title', async () => {
   await mount()
   await open()
-  const update = document.querySelector<HTMLElement>('[data-testid="runtime-update"]')
-  expect(update?.getAttribute('data-slot')).toBe('text')
-  expect(update?.getAttribute('data-role')).toBe('muted')
-  const command = update?.querySelector<HTMLElement>('[data-slot="code-text"]')
-  expect(command?.textContent).toBe('npm i -g @openai/codex@latest')
-  // The shared command block: a line of its own, on the muted plate, folding when it must.
-  expect(command?.tagName).toBe('PRE')
-  expect(command?.hasAttribute('data-block')).toBe(true)
-  expect(command?.getAttribute('data-ground')).toBe('muted')
-  expect(command?.hasAttribute('data-wrap')).toBe(true)
-  // The build line is the note's own ink: nothing inside it redraws it.
-  expect(document.querySelector('[data-testid="runtime-build"] span')).toBeNull()
+  const update = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')]
+    .find(one => one.querySelector('[data-menu-label]')?.textContent?.trim() === `Update ${codex.presentation.name} to ${codex.update?.version}`)
+  expect(update).toBeDefined()
+  expect(update?.closest('[data-popup-kind]')?.getAttribute('data-menu-icons')).toBe('none')
+  expect(update?.querySelector('[data-menu-icon]')).toBeNull()
+  expect(update?.getAttribute('title')).toBe(codex.update?.command)
+  expect(update?.querySelector('[data-menu-hint]')).toBeNull()
+  expect(document.querySelector('[data-testid="runtime-update"]')).toBeNull()
+  expect(document.querySelector('[data-slot="code-text"]')).toBeNull()
+})
+
+
+it.each([5, 6])('shows search at six tail choices and Enter skips a refused first match (%s)', async count => {
+  const choices = NAMES.slice(0, count + 4).map((label, at) => ({
+    label, value: label.toLowerCase(), ...(at === 4 ? { disabled: 'Unavailable here.' } : {}),
+  }))
+  const store = await mount([{ ...options[0], choices } as ConfigOption, options[1]!])
+  await open()
+  const more = row('More models')
+  act(() => more.focus())
+  act(() => more.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true })))
+  await frame()
+  const field = document.querySelector<HTMLInputElement>('[data-menu-search] input')
+  if (count === 5) { expect(field).toBeNull(); return }
+  expect(field).not.toBeNull()
+  act(() => field!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
+  expect(store.setOption).toHaveBeenCalledWith('model', 'rigel')
 })

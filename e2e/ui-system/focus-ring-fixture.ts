@@ -4,10 +4,12 @@ import { expect, type Page } from '@playwright/test'
 export async function mountFocusFixture(page: Page) {
   await page.route('**/src/preview/**', async route => {
     const response = await route.fetch()
-    // Synthetic fixtures use a demo checkout, including in hover titles.
+    // Synthetic fixtures use a demo checkout, including in hover titles. A
+    // module's own `/@fs/` imports keep the real path, or they would 404 in a
+    // checkout at one of these places and leave the page blank.
     const body = (await response.text())
-      .replace(/\/Users\/[^/]+\/code\/HarnessDesk/g, '/work/harnessdesk')
-      .replace(/\/\.(?:codex|claude|harnessdesk)\/worktrees/g, '/checkouts')
+      .replace(/(?<!\/@fs[^"'\s]*)\/Users\/[^/]+\/code\/HarnessDesk/g, '/work/harnessdesk')
+      .replace(/(?<!\/@fs[^"'\s]*)\/\.(?:codex|claude|harnessdesk)\/worktrees/g, '/checkouts')
     await route.fulfill({ response, body })
   })
   await page.route('**/src/preview/main.tsx*', async route => {
@@ -22,6 +24,17 @@ export async function mountFocusFixture(page: Page) {
       import { CommandPalette } from '/src/components/CommandPalette.tsx';
       import { ProfileSection } from '/src/components/SettingsYou.tsx';
       import { Button, Dialog, Input, Search, DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '/src/design/index.ts';
+      // The palette's debounced reads need wire-shaped answers. The preview
+      // transport's null fallback made files.map crash and unmount this root.
+      const request = store.transport.request;
+      store.transport.request = async (method, params) => {
+        if (method === 'workspace/files') return [
+          { path: '/work/harnessdesk/appearance.ts', relativePath: 'appearance.ts', score: 1, kind: 'file' },
+        ].filter(file => file.relativePath.includes(params.query));
+        if (method === 'session/search') return { data: [], nextCursor: null };
+        if (method === 'transcripts/search') return [];
+        return request(method, params);
+      };
       const h = focusReact.createElement;
       const FocusFixture = () => {
         useTheme();
@@ -58,6 +71,6 @@ export async function mountFocusFixture(page: Page) {
 export const ringOf = (page: Page) => page.evaluate(() => {
   const node = document.activeElement as HTMLElement
   const style = getComputedStyle(node)
-  return { outline: style.outlineStyle, shadow: style.boxShadow, border: style.borderColor,
+  return { outline: style.outlineStyle, shadow: /^(?:rgba\(0, 0, 0, 0\) 0px 0px 0px 0px(?:, )?)+$/.test(style.boxShadow) ? 'none' : style.boxShadow, border: style.borderColor,
     visible: node.matches(':focus-visible'), ring: getComputedStyle(document.body).getPropertyValue('--hd-ring').trim() }
 })

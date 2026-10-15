@@ -1,3 +1,4 @@
+import { FRAME } from '../design/frame'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -13,7 +14,8 @@ import {
   type TeamState,
 } from '@harnessdesk/protocol'
 
-import { StoreProvider } from '../state/context'
+import { PaneProvider, StoreProvider } from '../state/context'
+import { TopBarOutlet, TopBarProvider } from '../panels/top-bar'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { dismissOverlays } from '../design'
 import { cardEvidence, checkView, ciView, factView, PREVIEW_UNSEEN, prView } from '../preview/evidence-fixture'
@@ -43,15 +45,36 @@ import { TeamBoardPane } from './TeamBoardPane'
 let container: HTMLDivElement
 let root: Root
 
+// These body/data tests give their standalone bar enough measured title room.
+// jsdom supplies neither flex geometry nor tokens; real fold widths are pinned
+// by TopBar's measurement tests and frame-contract, not the body rig's viewport.
+let restoreBarGeometry = () => {}
 beforeEach(() => {
+  const bounds = HTMLElement.prototype.getBoundingClientRect
+  const geometry = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+    if (this.matches('[data-topbar-title]')) return new DOMRect(0, 0, FRAME.bar.titleMin, FRAME.bar.height)
+    return this.matches('[data-topbar="place"]') ? new DOMRect(0, 0, 300, FRAME.bar.height) : bounds.call(this)
+  })
+  const computed = getComputedStyle
+  const token = vi.spyOn(globalThis, 'getComputedStyle').mockImplementation((node, pseudo) => {
+    const result = computed(node, pseudo)
+    if (!node.matches('[data-slot="top-bar"]')) return result
+    return new Proxy(result, { get(target, property) {
+      if (property === 'getPropertyValue') return (name: string) => name === '--hd-bar-title-min'
+        ? `${FRAME.bar.titleMin}px` : target.getPropertyValue(name)
+      const value = Reflect.get(target, property, target)
+      return typeof value === 'function' ? value.bind(target) : value
+    } })
+  })
+  restoreBarGeometry = () => { token.mockRestore(); geometry.mockRestore() }
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
 })
 
 afterEach(() => {
-  act(() => root.unmount())
-  container.remove()
+  try { act(() => root.unmount()); container.remove() }
+  finally { restoreBarGeometry() }
 })
 
 const intent = (over: Record<string, unknown>) =>
@@ -72,6 +95,13 @@ const intent = (over: Record<string, unknown>) =>
   }) as never
 
 const ROOM = 'room-1'
+
+it('shows the card task without the Seat completion instructions', async () => {
+  const { store } = rig([intent({ detail: 'Compare the two changes.\n\nFinish this with complete_claim and an outcome of exactly one of: done.\n\nFinish this with complete_claim\'s split as well: the agreed split of files for the "builder" round, one list of path patterns for each of its 2 cards, in card order, no two overlapping. Each of those cards will own only its own list.' })])
+  await render(store)
+  expect(container.textContent).toContain('Compare the two changes.')
+  expect(container.textContent).not.toContain('complete_claim')
+})
 
 const state = (intents: readonly unknown[], extra: Partial<TeamState> = {}): TeamState =>
   ({
@@ -154,11 +184,42 @@ const render = async (store: AppStore): Promise<void> => {
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <TeamBoardPane room={ROOM} />
+        <TopBarProvider><PaneProvider scope={{ paneId: 'main', view: { kind: 'room', room: ROOM }, sessionKey: null }}>
+          <TopBarOutlet owner="main" fallback={{ place: 'Board Team', more: () => null }} />
+          <TeamBoardPane room={ROOM} />
+        </PaneProvider></TopBarProvider>
       </StoreProvider>,
     )
   })
   await act(async () => {})
+}
+
+it('B6 registers New job and Board/List in the shell with content facts', async () => {
+  const { store } = rig([intent({})])
+  await render(store)
+  expect(container.querySelector('[data-slot="view-bar"]')).toBeNull()
+  const add = container.querySelector<HTMLButtonElement>('[data-topbar="verb"] button[aria-label="New job"]')
+  expect(add).not.toBeNull()
+  expect(add!.textContent).toBe('New job')
+  expect(add!.querySelector('svg')).not.toBeNull()
+  expect(container.querySelector('[aria-label="Board summary"]')).toBeNull()
+  await act(async () => container.querySelector<HTMLButtonElement>('button[aria-label="View"]')!.click())
+  expect([...document.querySelectorAll('[role="menuitem"]')].map(one => one.textContent)).toEqual(['Board', 'List'])
+})
+
+const chooseBoardView = async (label: 'Board' | 'List'): Promise<void> => {
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="view"] button')!.click())
+  const choice = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(one => one.textContent === label)!
+  expect(choice).toBeDefined()
+  await act(async () => choice.click())
+}
+const openBoardMore = async (): Promise<void> => {
+  await act(async () => container.querySelector<HTMLButtonElement>('[data-topbar="more"] button')!.click())
+}
+const boardAction = (label: string): HTMLButtonElement => {
+  const choice = [...document.querySelectorAll<HTMLButtonElement>('[role="menuitem"]')].find(one => one.textContent?.startsWith(label))
+  expect(choice).toBeDefined()
+  return choice!
 }
 
 const button = (text: string): HTMLButtonElement => {
@@ -438,7 +499,8 @@ it('an empty Goal’s empty board also offers to start a team, reusing that Goal
   const { store } = rig([], {}, undefined, empty)
   await render(store)
 
-  act(() => button('Start with a team').click())
+  await openBoardMore()
+  await act(async () => boardAction('Start with a team').click())
   await act(async () => {})
 
   expect(store.openFrontDoor).toHaveBeenCalledWith({ kind: 'project', root: '/repo' }, { id: ROOM, revision: 3 })
@@ -447,7 +509,11 @@ it('an empty Goal’s empty board also offers to start a team, reusing that Goal
 it('an empty board with no Goal behind it offers no team action — there is no root or revision to reuse', async () => {
   const { store } = rig([])
   await render(store)
-  expect([...container.querySelectorAll('button')].every((one) => one.textContent?.trim() !== 'Start with a team')).toBe(true)
+  await openBoardMore()
+  expect(boardAction('Start with a team').getAttribute('aria-disabled')).toBe('true')
+  expect(boardAction('Start with a team').title).toBe('This Team already has work')
+  await act(async () => boardAction('Start with a team').click())
+  expect(store.openFrontDoor).not.toHaveBeenCalled()
 })
 
 it('a Goal that already has a Seat is not an empty Goal to reuse, so its board offers no team action', async () => {
@@ -456,7 +522,11 @@ it('a Goal that already has a Seat is not an empty Goal to reuse, so its board o
   const seated = { goal: { id: ROOM, root: '/repo', revision: 1, origin: { kind: 'person' } }, members: [{ session: { runtime: 'codex', sessionId: 'c1' }, closed: null }] } as unknown as GoalView
   const { store } = rig([], {}, undefined, seated)
   await render(store)
-  expect([...container.querySelectorAll('button')].every((one) => one.textContent?.trim() !== 'Start with a team')).toBe(true)
+  await openBoardMore()
+  expect(boardAction('Start with a team').getAttribute('aria-disabled')).toBe('true')
+  expect(boardAction('Start with a team').title).toBe('This Team already has work')
+  await act(async () => boardAction('Start with a team').click())
+  expect(store.openFrontDoor).not.toHaveBeenCalled()
 })
 
 /**
@@ -509,7 +579,7 @@ it('opens the holder’s card from its name as well as its face', async () => {
   act(() => {
     vi.advanceTimersByTime(1000)
   })
-  expect(document.querySelector('[data-slot="agent-card"]')?.textContent).toContain('API migration')
+  expect(document.querySelector('[data-popup-kind="info-card"]')?.textContent).toContain('API migration')
   vi.useRealTimers()
 })
 
@@ -925,12 +995,14 @@ it('a card of a run stopped for its person needs you, and is working again once 
   await render(withRun('stalled'))
   expect(column('Needs you').textContent).toContain('Fix the retry')
   expect(card('Fix the retry').textContent).toContain('run stopped')
-  expect(container.textContent).toContain('0 working · 1 need you')
+  expect(column('Working').textContent).toContain('Working0')
+  expect(column('Needs you').textContent).toContain('Needs you1')
 
   await render(withRun('running'))
   expect(column('Working').textContent).toContain('Fix the retry')
   expect(card('Fix the retry').textContent).not.toContain('run stopped')
-  expect(container.textContent).toContain('1 working · 0 need you')
+  expect(column('Working').textContent).toContain('Working1')
+  expect(column('Needs you').textContent).toContain('Needs you0')
 })
 
 const observed = (checks: readonly string[], cards: BoardEvidence['cards']): BoardEvidence => ({
@@ -1052,7 +1124,8 @@ it('a run stalled by one card leaves a sibling that already finished alone', asy
   expect(column('Needs you').textContent).toContain('Card #3')
   expect(column('Ready').textContent).not.toContain('Card #2')
   expect(column('Ready').textContent).not.toContain('Card #3')
-  expect(container.textContent).toContain('0 working · 2 need you')
+  expect(column('Working').textContent).toContain('Working0')
+  expect(column('Needs you').textContent).toContain('Needs you2')
 })
 
 const chipsOf = (id: number): HTMLButtonElement | null =>
@@ -1621,6 +1694,7 @@ it('keeps an empty Board quiet with one add-work control in its toolbar',async()
  expect(empty?.querySelector('h3,svg,button')).toBeNull()
  expect(container.textContent?.split('Nothing on the board yet')).toHaveLength(2)
  expect(container.querySelectorAll('button[aria-label^="New job"]')).toHaveLength(1)
+ expect(container.querySelector('[aria-label="Board summary"]')).toBeNull()
 })
 
 it('lists every job, including completed work awaiting evidence, with Needs you first', async () => {
@@ -1630,7 +1704,7 @@ it('lists every job, including completed work awaiting evidence, with Needs you 
     intent({ id: 3, title: 'Finished job', state: 'done', updatedAt: 50 }),
   ])
   await render(store)
-  act(() => button('List').click())
+  await chooseBoardView('List')
   const table = container.querySelector('table')!
   expect(table).not.toBeNull()
   expect([...table.querySelectorAll('tbody tr')].map(row => row.querySelector('td')?.textContent)).toEqual([
@@ -1640,11 +1714,11 @@ it('lists every job, including completed work awaiting evidence, with Needs you 
   ])
   expect(table.textContent).toContain('Checking evidence')
   expect(table.textContent).toContain('Unassigned')
-  expect([...container.querySelectorAll('button')].find(one => one.textContent === 'All 3')?.getAttribute('aria-pressed')).toBe('true')
+  expect([...container.querySelectorAll('[role="tab"]')].find(one => one.textContent === 'All 3')?.getAttribute('aria-selected')).toBe('true')
   act(() => button('Needs you 1').click())
   expect(table.querySelectorAll('tbody tr')).toHaveLength(1)
   expect(table.textContent).toContain('Blocked job')
-  act(() => button('Board').click())
+  await chooseBoardView('Board')
   expect(container.querySelector('[data-slot="board"]')).not.toBeNull()
 })
 
@@ -1653,7 +1727,7 @@ it('keeps list actions routed to the same host verbs and opens the exact assigne
     intent({ id: 1, title: 'Held job', state: 'claimed', claim: { runtime: 'codex', sessionId: 'c1', at: 1 } }),
   ], { nicknames: { 'codex\u0000c1': 'Implementer' } })
   await render(store)
-  act(() => button('List').click())
+  await chooseBoardView('List')
   act(() => button('Implementer').click())
   expect(store.openSession).toHaveBeenCalledWith('c1', { runtime: 'codex' })
   await pick(1, 'Mark done')
@@ -1669,7 +1743,7 @@ it('keeps stale checks qualified and separates pull requests and changes in the 
       factView({ kind: 'diff', files: 1, added: 38, removed: 12, from: 'a'.repeat(40), to: 'b'.repeat(40) })])],
   })
   await render(store)
-  act(() => button('List').click())
+  await chooseBoardView('List')
   const row = container.querySelector('tbody tr')!
   expect(row.textContent).toContain('#12')
   expect(row.textContent).toContain('Stale')
@@ -1686,14 +1760,14 @@ it('retains a completing assignee after the host clears the claim, ignoring refu
     ],
   }, { room: ROOM, stamp: 1, checks: [], refused: [], unreadable: null, cards: [] })
   await render(store)
-  act(() => button('List').click())
+  await chooseBoardView('List')
   expect(container.querySelector('tbody tr')?.textContent).toContain('Implementer')
   act(() => button('Implementer').click())
   expect(store.openSession).toHaveBeenCalledWith('c1', { runtime: 'codex' })
 })
 
 const listRow = (id = 1): HTMLTableRowElement => container.querySelector(`tbody tr[data-job="${id}"]`)!
-const showList = async (store: AppStore) => { await render(store); act(() => button('List').click()) }
+const showList = async (store: AppStore) => { await render(store); await chooseBoardView('List') }
 
 for (const state of ['done', 'abandoned', 'blocked'] as const) {
   it(`list repair: ${state} offers reopen without an empty menu or a one-click completion`, async () => {

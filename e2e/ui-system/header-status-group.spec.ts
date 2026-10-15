@@ -34,12 +34,21 @@ test('keyboard focus and menu Escape still open the labelled card', async ({ pag
   await expect(page.locator('[data-slot="hover-card-content"]')).toBeVisible()
 })
 
-test('the review scenes select the git trigger and open its menu', async ({ page }) => {
+test('the review scenes select Details and open the folder actions menu', async ({ page }) => {
   const source = readFileSync('script/shots/shoot.mjs', 'utf8')
-  const selector = source.match(/const openGitMenu = async \(\) => \{\s*if \(!\(await press\(\{ selector: '([^']+)'/)?.[1]
-  expect(selector).toBeDefined()
-  const trigger = page.locator(selector!).first()
-  await expect(trigger).toHaveAccessibleName(/feat\/worktrees/)
+  const helper = source.match(/const openGitMenu = async \(\) => \{([\s\S]*?)\n  \}/)?.[1]
+  expect(helper).toBeDefined()
+  const selectors = [...helper!.matchAll(/press\(\{ selector: '([^']+)'/g)].map(match => match[1]!)
+  expect(selectors).toHaveLength(2)
+  await page.goto('/preview.html?frame-wall=conversation')
+  await page.locator(selectors[0]!).click()
+  const branch = page.locator('[aria-label="Conversation facts"] [data-slot="summary-item"]')
+    .filter({ has: page.locator('dt', { hasText: /^Branch$/ }) })
+  const branchValue = branch.locator('[data-slot="middle-truncate"]')
+  await expect(branchValue.locator(':scope > .sr-only')).toHaveText('feat/worktrees')
+  expect((await branchValue.locator('[data-part]').allTextContents()).join('')).toBe('feat/worktrees')
+  const trigger = page.locator(selectors[1]!)
+  await expect(trigger).toHaveAccessibleName('Folder actions')
   await trigger.click()
   await expect(page.getByRole('menu').getByRole('menuitem', { name: /^Changes/ })).toBeVisible()
 })
@@ -57,12 +66,23 @@ test('a reduced-motion narrow header keeps running distinct from idle', async ({
 
 test('a phone header keeps room for slightly wider text metrics', async ({ page }) => {
   await page.setViewportSize({ width: 340, height: 800 })
-  await page.goto('/preview.html')
   await page.evaluate(async () => { await document.fonts.ready })
-  const bar = page.locator('[data-frame-id="conversation-composer"] header')
+  const bar = page.locator('[data-frame-id="header-status-conversation"] header')
   // CI's text metrics used five more pixels than this Mac. Keep that margin.
   await bar.getByRole('group', { name: 'Conversation status', exact: true }).evaluate((node) => { (node as HTMLElement).style.paddingRight = '5px' })
   expect(await bar.evaluate((node) => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(0)
+})
+
+test('a phone header keeps the same margin with wider font metrics', async ({ page }) => {
+  await page.setViewportSize({ width: 340, height: 800 })
+  await page.evaluate(() => document.fonts.ready)
+  await page.locator('body').evaluate(node => (node as HTMLElement).style.setProperty('--hd-font-family', 'monospace'))
+  const bar = page.locator('[data-frame-id="header-status-conversation"] header')
+  await bar.getByRole('group', { name: 'Conversation status', exact: true }).evaluate(node => {
+    const group = node as HTMLElement
+    group.style.paddingRight = '5px'
+  })
+  expect(await bar.evaluate(node => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(0)
 })
 
 test('every grouped header Tab stop has an unclipped focus ring', async ({ page }) => {

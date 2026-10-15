@@ -139,9 +139,8 @@ them in `docs/decisions.md`.
     | A new dialog, sheet or confirm | `design/ui/dialog.tsx` or a policy in `design/patterns` | then the screen |
     | Agent settings / plugin pages / login | the existing canonical patterns | build with `Row`, `Rows`, `Button`, `Input` |
 
-    One has no seam yet, so building one is the first commit rather than a
-    detour: **icons** (`Icons.tsx` is a flat façade over lucide, with no token
-    and no board).
+    `Icons.tsx` remains the glyph façade over lucide. The design explorer's
+    **The icon set** board enumerates it; `IconTile` owns glyph containers.
 
     Where this table and the audit disagree, the audit is right — it reads the
     code and this is prose. Its failure messages name the file to edit.
@@ -172,6 +171,14 @@ them in `docs/decisions.md`.
       is deleted after.
 
 ## Before you commit
+
+Before you push, run `pnpm check:push`. It uses CI's planners for the committed,
+uncommitted and untracked change against the merge base with `origin/main`,
+without fetching, and reports selected checks, skips and timings. Use `--plan`
+for a JSON plan, `--base <ref>` for another local base, `--map <file>` (or
+`UI_IMPACT_MAP`) for a downloaded impact map, and `--fast` to leave Node-package
+tests and browser specs to CI. Broad suites and shared-input changes stay with
+CI; `pnpm verify` remains the full gate.
 
 ```bash
 pnpm verify

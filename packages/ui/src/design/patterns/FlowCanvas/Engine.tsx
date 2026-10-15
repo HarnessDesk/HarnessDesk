@@ -490,6 +490,8 @@ const Canvas = <Data extends FlowCanvasStep>({ nodes, edges, readOnly: configure
         bottom: top + (node.size?.height ?? measurements.get(node.id)?.height ?? 0) * zoom,
       }
     })
+    // A fitted plan needs no map. It becomes navigation only once a step leaves the viewport.
+    if (rendered.every(box => box.left >= 0 && box.top >= 0 && box.right <= width && box.bottom <= height)) return null
     const tools = toolbarOnTop ? {
       left: width - MINIMAP_INSET - MINIMAP_TOOL_RESERVED_WIDTH, top: MINIMAP_INSET,
       right: width - MINIMAP_INSET, bottom: MINIMAP_TOOL_RESERVED_HEIGHT,

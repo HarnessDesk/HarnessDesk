@@ -4,11 +4,10 @@ import type { LedgerReport, RuntimeId, RuntimeInfo, UsageReport } from '@harness
 import { prefsForUsage } from '../../lib/accounts'
 import type { HeatMetric, HourMetric } from '../../lib/heat'
 import type { RunwaySummary } from '../../lib/usage'
-import { Button, Segmented, Text } from '../../design'
+import { Button, PageOptions, Text, Section, DashboardColumns, DashboardAccounts } from '../../design'
 import { UsageActivity, type HeatView } from '../UsageActivity'
-import { BandHead, Card, PIVOTS, Ranked, Spend, type Pivot, type SilentAgent, type TintOf } from './shared'
+import { Card, PIVOTS, Ranked, Spend, type Pivot, type SilentAgent, type TintOf } from './shared'
 import { OverviewStrip, stripChartMetric, type StripMetric } from './OverviewStrip'
-import styles from './usage.module.css'
 
 /**
  * Overview: the whole story on one screen.
@@ -100,11 +99,9 @@ export const OverviewView = ({
         onOpenPlan={onOpenPlan}
       />
 
-      <BandHead name="What is left" note={summary.headline ?? undefined} className={styles.firstBandHead} />
-      <section className={styles.band} aria-label="What is left">
+      <Section title="What is left" description={summary.headline ?? undefined}>
         {attention.length > 0 ? (
-          <div className={styles.cards}>
-            {attention.map((report) => (
+          <DashboardAccounts accounts={attention.map((report) => (
               <Card
                 key={`${report.runtime}:${report.account ?? ''}`}
                 report={report}
@@ -114,25 +111,23 @@ export const OverviewView = ({
                 onRefresh={() => onRefreshAccount(report.runtime)}
                 onStopTracking={() => onStopTracking(report.runtime)}
               />
-            ))}
-          </div>
-        ) : (
+            ))} />
+        ) : summary.metered > 0 ? (
           <Text role="muted">Nothing is spent or low right now.</Text>
-        )}
-        <div className={styles.overviewFoot}>
-          <Button variant="ghost" size="sm" onClick={onGoToPlans}>
+        ) : null}
+        <>
+          <Button variant="link" size="content" onClick={onGoToPlans}>
             See all in Plans
           </Button>
-          {scopedSilent.length > 0 && (
+          {summary.metered > 0 && scopedSilent.length > 0 && (
             <Text role="meta">
               {scopedSilent.length} {scopedSilent.length === 1 ? 'agent doesn’t' : 'agents don’t'} report usage
             </Text>
           )}
-        </div>
-      </section>
+        </>
+      </Section>
 
-      <div className={styles.bento}>
-        <div className={styles.bentoMain}>
+      <DashboardColumns primary={
           <Spend
             ledger={ledger}
             wideLedger={wideLedger}
@@ -146,19 +141,9 @@ export const OverviewView = ({
             onScan={onScan}
             metric={stripChartMetric(stripMetric)}
           />
-        </div>
-        <div className={styles.bentoSide}>
-          <BandHead
-            name="Where it went"
-            action={
-              <Segmented
-                label="Group spend by"
-                options={PIVOTS}
-                value={pivot}
-                onChange={(next) => onPivotChange(next as Pivot)}
-              />
-            }
-          />
+        } secondary={<Section title="Where it went" action={
+              <PageOptions choices={[{id:'pivot',label:'Group spend by',value:pivot,items:PIVOTS,change:next=>onPivotChange(next as Pivot)}]} />
+            }>
           <Ranked
             ledger={ledger}
             wideLedger={wideLedger}
@@ -169,8 +154,7 @@ export const OverviewView = ({
             tintOf={agentTints}
             compact
           />
-        </div>
-      </div>
+        </Section>} />
 
       <UsageActivity
         byId={byId}

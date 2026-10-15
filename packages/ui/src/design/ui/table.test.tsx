@@ -1,3 +1,4 @@
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 import { renderToStaticMarkup } from 'react-dom/server'
 import { expect, it } from 'vitest'
 
@@ -88,4 +89,31 @@ it('allows a qualified face badge to extend beyond the table lead', () => {
   const lead = element(renderToStaticMarkup(<table><tbody><TableRow><TableCell lead={<IconTile shape="face" badge="AL">A</IconTile>}>Alice</TableCell></TableRow></tbody></table>), 'table-cell-lead')
   expect(lead.querySelector('[data-slot="face-badge"]')?.textContent).toBe('AL')
   expect(lead.className).toContain('has-[[data-slot=face-badge]]:overflow-visible')
+})
+
+it('windows a thousand bare rows while spacers retain the full scroll extent', async () => {
+  const { TableBody } = await import('./table')
+  const markup = renderToStaticMarkup(<Table rows="bare"><TableBody window={{ top: 4400, height: 440, pitch: 44, columns: 1 }}>
+    {Array.from({ length: 1000 }, (_, i) => <TableRow key={i}><TableCell>Row {i}</TableCell></TableRow>)}
+  </TableBody></Table>)
+  const body = element(markup, 'table-body')
+  expect(body.querySelectorAll('[data-slot="table-row"]')).toHaveLength(20)
+  expect(body.textContent).toContain('Row 95')
+  expect(body.textContent).not.toContain('Row 94')
+  expect(body.querySelectorAll('[aria-hidden="true"] td')[0]?.getAttribute('style')).toContain('height:4180px')
+  expect(body.querySelectorAll('[aria-hidden="true"] td')[1]?.getAttribute('style')).toContain('height:38940px')
+})
+
+it('a page table viewport forwards its ref and scroll events while owning its bound', async () => {
+  const { act, createRef } = await import('react')
+  const { createRoot } = await import('react-dom/client')
+  const host = document.createElement('div'), root = createRoot(host), ref = createRef<HTMLDivElement>()
+  let scrolled = false
+  try {
+    act(() => root.render(<Table viewport={{ref,onScroll:() => { scrolled=true }}}><tbody><TableRow><TableCell>History</TableCell></TableRow></tbody></Table>))
+    expect(ref.current?.getAttribute('data-slot')).toBe('table-container')
+    expect(ref.current?.className).toContain('max-h-(--hd-table-page-max-height)')
+    act(() => ref.current!.dispatchEvent(new Event('scroll',{bubbles:true})))
+    expect(scrolled).toBe(true)
+  } finally { act(() => root.unmount()) }
 })

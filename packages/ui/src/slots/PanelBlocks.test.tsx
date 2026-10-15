@@ -1,3 +1,4 @@
+import { MountProvider } from '../panels/mount'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -63,7 +64,7 @@ const setListPrefs = vi.fn()
 const mount = (
   blocks: readonly UiBlock[],
   title?: string,
-  options: { owner?: string; label?: string; id?: string; collapsed?: string[] } = {},
+  options: { owner?: string; label?: string; id?: string; collapsed?: string[]; inTool?: boolean } = {},
 ): void => {
   const snapshot: AppSnapshot = {
     ...emptySnapshot(),
@@ -91,7 +92,7 @@ const mount = (
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <Panel contribution={contribution} />
+        <MountProvider scope={{ area: options.inTool ? 'right' : 'sidebar', id: 'plugin', view: { kind: 'plugin', contribution: contribution.id, label: options.label ?? 'Test', mounts: ['right', 'sidebar'] } }}><Panel contribution={contribution} /></MountProvider>
       </StoreProvider>,
     )
   })
@@ -355,4 +356,35 @@ describe('the section around a panel', () => {
     expect(section?.className).toContain('max-h-(--panel-max,none)')
     expect(section?.style.maxHeight).toBe('')
   })
+})
+
+
+it('renders contributed code and diff as flat right-tool sections while retaining command dispatch', () => {
+  mount([{ type: 'code', text: 'const recorded = true', language: 'typescript', path: '/work/storefront/source.ts' },
+    { type: 'diff', patch: '--- a/source.ts\n+++ b/source.ts\n@@ -1 +1 @@\n-old\n+recorded' },
+    { type: 'actions', actions: [{ label: 'Run recorded check', command: 'fixture.check', argument: 'same-argument' }] }], 'Recorded work', { inTool: true, collapsed: ['test:Test'] })
+  expect(container.querySelector('[data-slot="tool-section"]')?.getAttribute('aria-label')).toBe('Recorded work')
+  expect(container.querySelector('[data-slot="card"]')).toBeNull()
+  expect(container.textContent).toContain('const recorded = true')
+  const button = [...container.querySelectorAll('button')].find(one => one.textContent === 'Run recorded check')!
+  click(button)
+  expect(runCommand).toHaveBeenCalledWith('fixture.check', 'same-argument')
+})
+
+
+it('composes contributed Markdown as canonical tool prose while preserving its parsed content and neighboring command', () => {
+  const blocks: readonly UiBlock[] = [
+    { type: 'markdown', text: 'Recorded **work** with a [source](https://example.com/source).' },
+    { type: 'actions', actions: [{ label: 'Check recorded work', command: 'fixture.check', argument: 'same-work' }] },
+  ]
+  mount(blocks, 'Recorded work', { inTool: true })
+  const prose = container.querySelector('[data-slot="tool-prose"]')!
+  expect(prose.closest('[data-slot="tool-section"]')?.getAttribute('aria-label')).toBe('Recorded work')
+  expect(prose.querySelector('strong')?.textContent).toBe('work')
+  expect(prose.querySelector('a')?.getAttribute('href')).toBe('https://example.com/source')
+  click([...container.querySelectorAll('button')].find(one => one.textContent === 'Check recorded work')!)
+  expect(runCommand).toHaveBeenCalledWith('fixture.check', 'same-work')
+  mount(blocks, 'Recorded work')
+  expect(container.querySelector('[data-slot="tool-prose"]')).toBeNull()
+  expect(container.querySelector('strong')?.textContent).toBe('work')
 })

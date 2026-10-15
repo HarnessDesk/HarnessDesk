@@ -1,3 +1,4 @@
+import { readStored } from './fixtures/stored-transcripts.js'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
@@ -76,10 +77,9 @@ for (const [how, resumeOnly] of [
     assert.match(said(read)[1] ?? '', /second words/)
 
     // And on disk: the transcript is written from the held session.
-    const file = join(again.stateDir, 'transcripts', 'rig-agent', `${encodeURIComponent(sessionId)}.json`)
     let stored = null as { turns: { items: { type: string; content?: unknown }[] }[] } | null
     for (let tries = 0; tries < 100; tries += 1) {
-      stored = JSON.parse(await readFile(file, 'utf8').catch(() => 'null')) as typeof stored
+      stored = readStored(again.stateDir, 'rig-agent', sessionId) as typeof stored
       if (stored && stored.turns.length >= 2) break
       await new Promise((resolve) => setTimeout(resolve, 25))
     }

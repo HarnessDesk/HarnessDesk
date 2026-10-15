@@ -1,6 +1,15 @@
 import { existsSync, lstatSync, readFileSync, writeFileSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
+
+// The adapter sends desk context and the card order as separate text parts.
+// Keep that boundary so a first-line card order remains a first line.
+export const scriptedFlowPrompt = input => (input ?? [])
+  .filter(part => part.type === 'text')
+  .map(part => part.text)
+  .join('\n\n')
+  .trim()
 
 /** Camera-only turns still use the real host tools and their evidence gates. */
 export function scriptedFlow(raw, { send, notify }) {
@@ -12,7 +21,7 @@ export function scriptedFlow(raw, { send, notify }) {
   for (const step of Object.values(script.steps)) {
     if (!['write', 'review'].includes(step.kind) || !Array.isArray(step.outcomes) || !step.outcomes.length ||
         step.outcomes.some((one) => typeof one !== 'string' || !one) ||
-        (step.kind === 'write' && !/^[\w-][\w.-]*$/.test(step.file ?? ''))) {
+        (step.kind === 'write' && (typeof step.file !== 'string' || !/^[\w-][\w.-]*$/.test(step.file.replaceAll('{{intent}}', '1'))))) {
       throw new Error('Invalid FAKE_CODEX_FLOW step')
     }
   }
@@ -49,13 +58,18 @@ export function scriptedFlow(raw, { send, notify }) {
       const controller = new AbortController()
       turns.set(threadId, controller)
       const check = () => controller.signal.throwIfAborted()
-      const card = /^Card #(\d+) on this Goal is yours:/m.exec(prompt)
-      const entry = Object.entries(script.steps).find(([marker]) => prompt.split('\n').includes(marker))
+      const card = /^Card #(\d+) on this (?:Goal|Team) is yours: (.*)$/m.exec(prompt)
+      const entry = Object.entries(script.steps).find(([marker, step]) => prompt.split('\n').includes(marker) || step.title === card?.[2])
       notify('turn/started', { threadId, turn: { id: turnId, items: [], status: 'inProgress', error: null } })
       let error = null
       try {
         // A Seat's standing brief arrives before it is bound to a card. Finish
-        // that turn quietly; only the later, real card order may do work.
+        // that turn with an acknowledgement; only the later card order may do work.
+        if (!card || !entry) {
+          const item = { id: `rig-standing-${turnId}`, type: 'agentMessage', text: 'Ready for the next card.' }
+          notify('item/started', { threadId, turnId, item })
+          notify('item/completed', { threadId, turnId, item })
+        }
         if (card && entry) {
           const intent = Number(card[1])
           const [marker, step] = entry
@@ -69,16 +83,32 @@ export function scriptedFlow(raw, { send, notify }) {
             try {
               const pass = stored.passes[marker] ?? 0
               const outcome = step.outcomes[Math.min(pass, step.outcomes.length - 1)]
-              await call(tools, threadId, turnId, 'claim_work', { intent, files: step.kind === 'write' ? [step.file] : [] })
+              const file = step.file?.replaceAll('{{intent}}', String(intent))
+              await call(tools, threadId, turnId, 'claim_work', { intent, files: step.kind === 'write' ? [file] : [] })
               check()
               if (script.delayMs) await delay(script.delayMs, undefined, { signal: controller.signal })
+              if (script.gates) {
+                const until = Date.now() + 90000
+                while (!existsSync(join(script.gates, marker))) {
+                  if (Date.now() > until) throw new Error(`The scripted ${marker} camera gate was not released`)
+                  await delay(50, undefined, { signal: controller.signal })
+                }
+              }
               check()
               if (step.kind === 'write') {
-                const path = join(cwd, step.file)
+                if (step.publish && execFileSync('git', ['branch', '--show-current'], { cwd, encoding: 'utf8' }).trim() !== `rig-write-review-${intent}`) {
+                  throw new Error('The scripted publisher needs its preselected local feature branch')
+                }
+                const path = join(cwd, file)
                 if (existsSync(path) && lstatSync(path).isSymbolicLink()) throw new Error('The scripted file is a symlink')
-                writeFileSync(path, `Retryable statuses: ${pass === 0 ? '503, 504' : '502, 503, 504'}\n`)
+                writeFileSync(path, step.contents?.replaceAll('{{intent}}', String(intent)) ?? `Retryable statuses: ${pass === 0 ? '503, 504' : '502, 503, 504'}\n`)
                 await call(tools, threadId, turnId, 'commit_work', { intent, message: 'rig: record the scripted retry change' })
                 check()
+                if (step.publish) {
+                  execFileSync('git', ['push', '-u', 'origin', 'HEAD'], { cwd, stdio: 'pipe' })
+                  await call(tools, threadId, turnId, 'pr_create', { title: 'Repair checkout retry', body: 'Handle retryable checkout responses.' })
+                  check()
+                }
               } else {
                 const candidates = await call(tools, threadId, turnId, 'review_candidates', { intent })
                 check()
@@ -88,8 +118,8 @@ export function scriptedFlow(raw, { send, notify }) {
                 check()
               }
               await call(tools, threadId, turnId, 'complete_claim', {
-                intent, outcome, note: `Scripted ${outcome}.`,
-                context: outcome === 'request-changes' ? 'Add 502 to the committed retry status list.' : 'The committed retry status list is ready for the next step.',
+                intent, outcome, note: step.note ?? `Scripted ${outcome}.`,
+                context: step.context ?? (outcome === 'request-changes' ? 'Add 502 to the committed retry status list.' : 'The committed retry status list is ready for the next step.'),
               })
               // Read again: sibling threads can finish while this one awaited
               // its tools. Never overwrite another card's completion or pass.

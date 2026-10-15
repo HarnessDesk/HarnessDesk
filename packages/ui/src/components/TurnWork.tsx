@@ -11,6 +11,8 @@ import { useEffect, useState } from 'react'
 
 import type { AgentItem, Turn } from '@harnessdesk/protocol'
 
+import { useSnapshot, useSessionKey } from '../state/context'
+import { waitsForApproval } from '../lib/approval-wait'
 import { groupItems, isSilentReasoning } from '../lib/group-items'
 import { planOf, turnPlan } from '../lib/todos'
 import { describeTurnWork, liveActivity } from '../lib/turn-view'
@@ -69,6 +71,9 @@ export const TurnWork = ({
   /** The item currently streaming text, if any, so its caret shows. */
   streamingItemId?: string | null
 }) => {
+  const snapshot = useSnapshot()
+  const key = useSessionKey()
+  const waiting = waitsForApproval(snapshot.approvals, key, work, turn.id)
   const running = turn.status === 'inProgress'
   const now = useNow(running)
   const [choice, setChoice] = useState<boolean | null>(null)
@@ -99,7 +104,7 @@ export const TurnWork = ({
   // the same turn to fold or describe.
   if (work.length === 0 && !running && !inlinePlan) return null
 
-  const activity = running ? liveActivity(work) : null
+  const activity = running ? waiting ? 'Waiting for approval' : liveActivity(work) : null
   // The live line already says "Thinking"; the quiet line under it would say
   // it twice. Once the turn ends the record keeps the thought.
   const shown =
@@ -123,7 +128,7 @@ export const TurnWork = ({
         onClick={() => setChoice(!open)}
         title={open ? 'Fold the work away' : 'Show what the agent did'}
       >
-        <TurnWorkHeaderLabel state={line.trouble ? 'trouble' : running ? 'running' : 'done'}>{line.head}</TurnWorkHeaderLabel>
+        <TurnWorkHeaderLabel state={line.trouble ? 'trouble' : running && !waiting ? 'running' : 'done'}>{waiting ? 'Work paused' : line.head}</TurnWorkHeaderLabel>
         {/* The receipt stands in for the rows, so it shows when they do not:
             open, the sentences are the rows themselves, and a line repeating
             them above is the same story told twice. */}

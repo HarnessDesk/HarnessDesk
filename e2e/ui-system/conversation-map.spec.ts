@@ -13,7 +13,7 @@ import { expect, test } from '@playwright/test'
 
 const overflow = async (page: import('@playwright/test').Page) => {
   await page.evaluate(() => {
-    const scroller = document.querySelector('[class*="scroll_"]') as HTMLElement | null
+    const scroller = document.querySelector('[data-frame-id="conversation-composer"] [class*="scroll_"]') as HTMLElement | null
     if (!scroller) throw new Error('no transcript scroller in the preview')
     scroller.style.height = '150px'
     scroller.style.maxHeight = '150px'
@@ -22,7 +22,7 @@ const overflow = async (page: import('@playwright/test').Page) => {
   await page.waitForTimeout(400)
 }
 
-const rail = (page: import('@playwright/test').Page) => page.locator('nav[aria-label="Jump to a message"]')
+const rail = (page: import('@playwright/test').Page) => page.locator('[data-frame-id="conversation-composer"] nav[aria-label="Jump to a message"]')
 const marksOf = (page: import('@playwright/test').Page) => rail(page).getByRole('option')
 const tipsOf = (page: import('@playwright/test').Page) => page.locator('[data-slot="tooltip-content"]')
 
@@ -41,7 +41,7 @@ test('a dash goes to the half of the turn it previewed', async ({ page }) => {
     // Put the scroller somewhere else first, or "it did not move" and "it moved
     // to the right place" are the same observation.
     await page.evaluate(() => {
-      const scroller = document.querySelector('[class*="scroll_"]') as HTMLElement
+      const scroller = document.querySelector('[data-frame-id="conversation-composer"] [class*="scroll_"]') as HTMLElement
       scroller.scrollTop = scroller.scrollHeight
     })
     await marks.nth(index).click()
@@ -49,7 +49,7 @@ test('a dash goes to the half of the turn it previewed', async ({ page }) => {
     await expect
       .poll(async () =>
         page.evaluate((want) => {
-          const scroller = document.querySelector('[class*="scroll_"]') as HTMLElement
+          const scroller = document.querySelector('[data-frame-id="conversation-composer"] [class*="scroll_"]') as HTMLElement
           const target = scroller.querySelector(`[data-part="${want}"]`) as HTMLElement | null
           if (!target) return 'no target'
           const offset = target.getBoundingClientRect().top - scroller.getBoundingClientRect().top
@@ -181,9 +181,13 @@ test('clicking a mark never leaves its card stuck open', async ({ page }) => {
   await expect(tipsOf(page)).toHaveCount(0)
 
   // And hovering a different mark shows that one, not the clicked one stuck
-  // open behind it or beside it.
-  await page.mouse.move(second.x + second.width / 2, second.y + second.height / 2 - 1)
-  await page.mouse.move(second.x + second.width / 2, second.y + second.height / 2)
+  // open behind it or beside it. The click scrolled the transcript: measure
+  // its settled mark rather than using coordinates from before the scroll.
+  await marks.nth(1).scrollIntoViewIfNeeded()
+  const movedSecond = await marks.nth(1).boundingBox()
+  if (!movedSecond) throw new Error('no box for the settled answer mark')
+  await page.mouse.move(movedSecond.x + movedSecond.width / 2, movedSecond.y + movedSecond.height / 2 - 1)
+  await page.mouse.move(movedSecond.x + movedSecond.width / 2, movedSecond.y + movedSecond.height / 2)
   await page.waitForTimeout(150)
   const tips = tipsOf(page)
   await expect(tips).toHaveCount(1)
@@ -255,7 +259,7 @@ test('keyboard focus rings the active mark, not the whole rail, and a pointer ho
   await rail(page).focus()
   await page.waitForTimeout(150)
   const navOutlineStyle = await page.evaluate(
-    () => getComputedStyle(document.querySelector('nav[aria-label="Jump to a message"]') as HTMLElement).outlineStyle,
+    () => getComputedStyle(document.querySelector('[data-frame-id="conversation-composer"] nav[aria-label="Jump to a message"]') as HTMLElement).outlineStyle,
   )
   expect(navOutlineStyle).toBe('none')
 
@@ -294,7 +298,7 @@ test('the rail is one tab stop: arrow keys move the current mark and its preview
   // Its marks are options and aria-activedescendant names the current one,
   // which only a composite role such as listbox supports.
   await expect(page.getByRole('listbox', { name: 'Jump to a message' })).toHaveCount(1)
-  const current = () => page.evaluate(() => document.querySelector('nav[aria-label="Jump to a message"]')?.getAttribute('aria-activedescendant'))
+  const current = () => page.evaluate(() => document.querySelector('[data-frame-id="conversation-composer"] nav[aria-label="Jump to a message"]')?.getAttribute('aria-activedescendant'))
   const first = await current()
   await expect(tipsOf(page)).toHaveCount(1)
 
@@ -322,7 +326,7 @@ test('a mark near the bottom edge still gets a preview that stays on screen', as
   const marks = marksOf(page)
   const count = await marks.count()
   await page.evaluate(() => {
-    const options = document.querySelectorAll('nav[aria-label="Jump to a message"] [role="option"]')
+    const options = document.querySelectorAll('[data-frame-id="conversation-composer"] nav[aria-label="Jump to a message"] [role="option"]')
     const last = options[options.length - 1]
     if (!last) throw new Error('no last mark to scroll to')
     const rect = last.getBoundingClientRect()
@@ -360,11 +364,11 @@ test('the rail keeps out of a transcript that has nowhere to go', async ({ page 
   // nothing to navigate and the rail would be decoration.
   expect(
     await page.evaluate(() => {
-      const scroller = document.querySelector('[class*="scroll_"]') as HTMLElement
+      const scroller = document.querySelector('[data-frame-id="conversation-composer"] [class*="scroll_"]') as HTMLElement
       return scroller.scrollHeight - scroller.clientHeight
     }),
   ).toBeLessThanOrEqual(1)
-  await expect(page.locator('nav[aria-label="Jump to a message"]')).toHaveCount(0)
+  await expect(page.locator('[data-frame-id="conversation-composer"] nav[aria-label="Jump to a message"]')).toHaveCount(0)
 })
 
 /**
@@ -390,7 +394,7 @@ for (const width of [640, 760, 1440]) {
     await expect(rail(page)).toBeVisible()
 
     const read = () => page.evaluate(() => {
-      const scroller = document.querySelector('[class*="scroll_"]') as HTMLElement
+      const scroller = document.querySelector('[data-frame-id="conversation-composer"] [class*="scroll_"]') as HTMLElement
       const text = Math.min(
         ...[...scroller.querySelectorAll<HTMLElement>('[data-part] > *')]
           .map((one) => one.getBoundingClientRect())
@@ -405,7 +409,7 @@ for (const width of [640, 760, 1440]) {
         probe.remove()
         return colour
       }
-      const ticks = [...document.querySelectorAll<HTMLElement>('nav[aria-label="Jump to a message"] [role="option"]')].map((mark) => {
+      const ticks = [...document.querySelectorAll<HTMLElement>('[data-frame-id="conversation-composer"] nav[aria-label="Jump to a message"] [role="option"]')].map((mark) => {
         const tick = mark.querySelector<HTMLElement>('[data-slot="tick"]') as HTMLElement
         const box = tick.getBoundingClientRect()
         return {

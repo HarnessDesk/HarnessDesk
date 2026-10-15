@@ -12,12 +12,54 @@ import { Agents } from '../packages/server/dist/src/agents.js'
 import { InstallService } from '../packages/server/dist/src/installs/service.js'
 import { readChecks } from '../packages/server/dist/src/evidence/checks-file.js'
 import { GoalStore } from '../packages/server/dist/src/goals/store.js'
+import { SessionIndex } from '../packages/server/dist/src/session-index.js'
+import { TranscriptStore } from '../packages/server/dist/src/transcripts.js'
 import { AcpRuntime } from '../packages/adapter-acp/dist/src/runtime.js'
 import { RUNTIME_ACCOUNTS } from './shots/accounts.mjs'
 import { USAGE, LEDGER } from './shots/usage.mjs'
 import { selectScenes } from './shots/selection.mjs'
+import { CAST, CONTEXT_CAST, CONVERSATIONS, rigRuntimeId } from './shots/cast.mjs'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+
+for (const native of ['0', '1']) {
+  test(`seeded conversations are desk index rows and reseeding removes stale rows (native=${native})`, async t => {
+    const directory = mkdtempSync(join(tmpdir(), 'hd-shots-index-'))
+    t.after(() => rmSync(directory, { recursive: true, force: true }))
+    const home = join(directory, 'home')
+    const env = { ...process.env, HD_SHOTS_HOME: home, HD_SHOTS_WORK: join(directory, 'work'), HD_SHOTS_NATIVE_CODEX: native, HD_SHOTS_CONTEXT: '1' }
+    const seed = () => execFileSync(process.execPath, [join(root, 'script/shots/seed.mjs')], { env, stdio: 'pipe' })
+    seed()
+    const expected = [
+      ...CAST.filter(agent => native === '0' || agent.id !== 'codex')
+        .flatMap(agent => (CONVERSATIONS[agent.id] ?? []).map((_, n) => [rigRuntimeId(agent.id), `${agent.id}-${n}`])),
+      ...CONTEXT_CAST.map(agent => [agent.id, `${agent.id}-0`]),
+    ]
+    const file = join(home, 'sessions.sqlite')
+    const index = new SessionIndex(file)
+    const transcripts = new TranscriptStore(join(home, 'transcripts'))
+    try {
+      const rows = index.list({ pageSize: 500 }).data
+      assert.deepEqual(rows.map(row => [row.runtime, row.id]).sort(), expected.sort())
+      for (const row of rows) {
+        const transcript = await transcripts.readSummary(row.runtime, row.id)
+        assert.equal(row.title, transcript.title)
+        assert.equal(row.preview, transcript.preview)
+        assert.equal(row.cwd, transcript.cwd)
+        assert.equal(row.updatedAt, transcript.updatedAt)
+      }
+      index.upsert({ ...rows[0], runtime: 'shots-stale', id: 'stale-take', title: 'Old take' })
+    } finally {
+      index.close()
+      await transcripts.close()
+    }
+    seed()
+    const refreshed = new SessionIndex(file)
+    try {
+      assert.deepEqual(refreshed.list({ pageSize: 500 }).data.map(row => [row.runtime, row.id]).sort(), expected.sort())
+    } finally { refreshed.close() }
+  })
+}
 
 test('the context rig can never republish ordinary scenes with its extra seats', () => {
   const scenes = ['desk', 'conversation', 'ring-codex', 'ring-cursor', 'ring-dsh']
@@ -100,19 +142,95 @@ test('the native editor scene seeds the fake filesystem and requires rendered fi
   assert.match(editor, /JSON\.stringify\(JSON\.parse\(text\)\)/, 'the editor must contain the actual seeded JSON')
 })
 
-test('the flow and new-session-agents scenes find the sidebar\'s own trigger, not a shorter-text button a staged Goal leaves behind (#928 review)', () => {
+test('native Team scenes open the sidebar picker directly, not the retired start chooser', async () => {
   // Reproduced on the real rig: a staged Goal leaves a shorter-text "New
   // job" button in the sidebar. The secondary start trigger and its menu
   // choice must both be scoped so another button cannot win the text match.
   const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
-  const startKind = shoot.slice(shoot.indexOf('const openStartingKind = async (kind) => {'), shoot.indexOf('/** The same room, as a room:'))
+  const startKind = shoot.slice(shoot.indexOf('const openNewTeam = async () => {'), shoot.indexOf('/** The same room, as a room:'))
   assert.match(startKind, /document\.querySelector\('nav\[aria-label="Workspace actions"\] button\[title="More ways to start"\]'\)/, 'the secondary start trigger belongs to the sidebar')
-  assert.match(startKind, /click\(`\$\{kind\}…`, '\[role="menu"\]'\)/, 'the Goal or Team choice belongs to the opened menu')
+  assert.match(startKind, /click\('New Team…', '\[role="menu"\]'\)/, 'New Team belongs to the opened menu')
+  assert.match(startKind, /aria-label="New Team"/, 'the new menu opens the picker')
+  assert.doesNotMatch(startKind, /What are you starting|aria-checked/)
+  // Parse the actual expressions handed to CDP: source matching alone cannot
+  // catch a malformed interpolated selector in a scene CI has to launch.
+  const helper = startKind.slice(0, startKind.indexOf('\n  }') + 4)
+  const createHelper = new Function('cdp', 'q', 'click', 'waitForSnapshot', `${helper}; return openNewTeam`)
+  const expressions = []
+  const cdp = { eval: async expression => { new Function(expression); expressions.push(expression); return true } }
+  const open = createHelper(cdp, JSON.stringify, async (label, scope) => {
+    assert.equal(label, 'New Team…')
+    assert.equal(scope, '[role="menu"]')
+    return true
+  }, async (read, matches) => { assert.equal(matches(await read()), true) })
+  assert.equal(await open(), '[role="dialog"][aria-label="New Team"]')
+  assert.equal(expressions.length, 2)
   const flow = shoot.slice(shoot.indexOf("flow: { expect: 'Checkout hardening'"), shoot.indexOf("'flow-board': {"))
-  assert.match(flow, /openStartingKind\('Goal'\)/)
+  assert.match(flow, /openNewTeam\(\)/)
+  assert.match(flow, /clickScrolled\('Just a Team'/)
   assert.match(flow, /waitForSnapshot\(\(\) => cdp\.eval\(`document\.body\.innerText\.includes\('Checkout hardening'\)`\), Boolean\)/, 'the Goal must be waited for, not merely slept past')
   const newSessionAgents = shoot.slice(shoot.indexOf("'new-session-agents': {"), shoot.indexOf("'palette-agents': {"))
-  assert.match(newSessionAgents, /openStartingKind\('Team'\)/)
+  assert.match(newSessionAgents, /openNewTeam\(\)/)
+  assert.match(newSessionAgents, /clickScrolled\('Just a Team'/)
+  assert.doesNotMatch(shoot, /openStartingKind\(/)
+})
+
+test('the shot task filler writes to inputs and textareas and dispatches input', async () => {
+  const shoot = readFileSync(join(root, 'script/shots/shoot.mjs'), 'utf8')
+  const helperStart = shoot.indexOf('  const fill = (label, value) => ')
+  assert.notEqual(helperStart, -1, 'shoot.mjs still has its shared field filler')
+  const helperEnd = shoot.indexOf('\n\n  Object.assign(SCENES', helperStart)
+  assert.notEqual(helperEnd, -1, 'the shared field filler still ends before the scene table')
+  const helperSource = shoot.slice(helperStart, helperEnd)
+
+  const elementType = () => {
+    let ElementType
+    ElementType = class {
+      constructor() { this._value = ''; this.events = [] }
+      get value() { return this._value }
+      set value(value) {
+        if (!(this instanceof ElementType)) throw new TypeError('Illegal invocation')
+        this._value = value
+      }
+      dispatchEvent(event) { this.events.push(event); return true }
+    }
+    return ElementType
+  }
+  const HTMLInputElement = elementType()
+  const HTMLTextAreaElement = elementType()
+
+  for (const [label, ElementType] of [
+    ['Task input', HTMLInputElement],
+    ['What should they do?', HTMLTextAreaElement],
+  ]) {
+    const element = new ElementType()
+    const document = {
+      querySelectorAll: selector => { assert.equal(selector, 'label'); return [] },
+      getElementById: () => null,
+      querySelector: selector => {
+        assert.equal(selector, `[aria-label=${JSON.stringify(label)}]`)
+        return element
+      },
+    }
+    class InputEvent {
+      constructor(type, options) { this.type = type; this.bubbles = options.bubbles }
+    }
+    const cdp = {
+      eval: async expression => new Function('document', 'window', 'Event', `return ${expression}`)(
+        document,
+        { HTMLInputElement, HTMLTextAreaElement },
+        InputEvent,
+      ),
+    }
+    const fill = new Function('cdp', 'q', `${helperSource}; return fill`)(cdp, JSON.stringify)
+    const value = `filled ${label}`
+
+    assert.equal(await fill(label, value), true)
+    assert.equal(element.value, value)
+    assert.equal(element.events.length, 1)
+    assert.equal(element.events[0].type, 'input')
+    assert.equal(element.events[0].bubbles, true)
+  }
 })
 
 test('the room delivers one distinct prompt to each seat without broadcasting a second turn to every seat', () => {

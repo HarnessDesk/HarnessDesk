@@ -44,7 +44,7 @@ export interface WorkspaceRecord {
    * simply carries no comparison key until it is opened again.
    */
   readonly realPath?: string
-  /** Host-owned identity; old records must be opened again before granting shell access. */
+  /** Host-owned identity; old records need an explicit workspace open or Team start before granting shell access. */
   readonly shellIdentity?: ShellProjectIdentity
 }
 

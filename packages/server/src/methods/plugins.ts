@@ -21,7 +21,7 @@ export const TERMINAL_CHIP = {
   kind: 'context',
   label: 'Last terminal output',
   form: 'resource',
-  chip: { description: 'The tail of the most recent terminal — the error is right there.' },
+  chip: { description: 'The tail of the most recent terminal — the error is right there.', icon: 'terminal' },
 } as const satisfies HostResult<'capability/list'>[number]
 
 /**

@@ -137,9 +137,10 @@ desktop app) and passes them to the agent environment at startup.
 
 1. Choose a project folder. HarnessDesk remembers recent folders under
    `~/.harnessdesk`.
-2. Start a session, or open one from the sidebar — sessions you ran in the
-   Codex CLI, the VS Code extension or Claude Code are already there, grouped
-   by repository.
+2. Start a session, or open a conversation you previously used in HarnessDesk
+   from the sidebar. To browse an agent’s earlier conversations, choose
+   Import history in its runtime settings, then open Settings › Conversations ›
+   History. Continuing one adds it to the sidebar.
 3. Set the agent, model, reasoning effort, approval policy and mode from the
    controls under the composer.
 4. Press `⌘K` for anything else: sessions, files, agents, commands, settings.
@@ -276,8 +277,9 @@ the `PATH` HarnessDesk was started with. Run `codex --version` in a terminal to
 see the same words. HarnessDesk keeps asking in the background for several
 seconds after it opens, and again once the `PATH` your login shell builds has
 arrived, so a machine that was busy or a `PATH` still arriving clears by
-itself; choose Codex again to try once more. One that prints no version at all,
-or is not executable, is said once and not asked about again.
+itself; choose Codex again to try once more. Empty output is retried too.
+Nonempty output that is not a version, or a non-executable copy, is reported
+without scheduled retries.
 
 **"Usage limit reached"** — the agent is healthy and signed in, but a rolling
 usage window is spent, so turns will fail until it resets. Past sessions stay

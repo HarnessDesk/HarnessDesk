@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
-import { chmod, mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { TestContext } from 'node:test'
 import { promisify } from 'node:util'
@@ -8,6 +8,7 @@ import { promisify } from 'node:util'
 import type { FlowExecution, FlowPreview, GoalView, Intent } from '@harnessdesk/protocol'
 
 import type { GhInCheckout } from '../../src/evidence/forge.js'
+import type { FindingForgePort } from '../../src/findings/publication.js'
 import { Host, StateStore } from '../../src/index.js'
 import type { QuestionTimers } from '../../src/host.js'
 import { makeRepo } from './evidence-desk.js'
@@ -53,12 +54,20 @@ const AGENTS: Readonly<Record<string, { ceiling: string; answers?: string; produ
 /** What the forge says about a checkout: no pull request, unless the test opened one. */
 export interface Forge {
   readonly open: Set<string>
+  readonly pullRequests: Map<number, { head: string; state: 'OPEN' | 'CLOSED' | 'MERGED' }>
   readonly gh: GhInCheckout
 }
 
 const forge = (): Forge => {
   const open = new Set<string>()
-  const gh: GhInCheckout = async (_args, cwd) => {
+  const pullRequests = new Map<number, { head: string; state: 'OPEN' | 'CLOSED' | 'MERGED' }>()
+  const gh: GhInCheckout = async (args, cwd) => {
+    if (args[2] && args[2] !== '--json') {
+      const number = Number(args[2])
+      const pr = pullRequests.get(number)
+      return pr ? { stdout: JSON.stringify({ number, state: pr.state, headRefOid: pr.head, url: `https://github.com/acme/widgets/pull/${number}`, statusCheckRollup: [] }), stderr: '', exitCode: 0 }
+        : { stdout: '', stderr: 'no pull requests found', exitCode: 1 }
+    }
     const head = await git(cwd, 'rev-parse', 'HEAD').catch(() => '')
     const branch = await git(cwd, 'symbolic-ref', '--quiet', '--short', 'HEAD').catch(() => '')
     if (!open.has(branch)) return { stdout: '', stderr: 'no pull requests found for branch', exitCode: 1 }
@@ -71,7 +80,7 @@ const forge = (): Forge => {
       exitCode: 0,
     }
   }
-  return { open, gh }
+  return { open, pullRequests, gh }
 }
 
 export interface Desk {
@@ -93,6 +102,7 @@ export interface Second { readonly id: string; readonly provider?: string | null
 
 /** How the desk is set up beyond its runtimes: where work happens, and how its agents take a second message. */
 export interface DeskOptions {
+  readonly findingForge?: FindingForgePort
   /** Work stays on the project's default branch, as a step that is neither isolated nor told to branch does. */
   readonly onMain?: boolean
   /** Each runtime refuses a message while a turn is running, as a real agent's adapter does. */
@@ -103,12 +113,6 @@ export interface DeskOptions {
 
 export const desk = async (t: TestContext, second: Second = { id: 'fake-b', provider: 'vendor-b' }, options: DeskOptions = {}): Promise<Desk> => {
   const repo = await makeRepo('hd-flow-host-')
-  // A committed contest script, so the mechanical contest's own command runs as shipped.
-  await mkdir(join(repo.dir, 'script'), { recursive: true })
-  await writeFile(join(repo.dir, 'script', 'flow-contest.sh'), '#!/bin/sh\nexit 0\n')
-  await chmod(join(repo.dir, 'script', 'flow-contest.sh'), 0o755)
-  await repo.git('add', '.')
-  await repo.git('commit', '-q', '-m', 'contest script')
   // Work happens on a branch, so what an Agent commits is a real diff against `main` — unless the test says it stays there.
   if (!options.onMain) await repo.git('checkout', '-q', '-b', 'work')
   const gh = forge()
@@ -128,6 +132,7 @@ export const desk = async (t: TestContext, second: Second = { id: 'fake-b', prov
     builtinAgents: tempDir('hd-flow-host-builtins-'),
     catalogRefreshMs: 0,
     evidence: { gh: gh.gh },
+    ...(options.findingForge ? { findingForge: options.findingForge } : {}),
     ...(options.questionTimers ? { questionTimers: options.questionTimers } : {}),
   })
   const runtimes = [
@@ -309,16 +314,22 @@ export const settled = async (d: Desk, run: string): Promise<FlowExecution> =>
 export const TASK = { task: 'Make the attempt file say something useful' }
 
 /**
- * The shipped comparison, its check command pointed at this scratch
- * repository's own test: a person's `pnpm verify` is theirs. The file itself
+ * The shipped comparison, with an explicit scripted project check for this
+ * scratch repository. The file itself
  * now seeds two competitors (issue #1032), so this always overrides that
  * line to the count a test actually wants — including back down to one —
  * rather than only ever adding one.
  */
-export const comparison = async (d: Desk, count: number): Promise<string> => {
+export const comparison = async (d: Desk, count: number, checked = true): Promise<string> => {
   const text = await shipped(d, 'comparison')
-  assert.match(text, /run: "pnpm verify"/)
-  const pointed = text.replace('run: "pnpm verify"', 'run: "test -s attempt.txt"')
+  assert.doesNotMatch(text, /pnpm verify/)
+  const pointed = checked ? text.replace('  judge:\n', [
+    '  verify:', '    kind: check', '    onRequest: true', '    run: "test -s attempt.txt"',
+    '    exits: { "0": pass }', '    otherwise: fail', '    timeout: 900', '  judge:', '',
+  ].join('\n')).replace('  - id: to-judge\n    on: competitor\n', [
+    '  - id: to-verify', '    on: competitor', '    then: { role: verify, title: "Check the attempt" }',
+    '  - id: to-judge', '    on: verify', '    when: { any: [pass] }', '',
+  ].join('\n')) : text
   const withoutCount = pointed.replace(/^ {4}count: \d+\n/m, '')
   return withoutCount.replace('    isolate: true\n', `    count: ${count}\n    isolate: true\n`)
 }

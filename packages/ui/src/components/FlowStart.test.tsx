@@ -2,12 +2,15 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import type { AgentEntry, CompiledFlow, FlowEntry, FlowPreview, FlowPreviewSeat, SeatCandidate, SeatPlan } from '@harnessdesk/protocol'
+import type { AgentEntry, CompiledFlow, FlowEntry, FlowPolicy, FlowPreview, FlowPreviewSeat, SeatCandidate, SeatPlan } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot } from '../state/snapshot'
 import type { AppStore } from '../state/store'
 import { FlowStart, type FlowChoice } from './FlowStart'
+import { TEAM_START_POLICIES } from '../preview/team-start-fixture'
+import { withAttemptCheck } from '../lib/team-start'
+import { CONTEST_START_POLICY } from '../lib/contest-start-fixture'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -49,20 +52,199 @@ const emptyPreview = (): FlowPreview => ({ token: 't', compiled: compiled(), sea
 const store = (options: {
   readonly entries: readonly FlowEntry[]
   readonly agents?: readonly AgentEntry[]
+  readonly runtimes?: ReturnType<typeof emptySnapshot>['runtimes']
   readonly source: (id: string) => Promise<string> | string
   readonly preview: (source: string) => Promise<FlowPreview> | FlowPreview
 }): AppStore =>
   ({
     subscribe: () => () => {},
-    getSnapshot: (() => { const snapshot = emptySnapshot(); return () => snapshot })(),
+    getSnapshot: (() => { const snapshot = { ...emptySnapshot(), runtimes: options.runtimes ?? [] }; return () => snapshot })(),
     flowGeneration: () => 0,
     flowCatalog: vi.fn().mockResolvedValue(options.entries),
     agentsIn: vi.fn().mockResolvedValue(options.agents ?? []),
     flowSource: vi.fn((_root: string, id: string) => Promise.resolve(options.source(id))),
     previewFlow: vi.fn((_root: string, source: string) => Promise.resolve(options.preview(source))),
+    modelsFor: vi.fn().mockResolvedValue([]),
   }) as unknown as AppStore
 
 const ENTRY = (id: string): FlowEntry => ({ id, origin: 'project', path: `.harnessdesk/flows/${id}.yml`, name: id, description: null, format: 'agents', problem: null, shadows: [] })
+
+const seat = (role: string, reviews: boolean): FlowPreviewSeat => ({
+  role, index: 0, agent: role, isolate: false, reviews,
+  plan: { id: role, from: 'prefer', winner: 0, blocked: null, ceiling: { level: 'read', hold: 'held' },
+    candidates: [candidate({ seat: { runtime: 'gamma' }, label: 'Gamma', runtimeName: 'Gamma', state: 'taken', reason: null, fix: null })] } as SeatPlan,
+})
+
+const renderTeam = async (flow: FlowPolicy, seats: readonly FlowPreviewSeat[], runtimes: ReturnType<typeof emptySnapshot>['runtimes'] = []) => {
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview, runtimes })
+  const preview = { ...emptyPreview(), seats }
+  await act(async () => {
+    root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{
+      flow, template: flow, preview, roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy: () => {},
+    }} /></StoreProvider>)
+  })
+}
+
+it('gives the selected agent name a tooltip in the seat controls', async () => {
+  await renderTeam(TEAM_START_POLICIES.comparison, [seat('judge', true)], [{ id: 'gamma', presentation: { name: 'Gamma' } } as never])
+  expect(container.querySelector<HTMLSelectElement>('select[aria-label="Agent for Judge"]')?.title).toBe('Gamma')
+})
+
+it('shows what Automatic resolves to, or that no agent can run', async () => {
+  const resolved: FlowPreviewSeat = {
+    role: 'fixer', index: 0, agent: 'builder', isolate: false, reviews: false,
+    plan: { id: 'builder', from: 'prefer', winner: 0, blocked: null, ceiling: { level: 'edit', hold: 'held' }, candidates: [
+      candidate({ seat: { runtime: 'codex' }, label: 'Codex', runtimeName: 'Codex', state: 'taken', reason: null, fix: null }),
+    ] } as SeatPlan,
+  }
+  const unavailable: FlowPreviewSeat = {
+    role: 'reviewer', index: 0, agent: 'reviewer', isolate: false, reviews: true,
+    plan: { id: 'reviewer', from: 'prefer', winner: null, blocked: null, ceiling: null, candidates: [
+      candidate({ seat: { runtime: 'windsurf' }, label: 'Windsurf', runtimeName: 'Windsurf', state: 'passed', reason: { kind: 'signedOut' }, fix: { kind: 'signIn', runtime: 'windsurf' } }),
+    ] } as SeatPlan,
+  }
+  await renderTeam(TEAM_START_POLICIES['fix-and-review'], [resolved, unavailable], [{ id: 'codex', presentation: { name: 'Codex' } } as never])
+
+  const writes = container.querySelector<HTMLSelectElement>('select[aria-label="Agent for Writes"]')!
+  const reviews = container.querySelector<HTMLSelectElement>('select[aria-label="Agent for Reviews"]')!
+  expect(writes.value).toBe('')
+  expect(writes.selectedOptions[0]?.textContent).toBe('Automatic · Codex')
+  expect(reviews.value).toBe('')
+  expect(reviews.selectedOptions[0]?.textContent).toBe('Automatic · Nothing can run')
+})
+
+it('marks a reviewer that returns to the seed role as fresh each round', async () => {
+  await renderTeam(TEAM_START_POLICIES['fix-and-review'], [seat('reviewer', true)])
+  expect(container.textContent).toContain('Fresh each round')
+})
+
+it('does not describe a one-off judge as fresh each round', async () => {
+  await renderTeam(TEAM_START_POLICIES.comparison, [seat('judge', true)])
+  expect(container.textContent).not.toContain('Fresh each round')
+})
+
+it.each([false, true])('keeps the attempt check editable when empty, including a saved checked template (%s)', checked => {
+  const original: FlowPolicy = TEAM_START_POLICIES.comparison
+  const baseline = { ...original, roles: original.roles.filter(role => role.kind !== 'check'), rules: [
+    { id: 'to-judge', on: 'competitor', then: { role: 'judge', title: 'Pick the best attempt' } },
+    ...original.rules.filter(rule => rule.on === 'judge'),
+  ] }
+  const template = checked ? withAttemptCheck(baseline, baseline, 'npm test') : baseline
+  let current: FlowPolicy = template
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview })
+  const onPolicy = (policy: FlowPolicy) => { current = policy; paint() }
+  const paint = () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow: current, template, preview: emptyPreview(), roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy }} /></StoreProvider>)
+  act(paint)
+  const label = [...container.querySelectorAll('label')].find(one => one.textContent?.includes('Check each attempt with'))
+  expect(label).toBeDefined()
+  const field = document.getElementById(label!.htmlFor) as HTMLInputElement
+  const type = (value: string) => act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, value)
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  type('npm test')
+  expect(current.roles.find(role => role.id === 'verify')).toMatchObject({ kind: 'check', check: { run: 'npm test' } })
+  expect(current.rules.find(rule => rule.id === 'to-judge')).toMatchObject({ on: 'verify', when: { any: ['pass'] } })
+  type('')
+  expect(current.roles.some(role => role.kind === 'check')).toBe(false)
+  expect(current.rules.find(rule => rule.id === 'to-judge')).toMatchObject({ on: 'competitor', then: { role: 'judge' } })
+  expect(current.rules.find(rule => rule.id === 'to-judge')?.when).toBeUndefined()
+  expect(container.textContent).toContain('Leave empty to let the judge read the attempts directly.')
+  const judge = () => container.querySelector<HTMLButtonElement>('[role="switch"][aria-label="A judge picks the better one"]')!
+  act(() => judge().click())
+  expect(current.rules.find(rule => rule.id === 'to-person')).toMatchObject({ on: 'competitor', then: { role: 'referee' } })
+  act(() => judge().click())
+  expect(current.rules.find(rule => rule.id === 'to-judge')?.when).toBeUndefined()
+  act(() => judge().click())
+  type('node check.mjs')
+  expect(current.rules.find(rule => rule.id === 'to-person')).toMatchObject({ on: 'verify', when: { any: ['pass'] } })
+  act(() => judge().click())
+  expect(current.rules.filter(rule => rule.on === 'competitor').map(rule => rule.then.role)).toEqual(['verify'])
+  expect(current.rules.find(rule => rule.id === 'to-judge')).toMatchObject({ on: 'verify', when: { any: ['pass'] } })
+})
+
+it('offers the same optional attempt check for a contest without a judge', async () => {
+  const template = CONTEST_START_POLICY
+  await renderTeam(template, [])
+  expect(container.querySelector('[aria-label="A judge picks the better one"]')).toBeNull()
+  const label = [...container.querySelectorAll('label')].find(one => one.textContent?.includes('Check each attempt with'))
+  expect(label).toBeDefined()
+  expect(container.textContent).toContain('Leave empty to choose from the attempts directly.')
+})
+
+it('keeps a saved custom check’s success and incoming guards through clearing, restoring and judge toggles', () => {
+  const base: FlowPolicy = TEAM_START_POLICIES.comparison
+  const success = { any: ['clean'], evidence: [{ check: 'verify' }] }
+  const template: FlowPolicy = { ...base, roles: [base.roles[0]!, {
+    id: 'verify', kind: 'check', check: { run: 'node original.mjs', timeout: 37, exits: { '0': 'clean' }, otherwise: 'bad' },
+  }, ...base.roles.slice(1)], rules: [
+    { id: 'project-check', on: 'competitor', when: { every: ['published'] }, then: { role: 'verify', title: 'Check the attempts' } },
+    { id: 'retry', on: 'verify', when: { any: ['bad'] }, then: { role: 'competitor', title: 'Repair the attempts' } },
+    { id: 'to-judge', on: 'verify', when: success, then: { role: 'judge', title: 'Pick the best attempt' } },
+    ...base.rules.filter(rule => rule.on === 'judge'),
+  ] }
+  let current = template
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview })
+  const onPolicy = (flow: FlowPolicy) => { current = flow; paint() }
+  const paint = () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow: current, template, preview: emptyPreview(), roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy }} /></StoreProvider>)
+  act(paint)
+  const label = [...container.querySelectorAll('label')].find(one => one.textContent?.includes('Check each attempt with'))!
+  const field = document.getElementById(label.htmlFor) as HTMLInputElement
+  const type = (value: string) => act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(field, value)
+    field.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  const toggle = () => act(() => container.querySelector<HTMLButtonElement>('[role="switch"][aria-label="A judge picks the better one"]')!.click())
+  type('')
+  toggle()
+  expect(current.rules.find(rule => rule.id === 'to-person')?.when).toEqual({ every: ['published'] })
+  toggle()
+  expect(current.rules.find(rule => rule.id === 'to-judge')?.when).toEqual({ every: ['published'] })
+  type('node replacement.mjs')
+  toggle()
+  expect(current.rules.find(rule => rule.id === 'to-person')?.when).toEqual(success)
+  toggle()
+  expect(current.rules.find(rule => rule.id === 'to-judge')?.when).toEqual(success)
+  expect(current.rules.find(rule => rule.id === 'retry')).toEqual(template.rules.find(rule => rule.id === 'retry'))
+})
+
+it('the review options preserve the review cap and require recorded approval before automatic merging', async () => {
+  const flow: import('@harnessdesk/protocol').FlowPolicy = TEAM_START_POLICIES['fix-and-review']
+  let current = flow
+  const onPolicy = vi.fn((next: import('@harnessdesk/protocol').FlowPolicy) => { current = next; paint() })
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview })
+  const paint = () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow: current, template: flow, preview: emptyPreview(), roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy }} /></StoreProvider>)
+  act(paint)
+  const press = (label: string) => act(() => [...container.querySelectorAll('button')].find(one => one.textContent === label)!.click())
+  for (const rounds of [1, 2, 3]) {
+    press(String(rounds))
+    expect(onPolicy.mock.lastCall?.[0].budget?.rounds).toBe(rounds * 2 + 1)
+  }
+  press('Merge it')
+  const automatic = onPolicy.mock.lastCall?.[0] as import('@harnessdesk/protocol').FlowPolicy
+  expect(automatic.roles.find(role => role.id === 'referee')).toMatchObject({ kind: 'agent', uses: ['merger'], grant: 'merge' })
+  expect(automatic.rules.find(rule => rule.then.role === 'referee')?.when).toEqual({ evidence: [{ review: 'approve' }, { pr: 'open' }] })
+  press('Wait for me')
+  expect(onPolicy.mock.lastCall?.[0].roles.find(role => role.id === 'referee')).toMatchObject({ kind: 'person' })
+})
+
+it('keeps a mechanically checked review on its declared path to a person', () => {
+  const flow = TEAM_START_POLICIES['review-pr']
+  const onPolicy = vi.fn()
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview })
+  act(() => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow, template: flow, preview: emptyPreview(), roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy }} /></StoreProvider>))
+  expect(container.querySelector('[aria-label="When the review approves"]')).toBeNull()
+  expect(container.querySelector('[aria-label="Review rounds, at most"]')).toBeNull()
+  expect(flow.rules.find(rule => rule.then.role === 'referee')?.when).toEqual({ every: ['passed'], evidence: [{ pr: 'open' }] })
+  expect(onPolicy).not.toHaveBeenCalled()
+})
+
+it('holds Details variables while a compact form is disabled', () => {
+  const flow = { ...TEAM_START_POLICIES['fix-and-review'], inputs: [{ id: 'ticket', label: 'Ticket', default: '42' }] }
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview })
+  act(() => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{ flow, template: flow, preview: emptyPreview(), roster: new Map(), vars: { ticket: '42' }, disabled: true, onVar: () => {}, onReadingChange: () => {}, onPolicy: () => {} }} /></StoreProvider>))
+  expect(container.querySelector<HTMLInputElement>('input')!.disabled).toBe(true)
+})
 
 const render = (theStore: AppStore, onChange: (choice: FlowChoice | null) => void) => {
   act(() => {
@@ -629,4 +811,28 @@ it('changing a recorded seat preference invalidates consent until that exact cho
   expect(theStore.previewFlow).toHaveBeenLastCalledWith('/repo', 'saved', {}, { seats: { fixer: [{ runtime: 'beta' }] }, attended: undefined })
   await act(async () => resolve({ ...first, token: 'second' }))
   expect(change).toHaveBeenLastCalledWith({ source: 'saved', vars: {}, token: 'second', seats: { fixer: [{ runtime: 'beta' }] }, attended: undefined })
+})
+
+it.each([
+  ['Build the checkout', 'Build the checkout'],
+  ['', 'What both should attempt'],
+  ['  ', 'What both should attempt'],
+  ['Keep {{task}} literal', 'Keep {{task}} literal'],
+])('fills the seed preview from the form (%s)', async (value, expected) => {
+  const flow: import('@harnessdesk/protocol').FlowPolicy = {
+    version: 2, name: 'Comparison', inputs: [{ id: 'task', label: 'What both should attempt' }],
+    roles: [], seed: { role: 'competitor', title: '{{ task }}' },
+    rules: [{ id: 'check', on: 'competitor', then: { role: 'verify', title: 'Check the attempt' } }],
+    messaging: 'board-only', wait: 240,
+  }
+  const theStore = store({ entries: [], source: () => '', preview: () => ({ ...emptyPreview(), compiled: compiled({ flow }) }) })
+  await act(async () => root.render(<StoreProvider store={theStore}><FlowStart root="/repo" initial={{ source: 'saved', vars: { task: value } }} onChange={() => {}} /></StoreProvider>))
+  const rounds = () => container.querySelector('[aria-label="Rounds and rules"]')!.textContent
+  expect(rounds()).toContain(`Seed round — ${expected}`)
+  const control = container.querySelector<HTMLInputElement>('input')!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(control, 'The edited task')
+    control.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(rounds()).toContain('Seed round — The edited task')
 })

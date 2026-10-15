@@ -63,7 +63,7 @@ const mount = async (
 }
 
 const type = (value: string): void => {
-  const field = container.querySelector('input')
+  const field = document.body.querySelector<HTMLInputElement>('[aria-label="Command palette"] input')
   if (!field) throw new Error('no palette input')
   act(() => {
     const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set
@@ -74,7 +74,7 @@ const type = (value: string): void => {
 
 const choose = async (label: string): Promise<void> => {
   await act(async () => {})
-  const option = [...container.querySelectorAll<HTMLElement>('[role="option"]')].find((one) => one.textContent?.includes(label))
+  const option = [...document.body.querySelectorAll<HTMLElement>('[aria-label="Command palette"] [role="option"]')].find((one) => one.textContent?.includes(label))
   expect(option, `an option for ${label}`).toBeTruthy()
   act(() => option!.click())
 }
@@ -119,4 +119,18 @@ it('Agents opens the window, never Settings — it is not one of the settings pa
   await choose('Agents')
   expect(openAgents).toHaveBeenCalledWith()
   expect(openSettings).not.toHaveBeenCalled()
+})
+
+it('history import keywords reach the History settings section', async () => {
+  const { openSettings } = await mount()
+  type('past conversations')
+  await choose('Settings › History')
+  expect(openSettings).toHaveBeenCalledWith('history')
+})
+
+it.each(['storage', 'disk', 'space', 'clean up', 'cache'])('finds Storage by %s', async query => {
+  const { openSettings } = await mount()
+  type(query)
+  await choose('Storage')
+  expect(openSettings).toHaveBeenCalledWith('storage')
 })

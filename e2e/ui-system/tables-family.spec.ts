@@ -1,32 +1,33 @@
 import { expect, test } from '@playwright/test'
 
 for (const theme of ['light', 'dark'] as const) {
-  test(`runtime sign-out and Archive refusal stay truthful and visible in ${theme}`, async ({ page }) => {
+  test(`runtime sign-out and Archive refusal stay truthful in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/preview.html')
     const runtimes = page.locator('[data-frame-id="runtimes-status"]')
     const row = (name: string) => runtimes.locator('[data-slot="agent-row"]').filter({ has: page.locator('[data-slot="runtime-name"]', { hasText: name }) })
-    await expect(row('Amp')).not.toContainText('Not signed in')
-    await expect(row('OpenCode')).not.toContainText('Not signed in')
-    await expect(row('DeepSeek')).toContainText('Not signed in')
+    const names = await page.evaluate(async () => {
+      const fixtureUrl = '/src/preview/signin-fixture.ts'
+      const { runtimesSeed, SIGN_IN_SELECTED } = await import(fixtureUrl), seed = runtimesSeed()
+      return {
+        unanswered: seed.runtimes.filter(info => !seed.accountsByRuntime[info.id]).at(-1).presentation.name,
+        anonymous: seed.runtimes.find(info => seed.accountsByRuntime[info.id]?.accounts.some(account => account.anonymous)).presentation.name,
+        keyOnly: seed.runtimes.find(info => info.id === SIGN_IN_SELECTED['key only']).presentation.name,
+      }
+    })
+    await expect(row(names.unanswered)).not.toContainText('Signed out')
+    await expect(row(names.anonymous)).not.toContainText('Signed out')
+    await expect(row(names.keyOnly)).toContainText('Signed out')
 
     const archive = page.locator('[data-frame-id="settings-archive"]')
     await archive.getByRole('button', { name: 'Review the workspace settings actions', exact: true }).first().click()
-    const refused = page.getByRole('menuitem', { name: 'Delete…', exact: true })
+    const refused = page.getByRole('menuitem', { name: /^Delete everywhere…/ })
     await expect(refused).toBeDisabled()
-    const description = await refused.getAttribute('aria-describedby')
-    const reason = page.locator(`[id="${description}"]`)
-    await expect(reason).toBeVisible()
-    await expect(reason).toHaveText('Alpha keeps no way to delete one.')
-    const geometry = await reason.evaluate(el => {
-      const rect = el.getBoundingClientRect()
-      return { width: rect.width, height: rect.height, position: getComputedStyle(el).position }
-    })
-    expect(geometry.width).toBeGreaterThan(1)
-    expect(geometry.height).toBeGreaterThan(1)
-    expect(geometry.position).not.toBe('absolute')
+    await expect(refused).toHaveAttribute('title', 'Alpha keeps no way to delete one.')
+    await expect(refused.locator('[data-menu-label]')).toHaveText('Delete everywhere…')
+    await expect(refused.locator('[data-menu-hint]')).toHaveText('Alpha keeps no way to delete one.')
     await page.keyboard.press('Escape')
-    await expect(page.getByRole('menuitem', { name: 'Delete…', exact: true })).toHaveCount(0)
+    await expect(page.getByRole('menuitem', { name: /^Delete everywhere…/ })).toHaveCount(0)
   })
 
   test(`the table family shares row centres, density and selection in ${theme}`, async ({ page }) => {

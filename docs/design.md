@@ -444,17 +444,20 @@ ground reads thin.
 | `--hdp-alias-label-primary` | `rgb(25, 27, 30)` | `rgb(229, 231, 234)` | anything a person reads: titles, rows, prose, values |
 | `--hd-secondary-foreground` | `rgb(49, 49, 49)` | `rgb(224, 224, 224)` | structure and explanation: section headings, hints, blurbs, icons beside a label |
 | `--hd-muted-foreground` | `rgb(71, 71, 71)` | `rgb(208, 208, 208)` | facts at the edge of a row: counts, times, keyboard hints |
+| `--hd-disabled-foreground` | about `rgb(147, 147, 147)` | `rgb(107, 107, 107)` | disabled popup labels, icons and trailing values; refusal reasons stay secondary |
 
 In components, reach for the semantic tokens `--hd-foreground`,
-`--hd-secondary-foreground`, and `--hd-muted-foreground` (`tokens.css`), which
-resolve to these three palette aliases.
+`--hd-secondary-foreground`, `--hd-muted-foreground`, and
+`--hd-disabled-foreground` (`tokens.css`). The disabled ink is based on the
+palette's quietest label tier and measures about 3:1 against popup surfaces.
 
-Three levels have to read as three, not two. Secondary uses the existing
-grey-800 step in light mode and grey-200 in dark mode; muted uses grey-750 and
-grey-300. These steps preserve the distinction from primary and between
-secondary and muted, while keeping both lower tiers on their existing palette
-ramps. The contrast test measures the semantic tokens on the app's real text
-grounds in both themes.
+The three ordinary ink levels have to read as three, not two. Secondary uses
+the existing grey-800 step in light mode and grey-200 in dark mode; muted uses
+grey-750 and grey-300. These steps preserve the distinction from primary and
+between secondary and muted, while keeping both lower tiers on their existing
+palette ramps. The contrast test measures the semantic tokens on the app's real
+text grounds in both themes. Disabled ink is a separate state: clearly fainter
+than an enabled label, while remaining legible on the popup surface.
 
 Three rules, learned the hard way:
 
@@ -503,6 +506,43 @@ than an exception to it:
 Inline code inside a sentence is a `<code>` element, not `.mono`, so it picks up
 the frame the Markdown column gives it.
 
+## Menus
+
+A menu is a list of choices or actions, sized for the rows it contains. Its
+width is the widest row's content plus its insets, clamped to **200–340px**;
+it never follows the trigger or a column and never uses a fixed width. The popup
+plate has a 6px edge inset. The row plate sits inside that inset; its text (or
+its icon when the menu has icons), group labels, notes, and separators share a
+16px content edge on both sides. A trailing check, shortcut, value, or chevron
+ends 16px from the right edge, with at least 12px between it and the row body.
+Trailing values stay on one line. Names and paths can truncate; a path keeps
+its complete value in `title`.
+
+An action menu is consistent: every row has an icon, including destructive
+rows, whose icon and label use destructive ink. A choice menu has no row icons;
+the selected value gets a check at the trailing edge. This applies to model,
+mode, permissions, work-in, and sort/show menus. Agent and account lists show
+each entry's mark or avatar. A group label never gets an icon. A menu has no
+duplicate labels at one level.
+
+The top bar's **More** button appears only when its current page, view or folded
+controls provide at least one row. A page with no applicable action has no
+button to open an empty menu. The shell derives this from the current slots, so
+navigating to a page with actions restores the button.
+
+Second lines still have to earn their height under [The second line](#the-second-line):
+in Permissions, only **Full access** and **Never ask** keep the
+risky-choice explanation visible; other choice descriptions go in `title`.
+An identical sentence belongs once in a `MenuNote`. A menu holds rows, not
+panels: the model's update advisory is one **Update <agent> to <version>** row,
+with the install command in its title or a copy action, rather than prose and
+a code block.
+
+`FRAME_MENU` carries these measurements in `packages/ui/src/design/frame.ts`.
+The popup-wall frame contract checks every menu it opens for width limits,
+plate and content insets, one-line trailing values, label uniqueness, and a
+consistent icon policy. The rule applies equally in light and dark themes.
+
 ## The second line
 
 Almost every row in this app can carry a small grey line under its label — a menu
@@ -544,6 +584,14 @@ A second line is earned by exactly three things:
    sentence.
 
 Everything else goes on hover, as `title`.
+
+For plugin tools, the short manifest title is the name to scan and the tool's
+description is the visible second line. **Tool names** switches that label to
+the technical name while keeping the sentence below it. The page reads these
+from the plugin metadata; it does not translate long descriptions into labels.
+
+When a fact is identical across every row in a group, say it once in a group
+note. Keep the fact on each row only when it varies between those rows.
 
 ### What fails the test
 
@@ -630,8 +678,11 @@ word will do.
 **A refused row keeps its reason on screen.** A disabled control cannot be
 relied on to raise a tooltip at all — pointer events are suppressed, and the
 browsers disagree about the rest. The one line that makes a greyed row useful
-must not be the line nobody can reach. `MenuItem` encodes this: a `disabled`
-string renders as the hint *and* the title.
+must not be the line nobody can reach. A refused menu row shows its reason as
+the visible second line and keeps it in the title; its label and icon use the
+disabled ink. A destructive refused row uses that same disabled ink, not red.
+`MenuItem` carries an explicit disabled reason or promotes the row's title to
+the hint when the row is disabled.
 
 **Settings are not menus.** A settings page is a reference document, read
 deliberately and left; a menu is a list, scanned under time pressure and
@@ -839,8 +890,15 @@ opens a `<section>` wrapper, which used to lose its margin to `:first-child`
 and start 6px under the card before it — so a page half converted still reads
 as one page. A dialog keeps its tighter step.
 
+**Every Settings page uses this same section step.** Page-level `Section`s and
+`SectionHead`s sit 32px after the preceding block, including headings wrapped
+by a section container; a sub-group inside a section uses the smaller 24px
+step. The Settings frame contract checks every Settings page so a wrapper or a
+first-child reset cannot make one page drift from the rest.
+
 **The description is one sentence.** It says what the section is, muted,
-directly under the label. A paragraph of how it works is not a description:
+directly under the label, on its own full-width row even when it would fit
+beside the heading. A paragraph of how it works is not a description:
 Project, Permissions and Triggers each opened every section with two or three
 lines of it under the page's own blurb, and the one warning that mattered read
 like the four around it.
@@ -865,6 +923,11 @@ where the title starts: pushed to the end, a sentence narrower than the row
 began at whatever indent its length left. The row reads which from the
 control, so no caller has to remember.
 
+**A canvas can have a page measure.** The canvas keeps its dense outer inset;
+when its content is a page of cards and lists, `Page` can centre those blocks
+at the reading or wide measure inside that canvas. The blocks keep the same
+page gutter and maximum width as other pages.
+
 **Groups inside a section are sub-heads.** A `SectionHead` among a `Section`'s
 children sits 24px under the card above and 8px over its own — a step between
 the 8px of a label and the 32px of a section — so Permissions' twelve runtimes
@@ -876,6 +939,24 @@ every section label, `Section` or `SectionHead`, is an h2, and a sub-head
 inside a `Section` is an h3. A detail head's
 owner is either text — a place, a path — that gives way at its end, or a mark
 such as a status chip that stays whole while the name wraps.
+
+## Shared layout rhythm
+
+### Section headings with controls
+
+`SectionHead` and a titled `Section` give the heading text room to shrink and
+truncate with an ellipsis. Their controls wrap onto a second row when the
+heading and controls cannot share one. A heading's text box never runs under a
+control.
+
+### Page and panel stacks
+
+Adjacent blocks in page bodies and panels use `--hd-card-gap` (12px). A field
+that filters a list sits one stack gap above that list. Two bordered or filled
+blocks keep at least one stack gap between them unless they are nested inside
+one grouped surface. The 12px stack rule replaces the earlier 8px page
+label-to-content and child-to-child entries in the page rhythm table above;
+the 32px space between page sections remains.
 
 ## The rules
 
@@ -1795,6 +1876,13 @@ preview also mounts the production sidebar and an open Team that can be wrapped
 under a dialog, and an open Team whose Assign dialog sits beside a wrapped Team's
 kept conversation.
 
+### Board columns
+
+The Team Board keeps every state column at its full minimum width, including
+empty columns. When the columns do not fit, the board scrolls horizontally;
+empty columns do not fold into rails or move to another row. Below 600px of pane
+width, the Team Board switches to its compact list.
+
 ### Run controls
 
 A card that has not finished (open, claimed or blocked) offers **Abandon
@@ -1854,3 +1942,128 @@ below 600px of list-container width. The title keeps the name and command,
 the description wraps for at most two lines with its full sentence in the
 definition, the state sits on the meta line, and loading faces and the opening
 chevron keep the trail. Wider tables keep a 192px floor on the identity cell.
+
+## Left column bars
+
+The top controls share the window's edge row and retain their drag region, but
+the left column draws no separator hairline below that row or above the seat
+row. The brand row sits directly after the top controls; whitespace marks each
+transition. A Settings column keeps that brand row above its Back row.
+
+## Dialog anatomy
+
+Every application dialog composes the `DialogHead`, `DialogBody` and
+`DialogFooter` slots in `design/patterns/ModalDialog.tsx`; a confirmation uses
+the same slots. The header has a 16px semibold title with no leading icon, an
+optional context chip after the title, an optional one-line description in
+secondary ink, and a close control at the top right on the dialog's 24px inset.
+The body has 24px padding on all four sides in every layout, including a list
+or a reading body. Context that needs more room, such as a breadcrumb, starts
+inside the body through `bodyPrelude` rather than forming another header band.
+
+Dialog widths use the named `size` scale on `Dialog`: `sm`, `md`, `lg`, `xl`
+and `wide`. A multi-step flow keeps the same size on every step, so its action
+edge stays in one place. New Team uses `wide` for both its picker and shape;
+New worktree uses `md`, and confirmations use the shared `sm` rung.
+
+Search fields use the shared `Search` component: its search glyph stays visible
+and its placeholder names the search plainly (`Search branches…`, not a
+colon-led instruction). The footer is one band with one shared minimum height.
+Actions sit at the right, with the secondary action before the primary from
+left to right; write the primary first because the actions slot paints in
+reverse order. A quiet navigation link may sit at the left. The frame contract
+checks the title size and weight, close inset, body padding, footer height,
+action order, action inset and named width for every dialog the preview opens.
+The New Team shape step has Cancel and Continue at the right; Continue opens the
+highlighted shape, and clicking a card does the same. Back occupies the quiet
+footer slot on its next step, and the one-line consequence sits in the header.
+Choice cards keep the neutral row and menu plates in resting, hovered and
+selected states. Their icon tiles and checks use neutral ink; the accent stays
+on the keyboard focus ring and primary action. AppWindow, popups and the
+command palette keep their own surface contracts.
+
+## Command palette
+
+The search palette is a window-level surface, fixed at the top centre so its
+position does not change when results arrive or the query changes. Its content
+uses one 24px inset: query text, group labels and result icons share a left
+edge. The search field is borderless inside the header. Type tabs are **All**,
+**Sessions**, **Teams**, **Agents** and **Commands**; **Include tool output**
+remains a separate filter. With an empty query, **Recents** comes before
+**Actions**. A session result leads with its title in primary ink and puts its
+agent and project at the right edge in secondary ink. The footer shows the
+**Close Esc**, **Change type ←→** and **Open ↵** key hints.
+
+The `Palette stays top-centred` frame contract checks the fixed position before
+and after typing, these shared edges, the header, filters, footer and result
+hierarchy in light and dark themes at wide and narrow window widths.
+
+## Conversation overflow
+
+A long token in a conversation never widens the main column. Prose, notices,
+tool labels and Markdown headings break anywhere a token can occur. Code
+plates, diffs and tables keep their own horizontal scrollers. The frame
+contract checks the workbench main region at 1440px and 720px: its
+`scrollWidth` must equal its `clientWidth` with 600-character tokens in each
+transcript row kind.
+
+## Overlay scrollbars
+
+Every scrollable region in the main area, pages, panels, dialogs and the
+command palette uses the shared scrollbar rule. Its thumb is transparent at
+rest, appears briefly while that region scrolls, and fades when scrolling
+stops. Scrolling never adds a per-screen scrollbar skin. The frame contract
+checks that a resting thumb is invisible, that scrolling reveals it, and that
+it fades again.
+
+## Composer selected values
+
+Permission and Mode tracks keep their selected values at their natural width.
+When the row needs room, the composer's fold order reduces controls to icons;
+the permission and mode words never shorten. The folder name is the one value
+that may shrink, up to its cap, and its full name stays in the title. A folded
+Mode fact never leaves a lone initial on screen: a new-session composer uses
+the mode mark with the value available to assistive technology, or hides it at
+the tightest width; a conversation composer keeps the whole value in a
+content-sized track while it fits. Usage shows only its ring; its accessible
+name and title say Usage. The `Composer fit:` frame contracts check the
+selected values, folder name, ring and fold order at wide, narrow and folded
+widths in both themes.
+
+## Page section headings use their content edge
+
+A page section heading starts at the leading text edge of the page column it
+names. This applies to both `Section` and `SectionHead`, whether the next body
+is a `Rows` card, a table, a note, a chart or a plain action. Body insets stay
+with the body and never move its heading; section actions wrap below the name
+when the head is tight. In a multi-column layout, each column's headings share
+that column's leading text edge. The `FIX3 page section headings share one page
+text edge` frame contract checks the rendered destinations.
+
+A section's choices live in that section's head beside its name. Use the same
+`PageOptions` pattern across pages; do not put a section's choice rows in its
+body. The shared head wraps its action below the name when the available width
+is tight. The `FIX3 section choices live in the same page head across Dashboard
+tabs` frame contract checks that Dashboard sections keep their choices there.
+
+## Section actions share the heading's center line
+
+When a page section has an action, its title and action share a vertical
+center line while they fit on the same row. A description takes a separate row
+below the title, so its extra height cannot pull the title away from the
+controls. `FIX4 Dashboard contracts` checks every preview destination.
+
+## Figure strips keep balanced rows
+
+A strip never leaves one figure alone on a wrapped row. Four figures stay four
+across or become two by two; five use three by two. `StatRow` owns those column
+counts so every screen that uses the pattern gets the same rule. The `FIX4
+Dashboard contracts` check measures Overview at 1100px and 720px and checks the
+five-figure empty Activity strip.
+
+## Banner measure
+
+A Banner defaults to the reading column. When it sits in a page section whose
+other blocks use a wider measure, set `measure="container"`: the notice fills
+the section's width so a warning and its list share one edge. The banner frame
+and card both follow that measure; a screen should not size either one itself.

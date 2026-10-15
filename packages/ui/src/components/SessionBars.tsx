@@ -49,7 +49,7 @@ export const GoalBar = () => {
 
   return (
     <Alert tone="neutral" className={`${styles.goal} gap-2`}>
-      <Text role="meta" tone="brand" className={styles.goalIcon}>
+      <Text role="meta" tone="brand">
         <GoalIcon size={14} />
       </Text>
       <Text role="row" className={styles.goalText} title={goal.objective}>
@@ -59,15 +59,15 @@ export const GoalBar = () => {
       <Chip tone={GOAL_TONE[goal.status] ?? 'neutral'}>
         {STATUS_LABEL[goal.status] ?? goal.status}
       </Chip>
-      <Button
+      <span className={styles.goalClear}><Button
         type="button"
-        variant="ghost" size="icon-xs" edge="end" edgeGlyph={11} className={styles.goalClear}
+        variant="ghost" size="icon-xs" edge="end" edgeGlyph={11}
         aria-label="Clear goal"
         title="Clear this goal"
         onClick={() => void store.setGoal(null)}
       >
         <CrossIcon size={11} />
-      </Button>
+      </Button></span>
     </Alert>
   )
 }
@@ -116,12 +116,17 @@ export const JobsBar = () => {
     )
   }, [backgrounded, session])
 
+  const waiting = running.filter(item => snapshot.approvals.some(entry => entry.key === key
+    && entry.approval.type === 'command' && entry.approval.kind !== 'stdin'
+    && (entry.approval.itemId ? entry.approval.itemId === item.id : entry.approval.command === item.command)))
+  const executing = running.filter(item => !waiting.includes(item))
+
   // Only tick while something is actually running.
   useEffect(() => {
-    if (running.length === 0) return
+    if (executing.length === 0) return
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
-  }, [running.length])
+  }, [executing.length])
 
   if (running.length === 0) return null
 
@@ -130,17 +135,16 @@ export const JobsBar = () => {
     // shape with no owner before it — this strip's own value nested inside
     // the transcript's already-inset bars.
     <PaneColumn inset="jobs" className={styles.jobs}>
-      <Text as="div" role="meta">
-        {running.length === 1 ? '1 command' : `${running.length} commands`} running in this turn
-      </Text>
+      {waiting.length > 0 && <Text as="div" role="meta">{waiting.length} {waiting.length === 1 ? 'command' : 'commands'} waiting for approval in this turn</Text>}
+      {executing.length > 0 && <Text as="div" role="meta">{executing.length} {executing.length === 1 ? 'command' : 'commands'} running in this turn</Text>}
       {running.map((item) => (
         <div key={item.id} className={styles.job}>
-          <Spinner size="sm" tone="brand" aria-hidden />
+          {!waiting.includes(item) && <Spinner size="sm" tone="brand" aria-hidden />}
           <Text role="meta" className={styles.jobIcon}><TerminalIcon size={12} /></Text>
           <Text role="meta" className={styles.jobCommand} title={item.command}>
             <CodeText>{item.command}</CodeText>
           </Text>
-          <Text role="meta" numeric className={styles.jobElapsed}>{elapsed(item.startedAt, now)}</Text>
+          <Text role="meta" numeric className={styles.jobElapsed}>{waiting.includes(item) ? 'Waiting for approval' : elapsed(item.startedAt, now)}</Text>
         </div>
       ))}
     </PaneColumn>

@@ -1,3 +1,7 @@
+import { PagePreview } from '../../preview/page-preview'
+import { InfoCardBody, SubjectActionsMenu } from '..'
+import { PlanMetersSpecimen, TerminalToggleSpecimen, MainWorkActionsSpecimen } from '../../preview/frames-supported-controls'
+import { FRAME, FixedShell, SeatList, ToolBody, ToolBodySections, ToolBodyControls, ToolSection, ToolProse, ToolFooterProvider, ToolFooterScope, ToolFooterPublisher, ToolFooterOutlet, SummaryList, SummaryItem, Checklist, ChecklistItem } from '../index'
 import { Timeline, TimelineItem, type TimelineState } from '../ui/timeline'
 import { TimelineCard, TimelineCardRow, TimelineCards, TimelineCardWords, TimelineDocument } from '../ui/timeline-cards'
 import { LibrarySection } from '../../components/Library'
@@ -16,7 +20,20 @@ import { ShapeGraphBoard } from '../../preview/frames-shape-graph'
 import { RunViewBoard } from '../../preview/frames-run-view'
 import { TeamsPageBoard } from '../../preview/frames-teams-page'
 import { TeamOverviewBoard } from '../../preview/frames-team-overview'
-import { useMemo, useState, type Dispatch, type SetStateAction } from 'react'
+import { TeamBarBoard } from '../../preview/frames-team-frame'
+import { MainDestination, DestinationBody, Page, TopBar } from '..'
+import { DiffIcon, HistoryIcon, GlobeIcon, PanelIcon } from '../../components/Icons'
+
+const MAINDESTINATION_CATALOG_VARIANTS = ['light', 'dark'] as const
+const MAINDESTINATION_CATALOG_SIZES = ['default'] as const
+const MAINDESTINATION_CATALOG_STATES = ['default', 'open', 'closed'] as const
+const PAGE_CATALOG_VARIANTS = ['light', 'dark'] as const
+const PAGE_CATALOG_SIZES = ['default'] as const
+const PAGE_CATALOG_STATES = ['default'] as const
+const VIEWBAR_CATALOG_VARIANTS = ['light', 'dark'] as const
+const VIEWBAR_CATALOG_SIZES = ['default'] as const
+const VIEWBAR_CATALOG_STATES = ['default'] as const
+import { useMemo, useState, type CSSProperties, type Dispatch, type SetStateAction } from 'react'
 
 import {
   NO_CAPABILITIES,
@@ -34,7 +51,6 @@ import {
 } from '@harnessdesk/protocol'
 import { FindingDecision } from '../../components/FindingDecision'
 import { WindowControls } from '../../components/WindowControls'
-import { splitRefusal } from '../../panels/PanelActions'
 import { SideBySide, sideBySideTileEntry } from '../../components/SideBySide'
 import { ChangeStats, Chip, HeaderStatusGroup, HeaderStatusReading, Menu, MenuItem } from '..'
 import { OverviewStrip, type StripMetric } from '../../components/usage/OverviewStrip'
@@ -46,6 +62,8 @@ import {
   ExtensionIcon,
   FolderIcon,
   PlusIcon,
+  PlanIcon,
+  CommentIcon,
   SearchIcon,
   ShieldAlertIcon,
   SideBySideIcon,
@@ -179,8 +197,6 @@ import {
   Toolbar,
   ToolbarGap,
   toast,
-  SummaryItem,
-  SummaryList,
 } from '../ui'
 import { ConversationEmptyState } from '../patterns/ConversationEmptyState'
 import { entriesFromSilent, NotReportingList } from '../../components/usage/NotReporting'
@@ -203,7 +219,6 @@ import {
   PanelFooter,
   PanelFrame,
   PanelRow,
-  PanelTools,
   RunDot,
 } from '../patterns/InspectorPanel'
 import { PatchHeader } from '../patterns/Change'
@@ -236,6 +251,15 @@ import { Specimen } from './specimen'
 import styles from './explorer.module.css'
 import { PlanCard } from '../patterns/PlanCard'
 import { UsageMeterRow } from '../patterns/UsageMeterRow'
+import { ComparisonNotice } from '../patterns/ComparisonNotice'
+import { ComparisonDecision } from '../patterns/ComparisonDecision'
+import { ComparisonSummary } from '../patterns/ComparisonSummary'
+import { ArrowLeftIcon, ArrowRightIcon, RetryIcon } from '../../components/Icons'
+import { Input } from '../ui/input'
+import { RoomComposer } from '../../components/RoomComposer'
+import { MergeDialog, DiffRangeDialog } from '../patterns/GitComparisonDialogs'
+import { comparisonVerdictStore } from '../../preview/comparison-verdict-fixture'
+import { gitRefs } from '../../preview/git-fixture'
 
 /**
  * The composition layer, board by board.
@@ -323,11 +347,9 @@ const PanelControlsBoard = () => {
     { kind: 'changes' },
     { kind: 'agents' },
   ], true)
-  const rowRefusal = splitRefusal('row', { width: 280, height: 280 })
-  const columnRefusal = splitRefusal('column', { width: 280, height: 280 })
   return (
     <>
-      <Specimen measure="page" caption="The header toggle counts views left in a hidden right panel; split actions carry their measured refusal">
+      <Specimen measure="page" caption="The header toggle counts retained tools; work keeps Fill and close">
         <div className={styles.matrix}>
           <Case label="right panel shown — Hide the right panel, no badge">
             <StoreProvider store={shown}><WindowControls /></StoreProvider>
@@ -338,16 +360,11 @@ const PanelControlsBoard = () => {
           <Case label="right panel put away — 3 views badge">
             <StoreProvider store={putAwayThree}><WindowControls /></StoreProvider>
           </Case>
-          <Case label="Side by side disabled at 280px">
-            <Menu close={() => { }}><MenuItem label="Side by side" disabled={rowRefusal ?? false} onSelect={() => {}} /></Menu>
-          </Case>
-          <Case label="One above the other disabled at 280px">
-            <Menu close={() => { }}><MenuItem label="One above the other" disabled={columnRefusal ?? false} onSelect={() => {}} /></Menu>
-          </Case>
         </div>
       </Specimen>
+      <TerminalToggleSpecimen /><MainWorkActionsSpecimen />
       <Rule>
-        The header examples mount the shipped WindowControls against three right-dock snapshots. The split rows use the shipped splitRefusal result and MenuItem props from PanelActions; they are rendered directly because opening the panel menu needs a mounted workbench.
+        The header examples mount WindowControls against retained tool snapshots; the work specimen keeps its actual Fill and close controls.
       </Rule>
     </>
   )
@@ -603,6 +620,10 @@ const SectionBoard = () => (
           <Button size="sm">Save</Button>
         </SectionFooter>
       </Section>
+      <Section variant="plain">
+        <SectionFooter variant="facts"><Text role="meta">12 recorded events · 長い記録</Text><ToolbarGap /><Text role="meta">Read from this work</Text></SectionFooter>
+        <SectionFooter variant="facts" ruled={false}><Text role="meta">1 Run of 2</Text><ToolbarGap /><Text role="meta">Recorded locally</Text></SectionFooter>
+      </Section>
       <Section variant="quiet">
         <SectionHeader>
           <SectionTitle>Note</SectionTitle>
@@ -679,6 +700,9 @@ const BadgeTabsBoard = () => (
         <TabsContent value="two">The second.</TabsContent>
       </Tabs>
     ))}
+    <Tabs defaultValue="one" aria-label="Icon tabs">
+      <TabsList><TabsTrigger value="one" data-catalog-size="icon" aria-label="Board · 2" icon={<PlanIcon />} iconOnly count={2}>Board</TabsTrigger><TabsTrigger value="two" aria-label="Chat" icon={<CommentIcon />} iconOnly>Chat</TabsTrigger></TabsList>
+    </Tabs>
   </div>
 )
 
@@ -914,6 +938,12 @@ const ToolPaneBoard = () => {
             </Bar>
           </ToolPane>
         </Case>
+        <Case label="Seat browser — slim address bar">
+          <ToolPane variant="integrated" className="h-56 w-full" data-catalog-case="seat-browser-slim">
+            <ToolPaneBar variant="address-slim"><Button variant="ghost" size="icon-sm" aria-label="Back"><ArrowLeftIcon size={14} /></Button><Button variant="ghost" size="icon-sm" aria-label="Forward"><ArrowRightIcon size={14} /></Button><Button variant="ghost" size="icon-sm" aria-label="Reload"><RetryIcon size={14} /></Button><Input variant="chrome" aria-label="Address" value="https://example.com" readOnly /></ToolPaneBar>
+            <ToolPaneBody bleed><ToolPaneMessage>Pages the agent opens appear here.</ToolPaneMessage></ToolPaneBody>
+          </ToolPane>
+        </Case>
         <Case label="integrated tool — page failed to load">
           <ToolPane variant="integrated" className="@container/browser h-56 w-full" data-catalog-case="tool-pane-failure">
             <ToolPaneBar variant="address">http://127.0.0.1:9/</ToolPaneBar>
@@ -948,9 +978,9 @@ const ToolPaneBoard = () => {
         </Case>
         <Case label="inspector panel">
           <PanelFrame>
-            <PanelTools>
+            <ToolBodyControls>
               <PanelFilter value={filter} placeholder="Filter changes" onChange={setFilter} />
-            </PanelTools>
+            </ToolBodyControls>
             <PanelBody>
               <GroupLine left="Today" right="2" />
               <PanelRow title="src/app.ts" sub="Modified" selected trail={<Counts added={4} removed={2} />} />
@@ -1031,6 +1061,7 @@ const SideBySideBoard = () => {
     paneId: string,
     store: AppStore,
     widthClass = 'h-96 w-full min-w-0',
+    sharedComposer = true,
   ) => (
     <StoreProvider store={store}>
       <div className={widthClass}>
@@ -1041,6 +1072,8 @@ const SideBySideBoard = () => {
           memberOf={memberOf}
           entryOf={(key) => entryOf(store, key)}
           onOpenMember={() => {}}
+          composer={sharedComposer ? shown => <RoomComposer room="preview-room" members={SIDE_BY_SIDE_MEMBERS.map((member, index) => ({key:SIDE_BY_SIDE_KEYS[index]!, peer:{...member, sessionId:member.id, here:true, busy:index === 0, title:null, inbound:'accept' as const, canUseBoard:true, idleOnBoard:false, onTask:null}, busy:index === 0, brand:null, canUseBoard:true, title:null}))}
+            defaultAudience={shown} tileLabels={new Map(state.tiles.map((key,index) => [key,String.fromCharCode(65+index)]))} messaging onMessaging={() => Promise.resolve()} onTrouble={() => {}} onPosted={() => {}} /> : undefined}
           conversationProps={{ onChooseProject: () => {}, onSignIn: () => {}, onOpenUsage: () => {}, onOpenRuntimes: () => {} }}
         />
       </div>
@@ -1055,7 +1088,7 @@ const SideBySideBoard = () => {
         <Case label="Team bar — Side by side · disabled with its reason">
           <Button variant="ghost" size="icon-sm" aria-label="Side by side" aria-pressed={false} disabled title="Seat an Agent to show conversations side by side"><SideBySideIcon size={14} /></Button>
         </Case>
-        <Case className="col-span-full" label="room — Side by side · two members, grid without a composer">{grid(two, setTwo, 'catalog-side-by-side-two', plainStore)}</Case>
+        <Case className="col-span-full" label="room — Side by side · two members, grid without a composer">{grid(two, setTwo, 'catalog-side-by-side-two', plainStore, undefined, false)}</Case>
         <Case className="col-span-full" label="room — Side by side · two members, waiting for you">{grid(waiting, setWaiting, 'catalog-side-by-side-waiting', waitingStore)}</Case>
         <Case className="col-span-full" label="room — Side by side · four members, tile states and ceiling">{grid(four, setFour, 'catalog-side-by-side-four', statesStore)}</Case>
         <Case label="room — Side by side · narrow tabs">
@@ -2109,6 +2142,8 @@ const AdoptedBoard = () => {
               <SelectItem value="studio">Studio</SelectItem>
             </SelectContent>
           </Select>
+          <SuggestionsExample />
+          <SelectExample />
         </Case>
 
         <Case label="scroll area &mdash; real overflow">
@@ -2136,7 +2171,7 @@ const AdoptedBoard = () => {
           <div className="flex flex-wrap gap-2">
             <HoverCard>
               <HoverCardTrigger render={<Button variant="outline">Preview details</Button>} />
-              <HoverCardContent className="p-3">A richer, enterable preview rather than a repeated label.</HoverCardContent>
+              <HoverCardContent><InfoCardBody title="Workspace facts" rows={[{ id: 'folder', label: 'Folder', value: 'workspace/storefront', kind: 'path' }]} /></HoverCardContent>
             </HoverCard>
             <Tooltip>
               <TooltipTrigger render={<Button variant="outline">Rest or focus</Button>} />
@@ -2459,7 +2494,7 @@ const USAGEMETERROW_CATALOG_VARIANTS = ['default', 'barless'] as const
 const USAGEMETERROW_CATALOG_SIZES = ['default'] as const
 const USAGEMETERROW_CATALOG_STATES = ['default', 'warning', 'error', 'unknown'] as const
 const UsageMeterRowBoard = () => (
-  <Specimen measure="page" caption="Remaining usage, standing alone or inside a What is left list">
+  <><PlanMetersSpecimen /><Specimen measure="page" caption="Remaining usage, standing alone or inside a What is left list">
     {USAGEMETERROW_CATALOG_VARIANTS.map(variant => USAGEMETERROW_CATALOG_SIZES.map(size => (
       <div key={`${variant}:${size}`} className="grid gap-4" data-catalog-variant={variant} data-catalog-size={size}>
         {USAGEMETERROW_CATALOG_STATES.map(state => (
@@ -2474,7 +2509,7 @@ const UsageMeterRowBoard = () => (
         ))}
       </div>
     )))}
-  </Specimen>
+  </Specimen></>
 )
 
 /**
@@ -2890,7 +2925,7 @@ const PlansTableBoard = () => {
 
 const LibraryBoard = () => {
   const [store] = useState(previewStore)
-  return <StoreProvider store={store}><LibrarySection /></StoreProvider>
+  return <div className="h-screen"><PagePreview fixture={store} page={{kind:'library',section:'skill'}} /></div>
 }
 
 const HeaderStatusBoard = () => (
@@ -2911,7 +2946,190 @@ const HeaderStatusBoard = () => (
   </div>
 )
 
+const GITCOMPARISONDIALOGS_CATALOG_VARIANTS = ['default'] as const
+const GITCOMPARISONDIALOGS_CATALOG_SIZES = ['default'] as const
+const GITCOMPARISONDIALOGS_CATALOG_STATES = ['default'] as const
+const GitComparisonDialogsBoard = () => {
+  const store = useMemo(() => comparisonVerdictStore('picked'), [])
+  const [dialog, setDialog] = useState<'merge' | 'compare' | null>(null)
+  return <StoreProvider store={store}>
+    <Specimen measure="wide" caption="The same recorded-revision questions in Changes and Side by side">
+      {GITCOMPARISONDIALOGS_CATALOG_VARIANTS.map(variant => <div key={variant} data-catalog-variant={variant}>
+        {GITCOMPARISONDIALOGS_CATALOG_SIZES.map(size => <div key={size} data-catalog-size={size}>
+          {GITCOMPARISONDIALOGS_CATALOG_STATES.map(state => <div key={state} data-catalog-state={state} className="flex gap-2">
+            <Button onClick={() => setDialog('merge')}>Merge a recorded revision</Button>
+            <Button onClick={() => setDialog('compare')}>Compare two revisions</Button>
+            {dialog === 'merge' && <MergeDialog root="/workspace/demo-client" refs={{...gitRefs(), branch:'main'}} fixedRef={'a'.repeat(40)} expectedBranch="main" onDone={() => setDialog(null)} />}
+            {dialog === 'compare' && <DiffRangeDialog root="/workspace/demo-client" from={'a'.repeat(40)} to={'b'.repeat(40)} onDone={() => setDialog(null)} />}
+          </div>)}
+        </div>)}
+      </div>)}
+    </Specimen>
+  </StoreProvider>
+}
+
+const COMPARISONDECISION_CATALOG_VARIANTS = ['default'] as const
+const COMPARISONDECISION_CATALOG_SIZES = ['default'] as const
+const COMPARISONDECISION_CATALOG_STATES = ['default', 'disabled'] as const
+const ComparisonDecisionBoard = () => <Specimen measure="wide" caption="Recorded pick and unavailable merge">
+  <div className="grid gap-4">
+    {COMPARISONDECISION_CATALOG_STATES.map(state => <div key={state} data-catalog-state={state} data-catalog-case={state}>
+      <ComparisonDecision title="The judge picked A" reason="“A keeps the retry inside the client.”" mergeLabel="Merge A into main"
+        mergeRefusal={state === 'disabled' ? 'This Run has no pending person merge step.' : undefined}
+        onMerge={() => {}} onCompare={() => {}} keepLabel="Keep B instead" onKeep={() => {}} />
+    </div>)}
+    {COMPARISONDECISION_CATALOG_VARIANTS.map(variant => <div key={variant} data-catalog-variant={variant}>
+      {COMPARISONDECISION_CATALOG_SIZES.map(size => <div key={size} data-catalog-size={size} data-catalog-case="person-pick">
+        <ComparisonDecision title="You picked B" reason="Judge picked A: “A keeps the retry inside the client.”" mergeLabel="Merge B into main" onMerge={() => {}} onCompare={() => {}} keepLabel="Keep A instead" onKeep={() => {}} />
+      </div>)}
+    </div>)}
+  </div>
+</Specimen>
+const COMPARISONSUMMARY_CATALOG_VARIANTS = ['default'] as const
+const COMPARISONSUMMARY_CATALOG_SIZES = ['default'] as const
+const COMPARISONSUMMARY_CATALOG_STATES = ['default'] as const
+const ComparisonSummaryBoard = () => <Specimen measure="wide" caption="Confirmed merge receipt">
+  {COMPARISONSUMMARY_CATALOG_VARIANTS.map(variant => <div key={variant} data-catalog-variant={variant}>
+    {COMPARISONSUMMARY_CATALOG_SIZES.map(size => <div key={size} data-catalog-size={size}>
+      {COMPARISONSUMMARY_CATALOG_STATES.map(state => <div key={state} data-catalog-state={state} data-catalog-case="merged" className="h-96">
+        <ComparisonSummary title="A is in main" meta="4m 12s · 3 agents · $0.40" attempts={<Text role="prose">A · merged into main · abc1234 · 2 files · +42<br />B · not kept · The attempt stays in this Run</Text>}
+          checks={<Text role="prose">Checks passed on both</Text>} judge={<Text role="prose">“A keeps the retry inside the client.”</Text>} onShowAttempts={() => {}} onRaceAgain={() => {}} />
+      </div>)}
+    </div>)}
+  </div>)}
+</Specimen>
+
+const COMPARISONNOTICE_CATALOG_VARIANTS = ['default'] as const
+const COMPARISONNOTICE_CATALOG_SIZES = ['default'] as const
+const COMPARISONNOTICE_CATALOG_STATES = ['default', 'needs-you', 'empty'] as const
+const ComparisonNoticeBoard = () => {
+  const [dismissed, setDismissed] = useState(false)
+  return <>
+    <Specimen measure="wide" caption="Picked, waiting for a person, long recorded text and an empty shelf">
+      <div className="grid gap-4">
+        {COMPARISONNOTICE_CATALOG_STATES.map(state => <div key={state} data-catalog-state={state} data-catalog-case={state === 'default' ? 'picked' : state === 'needs-you' ? 'waiting' : 'empty'}>
+          <Text role="meta">{state === 'default' ? 'Recorded pick — dismiss to inspect the reserved space' : state === 'needs-you' ? 'Waiting for a person' : 'No verdict — space reserved'}</Text>
+          <ComparisonNotice
+            data-catalog-variant={state === 'default' ? COMPARISONNOTICE_CATALOG_VARIANTS[0] : undefined}
+            data-catalog-size={state === 'default' ? COMPARISONNOTICE_CATALOG_SIZES[0] : undefined}
+            title={state === 'empty' || (state === 'default' && dismissed) ? undefined : state === 'needs-you' ? 'Judge is waiting for your pick' : 'Attempt A picked by Judge'}
+            reason={state === 'default' ? 'The attempt keeps the retry bounded and preserves the original error.' : undefined}
+            waiting={state === 'needs-you'}
+            action={state === 'empty' ? undefined : { label: state === 'needs-you' ? 'Pick an attempt…' : 'Merge the picked change', onSelect: () => undefined }}
+            onDismiss={state === 'default' ? () => setDismissed(true) : undefined}
+          />
+        </div>)}
+        <div data-catalog-state="default" data-catalog-case="long-reason">
+          <Text role="meta">Long recorded text — scrolls whole inside the shelf</Text>
+          <ComparisonNotice title="Attempt A picked by Judge" reason={'The selected attempt preserves the original error and keeps every retry within the recorded limit, '.repeat(16) + 'so the next step can continue.'} />
+        </div>
+        <Button variant="ghost" size="sm" disabled={!dismissed} onClick={() => setDismissed(false)}>Restore verdict</Button>
+      </div>
+    </Specimen>
+    <Rule>The shelf keeps its space before a pick and after dismissal. Recorded text scrolls inside it; the next action remains visible while it needs an answer.</Rule>
+  </>
+}
+
+const TOPBAR_CATALOG_VARIANTS = ['light', 'dark'] as const
+const TOPBAR_CATALOG_SIZES = ['default'] as const
+const TOPBAR_CATALOG_STATES = ['default', 'disabled', 'filtered', 'folded-state', 'long-title'] as const
+export const MainDestinationBoard = () => {
+  const [page, setPage] = useState(false)
+  return <><Button onClick={() => setPage(value => !value)}>Switch main destination</Button>
+    <MainDestination page={page} work={<Page width="reading"><Textarea aria-label="Retained draft" defaultValue="Review the checkout" /></Page>}
+      pages={<DestinationBody id="library" active={page}><Page width="reading"><Text role="prose">Library · a long reusable project name · チェックアウトのレビュー</Text><Input aria-label="Library search" /></Page></DestinationBody>} />
+  </>
+}
+
+export const TopBarBoard = () => {
+  const [tab, setTab] = useState('findings')
+  const tabs = ['Overview', 'Run', 'Board', 'Chat', 'Findings', 'Runs'].map(label => ({
+    value: label.toLowerCase(), label, count: label === 'Findings' ? 12 : undefined,
+    run: () => setTab(label.toLowerCase()),
+  }))
+  return <div data-catalog-variants={TOPBAR_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={TOPBAR_CATALOG_SIZES.join(' ')} data-catalog-states={TOPBAR_CATALOG_STATES.join(' ')}>{[1440, 720].map(width => <section key={width} style={{ width, maxWidth: '100%' }}>
+    <TopBar place="Checkout retry · 長いチーム名" tab={tab} tabs={tabs} state={<Chip tone="warning">Needs you</Chip>}
+      verb={{ label: 'Decide this run', run: () => {} }}
+      tools={<><Button variant="ghost" size="icon-sm" title="Details"><PlanIcon /></Button><Button variant="ghost" size="icon-sm" title="Changes"><DiffIcon /></Button><Button variant="ghost" size="icon-sm" title="Activity"><HistoryIcon /></Button><Button variant="ghost" size="icon-sm" title="Browser"><GlobeIcon /></Button><Button variant="ghost" size="icon-sm" title="Toggle panel"><PanelIcon /></Button></>}
+      view={{ narrowed: width === 720, content: close => <Menu close={close}><MenuItem label="All" onSelect={close} /><MenuItem label="Open" onSelect={close} /><MenuItem label="Blocking" onSelect={close} /></Menu> }}
+      more={close => <MenuItem icon={<CommentIcon />} label="Wrap…" onSelect={close} />} />
+    <TopBar place="A session without layout choices" verb={{ label: 'New job', icon: <PlusIcon />, run: () => {} }} view={{ disabled: 'This view has no layout choices', content: () => null }} more={() => null} />
+  </section>)}</div>
+}
+
+const FIXEDSHELL_CATALOG_VARIANTS = ['light', 'dark'] as const
+const FIXEDSHELL_CATALOG_SIZES = ['default'] as const
+const FIXEDSHELL_CATALOG_STATES = ['default', 'open', 'closed', 'folded-state'] as const
+export const FixedShellBoard = () => <div data-catalog-variants={FIXEDSHELL_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={FIXEDSHELL_CATALOG_SIZES.join(' ')} data-catalog-states={FIXEDSHELL_CATALOG_STATES.join(' ')}>
+  {[FRAME.fold.panelFloats, 720].map(width => <section key={width} style={{ width, maxWidth: '100%', height: 900 }}>
+    <FixedShell viewportWidth={width} leftFloating={width < FRAME.fold.sidebarFloats} panelFloating={width < FRAME.fold.panelFloats}
+      leftOpen rightOpen bottomOpen={false}
+      style={{ '--frame-left': width < FRAME.fold.sidebarFloats ? '0px' : `${FRAME.sidebar.width}px`,
+        '--frame-left-open': `${FRAME.sidebar.width}px`, '--frame-right': `${FRAME.rightPanel.width}px`,
+        '--frame-right-open': `${FRAME.rightPanel.width}px`, '--frame-right-retained': `${FRAME.rightPanel.width}px`,
+        '--frame-bottom': '0px', '--frame-bottom-retained': `${FRAME.bottomPanel.height}px` } as CSSProperties}
+      left={<Text role="row">Sessions</Text>} top={<TopBar place="Checkout retry · 長いタイトル" more={() => null} />}
+      main={<Text role="prose">The current work stays mounted.</Text>} right={<ToolBody><ToolSection label="Run"><ToolProse>No Run recorded.</ToolProse></ToolSection></ToolBody>}
+      bottom={null} />
+  </section>)}
+</div>
+
+const TOOLBODY_CATALOG_VARIANTS = ['light', 'dark'] as const
+const TOOLBODY_CATALOG_SIZES = ['default'] as const
+const TOOLBODY_CATALOG_STATES = ['default', 'empty', 'populated', 'editing'] as const
+export const ToolBodyBoard = () => <div data-catalog-variants={TOOLBODY_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={TOOLBODY_CATALOG_SIZES.join(' ')} data-catalog-states={TOOLBODY_CATALOG_STATES.join(' ')}>
+  <ToolBody><ToolSection label="Conversation"><SummaryList surface="panel">
+    <SummaryItem label="Folder" kind="path">/work/storefront/packages/interface-with-a-long-name</SummaryItem>
+    <SummaryItem label="Branch" kind="path">feature/長いブランチ名</SummaryItem>
+    <SummaryItem label="Context" note="The last completed turn recorded this value.">12,480 tokens</SummaryItem>
+  </SummaryList><ToolBodyControls><Button variant="outline" size="sm">Save file</Button></ToolBodyControls></ToolSection><ToolSection label="Plan"><Checklist label="Plan" surface="panel"><ChecklistItem state="active">Review the checkout and the recorded changes</ChecklistItem></Checklist></ToolSection></ToolBody>
+  <ToolBody><ToolBodySections><ToolBody><ToolSection label="Plan"><ToolProse>No plan recorded.</ToolProse></ToolSection></ToolBody><ToolBody><ToolSection label="Plugin"><ToolProse>Plugin facts join the same scroll.</ToolProse></ToolSection></ToolBody></ToolBodySections></ToolBody>
+</div>
+
+const TOOLFOOTER_CATALOG_VARIANTS = ['light', 'dark'] as const
+const TOOLFOOTER_CATALOG_SIZES = ['default'] as const
+const TOOLFOOTER_CATALOG_STATES = ['default', 'empty', 'populated'] as const
+export const ToolFooterBoard = () => <div data-catalog-variants={TOOLFOOTER_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={TOOLFOOTER_CATALOG_SIZES.join(' ')} data-catalog-states={TOOLFOOTER_CATALOG_STATES.join(' ')}>
+  <ToolFooterProvider><ToolFooterScope id="recorded"><ToolFooterPublisher left="12 recorded events · 長い記録" right="Read from this work" /></ToolFooterScope>
+    <ToolFooterOutlet id="recorded" /><ToolFooterOutlet id="absent" /></ToolFooterProvider>
+</div>
+
+const SEATLIST_CATALOG_VARIANTS = ['light', 'dark'] as const
+const SEATLIST_CATALOG_SIZES = ['default'] as const
+const SEATLIST_CATALOG_STATES = ['default', 'populated', 'disabled', 'long-title'] as const
+export const SeatListBoard = () => {
+  const [inbound, setInbound] = useState<'accept' | 'hold' | 'refuse'>('accept')
+  const base = { detail: 'Agent · Review model · Read only', state: 'Idle', inbound, setInbound,
+    open: () => {}, watch: () => {}, message: () => {}, remove: () => {} }
+  return <div data-catalog-variants={SEATLIST_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={SEATLIST_CATALOG_SIZES.join(' ')} data-catalog-states={SEATLIST_CATALOG_STATES.join(' ')}>
+    <SeatList rows={[{ ...base, id: 'review', name: 'Checkout review · 長い席の名前' },
+      { ...base, id: 'recorded', name: 'Recorded review Seat', refusal: 'The conversation was not kept in this record.' }]} />
+  </div>
+}
+
 export const COMPOSITION_BOARDS: BoardSpec[] = [
+  {id:'sign-in-rail',title:'Sign-in rail',about:'The first-run navigation boundary.',render:() => <SignInRailBoard />},
+  {id:'dashboard-bands',title:'Dashboard bands',about:'Long labels, unavailable values and empty source bands in both themes.',render:DashboardBandsBoard},
+  {id:'page-records',title:'Page records',about:'Content-width table and list rows, complete reasons and isolated actions.',render:() => <PageRecordsBoard />},
+  {id:'page-controls',title:'Page controls',about:'Labelled fields, complete prose and semantic input measures.',render:() => <PageControlsBoard />},
+  {id:'library-matrix',title:'Library matrix',about:'Populated, empty, long-name and overflowing availability records.',render:() => <LibraryMatrixBoard />},
+  {id:'page-options',title:'Page options',about:'Current values, pending scope and long choices folded in the body.',render:() => <PageOptionsBoard />},
+  {id:'settings-choices',title:'Settings choices',about:'Selected and unknown pictures, accent and account ring choices.',render:() => <SettingsChoicesBoard />},
+
+  { id: 'popup-inbox', title: 'Inbox menu', about: 'Kept notifications, complete expanded facts and actions.', render: () => <PopupInboxBoard /> },
+  { id: 'subject-actions', title: 'Subject actions', about: 'Verbs and Messages choices retain their callbacks outside facts.', render: () => <PopupSubjectBoard /> },
+  { id: 'info-card', title: 'Info card', about: 'Complete facts on hover and focus, without actions or menu overlap.', render: () => <PopupInfoBoard /> },
+  { id: 'wide-menu', title: 'Wide menu', about: 'Search, long names, aligned usage and footer in one bounded surface.', render: () => <PopupWideBoard /> },
+  { id: 'seat-list', title: 'SeatList', about: 'Real-length content in both themes.', render: SeatListBoard },
+  { id: 'fixed-shell', title: 'FixedShell', about: 'Real-length content in both themes.', render: FixedShellBoard },
+  { id: 'tool-body', title: 'ToolBody', about: 'Real-length content in both themes.', render: ToolBodyBoard },
+  { id: 'tool-footer', title: 'ToolFooter', about: 'Real-length content in both themes.', render: ToolFooterBoard },
+  { id: 'main-destination', title: 'Retained main destinations', about: 'Work and page inputs survive switching the active main region.', render: MainDestinationBoard },
+  { id: 'top-bar', title: 'The top bar', about: 'Nine slots in both fold stages, with long names and CJK.', render: TopBarBoard },
+  { id:'git-comparison-dialogs', title:'Git comparison questions', about:'Merge or compare recorded revisions through the shared Git dialogs.', render:GitComparisonDialogsBoard },
+  { id: 'comparison-decision', title:'Comparison decision', about:'A recommendation and the person decision above the composer.', render:ComparisonDecisionBoard },
+  { id: 'comparison-summary', title:'Comparison summary', about:'The merged receipt in the same Side by side body.', render:ComparisonSummaryBoard },
+  { id: 'comparison-notice', title: 'Comparison notice', about: 'The real comparison shelf, with a recorded pick, a waiting person and text that scrolls without moving the tiles.', render: ComparisonNoticeBoard },
   { id: 'header-status', title: 'Header status group', about: 'One chip ground, neutral at rest. Hover or focus names every reading; only a condition needing attention takes a tone.', render: HeaderStatusBoard },
   { id: 'library', title: 'Library', about: 'The real skill and server lists: state, loaded-by faces, wrapping descriptions and the Matrix switch.', render: LibraryBoard },
   {
@@ -3050,6 +3268,7 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     about: 'One continuous rail with finished, active, pending, attention and failed rings. Known times precede the title; child records keep its content edge.',
     render: () => <div data-catalog-state="default" className="max-w-xl">
       <Timeline aria-label="Recorded progress">
+        <TimelineItem section state="pending" title="Taken" />
         {(['done', 'active', 'warning', 'danger', 'pending'] as const).map((state: TimelineState, index) =>
           <TimelineItem key={state} state={state} data-catalog-state={state === 'done' ? 'success' : state === 'pending' ? 'inactive' : state === 'danger' ? 'error' : state}
             meta={state === 'pending' ? undefined : `12:0${index} · 2m`} title={['Start', 'Build the change', 'Review the result', 'Check failed', 'End'][index]}
@@ -3139,6 +3358,20 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     render: TeamOverviewBoard,
   },
   {
+    id: 'app-frame',
+    title: 'The page measures',
+    about: 'Reading, wide and canvas pages share one gutter and keep long content inside their measure.',
+    render: () => <>{(['reading', 'wide', 'canvas'] as const).map((width) => <div key={width}>
+      <Page width={width}><Text role="prose">Checkout review · a long project name · チェックアウトのレビュー</Text></Page>
+    </div>)}</>,
+  },
+  {
+    id: 'team-bar',
+    title: 'The Team bar',
+    about: 'One title, status, measured segmented page tabs and participant tools, including narrow panes and Side by side.',
+    render: TeamBarBoard,
+  },
+  {
     id: 'room-side-by-side',
     title: 'Room — Side by side',
     about: 'Two or four member conversations, with one focused tile and the room’s real conversations.',
@@ -3187,4 +3420,197 @@ export const COMPOSITION_BOARDS: BoardSpec[] = [
     about: 'The real dialog, in both states (#1083): a round-ceiling stop shows a 1-to-20 count next to "Authorise another round" that relabels the button and is the count the wire sends; every other stop keeps the plain single button, with no count field at all.',
     render: FindingDecisionBoard,
   },
+  { id: 'popup-menu', title: 'Menu rows', about: 'One row renderer, with both whole-level icon policies.', render: () => <PopupMenuBoard /> },
+  { id: 'left-column', title: 'Left column', about: 'Aligned rows with one trailing slot and long titles.', render: LeftColumnBoard },
 ]
+
+import { LeftColumn, LeftColumnTop, LeftColumnBody, LeftColumnRow, LeftColumnGroup, LeftColumnSeat, LeftColumnExplorerHead, LeftColumnExplorerFoot } from ".."
+import { BellIcon, UserIcon, FileIcon } from '../../components/Icons'
+
+export const LEFTCOLUMN_CATALOG_VARIANTS = ['light', 'dark'] as const
+export const LEFTCOLUMN_CATALOG_SIZES = ['default'] as const
+export const LEFTCOLUMN_CATALOG_STATES = ['default', 'selected', 'disabled', 'long-title'] as const
+
+export function LeftColumnBoard() {
+  const [mode, setMode] = useState<'conversation' | 'editor'>('conversation')
+  return <LeftColumn
+  top={<LeftColumnTop shown settings={false} back={false} forward={false} toggle={() => {}} goBack={() => {}} goForward={() => {}}
+    search={<Button variant="ghost" size="icon-sm" aria-label="Search everything"><SearchIcon size={16} /></Button>}
+    modeSwitch={{ value: mode, onChange: setMode, disabled: false, disabledTitle: "Editor mode opens a conversation's files" }} />}
+  head={mode === 'editor' ? <LeftColumnExplorerHead name="storefront" path="/work/storefront" filter="changed" changes={4} onFilter={() => {}} /> : null} body={<LeftColumnBody>
+  {mode === 'editor' && <><LeftColumnRow label="src" icon={<FolderIcon size={16} />} tree={{ depth: 0, expanded: true }} onClick={() => {}} /><LeftColumnRow label="checkout.ts" icon={<FileIcon size={16} />} tree={{ depth: 1, letter: 'M' }} trailing={{ kind: 'mark', icon: 'M', label: 'Modified' }} selected onClick={() => {}} /></>}
+  {mode === 'conversation' && <><LeftColumnRow label="Teams" icon={<TeamIcon size={16} />} onClick={() => {}} />
+  <LeftColumnGroup label="Projects">
+    <LeftColumnRow label="Release notes for checkout retry · 長い会話名" icon={<FolderIcon size={16} />}
+      title={'Release notes for checkout retry\nThe folder is gone; the transcript remains readable.'}
+      selected trailing={{ kind: 'count', value: 12, label: '12 held messages' }}
+      action={{ label: 'Actions for Release notes', onClick: () => {} }} />
+    <LeftColumnRow label="Conversation with no leading mark" onClick={() => {}} />
+    <LeftColumnRow label="Unavailable conversation" disabled title="Conversation not kept" />
+  </LeftColumnGroup></>}
+</LeftColumnBody>}
+  footer={<>{mode === 'editor' && <LeftColumnExplorerFoot onClick={() => {}} />}<LeftColumnSeat notifications={<Button variant="ghost" size="icon-sm" aria-label="Inbox"><BellIcon size={16} /></Button>} settingsOpen={false} onSettings={() => {}}
+    menu={<Button variant="ghost" size="pattern" className="inline-flex items-center gap-(--hd-space-2) px-(--hd-space-2) text-(length:--hd-text) font-(weight:--hd-weight-medium)" data-catalog-size="default"><UserIcon size={16} />Jane Doe</Button>} /></>} />
+}
+
+
+import { LeftColumnList, LeftColumnRename, LeftColumnNavigation, LeftColumnProjectsHead, LeftColumnListOptions, LeftColumnEmpty } from ".."
+export function LeftColumnWorkBoard() {
+  const [filter, setFilter] = useState('')
+  const [focused, setFocused] = useState(false)
+  return <LeftColumn head={<LeftColumnNavigation><LeftColumnRow label="New session" icon={<PlusIcon size={16} />} onClick={() => {}} /></LeftColumnNavigation>} body={<LeftColumnBody>
+    <LeftColumnProjectsHead value={filter} onChange={setFilter} focused={focused} onFocusChange={setFocused}
+      onBrowseFolders={() => {}} options={<LeftColumnListOptions filtered={false}><Button variant="muted" size="icon-xs" aria-label="List options"><MoreIcon size={16} /></Button></LeftColumnListOptions>} />
+    <LeftColumnList before={30} after={30} labels="Release plan|Rename">
+      <LeftColumnRow label="Release plan" icon={<FolderIcon size={16} />} project current expanded
+        action={{ kind: 'new', label: 'New session in Release plan', onClick: () => {} }} />
+      <LeftColumnRename input={<Input aria-label="Rename example" defaultValue="Release plan" />} />
+      <LeftColumnEmpty>No conversations yet — ⌘N starts one here.</LeftColumnEmpty>
+    </LeftColumnList>
+  </LeftColumnBody>} top={null} footer={null} />
+}
+COMPOSITION_BOARDS.push({ id: 'left-column-work', title: 'Left column work rows', about: 'Fixed rows, rename, virtual spacers and the existing project controls.', render: LeftColumnWorkBoard })
+
+import { MoreIcon } from '../../components/Icons'
+
+import { SettingsNavigation } from '../../components/SettingsNavigation'
+import type { Section as SettingsSection } from '../../components/Settings'
+export const SettingsNavigationBoard = () => {
+  const store = useMemo(() => previewStore(), [])
+  const [section, setSection] = useState<SettingsSection>('general')
+  return <StoreProvider store={store}><LeftColumnBody>
+    <SettingsNavigation section={section} onSection={setSection} onBack={() => setSection('general')} />
+  </LeftColumnBody></StoreProvider>
+}
+COMPOSITION_BOARDS.push({ id: 'settings-navigation', title: 'Settings navigation', about: 'Controlled preferences with Back and search.', render: SettingsNavigationBoard })
+
+import { MenuExample, SuggestionsExample, SelectExample } from '../catalog/popup-examples'
+const MENU_ROW_CATALOG_VARIANTS = ['default'] as const
+const MENU_ROW_CATALOG_SIZES = ['default'] as const
+const MENU_ROW_CATALOG_STATES = ['default'] as const
+const PopupMenuBoard = () => <>{MENU_ROW_CATALOG_VARIANTS.map(variant => MENU_ROW_CATALOG_SIZES.map(size => MENU_ROW_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><MenuExample /><MenuExample icons="none" /></div>)))}</>
+
+
+import { WideMenuExample, MeteredMenuExample, InfoCardExample } from '../catalog/popup-examples'
+const WIDEMENU_CATALOG_VARIANTS = ['default'] as const
+const WIDEMENU_CATALOG_SIZES = ['default'] as const
+const WIDEMENU_CATALOG_STATES = ['default'] as const
+const PopupWideBoard = () => <>{WIDEMENU_CATALOG_VARIANTS.map(variant => WIDEMENU_CATALOG_SIZES.map(size => WIDEMENU_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><WideMenuExample /><MeteredMenuExample /></div>)))}</>
+
+const INFOCARD_CATALOG_VARIANTS = ['default'] as const
+const INFOCARD_CATALOG_SIZES = ['default'] as const
+const INFOCARD_CATALOG_STATES = ['default'] as const
+const PopupInfoBoard = () => <>{INFOCARD_CATALOG_VARIANTS.map(variant => INFOCARD_CATALOG_SIZES.map(size => INFOCARD_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><InfoCardExample /></div>)))}</>
+
+const SUBJECTACTIONSMENU_CATALOG_VARIANTS = ['default'] as const
+const SUBJECTACTIONSMENU_CATALOG_SIZES = ['default'] as const
+const SUBJECTACTIONSMENU_CATALOG_STATES = ['default'] as const
+const PopupSubjectBoard = () => <>{SUBJECTACTIONSMENU_CATALOG_VARIANTS.map(variant => SUBJECTACTIONSMENU_CATALOG_SIZES.map(size => SUBJECTACTIONSMENU_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><SubjectActionsMenu label="Scout" actions={[{ label: 'Open', onSelect: () => {} }, { label: 'Message', onSelect: () => {} }]} choice={{ label: 'Messages', value: 'hold', options: [{ value: 'accept', label: 'Accept' }, { value: 'hold', label: 'Hold' }, { value: 'refuse', label: 'Refuse' }], onChange: () => {} }} /></div>)))}</>
+
+import { InboxExample } from '../catalog/popup-examples'
+const INBOXMENU_CATALOG_VARIANTS = ['default'] as const
+const INBOXMENU_CATALOG_SIZES = ['default'] as const
+const INBOXMENU_CATALOG_STATES = ['default'] as const
+const PopupInboxBoard = () => <>{INBOXMENU_CATALOG_VARIANTS.map(variant => INBOXMENU_CATALOG_SIZES.map(size => INBOXMENU_CATALOG_STATES.map(state => <div key={`${variant}-${size}-${state}`} data-catalog-variant={variant} data-catalog-size={size} data-catalog-state={state}><InboxExample /></div>)))}</>
+
+import { PageControls, ShortcutKeys, PageExplanation, PreservedText, InlineQualifier, PageNotes, PageOptions, PictureChoices, AccentChoices, RingChoices } from '..'
+import { AVATARS, type AvatarId } from '../../lib/avatars'
+
+const PAGECONTROLS_CATALOG_VARIANTS = ['default'] as const
+const PAGECONTROLS_CATALOG_SIZES = ['default'] as const
+const PAGECONTROLS_CATALOG_STATES = ['default', 'disabled'] as const
+export const PageControlsBoard = () => {
+  const [scope, setScope] = useState('all'), [query, setQuery] = useState('')
+  return <div data-catalog-variants={PAGECONTROLS_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={PAGECONTROLS_CATALOG_SIZES.join(' ')} data-catalog-states={PAGECONTROLS_CATALOG_STATES.join(' ')}>
+    <Page width="reading"><PageControls search={{label:'Search records',placeholder:'Search records…',value:query,change:setQuery}}
+      choices={[{id:'scope',title:'Agent scope',description:'The selected scope applies to the records below. 長い説明もすべて表示します。',value:scope,
+        options:[{value:'all',label:'All agents · チェックアウトのレビュー'},{value:'pending',label:'Pending agent read',disabled:true}],change:setScope}]} />
+      <PageExplanation>A complete explanation keeps its lines within the page.</PageExplanation>
+      <PreservedText value={'First line\nSecond line · チェックアウト'} />
+      <Text>Read just now<InlineQualifier value="local" /></Text>
+      <ShortcutKeys keys={['⌘', '[']} />
+      <PageNotes notes={[{id:'read',text:'The records are read from their current source.'}]} />
+      <Input measure="name" aria-label="Example name" defaultValue="Jane Doe" />
+      <Input measure="path" aria-label="Example path" defaultValue="/repo/storefront" />
+    </Page>
+  </div>
+}
+const PAGEOPTIONS_CATALOG_VARIANTS = ['default'] as const
+const PAGEOPTIONS_CATALOG_SIZES = ['default'] as const
+const PAGEOPTIONS_CATALOG_STATES = ['default', 'loading', 'folded-state'] as const
+export const PageOptionsBoard = () => {
+  const [scope,setScope] = useState('all'), [query,setQuery] = useState('')
+  const items = [{value:'all',label:'All agents · long reusable checkout review · チェックアウトのレビュー'},
+    {value:'local',label:'Local',count:3},{value:'pending',label:'Pending agent read',disabled:'Reading the current scope…'}]
+  return <div data-catalog-variants={PAGEOPTIONS_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={PAGEOPTIONS_CATALOG_SIZES.join(' ')} data-catalog-states={PAGEOPTIONS_CATALOG_STATES.join(' ')}>
+    {[736,320].map(width => <div key={width} style={{width,maxWidth:'100%'}}>
+      <Page width="reading"><PageOptions choices={[{id:'scope',label:'Agent scope',value:scope,items,change:setScope,mode:'menu'},
+        {id:'layout',label:'Library layout',value:'list',items:[{value:'list',label:'List · 長いチェックアウトのレビュー'},{value:'matrix',label:'Matrix'}],change:()=>{}}]}
+        search={{label:'Search records',value:query,change:setQuery}} read="Read just now" action={{label:'Refresh',run:()=>{}}} />
+        <PageOptions choices={[{id:'pending',label:'Pending scope',value:'pending',items,change:()=>{}}]}
+          read="Reading current scope…" action={{label:'Refresh',disabled:true,run:()=>{}}} />
+      </Page>
+    </div>)}
+  </div>
+}
+const SETTINGSCHOICES_CATALOG_VARIANTS = ['default'] as const
+const SETTINGSCHOICES_CATALOG_SIZES = ['default'] as const
+const SETTINGSCHOICES_CATALOG_STATES = ['populated', 'unknown', 'selected'] as const
+export const SettingsChoicesBoard = () => {
+  const [picture,setPicture] = useState<AvatarId | null>('wizard'), [accent,setAccent] = useState('default'), [ring,setRing] = useState<'blue' | 'green' | 'amber' | 'rose' | 'violet'>('blue')
+  const pictures = [{id:null,label:'Default',about:'The HarnessDesk mark'},...AVATARS]
+  return <div data-catalog-variants={SETTINGSCHOICES_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={SETTINGSCHOICES_CATALOG_SIZES.join(' ')} data-catalog-states={SETTINGSCHOICES_CATALOG_STATES.join(' ')}>
+    <Page width="reading"><SectionHead name="Selected picture" /><PictureChoices value={picture} items={pictures} change={setPicture} />
+      <SectionHead name="Unknown picture" /><PictureChoices value="unavailable-picture" items={pictures} change={setPicture} />
+      <Rows><Row title="Accent" control={<AccentChoices value={accent} items={[{value:'default',label:'Default',swatch:'var(--hd-accent)'},{value:'green',label:'Green',swatch:'var(--hd-success)'}]} change={setAccent} />} />
+        <Row title="Ring colour" control={<RingChoices value={ring} values={['blue','green','amber','rose','violet']} mark={<AgentIcon size={14} />} change={setRing} />} /></Rows>
+    </Page>
+  </div>
+}
+
+import { DashboardBands, DashboardStats } from '..'
+const DASHBOARDBANDS_CATALOG_VARIANTS = ['light', 'dark'] as const
+const DASHBOARDBANDS_CATALOG_SIZES = ['default'] as const
+const DASHBOARDBANDS_CATALOG_STATES = ['default', 'empty', 'unknown', 'long-title'] as const
+export function DashboardBandsBoard() { return <div data-catalog-variants={DASHBOARDBANDS_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={DASHBOARDBANDS_CATALOG_SIZES.join(' ')} data-catalog-states={DASHBOARDBANDS_CATALOG_STATES.join(' ')}>
+  <Case label="known, empty and unknown">
+    <Page width="wide"><DashboardBands bands={[
+      {id:'recorded',title:'Recorded readings',rows:[{id:'known',title:'Long account name · 記録された利用状況',description:'One source on this machine.',value:'42%'},{id:'missing',title:'Unavailable account',value:'—'}]},
+      {id:'empty',title:'No records yet',explanation:'No measured value is available.',rows:[]},
+    ]} /><DashboardStats facts={[{id:'known',label:'Known reading',value:'42%'},{id:'unknown',label:'Unknown reading',value:'—'}]} /></Page>
+  </Case>
+</div> }
+
+import { PageRecords } from '..'
+const PAGERECORDS_CATALOG_VARIANTS = ['default'] as const
+const PAGERECORDS_CATALOG_SIZES = ['default'] as const
+const PAGERECORDS_CATALOG_STATES = ['default','populated','long-title','folded-state'] as const
+export const PageRecordsBoard = () => <div data-catalog-variants={PAGERECORDS_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={PAGERECORDS_CATALOG_SIZES.join(' ')} data-catalog-states={PAGERECORDS_CATALOG_STATES.join(' ')}>
+ <Specimen measure="wide" caption="Grouped records and whole waiting reasons"><PageRecords label="Team" columns={[{id:'time',label:'Time',numeric:true},{id:'turns',label:'Turns',numeric:true}]}
+  groups={[{id:'/work/storefront',label:'Storefront · 2',rows:[{id:'review',title:'Review the checkout recovery with a long recorded title · 長い記録',description:'Waiting for a decision on whether to keep the original payment method.',values:{time:'47m',turns:'137'},state:<Chip tone="warning">Needs you</Chip>,open:()=>{},actions:<Button variant="quiet" size="sm">Hide</Button>},
+   {id:'cache',title:'Finish the usage cache',values:{time:'5h',turns:'92'},state:<Text role="meta">Ready to wrap</Text>,open:()=>{}}]}]}/></Specimen>
+ <Specimen measure="fit" caption="The same record below the content threshold"><div className="max-w-sm"><PageRecords label="Team" columns={[{id:'time',label:'Time',numeric:true}]} groups={[{id:'/work/billing',label:'Billing · 1',rows:[{id:'invoice',title:'Keep the invoice rounding change',compact:'Review accepted the invoice rounding change · 5h in this state · 46 turns',values:{time:'5h'},state:<Text role="meta">Settled</Text>,open:()=>{}}]}]}/></div></Specimen>
+</div>
+
+import { LibraryMatrix } from '..'
+const LIBRARYMATRIX_CATALOG_VARIANTS = ['default'] as const
+const LIBRARYMATRIX_CATALOG_SIZES = ['default'] as const
+const LIBRARYMATRIX_CATALOG_STATES = ['populated', 'empty', 'long-title'] as const
+export const LibraryMatrixBoard = () => {
+  const columns = Array.from({length: 12}, (_, index) => ({id:`agent-${index}`,label:`Agent ${index + 1}`}))
+  const row = (name: string) => ({id:name,name,description:'A complete declaration compared against the current scan.',open:()=>{},
+    cells:columns.map(column=>({id:column.id,state:'reaches',label:`${name} — ${column.label}: Reaches`,mark:<Dot state="ready"/>}))})
+  return <div data-catalog-variants={LIBRARYMATRIX_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={LIBRARYMATRIX_CATALOG_SIZES.join(' ')} data-catalog-states={LIBRARYMATRIX_CATALOG_STATES.join(' ')}>
+    <Page width="wide">
+      <LibraryMatrix columns={columns.slice(0,2)} rows={[row('sample-skill')].map(entry=>({...entry,cells:entry.cells.slice(0,2)}))}/>
+      <LibraryMatrix columns={[]} rows={[]}/>
+      <LibraryMatrix columns={columns} rows={[row('Reusable checkout review · 長いチェックアウトのレビュー'),row('sample-skill')]}/>
+    </Page>
+  </div>
+}
+
+import { SignInRail, RailSection } from '..'
+const SIGNINRAIL_CATALOG_VARIANTS = ['default'] as const
+const SIGNINRAIL_CATALOG_SIZES = ['default'] as const
+const SIGNINRAIL_CATALOG_STATES = ['default'] as const
+export const SignInRailBoard = () => <div data-catalog-variants={SIGNINRAIL_CATALOG_VARIANTS.join(' ')} data-catalog-sizes={SIGNINRAIL_CATALOG_SIZES.join(' ')} data-catalog-states={SIGNINRAIL_CATALOG_STATES.join(' ')}><SignInRail aria-label="Sign in"><RailSection stretch="list" density="comfortable">Choose an agent</RailSection></SignInRail></div>

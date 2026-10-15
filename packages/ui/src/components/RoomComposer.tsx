@@ -9,13 +9,17 @@ import {
   type KeyboardEvent,
   type ReactNode,
   type Ref,
+  type Dispatch,
+  type SetStateAction,
 } from 'react'
 
 import {
   TEAM_MESSAGE_CHARS,
+  sessionKey,
   type SessionId,
   type SessionKey,
   type TeamPeerInfo,
+  type TeamMessage,
 } from '@harnessdesk/protocol'
 
 import type { Tint } from '../lib/accounts'
@@ -31,15 +35,18 @@ import {
   ComposerShell,
   ComposerText,
   ComposerTools,
+  Button,
   Text,
   TurnWorkLive,
 } from '../design'
 import { BrandMark } from './BrandIcons'
-import { AgentIcon, SendIcon, TeamIcon } from './Icons'
+import { AgentIcon, SendIcon, StopIcon, TeamIcon } from './Icons'
 import { ComposerNoticeStack, ComposerTail, MemberName, Menu, MenuItem, MenuLabel, MenuNote, MenuSeparator, MenuToggle, Popover } from '../design'
 import { ComposerNotices, NoticeStripOutlet } from './Notices'
 import { mainNoticeHost } from '../state/workbench'
 import { TriggerMenu, type TriggerItem } from './TriggerMenu'
+import { RoomComposerOptions } from './RoomComposerOptions'
+import { HoldingMessagesChip } from './RoomMessaging'
 
 /**
  * What the composer needs to know about one member.
@@ -61,7 +68,19 @@ export interface RoomMember {
   readonly title: string | null
   /** The account's ring, the colour the rail draws this member's face in. */
   readonly tint?: Tint
+  /** A host-observed reason this member cannot receive right now. */
+  readonly unavailable?: string
 }
+
+export interface RoomComposerDraft {
+  readonly text: string
+  readonly to: readonly SessionKey[]
+}
+export interface RoomComposerDraftState {
+  readonly value: RoomComposerDraft
+  readonly onChange: Dispatch<SetStateAction<RoomComposerDraft>>
+}
+export const EMPTY_ROOM_DRAFT: RoomComposerDraft = { text: '', to: [] }
 
 /**
  * What the room can ask of its composer from outside.
@@ -72,9 +91,8 @@ export interface RoomMember {
  * audience existed that was `setTo` on the pane's own state, and moving the
  * state into this component took the destination away with it.
  *
- * Deliberately not a controlled `to`/`onTo` pair. The audience belongs with
- * the words — it is part of writing the message, and lifting it into the pane
- * would make every keystroke of the draft the pane's business too.
+ * The room keeps words and audience together when this box moves between
+ * Chat and the grid; the handle lets a name card address that same draft.
  */
 export interface RoomComposerHandle {
   /** Adds a member to the audience, as picking them from `@` would. */
@@ -171,11 +189,16 @@ export const RoomComposer = ({
   room,
   members,
   messaging,
+  onMessaging,
+  messagingReason,
   card,
   statusLine,
   suspended = false,
   onTrouble,
   onPosted,
+  defaultAudience,
+  draftState,
+  tileLabels,
 }: {
   /** See `RoomComposerHandle`. React 19 passes this as an ordinary prop. */
   readonly ref?: Ref<RoomComposerHandle>
@@ -183,6 +206,8 @@ export const RoomComposer = ({
   /** The roster, or null while the host has not answered yet. */
   readonly members: readonly RoomMember[] | null
   readonly messaging: boolean
+  readonly onMessaging: () => Promise<void>
+  readonly messagingReason?: string
   /**
    * A member's name card, hung off the chip that carries them.
    *
@@ -204,6 +229,12 @@ export const RoomComposer = ({
   readonly onTrouble: (message: string | null) => void
   /** A post of your own always brings the reader back to the floor. */
   readonly onPosted: () => void
+  /** Omitted in Chat; a grid supplies the visible tiles instead of broadcasting. */
+  readonly defaultAudience?: readonly SessionKey[]
+  /** Grid letters are aliases for the same addressed audience, never separate routing. */
+  readonly tileLabels?: ReadonlyMap<SessionKey, string>
+  /** The room owns this when the box can move between Chat and the grid. */
+  readonly draftState?: RoomComposerDraftState
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -213,11 +244,21 @@ export const RoomComposer = ({
   // Whether this room's own strip is the one the layout has chosen to carry
   // the desk-wide messages — never a second, competing answer of its own.
   const textarea = useRef<HTMLTextAreaElement>(null)
-  const [draft, setDraft] = useState('')
-  /** Empty is everyone. The default, and the common case by a distance. */
-  const [to, setTo] = useState<readonly SessionKey[]>([])
-  const [mention, setMention] = useState<{ readonly query: string } | null>(null)
+  const shell = useRef<HTMLDivElement>(null)
+  const [localDraft, setLocalDraft] = useState<RoomComposerDraft>(EMPTY_ROOM_DRAFT)
+  const { text: draft, to } = draftState?.value ?? localDraft
+  const updateDraft = draftState?.onChange ?? setLocalDraft
+  const setDraft = useCallback((next: SetStateAction<string>) => updateDraft((was) => {
+    const text = typeof next === 'function' ? next(was.text) : next
+    return text === was.text ? was : { ...was, text }
+  }), [updateDraft])
+  const setTo = useCallback((next: SetStateAction<readonly SessionKey[]>) => updateDraft((was) => {
+    const to = typeof next === 'function' ? next(was.to) : next
+    return to === was.to ? was : { ...was, to }
+  }), [updateDraft])
+  const [mention, setMention] = useState(() => detectMention(draft))
   const [active, setActive] = useState(0)
+  const [stopping, setStopping] = useState(false)
   /** The draft a pick just left, until the next keystroke — see `closeMentionGap`. */
   const gap = useRef<string | null>(null)
 
@@ -263,7 +304,14 @@ export const RoomComposer = ({
     [to, roster],
   )
   /** Who the message actually reaches: the chosen, or everybody. */
-  const recipients = chosen.length > 0 ? chosen : roster
+  const defaults = defaultAudience === undefined ? roster : defaultAudience.flatMap((key) => {
+    const member = roster.find((one) => one.key === key)
+    return member ? [member] : []
+  })
+  const recipients = chosen.length > 0 ? chosen : defaults
+  const allTiles = defaults.length === 2 && recipients.length === 2 && defaults.every(one => recipients.some(recipient => recipient.key === one.key))
+  const tileAudience = chosen.length === 0 || allTiles ? defaults.length === 2 ? 'Both' : 'All' : chosen.map(one => tileLabels?.get(one.key) ?? one.peer.nickname).join(', ')
+  const tilePrompt = tileLabels && defaults.length === 2 ? `Message both, or ${defaults.map(one => `@${tileLabels.get(one.key) ?? one.peer.nickname}`).join(' / ')}` : null
   const queued = recipients.filter((one) => one.busy)
   /* Members that cannot reach the plugin tools. They still *receive* this —
      the user's post is an ordinary turn, and `Team.post` consults no
@@ -282,15 +330,34 @@ export const RoomComposer = ({
   /** Whether the whole message is held, rather than one copy of it. */
   const waits = queued.length > 0 && queued.length === recipients.length
   const over = draft.length > limit
-  const empty = known && roster.length === 0
-  const canSend = !record && draft.trim().length > 0 && !over && !empty
+  const empty = known && recipients.length === 0
+  const canSend = !record && draft.trim().length > 0 && !over && !empty && (defaultAudience === undefined || known)
+
+  const channel = snapshot.teams.get(room)?.channel ?? []
+  const lastPost = [...channel].reverse().find((one): one is TeamMessage => one.kind === 'message' && one.from.kind === 'user')
+  const outcomes = defaultAudience && lastPost ? channel.filter((one): one is TeamMessage =>
+    one.kind === 'message' && one.from.kind === 'user' &&
+    (lastPost.batch ? one.batch?.id === lastPost.batch.id : one.at === lastPost.at && one.text === lastPost.text),
+  ) : []
+
+  const stop = (): void => {
+    setStopping(true)
+    void Promise.allSettled(queued.map((one) => store.interrupt(one.key))).then((results) => {
+      const failed = queued.filter((_one, index) => results[index]?.status === 'rejected')
+      onTrouble(failed.length ? `Could not stop ${failed.map((one) => one.peer.nickname).join(', ')}. Try again.` : null)
+      setStopping(false)
+    })
+  }
 
   const items: TriggerItem[] = useMemo(() => {
     if (!mention) return []
     const needle = mention.query.toLowerCase()
     return roster
+      .filter(one => !tileLabels || tileLabels.has(one.key))
       .filter((one) =>
-        [one.peer.nickname, one.peer.agent, one.peer.model, one.title]
+        tileLabels && [...tileLabels.values()].some(label => label.toLowerCase() === needle)
+          ? tileLabels.get(one.key)?.toLowerCase() === needle
+          : [tileLabels?.get(one.key), one.peer.nickname, one.peer.agent, one.peer.model, one.title]
           .filter(Boolean)
           .join(' ')
           .toLowerCase()
@@ -300,7 +367,7 @@ export const RoomComposer = ({
       .map((one) => ({
         id: one.key,
         name: one.peer.nickname,
-        ...(one.title ?? one.peer.model ? { hint: one.title ?? one.peer.model ?? '' } : {}),
+        ...(one.unavailable ? { hint: one.unavailable, disabled: one.unavailable } : one.title ?? one.peer.model ? { hint: one.title ?? one.peer.model ?? '' } : {}),
         ...(one.brand ? { mark: <BrandMark brand={one.brand} size={13} /> } : { mark: <AgentIcon size={13} /> }),
         ...(!one.canUseBoard
           ? { badge: 'no tools', badgeTone: 'warn' as const }
@@ -311,7 +378,7 @@ export const RoomComposer = ({
               : { badge: 'not open', badgeTone: 'muted' as const }),
         ...(to.includes(one.key) ? { selected: true } : {}),
       }))
-  }, [mention, roster, to])
+  }, [mention, roster, to, tileLabels])
 
   useEffect(() => {
     setActive(0)
@@ -329,12 +396,8 @@ export const RoomComposer = ({
     })
     setMention(null)
     textarea.current?.focus()
-    /* Nothing from this render is captured — state setters are stable and the
-       textarea is a ref — so the handle below can hold one of these forever
-       without going stale. It depended on `roster` before, which was neither
-       needed nor true: a reader would have taken that to mean the audience is
-       resolved here, and it is not. */
-  }, [])
+    // Only draft setters and the textarea ref are captured, never a roster.
+  }, [setDraft, setTo])
 
   /* Published after `address` is defined, so the handle is the same act the
      menu performs rather than a second implementation of it. */
@@ -357,25 +420,25 @@ export const RoomComposer = ({
    * everyone it reached, where a loop of posts would be N of each.
    */
   const deliver = (text: string): Promise<{ readonly refused: number } | void> => {
-    if (chosen.length === 0) return store.teamPost(room, text)
-    if (chosen.length === 1) {
+    if (chosen.length === 0 && defaultAudience === undefined) return store.teamPost(room, text)
+    if (recipients.length === 1) {
       return store.teamPost(room, text, {
-        runtime: chosen[0]!.peer.runtime,
-        sessionId: chosen[0]!.peer.sessionId as SessionId,
+        runtime: recipients[0]!.peer.runtime,
+        sessionId: recipients[0]!.peer.sessionId as SessionId,
       })
     }
     return store
       .teamHandout(
         room,
         text,
-        chosen.map((one) => ({
+        recipients.map((one) => ({
           runtime: one.peer.runtime,
           sessionId: one.peer.sessionId as SessionId,
         })),
       )
       .then((tally) => {
         if (tally.refused > 0) {
-          onTrouble(`${tally.refused} of ${chosen.length} did not take it. The row in the channel says why.`)
+          onTrouble(`${tally.refused} of ${recipients.length} did not take it. The row in the channel says why.`)
         }
         return tally
       })
@@ -446,7 +509,7 @@ export const RoomComposer = ({
       if ((event.key === 'Enter' && !event.nativeEvent.isComposing) || event.key === 'Tab') {
         event.preventDefault()
         const item = items[active]
-        if (item) address(item.id as SessionKey)
+        if (item && !item.disabled) address(item.id as SessionKey)
         else setMention(null)
         return
       }
@@ -471,13 +534,21 @@ export const RoomComposer = ({
    * nobody asked for.
    */
   const notices: readonly (false | { readonly tone: 'warn' | 'muted'; readonly text: ReactNode })[] = [
+    !known && defaultAudience !== undefined && {
+      tone: 'muted',
+      text: 'Loading the visible Seats…',
+    },
     over && {
       tone: 'warn',
-      text: `${draft.length.toLocaleString()} characters — the room's limit is ${limit.toLocaleString()}. Put long material on the board as a context package.`,
+      text: `${draft.length.toLocaleString()} characters — the Team's limit is ${limit.toLocaleString()}. Put long material on the board as a context package.`,
     },
     empty && {
       tone: 'muted',
-      text: 'No agents in this room yet. Add one from the roster.',
+      text: 'No agents in this Team yet. Add one from Seats in Details.',
+    },
+    recipients.some((one) => one.unavailable) && {
+      tone: 'warn',
+      text: recipients.filter((one) => one.unavailable).map((one) => `${one.peer.nickname}: ${one.unavailable}`).join(' '),
     },
     boardless.length > 0 && {
       tone: 'warn',
@@ -497,7 +568,7 @@ export const RoomComposer = ({
        to five where one is mid-turn goes to four of them now, and "this
        waits for the turn to end" over that is a sentence the channel
        contradicts a second later. */
-    queued.length > 0 && {
+    !tileLabels && queued.length > 0 && {
       tone: 'muted',
       text:
         queued.length === recipients.length
@@ -515,6 +586,15 @@ export const RoomComposer = ({
     <>
     <ComposerTail>
     {statusLine}
+    {tileLabels && defaults.some(one => one.busy) && !suspended && <Text role="meta">Waits for their turns</Text>}
+    {outcomes.length > 0 && <TurnWorkLive settled data-slot="room-composer-outcomes" role="status">
+      {outcomes.map((one, index) => {
+        const member = one.to ? roster.find((member) => member.key === sessionKey(one.to!.runtime, one.to!.sessionId as SessionId)) : null
+        return <span key={one.id}>
+          {index > 0 ? ' · ' : ''}{member?.peer.nickname ?? one.to?.nickname ?? one.to?.title ?? 'Everyone'}: {one.state === 'queued' ? 'Queued — next after this turn' : one.state}{one.reason ? ` — ${one.reason}` : ''}
+        </span>
+      })}
+    </TurnWorkLive>}
     {/* What sending will do, said over the box rather than inside it, as one
         more line of the room's tail: the transcript's live line, settled —
         the same box, size and ink as who is working above it — so the tail
@@ -524,7 +604,10 @@ export const RoomComposer = ({
         would do is moot until there is a box to send from. */}
     {notice && !suspended && (
       <TurnWorkLive settled data-slot="room-composer-notice">
-        {notice.tone === 'warn' ? <Text role="prose" tone="warning">{notice.text}</Text> : notice.text}
+        {/* One paragraph either way: names and sentence as one run of text.
+            Loose, the sentence was its own flex item beside the name chips and
+            shrank to one word per line (#1561). */}
+        {notice.tone === 'warn' ? <Text role="prose" tone="warning">{notice.text}</Text> : <span>{notice.text}</span>}
       </TurnWorkLive>
     )}
     </ComposerTail>
@@ -541,19 +624,21 @@ export const RoomComposer = ({
       <NoticeStripOutlet host={isNoticeHost} area="main" hostId={`room-composer:${mount?.id ?? 'unmounted'}`} />
       <ComposerNotices />
     </ComposerNoticeStack>
-    <ComposerShell className="relative">
+    <ComposerShell ref={shell} className="relative">
       {mention && (
         <TriggerMenu
+          anchor={defaultAudience ? shell : undefined}
+          onDismiss={() => setMention(null)}
           title="Address"
           items={items}
           activeIndex={active}
           onHover={setActive}
-          onPick={(item) => address(item.id as SessionKey)}
+          onPick={(item) => { if (!item.disabled) address(item.id as SessionKey) }}
           emptyLabel="Nobody here by that name"
         />
       )}
 
-      {chosen.length > 0 && (
+      {(chosen.length > 0 || !messaging) && (
         <ComposerChips>
           {chosen.map((one) => (
             <ComposerChip
@@ -586,6 +671,7 @@ export const RoomComposer = ({
               )}
             </ComposerChip>
           ))}
+          {!messaging && <HoldingMessagesChip />}
         </ComposerChips>
       )}
 
@@ -593,7 +679,7 @@ export const RoomComposer = ({
         ref={textarea}
         value={draft}
         disabled={record}
-        placeholder={record ? RECORD_REASON : "Message the room — @ to address someone"}
+        placeholder={record ? RECORD_REASON : tilePrompt ?? (defaultAudience ? 'Describe a task — @ to address someone' : 'Message the Team — @ to address someone')}
         onChange={(event) => change(event.target.value)}
         onKeyDown={onKeyDown}
       />
@@ -602,13 +688,12 @@ export const RoomComposer = ({
         <Popover
           drop="up"
           align="left"
-          /* The title becomes the accessible name (the label is a glyph and a
-             span, not a string), so it has to *carry* the audience rather than
-             describe the control — a screen reader on "Who this reaches" is
-             told what the button is for and not what it currently says. */
+          aria-label="Send to"
+          /* The stable control name keeps the audience visible; the title
+             describes exactly who receives the message. */
           title={
             chosen.length === 0
-              ? 'This message reaches everyone in the room'
+              ? defaultAudience ? 'This message reaches everyone on the grid' : 'This message reaches everyone in the Team'
               : `This message reaches ${audienceLabel(chosen)}`
           }
           label={
@@ -618,15 +703,21 @@ export const RoomComposer = ({
               ) : (
                 <TeamIcon size={13} />
               )}
-              <span>{audienceLabel(chosen)}</span>
+              <span>{tileLabels ? `To: ${tileAudience}` : audienceLabel(chosen)}</span>
             </>
           }
-        >
+         icons="none">
           {(close) => (
             <Menu close={close}>
+              {tileLabels ? <>
+                <MenuItem label={defaults.length === 2 ? 'Both' : 'All'} selected={chosen.length === 0 || allTiles} onSelect={() => setTo([])} />
+                {defaults.map(one => <MenuItem key={one.key} label={tileLabels.get(one.key) ?? one.peer.nickname}
+                  title={one.peer.nickname} disabled={one.unavailable} selected={chosen.length === 1 && chosen[0]?.key === one.key}
+                  onSelect={() => { setTo([one.key]); setMention(null) }} />)}
+              </> : <>
               <MenuItem
                 icon={<TeamIcon />}
-                label="Everyone in the room"
+                label={defaultAudience ? 'Everyone on the grid' : 'Everyone in the Team'}
                 selected={chosen.length === 0}
                 onSelect={() => setTo([])}
               />
@@ -642,7 +733,8 @@ export const RoomComposer = ({
                      right now at the end of the row. Two facts, two places —
                      joined by a middle dot they truncate each other, and the
                      half that survives is whichever happened to be shorter. */
-                  hint={one.title ?? one.peer.model ?? undefined}
+                  hint={one.unavailable ?? one.title ?? one.peer.model ?? undefined}
+                  disabled={one.unavailable}
                   value={
                     !one.canUseBoard ? (
                       <Text role="meta" tone="warning">no tools</Text>
@@ -666,14 +758,25 @@ export const RoomComposer = ({
                 /* Not yet answered is not the same fact as nobody here, and
                    only one of the two is a claim this surface may make. */
                 <MenuNote>
-                  {known ? 'No agents in this room yet.' : 'Still asking the host who is in the room.'}
+                  {known ? 'No agents in this Team yet.' : 'Loading the Team’s members…'}
                 </MenuNote>
               )}
+              </>}
+              <MenuSeparator />
+              <MenuToggle icon={tileLabels ? undefined : null} label="Board-only" title="Agents cannot message each other; claims and signals continue." checked={!messaging} disabled={record ? RECORD_REASON : messagingReason}
+                onChange={() => { void onMessaging(); close() }} />
             </Menu>
           )}
         </Popover>
 
+        {defaultAudience && <RoomComposerOptions members={recipients} />}
         <ComposerGap />
+
+        {defaultAudience && queued.length > 0 && <Button
+          type="button" variant="ghost" size="icon-sm"
+          aria-label="Stop addressed agents" title="Stop the addressed agents that are working"
+          disabled={stopping} onClick={stop}
+        ><StopIcon size={14} /></Button>}
 
         {/* The count appears a thousand short of the ceiling and not before:
             a number on every message is a number nobody reads. */}

@@ -1,9 +1,10 @@
+import { effectiveWindowMode } from '../editor'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { RuntimeMark } from './BrandIcons'
 
 import type { RuntimeId } from '@harnessdesk/protocol'
 
-import { sessionKey, type SessionId } from '@harnessdesk/protocol'
+import { allItems, sessionKey, type SessionId } from '@harnessdesk/protocol'
 
 import {
   useIsFocusedPane,
@@ -32,7 +33,8 @@ import { conditionFor } from '../lib/usage-alerts'
 import { isSilenced, offersMute, surfaceFor, wasKept, type NoticeIdentity, type NoticePolicy, type NoticeSurface } from '../lib/notice-policy'
 import { useShell, type ShellActions } from '../panels/views'
 import { useMount } from '../panels/mount'
-import { areaVisible, focusedComposerVisible, noticeArea, visibleViews, type AreaId } from '../state/workbench'
+import { areaVisible, fixedSubject, focusedComposerVisible, mainNoticeHost, noticeArea, visibleViews, type AreaId } from '../state/workbench'
+import { findPane } from '../state/layout'
 import { useImportOffer } from './ImportOffer'
 
 /**
@@ -61,7 +63,7 @@ export const Notices = () => {
           title: shortenNoticeText(notice.message, store.getSnapshot().home),
           ...(notice.action ? { action: { label: notice.action.label, onSelect: () => notice.action?.run() } } : {}),
         },
-        notice.level !== 'info' ? { persist: true } : {},
+        notice.level !== 'info' ? { persist: true } : { expiresAt: notice.action?.expiresAt },
       )
       store.dismissNotice(notice.id)
     }
@@ -171,18 +173,6 @@ const useStanding = (): Standing | null => {
     snapshot.runtimes.find((entry) => entry.id === id)?.presentation.name ?? String(id)
 
   const notice = ((): Notice | null => {
-    if (snapshot.status === 'reconnecting' || snapshot.status === 'closed') {
-      return {
-        // Never written down, on purpose: a dropped link is news every time
-        // it drops, and it clears itself the moment it is fixed.
-        key: `link:${snapshot.status}`,
-        kind: 'link',
-        lifetime: 'session',
-        tone: 'warning',
-        title: 'Reconnecting to HarnessDesk.',
-        body: 'Sessions keep running; this window will catch up.',
-      }
-    }
     if (health?.state === 'unavailable') {
       return {
         key: `health:${runtime.id}:${health.message}`,
@@ -448,6 +438,13 @@ const composerVisible = (snapshot: AppSnapshot, area: AreaId, mountId: string): 
     if (snapshot.layout.expanded !== null && snapshot.layout.expanded !== mountId) return false
     return noticeArea(workbench, snapshot.windowWidth) === 'main'
   }
+  if (area === 'right' && effectiveWindowMode(snapshot.windowMode, workbench) === 'editor') {
+    const pane = findPane(workbench.main, workbench.main.focused)
+    const subject = fixedSubject(workbench.main), tool = subject ? workbench.frameTools[subject] : undefined
+    if (pane?.view.kind === 'conversation' && pane.view.session !== null && mountId === `conversation:${pane.id}`) {
+      return !workbench.right.collapsed && tool?.tool === 'conversation' && tool.open
+    }
+  }
   const dock = workbench[area]
   return !dock.collapsed && visibleViews(dock).some((entry) => entry.id === mountId)
 }
@@ -471,7 +468,7 @@ const useRegisterStripHost = (host: boolean, area: AreaId | undefined, key: stri
 export const NoticeStripFallback = ({ area }: { readonly area: AreaId }) => {
   const registry = useContext(ComposerMountsContext)
   if (registry?.stripHosts.some((host) => host.area === area)) return null
-  return <div className="contents" data-slot="workbench-notice-fallback" data-area={area}><NoticeStripOutlet host /></div>
+  return <div className="contents" data-slot="workbench-notice-fallback" data-area={area}><NoticeStripOutlet host area={area} /></div>
 }
 
 /**
@@ -665,10 +662,34 @@ export const NoticeStripOutlet = ({
   const registry = useContext(ComposerMountsContext)
   const standing = useStanding()
   const offer = useImportOffer()
+  const pane = usePane()
+  const sessionKeyOfPane = useSessionKey()
+  const fallbackPaneId = !pane && area === 'main' ? mainNoticeHost(snapshot.workbench, snapshot.windowWidth) : null
+  const fallbackPane = fallbackPaneId ? findPane(snapshot.layout, fallbackPaneId) : undefined
+  const currentDestination = snapshot.workbench.navigation.current
+  const fallbackSessionKey = fallbackPane?.view.kind === 'conversation' && currentDestination.kind === 'work' &&
+    currentDestination.view.kind === 'conversation'
+    ? fallbackPane.view.session
+    : null
+  const conversationSessionKey = pane?.view.kind === 'conversation'
+    ? sessionKeyOfPane
+    : fallbackSessionKey
+  const session = conversationSessionKey
+    ? snapshot.sessions.get(conversationSessionKey)
+    : undefined
+  const sessionHealth = session
+    ? snapshot.healthByRuntime[session.runtime] ?? (session.runtime === snapshot.activeRuntime ? snapshot.health : null)
+    : null
+  const bodyShowsStandingHealth = Boolean(
+    standing?.identity.kind === 'agent:health' && conversationSessionKey && session &&
+    snapshot.runtimes.some(runtime => runtime.id === session.runtime) &&
+    sessionHealth?.state === 'unavailable' && standing.runtime === session.runtime &&
+    standing.message.title === sessionHealth.message,
+  )
   if (!host) return null
   const messages: NoticeMessage[] = []
   const dismissals = new Map<string, () => void>()
-  if (standing) {
+  if (standing && !bodyShowsStandingHealth) {
     if (standingOutlet(snapshot, standing, registry?.mounts ?? [], registry !== null) === 'strip') {
       messages.push(standing.message)
       dismissals.set(standing.message.id, standing.dismiss)

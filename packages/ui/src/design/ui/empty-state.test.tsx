@@ -41,6 +41,27 @@ it('keeps the centred panel as the default, so existing callers do not move', ()
   expect(panel.querySelector('[data-testid="icon"]')).not.toBeNull()
 })
 
+it('centres a page empty state in the height its filled Page leaves', () => {
+  const panel = draw(<EmptyState fill icon={<svg data-testid="icon" />} title="No active Teams" description="Create a Team." />)
+  expect(panel.className).toContain('flex-1')
+  expect(panel.className).toContain('justify-center')
+  expect(panel.dataset['variant']).toBe('panel')
+})
+
+it('centres content-width actions while leaving choice rows full-width', () => {
+  const panel = draw(<EmptyState title="No active Teams"><button type="button">New Team</button></EmptyState>)
+  const actions = panel.querySelector('button')?.parentElement
+  expect(actions?.className).toContain('items-center')
+  expect(actions?.className).toContain('w-full')
+})
+
+it('can stretch a choice list to the empty-state panel width', () => {
+  const panel = draw(<EmptyState stretchChildren title="Nothing imported yet"><div data-testid="choices" /></EmptyState>)
+  const choices = panel.querySelector('[data-testid="choices"]')
+  expect(choices?.parentElement?.className).toContain('items-stretch')
+  expect(choices?.parentElement?.className).not.toContain('items-center')
+})
+
 it('draws inline as one muted line with no icon and no heading', () => {
   const line = draw(<EmptyState variant="inline" title="Nothing here." description="Cards land here when claimed." />)
   // A div, so the line can carry an element; one look for every list: centred, padded, muted.
@@ -89,7 +110,9 @@ it('takes only the props its variant can draw', () => {
   const rowTight = <EmptyState variant="row" title="Nothing" tight />
   // @ts-expect-error — an inline line draws no icon.
   const inlineIcon = <EmptyState variant="inline" title="Nothing" icon={<svg />} />
-  expect([inlineFooter, rowTight, inlineIcon]).toHaveLength(3)
+  // @ts-expect-error — only a panel can fill a page body.
+  const inlineFill = <EmptyState variant="inline" title="Nothing" fill />
+  expect([inlineFooter, rowTight, inlineIcon, inlineFill]).toHaveLength(4)
 })
 
 it('draws a choice name through the row text role', () => {

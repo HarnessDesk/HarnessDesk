@@ -19,6 +19,7 @@ import type {
   FindingPublishAction,
   FindingView,
   FlowSeat,
+  FlowPreviewSeat,
   GitStatus,
   GoalId,
   GoalView,
@@ -107,8 +108,29 @@ export interface HostContext {
   readonly audit: AuditLog
   readonly transcripts: TranscriptStore
   readonly archive: SessionArchive
+  /** Metadata only: the sidebar never consults an agent on this port. */
+  readonly sessionIndex: {
+    list(params: HostParams<'session/index'>): Page<SessionSummary>
+    record(session: Session): void
+    reopen(session: Session): void
+    setTitle(runtime: RuntimeId, id: SessionId, title: string | null): void
+    setArchived(runtime: RuntimeId, id: SessionId, archived: boolean): void
+    remove(runtime: RuntimeId, id: SessionId): void
+    setRemoved(runtime: RuntimeId, id: SessionId, removed: boolean): { undoUntil: number | null }
+    deleted(runtime: RuntimeId, id: SessionId): void
+  }
+  readonly history: {
+    import(runtime: RuntimeId): void
+    cancel(runtime: RuntimeId): void
+    status(runtime: RuntimeId): HostResult<'history/status'>
+    list(params: HostParams<'history/list'>): Promise<HostResult<'history/list'>>
+    removeImported(runtime: RuntimeId): Promise<HostResult<'history/removeImported'>>
+    clearCached(): Promise<HostResult<'history/clearCached'>>
+  }
   readonly names: SessionNames
   readonly terminals: Terminals
+  readonly storage: import('../storage.js').Storage
+  readonly sessionWorktrees: import('../session-worktrees.js').SessionWorktrees
   readonly worktrees: Worktrees
   readonly team: Team
   readonly flows: Flows
@@ -166,6 +188,7 @@ export interface HostContext {
    */
   readonly attachments?: {
     prepare(subject: AttachmentSubject): Promise<PreparedAttachments>
+    preflight(subject: AttachmentSubject): Promise<NonNullable<FlowPreviewSeat['attachments']>>
     record(seat: SeatRecord, prepared: PreparedAttachments, receipt: SessionAttachmentReceipt): Promise<SeatAttachmentsRecord>
     /** Task 5's own two person-facing verbs on Task 1's trust store — a preview names exact bytes, an approval names exactly the token that preview minted. */
     readonly trust: {
@@ -238,7 +261,7 @@ export interface HostContext {
   }
   libraryUsage(): LibraryUsageReader
   /** Read-only Insight reports plus the explicitly reviewed local seating action. */
-  readonly insight: Pick<InsightPlane, 'goal' | 'usage' | 'agent' | 'compare' | 'previewOrder' | 'applyOrder'>
+  readonly insight: Pick<InsightPlane, 'goal' | 'goals' | 'usage' | 'agent' | 'compare' | 'previewOrder' | 'applyOrder'>
   /**
    * Intake: a project's committed triggers as this machine stands on them,
    * and the person's own controls. The only way a handler reaches triggers;
@@ -272,6 +295,9 @@ export interface HostContext {
     unregister(id: RuntimeId): Promise<void>
     resources(): Promise<readonly import('@harnessdesk/protocol').RuntimeResources[]>
     recycle(runtime: AgentRuntime): Promise<boolean>
+    prepareIntent(runtime: AgentRuntime): Promise<void>
+    ensureStarted(runtime: AgentRuntime): Promise<void>
+    warm(runtime: AgentRuntime): void
     start(runtime: AgentRuntime): Promise<void>
     bindUsage(runtime: RuntimeId, binding: { meter?: UsageMeter; corpus?: CorpusSpec['kind']; root?: string; remote?: RemoteEventsSource; deskTurns?: boolean }): void
   }
@@ -303,6 +329,8 @@ export interface HostContext {
     releaseQuiet(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }): Promise<void>
     /** Keeps the picks made in a conversation's live handle for the reopen, before a closed pane lets it go. */
     holdPicks(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }): void
+    /** Persist and unload a closed conversation's body, keeping its metadata and reopen state. */
+    releaseBody(params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }): Promise<void>
   }
 
   /**
@@ -482,6 +510,8 @@ export interface HostContext {
      * resolved. A relative one is refused.
      */
     confineRoom(folder: string): Promise<void>
+    /** Captures shell authority only for the project explicitly selected by a redeemed Team start. */
+    admitTeamProject(folder: string): Promise<void>
     /** Opens a folder, which becomes one of the open roots. A relative path is refused. */
     open(path: string): Promise<HostResult<'workspace/open'>>
     /**

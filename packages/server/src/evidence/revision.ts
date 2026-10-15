@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { realpath, stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
@@ -38,6 +39,17 @@ const gitOr = async (cwd: string, args: readonly string[]): Promise<string | nul
   } catch {
     return null
   }
+}
+
+/**
+ * Only checkout moves, from this worktree's own HEAD reflog. Ordinary commits
+ * do not change the mark; a switch and return does, even at the same SHA.
+ * The bounded Git reader returns null for unavailable or oversized history.
+ */
+export const checkoutMarkOf = async (cwd: string): Promise<string | null> => {
+  if (await gitOr(cwd, ['reflog', 'exists', 'HEAD']) === null) return null
+  const moves = await gitOr(cwd, ['reflog', 'show', '--format=%H%x00%gs', '--grep-reflog=^checkout: moving from ', 'HEAD'])
+  return moves === null ? null : createHash('sha256').update(moves).digest('hex')
 }
 
 /** Where a checkout is: its commit, the branch it is on, and whether it holds changes not committed. */
@@ -190,12 +202,33 @@ export const canonical = async (path: string): Promise<string> => {
   }
 }
 
+/** Folders being asked about now, so callers asking at once share one answer. */
+const asking = new Map<string, Promise<string>>()
+
 /**
  * The project a folder belongs to: its repository's main checkout, or the
  * folder itself when it is in no repository. The key a store is kept under.
+ *
+ * Each read of a Team's review asks this several times, and a page reads
+ * every open Team's at once, mostly about the same few project folders: a
+ * question already being asked shares its answer rather than starting git
+ * again. A folder that is gone answers as written without asking git, which
+ * is where git's refusal led anyway — a wrapped Team's checkout is usually in
+ * the Trash.
  */
-export const projectOf = async (folder: string): Promise<string> =>
-  (await repositoryRoot(folder)) ?? (await canonical(folder))
+export const projectOf = (folder: string): Promise<string> => {
+  // Lexical normalisation erases symlink traversal before `..`.
+  const key = folder
+  const known = asking.get(key)
+  if (known) return known
+  const answer = (async () => {
+    const real = await realpath(folder).catch(() => null)
+    if (real === null) return resolve(folder)
+    return (await repositoryRoot(folder)) ?? real
+  })().finally(() => asking.delete(key))
+  asking.set(key, answer)
+  return answer
+}
 
 /**
  * How a fact bound to `at` stands now, against its branch in its checkout.

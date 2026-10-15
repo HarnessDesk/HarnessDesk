@@ -1,7 +1,8 @@
 import { useSnapshot, useStore } from '../state/context'
-import { areaVisible, dockViews, sidebarPlacement } from '../state/workbench'
-import { Badge, Button } from '../design'
-import { ArrowLeftIcon, ArrowRightIcon, PanelIcon, SidebarIcon } from './Icons'
+import { sidebarPlacement } from '../state/workbench'
+import { Button } from '../design'
+import { FRAME } from '../design/frame'
+import { ArrowLeftIcon, ArrowRightIcon, SearchIcon, SidebarIcon } from './Icons'
 import styles from './WindowControls.module.css'
 
 /**
@@ -13,26 +14,16 @@ import styles from './WindowControls.module.css'
  * does not — put away, or floating over a narrow window — so the controls
  * never leave the row the eye expects them on.
  *
- * While the right panel holds views there is a fourth: show or hide it. Put
- * away, the panel left nothing on screen to say it was still there, so the
- * toggle carries how many views wait behind it.
- *
- * A narrow header keeps the toggle and folds the arrows (see the stylesheet):
- * the arrows are on the sidebar's own row as well, and the toggle is the one
- * press that reaches it.
+ * When the column is away, Search stays beside the toggle in the title row.
+ * Below the frame's window threshold, history arrows move out of the lead;
+ * the floating sidebar's own row retains both arrows.
  */
-export const WindowControls = () => {
+export const WindowControls = ({ sidebarRow = false }: { sidebarRow?: boolean }) => {
   const store = useStore()
   const snapshot = useSnapshot()
+  const settings = snapshot.workbench.navigation.current.kind === 'settings'
   const shown = sidebarPlacement(snapshot) !== 'away'
-  // A zoom on another area hides the right panel without putting it away:
-  // "Hide" would be a lie and "Show" would uncollapse it behind the zoom, so
-  // the toggle waits until the zoom is handed back.
-  const rightViews = areaVisible(snapshot.workbench, 'right') ? dockViews(snapshot.workbench.right).length : 0
-  const rightPanelPutAway = snapshot.workbench.right.collapsed
-  const rightPanelLabel = rightPanelPutAway
-    ? `Show the right panel — ${rightViews} ${rightViews === 1 ? 'view' : 'views'}`
-    : 'Hide the right panel'
+  const navigation = !settings && (sidebarRow || snapshot.windowWidth >= FRAME.fold.sidebarFloats)
   return (
     <span className={styles.group}>
       <Button
@@ -43,24 +34,16 @@ export const WindowControls = () => {
       >
         <SidebarIcon size={14} />
       </Button>
-      {rightViews > 0 && (
-        <Button
-          variant="ghost" size="icon-sm" className={`${styles.button} hd-no-drag`}
-          onClick={() => store.togglePanel('right')}
-          title={rightPanelLabel}
-          aria-label={rightPanelLabel}
-        >
-          <span className="relative inline-flex">
-            <PanelIcon size={14} />
-            {rightPanelPutAway && (
-              <Badge variant="secondary" className="absolute -top-1 -right-1 min-w-4">
-                {rightViews}
-              </Badge>
-            )}
-          </span>
-        </Button>
-      )}
-      <span className={styles.nav}>
+      {!settings && !shown && <Button
+        variant="ghost" size="icon-sm" className={`${styles.button} hd-no-drag`}
+        onClick={() => window.dispatchEvent(new CustomEvent('harnessdesk:search'))}
+        title="Search everything (⌘K)"
+        aria-label="Search everything"
+        aria-keyshortcuts="Meta+K"
+      >
+        <SearchIcon size={14} />
+      </Button>}
+      {navigation && <span>
         <Button
           variant="ghost" size="icon-sm" className={`${styles.button} hd-no-drag`}
           disabled={!snapshot.navCanBack}
@@ -70,8 +53,8 @@ export const WindowControls = () => {
         >
           <ArrowLeftIcon size={13} />
         </Button>
-      </span>
-      <span className={styles.nav}>
+      </span>}
+      {navigation && <span>
         <Button
           variant="ghost" size="icon-sm" className={`${styles.button} hd-no-drag`}
           disabled={!snapshot.navCanForward}
@@ -81,7 +64,7 @@ export const WindowControls = () => {
         >
           <ArrowRightIcon size={13} />
         </Button>
-      </span>
+      </span>}
     </span>
   )
 }

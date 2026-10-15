@@ -1,5 +1,7 @@
 import {
   createContext,
+  Fragment,
+  isValidElement,
   useCallback,
   useContext,
   useEffect,
@@ -17,19 +19,20 @@ import {
 import { CheckIcon, ChevronIcon } from '../../components/Icons'
 import {
   DropdownMenu,
-  DropdownMenuCheckboxItem,
+  DropdownMenuCheckboxControl,
   DropdownMenuItem,
   DropdownMenuPopup,
   DropdownMenuPortal,
   DropdownMenuPositioner,
   DropdownMenuSub,
   DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
+  DropdownMenuSubControl,
 } from '../ui/dropdown-menu'
+import { MenuRowContent, menuRowAttributes, useMenuPresentation, type MenuIcons } from '../ui/menu-row'
 import { SwitchShape } from '../ui/switch'
-import type { Tone } from '../ui/tone'
+import { inkTone, type Tone } from '../ui/tone'
 import { useDismissOverlays } from './Popover'
-import { Text } from './Settings'
+import { Text, Chip } from './Settings'
 
 import styles from './Menu.module.css'
 
@@ -62,6 +65,7 @@ const LEVEL_ROW = '[role^="menuitem"],[role="switch"]'
  * or not drawn.
  */
 const passedOver = (element: HTMLElement): boolean => {
+  if (element.closest('[hidden]')) return true
   if (element.matches(':disabled') || !element.isConnected) return true
   const style = getComputedStyle(element)
   if (style.visibility === 'hidden' || style.visibility === 'collapse') return true
@@ -139,7 +143,17 @@ const FIRST_ROW =
  * buttons in a menu keeps Tab for going from one to the next, and leaves by
  * it after the last.
  */
+// A shared empty state keeps a menu readable when every contextual action
+// is inapplicable. It carries no invented action or duplicate trigger label.
+export const hasMenuContent = (content: ReactNode): boolean => {
+  if (content === null || content === undefined || typeof content === 'boolean') return false
+  if (Array.isArray(content)) return content.some(hasMenuContent)
+  if (isValidElement<{children?:ReactNode}>(content) && content.type === Fragment) return hasMenuContent(content.props.children)
+  return true
+}
+
 export const Menu = ({ close, onEscape, children }: { close: () => void; onEscape?: () => void; children: ReactNode }) => {
+  const presentation = useMenuPresentation()
   const scope = useMemo<Scope>(() => ({ close }), [close])
   const level = useRef<HTMLDivElement>(null)
   const host = useRef<HTMLDivElement>(null)
@@ -165,6 +179,7 @@ export const Menu = ({ close, onEscape, children }: { close: () => void; onEscap
   return (
     <div ref={host} className={styles.levelHost}>
       <DropdownMenu
+        {...presentation}
         open
         onOpenChange={(open, details) => {
           // Item presses close through the typed row contract below; asking
@@ -197,7 +212,7 @@ export const Menu = ({ close, onEscape, children }: { close: () => void; onEscap
               }}
             >
               <DropdownMenuPopup ref={level} className={styles.level} finalFocus={false}>
-                {children}
+                {hasMenuContent(children) ? children : <MenuNote>No actions here.</MenuNote>}
               </DropdownMenuPopup>
             </DropdownMenuPositioner>
           </DropdownMenuPortal>
@@ -207,32 +222,13 @@ export const Menu = ({ close, onEscape, children }: { close: () => void; onEscap
   )
 }
 
-export const MenuNote = ({ children }: { children: ReactNode }) => (
-  <div className={styles.note}>{children}</div>
-)
+export const MenuNote = ({ children, tone }: { children: ReactNode; tone?: 'neutral' | 'info' | 'success' | 'warning' | 'danger' }) =>
+  <div data-menu-note="" data-tone={tone} className={tone && tone !== 'neutral' ? inkTone({ tone: tone === 'info' ? 'brand' : tone }) : undefined}>{children}</div>
+export const MenuLabel = ({ children, size = 'default' }: { children: ReactNode; size?: 'default' | 'compact' }) => <div data-menu-group="" data-size={size}>{children}</div>
 
-export const MenuLabel = ({ children, size = 'default' }: { children: ReactNode; size?: 'default' | 'compact' }) => (
-  <div className={styles.label} data-size={size}>{children}</div>
-)
-
-/**
- * Several accounts of one agent, under one heading. `heading={false}` keeps
- * the group — so a row does not change parent, and lose focus, when the
- * heading comes and goes — but draws no heading and steps nothing in: one
- * account of the agent on show, as one row wearing its own mark.
- *
- * The heading wears the agent's mark once and names it; it is not a choice,
- * so it takes no hover and no press, and it is the group's accessible name —
- * `aria-labelledby`, the wiring the vendored group label would give. Plain
- * elements rather than `DropdownMenuGroup`/`DropdownMenuLabel`: one screen
- * composes this, and the audit's single-area primitive ceiling may only
- * fall. The `account` rows under a heading step in so that, after an
- * `AccountMark size="dot"` (the account's colour), their names start on the
- * heading's name column; the heading already drew whose they are.
- */
+/** A stable account group whose heading shares the level's text edge. */
 export const MenuAccountGroup = ({
   label,
-  mark,
   heading = true,
   children,
 }: {
@@ -243,26 +239,43 @@ export const MenuAccountGroup = ({
 }) => {
   const id = useId()
   return (
-    <div
-      className={styles.group}
-      {...(heading ? { role: 'group', 'aria-labelledby': id, 'data-heading': '' } : {})}
-    >
-      {heading && (
-        <div className={styles.groupHead} id={id}>
-          <span aria-hidden="true" className={styles.groupMark}>{mark}</span>
-          <Text role="muted" truncate className={styles.groupLabel}>{label}</Text>
-        </div>
-      )}
+    <div {...(heading ? { role: 'group', 'aria-labelledby': id } : {})}>
+      {heading && <div data-menu-group="" id={id}>{label}</div>}
       {children}
     </div>
   )
 }
 
-export const MenuSeparator = () => <div className={styles.separator} role="separator" />
+export const MenuSeparator = () => <div data-menu-separator="" role="separator" />
+
+export interface MenuItemProps {
+  readonly ref?: Ref<HTMLButtonElement>
+  readonly icon?: ReactNode
+  readonly label: ReactNode
+  readonly hint?: ReactNode
+  readonly shortcut?: string
+  readonly value?: ReactNode
+  readonly title?: string
+  readonly badge?: ReactNode
+  readonly trailing?: ReactNode
+  readonly meter?: ReactNode
+  readonly hintId?: string
+  readonly selected?: boolean
+  readonly teamPage?: string
+  /** Marks the app's current account/session independently of checked semantics. */
+  readonly current?: boolean
+  /** Exposes a row-owned disclosure without surrendering menu keyboard behavior. */
+  readonly expanded?: boolean
+  readonly danger?: boolean
+  readonly disabled?: string | boolean
+  readonly keepOpen?: boolean
+  readonly onSelect: () => void
+  /** Pointer or keyboard intent, before the row is chosen. */
+  readonly onHighlight?: () => void
+}
 
 export const MenuItem = ({
   ref,
-  children,
   icon,
   label,
   hint,
@@ -270,84 +283,52 @@ export const MenuItem = ({
   value,
   title,
   badge,
+  trailing,
+  meter,
+  hintId,
   selected,
+  teamPage,
   current,
   expanded,
   danger,
   disabled,
   keepOpen,
-  layout = 'default',
-  className,
   onSelect,
-}: {
-  ref?: Ref<HTMLButtonElement>
-  /** Rich row anatomy still uses the canonical Base UI menu item behavior. */
-  children?: ReactNode
-  icon?: ReactNode
-  label?: ReactNode
-  hint?: ReactNode
-  shortcut?: string
-  value?: ReactNode
-  title?: string
-  badge?: string
-  selected?: boolean
-  /** Marks the app's current account/session independently of checked semantics. */
-  current?: boolean
-  /** Exposes a row-owned disclosure without surrendering menu keyboard behavior. */
-  expanded?: boolean
-  danger?: boolean
-  disabled?: string | boolean
-  keepOpen?: boolean
-  /** A taller row anatomy whose contents earn more than one line. */
-  layout?: 'default' | 'profile' | 'account'
-  className?: string
-  onSelect: () => void
-}) => {
+  onHighlight,
+}: MenuItemProps) => {
   const scope = useScope()
-  const reason = typeof disabled === 'string' ? disabled : undefined
+  const reason = typeof disabled === 'string' ? disabled : disabled ? title : undefined
   const reasonId = useId()
   return (
     <DropdownMenuItem
+      data-team-page={teamPage}
       ref={ref}
       render={<button type="button" disabled={Boolean(disabled)} />}
       nativeButton
-      className={`${styles.row}${className ? ` ${className}` : ''}`}
       role={selected === undefined ? 'menuitem' : 'menuitemradio'}
       {...(selected === undefined ? {} : { 'aria-checked': selected })}
       {...(danger ? { 'data-danger': '' } : {})}
       {...(current ? { 'data-current': '', 'aria-current': true } : {})}
       {...(expanded === undefined ? {} : { 'aria-expanded': expanded })}
       {...(reason ? { 'aria-describedby': reasonId } : {})}
-      data-layout={layout}
+      label={label}
+      icon={icon}
+      hint={reason ?? hint}
+      hintId={reason ? reasonId : hintId}
+      badge={typeof badge === 'string' ? <Chip size="sm" tone="neutral">{badge}</Chip> : badge}
+      meter={meter}
+      trailing={trailing ?? <>{value}{shortcut}{selected !== undefined && <span aria-hidden="true" className="inline-flex">{selected && <CheckIcon size={16} />}</span>}</>}
       disabled={Boolean(disabled)}
       title={reason ?? title}
       closeOnClick={!keepOpen}
+      onFocus={onHighlight}
+      onPointerEnter={onHighlight}
       onClick={(event) => {
         ;(event as typeof event & { preventBaseUIHandler?: () => void }).preventBaseUIHandler?.()
         onSelect()
         if (!keepOpen) scope.close()
       }}
-    >
-      {children ?? (
-        <>
-          {icon !== undefined && <span className={styles.icon}>{icon}</span>}
-          <span className={styles.body}>
-            <span className={styles.title}>
-              {label}
-              {badge && <span className={styles.badge}>{badge}</span>}
-            </span>
-            {(reason ?? hint) && (
-              <span id={reason ? reasonId : undefined} className={styles.hint}>{reason ?? hint}</span>
-            )}
-          </span>
-          {value !== undefined && <span className={styles.value}>{value}</span>}
-          {shortcut && <span className={styles.shortcut}>{shortcut}</span>}
-          {selected !== undefined && (
-            <span className={styles.check} aria-hidden="true">{selected && <CheckIcon size={15} />}</span>
-          )}
-        </>
-      )}
-    </DropdownMenuItem>
+    />
   )
 }
 
@@ -363,31 +344,7 @@ export interface MenuAccountFigure {
   readonly tone?: Tone
 }
 
-/**
- * One account in the seat menu: a leading mark, the name and its identity,
- * the tag that only exists to tell two same-named rows apart, and the
- * trailing figure. `AccountFooter` (`components/Sidebar.tsx`) composes this
- * from the running app, and the catalogue's Foundation propagation page
- * composes the identical part from the same shape of props (#993) — the
- * layout no longer exists twice.
- *
- * `mark` is handed over already built — an `AccountMark` wrapped in its own
- * hover card, or a bare `size="dot"` mark under a heading — because the card
- * is the app's own account-specific chrome and has no business in a part
- * shared with the catalogue. `identity` is kept as `title` and
- * `data-identity` on the name's own block, not the row's, exactly as the
- * seat menu drew it before this moved.
- *
- * Every `MenuItem` prop a seat row still needs passes straight through:
- * `current`, `expanded`, `keepOpen`, `onSelect`, and — set by the caller as
- * ever, since it is a React reserved prop rather than one this component
- * reads — `key`.
- *
- * The layout is the row's own and is kept to layout properties only (flex,
- * gap, min/max-width, overflow, white-space): a pattern with one screen
- * consumer is charged for anything else it draws itself (docs/design.md).
- * Ink and type come from `Text`.
- */
+/** An account identity, badge and figure rendered by the canonical row. */
 export const MenuAccountRow = ({
   mark,
   name,
@@ -410,20 +367,8 @@ export const MenuAccountRow = ({
   keepOpen?: boolean
   onSelect: () => void
 }) => (
-  <MenuItem layout="account" current={current} expanded={expanded} keepOpen={keepOpen} onSelect={onSelect}>
-    {mark}
-    <span className={styles.accountText} title={identity} data-identity={identity}>
-      <Text role="navigation" truncate className={styles.accountName}>{name}</Text>
-      {tag ? <Text role="meta" truncate className={styles.accountTag}>{tag}</Text> : null}
-    </span>
-    {figure ? (
-      figure.kind === 'reading' ? (
-        <Text role="muted" tone={figure.tone} numeric className={styles.accountFigure}>{figure.text}</Text>
-      ) : (
-        <Text role="meta" tone={figure.tone} className={styles.accountFigure}>{figure.text}</Text>
-      )
-    ) : null}
-  </MenuItem>
+  <MenuItem icon={mark} label={<span data-menu-account-name="" data-identity={identity} title={identity}>{name}</span>} badge={tag}
+    value={figure ? <Text role={figure.kind === 'reading' ? 'muted' : 'meta'} tone={figure.tone} numeric={figure.kind === 'reading'}>{figure.text}</Text> : undefined} current={current} expanded={expanded} keepOpen={keepOpen} onSelect={onSelect} />
 )
 
 /** A switch stays open; Base UI supplies checkbox-menu keyboard semantics. */
@@ -431,6 +376,7 @@ export const MenuToggle = ({
   icon,
   label,
   hint,
+  title,
   value,
   checked,
   disabled,
@@ -439,33 +385,29 @@ export const MenuToggle = ({
   icon?: ReactNode
   label: ReactNode
   hint?: ReactNode
+  title?: string
   value?: ReactNode
   checked: boolean
   disabled?: string | boolean
   onChange: (next: boolean) => void
 }) => {
   const reason = typeof disabled === 'string' ? disabled : undefined
+  const data = { icon, label, hint: reason ?? hint, trailing: <>{value}<SwitchShape checked={checked} size="sm" disabled={Boolean(disabled)} /></> }
   return (
-    <DropdownMenuCheckboxItem
+    <DropdownMenuCheckboxControl
+      data-slot="dropdown-menu-checkbox-item"
       render={<button type="button" disabled={Boolean(disabled)} />}
       nativeButton
-      indicator={false}
-      className={styles.row}
+      {...menuRowAttributes(data)}
       role="switch"
       checked={checked}
       disabled={Boolean(disabled)}
-      title={reason}
+      title={reason ?? title}
       closeOnClick={false}
       onCheckedChange={(next) => onChange(next)}
     >
-      {icon !== undefined && <span className={styles.icon}>{icon}</span>}
-      <span className={styles.body}>
-        <span className={styles.title}>{label}</span>
-        {(hint ?? reason) && <span className={styles.hint}>{hint ?? reason}</span>}
-      </span>
-      {value !== undefined && <span className={styles.value}>{value}</span>}
-      <SwitchShape checked={checked} size="sm" disabled={Boolean(disabled)} />
-    </DropdownMenuCheckboxItem>
+      <MenuRowContent {...data} />
+    </DropdownMenuCheckboxControl>
   )
 }
 
@@ -475,7 +417,9 @@ export const Submenu = ({
   hint,
   value,
   disabled,
-  width,
+  width: _width,
+  icons: childIcons = 'none',
+  wide = true,
   children,
 }: {
   icon?: ReactNode
@@ -484,9 +428,12 @@ export const Submenu = ({
   value?: ReactNode
   disabled?: string | boolean
   width?: number
+  icons?: MenuIcons
+  wide?: boolean
   children: ReactNode
 }) => {
   const reason = typeof disabled === 'string' ? disabled : undefined
+  const data = { icon, label, hint: reason ?? hint, trailing: <>{value}<ChevronIcon size={16} /></> }
   const row = useRef<HTMLButtonElement>(null)
   const flyout = useRef<HTMLDivElement | null>(null)
   const closedBy = useRef<string | null>(null)
@@ -577,11 +524,12 @@ export const Submenu = ({
         }
       }}
     >
-      <DropdownMenuSubTrigger
+      <DropdownMenuSubControl
+        data-slot="dropdown-menu-sub-trigger"
         ref={row}
         render={<button type="button" disabled={Boolean(disabled)} />}
         nativeButton
-        className={styles.row}
+        {...menuRowAttributes(data)}
         disabled={Boolean(disabled)}
         title={reason}
         openOnHover
@@ -609,14 +557,8 @@ export const Submenu = ({
           onward.find((candidate) => !passedOver(candidate))?.focus()
         }}
       >
-        {icon !== undefined && <span className={styles.icon}>{icon}</span>}
-        <span className={styles.body}>
-          <span className={styles.title}>{label}</span>
-          {(hint ?? reason) && <span className={styles.hint}>{hint ?? reason}</span>}
-        </span>
-        {value !== undefined && <span className={styles.value}>{value}</span>}
-        <ChevronIcon size={14} className={styles.chevron} />
-      </DropdownMenuSubTrigger>
+        <MenuRowContent {...data} />
+      </DropdownMenuSubControl>
       {/* Beside its row, or over the menu at its row — never above or below
           it. With no room on either side Base UI turned the flyout onto the
           other axis, over the menu's other rows, and the way there crossed
@@ -627,8 +569,8 @@ export const Submenu = ({
           itself, and the pointer reaches it without leaving the row. */}
       <DropdownMenuSubContent
         ref={placeFlyout}
-        className={styles.flyout}
-        style={width ? { width } : undefined}
+        icons={childIcons}
+        wide={wide}
         collisionAvoidance={{ fallbackAxisSide: 'none' }}
         sticky
       >
@@ -664,11 +606,15 @@ export const useContextMenu = (): {
 }
 
 export const ContextMenu = ({
+  icons = 'none',
+  wide = false,
   at,
   label,
   onClose,
   children,
 }: {
+  icons?: MenuIcons
+  wide?: boolean
   at: MenuPoint | null
   label: string
   onClose: () => void
@@ -724,6 +670,8 @@ export const ContextMenu = ({
 
   return (
     <DropdownMenu
+      icons={icons}
+      wide={wide}
       open={at !== null}
       onOpenChange={(open, details) => {
         if (open) return
@@ -760,6 +708,8 @@ export const ContextMenu = ({
             <DropdownMenuPopup
               ref={panel}
               className={styles.surface}
+              data-popup-kind={wide ? 'wide-menu' : 'menu'}
+              data-menu-icons={icons}
               aria-label={label}
               finalFocus={false}
               onContextMenu={(event) => event.preventDefault()}

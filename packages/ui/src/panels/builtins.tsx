@@ -1,9 +1,10 @@
-import { RunDetailsView, RunStepsView } from './run-dock'
+import { EditorMain, effectiveWindowMode } from '../editor'
+import { WorkChangesView, WorkActivityView } from '../components/WorkToolContents'
+import { RunDetailsView } from './run-dock'
 import { Approvals } from '../components/Approvals'
-import { BackgroundTasksView } from '../components/BackgroundTasks'
 import { BrowserPane } from '../components/BrowserPane'
 import { Conversation } from '../components/Conversation'
-import { ActivityView, AgentsView, ChangesView, TrajectoryView } from '../components/Details'
+import { AgentsView, TrajectoryView } from '../components/Details'
 import { FilePane } from '../components/FilePane'
 import { GitPane } from '../components/GitPane'
 import { PreviewPane } from '../components/PreviewPane'
@@ -27,7 +28,7 @@ import {
   TrajectoryIcon,
 } from '../components/Icons'
 import { offeredHere } from '../lib/contributions'
-import { useSnapshot } from '../state/context'
+import { useSnapshot, useSessionKey } from '../state/context'
 import { resolveComponent } from '../slots/registry'
 import { EmptyState } from '../design'
 import { useMount } from './mount'
@@ -85,15 +86,21 @@ const basename = (path: string): string => path.split('/').filter(Boolean).at(-1
  */
 const ConversationView = () => {
   const shell = useShell()
+  const snapshot = useSnapshot(), key = useSessionKey(), mount = useMount()
+  const session = key ? snapshot.sessions.get(key) : null
+  const editor = mount?.area === 'main' && session && effectiveWindowMode(snapshot.windowMode, snapshot.workbench) === 'editor'
+
   return (
     <>
       <Conversation
+        header={mount?.area !== 'right'}
+        mainContent={editor && key ? <EditorMain key={key} subject={`session:${key}`} runtime={session.runtime} root={session.cwd} /> : undefined}
         onChooseProject={shell.chooseProject}
         onSignIn={shell.signIn}
         onOpenUsage={shell.openUsage}
         onOpenRuntimes={shell.openRuntimes}
       />
-      <Approvals />
+      {mount?.area !== 'right' && <Approvals />}
     </>
   )
 }
@@ -162,10 +169,11 @@ const PluginView = () => {
   const mount = useMount()
   const snapshot = useSnapshot()
   const view = mount?.view.kind === 'plugin' ? mount.view : null
+  const key = useSessionKey()
   /* Among what applies here: a panel scoped to one project or one conversation
      is not this one's, and a tab that outlived its scope says so below rather
      than drawing another conversation's panel. `lib/contributions.ts`. */
-  const contribution = offeredHere(snapshot, snapshot.activeSessionKey).find(
+  const contribution = offeredHere(snapshot, key).find(
     (entry) => entry.kind === 'ui' && String(entry.id) === view?.contribution,
   )
   const Component = contribution?.kind === 'ui' ? resolveComponent(contribution.component) : undefined
@@ -343,7 +351,7 @@ registerView({
   icon: DiffIcon,
   mounts: ['right', 'bottom', 'sidebar'],
   defaultMount: 'right',
-  component: ChangesView,
+  component: WorkChangesView,
 })
 
 registerView({
@@ -379,7 +387,7 @@ registerView({
   icon: HistoryIcon,
   mounts: ['right', 'bottom', 'sidebar'],
   defaultMount: 'right',
-  component: ActivityView,
+  component: WorkActivityView,
 })
 
 registerView({
@@ -395,7 +403,7 @@ registerView({
      that is the reason anyone looks. */
   mounts: ['right', 'bottom', 'sidebar'],
   defaultMount: 'right',
-  component: BackgroundTasksView,
+  component: WorkActivityView,
   /* Something is still running for the conversation on screen: every door to
      this panel wears a dot, so a task that outlives the turn is noticed even
      with the panel closed. */
@@ -408,5 +416,3 @@ registerView({
 // Like the conversation inspectors, these follow the Run mounted in main.
 registerView({ kind: 'run-details', label: 'Run details', icon: PlanIcon,
   mounts: ['right', 'bottom', 'sidebar'], defaultMount: 'right', component: RunDetailsView })
-registerView({ kind: 'run-steps', label: 'Steps', icon: TrajectoryIcon,
-  mounts: ['right', 'bottom', 'sidebar'], defaultMount: 'right', component: RunStepsView })

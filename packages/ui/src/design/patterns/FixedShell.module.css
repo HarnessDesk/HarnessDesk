@@ -1,0 +1,53 @@
+.shell {
+  --frame-left: 0px;
+  --frame-right: 0px;
+  --frame-right-size: 0px;
+  --frame-main-min: min(var(--frame-reading-min), max(0px, calc(var(--frame-window-width) - var(--frame-left) - var(--frame-right-min) - var(--hd-border-width) - var(--hd-border-width))));
+  /* The grid and top bar inherit one pixel projection, including live left drags. */
+  --frame-right-effective: max(0px, min(var(--frame-right-drag, var(--frame-right-size)), var(--frame-right-max), calc(var(--frame-window-width) - var(--frame-left) - var(--frame-canvas-gutter)), calc(var(--frame-window-width) - var(--frame-left) - var(--frame-main-min) - var(--hd-border-width) - var(--hd-border-width))));
+  --frame-bottom: 0px;
+  --frame-left-open: 0px;
+  --frame-right-open: 0px;
+  --frame-right-retained: 0px;
+  --frame-bottom-retained: 0px;
+  display: grid;
+  position: relative;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  grid-template-columns: var(--frame-left) minmax(0, 1fr) var(--frame-right);
+  grid-template-rows: var(--hd-bar-h) minmax(0, 1fr) var(--frame-bottom);
+  grid-template-areas: 'left top top' 'left main right' 'left bottom right';
+}
+.left { grid-area: left; position: relative; min-height: 0; min-width: 0; }
+.top { grid-area: top; min-width: 0; }
+.main { grid-area: main; position: relative; min-width: 0; min-height: 0; }
+.right { overflow: visible; grid-area: right; position: relative; min-width: 0; min-height: 0; }
+.bottom { overflow: visible; grid-area: bottom; position: relative; min-width: 0; min-height: 0; }
+.shell[data-left-open='false'] .left,
+.shell[data-right-open='false'] .right,
+.shell[data-bottom-open='false'] .bottom { visibility: hidden; pointer-events: none; }
+/* Hidden native hosts keep a useful box without taking grid room. */
+.shell[data-right-open='false'] .right {
+  grid-area: auto; position: absolute; top: var(--hd-bar-h); right: 0;
+  bottom: var(--frame-bottom); width: var(--frame-right-retained);
+}
+.shell[data-bottom-open='false'] .bottom {
+  grid-area: auto; position: absolute; left: var(--frame-left); right: 0; top: calc(100% - var(--frame-bottom-retained)); bottom: 0;
+}
+.shell[data-panel-floats='true'] { grid-template-columns: var(--frame-left) minmax(0, 1fr) var(--frame-right); }
+.shell[data-left-floats='true'][data-panel-floats='true'] { grid-template-columns: 0 minmax(0, 1fr) var(--frame-right); }
+.shell[data-panel-floats='true'] .right {
+  grid-area: auto; position: absolute; top: var(--hd-bar-h); right: 0;
+  bottom: var(--frame-bottom); width: var(--frame-right);
+  z-index: var(--hd-z-drawer);
+}
+.shell[data-left-floats='true'] { grid-template-columns: 0 minmax(0, 1fr) var(--frame-right); }
+.shell[data-left-floats='true'] .left {
+  grid-area: auto; position: absolute; top: 0; bottom: 0; left: 0;
+  width: var(--frame-left-open); z-index: var(--hd-z-drawer);
+}
+/* Region edges own seams; their hit area may straddle the shared boundary. */
+.left > [data-slot='panel-seam'] { grid-area: auto; position: absolute; top: 0; bottom: 0; right: calc(-1 * var(--hd-border-width)); }
+.right [data-slot='panel-seam'] { grid-area: auto; position: absolute; top: 0; bottom: 0; left: calc(-1 * var(--hd-border-width)); }
+.bottom [data-slot='panel-seam'] { grid-area: auto; position: absolute; top: calc(-1 * var(--hd-border-width)); left: 0; right: 0; }

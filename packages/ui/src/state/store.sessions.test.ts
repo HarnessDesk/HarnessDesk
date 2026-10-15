@@ -1,3 +1,4 @@
+import { dockViews } from './workbench'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -14,6 +15,7 @@ import {
   type HostMethodName,
   type RuntimeId,
   type Session,
+  type SessionSummary,
 } from '@harnessdesk/protocol'
 
 import type { TransportEvents } from '../lib/transport'
@@ -72,6 +74,116 @@ beforeEach(() => {
 })
 
 const panesOf = () => panes(store.getSnapshot().layout.root)
+
+it('a metadata-only reconnect keeps an already displayed transcript after the host unloads it', async () => {
+  const full = session({ turns: [{ id: turnId('finished'), status: 'completed',
+    items: [{ id: itemId('output'), type: 'assistantMessage', text: 'Synthetic saved answer' }] }] })
+  answers['session/read'] = full
+  answers['session/resume'] = full
+  await store.openSession(ID, { runtime: RUNTIME })
+  const transport = store.transport as unknown as { handlers: TransportEvents }
+  transport.handlers.onNotification({ method: 'sync', params: {
+    sessions: [session({ turns: [], itemsLoaded: false, status: { type: 'notLoaded' } })],
+    runtimes: [], health: [], queues: [], tasks: [], plugins: [], contributions: [],
+  } })
+  expect(store.getSnapshot().sessions.get(KEY)?.turns).toEqual(full.turns)
+  await vi.waitFor(() => expect(store.getSnapshot().sessions.get(KEY)?.itemsLoaded).toBe(true))
+})
+
+it('reconnect reloads a visible turn that finished while this window was away', async () => {
+  answers['session/read'] = working
+  answers['session/resume'] = working
+  await store.openSession(ID, { runtime: RUNTIME })
+  const completed = session({ turns: working.turns.map(turn => ({ ...turn, status: 'completed' })) })
+  answers['session/read'] = completed
+  answers['session/resume'] = completed
+  const transport = store.transport as unknown as { handlers: TransportEvents }
+  transport.handlers.onNotification({ method: 'sync', params: {
+    sessions: [session({ turns: [], itemsLoaded: false })],
+    runtimes: [], health: [], queues: [], tasks: [], plugins: [], contributions: [],
+  } })
+  await vi.waitFor(() => expect(store.getSnapshot().sessions.get(KEY)?.turns[0]?.status).toBe('completed'))
+})
+
+it('reconnect reads a completed turn that started and finished while this window was away', async () => {
+  const full = session({ turns: [{ id: turnId('old'), status: 'completed',
+    items: [{ id: itemId('old-output'), type: 'assistantMessage', text: 'Synthetic earlier answer' }] }] })
+  answers['session/read'] = full
+  answers['session/resume'] = full
+  await store.openSession(ID, { runtime: RUNTIME })
+  const updated = session({ turns: [...full.turns, { id: turnId('new'), status: 'completed',
+    items: [{ id: itemId('new-output'), type: 'assistantMessage', text: 'Synthetic latest answer' }] }] })
+  answers['session/read'] = updated
+  answers['session/resume'] = updated
+  const transport = store.transport as unknown as { handlers: TransportEvents }
+  transport.handlers.onNotification({ method: 'sync', params: {
+    sessions: [session({ turns: [], itemsLoaded: false })],
+    runtimes: [], health: [], queues: [], tasks: [], plugins: [], contributions: [],
+  } })
+  expect(store.getSnapshot().sessions.get(KEY)?.turns).toEqual(full.turns)
+  await vi.waitFor(() => expect(store.getSnapshot().sessions.get(KEY)?.turns).toEqual(updated.turns))
+})
+
+it.each([undefined, 'runtimeUnavailable', 'sessionGone'])(
+  'reconnect keeps readable history when resume is refused (%s)',
+  async (code) => {
+    const full = session({ turns: [{ id: turnId('saved'), status: 'completed',
+      items: [{ id: itemId('saved-output'), type: 'assistantMessage', text: 'Synthetic saved answer' }] }] })
+    answers['session/read'] = full
+    answers['session/resume'] = full
+    await store.openSession(ID, { runtime: RUNTIME })
+    const updated = session({ turns: [...full.turns, { id: turnId('latest'), status: 'completed',
+      items: [{ id: itemId('latest-output'), type: 'assistantMessage', text: 'Synthetic latest answer' }] }] })
+    answers['session/read'] = updated
+    vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => {
+      if (method === 'session/resume') throw Object.assign(new Error('The agent is unavailable.'), { code })
+      return answers[method] ?? null
+    }) as never)
+    const transport = store.transport as unknown as { handlers: TransportEvents }
+    transport.handlers.onNotification({ method: 'sync', params: {
+      sessions: [session({ turns: [], itemsLoaded: false, status: { type: 'notLoaded' } })],
+      runtimes: [], health: [], queues: [], tasks: [], plugins: [], contributions: [],
+    } })
+
+    await vi.waitFor(() => expect(store.getSnapshot().loadingSessions.size).toBe(0))
+    expect(panesOf().map(sessionOf)).toEqual([KEY])
+    expect(store.getSnapshot().activeSessionKey).toBe(KEY)
+    expect(store.getSnapshot().sessions.get(KEY)?.turns).toEqual(updated.turns)
+    expect(store.getSnapshot().notices).toEqual([])
+  },
+)
+
+it('repeated metadata reconnects keep displayed turns while the latest read is pending', async () => {
+  const full = session({ turns: [{ id: turnId('saved'), status: 'completed',
+    items: [{ id: itemId('saved-output'), type: 'assistantMessage', text: 'Synthetic saved answer' }] }] })
+  answers['session/read'] = full
+  answers['session/resume'] = full
+  await store.openSession(ID, { runtime: RUNTIME })
+  let finish!: (session: Session) => void
+  const read = new Promise<Session>(resolve => { finish = resolve })
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) =>
+    method === 'session/read' ? read : answers[method] ?? null) as never)
+  const transport = store.transport as unknown as { handlers: TransportEvents }
+  const sync = (updatedAt: number) => transport.handlers.onNotification({ method: 'sync', params: {
+    sessions: [session({ turns: [], itemsLoaded: false, updatedAt, title: 'Updated title' })],
+    runtimes: [], health: [], queues: [], tasks: [], plugins: [], contributions: [],
+  } })
+  const updated = session({ turns: [...full.turns, { id: turnId('latest'), status: 'completed',
+    items: [{ id: itemId('latest-output'), type: 'assistantMessage', text: 'Synthetic latest answer' }] }] })
+  answers['session/resume'] = session({ itemsLoaded: false })
+  try {
+    sync(1)
+    expect(store.getSnapshot().sessions.get(KEY)?.turns).toEqual(full.turns)
+    expect(store.getSnapshot().sessions.get(KEY)?.itemsLoaded).toBe(false)
+    sync(2)
+    expect(store.getSnapshot().sessions.get(KEY)).toMatchObject({ turns: full.turns, title: 'Updated title', updatedAt: 2 })
+    expect(store.getSnapshot().loadingSessions.has(KEY)).toBe(true)
+  } finally {
+    finish(updated)
+  }
+  await vi.waitFor(() => expect(store.getSnapshot().sessions.get(KEY)?.turns).toEqual(updated.turns))
+  await vi.waitFor(() => expect(store.getSnapshot().loadingSessions.size).toBe(0))
+})
 
 describe('opening a conversation', () => {
   it('adds a searched session to history once it is opened', async () => {
@@ -135,6 +247,39 @@ describe('opening a conversation', () => {
 
 describe('a conversation that could not be read (#800)', () => {
   const SAID = 'No stored conversation s-1.'
+
+  it('keeps a saved conversation selected when its runtime is not installed, without inventing a transcript', async () => {
+    const saved: SessionSummary = {
+      id: ID,
+      runtime: runtimeId('synthetic-missing'),
+      title: 'Judge the storefront layout',
+      preview: 'Review the saved layout notes.',
+      cwd: '/work/storefront',
+      status: { type: 'notLoaded' },
+      createdAt: 1,
+      updatedAt: 2,
+    }
+    answers['session/index'] = { data: [saved], nextCursor: null }
+    await store.loadHistory({ reset: true })
+    vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => {
+      if (method === 'session/read') throw new Error('The saved runtime is not installed.')
+      return null
+    }) as never)
+
+    await store.openSession(ID, { runtime: saved.runtime })
+
+    const key = sessionKey(saved.runtime, ID)
+    expect(store.getSnapshot().activeSessionKey).toBe(key)
+    expect(panesOf().map(sessionOf)).toEqual([key])
+    expect(store.getSnapshot().sessions.get(key)).toMatchObject({
+      id: ID,
+      runtime: saved.runtime,
+      title: saved.title,
+      cwd: saved.cwd,
+      turns: [],
+      itemsLoaded: false,
+    })
+  })
 
   it.each([undefined, 'sessionFolderGone', 'sessionBusy'])(
     'returns the pane to a draft when the read fails (%s)',
@@ -239,6 +384,18 @@ describe('a conversation that could not be read (#800)', () => {
     await store.openSession(ID, { runtime: RUNTIME, restoring: true })
 
     expect(panesOf().map((pane) => pane.view)).toEqual([{ kind: 'conversation', session: null }])
+    expect(store.getSnapshot().notices).toEqual([])
+  })
+
+  it('still clears a restored pane when the read fails despite a cached transcript', async () => {
+    answers['session/read'] = working
+    answers['session/resume'] = working
+    await store.openSession(ID, { runtime: RUNTIME })
+    vi.mocked(store.transport.request).mockRejectedValue(new Error(SAID))
+
+    await store.openSession(ID, { runtime: RUNTIME, restoring: true })
+
+    expect(panesOf().map(sessionOf)).toEqual([null])
     expect(store.getSnapshot().notices).toEqual([])
   })
 
@@ -597,8 +754,8 @@ describe('turns dropped under the window', () => {
  */
 describe('a conversation the host removed', () => {
   const handlers = () => (store.transport as unknown as { handlers: TransportEvents }).handlers
-  const removed = (id = ID) =>
-    handlers().onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: id, deleted: true } })
+  const removed = (id = ID, deleted = true) =>
+    handlers().onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: id, deleted } })
   const asked = (method: HostMethodName) =>
     vi.mocked(store.transport.request).mock.calls.filter(([called]) => called === method)
 
@@ -669,7 +826,7 @@ describe('a conversation the host removed', () => {
     expect(store.getSnapshot()).toBe(before)
   })
 
-  /** The conversation open, and a file beside it in the same split. */
+  /** The conversation stays in main; a legacy split request retains its file on the right. */
   const split = async () => {
     await store.selectRuntime(RUNTIME)
     answers['session/read'] = session({ title: 'Code reviewer' })
@@ -678,11 +835,10 @@ describe('a conversation the host removed', () => {
     store.openFile('/w/a.ts', { split: 'row' })
     expect(panesOf().map((pane) => [pane.view.kind, sessionOf(pane)])).toEqual([
       ['conversation', KEY],
-      ['file', null],
     ])
   }
 
-  it('closes the pane it was in, in the window that deleted it: a split collapses, and no empty pane is left', async () => {
+  it('clears the deleted conversation while its fixed file payload is retained', async () => {
     await split()
     // As the host answers a delete: every window is told first, the one that asked included.
     vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => {
@@ -693,20 +849,223 @@ describe('a conversation the host removed', () => {
 
     await store.deleteSession(ID, RUNTIME)
 
-    // What was beside it has the room, rather than sharing it with an empty pane where the conversation was.
-    expect(panesOf().map((pane) => pane.view.kind)).toEqual(['file'])
+    // Deletion clears main without releasing its retained file payload.
+    expect(panesOf().map((pane) => [pane.view.kind, sessionOf(pane)])).toEqual([['conversation', null]])
+    expect(dockViews(store.getSnapshot().workbench.right).map(one => one.view.kind)).toEqual(['file'])
+    const file = dockViews(store.getSnapshot().workbench.right)[0]!
+    store.revealView(file.id)
+    expect(store.getSnapshot().activeSessionKey).toBeNull()
+    expect(panesOf().map(sessionOf)).toEqual([null])
+    expect(store.getSnapshot().workbench.toolOwners[file.id]).toBe(`session:${KEY}`)
+    expect(store.getSnapshot().notices.at(-1)?.message).toContain('no longer available')
     expect(asked('session/close')).toHaveLength(0)
   })
 
-  it('empties the pane in any other window, and leaves what goes there to the person', async () => {
+  it.each([true, false])('empties the pane in any other window and retained tools never restore it (deleted=%s)', async (deleted) => {
     await split()
 
-    // Deleted from another window: the notification is all this one hears.
-    removed()
+    store.openBrowser('https://example.com/retained', { profile: 'lane-removed' })
+    const browser = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'browser')!
+    const file = dockViews(store.getSnapshot().workbench.right).find(one => one.view.kind === 'file')!
+    // Removed in another window: the notification is all this one hears.
+    removed(ID, deleted)
 
     expect(panesOf().map((pane) => [pane.view.kind, sessionOf(pane)])).toEqual([
       ['conversation', null],
-      ['file', null],
     ])
+    expect(dockViews(store.getSnapshot().workbench.right).map(one => one.view.kind)).toEqual(['file', 'browser'])
+    store.revealView(file.id)
+    store.focusDrivenBrowserTab('lane-removed')
+    expect(store.getSnapshot().activeSessionKey).toBeNull()
+    expect(panesOf().map(sessionOf)).toEqual([null])
+    expect(store.getSnapshot().workbench.toolOwners[browser.id]).toBe(`session:${KEY}`)
+    expect(dockViews(store.getSnapshot().workbench.right)).toContainEqual(browser)
+    expect(asked('session/close')).toHaveLength(0)
   })
+})
+
+it('a delayed Back read cannot supersede a newly selected page', async () => {
+  answers['session/read'] = session(); answers['session/resume'] = session()
+  await store.openSession(ID, { runtime: RUNTIME })
+  const settings = { kind: 'settings', route: { kind: 'section', section: 'appearance', focus: null } } as const
+  store.openDestination(settings)
+  let resolveRead!: (value: Session) => void
+  const read = new Promise<Session>(resolve => { resolveRead = resolve })
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) =>
+    method === 'session/read' ? read : answers[method] ?? null) as never)
+  const back = store.navigateBack()
+  await Promise.resolve()
+  store.openDestination({ kind: 'dashboard', view: 'overview', scope: null })
+  const before = store.getSnapshot().workbench.navigation
+  resolveRead(session())
+  await back
+  expect(store.getSnapshot().workbench.navigation).toEqual(before)
+})
+it('a failed Back read skips the unavailable target instead of using its cached session', async () => {
+  answers['session/read'] = session(); answers['session/resume'] = session()
+  await store.openSession(ID, { runtime: RUNTIME })
+  store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'appearance', focus: null } })
+  const before = store.getSnapshot().workbench
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => {
+    if (method === 'session/read') throw new Error('Synthetic transcript is unavailable')
+    return answers[method] ?? null
+  }) as never)
+  await store.navigateBack()
+  expect(store.getSnapshot().workbench.navigation.current).toEqual({ kind: 'work', view: { kind: 'conversation', session: null } })
+  expect(store.getSnapshot().workbench.navigation.back).toEqual([])
+  expect(store.getSnapshot().layout).not.toEqual(before.main)
+})
+it('a readable history target with refused resume remains navigable', async () => {
+  answers['session/read'] = session(); answers['session/resume'] = session()
+  await store.openSession(ID, { runtime: RUNTIME })
+  store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'appearance', focus: null } })
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => {
+    if (method === 'session/resume') throw new Error('Synthetic resume was refused')
+    return answers[method] ?? null
+  }) as never)
+  await store.navigateBack()
+  expect(store.getSnapshot().workbench.navigation.current).toEqual({ kind: 'work', view: { kind: 'conversation', session: KEY } })
+})
+
+it('a delayed Back read cannot cross a project selection', async () => {
+  answers['session/read'] = session(); answers['session/resume'] = session()
+  await store.openSession(ID, { runtime: RUNTIME })
+  store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'general', focus: null } })
+  let resolveRead!: (value: Session) => void
+  const read = new Promise<Session>(resolve => { resolveRead = resolve })
+  answers['workspace/open'] = { path: '/synthetic/other', name: 'Other', lastOpenedAt: 0 }
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) =>
+    method === 'session/read' ? read : answers[method] ?? null) as never)
+  const back = store.navigateBack()
+  await Promise.resolve()
+  await store.openWorkspace('/synthetic/other')
+  const before = store.getSnapshot().workbench.navigation
+  resolveRead(session())
+  await back
+  expect(store.getSnapshot().workbench.navigation).toBe(before)
+})
+
+it('a hidden transcript read never visits work or closes the current page', async () => {
+  store.openDestination({ kind: 'dashboard', view: 'overview', scope: null })
+  const before = store.getSnapshot().workbench.navigation
+  answers['session/read'] = session(); answers['session/resume'] = session()
+  expect(await store.openSession(ID, { runtime: RUNTIME, reveal: false })).toBe(true)
+  expect(store.getSnapshot().workbench.navigation).toBe(before)
+})
+
+it('Settings departure skips an unreadable conversation and preserves Settings routes for Forward', async () => {
+  answers['session/read'] = session(); answers['session/resume'] = session()
+  store.openTeamRoom('fixture-earlier')
+  await store.openSession(ID, { runtime: RUNTIME })
+  store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'general', focus: null } })
+  const route = { kind: 'settings', route: { kind: 'section', section: 'history', focus: null } } as const
+  store.openDestination(route)
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => {
+    if (method === 'session/read') throw new Error('Synthetic transcript unavailable')
+    return answers[method] ?? null
+  }) as never)
+  await store.leaveSettings()
+  expect(store.getSnapshot().workbench.navigation.current).toMatchObject({ kind: 'work', view: { kind: 'room', room: 'fixture-earlier' } })
+  await store.navigateForward()
+  expect(store.getSnapshot().workbench.navigation.current).toMatchObject({ kind: 'settings' })
+})
+it('Forward skips an unreadable conversation and reaches the page beyond it', async () => {
+  answers['session/read'] = session(); answers['session/resume'] = session()
+  await store.openSession(ID, { runtime: RUNTIME })
+  const route = { kind: 'settings', route: { kind: 'section', section: 'general', focus: null } } as const
+  store.openDestination(route)
+  await store.navigateBack(); await store.navigateBack()
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => {
+    if (method === 'session/read') throw new Error('Synthetic transcript unavailable')
+    return answers[method] ?? null
+  }) as never)
+  await store.navigateForward()
+  expect(store.getSnapshot().workbench.navigation.current).toEqual(route)
+})
+it('removed conversations are pruned from both history directions and review return scope', async () => {
+  answers['session/read'] = session(); answers['session/resume'] = session()
+  store.openTeamRoom('fixture-earlier')
+  await store.openSession(ID, { runtime: RUNTIME })
+  store.openReview()
+  await store.navigateBack()
+  await store.navigateBack()
+  const transport = store.transport as unknown as { handlers: TransportEvents }
+  transport.handlers.onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: ID, deleted: true } })
+  const history = store.getSnapshot().workbench.navigation
+  expect(JSON.stringify(history)).not.toContain('s-1')
+  await store.navigateForward()
+  expect(store.getSnapshot().workbench.navigation.current).toMatchObject({ kind: 'changes-review', returnTo: { kind: 'conversation', session: null } })
+})
+it('a first send retains the draft tool intent and rekeys each retained tool owner', async () => {
+  Object.assign(store.getSnapshot(), { activeRuntime: RUNTIME, workspace: { path: '/synthetic/project', name: 'Synthetic' } })
+  store.newDraft()
+  store.openBrowser('https://example.com/draft')
+  store.openDetailsTab('changes')
+  const before = store.getSnapshot().workbench
+  const draft = store.workSubject()!
+  const owners = Object.entries(before.toolOwners).filter(([, owner]) => owner === draft).map(([id]) => id)
+  answers['session/create'] = session()
+  await store.send([{ type: 'text', text: 'First message' }])
+  const after = store.getSnapshot().workbench
+  expect(after.main.focused).toBe(before.main.focused)
+  expect(after.frameTools[`session:${KEY}`]).toEqual(before.frameTools[draft])
+  expect(after.frameSubjects[`session:${KEY}`]?.view).toEqual({ kind: 'conversation', session: KEY })
+  expect(owners.map(id => after.toolOwners[id])).toEqual(owners.map(() => `session:${KEY}`))
+  expect(after.frameTools[draft]).toBeUndefined()
+  expect(after.frameSubjects[draft]).toBeUndefined()
+})
+
+it('deleting the Settings history target leaves Settings navigable in one departure', async () => {
+  answers['session/read'] = session(); answers['session/resume'] = session()
+  store.openTeamRoom('fixture-earlier')
+  await store.openSession(ID, { runtime: RUNTIME })
+  store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'general', focus: null } })
+  store.openDestination({ kind: 'settings', route: { kind: 'section', section: 'history', focus: null } })
+  const transport = store.transport as unknown as { handlers: TransportEvents }
+  transport.handlers.onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: ID, deleted: true } })
+  expect(JSON.stringify(store.getSnapshot().workbench.navigation)).not.toContain('s-1')
+  await store.leaveSettings()
+  expect(store.getSnapshot().workbench.navigation.current).toMatchObject({ kind: 'work', view: { kind: 'room', room: 'fixture-earlier' } })
+})
+it('deleting the current review subject clears its return target and the Back visit', async () => {
+  answers['session/read'] = session(); answers['session/resume'] = session()
+  await store.openSession(ID, { runtime: RUNTIME })
+  store.openReview()
+  const transport = store.transport as unknown as { handlers: TransportEvents }
+  transport.handlers.onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: ID, deleted: true } })
+  const history = store.getSnapshot().workbench.navigation
+  expect(history.current).toMatchObject({ kind: 'changes-review', returnTo: { kind: 'conversation', session: null } })
+  expect(JSON.stringify(history)).not.toContain('s-1')
+  await store.navigateBack()
+  expect(store.getSnapshot().workbench.navigation.current).toEqual({ kind: 'work', view: { kind: 'conversation', session: null } })
+})
+
+it('a legacy split creation does not transfer tools from the displaced draft', async () => {
+  Object.assign(store.getSnapshot(), { activeRuntime: RUNTIME, workspace: { path: '/synthetic/project', name: 'Synthetic' } })
+  store.newDraft(); store.openBrowser('https://example.com/draft')
+  const before = store.getSnapshot().workbench, draft = store.workSubject()!
+  const owners = Object.entries(before.toolOwners).filter(([, owner]) => owner === draft).map(([id]) => id)
+  answers['session/create'] = session()
+  await store.newSession({ split: 'row' })
+  const after = store.getSnapshot().workbench
+  expect(after.main.focused).not.toBe(before.main.focused)
+  expect(after.frameTools[draft]).toEqual(before.frameTools[draft])
+  expect(after.frameSubjects[draft]).toEqual(before.frameSubjects[draft])
+  expect(owners.map(id => after.toolOwners[id])).toEqual(owners.map(() => draft))
+  expect(after.frameTools[`session:${KEY}`]).toBeUndefined()
+})
+it('a creation finishing after a different draft is selected does not adopt the earlier draft tools', async () => {
+  Object.assign(store.getSnapshot(), { activeRuntime: RUNTIME, workspace: { path: '/synthetic/project', name: 'Synthetic' } })
+  store.newDraft(); store.openBrowser('https://example.com/draft')
+  const before = store.getSnapshot().workbench, draft = store.workSubject()!
+  let created!: (value: Session) => void
+  const pending = new Promise<Session>(resolve => { created = resolve })
+  vi.mocked(store.transport.request).mockImplementation((async (method: HostMethodName) => method === 'session/create' ? pending : answers[method] ?? null) as never)
+  const sending = store.send([{ type: 'text', text: 'First message' }])
+  store.openTeamRoom('fixture-elsewhere'); store.newDraft()
+  created(session()); await sending
+  const after = store.getSnapshot().workbench
+  expect(after.frameTools[draft]).toEqual(before.frameTools[draft])
+  expect(after.frameSubjects[draft]).toEqual(before.frameSubjects[draft])
+  expect(after.frameTools[`session:${KEY}`]).toBeUndefined()
 })

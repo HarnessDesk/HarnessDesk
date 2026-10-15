@@ -52,6 +52,45 @@ then carries a badge for the number of views waiting there. A split that would
 leave either half below its minimum size stays disabled and tells you the size
 it needs and the size this panel has.
 
+### Editor mode
+
+A conversation's files have their own window mode. The two icon buttons at
+the right end of the left column's top row switch between Conversation and
+Editor; **⌘G** does the same from the editor. The switch stays greyed on a
+Team, draft or other destination, with its reason on hover, and is absent in
+Settings. Leaving the conversation returns the visible window to Conversation
+mode; returning restores its editor state.
+
+Editor mode replaces the Sessions list with an **Explorer** rooted at the
+open conversation's folder, including its worktree. **All / Changed** filters
+the tree; Changed starts selected when files differ. Git letters and colours
+identify changes, and **Go to file ⌘P** searches that folder. A single click
+opens an italic preview tab that the next single click replaces. Editing or
+double-clicking keeps it. Tabs, selected views and the Explorer's filter are
+kept per conversation; unsaved text stays in the running window.
+
+Main shows the active file. Markdown opens in **Preview**, with **Edit**
+leading to **Source**; text files start in Source. **Changes** appears only
+for a file that differs from HEAD and shows editable added and removed lines.
+The file bar offers **Unsaved · Save ⌘S** only while dirty. Saving is explicit
+and checks the read hash. A change on disk reloads a clean file quietly; an
+unsaved file offers **Compare**, **Reload** and **Keep mine**. Closing a dirty
+tab asks **Save**, **Don't save** or **Cancel**. **Minimap**, off initially,
+is an editor setting in Settings › Appearance.
+
+The right panel adds **Conversation** first in its tool row and selects it
+on entry, with the same transcript and composer. Details, Changes, Activity
+and Browser continue to follow that conversation. The conversation title in
+the main breadcrumb returns to Conversation mode. Selecting text in Source,
+Changes or Markdown Preview offers **Ask in chat ⌘L**, which inserts a plain
+text quote with its file and known line range into that composer's draft,
+opens Conversation and focuses the draft without sending it.
+
+**Review** on a turn's changed-files card enters Editor mode with Changed
+selected and the first file in Changes. A transcript file link opens Source
+at its line. **Pop out** from the Changes tool's file view transfers the
+same file, chosen view and unsaved document into a kept editor tab.
+
 ### Two kinds of tab, and one row where possible
 
 Some tools have documents of their own: the browser has pages, and they get a
@@ -129,8 +168,9 @@ each tool is used:
 - **Inspectors** (Changes, Trajectory, Agents, Activity, Background tasks) open
   on the right beside the conversation, but can dock to the bottom or the
   sidebar.
-- A **conversation** opens in the middle and stays in the middle. The main area
-  is a fixed destination: it holds one conversation, or one room. Reading
+- A **conversation** opens in the middle; Editor mode shows its files there
+  and its transcript in the Conversation tool on the right. The main area
+  follows one conversation, or one room. Reading
   multiple agents concurrently is answered by the **Room**, where member
   columns display several transcripts side by side under one roof, headed by who
   they belong to.
@@ -168,6 +208,13 @@ separate layout mechanisms, and what was learned from VS Code, JetBrains and
 Zed on the way.
 
 ## Window chrome
+
+The window has no status bar. The seat menu carries plan usage and scoped
+Open usage / Sign in actions; background tasks lead Activity, whose tool button
+has a dot while any task runs. Connection trouble is a Banner at main's top,
+with five quiet seconds at startup and no notice while connected. A native
+update advisory is one action row above the seat. More carries Terminal and its
+Control-backtick toggle; the terminal stays at main's bottom.
 
 Hide-sidebar, back and forward sit on the title-bar row beside the macOS
 traffic lights, and move into the header of whatever the middle shows — a
@@ -213,11 +260,11 @@ docked panels, notices and the seat.
 
 **New session** starts a draft in the current project with the default agent,
 in one click, just like ⌘N. The always-visible ⌄ beside it opens **More ways to
-start**: New worktree…, any existing worktree, Goal…, Flow… and Team…. A
+start**: New Team… (⌘⇧N), New worktree… and any existing worktree. A
 worktree choice points the draft at that checkout; nothing is made on disk
-until its first message. Goal, Flow and Team reuse their existing chooser and
-start screens. The plain path stays plain until somebody chooses another way
-to work.
+until its first message. New Team opens a searchable shape picker, then one
+form for the task, roles and optional Done when. Just a Team opens a shared
+board without fixed steps. Change returns to the picker and keeps the draft.
 
 **Agents**, **Dashboard** and **Plugins** each have a full row under New
 session: the same icon, label and trailing badge grammar as the conversation
@@ -259,11 +306,23 @@ Running or waiting changes the row's state without moving it. Project overflow
 counts include only loose conversations still shown there.
 
 **Projects, not folders.** Sessions group by repository (`lib/projects.ts`).
+The sidebar lists conversations started or continued in HarnessDesk. It reads
+the desk's local index, fifty at a time, and loads another page on reaching the
+end. An agent filter pages that agent's accounts, and **Load more conversations**
+also reaches the next page when the rows do not fill the column. Each project shows its first ten conversations with **Show more** below;
+project folds are remembered. Team conversations live under their Team's row.
+
 Clones with the same remote and linked worktrees share one project. A checkout
 you opened leads; among several, the one worked in first keeps the name.
 Each conversation's branch still says where it ran. Agents that report no git
 join the project another session placed their folder in. The current project
 stays open; the rest fold under **Other projects**.
+
+Conversations whose folder is unknown wait in **No folder**, folded by default
+below the projects. It has no new-conversation or project-menu actions; each
+conversation keeps its own menu and first-prompt label. A ready agent's history
+can recover a missing folder in the background, and opening a conversation can
+recover it too. A conversation in `/` still belongs to the `/` project.
 
 A folder that no longer exists is not listed as a project. Its conversations
 are kept and stay findable through search and the archive; a pinned conversation
@@ -292,18 +351,16 @@ to move through its visible rows, including project headings, rooms, members
 and overflow rows; Home and End go to the first and last visible rows. On a
 project, room or **Other projects** row, → expands it (or moves to its first
 child) and ← collapses it (or returns to its parent). Enter or Space opens a
-conversation or toggles a group; on **N more** it reveals another page and
+conversation or toggles a group; on **Show more** it reveals another page and
 moves to the first new row. Type a title prefix to jump to a matching row.
 Shift+F10 or the ContextMenu key opens the focused row's actions; Escape
 returns focus to that row. Large project lists mount rows as keyboard focus
 reaches them and keep the focused row in view.
 
-**Every open conversation whose folder is still there has a row.** The rows are
-the agents' own history read through them, and an agent with no `session/list` — Gemini CLI — lists
-nothing, so the conversation being typed into had no row anywhere in the tree.
-A conversation open in this window is drawn from the desk's own knowledge of
-it, named by its title or its first ask and filed under the checkout its
-folder belongs to, until the agent's history catches up. The active row is
+**Every open conversation whose folder is still there has a row.** The desk
+records its conversations even when an agent keeps no history of its own.
+A conversation open in this window is named by its title or its first ask and
+filed under the checkout its folder belongs to, or under its Team. The active row is
 scrolled into view when it changes: a list long enough to hold a month of
 rooms kept it thousands of pixels below the fold.
 
@@ -324,8 +381,8 @@ Project actions are grouped as starts, folder tools, arrangement and project
 removal. Pin or Unpin sits beside a **Move** flyout for Move up, Move down or
 Back to automatic order. Copy path shows a home-shortened path and copies the
 absolute path. Conversation actions are Rename and Pin, then Open on the right,
-Branch from here and Copy, then Archive and Delete; Delete keeps its refusal
-reason on the disabled row.
+Branch from here and Copy, then Archive and Remove from HarnessDesk. Delete everywhere follows below a
+separator; its disabled reason stays on the tooltip.
 
 **The footer holds the docks, notices and seat: you, and the agent you will pick up next.** The seat row
 is your identity — your profile's face and name, which are the house mark and
@@ -350,11 +407,11 @@ heading. An agent that has answered that nobody is signed in is not listed
 (choosing it would start nothing) unless it is the default; it waits behind
 **Add an account**, whose chooser is where signing in happens. The menu-bar
 item still lists it, because there the row is itself the way to sign in.
-**Usage remaining** appears only where something is metered — its windows and
-when each resets, nothing else — and then come Settings and signing out of the
-default agent. Dashboard is not in this menu: it is in the sidebar's nav, on
-everything, and the Usage verb on an account's card opens its Plans view,
-scoped to that one agent.
+**Usage remaining** and the other agents' usage rows carry the same plan
+facts as the former window foot: windows, resets, blocks, source and age. Each
+fold has Open usage, scoped to that agent; an agent needing an account has Sign
+in. Then come Settings and signing out of the default agent. Dashboard in the
+sidebar opens on everything.
 
 **Your profile is a name and a face, and nothing else, because nothing else is
 shown.** Settings opens on it — your face and name head the rail, above every
@@ -391,15 +448,34 @@ initials from 24px up (two letters when initials collide). Smaller faces keep
 the account tint and a title naming the account. Top-right is reserved for
 attention counts. A face that totals several accounts carries no initial.
 
-### Archive and delete
+### Archive, Remove and Delete everywhere
 
-**Two verbs, and only one of them is expensive.** Archiving takes a
-conversation out of the list; deleting removes it where the agent keeps it.
-They are drawn to match that difference and nothing else. Archive is a plain
-row in the session's ⋯ menu, one click, no confirmation, and a toast with
-**Undo** on it; Delete is a red row that opens a dialog, and the dialog offers
-"Archive instead" because "I wanted it out of my list" is what most people
-reaching it actually wanted.
+Archive keeps a conversation and its search while taking it off the sidebar.
+Remove from HarnessDesk forgets the desk's copy and leaves the agent's files
+alone. Both are one click, followed by a toast with Undo. Remove's toast lasts
+about eight seconds; its body is kept during that window, then dropped. A running
+conversation is stopped before removal. The Remove tooltip says whether the
+agent keeps its own copy or HarnessDesk holds the only readable record.
+
+Delete everywhere is a secondary, separated item. It is enabled only when the
+agent can move its files to the Trash. The confirmation names the conversation,
+says it moves to the Trash and the agent can no longer resume it, and offers
+Move to Trash and Keep. A running conversation's confirmation also says it
+will stop first. The result toast says Moved to the Trash.
+
+**Worktrees follow the conversation.** Archive removes its clean managed
+worktree; Remove waits until Undo ends, and Delete everywhere removes it after
+the agent accepts. A branch always stays. Uncommitted work, ignored content,
+a detached checkout or another active conversation keeps the checkout. Archive shows **Worktree kept**
+on the row's label, with counts on hover. **Discard worktree…** names what will
+be lost and asks again if that inventory changes. A detached checkout is kept
+even after confirmation: create or check out a branch at its current commit
+before discarding its folder. Returning to the conversation
+puts the worktree back from its branch; if the branch is gone, it opens in the
+main checkout and says so.
+
+Wrapping a Team archives its idle conversations too. A working member stays,
+and the receipt counts how many stayed.
 
 **Every agent can archive, whether or not it has an archive.** When an agent
 supports archiving natively (like Codex), HarnessDesk triggers it directly. For
@@ -417,13 +493,10 @@ queued messages and running tasks keep them live, and so does a conversation
 the agent has taken no message in, which it could not reopen: a first message
 it rejected, or only a warning, does not count as one.
 
-**Not every agent can delete, and the interface says which.** Deleting has to
-reach the agent's own store, so it is offered exactly where something can:
-Codex through its app server, and bridges that manage their agent's project
-files (Claude Code and Cursor). Anywhere else the row is greyed with the reason.
-**What the bridges remove goes to the Trash**, and the toast afterwards says
-so — "moved to the Trash" and "deleted" are different promises, and the app
-repeats whichever one is true rather than the reassuring one.
+**The deletion destination is declared before the click.** An agent that erases
+its record for good keeps Delete everywhere greyed, with a tooltip directing
+you to delete it there. An unavailable agent or one with no delete operation
+keeps its reason on the tooltip too. Menu rows have no second line.
 
 **The archive is a page in Settings, not a slot in the sidebar.** Archiving is
 something you do from a conversation; *going to the archive* is a trip somebody
@@ -433,12 +506,30 @@ journey nobody is making. Settings is where the places you go to on purpose
 already are, under its own heading — **Conversations › Archive** — and ⌘K still
 reaches it by the name people type, "Archive".
 
-The page groups by agent, and the line under each heading says whose archive it
+The page reads the local conversation index, groups by agent, and the line under each heading says whose archive it
 is showing: an agent with one of its own is told to the user as such, and an
 agent without gets "the conversation is untouched and still listed in its own
 window". The difference is visible from the other application, so hiding it
 only means meeting it there instead — which is why every agent's line shows at
 once.
+
+### Imported History
+
+Settings › Conversations › History lists metadata imported from an agent's
+settings page. The command palette also reaches History by name. Agent and
+project filters, title search and Show hidden narrow a windowed list; an
+Archived chip records the agent's archive state. Opening a row previews it in
+the main pane. Sending a message adds it to the sidebar. Its row menu offers
+Hide from HarnessDesk with Undo, leaving the agent's files alone, and Delete
+everywhere with the shared Trash confirmation. Unsupported deletion stays
+greyed with its reason on hover; hidden rows omit Hide.
+
+An importable runtime's page has a History section: Import history, a running
+count with Cancel, or the imported count and last scan with Rescan, Browse and
+Remove imported. Failed imports expose their reason on hover and can be
+retried. Remove imported keeps the agent's own files and conversations
+continued here. Opening History or returning focus rescans imported agents;
+the host limits completed rescans to once a minute.
 
 ## The conversation
 
@@ -585,16 +676,25 @@ rides in the conversation: the agent is told, through its own instruction
 layer, to use the tools; the desk does the rest. Text a person writes
 themselves carries no signature.
 
-**Under every finished turn, a summary**: files changed (click → Changes),
+**Under every finished turn, a summary**: files changed (Review → Editor mode),
 commands run, tests passed or failed, what broke, and "waiting for your
 answer" when the agent ended on a question. All read off the items by
 `lib/turn-summary.ts`. The transcript says how the agent got there; the
 summary says where it got, for the reader who did not watch.
 
-**The host keeps the transcript.** Reopening a conversation shows what
+**The host keeps the transcript.** Its local database stores the complete
+record, and backups keep it restorable. Reopening a conversation shows what
 happened even when the backend forgot: Cursor keeps nothing readable, and ACP
 replay is lossy. A prompt with several content blocks replays as one message,
-not one turn per block.
+not one turn per block. When the agent can name its source file, an unchanged
+record opens from the local copy; a changed record is read again and folded
+into it. If that record is gone or cannot be read by the agent, the transcript
+says **HarnessDesk’s copy** in one quiet line at the top.
+
+The search palette searches your messages and the agent's answers. **Include
+tool output** adds output from tools and commands, with those hits marked
+**Tool output**. Reasoning stays outside search, and the choice is remembered
+on this viewer.
 
 ## The composer
 
@@ -695,6 +795,24 @@ level and does not declare this status.
 
 ## Settings
 
+**Conversations › Storage** shows the database, snapshots, cached previews and
+managed worktrees as single-line rows with counts and sizes. Worktree sizes say
+**Measuring…** until the background read finishes. Kept worktrees of removed or
+deleted conversations are listed in path order and stay reachable here through
+**Discard worktree…**, with change counts on hover and the same inventory
+confirmation as Archive.
+
+**Clean up inactive conversations** offers 30, 60 or 90 days and **Review…**.
+The review lists clean checkouts and their space, and lists unsaved or ignored
+checkouts separately, each in path order. They are included only after a separate
+discard choice reveals their inventory. The confirm names how many worktrees go.
+Conversations and branches stay; reopening recreates the checkout. Open, pinned and running
+conversations and their shared worktrees stay. A toast counts removals and space
+freed; refused checkouts and their reasons remain in path order in the review dialog.
+**Clear cached previews** asks first and explains that previews are read again
+from the agent next time. Live and full conversation bodies remain.
+
+
 Grouped navigation, one short page each: a rail of pages, a 20px title with a
 one-line blurb, small grey section labels over cards of rows, one control at
 the right of each row. The rail starts with you — your face and name, above
@@ -703,7 +821,7 @@ every group — and that row opens your profile.
 | Group | Pages |
 | --- | --- |
 | **General** | General · Appearance · Notifications · Keyboard shortcuts |
-| **Conversations** | Workspaces · Archive |
+| **Conversations** | Workspaces · History · Archive |
 | **Agents** | Runtimes · Models · Skills · Extensions |
 | **Capabilities** | Library · Plugins |
 | **Access** | Permissions · Browser |
@@ -788,7 +906,9 @@ page is open. A failed or unsupported measurement says so. Shared pages may
 count more than once. **Recycle** stops only an unused running
 runtime; open conversations, work and in-flight reads prevent it. The same
 section appears on a runtime's detail page, where an idle runtime says **Not running**;
-observing it never starts one. Shared recycling refusals are stated once below the table.
+reading process cost never starts one. Opening the detail page begins a costly
+or unmeasured start in the background; the page can show the last learned models,
+options and account while it waits. Shared recycling refusals are stated once below the table.
 
 It has a page per runtime (health, update, the runtime's own options) or per account;
 *Add a runtime* is where a registry entry or a custom one is added. Extensions
@@ -1023,7 +1143,54 @@ observation age and qualifications; differing amount qualifications remain
 beside that amount. Older cards show their number and **Card title not recorded**
 when no title was kept. Partial answers, gaps, unknown spend and dirty
 retained lanes remain visible; cost detail and Refresh use the same column.
-A Team has one content column under its bar. Overview, Run, Board, Chat and Findings are section tabs; narrow strips scroll. Side by side is a pressed bar toggle and returns to the selected page when switched off. The bar shows its title, state, member faces and count, and target revision, followed by quiet tools and More. Held messages use warning ink. Narrow bars put the tools in More alongside Wrap and the panel’s Fill and Move actions. Wrap is an outlined action in Overview only when the Team is ready. The app sidebar remains the only left column; the faces open membership controls.
+A Team has one content column under its 48px bar. The title, state, segmented page tabs, member faces and tools share that row. Overview, Run, Board, Chat and Findings keep their counts; Side by side is another tab and returns to the selected page when switched off. When measured space is short, the tabs become icons with count badges, full names and counts in tooltips and accessible names. A Team with no Run keeps its Run tab disabled and explains why on hover. Held messages use warning ink. Narrow bars put the tools in More alongside Wrap and the panel’s Fill and Move actions. Wrap is an outlined action in Overview only when the Team is ready. The app sidebar remains the only left column; the faces open membership controls.
+In a comparison, the recorded pick adds **Picked** and **Not kept** to the
+competitor headers. The decision card above the shared composer quotes the
+judge's reason when it is one sentence. **Merge A into main** opens the existing
+merge question for that exact recorded revision and the actual destination
+branch. **Compare changes** opens the existing diff between the two revisions.
+**Keep B instead** changes the person's pending merge choice, preserving the
+judge's recorded recommendation. A stopped Run or one without a pending person
+merge step cannot merge or change its pick. A waiting person judge sees
+**Pick an attempt…**, which opens the Board's same attempt dialog. No recorded
+selected attempt means no decision card.
+
+A conflict-free merge records its revision, resulting commit, destination and
+time in the person step's handoff. Side by side then shows that receipt in the
+same tab body, with elapsed time, agents, recorded cost when known, each attempt,
+checks and judge. **Show the attempts** restores the tiles; **Race again** opens
+the existing Run-again form. A merge with conflicts leaves the person step
+unanswered. The receipt makes no branch retention promise and offers no Undo
+merge action.
+
+With two or more Seats visible, Side by side has one ordinary composer centred
+over the bottom of the grid. **To: Both** reaches the visible Seats; **A** or **B**
+chooses one. `@A` and `@B`, or member names, update that same audience. The quiet
+**Waits for their turns** hint appears while either Seat is working. Chat keeps
+the message once, and the room's words and audience wait across Chat and the
+grid. A lone, expanded or narrow single tile uses its own composer. Panels
+extend to the bottom behind the floating box; transcript padding, approval
+viewports and Browser surfaces clear the dock's measured height. Settings keep
+the ordinary four slots; differing choices read **Mixed** and their menus name
+each recipient. Unavailable recipients show their reason, delivery outcomes
+name each copy, queued copies mark their recipient tile, and **Stop** stops the
+addressed working Seats.
+
+Each tile has one header line: its letter, agent mark, name and model, a state
+dot and word, any recorded pick, and its view and more buttons. Names truncate
+with their full text on hover. The **globe** opens the Seat's own browser; the
+**chat bubble** returns to its conversation. The choice survives expansion,
+collapse, narrow member tabs and a restart. Expansion is in the tile's more
+menu. A tile's browser has only back, forward, reload and an address field; the
+ordinary Browser pane retains its full toolbar. Several isolated Seats can
+show live pages at once. When two rows cannot fit the Browser controls, a
+usable page and the shared dock, member tabs show one tile at a time; making
+the room taller restores the grid without reloading its pages.
+A Seat with no page shows **Nothing open yet** and
+**Pages the agent opens appear here.** Seats that share the ordinary browser
+profile share one surface; another tile says where that browser is already
+shown.
+
 A wrapped Team opens on **Receipt** and keeps its page tabs and members popover. The header says **Wrapped** once and draws no Wrap control or reason line. The wrapped bar hides Side by side
 and adding an Agent; Board omits its unclaimed count, and members show name and
 role on one line without repeating Done. It opens there with or without a Run, and in a narrow pane too, where members open from the bar. The Team’s Agents list keeps the same
@@ -1048,7 +1215,7 @@ A Goal a trigger opened carries its origin honestly: its header names where it
 came from ("from PR #12," "from issue #7," "from a schedule") with a link to
 the forge when there is one, and the sidebar's room row carries the same short
 label. Any wait on it — a held message or action, a question nobody answered,
-a person's own card, or a stopped run — shows as Needs you with who it is
+a person's live card — shows as Needs you with who it is
 waiting on and the existing surface that resolves it; a plain conversation or
 an ordinary Goal shows none of this and asks Intake nothing. A wrapped
 trigger Goal's receipt keeps that same origin and stop reason.
@@ -1102,17 +1269,39 @@ Agent, seat and evidence actually are.
 
 ### The front door
 
-**Start with a team**, beside **New session**'s solo choice, opens the same
-catalogue Flows lists — the project's own, then yours, then what ships,
-sorted by a shape's own declared `layout.frontDoor.order` when it has one —
-and reads the identical strict dry run before **Start**: every Seat must
+**New Team…** (⌘⇧N) opens a searchable two-column picker. The project's
+own shapes come first, then the four shapes this desk has started most,
+then the rest. A fresh desk starts with Write and review, Side by side,
+Independent review and Investigation. Cards use the file's optional short
+`summary`, falling back to the description's first sentence; the full
+description remains on hover. **Just a Team** opens a shared board with
+no fixed steps; **Build your own** opens the shape editor. **New session**
+(⌘N) still starts a solo session directly; the picker footer keeps that path
+for work that needs only one agent.
+
+Choosing a shape opens one form: the task, each role's agent, model and
+effort, the shape's own options, and **Done when · optional**. Leaving Done
+when empty uses the task as the Team's completion sentence. **Change**
+returns to the picker and preserves the typed task and each shape's edits.
+**Details** holds the remaining inputs, instruction files and dry-run facts.
+Write and review has one fresh independent reviewer and a maximum of one,
+two or three reviews, then either a reviewed merge or a handoff to the person.
+
+In Side by side and Mechanical contest, **Check each attempt with** starts
+with the project's declared test command when one is available. It can be
+changed before Start; the dry run shows the exact command for each attempt.
+Leaving it empty sends the
+attempts straight to the judge in Side by side, or to your choice in Mechanical
+contest, without a check round.
+
+The form reads the identical strict dry run before **Start**: every Seat must
 *hold* its ceiling here, so a runtime that can only be asked shows its exact
 refusal and fix rather than starting under a weaker policy. Git's branch
 menu, a pull request's own row, ⌘K and an empty Goal's board each open it
 the same way, prefilled with what that place already knows — a branch, a
 pull request, the project itself.
 
-**Your own shape…**, the catalogue's last row, opens an ordered editor of
+**Build your own**, the catalogue's last card, opens an ordered editor of
 the chosen shape (or a blank one, a single person step) instead of starting
 it: add a step or a rule, see the exact file update as you go, and the
 identical dry run below it. **Save…** writes it to the project or to you,
@@ -1164,11 +1353,20 @@ the sentence, leaving a waiting reason whole.
 
 ### A Team's Overview
 
+Every Team destination shares one 48px bar: the title, state, segmented page
+tabs, then the participants and tools. Counts stay beside their tab names.
+When the measured space cannot keep the labels and roughly twelve title
+characters, the tabs become icons with count badges; their tooltips and
+accessible names keep the full name and count. Growing the pane restores the
+labels. The title gives up its remaining width before the icons and tools do.
+Arrow keys move focus through the tabs, including Side by side.
+
 Overview is the Team's first page tab and opens by default when the
 Team has a Run or is ready to wrap; a Team with neither opens on Chat. Its Run strip keeps the live line: who is working, what
-waits on you, why it stalled or stopped, and any release still pending. It
+waits on you, whether the Run stalled or stopped, and any release still pending. It
 also keeps the Run's reason for waiting on evidence or ending without a rule
-to continue, showing each reason once. The header keeps the revision it
+to continue. A stalled Run keeps its full refusal and recovery on Run;
+Overview, Board and Chat offer **Review stopped Run** to reach it. The header keeps the revision it
 reviews. It shows that Run's round and recorded
 usage, what needs you, and every Seat in attention order. Finished Seats stay in the Agents list;
 the Overview folds them into a disclosure such as **3 done**, above the rows.
@@ -1192,7 +1390,7 @@ wrapping subtitle. Its task or message refusal shares that subtitle, so the
 work stays readable without adding a separate third line.
 Empty Board and Chat content keeps one quiet sentence in the reading column.
 The Board toolbar keeps **New job**; an empty Goal also offers **Start with a team** there.
-Board-only Chat keeps the consequence of its messaging mode on screen.
+Board-only Chat keeps the consequence of its messaging mode on screen: agents cannot message each other, while claims and signals continue. Chat’s Send to menu changes the mode; refused messages are never queued for release.
 
 What needs you can be answered from its row. A tool's request for approval
 offers the agent's own choices. The command and its working folder, files a
@@ -1327,7 +1525,8 @@ side. It opens centred at 100% when the drawing fits; a smaller pane shrinks
 it. Pan and zoom explore the path, and Fit only shrinks, never above 100%.
 Zoom out, zoom in, Fit and **Open the file** share its top-right controls;
 **The path this Run took** sits at the top left, and the minimap, where a clear
-spot is left, never covers it. Nodes cannot be moved or edited. The accessible
+spot is left, never covers it. The minimap appears only when steps extend beyond
+the viewport after panning or zooming. Nodes cannot be moved or edited. The accessible
 Steps and Rules list retains state and selection. While the Team’s Steps dock
 is open on its Steps tab, the list lives in the dock at every width, so the
 drawing keeps the whole pane. Outside the dock, and while it is put away,

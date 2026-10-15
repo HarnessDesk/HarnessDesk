@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { runtimeId, type LedgerDay, type LedgerReport, type RuntimeId, type RuntimeInfo } from '@harnessdesk/protocol'
 
+import { DestinationPageScope } from '../panels/destination-page'
 import { StoreProvider } from '../state/context'
 import type { AppStore } from '../state/store'
 import { UsageActivity } from './UsageActivity'
@@ -97,8 +98,13 @@ const renderSuppliedReport = async (report: LedgerReport): Promise<void> => {
   })
 }
 
-const findButton = (text: string): HTMLElement | undefined =>
-  [...container.querySelectorAll('button')].find((button) => button.textContent?.trim() === text)
+const choose = (text: string): void => {
+  const option = [...container.querySelectorAll('select option')].find(node => node.textContent === text) as HTMLOptionElement | undefined
+  expect(option, `no choice for ${text}`).toBeDefined()
+  const select = option!.parentElement as HTMLSelectElement
+  select.value = option!.value
+  select.dispatchEvent(new Event('change', {bubbles:true}))
+}
 
 it('queries a full year, independent of the money band’s own range', async () => {
   const { ledger } = await renderBand()
@@ -142,13 +148,11 @@ it('switches from the Year grid to one row per agent, and back', async () => {
   // fixture — it only appears once the grid draws one row per agent.
   expect(container.textContent).not.toContain('Codex')
 
-  const byAgent = findButton('By agent')
-  await act(async () => void byAgent?.click())
+  await act(async () => choose('By agent'))
   expect(container.textContent).toContain('Claude Code')
   expect(container.textContent).toContain('Codex')
 
-  const year = findButton('Year')
-  await act(async () => void year?.click())
+  await act(async () => choose('Last 12 months'))
   expect(container.textContent).not.toContain('Codex')
 })
 
@@ -157,27 +161,26 @@ it('switches the measure from tokens to cost, changing what the facts read', asy
   const before = container.textContent ?? ''
   expect(before).toMatch(/M|K/) // a token figure, formatted short
 
-  const cost = findButton('Cost')
-  await act(async () => void cost?.click())
+  await act(async () => choose('Cost'))
   const after = container.textContent ?? ''
   expect(after).toContain('$')
 })
 
 it('counts hour coverage from daily runtime attribution on a runtime-grouped report', async () => {
   await renderSuppliedReport(groupedLedgerReport([{ runtime: CLAUDE, weekday: 1, hour: 10, requests: 2, tokens: 100 }]))
-  await act(async () => void findButton('By hour')?.click())
+  await act(async () => choose('By hour'))
   expect(container.textContent).toContain('known for 1 of 2 agents')
 })
 
 it('keeps hourly figures unknown when hourly is absent, but shows a quiet year for an empty hourly array', async () => {
   await renderBand()
-  await act(async () => void findButton('By hour')?.click())
+  await act(async () => choose('By hour'))
   expect(container.querySelector('[data-role="metric"]')?.textContent).toBe('—')
   expect(container.textContent).toContain('No hours recorded yet')
   expect(container.querySelector('[role="group"]')).toBeNull()
 
   await renderSuppliedReport(groupedLedgerReport([], [CLAUDE, CODEX]))
-  await act(async () => void findButton('By hour')?.click())
+  await act(async () => choose('By hour'))
   expect(container.querySelector('[data-role="metric"]')?.textContent).toBe('0')
   expect(container.textContent).not.toContain('No hours recorded yet')
   expect(container.querySelector('[role="group"]')).not.toBeNull()
@@ -185,21 +188,21 @@ it('keeps hourly figures unknown when hourly is absent, but shows a quiet year f
 
 it('keeps day and hour measures independently when switching views', async () => {
   await renderSuppliedReport(groupedLedgerReport([{ runtime: CLAUDE, weekday: 1, hour: 10, requests: 2, tokens: 100 }]))
-  await act(async () => void findButton('Cost')?.click())
-  await act(async () => void findButton('By hour')?.click())
-  expect(container.textContent).toContain('tokens this year')
-  await act(async () => void findButton('Calls')?.click())
-  expect(container.textContent).toContain('calls this year')
-  await act(async () => void findButton('Year')?.click())
+  await act(async () => choose('Cost'))
+  await act(async () => choose('By hour'))
+  expect(container.textContent).toContain('Tokens with a recorded hour')
+  await act(async () => choose('Calls'))
+  expect(container.textContent).toContain('Calls, last 12 months')
+  await act(async () => choose('Last 12 months'))
   expect(container.textContent).toContain('$')
-  await act(async () => void findButton('By hour')?.click())
-  expect(container.textContent).toContain('calls this year')
+  await act(async () => choose('By hour'))
+  expect(container.textContent).toContain('Calls, last 12 months')
 })
 
 it('does not show the not-recorded swatch in the hour view', async () => {
   await renderBand()
   expect(container.textContent).toContain('No record yet')
-  await act(async () => void findButton('By hour')?.click())
+  await act(async () => choose('By hour'))
   expect(container.textContent).not.toContain('No record yet')
 })
 
@@ -220,8 +223,7 @@ it("reads a scope no day can be priced for as \"unpriced\", never \"$0\" (#990 i
   })
   await renderBand(vi.fn(async () => unpricedLedger()))
 
-  const cost = findButton('Cost')
-  await act(async () => void cost?.click())
+  await act(async () => choose('Cost'))
   // Scoped to the facts card's own total — the first `metric` figure on the
   // band — since a busiest-day tie in an all-not-scanned fixture like this
   // one is a pre-existing, unrelated edge case this test is not about.
@@ -250,8 +252,7 @@ it("notes a partly-priced year without hiding it inside the total (#990 item 6)"
   })
   await renderBand(vi.fn(async () => partlyUnpriced()))
 
-  const cost = findButton('Cost')
-  await act(async () => void cost?.click())
+  await act(async () => choose('Cost'))
   expect(container.textContent).toContain('some unpriced')
 })
 
@@ -310,8 +311,7 @@ it('levels By agent rows off each agent\'s own cells, not the combined daily tot
   })
   await renderBand(vi.fn(async () => ledgerReportSkewed()))
 
-  const byAgent = findButton('By agent')
-  await act(async () => void byAgent?.click())
+  await act(async () => choose('By agent'))
 
   // Rows are sorted most-total-first (Claude, then Codex) and drawn as one
   // Fragment per row, so the flat cell list — including the not-scanned
@@ -327,4 +327,61 @@ it('levels By agent rows off each agent\'s own cells, not the combined daily tot
   )
   expect(codexCells.length).toBeGreaterThan(0)
   expect(codexBusiest.dataset['level']).not.toBe('1')
+})
+
+it('defers its own year read until the retained page is active',async()=>{
+ const ledger=vi.fn(async()=>ledgerReport())
+ const store={subscribe:()=>()=>{},getSnapshot:()=>({}),ledger} as unknown as AppStore
+ const draw=async(active:boolean)=>act(async()=>root.render(<StoreProvider store={store}><DestinationPageScope owner="destination:dashboard" active={active}><UsageActivity byId={byId} scope={null} now={NOW} /></DestinationPageScope></StoreProvider>))
+ await draw(false);expect(ledger).not.toHaveBeenCalled()
+ await draw(true);expect(ledger).toHaveBeenCalledTimes(1)
+})
+
+it('labels the rolling twelve-month window and puts scan coverage in the Active days caption', async () => {
+  await renderBand()
+  expect(container.textContent).toContain('Last 12 months')
+  expect(container.textContent).toContain('Active days')
+  expect(container.textContent).toMatch(/\d+ days scanned/)
+  expect(container.textContent).not.toContain('this year')
+})
+
+it('ignores an injected hourly measure outside the offered calls and tokens', async () => {
+  const changed = vi.fn()
+  const store = { subscribe: () => () => {}, getSnapshot: () => ({}) } as unknown as AppStore
+  await act(async () => root.render(<StoreProvider store={store}><UsageActivity byId={byId} scope={null} now={NOW}
+    report={groupedLedgerReport([{ runtime: CLAUDE, weekday: 1, hour: 10, requests: 2, tokens: 100 }])}
+    view="hour" hourMetric="calls" onHourMetricChange={changed} /></StoreProvider>))
+  const measure = container.querySelector<HTMLSelectElement>('select[aria-label="Measure"]')!
+  const injected = document.createElement('option'); injected.value = 'cost'; injected.textContent = 'Injected'; measure.append(injected)
+  await act(async () => { measure.value = 'cost'; measure.dispatchEvent(new Event('change', { bubbles: true })) })
+  expect(changed).not.toHaveBeenCalled()
+  expect(container.textContent).toContain('calls')
+})
+
+it('names the hourly subset and states tokens without a recorded hour once', async () => {
+  const runtime = runtimeId('hour-fixture')
+  const day = new Date(NOW); day.setHours(0, 0, 0, 0)
+  const report: LedgerReport = { ...ledgerReport(), totalTokens: 300, daily: [
+    { day: day.getTime(), runtime, cost: 0, tokens: 100 },
+    { day: day.getTime(), runtime, cost: 0, tokens: 200 },
+  ], hourly: [{ runtime, weekday: day.getDay(), hour: 10, requests: 1, tokens: 100 }],
+    coverage: { ...ledgerReport().coverage, hoursKnownFor: [runtime] } }
+  await renderSuppliedReport(report)
+  await act(async () => choose('By hour'))
+  expect(container.textContent).toContain('Tokens with a recorded hour')
+  expect(container.textContent).toContain('200 tokens have no recorded hour.')
+  expect(container.textContent?.match(/200 tokens have no recorded hour\./g)).toHaveLength(1)
+})
+
+
+it('uses sentence case for every calendar and hourly figure label', async () => {
+  const report = { ...ledgerReport(), daily: [], totalTokens: 0, totalCost: 0 }
+  await renderSuppliedReport(report)
+  const labels = () => [...container.querySelectorAll('[data-slot="stat-label"]')].map(label => label.textContent)
+  expect(labels()).toEqual(['Last 12 months', 'Active days', 'Streak · best 0', 'Busiest day', 'Did the most'])
+  const view = container.querySelector<HTMLSelectElement>('select[aria-label="Show by"]')!
+  await act(async () => { view.value = 'agent'; view.dispatchEvent(new Event('change', { bubbles: true })) })
+  expect(labels()[0]).toBe('Last 13 weeks')
+  await act(async () => { view.value = 'hour'; view.dispatchEvent(new Event('change', { bubbles: true })) })
+  expect(labels()).toEqual(['Tokens, last 12 months', 'Busiest hour', 'Busiest day of the week'])
 })

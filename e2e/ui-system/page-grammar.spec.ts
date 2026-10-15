@@ -3,7 +3,7 @@ import { expect, test, type Page } from '@playwright/test'
 /**
  * The page grammar, measured in the real engine.
  *
- * `Section` owns a page's rhythm — its label 8px over its card, 32px between
+ * `Section` owns a page's rhythm — its label 12px over its card, 32px between
  * sections, the same 32px after the page's head — and a `SummaryList` is one
  * card of facts whose key, value and action columns line up across its rows
  * and fold, when narrow, into a key over its value. jsdom lays nothing out, so
@@ -24,7 +24,7 @@ const mount = async (page: Page, width: number) => {
       response,
       body: `${source}
         import fixtureReact from ${JSON.stringify(reactUrl)};
-        import { AppWindowPage, Button, Chip, DetailHead, DetailMark, Note, PageHead, Row, Rows, Section, SectionHead, SummaryItem, SummaryList } from '/src/design/index.ts';
+        import { Button, Chip, IconTile, Note, Page, PageExplanation, TopBar, Row, Rows, Section, SectionHead, SummaryItem, SummaryList } from '/src/design/index.ts';
         document.getElementById('root').hidden = true;
         const frame = document.createElement('div');
         frame.setAttribute('data-testid', 'grammar');
@@ -32,7 +32,8 @@ const mount = async (page: Page, width: number) => {
         document.body.append(frame);
         const h = fixtureReact.createElement;
         createRoot(frame).render(h('div', null,
-          h(PageHead, { title: 'Permissions', blurb: 'Ceilings set the most a seat may do.' }),
+          h(TopBar, { place: 'Permissions', more: () => null }),
+          h(PageExplanation, null, 'Ceilings set the most a seat may do.'),
           h(Section, { title: 'Agent', description: 'Read from its file.', 'data-testid': 'first' },
             h(SummaryList, { 'data-testid': 'summary' },
               h(SummaryItem, { label: 'File', kind: 'path', note: 'Comes first over the one that ships', action: h(Button, { size: 'sm', variant: 'secondary' }, 'Open file') }, ${JSON.stringify(FILE)}),
@@ -45,14 +46,14 @@ const mount = async (page: Page, width: number) => {
             h(Note, { 'data-testid': 'note' }, 'Requests it used to answer will reach you again.'),
             h(Button, { variant: 'secondary', 'data-testid': 'lone-button' }, 'Retry'),
           ),
-          h('div', { style: { marginTop: '48px' } },
-            h(DetailHead, { mark: h(DetailMark, null, 'C'), name: 'Code reviewer', owner: 'In storefront', blurb: 'Reads a change before anyone merges it.' }),
+          h('div', { style: { marginTop: '412px' } },
+            h(TopBar, { mark: h(IconTile, {size: 'sm'}, 'C'), place: 'Code reviewer', parents: [{label: 'storefront', run: () => {}}], more: () => null }),
           ),
-          h('div', { style: { marginTop: '48px' }, 'data-testid': 'goal-head' },
-            h(DetailHead, { name: 'Make checkout retries survive a gateway restart without charging twice', owner: h(Chip, { tone: 'warning' }, 'Needs you'), blurb: '~/work/storefront' }),
+          h('div', { style: { marginTop: '412px' }, 'data-testid': 'goal-head' },
+            h(TopBar, { place: 'Make checkout retries survive a gateway restart without charging twice', state: h(Chip, { tone: 'warning' }, 'Needs you'), more: () => null }),
           ),
-          h('div', { style: { marginTop: '48px' }, 'data-testid': 'path-head' },
-            h(DetailHead, { name: 'Checkout payments and retries', owner: '~/work/storefront/packages/checkout-service/src/payments/retry/gateway', blurb: 'A project.' }),
+          h('div', { style: { marginTop: '412px' }, 'data-testid': 'path-head' },
+            h(TopBar, { place: 'Checkout payments and retries', parents: [{label: '~/work/storefront/packages/checkout-service/src/payments/retry/gateway', run: () => {}}], more: () => null }),
           ),
           h(Section, { title: 'Triggers', action: h(Button, { size: 'sm', variant: 'outline' }, 'New trigger…'), 'data-testid': 'note-first' },
             // ProjectTriggers.tsx's own shape: a Note, not a Rows card, is
@@ -65,7 +66,7 @@ const mount = async (page: Page, width: number) => {
             h(SectionHead, { name: 'Beta' }),
             h(Rows, { 'data-testid': 'beta' }, h(Row, { title: 'Decided when a session starts' })),
           ),
-          h(AppWindowPage, { 'data-testid': 'app-page' },
+          h(Page, { width: 'reading', gutter: 'none', 'data-testid': 'app-page' },
             h(Rows, { 'data-testid': 'legacy-above' }, h(Row, { title: 'Everything stays on this Mac' })),
             h(SectionHead, { name: 'Backup', action: h(Button, { size: 'sm', variant: 'outline' }, 'Export…') }),
             h(Rows, { 'data-testid': 'legacy-card' }, h(Row, { title: 'Back up this Mac' })),
@@ -83,14 +84,14 @@ const mount = async (page: Page, width: number) => {
 const rect = (page: Page, selector: string) =>
   page.locator(selector).first().evaluate(node => node.getBoundingClientRect().toJSON() as DOMRect)
 
-test('a Section owns its rhythm: 8px from label to card, 32px between sections and after the head', async ({ page }) => {
+test('a Section owns its rhythm: 12px from label to card, 32px between sections and after the head', async ({ page }) => {
   await page.setViewportSize({ width: 1200, height: 900 })
   await mount(page, 640)
   const readings = await page.evaluate(() => {
     const box = (node: Element | null) => node!.getBoundingClientRect()
     const first = document.querySelector('[data-testid="first"]')!
     const second = document.querySelector('[data-testid="second"]')!
-    const head = document.querySelector('[data-slot="page-title"]')!.closest('[data-slot="page-head"]')!
+    const head = document.querySelector('[data-slot="top-bar"]')!.closest('header')!.nextElementSibling!
     const style = (node: Element) => getComputedStyle(node)
     const label = first.querySelector('[data-slot="group-label"]')!
     return {
@@ -108,26 +109,26 @@ test('a Section owns its rhythm: 8px from label to card, 32px between sections a
     }
   })
   expect(readings.afterHead).toBe(32)
-  expect(readings.headToCard).toBe(8)
+  expect(readings.headToCard).toBe(12)
   expect(readings.betweenSections).toBe(32)
-  expect(readings.secondHeadToCard).toBe(8)
-  expect(readings.labelToCard).toBe(8)
+  expect(readings.secondHeadToCard).toBe(12)
+  expect(readings.labelToCard).toBe(12)
   expect(readings.rowsMargin).toBe('0px')
   expect(readings.noteMargin).toBe('0px 0px')
   expect(readings.buttonWidth).toBeLessThan(readings.sectionWidth / 2)
-  expect(readings.label).toEqual({ size: '13px', weight: '500', transform: 'none' })
+  expect(readings.label).toEqual({ size: '13px', weight: '400', transform: 'none' })
   await page.getByTestId('grammar').screenshot({ path: test.info().outputPath('page-grammar.png') })
 })
 
-test('a detail head names its page in the page title type', async ({ page }) => {
-  await page.setViewportSize({ width: 1200, height: 900 })
+test('page and detail names share the fixed bar type and height', async ({ page }) => {
   await mount(page, 640)
-  const type = (selector: string) => page.locator(selector).first().evaluate(node => {
+  const readings = await page.locator('[data-topbar-title] > [data-slot="text"]').evaluateAll(nodes => nodes.map(node => {
     const style = getComputedStyle(node)
-    return `${style.fontSize}/${style.lineHeight} ${style.fontWeight} ${style.letterSpacing}`
-  })
-  expect(await type('[class*="detailName"]')).toBe(await type('[data-slot="page-title"]'))
-  expect(await type('[data-slot="page-title"]')).toMatch(/^20px\/28px 600 /)
+    return { type: `${style.fontSize}/${style.lineHeight} ${style.fontWeight}`, height: node.closest('header')!.getBoundingClientRect().height }
+  }))
+  expect(readings).toHaveLength(4)
+  expect(new Set(readings.map(one => one.type))).toEqual(new Set(['14px/20px 400']))
+  for (const one of readings) expect(one.height).toBe(40)
 })
 
 test('a SummaryList lines its key, value and action columns up across rows', async ({ page }) => {
@@ -202,77 +203,52 @@ test('a narrow SummaryList puts each key over its value, and keeps the action at
   await page.getByTestId('grammar').screenshot({ path: test.info().outputPath('page-grammar-narrow.png') })
 })
 
-/* A chip is a mark, not a name: it stays whole beside a long title, and the
-   title wraps first (#911's review — a Goal's status read "Nee…" at 720px and
-   "N" at 420px). A text owner still gives way at its end. */
+/* The fixed bar keeps a state whole where it fits, then folds the state
+   before the name loses its minimum room. It never grows a second line. */
 for (const width of [720, 420]) {
-  test(`a chip owner stays whole beside a long detail title at ${width}px`, async ({ page }) => {
-    await page.setViewportSize({ width: 1200, height: 900 })
+  test(`a long destination name keeps a whole state or folds it at ${width}px`, async ({ page }) => {
     await mount(page, width)
-    const reading = await page.getByTestId('goal-head').evaluate(node => {
-      const chip = node.querySelector('[data-owner] > *')!
-      const words = chip.querySelector('[data-slot="chip-words"]')!
-      const title = node.querySelector('h1')!
-      const line = parseFloat(getComputedStyle(title).lineHeight)
-      return {
-        owner: node.querySelector('[data-owner]')!.getAttribute('data-owner'),
-        cut: words.scrollWidth > words.clientWidth + 1,
-        chipWidth: chip.getBoundingClientRect().width,
-        titleLines: Math.round(title.getBoundingClientRect().height / line),
+    const head = page.getByTestId('goal-head')
+    const reading = await head.evaluate(node => {
+      const title = node.querySelector('[data-topbar-title] > [data-slot="text"]')!
+      const chip = node.querySelector('[data-slot="chip-words"]')
+      return { height: node.querySelector('header')!.getBoundingClientRect().height,
+        lines: title.getBoundingClientRect().height / parseFloat(getComputedStyle(title).lineHeight),
         overflow: node.scrollWidth - node.clientWidth,
-      }
+        cut: chip ? chip.scrollWidth > chip.clientWidth + 1 : false }
     })
-    expect(reading.owner).toBe('mark')
-    expect(reading.cut, 'the chip was cut').toBe(false)
-    expect(reading.chipWidth).toBeGreaterThan(50)
-    expect(reading.titleLines).toBeGreaterThan(1)
+    expect(reading.height).toBe(40)
+    expect(reading.lines).toBe(1)
+    expect(reading.cut).toBe(false)
     expect(reading.overflow).toBeLessThanOrEqual(0)
-    await page.getByTestId('goal-head').screenshot({ path: test.info().outputPath(`goal-head-${width}.png`) })
+    await head.screenshot({ path: test.info().outputPath(`goal-head-${width}.png`) })
   })
 }
 
-/* A text owner gives way before the name wraps: the path is cut while the
-   name stays on one line, and 60% of the line is its ceiling. */
-test('a long path owner gives way before the name wraps, at 720px', async ({ page }) => {
-  await page.setViewportSize({ width: 1200, height: 900 })
+test('a long parent path keeps the destination readable and its full name available', async ({ page }) => {
   await mount(page, 720)
-  const reading = await page.getByTestId('path-head').evaluate(node => {
-    const title = node.querySelector('h1')!
-    const owner = node.querySelector('[data-owner]') as HTMLElement
-    const line = parseFloat(getComputedStyle(title).lineHeight)
-    return {
-      kind: owner.dataset['owner'],
-      titleLines: Math.round(title.getBoundingClientRect().height / line),
-      cut: owner.scrollWidth > owner.clientWidth + 1,
-      share: owner.getBoundingClientRect().width / owner.parentElement!.getBoundingClientRect().width,
-    }
-  })
-  expect(reading.kind).toBe('text')
-  expect(reading.titleLines).toBe(1)
-  expect(reading.cut).toBe(true)
-  expect(reading.share).toBeLessThanOrEqual(0.6)
+  const head = page.getByTestId('path-head')
+  await expect(head.locator('[data-topbar-title]')).toContainText('Checkout payments and retries')
+  const parent = head.getByRole('button', { name: '~/work/storefront/packages/checkout-service/src/payments/retry/gateway ›', exact: true })
+  await expect(parent).toBeVisible()
+  expect(await head.evaluate(node => node.scrollWidth - node.clientWidth)).toBeLessThanOrEqual(0)
+  expect(await head.locator('header').evaluate(node => node.getBoundingClientRect().height)).toBe(40)
 })
 
-test('page and detail titles are h1, and every section label is an h2', async ({ page }) => {
-  await page.setViewportSize({ width: 1200, height: 900 })
+test('section and subgroup headings retain their semantic outline beside the fixed bars', async ({ page }) => {
   await mount(page, 640)
   const tags = await page.getByTestId('grammar').evaluate(node => ({
-    pageTitle: node.querySelector('[data-slot="page-title"]')!.tagName,
-    detailTitles: [...node.querySelectorAll('[data-slot="detail-title"]')].map(one => one.tagName),
     sectionLabels: [...node.querySelectorAll('section[data-variant="page"] > [data-slot="section-head"] [data-slot="group-label"]')].map(one => one.tagName),
     groupLabels: [...node.querySelectorAll('section[data-variant="page"] [data-section-head] [data-slot="section-name"]')].map(one => one.tagName),
-    pageLabels: [...node.querySelectorAll('[data-slot="app-window-page"] > [data-section-head] [data-slot="section-name"]')].map(one => one.tagName),
+    pageLabels: [...node.querySelectorAll('[data-testid="app-page"] > [data-section-head] [data-slot="section-name"]')].map(one => one.tagName),
   }))
-  expect(tags.pageTitle).toBe('H1')
-  expect(new Set(tags.detailTitles)).toEqual(new Set(['H1']))
+  expect(tags.sectionLabels.length).toBeGreaterThan(0)
   expect(new Set(tags.sectionLabels)).toEqual(new Set(['H2']))
-  // A SectionHead heading a group inside a titled Section is an h3; on the
-  // page itself it is an h2, beside the Sections.
   expect(tags.groupLabels).toEqual(['H3', 'H3'])
   expect(tags.pageLabels).toEqual(['H2'])
 })
 
-/* Inside a Section, a SectionHead is a sub-head: 24px above it, 8px to its
+/* Inside a Section, a SectionHead is a sub-head: 24px above it, 12px to its
    card — tighter than the 32px between sections, so Permissions' runtimes
    read as groups of Approvals. */
 test('a section head inside a Section is a sub-head a step tighter than a section', async ({ page }) => {
@@ -288,13 +264,13 @@ test('a section head inside a Section is a sub-head a step tighter than a sectio
       labelToCard: Math.round(box('[data-testid="beta"]').top - betaLabel.bottom),
     }
   })
-  expect(gaps).toEqual({ aboveFirst: 24, betweenGroups: 24, labelToCard: 8 })
+  expect(gaps).toEqual({ aboveFirst: 24, betweenGroups: 24, labelToCard: 12 })
 })
 
 /* On an app-window page a SectionHead keeps the Section rhythm: 32px from the
-   card above, and its label 8px over its own card even with an action beside
+   card above, and its label 12px over its own card even with an action beside
    it — the same two numbers a Section gives. */
-test('on a page a section head sits 32px under the card above and 8px over its own', async ({ page }) => {
+test('on a page a section head sits 32px under the card above and 12px over its own', async ({ page }) => {
   await page.setViewportSize({ width: 1200, height: 900 })
   await mount(page, 640)
   const gaps = await page.getByTestId('app-page').evaluate(node => {
@@ -307,19 +283,17 @@ test('on a page a section head sits 32px under the card above and 8px over its o
       aboveSection: Math.round(box('[data-testid="app-section"]').top - box('[data-testid="legacy-card"]').bottom),
     }
   })
-  expect(gaps).toEqual({ headMargin: '32px', aboveHead: 32, labelToCard: 8, sectionLabelToCard: 8, aboveSection: 32 })
+  expect(gaps).toEqual({ headMargin: '20px', aboveHead: 32, labelToCard: 12, sectionLabelToCard: 12, aboveSection: 32 })
 })
 
-test('a section head\'s card inset is earned only when its body is a Rows card, not a Note', async ({ page }) => {
+test('section furniture keeps the page edge while each body owns its inset', async ({ page }) => {
   await page.setViewportSize({ width: 1200, height: 900 })
   await mount(page, 640)
   const offsets = await page.evaluate(() => {
     const rowsSection = document.querySelector('[data-testid="second"]')!
     const noteSection = document.querySelector('[data-testid="note-first"]')!
     return {
-      // A body that starts with a Rows card: the head's label is inset from
-      // the section's own edge by the card's own column (border-width +
-      // card padding, 17px).
+      // The body owns its row inset; page furniture stays on the page edge.
       rows: Math.round(
         rowsSection.querySelector('[data-slot="group-label"]')!.getBoundingClientRect().left -
         rowsSection.getBoundingClientRect().left,
@@ -333,7 +307,7 @@ test('a section head\'s card inset is earned only when its body is a Rows card, 
       ),
     }
   })
-  expect(offsets.rows, 'the rows-bodied head should carry the card inset').toBeGreaterThan(10)
+  expect(offsets.rows, 'the page heading keeps its own edge').toBeLessThanOrEqual(1)
   expect(offsets.note, 'the Note-bodied head should sit flush, not 17px in').toBeLessThanOrEqual(1)
 })
 

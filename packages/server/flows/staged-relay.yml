@@ -1,5 +1,6 @@
 version: 2
 name: "Staged relay"
+summary: "A fixed line of specialists, one stage at a time."
 description: "Work passes through a fixed relay of specialists, one stage at a time, each handing to the next only once its own answer says to."
 inputs:
   task:

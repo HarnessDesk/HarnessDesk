@@ -22,12 +22,12 @@ const ESC = String.fromCharCode(27)
 const sgr = (code: string, text: string) => `${ESC}[${code}m${text}${ESC}[0m`
 const dim = (text: string) => sgr('2', text)
 const green = (text: string) => sgr('32', text)
-const prompt = `${sgr('34', '~/code/HarnessDesk')} ${dim('main')} $ `
+const prompt = `${sgr('34', '~/work/storefront')} ${dim('main')} $ `
 
 const SCROLLBACK = [
   `${prompt}pnpm --filter @harnessdesk/ui test`,
   '',
-  ` ${dim('RUN')}  v3.2.7 ${dim('/Users/shane/code/HarnessDesk/packages/ui')}`,
+  ` ${dim('RUN')}  v3.2.7 ${dim('/work/storefront/packages/ui')}`,
   '',
   ` ${dim('Test Files')}  ${green('217 passed')} ${dim('(217)')}`,
   `      ${dim('Tests')}  ${green('2623 passed')} ${dim('(2623)')}`,

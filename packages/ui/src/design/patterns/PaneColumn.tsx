@@ -25,15 +25,17 @@ import { forwardRef, useEffect, useRef, type ComponentProps, type RefObject } fr
  *   scale (`var(--hd-space-3)`), not the reading column's edge at all.
  *
  * `rail` is the sidebar's own indent (`--hd-rail-inset`, a token this file
- * owns rather than a class string a screen composes around it).
+ * owns rather than a class string a screen composes around it). `canvas`
+ * keeps the frame's dense inset on all four sides for uncapped pages.
  *
  * `clearComposer` is `reading`'s alone: only a floating composer needs its
- * measured height cleared, and only the transcript's own scroll box floats
- * one — the room's composer sits in flow below its stream.
+ * measured height cleared. A tile under a shared floating composer supplies
+ * `--shared-composer-h` in addition to its own dock's measurement; its local
+ * bars sit above that shared dock. The room's Chat composer remains in flow.
  */
 
 type ReadingInset = 'reading'
-type StaticInset = 'bars' | 'jobs' | 'rail'
+type StaticInset = 'bars' | 'jobs' | 'rail' | 'canvas'
 export type PaneColumnInset = ReadingInset | StaticInset
 
 /** Each inset's own inline (left/right) padding. Never a screen's prop — the
@@ -43,6 +45,7 @@ const INLINE: Record<PaneColumnInset, string> = {
   bars: 'calc(var(--hd-space-6) + var(--hd-scrollbar-width, 8px))',
   jobs: 'var(--hd-space-3)',
   rail: 'var(--hd-rail-inset)',
+  canvas: 'var(--hd-space-2)',
 }
 
 /** Each inset's own static top-and-bottom padding — `0` unless named here.
@@ -51,6 +54,7 @@ const INLINE: Record<PaneColumnInset, string> = {
  *  always sets `clearComposer`, which computes its own vertical pair. */
 const VERTICAL: Partial<Record<PaneColumnInset, string>> = {
   reading: 'var(--hd-space-2)',
+  canvas: 'var(--hd-space-2)',
 }
 
 type PaneColumnCommonProps = Omit<ComponentProps<'div'>, 'inset'>
@@ -88,7 +92,7 @@ export const PaneColumn = forwardRef<HTMLDivElement, PaneColumnProps>(
       data-inset={inset}
       style={{
         padding: clearComposer
-          ? `calc(8px + var(--hd-notice-inset, 0px)) ${INLINE[inset]} calc(var(--composer-h, 150px) + 16px)`
+          ? `calc(8px + var(--hd-notice-inset, 0px)) ${INLINE[inset]} calc(var(--composer-h, 150px) + var(--shared-composer-h, 0px) + 16px)`
           : `${page ? INLINE.reading : VERTICAL[inset] ?? '0'} ${INLINE[inset]}`,
         ...style,
       }}
@@ -126,3 +130,10 @@ export const useComposerHeightVar = (root: RefObject<HTMLElement | null>): RefOb
   }, [])
   return dock
 }
+
+/** A notice in the transcript or composer follows the same capped reading measure. */
+export const ReadingMeasure = ({ style, ...props }: ComponentProps<'div'>) => <div
+  data-slot="reading-measure"
+  style={{ width: '100%', maxWidth: 'var(--hd-column)', marginInline: 'auto', ...style }}
+  {...props}
+/>

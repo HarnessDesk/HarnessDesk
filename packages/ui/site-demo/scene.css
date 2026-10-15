@@ -1,0 +1,88 @@
+/* A small app window: the production bands keep their intrinsic geometry. */
+.site-scene {
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  contain: layout paint;
+  background: var(--hd-background);
+  color: var(--hd-foreground);
+}
+.site-dashboard,
+.site-dashboard-breakdown,
+.site-dashboard-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--hd-space-3);
+}
+.site-dashboard { gap: var(--hd-space-8); }
+.site-dashboard-spend {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+  gap: var(--hd-space-6);
+}
+.site-dashboard-breakdown { min-width: 0; }
+/* A third-width spending column gives the pivot its own line. */
+.site-dashboard-breakdown [data-section-head] > div { flex-wrap: wrap; }
+.site-dashboard-breakdown [data-section-head] > div > div:has(> [data-slot="section-name"]) { flex-basis: 100%; }
+/* Focused panels keep the shipping controls and type at 1:1. Only their
+   placement changes; the full Dashboard keeps its window layout above. */
+.site-dashboard-focus { gap: var(--hd-space-3); }
+.site-dashboard-focus [data-section-head] { position: static; margin-bottom: 0; background: transparent; }
+/* Keep the outer mat rounded, with a square join between its two surfaces. */
+.site-scene:is([data-site-scene="dashboard-spend"], [data-site-scene="dashboard-activity"]) [data-slot="chart-card"]:first-child {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.site-scene:is([data-site-scene="dashboard-spend"], [data-site-scene="dashboard-activity"]) [data-slot="chart-card"] + [data-slot="chart-card"] {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+.site-scene[data-site-scene="dashboard-limits"] [data-slot="plans-table"] { padding-block: 0; }
+.site-scene[data-site-scene="dashboard-limits"] [data-slot="table-cell"][data-variant="default"] {
+  height: var(--hd-table-row-min-bare);
+}
+/* Put the comparison alongside the spend figure, then let its qualification
+   use the whole line. This saves a row without hiding the accounting. */
+.site-scene[data-site-scene="dashboard-spend"] [data-slot="chart-head"] {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--hd-space-1) var(--hd-space-3);
+}
+.site-scene[data-site-scene="dashboard-spend"] [data-slot="chart-head"] > div { display: contents; }
+.site-scene[data-site-scene="dashboard-spend"] [data-slot="chart-frame"] > [data-slot="chart-card"]:first-child { gap: var(--hd-space-2); }
+.site-scene[data-site-scene="dashboard-spend"] [data-slot="chart-head"] [data-slot="chart-title"] { grid-column: 1; grid-row: 1; }
+.site-scene[data-site-scene="dashboard-spend"] [data-slot="chart-head"] [data-slot="delta-line"] { grid-column: 2; grid-row: 1; }
+.site-scene[data-site-scene="dashboard-spend"] [data-slot="chart-head"] [data-slot="chart-hint"] { grid-column: 1 / -1; grid-row: 2; text-wrap: balance; }
+/* The site panels have a fixed width. Override the grid's inline minimum
+   tracks here so every day fits, retaining each cell's square aspect ratio. */
+.site-scene[data-site-scene="dashboard-activity"] [data-slot="chart-frame"] > [data-slot="chart-card"]:first-child { gap: var(--hd-space-3); }
+.site-scene[data-site-scene="dashboard-activity"] > .site-dashboard-focus { height: 100%; }
+.site-scene[data-site-scene="dashboard-activity"] section[aria-label="When it ran"],
+.site-scene[data-site-scene="dashboard-activity"] [data-slot="chart-frame"],
+.site-scene[data-site-scene="dashboard-activity"] [data-slot="chart-card"] + [data-slot="chart-card"] {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+/* Distribute the calendar's rows over the remaining plot height. Its 53
+   columns still determine square cells; tighter week gaps enlarge them. */
+.site-scene[data-site-scene="dashboard-activity"] [data-slot="chart-card"] + [data-slot="chart-card"] > div,
+.site-scene[data-site-scene="dashboard-activity"] [data-slot="chart-card"] + [data-slot="chart-card"] > div > div:has(> [role="group"]) {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.site-scene[data-site-scene="dashboard-activity"] [role="group"] { flex: 1; }
+.site-scene[data-site-scene="dashboard-activity"] [aria-label="Tokens or cost per day, this year"] {
+  grid-template-columns: auto repeat(53, minmax(0, 1fr)) !important;
+  column-gap: calc(var(--hd-space-px) / 2);
+}
+.site-scene[data-site-scene="dashboard-activity"] [aria-label="Tokens or cost per day, per agent, last 13 weeks"] {
+  grid-template-columns: auto repeat(91, minmax(0, 1fr)) !important;
+}
+.site-scene[data-site-scene="dashboard-activity"] [role="group"] [data-level] { min-height: 0; }
+.site-scene[data-scene-motion="reduce"] *,
+.site-scene[data-scene-motion="reduce"] *::before,
+.site-scene[data-scene-motion="reduce"] *::after { animation: none !important; transition: none !important; }

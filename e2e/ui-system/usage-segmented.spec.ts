@@ -1,9 +1,24 @@
 import { expect, test, type Locator, type Page } from '@playwright/test'
+import { FRAME } from '../../packages/ui/src/design/frame'
 
-test('the conversation header keeps the plan track and separates its reading from the roster token', async ({ page }) => {
+const mountPlanMeters = async (page: Page, fixtureUsage = false) => {
+  await page.evaluate(async fixtureUsage => {
+    const container = document.createElement('section')
+    document.body.appendChild(container)
+    const { mountPlanMetersSpecimen } = await import('/src/preview/frames-supported-controls.tsx' as string)
+    mountPlanMetersSpecimen(container, fixtureUsage)
+  }, fixtureUsage)
+  await expect(page.locator('[data-frame-id="supported-plan-meters"]')).toBeVisible()
+}
+
+test('the PlanMeters specimen keeps the plan track and separates its reading from the roster token', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/preview.html')
-  const strip = page.getByRole('group', { name: 'Plan usage' })
+  await page.evaluate(async () => {
+    const { mountPlanMetersSpecimen } = await import('/src/preview/frames-supported-controls.tsx' as string)
+    const host = document.createElement('section'); document.querySelector('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:not([hidden])')!.append(host); mountPlanMetersSpecimen(host, true)
+  })
+  const strip = page.locator('[data-frame-id="supported-plan-meters"]').getByRole('group', { name: 'Plan usage' })
   await expect(strip).toBeVisible()
   // The preview's plan strip holds a meter with a track and a second reading
   // after it; whatever that reading says, it must sit clear of the first.
@@ -33,39 +48,32 @@ for (const theme of ['light', 'dark'] as const) {
       await page.setViewportSize({ width, height: 900 })
       await page.goto('/preview.html')
       await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
-      const dashboard = page.getByRole('dialog', { name: 'Dashboard', exact: true })
-      // The rail lists the Dashboard's views (#1057); it used to list accounts.
-      const views = dashboard.locator('[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"]')
+      const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
+      const frame = page.locator('[data-frame-id="dashboard-overview"]')
+      const bar = frame.locator('[data-slot="top-bar"]:visible')
+      const views = dashboard.getByRole('tab')
       await expect(views.first()).toBeVisible()
       expect(await views.count()).toBe(5)
       const measurements = await views.evaluateAll(nodes => nodes.map(node => {
         const box = node.getBoundingClientRect()
-        return {
-          label: node.textContent,
-          height: box.height,
-          contents: [...node.children].map(child => {
-            const rect = child.getBoundingClientRect()
-            return { top: rect.top - box.top, bottom: box.bottom - rect.bottom }
-          }),
-        }
+        return { label: node.textContent, height: box.height, contents: [...node.children].map(child => { const rect = child.getBoundingClientRect(); return { top: rect.top - box.top, bottom: box.bottom - rect.bottom } }) }
       }))
       await testInfo.attach('view-layout', { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' })
-      await dashboard.locator('nav').screenshot({ path: testInfo.outputPath('views.png') })
-      // The rail row is the shared navigation row (Settings uses it too): a
-      // fixed height with its contents centred, not padding. What has to hold
-      // is that nothing touches the row's edges.
+      await bar.screenshot({ path: testInfo.outputPath('views.png') })
+      const track = await views.first().locator('..').evaluate(node => ({ height: node.getBoundingClientRect().height, padding: parseFloat(getComputedStyle(node).paddingTop) }))
+      expect(track).toEqual({ height: 32, padding: 1 })
       for (const row of measurements) {
-        expect.soft(row.height, row.label ?? '').toBeGreaterThanOrEqual(26)
+        expect.soft(row.height, row.label ?? '').toBe(track.height - 2 * track.padding)
         for (const content of row.contents) {
-          expect.soft(content.top).toBeGreaterThanOrEqual(4)
-          expect.soft(content.bottom).toBeGreaterThanOrEqual(4)
+          expect.soft(content.top).toBeGreaterThanOrEqual(0)
+          expect.soft(content.bottom).toBeGreaterThanOrEqual(0)
+          expect.soft(Math.abs(content.top - content.bottom)).toBeLessThanOrEqual(1)
         }
       }
       await views.nth(1).click()
-      await expect(views.nth(1)).toHaveAttribute('aria-current', 'page')
-      await expect.poll(() => views.nth(1).evaluate(node => getComputedStyle(node).backgroundColor))
-        .not.toBe('rgba(0, 0, 0, 0)')
-      await expect(views.first()).not.toHaveAttribute('aria-current', 'page')
+      await expect(views.nth(1)).toHaveAttribute('aria-selected', 'true')
+      await expect.poll(() => views.nth(1).evaluate(node => getComputedStyle(node).backgroundColor)).not.toBe('rgba(0, 0, 0, 0)')
+      await expect(views.first()).toHaveAttribute('aria-selected', 'false')
     })
 
     test(`permission segments contain unequal labels at ${width}px in ${theme}`, async ({ page }, testInfo) => {
@@ -73,34 +81,32 @@ for (const theme of ['light', 'dark'] as const) {
       await page.goto('/preview.html')
       await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
       await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('permissions')
-      const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
-      const reviewers = settings.getByRole('radiogroup', { name: 'Reviewed by', exact: true })
-      await expect(reviewers.getByRole('radio')).toHaveCount(3)
+      const settings = page.locator('[data-frame-id="settings-sheet"] [data-page-destination="settings"]:visible')
+      const reviewers = settings.getByRole('combobox', { name: 'Reviewed by', exact: true })
+      await expect(reviewers.locator('option')).toHaveCount(3)
+      await expect(reviewers).toHaveValue('user')
       await reviewers.scrollIntoViewIfNeeded()
-      const measurements = await settings.locator('[data-slot="toggle-group-item"]').evaluateAll(nodes => nodes.map(node => {
-        const box = node.getBoundingClientRect()
-        const range = document.createRange()
-        range.selectNodeContents(node)
-        const text = range.getBoundingClientRect()
-        const css = getComputedStyle(node)
-        return {
-          label: node.textContent,
-          width: box.width,
-          height: box.height,
-          fontSize: css.fontSize,
-          paddingLeft: parseFloat(css.paddingLeft),
-          paddingRight: parseFloat(css.paddingRight),
-          textLeft: text.left - box.left,
-          textRight: box.right - text.right,
-        }
-      }))
-      await testInfo.attach('segment-layout', { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' })
-      await settings.screenshot({ path: testInfo.outputPath('permissions.png') })
-      for (const option of measurements) {
-        expect.soft(option.textLeft, option.label ?? '').toBeGreaterThanOrEqual(option.paddingLeft - 1)
-        expect.soft(option.textRight, option.label ?? '').toBeGreaterThanOrEqual(option.paddingRight - 1)
+      for (const value of ['user', 'auto_review', 'guardian_subagent']) {
+        await reviewers.selectOption(value)
+        await expect(reviewers).toHaveValue(value)
+        const measurement = await reviewers.evaluate(node => {
+          const select = node as HTMLSelectElement, css = getComputedStyle(select), box = select.getBoundingClientRect()
+          const context = document.createElement('canvas').getContext('2d')!
+          context.font = `${css.fontWeight} ${css.fontSize} ${css.fontFamily}`
+          return {
+            text: context.measureText(select.selectedOptions[0]!.text).width,
+            available: box.width - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight),
+            height: box.height, font: css.fontSize, overflow: select.scrollWidth > select.clientWidth
+          }
+        })
+        await testInfo.attach('permission choice layout', { body: JSON.stringify(measurement), contentType: 'application/json' })
+        expect(measurement.text).toBeLessThanOrEqual(measurement.available)
+        expect(measurement.overflow).toBe(false)
+        expect(measurement.height).toBe(32)
+        expect(measurement.font).toBe('13px')
       }
-      await expect(reviewers.getByRole('radio', { name: 'You', exact: true })).toBeChecked()
+      await reviewers.selectOption('user')
+      await expect(reviewers).toHaveValue('user')
     })
   }
 }
@@ -169,7 +175,7 @@ async function stageAccounts(page: Page) {
 async function inkOf(account: Locator, within = 10_000) {
   return account.evaluate(async (node, within) => {
     const deadline = performance.now() + within
-    for (;;) {
+    for (; ;) {
       // Paused and endless animations never finish; only the rest can settle.
       const moving = document.getAnimations().filter(animation =>
         animation.playState === 'running' && animation.effect?.getComputedTiming().endTime !== Infinity)
@@ -233,97 +239,30 @@ for (const [look, theme] of [
     await page.goto('/preview.html')
     await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
     await page.getByRole('combobox', { name: 'interface', exact: true }).selectOption(look)
-    const dashboard = page.getByRole('dialog', { name: 'Dashboard', exact: true })
+    const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
     const firstBand = dashboard.getByRole('heading', { name: 'What is left', exact: true })
     await expect(firstBand).toBeVisible()
 
-    const measurement = await firstBand.evaluate(node => {
-      const dialog = node.closest('[role="dialog"]')!
-      const blurb = dialog.querySelector<HTMLElement>('[class*="pageBlurb"]')!
-      const card = dialog.querySelector<HTMLElement>('article')!
-      const title = node.getBoundingClientRect()
-      const text = document.createRange()
-      text.selectNodeContents(node)
-      const textBox = text.getBoundingClientRect()
-      const pageTitle = dialog.querySelector<HTMLElement>('[data-slot="page-title"]')!
-      const headingStyle = getComputedStyle(node)
-      const figures = [...dialog.querySelectorAll<HTMLElement>('[data-role="figure"]')]
-        .map(figure => ({ reading: figure.textContent, color: getComputedStyle(figure).color }))
-      // Overview's own strip (Paid/Value/Turns/Tokens, `OverviewStrip.tsx`)
-      // now sits between the blurb and "What is left" — the first thing
-      // under the blurb's own rhythm gap is the strip, not the heading,
-      // whenever it is on the page (every Overview render; not Plans/Spend/
-      // Activity/Projects, which this same heading text also matches, so an
-      // absent strip there falls back to the heading itself).
-      const strip = dialog.querySelector<HTMLElement>('[aria-label="What it cost, in brief"]')
-      const firstUnderBlurb = strip ?? node
+    const column = dashboard.locator('[data-slot="page"][data-width="wide"]')
+    const measurement = await column.evaluate(node => {
+      const style = getComputedStyle(node), box = node.getBoundingClientRect()
+      const parent = node.parentElement!.getBoundingClientRect()
+      const figures = [...node.querySelectorAll<HTMLElement>('[data-role="figure"]')].map(figure => ({ reading: figure.textContent, color: getComputedStyle(figure).color }))
       return {
-        blurbToFirst: firstUnderBlurb.getBoundingClientRect().top - blurb.getBoundingClientRect().bottom,
-        stripToHeading: strip ? textBox.top - strip.getBoundingClientRect().bottom : null,
-        headingToCard: card.getBoundingClientRect().top - textBox.top,
-        foreground: getComputedStyle(pageTitle).color,
-        danger: headingStyle.getPropertyValue('--hd-danger-ink').trim(),
-        warning: headingStyle.getPropertyValue('--hd-warning-ink').trim(),
-        figures,
-        titleTop: title.top,
+        gutter: [style.paddingTop, style.paddingLeft, style.paddingRight].map(parseFloat),
+        width: box.width - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight), available: parent.width,
+        danger: style.getPropertyValue('--hd-danger-ink').trim(), warning: style.getPropertyValue('--hd-warning-ink').trim(), figures
       }
     })
     await testInfo.attach('dashboard-reading-layout', { body: JSON.stringify(measurement, null, 2), contentType: 'application/json' })
-
-    // At rest the first thing under the blurb sits in the page's rhythm —
-    // the strip now, the heading before it existed. It used to stand 55px
-    // down, behind a strip-high padding the sticky head carried to cover the
-    // title strip once stuck — empty space at rest. The head now paints
-    // that cover above itself instead (its ::before).
-    expect.soft(measurement.blurbToFirst).toBeGreaterThanOrEqual(20)
-    expect.soft(measurement.blurbToFirst).toBeLessThanOrEqual(34)
-    // And the strip itself sits in the same band rhythm above the heading —
-    // not merely "some positive gap", which a 1px collision would still
-    // pass. The same band the blurb-to-first check keeps, widened by the
-    // couple of pixels Studio's own page padding adds over Desk's (measured:
-    // Desk 20–34px, Studio 35px) — still a tight band, and still soft like
-    // its neighbours.
-    if (measurement.stripToHeading !== null) {
-      expect.soft(measurement.stripToHeading).toBeGreaterThanOrEqual(20)
-      expect.soft(measurement.stripToHeading).toBeLessThanOrEqual(36)
-    }
-    expect(measurement.headingToCard).toBeGreaterThan(0)
-
-    const sticky = await firstBand.evaluate(async node => {
-      const page = node.closest<HTMLElement>('[data-slot="app-window-page"]')!
-      page.scrollTop = page.scrollHeight
-      // The cover over the title strip is drawn once the head is stuck, a
-      // scroll-state query the engine settles on the next frames.
-      await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
-      const words = document.createRange()
-      words.selectNodeContents(node)
-      const text = words.getBoundingClientRect()
-      const pageBox = page.getBoundingClientRect()
-      return {
-        scrollTop: page.scrollTop,
-        textTop: text.top,
-        pageTop: pageBox.top,
-        offset: text.top - pageBox.top,
-        // The strip is `max(26px, the title bar)`; once stuck, its resolved
-        // height is the cover the head's text box hangs above the head.
-        strip: parseFloat(getComputedStyle(node.closest('[data-sticky]')!.querySelector('[class*="sectionHeadText"]')!, '::before').height),
-      }
-    })
-    await testInfo.attach('dashboard-sticky-layout', { body: JSON.stringify(sticky, null, 2), contentType: 'application/json' })
-    // Scrolling the page must leave the first sticky band's words in the page
-    // viewport, right under the title strip. A static heading would be above
-    // it after this full scroll.
-    expect(sticky.scrollTop).toBeGreaterThan(0)
-    // Stuck, the words stop right under the title strip — never under it,
-    // and no further down than one space step (Studio's page pads a little
-    // deeper than Desk's).
-    expect(sticky.offset).toBeGreaterThanOrEqual(sticky.strip)
-    expect(sticky.offset).toBeLessThanOrEqual(sticky.strip + 4)
+    expect(measurement.gutter).toEqual([FRAME.page.gutter, FRAME.page.gutter, FRAME.page.gutter])
+    expect(measurement.width).toBeCloseTo(Math.min(FRAME.page.wide, measurement.available - 2 * FRAME.page.gutter), 0)
+    await expect(dashboard.locator('[data-slot="page-head"], [data-slot="app-window-nav"]')).toHaveCount(0)
     expect(measurement.figures.find(figure => figure.reading === '0%')?.color).toBe(measurement.danger)
     expect(measurement.figures.find(figure => figure.reading === '10%')?.color).toBe(measurement.warning)
     // Overview lists accounts needing attention; Plans carries every account.
     // Left keeps neutral healthy text; its continuous bar carries the status tone.
-    await dashboard.locator('[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"]', { hasText: 'Plans' }).click()
+    await dashboard.getByRole('tab', { name: /^Plans(?:\s|$)/ }).click()
     const plansTable = dashboard.getByRole('table')
     await expect(plansTable).toBeVisible()
     // Left is the third column, with the continuous meter and percent.
@@ -356,47 +295,43 @@ for (const [look, theme] of [
     expect(out.tone, 'out').toBe('danger')
   })
 
-  test(`${look} selected view row text meets AA in ${theme}`, async ({ page }, testInfo) => {
-    await stageAccounts(page)
-    await page.goto('/preview.html')
-    await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
-    await page.getByRole('combobox', { name: 'interface', exact: true }).selectOption(look)
-    const dashboard = page.getByRole('dialog', { name: 'Dashboard', exact: true })
-    // Plans carries the "N low" count in the warning tone, which has to read on
-    // the selected fill as well as the label does.
-    for (const view of ['Overview', 'Plans', 'Spend', 'Activity', 'Projects']) {
-      const row = dashboard.locator('[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"]', { hasText: view })
+  {
+
+    for (const [item0, view] of (['Overview', 'Plans', 'Spend', 'Activity', 'Projects']).entries()) test(`${look} selected view row text meets AA in ${theme} [item ${[item0].join('-')}]`, async ({ page }, testInfo) => {
+      await stageAccounts(page)
+      await page.goto('/preview.html')
+      await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption(theme)
+      await page.getByRole('combobox', { name: 'interface', exact: true }).selectOption(look)
+      const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
+      const row = dashboard.getByRole('tab', { name: new RegExp(`^${view}(?:\\s|$)`) })
       await row.click()
-      await expect(row).toHaveAttribute('aria-current', 'page')
+      await expect(row).toHaveAttribute('aria-selected', 'true')
       const measurements = await inkOf(row)
       await testInfo.attach(`selected-${view}`, { body: JSON.stringify(measurements, null, 2), contentType: 'application/json' })
       await row.screenshot({ path: testInfo.outputPath(`selected-${view}.png`) })
       for (const measurement of measurements) {
         expect.soft(measurement.ratio, `${view}: ${measurement.text || 'icon'}`).toBeGreaterThanOrEqual(floorOf(measurement.part))
       }
-    }
-  })
+
+
+    })
+  }
 }
 
 test('selected view row ink waits for a child transition that the row does not carry', async ({ page }) => {
-  await stageAccounts(page)
-  await page.goto('/preview.html')
-  await page.getByRole('combobox', { name: 'theme', exact: true }).selectOption('light')
-  await page.getByRole('combobox', { name: 'interface', exact: true }).selectOption('desk')
-  const parts = '[data-slot="sidebar-menu-icon"] [data-slot="text"], [data-slot="sidebar-menu-label"] [data-slot="text"]'
-  // The reduced-motion rule starts no transition for an element that declares
-  // none, and a declared delay still starts one. That holds the children where
-  // CI found them: each child's colour change is a transition of its own, made
-  // with the selection and held at the unselected ink, while the row has none
-  // of its own. It is long enough that no stall can end it.
-  await page.addStyleTag({ content: `${parts} { transition-delay: 30s !important }` })
-  const account = page.getByRole('dialog', { name: 'Dashboard', exact: true }).locator('[data-slot="app-window-nav"] [data-slot="sidebar-menu-button"]', { hasText: 'Spend' })
+  await page.setContent(`<style>
+    body{background:white;color:rgb(36,36,36)}button{background:white;color:rgb(95,95,95)}
+    button[aria-selected=true]{color:rgb(36,36,36)}button span{transition:color 100ms;transition-delay:30s}
+  </style><button role="tab" aria-selected="false"><span>Spend</span></button>`)
+  const parts = 'span'
+  const account = page.getByRole('tab', { name: 'Spend', exact: true })
+  await account.evaluate(node => node.addEventListener('click', () => node.setAttribute('aria-selected', 'true')))
   const inks = () => account.locator(parts).evaluateAll(nodes => nodes.map(node => getComputedStyle(node).color))
   // Nothing moves once this returns, so what follows is the ink the row rests on.
   await inkOf(account)
   const unselected = await inks()
   await account.click()
-  await expect(account).toHaveAttribute('aria-current', 'page')
+  await expect(account).toHaveAttribute('aria-selected', 'true')
 
   // The control: what this spec once waited on, the row's own animations, has
   // nothing in it while every child still holds the unselected ink. A read
@@ -427,7 +362,7 @@ test('no band head covers what it heads, first band or not', async ({ page }) =>
   await page.setViewportSize({ width: 1440, height: 900 })
   await stageAccounts(page)
   await page.goto('/preview.html')
-  const dashboard = page.getByRole('dialog', { name: 'Dashboard', exact: true })
+  const dashboard = page.locator('[data-frame-id="dashboard-overview"] [data-page-destination="dashboard"]:visible')
   await expect(dashboard.getByRole('heading', { name: 'What is left', exact: true })).toBeVisible()
   const overlaps = await dashboard.evaluate(node => {
     const found: string[] = []
@@ -442,4 +377,32 @@ test('no band head covers what it heads, first band or not', async ({ page }) =>
     return found
   })
   expect(overlaps).toEqual([])
+})
+
+test('the supported plan control keeps the plan track and separates its reading from the roster token', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/preview.html')
+  await mountPlanMeters(page)
+  const strip = page.getByRole('group', { name: 'Plan usage' })
+  await expect(strip).toBeVisible()
+  // The preview's plan strip holds a meter with a track and a second reading
+  // after it; whatever that reading says, it must sit clear of the first.
+  await expect(strip.locator('[data-slot="plan-meter"]')).toHaveCount(2)
+
+  const measured = await strip.evaluate(node => {
+    const [meter, next] = [...node.querySelectorAll<HTMLElement>('[data-slot="plan-meter"]')]
+    const track = meter!.querySelector<HTMLElement>('[data-slot="progress-track"]')!
+    const figure = [...meter!.querySelectorAll<HTMLElement>('[data-slot="text"]')].at(-1)!
+    const icon = next!.querySelector('svg')
+    const reading = [...next!.querySelectorAll<HTMLElement>('[data-slot="text"]')].at(-1)!
+    return {
+      trackWidth: track.getBoundingClientRect().width,
+      gap: next!.getBoundingClientRect().left - figure.getBoundingClientRect().right,
+      iconColor: icon ? getComputedStyle(icon).color : null,
+      readingColor: getComputedStyle(reading).color,
+    }
+  })
+  expect(measured.trackWidth).toBeGreaterThan(0)
+  expect(measured.gap).toBeGreaterThan(0)
+  if (measured.iconColor) expect(measured.iconColor).toBe(measured.readingColor)
 })

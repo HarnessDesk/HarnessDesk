@@ -41,7 +41,7 @@ import type {
   TriggerArmPreview, TriggerAttention, TriggerDefinition, TriggerGoalStatus, TriggerHistoryPage, TriggerPreferences,
   TriggerProjectView, TriggerSource, TriggerView,
 } from './intake.js'
-import type { InsightCompareQuery, InsightComparison, InsightOrderPreview, InsightOrderQuery, InsightQuery, InsightReport } from './insight.js'
+import type { InsightCompareQuery, InsightComparison, InsightGoalsReport, InsightOrderPreview, InsightOrderQuery, InsightQuery, InsightReport } from './insight.js'
 import type {
   FlowCheckAttempts,
   FlowEntry,
@@ -139,6 +139,16 @@ export const PROTOCOL_VERSION = 1
 
 // ------------------------------------------------------------------- requests
 
+/** Persisted progress of one runtime's metadata-only history import. */
+export interface HistoryImportState {
+  readonly state: 'running' | 'done' | 'failed' | 'cancelled'
+  readonly count: number
+  readonly importedAt: number | null
+  readonly lastScanAt: number
+  readonly error?: string
+}
+export type HistorySummary = SessionSummary & { readonly hidden: boolean }
+
 export interface FileMatch {
   readonly path: string
   readonly relativePath: string
@@ -159,6 +169,7 @@ export interface TranscriptHit {
   readonly line: string
   readonly start: number
   readonly end: number
+  readonly source?: 'message' | 'tool'
 }
 
 /**
@@ -318,6 +329,9 @@ export type GitConclusion = 'merge' | 'cherry-pick' | 'revert'
 
 export interface GitStatus {
   readonly root: string
+  /** Canonical directory admitted for this status request, which may be below root.
+   * Maps the caller's folder spelling to Git paths without guessing aliases. */
+  readonly resolvedRoot?: string
   readonly branch?: string | null
   readonly ahead: number
   readonly behind: number
@@ -404,6 +418,8 @@ export interface GitStashRef {
 export interface GitMergeOutcome {
   readonly summary: string
   readonly conflicts: readonly string[]
+  /** The destination and commit observed by the completed merge itself. */
+  readonly merged?: { readonly branch: string; readonly commit: string }
 }
 
 /** How far `git/reset` unwinds: keep the work staged, keep it, or erase it. */
@@ -512,6 +528,43 @@ export interface Worktree {
   readonly head: string | null
   readonly isMain: boolean
   readonly managed: boolean
+}
+
+/** Storage reads never start an agent. Counts are logical bytes on disk. */
+export interface StorageUsage {
+  readonly database: { readonly bytes: number; readonly computing: boolean; readonly error?: string }
+  readonly snapshots: { readonly count: number; readonly bytes: number; readonly computing: boolean; readonly error?: string }
+  readonly cachedPreviews: { readonly count: number; readonly bytes: number }
+  readonly worktrees: { readonly count: number; readonly bytes: number; readonly kept: number; readonly computing: boolean; readonly error?: string }
+}
+export interface StorageConversation { readonly runtime: RuntimeId; readonly sessionId: SessionId }
+export interface StorageCandidate extends StorageConversation {
+  readonly title: string | null
+  readonly path: string
+  readonly bytes: number
+  readonly changes: WorktreeChanges
+  readonly clean: boolean
+}
+export interface StorageCleanupPreview {
+  readonly candidates: readonly StorageCandidate[]
+  readonly cleanBytes: number
+  readonly inventoryToken: string
+}
+export interface StorageKeptWorktree extends StorageConversation {
+  readonly title: string | null
+  readonly path: string
+  readonly changes?: WorktreeChanges
+  readonly reason?: string
+}
+export interface StorageCleanupResult {
+  readonly removed: number
+  readonly kept: number
+  readonly freedBytes: number
+  readonly refused: readonly { readonly path: string; readonly reason: string }[]
+}
+export interface StorageCleanupParams {
+  readonly olderThanDays: 30 | 60 | 90
+  readonly exclude: readonly StorageConversation[]
 }
 
 /** What removing a worktree would lose. */
@@ -890,6 +943,8 @@ export interface HostMethods {
       readonly log: readonly string[]
     }
   }
+  /** Begin a costly or unmeasured start on intent, without waiting. */
+  'runtime/warm': { params: { readonly runtime: RuntimeId }; result: null }
   'runtime/models': { params: { readonly runtime: RuntimeId }; result: readonly ModelInfo[] }
   'runtime/account': { params: { readonly runtime: RuntimeId }; result: AccountStatus }
   'runtime/limits': { params: { readonly runtime: RuntimeId }; result: RateLimits | null }
@@ -923,6 +978,11 @@ export interface HostMethods {
   'usage/plan/set': { params: PlanSetInput; result: PlanEntry }
   /** Source-qualified historical usage. These reads never mutate a receipt, Goal, or source corpus. */
   'insight/goal': { params: { readonly goal: GoalId }; result: InsightReport }
+  /**
+   * Many Teams' `insight/goal` reports from one ledger read per project, for
+   * a page that lists Teams; at most `INSIGHT_GOALS_LIMIT` per request.
+   */
+  'insight/goals': { params: { readonly goals: readonly GoalId[] }; result: InsightGoalsReport }
   'insight/usage': { params: InsightQuery; result: InsightReport }
   'insight/agent': { params: { readonly root?: string; readonly agent: string; readonly origin: AgentOrigin }; result: InsightReport }
   'insight/compare': { params: InsightCompareQuery; result: InsightComparison }
@@ -1226,6 +1286,26 @@ export interface HostMethods {
   /** Signs the account out, stops it, and forgets its credential home. */
   'runtime/account/remove': { params: { readonly runtime: RuntimeId }; result: null }
 
+  /** On-request metadata imports and retained preview bodies. */
+  'history/import': { params: { readonly runtime: RuntimeId }; result: null }
+  'history/cancel': { params: { readonly runtime: RuntimeId }; result: null }
+  'history/status': { params: { readonly runtime: RuntimeId }; result: HistoryImportState | null }
+  'history/removeImported': { params: { readonly runtime: RuntimeId }; result: { readonly removed: number } }
+  'storage/usage': { params: Record<string, never>; result: StorageUsage }
+  'storage/kept': { params: Record<string, never>; result: readonly StorageKeptWorktree[] }
+  'storage/cleanupPreview': { params: StorageCleanupParams; result: StorageCleanupPreview }
+  'storage/cleanup': { params: StorageCleanupParams & { readonly includeDirty: boolean; readonly inventoryToken: string }; result: StorageCleanupResult }
+  'history/clearCached': { params: Record<string, never>; result: { readonly count: number; readonly bytes: number } }
+  'history/list': {
+    params: { readonly runtimes?: readonly RuntimeId[]; readonly repoRoot?: string; readonly query?: string;
+      readonly includeHidden?: boolean; readonly cursor?: string; readonly pageSize?: number }
+    result: Page<HistorySummary>
+  }
+  /** The desk's sidebar metadata, without starting or consulting an agent. */
+  'session/index': {
+    params: { readonly cursor?: string; readonly pageSize?: number; readonly archived?: 'exclude' | 'only'; readonly runtimes?: readonly RuntimeId[] }
+    result: Page<SessionSummary>
+  }
   'session/list': {
     params: { readonly runtime: RuntimeId } & ListSessionsQuery
     result: Page<SessionSummary>
@@ -1242,7 +1322,7 @@ export interface HostMethods {
    * complement, and the palette runs both.
    */
   'transcripts/search': {
-    params: { readonly query: string }
+    params: { readonly query: string; readonly includeTools?: boolean }
     result: readonly TranscriptHit[]
   }
   /** The backup file, assembled host-side. See `BackupFile` for what is in it. */
@@ -1285,7 +1365,20 @@ export interface HostMethods {
   }
   'session/archive': {
     params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly archived: boolean }
-    result: null
+    result: { readonly warning?: string } | null
+  }
+  /** Remove the desk's copy, or Undo during the body retention window. */
+  'session/remove': {
+    params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly removed: boolean }
+    result: { readonly undoUntil: number | null; readonly warning?: string }
+  }
+  'session/worktreePreview': {
+    params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }
+    result: { readonly changes: WorktreeChanges; readonly stamp: string }
+  }
+  'session/discardWorktree': {
+    params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly stamp: string }
+    result: { readonly discarded: boolean; readonly preview?: { readonly changes: WorktreeChanges; readonly stamp: string } }
   }
   'session/delete': {
     params: { readonly runtime: RuntimeId; readonly sessionId: SessionId }
@@ -1567,11 +1660,14 @@ export interface HostMethods {
     result: readonly FileMatch[]
   }
   'workspace/browse': {
-    params: { readonly path?: string; readonly runtime?: RuntimeId }
+    params:
+      | { readonly mode?: 'directories'; readonly path?: string; readonly runtime?: RuntimeId }
+      | { readonly mode: 'entries'; readonly root: string; readonly path?: string; readonly runtime?: RuntimeId }
     result: {
       readonly path: string
       readonly parent: string | null
-      readonly entries: readonly { readonly name: string; readonly path: string }[]
+      /** Kind is present only in the confined entries mode; folder pickers keep their shape. */
+      readonly entries: readonly { readonly name: string; readonly path: string; readonly kind?: 'file' | 'directory' }[]
     }
   }
   'workspace/readFile': {
@@ -2372,7 +2468,7 @@ export interface HostMethods {
   'git/fetch': { params: { readonly root: string }; result: { readonly summary: string } }
   /** Merges a revision into the current branch; conflicts stay, named. */
   'git/merge': {
-    params: { readonly root: string; readonly ref: string }
+    params: { readonly root: string; readonly ref: string; readonly expectedBranch?: string }
     result: GitMergeOutcome
   }
   /** Rebases the current branch onto a revision; a conflict aborts it whole. */
@@ -2666,6 +2762,7 @@ export interface SeatActivity {
 }
 
 export type WireNotification =
+  | { method: 'storage/usageChanged'; params: StorageUsage }
   | { readonly method: 'seat/activity'; readonly params: SeatActivity }
   | { method: 'goal/changed'; params: { view: GoalView } }
   | { method: 'goal/activity'; params: { goal: GoalId; previous: import('./goal.js').GoalActivity; activity: import('./goal.js').GoalActivity; sentence: string } }
@@ -2778,6 +2875,20 @@ export type WireNotification =
       readonly params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly deleted: boolean }
     }
   | {
+      readonly method: 'history/importChanged'
+      readonly params: { readonly runtime: RuntimeId } & HistoryImportState
+    }
+  | {
+      /** Metadata changes for the sidebar, including background upgrade/cache work. */
+      readonly method: 'session/indexChanged'
+      readonly params: {
+        readonly upserted: readonly SessionSummary[]
+        readonly removed: readonly { readonly runtime: RuntimeId; readonly id: SessionId }[]
+        /** Continues the current first page while an upgrade fills an initially empty index. */
+        readonly firstPageCursor?: string | null
+      }
+    }
+  | {
       /**
        * The roster changed under one of its roots, or this machine's seats for
        * it did: every listing and every dry run drawn from them is stale.
@@ -2868,6 +2979,11 @@ export type WireNotification =
        */
       readonly method: 'evidence/changed'
       readonly params: { readonly room: string; readonly evidence: BoardEvidence }
+    }
+  | {
+      /** A deferred Remove sweep kept the conversation's worktree. */
+      readonly method: 'session/worktreeKept'
+      readonly params: { readonly runtime: RuntimeId; readonly sessionId: SessionId; readonly message: string }
     }
   | {
       /**

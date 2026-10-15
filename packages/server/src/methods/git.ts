@@ -11,7 +11,11 @@ import type { MethodsUnder } from './context.js'
  * one line each handler adds is the git move itself.
  */
 export const gitMethods = {
-  'git/status': async (ctx, params) => gitService.status(await ctx.workspaces.confineGitRoot(params.root)),
+  'git/status': async (ctx, params) => {
+    const resolvedRoot = await ctx.workspaces.confineGitRoot(params.root)
+    const status = await gitService.status(resolvedRoot)
+    return status ? { ...status, resolvedRoot } : null
+  },
 
   'git/branches': async (ctx, params) => gitOps.listBranches(await ctx.workspaces.confineGitRoot(params.root)),
 
@@ -74,7 +78,7 @@ export const gitMethods = {
 
   'git/fetch': async (ctx, params) => gitActions.fetch(await ctx.workspaces.confineGitRoot(params.root)),
 
-  'git/merge': async (ctx, params) => gitActions.merge(await ctx.workspaces.confineGitRoot(params.root), params.ref),
+  'git/merge': async (ctx, params) => gitActions.merge(await ctx.workspaces.confineGitRoot(params.root), params.ref, params.expectedBranch),
 
   'git/rebase': async (ctx, params) => gitActions.rebase(await ctx.workspaces.confineGitRoot(params.root), params.onto),
 

@@ -18,8 +18,6 @@ try {
   await pathReady
   await loadBuiltinPlugins(extensions)
   await host.start()
-  assert.ok(host.runtimeInfo('codex')?.version, 'the runtime has started and says which build it is')
-  assert.ok((await host.call('runtime/models', { runtime: 'codex' })).length > 0, 'and lists its models')
 
   await mkdir(join(work, 'agents', 'implementer'), { recursive: true })
   await writeFile(join(work, 'agents', 'implementer', 'AGENT.md'), '---\nname: Implementer\nceiling: read\nprefer: [codex]\n---\nDo the work.\n')
@@ -37,6 +35,8 @@ try {
   await rm(hold)
   const resolved = await preview
   assert.ok(resolved.token, `the seat was refused: ${JSON.stringify(resolved.problems)}`)
+  assert.ok(host.runtimeInfo('codex')?.version, 'the preview joins startup and the runtime says which build it is')
+  assert.ok((await host.call('runtime/models', { runtime: 'codex' })).length > 0, 'and lists its models')
 } finally {
   await host.dispose()
   await extensions.dispose()

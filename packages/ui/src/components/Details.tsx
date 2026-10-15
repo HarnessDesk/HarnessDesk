@@ -2,16 +2,16 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 
 import { currentTurn, type GitStatus } from '@harnessdesk/protocol'
 
-import { countChanges, splitByFile } from '../lib/diff'
-import { useActiveSession, useSnapshot, useStore } from '../state/context'
+import { handOverToComposer } from '../lib/compose'
+import { countChanges, splitByFile, DiffView } from '../editor'
+import { useActiveSession, usePane, useSnapshot, useStore } from '../state/context'
 import { downloadMarkdown, exportFilename, sessionToMarkdown } from '../lib/export-session'
 import { inView } from '../lib/git-view'
 import { Activity } from './Activity'
 import { Agents } from './Agents'
 import { SeatRecordBlock } from './SeatRecordBlock'
-import { DiffView } from './Diff'
 import { FileIcon, ReviewIcon } from './Icons'
-import { Button, ListRowDetail } from '../design'
+import { Button, ListRowDetail, ToolBodyControls, Switch, Tabs, TabsList, TabsTrigger, Chip } from '../design'
 import {
   Counts,
   GroupLine,
@@ -20,9 +20,7 @@ import {
   PanelFilter,
   PanelFooter,
   PanelFrame,
-  PanelPill,
   PanelRow,
-  PanelTools,
 } from './Panel'
 import { Trajectory } from './Trajectory'
 import styles from './Details.module.css'
@@ -98,6 +96,7 @@ const InspectorFrame = ({
   onQuery,
   tools,
   foot,
+  showControls = true,
   children,
 }: {
   find: string
@@ -105,28 +104,29 @@ const InspectorFrame = ({
   onQuery: (next: string) => void
   tools?: ReactNode
   foot: readonly [string, string]
+  showControls?: boolean
   children: ReactNode
 }) => {
   const store = useStore()
   const session = useActiveSession()
   return (
     <PanelFrame>
-      <PanelTools>
-        <PanelFilter value={query} placeholder={find} onChange={onQuery} />
-        {tools}
-        <Button variant="ghost" size="icon-sm" edge="end" edgeGlyph={14}
-          disabled={!session}
-          aria-label="Export this session as Markdown"
-          title="Export this session as Markdown"
-          onClick={() => {
-            if (!session) return
-            downloadMarkdown(exportFilename(session), sessionToMarkdown(session))
-            store.notice('info', 'Session exported as Markdown.')
-          }}
-        >
-          <FileIcon size={14} />
-        </Button>
-      </PanelTools>
+      {showControls && <ToolBodyControls>
+          <PanelFilter value={query} placeholder={find} onChange={onQuery} />
+          {tools}
+          <Button variant="ghost" size="icon-sm" edge="end" edgeGlyph={14}
+            disabled={!session}
+            aria-label="Export this session as Markdown"
+            title="Export this session as Markdown"
+            onClick={() => {
+              if (!session) return
+              downloadMarkdown(exportFilename(session), sessionToMarkdown(session))
+              store.notice('info', 'Session exported as Markdown.')
+            }}
+          >
+            <FileIcon size={14} />
+          </Button>
+        </ToolBodyControls>}
 
       <PanelBody>{children}</PanelBody>
 
@@ -146,6 +146,7 @@ const useFoot = (): readonly [readonly [string, string], ReportFoot] => {
 
 export const ChangesView = () => {
   const [query, setQuery] = useState('')
+  const [empty, setEmpty] = useState(false)
   // Staged and unstaged answer different questions — "what have I decided to
   // commit" versus "what else is there" — so the panel shows one at a time
   // rather than a merged diff that hides which is which.
@@ -157,22 +158,17 @@ export const ChangesView = () => {
       query={query}
       onQuery={setQuery}
       foot={foot}
+      showControls={!empty}
       tools={
         <>
-          <PanelPill
-            pressed={staged}
-            title="Show what is staged instead of what is not"
-            onClick={() => setStaged((value) => !value)}
-          >
-            Staged
-          </PanelPill>
+          <label className="inline-flex items-center gap-2"><Switch aria-label="Staged" checked={staged} onCheckedChange={setStaged} title="Show what is staged instead of what is not" />Staged</label>
           {/* Not the panel's expand glyph, which sits directly above this one
               in the panel's own strip. That one gives this panel the room; this
               one leaves the layout entirely for the review workspace. Two ⤢ an
               inch apart, doing different things, is the reader's problem. */}
           <Button variant="ghost" size="icon-sm"
-            aria-label="Review in a full window"
-            title="Review in a full window — folders, hunks, and revise-this-hunk"
+            aria-label="Open review"
+            title="Open review"
             onClick={() => window.dispatchEvent(new CustomEvent('harnessdesk:review'))}
           >
             <ReviewIcon size={14} />
@@ -180,7 +176,7 @@ export const ChangesView = () => {
         </>
       }
     >
-      <Changes query={query} staged={staged} onFoot={onFoot} />
+      <Changes query={query} staged={staged} onFoot={onFoot} onEmptyChange={setEmpty} />
     </InspectorFrame>
   )
 }
@@ -196,13 +192,9 @@ export const TrajectoryView = () => {
       onQuery={setQuery}
       foot={foot}
       tools={
-        <PanelPill
-          pressed={timedOnly}
-          title="Show only steps the runtime timed"
-          onClick={() => setTimedOnly((value) => !value)}
-        >
-          Timed
-        </PanelPill>
+        <Tabs value={timedOnly ? 'timed' : 'all'} onValueChange={value => setTimedOnly(value === 'timed')}><TabsList>
+          <TabsTrigger value="all">All</TabsTrigger><TabsTrigger value="timed" title="Show only steps the runtime timed">Timed</TabsTrigger>
+        </TabsList></Tabs>
       }
     >
       <Trajectory query={query} timedOnly={timedOnly} onFoot={onFoot} />
@@ -230,7 +222,7 @@ export const ActivityView = () => {
       query={query}
       onQuery={setQuery}
       foot={foot}
-      tools={<PanelPill as="span">this week</PanelPill>}
+      tools={<Chip tone="neutral">this week</Chip>}
     >
       <Activity query={query} onFoot={onFoot} />
     </InspectorFrame>
@@ -242,12 +234,15 @@ const Changes = ({
   query,
   staged,
   onFoot,
+  onEmptyChange,
 }: {
   query: string
   staged: boolean
   onFoot: ReportFoot
+  onEmptyChange: (empty: boolean) => void
 }) => {
   const store = useStore()
+  const pane = usePane()
   const snapshot = useSnapshot()
   const session = useActiveSession()
   /*
@@ -358,24 +353,27 @@ const Changes = ({
     { added: 0, removed: 0 },
   )
 
+  const empty = git !== undefined && git !== null && git.files.length === 0 && turnFiles.length === 0
+
+  useEffect(() => { onEmptyChange(empty) }, [empty, onEmptyChange])
+
   useEffect(() => {
     onFoot(
-      `${files.length} file${files.length === 1 ? '' : 's'}`,
-      git?.branch ? `against ${git.branch}` : (snapshot.workspace?.name ?? ''),
+      files.length > 0 ? `${files.length} file${files.length === 1 ? '' : 's'}` : '',
+      files.length > 0 && git?.branch ? `against ${git.branch}` : '',
     )
   }, [files.length, git?.branch, snapshot.workspace?.name, onFoot])
 
   /** Puts a request about one file into the focused composer — a review comment the agent will act on. */
   const revise = (path: string): void => {
-    window.dispatchEvent(
-      new CustomEvent('harnessdesk:compose', {
-        detail: `Please revise your change to ${path}: `,
-      }),
-    )
+    if (pane) store.focusPane(pane.paneId.split(':')[0]!)
+    void handOverToComposer({ paneId: pane?.paneId, text: `Please revise your change to ${path}: ` }).then(received => {
+      if (!received) store.notice('warning', 'The message box did not take it — click into the conversation and try again.')
+    })
   }
   const absolute = (path: string): string => (path.startsWith('/') || !root ? path : `${root}/${path}`)
 
-  return (
+  return empty ? <PanelEmpty>No changes yet</PanelEmpty> : (
     <>
       {turnFiles.length > 0 && (
         <>

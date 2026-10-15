@@ -42,6 +42,7 @@ import {
 } from '@harnessdesk/protocol'
 
 import { blockedByCaller, carryCardWork, retainedWorkExpired, RETAINED_WORK_MS } from './card-claims.js'
+import { claimCheckout } from './claim-checkouts.js'
 import { errnoOf, NOTHING_YET } from './errno.js'
 import { MemberWaits, type MemberStatus } from './goals/member-waits.js'
 import { memberNames } from './goals/members.js'
@@ -328,7 +329,9 @@ export interface TeamPort {
    */
   startOf?(cwd: string): Promise<{
     readonly head: string | null
+    readonly branch?: string | null
     readonly upstream: string | null
+    readonly checkoutMark?: string | null
     /** Paths already dirty in this checkout the moment a claim reads it — `IntentClaim.dirtyPaths`'s source. Null when that read failed. */
     readonly dirtyPaths?: readonly string[] | null
   } | null>
@@ -859,7 +862,7 @@ export const cardsForWire = (intents: readonly Intent[]): readonly Intent[] =>
   intents.map((intent) => {
     const { previousClaim: _previousClaim, ...publicIntent } = intent
     if (!intent.claim) return publicIntent
-    const { dirtyPaths: _dirtyPaths, cwd: _cwd, ...claim } = intent.claim
+    const { dirtyPaths: _dirtyPaths, cwd: _cwd, checkoutMark: _checkoutMark, ...claim } = intent.claim
     return { ...publicIntent, claim }
   })
 
@@ -1497,6 +1500,8 @@ export class Team {
     context?: string,
     /** Host-owned provenance from the client door; never accepted in wire params. */
     client?: string,
+    /** Automatic work carries the Flow's origin, never a person supplied field. */
+    origin?: Extract<TeamActor, { kind: 'flow' | 'trigger' }>,
   ): Promise<void> {
     /* An answer is first only once it is saved. While one is still being
        saved the board already reads as answered — the next change is built on
@@ -1531,7 +1536,7 @@ export class Team {
     if (client !== undefined && action === 'done' && !person!.outcomes.includes(outcome?.trim() ?? '')) {
       throw Object.assign(new Error('This outcome is not an answer the person role declares.'), { wireCode: 'refused' })
     }
-    const by: TeamActor = { kind: 'user' }
+    const by: TeamActor = origin ?? { kind: 'user' }
     if (action === 'block') {
       /* `blockedBy: 'hand'`, the same as an agent's `release(blocked)`: a
          completed dependency must never silently restart work somebody
@@ -1596,7 +1601,7 @@ export class Team {
            finished card done by hand does not erase the package it left. */
         ...(context?.trim() ? { handoff: context.trim() } : {}),
       })
-      this.#signal(board, by, 'completed', intent, client !== undefined ? `answered from the command line (${client}): ${said}` : said ? `you answered ${said}` : 'marked done by you')
+      this.#signal(board, by, 'completed', intent, origin ? `check answered ${said}` : client !== undefined ? `answered from the command line (${client}): ${said}` : said ? `you answered ${said}` : 'marked done by you')
       this.#unblock(board, by)
       undo.mark()
       const saved = this.#commit(board, true, undo)
@@ -2370,6 +2375,19 @@ export class Team {
     return this.#addIntent(board, args, by)
   }
 
+  /** The host's current candidate refusal, visible in its flow card's instructions. */
+  reviewAvailability(room: string, id: number, why: string | null): void {
+    const board = this.#mutableBoardById(room)
+    const card = board.intents.find((one) => one.id === id)
+    const prefix = 'Review candidates unavailable: '
+    if (!card?.dispatch || card.state === 'done') return
+    const original = card.detail?.startsWith(prefix) ? '' : (card.detail ?? '').split(`\n\n${prefix}`)[0]!
+    const detail = (why ? [original, `${prefix}${why}`].filter(Boolean).join('\n\n') : original) || null
+    if ((card.detail ?? null) === detail) return
+    this.#patchIntent(board, id, { detail })
+    this.#commit(board)
+  }
+
   async claimNext(scope: TeamCallScope, files?: readonly string[]): Promise<string> {
     const caller = this.#caller(scope)
     const board = await this.#boardOf(caller)
@@ -2536,13 +2554,15 @@ export class Team {
       files: owned,
       // A live claim measures to HEAD, not to wherever it last stopped.
       until: null,
+      untilBranch: undefined,
       claim: {
         runtime: caller.runtime,
         sessionId: caller.sessionId,
         cwd: caller.cwd,
         at: Date.now(),
         leaseUntil: Date.now() + LEASE_MS,
-        ...(start ? { head: start.head, upstream: start.upstream, dirtyPaths: start.dirtyPaths ?? null } : {}),
+        ...(start ? { head: start.head, upstream: start.upstream, dirtyPaths: start.dirtyPaths ?? null,
+          ...(start.checkoutMark !== undefined ? { checkoutMark: start.checkoutMark } : {}) } : {}),
       },
       blockedReason: null,
       blockedBy: null,
@@ -3021,7 +3041,7 @@ export class Team {
         }
       }
       audit('refused-board-only')
-      return 'Refused: this board is in board-only mode — claims and signals, no messages. The user can turn messaging on from the Team panel.'
+      return 'Refused: this board is in board-only mode — claims and signals, no messages. The user can turn messaging on in Chat’s Send to menu.'
     }
     const text = (args.text ?? '').trim()
     if (text === '') {
@@ -4377,7 +4397,7 @@ export class Team {
 
   #ownership(files: readonly string[]): string {
     return files.length > 0
-      ? ` You own ${files.join(', ')} until you complete or release it; nobody else can claim work that overlaps them.`
+      ? ` You own ${files.join(', ')} until you complete or release it; nobody else in this checkout can claim work that overlaps them.`
       : ' It owns no files yet, so nothing stops another conversation editing the same ones — claim again with `files` once you know which you will touch.'
   }
 
@@ -4398,13 +4418,14 @@ export class Team {
    * cards as they stand in its write, exactly as `claim` asks for an agent —
    * without it two sibling cards owning the same paths were both seated.
    */
-  refuseOverlap(room: string, intents: readonly Intent[], card: number, runtime: string, sessionId: string): string | null {
+  refuseOverlap(room: string, intents: readonly Intent[], card: number, runtime: string, sessionId: string, cwd?: string | null): string | null {
     const intent = intents.find((one) => one.id === card)
     if (!intent) return null
     const board = this.#boards.get(room)
-    const hits = this.#overlapping(board ?? null, intents, intent.files, { runtime, sessionId })
+    const checkout = cwd ?? this.#port.peers().find((one) => one.runtime === runtime && one.sessionId === sessionId)?.cwd
+    const hits = this.#overlapping(board ?? null, intents, intent.files, { runtime, sessionId, cwd: checkout })
     return hits.length > 0
-      ? `the files of card #${card} overlap a live claim — ${hits.join('; ')}. Two cards whose paths overlap are never worked at once.`
+      ? `the files of card #${card} overlap a live claim — ${hits.join('; ')}. Two cards whose paths overlap in one checkout are never worked at once.`
       : null
   }
 
@@ -4417,11 +4438,16 @@ export class Team {
     board: Board | null,
     intents: readonly Intent[],
     paths: readonly string[],
-    caller: { readonly runtime: string; readonly sessionId: string },
+    caller: { readonly runtime: string; readonly sessionId: string; readonly cwd?: string | null },
   ): string[] {
     const hits: string[] = []
     const cleanPaths = Array.isArray(paths) ? paths : []
     if (cleanPaths.length === 0) return hits
+    const checkouts = new Map<string, string | null>()
+    const checkoutOf = (cwd: string): string | null => {
+      if (!checkouts.has(cwd)) checkouts.set(cwd, claimCheckout(cwd))
+      return checkouts.get(cwd) ?? null
+    }
     for (const intent of intents) {
       if (intent.state !== 'claimed' || !intent.claim) continue
       if (intent.claim.runtime === caller.runtime && intent.claim.sessionId === caller.sessionId) {
@@ -4438,6 +4464,14 @@ export class Team {
       if (ownedFiles.length === 0) continue
       const overlap = ownedFiles.some((owned) => cleanPaths.some((path) => overlaps(owned, path)))
       if (overlap) {
+        // Assignment preflight receives wire-safe cards. Read only the cwd
+        // from the host's claim, and only for the same card and claim owner.
+        const stored = board?.intents.find(one => one.id === intent.id)?.claim
+        const cwd = intent.claim.cwd ?? (stored?.runtime === intent.claim.runtime && stored?.sessionId === intent.claim.sessionId ? stored.cwd : undefined)
+        if (caller.cwd && cwd && !sameCanonicalPath(caller.cwd, cwd)) {
+          const callerCheckout = checkoutOf(caller.cwd), heldCheckout = checkoutOf(cwd)
+          if (callerCheckout && heldCheckout && callerCheckout !== heldCheckout) continue
+        }
         hits.push(`${ownedFiles.join(', ')} is held by #${intent.id}${board ? ` (${this.#holderName(board, intent)})` : ''}`)
       }
     }
@@ -4627,7 +4661,16 @@ export class Team {
       const now = board?.intents.find((entry) => entry.id === id)
       // Reclaimed since this began: a live claim measures to HEAD, not to this stale read.
       if (!board || !now || now.claim !== null) return
-      this.#patchIntent(board, id, { until: read.head })
+      const warning = claim.checkoutMark === undefined ? null
+        : claim.checkoutMark === null || read.checkoutMark == null
+          ? 'Branch history unavailable; review the final revision.'
+          : claim.checkoutMark !== read.checkoutMark
+            ? 'Work may span branches; review the final revision.'
+            : null
+      this.#patchIntent(board, id, { until: read.head,
+        ...(read.branch !== undefined ? { untilBranch: read.branch } : {}),
+        ...(warning ? { note: [warning, now.note].filter(Boolean).join(' ') } : {}),
+      })
       await this.#commit(board)
     })()
     let pending = this.#stopping.get(room)

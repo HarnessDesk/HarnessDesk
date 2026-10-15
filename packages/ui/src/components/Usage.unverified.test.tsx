@@ -8,7 +8,7 @@ import { NO_CAPABILITIES } from '@harnessdesk/protocol'
 import { readinessOf } from '../lib/readiness'
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { Usage } from './Usage'
+import { DashboardTestPage as Usage } from '../test-support/dashboard-page'
 
 /**
  * Another sign-in's figures on the Dashboard card (#769, review P1).
@@ -111,7 +111,7 @@ const render = async (report: UsageReport, scope: RuntimeInfo['id'] | null = nul
             whole page used to; Overview limits its cards to what needs
             attention first, which is a different (and separately tested)
             question from what these cases are about. */}
-        <Usage view="plans" onClose={() => {}} onSignIn={() => {}} scope={scope} />
+        <Usage view="plans" onSignIn={() => {}} scope={scope} />
       </StoreProvider>,
     ),
   )

@@ -86,6 +86,17 @@ const desk = async (t: TestContext, options: Partial<HostOptions>, ...runtimes: 
     await rm(dir, { recursive: true, force: true })
   })
   await host.start()
+  // These lookup tests begin after each agent has been explicitly tried;
+  // launch itself now tries only the default, without waiting on it.
+  await Promise.all(runtimes.map(async runtime => {
+    await host.call('runtime/warm', { runtime: runtime.info.id })
+    let timer: ReturnType<typeof setTimeout> | undefined
+    await Promise.race([
+      host.call('runtime/models', { runtime: runtime.info.id }).catch(() => {}),
+      new Promise<void>(resolve => { timer = setTimeout(resolve, options.startTimeoutMs ?? 5000) }),
+    ])
+    clearTimeout(timer)
+  }))
   return host
 }
 

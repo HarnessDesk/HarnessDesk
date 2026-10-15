@@ -14,8 +14,9 @@ import { Input } from '../ui/input'
 import { dotTone as dotToneClass, inkTint, inkTone, softTint, softTone, type Tint, type Tone } from '../ui/tone'
 import { GroupLabel } from '../ui/group-label'
 import { useInPageSection } from '../ui/section'
-import { ChoiceRow, choiceListClass, dialogStackClass, FieldsetLegend, stepRadio, useDialogForm } from './DialogForm'
+import { ChoiceRow, choiceListClass, dialogSectionStackClass, dialogStackClass, FieldsetLegend, stepRadio, useDialogForm } from './DialogForm'
 import styles from './Settings.module.css'
+import { switcherTrack, switcherItem } from '../ui/switcher'
 
 /**
  * The parts every settings surface is assembled from.
@@ -157,7 +158,7 @@ type ChipBaseProps = {
 export type ChipProps = ChipBaseProps & (
   | { state: Readiness; tone?: never; tint?: never; emphasis?: never }
   | { state?: never; tone: Tone; tint?: never; emphasis?: boolean }
-  | { state?: never; tone?: never; tint: Tint; emphasis?: never }
+  | { state?: never; tone?: never; tint: Tint; emphasis?: boolean }
 )
 
 const READINESS_TONE: Record<Readiness, Tone> = {
@@ -321,9 +322,9 @@ export const Search = ({
   label?: string
   className?: string
   autoFocus?: boolean
-  size?: 'default' | 'compact'
+  size?: 'default' | 'compact' | 'bare'
   /** A filter field is still a search input, but its resting glyph says what it narrows. */
-  icon?: 'search' | 'filter'
+  icon?: 'search' | 'filter' | 'none'
   title?: string
   onFocus?: FocusEventHandler<HTMLInputElement>
   onBlur?: FocusEventHandler<HTMLInputElement>
@@ -344,15 +345,17 @@ export const Search = ({
   >
     {icon === 'filter'
       ? <FilterIcon size={size === 'compact' ? 12 : 14} />
-      : <SearchIcon size={size === 'compact' ? 12 : 14} />}
+      : icon === 'search'
+        ? <SearchIcon size={size === 'compact' ? 12 : 14} />
+        : null}
     <Input
       ref={inputRef}
       data-focus-indicator={focusIndicator === 'caret' ? 'caret' : undefined}
       type="search"
       spellCheck={false}
-      variant={size === 'compact' ? 'quiet' : 'default'}
-      controlSize={size === 'compact' ? 'compact' : 'default'}
-      className={size === 'compact' ? styles.searchCompactInput : styles.input}
+      variant={size === 'bare' ? 'bare' : size === 'compact' ? 'quiet' : 'default'}
+      controlSize={size === 'bare' ? 'bare' : size === 'compact' ? 'compact' : 'default'}
+      className={size === 'compact' ? styles.searchCompactInput : size === 'default' ? styles.input : undefined}
       placeholder={placeholder}
       aria-label={label ?? placeholder}
       value={value}
@@ -360,7 +363,14 @@ export const Search = ({
       title={title}
       onFocus={onFocus}
       onBlur={onBlur}
-      onKeyDown={onKeyDown}
+      onKeyDown={event => {
+        onKeyDown?.(event)
+        if (!event.defaultPrevented && event.key === 'Escape' && !event.nativeEvent.isComposing && value !== '' &&
+          !event.currentTarget.closest('[data-popup-kind="menu"], [data-popup-kind="wide-menu"], [role="menu"]')) {
+          event.preventDefault()
+          onChange('')
+        }
+      }}
       onChange={(event) => onChange(event.target.value)}
     />
     {clear && value ? (
@@ -466,11 +476,15 @@ export const Field = ({
 /**
  * Fields, stacked — the body of a dialog that asks for more than one thing.
  * Inside a dialog it keeps the dialog's form rhythm (`DialogForm`): 16px
- * between fields, a legend 6px over its group.
+ * between fields by default, a named 24px section gap when requested, and a
+ * legend 6px over its group.
  */
-export const FormStack = ({ children }: { children: ReactNode }) => {
+export const FormStack = ({ children, spacing = 'form' }: { children: ReactNode; spacing?: 'form' | 'section' }) => {
   const inDialog = useDialogForm()
-  return <div className={inDialog ? dialogStackClass : styles.formStack} data-slot="form-stack">{children}</div>
+  const className = inDialog
+    ? cx(dialogStackClass, spacing === 'section' && dialogSectionStackClass)
+    : styles.formStack
+  return <div className={className} data-slot="form-stack" data-spacing={spacing}>{children}</div>
 }
 
 /**
@@ -489,6 +503,7 @@ export const Note = ({
   icon,
   action,
   inset,
+  layout = 'default',
   className,
   ...props
 }: Omit<ComponentProps<'p'>, 'children'> & {
@@ -500,6 +515,8 @@ export const Note = ({
   action?: ReactNode
   /** Follow a pane title’s ink column, or the table family’s row inset. */
   inset?: 'pane-title' | 'row'
+  /** Inline content may include a middle-truncated path and uses the whole parent measure. */
+  layout?: 'default' | 'inline'
   className?: string
 }) => {
   /* In a dialog the form stack spaces the note; a page's note carries its
@@ -511,6 +528,7 @@ export const Note = ({
   <p
     className={cx(styles.note, className)}
     data-slot="note"
+    data-layout={layout}
     {...(inset ? { 'data-inset': inset } : {})}
     {...(inDialog ? { 'data-context': 'dialog' } : {})}
     data-ink={ink}
@@ -564,23 +582,9 @@ export const Segmented = <T extends string>({
 }) => (
   <ToggleGroup
     type="single"
-    /*
-     * `inline-flex gap-0` is not decoration: it is how the look wins.
-     *
-     * The vendored RadioGroup declares `grid gap-2` and merges a caller's
-     * className through `cn`, which is tailwind-merge — and tailwind-merge
-     * cannot see a CSS-module class, so `.segmented`'s own
-     * `display: inline-flex` survived the merge and then *lost the cascade*:
-     * the Tailwind sheet is bundled after every module, so at equal
-     * specificity the utility wins. The result was a segmented control that
-     * had been rendering as a one-column stack — Theme, Palette, Accent and
-     * Corners each a vertical list of buttons instead of a row.
-     *
-     * Passing the utilities that belong to the same tailwind-merge groups
-     * (`display`, `gap`) makes the merge drop `grid gap-2` outright, which is
-     * the only fix that does not depend on which sheet loads last.
-     */
-    className={`inline-flex gap-0 ${styles.segmented}`}
+    /* The utility displaces the primitive's grid in tailwind-merge; the
+       shared switcher sheet owns the track's gap and geometry. */
+    className={`inline-flex ${switcherTrack}`}
     aria-label={label}
     value={value}
     /* A second press on the chosen segment asks the group to empty itself.
@@ -596,18 +600,9 @@ export const Segmented = <T extends string>({
         value={option.value}
         disabled={!!option.disabled}
         title={typeof option.disabled === 'string' ? option.disabled : undefined}
-        /*
-         * The lifted chosen state lives here, not in the vendored primitive:
-         * `design/ui/toggle-group.tsx` stays on the registry's own
-         * `bg-accent`/`text-accent-foreground` press (this app's quiet hover
-         * wash), so the segment's own three tokens — the card, its hairline
-         * shadow, primary ink — ride on this item, where tailwind-merge
-         * resolves them against the primitive's. The same merge drops the
-         * primitive's `hover:text-muted-foreground`, which would otherwise
-         * dim an unchosen segment's label on hover from secondary ink down
-         * to tertiary.
-         */
-        className={`${styles.segItem} hover:text-(--hd-foreground) data-pressed:bg-(--hd-card) data-pressed:text-(--hd-foreground) data-pressed:shadow-(--hd-shadow-sm)`}
+        /* Tabs and filters share the switcher’s track, size and raised press.
+           Keep the primitive's hover from dimming a segment's label. */
+        className={`${switcherItem} hover:text-(--hd-foreground) data-pressed:bg-(--hd-background) data-pressed:text-(--hd-foreground)`}
       >
         {option.label}
       </ToggleGroupItem>
@@ -615,32 +610,25 @@ export const Segmented = <T extends string>({
   </ToggleGroup>
 )
 
-/* --- page furniture ------------------------------------------------------ */
-
-/**
- * The page's 20px semibold name, matching the wordmark, one line saying what
- * it is for, and anything it acts on. Actions wrap below the copy when the
- * container cannot keep a readable description beside them.
- */
-export const PageHead = ({
-  title,
-  blurb,
-  actions,
+/** The same segmented setting when it reports a value instead of changing it. */
+export const SegmentedReadout = <T extends string>({
+  options,
+  value,
+  label,
 }: {
-  title: ReactNode
-  blurb?: ReactNode
-  actions?: ReactNode
+  options: readonly { readonly value: T; readonly label: ReactNode }[]
+  value: T
+  label: string
 }) => (
-    <div className={styles.pageHead} data-slot="page-head">
-    <div className={styles.pageHeadContent}>
-      <div className={styles.pageHeadText}>
-        <h1 className={styles.pageTitle} data-slot="page-title">{title}</h1>
-        {blurb ? <p className={styles.pageBlurb}>{blurb}</p> : null}
-      </div>
-      {actions ? <div className={styles.pageCtl}>{actions}</div> : null}
-    </div>
-  </div>
+  <Segmented
+    label={label}
+    value={value}
+    options={options.map((option) => ({ ...option, disabled: true }))}
+    onChange={() => {}}
+  />
 )
+
+/* --- page furniture ------------------------------------------------------ */
 
 export const SectionHead = ({
   name,
@@ -679,7 +667,7 @@ export const SectionHead = ({
           <span className={styles.sectionDescription} data-slot="section-description">{description}</span>
         )}
       </div>
-      {action}
+      {action != null && <div className={styles.sectionAction} data-slot="section-action">{action}</div>}
     </div>
   </div>
   )
@@ -760,6 +748,8 @@ export type TextProps = Omit<HTMLAttributes<HTMLElement>, 'role'> & {
   weight?: keyof typeof TEXT_WEIGHT
   align?: 'start' | 'center' | 'end'
   truncate?: boolean
+  /** A list summary; its full sentence remains available in detail. */
+  lines?: 2 | 3
   /** Put the ellipsis at the beginning, so a path keeps the filename end. */
   truncateFrom?: 'start'
   /** Fade a navigation name at its edge without inventing an ellipsis glyph. */
@@ -780,6 +770,7 @@ export const Text = ({
   weight,
   align = 'start',
   truncate,
+  lines,
   truncateFrom,
   fade,
   numeric,
@@ -810,6 +801,7 @@ export const Text = ({
               : TEXT_ROLE_INK[role],
         align === 'center' ? 'text-center' : align === 'end' ? 'text-right' : 'text-left',
         (truncate || truncateFrom) && 'truncate',
+        lines === 2 ? 'line-clamp-2' : lines === 3 ? 'line-clamp-3' : false,
         truncateFrom === 'start' && '[direction:rtl] text-left',
         fade && 'overflow-hidden whitespace-nowrap [mask-image:var(--hd-fade)]',
         numeric && 'tabular-nums',
@@ -828,16 +820,20 @@ export const Text = ({
  * row lays the two out on their first baseline, so the mark sits on the
  * middle of the label's first line however many lines the label wraps to and
  * whatever box the label is drawn in. `role` is the label's.
+ * A status mark that carries meaning of its own takes a `label`; decorative
+ * marks stay hidden from assistive technology.
  */
 export const TextMark = ({
   role = 'navigation',
   tone,
+  label,
   className,
   children,
 }: {
   role?: TextRole
   /** A mark that judges — a finished step, a failed one — takes its tone's ink; every other mark is muted. */
   tone?: Tone
+  label?: string
   className?: string
   children: ReactNode
 }) => (
@@ -845,7 +841,8 @@ export const TextMark = ({
     role={role}
     ink="muted"
     {...(tone ? { tone } : {})}
-    aria-hidden="true"
+    aria-hidden={label ? undefined : true}
+    aria-label={label}
     data-mark=""
     className={cx('inline-flex w-3 shrink-0 items-center justify-center', className)}
   >
@@ -875,14 +872,16 @@ export const NavigationGroupHeader = ({
    * header adds back in (`--hd-bar-ink`). A rail with no bar of its own,
    * such as the app window's nav, reads `'nav'` instead: the row's own
    * `--hd-nav-inset`, the same number `Button size="navigation"` uses.
+   * `'row'` answers to the frame's fixed icon edge inside an inset column.
    */
-  inset?: 'bar' | 'nav'
+  inset?: 'bar' | 'nav' | 'row' | 'action'
   labelInk?: 'secondary' | 'muted'
   children?: ReactNode
 }) => (
-  <div
+  <GroupLabel as="div" surface="navigation" navigationInset={inset}
     {...props}
     data-slot="navigation-group-header"
+    data-surface=""
     {...(filtering ? { 'data-filtering': '' } : {})}
     {...(keepLabelWhenFiltering ? { 'data-keep-label': '' } : {})}
     {...(inset === 'nav' ? { 'data-inset': 'nav' } : {})}
@@ -890,7 +889,7 @@ export const NavigationGroupHeader = ({
   >
     <GroupLabel ink={labelInk} className={styles.navigationGroupLabel} data-slot="navigation-group-label">{label}</GroupLabel>
     {children}
-  </div>
+  </GroupLabel>
 )
 
 /* Inside a card of rows: a `RowChoice` here is a settings row, whatever
@@ -951,14 +950,20 @@ const RowDesc = ({ truncate, children }: { truncate: boolean; children: ReactNod
 const RowTitle = ({ kind, title, chip }: { kind: 'setting' | 'record'; title: ReactNode; chip?: ReactNode }) => (
   <span className={cx(styles.rowTitle, Boolean(chip) && styles.rowTitleWithChip)} data-slot="row-title">
     {kind === 'record'
-      ? <Clipped className={cx(styles.rowClippedTitle, Boolean(chip) && styles.rowTitleName)}>{title}</Clipped>
-      : chip ? <span className={styles.rowTitleName}>{title}</span> : title}
+      ? <Clipped data-slot={chip ? 'row-title-name' : undefined} className={cx(styles.rowClippedTitle, Boolean(chip) && styles.rowTitleName)}>{title}</Clipped>
+      : chip ? <span data-slot="row-title-name" className={styles.rowTitleName}>{title}</span> : title}
     {chip ? <span className={styles.rowTitleChip} data-slot="row-title-chip">{chip}</span> : null}
   </span>
 )
 
+/**
+ * A named row with optional text below it. Keep the title scannable and put
+ * its full sentence in `desc`, where it wraps as an earned second line.
+ */
 export const Row = ({
+  unavailable = false,
   layout = 'default',
+  reserveChevronSlot = false,
   mark,
   face,
   kind = 'setting',
@@ -970,8 +975,12 @@ export const Row = ({
   className,
   ...props
 }: {
+  /** Unavailable record identity is quiet; its reason, state and editing controls remain readable. */
+  unavailable?: boolean
   /** Record titles stay whole; narrow rows put metadata and state below. */
   layout?: 'default' | 'record'
+  /** Keep the trailing control in the same column as row buttons without showing a drill-in mark. */
+  reserveChevronSlot?: boolean
   mark?: ReactNode
   /** A face that draws its own ground or ring, without another tile. */
   face?: ReactNode
@@ -986,13 +995,18 @@ export const Row = ({
   control?: ReactNode
   className?: string
 } & Omit<HTMLAttributes<HTMLDivElement>, 'title'>) => (
-  <div className={cx(styles.row, layout === 'record' && styles.rowRecord, className)} data-slot="row" data-kind={kind} {...props}>
+  <div className={cx(styles.row, layout === 'record' && styles.rowRecord, className)} data-slot="row" data-kind={kind} data-unavailable={unavailable || undefined} {...props}>
     {face ? <span className={styles.rowFace} data-slot="row-face">{face}</span> : mark ? <span className={styles.rowMark} data-slot="row-mark">{mark}</span> : null}
     <span className={styles.rowText}>
       <RowTitle kind={kind} title={title} chip={titleChip} />
       {desc ? <RowDesc truncate={truncateDesc}>{desc}</RowDesc> : null}
     </span>
-    {control ? <span className={styles.rowCtl} data-slot="row-ctl">{control}</span> : null}
+    {control ? reserveChevronSlot ? (
+      <span className={styles.rowEnd} data-slot="row-end">
+        <span className={styles.rowCtl} data-slot="row-ctl">{control}</span>
+        <span className={styles.rowChev} data-slot="row-chevron-space" aria-hidden="true" />
+      </span>
+    ) : <span className={styles.rowCtl} data-slot="row-ctl">{control}</span> : null}
   </div>
 )
 
@@ -1199,53 +1213,6 @@ export const RowChoice = ({
   )
 }
 
-/* --- drill-down ---------------------------------------------------------- */
-
-/**
- * The way back out of a detail page. It names where it goes rather than saying
- * "Back", so it reads the same whether you arrived from the list or from a
- * link somewhere else.
- */
-export const BackLink = ({ to, onClick }: { to: string; onClick: () => void }) => (
-  <Button variant="ghost" size="sm" type="button" className={styles.backLink} onClick={onClick}>
-    <ArrowLeftIcon size={14} />
-    {to}
-  </Button>
-)
-
-export const DetailHead = ({
-  mark,
-  name,
-  owner,
-  blurb,
-  actions,
-}: {
-  mark?: ReactNode
-  name: ReactNode
-  /** Who it belongs to — the agent behind an account, the author of a plugin. */
-  owner?: ReactNode
-  blurb?: ReactNode
-  actions?: ReactNode
-}) => (
-  <div className={styles.detailHead}>
-    <div className={styles.detailHeadContent}>
-      {mark}
-      <div className={styles.detailText}>
-        <div className={styles.detailName}>
-          <h1 className={styles.detailTitle} data-slot="detail-title">{name}</h1>
-          {/* A text owner — a place, a path — gives way at its end; a chip or any
-              other element is a mark and stays whole, so the name wraps first. */}
-          {owner ? (
-            <span className={styles.detailOwner} data-owner={typeof owner === 'string' ? 'text' : 'mark'}>{owner}</span>
-          ) : null}
-        </div>
-        {blurb ? <p className={styles.detailBlurb}>{blurb}</p> : null}
-      </div>
-      {actions ? <div className={styles.detailCtl}>{actions}</div> : null}
-    </div>
-  </div>
-)
-
 /**
  * A person's face: the picture they chose, or the house mark when they have
  * not.
@@ -1305,12 +1272,14 @@ export const Face = ({
  * while it is cut. A title on text that is not cut repeats what you are
  * reading and hides the tooltip of whatever holds it (the seat's "New
  * sessions run as …"), so the title is decided as the pointer arrives, from
- * whether the text overflows its box right then. The ellipsis is the
- * caller's class: `overflow: hidden`, `text-overflow: ellipsis`, `nowrap`.
+ * whether the text overflows its box right then. Pass `truncate` for the
+ * one-line ellipsis; the caller's class supplies width and minimum-size
+ * constraints.
  */
-export const Clipped = ({ className, title, children }: { readonly className?: string; readonly title?: string; readonly children: ReactNode }) => (
+export const Clipped = ({ className, title, truncate = false, children, ...props }: Omit<HTMLAttributes<HTMLSpanElement>, 'children'> & { readonly truncate?: boolean; readonly children: ReactNode }) => (
   <span
-    className={className}
+    {...props}
+    className={cx(className, truncate && 'truncate')}
     title={title}
     onMouseEnter={(event) => {
       const node = event.currentTarget
@@ -1320,10 +1289,6 @@ export const Clipped = ({ className, title, children }: { readonly className?: s
   >
     {children}
   </span>
-)
-
-export const PageDescription = ({ children }: { children: ReactNode }) => (
-  <p className={styles.pageBlurb}>{children}</p>
 )
 
 /**
@@ -1482,6 +1447,11 @@ export const MetaList = ({ children, className, ink = 'secondary' }: { children:
   <span data-slot="meta-list" className={cx(styles.metaList, ink === 'muted' && styles.metaListMuted, className)}>{children}</span>
 )
 
+/** Inline parts of one value, wrapped together with the shared chip gap. */
+export const InlineParts = ({ children, className, ...props }: HTMLAttributes<HTMLSpanElement> & { children: ReactNode }) => (
+  <span {...props} className={cx(styles.inlineParts, className)} data-slot="inline-parts">{children}</span>
+)
+
 export const AccountMark = ({
   as = 'span',
   size,
@@ -1492,7 +1462,7 @@ export const AccountMark = ({
 }: Omit<HTMLAttributes<HTMLElement>, 'data-tint'> & {
   as?: 'span' | 'button'
   /** `dot` is the account's colour alone, for a line whose owner is already drawn. */
-  size?: 'sm' | 'lg' | 'dot' | 'row'
+  size?: 'sm' | 'lg' | 'dot' | 'row' | 'menu'
   /** One of the accounts' own tints — never a design-system tint at large: #991 once shipped teal and orange, neither of which is a tint an account can wear. */
   'data-tint'?: AccountTint
   badge?: ReactNode
@@ -1503,7 +1473,7 @@ export const AccountMark = ({
   // the two apart on a screen that draws both.
   'data-shape': 'round',
   ...(as === 'button' ? { type: 'button' } : {}),
-  className: cx(styles.avatar, badge != null && 'relative overflow-visible', as === 'button' && styles.avatarButton, size === 'sm' && styles.avatarSm, size === 'lg' && styles.avatarLg, size === 'dot' && styles.avatarDot, size === 'row' && styles.avatarRow, className),
+  className: cx(styles.avatar, badge != null && 'relative overflow-visible', as === 'button' && styles.avatarButton, size === 'sm' && styles.avatarSm, size === 'lg' && styles.avatarLg, size === 'dot' && styles.avatarDot, size === 'row' && styles.avatarRow, size === 'menu' && styles.avatarMenu, className),
 }, children, badge != null && <FaceBadge>{badge}</FaceBadge>)
 
 export const FileButton = ({

@@ -1218,6 +1218,9 @@ test('a gateway account is pointed at a fresh port on every start', async (t) =>
   })
   second.register(new FakeRuntime({ id: added.runtime, name: 'Fake Runtime' }))
   await second.start()
+  // Launch returns while its default starts in the background. A live open
+  // joins that start before the agent can read the refreshed gateway config.
+  await second.call('session/create', { runtime: added.runtime, options: { cwd: stateDir } })
 
   const after = /base_url = "([^"]+)"/.exec(await readFile(join(home, 'config.toml'), 'utf8'))?.[1]
   assert.ok(after)
@@ -1242,9 +1245,6 @@ test('the original account cannot be removed, and the refusal names the agent th
 
 test('a direct runtime with placeholder version falls back to install service chosen version in syncPayload (#354)', async (t) => {
   const stateDir = await mkdtemp(join(tmpdir(), 'harnessdesk-placeholder-version-'))
-  t.after(async () => {
-    await rm(stateDir, { recursive: true, force: true })
-  })
   const fakeDirectRuntime = new FakeRuntime({
     id: 'direct-agent' as unknown as RuntimeId,
     name: 'Direct Agent',
@@ -1283,6 +1283,7 @@ test('a direct runtime with placeholder version falls back to install service ch
   })
   t.after(async () => {
     await host.dispose()
+    await rm(stateDir, { recursive: true, force: true })
   })
   host.register(fakeDirectRuntime)
   await host.start()

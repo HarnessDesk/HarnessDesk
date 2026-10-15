@@ -1,7 +1,10 @@
+import { useMount } from '../panels/mount'
 import {
   DisclosureChevron,
   Button,
   Card,
+  ToolSection,
+  ToolProse,
   CardViewport,
   CodeText,
   KeyValue,
@@ -20,15 +23,14 @@ import {
   Text,
   TextMark,
 } from '../design'
-import { Suspense, lazy, useMemo, useState, type ReactNode } from 'react'
+import { Suspense, useMemo, useState, type ReactNode, type ComponentProps } from 'react'
 
 import type { UiAction, UiBlock, UiPanelData, UiTreeNode } from '@harnessdesk/protocol'
 
 import { useSnapshot, useStore } from '../state/context'
 import { useTheme } from '../state/theme'
-import { editorLook } from '../lib/editor-prefs'
+import { CodeView, editorLook, DiffView } from '../editor'
 import { Markdown } from '../components/Markdown'
-import { DiffView } from '../components/Diff'
 import { BulletIcon, ChevronIcon, TodoDoneIcon, TodoPendingIcon } from '../components/Icons'
 import { publishComponent, type SlotProps } from './registry'
 import styles from './PanelBlocks.module.css'
@@ -55,8 +57,6 @@ import styles from './PanelBlocks.module.css'
  * conversation.
  */
 
-const CodeEditor = lazy(async () => ({ default: (await import('../components/CodeEditor')).CodeEditor }))
-
 const isPanelData = (value: unknown): value is UiPanelData =>
   typeof value === 'object' && value !== null && Array.isArray((value as UiPanelData).blocks)
 
@@ -70,6 +70,11 @@ const useRunner = (): ((action: UiAction | undefined) => void) => {
 }
 
 // --------------------------------------------------------------------- code
+
+const FlatBlock = ({ children, ...props }: ComponentProps<typeof Card>) => {
+  const inTool = useMount()?.area === 'right'
+  return inTool ? <div className="min-w-0">{children}</div> : <Card {...props}>{children}</Card>
+}
 
 const CodeBlock = ({ block }: { block: Extract<UiBlock, { type: 'code' }> }) => {
   const theme = useTheme()
@@ -86,7 +91,7 @@ const CodeBlock = ({ block }: { block: Extract<UiBlock, { type: 'code' }> }) => 
   const maxLines = Math.max(4, Math.trunc(block.maxLines ?? 24))
 
   return (
-    <Card variant="flush" radius="sm" className={styles.code}>
+    <FlatBlock variant="flush" radius="sm" className={styles.code}>
       {(block.path || editable) && (
         <PatchHeader level="block">
           {block.path && <CodeText size="inherit" className="min-w-0 truncate">{block.path}</CodeText>}
@@ -99,7 +104,7 @@ const CodeBlock = ({ block }: { block: Extract<UiBlock, { type: 'code' }> }) => 
         {/* The text itself while the editor's chunk is in flight, so the
             panel shows the code rather than a blank. */}
         <Suspense fallback={<CodeText as="pre" block>{text}</CodeText>}>
-          <CodeEditor
+          <CodeView
             value={text}
             path={block.path ?? null}
             language={block.language ?? null}
@@ -108,6 +113,7 @@ const CodeBlock = ({ block }: { block: Extract<UiBlock, { type: 'code' }> }) => 
             look={appearance}
             lineNumbers={editorPrefs.lineNumbers}
             wrap={editorPrefs.wrap}
+            minimap={editorPrefs.minimap}
             tabSize={editorPrefs.tabSize}
             {...(block.decorations ? { decorations: block.decorations } : {})}
             {...(editable
@@ -127,7 +133,7 @@ const CodeBlock = ({ block }: { block: Extract<UiBlock, { type: 'code' }> }) => 
           />
         </Suspense>
       </CardViewport>
-    </Card>
+    </FlatBlock>
   )
 }
 
@@ -224,8 +230,10 @@ const TreeNode = ({ node }: { node: UiTreeNode }) => {
 
 export const Block = ({ block }: { block: UiBlock }) => {
   const run = useRunner()
+  const inTool = useMount()?.area === 'right'
   switch (block.type) {
     case 'markdown':
+      if (inTool) return <ToolProse><Markdown text={block.text} /></ToolProse>
       return (
         <Text as="div" role="navigation">
           <Markdown text={block.text} />
@@ -345,10 +353,10 @@ export const Block = ({ block }: { block: UiBlock }) => {
       )
     case 'diff':
       return (
-        <Card variant="flush" radius="sm" className={styles.diff}>
+        <FlatBlock variant="flush" radius="sm" className={styles.diff}>
           {block.path && <PatchHeader level="block"><CodeText size="inherit" className="min-w-0 truncate">{block.path}</CodeText></PatchHeader>}
           <DiffView diff={block.patch} {...(block.wholeFile ? { wholeFile: true } : {})} />
-        </Card>
+        </FlatBlock>
       )
     default:
       return null
@@ -379,6 +387,7 @@ export const PanelSection = ({
   title: string | undefined
   children: ReactNode
 }) => {
+  const inTool = useMount()?.area === 'right'
   const store = useStore()
   const collapsed = useSnapshot().listPrefs.panelsCollapsed
   const open = !collapsed.includes(id)
@@ -388,6 +397,7 @@ export const PanelSection = ({
     })
   }
 
+  if (inTool) return <ToolSection label={title ?? 'Plugin'}>{children}</ToolSection>
   return (
     <Section variant="panel" className={styles.section} aria-label={title}>
       {title && (

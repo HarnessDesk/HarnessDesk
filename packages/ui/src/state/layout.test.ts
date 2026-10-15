@@ -680,3 +680,29 @@ describe('only', () => {
     expect(next.focused).toBe(next.root.id)
   })
 })
+
+
+test.each([
+  ['empty', [], []],
+  ['legacy main-only', ['main'], []],
+  ['invalid-only', ['unknown'], []],
+  ['missing', undefined, []],
+  ['malformed', 'right', []],
+  ['declared', ['sidebar', 'right', 'bottom'], ['sidebar', 'right', 'bottom']],
+] as const)('decoding a %s plugin manifest never invents a docking capability', (_label, raw, expected) => {
+  expect(readView({ kind: 'plugin', contribution: 'fixture-panel', label: 'Legacy panel',
+    ...(raw === undefined ? {} : { mounts: raw }),
+  })).toEqual({ kind: 'plugin', contribution: 'fixture-panel', label: 'Legacy panel', mounts: expected })
+})
+
+ test.each(['thread', 'side-by-side'])('restores the chosen Chat layout %s independently of retained tiles', chatLayout => {
+   const sideBySide = { tiles: ['agent\u0000one'], pinned: ['agent\u0000one'], focused: 'agent\u0000one', modes: { 'agent\u0000one': 'flow' } }
+   const view = readView({ kind: 'room', room: 'fixture-team', framePage: 'room', chatLayout, sideBySide })
+   expect(view).toMatchObject({ chatLayout, sideBySide: { tiles: sideBySide.tiles, pinned: sideBySide.pinned, focused: sideBySide.focused } })
+   expect(readView({ kind: 'room', room: 'fixture-team', chatLayout: 'invalid' })).toEqual({ kind: 'room', room: 'fixture-team' })
+ })
+
+ test('restores the member Chat selected from a Team', () => {
+   expect(readView({ kind: 'room', room: 'fixture-team', framePage: 'room', chatLayout: 'thread', chatMember: 'codex\u0000member' }))
+     .toEqual({ kind: 'room', room: 'fixture-team', framePage: 'room', chatLayout: 'thread', chatMember: 'codex\u0000member' })
+ })

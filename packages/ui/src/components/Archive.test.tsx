@@ -38,7 +38,7 @@ afterEach(() => {
   container.remove()
 })
 
-const runtime = (id: string, name: string, over: Record<string, boolean> = {}): RuntimeInfo =>
+const runtime = (id: string, name: string, over: Partial<RuntimeInfo['capabilities']> = {}): RuntimeInfo =>
   ({
     id,
     name,
@@ -63,8 +63,8 @@ const mount = async (
   runtimes: readonly RuntimeInfo[],
   rows: Readonly<Record<string, readonly SessionSummary[]>>,
 ): Promise<{ request: ReturnType<typeof vi.fn>; store: AppStore }> => {
-  const request = vi.fn(async (_method: string, params: { runtime: string }) => ({
-    data: rows[params.runtime] ?? [],
+  const request = vi.fn(async (_method: string, params: { runtimes?: string[]; runtime?: string }) => ({
+    data: (params.runtimes ?? [params.runtime!]).flatMap(runtime => rows[runtime] ?? []),
     nextCursor: null,
   }))
   const snapshot: AppSnapshot = {
@@ -102,11 +102,11 @@ const type = (value: string): void => {
   })
 }
 
-it('asks each agent for the archive itself, not for everything', async () => {
-  const codex = runtime('codex', 'OpenAI Codex', { archiveHistory: true, deleteHistory: true })
+it('reads the local archive index, without asking for native history', async () => {
+  const codex = runtime('codex', 'OpenAI Codex', { archiveHistory: true, deleteHistory: 'trash' })
   const { request } = await mount([codex], { codex: [summary('a', 'codex')] })
 
-  expect(request).toHaveBeenCalledWith('session/list', { runtime: 'codex', archived: 'only' })
+  expect(request).toHaveBeenCalledWith('session/index', { runtimes: ['codex'], archived: 'only', pageSize: 500 })
   expect(document.body.textContent).toContain('Conversation a')
 })
 
@@ -137,7 +137,7 @@ it('gives an agent a heading only when it has something', async () => {
 })
 
 it('offers Restore to everyone and Delete only where it is real', async () => {
-  const codex = runtime('codex', 'OpenAI Codex', { archiveHistory: true, deleteHistory: true })
+  const codex = runtime('codex', 'OpenAI Codex', { archiveHistory: true, deleteHistory: 'trash' })
   const dsh = runtime('dsh', 'DeepSeek Harness')
   await mount([codex, dsh], {
     codex: [summary('a', 'codex')],
@@ -145,20 +145,18 @@ it('offers Restore to everyone and Delete only where it is real', async () => {
   })
 
   expect(button('Restore')?.getAttribute('data-variant')).toBe('outline')
-  expect(button('Delete…')).toBeUndefined()
+  expect(button('Delete everywhere…')).toBeUndefined()
   await act(async () => (container.querySelector('button[aria-label="Conversation a actions"]') as HTMLButtonElement).click())
   const allowed = document.body.querySelector<HTMLElement>('[role="menuitem"]')!
-  expect(allowed.textContent).toBe('Delete…')
+  expect(allowed.textContent).toBe('Delete everywhere…')
   expect(allowed.getAttribute('aria-disabled')).not.toBe('true')
   await act(async () => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })))
   await act(async () => (container.querySelector('button[aria-label="Conversation b actions"]') as HTMLButtonElement).click())
   const refused = document.body.querySelector<HTMLElement>('[role="menuitem"]')!
   expect(refused.getAttribute('aria-disabled')).toBe('true')
   expect(refused.hasAttribute('data-disabled')).toBe(true)
-  const refusal = document.getElementById(refused.getAttribute('aria-describedby')!)!
-  expect(refusal.textContent)
-    .toBe('DeepSeek Harness keeps no way to delete one.')
-  expect(refusal.closest('.sr-only')).toBeNull()
+  expect(refused.title).toBe('DeepSeek Harness keeps no way to delete one.')
+  expect(refused.getAttribute('aria-describedby')).toBeNull()
   await act(async () => refused.click())
   expect(document.querySelector('[role="dialog"]')).toBeNull()
   expect(document.body.textContent).not.toContain('Delete conversation')
@@ -166,12 +164,12 @@ it('offers Restore to everyone and Delete only where it is real', async () => {
 })
 
 it('does not offer "Archive instead" for something already archived', async () => {
-  const codex = runtime('codex', 'OpenAI Codex', { archiveHistory: true, deleteHistory: true })
+  const codex = runtime('codex', 'OpenAI Codex', { archiveHistory: true, deleteHistory: 'trash' })
   await mount([codex], { codex: [summary('a', 'codex')] })
 
   await act(async () => (container.querySelector('button[aria-label="Conversation a actions"]') as HTMLButtonElement).click())
   await act(async () => (document.body.querySelector('[role="menuitem"]') as HTMLElement).click())
-  expect(document.body.textContent).toContain('Delete conversation')
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('Delete "Conversation a" everywhere?')
   // A button that would do nothing reads as one that failed.
   expect(button('Archive instead')).toBeUndefined()
   expect(document.body.textContent).not.toContain('archive it instead')
@@ -220,5 +218,65 @@ it('names an agent that could not be asked instead of counting it as empty', asy
       </StoreProvider>,
     )
   })
-  expect(document.body.textContent).toContain('could not be asked')
+  expect(document.body.textContent).toContain('could not be read')
+})
+
+
+it('names kept worktrees on the label line and confirms the inventory before discard', async () => {
+  const row = { ...summary('kept', 'fake'), worktree: { path: '/synthetic/worktrees/task', branch: 'harnessdesk/task', state: 'kept' as const } }
+  const { request } = await mount([runtime('fake', 'Demo Agent')], { fake: [row] })
+  expect(document.body.textContent).toContain('Worktree kept')
+  expect(request).toHaveBeenCalledWith('worktree/changes', { path: row.worktree.path })
+  expect(request.mock.calls.some(([method]) => method === 'session/worktreePreview')).toBe(false)
+  request.mockImplementation(async (method: string) => method === 'session/worktreePreview'
+    ? { changes: { modified: 1, untracked: 0, unpushedCommits: 0, files: ['tracked.txt'], ignored: ['.env', 'ignored/'], ignoredCount: 2 }, stamp: 'preview-1' }
+    : { discarded: true })
+  await act(async () => (container.querySelector('button[aria-label="Conversation kept actions"]') as HTMLButtonElement).click())
+  const discard = [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(node => node.textContent === 'Discard worktree…')!
+  expect(discard).toBeDefined()
+  await act(async () => discard.click())
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('tracked.txt')
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('.env')
+  expect(request.mock.calls.some(([method]) => method === 'session/discardWorktree')).toBe(false)
+  await act(async () => button('Discard worktree')!.click())
+  expect(request).toHaveBeenCalledWith('session/discardWorktree', { runtime: 'fake', sessionId: 'kept', stamp: 'preview-1' })
+})
+
+it('keeps a row visible when Restore is refused', async () => {
+  const { store } = await mount([runtime('fake', 'Demo Agent')], { fake: [summary('a', 'fake')] })
+  vi.mocked(store.unarchiveSession).mockResolvedValue(false)
+  await act(async () => button('Restore')!.click())
+  expect(document.body.textContent).toContain('Conversation a')
+})
+
+it('asks for another confirmation when the discard inventory changed', async () => {
+  const row = { ...summary('kept', 'fake'), worktree: { path: '/synthetic/worktrees/task', branch: 'harnessdesk/task', state: 'kept' as const } }
+  const { request } = await mount([runtime('fake', 'Demo Agent')], { fake: [row] })
+  const changes = { modified: 1, untracked: 0, unpushedCommits: 0, files: ['tracked.txt'], ignored: [], ignoredCount: 0 }
+  request.mockImplementation(async (method: string) => method === 'session/worktreePreview' ? { changes, stamp: 'original' }
+    : { discarded: false, preview: { changes: { ...changes, untracked: 1, files: ['tracked.txt', 'new.txt'] }, stamp: 'changed' } })
+  await act(async () => (container.querySelector('button[aria-label="Conversation kept actions"]') as HTMLButtonElement).click())
+  await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(node => node.textContent === 'Discard worktree…')!.click())
+  await act(async () => button('Discard worktree')!.click())
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('Review this list and confirm again')
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('new.txt')
+  expect(request.mock.calls.filter(([method]) => method === 'session/discardWorktree')).toHaveLength(1)
+})
+
+it('shows a detached Discard refusal and requires a fresh review', async () => {
+  const row = { ...summary('kept', 'fake'), worktree: { path: '/synthetic/worktrees/task', branch: null, state: 'kept' as const } }
+  const { request } = await mount([runtime('fake', 'Demo Agent')], { fake: [row] })
+  request.mockImplementation(async (method: string) => {
+    if (method === 'session/worktreePreview') return {
+      changes: { modified: 0, untracked: 0, unpushedCommits: 1, files: [], ignored: [], ignoredCount: 0 }, stamp: 'detached',
+    }
+    throw new Error('The detached worktree has no branch retaining its commits. Create or check out a branch at its current commit before discarding it.')
+  })
+  await act(async () => (container.querySelector('button[aria-label="Conversation kept actions"]') as HTMLButtonElement).click())
+  await act(async () => [...document.body.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(node => node.textContent === 'Discard worktree…')!.click())
+  await act(async () => button('Discard worktree')!.click())
+  expect(document.querySelector('[role="alertdialog"]')?.textContent).toContain('Create or check out a branch at its current commit')
+  expect(button('Discard worktree')!.disabled).toBe(true)
+  expect(button('Review again')).toBeDefined()
+  expect(container.textContent).toContain('Worktree kept')
 })

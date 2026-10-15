@@ -2,6 +2,7 @@ import type { GoalView } from '@harnessdesk/protocol'
 
 import { Note, RowButton, Rows } from '../design'
 import { goalActions } from '../lib/goals'
+import { runReasonWords } from '../lib/run-reason'
 import { isRecord } from '../lib/team-record'
 import { useStore } from '../state/context'
 
@@ -9,7 +10,7 @@ import { useStore } from '../state/context'
  * A Goal's body: what it is waiting on, and why it cannot be wrapped.
  *
  * The title, its state chip and the Wrap action used to live here too, in a
- * `DetailHead` stacked over the room's own header — two rows naming the same
+ * `subject heading` stacked over the room's own header — two rows naming the same
  * Goal, one of them running its full folder across two lines. Both moved into
  * that single row (`TeamRoomPane`'s own bar, the one every Goal or room page
  * now has), which is where the design already put a conversation's title,
@@ -22,10 +23,10 @@ import { useStore } from '../state/context'
  * is the composer's own meter, and a pending approval takes the composer's
  * slot directly, live, rather than a sentence read from a poll.
  */
-export const GoalHeader = ({ view }: { readonly view: GoalView }) => {
+export const GoalHeader = ({ view, coveredProblem }: { readonly view: GoalView; readonly coveredProblem?: string | null }) => {
   const store = useStore()
   const action = goalActions(view.goal)
-  const reason = view.problem ?? (view.goal.state === 'wrapped' ? null : action.reason)
+  const reason = (view.problem === coveredProblem ? null : view.problem) ?? (view.goal.state === 'wrapped' ? null : action.reason)
 
   return (
     <>
@@ -35,7 +36,7 @@ export const GoalHeader = ({ view }: { readonly view: GoalView }) => {
             <RowButton
               key={dependency.id}
               title={dependency.sentence}
-              desc="This Goal is waiting for it."
+              desc="This Team is waiting for it."
               chevron
               onClick={() => store.openGoal(dependency.id)}
             />
@@ -45,7 +46,7 @@ export const GoalHeader = ({ view }: { readonly view: GoalView }) => {
       {/* A record's notice follows the pane name's ink column: the bar inset,
           its small icon tile, and the gap beside it. Keep the sentence whole
           at narrow widths rather than clipping it against the pane edge. */}
-      {reason ? <Note inset={isRecord(view) ? 'pane-title' : undefined} {...(view.problem ? { tone: 'bad' as const } : {})}>{reason}</Note> : null}
+      {reason ? <Note inset={isRecord(view) ? 'pane-title' : undefined} {...(view.problem ? { tone: 'bad' as const } : {})}>{runReasonWords(reason)}</Note> : null}
     </>
   )
 }

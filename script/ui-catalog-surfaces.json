@@ -2,6 +2,10 @@
   "version": 1,
   "surfaces": [
     {
+      "id": "surface.team-start",
+      "implementationPath": "packages/ui/src/components/FrontDoor.tsx"
+    },
+    {
       "id": "surface.run-again",
       "implementationPath": "packages/ui/src/components/RunAgain.tsx"
     },

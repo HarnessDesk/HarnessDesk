@@ -1,8 +1,9 @@
+import { useDestinationActive } from '../panels/destination-page'
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
 
 import type { TriggerPreferences } from '@harnessdesk/protocol'
 
-import { KeyValue, KeyValueRow, Note, Row, RowInput, Rows, SectionHead, Switch } from '../design'
+import { KeyValue, KeyValueRow, Note, Row, RowInput, Rows, Section, Switch } from '../design'
 import { useStore } from '../state/context'
 
 /** One change to the machine's trigger preferences: the pause, the cap, or both. */
@@ -22,6 +23,8 @@ const money = (usd: number | null): string => (usd === null ? 'Unknown' : `$${us
  * that is refused stays in its field, marked, with the reason read with it.
  */
 export const TriggerSettings = ({ focus = null }: { readonly focus?: string | null }) => {
+  const destinationActive = useDestinationActive()
+
   const store = useStore()
   const [prefs, setPrefs] = useState<TriggerPreferences | null>(null)
   const [problem, setProblem] = useState<string | null>(null)
@@ -42,19 +45,27 @@ export const TriggerSettings = ({ focus = null }: { readonly focus?: string | nu
   const section = useRef<HTMLElement>(null)
 
   useEffect(() => {
+    if (!destinationActive) return
+
     if (focus !== 'triggers') return
     section.current?.scrollIntoView({ block: 'start' })
     section.current?.focus()
-  }, [focus])
+  }, [destinationActive, focus])
 
+  const generation=useRef(0),activeRead=useRef(destinationActive)
+  activeRead.current=destinationActive
   const load = useCallback((): void => {
+    if(!activeRead.current)return
+    const epoch=++generation.current
     store.triggerPreferences().then(
-      (next) => { latest.current = next; setPrefs(next) },
-      (error: unknown) => setProblem(error instanceof Error ? error.message : String(error)),
+      (next) => { if(activeRead.current && epoch===generation.current){latest.current = next; setPrefs(next)} },
+      (error: unknown) => {if(activeRead.current && epoch===generation.current)setProblem(error instanceof Error ? error.message : String(error))},
     )
   }, [store])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    if (!destinationActive) return
+ load();return()=>{generation.current++} }, [destinationActive, load])
 
   const apply = async (change: Change): Promise<void> => {
     const current = latest.current
@@ -64,6 +75,7 @@ export const TriggerSettings = ({ focus = null }: { readonly focus?: string | nu
       return
     }
     const field = change.dailyUsd === undefined ? 'pause' : 'cap'
+    generation.current++
     saving.current = true
     setBusy(true)
     setProblem(null)
@@ -96,8 +108,7 @@ export const TriggerSettings = ({ focus = null }: { readonly focus?: string | nu
   }
 
   return (
-    <section ref={section} aria-label="Triggers on this Mac" tabIndex={-1}>
-      <SectionHead name="Triggers on this Mac" />
+    <Section ref={section} title="Triggers on this Mac" tabIndex={-1}>
       <Note>
         Stops when reported spend reaches the limit. Work already running can cost more before it stops.
       </Note>
@@ -150,6 +161,6 @@ export const TriggerSettings = ({ focus = null }: { readonly focus?: string | nu
           {prefs.chargedUsd === null && <Note>Today’s charged amount could not be vouched for; treated as unknown, never zero.</Note>}
         </>
       )}
-    </section>
+    </Section>
   )
 }

@@ -1,6 +1,7 @@
 import { forwardRef, useId, useLayoutEffect, useState, type ComponentProps, type ReactNode } from 'react'
 
 import { Button } from '../ui/button'
+import { Keycap } from './Settings'
 import {
   Dialog,
   DialogOverlay,
@@ -108,6 +109,7 @@ export const ApprovalDialog = forwardRef<HTMLDivElement, {
   const titleId = useId()
   const safe = actions.filter((action) => action.placement === 'safe')
   const proceed = actions.filter((action) => action.placement === 'proceed')
+  const primaryProceed = proceed.at(-1)?.id
 
   useLayoutEffect(() => {
     if (!focused || !surface) return
@@ -179,7 +181,9 @@ export const ApprovalDialog = forwardRef<HTMLDivElement, {
         }}
       >
         {portalHost ? <DialogPortal container={portalHost} className={styles.portal}>
-          <DialogOverlay className={styles.backdrop} />
+          {/* Merge out the primitive's fixed utility: a pane-local scrim must
+              stay inside its scope even when utilities are bundled last. */}
+          <DialogOverlay className={`absolute ${styles.backdrop}`} />
           <DialogViewport className={styles.viewport}>
             <DialogPopup
               ref={setSurface}
@@ -201,7 +205,7 @@ export const ApprovalDialog = forwardRef<HTMLDivElement, {
                 ))}
                 <span className={styles.spacer} />
                 {proceed.map((action) => (
-                  <Action key={action.id} action={action} />
+                  <Action key={action.id} action={action} variant={action.id === primaryProceed ? 'default' : 'quiet'} />
                 ))}
               </div>
             </DialogPopup>
@@ -226,6 +230,6 @@ const Action = ({ action, variant }: {
   >
     {action.icon}
     {action.label}
-    <span className={styles.shortcut}>{action.shortcut}</span>
+    <Keycap aria-hidden="true" className={styles.shortcut}>{action.shortcut}</Keycap>
   </Button>
 )

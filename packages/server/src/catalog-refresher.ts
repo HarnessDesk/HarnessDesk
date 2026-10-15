@@ -111,7 +111,7 @@ export class CatalogRefresher {
   }
 
   async refreshAll(): Promise<void> {
-    await Promise.all([...this.#runtimes.keys()].map((id) => this.refresh(id)))
+    await Promise.all([...this.#runtimes.values()].filter(runtime => runtime.health().state === 'ready').map(runtime => this.refresh(runtime.info.id)))
   }
 
   /**

@@ -26,6 +26,13 @@ test('every method the wire validates is answered, and none is answered twice', 
   assert.equal(declaredAcrossDomains, handled.size, 'a method appears in two domain modules')
 })
 
+test('transcript search carries the viewer’s tool-output choice to its store', async () => {
+  const calls: unknown[] = []
+  const ctx = { transcripts: { search: async (...args: unknown[]) => { calls.push(args); return [] } } } as unknown as HostContext
+  await dispatch(ctx, 'transcripts/search', { query: 'words', includeTools: true } as never)
+  assert.deepEqual(calls, [['words', { includeTools: true }]])
+})
+
 test('a name that is not a method is refused, even one the prototype would answer', async () => {
   const ctx = {} as HostContext
   await assert.rejects(dispatch(ctx, 'constructor' as never, {} as never), /Unknown method "constructor"/)
@@ -35,6 +42,7 @@ test('a name that is not a method is refused, even one the prototype would answe
 test('opening in a folder without runtime board tools sends a session-linked notice', async () => {
   const root = tempDir('hd-untrusted-open-')
   const pushed: unknown[] = []
+  const indexed: unknown[] = []
   const session = { id: sessionId('s1'), runtime: runtimeId('gemini'), cwd: root }
   const runtime = {
     info: {
@@ -48,14 +56,16 @@ test('opening in a folder without runtime board tools sends a session-linked not
     resumeSession: async (id: string) => ({ id, settings: () => ({}), options: () => ({ cwd: root }) }),
   } as unknown as AgentRuntime
   const ctx = contextWith({
-    runtimes: { resolve: () => runtime },
+    sessionIndex: { reopen: () => {}, record: (session: unknown) => indexed.push(session) },
+    sessionWorktrees: { prepare: async () => ({}) },
+    runtimes: { resolve: () => runtime, ensureStarted: async () => {} },
     laneEnvironment: { forCheckout: () => undefined, forSession: async () => undefined },
     sessions: {
       attach: async () => session,
       read: async (_runtime: unknown, id: string) => ({ ...session, id, cwd: id === 's2' ? join(root, 'resumed') : root }),
     },
     registry: {
-      get: () => null,
+      forReopen: () => null,
       upsert: (opened: unknown) => ({ session: opened }),
     },
     attachments: { carriesFilter: async () => false },
@@ -83,6 +93,7 @@ test('opening in a folder without runtime board tools sends a session-linked not
   assert.equal(pushed.length, 2, 'a resumed session in a different folder gets its own notice')
   await dispatch(ctx, 'session/resume', { runtime: runtime.info.id, sessionId: sessionId('s3') })
   assert.equal(pushed.length, 2, 'the resumed folder is also deduplicated')
+  assert.deepEqual(indexed.map(session => (session as { id: string }).id), ['s1', 's2', 's3'])
 })
 
 const fakeRuntime = (id: string, options: { processes?: boolean; ready?: boolean; health?: RuntimeHealth; signedOut?: boolean; noSignIn?: boolean } = {}): AgentRuntime =>

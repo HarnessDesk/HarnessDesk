@@ -160,6 +160,15 @@ test('a configuration that forces API-key login leaves nothing to drive', async 
   await assert.rejects(() => runtime.login('apiKey'), /cannot be started from the interface/)
 })
 
+test('restored account without an observed sign-in policy offers no invented methods', async t => {
+  const runtime = makeRuntime()
+  t.after(() => runtime.dispose())
+  runtime.restoreObservations({ account: { accounts: [], signInMethods: [] } })
+  assert.deepEqual((await runtime.getAccount()).signInMethods, [])
+  assert.equal(runtime.health().state, 'idle')
+  assert.deepEqual(runtime.resourceProcessIds(), [])
+})
+
 test('browser sign-in returns a URL and finishes as an event, never a poll', async (t) => {
   const runtime = makeRuntime({ FAKE_CODEX_ACCOUNT: 'signedOut', FAKE_CODEX_LOGIN: 'succeed' })
   t.after(() => runtime.dispose())
@@ -1476,4 +1485,39 @@ test('presentation declares the native commit co-author', async (t) => {
   const runtime = makeRuntime()
   t.after(() => runtime.dispose())
   assert.deepEqual(runtime.info.presentation.coAuthor, { name: 'Codex', email: 'noreply@openai.com' })
+})
+
+test('sourceOf names and stats a synthetic rollout without reading its body', async t => {
+  const { mkdtemp, mkdir, writeFile, stat, rm } = await import('node:fs/promises')
+  const { tmpdir } = await import('node:os')
+  const { join } = await import('node:path')
+  const home = await mkdtemp(join(tmpdir(), 'hd-codex-source-'))
+  const folder = join(home, 'sessions', '2026', '10', '09')
+  await mkdir(folder, { recursive: true })
+  const path = join(folder, 'rollout-synthetic-source-id.jsonl')
+  await writeFile(path, 'not a valid transcript: metadata must not parse it')
+  const runtime = makeRuntime({}, { codexHome: home })
+  t.after(async () => { await runtime.dispose(); await rm(home, { recursive: true, force: true }) })
+  const sourceOf = (runtime as unknown as { sourceOf(id: ReturnType<typeof sessionId>): Promise<unknown> }).sourceOf?.bind(runtime)
+  assert.ok(sourceOf, 'the adapter exposes source metadata')
+  const facts = await stat(path)
+  assert.deepEqual(await sourceOf(sessionId('source-id')), { path, mtimeMs: facts.mtimeMs, size: facts.size })
+  await rm(path)
+  assert.equal(await sourceOf(sessionId('source-id')), null)
+  assert.equal(await sourceOf(sessionId('../escape')), null)
+})
+
+
+test('per-thread reads report archive authority even when a listing omits the thread', async t => {
+  const { mkdtemp, rm } = await import('node:fs/promises')
+  const { join } = await import('node:path')
+  const { tmpdir } = await import('node:os')
+  const home = await mkdtemp(join(tmpdir(), 'hd-native-archive-read-'))
+  const runtime = makeRuntime({ FAKE_CODEX_ROLLOUT_HOME: home }, { codexHome: home })
+  t.after(async () => { await runtime.dispose(); await rm(home, { recursive: true, force: true }) })
+  await runtime.start()
+  const live = await runtime.createSession({ cwd: '/synthetic/project' })
+  assert.equal((await runtime.readSession(live.id)).archived, false)
+  await runtime.archiveSession(live.id, true)
+  assert.equal((await runtime.readSession(live.id)).archived, true)
 })

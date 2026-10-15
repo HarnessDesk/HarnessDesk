@@ -65,8 +65,10 @@ for (const theme of ['light', 'dark'] as const) {
   })
 }
 
-test('the catalogue and preview show the real text and controls in all four CJK scripts', async ({ page }) => {
-  for (const route of ['/design.html?view=head', '/preview.html']) {
+{
+
+  for (const [item0, route] of (['/design.html?view=head', '/preview.html']).entries()) test(`the catalogue and preview show the real text and controls in all four CJK scripts [item ${[item0].join('-')}]`, async ({ page }) => {
+
     await page.goto(route)
     const specimen = page.getByTestId('cjk-specimen')
     await expect(specimen).toBeVisible()
@@ -78,5 +80,7 @@ test('the catalogue and preview show the real text and controls in all four CJK 
       await expect(sample.locator('[data-slot="chip"]')).toBeVisible()
       await expect(sample.locator('input')).toBeVisible()
     }
-  }
-})
+
+
+  })
+}

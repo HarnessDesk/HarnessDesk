@@ -13,7 +13,6 @@ import {
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { HeaderStatusGroup } from '../design'
 import { PlanMeters } from './PlanMeters'
 import { formatReset } from '../lib/limits'
 
@@ -244,16 +243,15 @@ it('opens the roster behind the token, named account by account', () => {
   const rows = [...document.querySelectorAll('[role="menu"] button')]
   const meters = rows.slice(0, 2)
   for (const [index, row] of meters.entries()) {
-    const name = row.querySelector('[data-slot="usage-meter-row"] > span > span > span')!
-    expect(name.className).toContain('flex')
-    expect(name.className).toContain('gap-(--hd-space-1-5)')
-    expect([...name.children].map(child => child.textContent)).toEqual(['Agent B', index === 0 ? 'work' : 'personal'])
-    expect(row.querySelector('div')).toBeNull()
-    expect(row.querySelector('[data-slot="usage-meter-row"] > :first-child')?.getAttribute('title')).toBe(`Agent B · ${index === 0 ? 'work' : 'personal'} — what is left`)
+    expect(row.getAttribute('role')).toBe('menuitem')
+    expect(row.querySelector('[data-menu-label]')?.textContent).toBe('Agent B')
+    expect(row.querySelector('[data-menu-hint]')?.textContent).toBe(index === 0 ? 'work' : 'personal')
+    expect(row.querySelector('[data-meter-column="name"]')?.textContent).toBe('Weekly')
+    expect(row.querySelector('button')).toBeNull()
     expect(row.querySelector('[role="progressbar"]')?.getAttribute('aria-label')).toBe(`Agent B · ${index === 0 ? 'work' : 'personal'} — what is left`)
   }
   expect(rows.slice(2).map(row => row.textContent)).toEqual([
-    'Agent CNeeds sign-in', 'Agent DNeeds sign-in', 'Agent ENeeds sign-in', 'Agent FNeeds sign-in',
+    'Agent CPlanNeeds sign-in', 'Agent DPlanNeeds sign-in', 'Agent EPlanNeeds sign-in', 'Agent FPlanNeeds sign-in',
   ])
 })
 
@@ -271,7 +269,7 @@ it('keeps a shorter lane blocked until the account-wide window resets', () => {
  const lane = [...document.querySelectorAll('[data-slot="usage-meter-row"]')].find(row => row.textContent?.startsWith('Session'))
  expect(lane?.textContent).toContain('blocked 3d')
  expect(lane?.textContent).not.toContain('in 1 h')
- expect(lane?.lastElementChild?.getAttribute('title')).toBe(`blocked until ${formatReset(gate)}`)
+ expect(lane?.querySelector('[data-meter-column="reset"] > [title]')?.getAttribute('title')).toBe(`blocked until ${formatReset(gate)}`)
 })
 
 it('says nothing at all when a signed-in agent reports no usage', () => {
@@ -322,19 +320,34 @@ it('names a spent allowance honestly when its reset time is unknown', () => {
   const snapshot: AppSnapshot = { ...emptySnapshot(), runtimes: [runtime('a', 'Agent A')], usage: [at('a', 0)], ...conversationWith('a') }
   act(() => root.render(
     <StoreProvider store={storeOf(snapshot)}>
-      <HeaderStatusGroup open><PlanMeters onOpen={() => {}} onSignIn={() => {}} /></HeaderStatusGroup>
+      <PlanMeters onOpen={() => {}} onSignIn={() => {}} />
     </StoreProvider>,
   ))
-  const card = document.querySelector('[data-slot="hover-card-content"]')!
-  expect(card.textContent).toContain('out of quota')
-  expect(card.textContent).not.toContain('available in out')
+  const reading = container.querySelector('[data-slot="plan-meter"]')!.closest('button')!
+  expect(reading.getAttribute('aria-label')).toContain('out of quota')
+  expect(reading.getAttribute('aria-label')).not.toContain('available in out')
 })
 
-it('includes a promoted chip countdown in its grouped accessible name', () => {
+it('includes a promoted chip countdown and agent in its direct accessible name', () => {
   const snapshot: AppSnapshot = { ...emptySnapshot(), runtimes: [runtime('a', 'Agent A'), runtime('b', 'Agent B')], usage: [at('a', 78), spent('b', 6 * HOUR)], ...conversationWith('a') }
-  act(() => root.render(<StoreProvider store={storeOf(snapshot)}><HeaderStatusGroup open><PlanMeters onOpen={() => {}} onSignIn={() => {}} /></HeaderStatusGroup></StoreProvider>))
+  act(() => root.render(<StoreProvider store={storeOf(snapshot)}><PlanMeters onOpen={() => {}} onSignIn={() => {}} /></StoreProvider>))
   const promoted = container.querySelector('[data-promoted]')!
   const name = promoted.closest('button')!.getAttribute('aria-label')!
   expect(name).toContain(`resets in ${promoted.textContent}`)
-  expect(document.querySelector('[data-slot="hover-card-content"]')!.textContent).toContain(name)
+  expect(name).toContain('Agent B')
+  expect(name).toContain('out of quota')
+})
+
+it('opens each plan row once and closes its popup', () => {
+  const opened: string[] = []
+  const snapshot: AppSnapshot = { ...emptySnapshot(), runtimes: six, usage: [at('a', 70), at('b', 51)], ...conversationWith('a') }
+  act(() => root.render(<StoreProvider store={storeOf(snapshot)}><PlanMeters onOpen={id => opened.push(id)} onSignIn={() => {}} /></StoreProvider>))
+  act(() => container.querySelector<HTMLElement>('[data-plan-popup="anchor"]')!.closest('button')!.click())
+  act(() => document.querySelector<HTMLElement>('[role="menuitem"]')!.click())
+  expect(opened).toEqual(['a'])
+  expect(document.querySelector('[role="menu"]')).toBeNull()
+  act(() => container.querySelector<HTMLElement>('[data-plan-popup="rest"]')!.closest('button')!.click())
+  act(() => document.querySelector<HTMLElement>('[role="menuitem"]')!.click())
+  expect(opened).toEqual(['a', 'b'])
+  expect(document.querySelector('[role="menu"]')).toBeNull()
 })

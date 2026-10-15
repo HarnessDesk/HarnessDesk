@@ -8,14 +8,14 @@ import foundationTokens from '../design/foundation/tokens.css?raw'
 import { PaneProvider, StoreProvider } from '../state/context'
 import { ComposerGap, ComposerTools } from '../design'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
-import { ModelControl, PermissionControl } from './ComposerControls'
+import { ModeControl, ModelControl, PermissionControl } from './ComposerControls'
 
 /**
  * The composer's controls as the toolbar narrows.
  *
- * Controls fold one at a time in a token-sized order. The fake observer gives
- * the toolbar its measured width; token values and the 6px toolbar gap model
- * the foundation styles that jsdom does not load.
+ * Controls fold one at a time in the shared order. The fake observer gives
+ * the toolbar its measured width; token values and the toolbar gap model the
+ * foundation styles that jsdom does not load.
  *
  * jsdom lays nothing out, so the toolbar is as wide as this file says.
  */
@@ -26,18 +26,24 @@ vi.mock('../design', async (importOriginal) => ({ ...(await importOriginal<typeo
 let width = 1000
 const watching = new Set<Measured>()
 const tokenValue = (name: string): number => {
-  const match = foundationTokens.match(new RegExp(`${name}:\\s*([\\d.]+)px`))
+  const matches = [...foundationTokens.matchAll(new RegExp(`${name}:\\s*([^;]+);`, 'g'))]
+  const match = /-wide$|-folded$/.test(name) ? matches.at(-1) : matches[0]
   if (!match) throw new Error(`Missing token ${name}`)
-  return Number(match[1])
+  const value = match[1]!.trim()
+  const reference = value.match(/^var\((--[\w-]+)\)$/)
+  return reference ? tokenValue(reference[1]!) : Number.parseFloat(value)
 }
 const wideTracks = ['add', 'work-in', 'agent', 'permissions', 'mode', 'extension', 'more', 'context', 'model', 'send']
-const foldOrder = ['agent', 'work-in', 'more', 'mode', 'permissions', 'model']
+const foldOrder = ['agent', 'more', 'context', 'mode', 'permissions', 'model']
 const toolbarGap = tokenValue('--hd-space-1-5')
+const wideToken = (track: string): string =>
+  `--hd-composer-track-${track}${['permissions', 'mode', 'context'].includes(track) ? '-wide' : ''}`
 const foldThreshold = (target: string): number => {
   const widths = new Map(wideTracks.map((track) => [
     track,
-    tokenValue(`--hd-composer-track-${track}`),
+    tokenValue(wideToken(track)),
   ]))
+  widths.set('extension', tokenValue('--hd-composer-track-extension-empty'))
   const gaps = wideTracks.length * toolbarGap
   for (const track of foldOrder) {
     const threshold = [...widths.values()].reduce((sum, one) => sum + one, gaps)
@@ -77,8 +83,9 @@ let testStore: AppStore
 
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', Measured)
-  for (const [, token, value] of foundationTokens.matchAll(/(--hd-composer-track-[\w-]+):\s*([\d.]+px)/g)) {
-    document.body.style.setProperty(token!, value!)
+  const trackTokens = new Set([...foundationTokens.matchAll(/(--hd-composer-track-[\w-]+):/g)].map(([, token]) => token!))
+  for (const token of trackTokens) {
+    document.body.style.setProperty(token, `${tokenValue(token)}px`)
   }
   container = document.createElement('div')
   document.body.appendChild(container)
@@ -140,6 +147,15 @@ const options: readonly ConfigOption[] = [
     type: 'boolean',
     currentValue: false,
   },
+  {
+    id: 'mode',
+    label: 'Mode',
+    description: 'How the agent works',
+    category: 'mode',
+    type: 'select',
+    currentValue: 'default',
+    choices: [{ value: 'default', label: 'Default' }],
+  },
 ] as unknown as readonly ConfigOption[]
 
 const draw = (at: number, layout: 'draft' | 'live' = 'draft', populatedExtension = false): void => {
@@ -165,6 +181,7 @@ const draw = (at: number, layout: 'draft' | 'live' = 'draft', populatedExtension
   const toolbar = (
     <ComposerTools data-composer-layout={layout} style={{ gap: `${toolbarGap}px` }}>
       <PermissionControl />
+      <ModeControl />
       <span data-composer-track="extension">{populatedExtension ? '◇' : null}</span>
       <ComposerGap />
       <ModelControl />
@@ -230,6 +247,8 @@ it('folds Permissions and then Model at the sums of their preceding tracks', () 
   expect(model().textContent).toContain('Small')
   expect(triggers().find((trigger) => /what the agent may do/i.test(trigger.title))?.textContent?.trim()).toBe('')
 
+  resize(permissionsAt)
+  expect(model().textContent).toContain('Small')
   resize(modelAt)
   expect(model().textContent).toContain('Small')
   resize(modelAt - 1)
@@ -252,6 +271,24 @@ it('recomputes fold steps when one toolbar switches between draft and live at a 
   expect(model().textContent?.trim()).toBe('')
 })
 
+it('keeps the selected Mode fact whole at a 560px live toolbar width', () => {
+  draw(560, 'live')
+  const track = container.querySelector<HTMLElement>('[data-composer-track="mode"]')
+  expect(track?.querySelector('[data-slot="chip-words"] > span:not(.sr-only)')?.textContent).toBe('Default')
+})
+
+it('uses the Mode mark instead of a clipped initial after the fact folds', () => {
+  draw(300)
+  const track = container.querySelector<HTMLElement>('[data-composer-track="mode"]')
+  const chip = track?.querySelector<HTMLElement>('[data-slot="chip"]')
+  expect(track?.hasAttribute('data-folded')).toBe(true)
+  if (chip) {
+    expect(chip.title).toBe('Default')
+    expect(chip.querySelector('svg')).not.toBeNull()
+    expect(chip.querySelector('.sr-only')?.textContent).toBe('Default')
+  }
+})
+
 it('reserves the populated Extension track width even when the track is empty', () => {
   // Draft Model folds at 588px with the reserved Extension track, but at
   // 556px if the empty track is incorrectly counted as zero.
@@ -266,17 +303,13 @@ it('reserves the populated Extension track width even when the track is empty', 
 
 /**
  * Above the fold nobody is the exception either — in the other direction.
- *
- * The narrow test asserts every control is down to its mark. This is the same
- * question asked of the wide side: the model says its name *and so does its
- * neighbour*, so a change that folded the model alone to buy room would be as
- * visible as the one that kept it alone.
+ * The model says its name and so does its neighbour; they fold together only
+ * after the selected choice values have had their room.
  */
 it('keeps every control’s words, the model’s among them, while there is room', () => {
-  draw(700)
+  draw(720)
   expect(triggers()).toHaveLength(2)
   for (const trigger of triggers()) expect(trigger.textContent?.trim()).not.toBe('')
-  // The permission control is the neighbour, saying its own current choice.
   const permission = triggers().find((trigger) => /what the agent may do/i.test(trigger.title))
   expect(permission?.textContent).toContain('Ask first')
   expect(model().textContent).toContain('Small')
@@ -293,7 +326,7 @@ it('puts boolean auto-approval in the permission control', () => {
   )
   expect(toggle).toBeDefined()
   click(toggle!)
-  expect(testStore.setOption).toHaveBeenCalledWith('auto_approve', true)
+  expect(testStore.setOption).toHaveBeenCalledWith('auto_approve', true, sessionKey(agent.id, sessionId('narrow-test')))
 })
 
 it('keeps the chevrons while there is room for them, and folds them at a phone’s width', () => {
@@ -325,5 +358,14 @@ it('centres tight controls without letting their glyphs shrink', () => {
     expect(trigger.className).toContain('px-0')
     expect(trigger.className).toContain('justify-center')
     expect(trigger.className).toContain('[&_svg]:shrink-0')
+  }
+})
+
+it('declares selected-value aliases where their target token is defined', () => {
+  const blocks = [...foundationTokens.matchAll(/([^{}]+)\{([^{}]+)\}/g)]
+  for (const name of ['--hd-composer-track-context-wide', '--hd-composer-track-context-folded', '--hd-composer-track-context-tight']) {
+    const block = blocks.filter(([, , content]) => content!.includes(name + ':')).at(-1)!
+    const selector = block[1]!.replace(/\/\*[\s\S]*?\*\//g, '').trim()
+    expect(selector).toBe('body')
   }
 })

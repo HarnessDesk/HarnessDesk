@@ -2,8 +2,8 @@ import type { FindingRunView, FlowExecution, TriggerPreferences } from '@harness
 import { overviewTeamStore } from './team-overview-fixture'
 import { triggerGoalStatus, triggerPreferences, triggerProjectView, triggerView } from './intake-fixture'
 import type { AppSnapshot } from '../state/snapshot'
-import { PREVIEW_FINDINGS } from './findings-fixture'
-import { emptyFindingsState } from '../lib/findings'
+import { isBlocking, isOpen, PREVIEW_FINDINGS } from './findings-fixture'
+import { emptyFindingsState, type FindingFilter, type FindingsListState } from '../lib/findings'
 
 /** Repeat starts of one pull request's Team, with no live account or host. */
 export const triggerRunsStore = () => {
@@ -31,15 +31,22 @@ export const triggerRunsStore = () => {
     reviewersFinished: n === 2 ? 2 : 3, reviewersTotal: 3,
   } as FindingRunView]))
   let prefs: TriggerPreferences = triggerPreferences({ day: new Date(now).toISOString().slice(0, 10), chargedUsd: 6, dailyUsd: 20 })
+  const goalFindings: FindingsListState = { ...emptyFindingsState(), totals: { all: 2, open: 2, blocking: 2 },
+    rows: PREVIEW_FINDINGS.slice(0, 2).map(one => ({ ...one, ownerGoal: goal.goal.id,
+      origin: { ...one.origin, goal: goal.goal.id, run: runs[1]!.id } })) }
+  const loadFindings = store.loadFindings
   const patch = (values: Partial<AppSnapshot>) => (store as unknown as { patch: (values: Partial<AppSnapshot>) => void }).patch(values)
   patch({ goals: new Map([[goal.goal.id, { ...goal, activity: null, reservation: undefined,
     goal: { ...goal.goal, sentence: 'Review checkout pull request', origin: { kind: 'trigger', trigger: 'review-pr', event: 'firing-3' } } }]]),
     flowExecutions: new Map(runs.map(run => [run.id, run])), findingRuns: findings,
-    findings: new Map([[goal.goal.id, { ...emptyFindingsState(), totals: { all: 2, open: 2, blocking: 2 },
-      rows: PREVIEW_FINDINGS.slice(0, 2).map(one => ({ ...one, ownerGoal: goal.goal.id,
-        origin: { ...one.origin, goal: goal.goal.id, run: runs[1]!.id } })) }]]) })
+    findings: new Map([[goal.goal.id, goalFindings]]) })
   Object.assign(store, {
-    loadFindings: async () => {},
+    loadFindings: async (requestedGoal: string, filter: FindingFilter = 'all') => {
+      if (requestedGoal !== goal.goal.id) return loadFindings(requestedGoal, filter)
+      const rows = filter === 'blocking' ? goalFindings.rows.filter(isBlocking)
+        : filter === 'open' ? goalFindings.rows.filter(isOpen) : goalFindings.rows
+      patch({ findings: new Map(store.getSnapshot().findings).set(requestedGoal, { ...goalFindings, filter, rows }) })
+    },
     loadFindingRun: async () => {},
     loadVisibleFindingRun: async () => {},
     releaseVisibleFindingRun: () => {},

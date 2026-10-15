@@ -572,3 +572,5 @@ export async function connect(options: ConnectOptions): Promise<Client> {
   catch (error) { finish('interrupted'); throw error }
   return { get hello() { return hello }, call, events: () => events, notifications: () => notifications, synced, snapshot: () => observation.snapshot(), close: () => finish('interrupted') }
 }
+
+export { historyClient, type HistoryRequest, type HistoryMethod } from './history.js'

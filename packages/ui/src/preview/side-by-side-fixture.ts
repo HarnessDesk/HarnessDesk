@@ -1,5 +1,7 @@
 import { approvalId, runtimeId, sessionKey, type Session, type SessionId, type SessionKey, type TeamPeerInfo } from '@harnessdesk/protocol'
 
+import { browserView } from '../state/layout'
+import { dock } from '../state/workbench'
 import type { AppSnapshot, AppStore } from '../state/store'
 import { PREVIEW_ROOM, previewStore } from './harness'
 
@@ -17,8 +19,16 @@ const ANSWERS = [
   'Three attempts with a growing pause, and a 502 after the last one surfaces as it did before.',
 ] as const
 
+const PRIOR_TURNS = [
+  ['Read the request path before making a change.', 'The client sends a single request and returns the response to its caller. I am checking where the status is handled so the retry stays inside the same boundary.'],
+  ['Keep the retry budget small and explicit.', 'The plan uses three attempts. Each attempt keeps the original request, and only a temporary service response starts another one. A permanent failure still returns immediately.'],
+  ['Cover the final failed attempt as well as recovery.', 'The synthetic test returns two temporary failures followed by success. A second case uses all three attempts and checks that the final response reaches the caller without another request.'],
+  ['Check that the pause does not change request ordering.', 'Each attempt waits for the previous response before it starts. The pause grows within the retry budget, and the test controls time so it checks the ordering without waiting in real time.'],
+] as const
+
 type SideBySideFixtureOptions = {
   /** Hold Beta on a command approval, so its tile and tab both wait for the person. */
+  readonly browsers?: boolean
   readonly waiting?: boolean
   /** Give Alpha an active turn and its held ceiling chip. */
   readonly working?: boolean
@@ -34,6 +44,13 @@ const exchange = (key: string, index: number, options: SideBySideFixtureOptions)
   options.ready && index === 3
     ? []
     : [
+    ...PRIOR_TURNS.map(([prompt, answer], turn) => ({
+      id: `${key}-prior-${turn}`, status:'completed' as const,
+      items:[
+        {id:`${key}-prior-${turn}-u`, type:'userMessage' as const, content:[{type:'text' as const, text:prompt}]},
+        {id:`${key}-prior-${turn}-a`, type:'assistantMessage' as const, phase:'final' as const, text:answer},
+      ],
+    })),
     {
       id: `${key}-t1`,
       status: (index === 0 && options.working) || (index === 1 && options.waiting)
@@ -69,6 +86,7 @@ export const sideBySideStore = (options: SideBySideFixtureOptions = {}): AppStor
     sessions.set(key, {
       ...prior,
       title: ROOM_MEMBER_TITLES[index]!,
+      ...(options.browsers ? { cwd: `/workspace/demo-client/${member.nickname.toLowerCase()}` } : {}),
       ...(options.noGoal ? { goal: null } : {}),
       settings: {
         ...prior.settings,
@@ -119,8 +137,13 @@ export const sideBySideStore = (options: SideBySideFixtureOptions = {}): AppStor
   }] : []
   const teams = new Map(snapshot.teams)
   const team = teams.get(PREVIEW_ROOM)!
-  teams.set(PREVIEW_ROOM, { ...team, members: SIDE_BY_SIDE_KEYS })
-  const own = previewStore({ ...snapshot, sessions, runtimes, models, approvals, teams } as Partial<AppSnapshot>)
+  teams.set(PREVIEW_ROOM, { ...team, members: SIDE_BY_SIDE_KEYS, ...(options.browsers ? { root: '/workspace/demo-client' } : {}) })
+  const browserSeed: Partial<AppSnapshot> = options.browsers ? {
+    lanePreferences: { start: 30000, width: 20, browserProfile: true },
+    lanes: SIDE_BY_SIDE_MEMBERS.map((member, index) => ({ id: `lane-${member.nickname.toLowerCase()}`, goal: PREVIEW_ROOM, seat: null, cwd: sessions.get(SIDE_BY_SIDE_KEYS[index]!)!.cwd, branch: `demo/${member.nickname.toLowerCase()}`, ports: { start: 30000 + index * 20, end: 30019 + index * 20 }, browserProfile: `lane-${member.nickname.toLowerCase()}`, state: 'active', createdAt: 0 })),
+    workbench: SIDE_BY_SIDE_MEMBERS.slice(0, 2).reduce((workbench, member) => dock(workbench, 'right', browserView(`/src/preview/tile-page.html?seat=${member.nickname.toLowerCase()}`, `lane-${member.nickname.toLowerCase()}`)), snapshot.workbench),
+  } : {}
+  const own = previewStore({ ...snapshot, sessions, runtimes, models, approvals, teams, ...browserSeed } as Partial<AppSnapshot>)
   const peers: readonly TeamPeerInfo[] = SIDE_BY_SIDE_MEMBERS.map((member, index) => ({
     runtime: member.runtime,
     sessionId: member.id,

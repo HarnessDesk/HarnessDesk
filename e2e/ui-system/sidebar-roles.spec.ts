@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { FRAME } from '../../packages/ui/src/design/frame'
 
 for (const theme of ['light', 'dark'] as const) {
   test(`quiet chips keep each tone and type while removing the pill (${theme})`, async ({ page }) => {
@@ -51,29 +52,24 @@ test('sidebar navigation names stay regular and truncate at their trailing edge'
   expect(style.overflow).toBe('ellipsis')
 })
 
-test('sidebar destinations use the navigation text role and the brand uses the wordmark role', async ({ page }) => {
+test('sidebar destinations use the frame label scale and retain the approved wordmark', async ({ page }) => {
   await page.goto('/preview.html')
-  const destinations = page.locator('[aria-label="Main sections"] [data-role="navigation"]')
-  await expect(destinations).toHaveCount(4)
-  await expect(destinations).toHaveText(['Teams', 'Agents', 'Dashboard', 'Plugins'])
-  const destinationStyles = await destinations.evaluateAll((nodes) => nodes.map((node) => {
-    const style = getComputedStyle(node)
-    return { size: style.fontSize, weight: style.fontWeight }
+  const sidebar = page.locator('[data-frame-id="sidebar-column"] [data-left-column]')
+  const rows = sidebar.locator('[aria-label="Main sections"] [data-slot="sidebar-menu-button"]')
+  await expect(rows).toHaveCount(5)
+  expect(await rows.evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label'))))
+    .toEqual(['Teams', 'Agents', 'Library', 'Plugins', 'Dashboard'])
+  const styles = await rows.evaluateAll(nodes => nodes.map(node => {
+    const css = getComputedStyle(node)
+    return { size: css.fontSize, weight: css.fontWeight }
   }))
-  expect(destinationStyles).toEqual(Array.from({ length: 4 }, () => ({ size: '13px', weight: '400' })))
-
-  const brand = page.locator('[data-region="sidebar-header"] [data-role="wordmark"]')
-  await expect(brand).toHaveText('HarnessDesk')
-  const style = await brand.evaluate((node) => {
-    const computed = getComputedStyle(node)
-    return { size: computed.fontSize, weight: computed.fontWeight }
-  })
-  expect(style).toEqual({ size: '20px', weight: '600' })
+  expect(styles).toEqual(Array.from({ length: 5 }, () => ({ size: `${FRAME.rail.label}px`, weight: '400' })))
+  await expect(sidebar.locator('[data-region="sidebar-header"] [data-role="wordmark"]')).toHaveCount(1)
 })
 
 test('a healthy account reading keeps plain ink rather than success ink', async ({ page }) => {
   await page.goto('/preview.html')
-  await page.locator('button[class*="accountRow"]').click()
+  await page.locator('[data-frame-id="sidebar-column"] button[class*="accountRow"]').click()
 
   // The account menu's own reading, not the first one anywhere on the page:
   // which one comes first depends on the window's width and on what else the
@@ -99,7 +95,7 @@ test('a healthy account reading keeps plain ink rather than success ink', async 
 
 test('the accounts menu opens above its row, left-aligned with it, at the foundation\'s wide width', async ({ page }) => {
   await page.goto('/preview.html')
-  const trigger = page.locator('button[class*="accountRow"]')
+  const trigger = page.locator('[data-frame-id="sidebar-column"] button[class*="accountRow"]')
   // Where the row sits in the app: at the foot of the window.
   await trigger.evaluate((node) => node.scrollIntoView({ block: 'end' }))
   await trigger.click()
@@ -124,28 +120,28 @@ test('the accounts menu opens above its row, left-aligned with it, at the founda
   expect(edges.menu.width).toBeCloseTo(edges.wide, 0)
 })
 
-test('a settings group label is smaller than its page title', async ({ page }) => {
-  await page.goto('/preview.html')
-  await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('general')
-  const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
+test('Settings group labels and destinations use the named frame type pairs', async ({ page }) => {
+  await page.goto('/preview.html?frame-wall=settings-navigation')
+  const settings = page.locator('[data-frame-id="frame-wall"]')
 
-  const title = settings.locator('[data-slot="page-title"]')
-  const label = settings.locator('[data-slot="section-name"]').filter({ hasText: 'Your data' })
+  const title = settings.locator('[data-left-row]').filter({ hasText: /^General$/ }).locator('[data-slot="sidebar-menu-label-content"]')
+  const label = settings.locator('[data-left-group-text]').filter({ hasText: 'Preferences' })
   await expect(title).toBeVisible()
   await expect(label).toBeVisible()
   const sizes = await Promise.all([
     title.evaluate(node => parseFloat(getComputedStyle(node).fontSize)),
     label.evaluate(node => parseFloat(getComputedStyle(node).fontSize)),
   ])
-  expect(sizes[1]).toBeLessThan(sizes[0])
+  expect(sizes).toEqual([FRAME.rail.settingsLabel,FRAME.rail.label])
+  await expect(title).toHaveCSS('font-weight','400')
+  await expect(label).toHaveCSS('font-weight','400')
 })
 
-test('a page title computes the heading type', async ({ page }) => {
-  await page.goto('/preview.html')
-  await page.getByRole('combobox', { name: 'settings page', exact: true }).selectOption('general')
-  const settings = page.getByRole('dialog', { name: 'Settings', exact: true })
+test('a destination title computes the frame bar type', async ({ page }) => {
+  await page.goto('/preview.html?frame-wall=library')
+  const settings = page.locator('[data-frame-id="frame-wall"]')
 
-  const title = settings.locator('[data-slot="page-title"]')
+  const title = settings.locator('[data-slot="top-bar"] [data-topbar-title] > [data-role="subject"]')
   await expect(title).toBeVisible()
 
   const type = (node: Element) => {
@@ -158,7 +154,7 @@ test('a page title computes the heading type', async ({ page }) => {
   }
   const expected = await title.evaluate((node) => {
     const probe = document.createElement('span')
-    probe.style.cssText = 'font-size:var(--hd-heading);line-height:var(--hd-line-heading);font-weight:var(--hd-weight-semibold)'
+    probe.style.cssText = 'font-size:var(--hd-text-base);line-height:var(--hd-line);font-weight:var(--hd-weight-medium)'
     node.parentElement!.append(probe)
     const style = getComputedStyle(probe)
     const result = { size: style.fontSize, line: style.lineHeight, weight: style.fontWeight }

@@ -1,3 +1,4 @@
+import { RuntimesTestPage as RuntimesSection } from '../test-support/settings-page'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -16,28 +17,7 @@ import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppSnapshot, type AppStore } from '../state/store'
 import { accountKey } from '../lib/accounts'
 import { formatReset } from '../lib/limits'
-import { RuntimesSection } from './SettingsAgents'
-
-/**
- * What an account row in Settings says it has left, and whether it says the
- * account is out.
- *
- * Both answers used to come from the whole lane list: the chip from
- * `report.reached`, which names a model-scoped window as readily as an
- * account-wide one, and the figure from the tightest lane of any scope. With
- * Claude Code's Fable week spent that made the row read `0% left` beside a
- * limit dot, on an account with 37% of its weekly left and every other model
- * answering — and fixing only the chip would have left `0% left` beside a
- * *ready* dot, which is worse, because the two halves of one row would
- * disagree. Both now come from the account's selected usage lane.
- *
- * The other thing pinned here is which report a row reads at all. A row is one
- * account, and it finds its report by matching the account's own label, so the
- * order the host happens to deliver two accounts' readings in cannot decide
- * which one a row describes.
- */
-
-;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
 let container: HTMLDivElement
 let root: Root
@@ -118,6 +98,7 @@ const mount = async (usage: readonly UsageReport[], limits: RateLimits | null = 
   const store = {
     subscribe: () => () => {},
     getSnapshot: () => snapshot,
+    transport: { request: vi.fn(async () => null) },
     loadAccounts: vi.fn(async () => {}),
     limitsFor: vi.fn(async () => limits),
     readPlan: vi.fn(async () => ({ entry: null, suggestion: null, refusal: null })),

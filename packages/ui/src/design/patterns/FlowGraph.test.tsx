@@ -1,10 +1,12 @@
+import { runFixture } from '../../preview/run-view-fixture'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
 import type { CeilingLevel, FlowAgentRole, FlowPolicy, FlowPolicyRole, FlowPolicyRule, SeatCeiling } from '@harnessdesk/protocol'
 
-import { flowLayout } from '../../lib/flow-layout'
+import { FLOW_CARD_H, FLOW_MARGIN, FLOW_ROW_GAP, flowLayout } from '../../lib/flow-layout'
+import { FLOW_CANVAS_RUN_CARD_HEIGHT } from './FlowCanvas'
 import { flowModel } from '../../lib/flow-model'
 import { FlowGraph } from './FlowGraph'
 import { canvasDOM } from '../../test/flow-canvas-dom'
@@ -243,10 +245,10 @@ it('the list carries waiting, repeat counts and unknown duration; agent words ar
     ['you', { state: 'waiting', runs: 1, durationMs: null, since: null, line: 'merged · dropped', seats: [] }],
     ['write', { state: 'done', runs: 2, durationMs: null, since: null, line: '<script>bad()</script><b>published</b>', seats: [] }],
   ]) }} />))
-  expect(container.querySelector('[data-step="you"]')!.textContent).toContain('Needs you')
+  expect(container.querySelector('[data-step="you"]')!.textContent).toContain('Waiting for you')
   const list = container.querySelector('[data-slot="flow-list"]')!
-  expect(list.textContent).toContain('Needs you')
-  expect(list.querySelector('[data-step-row="you"] [data-slot="chip"][data-tone="warning"]')?.textContent).toBe('Needs you')
+  expect(list.textContent).toContain('Waiting for you')
+  expect(list.querySelector('[data-step-row="you"] [data-slot="chip"][data-tone="warning"]')?.textContent).toBe('Waiting for you')
   expect(list.querySelector('[data-step-row="write"] [title="Time not recorded"]')?.textContent).toBe('—')
   expect(list.textContent).toContain('2 runs')
   expect(list.querySelector('[data-step-row="write"] [data-slot="list-row-trail"]')?.textContent).toBe('Published— · 2 runs')
@@ -336,7 +338,7 @@ it('shows a person waiting for evidence as Waiting without asking for another an
   await act(async () => root.render(<FlowGraph model={flowModel(blueprint())} overlay={overlay} />))
   const you = container.querySelector('[data-step="you"]')!
   expect(you.querySelector('[data-slot="flow-state"]')?.textContent).toBe('Waiting')
-  expect(you.textContent).not.toContain('Needs you')
+  expect(you.textContent).not.toContain('Waiting for you')
   expect(you.querySelector('[data-slot="flow-complete"], [data-slot="flow-ring"]')).toBeNull()
 })
 
@@ -380,10 +382,10 @@ it('a docked text alternative keeps screen-reader selection without invisible ta
 })
 
 // The graph's own container decides, not the window: 500px is a narrow pane and 900px a wide one.
-const inPane = async (width: number, listPlacement: 'below' | 'dock' | 'responsive') => {
+const inPane = async (width: number, listPlacement: 'below' | 'dock' | 'responsive', flow: Parameters<typeof flowModel>[0] = blueprint(), options: { showControls?: boolean; inert?: boolean } = {}) => {
   vi.restoreAllMocks(); vi.unstubAllGlobals()
   canvasDOM({ graphWidth: width })
-  await act(async () => root.render(<FlowGraph model={flowModel(blueprint())} listPlacement={listPlacement} />))
+  await act(async () => root.render(<FlowGraph model={flowModel(flow)} listPlacement={listPlacement} {...options} />))
   await act(async () => { await vi.waitFor(() => expect(container.querySelector('.react-flow__node')).not.toBeNull()) })
   return { list: container.querySelector<HTMLElement>('[data-slot="flow-list"]')!, drawing: container.querySelector<HTMLElement>('[data-slot="flow-drawing"]')! }
 }
@@ -407,4 +409,28 @@ it('outside a dock a narrow pane shows the list under a drawing sized to its wid
   expect(list.dataset.placement).toBe('below')
   expect(list.classList.contains('sr-only')).toBe(false)
   expect(drawing.getAttribute('style')).toContain('flex')
+})
+
+it('keeps the narrow drawing at the model vertical extent instead of shrinking it below its readable pitch', async () => {
+  const { drawing } = await inPane(500, 'below')
+  const layout = flowLayout(flowModel(blueprint()))
+  const extent=Math.ceil(layout.height * ((FLOW_CANVAS_RUN_CARD_HEIGHT + FLOW_ROW_GAP) / (FLOW_CARD_H + FLOW_ROW_GAP)) + FLOW_MARGIN)
+  expect(drawing.style.minHeight).toBe(`calc(${extent}px + var(--hd-space-16))`)
+})
+
+it.each([500,900])('reserves the existing controls footprint below the actual four-step Run at %ipx', async width => {
+  const flow=runFixture('live-polish').execution.document.flow
+  const {drawing}=await inPane(width,'below',flow)
+  const layout=flowLayout(flowModel(flow))
+  const extent=Math.ceil(layout.height * ((FLOW_CANVAS_RUN_CARD_HEIGHT + FLOW_ROW_GAP) / (FLOW_CARD_H + FLOW_ROW_GAP)) + FLOW_MARGIN)
+  expect(extent).toBe(274)
+  expect(width < 608 ? drawing.style.minHeight : drawing.style.height).toBe(`calc(${extent}px + var(--hd-space-16))`)
+})
+
+it.each([500,900])('keeps the bare four-step extent when controls are omitted or inert at %ipx', async width => {
+  const flow=runFixture('live-polish').execution.document.flow
+  for(const options of [{showControls:false},{inert:true}]) {
+    const {drawing}=await inPane(width,'below',flow,options)
+    expect(width < 608 ? drawing.style.minHeight : drawing.style.height).toBe('274px')
+  }
 })

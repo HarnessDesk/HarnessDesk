@@ -134,6 +134,7 @@ const echoTool: HarnessPlugin = {
     apply(ctx: any) {
       ctx.tools.register({
         name: 'echo',
+        title: 'Echo',
         description: 'Returns what it was given.',
         inputSchema: { type: 'object', properties: { text: { type: 'string' } } },
         execute: (args: { text: string }) => `echo: ${args.text}`,
@@ -152,6 +153,7 @@ test('a plugin loads, registers a tool, and the registry exposes it', async (t) 
   const tools = kernel.list('tool')
   assert.equal(tools.length, 1)
   assert.equal(tools[0]?.name, 'echo')
+  assert.equal(tools[0]?.title, 'Echo', 'keeps the plugin-authored row label in the capability record')
   assert.equal(tools[0]?.namespace, 'echo#1', 'namespaced by owning plugin instance')
 
   const plugins = kernel.plugins()

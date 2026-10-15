@@ -77,6 +77,7 @@ export const renameRoleReferences = (policy: FlowPolicy, from: string, to: strin
   if (from === to) return policy
   return {
     ...policy,
+    ...(policy.complete === undefined ? {} : { complete: Object.fromEntries(Object.entries(policy.complete).map(([role, words]) => [role === from ? to : role, words])) }),
     roles: policy.roles.map((role) => (
       role.kind === 'agent' && role.independentOf.includes(from)
         ? { ...role, independentOf: role.independentOf.map((id) => (id === from ? to : id)) }

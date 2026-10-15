@@ -6,7 +6,7 @@ import { test } from 'node:test'
 import {
   admitProject, gitReader, oid, runChild, type GitReader,
 } from '../src/provenance/git.js'
-import { makeRepo, type Repo } from './fixtures/provenance-repo.js'
+import { countingRunner, makeRepo, type Repo } from './fixtures/provenance-repo.js'
 
 const signal = () => new AbortController().signal
 const readerFor = async (repo: Repo): Promise<GitReader> =>
@@ -19,6 +19,33 @@ test('only full object IDs reach object-reading commands', () => {
   }
   assert.equal(oid('a'.repeat(40)), 'a'.repeat(40))
   assert.equal(oid('b'.repeat(64)), 'b'.repeat(64))
+})
+
+test('commit clocks are read in one bounded process batch without ancestry or messages', async (t) => {
+  const repo = await makeRepo()
+  const tree = await repo.git('mktree')
+  const ids: string[] = []
+  for (const seconds of [100, 200, 300]) ids.push(await repo.input(['hash-object', '-t', 'commit', '-w', '--stdin'],
+    `tree ${tree}\nauthor Jane Doe <dev@example.com> ${seconds} +0000\ncommitter Jane Doe <dev@example.com> ${seconds} +0000\n\nfixture\n`))
+  await repo.git('tag', '-a', 'clock-tag', '-m', 'fixture', ids[0]!)
+  const tag = await repo.git('rev-parse', 'refs/tags/clock-tag')
+  const missing = 'f'.repeat(40)
+  const count = countingRunner(8)
+  const reader = gitReader(await admitProject(repo.dir, repo.stateDir, [repo.dir]), { run: count.run }) as GitReader & {
+    commitTimes(ids: readonly string[], signal: AbortSignal): Promise<ReadonlyMap<string, number | null>>
+  }
+  t.after(() => reader.close())
+  const clocks = await reader.commitTimes([...ids, tag, missing, ids[0]!], signal())
+  assert.deepEqual([...clocks], [...ids.map((id, n) => [id, (n + 1) * 100000]), [tag, null], [missing, null]])
+  assert.equal(count.started, 2, 'one type batch and one clock batch, independent of commit count')
+  assert.ok(!count.verbs().includes('rev-list'))
+  const clockCommand = count.commands.find((command) => command[0] === 'log')!
+  assert.ok(clockCommand.includes('--no-walk=unsorted'))
+  assert.ok(clockCommand.includes('--stdin'))
+  const before = count.started
+  await reader.commitTimes(ids, signal())
+  assert.equal(count.started, before, 'immutable clocks can be reused inside a fresh metadata check')
+  await assert.rejects(reader.commitTimes(['HEAD~1'], signal()), /Expected a full object id/)
 })
 
 test('root, message amend and whitespace fingerprints use real immutable objects', async (t) => {

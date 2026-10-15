@@ -2,7 +2,7 @@ import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
-import { turnId, type AgentItem, type Turn } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, sessionKey, itemId, approvalId, turnId, type AgentItem, type Turn } from '@harnessdesk/protocol'
 
 import { StoreProvider } from '../state/context'
 import { emptySnapshot, type AppStore } from '../state/store'
@@ -265,4 +265,49 @@ it('shows the plan even in a turn with nothing else — an agent may send only t
 
   expect(container.querySelector('[data-testid="turn-work"]')).not.toBeNull()
   expect(container.textContent).toContain('listen')
+})
+
+
+it('waits on a command approval and describes running only after it is allowed', () => {
+  const command: AgentItem = { id: itemId('waiting-list'), type: 'command', origin: 'agent', command: 'ls -la', cwd: '/work/storefront',
+    actions: [{ type: 'listFiles', command: 'ls -la', path: '/work/storefront' }], status: 'inProgress' }
+  const turn: Turn = { id: turnId('waiting-turn'), status: 'inProgress', items: [command] }
+  const key = sessionKey(runtimeId('fixture'), sessionId('session-one'))
+  const snapshot = { ...emptySnapshot(), activeSessionKey: key,
+    sessions: new Map([[key, { runtime: runtimeId('fixture'), id: sessionId('session-one'), cwd: '/work/storefront', createdAt: 1, updatedAt: 1,
+      status: { type: 'active' as const }, itemsLoaded: true, turns: [turn] }]]),
+    approvals: [{ key, approval: { id: approvalId('waiting-request'), sessionId: sessionId('session-one'), itemId: command.id, turnId: turn.id,
+      requestedAt: 1, type: 'command' as const, command: 'ls -la', cwd: '/work/storefront', actions: [], options: [] } }] }
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  const draw = () => act(() => root.render(<StoreProvider store={store}><TurnWork turn={turn} work={[command]} root="/work/storefront" /></StoreProvider>))
+  draw()
+  expect(container.querySelector('[data-slot="turn-work-live"]')?.textContent).toBe('Waiting for approval')
+  expect(container.textContent).not.toContain('Listing files')
+  snapshot.approvals = [{ ...snapshot.approvals[0]!, key: sessionKey(runtimeId('other-fixture'), sessionId('session-one')) }]
+  draw()
+  expect(container.querySelector('[data-slot="turn-work-live"]')?.textContent).toBe('Listing files')
+  snapshot.approvals = []
+  draw()
+  expect(container.querySelector('[data-slot="turn-work-live"]')?.textContent).toBe('Listing files')
+})
+
+
+it('an ACP permission waits in both the live line and its tool row, scoped by runtime', () => {
+  const key = sessionKey(runtimeId('fixture'), sessionId('session-one'))
+  const tool: AgentItem = { id: itemId('permission-tool'), type: 'toolCall', tool: 'bash', args: {command:'ls -la'},
+    source: {kind:'builtin'}, status:'inProgress' } as AgentItem
+  const turn: Turn = {id:turnId('permission-turn'),status:'inProgress',startedAt:Date.now()-3000,items:[tool]}
+  const snapshot = {...emptySnapshot(), activeSessionKey:key, approvals:[{key, approval:{
+    id:approvalId('permission'),type:'permission' as const,summary:'Allow this tool',sessionId:sessionId('session-one'),itemId:tool.id,turnId:turn.id,requestedAt:1,options:[],
+  }}]}
+  const store = {subscribe:()=>()=>{},getSnapshot:()=>snapshot} as unknown as AppStore
+  const draw = () => act(() => root.render(<StoreProvider store={store}><TurnWork turn={turn} work={[tool]} root="/work" /></StoreProvider>))
+  draw()
+  expect(container.querySelector('[data-slot="turn-work-live"]')?.textContent).toBe('Waiting for approval')
+  expect(container.textContent).toContain('Waiting for approval ·')
+  expect(container.querySelector('[aria-label="Running"]')).toBeNull()
+  expect(container.textContent).not.toContain('Working for')
+  snapshot.approvals = [{...snapshot.approvals[0]!,key:sessionKey(runtimeId('other-fixture'),sessionId('session-one'))}]
+  draw()
+  expect(container.textContent).not.toContain('Waiting for approval')
 })

@@ -1,3 +1,5 @@
+import { fileLink } from './file-link'
+
 /**
  * HTML sanitisation for agent output.
  *
@@ -99,10 +101,13 @@ export const sanitizeHtml = (html: string): string => {
           continue
         }
         const value = attribute.value.trim()
-        if ((name === 'href' || name === 'src') && !SAFE_URL.test(value)) {
+        if ((name === 'href' || name === 'src') && !SAFE_URL.test(value) && !(name === 'href' && fileLink(value))) {
           child.removeAttribute(attribute.name)
           continue
         }
+        // A bare filename followed by a colon looks like a custom URL scheme.
+        // Preserve its local meaning even for an ordinary modified click.
+        if (name === 'href' && !SAFE_URL.test(value) && fileLink(value) && !fileLink(value)!.path.includes('/')) child.setAttribute('href', `./${value}`)
         if (name === 'style' && UNSAFE_STYLE.test(value)) {
           child.removeAttribute(attribute.name)
         }

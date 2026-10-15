@@ -16,7 +16,7 @@ const flag = (name, fallback) => {
   return index < 0 ? fallback : args[index + 1]
 }
 if (args.includes('--help')) {
-  console.log('node script/site-poster.mjs [--out output/site-poster] [--frames]\nRenders light/dark PNG and WebP from the isolated preview harness. --frames also captures the Overview and Run Flow at 1280px and 390px.')
+  console.log('node script/site-poster.mjs [--out output/site-poster] [--frames]\nRenders light/dark PNG and WebP from the isolated preview harness. --frames also captures the Overview, person step and Run Flow at 1280px and 390px.')
   process.exit(0)
 }
 const root = fileURLToPath(new URL('../', import.meta.url))
@@ -67,6 +67,10 @@ try {
       await page.goto(`${origin}/preview.html?site-run=flow&stage=you&theme=${theme}`)
       await page.getByRole('button', { name: 'Merged', exact: true }).waitFor()
       await capture(`overview-${theme}-${width}`)
+      await page.getByRole('button', { name: 'Write, review, land', exact: true }).click()
+      await page.getByRole('button', { name: 'Answer…', exact: true }).click()
+      await page.getByRole('button', { name: 'Merged', exact: true }).waitFor()
+      await capture(`person-step-${theme}-${width}`)
       await page.goto(`${origin}/preview.html?site-run=flow&stage=fix&theme=${theme}`)
       await page.getByRole('button', { name: 'Write, review, land', exact: true }).click()
       if (width === 1280) await capture(`timeline-${theme}`)
@@ -77,7 +81,11 @@ try {
       await capture(`stop-refusal-${theme}-${width}`)
       await page.getByRole('button', { name: 'Keep running', exact: true }).click()
       await page.getByRole('radio', { name: 'Flow', exact: true }).click()
-      await page.locator('[data-slot="flow-graph"]').waitFor()
+      // The lazy graph's loading shell has the same slot as the drawing.
+      // Wait for the active step so a frame cannot capture "Loading plan…".
+      if (width === 1280) await page.locator('[data-slot="flow-step"][data-step="fix"][data-state="working"]').waitFor({ state: 'visible' })
+      else await page.locator('[data-step-row="fix"][data-state="working"]').waitFor({ state: 'visible' })
+      await page.getByText('Loading plan…', { exact: true }).waitFor({ state: 'hidden' })
       await capture(`flow-${theme}-${width}`)
     }
     await page.close()

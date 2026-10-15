@@ -1,33 +1,44 @@
 import {
   Button,
-  DialogContent,
   DialogRoot,
-  Keycap,
-  NavigationList,
   PopoverGroupLabel,
-  Search,
-  Separator,
+  Tabs,
+  TabsList,
+  TabsTrigger,
   Text,
+  CommandPalettePanel,
+  CommandPaletteSearch,
+  CommandPaletteControls,
+  CommandPaletteDivider,
+  CommandPaletteResults,
+  CommandPaletteResult,
+  CommandPaletteEmpty,
+  CommandPaletteFooter,
+  CommandPaletteKeyHint,
 } from '../design'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import type { FileMatch, SessionSummary, TranscriptHit } from '@harnessdesk/protocol'
+import { sessionKey, type FileMatch, type SessionSummary, type TranscriptHit } from '@harnessdesk/protocol'
 
 import { runtimeLabel } from '../lib/accounts'
 import { brandOf } from '../lib/identity'
-import { inForce, markFor, seatTaken } from '../lib/agents'
-import { extractHit } from '../lib/search-highlight'
-import { sessionLabel } from '../lib/sessions'
+import { firstReason, inForce, markFor, seatTaken } from '../lib/agents'
+import { extractHit, highlightAll, type HighlightSpan } from '../lib/search-highlight'
+import { firstAsk, sessionLabel } from '../lib/sessions'
+import { handOverToComposer } from '../lib/compose'
 import { availableCommands } from '../state/commands'
 import { useSnapshot, useStore } from '../state/context'
+import type { AppSnapshot, AppStore } from '../state/store'
 import { sidebarPlacement } from '../state/workbench'
 import {
   AgentIcon,
   ServerIcon,
   ArchiveIcon,
+  FolderIcon,
   BranchIcon,
   DiffIcon,
   FileIcon,
+  FilterIcon,
   FolderOpenIcon,
   LibraryIcon,
   PluginIcon,
@@ -62,6 +73,8 @@ const SETTINGS_PAGE: Record<Exclude<Section, 'archive'>, { label: string; icon: 
   appearance: { label: 'Appearance', icon: <SlidersIcon size={14} />, keywords: 'appearance theme dark light palette accent font code editor' },
   notifications: { label: 'Notifications', icon: <SlidersIcon size={14} />, keywords: 'notifications banners alerts mute' },
   shortcuts: { label: 'Keyboard shortcuts', icon: <SlidersIcon size={14} />, keywords: 'keyboard shortcuts keys bindings' },
+  storage: { label: 'Storage', icon: <FolderIcon size={14} />, keywords: 'storage disk space clean up worktrees cache' },
+  history: { label: 'History', icon: <ArchiveIcon size={14} />, keywords: 'history import other agents past conversations' },
   workspaces: { label: 'Workspaces', icon: <SlidersIcon size={14} />, keywords: 'workspaces folders projects worktrees' },
   models: { label: 'Models', icon: <SlidersIcon size={14} />, keywords: 'models endpoints presets routes' },
   skills: { label: 'Skills', icon: <SlidersIcon size={14} />, keywords: 'skills commands hooks' },
@@ -72,7 +85,6 @@ const SETTINGS_PAGE: Record<Exclude<Section, 'archive'>, { label: string; icon: 
   browser: { label: 'Browser', icon: <SlidersIcon size={14} />, keywords: 'browser pane window profile cookies' },
 }
 const SETTINGS_PAGES = (Object.keys(SETTINGS_PAGE) as Exclude<Section, 'archive'>[]).map((section) => ({ section, ...SETTINGS_PAGE[section] }))
-import styles from './CommandPalette.module.css'
 
 /**
  * ⌘K: everything the app can do, one keystroke away.
@@ -90,16 +102,30 @@ export interface PaletteHost {
   readonly chooseFolder: () => void
   /** Opens the Agents window — the left-menu screen, never Settings — on one Agent, or the overview. */
   readonly openAgents: (agent?: string) => void
+  /** Opens the Teams destination. */
+  readonly openTeams?: () => void
   /** Opens the front door on the given project — the same chooser `NewSessionChoice` opens, one call up. */
   readonly openFrontDoor: (root: string) => void
   readonly close: () => void
 }
 
+type PaletteFilter = 'All' | 'Sessions' | 'Teams' | 'Agents' | 'Files' | 'Commands'
+type EntryFilter = Exclude<PaletteFilter, 'All'>
+const PALETTE_FILTERS: readonly PaletteFilter[] = ['All', 'Sessions', 'Teams', 'Agents', 'Commands']
+const FILES_PALETTE_FILTERS: readonly PaletteFilter[] = ['All', 'Sessions', 'Teams', 'Agents', 'Files', 'Commands']
+
 interface Entry {
   readonly id: string
-  readonly group: 'Actions' | 'Agents' | 'Runtimes' | 'Sessions' | 'Files' | 'Commands'
+  readonly group: 'Actions' | 'Agents' | 'Runtimes' | 'Sessions' | 'Recents' | 'Teams' | 'Files' | 'Commands'
+  readonly filter?: EntryFilter
   readonly label: string
+  /** Query matches in the visible label, rather than a secondary transcript line. */
+  readonly labelMatches?: readonly HighlightSpan[]
+  readonly title?: string
+  readonly disabled?: string
   readonly hint?: string
+  /** Transcript match ranking remains useful when a title hit suppresses its duplicate snippet. */
+  readonly contentMatch?: boolean
   /** A line from the content where the query matched, for inline display. */
   readonly matchLine?: string
   /** Start offset of the match within `matchLine`. */
@@ -110,6 +136,19 @@ interface Entry {
   readonly keywords?: string
   readonly run: () => void
 }
+
+const GROUP_FILTER: Record<Entry['group'], EntryFilter | null> = {
+  Actions: null,
+  Agents: 'Agents',
+  Runtimes: 'Agents',
+  Sessions: 'Sessions',
+  Recents: 'Sessions',
+  Teams: 'Teams',
+  Files: 'Files',
+  Commands: 'Commands',
+}
+
+const filterOf = (entry: Entry): EntryFilter | null => entry.filter ?? GROUP_FILTER[entry.group]
 
 /**
  * How well an entry answers the query. A substring anywhere in the label,
@@ -139,14 +178,25 @@ const score = (query: string, label: string, extra: string): number => {
   return pairs > 0 ? 5 + pairs : 0
 }
 
-const compose = (text: string): void => {
-  window.dispatchEvent(new CustomEvent('harnessdesk:compose', { detail: text }))
+/**
+ * A picked command goes to the conversation's message box. The palette opens
+ * over any page, and the composer ignores a bare compose event while a page
+ * (the Library, Settings) rather than the conversation is showing — so from a
+ * page the command was dropped without a word. Go back to the work first, hand
+ * it over until a composer takes it, and say so when none does.
+ */
+const compose = (store: AppStore, snapshot: AppSnapshot, text: string): void => {
+  if (snapshot.workbench.navigation.current.kind !== 'work') store.returnToWork()
+  void handOverToComposer({ text }).then((received) => {
+    if (!received) store.notice('warning', 'The message box did not take it — click into the conversation and try again.')
+  })
 }
 
 export const CommandPalette = ({ host }: { host: PaletteHost }) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [query, setQuery] = useState('')
+  const [filter, setFilter] = useState<PaletteFilter>('All')
   // The highlight is an entry, not an index. File and content results land
   // asynchronously and re-sort the list between the render the user read and
   // the Enter they pressed; an index would then run whatever slid under it —
@@ -159,6 +209,9 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
   // Transcript-content matches keyed by `${runtime}-${id}`: the backend's own
   // matching line, which beats re-deriving one from title and preview.
   const [contentHits, setContentHits] = useState<ReadonlyMap<string, TranscriptHit>>(new Map())
+  const [includeTools, setIncludeTools] = useState(() => {
+    try { return localStorage.getItem('hd-palette-tools-v1') === 'true' } catch { return false }
+  })
   const input = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLDivElement>(null)
 
@@ -186,7 +239,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
         runtimes.map((entry) =>
           store.transport
             .request('session/search', { runtime: entry.id, query: needle })
-            .then((result) => result.data)
+            .then((result) => Array.isArray(result?.data) ? result.data : [])
             .catch(() => [] as SessionSummary[]),
         ),
       ).then((pages) => {
@@ -195,10 +248,11 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
         }
       })
       void store.transport
-        .request('transcripts/search', { query: needle })
+        .request('transcripts/search', { query: needle, ...(includeTools ? { includeTools: true } : {}) })
         .then((hits) => {
           if (cancelled) return
-          setContentHits(new Map(hits.map((hit) => [`${hit.summary.runtime}-${hit.summary.id}`, hit])))
+          const matches = Array.isArray(hits) ? hits : []
+          setContentHits(new Map(matches.map((hit) => [`${hit.summary.runtime}-${hit.summary.id}`, hit])))
         })
         .catch(() => {
           if (!cancelled) setContentHits(new Map())
@@ -208,7 +262,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
       cancelled = true
       window.clearTimeout(timer)
     }
-  }, [query, snapshot.runtimes, store])
+  }, [query, includeTools, snapshot.runtimes, store])
 
   // Files only when there is something to look for; the runtime's search
   // is a round trip and an empty query would list the world.
@@ -229,7 +283,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
           ...(snapshot.activeRuntime ? { runtime: snapshot.activeRuntime } : {}),
         })
         .then((found) => {
-          if (!cancelled) setFiles(found)
+          if (!cancelled) setFiles(Array.isArray(found) ? found : [])
         })
         .catch(() => {
           if (!cancelled) setFiles([])
@@ -263,7 +317,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
         id: 'worktree',
         group: 'Actions',
         label: 'New worktree…',
-        hint: 'Its own checkout, on its own branch',
+        title: 'Its own checkout, on its own branch',
         icon: <BranchIcon size={14} />,
         run: () => {
           close()
@@ -282,7 +336,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
               id: 'start-team',
               group: 'Actions' as const,
               label: 'Start with a team',
-              hint: 'Choose a shape this project ships',
+              title: 'Choose a shape this project ships',
               icon: <TeamIcon size={14} />,
               run: () => {
                 close()
@@ -316,18 +370,20 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
        * "/trajectory · Show Trajectory", and only one of them answered a second
        * press by putting the panel away. One door, one verb.
        */
-      ...summonable().map(
+      ...summonable().filter((definition) => definition.kind !== 'tasks').map(
         (definition): Entry => ({
           id: definition.kind,
           group: 'Actions',
-          label: `Show ${definition.label.toLowerCase()}`,
+          ...(definition.kind === 'room' ? { filter: 'Teams' as const } : {}),
+          label: `Show ${definition.kind === 'room' ? 'Teams' : definition.kind === 'trajectory' ? 'Details' : definition.label}`,
           hint: definition.kind === 'changes' ? '⇧⌘D' : undefined,
           /* The view's own sentence, so "tokens" still finds Trajectory. */
           keywords: definition.hint,
-          icon: <definition.icon size={14} />,
+          icon: definition.kind === 'agents' ? <AgentIcon size={14} /> : <definition.icon size={14} />,
           run: () => {
             close()
-            store.showView(definition.kind)
+            if (definition.kind === 'room') host.openTeams?.()
+            else store.showView(definition.kind)
           },
         }),
       ),
@@ -432,27 +488,26 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
       },
     }))
 
-    /* Who, before which program: an Agent to start as, and its page in the
-       Agents window. One that cannot be seated here is listed all the same —
-       starting it is how the refusal sheet, and its fixes, are reached. */
+    /* Open is the default door to each Agent; starting one is an explicit query. */
     const roster: Entry[] = inForce(snapshot.agents ?? []).flatMap((entry) => {
       const definition = entry.definition
       if (!definition) return []
       const plan = snapshot.agentPlans.get(entry.id)
       const seat = seatTaken(plan)
       return [
-        {
+        ...(/\bstart\b/i.test(query) ? [{
           id: `start-as-${entry.id}`,
           group: 'Agents' as const,
           label: `Start as ${definition.name}`,
-          hint: seat ? seat.label : plan ? 'Can’t seat here' : undefined,
+          hint: seat?.label,
+          disabled: !plan ? 'Reading where this Agent can start' : !seat ? firstReason(plan) ?? 'No available seat here' : undefined,
           icon: seat ? <RuntimeMark runtime={markFor(seat, snapshot.runtimes)} /> : <AgentIcon size={14} />,
           keywords: `agent new conversation ${definition.description ?? ''}`,
           run: () => {
             close()
             void store.startAsAgent(entry.id)
           },
-        },
+        }] : []),
         {
           id: `open-agent-${entry.id}`,
           group: 'Agents' as const,
@@ -467,22 +522,53 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
       ]
     })
 
+    const teams: Entry[] = [...snapshot.teams.values()]
+      .sort((a, b) => b.updatedAt - a.updatedAt)
+      .map((team) => ({
+        id: `team-${team.id}`,
+        group: 'Teams',
+        filter: 'Teams',
+        label: team.name,
+        hint: team.root.split('/').filter(Boolean).at(-1) ?? team.root,
+        icon: <TeamIcon size={14} />,
+        keywords: `${team.root} ${team.name} team project`,
+        run: () => {
+          close()
+          store.openTeamRoom(team.id)
+        },
+      }))
+
     const needle = query.trim()
     const sessionEntryFrom = (summary: SessionSummary): Entry => {
       const agent = snapshot.runtimes.find((entry) => entry.id === summary.runtime)?.presentation.name ?? summary.runtime
       const folder = summary.cwd.split('/').filter(Boolean).at(-1) ?? summary.cwd
+      // A conversation open in this window is the fresher record: the history
+      // row has no preview until the host's list catches up, and the sidebar
+      // already names it from what the person asked.
+      const live = snapshot.sessions.get(sessionKey(summary.runtime, summary.id))
+      // The same precedence as the sidebar row: the open session's own title
+      // (an explicit null or empty one included) over the summary's, and its
+      // preview or first ask over the summary's preview.
+      const liveTitle = live?.title
+      const livePreview = live ? live.preview ?? firstAsk(live) : undefined
+      const label = sessionLabel(liveTitle === undefined ? summary.title : liveTitle, livePreview ?? summary.preview)
+      const labelMatches = needle ? highlightAll(needle, label) : []
       // The transcript store's own matching line wins over one re-derived
-      // from the title and preview: it is from the conversation's content.
+      // from the preview: it is from the conversation's content. A title hit
+      // is shown in the title itself, never repeated as a second line.
       const content = contentHits.get(`${summary.runtime}-${summary.id}`)
-      const hit = needle ? extractHit(needle, `${summary.title ?? ''}\n${summary.preview ?? ''}`) : null
+      const hit = needle && labelMatches.length === 0 ? extractHit(needle, summary.preview ?? '') : null
       return {
         id: `session-${summary.runtime}-${summary.id}`,
         group: 'Sessions',
-        label: sessionLabel(summary.title, summary.preview),
-        hint: `${brandOf(agent)} · ${folder}${summary.git?.branch ? ` · ${summary.git.branch}` : ''}`,
+        filter: 'Sessions',
+        label,
+        ...(labelMatches.length > 0 ? { labelMatches } : {}),
+        ...(content ? { contentMatch: true } : {}),
+        hint: `${brandOf(agent)} · ${folder}`,
         icon: <SessionIcon size={14} />,
         keywords: `${folder} ${agent} ${summary.preview ?? ''}`,
-        ...(content
+        ...(content && labelMatches.length === 0
           ? { matchLine: content.line, matchStart: content.start, matchEnd: content.end }
           : hit
             ? { matchLine: hit.line, matchStart: hit.spans[0]?.start, matchEnd: hit.spans[0]?.end }
@@ -509,7 +595,7 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
       seen.add(key)
       combined.push(summary)
     }
-    const sessions: Entry[] = combined.map(sessionEntryFrom)
+    const sessions: Entry[] = combined.sort((a, b) => b.updatedAt - a.updatedAt).map(sessionEntryFrom)
 
     const fileEntries: Entry[] = files.map((file) => ({
       id: `file-${file.path}`,
@@ -526,36 +612,43 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
     const commands: Entry[] = availableCommands(snapshot).map((command) => ({
       id: `command-${command.name}`,
       group: 'Commands',
+      filter: 'Commands',
       label: `/${command.name}`,
       hint: command.description,
       icon: <SlashIcon size={14} />,
       run: () => {
         close()
-        compose(`/${command.name} `)
+        compose(store, snapshot, `/${command.name} `)
       },
     }))
 
-    return [...actions, ...roster, ...runtimeEntries, ...sessions, ...fileEntries, ...commands]
+    return [...actions, ...teams, ...roster, ...runtimeEntries, ...sessions, ...fileEntries, ...commands]
   }, [contentHits, files, host, query, searchResults, snapshot, store])
 
   const shown = useMemo(() => {
     const needle = query.trim()
+    const candidates = filter === 'All'
+      ? entries
+      : entries.filter((entry) => filterOf(entry) === filter)
     if (!needle) {
-      return [
-        ...entries.filter((entry) => entry.group === 'Actions'),
-        // Starting as an Agent up front; its page is found by typing.
-        ...entries.filter((entry) => entry.group === 'Agents' && entry.id.startsWith('start-as-')),
-        ...entries.filter((entry) => entry.group === 'Runtimes'),
-        ...entries.filter((entry) => entry.group === 'Sessions').slice(0, 6),
-      ]
+      if (filter === 'All') {
+        return [
+          ...entries.filter((entry) => entry.group === 'Sessions').slice(0, 6).map((entry) => ({ ...entry, group: 'Recents' as const })),
+          ...entries.filter((entry) => entry.group === 'Actions'),
+        ]
+      }
+      if (filter === 'Sessions') {
+        return candidates.filter((entry) => entry.group === 'Sessions').slice(0, 6).map((entry) => ({ ...entry, group: 'Recents' as const }))
+      }
+      return candidates
     }
     // Score everything and pick the best matches without per-group caps.
     // Sessions with a content match from the search backend get a boost.
-    const scored = entries
+    const scored = candidates
       .map((entry) => ({
         entry,
-        score: score(needle, entry.label, `${entry.keywords ?? ''} ${entry.hint ?? ''}`)
-          + (entry.matchLine ? 20 : 0),
+        score: score(needle, entry.label, `${entry.keywords ?? ''} ${entry.hint ?? ''} ${entry.title ?? ''}`)
+          + (entry.matchLine || entry.contentMatch ? 20 : 0),
       }))
       .filter((item) => item.score > 0)
       .sort((a, b) => b.score - a.score)
@@ -576,13 +669,14 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
       }
     }
     return groupOrder.flatMap((g) => byGroup.get(g) ?? [])
-  }, [entries, query])
+  }, [entries, filter, query])
+  const visibleFilters = files.length > 0 || filter === 'Files' ? FILES_PALETTE_FILTERS : PALETTE_FILTERS
 
   // A fresh query starts back at the top, and the highlight then locks to
   // whichever entry leads that first paint: results that arrive later may
   // insert rows above it, but they cannot move the highlight off the row the
   // user is looking at.
-  useEffect(() => setActiveId(null), [query])
+  useEffect(() => setActiveId(null), [filter, query])
   useEffect(() => {
     if (activeId === null && shown.length > 0) setActiveId(shown[0]?.id ?? null)
   }, [activeId, shown])
@@ -600,73 +694,125 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
     setActiveId(shown[next]?.id ?? null)
   }
 
+  const selectFilter = (value: string): void => {
+    const next = visibleFilters.find((candidate) => candidate === value)
+    if (!next) return
+    setFilter(next)
+    setActiveId(null)
+  }
+
+  const moveFilter = (delta: number): void => {
+    const current = visibleFilters.indexOf(filter)
+    const next = (current + delta + visibleFilters.length) % visibleFilters.length
+    selectFilter(visibleFilters[next]!)
+  }
+
   const run = (index: number): void => {
     const entry = shown[index]
-    if (entry) entry.run()
+    if (entry && !entry.disabled) entry.run()
   }
 
   let lastGroup: Entry['group'] | null = null
 
   return (
     <DialogRoot open onOpenChange={(open) => { if (!open) host.close() }}>
-      <DialogContent
-        bleed
-        className={styles.dialog}
-        portalled={false}
+      <CommandPalettePanel
         aria-label="Command palette"
         initialFocus={input}
         showCloseButton={false}
       >
-        <div className={styles.inputRow}>
-          <Search
-            inputRef={input}
-            focusIndicator="caret"
-            className={styles.input}
-            autoFocus
-            placeholder="Search sessions, files, agents, commands, actions…"
-            value={query}
-            onChange={setQuery}
-            onKeyDown={(event) => {
-              if (event.key === 'ArrowDown') {
+        <CommandPaletteSearch
+          inputRef={input}
+          autoFocus
+          placeholder="Search sessions, files, teams, agents, commands…"
+          value={query}
+          onChange={setQuery}
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowDown') {
+              event.preventDefault()
+              moveActive(1)
+            } else if (event.key === 'ArrowUp') {
+              event.preventDefault()
+              moveActive(-1)
+            } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+              const field = event.currentTarget
+              const atStart = field.selectionStart === 0 && field.selectionEnd === 0
+              const atEnd = field.selectionStart === field.value.length && field.selectionEnd === field.value.length
+              if ((event.key === 'ArrowLeft' && atStart) || (event.key === 'ArrowRight' && atEnd)) {
                 event.preventDefault()
-                moveActive(1)
-              } else if (event.key === 'ArrowUp') {
-                event.preventDefault()
-                moveActive(-1)
-              } else if (event.key === 'Enter') {
-                event.preventDefault()
-                run(active)
-              } else if (event.key === 'Escape') {
-                event.preventDefault()
-                host.close()
+                moveFilter(event.key === 'ArrowLeft' ? -1 : 1)
               }
+            } else if (event.key === 'Enter') {
+              event.preventDefault()
+              run(active)
+            } else if (event.key === 'Escape') {
+              event.preventDefault()
+              host.close()
+            }
+          }}
+        />
+        <CommandPaletteControls>
+          <Tabs value={filter} onValueChange={selectFilter}>
+            <TabsList aria-label="Search type" variant="line">
+              {visibleFilters.map((value) => (
+                <TabsTrigger key={value} value={value} data-palette-tab={value}>{value}</TabsTrigger>
+              ))}
+            </TabsList>
+          </Tabs>
+          <Button
+            type="button"
+            variant="quiet"
+            size="sm"
+            aria-label="Include tool output"
+            aria-pressed={includeTools}
+            title="Include tool output"
+            {...(includeTools ? { 'data-active': '' } : {})}
+            onClick={() => {
+              const checked = !includeTools
+              setIncludeTools(checked)
+              setContentHits(new Map())
+              try { localStorage.setItem('hd-palette-tools-v1', String(checked)) } catch { /* Viewer storage can be unavailable. */ }
             }}
-          />
-          <Keycap>esc</Keycap>
-        </div>
-        <Separator />
-        <NavigationList className={styles.list} ref={list} role="listbox">
-          {shown.length === 0 && <div className="hd-empty-line">Nothing matches “{query}”.</div>}
+          >
+            <FilterIcon size={14} />
+            Tool output
+          </Button>
+        </CommandPaletteControls>
+        <CommandPaletteDivider />
+        <CommandPaletteResults ref={list} role="listbox" aria-label={`${filter} results`}>
+          {shown.length === 0 && <CommandPaletteEmpty>Nothing matches “{query}”.</CommandPaletteEmpty>}
           {shown.map((entry, index) => {
             const header = entry.group !== lastGroup ? entry.group : null
+            const session = entry.group === 'Sessions' || entry.group === 'Recents'
             lastGroup = entry.group
             return (
               <div key={entry.id}>
-                {header && <PopoverGroupLabel>{header}</PopoverGroupLabel>}
-                <Button
-                  type="button"
+                {header && <PopoverGroupLabel inset={false}>{header}</PopoverGroupLabel>}
+                <CommandPaletteResult
                   role="option"
                   aria-selected={index === active}
-                  variant="navigation" size="navigation" className={styles.row}
                   {...(index === active ? { 'data-active': '' } : {})}
                   onMouseEnter={() => setActiveId(entry.id)}
                   onClick={() => run(index)}
-                >
-                  <Text role="meta" className={styles.rowIcon}>{entry.icon}</Text>
-                  <span className={styles.rowLabel}>{entry.label}</span>
-                  {entry.hint && <Text role="muted" ink="muted" className={styles.rowHint}>{entry.hint}</Text>}
-                  {entry.matchLine && (
-                    <Text role="meta" className={styles.rowMatch}>
+                  icon={entry.icon}
+                  title={entry.disabled ?? entry.title}
+                  disabled={Boolean(entry.disabled)}
+                  aria-disabled={entry.disabled ? true : undefined}
+                  label={entry.labelMatches?.length ? (
+                    <>
+                      {entry.labelMatches.map((span, matchIndex) => (
+                        <span key={matchIndex}>
+                          {entry.label.slice(matchIndex === 0 ? 0 : entry.labelMatches![matchIndex - 1]!.end, span.start)}
+                          <Text as="b" role="meta" ink="primary" weight="semibold">{entry.label.slice(span.start, span.end)}</Text>
+                        </span>
+                      ))}
+                      {entry.label.slice(entry.labelMatches.at(-1)!.end)}
+                    </>
+                  ) : entry.label}
+                  meta={entry.hint}
+                  metaInk={session ? 'secondary' : 'muted'}
+                  match={entry.matchLine && (
+                    <>
                       {entry.matchStart != null && entry.matchEnd != null ? (
                         <>
                           {entry.matchLine.slice(0, entry.matchStart)}
@@ -674,14 +820,20 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
                           {entry.matchLine.slice(entry.matchEnd)}
                         </>
                       ) : entry.matchLine}
-                    </Text>
+                    </>
                   )}
-                </Button>
+                />
               </div>
             )
           })}
-        </NavigationList>
-      </DialogContent>
+        </CommandPaletteResults>
+        <CommandPaletteDivider />
+        <CommandPaletteFooter>
+          <CommandPaletteKeyHint label="Close" keyName="Esc" />
+          <CommandPaletteKeyHint label="Change type" keyName="←→" />
+          <CommandPaletteKeyHint label="Open" keyName="↵" />
+        </CommandPaletteFooter>
+      </CommandPalettePanel>
     </DialogRoot>
   )
 }

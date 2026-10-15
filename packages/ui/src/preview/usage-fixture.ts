@@ -24,7 +24,8 @@ export const usagePreviewStore = (): AppStore => {
       scan: unknown ? 'partial' : 'complete', totals: { ...base.totals, usd },
       breakdowns: ['goal', 'agent'].map(dimension => ({ dimension: dimension as 'goal' | 'agent',
         rows: [{ ...row, goal: dimension === 'goal' ? goal.goal.id : null, key: dimension === 'goal' ? `goal:${PREVIEW_GOAL.goal.id}` : 'agent:project:scout', label: dimension === 'goal' ? goal.board.name : 'Scout', amounts: { ...row.amounts, usd } }],
-        unattributed: { ...base.breakdowns[0]!.unattributed, usd: unknown ? usd : base.breakdowns[0]!.unattributed.usd }, reason: 'No unique historical Seat could be established.',
+        unattributed: { ...base.breakdowns[0]!.unattributed, usd: unknown ? usd : base.breakdowns[0]!.unattributed.usd },
+        reason: dimension === 'goal' ? 'Not attributed to a Team.' : 'Recorded usage without a historical Agent Seat remains unassigned.',
       })), gaps: unknown ? ['Insight stopped at 64 MiB of source data. Choose a narrower range.'] : [],
     }
   }

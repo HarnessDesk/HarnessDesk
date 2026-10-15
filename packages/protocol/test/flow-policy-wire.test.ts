@@ -19,6 +19,20 @@ const checkPolicy = (check: Record<string, unknown>) => ({
   seed: { role: 'verify', title: 'Verify' },
 })
 
+test('shape summaries are optional short single lines, with refusals at their field', () => {
+  const policy = checkPolicy({})
+  assert.doesNotThrow(() => request('authoring/shape/render', { policy }))
+  const accepted = request('authoring/shape/render', { policy: { ...policy, summary: 'A short overview.' } })
+  assert.equal((accepted.params as HostParams<'authoring/shape/render'>).policy.summary, 'A short overview.')
+  for (const summary of ['', ' ', 'x'.repeat(241), 'Two\nlines', 1, [], null]) {
+    assert.throws(() => request('authoring/shape/render', { policy: { ...policy, summary } }), (error: unknown) => {
+      assert.ok(error instanceof ValidationError)
+      assert.equal(error.path, 'message.params.policy.summary')
+      return true
+    })
+  }
+})
+
 for (const onRequest of [undefined, true, false]) test(`authoring/shape/render preserves check onRequest ${String(onRequest)}`, () => {
   const policy = checkPolicy(onRequest === undefined ? {} : { onRequest })
   const message = request('authoring/shape/render', { policy })
@@ -49,7 +63,7 @@ test('flow/start-goal accepts optional lineage, and keeps output metadata host-o
 })
 
 test('flow/preview and flow/start-goal reject a caller-supplied authority field outright', () => {
-  const forgedFields = ['compiled', 'ceiling', 'evidence', 'commands', 'origin', 'authorization']
+  const forgedFields = ['compiled', 'ceiling', 'evidence', 'commands', 'origin', 'authorization', 'attachments']
   for (const field of forgedFields) {
     assert.throws(
       () => request('flow/preview', { root: '/work/repo', source: 'version: 2', [field]: {} }),
@@ -185,4 +199,13 @@ test('seat override validation preserves prototype-named roles for semantic refu
   const preview = parseClientMessage({ id: 1, method: 'flow/preview', params: { root: '/tmp/demo', source: 'synthetic', seats } })
   assert.equal(preview.method, 'flow/preview')
   assert.deepEqual(Object.keys((preview.params as HostParams<'flow/preview'>).seats!), ['__proto__'])
+})
+
+test('successful outcome declarations cross the shape wire and malformed lists do not (#1548)', () => {
+  const policy = { ...checkPolicy({}), complete: { verify: ['pass'] } }
+  const accepted = request('authoring/shape/render', { policy })
+  assert.deepEqual((accepted.params as HostParams<'authoring/shape/render'>).policy.complete, policy.complete)
+  for (const complete of [null, [], {verify: 'pass'}, {verify: [3]}, {'bad.role': ['pass']}]) {
+    assert.throws(() => request('authoring/shape/render', { policy: {...policy, complete} }), ValidationError)
+  }
 })

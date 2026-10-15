@@ -9,6 +9,8 @@ import { RetryCheck } from './RetryCheck'
 
 export interface FlowRunStatusProps {
   readonly execution: FlowExecution
+  /** The Run's own need card already offers this recovery. */
+  readonly checkRecovery?: boolean
 }
 
 /** The uncertain check operation a stall names, if that is why it is stalled. */
@@ -29,10 +31,10 @@ const uncertainCheck = (execution: FlowExecution): FlowOperation | null =>
  * (`TeamRoomPane`'s `pinnedAt`) — so this component's only job left is the
  * one action and the one banner nothing else says.
  */
-export const FlowRunStatus = ({ execution }: FlowRunStatusProps) => {
+export const FlowRunStatus = ({ execution, checkRecovery = true }: FlowRunStatusProps) => {
   const record = useSnapshotSelector(snapshot => isRecord(snapshot.goals.get(execution.goal)))
   const legacy = execution.document.format === 'legacy'
-  const stalledCheck = uncertainCheck(execution)
+  const stalledCheck = checkRecovery ? uncertainCheck(execution) : null
   const [reviewing, setReviewing] = useState(false)
 
   if (!legacy && !stalledCheck) return null

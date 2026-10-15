@@ -51,7 +51,7 @@ interface Rig {
   close(): Promise<void>
 }
 
-const start = async (capabilities?: { archiveHistory?: boolean; deleteHistory?: boolean; resume?: boolean }, name?: string): Promise<Rig> => {
+const start = async (capabilities?: { archiveHistory?: boolean; deleteHistory?: false | 'trash' | 'erase'; resume?: boolean }, name?: string): Promise<Rig> => {
   const stateDir = await mkdtemp(join(tmpdir(), 'hd-archive-'))
   const runtime = new FakeRuntime({ ...(capabilities ? { capabilities } : {}), ...(name ? { name } : {}) })
   const host = new Host({
@@ -157,7 +157,7 @@ test('deleting reports what happened and clears the mark the host was holding', 
       runtime: 'fake',
       sessionId: 'a',
     })) as SessionDeletion
-    assert.equal(outcome.disposition, 'removed')
+    assert.equal(outcome.disposition, 'trash')
     assert.deepEqual(rig.runtime.deleted, ['a'])
 
     // Gone from both sides. A mark left behind would hide the next session
@@ -202,7 +202,7 @@ test('an agent that cannot delete is refused before anything is thrown away', as
   try {
     rig.runtime.history.push(summary('a'))
     await assert.rejects(rig.client.call('session/delete', { runtime: 'fake', sessionId: 'a' }), (error: Error) => {
-      assert.match(error.message, /Fake Runtime cannot delete a stored conversation/)
+      assert.match(error.message, /Fake Runtime cannot move a stored conversation to the Trash/)
       assert.doesNotMatch(error.message, /fake-internal/)
       return true
     })
