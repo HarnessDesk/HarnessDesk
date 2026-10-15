@@ -50,3 +50,8 @@ test('session loadout is a read with a required session and optional runtime', (
     assert.throws(() => request('session/loadout', params), ValidationError)
   }
 })
+
+test('historical Seat evidence is available at the client read tier', () => {
+  assert.equal(clientTierFor('evidence/seat'), 'read')
+  assert.doesNotThrow(() => request('evidence/seat', { runtime: 'fake', sessionId: 'demo' }))
+})

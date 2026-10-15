@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { sessionId } from '@harnessdesk/protocol'
 import type { ConversationLoadouts, HostMethodName, Session, RuntimeLoadout } from '@harnessdesk/protocol'
 import { start, stop, halt, Client } from './fixtures/harness.js'
 import { FakeRuntime } from './fixtures/fake-runtime.js'
@@ -146,4 +147,34 @@ test('recorded loadouts survive a host restart and read without asking the repla
   t.after(() => reader.close())
   assert.deepEqual(await reader.call('session/loadout', { session: session.id }), before)
   assert.equal(asked, false)
+})
+
+test('ordinary history resume records once without waiting, then dedupes or appends on a new handle', async t => {
+  let release!: (value: RuntimeLoadout) => void
+  let reads = 0
+  let result = answer()
+  const runtime = Object.assign(new FakeRuntime(), { loadout: async () => {
+    reads++
+    return reads === 1 ? new Promise<RuntimeLoadout>(done => { release = done }) : result
+  } })
+  const id = sessionId('history-only')
+  runtime.minted.set(id, '/home/jane/project')
+  const harness = await start({}, undefined, runtime)
+  t.after(() => stop(harness))
+  const client = await Client.connect(harness.server)
+  t.after(() => client.close())
+  await client.call('session/resume', { runtime: 'fake', sessionId: id })
+  assert.equal(reads, 1, 'the ordinary resume must start an observation without awaiting it')
+  release(result as RuntimeLoadout)
+  await recorded(client, id)
+  await client.call('session/resume', { runtime: 'fake', sessionId: id })
+  assert.equal(reads, 1, 'returning the same live handle must not observe twice')
+  await client.call('session/close', { runtime: 'fake', sessionId: id })
+  await client.call('session/resume', { runtime: 'fake', sessionId: id })
+  await client.until(() => reads === 2)
+  assert.equal((await recorded(client, id)).epochs.length, 1)
+  result = { ...answer(), skills: { ...answer().skills, items: [] } }
+  await client.call('session/close', { runtime: 'fake', sessionId: id })
+  await client.call('session/resume', { runtime: 'fake', sessionId: id })
+  assert.equal((await recorded(client, id, 2)).epochs[1]!.skills.reported, true)
 })

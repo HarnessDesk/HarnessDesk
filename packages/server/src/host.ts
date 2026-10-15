@@ -4593,6 +4593,7 @@ export class Host {
         bindUsage: (runtime, binding) => this.bindUsage(runtime, binding),
       },
       loadouts: {
+        observe: (runtime, session, cwd) => this.#observeLoadout(runtime, session, cwd),
         read: async (session, selected) => {
           const id = makeSessionId(session)
           const candidates = new Set(await this.#loadoutStore.runtimes(id))

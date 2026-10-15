@@ -179,7 +179,7 @@ export const COMMANDS = [
     },
   },
   {
-    name: 'session show', tier: 'read', methods: ['session/loadout', 'goal/list', 'flow/executions', 'flow/execution'], flags: ['target', 'runtime', 'epochs', 'all'], execute: showSession,
+    name: 'session show', tier: 'read', methods: ['session/loadout', 'evidence/seat', 'flow/executions', 'flow/execution'], flags: ['target', 'runtime', 'epochs', 'all'], execute: showSession,
     usage: 'session show <session> [--runtime NAME] [--epochs] [--all]',
     description: "Shows the skills, servers, memory files and agents this conversation's agent reported. Sizes appear only where the agent supplied them. Reads the desk's recorded observation without starting an agent. A missing report is distinct from an agent reporting an empty list.",
     arguments: [{ name: 'session', description: 'The conversation id whose recorded loadout to read.' }],
@@ -874,16 +874,15 @@ async function showSession(args: Arguments): Promise<number> {
     if (args.json) { jsonLine(records); return 0 }
     let seat: { role: string | null; run: string | null } | null = null
     if (records.seat) {
-      const teams = await client.call('goal/list', {})
-      for (const team of teams) {
-        const member = [...team.members, ...(team.pastMembers ?? [])].find(member => member.id === records.seat)
-        if (!member) continue
-        seat = { role: member.role, run: null }
-        for (const summary of await client.call('flow/executions', { team: team.goal.id, active: false })) {
-          const run = await client.call('flow/execution', { run: summary.id })
-          if (run.operations.some(operation => operation.kind === 'seat' && operation.seat === records.seat)) { seat.run = run.id; break }
+      const recorded = await client.call('evidence/seat', { runtime: records.runtime, sessionId: records.session })
+      if (recorded?.id === records.seat) {
+        seat = { role: recorded.role, run: null }
+        if (recorded.board) {
+          for (const summary of await client.call('flow/executions', { team: recorded.board, active: false })) {
+            const run = await client.call('flow/execution', { run: summary.id })
+            if (run.operations.some(operation => operation.kind === 'seat' && operation.seat === records.seat)) { seat.run = run.id; break }
+          }
         }
-        break
       }
     }
     printLoadout(records, client.hello.runtimes.find(runtime => runtime.id === records.runtime)?.name ?? 'Unknown agent', args, seat)

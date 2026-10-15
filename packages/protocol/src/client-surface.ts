@@ -24,6 +24,7 @@ export const CLIENT_METHODS = {
   'finding/run': 'read',
   'finding/list': 'read',
   'evidence/board': 'read',
+  'evidence/seat': 'read',
   'insight/goal': 'read',
   'library/read': 'read',
   'library/definition': 'read',

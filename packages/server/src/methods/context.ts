@@ -108,6 +108,7 @@ export interface HostContext {
   readonly credentials: CredentialBroker
   readonly audit: AuditLog
   readonly loadouts: {
+    observe(runtime: AgentRuntime, session: SessionId, cwd: string): void
     read(session: string, runtime?: RuntimeId): Promise<ConversationLoadouts>
     forget(runtime: RuntimeId, session: SessionId): Promise<void>
   }

@@ -244,6 +244,9 @@ export const sessionMethods = {
     ctx.sessionIndex.reopen(session)
     const resumed = ctx.registry.upsert(session, live).session
     ctx.sessionIndex.record(resumed)
+    // Ordinary history resumes register directly above rather than through
+    // create/fork's attach; observe that handle without changing admission.
+    ctx.loadouts.observe(runtime, live.id, resumed.cwd)
     await announceUnavailableTools(ctx, runtime, resumed)
     return resumed
   },

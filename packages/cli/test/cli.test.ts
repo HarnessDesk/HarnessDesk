@@ -95,7 +95,6 @@ test('exit codes preserve client boundary and compatibility refusals', () => {
   assert.equal(errorExit(new Error('error')), 1)
 })
 
-
 test('flow arguments accept one target and repeated inputs and seats, with strict flag ownership', () => {
   assert.deepEqual(parseArgs(['flow', 'preview', './demo.yaml', '--seat', 'writer=fake/high', '--seat', 'reviewer=fake,fake', '--input', 'brief=@brief.md', '--input', 'title=Demo', '--unattended']), {
     command: 'flow preview', target: './demo.yaml', seat: ['writer=fake/high', 'reviewer=fake,fake'], input: ['brief=@brief.md', 'title=Demo'], unattended: true,
@@ -105,7 +104,6 @@ test('flow arguments accept one target and repeated inputs and seats, with stric
   for (const args of [['flow', 'preview'], ['flow', 'start', 'demo', '--raw'], ['flow', 'preview', 'demo', '--yes'], ['open', '.', 'extra'], ['flows', '--seat', 'writer=fake']]) assert.throws(() => parseArgs(args), /usage/i)
 })
 
-
 test('run wait timeout is a finite non-negative number of seconds within timer range', () => {
   assert.equal(parseArgs(['run', 'show', 'demo']).target, 'demo')
   assert.equal(parseArgs(['run', 'wait', 'demo', '--timeout', '0.1']).timeout, '0.1')
@@ -113,12 +111,10 @@ test('run wait timeout is a finite non-negative number of seconds within timer r
   assert.throws(() => parseArgs(['run', 'show', 'demo', '--timeout', '1']), /usage/i)
 })
 
-
 test('run stop takes its required reason only from the flag', () => {
   assert.deepEqual(parseArgs(['run', 'stop', 'r-demo', '--reason', 'Changed', '--yes']), { command: 'run stop', target: 'r-demo', reason: 'Changed', yes: true })
   for (const args of [['run', 'stop', 'r-demo'], ['run', 'stop', 'r-demo', 'Changed'], ['run', 'stop', 'r-demo', '--reason', '  ']]) assert.throws(() => parseArgs(args), /usage/i)
 })
-
 
 test('card arguments bind team, card and outcome positionally; text stays in named flags', () => {
   assert.deepEqual(parseArgs(['card', 'answer', 'g', '1', 'shipped', '--context-file', '-']), { command: 'card answer', team: 'g', card: '1', outcome: 'shipped', contextFile: '-' })
@@ -261,7 +257,6 @@ test('any other error is printed the same way: its first line as it is, every la
   assert.equal(errorText(new Error('one\ntwo\n\nfour')), 'one\n  | two\n  | \n  | four')
   assert.equal(errorText('a string\nthrown'), 'a string\n  | thrown')
 })
-
 
 test('card answer documents a missing card as an exit-4 refusal', () => {
   const command = COMMANDS.find(command => command.name === 'card answer')!
@@ -527,12 +522,26 @@ test('session show includes the Seat role and the run whose seat operation recor
   const records = { ...loadoutFixture(), seat: 'seat-demo' }
   await libraryDesk(t, [], {}, {}, {
     'session/loadout': records,
-    'goal/list': [{ goal: { id: 'team-demo' }, members: [{ id: 'seat-demo', role: 'writer\x1b[31m' }] }],
+    'evidence/seat': { id: 'seat-demo', role: 'writer\x1b[31m', board: 'team-demo' },
     'flow/executions': [{ id: 'run-demo' }],
     'flow/execution': { id: 'run-demo', operations: [{ kind: 'seat', seat: 'seat-demo' }] },
   })
   const human = await runCli(t, ['session', 'show', 'demo'])
   assert.equal(human.code, 0, human.stderr)
   assert.match(human.stdout, /Agent 1.*demo.*Seat seat-demo.*role writer.*run run-demo/)
+  assert.doesNotMatch(human.stdout, /\x1b/)
+})
+
+test('session show resolves a closed Seat without any current or past Team member', async t => {
+  await libraryDesk(t, [], {}, {}, {
+    'session/loadout': { ...loadoutFixture(), seat: 'seat-demo' },
+    'goal/list': [{ goal: { id: 'team-demo' }, members: [], pastMembers: [] }],
+    'evidence/seat': { id: 'seat-demo', role: 'writer\x1b[31m', board: 'team-demo' },
+    'flow/executions': [{ id: 'run-demo' }],
+    'flow/execution': { id: 'run-demo', operations: [{ kind: 'seat', seat: 'seat-demo' }] },
+  })
+  const human = await runCli(t, ['session', 'show', 'demo'])
+  assert.equal(human.code, 0, human.stderr)
+  assert.match(human.stdout, /Seat seat-demo.*role writer.*run run-demo/)
   assert.doesNotMatch(human.stdout, /\x1b/)
 })
