@@ -28,6 +28,11 @@ const blockAfter = (opening: string): string => {
 }
 
 describe('banner centring', () => {
+  it('uses the approved standard and compact host padding', () => {
+    expect(blockAfter('.banner {')).toContain('padding: var(--hd-space-3) var(--hd-space-3) var(--hd-space-3) var(--hd-space-4)')
+    expect(blockAfter('.banner[data-compact] {')).toContain('padding: var(--hd-space-2) var(--hd-space-2) var(--hd-space-2) var(--hd-space-3)')
+  })
+
   it('keeps the card inside its width boundary without containing its contents', () => {
     expect(blockAfter('.frame {')).toMatch(/width:\s*min\(var\(--hd-column\),\s*100%\)/)
     expect(blockAfter('.frame {')).not.toMatch(/(^|[\s;{])contain:/)

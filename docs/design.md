@@ -1243,9 +1243,10 @@ Existing Banner and message-host APIs remain compatible while screens migrate.
 | --- | --- |
 | Tile | `IconTile`, 24px, `--hd-radius-md`; tone glyph or the supplied mark. |
 | Copy | Title above body, always stacked; a second line is earned, never a default explanation. |
-| Actions | Beside the text, centred; below at three or more actions or under about 400px. At most one primary. |
+| Actions | Beside the text, centred; below at three or more actions or under about 400px. At most one primary. Label-only actions keep text-button width, including the ghost `icon` kind. |
 | Dismiss | Centred for one line; top-right for wrapped copy. Mute uses the existing dismiss menu. |
 | Shell | Composer plate: `--hd-card`, `--hd-radius-lg`, inset `--hd-border-emphasis` and `--hd-composer-shell-shadow`. |
+| Padding | Standard: 12px top/right/bottom, 16px left (`--hd-space-3` / `--hd-space-4`). Compact and floating: 8px top/right/bottom, 12px left (`--hd-space-2` / `--hd-space-3`). |
 
 Standard notices read at 14px; compact notices at 13px. The placement host sets
 the size, never the content's caller. Composer stacks, sidebar, Inbox and toast

@@ -25,3 +25,16 @@ it('inherits compact presentation and keeps the list and status anatomy in the f
   expect(host.querySelector('[data-slot="notice-status"][data-compact]')).not.toBeNull()
   expect(host.querySelector('[data-slot="notice-list"] [data-slot="notice-row"]')).not.toBeNull()
 })
+
+it('keeps a labelled icon-kind action at text-button width', async () => {
+  const onSelect = vi.fn()
+  await act(() => root.render(<Notice title="Changes saved." actions={[
+    { label: 'View the complete activity log', onSelect, kind: 'icon' },
+  ]} />))
+  const action = host.querySelector('button')!
+  expect(action.textContent).toBe('View the complete activity log')
+  expect(action.classList.contains('p-(--hd-btn-padding-sm)')).toBe(true)
+  expect(action.dataset.variant).toBe('ghost')
+  await act(() => action.click())
+  expect(onSelect).toHaveBeenCalledOnce()
+})

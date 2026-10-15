@@ -1117,6 +1117,13 @@ const NoticeBoard = () => (
         <div data-notice-case="three-actions"><Notice tone="success" title="Changes saved." actions={['Apply', 'Compare', 'Later'].map(label => ({ label, onSelect: () => {} }))} /></div>
       </div>
     </Case>
+    <Case label="a labelled action keeps its text width">
+      <div className="w-full" data-notice-case="labelled-action">
+        <Notice tone="info" title="The activity log is ready." actions={[
+          { label: 'View the complete activity log', onSelect: () => {}, kind: 'icon' },
+        ]} />
+      </div>
+    </Case>
     <LegacyNoticeHosts />
     <AlertAndBannerExamples />
   </div>

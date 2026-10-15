@@ -6,6 +6,7 @@ import { NoticeHost, NoticeListShell, NoticeShell, type BannerTone } from './Ban
 export type NoticeAction = {
   readonly label: string
   readonly onSelect: () => void
+  /** Label-only actions keep text width, including the ghost `icon` kind. */
   readonly kind?: 'primary' | 'secondary' | 'ghost' | 'icon'
 }
 export type NoticeProps = {
@@ -20,7 +21,7 @@ export type NoticeProps = {
 
 const NoticeContent = ({ actions, tone = 'neutral', ...props }: NoticeProps, kind: 'card' | 'status' | 'row') => (
   <NoticeShell {...props} tone={tone} kind={kind} role={tone === 'danger' ? 'alert' : 'status'} actions={actions?.map((action, index) => (
-    <Button key={index} type="button" size={action.kind === 'icon' ? 'icon-sm' : 'sm'}
+    <Button key={index} type="button" size="sm"
       variant={action.kind === 'ghost' || action.kind === 'icon' ? 'ghost' : action.kind === 'primary' ? 'default' : 'secondary'}
       aria-label={action.kind === 'icon' ? action.label : undefined} onClick={action.onSelect}>
       {action.label}
@@ -28,7 +29,10 @@ const NoticeContent = ({ actions, tone = 'neutral', ...props }: NoticeProps, kin
   ))} />
 )
 
-/** A fact, optional earned detail, and the actions it calls for. */
+/** A fact, optional earned detail, and the actions it calls for.
+ * Hosts choose standard padding (12px, 16px left) or compact (8px, 12px left).
+ * Labelled actions keep text-button width, including the ghost `icon` kind.
+ */
 export const Notice = (props: NoticeProps) => NoticeContent(props, 'card')
 /** Quiet status in the same tile, copy and control layout. */
 export const NoticeStatus = (props: NoticeProps) => NoticeContent(props, 'status')

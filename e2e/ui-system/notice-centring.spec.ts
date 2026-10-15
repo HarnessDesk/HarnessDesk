@@ -358,6 +358,26 @@ for (const theme of ['light', 'dark'] as const) test.describe(`notice in ${theme
     expect(await oneLine.locator('[data-slot="alert-title"]').evaluate(el => getComputedStyle(el).fontSize)).toBe('14px')
     expect(await compact.locator('[data-slot="icon-tile"]').evaluate(el => el.getBoundingClientRect().width)).toBe(24)
   })
+  test('standard, compact and floating hosts use the approved padding', async ({ page }) => {
+    for (const [host, expected] of [
+      ['standard', ['12px', '12px', '12px', '16px']],
+      ['compact', ['8px', '8px', '8px', '12px']],
+      ['floating', ['8px', '8px', '8px', '12px']],
+    ] as const) {
+      expect(await specimen(page, `${host}-info-one-line-glyph`).evaluate(el => {
+        const style = getComputedStyle(el)
+        return [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft]
+      })).toEqual(expected)
+    }
+  })
+  test('a labelled icon-kind action fits its complete label', async ({ page }) => {
+    const action = specimen(page, 'labelled-action').getByRole('button', { name: 'View the complete activity log' })
+    await expect(action).toBeVisible()
+    expect(await action.evaluate(el => el.scrollWidth <= el.clientWidth)).toBe(true)
+    const box = await action.boundingBox()
+    expect(box!.width).toBeGreaterThan(box!.height)
+    expect(box!.height).toBe(28)
+  })
   test('floating toast alone takes the notice shadow', async ({ page }) => {
     const compact = specimen(page, 'compact-info-one-line-glyph')
     const shadow = (el: Locator) => el.evaluate(el => getComputedStyle(el).boxShadow)

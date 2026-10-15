@@ -1057,6 +1057,8 @@ makes the user read both before they can ignore it.
 `packages/ui/src/design/primitives/Notice.tsx`
 
 A fact, optional earned detail, and the actions it calls for.
+Hosts choose standard padding (12px, 16px left) or compact (8px, 12px left).
+Labelled actions keep text-button width, including the ghost `icon` kind.
 
 ### `NoticeStatus`
 

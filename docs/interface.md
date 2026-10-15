@@ -1085,7 +1085,9 @@ beside the copy, dropping below at three or more actions or below about 400px;
 a wrapped card keeps its dismiss at the top-right. Its plate matches the
 composer, and danger adds a left bar and tinted tile. A requested action that
 completed may use the success tone; ordinary conditions stay neutral. The
-Notice board shows standard, compact and floating hosts; the existing composer,
+standard shell has 12px padding and a 16px left inset; compact and floating
+shells use 8px padding and a 12px left inset. Labelled actions keep enough
+width for their text. The Notice board shows all three hosts; the existing composer,
 sidebar, strip and Inbox hosts retain their presentation until their migration.
 
 Runtime information belongs quietly in the Inbox. The bell shows an unread
