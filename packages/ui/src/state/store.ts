@@ -6978,22 +6978,63 @@ export class AppStore {
    * layout is put away and this one's comes back.
    */
   async openWorkspace(path: string): Promise<boolean> {
+    const previous = this.#conversationWorkspaceSource?.navigation === this.#navigationEpoch
+      ? this.#conversationWorkspaceSource : undefined
     const navigation = ++this.#navigationEpoch
-    return await this.#openWorkspace(path, () => navigation === this.#navigationEpoch) !== null
+    return await this.#openWorkspace(path, () => navigation === this.#navigationEpoch, undefined, previous) !== null
+  }
+
+  #workspaceOpensPending = 0
+  #workspaceReconcileNeeded = false
+
+  #preserveWorkspaceSource(previous?: { path: string | null; workbench: Workbench }): void {
+    if (previous?.path && previous.path === this.#snapshot.workspace?.path) {
+      this.#layouts = { ...this.#layouts, [previous.path]: previous.workbench }
+      this.#persistLayouts()
+    }
+    this.#conversationWorkspaceSource = null
+  }
+
+  /** All replies must settle before repairing the host's shell/plugin scope. */
+  async #settleWorkspaceOpen(): Promise<void> {
+    this.#workspaceOpensPending -= 1
+    while (this.#workspaceOpensPending === 0 && this.#workspaceReconcileNeeded) {
+      this.#workspaceReconcileNeeded = false
+      const path = this.#snapshot.workspace?.path
+      if (!path) return
+      this.#workspaceOpensPending += 1
+      try {
+        // This repairs host state only: the chosen pane and layout stay put.
+        await this.transport.request('workspace/open', { path })
+      } catch (error) {
+        if (this.#snapshot.workspace?.path === path) this.resultNotice('error', describe(error))
+      } finally {
+        this.#workspaceOpensPending -= 1
+        if (this.#snapshot.workspace?.path !== path) this.#workspaceReconcileNeeded = true
+      }
+    }
   }
 
   /** Apply the folder and requested conversation together, before restoring anything else. */
   async #openWorkspace(path: string, current: () => boolean, conversation?: SessionKey, previous?: { path: string | null; workbench: Workbench }, onError?: (error: unknown) => void): Promise<number | null> {
+    // Overlapping host mutations can finish in either order, even when their
+    // renderer replies are discarded. Reassert the final choice once quiet.
+    if (this.#workspaceOpensPending > 0) this.#workspaceReconcileNeeded = true
+    this.#workspaceOpensPending += 1
     try {
       const workspace = await this.transport.request('workspace/open', { path })
-      if (!workspace || !current()) return null
+      if (!current()) {
+        this.#workspaceReconcileNeeded = true
+        return null
+      }
+      if (!workspace) return null
       this.#flowGeneration += 1
+      // An explicit folder open can abandon the loading conversation too.
+      // Put back the source before changing the workspace in either path.
+      this.#preserveWorkspaceSource(previous)
       if (conversation) {
         // The loading composer is selected immediately, but belongs to the
         // destination folder. Keep the source folder's saved work unchanged.
-        if (previous?.path && previous.path === this.#snapshot.workspace?.path) {
-          this.#layouts = { ...this.#layouts, [previous.path]: previous.workbench }
-        }
         this.#restoreLayout(workspace.path, { workspace, conversation })
       }
       else {
@@ -7012,8 +7053,10 @@ export class AppStore {
       if (current()) {
         if (onError) onError(error)
         else this.resultNotice('error', describe(error))
-      }
+      } else this.#workspaceReconcileNeeded = true
       return null
+    } finally {
+      await this.#settleWorkspaceOpen()
     }
   }
 
@@ -7070,12 +7113,21 @@ export class AppStore {
    * which is the caller's cue to fall back to the in-app picker.
    */
   async pickWorkspace(): Promise<boolean> {
-    const workspace = await this.transport.request('workspace/pick', {})
-    if (!workspace) return false
-    this.#patch({ workspace })
-    if (this.#layouts) this.#restoreLayout(workspace.path)
-    await this.loadWorkspaces()
-    return true
+    if (this.#workspaceOpensPending > 0) this.#workspaceReconcileNeeded = true
+    this.#workspaceOpensPending += 1
+    try {
+      const workspace = await this.transport.request('workspace/pick', {})
+      if (!workspace) return false
+      this.#preserveWorkspaceSource(this.#conversationWorkspaceSource?.navigation === this.#navigationEpoch
+        ? this.#conversationWorkspaceSource : undefined)
+      this.#navigationEpoch += 1
+      this.#patch({ workspace })
+      if (this.#layouts) this.#restoreLayout(workspace.path)
+      await this.loadWorkspaces()
+      return true
+    } finally {
+      await this.#settleWorkspaceOpen()
+    }
   }
 
   // ---------------------------------------------------------------- view-only

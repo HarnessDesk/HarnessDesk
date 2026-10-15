@@ -18,6 +18,7 @@ let store: AppStore
 let read: (id: string) => Session | Promise<Session>
 let resume: (id: string) => Session | Promise<Session>
 let open: (path: string) => WorkspaceEntry | Promise<WorkspaceEntry>
+let pick: () => WorkspaceEntry | null | Promise<WorkspaceEntry | null>
 const calls = (method: string) => vi.mocked(store.transport.request).mock.calls.filter(([name]) => name === method)
 beforeEach(async () => {
   store = new AppStore('ws://localhost:0/')
@@ -25,10 +26,12 @@ beforeEach(async () => {
   read = id => conversation(id)
   resume = id => conversation(id)
   open = path => ({ ...TREE, path })
+  pick = () => open('/work/third')
   vi.spyOn(store.transport, 'request').mockImplementation((async (method: HostMethodName, params: { sessionId: string; path: string }) => {
     if (method === 'session/read') return read(params.sessionId)
     if (method === 'session/resume') return resume(params.sessionId)
     if (method === 'workspace/open') return open(params.path)
+    if (method === 'workspace/pick') return pick()
     if (method === 'workspace/recent') return [OLD, TREE]
     if (method === 'worktree/list') return []
     if (method === 'session/remove') return { undoUntil: null, warning: null }
@@ -187,4 +190,97 @@ it.each(['read', 'open'] as const)('keeps the original source layout across over
   expect(store.getSnapshot().activeSessionKey).toBe(sessionKey(AGENT, 'source'))
   expect(store.getSnapshot().workbench.main).toEqual(source.main)
   expect(store.getSnapshot().workbench.navigation).toEqual(source.navigation)
+})
+
+it.each([
+  { stage: 'read', picker: false }, { stage: 'open', picker: false },
+  { stage: 'read', picker: true }, { stage: 'open', picker: true },
+])('an explicit folder open preserves the source layout during a pending $stage (picker: $picker)', async ({ stage, picker }) => {
+  read = resume = id => conversation(id, id === 'source' ? OLD.path : TREE.path)
+  await store.openSession(sessionId('source'), { runtime: AGENT })
+  const source = store.getSnapshot().workbench
+  const pendingRead = deferred<Session>()
+  const pendingOpen = deferred<WorkspaceEntry>()
+  read = id => id === 'abandoned' && stage === 'read' ? pendingRead.promise : conversation(id)
+  open = path => path === TREE.path && stage === 'open' ? pendingOpen.promise : { ...OLD, path }
+  const pending = store.openSession(sessionId('abandoned'), { runtime: AGENT })
+  if (stage === 'open') await vi.waitFor(() => expect(calls('workspace/open')).toHaveLength(1))
+  if (picker) await store.pickWorkspace()
+  else await store.openWorkspace('/work/third')
+  pendingRead.resolve(conversation('abandoned'))
+  pendingOpen.resolve(TREE)
+  await pending
+  await store.openWorkspace(OLD.path)
+  expect(store.getSnapshot().activeSessionKey).toBe(sessionKey(AGENT, 'source'))
+  expect(store.getSnapshot().workbench.main).toEqual(source.main)
+  expect(store.getSnapshot().workbench.navigation).toEqual(source.navigation)
+})
+
+it.each(['conversation', 'folder'] as const)('reconciles host activation after a stale folder open is overtaken by a %s', async selection => {
+  const pendingOpen = deferred<WorkspaceEntry>()
+  let hostWorkspace = OLD.path
+  read = resume = id => conversation(id, id === 'older' ? TREE.path : OLD.path)
+  open = async path => {
+    const workspace = path === TREE.path ? await pendingOpen.promise : { ...OLD, path }
+    // The real endpoint activates shell and plugin scope before returning.
+    hostWorkspace = workspace.path
+    return workspace
+  }
+  const pending = store.openSession(sessionId('older'), { runtime: AGENT })
+  await vi.waitFor(() => expect(calls('workspace/open')).toHaveLength(1))
+  if (selection === 'conversation') await store.openSession(sessionId('newer'), { runtime: AGENT })
+  else await store.openWorkspace('/work/third')
+  const selected = store.getSnapshot().workbench
+  pendingOpen.resolve(TREE)
+  await pending
+  expect(hostWorkspace).toBe(store.getSnapshot().workspace?.path)
+  expect(store.getSnapshot().workbench).toBe(selected)
+  if (selection === 'conversation') expect(store.getSnapshot().activeSessionKey).toBe(sessionKey(AGENT, 'newer'))
+})
+
+it('a newer folder choice also supersedes an in-flight host reconciliation', async () => {
+  const pendingOpen = deferred<WorkspaceEntry>()
+  const pendingCorrection = deferred<WorkspaceEntry>()
+  let hostWorkspace = OLD.path
+  read = resume = id => conversation(id, id === 'older' ? TREE.path : OLD.path)
+  open = async path => {
+    const workspace = path === TREE.path ? await pendingOpen.promise
+      : path === OLD.path ? await pendingCorrection.promise : { ...OLD, path }
+    hostWorkspace = workspace.path
+    return workspace
+  }
+  const pending = store.openSession(sessionId('older'), { runtime: AGENT })
+  await vi.waitFor(() => expect(calls('workspace/open')).toHaveLength(1))
+  await store.openSession(sessionId('newer'), { runtime: AGENT })
+  pendingOpen.resolve(TREE)
+  await vi.waitFor(() => expect(calls('workspace/open')).toHaveLength(2))
+  await store.openWorkspace('/work/latest')
+  const selected = store.getSnapshot().workbench
+  pendingCorrection.resolve(OLD)
+  await pending
+  expect(hostWorkspace).toBe('/work/latest')
+  expect(store.getSnapshot().workspace?.path).toBe('/work/latest')
+  expect(store.getSnapshot().workbench).toBe(selected)
+})
+
+it('reconciles host activation when a folder picker overlaps an automatic folder open', async () => {
+  const third = { ...OLD, path: '/work/third' }
+  const pendingPick = deferred<WorkspaceEntry>()
+  const pendingOpen = deferred<WorkspaceEntry>()
+  let hostWorkspace = OLD.path
+  pick = () => { hostWorkspace = third.path; return pendingPick.promise }
+  open = async path => {
+    const workspace = path === TREE.path ? await pendingOpen.promise : { ...OLD, path }
+    hostWorkspace = workspace.path
+    return workspace
+  }
+  const picking = store.pickWorkspace()
+  const pending = store.openSession(sessionId('older'), { runtime: AGENT })
+  await vi.waitFor(() => expect(calls('workspace/open')).toHaveLength(1))
+  pendingOpen.resolve(TREE)
+  await pending
+  pendingPick.resolve(third)
+  await picking
+  expect(hostWorkspace).toBe(third.path)
+  expect(store.getSnapshot().workspace?.path).toBe(third.path)
 })
