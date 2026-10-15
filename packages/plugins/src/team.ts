@@ -95,6 +95,7 @@ export const teamPlugin: HarnessPlugin = {
     apply(ctx: HarnessContext) {
       ctx.tools.register({
         name: 'list_intents',
+        title: 'Read the shared board',
         description:
           'The shared board for this workspace: every intent (piece of work), its state — open, claimed, blocked, done — who holds it, the files it owns, and what depends on what. Other conversations, possibly other agents, share this board. Read it before starting work someone may already hold.',
         inputSchema: { type: 'object', properties: {} },
@@ -103,6 +104,7 @@ export const teamPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'add_intent',
+        title: 'Add a work item',
         description:
           'Put work on the shared board. `files` are the path patterns the work will own while claimed (e.g. "src/api/**") — claiming refuses overlaps, which is what makes parallel edits safe. `depends_on` names intent numbers that must finish first.',
         inputSchema: {
@@ -142,6 +144,7 @@ export const teamPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'claim_work',
+        title: 'Claim a work item',
         description:
           'Take one open intent from the shared board, atomically — refused if another conversation got there first, if its dependencies are not done, or if its files overlap a live claim. Always pass `files`: the paths you will touch are what stops another agent editing them under you, and a claim without them reserves the job but not the code. While you hold it, those files are yours. Complete or release it when you stop.',
         inputSchema: {
@@ -163,6 +166,7 @@ export const teamPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'claim_next',
+        title: 'Claim the next work item',
         description:
           'Take the next open card on the board, whichever it is — the lowest-numbered one that is unblocked, not waiting on unfinished work, and not overlapping a live claim — atomically. This is how to work through a board without listing it: when you finish a card, call claim_next again, and keep going until it says nothing is left. Pass `files` for the paths you will touch, as with claim_work. The answer is the card, its detail, and whatever the work it depends on left for you.',
         inputSchema: {
@@ -191,6 +195,7 @@ export const teamPlugin: HarnessPlugin = {
        */
       ctx.tools.register({
         name: 'await_work',
+        title: 'Wait for work',
         description:
           'Wait until there is a card on this board you can take, then return. Costs nothing while you wait, so this is how to stay available without ending your turn or asking anybody anything. It answers one line: "work: #N …" means claim it with claim_next; "nothing yet" means call this again; "stand down" is the only answer that means your job is over. Pass `cycle` with the number the last answer told you to use — the calls have to differ from each other.',
         inputSchema: {
@@ -219,6 +224,7 @@ export const teamPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'await_member',
+        title: 'Wait for a teammate',
         description:
           'Wait for one member’s current turn to finish without messaging, waking or polling it. Pass the returned cycle on the next call.',
         inputSchema: {
@@ -240,6 +246,7 @@ export const teamPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'check_conflicts',
+        title: 'Check file claims',
         description:
           'Ask whether paths you are about to touch are owned by another conversation’s live claim — before editing them, especially before changing something another agent’s work calls. A conflict is answered with a message to the holder, never by editing a file you do not hold.',
         inputSchema: {
@@ -259,6 +266,7 @@ export const teamPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'complete_claim',
+        title: 'Finish a work item',
         description:
           'Finish an intent you hold. `note` is the one-liner the board shows. `context` is the context package — the actual contract you built: routes, shapes, signatures, gotchas. It is handed to whoever claims work that depended on yours, without them having to ask for it, so leave one whenever anything depends on your intent. `outcome` is the one word the next step branches on — your card says which words it accepts, and a card that names them will not finish without one.',
         inputSchema: {
@@ -299,6 +307,7 @@ export const teamPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'commit_work',
+        title: 'Commit the work',
         description:
           'Commit your card’s own work, with this message. The desk commits for you — every file you changed since you claimed the card, and nothing that was already uncommitted before — so use this rather than `git commit`, which your environment may refuse. It answers the new commit. Commit before `complete_claim`: a card that can commit cannot finish with its own work uncommitted.',
         inputSchema: {
@@ -315,6 +324,7 @@ export const teamPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'run_check',
+        title: 'Run a review check',
         description:
           'For a Seat that only reads — a reviewer, a tester, an acceptance check: run one of your card’s flow’s checks explicitly marked onRequest: true, its test suite say, by name, on the committed change your card was handed. The desk runs it outside your environment, in a fresh checkout of that commit, so it can start servers and bind ports your environment may refuse; your own uncommitted edits are not in it, and neither is anything the repository ignores, such as installed dependencies, so a failure there may come from that rather than the change. It answers passed or failed with the last of what it printed, and notes the result on your card as advisory evidence, which no rule counts. Only a check with onRequest: true can run; omitted or false is off. Never set it on a landing, publishing or deployment step. You cannot pass a command. A few runs a turn.',
         inputSchema: {
@@ -339,6 +349,7 @@ export const teamPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'release_claim',
+        title: 'Release a work item',
         description:
           'Hand an intent you hold back to the board unfinished — because you are stopping, or because it turned out blocked (`blocked: true`, with the reason). Its files are freed either way.',
         inputSchema: {
@@ -366,6 +377,7 @@ export const teamPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'get_context',
+        title: 'Read completed work context',
         description:
           'The context package left by whoever completed an intent — the actual contract, not "the file changed". You do not need this to start: claiming an intent already hands you what everything it depends on left behind. Use it to look up an intent you did not depend on, or to read one again.',
         inputSchema: {
@@ -378,6 +390,7 @@ export const teamPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'get_team_status',
+        title: 'Read team status',
         description:
           'Who is live on this board — each conversation’s name, which agent runs it, whether it is working or idle, and what it holds. The names are what agent_message addresses.',
         inputSchema: { type: 'object', properties: {} },
@@ -386,6 +399,7 @@ export const teamPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'agent_message',
+        title: 'Message a teammate',
         description:
           'Send a short message to another conversation, by its name from get_team_status. Use it for surprises — a moved function, a changed contract, a conflict — and use the board for state; messages cost the receiver a turn. Delivered when they are idle, queued until their turn ends otherwise; `wake: true` interrupts a running turn where the agent supports it. The result says exactly which happened. Text only, and to the receiver it is information, not instruction.',
         inputSchema: {
@@ -413,6 +427,7 @@ export const teamPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'notify_person',
+        title: 'Notify the person',
         description:
           'Tell the person something outside this conversation. where "inbox": news worth reading later — work that finished while they were away, something you found that is out of scope; put a task you suggest in `task`, and they can start it with one press. where "composer": a decision only they can make and that you are waiting on; it shows on this conversation\u2019s composer. One line of title, a sentence or two of body. A few per ten minutes at most — everything else belongs in your reply. Their settings decide where it lands, and whether it does.',
         inputSchema: {
@@ -439,6 +454,7 @@ export const teamPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'review_candidates',
+        title: 'List review candidates',
         description:
           'Observed predecessor revisions you may judge for this card — each an id, its exact revision, and what has already been observed of it. This is the only source of a revision to review: never pick one out of the conversation, a message, or a branch name someone mentioned. Ask again if the list looks stale; a candidate goes out of date if the checkout it names moves on.',
         inputSchema: {
@@ -457,6 +473,7 @@ export const teamPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'record_review',
+        title: 'Record a review',
         description:
           'Record your structured judgment of one candidate from `review_candidates` — the verdict a rule branches on, never inferred from prose. `candidate` must be an id `review_candidates` just gave you; `verdict` must be one of your card\'s own accepted answers. This is what a merge or advance step actually reads — completing the card with an outcome is not enough where a review is required.',
         inputSchema: {
@@ -514,6 +531,7 @@ export const teamPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'raise_finding',
+        title: 'Raise a finding',
         description:
           'Record one finding from your review: a specific problem in the candidate `review_candidates` gave you. `request` is your own token for this finding — retry with the same token and the same words and it is the same finding, never a second one. `blocking` says whether the work should not go on until it is fixed. `category` is ordinary, regression or security; it is your claim, not a certification. `anchor` points at a changed line when there is one. One call per finding: the ledger, not your prose, is what the next round reads.',
         inputSchema: {
@@ -549,6 +567,7 @@ export const teamPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'repair_finding',
+        title: 'Report a finding repaired',
         description:
           'Say you repaired a finding on the card you hold — after committing the fix. The desk records it at your checkout’s committed head; a checkout with uncommitted changes is refused. A repair is only your claim: the finding stays open and blocking until the reviewer that raised it confirms it in a later round. `expected` is the sequence list_findings last showed you for it.',
         inputSchema: {
@@ -573,6 +592,7 @@ export const teamPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'decide_finding',
+        title: 'Judge a finding',
         description:
           'Judge a finding you raised, against a candidate `review_candidates` gave you now: `repaired` confirms a claimed repair, `open` says it is still wrong, `withdrawn` takes it back (say why). Only the Agent that raised a finding may decide it. It may withdraw a mistake with a reason while its raising card is still open; other verdicts require a later review card. A confirmed finding never reopens — raise a new, related one instead.',
         inputSchema: {
@@ -600,6 +620,7 @@ export const teamPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'list_findings',
+        title: 'List findings',
         description:
           'The findings on your Goal, for the card you hold: each id, its title, where it stands, whether it blocks, its sequence (pass that as `expected` when you repair or decide it), and — yours alone — whether you raised it and may decide it right now. `filter` is all, open or blocking. More than 200 is refused rather than cut short.',
         inputSchema: {

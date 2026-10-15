@@ -75,6 +75,7 @@ export const webPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'fetch_url',
+        title: 'Read a web page',
         description:
           'Fetch a URL and return its readable text. Only hosts allowed in this plugin’s permissions can be reached.',
         inputSchema: {
