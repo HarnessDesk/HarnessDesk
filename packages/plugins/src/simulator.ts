@@ -33,6 +33,7 @@ export const simulatorPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'ios_devices',
+        title: 'List iOS simulators',
         description: 'List the available iOS simulators and their states.',
         inputSchema: { type: 'object', properties: {} },
         execute: async () => {
@@ -45,6 +46,7 @@ export const simulatorPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'ios_boot',
+        title: 'Boot an iOS simulator',
         description: 'Boot a simulator by udid — the list of devices reports them — and open the Simulator window.',
         inputSchema: {
           type: 'object',
@@ -59,6 +61,7 @@ export const simulatorPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'ios_install',
+        title: 'Install an iOS app',
         description: 'Install a built .app bundle onto the booted simulator.',
         inputSchema: {
           type: 'object',
@@ -73,6 +76,7 @@ export const simulatorPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'ios_launch',
+        title: 'Launch an iOS app',
         description: 'Launch an app by bundle id on the booted simulator, then screenshot it.',
         inputSchema: {
           type: 'object',
@@ -88,6 +92,7 @@ export const simulatorPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'ios_screenshot',
+        title: 'Screenshot the iOS simulator',
         description: 'Screenshot the booted simulator. Tap coordinates use these exact pixels.',
         inputSchema: { type: 'object', properties: {} },
         execute: () => look(''),
@@ -95,6 +100,7 @@ export const simulatorPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'ios_tap',
+        title: 'Tap the iOS simulator',
         description:
           'Tap the booted simulator at coordinates in the pixels of the screenshots (origin top-left), then return a fresh screenshot.',
         inputSchema: {
@@ -114,6 +120,7 @@ export const simulatorPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'ios_open_url',
+        title: 'Open a URL in the iOS simulator',
         description: 'Open a URL (https:// or a deep link) on the booted simulator.',
         inputSchema: {
           type: 'object',
@@ -129,6 +136,7 @@ export const simulatorPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'ios_terminate',
+        title: 'Stop an iOS app',
         description: 'Terminate an app by bundle id on the booted simulator.',
         inputSchema: {
           type: 'object',

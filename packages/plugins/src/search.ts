@@ -91,6 +91,7 @@ export const searchPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'search_text',
+        title: 'Search workspace text',
         description:
           'Search the workspace for a regular expression and return matching lines with their file and line number.',
         inputSchema: {
@@ -144,6 +145,7 @@ export const searchPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'find_files',
+        title: 'Find files',
         description: 'Find files in the workspace whose path matches a glob.',
         inputSchema: {
           type: 'object',

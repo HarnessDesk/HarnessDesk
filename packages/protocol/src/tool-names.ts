@@ -10,9 +10,8 @@ import type { CapabilityContribution, PluginInstance } from './capability.js'
  * you are reading a history of what an agent did, so everywhere a step is
  * summarised it reads as a sentence instead.
  *
- * Where a plugin described its own tool, that description is the sentence.
- * Where it did not, the identifier is turned back into words, which is a poor
- * sentence but a better row than a symbol.
+ * A plugin's short title is the sentence. Older plugins fall back to the
+ * first sentence of their description, then to the identifier as words.
  */
 
 /**
@@ -117,7 +116,7 @@ export const toolSentences = (
   const out = new Map<string, string>()
   for (const contribution of contributions) {
     if (contribution.kind !== 'tool') continue
-    const sentence = contribution.description.split('. ')[0]?.trim()
+    const sentence = contribution.title?.trim() || contribution.description.split('. ')[0]?.trim()
     if (!sentence) continue
     out.set(contribution.name, sentence)
     out.set(`${contribution.namespace}_${contribution.name}`, sentence)

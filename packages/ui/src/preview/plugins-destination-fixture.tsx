@@ -30,6 +30,11 @@ const browserTools = (owner: PluginInstance['instanceId']): CapabilityContributi
 export const pluginsDestinationStore = (query: URLSearchParams) => {
 const fixture = previewStore()
 const snapshot = fixture.getSnapshot()
+if (query.get('frame-plugin-reach') === '1') {
+  const active = snapshot.activeRuntime ?? snapshot.runtimes[0]!.id
+  Object.assign(snapshot, { activeRuntime: active, runtimes: snapshot.runtimes.map(info => info.id === active
+    ? { ...info, capabilities: { ...info.capabilities, pluginTools: true } } : info) })
+}
 const first = snapshot.plugins[0]!
 const configured = { ...first, identity: { ...first.identity, id: 'browser', name: 'Browser', description: 'Open, see, click and type in a browser — read its page, console and network, and drive it with protocol commands.' }, contributions: browserTools(first.instanceId), configSchema: { type: 'object', properties: {
   greeting: { type: 'string', title: 'Greeting', default: 'Ready to help' },
@@ -38,7 +43,7 @@ const configured = { ...first, identity: { ...first.identity, id: 'browser', nam
 const failed = { ...first, instanceId: 'fixture-failed' as typeof first.instanceId,
   identity: { ...first.identity, id: 'fixture-failed', name: 'Unavailable helper', source: { kind: 'local' as const, path: '/work/plugins/sample' } },
   state: { type: 'failed' as const, message: 'Synthetic manifest could not be loaded.' } }
-Object.assign(snapshot, { plugins: [configured, ...snapshot.plugins.slice(1), failed] })
+Object.assign(snapshot, { plugins: [configured, ...snapshot.plugins.slice(1), failed], contributions: configured.contributions })
 const store = frameDestinationStore(fixture)
 const request = store.transport.request.bind(store.transport)
 store.transport.request = (async (method, params) => {

@@ -45,6 +45,7 @@ export const filesPlugin: HarnessPlugin = {
     apply(ctx: HarnessContext, config: { maxBytes?: number }) {
       ctx.tools.register({
         name: 'read_file',
+        title: 'Read a file',
         description: 'Read a UTF-8 file from the open workspace.',
         inputSchema: {
           type: 'object',
@@ -83,6 +84,7 @@ export const filesPlugin: HarnessPlugin = {
 
       ctx.tools.register({
         name: 'list_directory',
+        title: 'List a directory',
         description: 'List the entries of a directory in the open workspace.',
         inputSchema: {
           type: 'object',
