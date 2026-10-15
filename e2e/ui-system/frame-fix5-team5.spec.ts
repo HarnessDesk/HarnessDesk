@@ -36,8 +36,8 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(reviews).toHaveValue('')
     await expect(reviews.locator('option:checked')).toHaveText('Automatic · Nothing can run')
     const roles = page.getByRole('region', { name: 'Who does what' })
-    await expect(roles.getByText('Claude is not added to HarnessDesk', { exact: true })).toBeVisible()
-    await expect(roles.getByText('Windsurf is signed out', { exact: true })).toBeVisible()
+    await expect(roles.getByText('Runtime 2 is not added to HarnessDesk', { exact: true })).toBeVisible()
+    await expect(roles.getByText('Runtime 3 is signed out', { exact: true })).toBeVisible()
   })
 
   test(`Team board keeps empty columns full width and scrolls at 1280 in ${theme}`, async ({ page }) => {

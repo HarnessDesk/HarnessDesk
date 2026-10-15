@@ -21,7 +21,8 @@ type Scene = typeof REVIEW_PUBLICATION_STATES[number]
 
 /** Host-shaped synthetic reads: the aggregate and round deliberately vary independently. */
 const fixture = (scene: Scene) => {
-  const source = runFixture('running')
+  const original = runFixture('running')
+  const source = scene === 'kept' && original.execution.document.format === 'agents' ? { ...original, execution: { ...original.execution, document: { ...original.execution.document, flow: { ...original.execution.document.flow, roles: original.execution.document.flow.roles.map(role => role.id === 'reviewer' ? { ...role, id: 'judge' } : role) } }, rounds: original.execution.rounds.map(round => round.role === 'reviewer' ? { ...round, role: 'judge' } : round) }, cards: original.cards.map(card => card.role === 'reviewer' ? { ...card, role: 'judge' } : card) } : original
   const noReview = scene === 'none' || scene === 'empty-release'
   const postingOn = scene !== 'kept'
   const bound = scene !== 'unbound'
@@ -71,9 +72,9 @@ export const ReviewPublicationExample = ({ scene }: { scene: Scene }) => {
 }
 
 const PublicationSurfaces = ({ prefix }: { prefix?: string }) => {
-  const { input } = useMemo(() => fixture('local'), [])
+  const { input } = useMemo(() => fixture(new URLSearchParams(location.search).get('publication-scene') === 'kept' ? 'kept' : 'local'), [])
   const overview = teamOverview({ ...overviewInput('done'), run: { execution: input.execution, startedAt: input.execution.startedAt ?? null },
-    findingRun: input.findingRun, publicationOn: true })
+    findingRun: input.findingRun, publicationOn: input.publicationOn })
   const store = useMemo(() => {
     const base = runTeamStore()
     const snapshot = { ...base.getSnapshot(), findingRuns: new Map([[input.execution.id, input.findingRun]]) }

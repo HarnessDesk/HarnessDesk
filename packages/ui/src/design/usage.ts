@@ -317,8 +317,8 @@ export const ELEMENTS: readonly UsageRule[] = [
   {
     family: 'title',
     variant: 'one step',
-    when: 'A destination is named once by its permanent top bar, using the subject step: 14px medium. The wordmark keeps its own type role.',
-    never: 'A second title block in the page body, or another type size for a detail destination.',
+    when: 'A destination is named once by its permanent top bar, using the subject step: 14px medium. Settings uses a visible h1 in the page role above its description instead; its bar has no title. The wordmark keeps its own type role.',
+    never: 'Repeating a destination title in both its bar and page body, or another type size for a detail destination.',
     because: 'A retained destination shares the same shell and title position as work. Its content starts at the Page gutter.',
   },
   {

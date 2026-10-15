@@ -43,7 +43,7 @@ it('shows card input and predecessor handoffs, findings and review before its co
   const view = render({ input: { ...fixture, cards: fixture.cards.map(card => ({ ...card, dependsOn: card.id === 3 ? [1] : [], detail: card.id === 3 ? 'Review the bounded retry' : null, handoff: card.id === 1 ? 'Added a ceiling' : null })) }, selectedRow: 'card-3-3', seats: [{ id: 'seat-1', name: 'Beta', onOpen }],
     publication: { round: 3, state: 'local', reason: 'Posting is off for this Team.', pr: null, cards: [3] } })
   try {
-    for (const text of ['Input', 'Review the bounded retry', 'Added a ceiling', 'Handoff', 'Findings', 'Cap the attempts.', 'Kept on the desk', 'Posting is off for this Team.', 'Cost']) expect(view.container.textContent).toContain(text)
+    for (const text of ['Input', 'Review the bounded retry', 'Added a ceiling', 'Handoff', 'Findings', 'Cap the attempts.', 'This desk only', 'Posting is off for this Team.', 'Cost']) expect(view.container.textContent).toContain(text)
     const buttons = [...view.container.querySelectorAll('button')]
     expect(buttons.at(-1)?.textContent).toBe('Open the conversation')
     act(() => buttons.at(-1)!.click())

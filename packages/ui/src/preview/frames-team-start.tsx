@@ -32,7 +32,8 @@ export const teamStartStore = (): AppStore => {
   const base = previewStore({ theme: requestedTheme === 'light' || requestedTheme === 'dark' ? requestedTheme : 'system' })
   const mutable = base as unknown as { patch: (partial: Partial<AppSnapshot>) => void }
   const workspace = { ...base.getSnapshot().workspace!, path: TEAM_ROOT, checkoutRoot: TEAM_ROOT, name: 'storefront' }
-  mutable.patch({ workspace, workspaces: [workspace], runtimes: [previewRuntime('codex', 'Runtime 1'), previewRuntime('claude-code', 'Runtime 2'), previewRuntime('windsurf', 'Runtime 3')], accountsByRuntime: Object.fromEntries(['codex', 'claude-code', 'windsurf'].map(id => [id, { accounts: [{ kind: 'opaque', label: 'Signed in', anonymous: true }], signInMethods: [] }])), sessions: new Map(), history: [], historyIdentity: [], teams: new Map(), goals: new Map(), lanes: [] })
+  const runtimes = [previewRuntime('codex', 'Runtime 1'), previewRuntime('claude-code', 'Runtime 2'), previewRuntime('windsurf', 'Runtime 3')].map(one => ({ ...one, ceilings: one.id === 'codex' ? { read: { settings: [], how: 'Native guard' } } : {} }))
+  mutable.patch({ workspace, workspaces: [workspace], runtimes, accountsByRuntime: Object.fromEntries(['codex', 'claude-code', 'windsurf'].map(id => [id, { accounts: [{ kind: 'opaque', label: 'Signed in', anonymous: true }], signInMethods: [] }])), sessions: new Map(), history: [], historyIdentity: [], teams: new Map(), goals: new Map(), lanes: [] })
   return new Proxy(base, { get(target, key, receiver) {
     if (key === 'flowCatalog') return async () => entries
     if (key === 'flowSource') return async (_root: string, id: string) => TEAM_START_SOURCES[id] ?? ''
@@ -56,6 +57,10 @@ export const teamStartStore = (): AppStore => {
         const runtime = target.getSnapshot().runtimes[role.id === policy.seed.role ? index : role.id === 'judge' ? 2 : 1]!
         const seat = role.seats[index] ?? role.seats[0] ?? { runtime: runtime.id, model: 'opus', effort: 'high' }
         const presentation = target.getSnapshot().runtimes.find(one => one.id === seat.runtime)?.presentation ?? runtime.presentation
+        if (new URLSearchParams(location.search).has('unheld-read') && role.grant === 'read' && !runtimes.find(one => one.id === seat.runtime)?.ceilings.read) return { role: role.id, index, agent, isolate: role.isolate, reviews: true, plan: {
+          id: agent, from: 'prefer' as const, winner: null, blocked: null, ceiling: null,
+          candidates: [{ seat, label: presentation.name, runtimeName: presentation.name, state: 'passed' as const, reason: { kind: 'unheld' as const, level: 'read', required: true, detail: null }, fix: { kind: 'seats' as const } }],
+        } }
         return { role: role.id, index, agent, isolate: role.isolate, reviews: role.grant === 'read', plan: {
           id: agent, from: 'prefer' as const, winner: 0, blocked: null, ceiling: { level: role.grant, hold: 'held' as const },
           candidates: [{ seat, label: presentation.name, runtimeName: presentation.name, state: 'taken' as const, reason: null, fix: null }],

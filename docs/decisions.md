@@ -2708,7 +2708,7 @@ exceptions still hold the rule.
 The alternative was to close the other findings as “not kept”. A selection
 is about which attempt continues, not whether a claim was correct, so the
 findings stay open. The accepted route’s durable review evidence explains
-**Not kept** in their list and detail; no new lifecycle event or verdict is
+**Not published** in their list and detail; no new lifecycle event or verdict is
 invented. An ordinary single-subject review excludes nothing.
 The explanation is tied to the claim’s raising review round and immutable
 checkout, including advisory claims outside the frozen blocking set. Later
