@@ -152,11 +152,11 @@ const WorkspaceRows = ({
   const place = order.indexOf(group.root)
   const pinned = place !== -1
   const ready = snapshot.health?.state === 'ready' || snapshot.health?.state === 'idle'
-  // A repository is a precondition for a worktree. The group itself does not
-  // know; its sessions do, and the open workspace knows for certain.
+  // Saved repository metadata also covers projects with no sessions and
+  // detached checkouts. Older entries may only have a branch fact.
   const isRepo = current
-    ? Boolean(snapshot.workspace?.git?.branch)
-    : group.sessions.some((summary) => Boolean(summary.git?.branch))
+    ? Boolean(snapshot.workspace?.repo || snapshot.workspace?.git?.branch)
+    : Boolean(openEntry?.repo || openEntry?.git?.branch) || group.sessions.some((summary) => Boolean(summary.repo || summary.git?.branch))
   const count = group.sessions.length
   const sessionsWord = count === 1 ? '1 session' : `${count} sessions`
   /* How capture is going, for the repository this project is homed in. It is
@@ -228,15 +228,13 @@ const WorkspaceRows = ({
         disabled={!ready}
         onSelect={() => void store.startSessionIn(actualRoot)}
       />
-      {isRepo && (
-        <MenuItem
-          icon={<BranchIcon size={14} />}
-          label="New worktree…"
-          title="Its own checkout on its own branch."
-          disabled={!ready}
-          onSelect={() => onNewWorktree(actualRoot)}
-        />
-      )}
+      <MenuItem
+        icon={<BranchIcon size={14} />}
+        label="New worktree…"
+        title="Its own checkout on its own branch."
+        disabled={!isRepo ? 'Worktrees need a git repository.' : !ready ? 'Connect an agent to work in a worktree.' : false}
+        onSelect={() => onNewWorktree(actualRoot)}
+      />
       <MenuSeparator />
 
       {!current && (

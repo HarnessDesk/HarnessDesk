@@ -778,6 +778,7 @@ it('folderless pages hide the terminal without changing its shells or saved heig
   await act(async () => store.openTerminal())
   const terminal = container.querySelector('[data-terminal-id]')!
   const before = store.getSnapshot().workbench
+  Object.assign(store.getSnapshot(), { workspace: null })
   Object.assign(before, { navigation: { current: { kind: 'agents' }, back: [], forward: [] } })
   act(() => root.render(<StoreProvider store={store}><Workbench sidebar={<div />} pageActive /></StoreProvider>))
   const shell = container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!
@@ -892,4 +893,17 @@ it('a retained Team Details pane receives keyboard scope when leaving a Browser-
   expect(container.querySelector(`[data-tool-mount="${browser.id}"]`)?.hasAttribute('data-hidden')).toBe(true)
   expect(container.querySelector('[data-slot="work-tools"]')?.getAttribute('data-tool')).toBe('details')
   expect(container.querySelector('[data-team-keyboard-scope]')?.textContent).toBe('true')
+})
+
+
+it('pages keep the terminal visible when the project is still chosen', async () => {
+  const store = mountWork(true)
+  await act(async () => store.openTerminal())
+  const terminal = container.querySelector('[data-terminal-id]')!
+  const before = store.getSnapshot().workbench
+  Object.assign(before, { navigation: { current: { kind: 'agents' }, back: [], forward: [] } })
+  act(() => root.render(<StoreProvider store={store}><Workbench sidebar={<div />} pageActive /></StoreProvider>))
+  expect(container.querySelector<HTMLElement>('[data-slot="fixed-shell"]')!.dataset.bottomOpen).toBe('true')
+  expect(container.querySelector('[data-terminal-id]')).toBe(terminal)
+  expect(store.getSnapshot().workbench.bottom).toBe(before.bottom)
 })

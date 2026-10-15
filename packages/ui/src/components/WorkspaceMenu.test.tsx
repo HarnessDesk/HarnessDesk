@@ -259,3 +259,22 @@ it('distinguishes resetting order from moving a project down', async () => {
   expect(back.querySelector('[data-menu-icon]')).not.toBeNull()
   expect(row('Move down').querySelector('[data-menu-icon]')).not.toBeNull()
 })
+
+
+it.each([true, false])('keeps New worktree visible for a saved repository without sessions (current: %s)', async current => {
+  const project = group('/saved', 'saved')
+  const onNewWorktree = vi.fn()
+  const entry = { path: '/saved', name: 'saved', lastOpenedAt: 1, repo: { root: '/saved', worktree: false } }
+  const snapshot = { ...emptySnapshot(), health: { state: 'ready' }, workspace: current ? entry : null, workspaces: [entry] } as AppSnapshot
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
+  await act(() => root.render(<StoreProvider store={store}><WorkspaceMenu group={project} current={current}
+    actualRoot="/saved" at={{ x: 10, y: 10 }} onClose={() => {}} onNewWorktree={onNewWorktree} /></StoreProvider>))
+  await act(() => row('New worktree…').click())
+  expect(onNewWorktree).toHaveBeenCalledWith('/saved')
+})
+
+it('keeps New worktree visible with a reason for a non-repository folder', () => {
+  mount([], group('/notes', 'notes'))
+  expect(row('New worktree…').getAttribute('aria-disabled')).toBe('true')
+  expect(row('New worktree…').textContent).toContain('Worktrees need a git repository.')
+})

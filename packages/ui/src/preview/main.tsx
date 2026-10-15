@@ -1,3 +1,4 @@
+import { ProjectPolishFrame } from './frames-project-polish'
 import { WorkspaceRecoveryPreview } from './workspace-recovery'
 import { CurrentPagePreview } from './page-preview'
 import { DashboardDestinationFixture } from './dashboard-destination-fixture'
@@ -1260,6 +1261,8 @@ createRoot(container).render(
           ? <TablesPreview />
           : new URLSearchParams(window.location.search).has('undo-refused')
           ? <RefusedUndoPreview />
+          : new URLSearchParams(window.location.search).has('project-polish')
+          ? <ProjectPolishFrame />
           : new URLSearchParams(window.location.search).has('notices')
           ? <NoticesFrame />
           : new URLSearchParams(window.location.search).has('findings')
