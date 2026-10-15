@@ -520,8 +520,11 @@ export const createDefaultHost = (
     store: agentRegistry,
     build: buildAcpRuntime,
     usageFor: (agent) =>
-      localUsageFor(agent, installs.knowledgeFor(agent), (agentId, envName) =>
-        host.credentials.peek(CredentialBroker.secretName(agentId, envName)),
+      localUsageFor(
+        agent,
+        installs.knowledgeFor(agent),
+        (agentId, envName) => host.credentials.peek(CredentialBroker.secretName(agentId, envName)),
+        (agentId) => acpRuntimes.get(agentId)?.launchedVersion,
       ),
     registry: acpRegistry,
     installs,
@@ -593,8 +596,11 @@ export const createDefaultHost = (
 
   void host.credentials.warm()
   for (const agent of agentRegistry.configs()) {
-    const local = localUsageFor(agent, installs.knowledgeFor(agent), (agentId, envName) =>
-      host.credentials.peek(CredentialBroker.secretName(agentId, envName)),
+    const local = localUsageFor(
+      agent,
+      installs.knowledgeFor(agent),
+      (agentId, envName) => host.credentials.peek(CredentialBroker.secretName(agentId, envName)),
+      (agentId) => acpRuntimes.get(agentId)?.launchedVersion,
     )
     if (local) host.bindUsage(runtimeId(agent.id), local)
     host.register(buildAcpRuntime(agent))
@@ -667,6 +673,12 @@ export const localUsageFor = (
    * person for.
    */
   resolveSecret?: (agentId: string, envName: string) => string | undefined,
+  /**
+   * The version of a row's agent that will run, asked fresh by the meters
+   * whose key lookup depends on it — the runtime's own `launchedVersion`,
+   * which is set once the host has read the copy it will start.
+   */
+  launchedVersion?: (agentId: string) => string | null | undefined,
 ): { meter?: UsageMeter; corpus?: CorpusKind; root?: string; remote?: RemoteEventsSource; deskTurns?: boolean } | null => {
   const named = agent.executable?.command ?? agent.account?.status?.command ?? known?.cli.commands[0] ?? ownCli(agent)
   // Where the agent keeps its records is decided by its own environment — a
@@ -745,6 +757,7 @@ export const localUsageFor = (
         meter: new DeepSeekMeter({
           env,
           key: () => resolveSecret?.(agent.id, 'DEEPSEEK_API_KEY'),
+          version: () => launchedVersion?.(agent.id),
           alsoAt: agent.secrets?.find((secret) => secret.env === 'DEEPSEEK_API_KEY')?.alsoAt ?? [],
         }),
         deskTurns: true,

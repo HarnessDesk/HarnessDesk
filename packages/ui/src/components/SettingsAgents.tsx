@@ -1386,7 +1386,9 @@ const AccountDetail = ({
               account.kind === 'apiKey'
                 ? `Stored by HarnessDesk — ${snapshot.credentialProtection}. Handed to ${info.presentation.name} when it starts.`
                 : account.kind === 'externalKey'
-                  ? `Read from ${account.planType}. HarnessDesk holds no copy.`
+                  ? account.storedCopy
+                    ? `Read from ${account.planType}, which comes before the copy HarnessDesk keeps — ${snapshot.credentialProtection}.`
+                    : `Read from ${account.planType}. HarnessDesk holds no copy.`
                   : `${info.presentation.name} keeps the credential; HarnessDesk never stores it.`
             }
             action={
