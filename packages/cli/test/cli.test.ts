@@ -47,7 +47,7 @@ test('preview prints attachment counts and indented refusal reasons with sanitiz
 })
 
 test('the executable command table covers exactly the declared client surface', () => {
-  assert.deepEqual(COMMANDS.map(command => command.name), ['desks', 'status', 'teams', 'runs', 'watch', 'open', 'flows', 'flow preview', 'flow start', 'run show', 'run stop', 'run wait', 'library list', 'library show', 'card show', 'card handoff', 'card answer', 'card abandon', 'waiting'])
+  assert.deepEqual(COMMANDS.map(command => command.name), ['desks', 'status', 'teams', 'runs', 'watch', 'open', 'flows', 'flow preview', 'flow start', 'session show', 'run show', 'run stop', 'run wait', 'library list', 'library show', 'card show', 'card handoff', 'card answer', 'card abandon', 'waiting'])
   const methods = new Set(COMMANDS.flatMap(command => [...command.methods]))
   for (const command of COMMANDS) for (const method of command.methods) { const tier = clientTierFor(method, 'action' in command ? { action: command.action } : undefined); assert.ok(tier === 'read' || tier === command.tier, `${command.name}: ${method}`) }
   for (const method of methods) assert.ok(Object.hasOwn(CLIENT_METHODS, method), method)
@@ -272,7 +272,7 @@ const libraryEntry = (kind: 'skill' | 'mcp', name: string, reach: readonly objec
   kind, name, description, reach, copies,
 })
 
-const libraryDesk = async (t: any, entries: readonly object[], definitions: Readonly<Record<string, unknown>> = {}, skills: Readonly<Record<string, unknown>> = {}) => {
+const libraryDesk = async (t: any, entries: readonly object[], definitions: Readonly<Record<string, unknown>> = {}, skills: Readonly<Record<string, unknown>> = {}, responses: Readonly<Record<string, unknown>> = {}) => {
   const directory = await mkdtemp('/tmp/hd-cli-library-')
   await chmod(directory, 0o700)
   const homePath = join(directory, 'home')
@@ -293,7 +293,7 @@ const libraryDesk = async (t: any, entries: readonly object[], definitions: Read
     ws.on('message', raw => {
       const request = JSON.parse(raw.toString()) as { id: number; method: string; params: Record<string, unknown> }
       calls.push({ method: request.method, params: request.params })
-      const result = request.method === 'client/hello' ? hello
+      const result = Object.hasOwn(responses, request.method) ? responses[request.method] : request.method === 'client/hello' ? hello
         : request.method === 'library/read' ? library
           : request.method === 'library/usage' ? usage
             : request.method === 'library/definition' ? definitions[String(request.params['path'])] ?? null
@@ -326,8 +326,10 @@ const runCli = async (t: any, args: readonly string[]) => {
   const stdout: string[] = [], stderr: string[] = []
   t.mock.method(process.stdout, 'write', (chunk: string | Uint8Array) => { stdout.push(String(chunk)); return true })
   t.mock.method(process.stderr, 'write', (chunk: string | Uint8Array) => { stderr.push(String(chunk)); return true })
-  const code = await main(args)
-  return { code, stdout: stdout.join(''), stderr: stderr.join('') }
+  try {
+    const code = await main(args)
+    return { code, stdout: stdout.join(''), stderr: stderr.join('') }
+  } finally { t.mock.restoreAll() }
 }
 
 test('library show rejects --text with --json before connecting to a desk', async t => {
@@ -473,4 +475,64 @@ test('library show reports missing names with exit 1 and ambiguous names with ex
   assert.match(ambiguous.stderr, /both a skill and an MCP server/)
   assert.match(ambiguous.stderr, /--kind/)
   assert.equal(ambiguousRig.calls.at(-1)?.method, 'library/read')
+})
+
+test('session show parses only its own flags and ambiguity exits 2', () => {
+  assert.deepEqual(parseArgs(['session', 'show', 'demo', '--runtime', 'runtime-a', '--epochs', '--all', '--json']), {
+    command: 'session show', target: 'demo', runtime: 'runtime-a', epochs: true, all: true, json: true,
+  })
+  for (const args of [['session', 'show'], ['session', 'show', 'demo', '--project', '.'], ['runs', '--epochs'], ['status', '--runtime', 'x']]) assert.throws(() => parseArgs(args), /Usage/)
+  assert.equal(errorExit(new WireCallError('ambiguous', 'Choose an agent.')), 2)
+})
+
+const loadoutFixture = () => {
+  const items = Array.from({ length: 25 }, (_, i) => ({ name: `skill-${i}\x1b[31m`, group: null, origin: 'repo', pathLabel: './.agents/skills/demo', digest: i === 2 ? null : 'abcdefgh12345678', tokens: i === 1 ? 3100 : null, count: null, enabled: true }))
+  const epoch = { version: 1, runtime: 'runtime-a', session: 'demo', seat: null, epoch: 0, observedAt: 1000, build: 'fake', approximate: true, source: 'scripted',
+    skills: { reported: true, items, more: 4 }, mcp: { reported: true, items: [], more: 0 },
+    memory: { reported: false, reason: 'This agent does not report its memory files.\x1b]52;c;secret\x07' }, agents: { reported: false, reason: 'No response yet.' } }
+  return { session: 'demo', runtime: 'runtime-a', seat: null, epochs: [epoch, { ...epoch, epoch: 1, observedAt: 2000, skills: { ...epoch.skills, items: items.slice(1) } }] }
+}
+
+test('session show prints latest reports with bounded rows, sanitized text, estimates and epoch differences', async t => {
+  const records = loadoutFixture()
+  await libraryDesk(t, [], {}, {}, { 'session/loadout': records })
+  const result = await runCli(t, ['session', 'show', 'demo', '--runtime', 'runtime-a', '--epochs'])
+  assert.equal(result.code, 0, result.stderr)
+  assert.match(result.stdout, /Agent 1.*demo/)
+  assert.match(result.stdout, /epoch 1.*1970-01-01T00:00:02/)
+  assert.match(result.stdout, /skills  28 reported · ~3.1K tokens reported/)
+  assert.match(result.stdout, /skill-2.*no digest/)
+  assert.match(result.stdout, /skill-1.*repo.*abcdefgh/)
+  assert.match(result.stdout, /and 8 more/)
+  assert.match(result.stdout, /mcp  0 reported/)
+  assert.match(result.stdout, /memory  not reported — This agent does not report its memory files\./)
+  assert.match(result.stdout, /epoch 0.*initial/)
+  assert.match(result.stdout, /epoch 1.*skills/)
+  assert.doesNotMatch(result.stdout, /[\x00-\x09\x0b-\x1f\x7f-\x9f]|secret/)
+})
+
+test('session show --all prints every retained item and JSON preserves complete epochs', async t => {
+  const records = loadoutFixture()
+  await libraryDesk(t, [], {}, {}, { 'session/loadout': records })
+  const human = await runCli(t, ['session', 'show', 'demo', '--all'])
+  assert.equal(human.code, 0, human.stderr)
+  assert.match(human.stdout, /skill-24/)
+  assert.match(human.stdout, /and 4 more/)
+  const json = await runCli(t, ['session', 'show', 'demo', '--json'])
+  assert.equal(json.code, 0, json.stderr)
+  assert.deepEqual(JSON.parse(json.stdout), records)
+})
+
+test('session show includes the Seat role and the run whose seat operation recorded it', async t => {
+  const records = { ...loadoutFixture(), seat: 'seat-demo' }
+  await libraryDesk(t, [], {}, {}, {
+    'session/loadout': records,
+    'goal/list': [{ goal: { id: 'team-demo' }, members: [{ id: 'seat-demo', role: 'writer\x1b[31m' }] }],
+    'flow/executions': [{ id: 'run-demo' }],
+    'flow/execution': { id: 'run-demo', operations: [{ kind: 'seat', seat: 'seat-demo' }] },
+  })
+  const human = await runCli(t, ['session', 'show', 'demo'])
+  assert.equal(human.code, 0, human.stderr)
+  assert.match(human.stdout, /Agent 1.*demo.*Seat seat-demo.*role writer.*run run-demo/)
+  assert.doesNotMatch(human.stdout, /\x1b/)
 })

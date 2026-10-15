@@ -100,8 +100,9 @@ interface Definition {
 }
 
 /** Never wait for a special file or allocate from a file's untrusted size. */
-const readSkillFile = (path: string, limit: number): { bytes: Buffer; mode: number } => {
+const readSkillFile = (path: string, limit: number, budget?: { remaining: number }): { bytes: Buffer; mode: number } => {
   const before = lstatSync(path)
+  if (budget && before.size > budget.remaining) throw new Error('The digest read budget is exhausted.')
   if (!before.isFile()) throw new Error(`${basename(path)} is not a regular file, so this bundle was not read.`)
   const fd = openSync(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
   try {
@@ -113,7 +114,12 @@ const readSkillFile = (path: string, limit: number): { bytes: Buffer; mode: numb
     const buffer = Buffer.allocUnsafe(Math.min(64 * 1024, limit + 1))
     let bytes = 0
     for (;;) {
-      const count = readSync(fd, buffer, 0, Math.min(buffer.length, limit - bytes + 1), bytes)
+      if (budget?.remaining === 0) {
+        if (fstatSync(fd).size !== bytes) throw new Error('The digest read budget is exhausted.')
+        break
+      }
+      const count = readSync(fd, buffer, 0, Math.min(buffer.length, limit - bytes + 1, budget?.remaining ?? Infinity), bytes)
+      if (budget) budget.remaining -= count
       if (count === 0) break
       bytes += count
       if (bytes > limit) throw new Error('The bundle holds more than 20 MB — too large to carry as a skill.')
@@ -126,15 +132,15 @@ const readSkillFile = (path: string, limit: number): { bytes: Buffer; mode: numb
 }
 
 /** Read a copy's definition wherever its spelling put it. */
-const readDefinition = (path: string): Definition | null => {
+const readDefinition = (path: string, budget?: { remaining: number }): Definition | null => {
   try {
     const stats = statSync(path)
     if (stats.isDirectory()) {
-      const text = readSkillFile(join(path, 'SKILL.md'), MAX_BUNDLE_BYTES).bytes.toString('utf8')
+      const text = readSkillFile(join(path, 'SKILL.md'), MAX_BUNDLE_BYTES, budget).bytes.toString('utf8')
       return { container: path, flat: false, text }
     }
     if (stats.isFile()) {
-      return { container: path, flat: true, text: readSkillFile(path, MAX_BUNDLE_BYTES).bytes.toString('utf8') }
+      return { container: path, flat: true, text: readSkillFile(path, MAX_BUNDLE_BYTES, budget).bytes.toString('utf8') }
     }
   } catch (error) {
     // A missing definition is hollow; a failed read does not make its bytes disposable.
@@ -221,7 +227,7 @@ const updatedSkillBundleRefusal = (retained: readonly SkillFile[], incoming: rea
 }
 
 /** Snapshot the same bounded, link-skipping extras that an install carries. */
-const skillFiles = (text: string, sourcePath?: string): readonly SkillFile[] => {
+const skillFiles = (text: string, sourcePath?: string, budget?: { remaining: number }): readonly SkillFile[] => {
   const files: SkillFile[] = [{ path: 'SKILL.md', bytes: Buffer.from(text) }]
   if (sourcePath === undefined) return files
   const walked = bundleExtras(sourcePath)
@@ -231,7 +237,7 @@ const skillFiles = (text: string, sourcePath?: string): readonly SkillFile[] => 
     const full = join(sourcePath, path)
     const stats = lstatSync(full)
     if (stats.isSymbolicLink()) continue
-    const content = readSkillFile(full, MAX_BUNDLE_BYTES - bytes)
+    const content = readSkillFile(full, MAX_BUNDLE_BYTES - bytes, budget)
     bytes += content.bytes.length
     files.push({ path, ...content })
   }
@@ -239,10 +245,10 @@ const skillFiles = (text: string, sourcePath?: string): readonly SkillFile[] => 
 }
 
 /** A flat definition has the same single-file identity as a bare bundle. */
-const currentSkillFiles = (path: string): readonly SkillFile[] | null => {
-  const existing = readDefinition(path)
+const currentSkillFiles = (path: string, budget?: { remaining: number }): readonly SkillFile[] | null => {
+  const existing = readDefinition(path, budget)
   try {
-    return existing === null ? null : skillFiles(existing.text, existing.flat ? undefined : existing.container)
+    return existing === null ? null : skillFiles(existing.text, existing.flat ? undefined : existing.container, budget)
   } catch (error) {
     throw new SkillBundleReadError(path, error)
   }
@@ -255,8 +261,8 @@ class SkillBundleReadError extends Error {
   }
 }
 
-const currentSkillBundleDigest = (path: string): string | null => {
-  const files = currentSkillFiles(path)
+export const currentSkillBundleDigest = (path: string, budget?: { remaining: number }): string | null => {
+  const files = currentSkillFiles(path, budget)
   return files === null ? null : bundleDigest(files)
 }
 

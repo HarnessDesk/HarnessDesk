@@ -1965,6 +1965,14 @@ rl.on('line', (line) => {
       return
 
     case 'skills/list':
+      if (process.env.FAKE_CODEX_LOADOUT_SKILLS === 'fail') {
+        send({ id, error: { code: -32603, message: 'Skills catalogue unavailable.' } })
+        return
+      }
+      if (process.env.FAKE_CODEX_LOADOUT_SKILLS === 'empty') {
+        send({ id, result: { data: [] } })
+        return
+      }
       send({
         id,
         result: {
@@ -2111,6 +2119,10 @@ rl.on('line', (line) => {
       return
 
     case 'mcpServerStatus/list':
+      if (process.env.FAKE_CODEX_LOADOUT_MCP === 'fail') {
+        send({ id, error: { code: -32603, message: 'Server catalogue unavailable.' } })
+        return
+      }
       send({
         id,
         result: {

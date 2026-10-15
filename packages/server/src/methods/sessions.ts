@@ -106,6 +106,7 @@ export const archiveConversation = async (ctx: HostContext, params: { runtime: R
  * verbs on one conversation that are not a turn.
  */
 export const sessionMethods = {
+  'session/loadout': (ctx, params) => ctx.loadouts.read(params.session, params.runtime),
   'session/index': (ctx, params) => ctx.sessionIndex.list(params),
   'session/list': async (ctx, params) => {
     assertAbsoluteCwd(params)
@@ -311,6 +312,7 @@ export const sessionMethods = {
     // behind would be re-enriched onto the next session that reused the
     // id, and an archive mark left behind is a row hidden forever.
     await ctx.transcripts.forget(runtime.info.id, id, { deleteIndex: true })
+    await ctx.loadouts.forget(runtime.info.id, id)
     ctx.sessionIndex.deleted(runtime.info.id, id)
     const warning = await ctx.sessionWorktrees.cleanup(runtime.info.id, id, !remembered)
     await ctx.archive.forget(runtime.info.id, id)

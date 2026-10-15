@@ -1077,6 +1077,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
   'transcripts/search': shape({ query: isString, includeTools: optional(isBoolean) }),
   'backup/export': isObject,
   'backup/import': shape({ backup: isObject }),
+  'session/loadout': shape({ session: isString, runtime: optional(isString) }),
   'session/read': shape({ runtime: isString, sessionId: isString }),
   'session/create': shape({ runtime: isString, options: withoutHostOnly(shape({ cwd: isString })) }),
   'session/resume': shape({ runtime: isString, sessionId: isString, options: optional(withoutHostOnly(isObject)) }),

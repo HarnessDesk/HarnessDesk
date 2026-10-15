@@ -22,6 +22,7 @@ import {
  * would be a test hook, and a second `createHash` somewhere else would be a
  * second answer about trailing whitespace.
  */
+export { knownRoots } from './locations.js'
 export { bundleDigest, digestOf } from './digest.js'
 export { unifiedDiff } from './diff.js'
 export { LibraryManifest, type ManifestEntry } from './manifest.js'
@@ -35,6 +36,7 @@ export {
   type McpServerSpec,
 } from './mcp.js'
 export {
+  currentSkillBundleDigest,
   applyLibrary,
   isSafePathSegment,
   MAX_BUNDLE_FILES,

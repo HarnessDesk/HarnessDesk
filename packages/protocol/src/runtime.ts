@@ -1,3 +1,4 @@
+import type { RuntimeLoadout } from './loadout.js'
 import type { ApprovalDecision } from './approval.js'
 import type { AttachmentSupport, SessionAttachmentReceipt } from './attachments.js'
 import type { AgentEvent } from './events.js'
@@ -1253,6 +1254,9 @@ export interface AgentRuntime {
    * method returns no receipt.
    */
   deleteSession(id: SessionId): Promise<SessionDeletion | void>
+
+  /** A fresh observation for this live conversation; never a restored catalogue. */
+  loadout?(session: SessionId, cwd: string): Promise<RuntimeLoadout>
 
   /** Reusable instruction bundles. Empty for runtimes without the concept. */
   listSkills?(cwd?: string): Promise<readonly SkillInfo[]>
