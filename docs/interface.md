@@ -271,8 +271,11 @@ session: the same icon, label and trailing badge grammar as the conversation
 list. Their labels truncate with the rest of the row when space is short; they
 remain visible at the sidebar's 200px minimum. Agents shows its in-force count
 when the roster has been read, Plugins shows the live plugin count, and
-Dashboard shows an attention count only while an agent needs attention. A row
-fills when its destination window is open.
+Dashboard shows an attention count only while an agent needs attention.
+Its Overview hides the Turns tile when no agent reports turns; a reported zero
+remains a reading. A plan card with one window names it beside the headline
+reading and draws its meter once. Multiple windows keep their named meter rows.
+A row fills when its destination window is open.
 
 The magnifier beside the brand says **Search everything (⌘K)** and opens the
 search palette across sessions, files, agents and commands. The funnel beside
@@ -707,6 +710,11 @@ tool output** adds output from tools and commands, with those hits marked
 on this viewer.
 
 ## The composer
+
+A signed-out agent’s empty conversation offers one normal Sign in button.
+Its composer does not repeat the sign-in notice while the page already explains
+it; an existing transcript keeps that notice and its action. In Editor mode,
+the notice returns to the strip while the conversation panel is hidden.
 
 *The textarea carries intent; chips carry context and capability.* Full design
 in [extending.md](extending.md).

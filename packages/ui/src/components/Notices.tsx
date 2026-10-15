@@ -2,9 +2,9 @@ import { effectiveWindowMode } from '../editor'
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { RuntimeMark } from './BrandIcons'
 
-import type { RuntimeId } from '@harnessdesk/protocol'
+import type { RuntimeId, Session } from '@harnessdesk/protocol'
 
-import { allItems, sessionKey, type SessionId } from '@harnessdesk/protocol'
+import { allItems, isNoticeTurn, sessionKey, type SessionId } from '@harnessdesk/protocol'
 
 import {
   useIsFocusedPane,
@@ -33,7 +33,7 @@ import { conditionFor } from '../lib/usage-alerts'
 import { isSilenced, offersMute, surfaceFor, wasKept, type NoticeIdentity, type NoticePolicy, type NoticeSurface } from '../lib/notice-policy'
 import { useShell, type ShellActions } from '../panels/views'
 import { useMount } from '../panels/mount'
-import { areaVisible, fixedSubject, focusedComposerVisible, mainNoticeHost, noticeArea, visibleViews, type AreaId } from '../state/workbench'
+import { areaVisible, fixedSubject, focusedComposerVisible, mainNoticeHost, noticeArea, rightPanelDrawn, visibleViews, type AreaId } from '../state/workbench'
 import { findPane } from '../state/layout'
 import { useImportOffer } from './ImportOffer'
 
@@ -161,6 +161,13 @@ interface Standing {
   readonly dismiss: () => void
   readonly mute?: () => void
 }
+
+/** A sign-in empty page owns its explanation; a transcript still needs a notice. */
+const bodyShowsSignIn = (standing: Standing | null, conversation: boolean, key: string | null, session: Session | null | undefined): boolean =>
+  conversation && standing?.identity.kind === 'agent:signin' &&
+    (!key || Boolean(session && session.runtime === standing.runtime &&
+      !session.turns.some(turn => !isNoticeTurn(turn)) &&
+      !(session.itemsLoaded && session.updatedAt > session.createdAt)))
 
 const useStanding = (): Standing | null => {
   const store = useStore()
@@ -626,7 +633,9 @@ export const ComposerNotices = () => {
   const selectedStanding = standing && registry
     ? standingComposer(mounts, standing.runtime)?.key === composerMount.key
     : focused && (standing ? focusedComposerVisible(snapshot.workbench, snapshot.windowWidth) : false)
-  const showStanding = selectedStanding && outlet === 'composer' && standing !== null
+  const session = sessionKeyOfPane ? snapshot.sessions.get(sessionKeyOfPane) : null
+  const signInOnPage = bodyShowsSignIn(standing, pane?.view.kind === 'conversation', sessionKeyOfPane, session)
+  const showStanding = selectedStanding && outlet === 'composer' && standing !== null && !signInOnPage
   const room = pane?.view.kind === 'room' ? pane.view.room : null
   const members = room !== null ? (snapshot.teams.get(room)?.members ?? []) : null
   const asking = registry ? snapshot.agentNotices.filter((notice) => {
@@ -705,7 +714,14 @@ export const NoticeStripOutlet = ({
   if (!host) return null
   const messages: NoticeMessage[] = []
   const dismissals = new Map<string, () => void>()
-  if (standing && !bodyShowsStandingHealth) {
+  const subject = fixedSubject(snapshot.workbench.main)
+  // Editor replaces the main conversation; only its open Conversation tool can own sign-in.
+  const conversationBodyVisible = effectiveWindowMode(snapshot.windowMode, snapshot.workbench) !== 'editor' ||
+    (rightPanelDrawn(snapshot.workbench) && subject !== null && snapshot.workbench.frameTools[subject]?.tool === 'conversation')
+  const signInOnPage = bodyShowsSignIn(standing,
+    conversationBodyVisible && (pane?.view.kind === 'conversation' || Boolean(fallbackPane?.view.kind === 'conversation' && currentDestination.kind === 'work' && currentDestination.view.kind === 'conversation')),
+    conversationSessionKey, session)
+  if (standing && !bodyShowsStandingHealth && !signInOnPage) {
     if (standingOutlet(snapshot, standing, registry?.mounts ?? [], registry !== null) === 'strip') {
       messages.push(standing.message)
       dismissals.set(standing.message.id, standing.dismiss)
