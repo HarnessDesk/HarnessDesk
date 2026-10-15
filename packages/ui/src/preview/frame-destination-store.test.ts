@@ -154,3 +154,12 @@ it('page defaults acknowledge a valid synthetic choice without changing the decl
   expect(chosen.currentValue).toBe('auto_review')
   expect(chosen.type === 'select' && chosen.choices).toEqual(original.type === 'select' && original.choices)
 })
+
+it('keeps the frame workspace outside Git when a menu refreshes its status', async () => {
+  const store = frameDestinationStore(previewStore())
+  const workspace = store.getSnapshot().workspace!
+  expect(workspace.git).toBeUndefined()
+  expect(await store.transport.request('git/status', { root: workspace.path })).toBeNull()
+  await store.refreshWorkspaceGit(workspace.path)
+  expect(store.getSnapshot().workspace?.git).toBeNull()
+})
