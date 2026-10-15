@@ -625,6 +625,7 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
     runtime: info.id,
     stored: account?.kind === 'apiKey' || account?.storedCopy === true,
     ...(account?.kind === 'externalKey' ? { elsewhere: account.planType ?? 'its own configuration' } : {}),
+    outranked: account?.outranksHandedKey === true,
   }
 
   return (
@@ -905,6 +906,7 @@ const KeyField = ({
   method,
   stored,
   elsewhere,
+  outranked = false,
   onBack,
   autoFocus = true,
 }: {
@@ -914,10 +916,16 @@ const KeyField = ({
   /**
    * Set when the agent already has this key somewhere HarnessDesk does not
    * own — its own credentials store, a `.env`, the launching environment.
-   * The field stays open, because storing one here is still allowed and takes
-   * precedence, but claiming the agent has nothing would be a lie.
+   * The field stays open, because storing one here is still allowed, but
+   * claiming the agent has nothing would be a lie.
    */
   elsewhere?: string
+  /**
+   * The agent reads the key in `elsewhere` before the one this window hands it
+   * (`Account.outranksHandedKey`), so a key stored here is used only once that
+   * one is gone. Without it, a key stored here takes precedence.
+   */
+  outranked?: boolean
   /** Absent when this is the agent's only way in — there is nothing to go back to. */
   onBack?: () => void
   /** Take focus on arrival — when the key is the card's first way in, not one under a button. */
@@ -950,8 +958,11 @@ const KeyField = ({
           tone="success"
           icon={<CheckIcon size={16} />}
           title="Already has a key"
-          description={<>It reads one from {elsewhere}. Nothing to do — unless you want this window
-            to supply a different one, which takes precedence.</>}
+          description={outranked
+            ? <>It reads one from {elsewhere}, ahead of any key stored here. Nothing to do — a key
+              saved in this window is used only if that one is removed.</>
+            : <>It reads one from {elsewhere}. Nothing to do — unless you want this window
+              to supply a different one, which takes precedence.</>}
         />
       ) : null}
 
@@ -1009,7 +1020,9 @@ const KeyField = ({
               data-slot="sign-in-account"
               mark={<StateMark tone="success"><CheckIcon size={14} /></StateMark>}
               title={`${label} stored`}
-              desc={`Kept on this machine (${protection}). Restart a conversation to pick up a change.`}
+              desc={outranked && elsewhere
+                ? `Kept on this machine (${protection}). Used only if the key in ${elsewhere} is removed.`
+                : `Kept on this machine (${protection}). Restart a conversation to pick up a change.`}
             />
           </Rows>
           <div className={own.actions}>

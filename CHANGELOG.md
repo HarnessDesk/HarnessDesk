@@ -14,7 +14,10 @@ move is real work and is not news to a person weighing an upgrade.
   names the store, and the balance follows it, on those builds; older builds keep
   the order they always had. The key stored in this window stays there to replace
   or remove, and the build is remembered between runs so the account and the
-  balance agree from the first read after a restart.
+  balance agree from the first read after a restart. The key dialog and the
+  account page say the same thing instead of promising that a key stored here
+  takes precedence: on those builds it is used only if the key in the agent's
+  own store is removed.
 
 - **Teams opens at once on a busy desk.** The page reads recorded usage only
   for the Teams its open tab shows, with one read of the usage sources for all

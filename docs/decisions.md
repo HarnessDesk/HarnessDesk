@@ -3160,4 +3160,20 @@ The key dialog's sentence that a key stored in this window "takes precedence"
 over one the agent already has is still true of a `.env` and, on the builds that
 read the environment first, of its store; it stopped being true for the builds
 above when the store has a key. The account row now names the store and the
-dialog keeps the copy to manage, but rewording that sentence is a separate change.
+dialog keeps the copy to manage; rewording that sentence was a separate change,
+made next.
+
+*What the dialog says now.* A second flag, `Account.outranksHandedKey`, is set
+whenever the key in use is read from a source that comes before the one
+HarnessDesk hands over (`whereSecretLives`' `before` side, so the same version
+test as the account row). It is a different fact from `storedCopy`, which is
+whether HarnessDesk keeps a key at all: with the store first and nothing saved,
+the account has no copy to manage, and a key pasted into the field would still be
+the one the agent ignores. So the flag is set with or without a copy, and
+`storedCopy` implies it. The dialog's summary then says the agent reads its own
+key ahead of any stored here, and that one saved in this window is used only if
+that is removed; the stored-key row says the same of the copy it is holding, and
+drops "restart a conversation to pick up a change", which is false of a key
+nobody reads; the account page's note says the key stored here comes after it.
+The field stays open, because a key saved now is the one used the day the
+store's is removed. Where the flag is not set, the sentences are unchanged.
