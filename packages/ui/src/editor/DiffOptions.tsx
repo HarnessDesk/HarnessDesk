@@ -34,8 +34,8 @@ export const DiffOptions = ({ prefs, set, files }: {
       <DropdownMenuCheckboxItem checked={prefs.hideWhitespace} onCheckedChange={hideWhitespace => set({ hideWhitespace })}>Hide whitespace changes</DropdownMenuCheckboxItem>
       {files && <>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={files.collapse}>Collapse all files</DropdownMenuItem>
-        <DropdownMenuItem onClick={files.expand}>Expand all files</DropdownMenuItem>
+        <DropdownMenuItem label="Collapse all files" onClick={files.collapse} />
+        <DropdownMenuItem label="Expand all files" onClick={files.expand} />
         <DropdownMenuSeparator />
         <DropdownMenuCheckboxItem checked={prefs.showFiles} onCheckedChange={showFiles => set({ showFiles })}>Show files</DropdownMenuCheckboxItem>
         <DropdownMenuCheckboxItem checked={prefs.groupByFolder} onCheckedChange={groupByFolder => set({ groupByFolder })}>Group files by folder</DropdownMenuCheckboxItem>

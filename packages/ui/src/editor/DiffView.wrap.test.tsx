@@ -33,7 +33,7 @@ describe('DiffView wrapping', () => {
   it('renders the same rows either way — wrapping is presentation, not content', () => {
     const rows = (markup: string) => (markup.match(/<tr/g) ?? []).length
     expect(rows(renderToStaticMarkup(<DiffView diff={DIFF} wrap />))).toBe(
-      rows(renderToStaticMarkup(<DiffView diff={DIFF} />)),
+      rows(renderToStaticMarkup(<DiffView diff={DIFF} wrap={false} />)),
     )
   })
 })
