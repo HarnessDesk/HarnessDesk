@@ -436,6 +436,8 @@ it('the empty pane’s Sign in names this pane’s agent, not the default', () =
   expect(container.textContent).toContain('Sign in to Codex')
   const button = [...container.querySelectorAll('button')].find((b) => b.textContent?.trim() === 'Sign in')
   if (!button) throw new Error('no Sign in button')
+  expect(button.getAttribute('data-variant')).toBe('default')
+  expect(button.className).not.toContain('h-auto')
   act(() => {
     button.dispatchEvent(new MouseEvent('click', { bubbles: true }))
   })
