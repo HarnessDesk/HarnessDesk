@@ -487,7 +487,8 @@ test('coverage does not spend visibility probes on unrelated DOM leaves', async 
 
 test('a published destination bar credits only its active visible registration', async ({ page }) => {
   await page.goto('/preview.html?frame-wall=library')
-  await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar-title]')).toHaveText('Library')
+  await expect(page.locator('[data-page-destination="library"]:visible h1')).toHaveText('Library')
+  await expect(page.locator('[data-slot="top-bar"]:visible [data-topbar-title]')).toHaveCount(0)
   const before = await collectCoverage(page)
   expect(before.covered).toContain('panels/destination-page.tsx#DestinationBar')
   expect(before.covered).toContain('panels/library-bar.tsx#LibraryBar')

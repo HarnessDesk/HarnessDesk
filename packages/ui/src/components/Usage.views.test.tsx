@@ -182,12 +182,12 @@ describe('the header’s account scope', () => {
 
   it('scopes whichever view is open, not only the one it was chosen from', async () => {
     await render('spend')
-    expect(document.querySelector('[data-topbar-title]')?.textContent).toBe('Dashboard')
+    expect(document.querySelector('[data-topbar-title]')).toBeNull()
     await chooseAccount('Low Agent')
     // The scope moves the control beside the title, the same thing clicking
     // that account in the old rail used to do — the title itself stays the
     // view's own name (review of #1057, NIT 3).
-    expect(document.querySelector('[data-topbar-title]')?.textContent).toBe('Dashboard')
+    expect(document.querySelector('[data-topbar-title]')).toBeNull()
     expect(scopeTrigger().textContent).toContain('Low Agent')
   })
 
@@ -196,7 +196,7 @@ describe('the header’s account scope', () => {
     await chooseAccount('Low Agent')
     expect(scopeTrigger().textContent).toContain('Low Agent')
     await act(async () => railButton('Activity').click())
-    expect(document.querySelector('[data-topbar-title]')?.textContent).toBe('Dashboard')
+    expect(document.querySelector('[data-topbar-title]')).toBeNull()
     expect(scopeTrigger().textContent).toContain('Low Agent')
   })
 })

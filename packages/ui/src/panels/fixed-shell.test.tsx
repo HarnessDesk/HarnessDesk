@@ -809,7 +809,7 @@ it('a page keeps remembered work, Browser, terminal and the shared notice host m
   expect(shell.getAttribute('data-panel-floats')).toBe('false')
   expect(shell.style.getPropertyValue('--frame-right-size')).toBe(`${FRAME.rightPanel.width}px`)
   expect(shell.style.getPropertyValue('--frame-right-open')).toBe(`${FRAME.rightPanel.width}px`)
-  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Library')
+  expect(container.querySelector('[data-topbar-title]')).toBeNull()
   expect(container.querySelectorAll('[data-shell-host="main-notice"]')).toHaveLength(1)
   expect(container.querySelector('[data-shell-host="main-notice"]')?.closest('[data-slot="retained-work"]')).toBeNull()
   expect(container.querySelector('[data-frame-region="right"] [data-terminal-id]')).toBe(terminal)

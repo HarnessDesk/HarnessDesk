@@ -37,7 +37,8 @@ export const pageChoiceFor = (value: string): { title: string; label: string } =
 }
 export const selectFrameTab = async (page: Page, value: string): Promise<void> => {
   const bar = page.locator('[data-slot="top-bar"]:visible').first()
-  await expectTitleRoom(bar.locator('[data-topbar-title]'))
+  if (await page.locator('[data-page-destination]:visible').count()) await expect(bar.locator('[data-topbar-title]')).toHaveCount(0)
+  else await expectTitleRoom(bar.locator('[data-topbar-title]'))
   await settleFrameBar(bar)
   const tab = page.locator(`[data-team-page="${value}"]:visible`)
   if (await tab.count()) {

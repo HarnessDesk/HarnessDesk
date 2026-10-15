@@ -314,7 +314,7 @@ it('opens on the Agent Settings was asked for, and goes back to the roster', () 
   mount({ focus: 'scout' })
   expect(container.textContent).toContain('Scout does the work.')
   act(() => button('Back to Agents').click())
-  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Agents')
+  expect(container.querySelector('[data-topbar-title]')).toBeNull()
 })
 
 it('says its ceiling and lists each seat with its state here and the fix for one that fails', () => {
@@ -418,7 +418,7 @@ it('removes one of yours to the Trash, after asking, and goes back to the roster
   act(() => button('Move to Trash').click())
   await settle()
   expect(store.trashAgent).toHaveBeenCalledWith('scout', 'user')
-  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Agents')
+  expect(container.querySelector('[data-topbar-title]')).toBeNull()
 })
 
 it('Remove… lives in More and its confirm is explicitly destructive', async () => {

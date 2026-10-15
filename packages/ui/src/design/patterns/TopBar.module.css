@@ -1,6 +1,6 @@
 /* Retain the former rule's control inset without painting an edge. */
 .bar { min-width: 0; padding-bottom: var(--hd-border-width); }
-.row { display: flex; align-items: center; gap: var(--hd-bar-gap); width: 100%; min-width: 0; }
+.row { display: flex; align-self: stretch; align-items: center; gap: var(--hd-bar-gap); width: 100%; min-width: 0; }
 .fixed { display: flex; align-items: center; flex: none; gap: var(--hd-bar-gap); }
 .fixed:empty { display: none; }
 .place { display: flex; align-items: center; gap: var(--hd-bar-gap); flex: 0 1 auto; min-width: 0; }

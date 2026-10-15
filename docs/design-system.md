@@ -1913,6 +1913,8 @@ later. The promise's own value can name the ending.
 `packages/ui/src/design/patterns/Page.tsx`
 
 A page's column — the one way a page sets its width and its margins.
+The content column anchors a standalone page's title at every measure;
+the title and its chooser or verb scroll together under the fixed bar.
 
 A screen says what kind of page it is and passes its blocks; it does not
 write a max-width, a padding or an outer margin of its own. `reading` is the
@@ -1973,7 +1975,10 @@ Complete supporting notes that belong to a page group.
 
 `packages/ui/src/design/patterns/PageOptions.tsx`
 
-Current choices, search and read actions in the first body block; long menu choices wrap within the page.
+Current choices, search and read actions in the first body block. A title
+uses the page role on the content edge, with the primary choice and verb
+on the right. Search and secondary choices follow at the page stack gap;
+long titles and menu choices wrap within the page.
 
 ### `PageRecordViews`
 

@@ -72,12 +72,12 @@ export const TopBar = (props: TopBarProps) => {
       <div data-topbar="lead" className={styles.fixed}>{props.lead}</div>
       <div data-topbar="place" className={styles.place}>
         {props.state && <div data-topbar="state" className={styles.fixed}>{props.state}</div>}
-        <div data-topbar-title className={styles.title} title={props.placeTitle}>
+        {props.place != null && <div data-topbar-title className={styles.title} title={props.placeTitle}>
           {props.placeMenu ? <Popover title={props.placeTitle} triggerVariant={{ variant: 'ghost', size: 'sm' }} icons="all"
             label={<span data-topbar-place-menu className={styles.placeMenu}><Text role="subject" truncate>{props.place}</Text><CaretIcon /></span>}>
             {close => <Menu close={close}>{props.placeMenu?.(close)}</Menu>}
           </Popover> : <Text role="subject" truncate>{props.place}</Text>}
-        </div>
+        </div>}
       </div>
       <div data-topbar="spacer" className={styles.spacer} />
       <div data-topbar="tools" className={styles.fixed}>{props.tools}

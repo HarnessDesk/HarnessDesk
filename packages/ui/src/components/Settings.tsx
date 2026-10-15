@@ -2,7 +2,7 @@ import { Toolbar } from '../design'
 import type { SettingsRoute, SettingsSection } from '../state/destinations'
 import { DestinationBar, useDestinationPage, useDestinationActive } from '../panels/destination-page'
 import { handOverToComposer } from '../lib/compose'
-import { Page, PageExplanation, PreservedText, PageControls } from '../design'
+import { Page, PageExplanation, PreservedText, PageControls, PageOptions } from '../design'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
@@ -1698,7 +1698,7 @@ export const Settings = ({ route, onRoute, onSignIn }: {
     : route.kind === 'account' ? { kind: 'account', runtime: route.runtime, key: route.key }
     : route.kind === 'add-runtime' ? { kind: 'add' } : { kind: 'list' }
   const settingsTitle = route.kind === 'project' ? SETTINGS_LABELS.workspaces
-    : route.kind === 'skill' ? SETTINGS_LABELS.skills : SETTINGS_LABELS[section]
+    : route.kind === 'skill' || section === 'skills' ? runtime.presentation.skillsLabel ?? SETTINGS_LABELS.skills : SETTINGS_LABELS[section]
   const setRuntimeView = (view: RuntimeSettingsView): void => {
     if (view.kind === 'list') sectionRoute('runtimes')
     else if (view.kind === 'add') onRoute({ kind: 'add-runtime' })
@@ -1706,7 +1706,7 @@ export const Settings = ({ route, onRoute, onSignIn }: {
     else onRoute({ kind: 'account', runtime: view.runtime, key: view.key })
   }
   return <Page width="reading">
-    <Text as="h1" role="page" ink="primary">{settingsTitle}</Text>
+    <PageOptions title={settingsTitle} />
     {route.kind === 'section' && section !== 'runtimes' && section !== 'skills' && <DestinationBar place={SETTINGS_LABELS[section]}
       more={() => null} />}
     {section === 'profile' && <ProfileSection />}

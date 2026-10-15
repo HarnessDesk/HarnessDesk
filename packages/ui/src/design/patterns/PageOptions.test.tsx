@@ -3,6 +3,18 @@ import { createRoot } from 'react-dom/client'
 import { expect, test, vi } from 'vitest'
 import { PageOptions } from './PageOptions'
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+test('a page head names the page once beside its own choices and verb', async () => {
+  const host = document.createElement('div'); document.body.append(host)
+  const root = createRoot(host)
+  try {
+    await act(async () => root.render(<PageOptions title="Library" action={{ label: 'New skill', run: () => {} }} />))
+    const heading = host.querySelector('h1')
+    expect(heading?.textContent).toBe('Library')
+    expect(heading?.getAttribute('data-role')).toBe('page')
+    expect(heading?.parentElement?.querySelector('button')?.textContent).toBe('New skill')
+    expect(host.querySelectorAll('h1')).toHaveLength(1)
+  } finally { await act(async () => root.unmount()); host.remove() }
+})
 test('body choices print their current value and preserve the change callback', async () => {
   const host = document.createElement('div'); document.body.append(host)
   const root = createRoot(host), change = vi.fn(), refresh = vi.fn()

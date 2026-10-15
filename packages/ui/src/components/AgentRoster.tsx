@@ -98,7 +98,7 @@ export const AgentsRosterSection = ({
   return (
     <>
       <DestinationBar place="Agents" />
-      <PageOptions action={{ label: 'New Agent…', run: () => setCreating(true) }} />
+      <PageOptions title="Agents" action={{ label: 'New Agent…', run: () => setCreating(true) }} />
       <PageExplanation>Who does the work: a brief, the most it may do, and the seats it prefers.</PageExplanation>
       <AuthoringPendingSection />
       {ORDER.filter((origin) => origin !== 'project' || snapshot.workspace !== null).map((origin) => {

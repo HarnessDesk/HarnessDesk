@@ -8,6 +8,8 @@ export type PageWidth = 'reading' | 'wide' | 'canvas'
 
 /**
  * A page's column — the one way a page sets its width and its margins.
+ * The content column anchors a standalone page's title at every measure;
+ * the title and its chooser or verb scroll together under the fixed bar.
  *
  * A screen says what kind of page it is and passes its blocks; it does not
  * write a max-width, a padding or an outer margin of its own. `reading` is the

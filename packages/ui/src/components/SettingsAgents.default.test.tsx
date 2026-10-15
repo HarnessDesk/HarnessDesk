@@ -109,7 +109,7 @@ it.each([true, false])('keeps the runtime default choice in the Settings body wi
     workbench: { ...workbench, navigation: { ...workbench.navigation, current: { kind: 'settings', route: { kind: 'section', section: 'runtimes', focus: null } } } },
   })
   await click(agentName(), 'the runtime row')
-  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Settings')
+  expect(container.querySelector('[data-topbar-title]')).toBeNull()
   if (isDefault) {
     const defaultChip = [...container.querySelectorAll('[data-slot="chip"]')].find(node => node.textContent === 'Default')
     expect(defaultChip).toBeDefined()

@@ -298,7 +298,7 @@ const PluginPage = ({ plugin, onBack }: { plugin: PluginInstance; onBack: () => 
           {plugin.identity.source.kind !== 'builtin' && <MenuItem label="Uninstall" icon={<TrashIcon size={16} />} danger
             onSelect={() => { void store.uninstallPlugin(plugin.identity.id); onBack(); close() }} />}
         </>} />
-      <Toolbar><Button variant="ghost" size="sm" onClick={onBack}>Back to Plugins</Button>{pluginGlyph(plugin, 16)}</Toolbar>
+      <PageOptions title={plugin.identity.name}><Toolbar><Button variant="ghost" size="sm" onClick={onBack}>Back to Plugins</Button>{pluginGlyph(plugin, 16)}</Toolbar></PageOptions>
       {plugin.identity.description && <PageExplanation>{plugin.identity.description}</PageExplanation>}
       <Rows><Row
         title={stateLabel(plugin.state)}
@@ -600,7 +600,7 @@ const PluginsBody = ({ section, id: openId, onSection, onPlugin: setOpenId }: Pl
   return (
     <>
       <DestinationBar place="Plugins" />
-      <PageOptions action={tab === 'list' ? { label: 'Add plugin', run: () => setInstalling(true) } : undefined}
+      <PageOptions title="Plugins" action={tab === 'list' ? { label: 'Add plugin', run: () => setInstalling(true) } : undefined}
         search={tab === 'list' ? { label: 'Search plugins', value: query, change: setQuery }
           : { label: 'Search capabilities', value: capQuery, change: setCapQuery }}
         choices={[

@@ -364,7 +364,7 @@ it('keeps mixed and superseded plugin glyphs when search matches only an outside
 
 it('E7 restored capabilities renders the controlled section in the first body row', () => {
   mount(makeStore(runtime('fixture', 'Fixture agent', true)), 'capabilities')
-  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Plugins')
+  expect(container.querySelector('[data-topbar-title]')).toBeNull()
   expect(container.querySelector('[aria-label="Search capabilities"]')).toBeTruthy()
   expect(container.querySelector('[data-slot="top-bar"] [role="tab"]')).toBeNull()
   expect(container.querySelector('[data-slot="page-options"] [title="Plugin sections"]')?.textContent).toContain('Capabilities')

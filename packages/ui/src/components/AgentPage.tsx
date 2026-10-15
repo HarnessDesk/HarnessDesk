@@ -44,6 +44,7 @@ import {
   MenuItem,
   PageExplanation,
   PreservedText,
+  PageOptions,
   BoardMenuButton,
   Button,
   Checkbox,
@@ -236,12 +237,12 @@ const AgentPageBody = ({ entry, onBack }: { readonly entry: AgentEntry; readonly
           {folder && <MenuItem icon={<FolderIcon size={14} />} label="Reveal" onSelect={() => { void store.revealAgent(entry.id, entry.origin); close() }} />}
           {folder && entry.origin !== 'builtin' && <MenuItem icon={<TrashIcon size={14} />} label="Remove…" danger onSelect={() => { setRemoving(true); close() }} />}
       </>} />
-      <Toolbar>
+      <PageOptions title={name}><Toolbar>
         {definition && <Button variant="outline" size="sm" onClick={start}>Start a conversation as {definition.name}</Button>}
         <Button variant="ghost" size="sm" onClick={onBack}>Back to Agents</Button>
         <AgentFace entry={entry} />
         {definition && <Chip label={ceilingWords(definition.ceiling)} tone="neutral" title={ceilingFlag ?? undefined} />}
-      </Toolbar>
+      </Toolbar></PageOptions>
       {definition?.description && <PageExplanation>{definition.description}</PageExplanation>}
 
       {(folder || definition) && (

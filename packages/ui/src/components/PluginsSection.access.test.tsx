@@ -215,7 +215,8 @@ it('uses a scannable tool label and moves its technical name into that line behi
 it('E7 plugin detail keeps its return action in the body', () => {
   mount([plugin('quiet', 'Quiet', {})])
   open('Quiet')
-  expect(container.querySelector('[data-topbar-title]')?.textContent).toContain('Quiet')
+  expect(container.querySelector('[data-topbar-title]')).toBeNull()
+  expect(container.querySelector('h1')?.textContent).toBe('Quiet')
   expect([...container.querySelectorAll('[data-slot="toolbar"] button')].find(button => button.textContent === 'Back to Plugins')).toBeTruthy()
   expect(container.querySelector('[data-slot="top-bar"] [role="tab"]')).toBeNull()
 })

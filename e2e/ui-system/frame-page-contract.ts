@@ -1,4 +1,3 @@
-import { expectTitleRoom } from './title-contract'
 import { expect, type Page } from '@playwright/test'
 import { installFramePreviewFixture } from './frame-preview-fixture'
 import { FRAME } from '../../packages/ui/src/design/frame'
@@ -7,7 +6,7 @@ import { pageChoiceFor } from './frame-actions'
 export const expectSettingsChrome = async (page: Page, width: number): Promise<void> => {
   const bar = page.locator('[data-slot="top-bar"]:visible')
   await expect(bar).toHaveCount(1)
-  await expect(bar.locator('[data-topbar-title]')).toHaveText('Settings')
+  await expect(bar.locator('[data-topbar-title]')).toHaveCount(0)
   await expect(page.locator('[data-page-destination="settings"]:visible h1')).toHaveText(/\S/)
   await expect(bar.locator('..')).toHaveJSProperty('clientHeight', FRAME.bar.height)
   if (width >= FRAME.fold.sidebarFloats) {
@@ -46,16 +45,7 @@ export const measureDestination = async (page: Page, query: string, widthKind: '
     const more = bar.locator('[data-topbar="more"] button')
     if (actions.more === 'absent') await expect(more).toHaveCount(0)
     else await expect(more).toBeVisible()
-    const title = bar.locator('[data-topbar-title]')
-    const titleText = title.locator('[data-slot="text"]').first()
-    const titleStyle = await titleText.evaluate(element => {
-      const css = getComputedStyle(element)
-      return { size: parseFloat(css.fontSize), weight: css.fontWeight, medium: css.getPropertyValue('--hd-weight-medium').trim(), family: css.fontFamily }
-    })
-    expect(titleStyle.size).toBe(14)
-    expect(titleStyle.weight).toBe(titleStyle.medium)
-    expect(titleStyle.family).toContain('Geist')
-    await expectTitleRoom(title)
+    await expect(bar.locator('[data-topbar-title]')).toHaveCount(0)
     if (actions.more !== 'absent') {
       const moreBox = (await more.boundingBox())!
       expect(Math.abs(moreBox.x + moreBox.width - (width - FRAME.bar.pad))).toBeLessThanOrEqual(1)
@@ -69,6 +59,13 @@ export const measureDestination = async (page: Page, query: string, widthKind: '
   }
   const column = page.locator(`[data-page-destination]:visible [data-slot="page"][data-width="${widthKind}"]`).first()
   await expect(column).toBeVisible()
+  if (widthKind !== 'canvas') {
+    const title = column.getByRole('heading', { level: 1 })
+    await expect(title).toHaveCount(1)
+    await expect(title).toHaveAttribute('data-role', 'page')
+    const edge = await column.evaluate(node => node.getBoundingClientRect().left + parseFloat(getComputedStyle(node).paddingLeft))
+    expect((await title.boundingBox())!.x, 'the content column anchors the page title').toBeCloseTo(edge, 1)
+  }
   const value = await column.evaluate(element => {
     const css = getComputedStyle(element), box = element.getBoundingClientRect()
     const parent = element.parentElement!.getBoundingClientRect()

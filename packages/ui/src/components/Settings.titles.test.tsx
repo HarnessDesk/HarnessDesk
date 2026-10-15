@@ -32,8 +32,8 @@ it.each([
     expect(headings[0]?.textContent).toBe(label)
     expect(headings[0]?.classList.contains('sr-only')).toBe(false)
     expect(headings[0]?.getAttribute('data-role')).toBe('page')
-    expect(page.firstElementChild).toBe(headings[0])
-    expect(box.querySelector('[data-topbar-title]')?.textContent).toBe('Settings')
+    expect(page.firstElementChild?.querySelector('h1')).toBe(headings[0])
+    expect(box.querySelector('[data-topbar-title]')).toBeNull()
   } finally {
     act(() => root.unmount())
     box.remove()

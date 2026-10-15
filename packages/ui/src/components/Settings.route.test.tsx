@@ -121,7 +121,7 @@ const makeStore = (runtimes: readonly RuntimeInfo[], profile: Profile = {}): App
 
 /** The title of the page on show — the nav rail's labels live outside it. */
 const page = (): string =>
-  document.body.querySelector('[data-topbar-title]')?.textContent?.trim() ?? ''
+  document.body.querySelector('[data-slot="page"] h1')?.textContent?.trim() ?? ''
 
 /** The nav rail's own row, found by its label rather than its position. */
 const navRow = (label: string): HTMLElement | undefined =>

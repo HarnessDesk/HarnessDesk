@@ -19,7 +19,7 @@ export const LibraryBar = ({ kind, counts, change, loaded, loading, author, impo
     <MenuItem icon={<ImportIcon size={16} />} label="Import" disabled={!loaded} onSelect={() => { importing(); close() }} />
     <MenuItem icon={<RetryIcon size={16} />} label="Rescan" disabled={loading} onSelect={() => { rescan(); close() }} />
   </>} />
-  <PageOptions action={{ label: 'New skill', disabled: loaded ? false : 'The library has not been read.', run: author }}
+  <PageOptions title="Library" action={{ label: 'New skill', disabled: loaded ? false : 'The library has not been read.', run: author }}
     choices={[{ id: 'kind', label: 'Library sections', value: kind, mode: 'menu', showCount: true,
       items: [{ value: 'skill', label: 'Skills', count: counts.skill }, { value: 'mcp', label: 'MCP servers', count: counts.mcp }],
       change: value => change(value as 'skill' | 'mcp') }, ...choices]} search={search} />

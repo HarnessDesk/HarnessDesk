@@ -15,15 +15,22 @@ export interface PageOption {
   /** Keep the selected section's size visible beside its label. */
   readonly showCount?: boolean
 }
-/** Current choices, search and read actions in the first body block; long menu choices wrap within the page. */
-export const PageOptions = ({ choices = [], search, read, action }: {
+/** Current choices, search and read actions in the first body block. A title
+ * uses the page role on the content edge, with the primary choice and verb
+ * on the right. Search and secondary choices follow at the page stack gap;
+ * long titles and menu choices wrap within the page. */
+export const PageOptions = ({ title, choices = [], search, read, action, children }: {
+  /** A standalone page names itself in the content column beside its own controls. */
+  readonly title?: string
+  readonly children?: ReactNode
   readonly choices?: readonly PageOption[]
   readonly search?: { readonly label: string; readonly value: string; readonly change: (value: string) => void }
   readonly read?: ReactNode
   readonly action?: { readonly label: string; readonly icon?: ReactNode; readonly disabled?: boolean | string; readonly run: () => void }
-}) => <div data-slot="page-options" className={styles.options}>
-  {action && <Button variant="outline" size="sm" aria-label={action.label} disabled={Boolean(action.disabled)} title={typeof action.disabled === 'string' ? action.disabled : undefined} onClick={action.run}>{action.icon}{action.label}</Button>}
-  {choices.map(choice => {
+}) => {
+  const controls = (items: readonly PageOption[], primary = true, filters = true) => <div data-slot={title ? undefined : 'page-options'} data-page-controls className={styles.options}>
+  {primary && action && <Button variant="outline" size="sm" aria-label={action.label} disabled={Boolean(action.disabled)} title={typeof action.disabled === 'string' ? action.disabled : undefined} onClick={action.run}>{action.icon}{action.label}</Button>}
+  {items.map(choice => {
     const current = choice.items.find(item => item.value === choice.value)
     return choice.mode === 'menu'
     ? <Popover key={choice.id} title={choice.label} icons="none" label={<><span className={styles.current}>{current?.label ?? choice.value}</span>{choice.showCount && current?.count !== undefined && <Text role="meta">{current.count}</Text>}<CaretIcon /></>}
@@ -39,6 +46,15 @@ export const PageOptions = ({ choices = [], search, read, action }: {
         </option>)}
       </NativeSelect>
   })}
-  {search && <Search label={search.label} placeholder={search.label} value={search.value} onChange={search.change} />}
-  {read && <Text role="meta">{read}</Text>}
+  {filters && search && <Search label={search.label} placeholder={search.label} value={search.value} onChange={search.change} />}
+  {filters && read && <Text role="meta">{read}</Text>}
+  {primary && children}
 </div>
+  return title ? <div data-slot="page-options" className={styles.group}>
+    <div data-page-head className={styles.head}>
+      <Text as="h1" role="page" className={styles.title}>{title}</Text>
+      {controls(choices.slice(0, 1), true, false)}
+    </div>
+    {(choices.length > 1 || search || read) && controls(choices.slice(1), false)}
+  </div> : controls(choices)
+}

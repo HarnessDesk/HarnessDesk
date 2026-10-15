@@ -23,7 +23,7 @@ for (const theme of ['light', 'dark'] as const) for (const width of [1280, 720])
   test(`Owner 5 Settings has its title and no duplicate top controls at ${width} in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=settings&frame-section=general', theme, width)
     const topbar = page.locator('[data-slot="top-bar"]:visible')
-    await expect(topbar.locator('[data-topbar-title]')).toHaveText('Settings')
+    await expect(topbar.locator('[data-topbar-title]')).toHaveCount(0)
     await expect(page.getByRole('heading', { name: 'General', level: 1, exact: true })).toHaveCount(1)
 
     const visibleControls = await page.locator('[data-left-top]:visible button:visible, [data-topbar="lead"] button:visible')
@@ -187,6 +187,8 @@ test('Owner 5 terminal stays available on project pages and retains its shells a
   }
 
   await page.keyboard.press('Meta+n')
+  await expect(page.locator('[data-terminal-shell-tabs]:visible')).toHaveCount(0)
+  await page.keyboard.press('Meta+[')
   await expect(page.locator('[data-terminal-shell-tabs]')).toBeVisible()
   await expect(page.locator('[data-terminal-mount][data-owner5-witness="retained"]')).toHaveCount(1)
   expect(await terminalRegion.evaluate(element => element.getBoundingClientRect().height)).toBe(height)

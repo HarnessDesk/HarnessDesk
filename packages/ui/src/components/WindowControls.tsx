@@ -17,12 +17,12 @@ import styles from './WindowControls.module.css'
  * Below the frame's window threshold, history arrows move out of the lead;
  * the floating sidebar's own row retains both arrows.
  */
-export const WindowControls = (_props: { sidebarRow?: boolean } = {}) => {
+export const WindowControls = ({ history = true }: { sidebarRow?: boolean; history?: boolean } = {}) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const settings = snapshot.workbench.navigation.current.kind === 'settings'
   const shown = sidebarPlacement(snapshot) !== 'away'
-  const navigation = !settings
+  const navigation = history && !settings
   return (
     <span className={styles.group}>
       <Button

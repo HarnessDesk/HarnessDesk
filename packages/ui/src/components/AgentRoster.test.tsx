@@ -168,7 +168,7 @@ const sectionText = (label: string): string =>
 
 it('heads the page as the roadmap says', () => {
   mount()
-  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Agents')
+  expect(container.querySelector('[data-topbar-title]')).toBeNull()
   expect(container.querySelector('[data-slot="page-title"]')).toBeNull()
   expect(container.textContent).toContain('Who does the work: a brief, the most it may do, and the seats it prefers.')
 })

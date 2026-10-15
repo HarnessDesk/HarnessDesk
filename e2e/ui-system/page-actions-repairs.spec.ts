@@ -20,7 +20,7 @@ for (const theme of ['light', 'dark'] as const) {
     await openFrame(page, 'frame-wall=settings&frame-detail=skill', theme)
     const settings = page.locator('[data-page-destination="settings"]:visible')
     const bar = page.locator('[data-slot="top-bar"]:visible')
-    await expect(bar.locator('[data-topbar-title]')).toHaveText('Settings')
+    await expect(bar.locator('[data-topbar-title]')).toHaveCount(0)
     await expect(settings.getByRole('button', { name: 'Use in composer', exact: true })).toBeVisible()
     await capture(page, `settings-skill-${theme}`)
 
@@ -34,7 +34,7 @@ for (const theme of ['light', 'dark'] as const) {
     await capture(page, `settings-runtime-action-${theme}`)
     await use.click()
     await expect(settings.locator('[data-slot="chip"]').filter({ hasText: /^Default$/ })).toBeVisible()
-    await expect(bar.locator('[data-topbar-title]')).toHaveText('Settings')
+    await expect(bar.locator('[data-topbar-title]')).toHaveCount(0)
   })
 
   test(`Agents retained dialogs close and primary footer actions stay rightmost in ${theme}`, async ({ page }) => {

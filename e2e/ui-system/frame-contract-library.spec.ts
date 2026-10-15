@@ -17,7 +17,7 @@ for (const width of [1440, 720]) test(`E6 Library door preserves normal history 
 test('E6 Library has its own crumb and applicable More actions', async ({ page }) => {
   await openFrame(page, 'frame-wall=settings&frame-section=library&frame-no-folder=1', 'light')
   const bar = page.locator('[data-slot="top-bar"]:visible')
-  await expect(bar.locator('[data-topbar-title]')).toHaveText('Library')
+  await expect(bar.locator('[data-topbar-title]')).toHaveCount(0)
   await expect(bar.getByText('Settings', { exact: true })).toHaveCount(0)
   await bar.getByRole('button', { name: 'More', exact: true }).click()
   await expect(page.getByRole('menuitemradio', { name: /Terminal/ })).toHaveCount(0)

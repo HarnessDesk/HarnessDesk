@@ -2051,7 +2051,7 @@ it('E6 controlled sections and import intents keep one destination body', async 
     </DestinationPageScope><TopBarOutlet owner="destination:library" fallback={{ place: 'Fallback', more: () => null }} /></TopBarProvider></StoreProvider>
   ))
   await draw('mcp', 0)
-  expect(container.querySelector('[data-topbar-title]')?.textContent).toBe('Library')
+  expect(container.querySelector('[data-topbar-title]')).toBeNull()
   expect(container.querySelector('thead')?.textContent).toBe('ServerStateLoaded by')
   await chooseKind('skill')
   expect(change).toHaveBeenCalledWith('skill')
