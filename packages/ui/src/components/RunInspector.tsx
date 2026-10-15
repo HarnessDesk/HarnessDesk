@@ -112,7 +112,7 @@ export const RunInspector = ({ inspectionOnly = false, home, teamState, input, s
   // None is only said of a read that is whole: until then, say what is happening to it instead.
   const unread = findingsRead ?? (input.findings ? undefined : 'reading')
   const showFindings = <Section title="Findings">{findings.length ? findings.map(finding => <div key={finding.id} className="flex min-w-0 flex-col gap-1">
-    <Words>{finding.title}</Words><Text role="meta">{lifecycleWords(finding)}{finding.inactiveReason ? ' · Not kept' : ''}</Text><Words>{finding.body}</Words>{finding.problem && <Words>{finding.problem}</Words>}
+    <Words>{finding.title}</Words><Text role="meta">{lifecycleWords(finding)}{finding.inactiveReason ? ' · Not published' : ''}</Text><Words>{finding.body}</Words>{finding.problem && <Words>{finding.problem}</Words>}
   </div>) : unread === 'reading' ? <Text role="meta" as="div">Reading findings…</Text>
     : <Words>{unread === 'failed' ? 'Findings could not be read' : 'No findings recorded'}</Words>}</Section>
   const title = card ? `#${card.id} · ${card.title}` : selected?.kind === 'findings' ? 'Findings' : 'Run details'

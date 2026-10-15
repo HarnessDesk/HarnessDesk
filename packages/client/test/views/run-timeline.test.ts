@@ -244,8 +244,8 @@ const publicationFinding: FindingView = { id: 'publication-finding', title: 'Bou
     ['partial', true, 7, 'Partly posted', 'warning', true],
     ['uncertain', true, 7, 'Not confirmed', 'warning', true],
     ['local', true, 7, 'Not posted', 'warning', true],
-    ['local', false, 7, 'Kept on the desk', 'neutral', false],
-    ['local', true, null, 'Kept on the desk', 'neutral', false],
+    ['local', false, 7, 'This desk only', 'neutral', false],
+    ['local', true, null, 'This desk only', 'neutral', false],
 ] as const).forEach(([state, publicationOn, pr, label, tone, needsYou]) => it('maps aggregate %s with posting %s and PR %s' + JSON.stringify([state, publicationOn, pr, label, tone, needsYou]), () => {
     const findingRun = publicationRun({ publication: state, boundPr: pr ? { repo: 'acme/widgets', pr } : null });
     const model = runTimeline({ execution: run({ state: 'settled' }), cards: [card()], findings: [publicationFinding], findingRun, publicationOn });
@@ -294,7 +294,7 @@ it('shows an authoritative posted review round even when it raised no ledger fin
 ;[true, false].forEach((publicationOn) => it('uses the current PR binding for a local round kept before binding (posting %s)' + JSON.stringify(publicationOn), () => {
     const findingRun = publicationRun({ rounds: [{ round: 1, state: 'local', reason: 'Kept before binding.', pr: null, cards: [1] }] });
     const model = runTimeline({ execution: run(), cards: [card()], findingRun, publicationOn });
-    assert.equal(model.rows.find(row => row.card === 1)?.publication?.label, publicationOn ? 'Not posted' : 'Kept on the desk');
+    assert.equal(model.rows.find(row => row.card === 1)?.publication?.label, publicationOn ? 'Not posted' : 'This desk only');
 }));
 it('preserves a posted round’s recorded target when the Run binds another PR', () => {
   const findingRun = publicationRun({ publication: 'posted', rounds: [{ round: 1, state: 'posted', reason: null, pr: 9, cards: [1] }] })

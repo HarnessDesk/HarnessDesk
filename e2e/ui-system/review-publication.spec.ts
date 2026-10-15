@@ -10,8 +10,8 @@ const states = [
   ['uncertain', 'Not confirmed', true],
   ['local', 'Not posted', true],
   ['refused', 'Not posted', false],
-  ['kept', 'Kept on the desk', false],
-  ['unbound', 'Kept on the desk', false],
+  ['kept', 'This desk only', false],
+  ['unbound', 'This desk only', false],
 ] as const
 
 for (const theme of ['light', 'dark'] as const) {
@@ -61,11 +61,11 @@ for (const theme of ['light', 'dark'] as const) {
     }
     const none = page.locator('#review-publication-none')
     await selectRunView(none, 'Timeline')
-    await expect(none.locator('[aria-label="Team Run facts"]')).not.toContainText(/Posted|Waiting to post|Kept on the desk|Not confirmed/)
+    await expect(none.locator('[aria-label="Team Run facts"]')).not.toContainText(/Posted|Waiting to post|This desk only|Not confirmed/)
     const emptyRelease = page.locator('#review-publication-empty-release')
     await selectRunView(emptyRelease, 'Timeline')
-    await expect(emptyRelease.locator('[aria-label="Team Run facts"]')).not.toContainText(/Needs you|Not posted|Kept on the desk/)
-    await expect(emptyRelease.locator('[data-row="check-2-2"]')).not.toContainText(/Not posted|Kept on the desk/)
+    await expect(emptyRelease.locator('[aria-label="Team Run facts"]')).not.toContainText(/Needs you|Not posted|This desk only/)
+    await expect(emptyRelease.locator('[data-row="check-2-2"]')).not.toContainText(/Not posted|This desk only/)
     const missing = page.locator('#review-publication-missing-round')
     await selectRunView(missing, 'Timeline')
     await expect(missing.locator('[aria-label="Team Run facts"]')).toContainText('Posted to #128')
