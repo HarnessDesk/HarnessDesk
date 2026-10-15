@@ -1,5 +1,5 @@
 import type { UsageSource } from '@harnessdesk/protocol'
-import { readKeyValue, secretSourcePath, type AcpSecretSource } from '@harnessdesk/adapter-acp'
+import { readKeyValue, secretReadOrder, secretSourcePath, type AcpSecretSource } from '@harnessdesk/adapter-acp'
 
 import { MeterAuthError, type MeterReading, type UsageMeter } from './meter.js'
 
@@ -9,7 +9,9 @@ import { MeterAuthError, type MeterReading, type UsageMeter } from './meter.js'
  *
  * DeepSeek Harness ("DSH") authenticates with a provider key rather than a
  * browser sign-in (`agent-registry.ts`'s `dsh` entry): `DEEPSEEK_API_KEY`,
- * in the environment it starts with, else its own store —
+ * in the environment it starts with, else its own store (or, from the first
+ * version that reads it ahead of the environment, its own store first;
+ * `secretReadOrder`) —
  * `${DSH_HOME:-~/.dsh}/.credentials.yaml`, the file its "Models" page
  * writes, or a `.env` beside it. Those file sources are the registry's own
  * `alsoAt` list for the `dsh` template (`agent-registry.ts`), handed in
@@ -96,6 +98,13 @@ export interface DeepSeekMeterOptions {
    * handed in by the wiring rather than hard-coded here.
    */
   readonly alsoAt?: readonly AcpSecretSource[]
+  /**
+   * The version of DSH that will run this row, asked fresh on every `read()`
+   * — the order the key is looked up in depends on it (`secretReadOrder`),
+   * and a copy updated after the app started changes it. `null`/`undefined`
+   * when the host has read none, which keeps the older order.
+   */
+  readonly version?: () => string | null | undefined
   readonly fetch?: typeof globalThis.fetch
   readonly now?: () => number
 }
@@ -106,6 +115,7 @@ export class DeepSeekMeter implements UsageMeter {
   readonly #env: NodeJS.ProcessEnv
   readonly #keyFn: (() => string | undefined) | undefined
   readonly #alsoAt: readonly AcpSecretSource[]
+  readonly #version: (() => string | null | undefined) | undefined
   readonly #fetch: typeof globalThis.fetch
   readonly #now: () => number
 
@@ -113,6 +123,7 @@ export class DeepSeekMeter implements UsageMeter {
     this.#env = options.env ?? process.env
     this.#keyFn = options.key
     this.#alsoAt = options.alsoAt ?? []
+    this.#version = options.version
     this.#fetch = options.fetch ?? globalThis.fetch
     this.#now = options.now ?? Date.now
   }
@@ -166,13 +177,22 @@ export class DeepSeekMeter implements UsageMeter {
     }
   }
 
-  /** The desk's own stored copy, then the row's environment, then DSH's own store — its own precedence order. */
+  /**
+   * The key DSH itself will send, in the order the running version reads it:
+   * a store it reads ahead of its environment first, then the desk's own
+   * stored copy, then the row's environment, then the rest of DSH's own files.
+   */
   #key(): string | null {
+    const { before, after } = secretReadOrder({ alsoAt: this.#alsoAt }, this.#version?.())
+    for (const source of before) {
+      const value = readKeyValue(source, SECRET_ENV, this.#env)
+      if (value) return value
+    }
     const resolved = this.#keyFn?.()?.trim()
     if (resolved) return resolved
     const fromEnv = this.#env[SECRET_ENV]?.trim()
     if (fromEnv) return fromEnv
-    for (const source of this.#alsoAt) {
+    for (const source of after) {
       const value = readKeyValue(source, SECRET_ENV, this.#env)
       if (value) return value
     }

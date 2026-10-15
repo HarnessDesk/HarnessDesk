@@ -574,29 +574,38 @@ restart leaves the user with no way to get the key in.
 
 **The key may already be somewhere else.** DeepSeek Harness reads one from its
 environment, from `~/.dsh/.credentials.yaml` — the file its own Models page
-writes — and from two `.env` layers, in that precedence. HarnessDesk knowing
-only its own broker meant "Not signed in" about a runtime that ran as expected,
-and a field offered for a key already there. The registry declares those
-other locations:
+writes — and from two `.env` layers. Which of the environment and that file wins
+depends on the build: the environment through 0.2.1-alpha.2, the file from
+0.2.1-alpha.3 (measured; `docs/decisions.md`). HarnessDesk knowing only its own
+broker meant "Not signed in" about a runtime that ran as expected, and a field
+offered for a key already there. The registry declares those other locations,
+and the build from which one is read ahead of the environment:
 
 ```json
 "secrets": [{
   "env": "DEEPSEEK_API_KEY", "label": "DeepSeek API key",
   "alsoAt": [{ "path": "~/.dsh/.credentials.yaml", "format": "yaml",
-               "label": "DeepSeek Harness's own store" }]
+               "label": "DeepSeek Harness's own store",
+               "outranksEnvFrom": "0.2.1-alpha.3" }]
 }]
 ```
+
+`outranksEnvFrom` is optional; without it a file is read after the environment,
+which is also the order used when the host has not read the agent's version.
 
 They are read to answer one question — *does it have one, and from where* —
 never to display a value, and HarnessDesk never writes to them. It keeps
 one copy, in its own broker, and delivers it as an environment variable, which
-is the layer that wins in precedence. Duplicating a user's secret into another
-application's plaintext file to save a restart is not a trade worth making.
+outranks the file on the builds before that and is outranked by the file on the
+builds from it. The page names the file when it is the one in use. Duplicating a
+user's secret into another application's plaintext file to save a restart is not
+a trade worth making.
 
 The page therefore has three states rather than two: stored here, *"Already has
 a key — it reads one from DeepSeek Harness's own store"*, and nothing yet. The
-field stays open in the middle state, because a key stored here still takes
-precedence.
+field stays open in the middle state, because a key stored here is used when the
+agent has no other, and takes precedence over a `.env` and, on the builds that
+read the environment first, over its store.
 
 #### Usage, honestly
 
