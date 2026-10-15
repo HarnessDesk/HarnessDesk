@@ -39,7 +39,7 @@ const Card = <T extends React.ElementType = 'div'>({
       data-radius={radius}
       data-spacing={spacing}
       className={cn(
-        '[--stack-surface:var(--hd-card)] bg-card text-card-foreground flex flex-col gap-4 rounded-lg border py-(--hd-inset-card)',
+        '[--stack-surface:var(--hd-card)] bg-card text-card-foreground flex flex-col gap-4 rounded-lg border border-(--hd-border) py-(--hd-inset-card)',
         variant === 'muted' && 'border-dashed bg-(--hd-muted) [--stack-surface:var(--hd-muted)]',
         variant === 'flush' && 'gap-0 overflow-hidden py-0',
         /* A card that stands on a canvas of its own, a step in a drawing of a

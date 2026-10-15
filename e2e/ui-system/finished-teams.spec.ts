@@ -10,16 +10,14 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(page.locator('html')).toHaveCSS('color-scheme', theme)
       await page.evaluate(() => document.fonts.ready)
       const frame = page.locator('#teams-page-active')
-      if (stage === 'before') {
-        await expect(frame.getByRole('tab', { name: /^Needs you(?:\s|$)/ })).toBeVisible()
-        await expect(frame.locator('[data-team-row]')).toHaveCount(2)
-        await expect(frame.locator('[data-team-row]').filter({ hasText: 'Needs you' })).toHaveCount(2)
-      } else {
-        await expect(frame.getByRole('tab', { name: /^Needs you(?:\s|$)/ })).toBeVisible()
-        await expect(frame.getByText('Stopped', { exact: true })).toBeVisible()
-        await frame.getByRole('button', { name: 'Ready to wrap · 1', exact: true }).click()
-        await expect(frame.locator('[data-team-row="team-0"]')).toBeVisible()
-        await expect(frame.locator('[data-team-row="team-1"]')).toContainText('Stopped')
+      const needs=frame.locator('[data-slot="teams-board-column"][aria-label="Needs you"]')
+      const ready=frame.locator('[data-slot="teams-board-column"][aria-label="Ready to wrap"]')
+      if(stage==='before'){
+        await expect(needs.locator('[data-team-row]')).toHaveCount(2)
+        await expect(ready.locator('[data-team-row]')).toHaveCount(0)
+      }else{
+        await expect(ready.locator('[data-team-row="team-0"]')).toBeVisible()
+        await expect(needs.locator('[data-team-row="team-1"]')).toContainText('stopped')
       }
       await frame.screenshot({ path: `output/playwright/finished-teams/${stage}-${theme}.png` })
 

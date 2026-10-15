@@ -2468,6 +2468,36 @@ A quiet conversation or room state ends on the inset rail and folds to a dot for
 
 The sign-in boundary's own navigation ground.
 
+### `TeamsBoardToolbar`
+
+`packages/ui/src/design/patterns/TeamsBoard.tsx`
+
+The Teams page's body controls: creation, project scope and search.
+
+### `TeamsBoard`
+
+`packages/ui/src/design/patterns/TeamsBoard.tsx`
+
+Fixed attention columns retain their order and stack together in a narrow pane.
+
+### `TeamsBoardColumn`
+
+`packages/ui/src/design/patterns/TeamsBoard.tsx`
+
+A column says the state once, beside its tone and count.
+
+### `TeamsBoardCard`
+
+`packages/ui/src/design/patterns/TeamsBoard.tsx`
+
+One Team's work, observed Run path and faces, with a single keyboard opening.
+
+### `TeamsBoardWrapped`
+
+`packages/ui/src/design/patterns/TeamsBoard.tsx`
+
+Wrapped receipts cost no card height until their group is opened.
+
 ### `TerminalShellTabs`
 
 `packages/ui/src/design/patterns/TerminalShellTabs.tsx`

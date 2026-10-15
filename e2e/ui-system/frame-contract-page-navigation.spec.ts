@@ -84,9 +84,9 @@ test(`E9 every destination More either stays absent or opens rows, and returns f
 }
 
 // R10 nav4 owns these round-four navigation and Changes review contracts.
-test('R10 nav4 New Team keeps the Teams page behind the dialog from the top bar', async ({ page }) => {
+test('R10 nav4 New Team keeps the Teams page behind the dialog from the body', async ({ page }) => {
   await openFrame(page, 'frame-wall=teams', 'light')
-  await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'New Team', exact: true }).click()
+  await page.locator('[data-slot="teams-board-toolbar"]').getByRole('button', { name: 'New Team', exact: true }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await expect(page.locator('[data-page-destination="teams"]:visible')).toHaveCount(1)
   await page.keyboard.press('Escape')
@@ -97,7 +97,7 @@ test('R10 nav4 New Team keeps the Teams page behind the dialog from the top bar'
 test('R10 nav4 New Team keeps the empty Teams page behind the dialog', async ({ page }) => {
   await openFrame(page, 'frame-wall=teams&frame-empty=1', 'light')
   const teams = page.locator('[data-page-destination="teams"]:visible')
-  await teams.getByRole('button', { name: 'New Team', exact: true }).click()
+  await teams.locator('[data-slot="teams-board-toolbar"]').getByRole('button', { name: 'New Team', exact: true }).click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await expect(teams).toHaveCount(1)
   await page.keyboard.press('Escape')

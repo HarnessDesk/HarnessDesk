@@ -1395,34 +1395,26 @@ anything running unattended.
 
 ### The Teams page
 
-**Teams**, in the left menu beside Agents, lists every Team by project, with
-Needs you before Unread, Working and Idle. Within a state, the oldest known
-wait comes first; an unknown time or usage figure stays a dash. The filters
-open on **Active** and carry counts for **Needs you** and **Settled**.
-A row names the work, shows its Seats' faces and recorded usage, and earns its
-second line with a round or a reason for waiting. A dot means the Team changed
-since you last opened it here.
-A confirmed review that needs posting makes the Team and its Run **Needs you**.
-The Teams page and Overview read the same Run publication; a read still pending
-does not invent that state.
-Working and Needs you use tinted chips; quiet states use plain muted words.
-The wide view groups Teams by folder in a table with Time, Turns and Cost
-columns; Cost disappears when every amount is unknown. Names truncate with
-their full title on hover; waiting reasons wrap
-whole. Read and unread names keep the same edge beside equal face stacks.
-Below 600px those readings move into the list's second line. A settled
-row carries its Run's end reason when recorded; otherwise it has no second line.
+**Teams**, in the left menu beside Agents, groups the desk's work into three
+columns: **Needs you**, **Working**, and **Ready to wrap**. Each heading carries
+its tone dot and count. Narrow panes stack the columns in that order.
+The bar holds Teams and More; **New Team**, **All projects** and **Search Teams**
+live in the first body row. Search and project scope apply to every column.
 
-Quiet settled Teams fold into **Ready to wrap** below Active and leave the
-sidebar. A dependency or unfinished follow-up keeps a Team active even after
-its Run settles. **Hide** folds settled work out of Active until it changes;
-**Settled** still holds it and offers **Show in Active**. These choices and
-read marks stay on this Mac. Neither changes the Team or what Wrap does.
-Menus stay within their owning window, flipping above a row when there is
-no room below it.
-At a narrow width, this page's short navigation rail becomes a top row,
-then one column when that row no longer fits. Its readings move beneath
-the sentence, leaving a waiting reason whole.
+Each card shows the brief's first sentence, with the whole brief on hover;
+the ask, current step and observed activity, or recorded outcome; the frozen
+Run's path as completed, current and unreached segments; and its Seats' faces,
+project and age. A Team without a Flow has no path. Unknown age stays a dash.
+Waiting reasons wrap whole. Clicking a card or activating its named keyboard
+button opens the Team and records its observed change as read. A small dot
+marks a Team changed since it was last opened here.
+
+A confirmed review that needs posting makes the Team **Needs you**. Pending
+reads invent no state. Stopped work also needs the person; stopping, wrapping,
+dependencies and unfinished follow-ups stay **Working**. Quiet finished work
+stays visible in **Ready to wrap**. **Wrapped · N** folds its retained receipts
+below that column, without reading their Runs until opened. The project
+filter uses the Teams' existing project data.
 
 ### A Team's Overview
 

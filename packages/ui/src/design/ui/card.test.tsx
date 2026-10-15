@@ -3,6 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, expect, it } from 'vitest'
 
 import { Card, CardContent, CardViewport } from './card'
+import { Button } from './button'
 import { KeyValue, KeyValueRow } from './key-value'
 import { Section, SectionBody } from './section'
 import { Table, TableCaption, TableCell, TableFooter, TableHead, TableRow } from './table'
@@ -21,6 +22,11 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+})
+
+it('keeps a card button on the card border token rather than inheriting label ink', () => {
+  act(()=>root.render(<Button variant="ghost" size="pattern" render={<Card as="button" spacing="compact"/>}>Open work</Button>))
+  expect(container.querySelector('button')?.className).toContain('border-(--hd-border)')
 })
 
 it('draws an unavailable card as a quiet dashed surface', () => {

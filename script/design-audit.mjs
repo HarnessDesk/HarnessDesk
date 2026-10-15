@@ -4432,7 +4432,7 @@ export const SINGLE_AREA_PRIMITIVE_EXEMPTIONS = [
     module: 'design/ui/chart.tsx',
     kind: 'data-geometry',
     exports: [
-      'ChartCard', 'ChartFoot', 'ChartFrame', 'ChartTitle', 'SegmentMeter',
+      'ChartCard', 'ChartFoot', 'ChartFrame', 'ChartTitle',
       'BurnDown', 'ChartAxis', 'ChartHead', 'ChartHint', 'ChartTools',
       'DayColumns', 'PaceBadge', 'ChartTip', 'ChartTipRow',
     ],

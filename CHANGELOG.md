@@ -7,6 +7,11 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Teams shows what needs you.** The page is a board with Needs you, Working
+  and Ready to wrap columns, searchable across projects. Cards show the ask,
+  current step or outcome, the Run's path and its Seats. Wrapped receipts fold
+  below Ready to wrap, and narrow windows stack the columns in reading order.
+
 - **Icons move.** Sixty-nine of the app's icons — the bell, the gear, the
   copy, the chevrons, the refresh and retry arrows, the pin, the lock and
   more — now play a short motion while the pointer is over the button, link,
