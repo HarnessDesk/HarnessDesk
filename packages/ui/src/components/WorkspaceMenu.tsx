@@ -26,6 +26,7 @@ import {
 } from './Icons'
 import {
   Button,
+  Row,
   ContextMenu,
   MenuItem,
   MiddleTruncate,
@@ -155,8 +156,9 @@ const WorkspaceRows = ({
   // A repository is a precondition for a worktree. The group itself does not
   // know; its sessions do, and the open workspace knows for certain.
   const isRepo = current
-    ? Boolean(snapshot.workspace?.git?.branch)
-    : group.sessions.some((summary) => Boolean(summary.git?.branch))
+    ? Boolean(snapshot.workspace?.git)
+    : Boolean(openEntry?.git) || group.sessions.some((summary) => Boolean(summary.git))
+  const git = (current ? snapshot.workspace : openEntry)?.git ?? group.sessions.find((session) => session.git)?.git
   const count = group.sessions.length
   const sessionsWord = count === 1 ? '1 session' : `${count} sessions`
   /* How capture is going, for the repository this project is homed in. It is
@@ -228,8 +230,11 @@ const WorkspaceRows = ({
         disabled={!ready}
         onSelect={() => void store.startSessionIn(actualRoot)}
       />
-      {isRepo && (
-        <MenuItem
+      {isRepo && (git?.branch && git.sha === null ? (
+        <Row title="Make a first commit to work in a worktree" control={
+          <Button variant="quiet" size="sm" onClick={() => { close(); store.askCommit(actualRoot) }}>Commit</Button>
+        } />
+      ) : <MenuItem
           icon={<BranchIcon size={14} />}
           label="New worktree…"
           title="Its own checkout on its own branch."

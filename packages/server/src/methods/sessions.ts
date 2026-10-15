@@ -401,6 +401,12 @@ export const sessionMethods = {
     return null
   },
 
+  'session/turnCommit': async (ctx, params) => {
+    const record = ctx.registry.get(ctx.runtimes.resolve(params).info.id, makeSessionId(params.sessionId))
+    const turn = record?.session.turns.find((entry) => entry.id === params.turnId)
+    return { sha: record && turn ? await gitOps.turnCommit(record.session.cwd, turn) : null }
+  },
+
   'session/revertTurn': async (ctx, params) => {
     const record = ctx.registry.get(ctx.runtimes.resolve(params).info.id, makeSessionId(params.sessionId))
     const turn = record?.session.turns.find((entry) => entry.id === params.turnId)

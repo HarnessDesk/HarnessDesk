@@ -17,9 +17,8 @@ import { PlaceControl } from './ComposerControls'
  * made, not claim to exist.
  */
 
-// PlaceControl renders neither primitive, but ComposerControls imports them
-// through the full design barrel.
-vi.mock('../design', async (importOriginal) => ({ ...(await importOriginal<typeof import('../design')>()), Button: () => null, Dialog: () => null }))
+// ComposerControls imports Dialog through the full design barrel.
+vi.mock('../design', async (importOriginal) => ({ ...(await importOriginal<typeof import('../design')>()), Dialog: () => null }))
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -41,7 +40,7 @@ const MAIN = {
   path: '/code/harness-desk',
   name: 'harness-desk',
   lastOpenedAt: 1,
-  git: { branch: 'main' },
+  git: { branch: 'main', sha: 'abc1234' },
   repo: { root: '/code/harness-desk', worktree: false },
 } as WorkspaceEntry
 
@@ -52,6 +51,7 @@ const rig = (over: Partial<AppSnapshot> = {}): AppStore => {
     getSnapshot: () => snapshot,
     startDraftIn: vi.fn(),
     askNewWorktree: vi.fn(),
+    askCommit: vi.fn(),
     loadWorktrees: vi.fn(async () => {}),
   } as unknown as AppStore
   act(() => {
@@ -329,4 +329,14 @@ it('still calls a worktree on a detached HEAD a worktree', () => {
 
   expect(trigger()?.textContent).toContain('Worktree')
   expect(trigger()?.title).toBe('Starts in the worktree on a detached HEAD')
+})
+
+it('opens Commit for an unborn repository in place of New worktree', () => {
+  const store = rig({ workspace: { ...MAIN, git: { branch: 'main', sha: null } } })
+  open()
+  expect(document.body.textContent).toContain('Make a first commit to work in a worktree')
+  expect(row('New worktree')).toBeUndefined()
+  const commit = [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Commit')!
+  click(commit)
+  expect(store.askCommit).toHaveBeenCalledWith(MAIN.path)
 })

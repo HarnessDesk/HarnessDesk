@@ -8,7 +8,8 @@ import { promisify } from 'node:util'
 
 import { turnId, type AgentItem, type FileChange, type Turn } from '@harnessdesk/protocol'
 
-import { DirtyTreeError, RevertError, applyTurn, checkout, listBranches, reapplyTurn, revertTurn } from '../src/git-ops.js'
+import { status } from '../src/git.js'
+import { DirtyTreeError, RevertError, applyTurn, checkout, listBranches, reapplyTurn, revertTurn, turnCommit } from '../src/git-ops.js'
 
 /**
  * Reverting a turn and switching branches against a real repository. The
@@ -430,4 +431,75 @@ test('patch headers normalize Windows backslashes so git apply succeeds (#461)',
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+test('turnCommit proves all edits in history without changing either index or working files', async () => {
+  const dir = await repo()
+  try {
+    const turn = { ...turnOf([fileChange(dir, [
+      { path: join(dir, 'a.txt'), kind: { type: 'update' }, diff: '@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\n' },
+      { path: join(dir, 'new.txt'), kind: { type: 'add' }, diff: 'fresh\n' },
+      { path: join(dir, 'gone.txt'), kind: { type: 'delete' }, diff: 'bye\n' },
+    ])]), startedAt: Date.now() }
+    await writeFile(join(dir, 'a.txt'), 'one\n2\nthree\n')
+    await writeFile(join(dir, 'new.txt'), 'fresh\n')
+    await rm(join(dir, 'gone.txt'))
+    assert.equal(await turnCommit(dir, turn), null)
+    await git(dir, 'add', 'a.txt')
+    await git(dir, 'commit', '-qm', 'partial')
+    assert.equal(await turnCommit(dir, turn), null)
+    await git(dir, 'add', '.')
+    await git(dir, 'commit', '-qm', 'complete')
+    const sha = (await git(dir, 'rev-parse', 'HEAD')).trim()
+    assert.equal(await turnCommit(dir, turn), sha)
+    await writeFile(join(dir, 'a.txt'), 'later\n')
+    await git(dir, 'add', 'a.txt')
+    const before = await git(dir, 'diff', '--cached')
+    assert.equal(await turnCommit(dir, turn), sha)
+    assert.equal(await git(dir, 'diff', '--cached'), before)
+    await git(dir, 'commit', '-qm', 'later')
+    assert.equal(await turnCommit(dir, turn), sha)
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('status distinguishes a repository before and after its first commit', async () => {
+  const dir = await mkdtemp(join(tmpdir(), 'hd-unborn-'))
+  try {
+    await git(dir, 'init', '-q', '-b', 'main')
+    assert.equal((await status(dir))?.branch, 'main')
+    assert.equal((await status(dir))?.headSha, null)
+    await writeFile(join(dir, 'first.txt'), 'first\n')
+    await git(dir, 'add', '.')
+    await git(dir, 'commit', '-qm', 'first')
+    assert.equal((await status(dir))?.headSha, (await git(dir, 'rev-parse', 'HEAD')).trim())
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('a matching historical tree from before the turn is not proof of a new commit', async () => {
+  const dir = await repo()
+  try {
+    await run('git', ['-C', dir, 'commit', '--amend', '--no-edit', '--date=2000-01-01T00:00:00Z'], {
+      env: { ...env, GIT_COMMITTER_DATE: '2000-01-01T00:00:00Z' },
+    })
+    const turn = { ...turnOf([fileChange(dir, [
+      { path: join(dir, 'a.txt'), kind: { type: 'add' }, diff: 'one\ntwo\nthree\n' },
+    ])]), startedAt: Date.now() }
+    assert.equal(await turnCommit(dir, turn), null)
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('proves a committed deletion without recorded contents and an empty added file', async () => {
+  const dir = await repo()
+  try {
+    const turn = { ...turnOf([fileChange(dir, [
+      { path: join(dir, 'gone.txt'), kind: { type: 'delete' }, diff: '' },
+      { path: join(dir, 'empty.txt'), kind: { type: 'add' }, diff: '' },
+    ])]), startedAt: Date.now() }
+    await rm(join(dir, 'gone.txt'))
+    await writeFile(join(dir, 'empty.txt'), '')
+    assert.equal(await turnCommit(dir, turn), null)
+    await git(dir, 'add', '.')
+    await git(dir, 'commit', '-qm', 'record deletion and empty file')
+    assert.equal(await turnCommit(dir, turn), (await git(dir, 'rev-parse', 'HEAD')).trim())
+  } finally { await rm(dir, { recursive: true, force: true }) }
 })

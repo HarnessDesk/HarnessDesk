@@ -4599,6 +4599,10 @@ export class AppStore {
   // ---------------------------------------------------------------- worktrees
 
   /** Raises the new-worktree dialog for a repository, or puts it away. */
+  askCommit(root: string | null): void {
+    this.#patch({ commitFor: root })
+  }
+
   askNewWorktree(root: string | null): void {
     this.#patch({ newWorktreeFor: root })
   }

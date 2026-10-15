@@ -512,6 +512,7 @@ export interface AppSnapshot {
    * the sidebar's worktree menu, a project's context menu, and ⌘K — and the
    * row that raised it is usually gone by the time it is answered.
    */
+  readonly commitFor: string | null
   readonly newWorktreeFor: string | null
   /**
    * A settings page something asked for by name, until the shell opens it.
@@ -912,6 +913,7 @@ const EMPTY: AppSnapshot = {
   agentPlans: new Map(),
   agentPlansFailed: false,
   seating: null,
+  commitFor: null,
   newWorktreeFor: null,
   settingsFor: null,
   settingsFocus: null,

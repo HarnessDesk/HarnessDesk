@@ -50,6 +50,7 @@ const rig = async (
   turn = TURN,
   pendingRevert?: Promise<TurnUndo>,
   redoAnswers: TurnUndo[] = [],
+  committed: string | null = null,
 ) => {
   let snapshot = { ...emptySnapshot(), status: 'open', activeSessionKey: KEY } as unknown as AppSnapshot
   const listeners = new Set<() => void>()
@@ -58,6 +59,7 @@ const rig = async (
     subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
     getSnapshot: () => snapshot,
     revertTurn,
+    transport: { request: vi.fn(async () => ({ sha: committed })) },
     redoTurn: vi.fn(async () => redoAnswers.shift() ?? { done: true, unrecoverable: false, partial: false }),
     setDetailsTab: vi.fn(),
     openFile: vi.fn(),
@@ -286,4 +288,27 @@ it('Review explicitly opens the first file in the owning conversation editor', a
   await act(async () => button('Review')!.click())
   expect((store as any).reviewEditorFiles).toHaveBeenCalledWith(KEY, CHANGES[0]!.path)
   expect(store.setDetailsTab).not.toHaveBeenCalled()
+})
+
+it('retires Undo for a committed turn while retaining Review', async () => {
+  await rig([], CHANGES, TURN, undefined, [], 'abcd1234567890')
+  expect(container.textContent).toContain('Committed abcd123')
+  expect(button('Undo')).toBeUndefined()
+  expect(button('Undo the rest')).toBeUndefined()
+  expect(button('Review')).toBeDefined()
+})
+
+it('keeps Undo for edits that have not been committed', async () => {
+  await rig([])
+  expect(button('Undo')).toBeDefined()
+  expect(container.textContent).not.toContain('Committed')
+})
+
+it('retires Undo when a commit made elsewhere is observed on window focus', async () => {
+  const { store } = await rig([])
+  expect(button('Undo')).toBeDefined()
+  vi.mocked(store.transport.request).mockResolvedValueOnce({ sha: 'beef123456' } as never)
+  await act(async () => window.dispatchEvent(new Event('focus')))
+  expect(container.textContent).toContain('Committed beef123')
+  expect(button('Undo')).toBeUndefined()
 })

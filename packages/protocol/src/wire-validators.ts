@@ -1095,6 +1095,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     value: optionValueValidator,
   }),
   'session/rollback': shape({ runtime: isString, sessionId: isString, turns: isNumber }),
+  'session/turnCommit': shape({ runtime: isString, sessionId: isString, turnId: isString }),
   'session/revertTurn': shape({
     runtime: isString,
     sessionId: isString,

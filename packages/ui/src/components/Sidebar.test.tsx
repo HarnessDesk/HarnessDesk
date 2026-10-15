@@ -23,12 +23,14 @@ let root: Root
 let newDraft: ReturnType<typeof vi.fn>
 let setWindowMode: ReturnType<typeof vi.fn>
 let loadHistory: ReturnType<typeof vi.fn>
+let askCommit: ReturnType<typeof vi.fn>
 
 beforeEach(() => {
   container = document.createElement('div')
   document.body.appendChild(container)
   root = createRoot(container)
   newDraft = vi.fn()
+  askCommit = vi.fn()
   loadHistory = vi.fn()
   setWindowMode = vi.fn()
 })
@@ -76,8 +78,8 @@ const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'teams' 
       [CODEX]: unavailableHealth,
     },
       workspace: {
-      path: '/workspace/repo',
-      git: { branch: 'main' },
+      path: '/workspace/repo', name: 'repo', lastOpenedAt: 1,
+      git: { branch: 'main', sha: 'abc1234' },
       } as AppSnapshot['workspace'],
       worktrees: [{ path: '/workspace/repo/.worktrees/topic', branch: 'topic', head: 'abc', isMain: false, managed: true }],
       ...overrides,
@@ -89,6 +91,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'teams' 
     loadHistory,
     searchHistory: vi.fn(async () => {}),
     newDraft,
+    askCommit,
     setWindowMode,
     loadWorktrees: vi.fn(async () => {}),
     loadAgents: vi.fn(async () => {}),
@@ -154,6 +157,16 @@ describe('Sidebar readiness with active runtime (#382)', () => {
     expect(row.hasAttribute('disabled') || row.getAttribute('aria-disabled') === 'true' || row.hasAttribute('data-disabled')).toBe(true)
     expect(row.textContent).toContain('Worktrees need a git repository.')
     expect(row.textContent).not.toContain('Its own checkout')
+  })
+
+  it('offers the existing commit flow before the first worktree', () => {
+    mount({ workspace: { path: '/workspace/repo', name: 'repo', lastOpenedAt: 1, git: { branch: 'main', sha: null } } as AppSnapshot['workspace'] })
+    act(() => container.querySelector<HTMLButtonElement>('button[title="More ways to start"]')!.click())
+    expect(document.body.textContent).toContain('Make a first commit to work in a worktree')
+    expect([...document.querySelectorAll('[role="menuitem"]')].some(row => row.textContent?.startsWith('New worktree…'))).toBe(false)
+    const commit = [...document.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent === 'Commit')!
+    act(() => commit.click())
+    expect(askCommit).toHaveBeenCalledWith('/workspace/repo')
   })
 
   it('shows no sessions empty state rather than connect runtime when active runtime is ready', () => {

@@ -100,10 +100,11 @@ export const status = async (root: string, signal?: AbortSignal): Promise<GitSta
     return null
   }
 
-  const [branch, porcelain, underway] = await Promise.all([
-    git(top, ['rev-parse', '--abbrev-ref', 'HEAD'], signal).then((out) => out.trim()).catch(() => null),
+  const [branch, porcelain, underway, headSha] = await Promise.all([
+    git(top, ['symbolic-ref', '--short', '-q', 'HEAD'], signal).then((out) => out.trim()).catch(() => null),
     git(top, ['status', '--porcelain=v1', '-z', '--untracked-files=normal'], signal).catch(() => ''),
     concluding(top, signal),
+    git(top, ['rev-parse', '--verify', 'HEAD'], signal).then((out) => out.trim()).catch(() => null),
   ])
 
   const files: GitFileStatus[] = []
@@ -140,6 +141,7 @@ export const status = async (root: string, signal?: AbortSignal): Promise<GitSta
 
   return {
     root: top,
+    headSha,
     branch: branch && branch !== 'HEAD' ? branch : null,
     ahead,
     behind,

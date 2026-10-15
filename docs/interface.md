@@ -262,7 +262,11 @@ docked panels, notices and the seat.
 in one click, just like ⌘N. The always-visible ⌄ beside it opens **More ways to
 start**: New Team… (⌘⇧N), New worktree… and any existing worktree. A
 worktree choice points the draft at that checkout; nothing is made on disk
-until its first message. New Team opens a searchable shape picker, then one
+until its first message. Before a repository has its first commit, New worktree…
+is replaced by **Make a first commit to work in a worktree**, with a **Commit**
+button that opens the existing commit flow. After that commit the normal
+worktree choice returns. This applies to the composer and project menu too.
+New Team opens a searchable shape picker, then one
 form for the task, roles and optional Done when. Just a Team opens a shared
 board without fixed steps. Change returns to the picker and keeps the draft.
 
@@ -679,6 +683,11 @@ signature on the first visible line, descriptions on the last. Nothing about it
 rides in the conversation: the agent is told, through its own instruction
 layer, to use the tools; the desk does the rest. Text a person writes
 themselves carries no signature.
+
+Once a turn's recorded edits are found in a commit, its changed-files card
+shows **Committed <short revision>** and hides Undo. Review remains available;
+undoing a commit belongs to the Repository pane. Edits without commit evidence
+keep the existing Undo and Redo actions.
 
 **Under every finished turn, a summary**: files changed (Review → Editor mode),
 commands run, tests passed or failed, what broke, and "waiting for your

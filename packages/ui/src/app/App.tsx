@@ -22,6 +22,7 @@ import { CommandPalette } from '../components/CommandPalette'
 import { FolderPicker } from '../components/FolderPicker'
 import { FrontDoor } from '../components/FrontDoor'
 import { resolveSection, type Section } from '../components/Settings'
+import { CommitDialog } from '../components/GitDialogs'
 import { NewWorktree } from '../components/NewWorktree'
 import { SeatSheet } from '../components/SeatSheet'
 import { RaceStart } from '../components/RaceStart'
@@ -419,6 +420,10 @@ export const App = () => {
       {foldersOpen && <FolderPicker onClose={() => setFoldersOpen(false)} />}
       {/* One mount for a dialog three places raise: the sidebar's worktree
           menu, a project's context menu, and ⌘K. */}
+      {snapshot.commitFor && <CommitDialog root={snapshot.commitFor} onDone={(done) => {
+        store.askCommit(null)
+        if (done) void store.loadWorkspaces()
+      }} />}
       {snapshot.newWorktreeFor && (
         <NewWorktree
           root={snapshot.newWorktreeFor}

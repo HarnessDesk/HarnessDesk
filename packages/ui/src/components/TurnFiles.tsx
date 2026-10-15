@@ -1,6 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
-import type { FileChange, Turn } from '@harnessdesk/protocol'
+import { splitSessionKey, type FileChange, type Turn } from '@harnessdesk/protocol'
 
 import { totalsByFile } from '../lib/turn-view'
 import { useSelect, useSessionKey, useStore } from '../state/context'
@@ -42,6 +42,25 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
   const key = useSessionKey()
   // Only this card's own flag, so closing one card re-renders one card.
   const closed = useSelect((snapshot) => key !== null && snapshot.closedTurnFiles.has(closedTurnFilesKey(key, turn.id)))
+  const revision = useSelect((snapshot) => snapshot.workspaces.find((entry) => entry.path === root)?.git?.sha ?? snapshot.workspace?.git?.sha)
+  const sessionState = useSelect((snapshot) => key ? snapshot.sessions.get(key)?.status.type : undefined)
+  const [committed, setCommitted] = useState<string | null>(null)
+  useEffect(() => {
+    let live = true
+    let sequence = 0
+    const read = async (): Promise<void> => {
+      if (!key || turn.status === 'inProgress') return
+      const request = ++sequence
+      try {
+        const { runtime, id: sessionId } = splitSessionKey(key)
+        const result = await store.transport.request('session/turnCommit', { runtime, sessionId, turnId: turn.id })
+        if (live && request === sequence) setCommitted(result.sha)
+      } catch { /* No evidence leaves the existing offer intact. */ }
+    }
+    void read()
+    window.addEventListener('focus', read)
+    return () => { live = false; window.removeEventListener('focus', read) }
+  }, [store, key, turn, root, revision, sessionState])
   const [busy, setBusy] = useState(false)
   const [reverted, setReverted] = useState(false)
   const [stoppedPartway, setStoppedPartway] = useState(false)
@@ -64,7 +83,7 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
       : 'Edited'
 
   const apply = async (direction: 'undo' | 'redo', skipUnrecoverable = false): Promise<void> => {
-    if (!key || busy) return
+    if (!key || busy || committed) return
     setBusy(true)
     try {
       const result =
@@ -100,11 +119,12 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
           <Text role="subject" className={styles.titleLine}>
             {one ? <MiddleTruncate>{`${verb} ${basename(one.path)}`}</MiddleTruncate> : `${verb} ${files.length} files`}{' '}
             <ChangeStats added={added} removed={removed} />
+            {committed && <Chip tone="neutral" size="sm">Committed {committed.slice(0, 7)}</Chip>}
             {reverted && <Chip tone="neutral" size="sm">put back</Chip>}
           </Text>
         </span>
         <span className={styles.actions}>
-          {turn.status !== 'inProgress' &&
+          {!committed && turn.status !== 'inProgress' &&
             (reverted ? (
               <Button
                 variant="quiet" size="sm" className={styles.action}
