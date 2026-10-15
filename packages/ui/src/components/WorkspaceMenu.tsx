@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 
 import { migratedRoots, projectGroupRootOf, type ProjectGroup } from '../lib/projects'
+import { projectMenuGit } from '../lib/project-menu-git'
 import { isPathInside } from '../lib/paths'
 import { captureForRoot, captureWords } from '../lib/provenance'
 import { isDesktop } from '../lib/desktop'
@@ -156,10 +157,7 @@ const WorkspaceRows = ({
   const ready = snapshot.health?.state === 'ready' || snapshot.health?.state === 'idle'
   // A repository is a precondition for a worktree. The group itself does not
   // know; its sessions do, and the open workspace knows for certain.
-  const isRepo = current
-    ? Boolean(snapshot.workspace?.git)
-    : Boolean(openEntry?.git) || group.sessions.some((summary) => Boolean(summary.git))
-  const git = (current ? snapshot.workspace : openEntry)?.git ?? group.sessions.find((session) => session.git)?.git
+  const { isRepo, git } = projectMenuGit(snapshot, actualRoot, current, openEntry, group)
   const count = group.sessions.length
   const sessionsWord = count === 1 ? '1 session' : `${count} sessions`
   /* How capture is going, for the repository this project is homed in. It is

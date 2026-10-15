@@ -538,6 +538,12 @@ export const turnCommit = async (root: string, turn: Turn): Promise<string | nul
     let found: string | null = null
     for (const sha of history) {
       try {
+        // Reversing a deletion can create a path that was never tracked.
+        // Every deletion needs history, whatever contents the agent recorded.
+        for (const { path } of located.filter(({ change }) => change.kind.type === 'delete')) {
+          const deletion = await read(['log', '--first-parent', ...since, '-1', '--diff-filter=D', '--format=%H', sha, '--', path])
+          if (!deletion.trim()) throw new Error('The deletion is not committed.')
+        }
         await read(['read-tree', sha])
         for (const patch of patchFiles) await read(['apply', '--cached', '-R', '--whitespace=nowarn', patch])
         for (const { path, change } of emptyFiles) {
@@ -545,9 +551,7 @@ export const turnCommit = async (root: string, turn: Turn): Promise<string | nul
             if (await read(['show', `:${path}`]) !== '') throw new Error('The added file is not empty.')
           } else {
             const present = await read(['ls-files', '--error-unmatch', '--', path]).then(() => true, () => false)
-            // Absence alone does not prove a deletion: history must record one.
-            const deletion = await read(['log', '--first-parent', ...since, '-1', '--diff-filter=D', '--format=%H', sha, '--', path])
-            if (present || !deletion.trim()) throw new Error('The deletion is not committed.')
+            if (present) throw new Error('The deletion is not committed.')
           }
         }
         found = sha

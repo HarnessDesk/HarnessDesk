@@ -9,6 +9,7 @@ import { promisify } from 'node:util'
 import { runtimeId, sessionId, turnId, type AgentItem, type FileChange, type Turn } from '@harnessdesk/protocol'
 
 import { status } from '../src/git.js'
+import { TranscriptStore } from '../src/transcripts.js'
 import { sessionMethods } from '../src/methods/sessions.js'
 import type { HostContext } from '../src/methods/context.js'
 import { DirtyTreeError, RevertError, applyTurn, checkout, listBranches, reapplyTurn, revertTurn, turnCommit } from '../src/git-ops.js'
@@ -531,3 +532,59 @@ test('the turn endpoint refuses committed Undo even from a card that has not ref
     assert.equal((await git(dir, 'status', '--porcelain')).trim(), '')
   } finally { await rm(dir, { recursive: true, force: true }) }
 })
+
+for (const aggregated of [false, true]) {
+  test(`an untracked deletion cannot prove a partial commit (aggregated=${aggregated})`, async () => {
+    const dir = await repo()
+    try {
+      const changes: FileChange[] = [
+        { path: join(dir, 'a.txt'), kind: { type: 'update' }, diff: '@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\n' },
+        { path: join(dir, 'never-tracked.txt'), kind: { type: 'delete' }, diff: 'local contents\n' },
+      ]
+      const patch = 'diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\ndiff --git a/never-tracked.txt b/never-tracked.txt\ndeleted file mode 100644\n--- a/never-tracked.txt\n+++ /dev/null\n@@ -1 +0,0 @@\n-local contents\n'
+      const turn = { ...turnOf([fileChange(dir, changes)], aggregated ? patch : undefined), startedAt: Date.now() }
+      await writeFile(join(dir, 'a.txt'), 'one\n2\nthree\n')
+      await git(dir, 'add', 'a.txt')
+      await git(dir, 'commit', '-qm', 'commit only tracked edit')
+      await writeFile(join(dir, 'staged.txt'), 'leave staged\n')
+      await git(dir, 'add', 'staged.txt')
+      const index = await readFile(join(dir, '.git', 'index'))
+      assert.equal(await turnCommit(dir, turn), null)
+      assert.deepEqual(await readFile(join(dir, '.git', 'index')), index)
+      assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'one\n2\nthree\n')
+      await assert.rejects(stat(join(dir, 'never-tracked.txt')))
+    } finally { await rm(dir, { recursive: true, force: true }) }
+  })
+}
+
+for (const released of [false, true]) {
+  test(`turn commit reads durable evidence without reopening a runtime (released=${released})`, async () => {
+    const dir = await repo()
+    const home = await mkdtemp(join(tmpdir(), 'hd-commit-stored-'))
+    const transcripts = new TranscriptStore(join(home, 'transcripts'))
+    try {
+      const runtime = runtimeId('demo')
+      const id = sessionId('stored-turn')
+      const turn = turnOf([fileChange(dir, [
+        { path: join(dir, 'a.txt'), kind: { type: 'update' }, diff: '@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\n' },
+      ])])
+      transcripts.record({ id, runtime, cwd: dir, status: { type: 'idle' }, createdAt: 1, updatedAt: 2, itemsLoaded: true, turns: [turn] })
+      const ctx = {
+        runtimes: { resolve: () => ({ info: { id: runtime } }) },
+        registry: { get: () => released ? undefined : { session: { cwd: dir, turns: [] } } },
+        transcripts,
+      } as unknown as HostContext
+      const params = { runtime, sessionId: id, turnId: turn.id }
+      await writeFile(join(dir, 'a.txt'), 'one\n2\nthree\n')
+      assert.deepEqual(await sessionMethods['session/turnCommit'](ctx, params), { sha: null })
+      await git(dir, 'add', '.')
+      await git(dir, 'commit', '-qm', 'record stored turn')
+      assert.deepEqual(await sessionMethods['session/turnCommit'](ctx, params), { sha: (await git(dir, 'rev-parse', 'HEAD')).trim() })
+      assert.deepEqual(await sessionMethods['session/turnCommit'](ctx, { ...params, turnId: turnId('unknown') }), { sha: null })
+    } finally {
+      await transcripts.close()
+      await rm(home, { recursive: true, force: true })
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+}

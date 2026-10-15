@@ -7071,6 +7071,7 @@ export class AppStore {
       this.#patch({
         workspace: this.#snapshot.workspace ? update(this.#snapshot.workspace) : null,
         workspaces: this.#snapshot.workspaces.map(update),
+        workspaceGitFacts: new Map(this.#snapshot.workspaceGitFacts).set(root, status ? { branch: status.branch, sha: status.headSha } : null),
       })
     } catch { /* Keep the last known facts when Git cannot be read. */ }
     finally {
