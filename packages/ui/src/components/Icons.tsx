@@ -469,8 +469,9 @@ export const ResponsiveIcon = icon(MonitorSmartphone, 'ResponsiveIcon')
 export const MobileIcon = icon(Smartphone, 'MobileIcon')
 export const TabletIcon = icon(Tablet, 'TabletIcon')
 export const DesktopIcon = icon(DesktopIconGlyph, 'DesktopIcon')
-/** Chromium's own inspector, on the page in the pane. */
+/** Editor mode: the file and code view beside a conversation. */
 export const EditorIcon = icon(FileCode2, 'EditorIcon')
+/** Chromium's own inspector, on the page in the pane. */
 export const DevToolsIcon = icon(Code, 'DevToolsIcon')
 /** The same thing, in a full window. */
 export const ExpandIcon = icon(Maximize2, 'ExpandIcon')
