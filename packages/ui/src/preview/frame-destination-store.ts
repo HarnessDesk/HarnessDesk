@@ -172,6 +172,9 @@ export const frameDestinationStore = (fixture: AppStore): AppStore => {
     if (method === 'provenance/status') return []
     if (method === 'runtime/catalog') return fixture.loadCatalog()
     if (method === 'runtime/apps/search') return {apps:[]}
+    // The frame's folder is deliberately outside Git; a menu read must not
+    // borrow the repository fixture used by the Changes pane.
+    if (method === 'git/status' && query.root === store.getSnapshot().workspace?.path && !store.getSnapshot().workspace?.git) return null
     if (method === 'worktree/list') return store.getSnapshot().worktrees
     if (method === 'git/branches') return fixture.listBranches(query.root)
     if (method === 'runtime/installs') return null
