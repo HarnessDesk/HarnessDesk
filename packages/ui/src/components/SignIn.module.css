@@ -162,3 +162,5 @@
 .grow {
   flex: 1;
 }
+
+.unclassifiedGateProbe { speak: never; }

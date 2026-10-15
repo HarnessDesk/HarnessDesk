@@ -54,17 +54,18 @@ it('offers the selected attempt as a merge and answers only after Git succeeds',
   await act(async () => button('Merge Attempt B into main…').click())
   expect(r.decideFlowReview).not.toHaveBeenCalled()
   await act(async () => button('Merge').click())
-  expect(r.request).toHaveBeenCalledWith('git/merge', { root: '/code/project', ref: SHAPE_REV[1], expectedBranch: 'main' })
-  expect(r.decideFlowReview).toHaveBeenCalledWith('run-comparison', 6, 'candidate-2', 'merged', 'main')
+  expect(r.request.mock.calls.some(([method]) => method === 'git/merge')).toBe(false)
+  expect(r.decideFlowReview).toHaveBeenCalledWith('run-comparison', 6, 'candidate-2', 'merged', 'main', true)
   expect(r.onClose).toHaveBeenCalledOnce()
 })
 
 it('leaves conflicts unanswered', async () => {
-  const r = await rig({ summary: 'Resolve attempt.txt', conflicts: ['attempt.txt'] })
+  const r = await rig()
+  r.decideFlowReview.mockRejectedValueOnce(new Error('Merging hit 1 conflict; resolve attempt.txt.'))
   await r.choose()
   await act(async () => button('Merge Attempt B into main…').click())
   await act(async () => button('Merge').click())
-  expect(r.decideFlowReview).not.toHaveBeenCalled()
+  expect(document.body.textContent).toContain('resolve attempt.txt')
   expect(r.onClose).not.toHaveBeenCalled()
 })
 
@@ -84,4 +85,40 @@ it('keeps a person judge’s pick separate from the merge', async () => {
   await act(async () => button('Record answer').click())
   expect(r.decideFlowReview).toHaveBeenCalledWith('run-comparison', 6, 'candidate-2', 'picked')
   expect(r.request.mock.calls.some(([method]) => method === 'git/merge')).toBe(false)
+})
+
+it('uses a newly offered token after the chooser has been open past candidate expiry', async () => {
+  const r = await rig()
+  await r.choose()
+  vi.mocked(r.store.flowReviewCandidates).mockResolvedValueOnce([
+    { id: 'fresh-candidate-2', card: 2, at: SHAPE_REV[1]!, branch: 'lane-2', evidence: [] },
+  ])
+  await act(async () => button('Merge Attempt B into main…').click())
+  await act(async () => button('Merge').click())
+  expect(r.decideFlowReview).toHaveBeenCalledWith('run-comparison', 6, 'fresh-candidate-2', 'merged', 'main', true)
+  expect(r.request.mock.calls.some(([method]) => method === 'git/merge')).toBe(false)
+  expect(r.onClose).toHaveBeenCalledOnce()
+})
+
+it('refreshes the selected token for a manual merge too', async () => {
+  const r = await rig()
+  await r.choose()
+  vi.mocked(r.store.flowReviewCandidates).mockResolvedValueOnce([
+    { id: 'fresh-manual', card: 2, at: SHAPE_REV[1]!, branch: 'lane-2', evidence: [] },
+  ])
+  await act(async () => button('I merged it').click())
+  expect(r.decideFlowReview).toHaveBeenCalledWith('run-comparison', 6, 'fresh-manual', 'merged', 'main')
+})
+
+it('refuses a refreshed attempt that has changed without issuing a merge', async () => {
+  const r = await rig()
+  await r.choose()
+  vi.mocked(r.store.flowReviewCandidates).mockResolvedValueOnce([
+    { id: 'changed', card: 2, at: SHAPE_REV[0]!, branch: 'lane-2', evidence: [] },
+  ])
+  await act(async () => button('Merge Attempt B into main…').click())
+  await act(async () => button('Merge').click())
+  expect(r.decideFlowReview).not.toHaveBeenCalled()
+  expect(r.onClose).not.toHaveBeenCalled()
+  expect(document.body.textContent).toContain('attempt changed')
 })

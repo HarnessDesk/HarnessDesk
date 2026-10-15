@@ -409,3 +409,24 @@ test('a field the reader would refuse, other than `against`, is caught by the sa
   )
   assert.equal(port.facts_.get('goal-1'), undefined, 'nothing was appended')
 })
+
+test('a fresh person candidate completes after the original token expires, even if verification takes time', async () => {
+  const port = new FakePort()
+  port.personBindings.set('run-1\u00005', {
+    goal: 'goal-1', seat: PERSON_REVIEWER_ID, answers: ['merged'], round: 4,
+    subjects: [{ card: 7, round: 2, checkout: { cwd: '/repo/attempt', branch: 'attempt-one' }, at: SHA_A }],
+  })
+  const review = new FlowReview(port)
+  const [expired] = await review.personCandidates('run-1', 5)
+  port.now_ += 11 * 60_000
+  let verified = 0, answered = 0
+  const verify = async () => { verified++; port.now_ += 11 * 60_000 }
+  const answer = async () => { answered++ }
+  await assert.rejects(review.decidePerson('goal-1', 'run-1', 5, expired!.id, 'merged', answer, verify), /no longer being offered/)
+  assert.equal(verified, 0, 'an expired token cannot trigger a merge')
+  const [fresh] = await review.personCandidates('run-1', 5)
+  await review.decidePerson('goal-1', 'run-1', 5, fresh!.id, 'merged', answer, verify)
+  assert.equal(verified, 1)
+  assert.equal(answered, 1)
+  assert.equal(port.facts_.get('goal-1')?.length, 1)
+})

@@ -134,6 +134,8 @@ export interface FlowPort {
   canMutateBoard?(goal: string): { ok: true } | { ok: false; reason: string }
   /** Reads Git on the Goal's destination; never accepts a renderer's merge receipt. */
   verifyPersonMerge?(goal: string, revision: string, expectedBranch: string): Promise<{ readonly branch: string; readonly commit: string }>
+  /** Merges only after preparation revalidates the subject and its final live-state check allows it. */
+  mergePersonAttempt?(goal: string, revision: string, expectedBranch: string, prepare: () => Promise<() => void>): Promise<{ readonly branch: string; readonly commit: string }>
   /**
    * Runs a check's command. Resolves with its exit status, or null if it ran
    * over. `card` says which card and round it is for, so the desk can record
@@ -429,14 +431,37 @@ export class Flows implements TeamFlows {
   }
 
   /** Records the pick, then answers the person's card through the Board's own Team action. */
-  async decidePersonReview(run: string, card: number, candidate: string, verdict: string, expectedBranch?: string): Promise<FlowExecution> {
+  async decidePersonReview(run: string, card: number, candidate: string, verdict: string, expectedBranch?: string, merge = false): Promise<FlowExecution> {
     if (!this.#review) throw new Error('Runs on Goals are not available on this desk.')
     const stored = this.#executions?.stored(run)
     if (!stored) throw new Error(`There is no flow run ${run}.`)
+    if (merge && verdict !== 'merged') throw new Error('Only a merged answer can perform a merge.')
     let context: string | undefined
     const verify = async (picked: ReviewCandidate): Promise<void> => {
       if (!expectedBranch || !this.#port.verifyPersonMerge) throw new Error('Choose a destination branch before verifying the merge.')
-      const merged = await this.#port.verifyPersonMerge(stored.goal, picked.at, expectedBranch)
+      const binding = merge ? await this.personReviewBinding(run, card) : null
+      const subject = binding?.subjects.find(one => one.card === picked.card && one.at === picked.at && one.checkout.branch === picked.branch)
+      const prepare = async (): Promise<() => void> => {
+        const fresh = await this.personReviewBinding(run, card)
+        if (!binding || !subject || !fresh || fresh.round !== binding.round || !fresh.subjects.some(one =>
+          one.card === subject.card && one.at === subject.at && one.round === subject.round &&
+          one.checkout.cwd === subject.checkout.cwd && one.checkout.branch === subject.checkout.branch)) {
+          throw new Error('This step or its attempt changed. Reopen the question before merging.')
+        }
+        return () => {
+          const execution = this.executionOf(run)
+          const intent = this.#team.stateFor(stored.goal).intents.find(one => one.id === card)
+          const allowed = this.#port.canMutateBoard?.(stored.goal)
+          if (allowed?.ok === false || execution?.state !== 'running' || intent?.state !== 'open' ||
+            !execution.rounds.some(one => one.n === binding.round && one.state === 'running' && one.cards.includes(card))) {
+            throw new Error('This person merge step is no longer waiting for an answer.')
+          }
+        }
+      }
+      if (merge && !this.#port.mergePersonAttempt) throw new Error('This desk cannot merge the picked attempt.')
+      const merged = merge
+        ? await this.#port.mergePersonAttempt!(stored.goal, picked.at, expectedBranch, prepare)
+        : await this.#port.verifyPersonMerge(stored.goal, picked.at, expectedBranch)
       context = JSON.stringify({ comparisonMerge: { version: 1, run, card: picked.card, revision: picked.at, ...merged, at: now() } })
     }
     return this.#review.decidePerson(stored.goal, run, card, candidate, verdict, async () => {

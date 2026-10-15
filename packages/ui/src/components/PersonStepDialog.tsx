@@ -57,14 +57,20 @@ export const PersonStepDialog = ({ room, intent, role, mode, onClose }: {
     })
     return () => { live = false }
   }, [store, role.run, intent.id, mode])
-  const confirmReview = async (): Promise<void> => {
+  const confirmReview = async (merge = false): Promise<void> => {
     if (saving.current || !reviewDialog.answer || (reviewDialog.mode === 'review' && !reviewDialog.selected) || isRecord(store.getSnapshot().goals.get(room))) return
     if (mergeAnswer && !refs?.branch) return
     saving.current = true
     setReviewDialog({ ...reviewDialog, pending: true, error: null })
     try {
       if (reviewDialog.mode === 'answer') await store.teamIntent(room, intent.id, 'done', undefined, reviewDialog.answer)
-      else if (mergeAnswer) await store.decideFlowReview(reviewDialog.run, intent.id, reviewDialog.selected!, reviewDialog.answer, refs!.branch!)
+      else if (mergeAnswer) {
+        const candidates = await store.flowReviewCandidates(reviewDialog.run, intent.id)
+        const fresh = candidates.find(one => one.card === selected?.card && one.at === selected.at && one.branch === selected.branch)
+        if (!fresh) throw new Error('This step or its attempt changed. Reopen the question before merging.')
+        if (merge) await store.decideFlowReview(reviewDialog.run, intent.id, fresh.id, reviewDialog.answer, refs!.branch!, true)
+        else await store.decideFlowReview(reviewDialog.run, intent.id, fresh.id, reviewDialog.answer, refs!.branch!)
+      }
       else await store.decideFlowReview(reviewDialog.run, intent.id, reviewDialog.selected!, reviewDialog.answer)
       onClose()
     } catch (error) {
@@ -81,16 +87,7 @@ export const PersonStepDialog = ({ room, intent, role, mode, onClose }: {
 
   if (gitDialog === 'merge' && root && refs && selected) return <MergeDialog
     root={root} refs={refs} fixedRef={selected.at} expectedBranch={refs.branch ?? undefined}
-    beforeMerge={async () => {
-      if (isRecord(store.getSnapshot().goals.get(room))) throw new Error(RECORD_REASON)
-      // Refresh candidates before Git is allowed to change the destination.
-      const candidates = await store.flowReviewCandidates(reviewDialog.run, intent.id)
-      if (!candidates.some(one => one.card === selected.card && one.at === selected.at)) throw new Error('This step or its attempt changed. Reopen the question before merging.')
-    }}
-    onMerged={async outcome => {
-      if (!outcome.merged || outcome.merged.branch !== refs.branch) throw new Error('The merge destination could not be confirmed. Check Changes before recording the answer.')
-      await confirmReview()
-    }}
+    performMerge={() => confirmReview(true)}
     onDone={() => setGitDialog(null)}
   />
   if (gitDialog === 'diff' && root && refs?.headSha && selected) return <DiffRangeDialog root={root} from={refs.headSha} to={selected.at} onDone={() => setGitDialog(null)} />

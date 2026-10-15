@@ -152,7 +152,7 @@ import { planOverlay } from './usage/plan-merge.js'
 import { CredentialBroker, plainCipher, type CredentialCipher } from './credentials.js'
 import * as gitService from './git.js'
 import * as gitOps from './git-ops.js'
-import { verifyMerge } from './git-actions.js'
+import { mergeVerified, verifyMerge } from './git-actions.js'
 import { canonicalDestination } from './git-worktree.js'
 import { canonicalPath, withCanonicalPaths } from './path-identity.js'
 import { dropFlowBase, fetchFlowBase } from './flow-base.js'
@@ -1304,6 +1304,11 @@ export class Host {
       now: () => Date.now(),
     })
     this.#flows = new Flows(join(this.#state.directory, 'flows'), this.#team, {
+      mergePersonAttempt: async (goal, revision, expectedBranch, prepare) => {
+        const state = this.#goalState(goal)
+        const root = await this.#confineGitRoot(state.cwd ?? state.root)
+        return mergeVerified(root, revision, expectedBranch, prepare)
+      },
       verifyPersonMerge: async (goal, revision, expectedBranch) => {
         const state = this.#goalState(goal)
         return verifyMerge(state.cwd ?? state.root, revision, expectedBranch)
