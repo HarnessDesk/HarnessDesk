@@ -35,6 +35,14 @@ test('rail and swap preferences survive reading valid pane intents', () => {
   expect(toolOf('terminal')).toBe('terminal')
 })
 
+test('Editor reload retains its prior expanded pane, rail preference and cached mount', () => {
+  const stored = { subject: {
+    tool: 'conversation', mode: 'conversation', open: true, railOpen: true,
+    beforeEditor: { tool: 'files', mode: 'file', open: true, railOpen: false, expanded: true, mount: 'prior-file' },
+  } }
+  expect(readToolIntents(JSON.parse(JSON.stringify(stored)))).toEqual(stored)
+})
+
 test('a terminal tool retains the process cache and reveals its captured subject', () => {
   const before = emptyWorkbench()
   const admitted = admitFixedTool(before, { kind: 'terminal', terminalId: 'fixture-pty', runtime: runtimeId('fixture'), cwd: '/repo' })!

@@ -73,8 +73,11 @@ export const readToolIntents = (raw: unknown): Readonly<Record<string, ToolInten
     const pureDetails = tool === 'details' && record.mode === 'details'
     const open = !pureDetails && record.open === true
     const rawPrior = record.beforeEditor as Record<string, unknown> | undefined
-    const prior = rawPrior && typeof rawPrior === 'object' ? readToolIntents({ prior: { tool: rawPrior.tool, mode: rawPrior.mode, open: rawPrior.open } }).prior : undefined
-    const beforeEditor = prior && prior.tool !== 'conversation' ? { tool: prior.tool, mode: prior.mode, open: prior.open, ...(typeof rawPrior?.mount === 'string' ? { mount: rawPrior.mount } : {}) } : undefined
+    const prior = rawPrior && typeof rawPrior === 'object' ? readToolIntents({ prior: {
+      tool: rawPrior.tool, mode: rawPrior.mode, open: rawPrior.open,
+      railOpen: rawPrior.railOpen, expanded: rawPrior.expanded,
+    } }).prior : undefined
+    const beforeEditor = prior && prior.tool !== 'conversation' ? { ...prior, ...(typeof rawPrior?.mount === 'string' ? { mount: rawPrior.mount } : {}) } : undefined
     return tool && validMode && typeof record.mode === 'string' && typeof record.open === 'boolean'
       ? [[key, { tool, mode: record.mode, open,
         ...(typeof record.railOpen === 'boolean' ? { railOpen: record.railOpen } : pureDetails ? { railOpen: record.open } : {}),
