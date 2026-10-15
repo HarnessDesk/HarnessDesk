@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
-import { execFileSync } from 'node:child_process'
+import childProcess, { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
-import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes, writeFile } from 'node:fs/promises'
+import { chmod, lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { syncBuiltinESMExports } from 'node:module'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { test } from 'node:test'
@@ -46,6 +47,86 @@ async function fixture(fn: (root: string, repo: string, commit: string) => Promi
   } finally { await rm(root, { recursive: true, force: true }) }
 }
 const sources = (root: string, repo: string, extra: ConstructorParameters<typeof LibrarySources>[1] = {}) => new LibrarySources(join(root, 'library'), { transport: () => ({ url: pathToFileURL(repo).href, protocol: 'file' }), ...extra })
+
+test('Git uses an empty temporary home instead of inherited credential locations', async (t) => {
+  await fixture(async (root, repo) => {
+    const home = join(root, 'home')
+    await mkdir(home)
+    await writeFile(join(home, '.netrc'), 'machine github.com login demo password placeholder\n')
+    const keys = ['HOME', 'USERPROFILE', 'CURL_HOME', 'XDG_CONFIG_HOME', 'NETRC'] as const
+    const previous = keys.map(key => process.env[key])
+    const calls: NodeJS.ProcessEnv[] = []
+    const spawn = childProcess.spawn
+    const spy = t.mock.method(childProcess, 'spawn', (...args: Parameters<typeof spawn>) => {
+      calls.push({ ...args[2]?.env })
+      return spawn(...args)
+    })
+    syncBuiltinESMExports()
+    try {
+      for (const key of keys) process.env[key] = key === 'NETRC' ? join(home, '.netrc') : home
+      assert.equal((await sources(root, repo).fetch({ url: URL })).skills.length, 1)
+      assert.ok(calls.length > 1)
+      for (const env of calls) {
+        assert.ok(env['HOME']?.startsWith(join(root, 'library/sources/.tmp-')), 'Git must use its own temporary home')
+        for (const key of ['USERPROFILE', 'CURL_HOME', 'XDG_CONFIG_HOME']) assert.equal(env[key], env['HOME'], key)
+        assert.equal(env['NETRC'], undefined)
+      }
+    } finally {
+      spy.mock.restore()
+      syncBuiltinESMExports()
+      keys.forEach((key, index) => { if (previous[index] === undefined) delete process.env[key]; else process.env[key] = previous[index] })
+    }
+  })
+})
+
+test('discovery caps candidates before repeated listing scans', async (t) => {
+  const entries = Object.fromEntries(Array.from({ length: 120 }, (_, index) => [`skill-${String(index).padStart(3, '0')}/SKILL.md`, { body: BODY }]))
+  await fixture(async (root, repo) => {
+    let comparisons = 0
+    const startsWith = String.prototype.startsWith
+    const spy = t.mock.method(String.prototype, 'startsWith', function (this: string, prefix: string, position?: number) {
+      if (/^skill-\d+\/$/.test(prefix)) comparisons++
+      return startsWith.call(this, prefix, position)
+    })
+    try {
+      const result = await sources(root, repo, { maxSkills: 2 }).fetch({ url: URL })
+      assert.equal(result.skills.length, 2)
+      assert.equal(result.refused.length, 118)
+      assert.ok(result.refused.every(one => /skills limit/.test(one.reason)))
+      assert.ok(comparisons < 120 * 10, `Expected bounded listing scans, got ${comparisons} comparisons`)
+    } finally { spy.mock.restore() }
+  }, entries)
+})
+
+test('a nested cached skill can be completed by fetching its parent', async () => {
+  await fixture(async (root, repo) => {
+    const reader = sources(root, repo)
+    const narrow = await reader.fetch({ url: URL, path: 'parent/child' })
+    const broad = await reader.fetch({ url: URL })
+    assert.deepEqual(broad.skills.map(one => one.dir), ['parent', 'parent/child'])
+    assert.equal(broad.skills[1]?.bundle, narrow.skills[0]?.bundle)
+    assert.equal(await readFile(join(broad.skills[0]!.sourcePath, 'run.sh'), 'utf8'), 'echo parent\n')
+    assert.equal((await lstat(join(broad.skills[0]!.sourcePath, 'run.sh'))).mode & 0o777, 0o755)
+    assert.deepEqual((await reader.fetch({ url: URL })).skills, broad.skills)
+  }, { 'parent/SKILL.md': { body: BODY }, 'parent/run.sh': { mode: '100755', body: 'echo parent\n' }, 'parent/child/SKILL.md': { body: BODY } })
+})
+
+test('completing a parent refuses changed nested bytes, modes, extra paths and links before writing', async () => {
+  for (const change of ['bytes', 'mode', 'extra file', 'extra directory', 'link']) {
+    await fixture(async (root, repo) => {
+      const reader = sources(root, repo)
+      const nested = (await reader.fetch({ url: URL, path: 'parent/child' })).skills[0]!.sourcePath
+      const definition = join(nested, 'SKILL.md')
+      if (change === 'bytes') await writeFile(definition, BODY.replace('Read', 'Edit'))
+      else if (change === 'mode') await chmod(definition, 0o755)
+      else if (change === 'extra file') await writeFile(join(nested, 'extra'), 'extra')
+      else if (change === 'extra directory') await mkdir(join(nested, 'extra'))
+      else { await rm(definition); await symlink(join(root, 'elsewhere'), definition) }
+      await assert.rejects(reader.fetch({ url: URL }), /changed/, change)
+      await assert.rejects(lstat(join(nested, '../SKILL.md')), { code: 'ENOENT' }, change)
+    }, { 'parent/SKILL.md': { body: BODY }, 'parent/child/SKILL.md': { body: BODY } })
+  }
+})
 
 test('resolve HEAD, branch, slash branch, peeled tag, and full commit; copy bytes and modes without checkout', async () => {
   await fixture(async (root, repo, commit) => {

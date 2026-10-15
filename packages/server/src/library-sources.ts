@@ -60,9 +60,9 @@ export class LibrarySources {
       finally { measurement = undefined }
     })()
     const monitor = setInterval(() => { void measure() }, 25)
-    // Do not inherit GIT_CONFIG_COUNT, object directories, or a caller's repository.
-    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_')))
-    Object.assign(env, { GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '' })
+    // Do not inherit repository settings or home-based credentials such as .netrc.
+    const env = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith('GIT_') && key !== 'NETRC'))
+    Object.assign(env, { HOME: tmp, USERPROFILE: tmp, CURL_HOME: tmp, XDG_CONFIG_HOME: tmp, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null', GIT_TERMINAL_PROMPT: '0', GIT_ASKPASS: '', SSH_ASKPASS: '' })
     const git = (args: string[], input?: Buffer, maxOutput = 8 * 1024 * 1024): Promise<Buffer> => new Promise((done, fail) => {
       if (controller.signal.aborted) { fail(controller.signal.reason); return }
       const child = spawn('git', [
@@ -149,6 +149,10 @@ export class LibrarySources {
       const refused: { dir: string; reason: string }[] = directories.size ? [] : [{ dir: base, reason: 'No SKILL.md at the directory root or within four levels.' }]
       let discovered = 0
       for (const dir of [...directories].sort()) {
+        if (++discovered > (this.options.maxSkills ?? 50)) {
+          refused.push({ dir, reason: 'The fetch exceeds the 50 skills limit.' })
+          continue
+        }
         const files = entries.filter(entry => dir === '' || entry.path.startsWith(`${dir}/`)).map(entry => ({ ...entry, path: dir ? entry.path.slice(dir.length + 1) : entry.path }))
         let reason: string | undefined
         const linked = files.find(entry => entry.mode === '120000' || entry.mode === '160000')
@@ -162,7 +166,6 @@ export class LibrarySources {
         if (files.length > (this.options.maxBundleFiles ?? MAX_BUNDLE_FILES)) reason ??= `The skill exceeds the ${this.options.maxBundleFiles ?? MAX_BUNDLE_FILES} files limit.`
         const bytes = files.reduce((sum, entry) => sum + entry.size, 0)
         if (bytes > (this.options.maxBundleBytes ?? MAX_BUNDLE_BYTES)) reason ??= `The skill exceeds the ${this.options.maxBundleBytes ?? MAX_BUNDLE_BYTES} bytes limit (20 MB by default).`
-        if (++discovered > (this.options.maxSkills ?? 50)) reason ??= 'The fetch exceeds the 50 skills limit.'
         if (reason) { refused.push({ dir, reason }); continue }
         // One batch per accepted skill, with lengths from ls-tree checked again.
         const blobs = await git(['cat-file', '--batch'], Buffer.from(files.map(file => file.oid).join('\n') + '\n'), bytes + files.length * 128)
@@ -206,8 +209,9 @@ export class LibrarySources {
 
   async #write(destination: string, root: string, files: readonly File[]): Promise<void> {
     await this.#directory(destination, root)
-    // Reuse only an unchanged complete skill, including its file list and modes.
-    const existing: File[] = []
+    // Verify all existing bytes and modes before completing a partially cached
+    // parent whose nested skill was fetched earlier. Extra paths are refused.
+    const existing = new Set<string>()
     const walk = async (dir: string): Promise<void> => {
       for (const entry of await readdir(dir, { withFileTypes: true })) {
         const path = join(dir, entry.name)
@@ -218,7 +222,7 @@ export class LibrarySources {
         else if (entry.isFile()) {
           const name = relative(destination, path)
           const expected = files.find(file => file.path === name)
-          if (!expected || existing.length >= files.length) throw new Error('The fetched copy changed — fetch again.')
+          if (!expected) throw new Error('The fetched copy changed — fetch again.')
           const handle = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
           try {
             const stats = await handle.stat()
@@ -230,19 +234,16 @@ export class LibrarySources {
               if (!chunk.bytesRead) break
               read += chunk.bytesRead
             }
-            if (read !== expected.bytes.length) throw new Error('The fetched copy changed — fetch again.')
-            existing.push({ path: name, bytes: bytes.subarray(0, read), mode: stats.mode & 0o777 })
+            if (read !== expected.bytes.length || !bytes.subarray(0, read).equals(expected.bytes) || (stats.mode & 0o777) !== expected.mode) throw new Error('The fetched copy changed — fetch again.')
+            existing.add(name)
           } finally { await handle.close() }
         }
         else throw new Error('The fetched copy changed — fetch again.')
       }
     }
     await walk(destination)
-    if (existing.length) {
-      if (bundleDigest(existing) !== bundleDigest(files) || existing.some(file => file.mode !== files.find(one => one.path === file.path)?.mode)) throw new Error('The fetched copy changed — fetch again.')
-      return
-    }
     for (const file of files) {
+      if (existing.has(file.path)) continue
       const path = join(destination, file.path)
       await this.#directory(dirname(path), root)
       if (!within(await realpath(dirname(path)), await realpath(root))) throw new Error('The fetched destination is outside sources.')
