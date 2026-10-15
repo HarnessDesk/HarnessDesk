@@ -2820,11 +2820,9 @@ export class AppStore {
   }
 
   /**
-   * Opens the race dialog on the typed task — dialog state only. It no
-   * longer picks the other installed runtime or creates two drafts itself:
-   * `RaceStart` chooses one Agent and two explicit, isolated seats, then
-   * starts the ordinary `comparison` flow through `flow/start-goal`, the
-   * same single-Goal path every other flow start takes.
+   * Opens New Team on Side by side with the typed task — dialog state only.
+   * `RaceStart` delegates to the ordinary form and its source-bound preview;
+   * starting creates one Team through the same `flow/start-goal` path.
    */
   async raceAgents(text: string): Promise<void> {
     this.#patch({ raceStart: { task: text } })

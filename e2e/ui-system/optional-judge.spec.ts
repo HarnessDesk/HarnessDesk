@@ -31,11 +31,11 @@ test('Side by side defaults to You and allows either attempt’s provider to jud
 
 test('/race defaults to You and offers both providers as judges', async ({ page }) => {
   await page.goto('/preview.html?optional-judge')
-  const judge = page.getByRole('combobox', { name: 'Judge · optional', exact: true })
+  const judge = page.getByRole('combobox', { name: 'Agent for Judge', exact: true })
   await expect(judge.locator('option:checked')).toHaveText('You')
-  await judge.selectOption('alpha')
+  await judge.selectOption('codex')
   await expect(judge.locator('option:checked')).toHaveText('Runtime 1')
-  await judge.selectOption('beta')
+  await judge.selectOption('claude-code')
   await expect(judge.locator('option:checked')).toHaveText('Runtime 2')
   await judge.selectOption('')
   await expect(judge.locator('option:checked')).toHaveText('You')

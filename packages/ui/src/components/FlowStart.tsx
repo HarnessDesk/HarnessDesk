@@ -51,12 +51,13 @@ export interface FlowStartProps {
   readonly onChange: (choice: FlowChoice | null) => void
   /** A Run's exact saved text and inputs, rather than the current catalogue file. */
   readonly initial?: { readonly source: string; readonly vars: Readonly<Record<string, string>> } & FlowRunOptions
+  readonly onStatus?: (status: string | null) => void
   readonly team?: TeamFormProps
 }
 
 export const FlowStart = (props: FlowStartProps) => props.team ? <TeamForm {...props.team} /> : <FlowStartContents {...props} />
 
-const FlowStartContents = ({ root, disabled, onChange, initial, continues }: FlowStartProps) => {
+const FlowStartContents = ({ root, disabled, onChange, initial, continues, onStatus }: FlowStartProps) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const [entries, setEntries] = useState<readonly FlowEntry[] | null>(null)
@@ -87,7 +88,8 @@ const FlowStartContents = ({ root, disabled, onChange, initial, continues }: Flo
   const readingBrief = useCallback((reading: boolean): void => {
     briefReading.current = reading
     onChange(reading ? null : checkedChoice.current)
-  }, [onChange])
+    onStatus?.(reading ? 'Reading the attached brief…' : checkedChoice.current ? null : 'Checking the earlier Run’s seats and inputs…')
+  }, [onChange, onStatus])
 
   useEffect(() => {
     let live = true
@@ -120,6 +122,7 @@ const FlowStartContents = ({ root, disabled, onChange, initial, continues }: Flo
       const mine = ++sequence.current
       const generation = store.flowGeneration()
       reportChoice(null)
+      onStatus?.('Checking the earlier Run’s seats and inputs…')
       setProblem(null)
       try {
         const options = initial ? { seats: nextSeats, attended: initial.attended, ...(continues ? { continues } : {}) } : undefined
@@ -143,13 +146,16 @@ const FlowStartContents = ({ root, disabled, onChange, initial, continues }: Flo
           }
         }
         setPreview(dry)
+        onStatus?.(startable(dry) ? null : dry.problems.find(one => one.level === 'error')?.text ?? 'Resolve the dry-run requirements first.')
         if (startable(dry)) reportChoice({ source: text, token: dry.token!, vars: nextVars, ...options })
       } catch (error) {
         if (mine !== sequence.current) return
-        setProblem(error instanceof Error ? error.message : 'That flow could not be checked.')
+        const text = error instanceof Error ? error.message : 'That flow could not be checked.'
+        setProblem(text)
+        onStatus?.(text)
       }
     },
-    [reportChoice, root, store, seats, initial, continues],
+    [reportChoice, root, store, seats, initial, continues, onStatus],
   )
 
   useEffect(() => {
@@ -262,7 +268,7 @@ const FlowStartContents = ({ root, disabled, onChange, initial, continues }: Flo
           </NativeSelect>
         )}
       </Field>}
-      {initial && (document?.flow.name || !preview) && <Text role="subject">{document?.flow.name || 'Reading the earlier Run’s Flow…'}</Text>}
+      {initial && (document?.flow.name || !preview && !onStatus) && <Text role="subject">{document?.flow.name || 'Reading the earlier Run’s Flow…'}</Text>}
 
       {problem && <ActionError>That flow could not be read. {problem}</ActionError>}
 

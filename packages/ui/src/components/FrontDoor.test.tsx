@@ -59,13 +59,13 @@ const EXECUTION: FlowExecution = {
   rounds: [], operations: [], legacyRun: null, reason: null,
 }
 
-const render = (store: AppStore, context: import('@harnessdesk/protocol').StartContext = { kind: 'project', root: '/repo' }) => {
+const render = (store: AppStore, context: import('@harnessdesk/protocol').StartContext = { kind: 'project', root: '/repo' }, initial?: import('./FrontDoor').FrontDoorProps['initial'], initialTask?: string) => {
   const onClose = vi.fn()
   const onStarted = vi.fn()
   act(() => {
     root.render(
       <StoreProvider store={store}>
-        <FrontDoor context={context} onClose={onClose} onStarted={onStarted} />
+        <FrontDoor context={context} initial={initial} initialTask={initialTask} onClose={onClose} onStarted={onStarted} />
       </StoreProvider>,
     )
   })
@@ -924,4 +924,60 @@ it.each(['catalogue', 'create'])('Just a Team recovers a %s refusal and keeps th
   expect(create).toHaveBeenLastCalledWith({ root: '/work/storefront', sentence: 'The cause is documented', checkout: 'isolated' })
   expect(add).toHaveBeenCalledWith('team-1', { title: 'Investigate the cart' })
   expect(onClose).toHaveBeenCalledOnce()
+})
+
+
+it.each([['alpha', 'beta', false], ['beta', 'beta', false], ['alpha', 'beta', true]] as const)('prefills a comparison with signed-in attempts %s and %s, delayed accounts %s', async (first, second, delayed) => {
+  const { TEAM_START_POLICIES } = await import('../preview/team-start-fixture')
+  const store = new AppStore('ws://localhost:0/')
+  Object.assign(store.getSnapshot(), {
+    runtimes: ['out', 'alpha', 'beta'].map(id => ({ id, presentation: { name: `Agent ${id}` }, capabilities: {} })),
+    accountsByRuntime: delayed ? {} : { out: { accounts: [] }, alpha: { accounts: first === 'alpha' ? [{ kind: 'opaque' }] : [] }, beta: { accounts: [{ kind: 'opaque' }] } },
+  })
+  const accountReads: (() => void)[] = []
+  const spy = requestSpy(store, {
+    'flow/catalog': () => [ENTRY('comparison', 'Side by side')], 'agent/list': () => [], 'runtime/models': () => [],
+    'runtime/account': params => new Promise(resolve => { accountReads.push(() => resolve({ accounts: (params as { runtime: string }).runtime === 'out' ? [] : [{ kind: 'opaque', label: 'Signed in' }], signInMethods: [] })) }),
+    'flow/source': () => JSON.stringify(TEAM_START_POLICIES.comparison),
+    'authoring/shape/render': params => ({ source: JSON.stringify((params as { policy: unknown }).policy), issues: [] }),
+    'authoring/start/preview': params => {
+      const input = params as { source: string; vars: Record<string, string> }
+      const policy = JSON.parse(input.source)
+      return previewOf({ ...emptyFlow('token'), compiled: { document: { format: 'agents', flow: policy }, bindings: [], problems: [] },
+        seats: policy.roles.filter((r: { kind: string }) => r.kind === 'agent').flatMap((r: { id: string; uses: string[]; seats: { runtime: string }[]; count?: number }) => Array.from({ length: r.count ?? Math.max(1, r.seats.length) }, (_, index) => ({ role: r.id, index, agent: r.uses[0], reviews: false, isolate: true, plan: { winner: 0, candidates: [{ seat: { runtime: index === 0 ? 'alpha' : 'beta' }, runtimeName: 'Available agent', label: 'Available agent', state: 'taken', reason: null, fix: null }] } }))),
+      }, { source: input.source, vars: input.vars })
+    },
+  })
+  render(store, { kind: 'project', root: '/repo' }, { id: 'comparison' }, 'Fix the cart total')
+  await settle()
+  if (delayed) expect(button('Start').disabled).toBe(true)
+  if (delayed) {
+    expect(document.body.textContent).toContain('Reading signed-in agents…')
+    await act(async () => { accountReads.forEach(resolve => resolve()) })
+  }
+  expect(document.querySelector<HTMLTextAreaElement>('[aria-label="What should both try?"]')?.value).toBe('Fix the cart total')
+  expect((document.querySelector('[aria-label="Agent for Attempt A"]') as HTMLSelectElement)?.value).toBe(first)
+  expect((document.querySelector('[aria-label="Agent for Attempt B"]') as HTMLSelectElement)?.value).toBe(second)
+  expect((document.querySelector('[aria-label="Model for Attempt A"]') as HTMLSelectElement)?.disabled).toBe(false)
+  expect(button('Start').disabled).toBe(false)
+  expect(spy.mock.calls.filter(call => call[0] === 'authoring/start/preview').at(-1)?.[1]).toMatchObject({ vars: { task: 'Fix the cart total' } })
+})
+
+it('keeps placeholder rows visible until the chosen form has loaded and explains disabled Start', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  let release!: (source: string) => void
+  requestSpy(store, { 'flow/catalog': () => [ENTRY('comparison', 'Side by side')], 'agent/list': () => [],
+    'flow/source': () => new Promise<string>(resolve => { release = resolve }),
+    'authoring/start/preview': () => { const flow = emptyFlow('token'); return previewOf({ ...flow, compiled: { ...flow.compiled, document: { format: 'agents', flow: { ...(flow.compiled.document.format === 'agents' ? flow.compiled.document.flow : neverFlow()), inputs: [{ id: 'task', label: 'Task' }] } } } }) },
+  })
+  render(store)
+  await settle()
+  act(() => rowFor('Side by side').click())
+  await settle()
+  expect(document.querySelector('[aria-label="Loading Team form"]')?.querySelectorAll('[data-slot="row"]').length).toBeGreaterThanOrEqual(2)
+  expect(document.body.textContent).toContain('Reading the shape')
+  await act(async () => release('source'))
+  expect(document.querySelector('[aria-label="Loading Team form"]')).toBeNull()
+  expect(button('Start').disabled).toBe(true)
+  expect(document.body.textContent).toContain('Add a task first')
 })

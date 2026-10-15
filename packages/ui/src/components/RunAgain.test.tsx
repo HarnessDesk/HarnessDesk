@@ -59,3 +59,21 @@ it('withholds Start when the saved source cannot be read', async () => {
     expect(store.startFlowGoal).not.toHaveBeenCalled()
   } finally { act(() => root.unmount()); container.remove() }
 })
+
+
+it('reports progress from the saved inputs to the fresh seating check', async () => {
+  const snapshot = emptySnapshot()
+  let saved!: (value: { source: string; vars: Record<string, string> }) => void
+  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, flowGeneration: () => 0,
+    flowExecutionSource: () => new Promise(resolve => { saved = resolve }),
+    flowCatalog: async () => [], agentsIn: async () => [], previewFlow: () => new Promise(() => {}),
+  } as unknown as AppStore
+  const container = document.createElement('div'); document.body.append(container)
+  const root = createRoot(container)
+  try {
+    await act(async () => root.render(<StoreProvider store={store}><RunAgain execution={runFixture('stopped').execution} root="/repo" sentence="Retry" onStarted={() => {}} onClose={() => {}} /></StoreProvider>))
+    expect(document.querySelector('[role="status"]')?.textContent).toContain('Reading the saved Flow and inputs')
+    await act(async () => saved({ source: 'saved', vars: {} }))
+    expect(document.querySelector('[role="status"]')?.textContent).toContain('Checking the earlier Run’s seats and inputs')
+  } finally { act(() => root.unmount()); container.remove() }
+})

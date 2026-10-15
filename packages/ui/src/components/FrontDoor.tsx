@@ -2,11 +2,12 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 
 import type { AgentEntry, FlowEntry, FlowExecution, FlowPolicy, StartContext } from '@harnessdesk/protocol'
 
-import { ActionError, Banner, Button, Chip, Dialog, Field, IconTile, Input, Note, Row, SectionHead, Search, Text, Textarea } from '../design'
+import { ActionError, Banner, Button, Chip, Dialog, Field, IconTile, Input, Note, Row, Rows, SectionHead, Search, Text, Textarea } from '../design'
 import { pickerSections, readShapeStarts, recordShapeStart, shapeSummary, supportsAttemptCheck, supportsComparisonJudge, withAttemptCheck, withComparisonJudge } from '../lib/team-start'
 import { ChevronIcon, FlowIcon, PencilIcon, PlusIcon, ReviewIcon, SearchIcon, SideBySideIcon, RouteIcon, TeamIcon } from './Icons'
 import { GoalCreate } from './GoalCreate'
 import styles from './FrontDoor.module.css'
+import { raceRoleId } from '../lib/flows'
 import { shortSha } from '../lib/evidence'
 import { boundInputValues } from '../lib/shapes'
 import { projectNeedsOpening } from '../lib/workspace-recovery'
@@ -31,7 +32,8 @@ export interface FrontDoorProps {
   readonly context: StartContext
   readonly goal?: { readonly id: string; readonly revision: number }
   /** Preselects one catalogue entry — a context action that already knows which shape it means. */
-  readonly initial?: { readonly id: string; readonly origin: FlowEntry['origin'] }
+  readonly initial?: { readonly id: string; readonly origin?: FlowEntry['origin'] }
+  readonly initialTask?: string
   readonly onClose: () => void
   readonly onStarted: (execution: FlowExecution) => void
 }
@@ -65,7 +67,7 @@ const sortShapes = (entries: readonly FlowEntry[]): readonly FlowEntry[] =>
     return a.name.localeCompare(b.name) || a.id.localeCompare(b.id)
   })
 
-export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontDoorProps) => {
+export const FrontDoor = ({ context, goal, initial, initialTask = '', onClose, onStarted }: FrontDoorProps) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const root = context.root
@@ -78,11 +80,12 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
   const [activeCard, setActiveCard] = useState(0)
   const cardRefs = useRef<(HTMLButtonElement | null)[]>([])
   const [starts] = useState(readShapeStarts)
-  const [task, setTask] = useState('')
-  const taskRef = useRef('')
+  const [task, setTask] = useState(initialTask)
+  const taskRef = useRef(initialTask)
   const [plainTeam, setPlainTeam] = useState(false)
   const [briefReading, setBriefReading] = useState(false)
   const [policyPending, setPolicyPending] = useState(false)
+  const [readingAccounts, setReadingAccounts] = useState(false)
   const policySequence = useRef(0)
   const [displayPreview, setDisplayPreview] = useState<import('@harnessdesk/protocol').FrontDoorPreview | null>(null)
   const templates = useRef<FlowPolicy | null>(null)
@@ -169,10 +172,19 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
       templates.current = null
       setDisplayPreview(null)
       setPolicyPending(false)
+      setReadingAccounts(false)
       setProblem(null)
       setStartProblem(null)
       try {
         const draft = drafts.current.get(`${entry.origin}:${entry.id}`)
+        // Discovery can trail the workspace. Its existing bounded read must
+        // settle before an automatic comparison can redeem its preview.
+        if (!draft && entry.id === 'comparison' && store.getSnapshot().runtimes.some(one => !store.getSnapshot().accountsByRuntime[one.id])) {
+          setReadingAccounts(true)
+          await store.loadAccounts()
+          if (mine !== sequence.current) return
+          setReadingAccounts(false)
+        }
         let text = draft?.source ?? await store.flowSource(root, entry.id, entry.origin)
         if (mine !== sequence.current) return
         setSource(text)
@@ -187,6 +199,15 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
         // the person cleared remains theirs, including an empty command.
         let defaultsPolicy = policy
         if (!draft && policy && supportsComparisonJudge(policy)) defaultsPolicy = withComparisonJudge(policy, policy, null)
+        const attemptRole = policy && raceRoleId(policy)
+        if (!draft && defaultsPolicy && attemptRole) {
+          const current = store.getSnapshot()
+          const signedIn = current.runtimes.filter(one => current.accountsByRuntime[one.id]?.accounts.length)
+          if (signedIn.length) defaultsPolicy = { ...defaultsPolicy, roles: defaultsPolicy.roles.map(role =>
+            role.id === attemptRole && role.kind === 'agent' && role.seats.length === 0
+              ? { ...role, count: 2, seats: [signedIn[0]!, signedIn[1] ?? signedIn[0]!].map(one => ({ runtime: one.id })) }
+              : role) }
+        }
         if (!draft && defaultsPolicy && learn.projectCheckCommand && supportsAttemptCheck(defaultsPolicy) && !defaultsPolicy.roles.some(role => role.kind === 'check')) defaultsPolicy = withAttemptCheck(defaultsPolicy, policy!, learn.projectCheckCommand)
         if (!draft && defaultsPolicy && defaultsPolicy !== policy) {
           setPolicyPending(true)
@@ -208,6 +229,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
       } catch (error) {
         if (mine !== sequence.current) return
         setPolicyPending(false)
+        setReadingAccounts(false)
         setProblem(error instanceof Error ? error.message : 'That shape could not be read.')
       }
     },
@@ -217,8 +239,9 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
   useEffect(() => {
     if (initial && entries && !chosen && !initialTried.current) {
       initialTried.current = true
-      const match = entries.find((one) => one.id === initial.id && one.origin === initial.origin)
+      const match = entries.find((one) => one.id === initial.id && (initial.origin === undefined || one.origin === initial.origin))
       if (match) void choose(match)
+      else setUnlisted('That shape is not available in this project.')
     }
   }, [initial, entries, chosen, choose])
 
@@ -244,9 +267,19 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
   /** Which of `inputs` the shape's own layout fills from the resolved target — head, base, a pull request — rather than from a person typing. */
   const bound = compiled?.format === 'agents' ? boundInputValues(compiled.flow) : new Map<string, never>()
   const errors = (flow?.problems ?? []).filter((one) => one.level === 'error')
-  const startable = preview !== null && !openingProject && !problem && flow !== null && flow.token !== null && compiled?.format === 'agents' && errors.length === 0
+  const startable = preview !== null && !readingAccounts && !openingProject && !problem && flow !== null && flow.token !== null && compiled?.format === 'agents' && errors.length === 0
   const primary = inputs.find(input => !bound.has(input.id) && input.id !== 'brief')
   const sentenceValid = sentence.trim().length <= 2000 && (primary ? task.trim().length > 0 : true)
+  const startReason = starting ? 'Starting the Team…'
+    : openingProject ? 'Opening the project…'
+    : problem ? 'Resolve the shape error first.'
+    : readingAccounts ? 'Reading signed-in agents…'
+    : !flow ? 'Reading the shape…'
+    : !sentenceValid ? task.trim() ? 'Keep Done when to 2,000 characters.' : 'Add a task first.'
+    : briefReading ? 'Reading the attached brief…'
+    : policyPending || !preview ? 'Checking the seats and inputs…'
+    : errors.length ? 'Resolve the dry-run errors above.'
+    : !startable ? 'Resolve the dry-run requirements first.' : null
   const changeShape = (): void => {
     if (chosen && source) drafts.current.set(`${chosen.origin}:${chosen.id}`, { source, vars, template: templates.current })
     sequence.current += 1
@@ -350,10 +383,10 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
         : 'Choose how the agents work together.'}
       size="wide" tall onClose={onClose}
       footer={chosen
-        ? <><Button variant="default" disabled={!startable || !sentenceValid || briefReading || policyPending || starting} onClick={() => void start()}>{starting ? 'Starting…' : 'Start'}</Button><Button variant="secondary" disabled={starting} onClick={onClose}>Cancel</Button></>
+        ? <><Button variant="default" aria-describedby={startReason ? "team-start-reason" : undefined} disabled={!startable || !sentenceValid || briefReading || policyPending || starting} onClick={() => void start()}>{starting ? 'Starting…' : 'Start'}</Button><Button variant="secondary" disabled={starting} onClick={onClose}>Cancel</Button></>
         : <><Button variant="default" disabled={entries === null} onClick={continueShape}>Continue</Button><Button variant="secondary" onClick={onClose}>Cancel</Button></>}
       footerNavigation={chosen
-        ? <Button variant="quiet" bordered={false} disabled={starting || policyPending} onClick={changeShape}>Back</Button>
+        ? <span className={styles.solo}><Button variant="quiet" bordered={false} disabled={starting || policyPending || readingAccounts} onClick={changeShape}>Back</Button>{startReason && <Note id="team-start-reason" role="status">{startReason}</Note>}</span>
         : <span className={styles.solo}><Text as="span" role="muted">Only need one agent?</Text><Button variant="quiet" onClick={() => { onClose(); store.newDraft() }}>New session ⌘N</Button></span>}
     >
       {!chosen && <div onKeyDown={event => {
@@ -368,6 +401,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
       }} className={styles.picker}>
         <Search autoFocus label="Search shapes" placeholder="Search shapes…" value={query} onChange={value => { setQuery(value); setActiveCard(0) }} />
         {unlisted !== null && <Banner tone="danger" title="These shapes could not be read" actions={recovery(unlisted)}>{unlisted}</Banner>}
+        {entries === null && !unlisted && <div aria-label="Loading shapes" aria-busy="true"><Rows><Row title="Reading shapes…" /><Row title="Reading project choices…" /></Rows></div>}
         {group('This project', sections.project)}
         {group('Most used', sections.most)}
         {group('More shapes', sections.more, showPlain && <Button variant="choice" size="panel" className={styles.card} data-stretched data-selected={activeCard === cards.length ? '' : undefined} ref={element => { cardRefs.current[cards.length] = element }} onFocus={() => setActiveCard(cards.length)} onClick={() => setPlainTeam(true)}>
@@ -380,12 +414,15 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
       </div>}
       {chosen && <>
         {(primary || context.kind === 'project') && <Field label={chosen.id === 'comparison' ? 'What should both try?' : 'What should they do?'}>
-          {control => <Textarea {...control} aria-label={chosen.id === 'comparison' ? 'What should both try?' : 'What should they do?'} value={task} disabled={starting || policyPending} onChange={event => {
+          {control => <Textarea {...control} aria-label={chosen.id === 'comparison' ? 'What should both try?' : 'What should they do?'} value={task} disabled={starting || policyPending || readingAccounts} onChange={event => {
             taskRef.current = event.target.value; setTask(event.target.value)
             if (primary) setVar(primary.id, event.target.value)
             else if (compiled?.format === 'agents') void editPolicy({ ...compiled.flow, seed: { ...compiled.flow.seed, title: event.target.value } })
           }} />}
         </Field>}
+        {!flow && !problem && <section aria-label="Loading Team form" aria-busy="true"><Rows>
+          {(chosen.id === 'comparison' ? ['Attempt A', 'Attempt B'] : ['Agents', 'Options']).map(label => <Row key={label} title={label} control={<Input aria-label={`${label} loading`} disabled placeholder="…" />} />)}
+        </Rows></section>}
         {problem && failure(problem)}
         {compiled?.format === 'agents' && flow && <FlowStart root={root} onChange={() => {}} team={{ flow: compiled.flow, template: templates.current ?? compiled.flow, preview: flow, roster, vars, primary: primary?.id, disabled: starting || policyPending, editingDisabled: starting, onVar: setVar, onReadingChange: setBriefReading, onPolicy: policy => void editPolicy(policy),
           done: <Field label="Done when · optional" error={sentence.trim().length > 2000 ? 'Keep it to 2,000 characters.' : undefined}>
