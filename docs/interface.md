@@ -1310,11 +1310,12 @@ Refreshing the agent's catalogue clears an unanswered option read so it can
 be tried again; it waits for real turns to finish and keeps conversations an
 agent cannot reopen.
 
-**`/race`** opens a dialog asking for one Agent and two explicit, isolated
-seats — never the other installed runtime, never two ordinary drafts. It
-shows **Judge · optional**, defaulting to **You**. An agent judge may share
-a vendor with either attempt. It shows the same full dry run before Start,
-including the selected judge and person steps a comparison names. A Goal a flow opened shows its own status strip
+**`/race <task>`** opens **New Team → Side by side**, with the task already
+filled in. The two attempts default to two signed-in agents when available;
+with only one signed in, both use it. Each attempt keeps its own model and
+effort controls. **Judge · optional** defaults to **You**, and an agent judge
+may also run either attempt. This is the same form and full dry run as New Team.
+A Goal a flow opened shows its own status strip
 beside the ordinary Goal header — Running, Waiting for evidence, Waiting for
 a person, Interrupted, Stopped or Settled — and an interrupted check's own
 **Review and run again…** action, which asks for a fresh confirmation
@@ -1341,6 +1342,12 @@ returns to the picker and preserves the typed task and each shape's edits.
 **Details** holds the remaining inputs, instruction files and dry-run facts.
 Write and review has one fresh independent reviewer and a maximum of one,
 two or three reviews, then either a reviewed merge or a handoff to the person.
+
+The form shows placeholder rows while it reads the chosen shape and checks
+its seats. When **Start** is disabled, one line by the action explains what is
+needed, such as **Add a task first** or **Checking the seats and inputs…**.
+Starting a comparison opens its **Side by side** tiles; **Overview** stays one
+tab away. A saved page choice is preserved when revisiting a Team.
 
 In Side by side and Mechanical contest, **Check each attempt with** starts
 with the project's declared test command when one is available. It can be
@@ -1570,8 +1577,10 @@ were used. An unrouted answer, stall or spent budget keeps the Run and Team
 **Needs you**.
 
 **Run again…** reads the earlier Run’s saved Flow, inputs and brief into the
-same start preview, with the seat preferences open to change. **Start**
-creates a fresh Run on the same Team and records which Run it continues; both
+same start preview, with the seat preferences open to change. Its progress
+first names the saved Flow and inputs being read, then the fresh seat and
+input check; Start keeps the current reason beside it until that check finishes.
+**Start** creates a fresh Run on the same Team and records which Run it continues; both
 stay in the chooser beside the Run’s name. This starts from the seed step.
 The Flow name and digest in the header open the frozen Flow tab. Check
 commands in the Flow drawing, Steps list, Timeline and inspector shorten the

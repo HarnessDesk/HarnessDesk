@@ -2062,12 +2062,10 @@ meant: `competitor` now declares `count: 2` alongside its one `uses:`. A
 generic Flow-start reads the file exactly as `/race` does — through the same
 compiler, no dialog-specific path — so it now opens two cards from either
 entry point, both seated on the role's own default Agent when nothing more
-specific is asked for. `/race`'s own substitution is untouched: it still
-strips `seats:`/`count:` and writes two explicit seats for whichever two
-attempts a person chose, which is a real second value on top of a file that
-already seeds a race on its own. Nothing needed to ask the generic dialog to
-recognize `/race`'s marker and refuse — the file's own declared width
-already answers the question every entry point asks it.
+specific is asked for. `/race` now opens the same New Team Side by side form
+with the task prefilled (issue #1626). That form writes two explicit signed-in agent choices
+when available and retains the ordinary source, policy-editing and preview-token
+contract; there is no separate race dialog or seating path.
 
 **The rule:** a round's routing reads the outcomes it actually has, in the
 weakest guard that still means what the shape wants (`any`, not `every`, for

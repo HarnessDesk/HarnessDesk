@@ -4692,3 +4692,63 @@ it('stopped Seats stay readable while their agent actions and composer recipient
  sendTo()
  expect([...document.querySelectorAll('[role="switch"]')].some(one=>one.textContent?.includes('Codex'))).toBe(false)
 })
+
+
+it.each([false, true])('opens a comparison on its tiles with a late Run %s and leaves Overview one tab away', async late => {
+  const { TEAM_START_POLICIES } = await import('../preview/team-start-fixture')
+  const execution = { version: 2, id: 'comparison-start', goal: ROOM, state: 'running', reason: null, legacyRun: null, operations: [], rounds: [],
+    document: { format: 'agents', flow: TEAM_START_POLICIES.comparison } } as unknown as FlowExecution
+  const runs = new Map<string, FlowExecution>(late ? [] : [[execution.id, execution]])
+  const { store, pushes } = rig(undefined, undefined, undefined, GOAL, runs)
+  await render(store)
+  if (late) { runs.set(execution.id, execution); await pushes({ updatedAt: 2 }) }
+  expect(container.querySelector('[data-slot="side-by-side-tile"]')).not.toBeNull()
+  expect(container.querySelector('[data-slot="team-overview"]')).toBeNull()
+  await act(async () => row('Overview').click())
+  await pushes({ updatedAt: 3 })
+  expect(container.querySelector('[data-slot="team-overview"]')).not.toBeNull()
+})
+
+it('opens only the two comparison attempts, leaving its agent judge off the initial tiles', async () => {
+  const { TEAM_START_POLICIES } = await import('../preview/team-start-fixture')
+  const execution = { version: 2, id: 'comparison-with-judge', goal: ROOM, state: 'running', reason: null, legacyRun: null, operations: [], rounds: [],
+    document: { format: 'agents', flow: TEAM_START_POLICIES.comparison } } as unknown as FlowExecution
+  const view = { ...GOAL, members: [
+    { id: 'attempt-a', session: { runtime: 'codex', sessionId: 'c1' }, role: 'competitor', openedAt: 1, closed: null, agent: { name: 'Attempt A' } },
+    { id: 'attempt-b', session: { runtime: 'claude', sessionId: 'k1' }, role: 'competitor', openedAt: 1, closed: null, agent: { name: 'Attempt B' } },
+    { id: 'judge-seat', session: { runtime: 'codex', sessionId: 'judge-session' }, role: 'judge', openedAt: 1, closed: null, agent: { name: 'Judge' } },
+  ] } as unknown as GoalView
+  const { store } = rig(undefined, undefined, undefined, view, new Map([[execution.id, execution]]))
+  await render(store)
+  expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(2)
+})
+
+it.each([1, 2])('keeps %s removed comparison tiles off the grid after remount', async count => {
+  const { TEAM_START_POLICIES } = await import('../preview/team-start-fixture')
+  const execution = { version: 2, id: 'comparison-grid-choice', goal: ROOM, state: 'running', reason: null, legacyRun: null, operations: [], rounds: [],
+    document: { format: 'agents', flow: TEAM_START_POLICIES.comparison } } as unknown as FlowExecution
+  const { store } = rig(undefined, undefined, undefined, GOAL, new Map([[execution.id, execution]]))
+  const mount = async (view: ReturnType<typeof store.lastView> = {}) => {
+    await act(async () => root.render(
+      <StoreProvider store={store}>
+        <MountProvider scope={{ area: 'main', id: 'pane-1', view: { kind: 'room', room: ROOM, ...view } }}>
+          <TeamTest room={ROOM} />
+        </MountProvider>
+      </StoreProvider>,
+    ))
+  }
+  await mount()
+  expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(2)
+  for (let index = 0; index < count; index++) {
+    const actions = [...container.querySelectorAll<HTMLButtonElement>('button[title="Tile actions"]')]
+    await act(async () => actions.at(-1)!.click())
+    const remove = [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent === 'Take off the grid')!
+    await act(async () => remove.click())
+  }
+  expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(2 - count)
+  const saved = store.lastView()
+  act(() => root.render(<div>Another view</div>))
+  await mount(saved)
+  expect(container.querySelectorAll('[data-slot="side-by-side-tile"]')).toHaveLength(2 - count)
+  expect(store.lastView().sideBySide?.tiles ?? []).toEqual(saved.sideBySide?.tiles ?? [])
+})

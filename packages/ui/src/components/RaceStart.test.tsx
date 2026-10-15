@@ -1,177 +1,59 @@
 import { act } from 'react'
-import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
-
-import type { AgentEntry, FlowEntry, FlowPreview, SeatPlan } from '@harnessdesk/protocol'
-
+import { createRoot } from 'react-dom/client'
+import { expect, it, vi } from 'vitest'
+import type { FlowPolicy } from '@harnessdesk/protocol'
 import { StoreProvider } from '../state/context'
-import { emptySnapshot, type AppStore } from '../state/store'
+import { AppStore } from '../state/store'
 import { RaceStart } from './RaceStart'
-import { TEAM_START_POLICIES, TEAM_START_SOURCES } from '../preview/team-start-fixture'
+import { TEAM_START_POLICIES } from '../preview/team-start-fixture'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-let container: HTMLDivElement
-let root: Root
-beforeEach(() => {
-  container = document.createElement('div')
-  document.body.appendChild(container)
-  root = createRoot(container)
-})
-afterEach(() => {
-  act(() => root.unmount())
-  container.remove()
-})
-
-const settle = (): Promise<void> => act(async () => {})
-
-const COMPARISON_SOURCE = TEAM_START_SOURCES.comparison
-
-const ENTRY: FlowEntry = { id: 'comparison', origin: 'builtin', path: 'comparison.yml', name: 'Comparison', description: null, format: 'agents', problem: null, shadows: [] }
-const AGENT: AgentEntry = {
-  id: 'implementer', origin: 'builtin', path: '/app/agents/implementer/AGENT.md', digest: 'd1', shadows: [], problems: [],
-  definition: { id: 'implementer', name: 'Implementer', description: null, ceiling: 'publish', ceilingFrom: 'ceiling', answers: [], produces: [], skills: [], mcp: [], prefer: [{ runtime: 'alpha' }], brief: 'Build it.' },
-}
-const PLAN: SeatPlan = {
-  id: 'implementer', from: 'prefer', winner: 0, blocked: null, ceiling: { level: 'edit', hold: 'asked' },
-  candidates: [
-    { seat: { runtime: 'alpha' }, label: 'Alpha', runtimeName: 'Alpha', state: 'taken', reason: null, fix: null },
-    { seat: { runtime: 'alpha', effort: 'high' }, label: 'Alpha · High', runtimeName: 'Alpha', state: 'taken', reason: null, fix: null },
-  ],
-}
-
-const emptyPreview = (): FlowPreview => ({
-  token: 't1',
-  compiled: {
-    document: {
-      format: 'agents',
-      flow: TEAM_START_POLICIES.comparison,
-    },
-    bindings: [], problems: [],
-  },
-  seats: [], commands: [], guards: [], messaging: 'board-only', problems: [],
-})
-
-const fakeStore = (options: { readonly plan?: SeatPlan } = {}): { store: AppStore; startFlowGoal: ReturnType<typeof vi.fn>; previewFlow: ReturnType<typeof vi.fn> } => {
-  const snapshot = { ...emptySnapshot(), runtimes: [{ id: 'alpha', presentation: { name: 'Alpha' } } as never] }
-  const previewFlow = vi.fn(async () => emptyPreview())
-  const startFlowGoal = vi.fn(async () => ({ version: 2 as const, id: 'run-1', goal: 'goal-1', document: emptyPreview().compiled.document, state: 'running' as const, rounds: [], operations: [], legacyRun: null, reason: null }))
-  const store = {
-    subscribe: () => () => {},
-    getSnapshot: () => snapshot,
-    flowCatalog: vi.fn(async () => [ENTRY]),
-    flowSource: vi.fn(async () => COMPARISON_SOURCE),
-    agentsIn: vi.fn(async () => [AGENT]),
-    plansIn: vi.fn(async () => [options.plan ?? PLAN]),
-    previewFlow,
-    startFlowGoal,
-    renderShape: vi.fn(async (policy: import('@harnessdesk/protocol').FlowPolicy) => ({ source: JSON.stringify(policy), issues: [] })),
-    openGoal: vi.fn(),
-    newSession: vi.fn(),
-  } as unknown as AppStore
-  return { store, startFlowGoal, previewFlow }
-}
-
-const render = (store: AppStore, onClose = vi.fn()): typeof onClose => {
-  act(() => {
-    root.render(
-      <StoreProvider store={store}>
-        <RaceStart root="/repo" task="Fix the retry bug" onClose={onClose} />
-      </StoreProvider>,
-    )
-  })
-  return onClose
-}
-
-const selectAgent = async (id: string): Promise<void> => {
-  const select = document.querySelector('select[aria-label="Agent"]') as HTMLSelectElement
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(select, id)
-    select.dispatchEvent(new Event('change', { bubbles: true }))
-  })
-}
-
-it('one Agent and two exact seats produce a normal preview, never a session created directly', async () => {
-  const { store, startFlowGoal, previewFlow } = fakeStore()
-  render(store)
-  await settle()
-  expect(document.body.textContent).toContain('Judge · optional')
-  expect(document.querySelector<HTMLSelectElement>('select[aria-label="Judge · optional"]')?.selectedOptions[0]?.textContent).toBe('You')
-  await selectAgent('implementer')
-  await settle()
-
-  const startButton = [...document.body.querySelectorAll('button')].find((one) => one.textContent === 'Start') as HTMLButtonElement
-  expect(startButton.disabled).toBe(false)
-  // One call reads the file's own layout marker (learning what to substitute); the
-  // second previews the actual substituted source — never a `newSession` call either way.
-  expect(previewFlow).toHaveBeenCalledTimes(2)
-  const [, substitutedSource] = previewFlow.mock.calls[1]!
-  expect(JSON.parse(substitutedSource).roles.find((role: { id: string }) => role.id === 'competitor')).toMatchObject({ uses: ['implementer'], seats: [{ runtime: 'alpha' }, { runtime: 'alpha', effort: 'high' }] })
-  expect(JSON.parse(substitutedSource).roles.some((role: { id: string }) => role.id === 'judge')).toBe(false)
-
-  act(() => startButton.click())
-  await settle()
-  expect(startFlowGoal).toHaveBeenCalledTimes(1)
-  expect(store.newSession).not.toHaveBeenCalled()
-  const [request] = startFlowGoal.mock.calls[0]!
-  expect(request.token).toBe('t1')
-  expect(request.sentence).toBe('Fix the retry bug')
-})
-
-it('an Agent that cannot be seated here is never the forced default', async () => {
-  const unseatable: SeatPlan = { id: 'implementer', from: 'prefer', winner: null, blocked: null, ceiling: null, candidates: [] }
-  const { store } = fakeStore({ plan: unseatable })
-  render(store)
-  await settle()
-  // Never invented: the picker starts on no Agent, not a guess at one that cannot actually seat here.
-  const agentSelect = document.querySelector('select[aria-label="Agent"]') as HTMLSelectElement
-  expect(agentSelect.value).toBe('')
-  const start = () => [...document.body.querySelectorAll('button')].find((one) => one.textContent === 'Start') as HTMLButtonElement
-  expect(start().disabled).toBe(true)
-})
-
-it('identical seats cannot start, with an actionable reason on screen', async () => {
-  const { store } = fakeStore()
-  render(store)
-  await settle()
-  const start = () => [...document.body.querySelectorAll('button')].find((one) => one.textContent === 'Start') as HTMLButtonElement
-
-  await selectAgent('implementer')
-  await settle()
-  expect(start().disabled).toBe(false)
-
-  // Force both seat selects to the same candidate.
-  const selects = [...document.body.querySelectorAll('select')].filter((one) => one.getAttribute('aria-label')?.includes('seat'))
-  await act(async () => {
-    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(selects[1], '0')
-    selects[1]!.dispatchEvent(new Event('change', { bubbles: true }))
-  })
-  await settle()
-  expect(document.body.textContent).toContain('Choose two different seats to compare.')
-  expect(start().disabled).toBe(true)
-})
-
-it('previews and starts the same-vendor judge selection, and can return to You', async () => {
-  const { store, startFlowGoal, previewFlow } = fakeStore()
-  render(store)
-  await settle()
-  const choose = async (value: string) => {
-    await act(async () => {
-      const judge = document.querySelector<HTMLSelectElement>('select[aria-label="Judge · optional"]')!
-      judge.value = value
-      judge.dispatchEvent(new Event('change', { bubbles: true }))
+it('takes /race through New Team with its task and ordinary preview token, then opens the Team', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  const open = vi.spyOn(store, 'openGoal').mockImplementation(() => {})
+  const close = vi.fn()
+  Object.assign(store.getSnapshot(), { runtimes: [{ id: 'alpha', presentation: { name: 'Runtime 1' }, capabilities: {} }], accountsByRuntime: { alpha: { accounts: [{ kind: 'opaque', label: 'Signed in' }], signInMethods: [] } } })
+  const source = JSON.stringify(TEAM_START_POLICIES.comparison)
+  const execution = { id: 'race-run', goal: 'race-team' }
+  const request = vi.spyOn(store.transport, 'request').mockImplementation((async (method: string, params: unknown) => {
+    if (method === 'flow/catalog') return [{ id: 'comparison', origin: 'project', name: 'Side by side', problem: null }]
+    if (method === 'flow/source') return source
+    if (method === 'agent/list' || method === 'runtime/models') return []
+    if (method === 'authoring/shape/render') return { source: JSON.stringify((params as { policy: FlowPolicy }).policy), issues: [] }
+    if (method === 'authoring/start/preview') {
+      const input = params as { source: string; vars: Record<string, string> }
+      return { source: input.source, vars: input.vars, sentence: 'Compare attempts', goal: null,
+        target: { label: 'this project', head: null, base: null, dirty: false, independence: 'unknown' },
+        flow: { token: 'fresh-preview', compiled: { document: { format: 'agents', flow: JSON.parse(input.source) }, bindings: [], problems: [] }, seats: [], commands: [], guards: [], problems: [], messaging: 'board-only' } }
+    }
+    if (method === 'flow/start-goal') return execution
+    return null
+  }) as never)
+  const container = document.createElement('div'); document.body.append(container)
+  const root = createRoot(container)
+  try {
+    await act(async () => root.render(<StoreProvider store={store}><RaceStart root="/repo" task="Fix the cart total" onClose={close} /></StoreProvider>))
+    expect(document.querySelector<HTMLTextAreaElement>('[aria-label="What should both try?"]')?.value).toBe('Fix the cart total')
+    expect(document.body.textContent).not.toContain('Race an Agent against itself')
+    const chooseJudge = async (value: string) => act(async () => {
+      const judge = document.querySelector<HTMLSelectElement>('[aria-label="Agent for Judge"]')!
+      judge.value = value; judge.dispatchEvent(new Event('change', { bubbles: true }))
     })
-  }
-  await choose('alpha')
-  const selected = JSON.parse(previewFlow.mock.calls.at(-1)![1])
-  expect(selected.roles.find((role: { id: string }) => role.id === 'judge')).toMatchObject({ seats: [{ runtime: 'alpha' }], independentOf: [] })
-  expect(selected.rules.find((rule: { id: string }) => rule.id === 'to-referee').then.detail).toContain('{{evidence.review.at}}')
-  const start = [...document.body.querySelectorAll('button')].find(one => one.textContent === 'Start')!
-  act(() => start.click())
-  await settle()
-  expect(startFlowGoal.mock.calls[0]![0].source).toBe(previewFlow.mock.calls.at(-1)![1])
-  await choose('')
-  const human = JSON.parse(previewFlow.mock.calls.at(-1)![1])
-  expect(human.roles.some((role: { id: string }) => role.id === 'judge')).toBe(false)
-  expect(human.roles.find((role: { id: string }) => role.id === 'referee')).toMatchObject({ review: true })
+    await chooseJudge('alpha')
+    const chosen = () => JSON.parse((request.mock.calls.filter(call => call[0] === 'authoring/start/preview').at(-1)![1] as { source: string }).source) as FlowPolicy
+    expect(chosen().roles.find(role => role.id === 'judge')).toMatchObject({ seats: [{ runtime: 'alpha' }], independentOf: [] })
+    expect(chosen().rules.find(rule => rule.id === 'to-referee')?.then.detail).toContain('{{evidence.review.at}}')
+    await chooseJudge('')
+    expect(chosen().roles.some(role => role.id === 'judge')).toBe(false)
+    expect(chosen().roles.find(role => role.id === 'referee')).toMatchObject({ review: true })
+    await chooseJudge('alpha')
+    const start = [...document.querySelectorAll('button')].find(one => one.textContent === 'Start')!
+    expect(start.disabled).toBe(false)
+    await act(async () => start.click())
+    expect(request.mock.calls.find(call => call[0] === 'flow/start-goal')?.[1]).toMatchObject({ root: '/repo', token: 'fresh-preview', vars: { task: 'Fix the cart total' } })
+    expect((request.mock.calls.find(call => call[0] === 'flow/start-goal')![1] as { source: string }).source).toBe((request.mock.calls.filter(call => call[0] === 'authoring/start/preview').at(-1)![1] as { source: string }).source)
+    expect(open).toHaveBeenCalledWith('race-team')
+    expect(close).toHaveBeenCalledOnce()
+  } finally { act(() => root.unmount()); container.remove() }
 })
