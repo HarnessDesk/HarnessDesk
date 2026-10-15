@@ -32,7 +32,7 @@ for (const theme of ['light', 'dark'] as const) test(`activation reveals a folde
   await expect(active).toContainText('Saved conversation 15')
   await expect(active).toBeInViewport()
   await expect(active).toHaveAttribute('tabindex', '0')
-  await expect(group.locator('[data-region="session-row"]')).toHaveCount(15)
+  await expect(group.locator('[data-region="session-row"]')).toHaveCount(5)
   if (process.env.NO_FOLDER_FRAMES_DIR && process.env.NO_FOLDER_FRAME_STATE !== 'before') {
     await column.screenshot({ path: path.join(process.env.NO_FOLDER_FRAMES_DIR, `reveal-after-${theme}.png`) })
   }
@@ -116,8 +116,8 @@ for (const theme of ['light', 'dark'] as const) {
     for (const width of [320, 200]) {
       await fixture.evaluate((node, size) => { (node as HTMLElement).style.width = `${size}px` }, width)
       await page.mouse.move(1000, 0)
-      await expect(row.locator('[data-left-mark]')).toHaveCount(1)
-      await expect(row.locator('[data-left-mark]')).toHaveAttribute('aria-label', 'Unread activity')
+      await expect(row.locator('[data-left-mark]')).toHaveCount(0)
+      expect(await team.getAttribute('title')).toContain('Unread activity')
       expect(await team.getAttribute('title')).toContain('Working')
       await expect(fixture.locator('[data-nested="true"]')).toHaveCount(0)
       await expect(team).not.toContainText('Working')
@@ -150,8 +150,8 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(team).toBeFocused()
     await expect(tree.locator('[data-nested="true"]')).toHaveCount(0)
     const busy = project.locator('[data-region="session-row"]').filter({ hasText: 'Check build' })
-    await expect(busy.locator('[data-slot="spinner"]')).toBeVisible()
-    await expect(busy.locator('[data-slot="spinner"]')).toHaveCSS('animation-name', 'none')
+    await expect(busy.locator('[data-left-mark]')).toHaveCount(0)
+    await expect(busy.locator('[data-slot="sidebar-menu-button"]')).toHaveAttribute('title', /Thinking|Running/)
     for (const width of [320, 200]) {
       await fixture.evaluate((node, size) => { (node as HTMLElement).style.width = `${size}px` }, width)
       await page.mouse.move(1000, 0)
@@ -183,8 +183,8 @@ for (const theme of ['light', 'dark'] as const) {
     const pinned = tree.locator('[data-sidebar-band="pinned"]')
     const busy = project.locator('[data-region="session-row"]').filter({ hasText: 'Check build' })
     const runningTeam = tree.getByRole('button', { name: 'Room Check release notes', exact: true }).locator('..')
-    await expect(runningTeam.locator('[data-slot="spinner"]')).toBeVisible()
-    await expect(runningTeam.locator('[data-slot="spinner"]')).toHaveCSS('animation-name', 'none')
+    await expect(runningTeam.locator('[data-left-mark]')).toHaveCount(0)
+    await expect(runningTeam.locator('[data-slot="sidebar-menu-button"]')).toHaveAttribute('title', /Working/)
     await expect(tree.getByRole('button', { name: 'Other projects', exact: false })).toHaveAttribute('aria-expanded', 'true')
     await expect(tree.locator('[data-project-root="/work/compass"] button[data-draggable] [data-slot="disclosure-chevron"]')).toHaveCount(1)
     const centre = async (item: ReturnType<typeof tree.locator>) => { const box = (await item.boundingBox())!; return box.x + box.width / 2 }
@@ -215,9 +215,8 @@ for (const theme of ['light', 'dark'] as const) {
       await page.evaluate(() => (document.activeElement as HTMLElement)?.blur())
       await page.mouse.move(1000, 0)
       const mark = busy.locator('[data-left-mark]')
-      await expect(mark).toBeVisible()
-      expect(Math.abs(await centre(mark) - rail)).toBeLessThanOrEqual(1)
-      await expect(busy.locator('[data-slot="spinner"]')).toHaveCSS('animation-name', 'none')
+      await expect(mark).toHaveCount(0)
+      await expect(busy.locator('[data-slot="sidebar-menu-button"]')).toHaveAttribute('title', /Thinking|Running/)
     }
   })
 

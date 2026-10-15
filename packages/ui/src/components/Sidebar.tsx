@@ -22,7 +22,6 @@ import {
   useDismissOverlays,
   Button,
   Bar,
-  Dot,
   Menu,
   Row,
   MenuItem,
@@ -47,7 +46,6 @@ import { Explorer, effectiveWindowMode } from '../editor'
 import { brandOf } from '../lib/identity'
 import { profileName } from '../lib/profile'
 import { READINESS_LABEL, readinessOf, type Readiness } from '../lib/readiness'
-import { AccountHoverCard } from './AgentCards'
 import { HarnessMark, RuntimeMark } from './BrandIcons'
 import { ProfileFace } from './ProfileFace'
 import { Clipped, DisclosureChevron, EmptyState } from '../design'
@@ -395,7 +393,6 @@ export const AccountFooter = ({
   // and not the focused conversation's.
   const runtime = useRuntime()
   const quotaWarning = useAccountQuotaWarning()
-  const [open, setOpen] = useState(false)
   const [accountsOpen, setAccountsOpen] = useState(false)
   const [confirmingSignOut, setConfirmingSignOut] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -550,55 +547,20 @@ export const AccountFooter = ({
     }
   }
 
-  const unanswered = here !== null && here.state === 'unknown'
   const accountTrigger = (
     <>
       <ProfileFace size={24} />
       <Text role="subject" className={styles.accountName}>
         <Clipped truncate className={styles.accountLabel}>{yourName}</Clipped>
       </Text>
-      {here?.figure && here.tone !== 'good' && (
-        <Text role="muted" tone={usageReadingTone(here.tone)} numeric className={styles.accountMeta}>
-          {here.figure}
-        </Text>
-      )}
-      {here && (
-        <AccountHoverCard
-          info={here.info}
-          account={here.account}
-          side="right"
-          align="end"
-          className={styles.seatTrigger}
-          disabled={open}
-        >
-          <AccountMark
-            size="sm"
-            {...(here.account
-              ? { 'data-tint': tintOf(here.key, snapshot.accountPrefs) }
-              : here.state === 'signin'
-                ? { 'data-off': '' }
-                : {})}
-          >
-            <RuntimeMark runtime={here.info} size={16} />
-          </AccountMark>
-        </AccountHoverCard>
-      )}
-      {/* Until the default agent has answered who is signed in, `state` is
-          `unknown` rather than a guess at "Needs sign-in"; the light stays
-          neutral and says nothing it does not know, as the badge beside it
-          and the menu already do. */}
-      <Dot
-        {...(quotaWarning ? { tone: 'warning', title: quotaWarning } : unanswered ? {} : { state: here?.state ?? 'available' })}
-        role="img"
-        aria-label={quotaWarning ?? (here ? (unanswered ? agentName : `${agentName}: ${READINESS_LABEL[here.state]}`) : 'No agent')}
-      />
+      <CaretIcon size={16} />
     </>
   )
 
   return (
     <LeftColumnSeat notifications={notifications} settingsOpen={settingsOpen} onSettings={onGear} menu={<div ref={accountRef}>
       <Popover
-        title={here ? `New sessions run as ${nextAs}` : 'Accounts and settings'}
+        title={[here ? `New sessions run as ${nextAs}` : 'Accounts and settings', quotaWarning].filter(Boolean).join(' · ')}
         /* Opens upward from the footer. Its width belongs to the menu so a
            narrow sidebar does not fold the account and usage rows. */
         side="top"
@@ -610,7 +572,6 @@ export const AccountFooter = ({
         triggerClassName={buttonVariants({ variant: 'navigation', size: 'navigation', className: styles.accountRow })}
         label={accountTrigger}
         onOpenChange={(next) => {
-          setOpen(next)
           if (!next) resetMenu()
         }}
       >

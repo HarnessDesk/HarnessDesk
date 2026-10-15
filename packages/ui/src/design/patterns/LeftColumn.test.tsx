@@ -32,7 +32,7 @@ test('a missing icon reserves its column; the only trailing action does not open
   expect(open).toHaveBeenCalledOnce()
 })
 
-test('the column top and seat bars meet without a separator hairline', () => {
+test('the column top stays clear and the quiet seat has a separator hairline', () => {
   mount(<>
     <LeftColumnTop shown settings={false} back={false} forward={false} toggle={() => {}} goBack={() => {}}
       goForward={() => {}} search={<button aria-label="Search everything" />} />
@@ -40,7 +40,7 @@ test('the column top and seat bars meet without a separator hairline', () => {
   </>)
   const bars = [...container.querySelectorAll<HTMLElement>('[data-slot="bar"]')]
   expect(bars).toHaveLength(2)
-  expect(bars.map(bar => bar.getAttribute('data-rule'))).toEqual([null, null])
+  expect(bars.map(bar => bar.getAttribute('data-rule'))).toEqual([null, 'top'])
 })
 
 test('Settings keeps only the sidebar toggle in the column top row', () => {

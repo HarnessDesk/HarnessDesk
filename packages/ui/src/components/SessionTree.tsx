@@ -21,7 +21,6 @@ import {
   MenuSeparator,
   Popover,
   Separator,
-  Spinner,
   Submenu,
   Text,
   buttonVariants,
@@ -45,10 +44,8 @@ import { panes } from '../state/layout'
 import { useSnapshot, useSnapshotSelector, useStore } from '../state/context'
 import type { AppSnapshot } from '../state/store'
 import {
-  StopIcon,
   ArchiveIcon,
   AgentIcon,
-  BranchIcon,
   ClockIcon,
   CollapseAllIcon,
   CopyIcon,
@@ -100,6 +97,7 @@ type SessionRowSlice = {
   deskCopy: boolean
   trace: ReturnType<typeof traceOf> | null
   backgrounded: number
+  error: string | null
   folderGone: string | null
   active: boolean
   needsYou: boolean
@@ -112,7 +110,7 @@ const sameSessionRowSlice = (left: SessionRowSlice, right: SessionRowSlice): boo
   left.pinned === right.pinned &&
   left.liveTitle === right.liveTitle && left.livePreview === right.livePreview &&
   left.deskCopy === right.deskCopy && left.trace === right.trace &&
-  left.backgrounded === right.backgrounded && left.folderGone === right.folderGone &&
+  left.backgrounded === right.backgrounded && left.error === right.error && left.folderGone === right.folderGone &&
   left.active === right.active && left.needsYou === right.needsYou &&
   left.seatLabel === right.seatLabel
 
@@ -140,10 +138,11 @@ const SessionRow = memo(({
   const [draft, setDraft] = useState('')
   const key = sessionKey(summary.runtime, summary.id)
   const {
-    runtime, pinned, liveTitle, livePreview, deskCopy, trace, backgrounded,
+    runtime, pinned, liveTitle, livePreview, deskCopy, trace, backgrounded, error,
     folderGone, active, needsYou, seatLabel,
   } = useSnapshotSelector((snapshot): SessionRowSlice => {
     const live = snapshot.sessions.get(key)
+    const status = live?.status ?? summary.status
     const needsYou = snapshot.approvals.some((entry) => entry.key === key) ||
       snapshot.queues.get(key)?.status === 'paused'
     const trace = live ? traceOf(live, needsYou) : null
@@ -154,6 +153,7 @@ const SessionRow = memo(({
       livePreview: live ? live.preview ?? firstAsk(live) : undefined,
       deskCopy: live?.deskCopy === true,
       trace,
+      error: status.type === 'error' ? status.message ?? 'Failed' : null,
       backgrounded: (snapshot.tasks.get(key) ?? []).filter((task) => task.state === 'running').length,
       folderGone: snapshot.foldersGone.get(summary.cwd) ?? null,
       active: snapshot.activeSessionKey === key,
@@ -170,23 +170,8 @@ const SessionRow = memo(({
   /* A Seat without a person's first message is named by its job and Team. */
   const label = sessionLabel(liveTitle === undefined ? summary.title : liveTitle, livePreview ?? summary.preview, seatLabel ?? undefined)
   const traceShown = trace !== null && (ACTIVE_STATES.has(trace) || trace === 'waiting' || trace === 'failed')
-  // Work the agent sent to the background and walked away from: the turn is
-  // over, the row would read idle, and something is still running. The glyph
-  // says so with a quiet spinner, so a person browsing other conversations knows this
-  // one has something to look at — the Background tasks panel, once opened.
-  const dotState =
-    backgrounded > 0
-      ? 'ready'
-      : traceShown && trace === 'waiting'
-        ? 'limit'
-        : traceShown && trace === 'failed'
-          ? 'broken'
-          : traceShown || summary.status.type === 'active'
-            ? 'signin'
-            : 'available'
   const worktree = isWorktreeSession(summary)
   const running = !needsYou && (backgrounded > 0 || (trace !== null && ACTIVE_STATES.has(trace)) || summary.status.type === 'active')
-  const hasActivityMark = running || (!needsYou && traceShown)
   const rowRef = useRef<HTMLButtonElement>(null)
   /* Brought on screen when it becomes the active one. A list long enough to
      hold a month of review rooms keeps the conversation being typed into
@@ -211,21 +196,21 @@ const SessionRow = memo(({
 
   const facts = [
     label, agentName,
-    needsYou ? 'Needs you' : traceShown ? TRACE_LABEL[trace] : relativeTime(summary.updatedAt, now),
+    needsYou ? 'Needs you' : error ?? (traceShown ? TRACE_LABEL[trace] : running ? 'Running' : 'Idle'),
+    relativeTime(summary.updatedAt, now),
     summary.git?.branch,
     worktree ? `Worktree ${folderName(summary.cwd)}` : null,
     folderGone ? `${folderGone}. The transcript can be read; nothing more can be sent.` : null,
+    pinned ? 'Pinned' : null,
     backgrounded > 0 ? `${backgrounded} running in the background` : null,
   ].filter(Boolean).join(' · ')
   const trailing: LeftColumnTrail | undefined = needsYou
     ? { kind: 'mark', icon: <SidebarMenuState label="Needs you" tone="warning" state="limit" compact />, label: 'Needs you' }
-    : hasActivityMark
-      ? { kind: 'mark', icon: running ? <Spinner size="sm" tone="neutral" aria-hidden /> : <Dot state={dotState} variant="navigation" />, label: backgrounded > 0 ? 'Background tasks running' : traceShown ? TRACE_LABEL[trace] : 'Running' }
+    : error !== null || trace === 'failed'
+      ? { kind: 'mark', icon: <Dot state="broken" variant="navigation" />, label: error ?? 'Failed' }
       : folderGone
         ? { kind: 'mark', icon: <FolderGoneIcon size={16} />, label: `${folderGone}. The transcript can be read; nothing more can be sent.` }
-        : worktree
-          ? { kind: 'mark', icon: <BranchIcon size={16} />, label: `Worktree ${summary.git?.branch ?? folderName(summary.cwd)}` }
-          : pinned ? { kind: 'mark', icon: <PinIcon size={16} />, label: 'Pinned' } : undefined
+        : undefined
 
   return <div data-region="session-row" data-virtual-key={virtualKey} data-virtual-index={virtualIndex}
     data-virtual-count={virtualCount} onContextMenu={menu.open}>
@@ -468,10 +453,10 @@ const GroupHead = ({
       onContextMenu={menu.open}
     >
       <LeftColumnRow project current={holdsOpen} dragging={drag.dragging === group.root} insertion={edge ?? undefined} label={group.name}
-        expanded={open} title={`${holdsOpen ? (current ? 'The folder this app is working in.\n' : 'Holds the folder this app is working in.\n') : ''}${actualRoot}\n⌥-click to ${open ? 'collapse' : 'expand'} every project.${stopped ? `\n${stopped.reason} ${stopped.nextStep}` : ''}`}
+        expanded={open} title={`${holdsOpen ? (current ? 'The folder this app is working in.\n' : 'Holds the folder this app is working in.\n') : ''}${actualRoot}${pinned ? '\nPinned' : ''}\n⌥-click to ${open ? 'collapse' : 'expand'} every project.${stopped ? `\n${stopped.reason} ${stopped.nextStep}` : ''}`}
         onClick={event => event.altKey ? onToggleAll() : onToggle()}
         trailing={stopped ? { kind: 'mark', icon: <Dot variant="navigation" />, label: `${stopped.reason} ${stopped.nextStep}` }
-          : pinned ? { kind: 'mark', icon: <PinIcon size={16} />, label: 'Pinned' } : undefined}
+          : undefined}
         action={{ kind: 'new', label: `New session in ${group.name}`,
           onClick: () => { void store.startSessionIn(actualRoot) } }} />
       <WorkspaceMenu
@@ -551,13 +536,9 @@ const RoomRow = ({ room, state, suppressSelection = false, virtualKey, virtualIn
   const unread = state === 'unread'
   const held = room.channel.filter(entry => entry.kind === 'message' && entry.state === 'held').length
   const selected = panes(snapshot.layout.root).some(pane => pane.view.kind === 'room' && pane.view.room === room.id)
-  const trailing: LeftColumnTrail | undefined = state === 'stopping'
-    ? { kind: 'mark', icon: <StopIcon size={14} />, label: 'Stopping' }
-    : waiting
+  const trailing: LeftColumnTrail | undefined = waiting
     ? { kind: 'mark', icon: <SidebarMenuState label="Needs you" tone="warning" state="limit" compact />, label: 'Needs you' }
-    : unread ? { kind: 'mark', icon: <Dot state="signin" variant="navigation" />, label: 'Unread activity' }
-      : running ? { kind: 'mark', icon: <Spinner size="sm" tone="neutral" />, label: 'Working' }
-      : held > 0 ? { kind: 'count', value: held, label: `${held} held messages` } : undefined
+    : undefined
   return <div data-virtual-key={virtualKey} data-virtual-index={virtualIndex} data-virtual-count={virtualCount}>
     <LeftColumnRow label={name} icon={<TeamIcon size={16} />} selected={selected && !suppressSelection}
       title={`${name}${state === 'stopping' ? ' · Stopping' : state === 'stopped' ? ' · Stopped' : ''}${waiting ? ' · Needs you' : ''}${unread ? ' · Unread activity' : ''}${running ? ' · Working' : ''}${held > 0 ? ` · ${held} held messages` : ''}${claimed > 0 ? ` · ${claimed} claimed jobs` : ''}`}
@@ -599,8 +580,7 @@ const GoneFolders = ({ folders }: { folders: readonly string[] }) => {
 }
 
 /** How many sessions a workspace shows before "Show more". */
-const COLLAPSED_LIMIT = 10
-const EXPANSION_STEP = 25
+const COLLAPSED_LIMIT = 5
 
 type ProjectRow =
   | { kind: 'room'; room: TeamState; updatedAt: number; pinnedIndex: null }
@@ -630,7 +610,7 @@ const WindowedProjectRows = ({
   const keyIndexes = useRef(new Map<string, number>())
   const snapshot = useSnapshot()
   keyIndexes.current = new Map(rows.map((row, index) => [row.kind === 'room' ? `room:${row.room.id}` : `session:${row.summary.runtime}:${row.summary.id}`, index]))
-  const estimate = FRAME.rail.rowHeight
+  const estimate = FRAME.rail.rowPitch
   const scrollTarget = navigationIndex ?? targetIndex
   const virtualLabels = JSON.stringify(rows.map((row) => {
     if (row.kind === 'room') {
@@ -1042,7 +1022,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null, s
   const typeahead = useRef({ text: '', timer: 0 })
   const [navigationTarget, setNavigationTarget] = useState<{ root: string; index: number } | null>(null)
   const lastReveal = useRef<string | null>(null)
-  const [revealedCount, setRevealedCount] = useState<ReadonlyMap<string, number>>(() => new Map())
+  const [expandedProjects, setExpandedProjects] = useState<ReadonlySet<string>>(() => new Set())
   const { groups, noFolder, hiddenPinned, gone } = useProjectList({ searching })
   const noFolderGroup = useMemo<ProjectGroup>(() => ({ root: 'no-folder', name: 'No folder', sessions: noFolder, folders: [], updatedAt: 0 }), [noFolder])
   const [noFolderOpen, setNoFolderOpen] = useState(false)
@@ -1296,23 +1276,7 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null, s
       else if (collapsed.has(activeGroup.root)) toggle(activeGroup.root)
       if (!othersOpen && far.some((group) => group.root === activeGroup.root)) store.setOthersOpen(true)
     }
-
-    const roomKeys = new Set(
-      projectRoots(activeGroup)
-        .flatMap((root) => roomsByProject.get(root) ?? [])
-        .flatMap((room) => teamSeats(snapshot.goals.get(room.id), room, goalRunOf(room.id, snapshot.goals.get(room.id), snapshot.flowExecutions)).map(one => String(one.key))),
-    )
-    const loose = activeGroup.sessions.filter(
-      (summary) => !roomKeys.has(String(sessionKey(summary.runtime, summary.id))),
-    )
-    const activeIndex = loose.findIndex(
-      (summary) => String(sessionKey(summary.runtime, summary.id)) === activeKey,
-    )
-    const visibleCount = revealedCount.get(activeGroup.root) ?? COLLAPSED_LIMIT
-    if (activeIndex >= visibleCount) {
-      setRevealedCount((current) => new Map(current).set(activeGroup.root, activeIndex + 1))
-    }
-  }, [activeGroup, activeKey, activeTeam, collapsed, far, liftedKeys, noFolderGroup, othersOpen, revealedCount, roomsByProject, snapshot.goals, snapshot.flowExecutions, store, toggle])
+  }, [activeGroup, activeKey, activeTeam, collapsed, far, liftedKeys, noFolderGroup, othersOpen, roomsByProject, snapshot.goals, snapshot.flowExecutions, store, toggle])
 
   const anyOpen = groups.some((group) => !collapsed.has(group.root))
   const toggleAll = useCallback(
@@ -1408,19 +1372,17 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null, s
         return !teamKeys.has(key) && !liftedKeys.has(key)
       },
     )
-    const visibleCount = Math.min(loose.length, revealedCount.get(group.root) ?? COLLAPSED_LIMIT)
-    const shown = loose.slice(0, visibleCount)
     const pinnedIndexes = new Map(
       snapshot.listPrefs.pinnedSessions.map((key, index) => [String(key), index]),
     )
-    const rows = [
+    const allRows = [
       ...rooms.map((room) => ({
         kind: 'room' as const,
         room,
         updatedAt: room.updatedAt,
         pinnedIndex: null,
       })),
-      ...shown.map((summary) => ({
+      ...loose.map((summary) => ({
         kind: 'session' as const,
         summary,
         updatedAt: summary.updatedAt,
@@ -1435,10 +1397,16 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null, s
       }
       return b.updatedAt - a.updatedAt
     })
-    const activeRowIndex = rows.findIndex(
-      (row) => row.kind === 'room' ? row.room.id === activeTeam?.id
+    const selectedIndex = allRows.findIndex(
+      (row) => row.kind === 'room' ? row.room.id === activeTeam?.id || panes(snapshot.layout.root).some(pane => pane.view.kind === 'room' && pane.view.room === row.room.id)
         : String(sessionKey(row.summary.runtime, row.summary.id)) === activeKey,
     )
+    const expanded = expandedProjects.has(group.root)
+    const rows = expanded ? allRows : allRows.slice(0, COLLAPSED_LIMIT)
+    if (!expanded && selectedIndex >= COLLAPSED_LIMIT) rows[COLLAPSED_LIMIT - 1] = allRows[selectedIndex]!
+    const activeRowIndex = rows.findIndex(row => row === allRows[selectedIndex])
+    const firstHiddenIndex = expanded ? -1 : allRows.findIndex(row => !rows.includes(row))
+    const overflowTitle = `${allRows.length - rows.length} more ${rooms.length > 0 ? 'rows' : 'conversations'}`
     return (
       <div key={group.root} data-navigation-root={group.root} data-project-root={folderless ? undefined : group.root} data-no-folder={folderless ? '' : undefined}>
         {folderless ? <LeftColumnRow label="No folder"
@@ -1461,11 +1429,16 @@ export const SessionTree = ({ now, searching = false, searchEmptyState = null, s
             enabled={rows.length > 50}
             targetIndex={activeRowIndex}
             navigationIndex={navigationTarget?.root === group.root ? navigationTarget.index : null}
-            footer={loose.length > visibleCount ? <LeftColumnRow label="Show more" title={`${loose.length - visibleCount} more conversations`}
+            footer={allRows.length > COLLAPSED_LIMIT ? <LeftColumnRow label={expanded ? 'Show less' : 'Show more'} title={expanded ? 'Show five rows' : overflowTitle}
               onClick={() => {
-                const shown = revealedCount.get(group.root) ?? COLLAPSED_LIMIT
-                setNavigationTarget({ root: group.root, index: rows.length })
-                setRevealedCount(current => new Map(current).set(group.root, Math.min(loose.length, shown + EXPANSION_STEP)))
+                const firstNewIndex = expanded ? null : firstHiddenIndex
+                setNavigationTarget(firstNewIndex === null ? null : { root: group.root, index: firstNewIndex })
+                setExpandedProjects(current => {
+                  const next = new Set(current)
+                  if (expanded) next.delete(group.root)
+                  else next.add(group.root)
+                  return next
+                })
               }} /> : undefined}
             renderRow={(row, index) =>
               row.kind === 'room' ? (

@@ -142,6 +142,15 @@ ratios are gone and Tailwind's own steps now name their pair too, `text-xs`
 and `text-xl` included: those two agreed with the table by coincidence across
 a hundred and fifty call sites, and a coincidence does not follow a change.
 
+### Sidebar rhythm
+
+Sidebar navigation, project, Team and pinned rows stand on a 34px pitch, with
+32px hover and selection surfaces centred inside each row. Group ink starts
+20px after the preceding group; the header-to-first-row gap stays unchanged.
+Settings navigation keeps its own row measure. The account footer is a quiet
+48px row under the existing full-width border, with identity and disclosure,
+Inbox and Settings; account and usage facts stay in its menu.
+
 ## Content insets
 
 A filled or bordered content surface earns an inset by its role, not by the

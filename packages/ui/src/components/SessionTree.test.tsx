@@ -172,7 +172,7 @@ it('uses a Team as one navigation row inside a virtual project', () => {
   const members = [String(sessionKey(first.runtime, first.id)), String(sessionKey(second.runtime, second.id))]
   const loose = Array.from({ length: 51 }, (_, index) => summary({ id: `loose-${index}`, updatedAt: 500 - index }))
   const { container: tree } = treeWith([room({ id: 'virtual-room', name: 'Virtual room', updatedAt: 2000, members })], [first, second, ...loose])
-  for (let page = 0; page < 2; page += 1) {
+  for (let page = 0; page < 1; page += 1) {
     const more = [...tree.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')].find((one) => /more$/.test(one.textContent?.trim() ?? ''))!
     act(() => more.click())
   }
@@ -202,7 +202,7 @@ it('uses the rendered room and live session names for virtual type-ahead', () =>
   } as unknown as AppSnapshot
   const store = { subscribe: () => () => {}, getSnapshot: () => snapshot } as unknown as AppStore
   act(() => root.render(<StoreProvider store={store}><SessionTree now={3} /></StoreProvider>))
-  for (let page = 0; page < 2; page += 1) {
+  for (let page = 0; page < 1; page += 1) {
     const more = [...container.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')].find((one) => /more$/.test(one.textContent?.trim() ?? ''))!
     act(() => more.click())
   }
@@ -235,12 +235,12 @@ it('moves into an unmounted windowed conversation and mounts it before focusing'
 
   const more = () => [...container.querySelectorAll<HTMLButtonElement>('[data-slot="sidebar-menu-button"]')]
     .find((button) => /more$/.test(button.textContent?.trim() ?? ''))!
-  for (let page = 0; page < 2; page += 1) {
+  for (let page = 0; page < 1; page += 1) {
     const button = more()
     act(() => button.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true })))
   }
 
-  const target = container.querySelector<HTMLButtonElement>('[data-virtual-index="30"] [data-slot="sidebar-menu-button"]')
+  const target = container.querySelector<HTMLButtonElement>('[data-virtual-index="5"] [data-slot="sidebar-menu-button"]')
   expect(target).not.toBeNull()
   expect(target?.closest('[data-virtual-count]')?.getAttribute('data-virtual-count')).toBe('60')
   const windowed = container.querySelector('[data-virtual-project="true"]')!
@@ -287,7 +287,8 @@ it('uses one fixed trailing slot for conversation state and actions', () => {
   const busy = rows.find((row) => row.textContent?.includes('busy'))!
   const needsYou = rows.filter((row) => row.textContent?.includes('waiting'))
   expect(quiet.querySelector('[data-left-mark]')).toBeNull()
-  expect(busy.querySelectorAll('[data-left-mark]')).toHaveLength(1)
+  expect(busy.querySelectorAll('[data-left-mark]')).toHaveLength(0)
+  expect(busy.querySelector('button')!.title).toContain('Running')
   expect(needsYou.length).toBeGreaterThan(0)
   for (const row of needsYou) {
     expect(row.querySelectorAll('[data-left-mark]')).toHaveLength(1)
@@ -302,10 +303,9 @@ it('uses one fixed trailing slot for conversation state and actions', () => {
   expect(label.className).toBe(classes)
 })
 
-it('a conversation with work still running in the background wears a quiet spinner, and says so on hover', () => {
+it('a background conversation keeps running facts on hover without a trailing mark', () => {
   // The turn is over and the row would read idle, but the agent sent
-  // something to the background and walked away. A person browsing other
-  // conversations gets a spinner on this one, and the hover line names the door.
+  // something to the background and walked away. Its hover line keeps that fact.
   const runtime = {
     id: 'agent',
     name: 'Agent',
@@ -358,10 +358,10 @@ it('a conversation with work still running in the background wears a quiet spinn
     return found as HTMLButtonElement
   }
   const glyph = (title: string): HTMLElement | null => row(title).parentElement?.querySelector('[data-slot="spinner"]') ?? null
-  expect(glyph('Busy one')).not.toBeNull()
-  expect(row('Busy one').parentElement?.querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('Background tasks running')
+  expect(glyph('Busy one')).toBeNull()
+  expect(row('Busy one').parentElement?.querySelector('[data-left-mark]')).toBeNull()
   expect(row('Busy one').title).toContain('running in the background')
-  // Finished work is not a reason to look: only running work earns the spinner.
+  // Finished work carries no background activity fact.
   expect(glyph('Quiet one')).toBeNull()
   expect(row('Quiet one').title).not.toContain('background')
 })
@@ -659,7 +659,7 @@ it('keeps a working Seat under its Team', () => {
   )
 
   expect(rowTitles(tree).filter((title) => title === 'session-room-member')).toHaveLength(0)
-  expect(roomRow(tree, 'Release room').closest('[data-left-row]')?.querySelector('[aria-label="Working"]')).not.toBeNull()
+  expect(roomRow(tree, 'Release room').title).toContain('Working')
 })
 
 it('keeps a conversation in its project when its turn ends', () => {
@@ -742,40 +742,38 @@ it('opens Other projects when the active session belongs to a far project', () =
   expect(fold?.parentElement?.querySelector('[data-left-mark]')?.textContent).toBe('4')
 })
 
-it('shows ten conversations and a Show more control with the remaining count in its title', () => {
+it('shows five conversations and a Show more control with the remaining count in its title', () => {
   const sessions = Array.from({ length: 25 }, (_, index) => summary({ id: `session-${index + 1}`, updatedAt: index + 1 }))
   const { container: tree } = treeWith([], sessions)
   const more = [...tree.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Show more')!
-  expect(tree.querySelectorAll('[data-region="session-row"]')).toHaveLength(10)
-  expect(more.title).toBe('15 more conversations')
+  expect(tree.querySelectorAll('[data-region="session-row"]')).toHaveLength(5)
+  expect(more.title).toBe('20 more conversations')
   expect(more.querySelector('[data-slot="sidebar-menu-icon"]')).not.toBeNull()
   act(() => more.click())
   expect(tree.querySelectorAll('[data-region="session-row"]')).toHaveLength(25)
   expect([...tree.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Show more')).toBe(false)
 })
 
-it('reveals 25 additional conversations at a time', () => {
+it('expands all conversations and folds them again', () => {
   const sessions = Array.from({ length: 40 }, (_, index) => summary({ id: `session-${index + 1}`, updatedAt: index + 1 }))
   const { container: tree } = treeWith([], sessions)
-  const rows = () => tree.querySelectorAll('[data-region="session-row"]').length
-  const more = () => [...tree.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Show more')!
-  expect(rows()).toBe(10)
-  expect(more().title).toBe('30 more conversations')
-  act(() => more().click())
-  expect(rows()).toBe(35)
-  expect(more().title).toBe('5 more conversations')
-  act(() => more().click())
-  expect(rows()).toBe(40)
+  const toggle = (label: string) => [...tree.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === label)!
+  expect(tree.querySelectorAll('[data-region="session-row"]')).toHaveLength(5)
+  expect(toggle('Show more').title).toBe('35 more conversations')
+  act(() => toggle('Show more').click())
+  expect(tree.querySelectorAll('[data-region="session-row"]')).toHaveLength(40)
+  act(() => toggle('Show less').click())
+  expect(tree.querySelectorAll('[data-region="session-row"]')).toHaveLength(5)
 })
 
-it('windows a project after the revealed list grows past 50 rows', () => {
+it('windows a project after expanding past 50 rows', () => {
   const sessions = Array.from({ length: 70 }, (_, index) => summary({ id: `session-${index + 1}`, updatedAt: index + 1 }))
   const { container: tree } = treeWith([], sessions)
-  const more = () => [...tree.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Show more')!
-  act(() => more().click())
-  act(() => more().click())
-  expect([...tree.querySelectorAll('[data-region="session-row"]')].length).toBeLessThan(60)
-  expect(more().title).toBe('10 more conversations')
+  const more = [...tree.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === 'Show more')!
+  act(() => more.click())
+  expect(tree.querySelectorAll('[data-region="session-row"]').length).toBeLessThan(60)
+  expect(tree.querySelector('[data-virtual-labels]')).not.toBeNull()
+  expect([...tree.querySelectorAll('button')].some(button => button.textContent?.trim() === 'Show less')).toBe(true)
 })
 
 it('only mutates the row whose selected conversation slice changed', () => {
@@ -802,7 +800,7 @@ it('only mutates the row whose selected conversation slice changed', () => {
   })
 })
 
-it('expands the active session beyond the ten-row preview', () => {
+it('keeps the active session visible beyond the five-row preview', () => {
   const active = summary({ id: 'active', updatedAt: 1 })
   const sessions = [
     active,
@@ -825,7 +823,7 @@ it('expands the active session beyond the ten-row preview', () => {
   expect(row?.hasAttribute('data-active')).toBe(true)
 })
 
-it('reveals and scrolls an active session beyond the next 25 rows', () => {
+it('reveals and scrolls an active session outside the five-row preview', () => {
   const scrollIntoView = vi.spyOn(HTMLElement.prototype, 'scrollIntoView').mockImplementation(() => {})
   try {
     const active = summary({ id: 'active-far', updatedAt: 1 })
@@ -838,7 +836,7 @@ it('reveals and scrolls an active session beyond the next 25 rows', () => {
       sessionKey('codex', sessionId('active-far')),
     )
 
-    expect(tree.querySelectorAll('[data-region="session-row"]')).toHaveLength(36)
+    expect(tree.querySelectorAll('[data-region="session-row"]')).toHaveLength(5)
     expect(tree.querySelector('button[data-active]')?.textContent).toBe('active-far')
     expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest' })
   } finally {
@@ -928,7 +926,7 @@ it('names waiting Teams by their Goal and retains attention without nested Seats
 })
 
 
-it('draws a trigger Goal’s row on one line: its subject and one running mark', async () => {
+it('draws a trigger Goal’s subject on one line and names its activity on hover', async () => {
   const board = room({ id: 'g1', name: 'Issue #43, from trigger triage-issue', updatedAt: 4 })
   const triggerGoal = vi.fn(async () => ({
     goal: 'g1', trigger: 'triage-issue', source: 'issue' as const, label: 'from issue #43', url: null, budget: null, waits: [],
@@ -940,7 +938,8 @@ it('draws a trigger Goal’s row on one line: its subject and one running mark',
   const head = row.querySelector('[data-slot="sidebar-menu-label"]')
   expect(head?.textContent).toBe('Issue #43')
   expect(row.querySelectorAll('[data-slot="chip"]')).toHaveLength(0)
-  expect(row.closest('[data-left-row]')?.querySelector('[data-slot="spinner"]')).not.toBeNull()
+  expect(row.closest('[data-left-row]')?.querySelector('[data-slot="spinner"]')).toBeNull()
+  expect(row.title).toContain('Working')
   expect(row.querySelector('[class*="rowMeta"]')).toBeNull()
   expect(row.textContent).not.toContain('from issue')
   expect(row.textContent).not.toContain('triage-issue')
@@ -1431,8 +1430,8 @@ it('a room reserves its trailing badge for messages and explains other counts on
   const row = roomRow(tree, 'Checkout rewrite')
   expect(row.title).toContain('1 claimed job')
   const badge = row.closest('[data-left-row]')?.querySelector('[data-left-mark]')
-  expect(badge?.textContent).toBe('1')
-  expect(badge?.getAttribute('aria-label')).toContain('1 held message')
+  expect(badge).toBeNull()
+  expect(row.title).toContain('1 held message')
 })
 
 it('a filtered Team row never presents member counts as an unfiltered total', () => {
@@ -2000,7 +1999,8 @@ it.each([
   }
   if (activity === 'working') {
     expect(roomRow(tree, board.name).textContent).toBe(board.name)
-    expect(roomRow(tree, board.name).closest('[data-left-row]')?.querySelector('[data-slot="spinner"]')).not.toBeNull()
+    expect(roomRow(tree, board.name).title).toContain('Working')
+    expect(roomRow(tree, board.name).closest('[data-left-row]')?.querySelector('[data-left-mark]')).toBeNull()
     return
   }
   const mark = roomRow(tree, board.name).closest('[data-left-row]')?.querySelector('[data-left-mark]')!
@@ -2051,7 +2051,8 @@ it('keeps working and waiting state on the conversation row inside its project',
   const rows = project.querySelectorAll('[data-region="session-row"]')
   expect(rows).toHaveLength(2)
   expect(project.querySelector('[data-left-mark][aria-label="Needs you"]')?.getAttribute('aria-label')).toBe('Needs you')
-  expect(project.querySelector('[data-left-mark][aria-label="Thinking"]')).not.toBeNull()
+  expect(project.querySelector('[data-left-mark][aria-label="Thinking"]')).toBeNull()
+  expect(project.querySelector('[aria-label="busy-row"]')?.getAttribute('title')).toContain('Thinking')
   expect([...project.querySelectorAll('[data-region="session-row"] [data-slot="sidebar-menu-label"]')].map(one => one.textContent)).toEqual(['busy-row', 'waiting-row'])
 })
 
@@ -2160,7 +2161,8 @@ it.each([false, true])('keeps Team unread, running and urgent facts in one prior
     from: { runtime: busy.runtime, sessionId: sameSeat ? busy.id : unread.id, name: 'Reviewer' } }] })
   const item = roomRow(view.container, board.name).closest('[data-left-row]')!
   expect(view.container.querySelectorAll('[data-region="session-row"]')).toHaveLength(0)
-  expect(item.querySelector('[aria-label="Unread activity"]')).not.toBeNull()
+  expect(item.querySelector('[aria-label="Unread activity"]')).toBeNull()
+  expect(roomRow(view.container, board.name).title).toContain('Unread activity')
   expect(roomRow(view.container, board.name).title).toContain('Working')
   expect(item.textContent).not.toContain('Working')
   view.update({ approvals: [{ key: unreadKey, approval: {} }] as unknown as AppSnapshot['approvals'] })
@@ -2168,7 +2170,8 @@ it.each([false, true])('keeps Team unread, running and urgent facts in one prior
   expect(item.querySelector('[aria-label="Needs you"]')).not.toBeNull()
   view.update({ approvals: [], sessions: new Map([[sessionKey(busy.runtime, busy.id), { ...busy, status: { type: 'idle' }, turns: [] }]]) })
   expect(item.querySelector('[data-slot="spinner"]')).toBeNull()
-  expect(item.querySelector('[aria-label="Unread activity"]')).not.toBeNull()
+  expect(item.querySelector('[aria-label="Unread activity"]')).toBeNull()
+  expect(roomRow(view.container, board.name).title).toContain('Unread activity')
 })
 
 it('keeps Teams and loose conversations in one project child list', () => {
@@ -2236,7 +2239,7 @@ it('keeps Pinned conversations in the shared flat group', () => {
   expect(view.container.querySelector('[data-sidebar-band="pinned"] [data-nested]')).toBeNull()
 })
 
-it('shows no spinner for an opened completed conversation and shows one when its next turn starts', () => {
+it('keeps completed and running conversations unmarked and names new activity on hover', () => {
   const one = summary({ id: 'finished-conversation', status: { type: 'idle' } })
   const live = { ...one, turns: [{ id: 'finished-turn', status: 'completed', items: [] }] } as unknown as Session
   const view = treeWith([], [one], [live], {}, undefined, sessionKey(one.runtime, one.id))
@@ -2251,15 +2254,17 @@ it('shows no spinner for an opened completed conversation and shows one when its
       turns: [...live.turns, { id: 'next-turn', status: 'inProgress', items: [] }],
     } as Session]]),
   })
-  expect(view.container.querySelectorAll('[data-slot="spinner"]')).toHaveLength(1)
+  expect(view.container.querySelectorAll('[data-slot="spinner"]')).toHaveLength(0)
+  expect(view.container.querySelector('[aria-label="finished-conversation"]')?.getAttribute('title')).toContain('Thinking')
 })
 
-it('uses a quiet spinner for running conversations and Teams without a Working word', () => {
+it('keeps running Teams unmarked and shows only the needs-you mark', () => {
   const one = summary({ id: 'session-spin', status: { type: 'active' } })
   const live = { ...one, turns: [{ id: 'spin-turn', status: 'inProgress', items: [] }] } as unknown as Session
   const board = room({ id: 'spin-team', name: 'Running Team', members: [String(sessionKey(one.runtime, one.id))] })
   const view = treeWith([board], [one], [live])
-  expect(view.container.querySelectorAll('[data-slot="spinner"][data-tone="neutral"][data-size="sm"]')).toHaveLength(1)
+  expect(view.container.querySelectorAll('[data-slot="spinner"][data-tone="neutral"][data-size="sm"]')).toHaveLength(0)
+  expect(roomRow(view.container, board.name).title).toContain('Working')
   expect(view.container.textContent).not.toContain('Working')
   expect(roomRow(view.container, board.name).querySelector('[data-left-mark][aria-label="Needs you"]')).toBeNull()
   view.update({ approvals: [{ key: sessionKey(one.runtime, one.id), approval: {} }] as unknown as AppSnapshot['approvals'] })
@@ -2351,7 +2356,7 @@ it('keeps a 25-conversation project folded across rerenders and remounts', () =>
       mounted.update({ listPrefs: { ...snapshot.listPrefs, collapsed: [folder] } })
     }),
   })
-  expect(container.querySelectorAll('[data-region="session-row"]')).toHaveLength(10)
+  expect(container.querySelectorAll('[data-region="session-row"]')).toHaveLength(5)
   const project = container.querySelector<HTMLButtonElement>('[data-project-root] [data-draggable]')!
   act(() => project.click())
   expect(container.querySelectorAll('[data-region="session-row"]')).toHaveLength(0)
@@ -2448,4 +2453,88 @@ it('the project keeps one-click New session and its keyboard context menu', asyn
     key: 'F10', shiftKey: true, bubbles: true, cancelable: true,
   })))
   expect(document.querySelector('[role="menu"][aria-label="Actions for repo"]')).not.toBeNull()
+})
+
+
+it('caps projects at five rows, toggles the whole list and keeps selection in the fifth slot', () => {
+  const sessions = Array.from({ length: 12 }, (_, index) => summary({ id: `calm-${index}`, updatedAt: 12 - index }))
+  const { container: tree } = treeWith([], sessions, [], {}, undefined, sessionKey(sessions[10]!.runtime, sessions[10]!.id))
+  const rows = () => [...tree.querySelectorAll('[data-region="session-row"]')]
+  const toggle = (label: string) => [...tree.querySelectorAll<HTMLButtonElement>('button')].find(button => button.textContent?.trim() === label)!
+  expect(rows()).toHaveLength(5)
+  expect(rows()[4]!.textContent).toContain('calm-10')
+  expect(toggle('Show more').title).toBe('7 more conversations')
+  act(() => toggle('Show more').click())
+  expect(rows()).toHaveLength(12)
+  const less = toggle('Show less')
+  act(() => { less.focus(); less.click() })
+  expect(rows()).toHaveLength(5)
+  expect(rows()[4]!.textContent).toContain('calm-10')
+  expect(document.activeElement).toBe(toggle('Show more'))
+  expect(tree.querySelectorAll('[data-slot="sidebar-menu-button"][tabindex="0"]')).toHaveLength(1)
+})
+
+it('counts Teams in the five-row project cap and keeps pinned conversations uncapped', () => {
+  const sessions = Array.from({ length: 9 }, (_, index) => summary({ id: `pin-calm-${index}`, updatedAt: 20 - index }))
+  const teams = Array.from({ length: 8 }, (_, index) => room({ id: `calm-team-${index}`, name: `Calm Team ${index}`, updatedAt: 30 - index }))
+  const { container: tree } = treeWith(teams, sessions, [], { pinnedSessions: sessions.map(one => sessionKey(one.runtime, one.id)) })
+  expect(tree.querySelectorAll('[data-region="session-row"]')).toHaveLength(9)
+  const project = tree.querySelector('[data-project-root]')!
+  expect(project.querySelectorAll('[data-virtual-index]')).toHaveLength(5)
+  expect(project.textContent).toContain('Show more')
+})
+
+it('shows only attention and error marks while keeping running and worktree facts in titles', () => {
+  const busy = summary({ id: 'calm-busy', status: { type: 'active' } })
+  const branch = summary({ id: 'calm-branch', cwd: '/repo/worktree', repo: { root: '/repo', worktree: true }, git: { branch: 'topic' } })
+  const failed = summary({ id: 'calm-failed' })
+  const live = { ...failed, turns: [{ id: 'failed-turn', status: 'failed', items: [] }] } as unknown as Session
+  const view = treeWith([], [busy, branch, failed], [live])
+  const row = (label: string) => [...view.container.querySelectorAll<HTMLElement>('[data-region="session-row"]')].find(one => one.textContent?.includes(label))!
+  expect(row('calm-busy').querySelector('[data-left-mark]')).toBeNull()
+  expect(row('calm-busy').querySelector('button')!.title).toContain('Running')
+  expect(row('calm-branch').querySelector('[data-left-mark]')).toBeNull()
+  expect(row('calm-branch').querySelector('button')!.title).toContain('topic')
+  expect(row('calm-branch').querySelector('button')!.title).toContain('Worktree')
+  expect(row('calm-failed').querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('Failed')
+  view.update({ approvals: [{ key: sessionKey(busy.runtime, busy.id), approval: {} }] as unknown as AppSnapshot['approvals'] })
+  expect(row('calm-busy').querySelector('[data-left-mark]')?.getAttribute('aria-label')).toBe('Needs you')
+})
+
+it('keeps indexed and live session errors visible without a failed turn', () => {
+  const one = summary({ id: 'status-error', status: { type: 'error', message: 'Agent disconnected' } })
+  const view = treeWith([], [one])
+  const mark = () => view.container.querySelector('[data-region="session-row"] [data-left-mark]')
+  expect(mark()?.getAttribute('aria-label')).toBe('Agent disconnected')
+  expect(view.container.querySelector('[aria-label="status-error"]')?.getAttribute('title')).toContain('Agent disconnected')
+  view.update({ sessions: new Map([[sessionKey(one.runtime, one.id), { ...one, status: { type: 'idle' }, turns: [] } as unknown as Session]]) })
+  expect(mark()).toBeNull()
+})
+
+it('keeps expansion local to each project and resets it when the UI session ends', () => {
+  const sessions = ['/repo', '/other'].flatMap(cwd => Array.from({ length: 8 }, (_, index) => summary({ id: `${cwd}-${index}`, cwd, updatedAt: 8 - index })))
+  const view = treeWith([], sessions)
+  const project = () => view.container.querySelector('[data-project-root="/repo"]')!
+  const other = () => view.container.querySelector('[data-project-root="/other"]')!
+  const toggle = (label: string) => [...project().querySelectorAll<HTMLButtonElement>('button')].find(one => one.textContent === label)!
+  act(() => toggle('Show more').click())
+  expect(project().querySelectorAll('[data-region="session-row"]')).toHaveLength(8)
+  expect(other().querySelectorAll('[data-region="session-row"]')).toHaveLength(5)
+  view.update({ inbox: [] })
+  expect(project().querySelectorAll('[data-region="session-row"]')).toHaveLength(8)
+  act(() => root.render(null))
+  treeWith([], sessions)
+  expect(project().querySelectorAll('[data-region="session-row"]')).toHaveLength(5)
+})
+
+it('replaces only the fifth slot when the selected conversation changes outside the cap', () => {
+  const sessions = Array.from({ length: 9 }, (_, index) => summary({ id: `select-calm-${index}`, updatedAt: 9 - index }))
+  const view = treeWith([], sessions)
+  for (const index of [7, 8]) {
+    view.update({ activeSessionKey: sessionKey(sessions[index]!.runtime, sessions[index]!.id) })
+    const rows = view.container.querySelectorAll('[data-region="session-row"]')
+    expect(rows).toHaveLength(5)
+    expect(rows[4]!.querySelector('[aria-current="page"]')?.textContent).toBe(`select-calm-${index}`)
+    expect(rows[3]!.textContent).toContain('select-calm-3')
+  }
 })

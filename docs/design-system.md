@@ -437,7 +437,11 @@ One row in a navigation list — the sidebar's sessions, the settings sheet's pa
 | --- | --- |
 | `--hd-nav-h` | `calc(20px + 4px * 2 + 2px)` |
 | `--hd-nav-h-group` | `calc(20px + 4px * 2 + 2px)` |
-| `--hd-left-row-h` | `32px` |
+| `--hd-sidebar-highlight-h` | `32px` |
+| `--hd-sidebar-row-pitch` | `calc(32px + 2px)` |
+| `--hd-sidebar-group-space` | `20px` |
+| `--hd-bar-h-lg` | `48px` |
+| `--hd-left-row-h` | `calc(32px + 2px)` |
 | `--hd-left-row-gap` | `0px` |
 | `--hd-left-menu-gap` | `8px` |
 | `--hd-frame-icon-button` | `28px` |
@@ -534,7 +538,7 @@ A block of related settings on a page. The reference's account-settings cards ar
 | `--hd-ring-muted` | `rgb(52, 88, 240)` |
 | `--hd-card-fill` | `` |
 | `--hd-ring-muted` | `rgb(52, 88, 240)` |
-| `--hd-left-row-h` | `32px` |
+| `--hd-left-row-h` | `calc(32px + 2px)` |
 | `--hd-left-row-gap` | `0px` |
 | `--hd-left-menu-gap` | `8px` |
 | `--hd-nav-radius` | `10px` |
@@ -1729,7 +1733,7 @@ absent in Settings. Its compact cells use the shared switcher appearance.
 
 `packages/ui/src/design/patterns/LeftColumn.tsx`
 
-The account row closes the column without a separator hairline above it.
+A quiet account row closes the column beneath a full-width hairline.
 
 ### `LeftColumnExplorerHead`
 
@@ -2586,4 +2590,4 @@ list only goes down, except when the audit learns to see something it was blind 
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 5 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 20 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2092 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `screenLayout` | 2089 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |

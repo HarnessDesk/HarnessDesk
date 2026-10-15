@@ -45,6 +45,15 @@ const textInk = async (locator: Locator) => locator.evaluate((node) => {
   })).filter(({ width, height }) => width > 0 && height > 0)
 })
 
+// Geometry cases inspect the full project; the cap is exercised by sidebar-structure.
+const expandProjects = async (sidebar: import('@playwright/test').Locator) => {
+  for (const group of await sidebar.locator('[data-project-root]').all()) {
+    const more = group.getByRole('button', { name: 'Show more', exact: true })
+    if (await more.count()) await more.click()
+  }
+  await sidebar.evaluate(node => { if (node.contains(document.activeElement)) (document.activeElement as HTMLElement).blur() })
+}
+
 test('hover actions take the rail and every trailing mark moves by the declared action count', async ({ page }, testInfo) => {
   test.setTimeout(120_000)
   await page.goto('/design.html?view=sidebar')
@@ -148,7 +157,7 @@ test('hover actions take the rail and every trailing mark moves by the declared 
           for (const ink of titleRects) expect(intersection(ink, markBox), `${caseName} title ink overlaps state mark at ${width}px (${state})`).toBe(false)
         }
         if (declaredMarks === 4 && state === 'hover' && [200, 260].includes(width)) {
-          await testInfo.attach(`four-marks-${width}-hover.png`, { body: await row.screenshot(), contentType: 'image/png' })
+          if (testInfo.project.use.screenshot !== 'off') await testInfo.attach(`four-marks-${width}-hover.png`, { body: await row.screenshot(), contentType: 'image/png' })
         }
       }
       await action.evaluate((node) => { node.removeAttribute('data-state'); node.setAttribute('aria-expanded', 'false') })
@@ -217,6 +226,7 @@ test('sidebar state marks yield to actions and every trailing control stays on t
   const action = anatomy.locator('[data-slot="sidebar-menu-action"]')
   const nestedExample = example.locator('[aria-label="Nested row end rail"]')
   const sidebar = sidebars.first()
+  await expandProjects(sidebar)
   const frame = sidebar.locator('xpath=parent::*')
 
   for (const width of [200, 220, 260, 320]) {
@@ -288,7 +298,7 @@ test('sidebar state marks yield to actions and every trailing control stays on t
           await page.mouse.move(0, 0)
           const rest = await box(label)
           if (mode === 'hover') await opener.hover({ position: { x: 8, y: 12 } })
-          else await opener.focus()
+          else { await page.keyboard.press('Shift'); await opener.evaluate(node => (node as HTMLElement).focus({ preventScroll: true })) }
           await expect(action).toBeVisible()
           await expect(row.locator('[data-left-mark]')).toBeHidden()
           expect(await box(label)).toEqual(rest)
@@ -303,6 +313,7 @@ test('sidebar state marks yield to actions and every trailing control stays on t
 test('worktree and gone-folder priority facts survive hover, focus and an open menu', async ({ page }, testInfo) => {
   await page.goto('/design.html?view=sidebar')
   const sidebar = page.locator('[data-catalog-example="sidebar"] [data-left-column]').first()
+  await expandProjects(sidebar)
   const rows = [
     sidebar.locator('[data-region="session-row"] [data-left-row]').filter({ hasText: 'Add fixtures for the refund path before extending the checkout matrix' }),
     sidebar.locator('[data-region="session-row"] [data-left-row]').filter({ hasText: 'Draft the 2.5 migration notes after reviewing the sidebar target behavior' }),
@@ -321,7 +332,8 @@ test('worktree and gone-folder priority facts survive hover, focus and an open m
       const label = button.locator('[data-slot="sidebar-menu-label-content"]')
       const before = await box(label)
       const mark = row.locator('[data-left-mark]')
-      await expect(mark).toBeVisible()
+      if (row === rows[1]) await expect(mark).toBeVisible()
+      else { await expect(mark).toHaveCount(0); expect(title).toContain('Thinking') }
       const target = await box(row.locator('[data-left-trailing]'))
       const action = row.locator('[data-slot="sidebar-menu-action"]')
       for (const focus of [false, true]) {
@@ -350,20 +362,21 @@ test('worktree and gone-folder priority facts survive hover, focus and an open m
     expect(Math.abs(centre(await box(plus)) - side.x - side.width + 28)).toBeLessThanOrEqual(1)
     const start = sidebar.getByRole('button', { name: 'More ways to start', exact: true })
     expect(Math.abs(centre(await box(start)) - centre(await box(plus)))).toBeLessThanOrEqual(1)
-    const project = sidebar.locator('[data-project-root] [data-left-row]').filter({ has: page.locator('[data-left-mark][aria-label="Pinned"]') }).first()
+    const project = sidebar.locator('[data-project-root] [data-left-row]').filter({ has: page.locator('button[data-draggable][title*="Pinned"]') }).first()
     const opener = project.locator('button[data-draggable]')
     await project.scrollIntoViewIfNeeded()
     await page.evaluate(() => (document.activeElement as HTMLElement)?.blur())
     await page.mouse.move(0, 0)
     const pin = project.locator('[data-left-mark]')
-    await expect(pin).toBeVisible()
+    await expect(pin).toHaveCount(0)
+    await expect(opener).toHaveAttribute('title', /Pinned/)
     const target = await box(project.locator('[data-left-trailing]'))
     for (const focus of [false, true]) {
-      if (focus) await opener.focus()
+      if (focus) { await page.keyboard.press('Shift'); await opener.evaluate(node => (node as HTMLElement).focus({ preventScroll: true })) }
       else await opener.hover()
       const add = project.getByRole('button', { name: /^New session in / })
       await expect(add).toBeVisible()
-      await expect(pin).toBeHidden()
+      await expect(pin).toHaveCount(0)
       expect(await box(add)).toEqual(target)
       await expect(project.getByRole('button', { name: /^Actions for / })).toHaveCount(0)
     }
@@ -457,6 +470,7 @@ test('sidebar resize highlight is idle-only on hover, without a stuck seam state
 test('real session and Team rows preserve full facts and one priority slot', async ({ page }) => {
   await page.goto('/design.html?view=sidebar')
   const sidebar = page.locator('[data-catalog-example="sidebar"] [data-left-column]').first()
+  await expandProjects(sidebar)
   const session = sidebar.locator('[data-region="session-row"] [data-left-row]')
     .filter({ hasText: 'Pin the flaky inventory test after reconciling every retry branch' })
   const team = sidebar.locator('[data-virtual-key^="room:"] button[aria-label="Room Approve the migration evidence"][title*="held messages"]')
@@ -484,7 +498,7 @@ test('real session and Team rows preserve full facts and one priority slot', asy
       expect(mark.x + mark.width).toBeLessThanOrEqual(bounds.x + bounds.width)
       for (const mode of ['hover', 'focus'] as const) {
         if (mode === 'hover') await opener.hover()
-        else await opener.focus()
+        else { await page.keyboard.press('Shift'); await opener.evaluate(node => (node as HTMLElement).focus({ preventScroll: true })) }
         expect(await box(label)).toEqual(before)
         if (row === session) {
           await expect(row.locator('[data-left-mark]')).toBeHidden()
@@ -505,6 +519,7 @@ test('nested board and flat Team keep trailing marks on their own label line', a
   const nestedList = example.locator('[aria-label="Nested row end rail"]')
   const sidebars = example.locator('[data-region="sidebar-header"]').locator('xpath=ancestor::div[@data-left-column][1]')
   const sidebar = sidebars.first()
+  await expandProjects(sidebar)
   const frame = sidebar.locator('xpath=parent::*')
   const productRoom = sidebar.locator('[data-virtual-key^="room:"] button[aria-label="Room Approve the migration evidence"][title*="held messages"]').locator('..')
 
@@ -606,6 +621,7 @@ test('real section headers start at the shared icon edge', async ({ page }) => {
 test('real waiting Team keeps the priority mark and all held-message facts at every width', async ({ page }, testInfo) => {
   await page.goto('/design.html?view=sidebar')
   const sidebar = page.locator('[data-catalog-example="sidebar"] [data-left-column]').first()
+  await expandProjects(sidebar)
   const team = sidebar.locator('[data-virtual-key^="room:"] button[aria-label="Room Approve the migration evidence"][title*="held messages"]')
   const row = team.locator('..')
   const measurements = []
@@ -659,29 +675,30 @@ test('real header glyph ink occupies the end rail and its adjacent target column
   }
 })
 
-test('real working worktree uses one activity slot and preserves checkout facts', async ({ page }) => {
+test('real working worktree keeps activity and checkout facts on hover with an empty rail', async ({ page }) => {
   await page.goto('/design.html?view=sidebar')
   const sidebar = page.locator('[data-catalog-example="sidebar"] [data-left-column]').first()
+  await expandProjects(sidebar)
   const active = sidebar.locator('[data-region="session-row"] [data-left-row]')
     .filter({ hasText: 'Add fixtures for the refund path before extending the checkout matrix' })
   const opener = active.locator('[data-slot="sidebar-menu-button"]')
   await expect(active).toHaveCount(1)
   expect(await opener.getAttribute('title')).toContain('Worktree')
   expect(await opener.getAttribute('title')).toContain('Thinking')
-  await expect(active.locator('[data-left-mark]')).toHaveCount(1)
+  await expect(active.locator('[data-left-mark]')).toHaveCount(0)
   for (const width of [200, 220, 260, 320, 520]) {
     await sidebar.locator('..').evaluate((node, value) => { (node as HTMLElement).style.width = `${value + 2}px` }, width)
     await active.scrollIntoViewIfNeeded()
     await page.evaluate(() => (document.activeElement as HTMLElement)?.blur())
     await page.mouse.move(0, 0)
     const mark = active.locator('[data-left-mark]')
-    await expect(mark.locator('[data-slot="spinner"]')).toBeVisible()
-    await expect(mark.locator('[data-slot="spinner"]')).toHaveCSS('animation-name', 'none')
+    await expect(mark).toHaveCount(0)
+    await expect(opener).toHaveAttribute('title', /Thinking/)
     const before = await box(opener.locator('[data-slot="sidebar-menu-label-content"]'))
     const target = await box(active.locator('[data-left-trailing]'))
     for (const mode of ['hover', 'focus'] as const) {
       if (mode === 'hover') await opener.hover({ position: { x: 8, y: 12 } })
-      else await opener.focus()
+      else { await page.keyboard.press('Shift'); await opener.evaluate(node => (node as HTMLElement).focus({ preventScroll: true })) }
       await expect(mark).toBeHidden()
       const action = active.locator('[data-slot="sidebar-menu-action"]')
       await expect(action).toBeVisible()
@@ -705,6 +722,7 @@ test('540px window floats the real sidebar with aligned headers and a Needs you 
   await expect(floating).toBeVisible()
   expect((await box(canvas)).width).toBe(540)
   const sidebar = floating.locator('[data-region="sidebar-header"]').locator('xpath=ancestor::div[@data-left-column][1]')
+  await expandProjects(sidebar)
   expect((await box(sidebar)).width).toBe(FRAME.sidebar.width)
   await expect(sidebar.locator('[data-tone="working"], [data-tone="waiting"]')).toHaveCount(0)
   const headerX = await sidebar.getByText('Projects', { exact: true }).evaluate((node) => { const range = document.createRange(); range.selectNodeContents(node); return range.getBoundingClientRect().x })
@@ -733,6 +751,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/design.html?view=sidebar')
     const sidebar = page.locator('[data-catalog-example="sidebar"] [data-left-column]').first()
+    await expandProjects(sidebar)
     const measurements = []
     for (const width of [200, 260, 320, 540]) {
       await sidebar.locator('..').evaluate((node, value) => { (node as HTMLElement).style.width = `${value + 2}px` }, width)
@@ -769,6 +788,7 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto('/design.html?view=sidebar')
     const sidebar = page.locator('[data-catalog-example="sidebar"] [data-left-column]').first()
+    await expandProjects(sidebar)
     const button = sidebar.locator('[data-virtual-key^="room:"] button[aria-label="Room Approve the migration evidence"][title*="held messages"]')
     const row = button.locator('..')
     for (const width of [200, 260, 320, 540]) {

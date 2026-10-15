@@ -3,7 +3,7 @@ import type * as React from 'react'
 import { cn } from '@/lib/utils'
 
 /**
- * A bar: one row at the height every bar in the window stands at.
+ * A bar: the window edge row, with a roomier size for the sidebar foot.
  *
  * The window is read along a few horizontal lines — the row under the traffic
  * lights, the row that names a column, a filter row over a list, a facts line
@@ -42,6 +42,7 @@ const Bar = ({
   as: Element = 'div',
   className,
   inset = 'box',
+  size = 'default',
   corner = false,
   rule,
   paintedRule = false,
@@ -51,6 +52,7 @@ const Bar = ({
 }: React.ComponentProps<'div'> & {
   as?: 'div' | 'header' | 'footer'
   inset?: 'box' | 'ink' | 'rail'
+  size?: 'default' | 'lg'
   corner?: boolean
   rule?: 'top' | 'bottom'
   /** Paint a seam without consuming a pixel of the controls' region. */
@@ -67,7 +69,7 @@ const Bar = ({
     className={cn(
       'flex shrink-0 items-center gap-(--hd-bar-gap)',
       inset === 'rail' ? 'pr-(--hd-rail-inset)' : 'pr-(--hd-bar-pad)',
-      'h-(--hd-bar-h)',
+      size === 'lg' ? 'h-(--hd-bar-h-lg)' : 'h-(--hd-bar-h)',
       grow && ['h-auto py-(--hd-space-1)', 'min-h-(--hd-bar-h)'],
       inset === 'box' && (corner ? 'pl-[max(var(--hd-bar-pad),var(--titlebar-inset,0px))]' : 'pl-(--hd-bar-pad)'),
       inset === 'ink' && (corner ? 'pl-[max(var(--hd-bar-ink),var(--titlebar-inset,0px))]' : 'pl-(--hd-bar-ink)'),

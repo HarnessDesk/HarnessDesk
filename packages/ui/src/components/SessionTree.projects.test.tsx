@@ -150,7 +150,7 @@ it('reveals an activated folderless row beyond overflow and preserves a later de
   const head = group.querySelector<HTMLButtonElement>('button[aria-expanded]')!
   expect(head.getAttribute('aria-expanded')).toBe('true')
   expect(group.querySelector('[aria-current="page"]')?.textContent).toContain('unknown-14')
-  expect(group.querySelectorAll('[data-region="session-row"]')).toHaveLength(15)
+  expect(group.querySelectorAll('[data-region="session-row"]')).toHaveLength(5)
   act(() => head.click())
   render(history, open, { activeSessionKey, inbox: [] })
   expect(head.getAttribute('aria-expanded')).toBe('false')

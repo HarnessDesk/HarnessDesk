@@ -660,6 +660,7 @@ const UI_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
 }
 
 const UI_SYMBOL_AXES: Readonly<Record<string, CatalogSymbolAxes>> = {
+  'bar': { 'Bar': { 'size': ['default', 'lg'] } },
   'attachment': { 'AttachmentMedia': { 'variant': ['icon', 'image', 'picture'] } },
   'avatar-stack': { 'AvatarStack': { 'size': ['sm', 'default', 'stack'] } },
   'card': { 'Card': { 'variant': ['default', 'muted', 'flush', 'plate', 'raised'] }, 'CardViewport': { 'size': ['editor', 'lines'] } },

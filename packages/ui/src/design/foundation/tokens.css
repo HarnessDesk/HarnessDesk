@@ -1178,8 +1178,12 @@ body {
   --hd-nav-h: calc(var(--hd-line-sm) + var(--hd-space-1) * 2 + 2px); /* Solved from the row's box. */
   /* Every row in a navigation column stands the same. */
   --hd-nav-h-group: var(--hd-nav-h); /* One height for every row in the column. */
-  /* Frame left-column rows have one size in both interfaces. */
-  --hd-left-row-h: 32px; /* desk: 30 → 32, the roomier column */
+  /* Sidebar pitch is independent of its centred highlight; Settings keeps its own measure. */
+  --hd-sidebar-highlight-h: var(--hd-space-8);
+  --hd-sidebar-row-pitch: calc(var(--hd-sidebar-highlight-h) + var(--hd-space-0-5));
+  --hd-sidebar-group-space: var(--hd-space-5);
+  --hd-bar-h-lg: var(--hd-space-12);
+  --hd-left-row-h: var(--hd-sidebar-row-pitch); /* desk: approved 32 to 34px pitch around a centred 32px highlight. */
   --hd-left-row-gap: 0px;
   --hd-left-menu-gap: var(--hd-space-2);
   --hd-frame-icon-button: 28px;
@@ -1435,7 +1439,7 @@ body[data-hd-interface='studio'] {
     var(--hd-sidebar-selected-foreground) 86%,
     transparent
   );
-  --hd-nav-h: var(--hd-left-row-h); /* desk: shared FRAME destination contract; one height in both interfaces */
+  --hd-nav-h: var(--hd-sidebar-highlight-h); /* The highlight stays inside the sidebar row pitch. */
   /* One height for every row in a navigation column, shared with FRAME left-column and menu rows. */
   --hd-nav-h-group: var(--hd-nav-h); /* One height for every row in the column. */
   --hd-nav-radius: var(--hd-radius-sm);
