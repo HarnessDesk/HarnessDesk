@@ -4,7 +4,7 @@ import { expect, test } from '@playwright/test'
 test.use({ viewport: { width: 900, height: 850 } })
 for (const theme of ['light', 'dark']) for (const kind of ['unlisted', 'alias']) {
   test(`project menu reads ${kind} checkout facts in ${theme}`, async ({ page }) => {
-    await page.goto(`/src/preview/repository-menu-repairs.html?theme=${theme}${kind === 'alias' ? '&alias' : ''}`)
+    await page.goto(`/preview.html?repository-menu-repairs&theme=${theme}${kind === 'alias' ? '&alias' : ''}`)
     await expect(page.getByText('Make a first commit to work in a worktree', { exact: true })).toBeVisible()
     if (kind === 'unlisted' && process.env.REPOSITORY_MENU_FRAMES) {
       await mkdir(process.env.REPOSITORY_MENU_FRAMES, { recursive: true })

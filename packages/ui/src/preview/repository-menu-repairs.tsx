@@ -1,11 +1,9 @@
 import { useState } from 'react'
-import { createRoot } from 'react-dom/client'
 import { Button, PaneColumn, Text } from '../design'
 import { WorkspaceMenu } from '../components/WorkspaceMenu'
 import { StoreProvider } from '../state/context'
 import { AppStore } from '../state/store'
 import { useTheme } from '../state/theme'
-import '../styles/app.css'
 
 const path = '/work/storefront'
 const query = new URLSearchParams(location.search)
@@ -33,4 +31,4 @@ const Preview = () => {
       at={{ x: 40, y: 160 }} onClose={() => setOpen(false)} onNewWorktree={() => {}} />}
   </main>
 }
-createRoot(document.getElementById('root')!).render(<StoreProvider store={store}><Preview /></StoreProvider>)
+export const RepositoryMenuRepairsPreview = () => <StoreProvider store={store}><Preview /></StoreProvider>
