@@ -1656,9 +1656,9 @@ class PreviewStore {
   openFrontDoor = (context: StartContext, goal?: { readonly id: string; readonly revision: number }): void =>
     this.patch({ frontDoor: { context, goal: goal ?? null, preview: null } })
   closeFrontDoor = (): void => this.patch({ frontDoor: null })
-  previewFrontDoor = async (input: FrontDoorPreviewInput): Promise<FrontDoorPreview> => {
+  previewFrontDoor = async (input: FrontDoorPreviewInput, options: { readonly publish?: boolean } = {}): Promise<FrontDoorPreview> => {
     const preview = frontDoorPreviewFor(input)
-    if (this.#snapshot.frontDoor) this.patch({ frontDoor: { ...this.#snapshot.frontDoor, preview } })
+    if (options.publish !== false && this.#snapshot.frontDoor) this.patch({ frontDoor: { ...this.#snapshot.frontDoor, preview } })
     return preview
   }
 

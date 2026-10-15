@@ -1659,6 +1659,48 @@ New drawings start at 100% when they fit, otherwise shrink to the container.
 Edits keep the viewport while any earlier step survives.
 Steps connect by pointer here; the builder dock will add keyboard connection later.
 
+### `FlowCanvasToolbar`
+
+`packages/ui/src/design/patterns/FlowCanvasToolbar.tsx`
+
+Flow controls float inside a positioned canvas: editing and view tools at left, Run actions at right.
+
+### `FlowCanvasWorkspace`
+
+`packages/ui/src/design/patterns/FlowCanvasWorkspace.tsx`
+
+A canvas and its card rail share one containing block below the shell bar.
+
+### `FlowCanvasSurface`
+
+`packages/ui/src/design/patterns/FlowCanvasWorkspace.tsx`
+
+The graph fills the workspace; callers retain layout data and edit policy.
+
+### `FlowCanvasContent`
+
+`packages/ui/src/design/patterns/FlowCanvasWorkspace.tsx`
+
+Text and ordered forms reserve the toolbar's own band above the shared page inset.
+
+### `FlowCard`
+
+`packages/ui/src/design/patterns/FlowCards.tsx`
+
+A Flow in a destination or picker: its source, actual shape, earned summary and optional Run count.
+
+### `FlowMiniGraph`
+
+`packages/ui/src/design/patterns/FlowCards.tsx`
+
+A policy thumbnail reads the full canvas's topology, with one fixed viewport and unscaled, end-truncated role labels.
+
+### `FlowCardGrid`
+
+`packages/ui/src/design/patterns/FlowCards.tsx`
+
+Flow destinations and New Team pickers share one content-sized, responsive card grid.
+
 ### `FlowGraph`
 
 `packages/ui/src/design/patterns/FlowGraph.tsx`
@@ -2556,4 +2598,4 @@ list only goes down, except when the audit learns to see something it was blind 
 | `arbitraryUtility` | 0 | Will not follow a foundation, a type scale or a density change — and the CSS rules cannot see them. |
 | `retiredComponent` | 5 | The app frame retires these components: the shell draws the top bar, the panel frame and the page, and a screen that still renders one is a page outside the frame. |
 | `pageMeasureInScreen` | 20 | A screen that names the column or page width or its gutter decides its own page, which is how four left edges came to sit on one Findings page. |
-| `screenLayout` | 2092 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |
+| `screenLayout` | 2084 | Layout belongs to the frame, the page template and the blocks; a screen that positions its own content is assembling a page the system cannot reach. |

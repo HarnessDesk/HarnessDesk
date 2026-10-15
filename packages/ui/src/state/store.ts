@@ -5457,7 +5457,10 @@ export class AppStore {
    * Start immediately rather than leaving the previous token live while a
    * fresh one is fetched.
    */
-  async previewFrontDoor(input: FrontDoorPreviewInput): Promise<FrontDoorPreview> {
+  async previewFrontDoor(input: FrontDoorPreviewInput, options: { readonly publish?: boolean } = {}): Promise<FrontDoorPreview> {
+    // A retained Flow page owns its local dry run. It must neither retire
+    // nor publish into a New Team dialog open above that page.
+    if (options.publish === false) return this.transport.request('authoring/start/preview', input)
     const mine = ++this.#frontDoorGen
     if (this.#snapshot.frontDoor) this.#patch({ frontDoor: { ...this.#snapshot.frontDoor, preview: null } })
     const preview = await this.transport.request('authoring/start/preview', input)
@@ -5616,6 +5619,10 @@ export class AppStore {
   /** An Agent, a flow or a project's triggers file, exactly as it is on disk, with what is in the way of using it. Throws. */
   async readAuthoring(target: AuthoringTarget): Promise<AuthoringDocument> {
     return this.transport.request('authoring/read', { target })
+  }
+
+  async removeFlow(root: string, id: string, origin: 'project' | 'user', expected: string): Promise<void> {
+    await this.transport.request('authoring/flow/remove', { target: { kind: 'flow', root, id, origin }, expected })
   }
 
   /** One field of an Agent, changed in place and previewed against `expected` — the host encodes the value. Throws. */

@@ -43,6 +43,8 @@ import { accountKey, accountName, accountIdentity, agentKey, runtimeLabel, tintO
 import { folderName, projectRootOf } from '../lib/projects'
 import { anyBroken, inForce } from '../lib/agents'
 import { livePlugins } from '../lib/plugins'
+import { useFlowCatalogue } from '../lib/flow-catalogue'
+import { FlowIcon } from './Icons'
 import { Explorer, effectiveWindowMode } from '../editor'
 import { brandOf } from '../lib/identity'
 import { profileName } from '../lib/profile'
@@ -75,6 +77,7 @@ export const Sidebar = ({
   onOpenLibrary,
   onOpenAgents,
   onOpenTeams,
+  onOpenFlows,
   onOpenUsage,
   onBrowseFolders,
   onSignIn,
@@ -88,6 +91,7 @@ export const Sidebar = ({
   /** Opens the Agents window — the roster, never a Settings page. */
   onOpenAgents: () => void
   onOpenTeams: () => void
+  onOpenFlows?: () => void
   /** Opens the dashboard, scoped to one agent when the caller names it. */
   onOpenUsage: (runtime?: RuntimeId) => void
   onBrowseFolders: () => void
@@ -98,7 +102,7 @@ export const Sidebar = ({
   settings?: { section: Section; onSection: (section: Section) => void; onBack: () => void }
   listFilter?: { value: string; onChange: (value: string) => void }
   sessionsOwner?: boolean
-  activeDestination?: 'teams' | 'agents' | 'library' | 'plugins' | 'dashboard' | null
+  activeDestination?: 'teams' | 'flows' | 'agents' | 'library' | 'plugins' | 'dashboard' | null
 }) => {
   const store = useStore()
   const snapshot = useSnapshot()
@@ -150,6 +154,7 @@ export const Sidebar = ({
   const agentsCount = inForce(agentsRoster).length
   const agentsBroken = anyBroken(agentsRoster)
   const pluginCount = livePlugins(snapshot.plugins).length
+  const flows = useFlowCatalogue(active && !settings)
   const top = <LeftColumnTop shown={sidebarPlacement(snapshot) !== 'away'}
     settings={Boolean(settings)}
     modeSwitch={{ value: effectiveWindowMode(snapshot.windowMode, snapshot.workbench),
@@ -167,6 +172,7 @@ export const Sidebar = ({
   </Bar>
   const pageDoors = [
     { id: 'teams' as const, label: 'Teams', icon: <TeamIcon size={16} />, run: onOpenTeams, count: 0 },
+    { id: 'flows' as const, label: 'Flows', icon: <FlowIcon size={16} />, run: onOpenFlows ?? (() => store.openDestination({kind:'flows',root:null,id:null,origin:null})), count: flows.loading ? 0 : flows.rows.length + 1 },
     { id: 'agents' as const, label: 'Agents', icon: <AgentIcon size={16} />, run: onOpenAgents, count: agentsCount },
     { id: 'library' as const, label: 'Library', icon: <LibraryIcon size={16} />, run: onOpenLibrary ?? (() => onOpenSettings('library')), count: 0 },
     { id: 'plugins' as const, label: 'Plugins', icon: <PluginIcon size={16} />, run: onOpenPlugins, count: pluginCount },
@@ -184,7 +190,7 @@ export const Sidebar = ({
           selected={activeDestination === door.id} onClick={door.run}
           title={door.id === 'agents' && agentsBroken ? 'Agents, some unavailable' : door.label}
           trailing={door.count > 0 ? { kind: 'count', value: door.count,
-            label: door.id === 'agents' ? `${door.count} Agents${agentsBroken ? ', some unavailable' : ''}` : door.id === 'dashboard' ? `${door.count} Agents need attention` : `${door.count} Plugins` } : undefined} />)}
+            label: door.id === 'agents' ? `${door.count} Agents${agentsBroken ? ', some unavailable' : ''}` : door.id === 'dashboard' ? `${door.count} Agents need attention` : door.id === 'flows' ? `${door.count} Flows` : `${door.count} Plugins` } : undefined} />)}
       </LeftColumnGroup>
     </LeftColumnNavigation>
   </>

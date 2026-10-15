@@ -1,4 +1,5 @@
 import { ProjectPolishFrame } from './frames-project-polish'
+import { FlowsDestinationFixture } from './flows-destination-fixture'
 import { RepositoryStatesPreview } from './repository-states'
 import { RepositoryMenuRepairsPreview } from './repository-menu-repairs'
 import { WorkspaceRecoveryPreview } from './workspace-recovery'
@@ -1233,6 +1234,8 @@ createRoot(container).render(
       <SignInMode.Provider value="embedded">
         {siteScene
           ? <SiteScene name={siteScene} theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />
+          : new URLSearchParams(window.location.search).has('flows-page')
+            ? <FlowsDestinationFixture />
           : new URLSearchParams(window.location.search).has('race-entry')
             ? <RaceEntryFrames />
           : new URLSearchParams(window.location.search).has('repository-states')

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { access, mkdir, writeFile } from 'node:fs/promises'
+import { access, mkdir, realpath, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
@@ -15,7 +15,7 @@ import { tempDir } from './scratch.js'
 const ROOT = '/work/project'
 const DIGEST = 'a'.repeat(64)
 const agent = { kind: 'agent', origin: 'project', id: 'reviewer', root: ROOT }
-const flow = { kind: 'flow', origin: 'project', id: 'review-pr', root: ROOT }
+const flow = { kind: 'flow', origin: 'project', id: 'review-pr', root: ROOT } as const
 
 const refused = (method: string, params: unknown): void => {
   assert.throws(() => parseClientMessage({ id: 1, method, params }), ValidationError, `${method} ${JSON.stringify(params)}`)
@@ -130,6 +130,32 @@ const setup = async () => {
   })
   return { project, home, plane }
 }
+
+test('Flow removal accepts only a writable flow identity and the exact digest read by the person', async () => {
+  const parsed = parseClientMessage({ id: 1, method: 'authoring/flow/remove', params: { target: flow, expected: DIGEST } })
+  assert.equal(parsed.method, 'authoring/flow/remove')
+  refused('authoring/flow/remove', { target: { ...flow, origin: 'builtin' }, expected: DIGEST })
+  refused('authoring/flow/remove', { target: agent, expected: DIGEST })
+  refused('authoring/flow/remove', { target: { ...flow, id: '../escape' }, expected: DIGEST })
+  refused('authoring/flow/remove', { target: flow, expected: 'short' })
+  refused('authoring/flow/remove', { target: flow, expected: DIGEST, path: '/tmp/escape' })
+
+  const { project, plane } = await setup()
+  const folder = join(project, '.harnessdesk', 'flows')
+  await mkdir(folder, { recursive: true })
+  const path = join(folder, 'review-pr.yml')
+  await writeFile(path, 'version: 2\nname: Review\nroles:\n  p: {kind: person, outcomes: [done]}\nseed: {role: p, title: Decide}\n')
+  const target = { ...flow, root: project } as const
+  const document = await plane.read(target)
+  const removed: string[] = []
+  const ctx = { authoring: plane, options: { trashPath: async (path: string) => { removed.push(path) } } } as unknown as HostContext
+  await dispatch(ctx, 'authoring/flow/remove' as never, { target, expected: DIGEST } as never).then(
+    () => assert.fail('A stale digest must refuse'), () => {},
+  )
+  assert.deepEqual(removed, [])
+  await dispatch(ctx, 'authoring/flow/remove' as never, { target, expected: document.digest } as never)
+  assert.deepEqual(removed, [await realpath(path)])
+})
 
 const agentFile = (prefer: string) => `---\nname: Reviewer\nceiling: read\nanswers: [done]\nprefer: [${prefer}]\n---\n\nReview it.\n`
 

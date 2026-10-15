@@ -813,6 +813,14 @@ const triggerDefinitionsValidator: Validator<TriggerDefinition[]> = (value, path
 
 const authoringValidators = {
   'authoring/read': goalShape({ target: anyAuthoringTarget }),
+  'authoring/flow/remove': goalShape({
+    target: ((value: unknown, path = '') => {
+      const target = writableAuthoringTarget(value, path)
+      if (target.kind !== 'flow') throw new ValidationError(`${path}.kind`, 'expected a Flow')
+      return target
+    }) as Validator<Extract<WritableAuthoringTarget, { readonly kind: 'flow' }>>,
+    expected: authoringDigest,
+  }),
   'authoring/agent/patch': goalShape({
     target: ((value: unknown, path = '') => {
       const target = writableAuthoringTarget(value, path)

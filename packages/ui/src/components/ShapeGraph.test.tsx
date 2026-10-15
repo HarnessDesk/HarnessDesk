@@ -136,3 +136,26 @@ it('the accessible step list under the canvas carries no "Steps" heading of its 
   // The list itself is unaffected — every role is still there for a reader whose node is off screen.
   expect(container.querySelector('section[aria-label="Every step, for when a node is off screen"]')).not.toBeNull()
 })
+
+it('page editing exposes connection handles and delegates graph edits to its policy owner', async () => {
+  const onConnect = vi.fn()
+  await act(async () => root.render(<ShapeGraph policy={POLICY} selected="build" onSelect={vi.fn()} onPositions={vi.fn()} onEditRule={vi.fn()} onConnect={onConnect} canvasOnly />))
+  await act(async () => { await vi.waitFor(() => expect(container.querySelector('.react-flow__node')).not.toBeNull()) })
+  expect(container.querySelector('.react-flow__handle.connectable')).not.toBeNull()
+  expect(container.querySelector('section[aria-label="Every step, for when a node is off screen"]')).toBeNull()
+})
+
+it('protects a referenced seed from Delete while allowing the selected rule to be removed', async () => {
+  const onRemoveRule = vi.fn(), onRemoveRole = vi.fn()
+  const props = { policy: POLICY, onSelect: vi.fn(), onPositions: vi.fn(), onEditRule: vi.fn(), onConnect: vi.fn(), onRemoveRule, onRemoveRole, canvasOnly: true }
+  await act(async () => root.render(<ShapeGraph {...props} selected="build" />))
+  await act(async () => { await vi.waitFor(() => expect(container.querySelector('.react-flow__node')).not.toBeNull()) })
+  act(() => node('build').dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true })))
+  expect(onRemoveRole).not.toHaveBeenCalled()
+  expect(onRemoveRule).not.toHaveBeenCalled()
+  await act(async () => root.render(<ShapeGraph {...props} selected={null} selectedRule="to-review" />))
+  const edge = container.querySelector<HTMLElement>('.react-flow__edge[data-id="to-review"]')!
+  act(() => edge.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true })))
+  expect(onRemoveRule).toHaveBeenCalledExactlyOnceWith('to-review')
+  expect(onRemoveRole).not.toHaveBeenCalled()
+})

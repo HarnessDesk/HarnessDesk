@@ -990,19 +990,9 @@ citation's own retained detail — from here, or from a receipt's Citations
 row — is read-only: opening one starts no turn and grants nothing, and a
 missing source Goal or Git revision says so honestly beside the text that was
 retained.
-The page also lists the project's checks, its flows and its Triggers. A
-project's Triggers section names each declared source as a sentence, with its
-trigger id, concurrency and last firing below. The switch shows whether it
-is on; Changed, Refused and Paused keep their own toned chips. Turning one
-on opens the exact arming review before anything
-runs, which also names the forge repository it binds and, for an issue
-trigger that reads comments, whose comments fire it. An arm that changed or
-was refused stays switched on until turned off, with *Review* to arm it again,
-and a source stopped at a gap shows *Watch from now*. Below the folder list,
-"Triggers on this Mac" is this machine's own pause — which holds the work
-triggers started and continues it on resume — and daily cap for every armed
-trigger, with what is reserved and charged today. See
-[multi-agent.md](multi-agent.md#9-intake-bounded-work-a-project-can-open-on-its-own).
+The page also lists the project's checks. Flows and Triggers live in the
+Flows destination, beside Teams in the left column; workspace preferences
+do not read either catalogue.
 
 The runtime page also draws the controls the runtime declares for new sessions.
 Codex includes an optional CLI profile there: choosing one reads its bounded
@@ -1276,18 +1266,36 @@ trigger Goal's receipt keeps that same origin and stop reason.
 
 ## Flows
 
-A project's page lists its own Flows section beside Agents and Checks, read
-lazily — only once that page is open, never on the plain Workspaces list —
-from the layered catalogue (project, then your Mac, then what ships), each
-row saying its origin in words, never a wire id. An old-format project file
-carries **Update…**; a shipped or your-Mac file carries **Customize…**;
-either opens a dialog showing the whole before/after diff of every file it
-would write, through the same diff viewer an Agent's own ceiling update
-uses, before one confirming write. A project's own current-format file
-additionally carries **Edit shape…**, opening the same ordered editor and
-graph the front door's *Your own shape* uses, seeded from that file. A broken
-entry stays listed, disabled, with its own parser refusal on screen — never
-hidden.
+**Flows**, after Teams in the left column, opens a wide page of cards. The
+first row offers **New Flow**, an origin filter (All, Built in, or a project)
+and search. A card names the Flow and its origin, draws its actual steps and
+rules as a mini graph, carries its short summary and counts recorded Runs of
+that policy. Shared user and built-in entries appear once; a project's own
+file keeps its project identity. A broken entry stays visible with its
+parser refusal. **Just a Team** has no steps: it opens the same New Team
+dialog with a shared board and chat.
+
+Opening a Flow puts the editable graph in main. Its title menu holds Rename,
+Duplicate and Delete; deletion moves a writable file to the Trash only if it
+still has the bytes last read. The rail toggle and overflow are the only
+other bar controls. Floating canvas tools add a step or rule, undo an edit,
+and switch among **Graph**, **Steps** and **File**. The other group holds
+**Dry run** and **Start a Team**. Dragging saves node positions in the policy;
+connecting nodes adds a real rule. The ordered form and source edit that same
+policy, using the host's existing parser and renderer.
+
+The rail's cards hold the selected step, Rules, Triggers, Runs and Source.
+**Edit step** reveals the existing role controls. **Save…** previews the
+whole-file diff before a confirming write, to the project or to you; shipped
+Flows are copied rather than changed. Save refreshes the file's digest before
+another save or deletion. Start a Team pre-fills the shared dialog with the
+current source, including unsaved edits.
+
+Triggers belong to their Flow. Their arming review still binds committed
+bytes, and a changed, refused or paused arm keeps its own explanation. The
+same card holds the machine-wide pause and daily cap. A saved trigger stays
+disarmed until it is committed and explicitly armed. See
+[multi-agent.md](multi-agent.md#9-intake-bounded-work-a-project-can-open-on-its-own).
 
 **New session → A flow** shows the same dry run FlowStart always has: every
 seat a role would open, every candidate this machine tried and why each was
@@ -1325,26 +1333,23 @@ Agent, seat and evidence actually are.
 
 ### The front door
 
-**New Team…** (⌘⇧N) opens a searchable two-column picker. The project's
-own shapes come first, then the four shapes this desk has started most,
-then the rest. A fresh desk starts with Write and review, Side by side,
-Independent review and Investigation. Cards use the file's optional short
-`summary`, falling back to the description's first sentence; the full
-description remains on hover. **Just a Team** opens a shared board with
-no fixed steps; **Build your own** opens the shape editor. **New session**
-(⌘N) still starts a solo session directly; the picker footer keeps that path
-for work that needs only one agent.
+**New Team…** (⌘⇧N) opens one dialog from every door: task, searchable Flow
+cards with mini graphs, the selected Flow's role controls, **Done when ·
+optional**, **Dry run** and **Start Team**. A door only pre-fills it with a
+Flow, project, branch, pull request or current source. The picker remains in
+the dialog while its role form is open; changing Flow preserves the task and
+each Flow's edits. Just a Team uses the same dialog and keeps partial creation
+and seating progress if a retry is needed.
 
-Choosing a shape opens one form: the task, each role's agent, model and
-effort, the shape's own options, and **Done when · optional**. Leaving Done
-when empty uses the task as the Team's completion sentence. **Change**
-returns to the picker and preserves the typed task and each shape's edits.
-**Details** holds the remaining inputs, instruction files and dry-run facts.
-Write and review has one fresh independent reviewer and a maximum of one,
-two or three reviews, then either a reviewed merge or a handoff to the person.
+The project's own Flows come first, then frequent starts and the rest. Cards
+use the file's short summary, falling back to its description. **Build your
+own** opens a new Flow page and retains the target, empty Team and entered
+fields for its later Start a Team action. Leaving Done when empty uses the
+task as the completion sentence. **New session** (⌘N) continues to start a
+solo session directly.
 
 The form shows placeholder rows while it reads the chosen shape and checks
-its seats. When **Start** is disabled, one line by the action explains what is
+its seats. When **Start Team** is disabled, one line by the action explains what is
 needed, such as **Add a task first** or **Checking the seats and inputs…**.
 Starting a comparison opens its **Side by side** tiles; **Overview** stays one
 tab away. A saved page choice is preserved when revisiting a Team.
@@ -1374,17 +1379,10 @@ menu, a pull request's own row, ⌘K and an empty Goal's board each open it
 the same way, prefilled with what that place already knows — a branch, a
 pull request, the project itself.
 
-**Build your own**, the catalogue's last card, opens an ordered editor of
-the chosen shape (or a blank one, a single person step) instead of starting
-it: add a step or a rule, see the exact file update as you go, and the
-identical dry run below it. **Save…** writes it to the project or to you,
-previewed first; **Start** needs no save at all, running the shape exactly as
-edited. Its **Graph** tab uses the same pan-and-zoom canvas as a Run.
-Selecting a node selects its ordered step; selecting a rule opens its ordered
-edit. Dragging a node, or the Horizontal/Vertical fields beside a selected
-one, only changes its saved position. Escape cancels a drag. The graph cannot
-add connections or delete steps; those edits stay in the ordered editor. Wheel
-and touch swipes scroll the page; the canvas tools handle zooming.
+**Build your own** and a saved Flow's edit door open the Flow page, using
+the same canvas and ordered editor described above. A Flow need not be saved
+to start a Team. Source or input edits immediately retire the earlier dry-run
+token, and a late answer cannot enable Start for older bytes.
 
 **Every time…**, on a chosen shape or an Agent's own page, hands off to
 Intake: the source, its fields, the Goal grouping and budget, saved to the

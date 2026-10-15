@@ -1,9 +1,15 @@
-import type { RuntimeId } from '@harnessdesk/protocol'
+import type { FlowOrigin, RuntimeId, StartContext } from '@harnessdesk/protocol'
 import { readView, type PaneView } from './layout'
 
 export const SETTINGS_SECTIONS = ['profile', 'general', 'appearance', 'notifications', 'shortcuts', 'workspaces', 'archive', 'history', 'storage', 'runtimes', 'models', 'skills', 'extensions', 'permissions', 'browser'] as const
 export type SettingsSection = typeof SETTINGS_SECTIONS[number]
 export type WorkView = Extract<PaneView, { kind: 'conversation' | 'room' }>
+export interface FlowPageStart {
+  readonly context: StartContext
+  readonly goal?: { readonly id: string; readonly revision: number }
+  readonly task?: string
+  readonly done?: string
+}
 export type SettingsRoute =
   | { readonly kind: 'section'; readonly section: SettingsSection; readonly focus: string | null }
   | { readonly kind: 'project'; readonly root: string }
@@ -16,6 +22,7 @@ export type PageDestination =
   | { readonly kind: 'dashboard'; readonly view: 'overview' | 'plans' | 'spend' | 'activity' | 'projects'; readonly scope: RuntimeId | null }
   | { readonly kind: 'agents'; readonly id: string | null }
   | { readonly kind: 'teams'; readonly filter: 'active' | 'needs-you' | 'settled' }
+  | { readonly kind: 'flows'; readonly root: string | null; readonly id: string | null; readonly origin: FlowOrigin | null; readonly start?: FlowPageStart }
   | { readonly kind: 'library'; readonly section: 'skill' | 'mcp' }
   | { readonly kind: 'plugins'; readonly section: 'installed' | 'capabilities'; readonly id: string | null }
   | { readonly kind: 'changes-review'; readonly root: string | null; readonly returnTo: WorkView }
@@ -60,6 +67,23 @@ const object = (raw: unknown): Record<string, unknown> | null =>
 const string = (raw: unknown): raw is string => typeof raw === 'string' && raw.length > 0
 const nullable = (raw: unknown): raw is string | null => raw === null || string(raw)
 const oneOf = <T extends string>(raw: unknown, values: readonly T[]): raw is T => typeof raw === 'string' && values.includes(raw as T)
+const flowPageStart = (raw: unknown, root: string | null): FlowPageStart | null => {
+  const data = object(raw), input = object(data?.context)
+  if (!root || !data || !input || input.root !== root) return null
+  let context: StartContext
+  switch (input.kind) {
+    case 'project': case 'working-diff': context = { kind: input.kind, root }; break
+    case 'branch': if (!string(input.branch)) return null; context = { kind: input.kind, root, branch: input.branch }; break
+    case 'diff': if (!string(input.from) || !string(input.to)) return null; context = { kind: input.kind, root, from: input.from, to: input.to }; break
+    case 'pull-request': if (typeof input.number !== 'number' || !Number.isSafeInteger(input.number) || input.number < 1) return null; context = { kind: input.kind, root, number: input.number }; break
+    default: return null
+  }
+  const goal = object(data.goal)
+  if (data.goal !== undefined && (!goal || !string(goal.id) || typeof goal.revision !== 'number' || !Number.isSafeInteger(goal.revision) || goal.revision < 0)) return null
+  if ((data.task !== undefined && typeof data.task !== 'string') || (data.done !== undefined && typeof data.done !== 'string')) return null
+  return { context, ...(goal ? { goal: { id: goal.id as string, revision: goal.revision as number } } : {}),
+    ...(typeof data.task === 'string' ? { task: data.task } : {}), ...(typeof data.done === 'string' ? { done: data.done } : {}) }
+}
 const workView = (raw: unknown): WorkView | null => {
   const record = object(raw)
   if (!record || !oneOf(record.kind, ['conversation', 'room'])) return null
@@ -92,6 +116,14 @@ export const readDestination = (raw: unknown): Destination | null => {
       ? { kind: 'dashboard', view: data.view, scope: data.scope as RuntimeId | null } : null
     case 'agents': return nullable(data.id) ? { kind: 'agents', id: data.id } : null
     case 'teams': return oneOf(data.filter, ['active', 'needs-you', 'settled']) ? { kind: 'teams', filter: data.filter } : null
+    case 'flows': {
+      if (!(nullable(data.root) && nullable(data.id)
+      && (data.origin === null || oneOf(data.origin, ['project', 'user', 'builtin']))
+      && (data.id === null ? data.origin === null : data.root !== null && data.origin !== null))) return null
+      const start = data.start === undefined ? undefined : flowPageStart(data.start, data.root)
+      if (start === null) return null
+      return { kind: 'flows', root: data.root, id: data.id, origin: data.origin, ...(start ? { start } : {}) }
+    }
     case 'library': return oneOf(data.section, ['skill', 'mcp']) ? { kind: 'library', section: data.section } : null
     case 'plugins': return oneOf(data.section, ['installed', 'capabilities']) && nullable(data.id)
       ? { kind: 'plugins', section: data.section, id: data.id } : null

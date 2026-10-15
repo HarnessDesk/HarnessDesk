@@ -1,27 +1,23 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type { AgentEntry, FlowEntry, FlowExecution, FlowPolicy, StartContext } from '@harnessdesk/protocol'
+import type { AgentEntry, FlowEntry, FlowExecution, FlowPolicy, GoalView, StartContext } from '@harnessdesk/protocol'
 
-import { ActionError, Banner, Button, Chip, Dialog, Field, IconTile, Input, Note, Row, Rows, SectionHead, Search, Text, Textarea } from '../design'
+import { ActionError, Banner, Button, Checkbox, Chip, Dialog, Field, Fieldset, FlowCard, FlowCardGrid, FormStack, Input, Note, Row, Rows, SectionHead, Search, Text, Textarea } from '../design'
 import { pickerSections, readShapeStarts, recordShapeStart, shapeSummary, supportsAttemptCheck, supportsComparisonJudge, withAttemptCheck, withComparisonJudge } from '../lib/team-start'
-import { ChevronIcon, FlowIcon, PencilIcon, PlusIcon, ReviewIcon, SearchIcon, SideBySideIcon, RouteIcon, TeamIcon } from './Icons'
-import { GoalCreate } from './GoalCreate'
+import { agentName, inForce } from '../lib/agents'
 import styles from './FrontDoor.module.css'
 import { raceRoleId } from '../lib/flows'
 import { shortSha } from '../lib/evidence'
 import { boundInputValues } from '../lib/shapes'
 import { projectNeedsOpening } from '../lib/workspace-recovery'
 import { useSnapshot, useStore } from '../state/context'
-import { FlowStart } from './FlowStart'
-import { ShapeEditor } from './ShapeEditor'
+import { FlowPreviewReport, FlowStart } from './FlowStart'
 import { TriggerCreate } from './TriggerCreate'
 
 /**
- * The front door: choose a file-based shape, read its populated dry run,
- * Start. Click one is a row in the list below; click two is *Start* in the
- * footer, once the dry run it reads has nothing in the way — nothing else
- * this dialog does counts toward that, the same rule `NewSessionChoice`
- * already holds for its own two rows.
+ * Every New Team door fills this same form: task, Flow, agents and Done when.
+ * A Flow's populated dry run authorizes Start Team; Just a Team retains its
+ * partial-create recovery without replacing the dialog or losing the task.
  *
  * The dry run itself is store state (`snapshot.frontDoor.preview`), not a
  * value this component keeps: `AppStore.previewFrontDoor` owns the one live
@@ -33,12 +29,23 @@ export interface FrontDoorProps {
   readonly goal?: { readonly id: string; readonly revision: number }
   /** Preselects one catalogue entry — a context action that already knows which shape it means. */
   readonly initial?: { readonly id: string; readonly origin?: FlowEntry['origin'] }
+  /** Prefills the board-only Team without borrowing a legal Flow file id. */
+  readonly initialPlain?: boolean
   readonly initialTask?: string
+  /** The current editor bytes, including a Flow that has not been saved. */
+  readonly initialSource?: string
+  readonly initialDone?: string
+  readonly onTaskChange?: (value: string) => void
+  readonly onDoneChange?: (value: string) => void
+  readonly projectProblem?: string
+  readonly onProjectOpened?: () => void
   readonly onClose: () => void
   readonly onStarted: (execution: FlowExecution) => void
 }
 
-type Chosen = { readonly id: string; readonly origin: FlowEntry['origin']; readonly name: string }
+type Chosen = { readonly kind: 'saved' | 'draft'; readonly id: string; readonly origin: FlowEntry['origin']; readonly name: string }
+
+const choiceKey = (entry: Chosen): string => JSON.stringify([entry.kind, entry.origin, entry.id])
 
 /**
  * A shape whose own `layout.frontDoor.contexts` names starts and excludes
@@ -67,7 +74,7 @@ const sortShapes = (entries: readonly FlowEntry[]): readonly FlowEntry[] =>
     return a.name.localeCompare(b.name) || a.id.localeCompare(b.id)
   })
 
-export const FrontDoor = ({ context, goal, initial, initialTask = '', onClose, onStarted }: FrontDoorProps) => {
+export const FrontDoor = ({ context, goal, initial, initialPlain = false, initialTask = '', initialSource, initialDone = '', onTaskChange, onDoneChange, projectProblem, onProjectOpened, onClose, onStarted }: FrontDoorProps) => {
   const store = useStore()
   const snapshot = useSnapshot()
   const root = context.root
@@ -75,14 +82,22 @@ export const FrontDoor = ({ context, goal, initial, initialTask = '', onClose, o
   const [catalogRevision, setCatalogRevision] = useState(0)
   const [openingProject, setOpeningProject] = useState(false)
   const [unlisted, setUnlisted] = useState<string | null>(null)
+  const [callerProblem, setCallerProblem] = useState(projectProblem ?? null)
   const [roster, setRoster] = useState<ReadonlyMap<string, AgentEntry>>(new Map())
   const [query, setQuery] = useState('')
   const [activeCard, setActiveCard] = useState(0)
-  const cardRefs = useRef<(HTMLButtonElement | null)[]>([])
+  const pickerRef = useRef<HTMLDivElement>(null)
   const [starts] = useState(readShapeStarts)
   const [task, setTask] = useState(initialTask)
   const taskRef = useRef(initialTask)
-  const [plainTeam, setPlainTeam] = useState(false)
+  const [plainTeam, setPlainTeam] = useState(initialPlain && initialSource === undefined && !goal)
+  const [isolated, setIsolated] = useState(false)
+  const [selectedAgents, setSelectedAgents] = useState<ReadonlySet<string>>(new Set())
+  const [created, setCreated] = useState<GoalView | null>(null)
+  const [taskAdded, setTaskAdded] = useState(false)
+  const [seated, setSeated] = useState<ReadonlySet<string>>(new Set())
+  const [plainDryRun, setPlainDryRun] = useState(false)
+  const [dryRunOpen, setDryRunOpen] = useState(false)
   const [briefReading, setBriefReading] = useState(false)
   const [policyPending, setPolicyPending] = useState(false)
   const [readingAccounts, setReadingAccounts] = useState(false)
@@ -91,11 +106,10 @@ export const FrontDoor = ({ context, goal, initial, initialTask = '', onClose, o
   const templates = useRef<FlowPolicy | null>(null)
   const drafts = useRef(new Map<string, { source: string; vars: Readonly<Record<string, string>>; template: FlowPolicy | null }>())
   const [chosen, setChosen] = useState<Chosen | null>(null)
-  const [ownShape, setOwnShape] = useState(false)
   const [everyTime, setEveryTime] = useState(false)
   const [source, setSource] = useState('')
   const [vars, setVars] = useState<Readonly<Record<string, string>>>({})
-  const [sentence, setSentence] = useState('')
+  const [sentence, setSentence] = useState(initialDone)
   const [problem, setProblem] = useState<string | null>(null)
   const [starting, setStarting] = useState(false)
   const [startProblem, setStartProblem] = useState<string | null>(null)
@@ -155,7 +169,11 @@ export const FrontDoor = ({ context, goal, initial, initialTask = '', onClose, o
   )
 
   const choose = useCallback(
-    async (entry: Chosen): Promise<void> => {
+    async (next: FlowEntry | Chosen, suppliedSource?: string): Promise<void> => {
+      const entry: Chosen = 'kind' in next ? next : { kind: 'saved', id: next.id, origin: next.origin, name: next.name }
+      if (created || starting) return
+      if (chosen && source) drafts.current.set(choiceKey(chosen), { source, vars, template: templates.current })
+      setPlainTeam(false)
       sequence.current += 1
       const mine = sequence.current
       // Retires the shape just left behind before its own file is even
@@ -166,26 +184,29 @@ export const FrontDoor = ({ context, goal, initial, initialTask = '', onClose, o
       // `previewFrontDoor` call (which only clears on its own call) leaves
       // open until this shape's request is actually sent.
       store.openFrontDoor(context, goal)
-      setChosen({ id: entry.id, origin: entry.origin, name: entry.name })
+      setChosen(entry)
       setSource('')
       setVars({})
       templates.current = null
       setDisplayPreview(null)
+      setBriefReading(false)
       setPolicyPending(false)
       setReadingAccounts(false)
       setProblem(null)
       setStartProblem(null)
       try {
-        const draft = drafts.current.get(`${entry.origin}:${entry.id}`)
+        const draft = drafts.current.get(choiceKey(entry))
+        const firstUse = !draft && suppliedSource === undefined
         // Discovery can trail the workspace. Its existing bounded read must
         // settle before an automatic comparison can redeem its preview.
-        if (!draft && entry.id === 'comparison' && store.getSnapshot().runtimes.some(one => !store.getSnapshot().accountsByRuntime[one.id])) {
+        if (firstUse && entry.id === 'comparison' && store.getSnapshot().runtimes.some(one => !store.getSnapshot().accountsByRuntime[one.id])) {
           setReadingAccounts(true)
           await store.loadAccounts()
           if (mine !== sequence.current) return
           setReadingAccounts(false)
         }
-        let text = draft?.source ?? await store.flowSource(root, entry.id, entry.origin)
+        if (entry.kind === 'draft' && suppliedSource === undefined && !draft) throw new Error('This unsaved Flow has no source to check.')
+        let text = suppliedSource ?? draft?.source ?? await store.flowSource(root, entry.id, entry.origin)
         if (mine !== sequence.current) return
         setSource(text)
         // A first, throwaway dry run with no variables typed — only to learn
@@ -195,12 +216,14 @@ export const FrontDoor = ({ context, goal, initial, initialTask = '', onClose, o
         if (mine !== sequence.current) return
         const policy = learn.flow.compiled.document.format === 'agents' ? learn.flow.compiled.document.flow : null
         templates.current = draft?.template ?? policy
+        setDisplayPreview(learn)
+        if (entry.kind === 'draft' && policy) setChosen({ ...entry, name: policy.name })
         // The suggestion is a first-use default. A saved check or a draft
         // the person cleared remains theirs, including an empty command.
         let defaultsPolicy = policy
-        if (!draft && policy && supportsComparisonJudge(policy)) defaultsPolicy = withComparisonJudge(policy, policy, null)
+        if (firstUse && policy && supportsComparisonJudge(policy)) defaultsPolicy = withComparisonJudge(policy, policy, null)
         const attemptRole = policy && raceRoleId(policy)
-        if (!draft && defaultsPolicy && attemptRole) {
+        if (firstUse && defaultsPolicy && attemptRole) {
           const current = store.getSnapshot()
           const signedIn = current.runtimes.filter(one => current.accountsByRuntime[one.id]?.accounts.length)
           if (signedIn.length) defaultsPolicy = { ...defaultsPolicy, roles: defaultsPolicy.roles.map(role =>
@@ -208,8 +231,21 @@ export const FrontDoor = ({ context, goal, initial, initialTask = '', onClose, o
               ? { ...role, count: 2, seats: [signedIn[0]!, signedIn[1] ?? signedIn[0]!].map(one => ({ runtime: one.id })) }
               : role) }
         }
-        if (!draft && defaultsPolicy && learn.projectCheckCommand && supportsAttemptCheck(defaultsPolicy) && !defaultsPolicy.roles.some(role => role.kind === 'check')) defaultsPolicy = withAttemptCheck(defaultsPolicy, policy!, learn.projectCheckCommand)
-        if (!draft && defaultsPolicy && defaultsPolicy !== policy) {
+        if (firstUse && defaultsPolicy && learn.projectCheckCommand && supportsAttemptCheck(defaultsPolicy) && !defaultsPolicy.roles.some(role => role.kind === 'check')) defaultsPolicy = withAttemptCheck(defaultsPolicy, policy!, learn.projectCheckCommand)
+        const inputs = learn.flow.compiled.document.format === 'agents' ? learn.flow.compiled.document.flow.inputs : []
+        const primary = inputs.find(input => input.id !== 'brief' && (!policy || !boundInputValues(policy).has(input.id)))
+        if (!primary && context.kind === 'project' && taskRef.current && defaultsPolicy && defaultsPolicy.seed.title !== taskRef.current) {
+          defaultsPolicy = { ...defaultsPolicy, seed: { ...defaultsPolicy.seed, title: taskRef.current } }
+        }
+        const defaults = { ...Object.fromEntries(inputs.map((input) => [input.id, learn.vars[input.id] ?? input.default ?? ''])), ...draft?.vars }
+        if (primary && taskRef.current) defaults[primary.id] = taskRef.current
+        else if (primary) { taskRef.current = defaults[primary.id] ?? ''; setTask(taskRef.current) }
+        else if (context.kind === 'project' && !taskRef.current) { taskRef.current = policy?.seed.title ?? learn.sentence; setTask(taskRef.current) }
+        setVars(defaults)
+        if (defaultsPolicy && defaultsPolicy !== policy) {
+          // Expose the pending policy and inputs together so continued task
+          // typing preserves both the suggested options and other defaults.
+          setDisplayPreview({ ...learn, flow: { ...learn.flow, compiled: { ...learn.flow.compiled, document: { format: 'agents', flow: defaultsPolicy } } } })
           setPolicyPending(true)
           const rendered = await store.renderShape(defaultsPolicy)
           if (mine !== sequence.current) return
@@ -218,13 +254,6 @@ export const FrontDoor = ({ context, goal, initial, initialTask = '', onClose, o
           setSource(text)
           setPolicyPending(false)
         }
-        const inputs = learn.flow.compiled.document.format === 'agents' ? learn.flow.compiled.document.flow.inputs : []
-        const primary = inputs.find(input => input.id !== 'brief' && (!policy || !boundInputValues(policy).has(input.id)))
-        const defaults = { ...Object.fromEntries(inputs.map((input) => [input.id, learn.vars[input.id] ?? input.default ?? ''])), ...draft?.vars }
-        if (primary && taskRef.current) defaults[primary.id] = taskRef.current
-        else if (primary) { taskRef.current = defaults[primary.id] ?? ''; setTask(taskRef.current) }
-        else if (context.kind === 'project' && !taskRef.current) { taskRef.current = learn.sentence; setTask(learn.sentence) }
-        setVars(defaults)
         if (inputs.length > 0 || text !== learn.source) await runPreview(text, defaults)
       } catch (error) {
         if (mine !== sequence.current) return
@@ -233,17 +262,24 @@ export const FrontDoor = ({ context, goal, initial, initialTask = '', onClose, o
         setProblem(error instanceof Error ? error.message : 'That shape could not be read.')
       }
     },
-    [context, goal, root, runPreview, store],
+    [context, goal, root, runPreview, store, chosen, source, vars, created, starting],
   )
 
   useEffect(() => {
-    if (initial && entries && !chosen && !initialTried.current) {
+    if (initialTried.current || plainTeam) return
+    if (initialSource !== undefined) {
       initialTried.current = true
-      const match = entries.find((one) => one.id === initial.id && (initial.origin === undefined || one.origin === initial.origin))
+      const match = entries?.find(one => one.id === initial?.id && (initial?.origin === undefined || one.origin === initial.origin))
+      void choose(match ?? { kind: initial ? 'saved' : 'draft', id: initial?.id ?? '', origin: initial?.origin ?? 'project', name: 'Unsaved Flow' }, initialSource)
+    } else if (initial && entries && !chosen) {
+      initialTried.current = true
+      const match = entries.find(one => one.id === initial.id && (initial.origin === undefined || one.origin === initial.origin))
       if (match) void choose(match)
-      else setUnlisted('That shape is not available in this project.')
+      else setUnlisted('That Flow is not available in this project.')
     }
-  }, [initial, entries, chosen, choose])
+  }, [initial, initialSource, entries, chosen, choose, plainTeam])
+
+  useEffect(() => { if (plainTeam) void store.loadAgents() }, [plainTeam, store])
 
   const setVar = useCallback(
     (varId: string, value: string): void => {
@@ -257,8 +293,10 @@ export const FrontDoor = ({ context, goal, initial, initialTask = '', onClose, o
   const eligible = entries === null ? [] : sortShapes(entries.filter((entry) => acceptsContext(entry, context.kind)))
   const sections = pickerSections(eligible, starts, query)
   const cards = [...sections.project, ...sections.most, ...sections.more]
-  const showPlain = context.kind === 'project' && (!query.trim() || 'Just a Team A shared board for several agents; no fixed steps.'.toLowerCase().includes(query.toLowerCase()))
-  const cardCount = cards.length + (showPlain ? 1 : 0) + 1
+  const showPlain = context.kind === 'project' && !goal && (!query.trim() || 'Just a Team A shared board for several agents; no fixed steps.'.toLowerCase().includes(query.toLowerCase()))
+  const draftCard = chosen && (chosen.kind === 'draft' || !eligible.some(entry => entry.id === chosen.id && entry.origin === chosen.origin)) ? chosen : null
+  const cardCount = cards.length + (showPlain ? 1 : 0) + (draftCard ? 1 : 0)
+  const pickerCards = (): HTMLButtonElement[] => [...pickerRef.current?.querySelectorAll<HTMLButtonElement>('[data-slot="flow-card"]') ?? []]
 
   const preview = snapshot.frontDoor?.preview ?? null
   const flow = (preview ?? displayPreview)?.flow ?? null
@@ -269,7 +307,7 @@ export const FrontDoor = ({ context, goal, initial, initialTask = '', onClose, o
   const errors = (flow?.problems ?? []).filter((one) => one.level === 'error')
   const startable = preview !== null && !readingAccounts && !openingProject && !problem && flow !== null && flow.token !== null && compiled?.format === 'agents' && errors.length === 0
   const primary = inputs.find(input => !bound.has(input.id) && input.id !== 'brief')
-  const sentenceValid = sentence.trim().length <= 2000 && (primary ? task.trim().length > 0 : true)
+  const sentenceValid = sentence.trim().length <= 2000 && (primary || context.kind === 'project' ? task.trim().length > 0 : true)
   const startReason = starting ? 'Starting the Team…'
     : openingProject ? 'Opening the project…'
     : problem ? 'Resolve the shape error first.'
@@ -280,17 +318,21 @@ export const FrontDoor = ({ context, goal, initial, initialTask = '', onClose, o
     : policyPending || !preview ? 'Checking the seats and inputs…'
     : errors.length ? 'Resolve the dry-run errors above.'
     : !startable ? 'Resolve the dry-run requirements first.' : null
-  const changeShape = (): void => {
-    if (chosen && source) drafts.current.set(`${chosen.origin}:${chosen.id}`, { source, vars, template: templates.current })
+  const choosePlainTeam = (): void => {
+    if (created || starting) return
+    if (chosen && source) drafts.current.set(choiceKey(chosen), { source, vars, template: templates.current })
     sequence.current += 1
-    store.openFrontDoor(context, goal)
     policySequence.current += 1
-    setPolicyPending(false)
+    store.openFrontDoor(context, goal)
     setChosen(null)
+    setPlainTeam(true)
+    setBriefReading(false)
+    setPolicyPending(false)
+    setReadingAccounts(false)
     setProblem(null)
+    setStartProblem(null)
   }
-  const continueShape = (): void => cardRefs.current[Math.min(activeCard, cardCount - 1)]?.click()
-  const editPolicy = async (policy: FlowPolicy): Promise<void> => {
+  const editPolicy = async (policy: FlowPolicy, nextVars = vars): Promise<void> => {
     const mine = ++sequence.current
     const renderMine = ++policySequence.current
     store.openFrontDoor(context, goal)
@@ -302,7 +344,7 @@ export const FrontDoor = ({ context, goal, initial, initialTask = '', onClose, o
       if (mine !== sequence.current) return
       if (!rendered.source || rendered.issues.length > 0) throw new Error(rendered.issues.map(issue => issue.text).join(' ') || 'That change could not be checked.')
       setSource(rendered.source)
-      await runPreview(rendered.source, vars)
+      await runPreview(rendered.source, nextVars)
     } catch (error) {
       if (mine === sequence.current) setProblem(error instanceof Error ? error.message : 'That change could not be checked.')
     } finally { if (renderMine === policySequence.current) setPolicyPending(false) }
@@ -321,7 +363,7 @@ export const FrontDoor = ({ context, goal, initial, initialTask = '', onClose, o
         vars: preview.vars,
         ...(preview.goal ? { goal: preview.goal } : {}),
       })
-      if (chosen) recordShapeStart(chosen.id)
+      if (chosen?.kind === 'saved') recordShapeStart(chosen.id)
       onStarted(execution)
     } catch (error) {
       setStarting(false)
@@ -329,14 +371,40 @@ export const FrontDoor = ({ context, goal, initial, initialTask = '', onClose, o
     }
   }
 
-  if (ownShape) {
-    return <ShapeEditor root={root} context={context} goal={goal} onClose={() => setOwnShape(false)} onStarted={onStarted} />
+  const plainWords = sentence.trim() || task.trim()
+  const plainValid = plainWords.length > 0 && plainWords.length <= 2000
+  const plainAgents = inForce(snapshot.agents ?? [])
+  const submitPlain = async (): Promise<void> => {
+    if (!plainValid || starting || openingProject || goal) return
+    setStarting(true)
+    setStartProblem(null)
+    let team = created
+    try {
+      if (!team) {
+        team = await store.createGoal({ root, sentence: plainWords, checkout: isolated ? 'isolated' : 'shared' })
+        setCreated(team)
+      }
+      if (task.trim() && !taskAdded) {
+        await store.teamAdd(team.goal.id, { title: task.trim() })
+        setTaskAdded(true)
+      }
+      const done = new Set(seated)
+      const failures: string[] = []
+      for (const agent of selectedAgents) {
+        if (done.has(agent)) continue
+        try {
+          await store.seatGoal({ goal: team.goal.id, agent })
+          done.add(agent)
+          setSeated(new Set(done))
+        } catch (error) { failures.push(error instanceof Error ? error.message : String(error)) }
+      }
+      if (failures.length) { setStartProblem(failures.join(' ')); return }
+      store.openGoal(team.goal.id)
+      onClose()
+    } catch (error) {
+      setStartProblem(error instanceof Error ? error.message : 'The desk did not create this Team.')
+    } finally { setStarting(false) }
   }
-
-  if (plainTeam) return <GoalCreate root={root} task={task} onTaskChange={value => { taskRef.current = value; setTask(value) }} done={sentence} onDoneChange={setSentence} onChangeShape={() => setPlainTeam(false)} onClose={onClose}
-    projectProblem={unlisted && projectNeedsOpening(unlisted) ? unlisted : undefined} onProjectOpened={() => setCatalogRevision(value => value + 1)} />
-
-  const icon = (id: string) => id === 'comparison' ? <SideBySideIcon /> : id === 'fix-and-review' ? <PencilIcon /> : id === 'staged-relay' ? <RouteIcon /> : id.includes('review') ? <ReviewIcon /> : id === 'investigation' ? <SearchIcon /> : <FlowIcon />
   const project = root.split('/').filter(Boolean).at(-1) ?? root
   const openProject = async (): Promise<void> => {
     if (openingProject) return
@@ -345,9 +413,11 @@ export const FrontDoor = ({ context, goal, initial, initialTask = '', onClose, o
     try {
       if (!await store.openWorkspace(root) || mine !== sequence.current) return
       setStartProblem(null)
+      setCallerProblem(null)
+      onProjectOpened?.()
       // Relearn the shape with a fresh token; keep edits, including its policy.
       if (chosen) {
-        if (source) drafts.current.set(`${chosen.origin}:${chosen.id}`, { source, vars, template: templates.current })
+        if (source) drafts.current.set(choiceKey(chosen), { source, vars, template: templates.current })
         await choose(chosen)
       }
       setCatalogRevision(value => value + 1)
@@ -359,85 +429,110 @@ export const FrontDoor = ({ context, goal, initial, initialTask = '', onClose, o
   const failure = (text: string) => recovery(text)
     ? <Banner tone="danger" role="alert" actions={recovery(text)}>{text}</Banner>
     : <ActionError>{text}</ActionError>
-  let cardIndex = 0
-  const group = (name: string, list: readonly FlowEntry[], extra?: ReactNode) => (list.length > 0 || extra) && <section className={styles.section} aria-label={name}>
+  const group = (name: string, list: readonly FlowEntry[]) => list.length > 0 && <section className={styles.section} aria-label={name}>
     <SectionHead name={name} />
-    <div className={styles.cards}>{list.map(entry => {
-      const index = cardIndex++
-      return <Button key={`${entry.origin}-${entry.id}`} variant="choice" size="panel" className={styles.card} data-stretched
-        ref={element => { cardRefs.current[index] = element }} aria-label={entry.name}
-        title={entry.description ?? undefined} data-selected={activeCard === index ? '' : undefined}
-        onFocus={() => setActiveCard(index)} onClick={() => void choose(entry)}>
-        <IconTile size="lg">{icon(entry.id)}</IconTile>
-        <span className={styles.cardCopy}><Text as="span" role="subject">{entry.name}</Text><Text as="span" role="muted">{entry.problem ?? shapeSummary(entry)}</Text></span>
-        <ChevronIcon size={14} />
-      </Button>
-    })}{extra}</div>
+    <FlowCardGrid>{list.map(entry => <FlowCard key={`${entry.origin}-${entry.id}`} name={entry.name}
+      aria-label={entry.name} title={entry.description ?? entry.name}
+      origin={entry.origin === 'project' ? project : entry.origin === 'builtin' ? 'Built in' : 'Personal'}
+      policy={chosen?.kind === 'saved' && chosen.id === entry.id && chosen.origin === entry.origin && compiled?.format === 'agents' ? compiled.flow : entry.policy}
+      summary={entry.problem ?? shapeSummary(entry)} selected={chosen?.kind === 'saved' && chosen.id === entry.id && chosen.origin === entry.origin}
+      disabled={starting || policyPending || readingAccounts || !!created} onClick={() => void choose(entry)} />)}</FlowCardGrid>
   </section>
+  const locked = starting || !!created
+  const reason = plainTeam
+    ? starting ? 'Starting the Team…' : openingProject ? 'Opening the project…' : !plainValid ? plainWords.length > 2000 ? 'Keep Done when to 2,000 characters.' : 'Add a task first.' : null
+    : chosen ? startReason : 'Choose a Flow first.'
+  const canStart = plainTeam ? plainValid && !openingProject && !starting : !!chosen && startable && sentenceValid && !briefReading && !policyPending && !starting
+  const dryRun = (): void => {
+    if (plainTeam) setPlainDryRun(true)
+    else if (source) { setDryRunOpen(true); void runPreview(source, vars) }
+  }
 
   return (
-    <Dialog title={chosen ? chosen.name : 'New Team'}
-      titleAside={<Chip tone="neutral">{project}</Chip>}
-      description={chosen
-        ? chosen.id === 'comparison' ? 'You decide whether to merge the winner.' : `The Team opens under ${project} in the sidebar.`
-        : 'Choose how the agents work together.'}
+    <Dialog title="New Team" titleAside={<Chip tone="neutral">{project}</Chip>}
       size="wide" tall onClose={onClose}
-      footer={chosen
-        ? <><Button variant="default" aria-describedby={startReason ? "team-start-reason" : undefined} disabled={!startable || !sentenceValid || briefReading || policyPending || starting} onClick={() => void start()}>{starting ? 'Starting…' : 'Start'}</Button><Button variant="secondary" disabled={starting} onClick={onClose}>Cancel</Button></>
-        : <><Button variant="default" disabled={entries === null} onClick={continueShape}>Continue</Button><Button variant="secondary" onClick={onClose}>Cancel</Button></>}
-      footerAside={chosen && startReason && <Note id="team-start-reason" role="status">{startReason}</Note>}
-      footerNavigation={chosen
-        ? <Button variant="quiet" bordered={false} disabled={starting || policyPending || readingAccounts} onClick={changeShape}>Back</Button>
-        : <span className={styles.solo}><Text as="span" role="muted">Only need one agent?</Text><Button variant="quiet" onClick={() => { onClose(); store.newDraft() }}>New session ⌘N</Button></span>}
-    >
-      {!chosen && <div onKeyDown={event => {
-        if (event.key === 'ArrowDown' || event.key === 'ArrowRight' || event.key === 'ArrowUp' || event.key === 'ArrowLeft') {
-          event.preventDefault()
-          const delta = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1
-          const next = event.target instanceof HTMLInputElement ? 0 : (activeCard + delta + cardCount) % cardCount
-          setActiveCard(next); cardRefs.current[next]?.focus()
-        } else if (event.key === 'Enter' && event.target instanceof HTMLInputElement) {
-          event.preventDefault(); cardRefs.current[Math.min(activeCard, cardCount - 1)]?.click()
-        }
-      }} className={styles.picker}>
-        <Search autoFocus label="Search shapes" placeholder="Search shapes…" value={query} onChange={value => { setQuery(value); setActiveCard(0) }} />
-        {unlisted !== null && <Banner tone="danger" title="These shapes could not be read" actions={recovery(unlisted)}>{unlisted}</Banner>}
-        {entries === null && !unlisted && <div aria-label="Loading shapes" aria-busy="true"><Rows><Row title="Reading shapes…" /><Row title="Reading project choices…" /></Rows></div>}
-        {group('This project', sections.project)}
-        {group('Most used', sections.most)}
-        {group('More shapes', sections.more, showPlain && <Button variant="choice" size="panel" className={styles.card} data-stretched data-selected={activeCard === cards.length ? '' : undefined} ref={element => { cardRefs.current[cards.length] = element }} onFocus={() => setActiveCard(cards.length)} onClick={() => setPlainTeam(true)}>
-          <IconTile tone="neutral" size="lg"><TeamIcon /></IconTile><span className={styles.cardCopy}><Text as="span" role="subject">Just a Team</Text><Text as="span" role="muted">A shared board for several agents; no fixed steps.</Text></span><ChevronIcon size={14} />
-        </Button>)}
-        {query && cards.length === 0 && !showPlain && <Note>No matching shapes.</Note>}
-        <Button variant="choice" size="panel" className={styles.card} data-stretched data-selected={activeCard === cardCount - 1 ? '' : undefined} ref={element => { cardRefs.current[cardCount - 1] = element }} onFocus={() => setActiveCard(cardCount - 1)} onClick={() => setOwnShape(true)}>
-          <IconTile tone="neutral" size="lg"><PlusIcon /></IconTile><span className={styles.cardCopy}><Text as="span" role="subject">Build your own</Text><Text as="span" role="muted">Steps and rules in an editor; see the file, then start or save it.</Text></span><ChevronIcon size={14} />
-        </Button>
-      </div>}
-      {chosen && <>
-        {(primary || context.kind === 'project') && <Field label={chosen.id === 'comparison' ? 'What should both try?' : 'What should they do?'}>
-          {control => <Textarea {...control} aria-label={chosen.id === 'comparison' ? 'What should both try?' : 'What should they do?'} value={task} disabled={starting || policyPending || readingAccounts} onChange={event => {
-            taskRef.current = event.target.value; setTask(event.target.value)
-            if (primary) setVar(primary.id, event.target.value)
-            else if (compiled?.format === 'agents') void editPolicy({ ...compiled.flow, seed: { ...compiled.flow.seed, title: event.target.value } })
-          }} />}
-        </Field>}
-        {!flow && !problem && <section aria-label="Loading Team form" aria-busy="true"><Rows>
-          {(chosen.id === 'comparison' ? ['Attempt A', 'Attempt B'] : ['Agents', 'Options']).map(label => <Row key={label} title={label} control={<Input aria-label={`${label} loading`} disabled placeholder="…" />} />)}
-        </Rows></section>}
-        {problem && failure(problem)}
-        {compiled?.format === 'agents' && flow && <FlowStart root={root} onChange={() => {}} team={{ flow: compiled.flow, template: templates.current ?? compiled.flow, preview: flow, roster, vars, primary: primary?.id, disabled: starting || policyPending, editingDisabled: starting, onVar: setVar, onReadingChange: setBriefReading, onPolicy: policy => void editPolicy(policy),
-          done: <Field label="Done when · optional" error={sentence.trim().length > 2000 ? 'Keep it to 2,000 characters.' : undefined}>
-            {control => <Input {...control} aria-label="Done when · optional" value={sentence} disabled={starting} onChange={event => setSentence(event.target.value)} />}
-          </Field>,
-          details: <>
-            {preview && context.kind !== 'project' && <Row title={preview.target.head ? <span title={preview.target.head}>{`${preview.target.label} at ${shortSha(preview.target.head)}`}</span> : preview.target.label} desc={[preview.target.dirty ? 'Not committed — a working-tree snapshot, never a committed head.' : null, preview.target.independence === 'unknown' ? 'Independence from the author is unknown.' : null].filter(Boolean).join(' ') || undefined} />}
-            {inputs.filter(input => bound.has(input.id)).map(input => { const value = vars[input.id] ?? ''; const kind = bound.get(input.id); return <Row key={input.id} title={input.label} desc={(kind === 'head' || kind === 'base') && value ? <span title={value}>{shortSha(value)}</span> : value || '—'} /> })}
-            <Button variant="quiet" disabled={starting} onClick={() => setEveryTime(true)}>Every time…</Button>
-          </>,
-        }} />}
-        {errors.length > 0 && <Banner tone="danger" title="This will not run yet" actions={recovery(errors.map(one => one.text).join(" "))}><ul>{errors.map(one => <li key={`${one.at}-${one.text}`}>{one.text}</li>)}</ul></Banner>}
-        {startProblem && failure(startProblem)}
+      footer={<>
+        <Button variant="secondary" disabled={starting || openingProject || policyPending || readingAccounts || (!plainTeam && !source)} onClick={dryRun}>Dry run</Button>
+        <Button variant="default" aria-describedby={reason ? 'team-start-reason' : undefined} disabled={!canStart} onClick={() => void (plainTeam ? submitPlain() : start())}>{starting ? 'Starting…' : created ? 'Retry unfinished' : 'Start Team'}</Button>
+        <Button variant="secondary" disabled={starting} onClick={onClose}>Cancel</Button>
       </>}
+      footerAside={reason && <Note id="team-start-reason" role="status">{reason}</Note>}
+      footerNavigation={<span className={styles.solo}><Text as="span" role="muted">Only need one agent?</Text><Button variant="quiet" disabled={locked} onClick={() => { onClose(); store.newDraft() }}>New session ⌘N</Button></span>}
+    >
+      <FormStack>
+        <Field label={chosen?.id === 'comparison' ? 'What should both try?' : 'What should they do?'}>
+          {control => <Textarea {...control} aria-label={chosen?.id === 'comparison' ? 'What should both try?' : 'What should they do?'} autoFocus value={task} disabled={locked || readingAccounts} onChange={event => {
+            const next = event.target.value
+            taskRef.current = next; setTask(next); onTaskChange?.(next); setPlainDryRun(false)
+            if (primary && !plainTeam) {
+              if (policyPending && compiled?.format === 'agents') {
+                const nextVars = { ...vars, [primary.id]: next }
+                setVars(nextVars)
+                // Carry the in-flight policy edit forward with this task;
+                // previewing the old source would otherwise discard it.
+                void editPolicy(compiled.flow, nextVars)
+              } else setVar(primary.id, next)
+            }
+            else if (!plainTeam && compiled?.format === 'agents') void editPolicy({ ...compiled.flow, seed: { ...compiled.flow.seed, title: next } })
+          }} />}
+        </Field>
+        <section className={styles.picker} aria-label="Flow" ref={pickerRef} onFocusCapture={event => {
+          const index = pickerCards().indexOf(event.target as HTMLButtonElement)
+          if (index >= 0) setActiveCard(index)
+        }} onKeyDown={event => {
+          if (['ArrowDown', 'ArrowRight', 'ArrowUp', 'ArrowLeft'].includes(event.key)) {
+            event.preventDefault()
+            const delta = event.key === 'ArrowDown' || event.key === 'ArrowRight' ? 1 : -1
+            const next = event.target instanceof HTMLInputElement ? 0 : (activeCard + delta + cardCount) % cardCount
+            setActiveCard(next); pickerCards()[next]?.focus()
+          } else if (event.key === 'Enter' && event.target instanceof HTMLInputElement) {
+            event.preventDefault(); pickerCards()[Math.min(activeCard, cardCount - 1)]?.click()
+          } else if (event.key === 'Enter' && event.target instanceof HTMLButtonElement && event.target.dataset.slot === 'flow-card') {
+            event.preventDefault(); event.target.click()
+          }
+        }}>
+          <SectionHead name="Flow" action={<Button variant="outline" size="sm" disabled={locked || policyPending || readingAccounts} onClick={() => { store.openDestination({ kind: 'flows', root, id: null, origin: null, start: { context, ...(goal ? { goal } : {}), task, done: sentence } }); onClose() }}>Build your own</Button>} />
+          <Search label="Search Flows" placeholder="Search Flows…" value={query} onChange={value => { setQuery(value); setActiveCard(0) }} />
+          {unlisted !== null && <Banner tone="danger" title="These Flows could not be read" actions={recovery(unlisted)}>{unlisted}</Banner>}
+          {entries === null && !unlisted && <div aria-label="Loading Flows" aria-busy="true"><Rows><Row title="Reading Flows…" /><Row title="Reading project choices…" /></Rows></div>}
+          {group('This project', sections.project)}
+          {group('Most used', sections.most)}
+          {group('More Flows', sections.more)}
+          {draftCard && <FlowCardGrid><FlowCard name={draftCard.name} aria-label={draftCard.name} origin="Unsaved" policy={compiled?.format === 'agents' ? compiled.flow : undefined} summary={compiled?.format === 'agents' ? compiled.flow.summary ?? compiled.flow.description ?? '' : ''} selected disabled={locked || policyPending || readingAccounts} onClick={() => {}} /></FlowCardGrid>}
+          {showPlain && <FlowCardGrid><FlowCard empty name="Just a Team" aria-label="Just a Team" origin="Built in" summary="A shared board for several agents; no fixed steps." selected={plainTeam} disabled={locked || policyPending || readingAccounts} onClick={choosePlainTeam} /></FlowCardGrid>}
+          {query && cards.length === 0 && !showPlain && <Note>No matching Flows.</Note>}
+        </section>
+        {chosen && <>
+          {!flow && !problem && <section aria-label="Loading Team form" aria-busy="true"><Rows>
+            {(chosen.id === 'comparison' ? ['Attempt A', 'Attempt B'] : ['Agents', 'Options']).map(label => <Row key={label} title={label} control={<Input aria-label={`${label} loading`} disabled placeholder="…" />} />)}
+          </Rows></section>}
+          {problem && failure(problem)}
+          {compiled?.format === 'legacy' && <Banner tone="warning">Update this Flow from its Flows page before it can start a Team here.</Banner>}
+          {compiled?.format === 'agents' && flow && <FlowStart root={root} onChange={() => {}} team={{ flow: compiled.flow, template: templates.current ?? compiled.flow, preview: flow, roster, vars, primary: primary?.id, disabled: starting || policyPending, editingDisabled: starting, onVar: setVar, onReadingChange: setBriefReading, onPolicy: policy => void editPolicy(policy),
+            details: <>
+              {preview && context.kind !== 'project' && <Row title={preview.target.head ? <span title={preview.target.head}>{`${preview.target.label} at ${shortSha(preview.target.head)}`}</span> : preview.target.label} desc={[preview.target.dirty ? 'Not committed — a working-tree snapshot, never a committed head.' : null, preview.target.independence === 'unknown' ? 'Independence from the author is unknown.' : null].filter(Boolean).join(' ') || undefined} />}
+              {inputs.filter(input => bound.has(input.id)).map(input => { const value = vars[input.id] ?? ''; const kind = bound.get(input.id); return <Row key={input.id} title={input.label} desc={(kind === 'head' || kind === 'base') && value ? <span title={value}>{shortSha(value)}</span> : value || '—'} /> })}
+              {initialSource === undefined && <Button variant="quiet" disabled={starting} onClick={() => setEveryTime(true)}>Every time…</Button>}
+            </>,
+          }} />}
+          {errors.length > 0 && <Banner tone="danger" title="This will not run yet" actions={recovery(errors.map(one => one.text).join(' '))}><ul>{errors.map(one => <li key={`${one.at}-${one.text}`}>{one.text}</li>)}</ul></Banner>}
+        </>}
+        {plainTeam && <>
+          <Fieldset legend="Who does what"><Rows>{plainAgents.map(agent => <Row key={agent.id} title={agentName(agent)} control={<Checkbox checked={selectedAgents.has(agent.id)} disabled={seated.has(agent.id) || starting} aria-label={`Seat ${agentName(agent)}`} onCheckedChange={checked => {
+            const next = new Set(selectedAgents); if (checked) next.add(agent.id); else next.delete(agent.id)
+            setSelectedAgents(next); setPlainDryRun(false)
+          }} />} />)}</Rows>{plainAgents.length === 0 && <Note>Add work or seat an Agent after this Team is created.</Note>}</Fieldset>
+          <Rows><Row title="Use an isolated checkout" desc="New Seats get retained worktrees, ports and browser profiles." control={<Checkbox checked={isolated} disabled={locked} aria-label="Use an isolated checkout" onCheckedChange={next => { setIsolated(next === true); setPlainDryRun(false) }} />} /></Rows>
+          {isolated && snapshot.lanePreferences?.browserProfile === false && <Note tone="warn">New lanes share the ordinary browser profile while browser isolation is off.</Note>}
+        </>}
+        <Field label="Done when · optional" error={(plainTeam ? plainWords.length : sentence.trim().length) > 2000 ? 'Keep it to 2,000 characters.' : undefined}>
+          {control => <Input {...control} aria-label="Done when · optional" value={sentence} disabled={locked} onChange={event => { setSentence(event.target.value); onDoneChange?.(event.target.value); setPlainDryRun(false) }} />}
+        </Field>
+        {!plainTeam && dryRunOpen && compiled?.format === 'agents' && flow && <section aria-label="Dry run"><SectionHead name="Dry run" />{!preview && <Note role="status">Checking the seats and inputs…</Note>}<FlowPreviewReport preview={flow} flow={compiled.flow} roster={roster} vars={vars} warnings={flow.problems.filter(one => one.level === 'warning')} /></section>}
+        {plainTeam && plainDryRun && <Note role="status">No fixed steps. The Team opens with a board and chat{selectedAgents.size ? ` and ${selectedAgents.size} selected Agent${selectedAgents.size === 1 ? '' : 's'}` : ''}. {isolated ? 'New Seats use isolated checkouts.' : 'Seats share the project checkout.'}</Note>}
+        {plainTeam && callerProblem && !startProblem && callerProblem !== unlisted && failure(callerProblem)}
+        {startProblem && failure(startProblem)}
+      </FormStack>
       {everyTime && chosen && <TriggerCreate root={root} opens={{ flow: chosen.id }} onClose={() => setEveryTime(false)} onSaved={() => setEveryTime(false)} />}
     </Dialog>
   )

@@ -1670,6 +1670,16 @@ test('single-area exemptions (data geometry, native boundaries) name only the li
   assert.deepEqual(staleSingleAreaPrimitiveExemptions([entry], lookup('usage')), [])
 })
 
+test('Flow thumbnail SVG is allowed only at its exact data-geometry module path', async () => {
+  const audit = await import('./design-audit.mjs')
+  assert.equal(typeof audit.allowsInlineSvg, 'function')
+  assert.equal(audit.allowsInlineSvg('design/patterns/FlowCards.tsx'), true)
+  assert.equal(audit.allowsInlineSvg('components/FlowCards.tsx'), false)
+  assert.equal(audit.allowsInlineSvg('design/patterns/Other.tsx'), false)
+  assert.equal(audit.allowsInlineSvg('design/patterns/nested/FlowCards.tsx'), false)
+  assert.equal(audit.allowsInlineSvg('components/Icons.tsx'), true)
+})
+
 test('a single-area export is exempt only when its module, its name and its area all match an entry', () => {
   const chart = path.join(repoRoot, 'packages/ui/src/design/ui/chart.tsx')
   assert.equal(isSingleAreaPrimitiveExempt(chart, 'ChartCard', 'usage'), true)

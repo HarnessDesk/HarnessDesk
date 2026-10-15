@@ -2303,6 +2303,13 @@ const ICON_MODULES = new Set([
   'FlowGraph.tsx',
 ])
 
+// The thumbnail draws policy roles, branches and loops from flow-layout, not
+// glyphs. Name its exact module only for SVG admission: FlowCard's controls
+// and appearance remain subject to the ordinary pattern gates.
+const SVG_DATA_GEOMETRY_MODULES = new Set(['design/patterns/FlowCards.tsx'])
+export const allowsInlineSvg = (module) =>
+  ICON_MODULES.has(path.basename(module)) || SVG_DATA_GEOMETRY_MODULES.has(module)
+
 /**
  * Screen appearance, re-drawn as a Tailwind utility or an inline `style`
  * instead of a screen's `.module.css`.
@@ -4525,7 +4532,7 @@ for (const file of tsxFiles()) {
   for (const detail of overlayViolations(path.relative(root, file).split(path.sep).join('/'), source)) findings.handRolledOverlay.push(`${name}: ${detail}`)
 
   // An icon drawn in place rather than imported.
-  if (!ICON_MODULES.has(path.basename(file)) && /<svg[\s>]/.test(code)) {
+  if (!allowsInlineSvg(name) && /<svg[\s>]/.test(code)) {
     findings.looseIcon.push(`${name}: <svg> outside the icon modules`)
   }
 

@@ -244,7 +244,7 @@ it('a project’s checks follow its Agents, and a project with no checks file sh
   mount(<WorkspacesSection focus={STOREFRONT.path} />)
   await settle()
   const sections = [...container.querySelectorAll('section[aria-label]')].map((one) => one.getAttribute('aria-label'))
-  expect(sections).toEqual(['Agents', 'Flows', 'Checks', 'Triggers', 'Provenance', 'Memory'])
+  expect(sections).toEqual(['Agents', 'Checks', 'Provenance', 'Memory'])
   expect(container.querySelector('section[aria-label="Checks"]')?.textContent).toContain('pnpm verify')
 
   act(() => root.unmount())
@@ -254,29 +254,25 @@ it('a project’s checks follow its Agents, and a project with no checks file sh
   expect(container.querySelector('section[aria-label="Checks"]')).toBeNull()
 })
 
-it('opening a plain project creates no trigger or Goal: it only reads, and a project with none says so', async () => {
+it('workspace preferences do not read or offer project triggers', async () => {
   const { store } = mount(<WorkspacesSection focus={DOCS.path} />)
   await settle()
-  expect(store.projectTriggers).toHaveBeenCalledWith(DOCS.path)
-  const text = container.querySelector('section[aria-label="Triggers"]')?.textContent ?? ''
-  expect(text).toContain('No triggers')
-  expect(text).toContain('.harnessdesk/triggers.yml')
+  expect(store.projectTriggers).not.toHaveBeenCalled()
+  expect(container.querySelector('section[aria-label="Triggers"]')).toBeNull()
   expect(store.previewTrigger).not.toHaveBeenCalled()
   expect(store.armTrigger).not.toHaveBeenCalled()
   expect(store.disarmTrigger).not.toHaveBeenCalled()
 })
 
-it('a project’s own trigger is listed off by default, next to its checks and flows', async () => {
+it('project preferences keep checks and leave Flow and Trigger controls to the Flows page', async () => {
   mount(<WorkspacesSection focus={STOREFRONT.path} />)
   await settle()
-  const text = container.querySelector('section[aria-label="Triggers"]')?.textContent ?? ''
-  expect(text).toContain('When a pull request opens or is pushed')
-  const arm = container.querySelector('section[aria-label="Triggers"] [role="switch"]')
-  expect(arm).not.toBeNull()
-  expect(arm?.getAttribute('aria-checked')).toBe('false')
+  expect(container.querySelector('section[aria-label="Checks"]')).not.toBeNull()
+  expect(container.querySelector('section[aria-label="Triggers"]')).toBeNull()
+  expect(container.querySelector('section[aria-label="Flows"]')).toBeNull()
 })
 
-it('asking for “Triggers on this Mac” while a project is open returns to the list rather than staying on that project', async () => {
+it('a legacy trigger preference link no longer mounts Trigger controls in Settings', async () => {
   const { store } = mount(<WorkspacesSection focus={STOREFRONT.path} />)
   await settle()
   expect(container.querySelector('section[aria-label="Agents"]')).not.toBeNull()
@@ -292,7 +288,8 @@ it('asking for “Triggers on this Mac” while a project is open returns to the
   })
   await settle()
   expect(container.querySelector('section[aria-label="Agents"]')).toBeNull()
-  expect(container.textContent).toContain('Triggers on this Mac')
+  expect(container.textContent).not.toContain('Triggers on this Mac')
+  expect(container.querySelector('section[aria-label="Lanes"]')).not.toBeNull()
 })
 
 it('plain project stays plain: no explicit memory use, no Memory section, no memory read', async () => {
@@ -329,14 +326,13 @@ it('opening project memory reads it lazily, and an empty project says so honestl
   expect(section?.textContent).toMatch(/no project memory/i)
 })
 
-it('the project’s flows are read lazily, only once its page is open, and never on the plain Workspaces list', async () => {
+it('neither the Workspaces list nor a project preference page reads Flow catalogues', async () => {
   const { store } = mount(<WorkspacesSection />)
   expect(store.flowCatalog).not.toHaveBeenCalled()
   act(() => rowFor('storefront').click())
   await settle()
-  expect(store.flowCatalog).toHaveBeenCalledWith(STOREFRONT.path)
-  const text = container.querySelector('section[aria-label="Flows"]')?.textContent ?? ''
-  expect(text).toContain('Fix')
+  expect(store.flowCatalog).not.toHaveBeenCalled()
+  expect(container.querySelector('section[aria-label="Flows"]')).toBeNull()
 })
 
 it('Current is a neutral selection and detached worktree menus include their paths', async () => {

@@ -7,6 +7,12 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Flows have their own page.** Browse cards with mini graphs, then build,
+  connect, edit and save a Flow on its canvas. Its rail holds the selected
+  step, rules, triggers and recorded Runs. New Team opens the same dialog
+  everywhere, with a task, Flow picker, role choices and dry run; starting
+  from a Flow keeps its current edits. Flows and Triggers leave Settings.
+
 - **Icons move.** Sixty-nine of the app's icons — the bell, the gear, the
   copy, the chevrons, the refresh and retry arrows, the pin, the lock and
   more — now play a short motion while the pointer is over the button, link,
