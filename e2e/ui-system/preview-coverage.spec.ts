@@ -493,6 +493,15 @@ test.describe('preview coverage', () => {
     expect(included).toBe(true)
   })
 
+  test('the in-page inventory leaves an animated icon drawing out, as it does an icon', async ({ page }) => {
+    await page.goto('/preview.html')
+    const included = await page.evaluate(async () => {
+      const { isVisualComponentExport } = await import('/src/preview/coverage-registry.ts')
+      return [isVisualComponentExport('BellGlyph', () => null), isVisualComponentExport('BellIcon', () => null)]
+    })
+    expect(included).toEqual([false, false])
+  })
+
   test('the coverage sweep settles a dial whose visible content follows an effect', async ({ page }) => {
     await page.goto('/preview.html')
     const result = await sweepSelectsForCoverage(page, { delayedRevealProbe: true })
