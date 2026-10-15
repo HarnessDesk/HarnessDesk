@@ -215,6 +215,9 @@ export const CommandPalette = ({ host }: { host: PaletteHost }) => {
   const input = useRef<HTMLInputElement>(null)
   const list = useRef<HTMLDivElement>(null)
 
+  const workspacePath = snapshot.workspace?.path
+  useEffect(() => { if (workspacePath) void store.refreshWorkspaceGit(workspacePath) }, [store, workspacePath])
+
   // The roster, for "Start as" — read once if nothing has read it yet.
   useEffect(() => {
     if (store.getSnapshot().agents === null) void store.loadAgents()

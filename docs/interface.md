@@ -265,7 +265,9 @@ worktree choice points the draft at that checkout; nothing is made on disk
 until its first message. Before a repository has its first commit, New worktree…
 is replaced by **Make a first commit to work in a worktree**, with a **Commit**
 button that opens the existing commit flow. After that commit the normal
-worktree choice returns. This applies to the composer and project menu too.
+worktree choice returns. Menus re-read the checkout when opened, so commits
+made by an agent or terminal also restore the choice. This applies to the
+composer and project menu too.
 New Team opens a searchable shape picker, then one
 form for the task, roles and optional Done when. Just a Team opens a shared
 board without fixed steps. Change returns to the picker and keeps the draft.
@@ -416,6 +418,12 @@ facts as the former window foot: windows, resets, blocks, source and age. Each
 fold has Open usage, scoped to that agent; an agent needing an account has Sign
 in. Then come Settings and signing out of the default agent. Dashboard in the
 sidebar opens on everything.
+
+The quota forecast, "&lt;agent&gt; will run out before it refills", stays above a
+visible composer and on the Dashboard. Every other page uses a warning dot
+beside the account mark instead of the full notice; its hover text and
+accessible name carry the same title and detail. Dismissing or silencing the
+notice also puts away that dot for the same occurrence or kind.
 
 **Your profile is a name and a face, and nothing else, because nothing else is
 shown.** Settings opens on it — your face and name head the rail, above every
@@ -687,7 +695,8 @@ themselves carries no signature.
 Once a turn's recorded edits are found in a commit, its changed-files card
 shows **Committed <short revision>** and hides Undo. Review remains available;
 undoing a commit belongs to the Repository pane. Edits without commit evidence
-keep the existing Undo and Redo actions.
+keep the existing Undo and Redo actions. A workspace refresh rechecks each
+card's own checkout, including a conversation in another worktree.
 
 **Under every finished turn, a summary**: files changed (Review → Editor mode),
 commands run, tests passed or failed, what broke, and "waiting for your

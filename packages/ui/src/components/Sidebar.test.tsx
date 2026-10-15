@@ -87,6 +87,7 @@ const mount = (overrides: Partial<AppSnapshot> = {}, activeDestination: 'teams' 
 
   const store = {
     subscribe: () => () => {},
+    refreshWorkspaceGit: vi.fn(async () => {}),
     getSnapshot: () => snapshot,
     loadHistory,
     searchHistory: vi.fn(async () => {}),
@@ -213,7 +214,8 @@ describe('Sidebar readiness with active runtime (#382)', () => {
         listeners.add(listener)
         return () => listeners.delete(listener)
       },
-      getSnapshot: () => snapshot,
+      refreshWorkspaceGit: vi.fn(async () => {}),
+    getSnapshot: () => snapshot,
       loadHistory: vi.fn(),
       searchHistory,
       setListPrefs: vi.fn(),
