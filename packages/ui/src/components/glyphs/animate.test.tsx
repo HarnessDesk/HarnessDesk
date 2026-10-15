@@ -50,6 +50,17 @@ it('draws in the frame Lucide would, so a screen cannot tell which drew it', () 
   expect(renderToStaticMarkup(<BellIcon aria-label="Alerts" />)).not.toContain('aria-hidden')
 })
 
+it('never takes the pointer, before or after the swap, so a press that races the swap still clicks', () => {
+  const clicks: string[] = []
+  mount(<button type="button" onClick={() => clicks.push('button')}><SettingsIcon /></button>)
+  // Hit-testing is not available here, so assert the property that decides it:
+  // the glyph is transparent to the pointer, the control is the target.
+  expect(gear().getAttribute('pointer-events')).toBe('none')
+  hover()
+  expect(gear().getAttribute('pointer-events')).toBe('none')
+  expect(clicks).toEqual([])
+})
+
 it('draws the plain Lucide drawing, with nothing scheduled, until a pointer reaches the control', () => {
   vi.useFakeTimers()
   try {

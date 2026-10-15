@@ -133,8 +133,17 @@ const Live = ({ draw: Draw, still: _still, ...props }: Props) => {
   return <Draw {...props} controls={controls} ref={ref} data-glyph="animated" />
 }
 
+/**
+ * The swap replaces the `<svg>`, and a press that began on the old one has
+ * nowhere to land: a pointer that reaches a control and presses within the
+ * same few milliseconds — a quick click, a tap — loses its `click`. So a glyph
+ * is never the target of a pointer at all; the control that holds it is, and
+ * that element is not replaced. The design system's own controls already say
+ * this with `[&_svg]:pointer-events-none`; this keeps it true of a control that
+ * does not.
+ */
 export const Animated = (props: Props) => {
   const [live, setLive] = useState(false)
   const wake = useRef(() => setLive(true)).current
-  return live ? <Live {...props} /> : <Idle {...props} wake={wake} />
+  return live ? <Live pointerEvents="none" {...props} /> : <Idle pointerEvents="none" {...props} wake={wake} />
 }
