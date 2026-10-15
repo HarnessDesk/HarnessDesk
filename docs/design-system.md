@@ -1642,7 +1642,7 @@ Plugin sections join Details' flow; hidden native layers keep their existing box
 
 `packages/ui/src/design/patterns/FixedShell.tsx`
 
-Five stable regions: folding and closing affect geometry, never body identity.
+Stable regions: folding and closing affect geometry, never body identity.
 
 ### `ShellNoticeHost`
 
