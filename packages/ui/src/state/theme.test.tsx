@@ -136,13 +136,13 @@ describe('useTheme', () => {
     expect(document.body.hasAttribute('data-hd-palette')).toBe(false)
   })
 
-  // Faces are the fourth dial. Square is the default and leaves no attribute;
-  // round marks the body, which is all `shadcn-themes.css` reads.
-  it('marks the body for round faces, and unmarks it for the default square', () => {
-    mount('light', undefined, 'round')
-    expect(document.body.getAttribute('data-hd-faces')).toBe('round')
-
+  // Faces are the fourth dial. Round is the default and leaves no attribute;
+  // square marks the body, which is all `shadcn-themes.css` reads.
+  it('marks the body for square faces, and unmarks it for the default round', () => {
     mount('light', undefined, 'square')
+    expect(document.body.getAttribute('data-hd-faces')).toBe('square')
+
+    mount('light', undefined, 'round')
     expect(document.body.hasAttribute('data-hd-faces')).toBe(false)
   })
 })

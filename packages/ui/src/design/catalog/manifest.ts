@@ -654,7 +654,7 @@ const UI_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
   'timeline': ['Timeline', 'TimelineItem'],
   'toast': ['Toaster', 'toast'],
   'toggle-group': ['ToggleGroup', 'ToggleGroupItem'],
-  'tone': ['dotTint', 'dotTone', 'inkTint', 'inkTone', 'softTint', 'softTone', 'solidTint', 'tintFor', 'tintsFor'],
+  'tone': ['dotTint', 'dotTone', 'inkTint', 'inkTone', 'ringTint', 'softTint', 'softTone', 'solidTint', 'tintFor', 'tintsFor'],
   'tool-pane': ['ToolPane', 'ToolPaneActivity', 'ToolPaneActivityMark', 'ToolPaneBar', 'ToolPaneBody', 'ToolPaneDocumentTab', 'ToolPaneEmptyState', 'ToolPaneGuest', 'ToolPaneHeader', 'ToolPaneHeaderDivider', 'ToolPaneMessage', 'ToolPaneNotice', 'ToolPaneStage', 'ToolPaneTabIcon', 'ToolPaneTabViewport', 'ToolPaneToolGroup'],
   'tooltip': ['Tooltip', 'TooltipContent', 'TooltipTrigger'],
 }

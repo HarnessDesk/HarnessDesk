@@ -86,8 +86,8 @@ const DIALS = [
     }),
     fallback: 0,
     options: [
-      { value: 'var(--hd-radius-sm)', label: 'square' },
       { value: 'var(--hd-radius-full)', label: 'round' },
+      { value: 'var(--hd-radius-sm)', label: 'square' },
     ],
   },
   {

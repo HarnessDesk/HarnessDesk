@@ -1217,14 +1217,13 @@ export const RowChoice = ({
  * A person's face: the picture they chose, or the house mark when they have
  * not.
  *
- * It is the avatar above — the plate and the hairline the account marks wear —
- * in the face shape, because a person is not an account: account marks are
- * rings, a face is whatever the person chose for faces (`--hd-face-radius`,
- * squared unless they picked round; the avatars were drawn as squared tiles,
- * `assets/avatars/README.md`), and it is the same corner the agents' marks
- * beside it wear.
- * The corner steps up the radius scale with the size, so the seat's 24px and
- * the profile page's 44px read as one object at two sizes.
+ * It is the avatar above, filled with its plate and hairline, in the face
+ * shape, because a person is not an account: account marks are hollow rings,
+ * a face is whatever the person chose for faces (`--hd-face-radius`, round
+ * unless they picked square), and it is the same corner the agents' marks
+ * beside it wear. When faces are square the corner steps up the radius scale
+ * with the size, so the seat's 24px and the profile page's 44px read as one
+ * object at two sizes.
  *
  * Without a `size` it fills the box it is put in and takes that box's corner:
  * a room's message rows draw a tile for every sender, and a person's face
@@ -1469,8 +1468,8 @@ export const AccountMark = ({
   children: ReactNode
 }) => createElement(as, {
   ...props,
-  // An account is a ring, never a face: declared so the faces rule can tell
-  // the two apart on a screen that draws both.
+  // An account is a hollow ring, never a face: declared so the faces rule can
+  // tell the two apart on a screen that draws both.
   'data-shape': 'round',
   ...(as === 'button' ? { type: 'button' } : {}),
   className: cx(styles.avatar, badge != null && 'relative overflow-visible', as === 'button' && styles.avatarButton, size === 'sm' && styles.avatarSm, size === 'lg' && styles.avatarLg, size === 'dot' && styles.avatarDot, size === 'row' && styles.avatarRow, size === 'menu' && styles.avatarMenu, className),
