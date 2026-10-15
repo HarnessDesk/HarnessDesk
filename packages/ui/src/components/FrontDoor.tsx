@@ -9,6 +9,7 @@ import { GoalCreate } from './GoalCreate'
 import styles from './FrontDoor.module.css'
 import { shortSha } from '../lib/evidence'
 import { boundInputValues } from '../lib/shapes'
+import { projectNeedsOpening } from '../lib/workspace-recovery'
 import { useSnapshot, useStore } from '../state/context'
 import { FlowStart } from './FlowStart'
 import { ShapeEditor } from './ShapeEditor'
@@ -296,7 +297,8 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
     return <ShapeEditor root={root} context={context} goal={goal} onClose={() => setOwnShape(false)} onStarted={onStarted} />
   }
 
-  if (plainTeam) return <GoalCreate root={root} task={task} onTaskChange={value => { taskRef.current = value; setTask(value) }} done={sentence} onDoneChange={setSentence} onChangeShape={() => setPlainTeam(false)} onClose={onClose} />
+  if (plainTeam) return <GoalCreate root={root} task={task} onTaskChange={value => { taskRef.current = value; setTask(value) }} done={sentence} onDoneChange={setSentence} onChangeShape={() => setPlainTeam(false)} onClose={onClose}
+    projectProblem={unlisted && projectNeedsOpening(unlisted) ? unlisted : undefined} onProjectOpened={() => setCatalogRevision(value => value + 1)} />
 
   const icon = (id: string) => id === 'comparison' ? <SideBySideIcon /> : id === 'fix-and-review' ? <PencilIcon /> : id === 'staged-relay' ? <RouteIcon /> : id.includes('review') ? <ReviewIcon /> : id === 'investigation' ? <SearchIcon /> : <FlowIcon />
   const project = root.split('/').filter(Boolean).at(-1) ?? root
@@ -315,7 +317,7 @@ export const FrontDoor = ({ context, goal, initial, onClose, onStarted }: FrontD
       setCatalogRevision(value => value + 1)
     } finally { setOpeningProject(false) }
   }
-  const recovery = (text: string) => text.includes('is outside every open workspace.')
+  const recovery = (text: string) => projectNeedsOpening(text)
     ? <Button variant="secondary" disabled={openingProject} onClick={() => void openProject()}>{openingProject ? 'Opening…' : `Open ${project}`}</Button>
     : undefined
   const failure = (text: string) => recovery(text)

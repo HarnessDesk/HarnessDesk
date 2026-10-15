@@ -1301,6 +1301,8 @@ contest, without a check round.
 If the project is outside every open workspace, the refusal offers **Open**
 followed by the project name. Opening it keeps the form and refreshes the dry run so
 **Start** can proceed once its requirements are met.
+**Just a Team** keeps that recovery action too, along with the task, completion
+sentence and checkout choice already entered.
 
 The form reads the identical strict dry run before **Start**: every Seat must
 *hold* its ceiling here, so a runtime that can only be asked shows its exact

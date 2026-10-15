@@ -103,6 +103,29 @@ it('follows a worktree recreated at the same path during resume', async () => {
   await store.openSession(sessionId('restored-tree'), { runtime: AGENT })
   expect(store.getSnapshot().workspace?.path).toBe(TREE.path)
   expect(store.getSnapshot().activeSessionKey).toBe(sessionKey(AGENT, 'restored-tree'))
+  expect(store.getSnapshot().notices).toEqual([])
+})
+
+it('leaves a deleted conversation folder to the inline resume refusal', async () => {
+  open = path => { throw new Error(`ENOENT: no such file or directory, stat '${path}'`) }
+  const message = `Agent cannot open this conversation: its folder no longer exists (${TREE.path}).`
+  resume = () => { throw Object.assign(new Error(message), { code: 'sessionFolderGone' }) }
+  await store.openSession(sessionId('gone'), { runtime: AGENT })
+  expect(store.getSnapshot().foldersGone.get(TREE.path)).toBe(message)
+  expect(store.getSnapshot().activeSessionKey).toBe(sessionKey(AGENT, 'gone'))
+  expect(store.getSnapshot().notices).toEqual([])
+})
+
+it('still reports an explicit folder-open failure', async () => {
+  open = () => { throw new Error('The folder is unavailable.') }
+  expect(await store.openWorkspace(TREE.path)).toBe(false)
+  expect(store.getSnapshot().notices).toEqual([expect.objectContaining({ message: 'The folder is unavailable.' })])
+})
+
+it('reports a folder-follow failure if resume succeeds but its workspace still cannot open', async () => {
+  open = () => { throw new Error('The folder is unreadable.') }
+  await store.openSession(sessionId('unreadable'), { runtime: AGENT })
+  expect(store.getSnapshot().notices).toEqual([expect.objectContaining({ message: 'The folder is unreadable.' })])
 })
 
 it('a late resume with a changed folder cannot take the workspace from a newer conversation', async () => {
@@ -138,4 +161,30 @@ it('keeps the source workspace layout when the loading conversation moves to its
   open = () => OLD
   await store.openWorkspace(OLD.path)
   expect(store.getSnapshot().activeSessionKey).toBeNull()
+})
+
+it.each(['read', 'open'] as const)('keeps the original source layout across overlapping %s requests', async stage => {
+  // A real source conversation, not an empty pane: returning must recover it.
+  read = resume = id => conversation(id, id === 'source' ? OLD.path : TREE.path)
+  await store.openSession(sessionId('source'), { runtime: AGENT })
+  const source = store.getSnapshot().workbench
+  const pendingRead = deferred<Session>()
+  const pendingOpen = deferred<WorkspaceEntry>()
+  read = id => stage === 'read' && id === 'abandoned' ? pendingRead.promise : conversation(id)
+  let firstOpen = true
+  open = () => {
+    if (stage === 'open' && firstOpen) { firstOpen = false; return pendingOpen.promise }
+    return TREE
+  }
+  const pending = store.openSession(sessionId('abandoned'), { runtime: AGENT })
+  if (stage === 'open') await vi.waitFor(() => expect(calls('workspace/open')).toHaveLength(1))
+  await store.openSession(sessionId('chosen'), { runtime: AGENT })
+  pendingRead.resolve(conversation('abandoned'))
+  pendingOpen.resolve(TREE)
+  await pending
+  open = () => OLD
+  await store.openWorkspace(OLD.path)
+  expect(store.getSnapshot().activeSessionKey).toBe(sessionKey(AGENT, 'source'))
+  expect(store.getSnapshot().workbench.main).toEqual(source.main)
+  expect(store.getSnapshot().workbench.navigation).toEqual(source.navigation)
 })

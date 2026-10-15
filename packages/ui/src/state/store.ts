@@ -1283,6 +1283,8 @@ export class AppStore {
 
   #navigationQueue: Promise<void> = Promise.resolve()
   #navigationEpoch = 0
+  /** The source before a provisional conversation replaced it; shared by overlapping opens. */
+  #conversationWorkspaceSource: { navigation: number; path: string | null; workbench: Workbench } | null = null
 
   openDestination(page: PageDestination): void {
     this.#navigationEpoch += 1
@@ -2540,7 +2542,9 @@ export class AppStore {
   ): Promise<boolean> {
     const { runtime } = options
     const key = sessionKey(runtime, id)
-    const previous = { path: this.#snapshot.workspace?.path ?? null, workbench: this.#snapshot.workbench }
+    const previous = this.#conversationWorkspaceSource?.navigation === this.#navigationEpoch
+      ? this.#conversationWorkspaceSource
+      : { path: this.#snapshot.workspace?.path ?? null, workbench: this.#snapshot.workbench }
     const removalRevision = this.#sessionRemovalRevisions.get(key) ?? 0
     const stillHeld = () => (this.#sessionRemovalRevisions.get(key) ?? 0) === removalRevision
     // Only a person's main-conversation navigation changes the workspace.
@@ -2548,15 +2552,23 @@ export class AppStore {
     let navigation = options.reveal !== false && !options.restoring && (!options.area || options.area === 'main')
       ? ++this.#navigationEpoch : null
     const stillSelected = () => navigation !== null && navigation === this.#navigationEpoch && stillHeld()
+    let folderProblem: unknown = null
     const followFolder = async (session: Pick<Session, 'cwd'>): Promise<void> => {
       if (!stillSelected()) return
+      folderProblem = null
       if (this.#snapshot.workspace?.path !== session.cwd) {
-        const selected = await this.#openWorkspace(session.cwd, stillSelected, key, previous)
-        if (selected !== null) { navigation = selected; return }
+        const selected = await this.#openWorkspace(session.cwd, stillSelected, key, previous, error => { folderProblem = error })
+        if (selected !== null) {
+          navigation = selected
+          if (stillSelected()) this.#conversationWorkspaceSource = null
+          return
+        }
         if (!stillSelected()) return
       }
       this.#showInPane(key, options.split, options.area)
       navigation = this.#navigationEpoch
+      this.#conversationWorkspaceSource = this.#snapshot.workspace?.path === session.cwd
+        ? null : { ...previous, navigation }
     }
     if (options.preview || options.restoring) this.#markPreview(key)
     // Reading the conversation a draft is carrying — the chip's own link —
@@ -2565,7 +2577,10 @@ export class AppStore {
     if (carried && carried.runtime === runtime && carried.sessionId === id) this.#parkedHandoff = carried
     if (options.reveal !== false) {
       this.#showInPane(key, options.split, options.area)
-      if (navigation !== null) navigation = this.#navigationEpoch
+      if (navigation !== null) {
+        navigation = this.#navigationEpoch
+        this.#conversationWorkspaceSource = { ...previous, navigation }
+      }
     }
     // Choosing a conversation is what a floating sidebar is open for — the one
     // already on screen included, which moves nothing the rule in `#patch` sees.
@@ -2585,6 +2600,9 @@ export class AppStore {
       this.#setSession(live)
       // Recreating a removed worktree may instead reopen its main checkout.
       if (this.#snapshot.workspace?.path !== live.cwd) await followFolder(live)
+      // Resume owns a missing-folder refusal and may recreate the checkout.
+      // Only a successful resume with a still-unreadable workspace needs a toast.
+      if (folderProblem && stillSelected()) this.resultNotice('error', describe(folderProblem))
       // A conversation that reopened is the only evidence its refusal — gone
       // folder or not — no longer holds.
       this.#lastResumeRefusal.delete(key)
@@ -6965,7 +6983,7 @@ export class AppStore {
   }
 
   /** Apply the folder and requested conversation together, before restoring anything else. */
-  async #openWorkspace(path: string, current: () => boolean, conversation?: SessionKey, previous?: { path: string | null; workbench: Workbench }): Promise<number | null> {
+  async #openWorkspace(path: string, current: () => boolean, conversation?: SessionKey, previous?: { path: string | null; workbench: Workbench }, onError?: (error: unknown) => void): Promise<number | null> {
     try {
       const workspace = await this.transport.request('workspace/open', { path })
       if (!workspace || !current()) return null
@@ -6991,7 +7009,10 @@ export class AppStore {
       }
       return selected
     } catch (error) {
-      if (current()) this.resultNotice('error', describe(error))
+      if (current()) {
+        if (onError) onError(error)
+        else this.resultNotice('error', describe(error))
+      }
       return null
     }
   }
