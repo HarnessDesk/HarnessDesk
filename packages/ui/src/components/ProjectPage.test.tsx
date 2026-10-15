@@ -123,6 +123,7 @@ const mount = (node: React.ReactNode, over: Partial<AppSnapshot> = {}) => {
   } as unknown as AppSnapshot
   const store = {
     subscribe: () => () => {},
+    refreshWorkspaceGit: vi.fn(async () => {}),
     getSnapshot: () => snapshot,
     loadWorktrees: vi.fn(async () => {}),
     loadLanePreferences: vi.fn(async () => {}),

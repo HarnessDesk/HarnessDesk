@@ -41,6 +41,7 @@ const mount = (pinned: string[], subject: ProjectGroup, overrides: Partial<AppSn
   const listeners = new Set<() => void>()
   const store = {
     subscribe: (listener: () => void) => { listeners.add(listener); return () => listeners.delete(listener) },
+    refreshWorkspaceGit: vi.fn(async () => {}),
     getSnapshot: () => snapshot,
     askCommit: vi.fn(),
     moveProject: vi.fn((root: string, to: number) => {
@@ -99,7 +100,8 @@ it('moves the last project back into automatic order from the Move flyout', asyn
 
 it('says nothing when the store has not moved anything', async () => {
   const snapshot = { ...emptySnapshot(), listPrefs: { ...emptySnapshot().listPrefs, pinned: ['/a', '/b'] } } as AppSnapshot
-  const store = { subscribe: () => () => {}, getSnapshot: () => snapshot, moveProject: vi.fn() } as unknown as AppStore
+  const store = { subscribe: () => () => {}, refreshWorkspaceGit: vi.fn(async () => {}),
+    getSnapshot: () => snapshot, moveProject: vi.fn() } as unknown as AppStore
   act(() => root.render(
     <StoreProvider store={store}>
       <WorkspaceMenu
@@ -189,6 +191,7 @@ const mountCapture = (subject: ProjectGroup, health: readonly CaptureHealth[]) =
   const snapshot = { ...emptySnapshot(), home: '/home/dev', captureHealth: new Map(health.map((one) => [one.project, one])) } as AppSnapshot
   const store = {
     subscribe: () => () => {},
+    refreshWorkspaceGit: vi.fn(async () => {}),
     getSnapshot: () => snapshot,
     retryCapture: vi.fn(async () => captureHealth()),
     setCapture: vi.fn(async () => captureHealth()),

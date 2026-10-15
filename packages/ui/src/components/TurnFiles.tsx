@@ -42,7 +42,9 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
   const key = useSessionKey()
   // Only this card's own flag, so closing one card re-renders one card.
   const closed = useSelect((snapshot) => key !== null && snapshot.closedTurnFiles.has(closedTurnFilesKey(key, turn.id)))
-  const revision = useSelect((snapshot) => snapshot.workspaces.find((entry) => entry.path === root)?.git?.sha ?? snapshot.workspace?.git?.sha)
+  // A workspace refresh invalidates Git evidence even when this turn's
+  // checkout is not the open folder (or is absent from the recent list).
+  const workspaces = useSelect((snapshot) => snapshot.workspaces)
   const sessionState = useSelect((snapshot) => key ? snapshot.sessions.get(key)?.status.type : undefined)
   const [committed, setCommitted] = useState<string | null>(null)
   useEffect(() => {
@@ -60,7 +62,7 @@ export const TurnFiles = ({ turn, changes, root }: { turn: Turn; changes: readon
     void read()
     window.addEventListener('focus', read)
     return () => { live = false; window.removeEventListener('focus', read) }
-  }, [store, key, turn, root, revision, sessionState])
+  }, [store, key, turn, root, workspaces, sessionState])
   const [busy, setBusy] = useState(false)
   const [reverted, setReverted] = useState(false)
   const [stoppedPartway, setStoppedPartway] = useState(false)

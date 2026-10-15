@@ -177,7 +177,7 @@ export const Sidebar = ({
     <LeftColumnNavigation>
       <LeftColumnRow label="New session" icon={<PlusIcon size={16} />}
         disabled={!ready || !snapshot.workspace} title="Start a session here" onClick={() => store.newDraft()}
-        menu={{ icons: 'all', label: 'More ways to start', onOpenChange: open => { if (open) void store.loadWorktrees() },
+        menu={{ icons: 'all', label: 'More ways to start', onOpenChange: open => { if (open) { void store.loadWorktrees(); if (snapshot.workspace) void store.refreshWorkspaceGit(snapshot.workspace.path) } },
           content: close => <WorktreeItems close={close} onChoose={() => { store.returnToWork(); setStarting(true) }} /> }} />
       <LeftColumnGroup label="Main sections" heading={false}>
         {pageDoors.map(door => <LeftColumnRow key={door.id} label={door.label} icon={door.icon}

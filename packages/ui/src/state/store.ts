@@ -7056,6 +7056,28 @@ export class AppStore {
     }
   }
 
+  readonly #workspaceGitReads = new Map<string, object>()
+
+  /** Refresh a menu's checkout without opening it or reordering recent folders. */
+  async refreshWorkspaceGit(root: string): Promise<void> {
+    const read = {}
+    this.#workspaceGitReads.set(root, read)
+    try {
+      const status = await this.transport.request('git/status', { root })
+      if (this.#workspaceGitReads.get(root) !== read) return
+      const update = (entry: WorkspaceEntry): WorkspaceEntry => entry.path === root
+        ? { ...entry, git: status ? { branch: status.branch, sha: status.headSha } : null }
+        : entry
+      this.#patch({
+        workspace: this.#snapshot.workspace ? update(this.#snapshot.workspace) : null,
+        workspaces: this.#snapshot.workspaces.map(update),
+      })
+    } catch { /* Keep the last known facts when Git cannot be read. */ }
+    finally {
+      if (this.#workspaceGitReads.get(root) === read) this.#workspaceGitReads.delete(root)
+    }
+  }
+
   async loadWorkspaces(): Promise<void> {
     try {
       const workspaces = await this.transport.request('workspace/recent', {})

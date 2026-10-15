@@ -37,3 +37,25 @@ for (const theme of ['light', 'dark']) {
     await expect(page.getByText(/^Committed /)).toHaveCount(0)
   })
 }
+
+for (const theme of ['light', 'dark']) {
+  test(`menu observes an external first commit in ${theme}`, async ({ page }) => {
+    await page.goto(`/preview.html?repository-states=unborn&external&theme=${theme}`)
+    const trigger = page.getByRole('button', { name: 'storefront', exact: true })
+    await trigger.click()
+    await expect(page.getByText('Make a first commit to work in a worktree', { exact: true })).toBeVisible()
+    await trigger.click()
+    await page.getByRole('button', { name: 'Commit outside the dialog', exact: true }).click()
+    await trigger.click()
+    await expect(page.getByRole('menuitemradio', { name: /^New worktree/ })).toBeEnabled()
+    await expect(page.getByText('Make a first commit to work in a worktree', { exact: true })).toHaveCount(0)
+  })
+
+  test(`worktree card observes a commit after refreshing another workspace in ${theme}`, async ({ page }) => {
+    await page.goto(`/preview.html?repository-states=external&external&theme=${theme}`)
+    await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeVisible()
+    await page.getByRole('button', { name: 'Commit outside the dialog', exact: true }).click()
+    await expect(page.getByText('Committed c0ffee1', { exact: true })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Undo', exact: true })).toHaveCount(0)
+  })
+}

@@ -1,10 +1,10 @@
 import { useMemo } from 'react'
 import { sessionKey, runtimeId, sessionId, turnId, type FileChange, type HostMethodName, type Turn } from '@harnessdesk/protocol'
-import { PaneColumn, Text } from '../design'
+import { Button, PaneColumn, Text } from '../design'
 import { PlaceControl } from '../components/ComposerControls'
 import { CommitDialog } from '../components/GitDialogs'
 import { TurnFiles } from '../components/TurnFiles'
-import { StoreProvider, useSnapshot, useStore } from '../state/context'
+import { PaneProvider, StoreProvider, useSnapshot, useStore } from '../state/context'
 import { AppStore } from '../state/store'
 import { useTheme } from '../state/theme'
 
@@ -17,14 +17,18 @@ const changes: readonly FileChange[] = [
 ]
 const turn: Turn = { id: turnId('repository-turn'), status: 'completed', items: [], diff: null }
 
-const RepositorySurface = ({ unborn }: { unborn: boolean }) => {
+const RepositorySurface = ({ unborn, external }: { unborn: boolean; external: boolean }) => {
   useTheme()
   const store = useStore()
   const snapshot = useSnapshot()
   return <main className="min-h-screen bg-background text-foreground">
     <PaneColumn inset="reading" page>
       <Text role="subject">{unborn ? 'Start a conversation in storefront' : 'Update the cart and retry handling'}</Text>
-      {unborn ? <PlaceControl /> : <TurnFiles turn={turn} changes={changes} root={ROOT} />}
+      {unborn ? <PlaceControl /> : <PaneProvider scope={{ paneId: snapshot.layout.focused, view: { kind: 'conversation', session: KEY }, sessionKey: KEY }}><TurnFiles turn={turn} changes={changes} root={ROOT} /></PaneProvider>}
+      {external && <Button onClick={async () => {
+        await store.transport.request('git/commitAll', { root: ROOT, message: 'Update storefront' })
+        if (!unborn) await store.loadWorkspaces()
+      }}>Commit outside the dialog</Button>}
     </PaneColumn>
     {snapshot.commitFor && <CommitDialog root={snapshot.commitFor} onDone={done => {
       store.askCommit(null)
@@ -40,7 +44,7 @@ export const RepositoryStatesPreview = () => {
   const unborn = scene === 'unborn'
   const store = useMemo(() => {
     const store = new AppStore('ws://localhost:0/')
-    let committed = !unborn
+    let committed = !unborn && scene !== 'external'
     const workspace = () => ({ path: ROOT, name: 'storefront', lastOpenedAt: 1,
       git: { branch: query.has('before') && unborn ? null : 'main', sha: committed ? SHA : null },
       repo: { root: ROOT, worktree: false },
@@ -50,16 +54,17 @@ export const RepositoryStatesPreview = () => {
       theme: query.get('theme') === 'dark' ? 'dark' : 'light',
     })
     store.transport.request = (async (method: HostMethodName) => {
-      if (method === 'session/turnCommit') return { sha: scene === 'committed' ? SHA : null }
-      if (method === 'git/status') return { root: ROOT, branch: 'main', ahead: 0, behind: 0,
+      if (method === 'session/turnCommit') return { sha: scene === 'committed' || (scene === 'external' && committed) ? SHA : null }
+      if (method === 'git/status') return { root: ROOT, branch: 'main', headSha: committed ? SHA : null, ahead: 0, behind: 0,
         files: [{ path: 'README.md', status: 'untracked', staged: false }],
       }
       if (method === 'git/commitAll') { committed = true; return { sha: SHA } }
-      if (method === 'workspace/recent') return [workspace()]
+      if (method === 'workspace/recent') return [scene === 'external'
+        ? { ...workspace(), path: '/work/main', name: 'main', git: { branch: 'main', sha: SHA } } : workspace()]
       if (method === 'worktree/list') return []
       return null
     }) as typeof store.transport.request
     return store
   }, [])
-  return <StoreProvider store={store}><RepositorySurface unborn={unborn} /></StoreProvider>
+  return <StoreProvider store={store}><RepositorySurface unborn={unborn} external={query.has('external')} /></StoreProvider>
 }

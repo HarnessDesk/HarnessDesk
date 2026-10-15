@@ -265,7 +265,9 @@ worktree choice points the draft at that checkout; nothing is made on disk
 until its first message. Before a repository has its first commit, New worktree…
 is replaced by **Make a first commit to work in a worktree**, with a **Commit**
 button that opens the existing commit flow. After that commit the normal
-worktree choice returns. This applies to the composer and project menu too.
+worktree choice returns. Menus re-read the checkout when opened, so commits
+made by an agent or terminal also restore the choice. This applies to the
+composer and project menu too.
 New Team opens a searchable shape picker, then one
 form for the task, roles and optional Done when. Just a Team opens a shared
 board without fixed steps. Change returns to the picker and keeps the draft.
@@ -687,7 +689,8 @@ themselves carries no signature.
 Once a turn's recorded edits are found in a commit, its changed-files card
 shows **Committed <short revision>** and hides Undo. Review remains available;
 undoing a commit belongs to the Repository pane. Edits without commit evidence
-keep the existing Undo and Redo actions.
+keep the existing Undo and Redo actions. A workspace refresh rechecks each
+card's own checkout, including a conversation in another worktree.
 
 **Under every finished turn, a summary**: files changed (Review → Editor mode),
 commands run, tests passed or failed, what broke, and "waiting for your

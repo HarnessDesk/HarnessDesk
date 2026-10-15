@@ -78,7 +78,10 @@ const rig = async (
     )
   )
   await act(async () => renderCard(turn))
-  return { revertTurn, store, renderCard }
+  return { revertTurn, store, renderCard, refresh: (patch: Partial<AppSnapshot>) => {
+    snapshot = { ...snapshot, ...patch }
+    listeners.forEach(listener => listener())
+  } }
 }
 
 const button = (text: string): HTMLButtonElement | undefined =>
@@ -309,6 +312,20 @@ it('retires Undo when a commit made elsewhere is observed on window focus', asyn
   expect(button('Undo')).toBeDefined()
   vi.mocked(store.transport.request).mockResolvedValueOnce({ sha: 'beef123456' } as never)
   await act(async () => window.dispatchEvent(new Event('focus')))
+  expect(container.textContent).toContain('Committed beef123')
+  expect(button('Undo')).toBeUndefined()
+})
+
+// The workspace list refreshes after Commit even when its first entry is a
+// different checkout. Its SHA cannot stand in for this turn's worktree.
+it.each([true, false])('refreshes commit evidence for a worktree with a saved workspace entry: %s', async (listed) => {
+  const { store, refresh } = await rig([])
+  const main = { path: '/work/main', name: 'main', lastOpenedAt: 1, git: { branch: 'main', sha: 'unchanged' } }
+  const tree = { path: '/work/storefront', name: 'storefront', lastOpenedAt: 0 }
+  await act(async () => refresh({ workspace: main, workspaces: listed ? [main, tree] : [main] }))
+  expect(button('Undo')).toBeDefined()
+  vi.mocked(store.transport.request).mockResolvedValueOnce({ sha: 'beef123456' } as never)
+  await act(async () => refresh({ workspaces: listed ? [{ ...main }, { ...tree }] : [{ ...main }] }))
   expect(container.textContent).toContain('Committed beef123')
   expect(button('Undo')).toBeUndefined()
 })

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { migratedRoots, projectGroupRootOf, type ProjectGroup } from '../lib/projects'
 import { isPathInside } from '../lib/paths'
@@ -138,6 +138,7 @@ const WorkspaceRows = ({
   const close = useMenuClose()
   const [confirming, setConfirming] = useState<'archive' | 'remove' | null>(null)
   const [busy, setBusy] = useState(false)
+  useEffect(() => { void store.refreshWorkspaceGit(actualRoot) }, [store, actualRoot])
 
   // Canonical, like `group.root` itself — a workspace opened through an
   // alias (a symlink, or a non-git folder the host now resolves too, #907)

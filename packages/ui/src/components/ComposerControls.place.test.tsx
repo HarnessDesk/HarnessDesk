@@ -48,6 +48,7 @@ const rig = (over: Partial<AppSnapshot> = {}): AppStore => {
   const snapshot = { ...emptySnapshot(), status: 'open', workspace: MAIN, workspaces: [MAIN], ...over } as AppSnapshot
   const store = {
     subscribe: () => () => {},
+    refreshWorkspaceGit: vi.fn(async () => {}),
     getSnapshot: () => snapshot,
     startDraftIn: vi.fn(),
     askNewWorktree: vi.fn(),

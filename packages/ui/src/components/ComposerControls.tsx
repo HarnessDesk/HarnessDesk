@@ -1319,7 +1319,7 @@ export const PlaceControl = () => {
           title={title}
           drop="up"
           align="left"
-          onOpenChange={(open) => open && void store.loadWorktrees()}
+          onOpenChange={(open) => { if (open) { void store.loadWorktrees(); void store.refreshWorkspaceGit(workspace.path) } }}
           label={
             <>
             {armed ? (
