@@ -412,6 +412,9 @@ export const sessionMethods = {
     const turn = record?.session.turns.find((entry) => entry.id === params.turnId)
     if (!record || !turn) throw new Error('That turn is not loaded; open the conversation first.')
     const direction = params.direction ?? 'undo'
+    if (direction === 'undo' && await gitOps.turnCommit(record.session.cwd, turn)) {
+      throw new Error('These edits are committed. Undo the commit in the Repository pane.')
+    }
     const { files, skipped } = await gitOps.applyTurn(record.session.cwd, turn, direction, {
       ...(params.skipUnrecoverable ? { skipUnrecoverable: true } : {}),
     })

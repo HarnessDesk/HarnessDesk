@@ -6,9 +6,11 @@ import { join } from 'node:path'
 import { test } from 'node:test'
 import { promisify } from 'node:util'
 
-import { turnId, type AgentItem, type FileChange, type Turn } from '@harnessdesk/protocol'
+import { runtimeId, sessionId, turnId, type AgentItem, type FileChange, type Turn } from '@harnessdesk/protocol'
 
 import { status } from '../src/git.js'
+import { sessionMethods } from '../src/methods/sessions.js'
+import type { HostContext } from '../src/methods/context.js'
 import { DirtyTreeError, RevertError, applyTurn, checkout, listBranches, reapplyTurn, revertTurn, turnCommit } from '../src/git-ops.js'
 
 /**
@@ -501,5 +503,31 @@ test('proves a committed deletion without recorded contents and an empty added f
     await git(dir, 'add', '.')
     await git(dir, 'commit', '-qm', 'record deletion and empty file')
     assert.equal(await turnCommit(dir, turn), (await git(dir, 'rev-parse', 'HEAD')).trim())
+  } finally { await rm(dir, { recursive: true, force: true }) }
+})
+
+test('the turn endpoint refuses committed Undo even from a card that has not refreshed', async () => {
+  const dir = await repo()
+  try {
+    const turn = turnOf([fileChange(dir, [
+      { path: join(dir, 'a.txt'), kind: { type: 'update' }, diff: '@@ -1,3 +1,3 @@\n one\n-two\n+2\n three\n' },
+    ])])
+    const runtime = runtimeId('demo')
+    const id = sessionId('committed-turn')
+    const ctx = {
+      runtimes: { resolve: () => ({ info: { id: runtime } }) },
+      registry: { get: () => ({ runtime, session: { id, cwd: dir, turns: [turn] } }) },
+      audit: { append: () => {} },
+    } as unknown as HostContext
+    const params = { runtime, sessionId: id, turnId: turn.id }
+    await writeFile(join(dir, 'a.txt'), 'one\n2\nthree\n')
+    assert.deepEqual(await sessionMethods['session/turnCommit'](ctx, params), { sha: null })
+    await git(dir, 'add', '.')
+    await git(dir, 'commit', '-qm', 'record turn')
+    const sha = (await git(dir, 'rev-parse', 'HEAD')).trim()
+    assert.deepEqual(await sessionMethods['session/turnCommit'](ctx, params), { sha })
+    await assert.rejects(sessionMethods['session/revertTurn'](ctx, params), /committed.*Repository/)
+    assert.equal(await readFile(join(dir, 'a.txt'), 'utf8'), 'one\n2\nthree\n')
+    assert.equal((await git(dir, 'status', '--porcelain')).trim(), '')
   } finally { await rm(dir, { recursive: true, force: true }) }
 })

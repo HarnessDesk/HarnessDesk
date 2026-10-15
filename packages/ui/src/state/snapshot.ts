@@ -507,6 +507,8 @@ export interface AppSnapshot {
   readonly agentPlansFailed: boolean
   /** This machine's seats for its Agents, as the host read `seating.json` — null until a page asks. */
   readonly seating: MachineSeating | null
+  /** The existing commit flow, raised before a repository's first worktree. */
+  readonly commitFor: string | null
   /**
    * The repository a new worktree is being set up for, or null.
    *
@@ -514,7 +516,6 @@ export interface AppSnapshot {
    * the sidebar's worktree menu, a project's context menu, and ⌘K — and the
    * row that raised it is usually gone by the time it is answered.
    */
-  readonly commitFor: string | null
   readonly newWorktreeFor: string | null
   /**
    * A settings page something asked for by name, until the shell opens it.
