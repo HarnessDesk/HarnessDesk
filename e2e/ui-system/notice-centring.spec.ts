@@ -5,7 +5,7 @@ const GLYPH_GAP_TOLERANCE = 1.5
 
 const openBoard = async (page: Page, name: string) => {
   await page.goto('/design.html')
-  await page.getByRole('button', { name }).click()
+  await page.getByRole('button', { name, exact: true }).click()
   await page.locator('main h1').first().waitFor({ state: 'visible' })
   await expect(page.getByText('Mounting the screen…')).toBeHidden()
 }
@@ -75,6 +75,7 @@ const distinctLineRects = async (text: Locator) => {
   return rects.filter((rect, index) => index === 0 || Math.abs(rect.top - rects[index - 1]!.top) >= 1)
 }
 
+// Legacy composer hosts move in part 2 and retain their first-line contract.
 const expectLeadOnFirstLine = async (lead: Locator, text: Locator, label: string) => {
   const [leadBox, lines] = await Promise.all([lead.boundingBox(), distinctLineRects(text)])
   expect(lines.length, `${label} should contain multiple line tops`).toBeGreaterThan(1)
@@ -82,8 +83,8 @@ const expectLeadOnFirstLine = async (lead: Locator, text: Locator, label: string
   expect(Math.abs(leadBox!.y + leadBox!.height / 2 - (lines[0]!.top + lines[0]!.height / 2)), `${label} lead follows line one`).toBeLessThanOrEqual(2)
 }
 
-test('one-line notices centre every part; wrapped notices keep the lead on line one', async ({ page }) => {
-  await openBoard(page, 'Notices')
+test('one-line notices centre every part; wrapped banners centre the tile on the copy', async ({ page }) => {
+  await openBoard(page, 'Notice')
   const board = page.locator('[data-alignment-board-id="notices"]')
   const composer = board.locator('[data-slot="composer-notice"]').filter({ hasText: 'Alpha can continue.' }).first()
   await expect(composer).toBeVisible()
@@ -116,9 +117,9 @@ test('one-line notices centre every part; wrapped notices keep the lead on line 
   expect((await capGaps(stripAction, strip)).imbalance, 'strip action cap-height gaps').toBeLessThanOrEqual(GLYPH_GAP_TOLERANCE)
   expect((await capGaps(strip.locator('[data-part="notice-title"]'), strip)).imbalance, 'strip cap-height gaps').toBeLessThanOrEqual(GLYPH_GAP_TOLERANCE)
 
-  await openBoard(page, 'Banner')
-  const bannerBoard = page.locator('[data-alignment-board-id="banner"]')
-  const banner = bannerBoard.locator('[data-tone="warning"]').filter({ hasText: 'Alpha can continue.' }).first()
+  await openBoard(page, 'Notice')
+  const bannerBoard = page.locator('[data-legacy-banner-examples]')
+  const banner = bannerBoard.locator('[data-slot="alert"][data-tone="warning"]').filter({ hasText: 'Alpha can continue.' }).first()
   await expect(banner).toBeVisible()
   await expectCentered(banner.locator('[data-slot="alert-content"]'), banner, 'banner text')
   await expectCentered(banner.locator('[data-part="banner-icon"]'), banner, 'banner lead')
@@ -145,11 +146,12 @@ test('one-line notices centre every part; wrapped notices keep the lead on line 
   const wrappedAction = await wrappedBanner.getByRole('button', { name: 'Continue with Alpha' }).boundingBox()
   const wrappedDismiss = await wrappedBanner.getByRole('button', { name: 'Dismiss' }).boundingBox()
   expect(titleLine).toBeDefined()
-  expect(Math.abs(wrappedIcon!.y + wrappedIcon!.height / 2 - (titleLine!.top + titleLine!.height / 2)), 'wrapped banner lead stays on the first line').toBeLessThanOrEqual(1)
+  await expectCentered(wrappedBanner.locator('[data-part="banner-icon"]'), wrappedBanner.locator('[data-slot="alert-content"]'), 'wrapped tile')
   expect(Math.abs(wrappedAction!.y + wrappedAction!.height / 2 - (wrappedRow!.y + wrappedRow!.height / 2)), 'wrapped banner action centres on the card').toBeLessThanOrEqual(1)
-  expect(Math.abs(wrappedDismiss!.y + wrappedDismiss!.height / 2 - (titleLine!.top + titleLine!.height / 2)), 'wrapped banner dismiss stays on the first line').toBeLessThanOrEqual(1)
+  const padding = await wrappedBanner.evaluate(el => parseFloat(getComputedStyle(el).paddingTop))
+  expect(wrappedDismiss!.y - wrappedRow!.y).toBeCloseTo(padding, 0)
 
-  await openBoard(page, 'Notices')
+  await openBoard(page, 'Notice')
   const wrapped = page.locator('[data-alignment-board-id="notices"] [data-slot="composer-notice"]').filter({ hasText: 'Alpha needs your decision.' }).first()
   await expect(wrapped).toBeVisible()
   const line = wrapped.locator('[data-slot="notice-message-line"]')
@@ -176,7 +178,7 @@ test('one-line notices centre every part; wrapped notices keep the lead on line 
 })
 
 test('composer action placement follows narrow and wide container resizes', async ({ page }) => {
-  await openBoard(page, 'Notices')
+  await openBoard(page, 'Notice')
   const composer = page.locator('[data-alignment-board-id="notices"] [data-slot="composer-notice"]')
     .filter({ hasText: 'Alpha can continue.' }).first()
   const line = composer.locator('[data-slot="notice-message-line"]')
@@ -197,7 +199,7 @@ test('composer action placement follows narrow and wide container resizes', asyn
 })
 
 test('unbreakable notice paths wrap before controls and a card keeps its copy inside', async ({ page }) => {
-  await openBoard(page, 'Notices')
+  await openBoard(page, 'Notice')
   const board = page.locator('[data-alignment-board-id="notices"]')
   const composer = board.locator('[data-slot="composer-notice"]').filter({ hasText: 'unbreakablepathsegment' })
   await expect(composer).toHaveAttribute('data-wrapped', '')
@@ -229,7 +231,7 @@ test('unbreakable notice paths wrap before controls and a card keeps its copy in
 })
 
 test('notices retain optional action and dismiss controls', async ({ page }) => {
-  await openBoard(page, 'Notices')
+  await openBoard(page, 'Notice')
   const board = page.locator('[data-alignment-board-id="notices"]')
   const noDismiss = board.locator('[data-slot="composer-notice"]').filter({ hasText: 'Cursor is not signed in.' })
   await expect(noDismiss.getByRole('button', { name: 'Sign in' })).toBeVisible()
@@ -237,21 +239,21 @@ test('notices retain optional action and dismiss controls', async ({ page }) => 
   const neither = board.locator('[data-slot="composer-notice"]').filter({ hasText: 'Reconnecting to the host…' })
   await expect(neither.getByRole('button')).toHaveCount(0)
 
-  await openBoard(page, 'Banner')
-  const banner = page.locator('[data-alignment-board-id="banner"] [data-slot="alert"]')
+  await openBoard(page, 'Notice')
+  const banner = page.locator('[data-alignment-board-id="notices"] [data-slot="alert"]')
     .filter({ hasText: 'A newer version of the agent is available.' })
   await expect(banner.getByRole('button', { name: 'Dismiss' })).toBeVisible()
   await expect(banner.getByRole('button', { name: 'Open settings' })).toHaveCount(0)
 })
 
-test('narrow Banner moves actions below wrapped copy and keeps the wrapped lead on line one', async ({ page }) => {
-  await openBoard(page, 'Banner')
-  const banner = page.locator('[data-alignment-board-id="banner"] [data-slot="alert"]')
+test('narrow Banner moves actions below wrapped copy and centres the tile on the copy', async ({ page }) => {
+  await openBoard(page, 'Notice')
+  const banner = page.locator('[data-alignment-board-id="notices"] [data-slot="alert"]')
     .filter({ hasText: 'unbreakablepathsegment' }).first()
   await expect(banner).toHaveAttribute('data-wrapped', '')
   const text = banner.locator('[data-slot="alert-content"]')
   expect(await distinctLineRects(text).then(lines => lines.length)).toBeGreaterThanOrEqual(3)
-  await expectLeadOnFirstLine(banner.locator('[data-part="banner-icon"]'), text, 'narrow Banner')
+  await expectCentered(banner.locator('[data-part="banner-icon"]'), text, 'narrow Banner tile')
   const textBox = await text.boundingBox()
   const action = await banner.getByRole('button', { name: 'Continue with Alpha' }).boundingBox()
   expect(textBox).not.toBeNull()
@@ -260,7 +262,7 @@ test('narrow Banner moves actions below wrapped copy and keeps the wrapped lead 
 })
 
 test('a strip notice gives its message the room it needs before it clips', async ({ page }) => {
-  await openBoard(page, 'Notices')
+  await openBoard(page, 'Notice')
   const strip = page.locator('[data-alignment-board-id="notices"] [data-slot="notice-strip"]')
     .filter({ hasText: 'Alpha can continue.' }).first()
   await expect(strip).toBeVisible()
@@ -280,7 +282,7 @@ test('a strip notice gives its message the room it needs before it clips', async
 })
 
 test('a strip message too long for its row gives up its own width, never the pager', async ({ page }) => {
-  await openBoard(page, 'Notices')
+  await openBoard(page, 'Notice')
   const strip = page.locator('[data-alignment-board-id="notices"] [data-slot="notice-strip"]')
     .filter({ has: page.locator('[data-slot="notice-pager"]') }).first()
   await expect(strip).toBeVisible()
@@ -295,4 +297,87 @@ test('a strip message too long for its row gives up its own width, never the pag
   const [stripAfter, pagerAfter] = await Promise.all([strip.boundingBox(), pager.boundingBox()])
   expect(stripAfter!.height, 'the strip stays one line tall').toBeCloseTo(stripBefore!.height, 0)
   expect(pagerAfter!.width, 'the pager keeps its width').toBeCloseTo(pagerBefore!.width, 0)
+})
+
+const specimen = (page: Page, name: string) => page.locator(`[data-notice-case="${name}"] [data-slot="alert"]`)
+for (const theme of ['light', 'dark'] as const) test.describe(`notice in ${theme}`, () => {
+  test.beforeEach(async ({ page }) => {
+    await page.emulateMedia({ colorScheme: theme })
+    await openBoard(page, 'Notice')
+  })
+  test('one line centres every part', async ({ page }) => {
+    const oneLine = specimen(page, 'standard-info-one-line-glyph')
+    for (const part of ['[data-part="banner-icon"]', '[data-slot="alert-content"]', 'button']) {
+      for (const el of await oneLine.locator(part).all()) await expectCentered(el, oneLine, part)
+    }
+  })
+  test('wrapped copy centres the tile and actions, with a top-right dismiss', async ({ page }) => {
+    const wrapped = specimen(page, 'standard-danger-wrapped-glyph')
+    await expect(wrapped).toHaveAttribute('data-wrapped', '')
+    await expectCentered(wrapped.locator('[data-part="banner-icon"]'), wrapped.locator('[data-slot="alert-content"]'), 'wrapped tile')
+    await expectCentered(wrapped.getByRole('button', { name: 'View changes' }), wrapped.locator('[data-slot="alert-content"]'), 'wrapped action')
+    const box = await wrapped.boundingBox()
+    const dismiss = await wrapped.getByRole('button', { name: 'Dismiss' }).boundingBox()
+    const padding = await wrapped.evaluate(el => parseFloat(getComputedStyle(el).paddingTop))
+    expect(dismiss!.y - box!.y).toBeCloseTo(padding, 0)
+  })
+  test('danger marks a neutral plate with its bar and tinted tile', async ({ page }) => {
+    const wrapped = specimen(page, 'standard-danger-wrapped-glyph')
+    const colours = await wrapped.evaluate(el => {
+      const style = getComputedStyle(el)
+      const bar = getComputedStyle(el, '::before')
+      const tile = getComputedStyle(el.querySelector('[data-slot="icon-tile"]')!)
+      const probe = document.createElement('span'); el.append(probe)
+      probe.style.background = 'var(--hd-card)'; const card = getComputedStyle(probe).backgroundColor
+      probe.style.background = 'var(--hd-danger-dim)'; const dim = getComputedStyle(probe).backgroundColor
+      probe.style.color = 'var(--hd-danger-ink)'; const ink = getComputedStyle(probe).color
+      probe.style.background = 'var(--hd-danger)'; const danger = getComputedStyle(probe).backgroundColor
+      probe.remove()
+      return { ground: style.backgroundColor, card, bar: bar.backgroundColor, danger, barWidth: bar.width, tile: tile.backgroundColor, dim, ink: tile.color, expectedInk: ink }
+    })
+    expect(colours.ground).toBe(colours.card)
+    expect(colours.bar).toBe(colours.danger)
+    expect(colours.barWidth).toBe('3px')
+    expect(colours.tile).toBe(colours.dim)
+    expect(colours.ink).toBe(colours.expectedInk)
+  })
+  test('three or more actions stack below copy', async ({ page }) => {
+    const stacked = specimen(page, 'standard-success-stacked-glyph')
+    const copy = await stacked.locator('[data-slot="alert-content"]').boundingBox()
+    for (const button of await stacked.locator('button:not([aria-label="Dismiss"])').all()) {
+      expect((await button.boundingBox())!.y).toBeGreaterThanOrEqual(copy!.y + copy!.height)
+    }
+    const three = page.locator('[data-notice-case="three-actions"] [data-slot="alert"]')
+    const threeCopy = await three.locator('[data-slot="alert-content"]').boundingBox()
+    for (const button of await three.locator('button').all()) expect((await button.boundingBox())!.y).toBeGreaterThanOrEqual(threeCopy!.y + threeCopy!.height)
+  })
+  test('the host chooses compact type and tile size', async ({ page }) => {
+    const oneLine = specimen(page, 'standard-info-one-line-glyph')
+    const compact = specimen(page, 'compact-info-one-line-glyph')
+    expect(await compact.locator('[data-slot="alert-title"]').evaluate(el => getComputedStyle(el).fontSize)).toBe('13px')
+    expect(await oneLine.locator('[data-slot="alert-title"]').evaluate(el => getComputedStyle(el).fontSize)).toBe('14px')
+    expect(await compact.locator('[data-slot="icon-tile"]').evaluate(el => el.getBoundingClientRect().width)).toBe(24)
+  })
+  test('floating toast alone takes the notice shadow', async ({ page }) => {
+    const compact = specimen(page, 'compact-info-one-line-glyph')
+    const shadow = (el: Locator) => el.evaluate(el => getComputedStyle(el).boxShadow)
+    const flow = await shadow(compact)
+    const floating = await shadow(specimen(page, 'floating-info-one-line-glyph'))
+    expect(flow).not.toBe(floating)
+    expect(await compact.evaluate(el => {
+      const probe = document.createElement('div'); probe.style.boxShadow = 'inset 0 0 0 1px var(--hd-border-emphasis), var(--hd-composer-shell-shadow)'; el.append(probe)
+      const expected = getComputedStyle(probe).boxShadow; probe.remove(); return expected
+    })).toBe(flow)
+  })
+  test('the preview notice keeps the same tile radius when utilities load later', async ({ page }) => {
+    await page.goto('/preview.html?notice-placement')
+    const tile = page.locator('[data-frame-id="coverage-notice-folder-gone"] [data-part="banner-icon"]')
+    await expect(tile).toBeAttached()
+    expect(await tile.evaluate(el => getComputedStyle(el).borderRadius)).toBe('8px')
+  })
+  test('a narrow host folds its action below copy', async ({ page }) => {
+    const narrow = page.locator('[data-notice-case="sidebar-narrow"] [data-slot="alert"]')
+    const narrowText = await narrow.locator('[data-slot="alert-content"]').boundingBox()
+    expect((await narrow.getByRole('button', { name: 'Continue', exact: true }).boundingBox())!.y).toBeGreaterThanOrEqual(narrowText!.y + narrowText!.height)
+  })
 })

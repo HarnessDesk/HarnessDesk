@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 import { approvalId, runtimeId, sessionKey, sessionId, turnId, type AgentItem, type FileChange, type SessionId, type SessionQueue, type Turn } from '@harnessdesk/protocol'
 
 import { AgentIcon, AlertIcon, BranchIcon, CaretIcon, CheckIcon, CrossIcon, FilterIcon, FolderGoneIcon, FolderIcon, MoreIcon, PinIcon, PlusIcon, PluginIcon, SearchIcon, SettingsIcon, TeamIcon, TerminalIcon, TodoPendingIcon, UsageIcon, UserIcon } from '../../components/Icons'
+import { libraryNoticeResults } from '../../preview/notice-fixture'
 import { MessageQueue } from '../../components/MessageQueue'
 import { RuntimeMark } from '../../components/BrandIcons'
 import { DiffView } from '../../editor'
@@ -41,6 +42,11 @@ import {
   AlertContent,
   AlertDescription,
   AlertTitle,
+  Notice,
+  NoticeHost,
+  NoticeStatus,
+  NoticeList,
+  NoticeRow,
   Banner,
   BannerAction,
   Bar,
@@ -849,7 +855,7 @@ const NOTICE_COMPOSER: NoticeMessage = {
    components with the props the app passes: one message and several, with and
    without an action, dismissable and not, the second dismissal's "Stop showing
    this", the inbox empty, all read and full, and each kind of toast. */
-const NoticesBoard = () => {
+const LegacyNoticeHosts = () => {
   const [inbox, setInbox] = useState(NOTICE_INBOX)
   const read = (id: string) => setInbox((all) => all.map((message) => (message.id === id ? { ...message, read: true } : message)))
   return (
@@ -974,11 +980,12 @@ const NoticesBoard = () => {
   )
 }
 
-const BannerBoard = () => (
+const AlertAndBannerExamples = () => (
   <>
     <Specimen measure="page" caption="Alert tones and variants, ActionError, a patch card, and every Banner">
     <div
       className={styles.stack}
+      data-legacy-banner-examples=""
       data-catalog-variants={ALERT_CATALOG_VARIANTS.join(' ')}
       data-catalog-sizes={ALERT_CATALOG_SIZES.join(' ')}
       data-catalog-states={ALERT_CATALOG_STATES.join(' ')}
@@ -1061,22 +1068,58 @@ const BannerBoard = () => (
       </Banner>
     </div>
     </Specimen>
-    <p className={styles.rule}>
-      The card stays neutral in every tone. Colour that floods a banner reads as an emergency
-      whatever it says, and most of these are not — so severity is carried by the icon alone.
-    </p>
-    <p className={styles.rule}>
-      Every banner can be put away, and the toast form is the same component with{' '}
-      <code>compact</code> — which is what stops the fourth kind of message from inventing a fourth
-      look.
-    </p>
-    <p className={styles.rule}>
-      <strong>Known disagreement.</strong> <code>BannerAction</code> is the only control in the app
-      drawn as a 34px pill on the platform&rsquo;s primary fill; every other button is a 26px
-      bordered control on the brand blue. The <strong>Pill buttons</strong> foundation is what
-      settling that in the banner&rsquo;s favour would look like.
-    </p>
+
   </>
+)
+
+// Every tone, host size, line shape and mark combination comes from real code.
+const NOTICE_TONES = ['neutral', 'info', 'success', 'warning', 'danger'] as const
+const NoticeBoard = () => (
+  <div className={`${styles.stack} w-full`}>
+    <Specimen measure="page" caption="One notice: all tones, host sizes, copy shapes and marks">
+      <div className={`${styles.stack} w-full`}>
+        {(['standard', 'compact', 'floating'] as const).flatMap(host => NOTICE_TONES.flatMap(tone =>
+          (['one-line', 'wrapped', 'stacked'] as const).flatMap(shape => [false, true].map(mark => (
+            <Case key={`${host}-${tone}-${shape}-${mark}`} label={`${host} ${tone} ${shape}${mark ? ' with mark' : ''}`}>
+              <div className="w-full" data-notice-case={`${host}-${tone}-${shape}-${mark ? 'mark' : 'glyph'}`}>
+                <NoticeHost size={host === 'standard' ? 'standard' : 'compact'} floating={host === 'floating'}>
+                  <Notice tone={tone} title={shape === 'one-line' ? 'Changes saved.' : 'Alpha needs your decision.'}
+                    mark={mark ? <RuntimeMark runtime={CLAUDE_CODE_RUNTIME} size={14} /> : undefined}
+                    actions={shape === 'stacked' ? ['Apply', 'Compare', 'Keep', 'Later'].map((label, index) => ({ label, onSelect: () => {}, kind: index === 0 ? 'primary' as const : 'secondary' as const })) : [{ label: 'View changes', onSelect: () => {}, kind: 'primary' }]}
+                    onDismiss={() => {}}>
+                    {shape === 'one-line' ? undefined : 'Choose how to continue after the failed check. The recorded work stays here while you compare the available changes.'}
+                  </Notice>
+                </NoticeHost>
+              </div>
+            </Case>
+          )))
+        ))}
+      </div>
+    </Specimen>
+    <Case label="Library write result">
+      <div className={`${styles.stack} w-full`}>
+        {libraryNoticeResults.map((message, index) => <Notice key={index} {...message} />)}
+      </div>
+    </Case>
+    <Case label="sidebar narrow and Inbox rows">
+      <div style={{ width: 'calc(var(--hd-space-16) * 5)' }} data-notice-case="sidebar-narrow">
+        <NoticeHost size="compact"><Notice tone="warning" title="Alpha needs your decision." actions={[{ label: 'Continue', onSelect: () => {} }]} onDismiss={() => {}}>
+          Choose how Alpha retries after the failed check.
+        </Notice></NoticeHost>
+        <NoticeList title="Inbox"><NoticeRow tone="success" title="Changes saved." /><NoticeRow tone="info" title="A message from Alpha." mark={<RuntimeMark runtime={CLAUDE_CODE_RUNTIME} size={14} />} /></NoticeList>
+        <NoticeHost size="compact"><NoticeStatus title="Waiting for Alpha." /></NoticeHost>
+      </div>
+    </Case>
+    <Case label="two actions and the three-action fold">
+      <div className={`${styles.stack} w-full`}>
+        <Notice tone="success" title="Changes saved." actions={[{ label: 'View changes', onSelect: () => {}, kind: 'primary' }, { label: 'Close', onSelect: () => {} }]} />
+        <Notice tone="danger" title="Could not save." actions={[{ label: 'Retry', onSelect: () => {}, kind: 'primary' }, { label: 'Choose folder', onSelect: () => {} }]} onDismiss={() => {}}>Choose a writable folder before saving these changes.</Notice>
+        <div data-notice-case="three-actions"><Notice tone="success" title="Changes saved." actions={['Apply', 'Compare', 'Later'].map(label => ({ label, onSelect: () => {} }))} /></div>
+      </div>
+    </Case>
+    <LegacyNoticeHosts />
+    <AlertAndBannerExamples />
+  </div>
 )
 
 const QUEUE_BOARD_KEY = sessionKey(runtimeId('codex'), sessionId('catalogue-queue'))
@@ -2233,16 +2276,9 @@ export const BOARDS: Board[] = [
   },
   {
     id: 'notices',
-    title: 'Notices',
-    about:
-      'Where a message goes, chosen by what it is about: a card at the sidebar\u2019s foot for something to do when convenient, a notice on the composer it blocks, a slim strip, the inbox for what is worth keeping, a toast for a result. One message shape for all five.',
-    render: NoticesBoard,
-  },
-  {
-    id: 'banner',
-    title: 'Banner',
-    about: 'Something the app needs to say that nobody asked for.',
-    render: BannerBoard,
+    title: 'Notice',
+    about: 'One notice, one layout: neutral composer plate, tone tile, title over earned detail. Hosts choose standard, compact or floating.',
+    render: NoticeBoard,
   },
   {
     id: 'code',

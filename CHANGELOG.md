@@ -7,6 +7,10 @@ move is real work and is not news to a person weighing an upgrade.
 
 ## Unreleased
 
+- **Notices share the composer's plate.** Cards keep their tile centred beside
+  wrapped copy, stack long action groups below it, and mark failures with a
+  left bar. A success tone confirms completed actions.
+
 - **Teams shows what needs you.** The page is a board with Needs you, Working
   and Ready to wrap columns, searchable across projects. Cards show the ask,
   current step or outcome, the Run's path and its Seats. Wrapped receipts fold

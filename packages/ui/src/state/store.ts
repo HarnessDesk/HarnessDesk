@@ -8036,11 +8036,12 @@ export class AppStore {
     const title = kind === 'runtime:config' && settings.length > 0
       ? `${name} ignored ${settings.length} ${settings.length === 1 ? 'setting' : 'settings'} in its config file`
       : runtime ? `${name}: ${detail?.summary ?? event.message}` : event.message
+    const tone = event.level === 'error' ? 'danger' : event.level === 'warning' ? 'warning' : 'info'
     const inbox = repeatedInInbox(this.#snapshot.inbox, {
       id: key, contentKey: key, kind, title,
       ...(event.id ? { lastEvent: event.id } : {}),
       ...(event.count ? { count: event.count } : {}),
-      tone: event.level === 'error' ? 'danger' : event.level === 'warning' ? 'warning' : 'info',
+      tone,
       ...(detail?.details ? { body: detail.details } : {}),
       ...(kind === 'runtime:config' && settings.length > 0 ? { body: [detail?.summary ?? event.message, `${name} runs without these settings.`, detail?.details].filter(Boolean).join(' ') } : {}),
       ...(detail?.file ? { file: detail.file } : {}),
@@ -8052,7 +8053,7 @@ export class AppStore {
     // Send only this occurrence. Another window may already have read, cleared or muted it.
     const { read: _read, ...entry } = inbox[0]!
     const revision = ++this.#noticeRevision
-    void this.transport.request('app/inbox/keepInfo', { entry: { ...entry, contentKey: key, kind, count: event.count ?? entry.count ?? 1 } }).then(preferences => this.#applyNoticePreferences(preferences, revision)).catch(() => {})
+    void this.transport.request('app/inbox/keepInfo', { entry: { ...entry, tone, contentKey: key, kind, count: event.count ?? entry.count ?? 1 } }).then(preferences => this.#applyNoticePreferences(preferences, revision)).catch(() => {})
   }
 
   dismissNotice(id: string): void {

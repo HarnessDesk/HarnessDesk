@@ -1,4 +1,5 @@
-import { Input, Text } from '../design'
+import { Notice, NoticeHost, Input, Text } from '../design'
+import { libraryNoticeResults } from './notice-fixture'
 import { SettingsPreviewScope } from './settings-pages'
 import { MessageActions } from '../components/MessageActions'
 import { TopBarProvider } from '../panels/top-bar'
@@ -294,7 +295,9 @@ export const CoverageFrames = () => {
       </Frame>
       <Frame id="coverage-notices" title="Notices — strip, inbox and toast">
         <StoreProvider store={coverageStore}>
-          <div className="p-4"><Notices /><NoticeStripOutlet host /><SidebarNotices /></div>
+          <div className="p-4 flex flex-col gap-3"><Notices /><NoticeStripOutlet host /><SidebarNotices />
+            <NoticeHost size="compact">{libraryNoticeResults.map((message, index) => <Notice key={index} {...message} />)}</NoticeHost>
+          </div>
         </StoreProvider>
       </Frame>
       <Frame id="coverage-library" title="Library — changes made from here">

@@ -1,250 +1,162 @@
-/*
- * The card every out-of-band message wears.
- *
- * One shape for all of them — icon, title, detail, actions, dismiss — so a
- * toast, a persistent condition, and a first-run offer read as the same kind
- * of object rather than three inventions. The card stays neutral: a message
- * that paints itself red or amber edge to edge shouts over the conversation
- * it is interrupting, so severity is carried by the icon alone, and weight by
- * whether the card goes away on its own.
- *
- * One-line copy shares its centre with the lead and controls. When copy wraps,
- * the lead and the dismiss follow the first line (a trailing control reads
- * against the title, never the wrapping block) while the actions, a block of
- * controls of their own, stay centred on the card.
- */
-
-/* Toasts keep to the top-right corner, under the header. The bottom-right is
-   where the composer's send button and model picker live on a wide pane, and
-   a card that lands on the thing being typed into is in the way. */
+/* Rule C: one centre for a line; wrapped copy keeps its tile centred on the
+   complete text block and its dismiss at the top. The host owns size. */
 .stack {
   position: fixed;
-  right: 16px;
-  top: 56px;
-  /* Above the settings/usage/archive window (45), below anything modal the
-     reader is still inside (60+). Deleting a conversation happens *on* the
-     archive screen, and "Deleted — moved to the Trash" behind the window is
-     a confirmation nobody gets: exactly the message that must not be missed. */
+  right: var(--hd-space-4);
+  top: calc(var(--hd-bar-h) + var(--hd-space-4)); /* desk: 56px, now the header plus its inset */
   z-index: var(--hd-z-popover);
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  width: min(400px, calc(100vw - 32px));
+  gap: var(--hd-space-2-5);
+  width: min(400px, calc(100vw - var(--hd-space-8)));
 }
-
-/* The card stays inside the reading column. */
 .frame {
   container: hd-banner / inline-size;
   width: min(var(--hd-column), 100%);
 }
-
 .frame[data-measure='container'] {
   width: 100%;
 }
-
 .banner {
-  display: flex;
-  gap: var(--hd-space-4); /* desk: canonical One UI System scale */
+  position: relative;
+  display: grid; /* desk: rule C owns four aligned columns */
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--hd-space-4);
   width: min(var(--hd-column), 100%);
-  padding: var(--hd-space-4) var(--hd-space-4) var(--hd-space-4) var(--hd-space-5); /* desk: canonical One UI System scale */
+  padding: var(--hd-space-4) var(--hd-space-4) var(--hd-space-4) var(--hd-space-5);
+  overflow: hidden;
+  border: 0;
   border-radius: var(--hd-radius-lg);
   background: var(--hd-card);
-  box-shadow:
-    inset 0 0 0 1px var(--hd-border-strong),
-    var(--hd-shadow-notice); /* desk: both literals, unchanged, now named */
+  box-shadow: inset 0 0 0 1px var(--hd-border-emphasis),
+    var(--hd-composer-shell-shadow);
   color: var(--hd-foreground);
   text-align: left;
-  animation: enter var(--hd-duration-enter) var(--hd-ease-out); /* desk: 0.16s on the symmetric curve → the enter token and the arrival curve */
+  animation: enter var(--hd-duration-enter) var(--hd-ease-out);
 }
-
 .frame[data-measure='container'] .banner {
   width: 100%;
 }
-
-.banner[data-slot='alert'] {
-  align-items: center; /* desk: flex-start → center so one-line copy and controls share a midpoint */
+.banner[data-floating] {
+  box-shadow: inset 0 0 0 1px var(--hd-border-emphasis), var(--hd-shadow-notice);
 }
-
-@keyframes enter {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
+.banner[data-tone='danger']::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: var(--hd-notice-bar);
+  background: var(--hd-danger);
 }
-
-/* A toast is the same card with the air taken out: it carries one line and
-   leaves on its own, so it does not need the room a standing notice does. */
 .banner[data-compact] {
-  gap: 10px;
-  width: 100%;
-  padding: var(--hd-space-3) 10px var(--hd-space-3) var(--hd-space-4); /* desk: canonical One UI System scale */
-  border-radius: var(--hd-radius);
+  gap: var(--hd-space-2-5);
+  padding: var(--hd-space-3) var(--hd-space-2-5) var(--hd-space-3) var(--hd-space-4);
 }
-
-.banner[data-compact] {
-  animation-name: enterToast;
+.banner .icon {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: center;
+  border-radius: var(--hd-radius-md);
 }
-
-@keyframes enterToast {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
+.icon[data-shape='face'] {
+  border-radius: var(--hd-face-radius);
 }
-
-.icon {
-  flex: none;
-  display: inline-grid;
-  place-items: center;
-  align-self: center; /* desk: icon centres with one line; wrapped copy overrides to its first line */
-  height: var(--hd-line);
-  color: var(--hd-muted-foreground);
-}
-
-.banner[data-wrapped] .icon {
-  align-self: flex-start; /* desk: a wrapped banner lead stays with its first line */
-}
-
-.banner[data-tone='info'] .icon {
-  color: var(--hd-accent);
-}
-.banner[data-tone='warning'] .icon {
-  color: var(--hd-warning);
-}
-.banner[data-tone='danger'] .icon {
-  color: var(--hd-danger);
-}
-
 .text {
-  flex: 1;
+  grid-column: 2;
+  grid-row: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
   justify-content: center;
   min-height: var(--hd-btn-h);
-  gap: 2px;
+  gap: var(--hd-space-0-5);
 }
-
 .banner[data-compact] .text {
   min-height: var(--hd-icon-target);
 }
-
+.title, .body {
+  font-size: var(--hd-text);
+  line-height: var(--hd-line);
+  overflow-wrap: anywhere;
+}
 .title {
-  font-size: var(--hd-text);
-  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
-  line-height: var(--hd-line); /* desk: 2 → 21, the line the 14px step is set on */
-  letter-spacing: -0.01em;
-  overflow-wrap: anywhere;
+  font-weight: var(--hd-weight-medium);
+  letter-spacing: var(--hd-tracking-heading);
 }
-
 .body {
-  font-size: var(--hd-text);
-  line-height: var(--hd-line); /* desk: 19 → 21, the line the 14px step is set on */
   color: var(--hd-secondary-foreground);
-  overflow-wrap: anywhere;
 }
-
-/* Titles carry the weight, so a lone body reads as the message itself. */
 .body:only-child {
   color: var(--hd-foreground);
 }
-
+.banner[data-compact] .title, .banner[data-compact] .body {
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+}
 .body code {
-  padding: 1px var(--hd-space-1); /* desk: canonical One UI System scale */
+  padding: var(--hd-space-px) var(--hd-space-1);
   border-radius: var(--hd-radius-sm);
   background: var(--hd-skeleton);
-  font-size: var(--hd-text-sm);
+  font-size: inherit; /* desk: code follows the host size */
 }
-
 .actions {
-  flex: none;
+  grid-column: 3;
+  grid-row: 1;
   display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
   align-items: center;
-  gap: 8px;
-  padding-left: 10px;
-  /* Its own block of controls keeps the card's centre. */
   align-self: center;
+  gap: var(--hd-space-2);
 }
-
-.action {
-  height: 34px;
-  padding: 0 16px;
-  border: none;
-  border-radius: var(--hd-radius-full);
-  /* The one ink the app has. This used to read the platform's own
-     `button-primary-fill`, which the Accent sheet overrides — so a banner's
-     action was the single button in the window that turned violet when the
-     Accent row did. Its shape still disagrees with every other button, on
-     purpose; its colour no longer does. */
-  background: var(--hd-solid); /* desk: the platform's primary fill → the app's one ink */
-  color: var(--hd-solid-foreground); /* desk: the platform's primary label → the ink's own foreground */
-  font-size: var(--hd-text);
-  font-weight: var(--hd-weight-medium); /* desk: the rung’s token rather than the number */
-  white-space: nowrap;
-  cursor: pointer;
-  transition: background var(--hd-duration-fast) var(--hd-ease); /* desk: 0.12s → the fast token, 0.1s */
-}
-
-.action:hover {
-  background: var(--hd-solid-hover); /* desk: the platform's primary hover → the ink's own */
-}
-
-.action[data-variant='secondary'] {
-  background: none;
-  box-shadow: inset 0 0 0 1px var(--hd-border-emphasis);
-  color: var(--hd-foreground);
-}
-
-.action[data-variant='secondary']:hover {
-  background: var(--hd-hover);
-}
-
-.action:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-/* The box — 28px, `icon-sm`'s own — comes from the `size` prop now, along
-   with the `edge="end"` pull that lands the cross on the title's column
-   instead of the button's invisible hit target (Banner.tsx). This sheet only
-   says the things the size doesn't: the round shape and the muted ink. */
 .dismiss {
-  border-radius: 50%;
-  background: none;
+  grid-column: 4;
+  grid-row: 1;
+  border-radius: var(--hd-radius-full); /* desk: the dismiss remains round through its token */
   color: var(--hd-muted-foreground);
 }
-
-/* Wrapped copy: the hit target is taller than the title's line, so it hangs
-   from the top and is pulled up by half the difference, which lands its own
-   centre — and the glyph inside it — on the title's first line. The compact
-   card's dismiss is `size="icon-xs"`, whose box is `--hd-icon-target`; a
-   foundation may move either token, so neither is a literal here. */
 .banner[data-wrapped] .dismiss {
-  align-self: flex-start; /* desk: center → flex-start, wrapped copy puts the dismiss on its first line */
-  margin-top: calc((var(--hd-line) - var(--hd-btn-h-sm)) / 2);
+  align-self: start; /* desk: rule C pins only the wrapped dismiss to the top */
 }
-
-.banner[data-wrapped][data-compact] .dismiss {
-  margin-top: calc((var(--hd-line) - var(--hd-icon-target)) / 2);
-}
-
 .dismiss:hover {
   background: var(--hd-hover);
   color: var(--hd-foreground);
 }
-
-/* Too narrow for copy and actions side by side: fold the actions below the
-   copy, while the lead keeps following wrapped copy's first line. */
+.banner[data-stack] .actions {
+  grid-column: 2 / -1;
+  grid-row: 2;
+}
 @container hd-banner (max-width: 400px) {
-  .banner:not([data-compact]) {
-    flex-wrap: wrap;
-    row-gap: var(--hd-space-3);
+  .banner .actions {
+    grid-column: 2 / -1;
+    grid-row: 2;
   }
+}
+@keyframes enter {
+  from { opacity: 0; transform: translateY(calc(-1 * var(--hd-space-1))); }
+}
 
-  .banner:not([data-compact]) .actions {
-    order: 1;
-    flex-basis: 100%;
-    justify-content: flex-end;
-    padding-left: 0;
-  }
+/* Status and list rows use the same anatomy without claiming another card. */
+.banner[data-notice-kind='status'] {
+  background: var(--hd-muted);
+  box-shadow: none;
+}
+.banner[data-notice-kind='row'] {
+  background: transparent;
+  box-shadow: none;
+}
+.banner[data-notice-kind='status']::before, .banner[data-notice-kind='row']::before {
+  display: none;
+}
+.list {
+  overflow: hidden;
+  border-radius: var(--hd-radius-lg);
+  background: var(--hd-card);
+  box-shadow: inset 0 0 0 1px var(--hd-border-emphasis), var(--hd-composer-shell-shadow);
+}
+.listTitle {
+  padding: var(--hd-space-3) var(--hd-space-4);
+  font-size: var(--hd-text-sm);
+  line-height: var(--hd-line-sm);
+  color: var(--hd-foreground);
 }

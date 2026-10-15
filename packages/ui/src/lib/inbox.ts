@@ -11,7 +11,7 @@
  * has to be data. An action that should survive is named by `open`, a place
  * the app knows how to go (a settings page, a Goal), and resolved when shown.
  */
-export type InboxTone = 'neutral' | 'info' | 'warning' | 'danger'
+export type InboxTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger'
 
 export interface InboxEntry {
   readonly id: string
@@ -38,7 +38,7 @@ export interface InboxEntry {
 /** Enough to read back a week of a busy desk; the oldest go first. */
 export const INBOX_LIMIT = 100
 
-const TONES: readonly InboxTone[] = ['neutral', 'info', 'warning', 'danger']
+const TONES: readonly InboxTone[] = ['neutral', 'info', 'success', 'warning', 'danger']
 
 const fromOf = (raw: unknown): { from: NonNullable<InboxEntry['from']> } | null => {
   if (typeof raw !== 'object' || raw === null) return null
