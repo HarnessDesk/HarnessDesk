@@ -815,3 +815,10 @@ describe('changed words inside paired modified lines', () => {
     expect(presentDiffLines(lines, true)).toEqual(lines)
   })
 })
+
+test('pairs a modified final line across its no-newline annotation', () => {
+  const lines = parseDiff('@@ -1 +1 @@\n-const value = old\n\\ No newline at end of file\n+const value = new\n\\ No newline at end of file')
+  expect(presentDiffLines(lines, false).filter(line => line.words).map(line => line.words?.filter(part => part.changed).map(part => part.text).join(''))).toEqual(['old', 'new'])
+  const whitespace = parseDiff('@@ -1 +1 @@\n-a b\n\\ No newline at end of file\n+a  b\n\\ No newline at end of file')
+  expect(presentDiffLines(whitespace, true).map(line => line.kind)).toEqual(['hunk'])
+})

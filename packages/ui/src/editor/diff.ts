@@ -590,23 +590,31 @@ export const changedWords = (before: string, after: string): readonly [WordPart[
 
 export interface PresentedDiffLine extends DiffLine { readonly words?: readonly WordPart[] }
 
-/** Pair adjacent removal/addition blocks by position, never across a file or hunk boundary. */
+/** Pair removal/addition blocks by position; a no-newline annotation belongs to its preceding line. */
 export const presentDiffLines = (lines: readonly DiffLine[], hideWhitespace: boolean, highlightWords = true): PresentedDiffLine[] => {
   const result: PresentedDiffLine[] = []
   for (let index = 0; index < lines.length;) {
     const first = index
     if (lines[index]!.kind !== 'remove') { result.push(lines[index++]!); continue }
-    while (lines[index]?.kind === 'remove') index++
-    const added = index
-    while (lines[index]?.kind === 'add') index++
-    const removedCount = added - first, addedCount = index - added
+    const removed: number[] = [], added: number[] = []
+    const annotation = (row: number) => lines[row]?.kind === 'meta' && lines[row]?.text === '\\ No newline at end of file'
+    while (lines[index]?.kind === 'remove' || annotation(index)) {
+      if (lines[index]!.kind === 'remove') removed.push(index)
+      index++
+    }
+    while (lines[index]?.kind === 'add' || annotation(index)) {
+      if (lines[index]!.kind === 'add') added.push(index)
+      index++
+    }
     const hidden = new Set<number>()
     const words = new Map<number, readonly WordPart[]>()
-    for (let pair = 0; pair < Math.min(removedCount, addedCount); pair++) {
-      const oldIndex = first + pair, newIndex = added + pair
+    for (let pair = 0; pair < Math.min(removed.length, added.length); pair++) {
+      const oldIndex = removed[pair]!, newIndex = added[pair]!
       const before = lines[oldIndex]!.text, after = lines[newIndex]!.text
       if (hideWhitespace && before.replace(/\s/g, '') === after.replace(/\s/g, '')) {
         hidden.add(oldIndex); hidden.add(newIndex)
+        if (annotation(oldIndex + 1)) hidden.add(oldIndex + 1)
+        if (annotation(newIndex + 1)) hidden.add(newIndex + 1)
       } else if (highlightWords) {
         const [left, right] = changedWords(before, after)
         words.set(oldIndex, left); words.set(newIndex, right)
