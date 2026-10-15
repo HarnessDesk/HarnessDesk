@@ -845,7 +845,9 @@ fee's own — none of which survived review). **Windows** reuses the existing
 card body verbatim — the binding-window headline, its segmented meter, the
 pace badge, the lanes table, "Then: extra usage" — `Card` (`shared.tsx`)
 gained two additive slots, `shapeChip` and `moneyRow`, for exactly this
-rather than being redrawn. **Allowance** headlines in the vendor's own unit
+rather than being redrawn. With one window, its name sits beside the headline
+and its meter is drawn once; the lanes table appears only for multiple windows.
+**Allowance** headlines in the vendor's own unit
 ("312 of 500 requests left"), an "≈ 97 turns" chip beside it, the lanes by
 layer — plan, then overage, with on-demand shown as the next layer only when
 there is no overage lane of its own to repeat ("off", or what it has spent)
@@ -1222,7 +1224,8 @@ is wrong" is, only, below 1×, a fact worth noticing (`docs/decisions.md`).
 Its delta is neutral: a rising cost is a fact about the work done, not by
 itself good or bad news the way a rising bill is.
 
-**Turns** is `LedgerReport.totals.turns` for the window — unknown, never
+**Turns** is hidden when no agent reports turns. A reported zero stays visible.
+Otherwise it is `LedgerReport.totals.turns` for the window — unknown, never
 zero, whenever the window mixes a turn-known runtime with one that is not
 (`docs/usage-dashboard.md`, "Turns", above). Its caption prices a turn
 against Paid when both sides are real *and* scope-matched, the same test
