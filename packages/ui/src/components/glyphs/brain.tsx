@@ -67,11 +67,9 @@ export const BrainGlyph = ({ controls, ...props }: GlyphProps) => (
     variants={{
       normal: {
         scale: 1,
-        strokeWidth: 2,
       },
       animate: {
         scale: [1, 1.08, 1],
-        strokeWidth: [2, 2.25, 2],
         transition: {
           duration: 1.4,
           repeat: Number.POSITIVE_INFINITY,

@@ -27,7 +27,6 @@ export const FileTextGlyph = ({ controls, ...props }: GlyphProps) => (
     <motion.path
       d="M10 9H8"
       stroke="currentColor"
-      strokeWidth="2"
       variants={{
         normal: {
           pathLength: 1,
@@ -48,7 +47,6 @@ export const FileTextGlyph = ({ controls, ...props }: GlyphProps) => (
     <motion.path
       d="M16 13H8"
       stroke="currentColor"
-      strokeWidth="2"
       variants={{
         normal: {
           pathLength: 1,
@@ -69,7 +67,6 @@ export const FileTextGlyph = ({ controls, ...props }: GlyphProps) => (
     <motion.path
       d="M16 17H8"
       stroke="currentColor"
-      strokeWidth="2"
       variants={{
         normal: {
           pathLength: 1,

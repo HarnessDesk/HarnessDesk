@@ -17,6 +17,8 @@
  *
  * Fetch's `cloud-download` variants use our `normal` / `animate` names and
  * rest at zero offset, matching its plain drawing before the lazy swap.
+ * Brain and Summary inherit the frame's stroke width rather than overriding
+ * the caller's drawing with the upstream fixed-width stroke variants/paths.
  * Everything else — the paths, the variants, the timings — is upstream's.
  * Components import the icon by meaning from `../Icons`, never from here.
  */

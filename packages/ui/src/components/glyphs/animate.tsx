@@ -41,6 +41,9 @@ const GLYPH = 'svg[data-glyph="animated"]'
 type Entry = { readonly wake: () => void } | { readonly controls: LegacyAnimationControls }
 
 const registry = new WeakMap<Element, Entry>()
+// A host can still be returning to rest after the pointer moves elsewhere.
+// Keep live controls iterable so a preference change stops every such motion.
+const liveControls = new Set<LegacyAnimationControls>()
 let current: Element | null = null
 let wired = false
 let preference: MediaQueryList | undefined
@@ -80,7 +83,12 @@ const wire = () => {
   if (typeof matchMedia === 'function') {
     preference = matchMedia('(prefers-reduced-motion: reduce)')
     preference.addEventListener('change', () => {
-      if (current) play(current, reduced() || !enabled(current) ? 'normal' : 'animate')
+      if (reduced()) {
+        for (const controls of liveControls) {
+          controls.stop()
+          controls.set('normal')
+        }
+      } else if (current) play(current, enabled(current) ? 'animate' : 'normal')
     })
   }
   document.addEventListener('mouseover', (event) => {
@@ -117,9 +125,10 @@ const Live = ({ draw: Draw, still: _still, ...props }: Props) => {
     if (!svg) return
     wire()
     registry.set(svg, { controls })
+    liveControls.add(controls)
     // It was woken by the pointer already over its control, which will not enter it again.
     if (current && owner(svg) === current && enabled(current) && !reduced()) void controls.start('animate')
-    return () => { registry.delete(svg) }
+    return () => { registry.delete(svg); liveControls.delete(controls) }
   }, [controls])
   return <Draw {...props} controls={controls} ref={ref} data-glyph="animated" />
 }

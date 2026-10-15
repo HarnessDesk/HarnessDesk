@@ -1,6 +1,6 @@
 import { createRoot } from 'react-dom/client'
 
-import { BellIcon, FetchIcon, SettingsIcon } from '../components/Icons'
+import { BellIcon, BrainIcon, FetchIcon, SettingsIcon, SummaryIcon } from '../components/Icons'
 import { Button } from '../design'
 
 /** Headless review fixture, mounted from preview.html; no account or host. */
@@ -12,6 +12,12 @@ export const mountGlyphReview = () => {
     <div className="grid gap-4 p-4">
       <section data-case="motion" className="flex items-center gap-4 p-4">
         <Button aria-label="Motion preference"><SettingsIcon size={24} />Motion preference</Button>
+      </section>
+      <section data-case="brain-stroke" className="flex items-center gap-4 p-4">
+        <Button aria-label="Brain stroke options"><BrainIcon size={24} strokeWidth={1.5} /><BrainIcon size={16} strokeWidth={2} absoluteStrokeWidth nonScalingStroke />Brain stroke options</Button>
+      </section>
+      <section data-case="summary-stroke" className="flex items-center gap-4 p-4">
+        <Button aria-label="Summary stroke options"><SummaryIcon size={24} strokeWidth={1.5} /><SummaryIcon size={16} strokeWidth={2} absoluteStrokeWidth nonScalingStroke />Summary stroke options</Button>
       </section>
       <section data-case="fetch" className="flex items-center gap-4 p-4">
         <Button aria-label="Fetch"><FetchIcon size={24} />Fetch</Button>

@@ -3,7 +3,7 @@ import { createRoot, type Root } from 'react-dom/client'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
-import { BellIcon, BranchIcon, FetchIcon, SettingsIcon } from '../Icons'
+import { BellIcon, BrainIcon, BranchIcon, FetchIcon, SettingsIcon, SummaryIcon } from '../Icons'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
@@ -196,5 +196,49 @@ it.each([SettingsIcon, FetchIcon])('preserves non-scaling strokes on every drawi
   }
   check()
   hover()
+  check()
+})
+
+it('immediately rests every departing glyph when reduced motion is enabled after moving between hosts', async () => {
+  mount(<><button type="button"><SettingsIcon /></button><button type="button"><SettingsIcon /></button></>)
+  hover()
+  await wait(100)
+  const first = gear()
+  act(() => { container.querySelectorAll('button')[1]!.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })) })
+  await wait(40)
+  expect(first.style.transform).not.toBe('none')
+  reduceMotion(true)
+  await wait(40)
+  expect(first.style.transform).toBe('none')
+  await wait(100)
+  expect(first.style.transform).toBe('none')
+})
+
+it('immediately rests a departing glyph after the pointer leaves the window', async () => {
+  mount(<button type="button"><SettingsIcon /></button>)
+  hover()
+  await wait(100)
+  document.dispatchEvent(new MouseEvent('mouseout', { bubbles: true }))
+  reduceMotion(true)
+  await wait(40)
+  expect(gear().style.transform).toBe('none')
+  await wait(100)
+  expect(gear().style.transform).toBe('none')
+})
+
+it.each([BrainIcon, SummaryIcon])('inherits caller stroke width on every path while hovered and after resting (%#)', async (Icon) => {
+  mount(<button type="button"><Icon size={12} strokeWidth={3} absoluteStrokeWidth /></button>)
+  expect(gear().getAttribute('stroke-width')).toBe('6')
+  hover()
+  await wait(100)
+  const check = () => {
+    expect(gear().getAttribute('stroke-width')).toBe('6')
+    expect(['', '6']).toContain(gear().style.strokeWidth)
+    for (const path of gear().querySelectorAll('path')) {
+      expect(path.getAttribute('stroke-width') ?? gear().getAttribute('stroke-width')).toBe('6')
+    }
+  }
+  check()
+  reduceMotion(true)
   check()
 })
