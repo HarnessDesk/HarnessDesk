@@ -7,6 +7,28 @@ the rule is the last line of its section.
 
 ---
 
+## Round is someone, square is a thing
+
+Faces are round and filled by default: an agent, a runtime, a Team's member, a
+sender in a chat and your own seat. Square stays a setting (Settings ›
+Appearance › Faces) and is the shape of things — a plugin, a skill, a file, a
+section. An account is neither: a hollow ring, its colour on the edge and its
+agent's mark inside.
+
+Faces were square by default, which left two problems that a picture of the
+Teams board showed at once. Overlapped squares hide most of every face behind
+them, so a card with four agents read as a cropped strip; overlapped circles
+are the shape a stack is read in. And a square agent face in a list looked like
+the square tile of a plugin or a file beside it, so the one distinction the
+shapes exist to carry was the one they blurred. Round faces bring a second
+collision, with the account's ring, which is why the ring lost its plate: in
+the seat, your filled face and the hollow account it runs as never read as two
+faces. A desk that chose square keeps it; only the default moved.
+
+**The rule:** someone is a filled face at `--hd-face-radius`; an account is a
+hollow ring; a thing is square. A new mark picks its shape by what it is, never
+by the screen it is on.
+
 ## A Team start admits only the project the person selected
 
 Starting a Team is an explicit choice of its project folder, as opening that

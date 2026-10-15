@@ -114,7 +114,7 @@ const PanelRow = ({
       {mark ? (
         <span
           data-slot="inspector-row-mark"
-          className="inline-grid size-(--hd-table-face) shrink-0 place-items-center rounded-(--hd-table-face-radius) text-(--hd-muted-foreground) [&>[data-slot=icon-tile]]:size-full [&>[data-slot=icon-tile]]:rounded-[inherit]"
+          className="inline-grid size-(--hd-table-face) shrink-0 place-items-center rounded-(--hd-radius-sm) has-[[data-shape=face]]:rounded-(--hd-table-face-radius) text-(--hd-muted-foreground) [&>[data-slot=icon-tile]]:size-full [&>[data-shape=face]]:rounded-[inherit]"
         >
           {mark}
         </span>

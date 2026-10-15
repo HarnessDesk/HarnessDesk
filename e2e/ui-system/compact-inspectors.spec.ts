@@ -90,6 +90,8 @@ for (const theme of ['light', 'dark'] as const) {
           align: style.alignItems, inset: parseFloat(style.paddingLeft), height: box.height,
           minimum: title?.parentElement?.querySelector('[data-role=meta]') ? 40 : 32,
           markSize: mark?.getBoundingClientRect().width,
+          face: !!mark?.querySelector('[data-shape="face"]'),
+          tileRadius: mark?.querySelector('[data-slot="icon-tile"]') ? getComputedStyle(mark.querySelector('[data-slot="icon-tile"]')!).borderRadius : undefined,
           markRadius: mark ? getComputedStyle(mark).borderRadius : undefined,
           nameSize: title ? getComputedStyle(title).fontSize : null,
           nameWeight: title ? getComputedStyle(title).fontWeight : null,
@@ -104,7 +106,8 @@ for (const theme of ['light', 'dark'] as const) {
         expect(row.height, id).toBeGreaterThanOrEqual(row.minimum)
         if (row.markSize !== undefined) {
           expect(row.markSize, id).toBe(24)
-          expect(row.markRadius, id).toBe('6px')
+          expect(row.markRadius, id).toBe(row.face ? '9999px' : '6px')
+          if (row.tileRadius !== undefined) expect(row.tileRadius, id).toBe(row.face ? '9999px' : '6px')
         }
         expect(row.nameSize, id).toBe('13px')
         expect(row.nameWeight, id).toBe('400')
