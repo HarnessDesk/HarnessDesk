@@ -23,6 +23,7 @@ export const MergeDialog = ({
   fixedRef,
   expectedBranch,
   beforeMerge,
+  performMerge,
   onMerged,
   onDone,
 }: {
@@ -33,6 +34,7 @@ export const MergeDialog = ({
   fixedRef?: string
   expectedBranch?: string
   beforeMerge?: () => Promise<void>
+  performMerge?: () => Promise<void>
   onMerged?: (outcome: GitMergeOutcome) => Promise<void>
   onDone: (done: boolean) => void
 }) => {
@@ -55,6 +57,7 @@ export const MergeDialog = ({
     setError(null)
     try {
       await beforeMerge?.()
+      if (performMerge) { await performMerge(); onDone(true); return }
       const outcome = await store.transport.request('git/merge', { root, ref, ...(expectedBranch ? {expectedBranch} : {}) })
       settle(store, outcome)
       if (outcome.conflicts.length === 0) await onMerged?.(outcome)

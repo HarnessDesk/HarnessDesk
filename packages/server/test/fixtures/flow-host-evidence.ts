@@ -113,6 +113,9 @@ export interface DeskOptions {
 
 export const desk = async (t: TestContext, second: Second = { id: 'fake-b', provider: 'vendor-b' }, options: DeskOptions = {}): Promise<Desk> => {
   const repo = await makeRepo('hd-flow-host-')
+  // Product merge verbs spawn Git without the fixture helper's identity flags.
+  await repo.git('config', 'user.name', 'Jane Doe')
+  await repo.git('config', 'user.email', 'dev@example.com')
   // Work happens on a branch, so what an Agent commits is a real diff against `main` — unless the test says it stays there.
   if (!options.onMain) await repo.git('checkout', '-q', '-b', 'work')
   const gh = forge()

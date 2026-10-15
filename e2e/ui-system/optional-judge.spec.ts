@@ -9,7 +9,7 @@ for (const theme of ['light', 'dark'] as const) test(`a completed person choice 
   await expect(tiles.nth(1).locator(':scope > header')).toContainText('Not kept')
   await expect(frame.getByRole('button', { name: 'Pick an attempt…' })).toHaveCount(0)
   const decision = frame.locator('[data-slot="comparison-decision"]')
-  await expect(decision).toContainText('The judge picked A')
+  await expect(decision).toContainText('You picked A')
   await expect(decision.getByRole('button', { name: /^Merge / })).toHaveCount(0)
   await expect(decision.getByRole('button', { name: 'Refresh merge destination' })).toHaveCount(0)
   await expect(decision.getByRole('button', { name: /^Keep / })).toHaveCount(0)

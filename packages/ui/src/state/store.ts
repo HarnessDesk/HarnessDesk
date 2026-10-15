@@ -5420,8 +5420,8 @@ export class AppStore {
     return this.transport.request('flow/review/candidates', { run, card })
   }
 
-  async decideFlowReview(run: string, card: number, candidate: string, verdict: string): Promise<FlowExecution> {
-    const execution = await this.transport.request('flow/review/decide', { run, card, candidate, verdict })
+  async decideFlowReview(run: string, card: number, candidate: string, verdict: string, expectedBranch?: string, merge?: boolean): Promise<FlowExecution> {
+    const execution = await this.transport.request('flow/review/decide', { run, card, candidate, verdict, ...(expectedBranch ? { expectedBranch } : {}), ...(merge ? { merge } : {}) })
     const flowExecutions = new Map(this.#snapshot.flowExecutions)
     flowExecutions.set(execution.id, execution)
     this.#patch({ flowExecutions })

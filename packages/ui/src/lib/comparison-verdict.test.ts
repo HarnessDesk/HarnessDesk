@@ -1,6 +1,7 @@
 import { expect, it } from 'vitest'
 import { runTimeline } from './run-timeline'
 import { comparisonVerdictOf } from './comparison-verdict'
+import { encodeComparisonMerge } from './comparison-merge'
 import { shapeFixture, SHAPE_REV } from '../preview/run-shapes-fixture'
 
 const comparison = () => shapeFixture('comparison')
@@ -12,7 +13,7 @@ it('keeps the completed terminal person review’s merged choice visible', () =>
     document: { ...input.execution.document, flow: { ...input.execution.document.flow,
       roles: input.execution.document.flow.roles.map(one => one.id === 'judge' ? { id: 'judge', kind: 'person', outcomes: ['merged'], review: true } : one), rules: [],
     } } }
-  input.cards = input.cards.filter(one => one.id !== 6).map(one => one.id === 5 ? { ...one, state: 'done', outcome: 'merged', note: null, handoff: null } : one)
+  input.cards = input.cards.filter(one => one.id !== 6).map(one => one.id === 5 ? { ...one, state: 'done', outcome: 'merged', note: null, handoff: encodeComparisonMerge({ version: 1, run: input.execution.id, card: 1, revision: SHAPE_REV[0]!, commit: SHAPE_REV[0]!, branch: 'main', at: 1 }) } : one)
   input.evidence = { ...input.evidence!, cards: input.evidence!.cards.map(one => one.card !== 5 ? one : {
     ...one, facts: one.facts.map(view => ({ ...view, record: { ...view.record, fact: { kind: 'review', at: SHAPE_REV[0]!, verdict: 'merged', by: 'person' as never } } })),
   }) }

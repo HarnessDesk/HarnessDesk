@@ -615,10 +615,11 @@ export class FlowReview implements FlowReviewPort {
     candidate: string,
     verdict: string,
     answer: (record: EvidenceRecord) => Promise<T>,
+    beforeRecord?: (candidate: ReviewCandidate) => Promise<void>,
   ): Promise<T> {
     this.#sweep()
     return this.#withPersonCardLock(goal, card, async () => {
-      const record = await this.#recordPersonLocked(run, card, candidate, verdict, goal)
+      const record = await this.#recordPersonLocked(run, card, candidate, verdict, goal, beforeRecord)
       return answer(record)
     })
   }
@@ -638,7 +639,7 @@ export class FlowReview implements FlowReviewPort {
     }
   }
 
-  async #recordPersonLocked(run: string, card: number, candidate: string, verdict: string, goal: string): Promise<EvidenceRecord> {
+  async #recordPersonLocked(run: string, card: number, candidate: string, verdict: string, goal: string, beforeRecord?: (candidate: ReviewCandidate) => Promise<void>): Promise<EvidenceRecord> {
     const bound = await this.#port.personBindingFor?.(run, card)
     const held = this.#candidates.get(candidate)
     if (!bound) {
@@ -676,10 +677,18 @@ export class FlowReview implements FlowReviewPort {
       view.record.round === bound.round &&
       !view.record.restored,
     )
-    if (existing?.record.fact.kind === 'review') {
-      if (existing.record.fact.at === held.candidate.at && existing.record.fact.verdict === verdict) return existing.record
+    if (existing?.record.fact.kind === 'review' && (existing.record.fact.at !== held.candidate.at || existing.record.fact.verdict !== verdict)) {
       throw new Error('A different verdict is already recorded for this card. Reopen it in a new round to change it.')
     }
+    if (beforeRecord) {
+      await beforeRecord(held.candidate)
+      // Git verification can yield while a Run stops or an attempt advances.
+      const fresh = await this.#port.personBindingFor?.(run, card)
+      if (!fresh || fresh.round !== bound.round || !fresh.subjects.some(one => stillOffered(one, held))) {
+        throw new Error('This step or its attempt changed while verifying the merge. Nothing was recorded.')
+      }
+    }
+    if (existing?.record.fact.kind === 'review') return existing.record
     const record: EvidenceRecord = {
       id: mintId(),
       fact: { kind: 'review', verdict, by: bound.seat, at: held.candidate.at },

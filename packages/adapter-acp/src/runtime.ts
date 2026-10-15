@@ -119,6 +119,7 @@ import { resolveExecutable, versionAtLeast, type AcpExecutableSpec, type Resolve
 import { acknowledgeEnvironment, environmentMeta, environmentSupported } from './lane-environment.js'
 import { CliMcp, type AcpMcpCommands } from './mcp.js'
 import { AcpTasks } from './tasks.js'
+import { projectToolItem, type ToolItemState } from './tool-items.js'
 
 /**
  * `AgentRuntime` over the Agent Client Protocol.
@@ -4496,11 +4497,11 @@ class AcpSession implements AgentSession {
         // a second row for the same id shows one call twice, the copy the
         // completion never finds stuck "running" forever. One id, one row:
         // later announcements fill in what the first did not know.
-        const previous = index === -1 ? null : (turn.items[index] as Extract<AgentItem, { type: 'toolCall' }>)
+        const previous = turn.tools?.get(update.toolCallId)?.call
         // A later announcement must not put the generic label back over a
         // name the first one worked out.
         const named = toolNameOf(update, previous?.tool)
-        const item: AgentItem = previous
+        const call: Extract<AgentItem, { type: 'toolCall' }> = previous
           ? {
               ...previous,
               tool: named,
@@ -4511,13 +4512,17 @@ class AcpSession implements AgentSession {
               type: 'toolCall',
               tool: named,
               source: { kind: 'builtin' },
-              status: 'inProgress',
+              status: update.status === 'completed' ? 'completed' : update.status === 'failed' ? 'failed' : 'inProgress',
               args: update.rawInput ?? null,
               startedAt: Date.now(),
             }
-        if (previous) turn.items[index] = item
+        const item = this.#projectTool(turn, update, call)
+        if (index !== -1) turn.items[index] = item
         else turn.items.push(item)
         this.#emit({ type: 'item/started', sessionId: this.id, turnId: turn.id, item })
+        if (item.status !== 'inProgress') {
+          this.#emit({ type: 'item/completed', sessionId: this.id, turnId: turn.id, item })
+        }
         return
       }
       case 'tool_call_update': {
@@ -4526,19 +4531,18 @@ class AcpSession implements AgentSession {
         // An update can outrun its announcement, or be the only notice a
         // call ever gets. A row appearing late beats a result thrown away.
         const previous: Extract<AgentItem, { type: 'toolCall' }> =
-          index === -1
-            ? {
-                id: itemId(update.toolCallId),
-                type: 'toolCall',
-                tool: toolNameOf(update),
-                source: { kind: 'builtin' },
-                status: 'inProgress',
-                args: null,
-                startedAt: Date.now(),
-              }
-            : (turn.items[index] as Extract<AgentItem, { type: 'toolCall' }>)
+          turn.tools?.get(update.toolCallId)?.call ?? {
+            id: itemId(update.toolCallId),
+            type: 'toolCall',
+            tool: toolNameOf(update),
+            source: { kind: 'builtin' },
+            status: 'inProgress',
+            args: null,
+            startedAt: Date.now(),
+          }
         const status =
-          update.status === 'completed' ? 'completed' : update.status === 'failed' ? 'failed' : 'inProgress'
+          update.status === undefined ? previous.status :
+            update.status === 'completed' ? 'completed' : update.status === 'failed' ? 'failed' : 'inProgress'
         // An agent that reports output only as text blocks in `content` —
         // DeepSeek Harness's own server sends no rawOutput at all — has that
         // text kept as the result, and a picture among those blocks — a
@@ -4557,7 +4561,7 @@ class AcpSession implements AgentSession {
         const carriesNothingNew = update.rawOutput === undefined && previousHasJson
         const texts = carriesNothingNew ? [] : textsInToolContent(update.content)
         const images = carriesNothingNew ? [] : imagesInToolContent(update.content)
-        const next: AgentItem = {
+        const call: Extract<AgentItem, { type: 'toolCall' }> = {
           ...previous,
           status,
           // Some agents (Claude Code among them) only name the tool and hand
@@ -4586,11 +4590,15 @@ class AcpSession implements AgentSession {
             : {}),
           ...(status !== 'inProgress' ? { completedAt: Date.now() } : {}),
         }
+        const next = this.#projectTool(turn, update, call)
         if (index === -1) {
           turn.items.push(next)
           this.#emit({ type: 'item/started', sessionId: this.id, turnId: turn.id, item: next })
         } else {
           turn.items[index] = next
+          if (status === 'inProgress') {
+            this.#emit({ type: 'item/started', sessionId: this.id, turnId: turn.id, item: next })
+          }
         }
         if (status !== 'inProgress') {
           this.#emit({ type: 'item/completed', sessionId: this.id, turnId: turn.id, item: next })
@@ -4684,6 +4692,13 @@ class AcpSession implements AgentSession {
       default:
         return
     }
+  }
+
+  #projectTool(turn: MutableTurn, update: AcpToolCallUpdate, call: Extract<AgentItem, { type: 'toolCall' }>): ToolItemState['item'] {
+    turn.tools ??= new Map()
+    const state = projectToolItem(call, update, turn.tools.get(update.toolCallId), this.#cwd)
+    turn.tools.set(update.toolCallId, state)
+    return state.item
   }
 
   /**
@@ -5046,6 +5061,7 @@ const OPEN_TURN = -1
 interface MutableTurn {
   readonly id: TurnId
   items: AgentItem[]
+  tools?: Map<string, ToolItemState>
   /**
    * `null` only for a turn opened while replaying stored history
    * (`#replaying`): the desk already knows when it really started, and

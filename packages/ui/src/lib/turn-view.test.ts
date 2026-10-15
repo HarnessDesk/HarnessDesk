@@ -332,6 +332,16 @@ describe('describeTurnWork', () => {
     expect(describeTurnWork(done(work), work, started).receipt).toBe('edited 2 files')
   })
 
+  test('an ACP edit normalized to a file change reaches the diff and the work receipt', () => {
+    // ACP keeps the peer's call id and projects diff content into this shape.
+    const edit = item('fileChange', 'acp-edit', { status: 'completed', changes: [
+      { path: '/p/app.js', kind: { type: 'update' }, diff: '@@ -1,1 +1,1 @@\n-return a - b\n+return a + b\n' },
+    ] })
+    const view = splitTurn(done([edit]))
+    expect(view.changes.map(change => change.path)).toEqual(['/p/app.js'])
+    expect(describeTurnWork(done([edit]), view.work, started).receipt).toBe('edited 1 file')
+  })
+
   test('reports declined and failed steps apart from the ordinary receipt', () => {
     const work = [
       item('command', 'a', { status: 'declined', actions: [{ type: 'unknown', command: 'curl' }] }),

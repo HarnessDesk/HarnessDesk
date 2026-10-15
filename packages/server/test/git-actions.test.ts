@@ -17,6 +17,7 @@ import {
   fetch,
   listRemotes,
   merge,
+  mergeVerified,
   patch,
   pull,
   pullRequestUrl,
@@ -894,4 +895,20 @@ test('diffRange reads recorded trees without text conversion or replacement obje
   assert.ok(diff.includes('+raw committed answer'))
   assert.ok(!diff.includes('replacement answer'))
   assert.ok(!diff.includes('converted'))
+})
+
+test('a stopped person merge is refused after Git preflight without moving HEAD', async () => {
+  const dir = await seedRepo()
+  await git(dir, 'checkout', '-qb', 'attempt')
+  await writeFile(join(dir, 'attempt.txt'), 'chosen attempt\n')
+  await git(dir, 'add', '.')
+  await git(dir, 'commit', '-qm', 'attempt')
+  const picked = await sha(dir, 'HEAD')
+  await git(dir, 'checkout', '-q', 'main')
+  const before = await sha(dir, 'HEAD')
+  // The person state can change during the queued Git operation's preflight.
+  await assert.rejects(mergeVerified(dir, picked, 'main', async () => () => {
+    throw new Error('This person merge step is no longer waiting for an answer.')
+  }), /no longer waiting/)
+  assert.equal(await sha(dir, 'HEAD'), before)
 })

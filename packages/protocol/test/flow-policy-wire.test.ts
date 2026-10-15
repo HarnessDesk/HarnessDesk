@@ -150,8 +150,12 @@ test('person review candidate methods validate their complete request shapes', (
     { run: 'run-1', card: 1, candidate: '', verdict: 'picked' },
     { run: 'run-1', card: 1, candidate: 'candidate-1', verdict: '' },
     { run: 'run-1', card: 1, candidate: 'candidate-1', verdict: 'picked', seat: 'forged' },
+    { run: 'run-1', card: 1, candidate: 'candidate-1', verdict: 'merged', expectedBranch: '' },
+    { run: 'run-1', card: 1, candidate: 'candidate-1', verdict: 'merged', expectedBranch: 7 },
+    { run: 'run-1', card: 1, candidate: 'candidate-1', verdict: 'merged', expectedBranch: 'main', merge: 'true' },
   ]) assert.throws(() => request('flow/review/decide', params), ValidationError)
   assert.doesNotThrow(() => request('flow/review/decide', { run: 'run-1', card: 1, candidate: 'candidate-1', verdict: 'picked' }))
+  assert.doesNotThrow(() => request('flow/review/decide', { run: 'run-1', card: 1, candidate: 'candidate-1', verdict: 'merged', expectedBranch: 'main', merge: true }))
 })
 
 test('person review policy is one shared predicate over the role and its review-guarded rules', () => {
