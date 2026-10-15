@@ -3,7 +3,8 @@ import { beforeEach, expect, it, vi } from 'vitest'
 import { runtimeId, sessionId, type HostMethodName, type Session } from '@harnessdesk/protocol'
 
 import { AppStore } from './store'
-import { terminals as terminalsIn } from './workbench'
+import { dockViews, terminals as terminalsIn } from './workbench'
+import type { TransportEvents } from '../lib/transport'
 
 const RUNTIME = runtimeId('codex')
 const ID = sessionId('terminal-folder')
@@ -247,4 +248,102 @@ it('closing the dock during folder admission prevents a late terminal allocation
   await opening
 
   expect(request.mock.calls.some(([method]) => method === 'terminal/open')).toBe(false)
+})
+
+
+it('closing one subject terminal preserves other subjects and fences only its pending New shell', async () => {
+  await store.selectRuntime(RUNTIME)
+  await store.openWorkspace(PROJECT)
+  await store.openSession(ID, { runtime: RUNTIME })
+  const request = vi.mocked(store.transport.request), previous = request.getMockImplementation()!
+  let serial = 0
+  const pending = new Map<string, (value: unknown) => void>()
+  request.mockImplementation((async (method: HostMethodName, params: unknown) => {
+    if (method === 'terminal/open') {
+      const id = `scoped-pty-${++serial}`
+      if (serial > 2) return new Promise(resolve => pending.set(id, resolve))
+      return { terminalId: id, runtime: RUNTIME }
+    }
+    return previous(method, params as never)
+  }) as never)
+  const subjectA = store.workSubject()!
+  await store.openTerminal()
+  store.openDefaultView({ kind: 'room', room: 'terminal-b' })
+  const subjectB = store.workSubject()!
+  await store.openTerminal()
+  const openingB = store.openTerminal()
+  await store.openSession(ID, { runtime: RUNTIME })
+  const openingA = store.openTerminal()
+  store.openDefaultView({ kind: 'room', room: 'terminal-b' })
+  store.closeTerminalDock(subjectB)
+  expect(terminalsIn(store.getSnapshot().workbench).map(one => one.terminalId)).toEqual(['scoped-pty-1'])
+  pending.get('scoped-pty-3')!({ terminalId: 'scoped-pty-3', runtime: RUNTIME })
+  pending.get('scoped-pty-4')!({ terminalId: 'scoped-pty-4', runtime: RUNTIME })
+  await Promise.all([openingB, openingA])
+  const workbench = store.getSnapshot().workbench
+  expect(terminalsIn(workbench).map(one => one.terminalId)).toEqual(['scoped-pty-1', 'scoped-pty-4'])
+  expect(workbench.frameTools[subjectA]).toMatchObject({ tool: 'terminal', open: true })
+  expect(workbench.frameTools[subjectB]).toMatchObject({ tool: 'terminal', open: false })
+  expect(request.mock.calls.filter(([method]) => method === 'terminal/close').map(([, params]) => params))
+    .toEqual([{ terminalId: 'scoped-pty-2' }, { terminalId: 'scoped-pty-3' }])
+})
+
+it.each(['direct', 'door', 'promoted door'] as const)('session removal fences a pending %s terminal without reviving its owner', async mode => {
+  await store.selectRuntime(RUNTIME)
+  await store.openWorkspace(PROJECT)
+  if (mode !== 'promoted door') await store.openSession(ID, { runtime: RUNTIME })
+  store.showViewIn('right', { kind: 'file', path: '/repo/retained.md', runtime: RUNTIME })
+  const file = dockViews(store.getSnapshot().workbench.right)[0]!
+  let finish!: (value: unknown) => void
+  const request = vi.mocked(store.transport.request), previous = request.getMockImplementation()!
+  request.mockImplementation((async (method: HostMethodName, params: unknown) => {
+    if (method === 'terminal/open') return new Promise(resolve => { finish = resolve })
+    if (method === 'session/create') return { ...conversation(), cwd: PROJECT }
+    return previous(method, params as never)
+  }) as never)
+  const opening = mode === 'direct' ? store.openTerminal() : (store.chooseWorkTool('terminal', 'terminal', true), Promise.resolve())
+  if (mode === 'promoted door') await store.newSession()
+  const subject = store.workSubject()!
+  const handlers = (store.transport as unknown as { handlers: TransportEvents }).handlers
+  handlers.onNotification({ method: 'session/removed', params: { runtime: RUNTIME, sessionId: ID, deleted: true } })
+  expect(store.getSnapshot().workbench.frameSubjects[subject]).toBeUndefined()
+  finish({ terminalId: 'removed-late-pty', runtime: RUNTIME })
+  await opening
+  await new Promise(resolve => setTimeout(resolve, 0))
+  const workbench = store.getSnapshot().workbench
+  expect(workbench.frameSubjects[subject]).toBeUndefined()
+  expect(workbench.frameTools[subject]).toBeUndefined()
+  expect(terminalsIn(workbench)).toEqual([])
+  expect(dockViews(workbench.right)).toContainEqual(file)
+  expect(workbench.toolOwners[file.id]).toBe(subject)
+  expect(request).toHaveBeenCalledWith('terminal/close', { terminalId: 'removed-late-pty' })
+  request.mockClear()
+  store.revealView(file.id)
+  expect(store.getSnapshot().workbench).toBe(workbench)
+  expect(request.mock.calls.some(([method]) => method === 'session/read' || method === 'session/resume')).toBe(false)
+})
+
+
+it('a global close releases pending door guards so a fresh request can open immediately', async () => {
+  await store.selectRuntime(RUNTIME)
+  await store.openWorkspace(PROJECT)
+  const pending: ((value: unknown) => void)[] = []
+  const request = vi.mocked(store.transport.request), previous = request.getMockImplementation()!
+  request.mockImplementation((async (method: HostMethodName, params: unknown) => {
+    if (method === 'terminal/open') return new Promise(resolve => pending.push(resolve))
+    return previous(method, params as never)
+  }) as never)
+  store.chooseWorkTool('terminal', 'terminal', true)
+  store.closeTerminalDock()
+  store.chooseWorkTool('terminal', 'terminal', true)
+  expect(pending).toHaveLength(2)
+  pending[0]!({ terminalId: 'globally-closed-pty', runtime: RUNTIME })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  store.chooseWorkTool('terminal', 'terminal', true)
+  store.chooseWorkTool('terminal', 'terminal', true)
+  expect(pending).toHaveLength(2)
+  pending[1]!({ terminalId: 'fresh-pty', runtime: RUNTIME })
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(terminalsIn(store.getSnapshot().workbench).map(one => one.terminalId)).toEqual(['fresh-pty'])
+  expect(request).toHaveBeenCalledWith('terminal/close', { terminalId: 'globally-closed-pty' })
 })

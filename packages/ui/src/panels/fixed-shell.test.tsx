@@ -583,6 +583,53 @@ it('B7 actual session removal retains the admitted Browser node, original owner 
   expect(container.querySelector('[data-slot="tool-pane"]')).toBeNull()
 })
 
+it('the terminal shell close action leaves another subject’s hidden terminal retained', async () => {
+  const store = mountWork(true), runtime = splitSessionKey(PREVIEW_SESSION_KEY).runtime
+  act(() => store.showViewIn('bottom', { kind: 'terminal', terminalId: 'subject-a-pty', runtime, cwd: '/repo/a' }))
+  const original = dockViews(store.getSnapshot().workbench.bottom)[0]!
+  await act(async () => store.openTeamRoom('terminal-b'))
+  act(() => store.showViewIn('bottom', { kind: 'terminal', terminalId: 'subject-b-pty', runtime, cwd: '/repo/b' }))
+  const subject = store.workSubject()!
+  await act(async () => button('Close terminal')!.click())
+  expect(dockViews(store.getSnapshot().workbench.bottom)).toEqual([original])
+  expect(store.getSnapshot().workbench.frameTools[subject]?.open).toBe(false)
+})
+
+it('explicit Agents selection shows its retained body beside the independent rail', async () => {
+  const store = mountWork(true)
+  await act(async () => store.showView('agents'))
+  const snapshot = store.getSnapshot(), subject = store.workSubject()!
+  const resource = dockViews(snapshot.workbench.right).find(one => one.view.kind === 'agents')!
+  expect(resource).toBeDefined()
+  expect(snapshot.workbench.frameTools[subject]).toMatchObject({ tool: 'details', mode: 'agents', open: true })
+  const layer = container.querySelector<HTMLElement>(`[data-tool-mount="${resource.id}"]`)!
+  expect(layer.querySelector('input[placeholder="Filter sub-agents"]')).not.toBeNull()
+  expect(layer.closest('[hidden], [data-hidden], [inert]')).toBeNull()
+  expect(container.querySelector('[data-frame-region="rail"]')?.getAttribute('inert')).toBeNull()
+  expect(snapshot.workbench.frameSubjects[subject]?.view).toMatchObject({ kind: 'conversation', session: PREVIEW_SESSION_KEY })
+  act(() => store.toggleWorkPanel())
+  expect(layer.closest('[hidden], [data-hidden], [inert]')).not.toBeNull()
+  await act(async () => store.showView('agents'))
+  expect(container.querySelector(`[data-tool-mount="${resource.id}"]`)).toBe(layer)
+  expect(layer.closest('[hidden], [data-hidden], [inert]')).toBeNull()
+})
+
+it('Repository history opens the Changes pane and keeps its retained resource', async () => {
+  const store = mountWork(true)
+  await act(async () => store.showView('git'))
+  const snapshot = store.getSnapshot(), subject = store.workSubject()!
+  expect(snapshot.workbench.frameTools[subject]).toMatchObject({ tool: 'changes', mode: 'git', open: true })
+  expect(button('Changes')?.getAttribute('aria-pressed')).toBe('true')
+  expect(container.querySelector('[data-work-pane-header]')?.textContent).toContain('Changes')
+  const resource = dockViews(snapshot.workbench.right).find(one => one.view.kind === 'git')!
+  const layer = container.querySelector<HTMLElement>(`[data-tool-mount="${resource.id}"]`)!
+  expect(layer.closest('[hidden], [data-hidden], [inert]')).toBeNull()
+  act(() => store.toggleWorkPanel())
+  await act(async () => store.showView('git'))
+  expect(container.querySelector(`[data-tool-mount="${resource.id}"]`)).toBe(layer)
+  expect(layer.closest('[hidden], [data-hidden], [inert]')).toBeNull()
+})
+
 it('B7 admitted plugin facts join the actual parent Details scroll and keep their original session', async () => {
   const store = mountWork(true)
   const probe = () => <ToolBody><ToolSection label="Fixture facts"><span data-testid="plugin-scope">{useSessionKey()}</span><span data-testid="plugin-focused">{String(useIsFocusedPane())}</span></ToolSection></ToolBody>

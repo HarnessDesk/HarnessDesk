@@ -223,19 +223,22 @@ for (const theme of ['light', 'dark'] as const) {
       await expect(canvas.locator('.react-flow__node.draggable, .react-flow__handle.connectable')).toHaveCount(0)
     })
 
-    test('the Run View menu offers Flow and its Details action reads the current file', async ({ page }) => {
+    test('the Run View menu offers Flow and its rail reads the current file', async ({ page }) => {
       const frame = page.locator('#flow-graph-run')
       const run = frame.locator('[data-slot="run-view"]')
-      const details = frame.locator('[data-preview-tool-placement]')
+      const details = frame.locator('[data-frame-region="rail"]')
+      const railToggle = runBar(frame).getByRole('button', { name: 'Toggle rail', exact: true })
       await expect(runBar(frame)).toBeVisible()
       await expect(frame.locator('[data-slot="run-workspace"]')).toHaveAttribute('data-view', 'flow')
       await expect(frame.locator('[data-slot="run-flow-head"]')).toHaveClass('sr-only')
       await expect(frame.locator('[data-slot="run-flow-head"]')).toContainText('Build and review')
       await expect(run.locator('[data-slot="flow-step"]')).toHaveCount(4)
 
-      // The Flow has the whole pane, so the drawing shows at an ordinary width; the inspector returns with the timeline.
+      // Closing the independent rail gives Flow the whole main region; the
+      // same facts remain available beside either Run view.
+      if (await railToggle.getAttribute('aria-pressed') === 'true') await railToggle.click()
       const workspace = page.locator('#flow-graph-run [data-slot="run-workspace"]')
-      await expect(details).toHaveCount(0)
+      await expect(details).toBeHidden()
       await expect(workspace.locator('[data-slot="flow-drawing"]')).toBeVisible()
       const pane = (await workspace.boundingBox())!
       const drawing = (await workspace.locator('[data-slot="flow-drawing"]').boundingBox())!
@@ -244,15 +247,16 @@ for (const theme of ['light', 'dark'] as const) {
       await selectRunView(frame, 'Timeline')
       await expect(run.locator('[aria-label="Run timeline"]')).toBeVisible()
       await expect(run.locator('[data-slot="run-flow"]')).toHaveCount(0)
-      await frame.locator('[data-slot="workbench-main"]').getByRole('button', { name: 'Run details', exact: true }).click()
+      await railToggle.click()
       await expect(details.locator('[aria-label="Team Run facts"]')).toBeVisible()
       await selectRunView(frame, 'Flow')
       await expect(run.locator('[data-slot="run-flow"]')).toBeVisible()
-      await frame.getByRole('button', { name: 'Close pane', exact: true }).click()
-      await expect(details).toHaveCount(0)
+      await expect(details.locator('[aria-label="Team Run facts"]')).toBeVisible()
+      await railToggle.click()
+      await expect(details).toBeHidden()
 
       await selectRunView(frame, 'Timeline')
-      await frame.locator('[data-slot="workbench-main"]').getByRole('button', { name: 'Run details', exact: true }).click()
+      await railToggle.click()
       const summary = details.locator('[aria-label="Team Run facts"]')
       await expect(summary).toContainText('Build and review')
       await expect(summary).toContainText('3f9a1c')

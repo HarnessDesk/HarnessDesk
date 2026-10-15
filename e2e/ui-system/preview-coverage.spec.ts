@@ -54,10 +54,36 @@ for (const theme of ['light', 'dark'] as const) {
     await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/design.html?view=panel-controls&theme=${theme}`)
     const terminal = page.locator('[data-frame-id="supported-terminal-toggle"]')
+    const terminalResources = () => terminal.evaluate(async element => {
+      const path = '/src/state/workbench.ts'
+      const { dockViews } = await import(/* @vite-ignore */ path)
+      const key = Object.keys(element).find(name => name.startsWith('__reactFiber$'))
+      let fiber: any = key && (element as unknown as Record<string, unknown>)[key]
+      while (fiber) {
+        const store = fiber.memoizedProps?.store
+        if (store?.getSnapshot) {
+          const { workbench } = store.getSnapshot()
+          return [...dockViews(workbench.bottom), ...dockViews(workbench.right)]
+            .filter(one => one.view.kind === 'terminal')
+            .map(one => ({ mount: one.id, terminal: one.view.terminalId }))
+        }
+        fiber = fiber.return
+      }
+      throw new Error('Terminal specimen store missing')
+    })
     await terminal.getByRole('button', { name: 'Open terminal', exact: true }).click()
     await expect(terminal).toContainText('1 terminal resources')
+    await expect(terminal.getByRole('button', { name: 'Close terminal', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    const resources = await terminalResources()
+    expect(resources).toHaveLength(1)
     await terminal.getByRole('button', { name: 'Close terminal', exact: true }).click()
-    await expect(terminal).toContainText('0 terminal resources')
+    await expect(terminal.getByRole('button', { name: 'Open terminal', exact: true })).toHaveAttribute('aria-pressed', 'false')
+    await expect(terminal).toContainText('1 terminal resources')
+    expect(await terminalResources()).toEqual(resources)
+    await terminal.getByRole('button', { name: 'Open terminal', exact: true }).click()
+    await expect(terminal.getByRole('button', { name: 'Close terminal', exact: true })).toHaveAttribute('aria-pressed', 'true')
+    await expect(terminal).toContainText('1 terminal resources')
+    expect(await terminalResources()).toEqual(resources)
     const panel = page.locator('[data-frame-id="supported-work-actions"]')
     await expect(panel.getByRole('menuitem', { name: 'To the main area', exact: true })).toHaveCount(0)
     await expect(panel.getByRole('menuitem', { name: 'To the sidebar', exact: true })).toHaveCount(0)
@@ -642,6 +668,16 @@ test.describe('preview coverage', () => {
       const workChangesCoverage = await collectCoverage(page)
       expect(workChangesCoverage.covered).toContain('components/WorkToolContents.tsx#WorkChangesView')
       for (const component of workChangesCoverage.covered) covered.add(component)
+      await page.goto('/preview.html?frame-wall=conversation&frame-explorer=git')
+      await page.locator('[data-slot="top-bar"]:visible').getByRole('button', { name: 'Files', exact: true }).click()
+      const files = page.locator('[data-frame-region="right"]')
+      await expect(files.locator('[data-explorer-head]')).toContainText('Changed 4')
+      await expect(files.getByRole('button', { name: 'app', exact: true })).toBeVisible()
+      await expect(files.getByRole('button', { name: 'Go to file', exact: true })).toBeVisible()
+      const filesCoverage = await collectCoverage(page)
+      expect(filesCoverage.covered).toContain('panels/FilesPane.tsx#FilesPane')
+      expect(filesCoverage.covered).toContain('editor/index.ts#Explorer')
+      for (const component of filesCoverage.covered) covered.add(component)
       await page.goto('/preview.html?frame-wall=conversation&frame-editor-mode=source')
       await expect(page.locator('[data-slot="editor-main"] .cm-content')).toBeVisible()
       const editorCoverage = await collectCoverage(page)

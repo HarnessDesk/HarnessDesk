@@ -21,7 +21,7 @@ export interface FixedShellProps extends Omit<HTMLAttributes<HTMLDivElement>, 'c
   readonly paneExpanded?: boolean
   readonly children?: ReactNode
 }
-/** Five stable regions: folding and closing affect geometry, never body identity. */
+/** Stable regions: folding and closing affect geometry, never body identity. */
 export const FixedShell = forwardRef<HTMLDivElement, FixedShellProps>(({ viewportWidth, left, top, main, rail, right, bottom,
   leftFloating, panelFloating, leftOpen, rightOpen, bottomOpen, railOpen = false, railFloating = false, paneExpanded = false, children, className, style, ...props }, ref) => <WorkbenchCanvas {...props} ref={ref}
     style={{ '--frame-window-width': `${viewportWidth}px`, '--frame-reading-min': `${FRAME.main.min}px`, '--frame-rail-width': `${FRAME.infoCard.width}px`, '--frame-right-min': `${FRAME.rightPanel.min}px`, '--frame-canvas-gutter': `${FRAME.page.canvasGutter}px`, '--frame-right-max': `${FRAME.rightPanel.max}px`, ...style } as CSSProperties}

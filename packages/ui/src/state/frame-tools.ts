@@ -18,9 +18,9 @@ export const toolOf = (kind: string): WorkTool | null => {
   if (kind === 'terminal' || kind === 'files') return kind
   if (kind === 'conversation') return 'conversation'
   if (['run-details', 'agents', 'plugin', 'details'].includes(kind)) return 'details'
-  if (kind === 'changes') return 'changes'
+  if (kind === 'changes' || kind === 'git') return 'changes'
   if (kind === 'file' || kind === 'preview') return 'files'
-  if (['activity', 'trajectory', 'tasks', 'git'].includes(kind)) return 'activity'
+  if (['activity', 'trajectory', 'tasks'].includes(kind)) return 'activity'
   return kind === 'browser' ? 'browser' : null
 }
 /** Retained compatibility payloads do not grant an undeclared fixed-panel mount. */
@@ -64,16 +64,21 @@ export const readToolIntents = (raw: unknown): Readonly<Record<string, ToolInten
   return Object.fromEntries(Object.entries(raw).flatMap(([key, value]) => {
     if (typeof value !== 'object' || value === null) return []
     const record = value as Record<string, unknown>
-    const tool = record.tool === 'changes' && (record.mode === 'file' || record.mode === 'preview') ? 'files'
+    const tool = record.tool === 'activity' && record.mode === 'git' ? 'changes'
+      : record.tool === 'changes' && (record.mode === 'file' || record.mode === 'preview') ? 'files'
       : typeof record.tool === 'string' ? toolOf(record.tool) : null
     const validMode = typeof record.mode === 'string' && toolOf(record.mode) === tool
+    // The old Details pane is now the independent card rail. Explicit
+    // plugin, Run inspection and Agents modes still select real pane bodies.
+    const pureDetails = tool === 'details' && record.mode === 'details'
+    const open = !pureDetails && record.open === true
     const rawPrior = record.beforeEditor as Record<string, unknown> | undefined
     const prior = rawPrior && typeof rawPrior === 'object' ? readToolIntents({ prior: { tool: rawPrior.tool, mode: rawPrior.mode, open: rawPrior.open } }).prior : undefined
     const beforeEditor = prior && prior.tool !== 'conversation' ? { tool: prior.tool, mode: prior.mode, open: prior.open, ...(typeof rawPrior?.mount === 'string' ? { mount: rawPrior.mount } : {}) } : undefined
     return tool && validMode && typeof record.mode === 'string' && typeof record.open === 'boolean'
-      ? [[key, { tool, mode: record.mode, open: record.open,
-        ...(typeof record.railOpen === 'boolean' ? { railOpen: record.railOpen } : {}),
-        ...(typeof record.expanded === 'boolean' ? { expanded: record.expanded && record.open } : {}),
+      ? [[key, { tool, mode: record.mode, open,
+        ...(typeof record.railOpen === 'boolean' ? { railOpen: record.railOpen } : pureDetails ? { railOpen: record.open } : {}),
+        ...(typeof record.expanded === 'boolean' ? { expanded: record.expanded && open } : {}),
         ...(beforeEditor ? { beforeEditor } : {}) }]] : []
   }))
 }

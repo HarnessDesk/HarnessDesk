@@ -57,7 +57,7 @@ test('column filter keeps a matching conversation across repository worktrees', 
 
 {
 
-  for (const [item0, width] of ([1100, 720]).entries()) for (const [item1, tool] of (['Changes', 'Browser']).entries()) test(`a narrow pane replaces main and returns to its exact geometry [item ${[item0, item1].join('-')}]`, async ({ page }) => {
+  for (const [item0, width] of ([1100, 720]).entries()) for (const [item1, tool] of (['Changes', 'Browser']).entries()) test(`a pane respects the standing boundary and returns main to its exact geometry [item ${[item0, item1].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, 'frame-wall=conversation', width)
     const main = page.locator('[data-frame-region="main"]')
@@ -67,15 +67,28 @@ test('column filter keeps a matching conversation across repository worktrees', 
     await expect(right).toBeVisible()
     const panel = await right.boundingBox()
     expect(before).not.toBeNull()
-    expect(panel!.x).toBe(before!.x)
     expect(panel!.x + panel!.width).toBe(width)
     expect(panel!.y).toBe(0)
     expect(panel!.height).toBe(900)
     expect(panel!.width).toBeGreaterThanOrEqual(FRAME.rightPanel.min)
-    await expect(main).toBeHidden()
+    if (width < FRAME.fold.panelFloats) {
+      expect(panel!.x).toBe(before!.x)
+      expect(panel!.width).toBe(width - before!.x)
+      await expect(main).toBeHidden()
+    } else {
+      const paneWidth = Math.min(FRAME.rightPanel.width, width - before!.x - FRAME.main.min - 2)
+      expect(panel!.width).toBe(paneWidth)
+      expect(panel!.x).toBe(width - paneWidth)
+      await expect(main).toBeVisible()
+      const reading = (await main.boundingBox())!
+      expect(reading.x).toBe(before!.x)
+      expect(reading.x + reading.width).toBe(panel!.x)
+      expect(reading.width).toBeGreaterThanOrEqual(FRAME.main.min)
+    }
     await page.getByRole('button', { name: 'Close pane', exact: true }).click()
+    await expect(right).toHaveCount(0)
     await expect(main).toBeVisible()
-    expect(await main.boundingBox()).toEqual(before)
+    await expect.poll(() => main.boundingBox()).toEqual(before)
 
 
   })
@@ -150,7 +163,7 @@ test('stopping a waiting Team removes its command approval', async ({ page }) =>
 
 test('command strip waits for approval before saying it is running', async ({ page }) => {
   await openFrame(page, 'frame-wall=conversation&frame-fix8-command-waiting=1')
-  await expect(page.getByRole('banner')).toContainText('Waiting for you')
+  await expect(page.locator('[data-topbar="state"] [aria-label="Waiting for you"]')).toBeVisible()
   await expect(page.getByText('1 command waiting for approval in this turn', { exact: true })).toBeVisible()
   await expect(page.getByText('1 command running in this turn', { exact: true })).toHaveCount(0)
 })
@@ -169,7 +182,7 @@ test('command strip waits for approval before saying it is running', async ({ pa
     expect(box!.x).toBeGreaterThanOrEqual(0)
     expect(box!.x + box!.width).toBeLessThanOrEqual(width)
     await row.click()
-    await page.getByRole('button', { name: width === 720 ? 'ci — what the agent may do' : 'ci', exact: true }).click()
+    await page.getByRole('button', { name: /^ci(?: — what the agent may do)?$/ }).click()
     await expect(page.getByRole('menuitemradio', { name: 'ci Checks files using the project configuration.', exact: true })).toHaveAttribute('aria-checked', 'true')
 
 

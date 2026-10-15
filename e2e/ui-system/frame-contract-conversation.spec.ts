@@ -44,6 +44,10 @@ for (const theme of WALL_THEMES) {
 
   test(`Frame composer keeps short control values whole at 1280 in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=draft&frame-composer-labels=1', theme, 1280)
+    // Keep the full-value contract's original main width beside the standing sidebar.
+    const rail = page.getByRole('button', { name: 'Toggle rail', exact: true })
+    if (await rail.getAttribute('aria-expanded') === 'true') await rail.click()
+    await expect.poll(async () => (await page.locator('[data-frame-region="main"]').boundingBox())!.width).toBe(1280 - FRAME.sidebar.width)
     const tools = page.locator('[data-slot="composer-tools"]:visible').last()
     for (const [trackName, value] of [['permissions', 'Workspace'], ['mode', 'Default']] as const) {
       const track = tools.locator(`[data-composer-track="${trackName}"]`)
@@ -63,6 +67,8 @@ for (const theme of WALL_THEMES) {
       }
     }
     await openFrame(page, 'frame-wall=conversation&frame-composer-values=1', theme, 1280)
+    if (await rail.getAttribute('aria-expanded') === 'true') await rail.click()
+    await expect.poll(async () => (await page.locator('[data-frame-region="main"]').boundingBox())!.width).toBe(1280 - FRAME.sidebar.width)
     const mode = page.locator('[data-composer-track="mode"]:visible').last()
     await expect(mode).toContainText('Default')
     const label = mode.locator('[data-slot="chip-words"] > span:not(.sr-only)')

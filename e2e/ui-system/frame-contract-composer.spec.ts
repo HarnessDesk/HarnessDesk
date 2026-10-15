@@ -40,6 +40,10 @@ for (const theme of WALL_THEMES) {
   test(`Composer fit: permission value and trailing chevron stay together at 1280 in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=draft&frame-composer-values=1', theme, 1280)
     expect((await page.locator('[data-frame-region="left"]').boundingBox())!.width).toBeGreaterThan(0)
+    // Full-value fitting uses the sidebar's remaining main, with D1's independent rail put away.
+    const rail = page.getByRole('button', { name: 'Toggle rail', exact: true })
+    if (await rail.getAttribute('aria-expanded') === 'true') await rail.click()
+    await expect.poll(async () => (await page.locator('[data-frame-region="main"]').boundingBox())!.width).toBe(1280 - FRAME.sidebar.width)
     const tools = page.locator('[data-slot="composer-tools"]:visible').last()
     const permission = tools.locator('[data-composer-track="permissions"] button')
     const label = permission.locator('[data-slot="text"][data-role="row"]')

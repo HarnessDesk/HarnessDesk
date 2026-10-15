@@ -3334,6 +3334,7 @@ export class AppStore {
   #dropRemoved(key: SessionKey, deleted: boolean): void {
     // Reads already in flight cannot recreate what the host has confirmed gone.
     this.#sessionRemovalRevisions.set(key, (this.#sessionRemovalRevisions.get(key) ?? 0) + 1)
+    this.#cancelTerminalOpenings(`session:${key}`)
     const { runtime, id } = splitSessionKey(key)
     this.#historyPageChanges?.set(key, null)
     this.#historyExcluded.add(key)
@@ -3946,14 +3947,21 @@ export class AppStore {
    */
   #dockEpoch = 0
   #terminalDoorsOpening = new Map<string, symbol>()
-  #terminalOpeningOrigins = new Set<{ subject: string | null; pane: ReturnType<typeof findPane>; door: symbol | undefined }>()
+  #terminalOpeningOrigins = new Set<{ subject: string | null; pane: ReturnType<typeof findPane>; door: symbol | undefined; cancelled: boolean }>()
+
+  #cancelTerminalOpenings(subject?: string): void {
+    for (const origin of this.#terminalOpeningOrigins) {
+      if (subject === undefined || origin.subject === subject) origin.cancelled = true
+    }
+    if (subject === undefined) this.#terminalDoorsOpening.clear()
+    else this.#terminalDoorsOpening.delete(subject)
+  }
 
   /**
-   * Opens a sandboxed terminal in the dock below the composer, in the
+   * Opens a sandboxed terminal in the retained cache, in the
    * focused conversation's directory and under its permissions when there is
-   * one, else in the workspace. Each terminal is a tab in the dock; the new
-   * one takes the screen. The process is the runtime's; the dock only draws
-   * it.
+   * one, else in the workspace. Work subjects show the selected terminal in
+   * their pane. The process is the runtime's; closing its pane only hides it.
    */
   openTerminal(options: TerminalOpenOptions = {}): Promise<void> {
     return this.#openTerminal(options)
@@ -3978,7 +3986,7 @@ export class AppStore {
       return
     }
     const epoch = this.#dockEpoch
-    const origin = { subject: terminalSubject, pane: terminalPane, door: openingDoor ? door : undefined }
+    const origin = { subject: terminalSubject, pane: terminalPane, door: openingDoor ? door : undefined, cancelled: false }
     this.#terminalOpeningOrigins.add(origin)
     try {
       if (!session && cwd !== this.#snapshot.workspace?.path) {
@@ -3992,7 +4000,7 @@ export class AppStore {
         } finally {
           await this.#settleWorkspaceOpen()
         }
-        if (epoch !== this.#dockEpoch) return
+        if (origin.cancelled || epoch !== this.#dockEpoch) return
       }
       const { terminalId, runtime: provider } = await this.transport.request('terminal/open', {
         runtime,
@@ -4001,7 +4009,7 @@ export class AppStore {
         ...(session ? { sessionId: session.id } : {}),
         ...(options.command ? { command: options.command } : {}),
       })
-      if (epoch !== this.#dockEpoch) {
+      if (origin.cancelled || epoch !== this.#dockEpoch) {
         void this.transport.request('terminal/close', { terminalId }).catch(() => {})
         return
       }
@@ -4075,17 +4083,20 @@ export class AppStore {
     if (mount) this.closeView(mount)
   }
 
-  /** Closes every terminal, and the processes in them. */
-  closeTerminalDock(): void {
-    this.#dockEpoch += 1
+  /** Closes one subject's shells, or every shell when no subject is supplied. */
+  closeTerminalDock(subject?: string): void {
+    if (subject === undefined) this.#dockEpoch += 1
+    this.#cancelTerminalOpenings(subject)
     let workbench = this.#snapshot.workbench
     for (const view of terminalsIn(workbench)) {
-      this.#release(view)
       const mount = mountOfTerminal(workbench, view.terminalId)
+      const owner = mount ? workbench.toolOwners[mount] : undefined
+      if (subject !== undefined && owner !== undefined && owner !== subject) continue
+      this.#release(view)
       if (mount) workbench = undockIn(workbench, mount)
     }
-    workbench = { ...workbench, frameTools: Object.fromEntries(Object.entries(workbench.frameTools).map(([subject, intent]) =>
-      [subject, intent.tool === 'terminal' ? { ...intent, open: false, expanded: false } : intent])) }
+    workbench = { ...workbench, frameTools: Object.fromEntries(Object.entries(workbench.frameTools).map(([owner, intent]) =>
+      [owner, intent.tool === 'terminal' && (subject === undefined || owner === subject) ? { ...intent, open: false, expanded: false } : intent])) }
     this.#setWorkbench(workbench)
   }
 

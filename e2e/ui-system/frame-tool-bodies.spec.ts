@@ -5,7 +5,8 @@ import { FRAME } from '../../packages/ui/src/design/frame'
 const toolWall = process.env.FRAME_TOOL_WALL_DIR ?? 'output/frame-wall/tool-bodies'
 
 const resizePanel = async (page: Page, width: number) => {
-  const panel = page.locator('[data-slot="work-tools"]')
+  // The pane owns the border; its body is one pixel narrower than this size.
+  const panel = page.locator('[data-frame-region="right"]')
   const current = (await panel.boundingBox())!.width
   const seam = (await page.getByRole('separator', { name: 'Resize the right panel' }).boundingBox())!
   await page.mouse.move(seam.x + seam.width / 2, seam.y + seam.height / 2)
@@ -13,6 +14,11 @@ const resizePanel = async (page: Page, width: number) => {
   await page.mouse.move(seam.x + seam.width / 2 + current - width, seam.y + seam.height / 2, { steps: 6 })
   await page.mouse.up()
   await expect.poll(async () => (await panel.boundingBox())!.width).toBe(width)
+  const border = await panel.evaluate(element => {
+    const style = getComputedStyle(element)
+    return parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth)
+  })
+  expect((await page.locator('[data-slot="work-tools"]').boundingBox())!.width).toBe(width - border)
 }
 
 for (const theme of ['light', 'dark'] as const) {
@@ -32,6 +38,11 @@ for (const theme of ['light', 'dark'] as const) {
         await panel.getByRole('button', { name: 'Edit', exact: true }).click()
         await expect(panel.locator('.cm-content')).toContainText('Storefront')
       }
+      // These checks exercise the body; the independent floating rail may cover it.
+      const railToggle = page.locator('[data-slot="top-bar"]').getByRole('button', { name: 'Toggle rail', exact: true })
+      await expect(railToggle).toHaveAttribute('aria-pressed', 'true')
+      await railToggle.click()
+      await expect(page.locator('[data-frame-region="rail"]')).toBeHidden()
       for (const width of [320, 400, 640]) {
         await resizePanel(page, width)
         await expect(panel.locator('[data-slot="tool-pane-header"], [data-slot="card-header"]')).toHaveCount(0)
@@ -74,9 +85,15 @@ for (const theme of ['light', 'dark'] as const) {
           await search.clear()
           if (width === 640) {
             const toggle = panel.getByRole('button', { name: 'Switch the refs rail', exact: true })
-            if (await toggle.getAttribute('data-on') === null) await toggle.click()
-            await expect(panel.getByRole('complementary', { name: 'Branches, remotes, tags and stashes' })).toBeVisible()
-            await expect(panel.getByPlaceholder('Filter refs', { exact: true })).toBeVisible()
+            await toggle.click()
+            // The 640px pane has a 639px body, so refs use the portaled sheet.
+            const refs = page.getByRole('dialog', { name: 'Switch the refs rail', exact: true })
+            await expect(refs).toBeVisible()
+            await expect(refs.getByRole('complementary', { name: 'Branches, remotes, tags and stashes' })).toBeVisible()
+            await expect(refs.getByPlaceholder('Filter refs', { exact: true })).toBeVisible()
+            await page.keyboard.press('Escape')
+            await expect(refs).toHaveCount(0)
+            await expect(toggle).toBeFocused()
           }
         } else {
           const facts = panel.getByText('Synthetic work facts · 長い記録', { exact: true })
@@ -100,16 +117,16 @@ for (const theme of ['light', 'dark'] as const) {
   }
   test(`B7a actual Details labels and facts share the card inset in ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
-      await page.emulateMedia({ colorScheme: theme })
+    await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?frame-wall=conversation&theme=${theme}`)
     const panel = page.locator('[data-frame-region="rail"]')
     await expect(panel).toBeVisible()
     const edges = await panel.evaluate(element => {
-      const label=element.querySelector('[data-slot="tool-section"] [data-slot="group-label"] [data-slot="text"]')!
-      const fact=element.querySelector('[data-slot="summary-item"] dt')!
-      return [label,fact].map(node=>node.getBoundingClientRect().left-element.getBoundingClientRect().left)
+      const label = element.querySelector('[data-slot="tool-section"] [data-slot="group-label"] [data-slot="text"]')!
+      const fact = element.querySelector('[data-slot="summary-item"] dt')!
+      return [label, fact].map(node => node.getBoundingClientRect().left - element.getBoundingClientRect().left)
     })
-    expect(edges).toEqual(Array(2).fill(FRAME.panel.pad+1+FRAME.panel.cardPadX))
+    expect(edges).toEqual(Array(2).fill(FRAME.panel.pad + 1 + FRAME.panel.cardPadX))
   })
   test(`B7a terminal carries its actual resource id and synthetic scrollback in ${theme}`, async ({ page }) => {
     await page.emulateMedia({ colorScheme: theme })

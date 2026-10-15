@@ -46,14 +46,18 @@ for (const width of [1280, 720]) {
     await openFrame(page, 'frame-wall=conversation', 'light', width)
     const visibleControls = await page.locator('[data-left-top]:visible button:visible, [data-topbar="lead"] button:visible')
       .evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label')))
-    expect(visibleControls).toContain('Search everything')
-    expect(visibleControls).toContain(width === 1280 ? 'Hide sidebar' : 'Show sidebar')
+    const navigation = visibleControls.filter(label => ['Hide sidebar', 'Show sidebar', 'Search everything', 'Back', 'Forward'].includes(label ?? ''))
     if (width === 1280) {
-      expect(visibleControls).toContain('Back')
-      expect(visibleControls).toContain('Forward')
+      expect(navigation).toEqual(['Hide sidebar', 'Search everything', 'Back', 'Forward'])
     } else {
-      expect(visibleControls).not.toContain('Back')
-      expect(visibleControls).not.toContain('Forward')
+      expect(navigation).toEqual(['Show sidebar', 'Back', 'Forward'])
+      await page.getByRole('button', { name: 'Show sidebar', exact: true }).click()
+      const sidebar = page.getByRole('dialog', { name: 'Sidebar', exact: true })
+      await expect(sidebar).toBeVisible()
+      await expect(sidebar.getByRole('button', { name: 'Search everything', exact: true })).toBeVisible()
+      const columnNavigation = await sidebar.locator('[data-left-top] button:visible').evaluateAll(nodes => nodes
+        .map(node => node.getAttribute('aria-label')).filter(label => ['Hide sidebar', 'Search everything', 'Back', 'Forward'].includes(label ?? '')))
+      expect(columnNavigation).toEqual(['Hide sidebar', 'Search everything', 'Back', 'Forward'])
     }
   })
 }

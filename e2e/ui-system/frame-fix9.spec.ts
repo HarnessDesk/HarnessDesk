@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { installFramePreviewFixture } from './frame-preview-fixture'
+import { FRAME } from '../../packages/ui/src/design/frame'
 
 test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 const openFrame = async (page: Page, query: string, width = 1280, theme: 'light' | 'dark' = 'light') => {
@@ -154,7 +155,7 @@ test('FIX9 spend grouping uses sentence case', async ({ page }) => {
 
 {
 
-  for (const [item0, width] of ([1100, 720]).entries()) test(`FIX9 narrow Changes uses the full-height pane region [item ${[item0].join('-')}]`, async ({ page }) => {
+  for (const [item0, width] of ([1100, 720]).entries()) test(`FIX9 Changes keeps its full-height region and floating elevation [item ${[item0].join('-')}]`, async ({ page }) => {
 
     await openFrame(page, 'frame-wall=conversation', width)
     const main = page.locator('[data-frame-region="main"]')
@@ -162,9 +163,21 @@ test('FIX9 spend grouping uses sentence case', async ({ page }) => {
     await page.getByRole('button', { name: 'Changes', exact: true }).first().click()
     const panel = page.locator('[data-frame-region="right"]:visible')
     await expect(panel).toBeVisible()
-    expect(await panel.boundingBox()).toEqual({ x: before!.x, y: 0, width: width - before!.x, height: 900 })
-    expect(await panel.evaluate(element => getComputedStyle(element).boxShadow)).toBe('none')
-    await expect(main).toBeHidden()
+    const floating = width < FRAME.fold.panelFloats
+    const paneWidth = floating ? width - before!.x : Math.min(FRAME.rightPanel.width, width - before!.x - FRAME.main.min - 2)
+    expect(await panel.boundingBox()).toEqual({ x: width - paneWidth, y: 0, width: paneWidth, height: 900 })
+    const shadows = await panel.evaluate(element => {
+      const probe = document.createElement('div'); probe.style.boxShadow = 'var(--hd-shadow-lg)'; element.append(probe)
+      const values = [getComputedStyle(element).boxShadow, getComputedStyle(probe).boxShadow]; probe.remove(); return values
+    })
+    expect(shadows[0]).toBe(floating ? shadows[1] : 'none')
+    if (floating) await expect(main).toBeHidden()
+    else {
+      await expect(main).toBeVisible()
+      const reading = (await main.boundingBox())!
+      expect(reading.x + reading.width).toBe(width - paneWidth)
+      expect(reading.width).toBeGreaterThanOrEqual(FRAME.main.min)
+    }
 
 
   })

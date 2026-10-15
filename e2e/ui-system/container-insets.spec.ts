@@ -425,14 +425,14 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2000, 720])
       await route.fulfill({ response, body: `${source}
         import measureReact from ${JSON.stringify(reactUrl)};
         import { PagePreview as MeasurePage } from '/src/preview/page-preview.tsx';
-        import { previewStore as measureStore, PREVIEW_SESSION_KEY as measureSession } from '/src/preview/harness.tsx';
+        import { previewStore as measureStore } from '/src/preview/harness.tsx';
         import { StoreProvider as MeasureProvider } from '/src/state/context.tsx';
+        import { FrameWall as MeasureChat } from '/src/preview/frames-frame-wall.tsx';
         import { TeamFramePreview as MeasureTeam } from '/src/preview/TeamFramePreview.tsx';
         import { overviewTeamStore as measureTeamStore } from '/src/preview/team-overview-fixture.ts';
         for (const [host, root] of window.__hdPageMeasureRoots ?? []) { root.unmount(); host.remove(); }
         window.__hdPageMeasureRoots = [];
         const destinations = [
-          ['chat', {kind:'work',view:{kind:'conversation',session:measureSession}}],
           ['library', {kind:'library',section:'skill'}],
           ['agents', {kind:'agents',id:null}],
           ['agent', {kind:'agents',id:'code-reviewer'}],
@@ -448,6 +448,13 @@ for (const theme of ['light', 'dark'] as const) for (const width of [2000, 720])
           host.style.cssText = 'height:640px;position:relative;transform:translateZ(0)'; document.body.append(host);
           const root = createRoot(host); window.__hdPageMeasureRoots.push([host, root]);
           root.render(measureReact.createElement(MeasurePage, {fixture:measureStore(),page:destination}));
+        }
+        {
+          const host = document.createElement('section'); host.dataset.pageMeasureProbe = 'chat';
+          host.style.cssText = 'height:640px;position:relative;transform:translateZ(0)'; document.body.append(host);
+          const root = createRoot(host); window.__hdPageMeasureRoots.push([host, root]);
+          root.render(measureReact.createElement(MeasureProvider, {store:measureStore()},
+            measureReact.createElement(MeasureChat)));
         }
         for (const [name, fixture, room, framePage] of [
           ['overview', measureTeamStore(), 'overview-team', 'overview'],

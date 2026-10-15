@@ -11,6 +11,8 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 
 /** Every actual destination shares this bar, including the detail pages. */
 const destinations = [
+  { id: 'work bar example', query: 'frame-wall=topbar', work: true },
+  { id: 'account bar example', query: 'frame-wall=topbar&frame-parents=1', work: false },
   { id: 'draft', query: 'frame-wall=draft', work: true },
   { id: 'conversation', query: 'frame-wall=conversation', work: true },
   { id: 'Team', query: 'frame-wall=team', work: true },
@@ -63,6 +65,15 @@ for (const theme of WALL_THEMES) for (const destination of destinations) {
 }
 
 for (const theme of WALL_THEMES) {
+  test(`catalog bar examples follow the work and page contracts in ${theme}`, async ({ page }) => {
+    await page.goto(`/design.html?view=top-bar&theme=${theme}`)
+    const bars = page.locator('[data-slot="top-bar"]:visible')
+    await expect(bars).toHaveCount(4)
+    for (let index = 0; index < 4; index += 1) await expectOneBar(bars.nth(index), index % 2 === 0)
+    await expect(page.locator('[data-slot="page-options"]:visible').getByRole('button', { name: 'Decide this run', exact: true })).toHaveCount(2)
+    await expect(page.locator('[data-slot="page-options"]:visible').getByRole('button', { name: 'New Team', exact: true })).toHaveCount(2)
+  })
+
   test(`the session state dot precedes a short title and its verbs in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=conversation&frame-short-title=1', theme)
     const bar = page.locator('[data-slot="top-bar"]:visible'), title = bar.locator('[data-topbar-title]')

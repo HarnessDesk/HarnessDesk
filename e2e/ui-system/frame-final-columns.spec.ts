@@ -17,8 +17,9 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(pane).toHaveCSS('border-left-width', '1px')
     await expect(page.locator('[data-work-pane-header]')).toHaveCSS('height', '40px')
     await page.setViewportSize({ width: 720, height: 900 })
+    await expect(page.locator('[data-slot="fixed-shell"]')).toHaveAttribute('data-panel-floats', 'true')
     await expect(page.locator('[data-frame-region="main"]')).toBeHidden()
-    expect((await pane.boundingBox())!).toMatchObject({ x: 0, y: 0, width: 720, height: 900 })
+    await expect.poll(() => pane.boundingBox()).toEqual({ x: 0, y: 0, width: 720, height: 900 })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   })
 }

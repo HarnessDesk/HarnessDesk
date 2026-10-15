@@ -49,7 +49,8 @@ test('a terminal tool retains the process cache and reveals its captured subject
 test('every historical tool has one fixed destination', () => {
   expect(['run-details', 'agents', 'plugin'].map(kind => toolOf(kind))).toEqual(['details', 'details', 'details'])
   expect(['file', 'preview', 'changes'].map(kind => toolOf(kind))).toEqual(['files', 'files', 'changes'])
-  expect(['activity', 'trajectory', 'tasks', 'git'].map(kind => toolOf(kind))).toEqual(['activity', 'activity', 'activity', 'activity'])
+  expect(['activity', 'trajectory', 'tasks'].map(kind => toolOf(kind))).toEqual(['activity', 'activity', 'activity'])
+  expect(toolOf('git')).toBe('changes')
   expect(toolOf('browser')).toBe('browser')
   expect(toolOf('terminal')).toBe('terminal')
   expect(toolOf('run-steps')).toBeNull()

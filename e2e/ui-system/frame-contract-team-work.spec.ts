@@ -14,13 +14,18 @@ test.use({ screenshot: 'off', trace: 'off', video: 'off' })
 
 for (const theme of WALL_THEMES) {
   test.describe(`B6 Team view controls live in the body in ${theme}`, () => {
-    for (const tab of ['overview', 'run', 'board', 'room', 'findings']) test(`B6 Team has one body View control in ${theme}: ${tab}`, async ({ page }) => {
+    for (const tab of ['overview', 'run', 'board', 'room', 'findings']) test(`B6 Team mounts body View only for a destination with choices in ${theme}: ${tab}`, async ({ page }) => {
       await openFrame(page, 'frame-wall=team', theme)
       await selectFrameTab(page, tab)
-      const icon = page.locator('[data-slot="workbench-main"]').getByRole('button', { name: 'View', exact: true })
-      await expect(icon).toBeVisible()
-      await expect(icon).toHaveCount(1)
-      expect(await icon.evaluate(node => node.closest('[data-slot="top-bar"]'))).toBeNull()
+      const main = page.locator('[data-slot="workbench-main"]')
+      const icon = main.getByRole('button', { name: 'View', exact: true })
+      await expect(icon).toHaveCount(tab === 'overview' ? 0 : 1)
+      if (tab === 'overview') await expect(main.locator('[data-slot="page-options"] button, [data-slot="page-options"] input, [data-slot="page-options"] select')).toHaveCount(0)
+      else {
+        await expect(icon).toBeVisible()
+        expect(await icon.evaluate(node => node.closest('[data-slot="top-bar"]'))).toBeNull()
+      }
+      await expect(page.locator('[data-slot="top-bar"]').getByRole('button', { name: 'View', exact: true })).toHaveCount(0)
       await expect(page.locator('[data-slot="view-bar"]')).toHaveCount(0)
       await expect(page.locator('[data-slot="run-header"]')).toHaveCount(0)
     })

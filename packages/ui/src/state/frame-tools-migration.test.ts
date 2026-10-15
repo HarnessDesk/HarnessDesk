@@ -1,7 +1,7 @@
 import { expect, test } from 'vitest'
 import { runtimeId } from '@harnessdesk/protocol'
 import type { PaneView } from './layout'
-import { dockViews, emptyWorkbench, normalizeFixedWorkbench, readWorkbench, type DockStack, type Mounted } from './workbench'
+import { dockViews, emptyWorkbench, normalizeFixedWorkbench, readWorkbench, workRailOpen, rightPanelDrawn, type DockStack, type Mounted } from './workbench'
 const mount = (id: string, view: PaneView): Mounted => ({ id, view })
 const stack = (id: string, views: readonly Mounted[]): DockStack => ({ kind: 'stack', id, views, active: views.at(-1)?.id ?? null })
 
@@ -89,4 +89,44 @@ test('persisted subject scopes reject a fallback view and mismatched subject key
     'team:fixture-team': { paneId: 'fixture', view: { kind: 'room', room: 'fixture-team' } },
   } })!
   expect(Object.keys(decoded.frameSubjects)).toEqual(['team:fixture-team'])
+})
+
+
+test('legacy pure Details selection becomes an open rail without an empty pane', () => {
+  const before = admitFixedTool(emptyWorkbench(), { kind: 'changes' })!
+  const subject = fixedSubject(before.main)!
+  const decoded = readWorkbench({ ...before, frameTools: {
+    [subject]: { tool: 'details', mode: 'details', open: true, expanded: true },
+  } })!
+  const restored = normalizeFixedWorkbench(decoded).workbench
+  expect(restored.frameTools[subject]).toEqual({ tool: 'details', mode: 'details', open: false, railOpen: true, expanded: false })
+  expect(workRailOpen(restored)).toBe(true)
+  expect(rightPanelDrawn(restored)).toBe(false)
+  expect(dockViews(restored.right)).toEqual(dockViews(before.right))
+  expect(restored.toolOwners).toEqual(before.toolOwners)
+})
+
+test.each(['agents', 'plugin', 'run-details'])('legacy pure Details migration preserves explicit %s panes', mode => {
+  const before = emptyWorkbench(), subject = fixedSubject(before.main)!
+  const intent = { tool: 'details', mode, open: true, railOpen: false, expanded: true }
+  expect(readWorkbench({ ...before, frameTools: { [subject]: intent } })!.frameTools[subject]).toEqual(intent)
+})
+
+
+test('legacy Git history selects Changes while preserving its retained payload', () => {
+  const before = admitFixedTool(emptyWorkbench(), { kind: 'git', root: '/repo' })!
+  const subject = fixedSubject(before.main)!
+  const restored = normalizeFixedWorkbench(readWorkbench({ ...before, frameTools: {
+    [subject]: { tool: 'activity', mode: 'git', open: true, railOpen: false, expanded: true },
+  } })!).workbench
+  expect(restored.frameTools[subject]).toEqual({ tool: 'changes', mode: 'git', open: true, railOpen: false, expanded: true })
+  expect(dockViews(restored.right)).toEqual(dockViews(before.right))
+  expect(restored.toolOwners).toEqual(before.toolOwners)
+})
+
+
+test.each([true, false])('pure Details migration keeps the explicit rail preference %s', railOpen => {
+  const before = emptyWorkbench(), subject = fixedSubject(before.main)!
+  const intent = { tool: 'details', mode: 'details', open: false, railOpen }
+  expect(readWorkbench({ ...before, frameTools: { [subject]: intent } })!.frameTools[subject]).toEqual(intent)
 })

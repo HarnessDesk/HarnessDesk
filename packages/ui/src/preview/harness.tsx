@@ -1428,11 +1428,16 @@ class PreviewStore {
     this.#workbench({ ...next, toolOwners: entry && subject ? { ...next.toolOwners, [entry.id]: subject } : next.toolOwners })
     this.chooseWorkTool('terminal')
   }
-  closeTerminalDock(): void {
+  closeTerminalDock(subject?: string): void {
     let workbench = this.#snapshot.workbench
     for (const area of ['bottom', 'right'] as const) {
-      for (const one of dockViews(workbench[area])) if (one.view.kind === 'terminal') workbench = undock(workbench, one.id)
+      for (const one of dockViews(workbench[area])) {
+        const owner = workbench.toolOwners[one.id]
+        if (one.view.kind === 'terminal' && (subject === undefined || owner === undefined || owner === subject)) workbench = undock(workbench, one.id)
+      }
     }
+    workbench = { ...workbench, frameTools: Object.fromEntries(Object.entries(workbench.frameTools).map(([owner, intent]) =>
+      [owner, intent.tool === 'terminal' && (subject === undefined || owner === subject) ? { ...intent, open: false, expanded: false } : intent])) }
     this.#workbench(workbench)
   }
   requestTeamFrame(room: string, page: 'board' | 'run', runView?: 'timeline' | 'flow'): void {

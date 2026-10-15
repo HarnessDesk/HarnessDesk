@@ -55,10 +55,10 @@ for (const theme of WALL_THEMES) {
       await expect(body).toBeVisible()
       await page.screenshot({ path: `output/frame-wall/B3-details-${state}-720-${theme}.png` })
       if (state === 'active') {
-        await expect(async () => {
-          await body.locator('[data-slot="tool-scroll"]').evaluate(node => { node.scrollTop = node.scrollHeight })
-          await expect(body.getByText('Recovery reviewer', { exact: true })).toBeInViewport()
-        }).toPass()
+        await expect(body.locator('[data-slot="tool-scroll"]')).toHaveCount(1)
+        const reviewer = body.getByText('Recovery reviewer', { exact: true })
+        await reviewer.scrollIntoViewIfNeeded()
+        await expect(reviewer).toBeInViewport()
         await page.screenshot({ path: `output/frame-wall/B3-details-subagents-720-${theme}.png` })
       }
     })

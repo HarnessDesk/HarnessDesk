@@ -84,7 +84,23 @@ for (const theme of ['light', 'dark'] as const) {
   await expect(frame.locator('[data-team-page="room"]')).toHaveAttribute('data-active','')
   for(const width of [2100,720,1440]) {
    await page.setViewportSize({width,height:900})
-   // D1 keeps the same bar at every width; Team destinations remain in body.
+   if (width < FRAME.fold.panelFloats) {
+    const shell = frame.locator('[data-slot="fixed-shell"]')
+    await expect(shell).toHaveAttribute('data-panel-floats', 'true')
+    await expect(frame.locator('[data-frame-region="top"]')).toBeHidden()
+    await expect(frame.locator('[data-frame-region="main"]')).toBeHidden()
+    await expect(page.getByRole('textbox', { name: 'Address', exact: true })).toBeVisible()
+    const pane = frame.locator('[data-frame-region="right"]')
+    const bounds = (await pane.boundingBox())!
+    expect(bounds.x).toBe(0)
+    expect(bounds.y).toBe(0)
+    expect(bounds.width).toBe(width)
+    expect(bounds.height).toBe(900)
+    await pane.getByRole('button', { name: 'Return to main', exact: true }).click()
+    await expect(shell).toHaveAttribute('data-right-open', 'false')
+    await expect(frame.locator('[data-frame-region="main"]')).toBeVisible()
+   }
+   // D1 restores the same bar and counted body destinations after the pane returns.
    await expect(header).toHaveAttribute('data-fold','0')
    await expectTitleRoom(title)
    const listed=frame.locator('[data-team-page]')

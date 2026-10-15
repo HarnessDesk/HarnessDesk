@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test'
+import { openFrame } from './frame-contract-helpers'
 
 const views = ['trajectory', 'git', 'terminal', 'browser', 'file', 'changes', 'agents', 'tasks'] as const
 
@@ -81,3 +82,38 @@ test('git commit history is one Tab stop and uses arrow keys within the grid', a
   expect(active).toBeTruthy()
   await expect(commits.locator(`[id="${active}"]`)).toHaveAttribute('role', 'row')
 })
+
+for (const opener of ['door', 'shortcut', 'menu'] as const) {
+  test(`retained terminal: ${opener} reopening takes keyboard without replacing its resource`, async ({ page }) => {
+    await openFrame(page, 'frame-wall=conversation&frame-terminal=1', 'light')
+    const terminal = page.locator('[data-terminal-id]')
+    const input = terminal.locator('.xterm-helper-textarea')
+    await expect(input).toBeVisible()
+    const terminalId = await terminal.getAttribute('data-terminal-id')
+    await terminal.evaluate(node => { node.dataset.retainedFocus = 'terminal' })
+    await input.evaluate(node => { node.dataset.retainedFocus = 'input' })
+    const railToggle = page.getByRole('button', { name: 'Toggle rail', exact: true })
+    await railToggle.click()
+    await page.getByRole('button', { name: 'Close pane', exact: true }).click()
+    await expect(terminal).toBeHidden()
+    const composer = page.locator('[data-slot="composer-text"]:visible')
+    await composer.focus()
+    if (opener === 'door') await page.getByRole('button', { name: 'Terminal', exact: true }).click()
+    else if (opener === 'shortcut') await page.keyboard.press('Control+`')
+    else {
+      await page.locator('[data-slot="top-bar"]').getByRole('button', { name: 'More', exact: true }).click()
+      await page.getByRole('menuitemradio', { name: /Terminal/ }).click()
+    }
+    await expect(terminal).toBeVisible()
+    await expect(input).toBeFocused()
+    await expect(terminal).toHaveAttribute('data-terminal-id', terminalId!)
+    await expect(terminal).toHaveAttribute('data-retained-focus', 'terminal')
+    await expect(input).toHaveAttribute('data-retained-focus', 'input')
+    await expect(page.locator('[data-terminal-id]')).toHaveCount(1)
+    await page.getByRole('button', { name: 'Changes', exact: true }).click()
+    await expect(terminal).toBeHidden()
+    await composer.focus()
+    await expect(composer).toBeFocused()
+    await expect(input).not.toBeFocused()
+  })
+}

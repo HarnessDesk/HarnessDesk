@@ -318,7 +318,7 @@ const WorkToolBodies = ({ drawn }: { drawn: boolean }) => {
   const editor = effectiveWindowMode(snapshot.windowMode, snapshot.workbench) === 'editor'
   const conversation = editor && focused?.view.kind === 'conversation' && focused.view.session !== null
   const conversationShown = open && selected?.tool === 'conversation'
-  const details = open && registered && selected?.tool === 'details'
+  const details = open && registered && selected?.tool === 'details' && selected.mode !== 'agents'
   const detailsId = `details:${owner}`
   const plugin = details && selected?.mode === 'plugin' ? active : null
   const escapeTool = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -428,8 +428,19 @@ const BottomPanel = ({ drawn }: { drawn: boolean }) => {
   const workActive = useContext(WorkActive)
   const shown = drawn && workActive && Boolean(terminalCwdForSnapshot(snapshot))
   const noticeHost = shown && noticeArea(workbench, snapshot.windowWidth) === 'bottom'
+  const terminalFrame = useRef<HTMLDivElement>(null)
+  useLayoutEffect(() => {
+    if (!shown || !active) return
+    // Retained xterms do not attach again when their pane reopens. Give the
+    // selected shell the keyboard after the door or menu has returned focus.
+    const frame = requestAnimationFrame(() => {
+      const input = terminalFrame.current?.querySelector<HTMLTextAreaElement>('[data-terminal-mount]:not([data-hidden]) .xterm-helper-textarea')
+      if (input && !input.closest('[hidden], [data-hidden], [inert]')) input.focus({ preventScroll: true })
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [shown, active?.id])
   return <>
-    <FixedPanelFrame edge="right" open={shown} className={styles.bottom} data-terminal-frame=""
+    <FixedPanelFrame ref={terminalFrame} edge="right" open={shown} className={styles.bottom} data-terminal-frame=""
        {...(noticeHost ? { 'data-notice-host': '' } : {})}>
       {noticeHost && <NoticeStripOutlet host area="bottom" hostId="workbench:bottom" />}
       {noticeHost && <NoticeStripFallback area="bottom" />}
@@ -439,7 +450,7 @@ const BottomPanel = ({ drawn }: { drawn: boolean }) => {
         newShellTitle={`New shell in ${terminalPathTitle(activeTerminal.cwd, snapshot.home)}`}
         onValueChange={id => store.activateView('bottom', id)}
         onNewShell={() => void store.openTerminal({ cwd: activeTerminal.cwd })}
-        onCloseTerminal={() => store.closeTerminalDock()}
+        onCloseTerminal={() => store.closeTerminalDock(subject ?? undefined)}
       />}
       <DockPanelBody className={styles.layers}>
         {entries.map(entry => <div key={entry.id} data-terminal-mount={entry.id} className={styles.layer}
