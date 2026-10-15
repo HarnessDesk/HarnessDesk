@@ -161,7 +161,7 @@ const ToolPaneBody = ({
     data-slot="tool-pane-body"
     {...(bleed ? { 'data-bleed': '' } : {})}
     data-inset={inset}
-    className={cn('min-h-0 flex flex-col flex-1 overflow-auto', inset === 'tool' ? 'gap-(--hd-panel-card-gap) bg-(--hd-sidebar)' : 'gap-(--hd-card-gap)', bleed ? 'p-0' : inset === 'tool' ? 'p-(--hd-panel-pad)' : inset === 'page' ? 'p-(--hd-page-gutter)' : 'p-(--hd-inset-dense)', className)}
+    className={cn('min-h-0 flex flex-col flex-1 overflow-auto', inset === 'tool' ? 'gap-(--hd-panel-card-gap) bg-(--hd-background)' : 'gap-(--hd-card-gap)', bleed ? 'p-0' : inset === 'tool' ? 'p-(--hd-panel-pad)' : inset === 'page' ? 'p-(--hd-page-gutter)' : 'p-(--hd-inset-dense)', className)}
     {...props}
   />
 )

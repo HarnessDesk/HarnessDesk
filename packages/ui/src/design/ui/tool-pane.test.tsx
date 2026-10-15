@@ -86,7 +86,7 @@ it('stacks tool panel cards on the column ground', () => {
   act(() => root.render(<ToolPaneBody inset="tool"><div>One</div><div>Two</div></ToolPaneBody>))
   const body = container.querySelector('[data-slot="tool-pane-body"]')?.className
   expect(body).toContain('gap-(--hd-panel-card-gap)')
-  expect(body).toContain('bg-(--hd-sidebar)')
+  expect(body).toContain('bg-(--hd-background)')
   expect(body).toContain('p-(--hd-panel-pad)')
 })
 

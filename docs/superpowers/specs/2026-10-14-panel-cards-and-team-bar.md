@@ -94,7 +94,7 @@ Narrow windows:
 
 ## The rail: cards
 
-The rail's ground is the left column's (`--hd-sidebar`), padded 8, with 8 between cards.
+The rail's ground is white like main (`--hd-background`, owner 2026-10-14), padded 8, with 8 between cards; the cards' 1px border sets them apart.
 
 **A card** (`ToolSection`):
 
