@@ -148,7 +148,7 @@ test('one call announced twice is one row, and an unannounced completion still l
     const completed = await tape.until((event) => event.type === 'turn/completed')
     const turn = (completed as Extract<AgentEvent, { type: 'turn/completed' }>).turn
     const calls = turn.items.filter(
-      (item): item is Extract<(typeof turn.items)[number], { type: 'toolCall' }> => item.type === 'toolCall',
+      (item) => item.type === 'toolCall' || item.type === 'command',
     )
     // Claude Code's bridge announces one call twice — the permission flow
     // first with a bare title, the stream again with the real input. A second
@@ -156,12 +156,12 @@ test('one call announced twice is one row, and an unannounced completion still l
     // never reaches sits "running" forever.
     assert.equal(calls.length, 2, `two calls, two rows: ${JSON.stringify(calls.map((call) => call.id))}`)
     const twice = calls.find((call) => String(call.id).includes('tc-twice'))
-    assert.ok(twice)
+    assert.ok(twice?.type === 'command')
     assert.equal(twice.status, 'completed')
-    assert.equal(twice.tool, '`cat notes.txt`', 'the later announcement names it')
-    assert.deepEqual(twice.args, { command: 'cat notes.txt', description: 'Show the notes' })
+    assert.equal(twice.command, 'cat notes.txt', 'the later announcement supplies the command')
+    assert.equal(twice.output, 'the notes')
     const orphan = calls.find((call) => String(call.id).includes('tc-orphan'))
-    assert.ok(orphan, 'a completion with no announcement still makes a row')
+    assert.ok(orphan?.type === 'toolCall', 'a completion with no announcement still makes a row')
     assert.equal(orphan.status, 'completed')
   } finally {
     await runtime.dispose()
