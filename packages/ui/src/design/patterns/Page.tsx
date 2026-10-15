@@ -25,7 +25,7 @@ export type PageWidth = 'reading' | 'wide' | 'canvas'
  * four edges. A surface that brings its own geometry — a terminal, a diff,
  * a graph — bleeds instead of taking a page.
  *
- * Blocks inside sit one stack gap (`--hd-card-gap`) apart; a `Section` brings
+ * Blocks inside sit one stack gap (`--hd-page-stack`) apart; a `Section` brings
  * its own larger step. A Team's Findings drew its
  * facts against the sidebar, a button across the window and a switch in the
  * middle of it because nothing told the page what width it was.

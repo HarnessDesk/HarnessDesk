@@ -10,7 +10,7 @@ useFrameContractEvidence()
 for (const theme of WALL_THEMES) for (const width of [1440]) for (const [group, destinations] of nonworkGroups.entries()) {
   {
 
-    for (const [item0, destination] of (destinations).entries()) test(`B10 nonwork place hierarchy and lead follow window state at ${width} in ${theme}${group === 0 ? '' : ` group ${group + 1}`} [item ${[item0].join('-')}]`, async ({ page }) => {
+    for (const [item0, destination] of (destinations).entries()) test(`B10 page titles follow their content column and fixed leads follow window state at ${width} in ${theme}${group === 0 ? '' : ` group ${group + 1}`} [item ${[item0].join('-')}]`, async ({ page }) => {
       const hidden = width === 1440 ? '&frame-sidebar-hidden=1' : ''
       await openFrame(page, `frame-wall=conversation${hidden}`, theme, width)
       const referenceX = (await windowBar(page).locator('[data-topbar="place"]').boundingBox())!.x

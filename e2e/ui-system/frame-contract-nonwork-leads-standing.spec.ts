@@ -9,7 +9,7 @@ useFrameContractEvidence()
 for (const theme of WALL_THEMES) for (const [group, destinations] of nonworkGroups.entries()) {
   {
 
-    for (const [item0, destination] of (destinations).entries()) test(`B10 standing-column place origin stays common in ${theme}${group === 0 ? '' : ` group ${group + 1}`} [item ${[item0].join('-')}]`, async ({ page }) => {
+    for (const [item0, destination] of (destinations).entries()) test(`B10 standing-column page titles follow their content measure in ${theme}${group === 0 ? '' : ` group ${group + 1}`} [item ${[item0].join('-')}]`, async ({ page }) => {
       await openFrame(page, 'frame-wall=conversation', theme)
       const referenceX = (await windowBar(page).locator('[data-topbar="place"]').boundingBox())!.x
       await openFrame(page, destination.query, theme)

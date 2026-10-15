@@ -47,7 +47,12 @@ const expectOneBar = async (bar: Locator, work: boolean) => {
   await expect(bar.getByRole('button', { name: 'Activity', exact: true })).toHaveCount(0)
   await expect(bar.getByRole('button', { name: 'Details', exact: true })).toHaveCount(0)
   expect(Math.round((await bar.locator('..').boundingBox())!.height)).toBe(FRAME.bar.height)
-  await expectTitleRoom(bar.locator('[data-topbar-title]'))
+  const destination = bar.page().locator('[data-page-destination]:visible')
+  if (await destination.count()) {
+    await expect(bar.locator('[data-topbar-title]')).toHaveCount(0)
+    const canvas = await destination.locator('[data-slot="page"]').first().getAttribute('data-width') === 'canvas'
+    await expect(destination.getByRole('heading', { level: 1 })).toHaveCount(canvas ? 0 : 1)
+  } else await expectTitleRoom(bar.locator('[data-topbar-title]'))
   if (work) {
     expect(await bar.locator('[data-work-tool]').evaluateAll(nodes => nodes.map(node => node.getAttribute('aria-label')))).toEqual(['Terminal', 'Changes', 'Browser', 'Files'])
     await expect(bar.getByRole('button', { name: 'Toggle rail', exact: true })).toHaveCount(1)
