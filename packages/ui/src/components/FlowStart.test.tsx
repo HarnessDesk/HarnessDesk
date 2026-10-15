@@ -846,3 +846,27 @@ it.each([
   })
   expect(rounds()).toContain('Seed round — The edited task')
 })
+
+it.each(['judge', 'reviewer'].flatMap(roleId => [{ repeated: false, disabled: false, offered: true }, { repeated: true, disabled: false, offered: true }, { repeated: false, disabled: true, offered: true }, { repeated: false, disabled: false, offered: false }].map(test => ({ ...test, roleId }))))('offers a held-ceiling agent and preserves sibling slots (%j)', async ({ repeated, disabled, offered, roleId }) => {
+  const onPolicy = vi.fn()
+  const flow = TEAM_START_POLICIES[roleId === 'judge' ? 'comparison' : 'fix-and-review']
+  const refused = { ...seat(roleId, true), plan: { ...seat(roleId, true).plan, winner: null, ceiling: null, candidates: [candidate({
+    seat: { runtime: 'unheld' }, runtimeName: 'Stale name', reason: { kind: 'unheld', level: 'read', detail: null, required: true }, fix: { kind: 'seats' },
+  })] } } as FlowPreviewSeat
+  const runtimes = [
+    { id: 'unheld', presentation: { name: 'Runtime Alpha' } },
+    { id: 'read-holder', presentation: { name: 'Runtime Beta' }, ceilings: offered ? { read: { settings: [], how: 'Native guard' } } : {} },
+  ] as never
+  const theStore = store({ entries: [], source: () => '', preview: emptyPreview, runtimes })
+  await act(async () => { root.render(<StoreProvider store={theStore}><FlowStart root="/repo" onChange={() => {}} team={{
+    flow, template: flow, disabled, preview: { ...emptyPreview(), seats: repeated ? [refused, { ...refused, index: 1 }] : [refused] }, roster: new Map(), vars: {}, onVar: () => {}, onReadingChange: () => {}, onPolicy,
+  }} /></StoreProvider>) })
+  expect(container.textContent).toContain('Runtime Alpha can be asked to stay read-only here but cannot be held to it. Choose another agent, or start from /race.')
+  const use = [...container.querySelectorAll('button')].find(button => button.textContent === 'Use Runtime Beta')!
+  if (!offered) { expect(use).toBeUndefined(); return }
+  expect(use).toBeTruthy()
+  expect(use.disabled).toBe(disabled)
+  act(() => use.click())
+  if (disabled) { expect(onPolicy).not.toHaveBeenCalled(); return }
+  expect(onPolicy).toHaveBeenCalledWith({ ...flow, roles: flow.roles.map(role => role.id === roleId ? { ...role, seats: repeated ? [{ runtime: 'read-holder' }, { runtime: 'unheld' }] : [{ runtime: 'read-holder' }] } : role) })
+})

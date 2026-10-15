@@ -42,7 +42,7 @@ it('warns about a local review kept before its Run bound a pull request', async 
   })
   try {
     expect(view.container.textContent).toContain('Not posted')
-    expect(view.container.textContent).not.toContain('Kept on the desk')
+    expect(view.container.textContent).not.toContain('This desk only')
     expect(button(view.container, 'Post to pull request').disabled).toBe(false)
   } finally { view.close() }
 })

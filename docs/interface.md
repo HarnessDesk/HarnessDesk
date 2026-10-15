@@ -1357,7 +1357,12 @@ sentence and checkout choice already entered.
 
 The form reads the identical strict dry run before **Start**: every Seat must
 *hold* its ceiling here, so a runtime that can only be asked shows its exact
-refusal and fix rather than starting under a weaker policy. Git's branch
+refusal and fix rather than starting under a weaker policy. A read-only refusal
+names the agent and explains that it can be asked to stay read-only but cannot
+be held to it, then offers choosing another agent or starting from **/race**.
+When another agent declares a control for the required ceiling, **Use &lt;agent&gt;**
+selects it for that slot and refreshes the dry run before Start is available.
+Git's branch
 menu, a pull request's own row, ⌘K and an empty Goal's board each open it
 the same way, prefilled with what that place already knows — a branch, a
 pull request, the project itself.
@@ -1471,7 +1476,7 @@ result, findings, and why the Run ended. A repeated role gets its own round.
 Work in flight keeps its doing line; unknown durations and results stay unknown.
 A finding's repair remains a claim until review accepts it; a damaged history
 reads Unreadable with its reason, whatever state its records carry. A finding
-on an attempt a comparison did not keep stays Open and reads **Not kept**;
+on an attempt a comparison did not keep stays Open and reads **Not published**;
 its detail names the revision the review selected for the next step.
 Advisory findings on that attempt carry the same explanation; later reviews
 of the kept attempt leave it in place. An open list or detail updates when
@@ -1514,8 +1519,9 @@ recorded detail with a plain title. Narrow panes retain the reading inset.
 A round with several cards lays them side by side, two or three across when
 its column has room, and as a list beyond three or in a narrow column. Each
 comparison check names its attempt. A recorded pick names the kept revision:
-the kept attempt is lit, the others muted and marked **Not kept**, including
-their findings. Run details lists the attempts with the same pick states.
+the kept attempt is lit, the others muted and marked **Not kept**;
+their findings read **Not published** beside their unchanged lifecycle (for
+example, **Open**). Run details lists the attempts with the same pick states.
 An open blind round carries answered-of-asked progress in its title and one
 line below its cards, **Blind until the round closes**. Blindness comes from
 the host's enforced round policy, never a Seat's permission level.
@@ -1544,7 +1550,7 @@ Tabs closed during a visit stay closed when focus returns to that pane.
 The Run header, Overview strip and Findings summary show the Run's
 publication once at each surface. A review row shows only its recorded round:
 **Posted to #n**, **Waiting to post**, **Partly posted**, **Not confirmed**,
-**Not posted** when posting is on for a bound pull request, or **Kept on the desk**.
+**Not posted** when posting is on for a bound pull request, or **This desk only**.
 An absent round or one with no decision has no chip. The inspector keeps the
 host's reason whole and offers **Copy review** and **Post to pull request**
 only for a completed, recorded review with text to copy.

@@ -49,7 +49,7 @@ it('says nothing about an override when none was recorded', () => {
 it.each([
   ['posted', true, 7, 'Posted to #7'], ['pending', true, 7, 'Waiting to post'],
   ['partial', true, 7, 'Partly posted'], ['uncertain', true, 7, 'Not confirmed'],
-  ['local', true, 7, 'Not posted'], ['local', false, 7, 'Kept on the desk'], ['local', true, null, 'Kept on the desk'],
+  ['local', true, 7, 'Not posted'], ['local', false, 7, 'This desk only'], ['local', true, null, 'This desk only'],
 ] as const)('shows the Run summary state %s with posting %s and PR %s', (publication, publicationOn, pr, label) => {
   act(() => root.render(<FindingRoundStatus view={view({ publication, boundPr: pr ? { repo: 'acme/widgets', pr } : null })} publicationOn={publicationOn} />))
   expect(container.querySelector('[data-slot="chip-words"]')?.textContent).toBe(label)

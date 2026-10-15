@@ -106,7 +106,7 @@ test('reviews-only subscriptions discover scoped runs, map rounds, and compare s
   assert.deepEqual(observed.bodies('review.changed'), [{ type: 'review.changed', team: 'team-1', run: 'run-1', ...round() }])
   desk.finding(); await flush(); await flush()
   assert.equal(observed.bodies('review.changed').length, 1)
-  for (const patch of [{ state: 'local' as const }, { reason: 'Kept on the desk' }, { pr: 9 }, { cards: [1, 2] }]) {
+  for (const patch of [{ state: 'local' as const }, { reason: 'This desk only' }, { pr: 9 }, { cards: [1, 2] }]) {
     desk.rounds = [{ ...desk.rounds[0]!, ...patch }]; desk.finding(); await flush(); await flush()
   }
   assert.equal(observed.bodies('review.changed').length, 5)

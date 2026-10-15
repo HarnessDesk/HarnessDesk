@@ -242,7 +242,7 @@ it('an already open detail rereads accepted comparison evidence without losing t
   accepted = true
   push(['pick-1'])
   await eventually(() => {
-    expect(document.querySelector('[role="dialog"]')!.textContent).toContain('Not kept')
+    expect(document.querySelector('[role="dialog"]')!.textContent).toContain('Not published')
     expect(document.querySelector('[role="dialog"]')!.textContent).toContain(reason)
   })
   expect((await reasonBox()).value).toBe('Keep this draft while the judge finishes')

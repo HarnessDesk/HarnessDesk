@@ -9,8 +9,8 @@ it.each([
   ['partial', 7, true, 'Partly posted', 'warning', true],
   ['uncertain', 7, true, 'Not confirmed', 'warning', true],
   ['local', 7, true, 'Not posted', 'warning', true],
-  ['local', 7, false, 'Kept on the desk', 'neutral', false],
-  ['local', null, true, 'Kept on the desk', 'neutral', false],
+  ['local', 7, false, 'This desk only', 'neutral', false],
+  ['local', null, true, 'This desk only', 'neutral', false],
 ] as const)('maps %s with PR %s and posting %s', (state, pr, postingOn, label, tone, needsYou) => {
   expect(reviewPublication({ state, pr, postingOn, hasFindings: true })).toEqual({ label, tone, needsYou })
   expect(reviewPublication({ state, pr, postingOn, hasFindings: false })).toBeNull()
