@@ -230,6 +230,12 @@ it.each([['comparison', 'Side by side', 'judge', 'to-judge'], ['mechanical-conte
     return document.getElementById(label!.htmlFor) as HTMLInputElement
   }
   expect(check().value).toBe('pnpm test')
+  if (id === 'comparison') {
+    expect(document.body.textContent).toContain('Judge · optional')
+    const judge = document.querySelector<HTMLSelectElement>('select[aria-label="Agent for Judge"]')!
+    expect(judge.selectedOptions[0]?.textContent).toBe('You')
+    expect(store.getSnapshot().frontDoor!.preview!.flow.compiled.document.flow.roles.some(role => role.id === 'judge')).toBe(false)
+  }
   const type = async (value: string) => {
     await act(async () => {
       Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(check(), value)
@@ -248,7 +254,7 @@ it.each([['comparison', 'Side by side', 'judge', 'to-judge'], ['mechanical-conte
   await settle()
   const started = spy.mock.calls.find(call => call[0] === 'flow/start-goal')?.[1] as { source: string }
   expect(JSON.parse(started.source).roles.some((role: { kind: string }) => role.kind === 'check')).toBe(false)
-  expect(JSON.parse(started.source).rules.find((rule: { id: string }) => rule.id === route).on).toBe('competitor')
+  expect(JSON.parse(started.source).rules.find((rule: { then: { role: string } }) => rule.then.role === 'referee').on).toBe('competitor')
 })
 
 it.each(['render', 'preview'])('holds Back and Details inputs until a policy %s settles, then keeps the edit', async phase => {

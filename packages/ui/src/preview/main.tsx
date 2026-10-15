@@ -9,6 +9,7 @@ import { SettingsNavigationProbe } from './frames-left-column'
 import { LeftColumnWorkProbe } from './frames-left-column'
 import { LeftColumnProbe } from './frames-left-column'
 import { TeamStartFrames } from './frames-team-start'
+import { OptionalJudgeFrame } from './frames-optional-judge'
 import { ReleaseStills } from './release-stills'
 import { TeamFrame } from './frames-team-frame'
 import { FrameWall } from './frames-frame-wall'
@@ -1223,6 +1224,8 @@ createRoot(container).render(
       <SignInMode.Provider value="embedded">
         {siteScene
           ? <SiteScene name={siteScene} theme={new URLSearchParams(window.location.search).get('theme') === 'dark' ? 'dark' : 'light'} motion={new URLSearchParams(window.location.search).get('motion') === 'reduce' ? 'reduce' : undefined} />
+          : new URLSearchParams(window.location.search).has('optional-judge')
+          ? <OptionalJudgeFrame />
           : new URLSearchParams(window.location.search).has('team-start')
           ? <TeamStartFrames />
           : new URLSearchParams(window.location.search).has('tile-browsers')

@@ -107,8 +107,8 @@ export const TEAM_START_POLICIES = {
   "comparison": {
     "version": 2,
     "name": "Side by side",
-    "description": "One task, two isolated agents; optional checks, then a judge picks, then a person merges.",
-    "summary": "Two agents, one task; a judge picks, you merge.",
+    "description": "One task, two isolated agents; optional checks, then you choose and merge. An optional agent judge may share a vendor with either attempt.",
+    "summary": "Two agents, one task; you choose, or an optional judge picks.",
     "inputs": [
       {
         "id": "task",
@@ -137,9 +137,7 @@ export const TEAM_START_POLICIES = {
         "seats": [],
         "isolate": false,
         "grant": "read",
-        "independentOf": [
-          "competitor"
-        ]
+        "independentOf": []
       },
       {
         "id": "referee",

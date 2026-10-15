@@ -36,13 +36,13 @@ it('does not invent a winner when the recorded revision names no attempt', () =>
   }) }
   expect(comparisonVerdictOf(runTimeline(input), input.execution, input.cards)).toBeNull()
 })
-it('offers the existing review step when the person’s pick is waiting', () => {
+it.each(['picked', 'merged'])('offers the existing review step when the person’s %s choice is waiting', outcome => {
   const input = comparison()
   if (input.execution.document.format !== 'agents') throw new Error('wrong fixture')
   input.execution = { ...input.execution, rounds: input.execution.rounds.filter(one => one.n <= 3).map(one => one.n === 3 ? { ...one, state: 'running', seats: [] } : one),
     document: { ...input.execution.document, flow: { ...input.execution.document.flow,
-      roles: input.execution.document.flow.roles.map(one => one.id === 'judge' ? { id: 'judge', kind: 'person', outcomes: ['picked'] } : one),
-      rules: [{ id: 'after-judge', on: 'judge', when: { every: ['picked'], evidence: [{ review: 'picked' }] }, then: { role: 'merge', title: 'Merge' } }],
+      roles: input.execution.document.flow.roles.map(one => one.id === 'judge' ? { id: 'judge', kind: 'person', outcomes: [outcome], ...(outcome === 'merged' ? { review: true } : {}) } : one),
+      rules: outcome === 'merged' ? [] : [{ id: 'after-judge', on: 'judge', when: { every: ['picked'], evidence: [{ review: 'picked' }] }, then: { role: 'merge', title: 'Merge' } }],
     } } }
   input.cards = input.cards.map(one => one.id === 5 ? { ...one, state: 'open', outcome: null, note: null } : one)
   input.evidence = { ...input.evidence!, cards: input.evidence!.cards.filter(one => one.card !== 5) }
