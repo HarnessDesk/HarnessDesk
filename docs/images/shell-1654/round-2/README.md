@@ -7,4 +7,6 @@ These frames use the preview harness and fixture/demo identities. They show the 
 | 1440px · table | [Light](overview-1440-light.png) | [Dark](overview-1440-dark.png) |
 | 1100px · narrow list | [Light](overview-1100-light.png) | [Dark](overview-1100-dark.png) |
 
+Source revision: `047116aa` on `team/one-bar-shell`, including `origin/main` through `137e57ab`.
+
 Source route: `preview.html?frame-wall=team&theme=light` (or `theme=dark`). The frames were inspected before publication.
