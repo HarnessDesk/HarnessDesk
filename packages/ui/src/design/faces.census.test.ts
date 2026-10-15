@@ -5,7 +5,7 @@ import { describe, expect, it } from 'vitest'
  * Every place the source draws someone, held to one rule.
  *
  * A face is someone (an agent at work, a person) and takes its corner from
- * `--hd-face-radius`, so a person who chooses round faces gets round faces
+ * `--hd-face-radius`, so a person who chooses square faces gets square faces
  * everywhere (`docs/design.md` § "Shapes say what a mark is"). What kept that
  * true was review, and review kept finding one more place that drew an agent in
  * a fixed corner: the side-by-side tile, a board's assignees, the Agents

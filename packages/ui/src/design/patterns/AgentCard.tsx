@@ -122,8 +122,8 @@ export type AgentCardMeter = {
 /**
  * The crest's corner follows what the subject is, so the card wears the same
  * shape its subject wears everywhere else: a runtime, session or member is
- * someone (a face, at the corner the person chose for faces), and an account
- * keeps its ring (round, the seat's menu draws it so).
+ * someone (a face, filled, at the corner the person chose for faces), and an
+ * account keeps its hollow ring (the seat's menu draws it so).
  */
 const CREST_SHAPE: Readonly<Record<AgentCardKind, 'round' | 'face'>> = {
   agent: 'face',

@@ -62,9 +62,9 @@ export const useTheme = (): ResolvedTheme => {
     else document.body.setAttribute('data-hd-corners', corners)
   }, [corners])
 
-  // Faces are the fourth dial, square by default and so an absent attribute.
+  // Faces are the fourth dial, round by default and so an absent attribute.
   useEffect(() => {
-    if (faces === 'square') document.body.removeAttribute('data-hd-faces')
+    if (faces === 'round') document.body.removeAttribute('data-hd-faces')
     else document.body.setAttribute('data-hd-faces', faces)
   }, [faces])
 

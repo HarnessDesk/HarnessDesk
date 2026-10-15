@@ -79,7 +79,7 @@ const declarationsOf = (css) => {
  * palette overlay (`body[data-hd-palette=…]`) stays out of the snapshot — it
  * varies the snapshot rather than being it.
  */
-const applies = (selector, { dark, studio, palette = 'harnessdesk', accent = 'default', corners = 'default', faces = 'square', tableDensity = 'comfortable' }) =>
+const applies = (selector, { dark, studio, palette = 'harnessdesk', accent = 'default', corners = 'default', faces = 'round', tableDensity = 'comfortable' }) =>
   selector.some((one) => {
     const trimmed = one.trim()
     if (trimmed === ':root' || trimmed === 'html' || trimmed === 'body') return true
