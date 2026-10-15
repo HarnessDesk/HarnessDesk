@@ -783,3 +783,86 @@ it('source or input changes disable Start immediately, before the fresh dry run 
   resolveSecond(held)
   await settle()
 })
+
+it('opens the refused project and refreshes the preview without losing the task or completion sentence', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  let opened = false
+  const base = emptyFlow('fresh-token')
+  const flow: FlowPreview = { ...base, compiled: { ...base.compiled, document: { format: 'agents', flow: {
+    ...(base.compiled.document.format === 'agents' ? base.compiled.document.flow : neverFlow()),
+    inputs: [{ id: 'task', label: 'Task' }],
+  } } } }
+  const request = requestSpy(store, {
+    'flow/catalog': () => [ENTRY('review', 'Review')], 'agent/list': () => [], 'flow/source': () => 'source',
+    'workspace/open': () => { opened = true; return { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 } },
+    'workspace/recent': () => [{ path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 }],
+    'worktree/list': () => [],
+    'authoring/start/preview': params => {
+      if (!opened) throw new Error('/work/storefront is outside every open workspace. Open its folder first to read from it.')
+      return previewOf(flow, { vars: (params as { vars: Record<string, string> }).vars })
+    },
+    'flow/start-goal': () => EXECUTION,
+  })
+  const { onStarted } = render(store, { kind: 'project', root: '/work/storefront' })
+  await settle()
+  act(() => rowFor('Review').click())
+  await settle()
+  expect(button('Start').disabled).toBe(true)
+  // A task already entered must survive a refused preview and its recovery.
+  const task = document.querySelector<HTMLTextAreaElement>('textarea')!
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')!.set!.call(task, 'Fix the cart')
+    task.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  await act(async () => button('Open storefront').click())
+  expect(store.getSnapshot().workspace?.path).toBe('/work/storefront')
+  expect(document.querySelector<HTMLTextAreaElement>('textarea')!.value).toBe('Fix the cart')
+  expect(document.body.textContent).not.toContain('outside every open workspace')
+  const done = document.querySelector<HTMLInputElement>('[aria-label="Done when · optional"]')!
+  act(() => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(done, 'The cart works')
+    done.dispatchEvent(new Event('input', { bubbles: true }))
+  })
+  expect(button('Start').disabled).toBe(false)
+  await act(async () => button('Start').click())
+  expect(request.mock.calls.find(([method]) => method === 'flow/start-goal')?.[1]).toMatchObject({ root: '/work/storefront', token: 'fresh-token', sentence: 'The cart works', vars: { task: 'Fix the cart' } })
+  expect(onStarted).toHaveBeenCalledWith(EXECUTION)
+})
+
+it('keeps recovery available and Start disabled when opening the refused folder fails', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  requestSpy(store, {
+    'flow/catalog': () => [ENTRY('review', 'Review')], 'agent/list': () => [], 'flow/source': () => 'source',
+    'authoring/start/preview': () => { throw new Error('/work/storefront is outside every open workspace. Open its folder first to read from it.') },
+    'workspace/open': () => { throw new Error('The folder is unavailable.') },
+  })
+  render(store, { kind: 'project', root: '/work/storefront' })
+  await settle()
+  act(() => rowFor('Review').click())
+  await settle()
+  await act(async () => button('Open storefront').click())
+  expect(button('Start').disabled).toBe(true)
+  expect(button('Open storefront').disabled).toBe(false)
+  expect(store.getSnapshot().workspace).toBeNull()
+})
+
+it('can open a project before its shape catalogue can be read', async () => {
+  const store = new AppStore('ws://localhost:0/')
+  let opened = false
+  requestSpy(store, {
+    'flow/catalog': () => {
+      if (!opened) throw new Error('/work/storefront is outside every open workspace. Open its folder first to read from it.')
+      return [ENTRY('review', 'Review')]
+    },
+    'agent/list': () => [], 'worktree/list': () => [],
+    'workspace/open': () => { opened = true; return { path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 } },
+    'workspace/recent': () => [{ path: '/work/storefront', name: 'storefront', lastOpenedAt: 1 }],
+  })
+  render(store, { kind: 'project', root: '/work/storefront' })
+  await settle()
+  expect(button('Continue').disabled).toBe(true)
+  await act(async () => button('Open storefront').click())
+  expect(rowFor('Review')).toBeDefined()
+  expect(button('Continue').disabled).toBe(false)
+  expect(document.body.textContent).not.toContain('outside every open workspace')
+})

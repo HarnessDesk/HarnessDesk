@@ -533,6 +533,10 @@ the host limits completed rescans to once a minute.
 
 ## The conversation
 
+Opening a conversation from the sidebar, command palette or a conversation
+link opens its folder as the workspace, including a worktree whose repository
+is closed. Workspace-scoped Agents, Plugins and New Team follow that folder.
+
 **The header earns each button**: title · status group · browser button ·
 terminal toggle · ⋮. The status group puts the ceiling, status, background work,
 branch and plan readings on one chip ground. Hover or keyboard focus names every
@@ -1293,6 +1297,10 @@ changed before Start; the dry run shows the exact command for each attempt.
 Leaving it empty sends the
 attempts straight to the judge in Side by side, or to your choice in Mechanical
 contest, without a check round.
+
+If the project is outside every open workspace, the refusal offers **Open**
+followed by the project name. Opening it keeps the form and refreshes the dry run so
+**Start** can proceed once its requirements are met.
 
 The form reads the identical strict dry run before **Start**: every Seat must
 *hold* its ceiling here, so a runtime that can only be asked shows its exact
