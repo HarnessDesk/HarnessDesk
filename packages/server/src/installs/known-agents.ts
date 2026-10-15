@@ -156,7 +156,8 @@ export const CLAUDE_PASTE_REJECTED = 'Invalid code. Please make sure the full co
  * bisecting 0.2.1-alpha.1 → alpha.3 against a fake endpoint that records the
  * key it is sent (docs/decisions.md). Declared on the `.credentials.yaml`
  * source in both places the secret is spelled — here and the `dsh` template in
- * `agent-registry.ts` — so presence detection and the balance meter follow it.
+ * `agent-registry.ts`, which is the one the runtime and the balance meter
+ * actually read; a test holds the two equal.
  */
 export const DSH_STORE_FIRST_FROM = '0.2.1-alpha.3'
 

@@ -179,7 +179,7 @@ export interface AcpSecretSource {
    * environment it starts with — and so before any key HarnessDesk hands it.
    * Absent, or on an older version, it is read after the environment.
    * Measured, not assumed: DeepSeek Harness's `acp` profile took its launch
-   * environment ahead of `.credentials.yaml` through 0.2.0-rc.2 and the
+   * environment ahead of `.credentials.yaml` through 0.2.1-alpha.2 and the
    * stored file ahead of it from 0.2.1-alpha.3 (the sitting is in
    * `docs/decisions.md`).
    */
@@ -688,10 +688,14 @@ export const whereSecretLives = (
   agentEnv?: Readonly<Record<string, string>>,
   /** The version that will run, when the host read one. */
   version?: string | null,
-): { readonly kind: 'apiKey' | 'externalKey'; readonly detail: string } | null => {
+): { readonly kind: 'apiKey' | 'externalKey'; readonly detail: string; readonly storedCopy?: true } | null => {
   const { before, after } = secretReadOrder(secret, version)
   for (const source of before) {
-    if (readsKey(source, secret.env, agentEnv)) return { kind: 'externalKey', detail: source.label }
+    if (!readsKey(source, secret.env, agentEnv)) continue
+    // The interface's own copy is still in the broker and still the one the
+    // person can replace or remove; `storedCopy` is how a surface knows to
+    // keep offering that while the key in use lives elsewhere.
+    return { kind: 'externalKey', detail: source.label, ...(typeof resolve?.(secret.env) === 'string' ? { storedCopy: true as const } : {}) }
   }
   if (typeof resolve?.(secret.env) === 'string') return { kind: 'apiKey', detail: 'API key' }
   const inherited = process.env[secret.env]
@@ -1425,7 +1429,10 @@ export class AcpRuntime implements AgentRuntime {
 
   /** The version of what is running, as the host read it — for a direct agent, the CLI's own. */
   get launchedVersion(): string | null {
-    return this.#launch && !('blocked' in this.#launch) ? this.#launch.version : null
+    if (this.#launch) return 'blocked' in this.#launch ? null : this.#launch.version
+    // Not launched in this process yet: the last process's version, so a read
+    // taken before the agent starts is judged as the one after it will be.
+    return this.#restored?.launchedVersion ?? null
   }
 
   async dispose(): Promise<void> {
@@ -1866,7 +1873,9 @@ export class AcpRuntime implements AgentRuntime {
     // that authenticates with one, and the label never carries the value.
     const keyAccounts: Account[] = (this.#config.secrets ?? []).flatMap((secret) => {
       const where = whereSecretLives(secret, this.#config.resolveSecret, this.#config.env, this.launchedVersion)
-      return where ? [{ kind: where.kind, label: secret.label, planType: where.detail }] : []
+      return where
+        ? [{ kind: where.kind, label: secret.label, planType: where.detail, ...(where.storedCopy ? { storedCopy: true } : {}) }]
+        : []
     })
     if (this.#account && this.#health.state === 'ready') {
       const status = await this.#account.status()
@@ -2518,6 +2527,7 @@ export class AcpRuntime implements AgentRuntime {
       ...(options ? { sessionOptions: options } : {}),
       ...(this.#commandsKnown ? { commands: this.#commands.map(command => ({ name: command.name, description: command.description?.trim() ?? '', enabled: true, toggleable: false })) } : {}),
       ...(this.#lastAccount ? { account: this.#lastAccount } : {}),
+      ...(this.launchedVersion ? { launchedVersion: this.launchedVersion } : {}),
       info: { version: this.info.version, capabilities: this.info.capabilities },
     }
   }

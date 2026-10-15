@@ -158,7 +158,19 @@ describe('a source the agent reads ahead of its environment', () => {
     const store = file('store-first.yaml', 'version: 1\nrefs:\n  DEEPSEEK_API_KEY: sk-in-the-store\n')
     const sources = storeAndHomeEnv(store, join(dir, 'absent.env'))
     const where = whereSecretLives(spec(sources), () => 'sk-from-the-broker', undefined, '0.2.1-alpha.3')
-    assert.deepEqual(where, { kind: 'externalKey', detail: 'its store' }, 'the agent sends the store key, so that is where the key lives')
+    assert.deepEqual(
+      where,
+      { kind: 'externalKey', detail: 'its store', storedCopy: true },
+      'the agent sends the store key, so that is where the key lives — and the interface still holds a copy it can replace or remove',
+    )
+  })
+
+  it('does not claim a stored copy when HarnessDesk holds none', () => {
+    const store = file('store-first-alone.yaml', 'version: 1\nrefs:\n  DEEPSEEK_API_KEY: sk-in-the-store\n')
+    const sources = storeAndHomeEnv(store, join(dir, 'absent.env'))
+    for (const resolve of [undefined, () => undefined]) {
+      assert.deepEqual(whereSecretLives(spec(sources), resolve, undefined, '0.2.1-alpha.3'), { kind: 'externalKey', detail: 'its store' })
+    }
   })
 
   it('still loses to the key HarnessDesk hands over on an older agent', () => {
@@ -209,10 +221,10 @@ describe('a source the agent reads ahead of its environment', () => {
 describe('an agent whose store outranks the key it was handed, through the runtime', () => {
   const FAKE = fileURLToPath(new URL('./fixtures/fake-acp-agent.mjs', import.meta.url))
 
-  const accountOf = async (version: string | null, store: string | null) => {
+  const build = (version: string | null, store: string | null, broker: string | null = 'sk-from-the-broker') => {
     const home = mkdtempSync(join(dir, 'runtime-home-'))
     if (store !== null) writeFileSync(join(home, '.credentials.yaml'), store)
-    const runtime = new AcpRuntime({
+    return new AcpRuntime({
       id: 'fake-keyed',
       name: 'Fake Keyed Agent',
       command: process.execPath,
@@ -233,19 +245,38 @@ describe('an agent whose store outranks the key it was handed, through the runti
           ],
         },
       ],
-      resolveSecret: () => 'sk-from-the-broker',
+      resolveSecret: () => broker ?? undefined,
     })
+  }
+  const accountsOf = async (runtime: AcpRuntime) =>
+    (await runtime.getAccount()).accounts.map((account) => ({
+      kind: account.kind,
+      planType: account.planType,
+      ...(account.storedCopy ? { storedCopy: true } : {}),
+    }))
+  const accountOf = async (version: string | null, store: string | null) => {
+    const runtime = build(version, store)
     try {
       await runtime.start()
-      return (await runtime.getAccount()).accounts.map((account) => ({ kind: account.kind, planType: account.planType }))
+      return await accountsOf(runtime)
     } finally {
       await runtime.dispose()
     }
   }
   const STORE = 'version: 1\nrefs:\n  DEEPSEEK_API_KEY: sk-in-the-store\n'
 
-  it('names the store as the account on a build that reads it first, not the key HarnessDesk holds', async () => {
-    assert.deepEqual(await accountOf('0.2.1-alpha.3', STORE), [{ kind: 'externalKey', planType: 'its own store' }])
+  it('names the store as the account on a build that reads it first, and says the key HarnessDesk holds is still there to manage', async () => {
+    assert.deepEqual(await accountOf('0.2.1-alpha.3', STORE), [{ kind: 'externalKey', planType: 'its own store', storedCopy: true }])
+  })
+
+  it('names the store without a copy to manage when HarnessDesk holds no key', async () => {
+    const runtime = build('0.2.1-alpha.3', STORE, null)
+    try {
+      await runtime.start()
+      assert.deepEqual(await accountsOf(runtime), [{ kind: 'externalKey', planType: 'its own store' }])
+    } finally {
+      await runtime.dispose()
+    }
   })
 
   it('names the key HarnessDesk holds on a build that reads its environment first', async () => {
@@ -254,5 +285,41 @@ describe('an agent whose store outranks the key it was handed, through the runti
 
   it('names the key HarnessDesk holds when the store has none, on any build', async () => {
     assert.deepEqual(await accountOf('0.2.1-alpha.3', null), [{ kind: 'apiKey', planType: 'API key' }])
+  })
+
+  describe('before the agent has started in this process', () => {
+    it('judges by the version the last process ran, so a cold read agrees with the warm one that follows', async () => {
+      const runtime = build('0.2.1-alpha.3', STORE)
+      try {
+        assert.equal(runtime.launchedVersion, null, 'nothing is known about a runtime nobody has restored or launched')
+        runtime.restoreObservations({ launchedVersion: '0.2.1-alpha.3' })
+        assert.equal(runtime.launchedVersion, '0.2.1-alpha.3')
+        assert.deepEqual(await accountsOf(runtime), [{ kind: 'externalKey', planType: 'its own store', storedCopy: true }])
+      } finally {
+        await runtime.dispose()
+      }
+    })
+
+    it('judges an older remembered build by the older order', async () => {
+      const runtime = build('0.2.1-alpha.3', STORE)
+      try {
+        runtime.restoreObservations({ launchedVersion: '0.2.0-rc.2' })
+        assert.deepEqual(await accountsOf(runtime), [{ kind: 'apiKey', planType: 'API key' }])
+      } finally {
+        await runtime.dispose()
+      }
+    })
+
+    it('gives way to the version that actually launched, and hands it on to be remembered', async () => {
+      const runtime = build('0.2.0-rc.2', STORE)
+      try {
+        runtime.restoreObservations({ launchedVersion: '0.2.1-alpha.3' })
+        await runtime.start()
+        assert.equal(runtime.launchedVersion, '0.2.0-rc.2', 'the process that is running is the one that counts')
+        assert.equal(runtime.observations().launchedVersion, '0.2.0-rc.2')
+      } finally {
+        await runtime.dispose()
+      }
+    })
   })
 })

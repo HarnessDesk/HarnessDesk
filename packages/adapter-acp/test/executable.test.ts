@@ -37,6 +37,10 @@ test('versionAtLeast orders prereleases, which a bare triple comparison cannot',
   assert.equal(versionAtLeast('0.2.0', floor), false)
   assert.equal(versionAtLeast('0.2.0-rc.2', floor), false)
   assert.equal(versionAtLeast('0.1.7-rc.2', floor), false)
+  // Identifier rules that the alpha.3 floor itself does not touch but a later floor would.
+  assert.equal(versionAtLeast('0.2.1-1', floor), false, 'a numeric identifier is older than an alphanumeric one')
+  assert.equal(versionAtLeast('0.2.1-alpha', floor), false, 'a longer prerelease outranks its own prefix, not the other way round')
+  assert.equal(versionAtLeast('0.2.1-alpha.3.1', floor), true)
   // Against a release floor, any prerelease of that release is still short of it.
   assert.equal(versionAtLeast('0.2.1-alpha.3', '0.2.1'), false)
   assert.equal(versionAtLeast('0.2.1', '0.2.1'), true)

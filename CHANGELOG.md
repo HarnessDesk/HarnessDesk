@@ -12,7 +12,9 @@ move is real work and is not news to a person weighing an upgrade.
   hands it, so with both present the account row said "stored here" about a key
   the agent ignored, and the balance was read for the wrong account. The row now
   names the store, and the balance follows it, on those builds; older builds keep
-  the order they always had.
+  the order they always had. The key stored in this window stays there to replace
+  or remove, and the build is remembered between runs so the account and the
+  balance agree from the first read after a restart.
 
 - **Teams opens at once on a busy desk.** The page reads recorded usage only
   for the Teams its open tab shows, with one read of the usage sources for all

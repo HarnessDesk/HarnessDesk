@@ -90,6 +90,14 @@ export interface Account {
    * surface that names accounts uses the agent's own name instead.
    */
   readonly anonymous?: boolean
+  /**
+   * A key account only: the runtime reads this key from somewhere that comes
+   * before HarnessDesk's own, and HarnessDesk also keeps a copy that it is not
+   * using. The surface that offers to replace or remove the stored key needs
+   * this, because the account's kind says where the key being used lives, not
+   * whether there is a copy to manage.
+   */
+  readonly storedCopy?: boolean
 }
 
 /**
@@ -993,6 +1001,12 @@ export interface RuntimeObservations {
     readonly signInFlows?: readonly AuthMethod['flow'][]
   }
   readonly info?: Pick<RuntimeInfo, 'version' | 'capabilities'>
+  /**
+   * The version of the agent process the host last launched. Read before the
+   * agent has started again, so a page that depends on how this build behaves
+   * judges as it will once the agent is up.
+   */
+  readonly launchedVersion?: string
 }
 
 export interface SessionSource {

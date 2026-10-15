@@ -575,7 +575,7 @@ restart leaves the user with no way to get the key in.
 **The key may already be somewhere else.** DeepSeek Harness reads one from its
 environment, from `~/.dsh/.credentials.yaml` — the file its own Models page
 writes — and from two `.env` layers. Which of the environment and that file wins
-depends on the build: the environment through 0.2.0-rc.2, the file from
+depends on the build: the environment through 0.2.1-alpha.2, the file from
 0.2.1-alpha.3 (measured; `docs/decisions.md`). HarnessDesk knowing only its own
 broker meant "Not signed in" about a runtime that ran as expected, and a field
 offered for a key already there. The registry declares those other locations,

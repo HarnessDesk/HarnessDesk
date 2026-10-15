@@ -3094,7 +3094,7 @@ the flip is alpha.3 and nothing earlier. Through HarnessDesk's own runtime
 driving the real alpha.3, a broker key and a different key in the store gave an
 account row of "Stored by HarnessDesk, handed to DeepSeek when it starts" while
 the agent sent the store's key; the balance meter read the broker key's balance
-for the same reason. Both now follow the build that will run.
+for the same reason. Both now follow the build the host last launched.
 
 So a source declares the build it moves on: `AcpSecretSource.outranksEnvFrom`,
 set to `0.2.1-alpha.3` on the store and absent on the `.env` (`known-agents.ts`'s
@@ -3105,8 +3105,26 @@ those read after, by the version the host read when it launched the agent
 (`alpha.3` after `alpha.2`, before `rc.1`, before `0.2.1`), because the existing
 triple comparison cannot tell these two builds apart. A version nobody read keeps
 the older order. Presence detection (`whereSecretLives`) and the DeepSeek
-balance meter use the same split, so what the page says and what the meter asks
-cannot disagree.
+balance meter use the same split, from the same version.
+
+That version is only known once the agent has been launched, so it is also
+remembered between runs (`launchedVersion` in the runtime cache, handed back by
+`restoreObservations`): without it, the first balance read after an app restart
+would use the older order while the account row, restored from the same cache,
+already named the store. A desk that has never launched DeepSeek has nothing
+remembered, so until its first launch both use the older order and then move
+together; a balance read before that is kept for its normal few minutes. A key
+in a row's own `env` is read by the meter and not by the presence check, as it
+was before this change.
+
+*The copy HarnessDesk keeps.* An account's kind says where the key in use
+lives, and until now `externalKey` also meant HarnessDesk held no copy; the
+key dialog's Replace and Remove were drawn only for `apiKey`. With the store
+winning over a key HarnessDesk also holds, that left a copy nobody could
+remove from the interface. The account now carries `storedCopy` in that case
+(the key in use is read ahead of the broker's and the broker holds one), the
+dialog keeps its stored-key controls for it, and the account page says the copy
+"comes before" rather than that there is none.
 
 *Why not make HarnessDesk's key win again.* The only lever is a profile overlay
 that disables the agent's credential store, which is what its one-shot
@@ -3138,7 +3156,8 @@ accepts it. Builds after alpha.3, which may move the order again; the floor is
 the first build measured, not a promise about later ones. A key in a `.env` in
 the folder a conversation runs in, which the agent reads between the
 environment and the home `.env`; HarnessDesk does not look there, as before.
-The key dialog still tells a person with a key in the store that a key stored
-in this window "takes precedence", which stopped being true for the builds above;
-the account row now names the store, but that sentence is the interface's and
-is a separate change.
+The key dialog's sentence that a key stored in this window "takes precedence"
+over one the agent already has is still true of a `.env` and, on the builds that
+read the environment first, of its store; it stopped being true for the builds
+above when the store has a key. The account row now names the store and the
+dialog keeps the copy to manage, but rewording that sentence is a separate change.
