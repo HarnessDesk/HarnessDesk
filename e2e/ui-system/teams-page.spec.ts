@@ -36,9 +36,11 @@ for (const theme of ['light','dark'] as const) {
   }else{
    expect(boxes.every(box=>Math.abs(box.y-boxes[0]!.y)<1 && Math.abs(box.w-boxes[0]!.w)<1)).toBe(true)
    const toolbar=page.locator('[data-slot="teams-board-toolbar"]')
-   const create=(await toolbar.getByRole('button',{name:'New Team',exact:true}).boundingBox())!
+   const create=(await page.locator('[data-page-head]').getByRole('button',{name:'New Team',exact:true}).boundingBox())!
    const search=(await toolbar.getByRole('searchbox',{name:'Search Teams'}).boundingBox())!
-   expect(Math.abs(create.y-search.y)).toBeLessThanOrEqual(2)
+   const title=(await page.getByRole('heading',{name:'Teams',exact:true}).boundingBox())!
+   expect(Math.abs(create.y+create.height/2-title.y-title.height/2)).toBeLessThanOrEqual(2)
+   expect(search.y).toBeGreaterThan(create.y+create.height)
    expect(search.width).toBeCloseTo(240,0)
   }
   await expect(board.locator('[data-team-row]')).toHaveCount(5)

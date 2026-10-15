@@ -4,17 +4,19 @@ import { ShellProvider } from '../panels/views'
 import { TopBarProvider } from '../panels/top-bar'
 import { ShellHostsProvider, ShellOutlets } from '../panels/shell-hosts'
 import { useStore } from '../state/context'
+import { fixedSubject } from '../state/workbench'
 import type { PaneView } from '../state/layout'
 
 /** A synthetic Team uses the production shell, including its independent rail
  * and tool pane. Only its store and embedded viewport belong to the preview. */
-export const TeamFramePreview = ({ room, view }: { room: string; view?: Extract<PaneView, { kind: 'room' }> }) => {
+export const TeamFramePreview = ({ room, view, railOpen = true }: { railOpen?: boolean; room: string; view?: Extract<PaneView, { kind: 'room' }> }) => {
   const store = useStore()
   useState(() => {
     const snapshot = store.getSnapshot()
     const roomView = view ?? { kind: 'room' as const, room }
     const main = { root: { kind: 'pane' as const, id: 'preview-team-main', view: roomView }, focused: 'preview-team-main', expanded: null }
     Object.assign(snapshot, { layout: main, workbench: { ...snapshot.workbench, main,
+      ...(!railOpen ? { frameTools: { ...snapshot.workbench.frameTools, [fixedSubject(main)!]: { tool: 'details', mode: 'details', open: false, railOpen: false } } } : {}),
       navigation: { current: { kind: 'work', view: roomView }, back: [], forward: [] } },
       activeSessionKey: null, sidebarCollapsed: true, sidebarFloating: false })
     return true

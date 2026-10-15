@@ -43,7 +43,7 @@ export const PopupWall = () => {
       default: return null
     }
   })()
-  return <div className="fixed left-(--hd-sidebar-width) top-(--hd-bar-h)">{body}</div>
+  return <div className="fixed z-(--hd-z-drawer) left-(--hd-sidebar-width) top-(--hd-bar-h)">{body}</div>
 }
 
 const PublicationFactsProbe = () => <Publication root="workspace/storefront" item={{ id: itemId('frame-publication'), type: 'publication', reference: {

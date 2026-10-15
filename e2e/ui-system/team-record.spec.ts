@@ -53,19 +53,21 @@ for (const theme of ['light', 'dark'] as const) {
     await expect(cost.getByRole('tab')).toHaveCount(3)
     const measure = await frame.evaluate(el => {
       const box = (node: Element) => node.getBoundingClientRect()
-      const column = el.querySelector('[data-inset="reading"]')!
+      const column = el.querySelector('[data-slot="goal-receipt"]')!.closest('[data-slot="page"]')!
       const summary = el.querySelector('[data-slot="goal-receipt"] [data-section-head]')!
       const cost = el.querySelector('section[aria-label="Cost"]')!
       const heading = cost.querySelector('[data-slot="section-name"]')!
       const title = [...cost.querySelectorAll('[data-slot="key-value-row"] dt')].find(node => node.textContent === 'Alpha')!
       const answer = [...el.querySelectorAll('[data-slot="goal-receipt"] [data-slot="row"]')].find(node => node.textContent?.includes('The change was checked'))!
       return {
-        top: box(summary).top - box(column).top, cost: box(heading).left - box(title).left,
+        headGap: box(summary).top - box(el.querySelector('[data-slot="goal-receipt"]')!).top,
+        top: box(el.querySelector('[data-slot="goal-receipt"]')!).top - box(column).top, cost: box(heading).left - box(title).left,
         answerMark: answer.querySelector('[data-slot="row-mark"]') !== null,
         answerLeft: box(answer.querySelector('[data-slot="member-name"] [data-role="member"]')!).left - box(answer.querySelector('[data-slot="member-description"]')!).left
       }
     })
     expect(measure.top).toBe(24)
+    expect(measure.headGap).toBe(16)
     expect(Math.abs(measure.cost)).toBeLessThan(2)
     expect(measure.answerMark).toBe(false)
     expect(measure.answerLeft).toBe(0)

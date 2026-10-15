@@ -1,4 +1,5 @@
 import { expect, type Page, type Locator } from '@playwright/test'
+import { settleFrameBar } from './frame-actions'
 import { FRAME } from '../../packages/ui/src/design/frame'
 import { B10_NONWORK_DESTINATIONS } from './frame-contract-helpers'
 
@@ -20,6 +21,13 @@ export const expectContentTitle = async (page: Page, bar: Locator): Promise<bool
   return true
 }
 export const expectLead = async (bar: Locator, _width: number, settings: boolean, away: boolean) => {
+  await settleFrameBar(bar)
+  const returnToMain = bar.page().getByRole('button', { name: 'Return to main', exact: true })
+  if (await returnToMain.count()) {
+    await expect(bar.getByRole('button')).toHaveCount(0)
+    await expect(returnToMain).toBeVisible()
+    await returnToMain.click()
+  }
   const page = await bar.page().locator('[data-page-destination]:visible').count() > 0
   const names = !away ? [] : settings || page ? ['Show sidebar'] : ['Show sidebar', 'Back', 'Forward']
   await expect(bar.locator('[data-topbar="lead"]').getByRole('button')).toHaveCount(names.length)

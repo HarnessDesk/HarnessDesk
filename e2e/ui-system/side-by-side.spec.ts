@@ -209,11 +209,12 @@ const pressAndObserveKeydown = async (page: Page, chord: string, code: string) =
     const listener = (event: KeyboardEvent) => {
       if (event.code !== code) return
       const registry = window as unknown as Record<string, { code: string; defaultPrevented: boolean }>
-      registry[marker] = { code: event.code, defaultPrevented: event.defaultPrevented }
-      window.removeEventListener('keydown', listener)
+      setTimeout(() => { registry[marker] = { code: event.code, defaultPrevented: event.defaultPrevented } }, 0)
+      window.removeEventListener('keydown', listener, true)
     }
-    // Window bubble runs after the preview bridge and the document handlers.
-    window.addEventListener('keydown', listener)
+    // Browser tab shortcuts stop propagation at document; capture proves
+    // delivery; defer the receipt until dispatch has set defaultPrevented.
+    window.addEventListener('keydown', listener, true)
   }, { marker, code })
   await page.keyboard.press(chord)
   await expect.poll(() => page.evaluate((key) => {

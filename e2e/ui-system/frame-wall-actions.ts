@@ -1,9 +1,11 @@
+import { closeFloatingTeamRail } from './team-frame-actions'
 import { expect } from '@playwright/test'
 import { applyLeftColumnActions } from './left-column-actions'
 import type { Page } from '@playwright/test'
 export interface WallActions { readonly popup?: string; readonly query?: string }
 /** Popup actions run after the wall's existing destination navigation. */
 export const openWallDestination = async (page: Page, destination: WallActions): Promise<void> => {
+  if (destination.contextInfo || destination.composerModel || destination.composerAdd || destination.infoFocus === 'context') await closeFloatingTeamRail(page.locator('body'))
   if (destination.hover) {
     await page.getByRole('button', { name: destination.hover, exact: true }).hover()
     await page.locator('[data-popup-kind="info-card"]:visible').waitFor()

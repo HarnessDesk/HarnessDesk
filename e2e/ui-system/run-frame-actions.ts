@@ -16,6 +16,8 @@ export const stopRun = (frame: Locator): Locator => frame.locator('[data-slot="w
 
 /** A standalone Run keeps its action in the body; a Team owns it in its title. */
 export const clickStopRun = async (frame: Locator): Promise<void> => {
+  const floating = frame.locator('[data-preview-tool-placement="floating"]')
+  if (await floating.count()) await floating.getByRole('button', { name: 'Close pane', exact: true }).click()
   const direct = stopRun(frame)
   if (await direct.isVisible()) await direct.click()
   else {
