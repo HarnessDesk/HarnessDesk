@@ -623,7 +623,7 @@ const Agent = ({ row, onSelect }: { row: Row; onSelect: (runtime: RuntimeId) => 
   const pending = login?.outcome.type === 'pending'
   const keyProps = {
     runtime: info.id,
-    stored: account?.kind === 'apiKey',
+    stored: account?.kind === 'apiKey' || account?.storedCopy === true,
     ...(account?.kind === 'externalKey' ? { elsewhere: account.planType ?? 'its own configuration' } : {}),
   }
 

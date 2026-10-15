@@ -2245,6 +2245,8 @@ zero-width space is the line's strut), with the mark centred in it; the
 row lays the two out on their first baseline, so the mark sits on the
 middle of the label's first line however many lines the label wraps to and
 whatever box the label is drawn in. `role` is the label's.
+A status mark that carries meaning of its own takes a `label`; decorative
+marks stay hidden from assistive technology.
 
 ### `NavigationGroupHeader`
 
