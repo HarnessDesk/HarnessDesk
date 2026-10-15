@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test'
 import { installFramePreviewFixture } from './frame-preview-fixture'
+import { FRAME } from '../../packages/ui/src/design/frame'
 
 const toolWall = process.env.FRAME_TOOL_WALL_DIR ?? 'output/frame-wall/tool-bodies'
 
@@ -96,7 +97,7 @@ for (const theme of ['light', 'dark'] as const) {
       }
     })
   }
-  test(`B7a actual Details labels and facts share the panel edge in ${theme}`, async ({ page }) => {
+  test(`B7a actual Details labels and facts share the card inset in ${theme}`, async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 })
       await page.emulateMedia({ colorScheme: theme })
     await page.goto(`/preview.html?frame-wall=conversation&theme=${theme}`)
@@ -109,7 +110,8 @@ for (const theme of ['light', 'dark'] as const) {
         const fact = element.querySelector('[data-slot="summary-item"] dt')!
         return [label, fact].map(node => node.getBoundingClientRect().left - element.getBoundingClientRect().left)
       })
-      expect(edges).toEqual([12, 12])
+      // The rail inset and the card's border precede its own row inset.
+      expect(edges).toEqual(Array(2).fill(FRAME.panel.pad + 1 + FRAME.panel.cardPadX))
     }
   })
   test(`B7a terminal carries its actual resource id and synthetic scrollback in ${theme}`, async ({ page }) => {
