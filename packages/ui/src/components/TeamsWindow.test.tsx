@@ -7,27 +7,23 @@ import { TopBarProvider } from '../panels/top-bar'
 import { type TeamFilter } from '../lib/teams-list'
 import { TeamsWindow } from './TeamsWindow'
 import { overviewTeamStore } from '../preview/team-overview-fixture'
-import { goalInsightsFrom } from '../preview/harness'
-import type { FindingRunView, InsightGoalsReport } from '@harnessdesk/protocol'
-import { teamsInput } from '../lib/teams-snapshot'
-import { teamsList } from '../lib/teams-list'
+import type { FindingRunView } from '@harnessdesk/protocol'
 import type { AppStore } from '../state/store'
 
-const drawn=vi.hoisted(()=>({marks:0,pageCommits:0,context:null as import('react').Context<boolean>|null}))
+const drawn=vi.hoisted(()=>({marks:0,context:null as import('react').Context<boolean>|null}))
 vi.mock('./BrandIcons',async original=>{
  const actual=await original<typeof import('./BrandIcons')>()
  const React=await import('react')
  drawn.context??=React.createContext(false)
  return {...actual,RuntimeMark:(props:Parameters<typeof actual.RuntimeMark>[0])=>{if(React.useContext(drawn.context!))drawn.marks+=1;return actual.RuntimeMark(props)}}
 })
-// The shell now owns separate clocks and publications. Measure the actual
-// page subtree so the one-update and time-cell-only contracts keep their scope.
+// Count only marks inside the page when checking the time-cell-only clock.
 vi.mock('../design',async original=>{
  const actual=await original<typeof import('../design')>()
  const React=await import('react')
  drawn.context??=React.createContext(false)
  return {...actual,Page:(props:Parameters<typeof actual.Page>[0])=>React.createElement(drawn.context!.Provider,{value:true},
-  React.createElement(React.Profiler,{id:'teams-page',onRender:()=>{drawn.pageCommits+=1}},React.createElement(actual.Page,props)))}
+  React.createElement(actual.Page,props))}
 })
 const TestPage = ({initialFilter='active',filter:controlled,onFilter:change,onNew=()=>{}}: {initialFilter?:TeamFilter;filter?:TeamFilter;onFilter?:(filter:TeamFilter)=>void;onNew?:()=>void}) => {
  const [filter,setFilter]=useState<TeamFilter>(initialFilter)
@@ -125,8 +121,7 @@ const recorded=async(edit:(snapshot:Snapshot)=>Partial<Snapshot>=()=>({}))=>{
  let snapshot={...base.getSnapshot(),...edit(base.getSnapshot())}
  const listeners=new Set<()=>void>()
  const land=(change:(snapshot:Snapshot)=>Partial<Snapshot>)=>{snapshot={...snapshot,...change(snapshot)};for(const notify of listeners)notify()}
- const answers:((report:InsightGoalsReport)=>void)[]=[]
- const insights=vi.fn((goals:readonly string[])=>new Promise<InsightGoalsReport>(resolve=>answers.push(resolve)))
+ const insights=vi.fn(async()=>({reports:[],failed:[]}))
  const runs=vi.fn(async(_runs:readonly string[])=>{})
  const findings=vi.fn(async(_goal:string,_run:string)=>{})
  const store=new Proxy(base,{get(target,key){
@@ -137,18 +132,24 @@ const recorded=async(edit:(snapshot:Snapshot)=>Partial<Snapshot>=()=>({}))=>{
   if(key==='loadFindingRun')return findings
   return Reflect.get(target,key)
  }}) as AppStore
- return {store,base,insights,answers,runs,findings,land}
+ return {store,base,insights,runs,findings,land}
 }
 
-it('reads shown Teams in one request and publishes the reports in one update',async()=>{
- const {store,base,insights,answers}=await recorded()
- await act(async()=>root.render(<StoreProvider store={store}><PageScope><TestPage/></PageScope></StoreProvider>))
- expect(insights).toHaveBeenCalledOnce()
- expect(insights.mock.calls[0]![0]).toEqual(['team-0','team-1','team-2','team-3','team-4'])
- const reports=await Promise.all(insights.mock.calls[0]![0].map(id=>base.readGoalInsight(id)))
- const commits=drawn.pageCommits
- await act(async()=>answers[0]!({reports,failed:[]}))
- expect(drawn.pageCommits-commits).toBe(1)
+it('filters and refreshes the board without requesting unused usage reports',async()=>{
+ vi.useFakeTimers({toFake:['Date','setInterval','clearInterval']})
+ try {
+  const {store,insights,land}=await recorded()
+  await act(async()=>root.render(<StoreProvider store={store}><PageScope><TestPage/></PageScope></StoreProvider>))
+  const search=container.querySelector<HTMLInputElement>('input[aria-label="Search Teams"]')!
+  for(const value of ['r','re','rev',''])await act(async()=>{
+   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(search,value)
+   search.dispatchEvent(new Event('input',{bubbles:true}))
+  })
+  await act(async()=>land(snapshot=>({teams:new Map([...snapshot.teams].map(([id,team])=>[id,{...team,intents:team.intents.map(card=>({...card,state:'done' as const}))}]))})))
+  await act(async()=>button('Wrapped').click())
+  await act(async()=>vi.advanceTimersByTimeAsync(60_000))
+  expect(insights).not.toHaveBeenCalled()
+ } finally {act(()=>root.render(null));vi.useRealTimers()}
 })
 
 it('reads a wrapped Team\'s Run once its row is shown, and never its review',async()=>{
@@ -249,7 +250,7 @@ it('says time in a state in hours and days, and only the time cells follow a min
  vi.useFakeTimers({toFake:['Date','setInterval','clearInterval']})
  try {
   const now=Date.now()
-  const {store,answers}=await recorded(snapshot=>{
+  const {store}=await recorded(snapshot=>{
    const flowExecutions=new Map(snapshot.flowExecutions)
    for(const [run,endedAt] of [['team-3-run',now-63*3_600_000],['team-4-run',now-5*3_600_000-20*60_000]] as const)flowExecutions.set(run,{...flowExecutions.get(run)!,startedAt:endedAt,endedAt})
   const goals=new Map(snapshot.goals)
@@ -257,7 +258,6 @@ it('says time in a state in hours and days, and only the time cells follow a min
   return {flowExecutions,goals}
   })
   await act(async()=>root.render(<StoreProvider store={store}><PageScope><TestPage/></PageScope></StoreProvider>))
-  await act(async()=>answers[0]!({reports:[],failed:[]}))
   const time=(id:string)=>container.querySelector(`[data-team-row="${id}"] [data-slot="team-age"]`)!.textContent
   expect([time('team-3'),time('team-4')]).toEqual(['3d','5h'])
   const before=time('team-2'); const marks=drawn.marks
@@ -280,18 +280,18 @@ it('keeps New Team, project scope and search in the first body row',async()=>{
  expect(first.querySelector('input[aria-label="Search Teams"]')).not.toBeNull()
 })
 
-it('E5 retained inactive Teams stops usage reads and retry timers',async()=>{
+it('E5 retained inactive Teams stops retry timers',async()=>{
  vi.useFakeTimers()
  try {
   const {store,insights,runs,findings,land}=await recorded(snapshot=>{const flowExecutions=new Map(snapshot.flowExecutions);flowExecutions.delete('team-0-run');return {flowExecutions}})
   runs.mockRejectedValue(new Error('Run unavailable'));findings.mockRejectedValue(new Error('Review unavailable'))
   const render=(active:boolean)=>root.render(<StoreProvider store={store}><PageScope><DestinationPageScope owner="destination:teams" active={active}><TestPage/></DestinationPageScope></PageScope></StoreProvider>)
   await act(async()=>render(true))
-  expect(insights).toHaveBeenCalledOnce()
+  expect(insights).not.toHaveBeenCalled()
   await act(async()=>render(false))
   await act(async()=>vi.advanceTimersByTimeAsync(60_000))
   await act(async()=>land(snapshot=>({goals:new Map(snapshot.goals)})))
-  expect(insights).toHaveBeenCalledOnce();expect(runs).toHaveBeenCalledOnce()
+  expect(insights).not.toHaveBeenCalled();expect(runs).toHaveBeenCalledOnce()
   expect(findings).toHaveBeenCalledTimes(4)
  } finally {act(()=>root.render(null));vi.useRealTimers()}
 })

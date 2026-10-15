@@ -1,5 +1,4 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { INSIGHT_GOALS_LIMIT, type InsightGoalsReport, type InsightReport } from '@harnessdesk/protocol'
 import { useSnapshot, useStore } from '../state/context'
 import { RuntimeMark } from './BrandIcons'
 import { teamSeats, hasConversation } from '../lib/team-seats'
@@ -44,7 +43,6 @@ const MinuteClock = ({children}: {children: ReactNode}) => {
  return <MinuteNow.Provider value={now}>{children}</MinuteNow.Provider>
 }
 const StateTime = ({since}: {since: number | null}) => <>{stateTime(since,useContext(MinuteNow))}</>
-const parts = <T,>(items: readonly T[], size: number): T[][] => Array.from({length:Math.ceil(items.length/size)},(_,index)=>items.slice(index*size,(index+1)*size))
 /** Successful reads stay read; refusals get two delayed retries during this opening. */
 const useReadOnce = (scope: string, read: (keys: readonly string[]) => Promise<readonly string[]>) => {
  const reads=useRef({pending:new Set<string>(),waiting:new Set<string>(),done:new Set<string>(),attempts:new Map<string,number>()})
@@ -84,13 +82,11 @@ const useReadOnce = (scope: string, read: (keys: readonly string[]) => Promise<r
 interface TeamsPageProps { readonly filter: TeamFilter; readonly onFilter: (filter: TeamFilter) => void; readonly onNew: () => void }
 export const TeamsWindow = (props: TeamsPageProps) => <TeamsList {...props} />
 const TeamsList = ({onNew}: TeamsPageProps) => {
- const active=useDestinationActive()
  const store=useStore(); const snapshot=useSnapshot()
  const [expanded,setExpanded]=useState(false)
  const [project,setProject]=useState('')
  const [search,setSearch]=useState('')
- const [reports,setReports]=useState<ReadonlyMap<string,InsightReport>>(new Map())
- const inputs=useMemo(()=>teamsInput(snapshot,reports),[snapshot,reports])
+ const inputs=useMemo(()=>teamsInput(snapshot),[snapshot])
  const marks=useMemo(()=>new Map(inputs.flatMap(input=>teamSeats(input.goal,input.team,input.execution).filter(hasConversation).map(seat=>[seat.record.id,snapshot.runtimes.find(runtime=>runtime.id===seat.record.session.runtime)] as const))),[inputs,snapshot.runtimes])
  const items=useMemo(()=>inputs.map(input=>teamBoardItem(input,snapshot.teamsPrefs)),[inputs,snapshot.teamsPrefs])
  const projects=useMemo(()=>[...new Set(inputs.map(input=>input.team.root))].sort().map(id=>({id,label:folderName(id)})),[inputs])
@@ -106,33 +102,6 @@ const TeamsList = ({onNew}: TeamsPageProps) => {
  const shown=useMemo(()=>matching.filter(item=>item.row.state!=='wrapped'||expanded).map(item=>item.row),[matching,expanded])
  const text=useMemo(()=>new Map(shown.map(row=>[row.id,rowWords(row)])),[shown])
  const shownIds=useMemo(()=>new Set(shown.map(row=>row.id)),[shown])
- // Read usage for the cards the filtered board shows, on opening it, after one of
- // their cards completes, and once a minute while a Run goes on: one request
- // per project batch, one state update per read. Failed reads clear their old
- // value rather than promise zero.
- const usageScope=[...shownIds].filter(id=>snapshot.goals.has(id)).sort().join('\0')
- const closed=[...snapshot.teams.values()].filter(team=>shownIds.has(team.id)).flatMap(team=>team.intents.filter(card=>card.state==='done').map(card=>`${team.id}:${card.id}`)).sort().join('\0')
- const running=[...snapshot.flowExecutions.values()].some(run=>run.state==='running')
- useEffect(()=>{
-  if(!active)return
-  let live=true
-  const ids=usageScope.split('\0').filter(Boolean)
-  const read=async()=>{
-   if(!ids.length)return
-   const answers=await Promise.all(parts(ids,INSIGHT_GOALS_LIMIT).map(goals=>store.readGoalInsights(goals).catch(():InsightGoalsReport=>({reports:[],failed:goals}))))
-   if(!live)return
-   setReports(current=>{
-    const next=new Map(current)
-    for(const answer of answers){
-     for(const report of answer.reports)if(report.goal!==null)next.set(report.goal,report)
-     for(const id of answer.failed)next.delete(id)
-    }
-    return next
-   })
-  }
-  void read(); const timer=running?window.setInterval(read,60_000):null
-  return()=>{live=false;if(timer!==null)window.clearInterval(timer)}
- },[store,usageScope,closed,running,active])
  // A Run and its review can move a Team into Needs you, so both are read for
  // every Team that is not wrapped. A wrapped Team's Run is read once its row
  // is shown, for its faces, and its review never: nothing on a wrapped row

@@ -471,10 +471,9 @@ Read marks still bind to the observed Team change in machine preferences;
 usage refreshes do not count as a new revision. This implements the owner's
 approved D3 board in [#1657](https://github.com/HarnessDesk/HarnessDesk/issues/1657).
 
-The page reads what its filtered board shows. Usage is asked for in one
-`insight/goals` request that reads the usage sources once for every project in
-it and attributes them per Team, and lands in one update. A Run and its review
-are read for every Team that is not wrapped, because either can move a Team
+The board shows no usage totals, so it requests no usage reports on opening,
+filtering or refresh. A Run and its review are read for every Team that is not
+wrapped, because either can move a Team
 into Needs you. A wrapped Team's Run is read once its group is unfolded, for its
 faces, and its review never: nothing on a wrapped card follows one, so its read
 mark leaves the review out too. Successful reads are kept while the page is

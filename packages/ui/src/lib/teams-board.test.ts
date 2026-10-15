@@ -34,6 +34,22 @@ it('keeps a stopped Run in Needs you when its unread messages mask the stopped r
  expect(teamBoardItem({...one,execution:{...one.execution!,state:'stopped'}}).column).toBe('needs-you')
 })
 
+it('keeps wrapping Teams Working with a wrapping summary despite unread output or a stopped Run', () => {
+ const one=input('unread')
+ for(const state of ['running','stopped'] as const){
+  const wrapping={...one,goal:{...PREVIEW_GOAL,goal:{...PREVIEW_GOAL.goal,state:'wrapping' as const}},execution:{...one.execution!,state}}
+  expect(teamBoardItem(wrapping)).toMatchObject({column:'working',summary:'Wrapping'})
+ }
+})
+
+it('uses one complete fallback for quiet and follow-up work', () => {
+ const quiet=input()
+ expect(teamBoardItem(quiet).summary).toBe(quiet.overview.run ? teamListRow(quiet).detail : 'Waiting for work')
+ const done=input('done')
+ const followup={...done,team:{...done.team,intents:[{...done.team.intents[0]!,state:'open' as const}]}}
+ expect(teamBoardItem(followup).summary).toBe(teamListRow(followup).detail)
+})
+
 it('keeps follow-up work Working after its Run settles and never hides ready work', () => {
  const done = input('done')
  const followup = {...done, team:{...done.team,intents:[{...done.team.intents[0]!,state:'open' as const}]}}
