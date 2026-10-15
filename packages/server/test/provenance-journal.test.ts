@@ -223,3 +223,19 @@ test('health keeps off and fatal precedence, fixed copy, and historical gaps', (
   assert.equal(health({ fatal: true, issues: ['folder-unavailable'] }).reason, "This project's folder is unavailable.")
   assert.doesNotMatch(health({ fatal: true, issues: ['/outside/private text'] }).reason, /private/)
 })
+
+test('health presents historical gaps ahead of skipped local evidence with the existing repair guidance', () => {
+  const combinations = [
+    { gaps: 1, issues: ['evidence-skipped'] },
+    { gaps: 0, issues: ['history-gap', 'evidence-skipped'] },
+    { gaps: 0, issues: ['evidence-skipped', 'history-gap'] },
+  ]
+  for (const combination of combinations) {
+    const value = health(combination)
+    assert.equal(value.state, 'degraded')
+    assert.equal(value.reason, 'Some history was unavailable when capture resumed.')
+    assert.equal(value.nextStep, 'Retry if the repository has been repaired; those changes may stay unattributed.')
+    assert.equal(value.enabled, true)
+    assert.equal(value.gaps, combination.gaps)
+  }
+})

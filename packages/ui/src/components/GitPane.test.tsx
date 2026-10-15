@@ -325,6 +325,42 @@ it('offers a provenance retry when the selected batch and detail read both fail'
   expect([...detail.querySelectorAll('button')].some((item) => item.textContent === 'Retry provenance')).toBe(true)
 })
 
+it('recovers selected provenance detail and its historical Seat action when retry succeeds', async () => {
+  const sha = 'aaaa1111111'
+  const recovered = {
+    sha, state: 'attributed' as const, coverage: 'complete' as const,
+    seats: [{ id: 'seat-retried', agentName: 'Contributor 1', runtime: 'fixture', seatLabel: 'Recorded contributor', session: { runtime: 'fixture', sessionId: 'original-session' } }],
+    via: 'observed' as const, reason: null, explanation: 'Recovered local observation.', evidenceIds: [], cards: [], observedAt: 1,
+  }
+  const { store } = await mount({
+    log: [commit(sha, 'tip')],
+    provenanceReads: [new Error('offline'), new Error('offline'), [recovered]],
+  })
+  const row = container.querySelector<HTMLElement>('[role="row"][aria-selected]')!
+  await act(async () => row.click())
+  const detail = container.querySelector<HTMLElement>('section[aria-label="Commit provenance"]')!
+  expect(detail.textContent).toContain('Provenance could not be read.')
+  const retry = [...detail.querySelectorAll('button')].find(item => item.textContent === 'Retry provenance')!
+
+  await act(async () => retry.click())
+
+  expect(store.readProvenance).toHaveBeenCalledTimes(3)
+  expect(store.readProvenance).toHaveBeenLastCalledWith('/repo/app', [sha])
+  expect(row.getAttribute('aria-selected')).toBe('true')
+  expect(detail.textContent).toContain('Associated Seat')
+  expect(detail.textContent).toContain('Recovered local observation.')
+  expect(detail.textContent).toContain('Contributor 1')
+  expect(detail.textContent).toContain('Recorded contributor')
+  expect(detail.textContent).not.toContain('Provenance could not be read.')
+  expect(detail.textContent).not.toContain('Reading provenance…')
+  expect(detail.textContent).not.toContain('Retry provenance')
+  // Retrying detail leaves the independently failed history batch intact.
+  expect(container.textContent).toContain('Provenance could not be read.')
+  const seatRecord = [...detail.querySelectorAll('button')].find(item => item.textContent === 'Seat record')!
+  await act(async () => seatRecord.click())
+  expect(store.readProvenanceSeat).toHaveBeenCalledWith('/repo/app', 'seat-retried')
+})
+
 it('puts the history provenance retry outside its warning sentence and recovers', async () => {
   await mount({ log: [commit('aaaa1111111', 'tip')], provenanceReads: [new Error('offline')] })
   const note = [...container.querySelectorAll('[data-slot="note"]')].find(node => node.textContent?.includes('Provenance could not be read.'))!
