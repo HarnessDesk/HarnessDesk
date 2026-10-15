@@ -382,8 +382,8 @@ export const AppearanceSection = () => {
           desc="Agents and people, wherever they appear. Accounts keep their ring."
           control={
             <PageOptions choices={[{id:"Faces",label:"Faces",value:snapshot.faces,items:[
-                { value: 'square', label: 'Square' },
                 { value: 'round', label: 'Round' },
+                { value: 'square', label: 'Square' },
               ],change:next => store.setFaces((next as typeof snapshot.faces))}]}/>
           }
         />
