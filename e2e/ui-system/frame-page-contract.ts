@@ -1,3 +1,4 @@
+import { expectTitleRoom } from './title-contract'
 import { expect, type Page } from '@playwright/test'
 import { installFramePreviewFixture } from './frame-preview-fixture'
 import { FRAME } from '../../packages/ui/src/design/frame'
@@ -50,7 +51,7 @@ export const measureDestination = async (page: Page, query: string, widthKind: '
     expect(titleStyle.size).toBe(14)
     expect(titleStyle.weight).toBe('400')
     expect(titleStyle.family).toContain('Geist')
-    expect((await title.boundingBox())!.width).toBeGreaterThanOrEqual(FRAME.bar.titleMin - 1)
+    await expectTitleRoom(title)
     if (actions.more !== 'absent') {
       const moreBox = (await more.boundingBox())!
       expect(Math.abs(moreBox.x + moreBox.width - (width - FRAME.bar.pad))).toBeLessThanOrEqual(1)

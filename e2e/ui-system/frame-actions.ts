@@ -1,5 +1,5 @@
+import { expectTitleRoom } from './title-contract'
 import { expect, type Locator, type Page } from '@playwright/test'
-import { FRAME } from '../../packages/ui/src/design/frame'
 export interface FrameActions {
   readonly inspectFirst?: boolean
   readonly tab?: string
@@ -24,7 +24,7 @@ export const settleFrameBar = async (bar: Locator): Promise<void> => {
 }
 export const selectFrameTab = async (page: Page, value: string): Promise<void> => {
   const bar = page.locator('[data-slot="top-bar"]:visible').first()
-  await expect.poll(async () => (await bar.locator('[data-topbar-title]').boundingBox())?.width ?? 0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+  await expectTitleRoom(bar.locator('[data-topbar-title]'))
   await settleFrameBar(bar)
   const visibleTab = bar.locator(`[data-team-page="${value}"]:visible`)
   if (await visibleTab.count()) {

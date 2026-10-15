@@ -20,7 +20,8 @@ beforeEach(() => {
   vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockImplementation(function(this:HTMLElement) {
     const row = this.closest('[data-slot="top-bar"]'), fold = Number(row?.getAttribute('data-fold'))
     const parents = row?.querySelectorAll('[data-topbar="place"] button').length ?? 0
-    if (this.matches('[data-topbar-title]')) return new DOMRect(0,0,budgetOnly ? 200 : constrained && (parents>1 || worded && fold<3) ? 80 : 200,40)
+    // Keep the natural title separate from the flex-constrained allocation.
+    if (this.matches('[data-topbar-title]')) return new DOMRect(0,0,this.style.flexShrink === '0' || budgetOnly ? 200 : constrained && (parents>1 || worded && fold<3) ? 80 : 200,40)
     if (this.matches('[data-topbar="place"]')) return new DOMRect(0,0,budgetOnly ? 360 : 720,40)
     if (this.matches('[data-topbar-mark]')) return new DOMRect(0,0,16,16)
     if (this.matches('button')) return new DOMRect(0,0,60,28)

@@ -1,6 +1,6 @@
+import { expectTitleRoom } from './title-contract'
 import { runBar, selectRunView, stopRun } from './run-frame-actions'
 import { expect, test } from '@playwright/test'
-import { FRAME } from '../../packages/ui/src/design/frame'
 import { selectTeamPage, teamBar, teamSeats } from './team-frame-actions'
 
 for (const theme of ['light', 'dark'] as const) {
@@ -78,7 +78,7 @@ for (const theme of ['light', 'dark'] as const) {
     ] as const
     for (const width of [1440, 720, 1440]) {
       await page.setViewportSize({ width, height: 900 })
-      await expect.poll(async()=>(await header.locator('[data-topbar-title]').boundingBox())?.width??0).toBeGreaterThanOrEqual(FRAME.bar.titleMin)
+      await expectTitleRoom(header.locator('[data-topbar-title]'))
       const folded=await header.getAttribute('data-fold')==='2'
       if(folded) await header.getByTitle('Destination views',{exact:true}).click()
       for (const [value,label,count] of tabs) {

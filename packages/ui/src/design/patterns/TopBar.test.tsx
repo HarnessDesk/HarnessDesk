@@ -21,6 +21,7 @@ let root: Root
 let frames: Map<number, FrameRequestCallback>
 let nextFrame: number
 let availableTitle: number
+let intrinsicTitle: number
 let resizeCallbacks: (() => void)[]
 let measuredStages: number[]
 
@@ -41,6 +42,7 @@ beforeEach(() => {
   frames = new Map()
   nextFrame = 0
   availableTitle = 200
+  intrinsicTitle = 400
   measuredStages = []
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
     const id = ++nextFrame
@@ -69,9 +71,15 @@ beforeEach(() => {
       const stage = Number(this.closest('[data-slot="top-bar"]')!.getAttribute('data-fold'))
       if (stage !== measuredStages.at(-1)) measuredStages.push(stage)
     }
-    const width = this.matches('[data-topbar-title], [data-topbar="place"]') ? titleWidth(this.closest('[data-slot="top-bar"]')!)
+    const width = this.matches('[data-topbar-title]') && (this as HTMLElement).style.flexShrink === '0' ? intrinsicTitle
+      : this.matches('[data-topbar-title], [data-topbar="place"]') ? Math.min(intrinsicTitle, titleWidth(this.closest('[data-slot="top-bar"]')!))
       : this.matches('[data-slot="top-bar"]') ? 720 : 0
     return new DOMRect(0, 0, width, 40)
+  })
+  // A clipped flex child need not overflow its wrapper. scrollWidth then
+  // reports the rounded allocated box, rather than the title's natural width.
+  vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function (this: HTMLElement) {
+    return Math.round(this.getBoundingClientRect().width)
   })
   container = document.createElement('div')
   document.body.append(container)
@@ -353,6 +361,7 @@ test('a subject with verbs makes its title the menu button', () => {
   const title = container.querySelector<HTMLElement>('[data-topbar-title]')!
   expect(title.getAttribute('title')).toBe('Retry the checkout call. Keep the wait under ten seconds.')
   const trigger = title.querySelector<HTMLButtonElement>('button')!
+  expect(trigger.getAttribute('title')).toBe('Retry the checkout call. Keep the wait under ten seconds.')
   expect(trigger.querySelector('[data-topbar-place-menu]')?.textContent).toContain('Retry the checkout call')
   act(() => trigger.click())
   act(() => [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(one => one.textContent?.includes('Rename'))!.click())
@@ -360,13 +369,27 @@ test('a subject with verbs makes its title the menu button', () => {
 })
 
 test('a title shorter than the floor needs only its own words, not a fold', () => {
-  vi.spyOn(HTMLElement.prototype, 'scrollWidth', 'get').mockImplementation(function (this: HTMLElement) {
-    return this.matches('[data-topbar-title]') ? 60 : 0
-  })
+  intrinsicTitle = 60
   availableTitle = 90
   render({ place: 'Library' })
   expect(container.querySelector('[data-slot="top-bar"]')!.getAttribute('data-fold')).toBe('0')
   expect(container.querySelector('[role="tablist"]')).not.toBeNull()
+})
+
+test('a clipped long title folds even when its wrapper has no scroll overflow', () => {
+  availableTitle = 96
+  render({})
+  expectFloor(2)
+})
+
+test('a fitting fractional short title keeps its state, tabs and verb', () => {
+  intrinsicTitle = 47.6
+  availableTitle = 47.6
+  render({ place: 'Library' })
+  expect(container.querySelector('[data-slot="top-bar"]')!.getAttribute('data-fold')).toBe('0')
+  expect(container.querySelector('[data-topbar="state"]')).not.toBeNull()
+  expect(container.querySelector('[role="tablist"]')).not.toBeNull()
+  expect(container.querySelector('[data-topbar="verb"]')!.textContent).toBe('New job')
 })
 
 test('destination tabs use the quiet switcher look', () => {

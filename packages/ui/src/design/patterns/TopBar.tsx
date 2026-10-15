@@ -130,6 +130,13 @@ export const TopBar = (props: TopBarProps) => {
     const node = root.current
     if (!node || fold !== measuredFold.current) return
     const title = place.current
+    // Measure without flex clipping, including the current state/menu chrome.
+    // scrollWidth on this wrapper only sees the already ellipsized child and
+    // rounds short titles to whole pixels. Restore before reading live room.
+    const shrink = title?.style.flexShrink ?? ''
+    if (title) title.style.flexShrink = '0'
+    const intrinsicWidth = title?.getBoundingClientRect().width ?? 0
+    if (title) title.style.flexShrink = shrink
     const parent = title?.parentElement
     const siblings = parent ? [...parent.children].filter(child => child !== title) : []
     const gap = Number.parseFloat(getComputedStyle(node).getPropertyValue('--hd-bar-gap')) || 0
@@ -138,8 +145,8 @@ export const TopBar = (props: TopBarProps) => {
       (parent?.getBoundingClientRect().width ?? title.getBoundingClientRect().width) - occupied) : 0
     // A title shorter than the floor needs only its own words.
     const titleMin = Math.min(Number.parseFloat(getComputedStyle(node).getPropertyValue('--hd-bar-title-min')),
-      title?.scrollWidth || Number.POSITIVE_INFINITY)
-    if (width >= titleMin || fold === 3 || (fold === 2 && (!props.verb || props.verb.icon))) {
+      intrinsicWidth)
+    if (width + 0.01 >= titleMin || fold === 3 || (fold === 2 && (!props.verb || props.verb.icon))) {
       setSettledFold(fold)
       return
     }
@@ -173,7 +180,7 @@ export const TopBar = (props: TopBarProps) => {
         {shownParents.map((one, index) => <Button key={`${index}:${one.label}`} className="hd-no-drag" variant="link" size="inline-link" onClick={one.run}>{one.label} ›</Button>)}
         {props.mark && <span data-topbar-mark className={styles.fixed}>{props.mark}</span>}
         <div ref={place} data-topbar-title className={styles.title} title={props.placeTitle}>
-          {props.placeMenu ? <Popover title="Subject" triggerVariant={{ variant: 'ghost', size: 'sm' }} icons="all"
+          {props.placeMenu ? <Popover title={props.placeTitle} triggerVariant={{ variant: 'ghost', size: 'sm' }} icons="all"
             label={<span data-topbar-place-menu className={styles.placeMenu}><Text role="subject" truncate>{props.place}</Text><CaretIcon /></span>}>
             {close => <Menu close={close}>{props.placeMenu?.(close)}</Menu>}
           </Popover> : <Text role="subject" truncate>{props.place}</Text>}
