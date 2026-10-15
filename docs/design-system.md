@@ -878,9 +878,9 @@ having written the judgement down.
 
 ### `one step`
 
-**Use** — A destination is named once by its permanent top bar, using the subject step: 14px medium. The wordmark keeps its own type role.
+**Use** — A destination is named once by its permanent top bar, using the subject step: 14px medium. Settings uses a visible h1 in the page role above its description instead; its bar has no title. The wordmark keeps its own type role.
 
-**Not** — A second title block in the page body, or another type size for a detail destination.
+**Not** — Repeating a destination title in both its bar and page body, or another type size for a detail destination.
 
 **Why** — A retained destination shares the same shell and title position as work. Its content starts at the Page gutter.
 

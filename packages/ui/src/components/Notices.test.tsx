@@ -1058,3 +1058,57 @@ it('the toaster consumes results only, never quiet runtime information', () => {
   act(() => root.render(<StoreProvider store={store}><Notices /></StoreProvider>))
   expect(showToast).not.toHaveBeenCalled()
 })
+
+
+it.each(['composer', 'strip'] as const)('restores the %s sign-in notice when Editor hides the empty conversation', surface => {
+  const key = sessionKey('a' as never, 's1' as never)
+  const base = emptyWorkbench()
+  const view = { kind: 'conversation' as const, session: key }
+  const main = { ...base.main, root: { kind: 'pane' as const, id: 'p1', view }, focused: 'p1' }
+  const subject = fixedSubject(main)!
+  const workbench: Workbench = { ...base, main,
+    navigation: { current: { kind: 'work', view }, back: [], forward: [] },
+    frameTools: { [subject]: { tool: 'details', mode: 'details', open: true } },
+  }
+  const session = { id: 's1', runtime: 'a', cwd: '/workspace', createdAt: 1, updatedAt: 1, itemsLoaded: true, turns: [] } as unknown as import('@harnessdesk/protocol').Session
+  const store = makeStore({
+    workbench, layout: main, windowMode: 'editor', sessions: new Map([[key, session]]),
+    noticePolicy: withSurface(emptyNoticePolicy(), 'agent:signin', surface),
+    account: { accounts: [], signInMethods: [{ id: 'browser', label: 'Sign in', flow: 'browser' }] },
+  })
+  const onSignIn = vi.fn()
+  act(() => root.render(<StoreProvider store={store}>
+    <ShellProvider actions={{ chooseProject: () => {}, signIn: onSignIn, openUsage: () => {}, openRuntimes: () => {}, openAgents: () => {}, reviewImports: () => {} }}>
+      <ComposerMountsProvider><NoticeStripFallback area="main" /></ComposerMountsProvider>
+    </ShellProvider>
+  </StoreProvider>))
+  const signIn = () => [...container.querySelectorAll('button')].filter(one => one.textContent === 'Sign in')
+  expect(signIn()).toHaveLength(1)
+  act(() => signIn()[0]!.click())
+  expect(onSignIn).toHaveBeenCalledOnce()
+  act(() => store.patch({ workbench: { ...workbench, frameTools: { [subject]: { tool: 'conversation', mode: 'conversation', open: true } } } }))
+  expect(signIn()).toHaveLength(0)
+  act(() => store.patch({ workbench: { ...workbench, frameTools: { [subject]: { tool: 'conversation', mode: 'conversation', open: false } } } }))
+  expect(signIn()).toHaveLength(1)
+  act(() => store.patch({ windowMode: 'conversation' }))
+  expect(signIn()).toHaveLength(0)
+})
+
+it('leaves sign-in to the empty conversation page, but keeps it for a transcript', () => {
+  const key = sessionKey('a' as never, 's1' as never)
+  const store = makeStore({ account: { accounts: [], signInMethods: [{ id: 'browser', label: 'Sign in', flow: 'browser' }] } })
+  act(() => root.render(<StoreProvider store={store}>
+    <PaneProvider scope={{ paneId: 'p1', view: { kind: 'conversation', session: null }, sessionKey: null }}>
+      <StatusBanner onSignIn={() => {}} />
+    </PaneProvider>
+  </StoreProvider>))
+  expect(container.textContent).not.toContain('is not signed in')
+  const session = { id: 's1', runtime: 'a', cwd: '/workspace', createdAt: 1, updatedAt: 2, itemsLoaded: true, turns: [{ id: 't1', status: 'completed', items: [] }] } as unknown as import('@harnessdesk/protocol').Session
+  act(() => store.patch({ sessions: new Map([[key, session]]) }))
+  act(() => root.render(<StoreProvider store={store}>
+    <PaneProvider scope={{ paneId: 'p1', view: { kind: 'conversation', session: key }, sessionKey: key }}>
+      <StatusBanner onSignIn={() => {}} />
+    </PaneProvider>
+  </StoreProvider>))
+  expect(container.textContent).toContain('is not signed in')
+})

@@ -670,7 +670,8 @@ const flowPolicyRoleValidator: Validator<FlowPolicyRole> = (value, path = '') =>
     return { id, kind: 'check', check: flowCheckValidator(record['check'], `${path}.check`) } as FlowPolicyRole
   }
   if (kind === 'person') {
-    return { id, kind: 'person', outcomes: flowWordList(64, atMost(200, isFilled))(record['outcomes'], `${path}.outcomes`) } as FlowPolicyRole
+    const review = optional(isBoolean)(record['review'], `${path}.review`)
+    return { id, kind: 'person', outcomes: flowWordList(64, atMost(200, isFilled))(record['outcomes'], `${path}.outcomes`), ...(review === undefined ? {} : { review }) } as FlowPolicyRole
   }
   throw new ValidationError(`${path}.kind`, 'expected agent, check or person')
 }
@@ -1095,6 +1096,7 @@ const paramsValidators: Record<HostMethodName, Validator<unknown>> = {
     value: optionValueValidator,
   }),
   'session/rollback': shape({ runtime: isString, sessionId: isString, turns: isNumber }),
+  'session/turnCommit': shape({ runtime: isString, sessionId: isString, turnId: isString }),
   'session/revertTurn': shape({
     runtime: isString,
     sessionId: isString,

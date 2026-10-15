@@ -33,8 +33,13 @@ export interface CoverageEntry {
   readonly exports: ModuleNamespace
 }
 
-/** Icon components are a flat façade over lucide (rule 11): drawing every one somewhere is not what this gate is for. */
-const isIconName = (name: string): boolean => name.endsWith('Icon') || name.endsWith('Icons')
+/**
+ * Icon components are a flat façade over lucide (rule 11): drawing every one
+ * somewhere is not what this gate is for. A `…Glyph` is the animated drawing
+ * behind one of those icons, mounted only once a pointer reaches its control,
+ * so it is excused the same way.
+ */
+const isIconName = (name: string): boolean => name.endsWith('Icon') || name.endsWith('Icons') || name.endsWith('Glyph')
 
 /** The inventory's rule for an export that renders a visible component. */
 export const isVisualComponentExport = (name: string, value: unknown): boolean => {

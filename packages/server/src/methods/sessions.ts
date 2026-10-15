@@ -401,11 +401,26 @@ export const sessionMethods = {
     return null
   },
 
+  'session/turnCommit': async (ctx, params) => {
+    const runtime = ctx.runtimes.resolve(params).info.id
+    const id = makeSessionId(params.sessionId)
+    const live = ctx.registry.get(runtime, id)?.session
+    // Body retention is independent of runtime handles. Read the host's copy
+    // without admitting the session or starting its agent just to check Git.
+    const session = live?.turns.some((entry) => entry.id === params.turnId)
+      ? live : await ctx.transcripts.recover(runtime, id)
+    const turn = session?.turns.find((entry) => entry.id === params.turnId)
+    return { sha: session && turn ? await gitOps.turnCommit(session.cwd, turn) : null }
+  },
+
   'session/revertTurn': async (ctx, params) => {
     const record = ctx.registry.get(ctx.runtimes.resolve(params).info.id, makeSessionId(params.sessionId))
     const turn = record?.session.turns.find((entry) => entry.id === params.turnId)
     if (!record || !turn) throw new Error('That turn is not loaded; open the conversation first.')
     const direction = params.direction ?? 'undo'
+    if (direction === 'undo' && await gitOps.turnCommit(record.session.cwd, turn)) {
+      throw new Error('These edits are committed. Undo the commit in the Repository pane.')
+    }
     const { files, skipped } = await gitOps.applyTurn(record.session.cwd, turn, direction, {
       ...(params.skipUnrecoverable ? { skipUnrecoverable: true } : {}),
     })

@@ -1,6 +1,6 @@
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
-import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { Account, AccountStatus, RuntimeInfo } from '@harnessdesk/protocol'
 
@@ -375,7 +375,7 @@ it('keeps offering to replace or remove the key HarnessDesk holds while the agen
   await mount({
     accountsByRuntime: {
       codex: {
-        accounts: [{ kind: 'externalKey', label: 'Codex API key', planType: 'its own store', storedCopy: true }],
+        accounts: [{ kind: 'externalKey', label: 'Codex API key', planType: 'its own store', storedCopy: true, outranksHandedKey: true }],
         signInMethods: [{ id: 'key', flow: 'apiKey', label: 'API key', keyLabel: 'Codex API key' }],
       },
     },
@@ -385,6 +385,58 @@ it('keeps offering to replace or remove the key HarnessDesk holds while the agen
   expect(buttons).toContain('Replace')
   expect(buttons).toContain('Remove')
   expect(detail().querySelector('input[type="password"]')).toBeNull()
+})
+
+describe('what the key dialog says about a key the agent already has somewhere else', () => {
+  const keyed = (account: Record<string, unknown>) => ({
+    accountsByRuntime: {
+      codex: {
+        accounts: [{ kind: 'externalKey', label: 'Codex API key', planType: 'its own store', ...account }],
+        signInMethods: [{ id: 'key', flow: 'apiKey', label: 'API key', keyLabel: 'Codex API key' }],
+      },
+    },
+  }) as never
+
+  it('says a key stored here is used only if that one is removed, when the agent reads it first', async () => {
+    await mount(keyed({ outranksHandedKey: true }))
+    const summary = detail().querySelector('[data-slot="status-summary"]')?.textContent
+    expect(summary).toContain('It reads one from its own store, ahead of any key stored here.')
+    expect(summary).toContain('is used only if that one is removed')
+    // It does not promise the opposite.
+    expect(detail().textContent).not.toContain('takes precedence')
+    // The field stays open: a key saved now is used the day the other goes.
+    expect(detail().querySelector('input[type="password"]')).not.toBeNull()
+  })
+
+  it('keeps saying a key stored here takes precedence when the agent reads its own after the environment', async () => {
+    await mount(keyed({}))
+    expect(detail().textContent).toContain('It reads one from its own store. Nothing to do')
+    expect(detail().textContent).toContain('which takes precedence')
+    expect(detail().textContent).not.toContain('ahead of any key stored here')
+  })
+
+  it('says the copy HarnessDesk keeps is used only if the key in use is removed', async () => {
+    await mount(keyed({ outranksHandedKey: true, storedCopy: true }))
+    const row = detail().querySelector('[data-slot="sign-in-account"]')
+    expect(row?.textContent).toContain('Codex API key stored')
+    expect(row?.textContent).toContain('Used only if the key in its own store is removed.')
+    // "Restart to pick up a change" is false of a copy nobody is reading.
+    expect(row?.textContent).not.toContain('Restart a conversation')
+  })
+
+  it('keeps the restart note on a stored key that is the one in use', async () => {
+    await mount({
+      accountsByRuntime: {
+        codex: {
+          accounts: [{ kind: 'apiKey', label: 'Codex API key', planType: 'API key' }],
+          signInMethods: [{ id: 'key', flow: 'apiKey', label: 'API key', keyLabel: 'Codex API key' }],
+        },
+      },
+    } as never)
+    const row = detail().querySelector('[data-slot="sign-in-account"]')
+    expect(row?.textContent).toContain('Restart a conversation to pick up a change.')
+    expect(row?.textContent).not.toContain('Used only if')
+  })
 })
 
 it('offers only the empty field while the agent reads a key HarnessDesk holds no copy of', async () => {

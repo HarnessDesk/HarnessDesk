@@ -75,6 +75,7 @@ const mount = async (runtimes: AppSnapshot['runtimes'] = [], withWorkspace = fal
   } as AppSnapshot
   const store = {
     subscribe: () => () => {},
+    refreshWorkspaceGit: vi.fn(async () => {}),
     getSnapshot: () => snapshot,
     loadAgents: async () => {},
     transport: { request },

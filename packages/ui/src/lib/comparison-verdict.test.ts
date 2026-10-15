@@ -4,6 +4,22 @@ import { comparisonVerdictOf } from './comparison-verdict'
 import { shapeFixture, SHAPE_REV } from '../preview/run-shapes-fixture'
 
 const comparison = () => shapeFixture('comparison')
+it('keeps the completed terminal person review’s merged choice visible', () => {
+  const input = comparison()
+  if (input.execution.document.format !== 'agents') throw new Error('wrong fixture')
+  input.execution = { ...input.execution, state: 'settled',
+    rounds: input.execution.rounds.filter(one => one.n <= 3).map(one => ({ ...one, state: 'closed' })),
+    document: { ...input.execution.document, flow: { ...input.execution.document.flow,
+      roles: input.execution.document.flow.roles.map(one => one.id === 'judge' ? { id: 'judge', kind: 'person', outcomes: ['merged'], review: true } : one), rules: [],
+    } } }
+  input.cards = input.cards.filter(one => one.id !== 6).map(one => one.id === 5 ? { ...one, state: 'done', outcome: 'merged', note: null, handoff: null } : one)
+  input.evidence = { ...input.evidence!, cards: input.evidence!.cards.map(one => one.card !== 5 ? one : {
+    ...one, facts: one.facts.map(view => ({ ...view, record: { ...view.record, fact: { kind: 'review', at: SHAPE_REV[0]!, verdict: 'merged', by: 'person' as never } } })),
+  }) }
+  const model = runTimeline(input)
+  expect(comparisonVerdictOf(model, input.execution, input.cards)).toMatchObject({ kind: 'picked', judge: { kind: 'person' }, attempt: { label: 'Attempt A' }, next: null, reason: null })
+  expect(model.rows.filter(one => one.attempt).map(one => one.keep)).toEqual(['kept', 'not-kept'])
+})
 it('uses the Run’s kept attempt and preserves the recorded judge sentence', () => {
   const input = comparison()
   const verdict = comparisonVerdictOf(runTimeline(input), input.execution, input.cards)
@@ -36,13 +52,13 @@ it('does not invent a winner when the recorded revision names no attempt', () =>
   }) }
   expect(comparisonVerdictOf(runTimeline(input), input.execution, input.cards)).toBeNull()
 })
-it('offers the existing review step when the person’s pick is waiting', () => {
+it.each(['picked', 'merged'])('offers the existing review step when the person’s %s choice is waiting', outcome => {
   const input = comparison()
   if (input.execution.document.format !== 'agents') throw new Error('wrong fixture')
   input.execution = { ...input.execution, rounds: input.execution.rounds.filter(one => one.n <= 3).map(one => one.n === 3 ? { ...one, state: 'running', seats: [] } : one),
     document: { ...input.execution.document, flow: { ...input.execution.document.flow,
-      roles: input.execution.document.flow.roles.map(one => one.id === 'judge' ? { id: 'judge', kind: 'person', outcomes: ['picked'] } : one),
-      rules: [{ id: 'after-judge', on: 'judge', when: { every: ['picked'], evidence: [{ review: 'picked' }] }, then: { role: 'merge', title: 'Merge' } }],
+      roles: input.execution.document.flow.roles.map(one => one.id === 'judge' ? { id: 'judge', kind: 'person', outcomes: [outcome], ...(outcome === 'merged' ? { review: true } : {}) } : one),
+      rules: outcome === 'merged' ? [] : [{ id: 'after-judge', on: 'judge', when: { every: ['picked'], evidence: [{ review: 'picked' }] }, then: { role: 'merge', title: 'Merge' } }],
     } } }
   input.cards = input.cards.map(one => one.id === 5 ? { ...one, state: 'open', outcome: null, note: null } : one)
   input.evidence = { ...input.evidence!, cards: input.evidence!.cards.filter(one => one.card !== 5) }

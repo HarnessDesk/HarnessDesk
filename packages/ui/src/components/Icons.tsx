@@ -1,39 +1,21 @@
 // The shared glyph facade is below patterns: importing their barrel here
 // makes notice and flow glyph tables capture icons before they initialize.
 import { IconTile } from '../design/ui/icon-tile'
+import type { ReactNode } from 'react'
 import type { LucideIcon, LucideProps } from 'lucide-react'
+import { Animated, type GlyphProps, ActivityGlyph, ArchiveGlyph, ArrowUpGlyph, AtSignGlyph, BellGlyph, BlocksGlyph, BookTextGlyph, BookmarkGlyph, BotGlyph, BrainGlyph, CalendarDaysGlyph, CheckGlyph, CheckCheckGlyph, ChevronDownGlyph, ChevronLeftGlyph, ChevronRightGlyph, ChevronsDownUpGlyph, ChevronsUpDownGlyph, CircleCheckGlyph, CircleDollarSignGlyph, CircleGaugeGlyph, ClockGlyph, CloudDownloadGlyph, CopyGlyph, CpuGlyph, DownloadGlyph, ExternalLinkGlyph, EyeOffGlyph, FileTextGlyph, FolderGit2Glyph, FolderInputGlyph, FolderOpenGlyph, FolderXGlyph, GaugeGlyph, GitBranchGlyph, GitCommitHorizontalGlyph, GitForkGlyph, GitGraphGlyph, GitMergeGlyph, GripVerticalGlyph, HandGlyph, HistoryGlyph, KeyboardGlyph, LoaderCircleGlyph, LockGlyph, LockOpenGlyph, Maximize2Glyph, MessageSquareGlyph, MessageSquarePlusGlyph, PlusGlyph, RefreshCwGlyph, RotateCcwGlyph, RotateCwGlyph, RouteGlyph, SearchGlyph, ServerGlyph, SettingsGlyph, ShieldCheckGlyph, ShrinkGlyph, SlidersHorizontalGlyph, SquareStackGlyph, UserGlyph, UsersGlyph, UsersRoundGlyph, WebhookGlyph, WorkflowGlyph, WrenchGlyph, XGlyph, ZapGlyph } from './glyphs'
 import {
   Activity,
-  AppWindow as DesktopIconGlyph,
   Archive,
-  ArrowDownAZ,
-  ArrowDownToLine,
   ArrowUp,
-  ArrowUpFromLine,
-  BookText,
-  CloudDownload,
-  Eraser,
-  EyeOff,
-  FolderGit2,
-  FolderInput,
-  FolderX,
-  House,
-  Laptop,
-  GitMerge,
-  GitPullRequestArrow,
-  RotateCcw,
   AtSign,
   Bell,
-  BellOff,
   Blocks,
+  BookText,
   Bookmark,
-  LibraryBig,
-  Lock,
-  LockOpen,
   Bot,
   Brain,
-  Camera,
-  ChartNoAxesGantt,
+  CalendarDays,
   Check,
   CheckCheck,
   ChevronDown,
@@ -41,43 +23,88 @@ import {
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
-  GripVertical,
-  Circle,
   CircleCheck,
-  CircleDot,
+  CircleDollarSign,
+  CircleGauge,
   Clock,
+  CloudDownload,
+  Copy,
+  Cpu,
+  Download,
+  ExternalLink,
+  EyeOff,
+  FileText,
+  FolderGit2,
+  FolderInput,
+  FolderOpen,
+  FolderX,
+  Gauge,
+  GitBranch,
+  GitCommitHorizontal,
+  GitFork,
+  GitGraph,
+  GitMerge,
+  GripVertical,
+  Hand,
+  History,
+  Keyboard,
+  LoaderCircle,
+  Lock,
+  LockOpen,
+  Maximize2,
+  MessageSquare,
+  MessageSquarePlus,
+  Plus,
+  RefreshCw,
+  RotateCcw,
+  RotateCw,
+  Route,
+  Search,
+  Server,
+  Settings,
+  ShieldCheck,
+  Shrink,
+  SlidersHorizontal,
+  SquareStack,
+  User,
+  Users,
+  UsersRound,
+  Webhook,
+  Workflow,
+  Wrench,
+  X,
+  Zap,
+  AppWindow as DesktopIconGlyph,
+  ArrowDownAZ,
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  Eraser,
+  House,
+  Laptop,
+  GitPullRequestArrow,
+  BellOff,
+  LibraryBig,
+  Camera,
+  ChartNoAxesGantt,
+  Circle,
+  CircleDot,
   ClockAlert,
   Code,
   Columns2,
   Table2,
-  Copy,
-  Cpu,
   Database,
   Dot,
-  Download,
   Ellipsis,
-  CalendarDays,
-  ExternalLink,
   File,
   FileCode2,
   FileDiff,
-  FileText,
   Flag,
   Folder,
-  FolderOpen,
   FoldVertical,
   Forward,
   Funnel,
-  GitBranch,
   GitBranchPlus,
-  GitCommitHorizontal,
-  GitGraph,
-  GitFork,
-  Gauge,
-  CircleDollarSign,
-  CircleGauge,
   Globe,
-  History,
   Image,
   Import,
   Info,
@@ -85,16 +112,11 @@ import {
   LayoutPanelLeft,
   ListPlus,
   ListTodo,
-  LoaderCircle,
   KeyRound,
-  Keyboard,
   LogIn,
   LogOut,
-  Maximize2,
   Minimize2,
-  MessageSquare,
   MessageSquareOff,
-  MessageSquarePlus,
   MessagesSquare,
   MoveDown,
   MoveUp,
@@ -108,31 +130,19 @@ import {
   Pencil,
   Pin,
   PinOff,
-  Plus,
   Puzzle,
   Redo2,
-  RefreshCw,
-  RotateCw,
-  SquareStack,
   Tag,
-  Route,
   Rows3,
   Rows4,
   ScanSearch,
   ScrollText,
-  Search,
-  Workflow,
-  Server,
-  Settings,
   ShieldAlert,
-  ShieldCheck,
   ShieldOff,
-  Shrink,
   Signal,
   SignalHigh,
   SignalLow,
   SignalMedium,
-  SlidersHorizontal,
   Smartphone,
   Sparkle,
   StickyNote,
@@ -146,15 +156,7 @@ import {
   Trash2,
   TriangleAlert,
   Undo2,
-  User,
-  Users,
-  UsersRound,
-  Webhook,
-  Wrench,
-  X,
-  Zap,
   MousePointer2,
-  Hand,
   Scan,
   ZoomIn,
   ZoomOut,
@@ -173,6 +175,12 @@ import {
  * without a second palette, and nothing is fetched — the renderer runs under a
  * CSP that forbids external requests. The stroke is Lucide's own 2/24, which
  * stays a crisp 1px down at the 12px this UI uses in chips and rows.
+ *
+ * Where lucide-animated has a motion for the glyph (`./glyphs`), the icon is
+ * that one: the same Lucide paths, played while the pointer is over the control
+ * that holds it, and plain Lucide until then. The rest are Lucide's own, still.
+ * Either way it is one meaning, one glyph, and the same `IconProps`, so a
+ * screen cannot tell which it got.
  */
 
 export type IconProps = Omit<LucideProps, 'ref'> & { readonly size?: number }
@@ -183,28 +191,39 @@ const icon = (Glyph: LucideIcon, name: string) => {
   return Component
 }
 
+/**
+ * A glyph with a motion: the same icon, played by the control around it.
+ * Drawn as plain Lucide until a pointer first reaches that control, so an icon
+ * nobody hovers costs what a static one does.
+ */
+const animated = (draw: (props: GlyphProps) => ReactNode, still: LucideIcon, name: string) => {
+  const Component = ({ size = 16, ...rest }: IconProps) => <Animated draw={draw} still={still} size={size} focusable="false" {...rest} />
+  Component.displayName = name
+  return Component
+}
+
 // --- Navigation and layout -------------------------------------------------
 
-export const PlusIcon = icon(Plus, 'PlusIcon')
+export const PlusIcon = animated(PlusGlyph, Plus, 'PlusIcon')
+export const SearchIcon = animated(SearchGlyph, Search, 'SearchIcon')
+export const SettingsIcon = animated(SettingsGlyph, Settings, 'SettingsIcon')
+export const SlidersIcon = animated(SlidersHorizontalGlyph, SlidersHorizontal, 'SlidersIcon')
 export const FlagIcon = icon(Flag, 'FlagIcon')
-export const SearchIcon = icon(Search, 'SearchIcon')
-export const SettingsIcon = icon(Settings, 'SettingsIcon')
-export const SlidersIcon = icon(SlidersHorizontal, 'SlidersIcon')
 /** Narrowing a list you can already see — not searching for what you cannot. */
 export const FilterIcon = icon(Funnel, 'FilterIcon')
 export const MoreIcon = icon(Ellipsis, 'MoreIcon')
 /** Disclosure — points right, rotate it for open or other directions. */
-export const ChevronIcon = icon(ChevronRight, 'ChevronIcon')
-export const ArrowLeftIcon = icon(ChevronLeft, 'ArrowLeftIcon')
+export const ChevronIcon = animated(ChevronRightGlyph, ChevronRight, 'ChevronIcon')
+export const ArrowLeftIcon = animated(ChevronLeftGlyph, ChevronLeft, 'ArrowLeftIcon')
 /**
  * The glyph on a closed picker: what it points at is the menu that will open
  * under it. Distinct from the disclosure chevron above, which points at
  * content that expands in place.
  */
-export const CaretIcon = icon(ChevronDown, 'CaretIcon')
-export const ArrowRightIcon = icon(ChevronRight, 'ArrowRightIcon')
+export const CaretIcon = animated(ChevronDownGlyph, ChevronDown, 'CaretIcon')
+export const ArrowRightIcon = animated(ChevronRightGlyph, ChevronRight, 'ArrowRightIcon')
 export const CanvasSelectIcon = icon(MousePointer2, 'CanvasSelectIcon')
-export const CanvasHandIcon = icon(Hand, 'CanvasHandIcon')
+export const CanvasHandIcon = animated(HandGlyph, Hand, 'CanvasHandIcon')
 export const CanvasFitIcon = icon(Scan, 'CanvasFitIcon')
 /** Zoom the current page or canvas view in. */
 export const ZoomInIcon = icon(ZoomIn, 'ZoomInIcon')
@@ -221,26 +240,26 @@ export const FilePlusIcon = icon(FilePlus2, 'FilePlusIcon')
 
 // --- Status ----------------------------------------------------------------
 
-export const CheckIcon = icon(Check, 'CheckIcon')
-export const CrossIcon = icon(X, 'CrossIcon')
+export const CheckIcon = animated(CheckGlyph, Check, 'CheckIcon')
+export const CrossIcon = animated(XGlyph, X, 'CrossIcon')
 export const AlertIcon = icon(TriangleAlert, 'AlertIcon')
 /** A statement about the app's own state, rather than a warning about it. */
 export const InfoIcon = icon(Info, 'InfoIcon')
 /** The messages the app makes outside a conversation, as a settings page. */
-export const BellIcon = icon(Bell, 'BellIcon')
+export const BellIcon = animated(BellGlyph, Bell, 'BellIcon')
 /** Silencing one kind of those messages — never muting an agent. */
 export const BellOffIcon = icon(BellOff, 'BellOffIcon')
 
 // --- The composer ----------------------------------------------------------
 
-export const SendIcon = icon(ArrowUp, 'SendIcon')
+export const SendIcon = animated(ArrowUpGlyph, ArrowUp, 'SendIcon')
 export const StopIcon = ({ size = 16, ...rest }: IconProps) => (
   <Square size={size} fill="currentColor" focusable="false" {...rest} />
 )
 /** An image, attached or generated. */
 export const ImageIcon = icon(Image, 'ImageIcon')
 /** Mention a file — the `@` the composer understands. */
-export const AtIcon = icon(AtSign, 'AtIcon')
+export const AtIcon = animated(AtSignGlyph, AtSign, 'AtIcon')
 /** A slash command. */
 export const SlashIcon = icon(SquareSlash, 'SlashIcon')
 /** Context a plugin attached to the prompt. */
@@ -253,20 +272,20 @@ export const QueueIcon = icon(ListPlus, 'QueueIcon')
 export const MoveUpIcon = icon(MoveUp, 'MoveUpIcon')
 export const MoveDownIcon = icon(MoveDown, 'MoveDownIcon')
 /** The handle a queued message is dragged by. Never a control on its own. */
-export const GripIcon = icon(GripVertical, 'GripIcon')
+export const GripIcon = animated(GripVerticalGlyph, GripVertical, 'GripIcon')
 
 // --- Files and folders -----------------------------------------------------
 
 export const FileIcon = icon(File, 'FileIcon')
 export const FolderIcon = icon(Folder, 'FolderIcon')
 /** Choosing a different folder. */
-export const FolderOpenIcon = icon(FolderOpen, 'FolderOpenIcon')
+export const FolderOpenIcon = animated(FolderOpenGlyph, FolderOpen, 'FolderOpenIcon')
 /** A folder that is no longer on the machine. */
-export const FolderGoneIcon = icon(FolderX, 'FolderGoneIcon')
+export const FolderGoneIcon = animated(FolderXGlyph, FolderX, 'FolderGoneIcon')
 /** Bringing something in from elsewhere on the machine. */
 export const ImportIcon = icon(Import, 'ImportIcon')
 /** Copying text or a path to the clipboard. */
-export const CopyIcon = icon(Copy, 'CopyIcon')
+export const CopyIcon = animated(CopyGlyph, Copy, 'CopyIcon')
 
 /** The copy control's Lucide marks for trusted HTML that React does not own. */
 export const copyIconMarkup = (copied: boolean): string =>
@@ -275,45 +294,45 @@ export const copyIconMarkup = (copied: boolean): string =>
     : '<svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"></rect><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"></path></svg>'
 export const TrashIcon = icon(Trash2, 'TrashIcon')
 export const PencilIcon = icon(Pencil, 'PencilIcon')
-export const ArchiveIcon = icon(Archive, 'ArchiveIcon')
+export const ArchiveIcon = animated(ArchiveGlyph, Archive, 'ArchiveIcon')
 
 // --- Git -------------------------------------------------------------------
 
 /** What changed, as a diff. */
 export const DiffIcon = icon(FileDiff, 'DiffIcon')
 /** A branch, or the worktree checked out on one. */
-export const BranchIcon = icon(GitBranch, 'BranchIcon')
+export const BranchIcon = animated(GitBranchGlyph, GitBranch, 'BranchIcon')
 /* The repository *as a panel* — distinct from `BranchIcon`, which the history
    toolbar already spends on its Branch button. A tab and a control in the same
    header wearing one glyph is a header you have to read twice. */
-export const RepositoryIcon = icon(GitGraph, 'RepositoryIcon')
+export const RepositoryIcon = animated(GitGraphGlyph, GitGraph, 'RepositoryIcon')
 /** A conversation that starts from another's history. */
-export const ForkIcon = icon(GitFork, 'ForkIcon')
-export const CommitIcon = icon(GitCommitHorizontal, 'CommitIcon')
+export const ForkIcon = animated(GitForkGlyph, GitFork, 'ForkIcon')
+export const CommitIcon = animated(GitCommitHorizontalGlyph, GitCommitHorizontal, 'CommitIcon')
 /** A review pass over the working tree. */
 export const ReviewIcon = icon(ScanSearch, 'ReviewIcon')
 /** A round whose Seats cannot read one another until it closes. */
-export const BlindIcon = icon(EyeOff, 'BlindIcon')
+export const BlindIcon = animated(EyeOffGlyph, EyeOff, 'BlindIcon')
 /** Bringing the tracked branch's commits down into the checkout. */
 export const PullIcon = icon(ArrowDownToLine, 'PullIcon')
 /** Sending the branch's commits up to its remote. */
 export const PushIcon = icon(ArrowUpFromLine, 'PushIcon')
 /** Reading the remotes without touching the working tree. */
-export const FetchIcon = icon(CloudDownload, 'FetchIcon')
+export const FetchIcon = animated(CloudDownloadGlyph, CloudDownload, 'FetchIcon')
 /** Two histories joined. */
-export const MergeIcon = icon(GitMerge, 'MergeIcon')
+export const MergeIcon = animated(GitMergeGlyph, GitMerge, 'MergeIcon')
 /** The forge's compare page for a branch, and a pull request itself. */
 export const PullRequestIcon = icon(GitPullRequestArrow, 'PullRequestIcon')
 /** An issue on the forge — the open dot GitHub itself draws. */
 export const IssueIcon = icon(CircleDot, 'IssueIcon')
 /** A comment on the forge. */
-export const CommentIcon = icon(MessageSquare, 'CommentIcon')
+export const CommentIcon = animated(MessageSquareGlyph, MessageSquare, 'CommentIcon')
 /** Messages held at the board — a room's messaging turned off. */
 export const MessageOffIcon = icon(MessageSquareOff, 'MessageOffIcon')
 /** A branch wound back to an earlier commit. */
-export const ResetIcon = icon(RotateCcw, 'ResetIcon')
+export const ResetIcon = animated(RotateCcwGlyph, RotateCcw, 'ResetIcon')
 /** One checkout of the repository — a folder the repository is open in. */
-export const WorktreeIcon = icon(FolderGit2, 'WorktreeIcon')
+export const WorktreeIcon = animated(FolderGit2Glyph, FolderGit2, 'WorktreeIcon')
 /** The main checkout as a place to work — "Local", beside a worktree. */
 export const LocalIcon = icon(Laptop, 'LocalIcon')
 /** A worktree's branch brought back to the main checkout. */
@@ -321,24 +340,24 @@ export const HomeIcon = icon(House, 'HomeIcon')
 /** A worktree still to be made — the draft's place until its first message. */
 export const NewWorktreeIcon = icon(GitBranchPlus, 'NewWorktreeIcon')
 /** A worktree pinned against pruning. */
-export const LockIcon = icon(Lock, 'LockIcon')
-export const UnlockIcon = icon(LockOpen, 'UnlockIcon')
+export const LockIcon = animated(LockGlyph, Lock, 'LockIcon')
+export const UnlockIcon = animated(LockOpenGlyph, LockOpen, 'UnlockIcon')
 /** Dropping the records of worktrees whose folders are gone. */
 export const PruneIcon = icon(Eraser, 'PruneIcon')
 /** A folder relocated, git's record of it following along. */
-export const MoveFolderIcon = icon(FolderInput, 'MoveFolderIcon')
+export const MoveFolderIcon = animated(FolderInputGlyph, FolderInput, 'MoveFolderIcon')
 
 // --- What the agent does ---------------------------------------------------
 
 export const TerminalIcon = icon(SquareTerminal, 'TerminalIcon')
 /** Work that keeps running after the turn that started it. */
-export const BackgroundIcon = icon(Activity, 'BackgroundIcon')
+export const BackgroundIcon = animated(ActivityGlyph, Activity, 'BackgroundIcon')
 /** A tool call. */
-export const ToolIcon = icon(Wrench, 'ToolIcon')
+export const ToolIcon = animated(WrenchGlyph, Wrench, 'ToolIcon')
 /** The agent's own reasoning. */
-export const BrainIcon = icon(Brain, 'BrainIcon')
+export const BrainIcon = animated(BrainGlyph, Brain, 'BrainIcon')
 /** A saved Agent: its brief, ceiling and preferred seats. Sub-agents qualify this robot with ↳; runtimes use their own marks. */
-export const AgentIcon = icon(Bot, 'AgentIcon')
+export const AgentIcon = animated(BotGlyph, Bot, 'AgentIcon')
 /** The robot with its delegation qualifier, including at navigation size. */
 export const SubagentIcon = ({ size = 16, className, style, ...rest }: IconProps) => (
   <IconTile size="navigation" shape="face" badge="↳" title="Sub-agent of this conversation" className={className} style={{ width: size, height: size, color: 'inherit' }}>
@@ -346,26 +365,26 @@ export const SubagentIcon = ({ size = 16, className, style, ...rest }: IconProps
   </IconTile>
 )
 /** An Agent's written brief — its instructions, distinct from the Agent itself. */
-export const BriefIcon = icon(BookText, 'BriefIcon')
+export const BriefIcon = animated(BookTextGlyph, BookText, 'BriefIcon')
 /** A skill, or anything else the agent is handed to work with. */
 export const SparkIcon = icon(Sparkle, 'SparkIcon')
 export const GlobeIcon = icon(Globe, 'GlobeIcon')
 /** A conversation, as a thing to find and open. */
 export const SessionIcon = icon(MessagesSquare, 'SessionIcon')
 /** Marking up a page: a comment left on the thing it is about. */
-export const AnnotateIcon = icon(MessageSquarePlus, 'AnnotateIcon')
+export const AnnotateIcon = animated(MessageSquarePlusGlyph, MessageSquarePlus, 'AnnotateIcon')
 /** A block of context the desk composed and put on a message — never a plugin's. */
 export const NoteIcon = icon(StickyNote, 'NoteIcon')
 /** The objective a session is working towards. */
 export const GoalIcon = icon(Target, 'GoalIcon')
 /** A plan or task list the agent is working through. */
 export const PlanIcon = icon(ListTodo, 'PlanIcon')
-export const TodoDoneIcon = icon(CircleCheck, 'TodoDoneIcon')
-export const TodoActiveIcon = icon(LoaderCircle, 'TodoActiveIcon')
+export const TodoDoneIcon = animated(CircleCheckGlyph, CircleCheck, 'TodoDoneIcon')
+export const TodoActiveIcon = animated(LoaderCircleGlyph, LoaderCircle, 'TodoActiveIcon')
 export const TodoPendingIcon = icon(Circle, 'TodoPendingIcon')
 /** A plain list item, with no state to report. */
 export const BulletIcon = icon(Dot, 'BulletIcon')
-export const RetryIcon = icon(RotateCw, 'RetryIcon')
+export const RetryIcon = animated(RotateCwGlyph, RotateCw, 'RetryIcon')
 export const UndoIcon = icon(Undo2, 'UndoIcon')
 /** Putting back what an undo took away. */
 export const RedoIcon = icon(Redo2, 'RedoIcon')
@@ -380,23 +399,23 @@ export const TrajectoryIcon = icon(ChartNoAxesGantt, 'TrajectoryIcon')
 
 export const PluginIcon = icon(Puzzle, 'PluginIcon')
 /** A runtime's own extension store — apps and connectors. */
-export const ExtensionIcon = icon(Blocks, 'ExtensionIcon')
-export const HookIcon = icon(Webhook, 'HookIcon')
+export const ExtensionIcon = animated(BlocksGlyph, Blocks, 'ExtensionIcon')
+export const HookIcon = animated(WebhookGlyph, Webhook, 'HookIcon')
 export const ResourceIcon = icon(Database, 'ResourceIcon')
 /** The cross-agent library: what exists on this machine, and who can load it. */
 export const LibraryIcon = icon(LibraryBig, 'LibraryIcon')
 /** A model route. */
-export const RouteIcon = icon(Route, 'RouteIcon')
+export const RouteIcon = animated(RouteGlyph, Route, 'RouteIcon')
 /** An editable flow: a policy that routes cards between Agent, check and person steps. */
-export const FlowIcon = icon(Workflow, 'FlowIcon')
-export const PresetIcon = icon(Bookmark, 'PresetIcon')
-export const ShieldIcon = icon(ShieldCheck, 'ShieldIcon')
+export const FlowIcon = animated(WorkflowGlyph, Workflow, 'FlowIcon')
+export const PresetIcon = animated(BookmarkGlyph, Bookmark, 'PresetIcon')
+export const ShieldIcon = animated(ShieldCheckGlyph, ShieldCheck, 'ShieldIcon')
 
 // --- Account ---------------------------------------------------------------
 
-export const UserIcon = icon(User, 'UserIcon')
+export const UserIcon = animated(UserGlyph, User, 'UserIcon')
 /** Key bindings — the keys themselves, never a single modifier's symbol. */
-export const KeyboardIcon = icon(Keyboard, 'KeyboardIcon')
+export const KeyboardIcon = animated(KeyboardGlyph, Keyboard, 'KeyboardIcon')
 export const SignInIcon = icon(LogIn, 'SignInIcon')
 export const SignOutIcon = icon(LogOut, 'SignOutIcon')
 export const KeyIcon = icon(KeyRound, 'KeyIcon')
@@ -410,46 +429,46 @@ export const UnpinIcon = icon(PinOff, 'UnpinIcon')
 // --- Controls and lists ----------------------------------------------------
 
 /** A model — the thing that thinks. */
-export const ModelIcon = icon(Cpu, 'ModelIcon')
+export const ModelIcon = animated(CpuGlyph, Cpu, 'ModelIcon')
 /** Acting directly, without a plan first. */
-export const ZapIcon = icon(Zap, 'ZapIcon')
+export const ZapIcon = animated(ZapGlyph, Zap, 'ZapIcon')
 /** A permission that widens what the agent may do without asking. */
 export const ShieldAlertIcon = icon(ShieldAlert, 'ShieldAlertIcon')
 /** No guard at all — full access. */
 export const ShieldOffIcon = icon(ShieldOff, 'ShieldOffIcon')
 /** Every agent, or every one of something. */
-export const EveryoneIcon = icon(Users, 'EveryoneIcon')
+export const EveryoneIcon = animated(UsersGlyph, Users, 'EveryoneIcon')
 /** The plan strip's roster token — everyone else's standing on quota, at a glance. */
-export const RosterIcon = icon(CircleGauge, 'RosterIcon')
+export const RosterIcon = animated(CircleGaugeGlyph, CircleGauge, 'RosterIcon')
 /** The conversations of one workspace working together — the board and the channel. */
-export const TeamIcon = icon(UsersRound, 'TeamIcon')
+export const TeamIcon = animated(UsersRoundGlyph, UsersRound, 'TeamIcon')
 /** Fold every group in a list shut, and open every one again. */
-export const CollapseAllIcon = icon(ChevronsDownUp, 'CollapseAllIcon')
-export const ExpandAllIcon = icon(ChevronsUpDown, 'ExpandAllIcon')
+export const CollapseAllIcon = animated(ChevronsDownUpGlyph, ChevronsDownUp, 'CollapseAllIcon')
+export const ExpandAllIcon = animated(ChevronsUpDownGlyph, ChevronsUpDown, 'ExpandAllIcon')
 /** A ruled matrix; the loose and tight rows offer two list densities. */
 export const MatrixIcon = icon(Table2, 'MatrixIcon')
 export const RowsLooseIcon = icon(Rows3, 'RowsLooseIcon')
 export const RowsTightIcon = icon(Rows4, 'RowsTightIcon')
-export const ClockIcon = icon(Clock, 'ClockIcon')
+export const ClockIcon = animated(ClockGlyph, Clock, 'ClockIcon')
 /** What a plan has left, and what it cost. */
-export const UsageIcon = icon(Gauge, 'UsageIcon')
+export const UsageIcon = animated(GaugeGlyph, Gauge, 'UsageIcon')
 /** Money already spent, as distinct from a plan's remaining share. */
-export const CostIcon = icon(CircleDollarSign, 'CostIcon')
+export const CostIcon = animated(CircleDollarSignGlyph, CircleDollarSign, 'CostIcon')
 /** The Dashboard's Overview row — the whole story on one screen. */
 export const OverviewIcon = icon(LayoutDashboard, 'OverviewIcon')
 /** The Dashboard's Activity row — "when it ran", drawn as a calendar heatmap. */
-export const ActivityIcon = icon(CalendarDays, 'ActivityIcon')
+export const ActivityIcon = animated(CalendarDaysGlyph, CalendarDays, 'ActivityIcon')
 export const SortNameIcon = icon(ArrowDownAZ, 'SortNameIcon')
 /** What happened, in order. */
-export const HistoryIcon = icon(History, 'HistoryIcon')
+export const HistoryIcon = animated(HistoryGlyph, History, 'HistoryIcon')
 /** A fact recorded before what is there now — a stale chip's leading mark. */
 export const StaleIcon = icon(ClockAlert, 'StaleIcon')
-export const ServerIcon = icon(Server, 'ServerIcon')
-export const DownloadIcon = icon(Download, 'DownloadIcon')
+export const ServerIcon = animated(ServerGlyph, Server, 'ServerIcon')
+export const DownloadIcon = animated(DownloadGlyph, Download, 'DownloadIcon')
 /** Approved, and for the rest of the session too. */
-export const CheckAllIcon = icon(CheckCheck, 'CheckAllIcon')
+export const CheckAllIcon = animated(CheckCheckGlyph, CheckCheck, 'CheckAllIcon')
 /** A written summary. */
-export const SummaryIcon = icon(FileText, 'SummaryIcon')
+export const SummaryIcon = animated(FileTextGlyph, FileText, 'SummaryIcon')
 /** The whole transcript. */
 export const TranscriptIcon = icon(ScrollText, 'TranscriptIcon')
 export const ThemeSystemIcon = icon(Monitor, 'ThemeSystemIcon')
@@ -476,18 +495,18 @@ export const EditorIcon = icon(FileCode2, 'EditorIcon')
 /** Chromium's own inspector, on the page in the pane. */
 export const DevToolsIcon = icon(Code, 'DevToolsIcon')
 /** The same thing, in a full window. */
-export const ExpandIcon = icon(Maximize2, 'ExpandIcon')
+export const ExpandIcon = animated(Maximize2Glyph, Maximize2, 'ExpandIcon')
 /** Return a tile from its expanded view to the grid. */
-export const CollapseIcon = icon(Shrink, 'CollapseIcon')
+export const CollapseIcon = animated(ShrinkGlyph, Shrink, 'CollapseIcon')
 /** Back from the full pane area to the split it came from. */
 export const RestoreIcon = icon(Minimize2, 'RestoreIcon')
 /** Read the repository again; distinct from RetryIcon, which re-runs a thing that failed. */
-export const RefreshIcon = icon(RefreshCw, 'RefreshIcon')
+export const RefreshIcon = animated(RefreshCwGlyph, RefreshCw, 'RefreshIcon')
 /** A git tag, on history rows and the refs rail. */
 export const TagIcon = icon(Tag, 'TagIcon')
 /** A stash: work set aside in a stack. */
-export const StashIcon = icon(SquareStack, 'StashIcon')
+export const StashIcon = animated(SquareStackGlyph, SquareStack, 'StashIcon')
 /** Away from this window, to whatever the OS opens links with. */
-export const ExternalIcon = icon(ExternalLink, 'ExternalIcon')
+export const ExternalIcon = animated(ExternalLinkGlyph, ExternalLink, 'ExternalIcon')
 /** A picture of the page, saved. */
 export const CameraIcon = icon(Camera, 'CameraIcon')

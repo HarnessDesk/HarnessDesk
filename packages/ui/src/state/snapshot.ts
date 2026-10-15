@@ -507,6 +507,8 @@ export interface AppSnapshot {
   readonly agentPlansFailed: boolean
   /** This machine's seats for its Agents, as the host read `seating.json` — null until a page asks. */
   readonly seating: MachineSeating | null
+  /** The existing commit flow, raised before a repository's first worktree. */
+  readonly commitFor: string | null
   /**
    * The repository a new worktree is being set up for, or null.
    *
@@ -552,6 +554,7 @@ export interface AppSnapshot {
    */
   readonly seatAgents: ReadonlyMap<string, AgentEntry | null>
 
+  readonly workspaceGitFacts: ReadonlyMap<string, WorkspaceEntry['git']>
   readonly workspaces: readonly WorkspaceEntry[]
   readonly workspace: WorkspaceEntry | null
 
@@ -915,6 +918,7 @@ const EMPTY: AppSnapshot = {
   agentPlans: new Map(),
   agentPlansFailed: false,
   seating: null,
+  commitFor: null,
   newWorktreeFor: null,
   settingsFor: null,
   settingsFocus: null,
@@ -922,6 +926,7 @@ const EMPTY: AppSnapshot = {
   seatFix: null,
   frontDoor: null,
   seatAgents: new Map(),
+  workspaceGitFacts: new Map(),
   workspaces: [],
   workspace: null,
   skills: [],
@@ -976,6 +981,7 @@ const EMPTY: AppSnapshot = {
 /** A blank snapshot, for tests that render a component against a made-up state. */
 export const emptySnapshot = (): AppSnapshot => ({
   ...EMPTY,
+  workspaceGitFacts: new Map(),
   editorState: [],
   editorDocuments: new Map(),
   editorLiveDocuments: new Map(),

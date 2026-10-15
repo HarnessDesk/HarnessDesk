@@ -688,14 +688,25 @@ export const whereSecretLives = (
   agentEnv?: Readonly<Record<string, string>>,
   /** The version that will run, when the host read one. */
   version?: string | null,
-): { readonly kind: 'apiKey' | 'externalKey'; readonly detail: string; readonly storedCopy?: true } | null => {
+): {
+  readonly kind: 'apiKey' | 'externalKey'
+  readonly detail: string
+  readonly storedCopy?: true
+  readonly outranksHandedKey?: true
+} | null => {
   const { before, after } = secretReadOrder(secret, version)
   for (const source of before) {
     if (!readsKey(source, secret.env, agentEnv)) continue
-    // The interface's own copy is still in the broker and still the one the
-    // person can replace or remove; `storedCopy` is how a surface knows to
-    // keep offering that while the key in use lives elsewhere.
-    return { kind: 'externalKey', detail: source.label, ...(typeof resolve?.(secret.env) === 'string' ? { storedCopy: true as const } : {}) }
+    // A key found on this side is read ahead of the one HarnessDesk hands over,
+    // held or not (`outranksHandedKey`). The interface's own copy, when there is
+    // one, is still in the broker and still the one the person can replace or
+    // remove; `storedCopy` is how a surface knows to keep offering that.
+    return {
+      kind: 'externalKey',
+      detail: source.label,
+      outranksHandedKey: true,
+      ...(typeof resolve?.(secret.env) === 'string' ? { storedCopy: true as const } : {}),
+    }
   }
   if (typeof resolve?.(secret.env) === 'string') return { kind: 'apiKey', detail: 'API key' }
   const inherited = process.env[secret.env]
@@ -1865,18 +1876,31 @@ export class AcpRuntime implements AgentRuntime {
     // rather than guessing wrong in either direction.
     const keyMethods = this.#keyMethods()
     const saved = this.#restored?.account ?? this.#lastAccount
-    if (this.#health.state !== 'ready' && saved) return { ...saved, signInMethods: [
-      ...(this.#config.account?.login ? [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' as const }] : []),
-      ...keyMethods, ...this.#observedAccount(false).signInMethods,
-    ] }
     // A stored key is an account: it is what "signed in" means for an agent
     // that authenticates with one, and the label never carries the value.
     const keyAccounts: Account[] = (this.#config.secrets ?? []).flatMap((secret) => {
       const where = whereSecretLives(secret, this.#config.resolveSecret, this.#config.env, this.launchedVersion)
       return where
-        ? [{ kind: where.kind, label: secret.label, planType: where.detail, ...(where.storedCopy ? { storedCopy: true } : {}) }]
+        ? [{
+            kind: where.kind,
+            label: secret.label,
+            planType: where.detail,
+            ...(where.storedCopy ? { storedCopy: true } : {}),
+            ...(where.outranksHandedKey ? { outranksHandedKey: true } : {}),
+          }]
         : []
     })
+    // Key presence and precedence are local reads, even while the agent is
+    // idle. Refresh them before returning observations from an older cache;
+    // only the agent-owned identities still need their saved answer.
+    if (this.#health.state !== 'ready' && saved) return this.#lastAccount = {
+      ...saved,
+      accounts: [...saved.accounts.filter(account => account.kind !== 'apiKey' && account.kind !== 'externalKey'), ...keyAccounts],
+      signInMethods: [
+        ...(this.#config.account?.login ? [{ id: 'cli-browser', label: 'Sign in in your browser', flow: 'browser' as const }] : []),
+        ...keyMethods, ...this.#observedAccount(false).signInMethods,
+      ],
+    }
     if (this.#account && this.#health.state === 'ready') {
       const status = await this.#account.status()
       // An interactive-only CLI has no safe status probe. In that case the

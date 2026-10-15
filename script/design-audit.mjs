@@ -2284,6 +2284,10 @@ export const screenUnclassifiedOf = (file, css) => {
 const ICON_MODULES = new Set([
   'Icons.tsx',
   'BrandIcons.tsx',
+  // The one frame — box, stroke, class — the sixty-nine vendored animated
+  // glyphs share, so each file holds only its paths. `Icons.tsx` is still the
+  // only place a component imports an icon from.
+  'glyph.tsx',
   'spark.tsx',
   // Data marks and illustrations are not glyphs. They remain local because
   // their paths are the content being rendered, not a replaceable icon set.

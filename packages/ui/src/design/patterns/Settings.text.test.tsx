@@ -25,12 +25,13 @@ it('sets the page text role on the wordmark type', () => {
   act(() => root.render(
     <>
       <Text role="wordmark">HarnessDesk</Text>
-      <Text role="page">Appearance</Text>
+      <Text as="h1" role="page">Appearance</Text>
     </>,
   ))
 
   const wordmark = container.querySelector<HTMLElement>('[data-role="wordmark"]')
   const page = container.querySelector<HTMLElement>('[data-role="page"]')
+  expect(page?.tagName).toBe('H1')
   expect(page?.className).toContain('text-(length:--hd-heading)')
   expect(page?.className).toContain('leading-(--hd-line-heading)')
   expect(page?.className).toContain('font-semibold')

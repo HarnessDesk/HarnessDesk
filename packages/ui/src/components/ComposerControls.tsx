@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import type { ConfigOption, OptionChoice, RuntimeId, RuntimeInfo, SeatAttachmentsRecord, SelectOption } from '@harnessdesk/protocol'
 
-import { Button, Chip, ComposerTrack, Dialog, RowChoice, Text, TextMark } from '../design'
+import { Button, Chip, ComposerTrack, Dialog, Row, RowChoice, Text, TextMark } from '../design'
 import { Badge } from '../design'
 import { runtimeLabel } from '../lib/accounts'
 import { CARRY_OPTIONS, type Carry } from '../lib/handoff'
@@ -1319,7 +1319,7 @@ export const PlaceControl = () => {
           title={title}
           drop="up"
           align="left"
-          onOpenChange={(open) => open && void store.loadWorktrees()}
+          onOpenChange={(open) => { if (open) { void store.loadWorktrees(); void store.refreshWorkspaceGit(workspace.path) } }}
           label={
             <>
             {armed ? (
@@ -1359,7 +1359,11 @@ export const PlaceControl = () => {
                   onSelect={() => store.startDraftIn({ kind: 'existing', path: main.path, branch: main.branch })}
                 />
               )}
-            <MenuItem
+            {branch && workspace.git?.sha === null ? (
+              <Row title="Make a first commit to work in a worktree" control={
+                <Button variant="quiet" size="sm" onClick={() => { close(); store.askCommit(workspace.path) }}>Commit</Button>
+              } />
+            ) : <MenuItem
               icon={<NewWorktreeIcon size={14} />}
               label={armed ? 'New worktree' : 'New worktree…'}
               value={armedBranch ?? undefined}
@@ -1371,7 +1375,7 @@ export const PlaceControl = () => {
                 close()
                 store.askNewWorktree(workspace.path)
               }}
-            />
+            />}
             {others.length > 0 && (
               <>
                 <MenuLabel>Worktrees</MenuLabel>
