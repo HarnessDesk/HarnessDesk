@@ -3,7 +3,8 @@ import { useEffect, useRef, useState } from 'react'
 
 import type { RuntimeInfo } from '@harnessdesk/protocol'
 
-import { Chip, Row, RowChoice, Rows, Section, SegmentedReadout } from '../design'
+import { Chip, DisclosureChevron, Row, RowButton, RowChoice, Rows, Section, SegmentedReadout } from '../design'
+import { agentGroups } from '../lib/accounts'
 import { runtimeHolds } from '../lib/ceilings'
 import { ceilingWords } from '../lib/agents'
 import { useSnapshot, useStore } from '../state/context'
@@ -45,6 +46,15 @@ export const CeilingsSection = ({ focus = null }: { readonly focus?: string | nu
   const [unattended, setUnattended] = useState<UnheldCeilings | null>(null)
   const [busy, setBusy] = useState(false)
   const [unattendedBusy, setUnattendedBusy] = useState(false)
+  const [otherOpen, setOtherOpen] = useState(false)
+  const used = new Set([
+    ...snapshot.sessions.values(), ...snapshot.history, ...snapshot.historyIdentity,
+  ].map(session => session.runtime))
+  const groups = agentGroups(snapshot.runtimes)
+  const inUse = (group: typeof groups[number]): boolean => group.siblings.some(info =>
+    (snapshot.accountsByRuntime[info.id]?.accounts.length ?? 0) > 0 || used.has(info.id))
+  const active = groups.filter(inUse)
+  const other = groups.filter(group => !inUse(group))
 
   useEffect(() => {
     if (!destinationActive) return
@@ -109,7 +119,15 @@ export const CeilingsSection = ({ focus = null }: { readonly focus?: string | nu
         tabIndex={-1}
       >
         <Rows>
-          {snapshot.runtimes.map((runtime) => <RuntimeCeilings key={runtime.id} runtime={runtime} />)}
+          {active.flatMap(group => group.siblings).map(runtime => <RuntimeCeilings key={runtime.id} runtime={runtime} />)}
+          {other.length > 0 && <RowButton
+            title={`Other agents · ${other.length}`}
+            aria-expanded={otherOpen}
+            chevron={false}
+            control={<DisclosureChevron open={otherOpen} placement="trailing" />}
+            onClick={() => setOtherOpen(open => !open)}
+          />}
+          {otherOpen && other.flatMap(group => group.siblings).map(runtime => <RuntimeCeilings key={runtime.id} runtime={runtime} />)}
         </Rows>
       </Section>
 

@@ -1707,7 +1707,7 @@ export const Settings = ({ route, onRoute, onSignIn }: {
     else onRoute({ kind: 'account', runtime: view.runtime, key: view.key })
   }
   return <Page width="reading">
-    <h1 className="sr-only">{settingsTitle}</h1>
+    <Text as="h1" role="page" ink="primary">{settingsTitle}</Text>
     {route.kind === 'section' && section !== 'runtimes' && section !== 'skills' && <DestinationBar place={SETTINGS_LABELS[section]}
       more={() => null} />}
     {section === 'profile' && <ProfileSection />}

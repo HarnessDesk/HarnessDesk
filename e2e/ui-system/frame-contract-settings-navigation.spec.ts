@@ -236,13 +236,12 @@ test('D6 float keeps portalled account actions and traps its boundary', async ({
 })
 
 for (const theme of WALL_THEMES) {
-  test(`D8 Settings page title has no redundant Settings crumb in ${theme}`, async ({ page }) => {
+  test(`D8 Settings page title is in the content with no title in the bar in ${theme}`, async ({ page }) => {
     await openFrame(page, 'frame-wall=settings-general', theme)
     await expect(page.locator('[data-page-destination="settings"]:visible')).toHaveCount(1)
-    const place = page.locator('[data-frame-region="top"] [data-topbar="place"]')
-    await expect(place.locator('button')).toHaveCount(0)
-    await expect(place.locator('[data-topbar-title]')).toHaveText('')
-    await expect(page.locator('[data-page-destination="settings"]:visible').getByRole('heading', { name: 'General', exact: true })).toBeVisible()
+    const title = page.locator('[data-page-destination="settings"]:visible').getByRole('heading', { name: 'General', exact: true, level: 1 })
+    await expect(title).toBeVisible()
+    await expect(title).toHaveAttribute('data-role', 'page')
     await expectSettingsChrome(page, 1440)
   })
 }
