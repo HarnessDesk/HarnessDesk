@@ -5,11 +5,13 @@ import { scriptedScrollBehavior } from '../lib/scripted-scroll'
 import { countChanges, type FileDiff } from './diff'
 import { DiffOptions, useDiffPreferences } from './DiffOptions'
 import { DiffView } from './DiffView'
+import type { DiffPrefs } from './diff-prefs'
 import styles from './DiffFilesView.module.css'
 
 /** The same diff reader with per-file headings and navigation for an aggregate patch. */
-export const DiffFilesView = ({ files }: { files: readonly FileDiff[] }) => {
-  const { prefs, set } = useDiffPreferences()
+export const DiffFilesView = ({ files, wrap, preferences }: { files: readonly FileDiff[]; wrap?: boolean | undefined; preferences?: DiffPrefs | undefined }) => {
+  const { prefs: saved, set } = useDiffPreferences()
+  const prefs = preferences ?? (wrap === undefined ? saved : { ...saved, wrap })
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set())
   const sections = useRef(new Map<string, HTMLDivElement>())
   const groups = useMemo(() => {

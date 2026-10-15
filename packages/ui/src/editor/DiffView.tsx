@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 import { Button } from '../design'
-import { asAdditions, asRemovals, drawnWhole, parseDiff, presentDiffLines, type PresentedDiffLine, type WholeFile } from './diff'
+import { asAdditions, asRemovals, drawnWhole, parseDiff, presentDiffLines, splitByFile, type PresentedDiffLine, type WholeFile } from './diff'
 import { scriptedScrollBehavior } from '../lib/scripted-scroll'
 import { ChevronIcon } from '../components/Icons'
 import styles from './DiffView.module.css'
 import { DiffOptions, useDiffPreferences } from './DiffOptions'
+import { DiffFilesView } from './DiffFilesView'
 import type { DiffPrefs } from './diff-prefs'
 
 /**
@@ -57,7 +58,7 @@ const withoutIntroductions = (lines: readonly PresentedDiffLine[]): PresentedDif
   return shown
 }
 
-export const DiffView = ({ diff, wholeFile = false, wrap, inline = false, options = true, preferences }: DiffViewProps) => {
+const DiffRows = ({ diff, wholeFile = false, wrap, inline = false, options = true, preferences }: DiffViewProps) => {
   const { prefs: saved, set } = useDiffPreferences()
   const prefs = preferences ?? saved
   const shouldWrap = wrap ?? prefs.wrap
@@ -193,4 +194,12 @@ export const DiffView = ({ diff, wholeFile = false, wrap, inline = false, option
       )}
     </div>
   )
+}
+
+
+/** Aggregate payloads use the same file controls as the Changes inspector. */
+export const DiffView = (props: DiffViewProps) => {
+  const files = useMemo(() => !props.inline && props.options !== false && !drawnWhole(props.diff, Boolean(props.wholeFile))
+    ? splitByFile(props.diff) : [], [props.diff, props.inline, props.options, props.wholeFile])
+  return files.length > 1 ? <DiffFilesView files={files} wrap={props.wrap} preferences={props.preferences} /> : <DiffRows {...props} />
 }

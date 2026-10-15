@@ -42,9 +42,8 @@ it('toggles the drawing, shares choices with other diffs, and restores them in a
 })
 
 it('collapses and expands files and keeps a grouped, hideable file list', async () => {
-  const { DiffFilesView } = await import('./DiffFilesView')
   const files = ['src/one.ts', 'test/one.ts', 'src/two.ts'].map(path => ({ path, diff: '@@ -1 +1 @@\n-before\n+after' }))
-  act(() => root.render(<DiffFilesView files={files} />))
+  act(() => root.render(<DiffView diff={files.map(file => `diff --git a/${file.path} b/${file.path}\n${file.diff}`).join('\n')} />))
   const choose = async (label: string, role: string) => {
     await act(async () => host.querySelector<HTMLButtonElement>('button[aria-label="Diff view options"]')!.click())
     const item = [...document.querySelectorAll<HTMLElement>(`[role="${role}"]`)].find(node => node.textContent === label)
