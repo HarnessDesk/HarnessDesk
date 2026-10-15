@@ -6,6 +6,7 @@ import { PREVIEW_AGENTS, previewStore } from './harness'
 import { frameDestinationStore, setFrameConnection } from './frame-destination-store'
 import { overviewTeamStore } from './team-overview-fixture'
 import { PREVIEW_SESSION_KEY } from './harness'
+import { reviewPageStore } from './review-page-fixture'
 it('uses real store navigation, connection events and resource reads without connecting',async()=>{
   const clock = vi.spyOn(Date, 'now').mockReturnValue(1_700_000_000_000)
   try {
@@ -156,10 +157,27 @@ it('page defaults acknowledge a valid synthetic choice without changing the decl
 })
 
 it('keeps the frame workspace outside Git when a menu refreshes its status', async () => {
-  const store = frameDestinationStore(previewStore())
+  const store = frameDestinationStore(previewStore(), { workspaceOutsideGit: true })
   const workspace = store.getSnapshot().workspace!
   expect(workspace.git).toBeUndefined()
   expect(await store.transport.request('git/status', { root: workspace.path })).toBeNull()
   await store.refreshWorkspaceGit(workspace.path)
   expect(store.getSnapshot().workspace?.git).toBeNull()
+})
+
+it('delegates Git status to the fixture unless the frame explicitly requests a folder outside Git', async () => {
+  const fixture = previewStore(), store = frameDestinationStore(fixture)
+  const root = store.getSnapshot().workspace!.path
+  expect(await store.transport.request('git/status', { root })).toEqual(await fixture.transport.request('git/status', { root }))
+})
+
+it.each(['tree', 'empty', 'large'] as const)('retains the %s review status through a nested frame store', async scene => {
+  const fixture = reviewPageStore(scene), store = frameDestinationStore(fixture)
+  const root = store.getSnapshot().workspace!.path
+  expect(await store.transport.request('git/status', { root })).toEqual(await fixture.transport.request('git/status', { root }))
+})
+
+it('retains the non-repository review failure through a nested frame store', async () => {
+  const store = frameDestinationStore(reviewPageStore('not-repository'))
+  await expect(store.transport.request('git/status', { root: store.getSnapshot().workspace!.path })).rejects.toThrow('Synthetic non-repository')
 })
