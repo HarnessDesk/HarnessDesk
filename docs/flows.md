@@ -1102,7 +1102,7 @@ round with nothing to weigh.
 When a review guard selects one attempt, only that attempt’s findings gate
 its keep step. Findings on an unselected attempt stay open: picking another
 attempt is no claim that they were repaired. Once the route opens, those
-findings read **Not kept**, with the selected revision as the reason. A
+findings read **Not published**, with the selected revision as the reason. A
 losing advisory finding carries the same explanation. It belongs to the
 review that raised the finding and survives later reviews of the kept attempt.
 The open Findings list and detail refresh when the route accepts its evidence.
