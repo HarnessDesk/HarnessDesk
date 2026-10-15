@@ -3066,3 +3066,98 @@ still starts one through the host. File-based usage meters and process-cost
 observations keep their passive reads. Resuming a conversation or opening a Seat
 waits for current capabilities before making its live request. Sidebar hover
 intent follows when the conversation index is integrated.
+
+## Which DeepSeek key wins is declared per version — 2026-10-14
+
+DeepSeek Harness (`dsh`) takes its API key from four places: a store it keeps
+itself (`.credentials.yaml` in its home), the environment it was launched in, a
+`.env` in the folder it runs in, and a `.env` in its home. HarnessDesk keeps its
+own copy in the credential broker and hands it over as the launch environment,
+so which of the first two outranks the other decides whether that copy is used
+at all. The registry used to say the environment wins, and that was true.
+
+It stopped being true in 0.2.1-alpha.3. Measured by running each build as
+`dsh --profile acp` (how the `dsh` template starts it) against a fake
+Messages-compatible endpoint on loopback that records the `x-api-key` it
+receives, with its own `DSH_HOME` and `HOME` per run and no real key anywhere:
+
+| Present | 0.2.0-rc.2, 0.2.1-alpha.1, alpha.2 | 0.2.1-alpha.3 |
+|---|---|---|
+| launch environment and `.credentials.yaml`, different keys | environment | **`.credentials.yaml`** |
+| launch environment and home `.env` | environment | environment |
+| `.credentials.yaml` and home `.env` | `.credentials.yaml` | `.credentials.yaml` |
+| each alone | that one | that one |
+| none | missing-credential error | missing-credential error |
+
+The build before the change and the first one after are adjacent releases, so
+the flip is alpha.3 and nothing earlier. Through HarnessDesk's own runtime
+driving the real alpha.3, a broker key and a different key in the store gave an
+account row of "Stored by HarnessDesk, handed to DeepSeek when it starts" while
+the agent sent the store's key; the balance meter read the broker key's balance
+for the same reason. Both now follow the build the host last launched.
+
+So a source declares the build it moves on: `AcpSecretSource.outranksEnvFrom`,
+set to `0.2.1-alpha.3` on the store and absent on the `.env` (`known-agents.ts`'s
+`DSH_STORE_FIRST_FROM`, spelled in both places the secret is declared).
+`secretReadOrder` splits the sources into those read before the environment and
+those read after, by the version the host read when it launched the agent
+(`launchedVersion`), compared with `versionAtLeast` — which orders prereleases
+(`alpha.3` after `alpha.2`, before `rc.1`, before `0.2.1`), because the existing
+triple comparison cannot tell these two builds apart. A version nobody read keeps
+the older order. Presence detection (`whereSecretLives`) and the DeepSeek
+balance meter use the same split, from the same version.
+
+That version is only known once the agent has been launched, so it is also
+remembered between runs (`launchedVersion` in the runtime cache, handed back by
+`restoreObservations`): without it, the first balance read after an app restart
+would use the older order while the account row, restored from the same cache,
+already named the store. A desk that has never launched DeepSeek has nothing
+remembered, so until its first launch both use the older order and then move
+together; a balance read before that is kept for its normal few minutes. A key
+in a row's own `env` is read by the meter and not by the presence check, as it
+was before this change.
+
+*The copy HarnessDesk keeps.* An account's kind says where the key in use
+lives, and until now `externalKey` also meant HarnessDesk held no copy; the
+key dialog's Replace and Remove were drawn only for `apiKey`. With the store
+winning over a key HarnessDesk also holds, that left a copy nobody could
+remove from the interface. The account now carries `storedCopy` in that case
+(the key in use is read ahead of the broker's and the broker holds one), the
+dialog keeps its stored-key controls for it, and the account page says the copy
+"comes before" rather than that there is none.
+
+*Why not make HarnessDesk's key win again.* The only lever is a profile overlay
+that disables the agent's credential store, which is what its one-shot
+`headless` profile does by default. That would also hide every other credential
+the person saved there (other providers, sign-ins), and the agent's own store is
+the agent's to keep.
+
+*The one-shot `headless` profile does ignore the store from alpha.3*, as that
+build's own notes say: with only `.credentials.yaml` present it exits with a
+missing-credential error, where rc.2 read it. HarnessDesk never starts `dsh`
+that way, so nothing here changes for it.
+
+**Checked on the same builds and unchanged.** `session/resume` (the only way back
+into a DeepSeek conversation: `initialize` advertises `list`, `resume` and
+`close`, never `loadSession`) returns the configuration, replays nothing, keeps
+the folder `session/list` reports, and the next prompt still carries the earlier
+turns; HarnessDesk marks the reopened conversation `partialHistory` and numbers
+its new turns apart from the old ones. `session/cancel` during streaming and
+during a running `bash` call both settle the prompt as `cancelled`, which
+HarnessDesk records as an interrupted turn, on rc.2 and alpha.3 alike; the
+"Task stopped" wording in alpha.3 is the agent's own web client, not the wire.
+The provider name `azure-openai-responses` is an internal API kind inside the
+agent's own model catalog; HarnessDesk names no DeepSeek provider but
+`deepseek-official`, which is unchanged.
+
+**Not measured.** A real DeepSeek endpoint: every figure above comes from the
+fake one, so what it shows is which key was sent, not whether the vendor
+accepts it. Builds after alpha.3, which may move the order again; the floor is
+the first build measured, not a promise about later ones. A key in a `.env` in
+the folder a conversation runs in, which the agent reads between the
+environment and the home `.env`; HarnessDesk does not look there, as before.
+The key dialog's sentence that a key stored in this window "takes precedence"
+over one the agent already has is still true of a `.env` and, on the builds that
+read the environment first, of its store; it stopped being true for the builds
+above when the store has a key. The account row now names the store and the
+dialog keeps the copy to manage, but rewording that sentence is a separate change.

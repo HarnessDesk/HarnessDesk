@@ -5,6 +5,7 @@ import { test } from 'node:test'
 
 import type { AcpSecretSource } from '@harnessdesk/adapter-acp'
 
+import { DSH_STORE_FIRST_FROM } from '../../src/installs/known-agents.js'
 import { MeterAuthError } from '../../src/usage/meter.js'
 import { deepSeekBalance, DeepSeekMeter } from '../../src/usage/deepseek.js'
 import { tempDir } from '../scratch.js'
@@ -20,7 +21,7 @@ const NOW = Date.parse('2026-09-26T12:00:00Z')
 
 /** The registry's own `alsoAt` list for the `dsh` template (`agent-registry.ts`) — never hard-coded in the meter itself. */
 const DSH_ALSO_AT: readonly AcpSecretSource[] = [
-  { path: '${DSH_HOME:-~/.dsh}/.credentials.yaml', format: 'yaml', label: "DeepSeek's own store (.credentials.yaml in its home)" },
+  { path: '${DSH_HOME:-~/.dsh}/.credentials.yaml', format: 'yaml', label: "DeepSeek's own store (.credentials.yaml in its home)", outranksEnvFrom: DSH_STORE_FIRST_FROM },
   { path: '${DSH_HOME:-~/.dsh}/.env', format: 'dotenv', label: '.env in its home' },
 ]
 
@@ -249,4 +250,49 @@ test('a block-style credentials.yaml is read too, and .env is the fallback when 
     now: () => NOW,
   })
   assert.equal((await envMeter.read())?.credits?.remaining, 4)
+})
+
+test('a build that reads its own store ahead of its environment is asked for the balance of that store’s key, not the desk’s', async () => {
+  // DSH's `acp` profile sends the stored key over the launch environment from
+  // 0.2.1-alpha.3 (and the desk hands its own key over as that environment),
+  // so the balance that matters is the account the agent is spending from.
+  const home = tempDir('hd-dsh-')
+  writeFileSync(join(home, '.credentials.yaml'), 'version: 1\nrefs:\n  DEEPSEEK_API_KEY: sk-in-the-store\n')
+  const ask = async (version: string | null | undefined): Promise<string | null> => {
+    const seen: (string | null)[] = []
+    await new DeepSeekMeter({
+      env: { DSH_HOME: home, DEEPSEEK_API_KEY: 'sk-env-key' },
+      key: () => 'sk-broker-key',
+      alsoAt: DSH_ALSO_AT,
+      version: () => version,
+      fetch: served(200, { is_available: true, balance_infos: [{ currency: 'USD', total_balance: '1' }] }, (entry) => seen.push(entry.auth)),
+      now: () => NOW,
+    }).read()
+    return seen[0] ?? null
+  }
+  assert.equal(await ask('0.2.1-alpha.3'), 'Bearer sk-in-the-store')
+  assert.equal(await ask('0.2.1'), 'Bearer sk-in-the-store')
+  assert.equal(await ask('0.2.1-alpha.2'), 'Bearer sk-broker-key')
+  assert.equal(await ask('0.2.0-rc.2'), 'Bearer sk-broker-key')
+  assert.equal(await ask(null), 'Bearer sk-broker-key', 'a version nobody read keeps the older order')
+  assert.equal(await ask(undefined), 'Bearer sk-broker-key')
+})
+
+test('the version is asked on every read, so a copy updated after the app started changes the order', async () => {
+  const home = tempDir('hd-dsh-')
+  writeFileSync(join(home, '.credentials.yaml'), 'version: 1\nrefs:\n  DEEPSEEK_API_KEY: sk-in-the-store\n')
+  let version: string | null = '0.2.0-rc.2'
+  const seen: (string | null)[] = []
+  const meter = new DeepSeekMeter({
+    env: { DSH_HOME: home },
+    key: () => 'sk-broker-key',
+    alsoAt: DSH_ALSO_AT,
+    version: () => version,
+    fetch: served(200, { is_available: true, balance_infos: [{ currency: 'USD', total_balance: '1' }] }, (entry) => seen.push(entry.auth)),
+    now: () => NOW,
+  })
+  await meter.read()
+  version = '0.2.1-alpha.3'
+  await meter.read()
+  assert.deepEqual(seen, ['Bearer sk-broker-key', 'Bearer sk-in-the-store'])
 })

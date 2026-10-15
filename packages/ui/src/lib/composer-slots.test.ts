@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { ConfigOption } from '@harnessdesk/protocol'
 
 import { optionsBySlot, slotForCategory } from './composer-slots'
+import * as mapping from './composer-slots'
 
 describe('composer option slots', () => {
   it.each([
@@ -77,4 +78,22 @@ describe('composer option slots', () => {
     expect(Object.fromEntries(Object.entries(slots).map(([slot, entries]) => [slot, entries.map(({ id }) => id)])))
       .toEqual(expected)
   })
+})
+
+const before: ConfigOption[] = [
+  { id: 'model', type: 'select', label: 'Model', category: 'model', currentValue: 'old', choices: [{ value: 'old', label: 'Old model' }] },
+  { id: 'mode', type: 'select', label: 'Mode', category: 'mode', currentValue: 'plan', choices: [{ value: 'plan', label: 'Plan' }] },
+]
+
+it('describes missing options, removed choices and agent-rejected values with their saved value', () => {
+  const options: ConfigOption[] = [
+    { ...before[0]!, currentValue: 'current', choices: [{ value: 'current', label: 'Current model' }] } as ConfigOption,
+    { id: 'effort', label: 'Effort', type: 'select', category: 'thought_level', currentValue: 'low', choices: [{ value: 'low', label: 'Low' }, { value: 'high', label: 'High' }] },
+    { id: 'accepted', label: 'Accepted', type: 'boolean', currentValue: false },
+  ]
+  expect(mapping.staleDefaults?.({ model: 'old', mode: 'plan', effort: 'high', accepted: false }, options, before)).toEqual([
+    { id: 'model', label: 'Model', category: 'model', value: 'old', valueLabel: 'Old model', reason: 'This value is no longer offered.' },
+    { id: 'mode', label: 'Mode', category: 'mode', value: 'plan', valueLabel: 'Plan', reason: 'This setting is no longer offered.' },
+    { id: 'effort', label: 'Effort', category: 'thought_level', value: 'high', valueLabel: 'High', reason: 'The agent returned a different value.' },
+  ])
 })

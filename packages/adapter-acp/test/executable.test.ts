@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { resolveExecutable, versionIn } from '../src/executable.js'
+import { resolveExecutable, versionAtLeast, versionIn } from '../src/executable.js'
 
 /**
  * Finding the agent CLI a bridge should drive. The lookups are injected: the
@@ -22,6 +22,32 @@ test('versionIn pulls the release triple out of whatever --version printed', () 
   assert.equal(versionIn('nightly'), 'nightly')
   assert.equal(versionIn(''), null)
   assert.equal(versionIn(null), null)
+})
+
+test('versionAtLeast orders prereleases, which a bare triple comparison cannot', () => {
+  const floor = '0.2.1-alpha.3'
+  // The two builds either side of the line the DeepSeek Harness key order moved on.
+  assert.equal(versionAtLeast('0.2.1-alpha.2', floor), false)
+  assert.equal(versionAtLeast('0.2.1-alpha.3', floor), true)
+  assert.equal(versionAtLeast('0.2.1-alpha.10', floor), true, 'alpha.10 is later than alpha.3, not earlier')
+  assert.equal(versionAtLeast('0.2.1-rc.1', floor), true, 'rc sorts after alpha')
+  assert.equal(versionAtLeast('0.2.1', floor), true, 'a release outranks its own prereleases')
+  assert.equal(versionAtLeast('0.2.2-alpha.1', floor), true)
+  assert.equal(versionAtLeast('1.0.0', floor), true)
+  assert.equal(versionAtLeast('0.2.0', floor), false)
+  assert.equal(versionAtLeast('0.2.0-rc.2', floor), false)
+  assert.equal(versionAtLeast('0.1.7-rc.2', floor), false)
+  // Identifier rules that the alpha.3 floor itself does not touch but a later floor would.
+  assert.equal(versionAtLeast('0.2.1-1', floor), false, 'a numeric identifier is older than an alphanumeric one')
+  assert.equal(versionAtLeast('0.2.1-alpha', floor), false, 'a longer prerelease outranks its own prefix, not the other way round')
+  assert.equal(versionAtLeast('0.2.1-alpha.3.1', floor), true)
+  // Against a release floor, any prerelease of that release is still short of it.
+  assert.equal(versionAtLeast('0.2.1-alpha.3', '0.2.1'), false)
+  assert.equal(versionAtLeast('0.2.1', '0.2.1'), true)
+  // What `--version` printed is read the way `versionIn` reads it.
+  assert.equal(versionAtLeast('dsh 0.2.1-alpha.3 (build 7)', floor), true)
+  // Unreadable stays shut.
+  for (const unknown of [null, undefined, '', 'nightly']) assert.equal(versionAtLeast(unknown, floor), false)
 })
 
 test('a CLI on PATH resolves to its path and version', async () => {
