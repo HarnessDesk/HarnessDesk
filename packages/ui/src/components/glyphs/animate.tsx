@@ -26,11 +26,11 @@ import type { GlyphProps } from './glyph'
  */
 
 const HOST = [
-  'button:not(:disabled):not([aria-disabled="true"])',
+  'button',
   'a[href]',
-  '[role="menuitem"]:not([aria-disabled="true"])',
+  '[role="menuitem"]',
   '[role="tab"]',
-  '[role="option"]:not([aria-disabled="true"])',
+  '[role="option"]',
   'summary',
   '[data-icon-host]',
 ].join(',')
@@ -43,17 +43,29 @@ type Entry = { readonly wake: () => void } | { readonly controls: LegacyAnimatio
 const registry = new WeakMap<Element, Entry>()
 let current: Element | null = null
 let wired = false
+let preference: MediaQueryList | undefined
+
+// Find ownership before checking eligibility: a disabled nested control must
+// not fall through to an enabled ancestor, including explicit icon hosts.
+const owner = (element: Element) => element.closest(HOST)
+const enabled = (host: Element) => !host.matches(':disabled, [aria-disabled="true"]')
 
 const play = (host: Element, variant: 'animate' | 'normal') => {
   for (const svg of host.querySelectorAll(GLYPH)) {
+    if (owner(svg) !== host) continue
     const entry = registry.get(svg)
     if (!entry) continue
-    if ('controls' in entry) void entry.controls.start(variant)
+    if ('controls' in entry) {
+      if (reduced()) {
+        entry.controls.stop()
+        entry.controls.set('normal')
+      } else void entry.controls.start(variant)
+    }
     else if (variant === 'animate') entry.wake()
   }
 }
 
-const reduced = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches
+const reduced = () => preference?.matches ?? false
 
 const enter = (next: Element | null) => {
   if (next === current) return
@@ -65,7 +77,16 @@ const enter = (next: Element | null) => {
 const wire = () => {
   if (wired || typeof document === 'undefined') return
   wired = true
-  document.addEventListener('mouseover', (event) => enter((event.target as Element | null)?.closest?.(HOST) ?? null), { passive: true })
+  if (typeof matchMedia === 'function') {
+    preference = matchMedia('(prefers-reduced-motion: reduce)')
+    preference.addEventListener('change', () => {
+      if (current) play(current, reduced() || !enabled(current) ? 'normal' : 'animate')
+    })
+  }
+  document.addEventListener('mouseover', (event) => {
+    const host = (event.target as Element | null)?.closest?.(HOST)
+    enter(host && enabled(host) ? host : null)
+  }, { passive: true })
   // Leaving the window sends no `mouseover` to anything, so a glyph would keep playing.
   document.addEventListener('mouseout', (event) => { if (!event.relatedTarget) enter(null) }, { passive: true })
 }
@@ -97,7 +118,7 @@ const Live = ({ draw: Draw, still: _still, ...props }: Props) => {
     wire()
     registry.set(svg, { controls })
     // It was woken by the pointer already over its control, which will not enter it again.
-    if (current?.contains(svg) && !reduced()) void controls.start('animate')
+    if (current && owner(svg) === current && enabled(current) && !reduced()) void controls.start('animate')
     return () => { registry.delete(svg) }
   }, [controls])
   return <Draw {...props} controls={controls} ref={ref} data-glyph="animated" />

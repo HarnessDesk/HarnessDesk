@@ -5,8 +5,8 @@ import { motion, type Variants } from 'motion/react'
 import { Glyph, type GlyphProps } from './glyph'
 
 const CLOUD_VARIANTS: Variants = {
-  initial: { y: 2 },
-  active: { y: 0 },
+  normal: { y: 0 },
+  animate: { y: 2 },
 }
 
 export const CloudDownloadGlyph = ({ controls, ...props }: GlyphProps) => (

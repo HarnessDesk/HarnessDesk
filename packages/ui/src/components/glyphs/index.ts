@@ -15,6 +15,8 @@
  *   Controlled.       `controls` arrives as a prop from `Animated` instead of
  *                     being made inside each file.
  *
+ * Fetch's `cloud-download` variants use our `normal` / `animate` names and
+ * rest at zero offset, matching its plain drawing before the lazy swap.
  * Everything else — the paths, the variants, the timings — is upstream's.
  * Components import the icon by meaning from `../Icons`, never from here.
  */

@@ -1,5 +1,5 @@
 import { motion, type LegacyAnimationControls, type SVGMotionProps } from 'motion/react'
-import type { ReactNode, Ref } from 'react'
+import { Children, cloneElement, isValidElement, type ReactNode, type Ref, type SVGProps } from 'react'
 import type { LucideProps } from 'lucide-react'
 
 /**
@@ -28,14 +28,14 @@ type FrameProps = Omit<GlyphProps, 'controls'>
 const named = (props: Record<string, unknown>) =>
   Object.keys(props).some((key) => key.startsWith('aria-') || key === 'role' || key === 'title')
 
-const frame = ({ name, size = 24, color = 'currentColor', strokeWidth = 2, absoluteStrokeWidth: _a, nonScalingStroke: _n, className, ...rest }: FrameProps) => ({
+const frame = ({ name, size = 24, color = 'currentColor', strokeWidth = 2, absoluteStrokeWidth, nonScalingStroke: _n, className, ...rest }: FrameProps) => ({
   xmlns: 'http://www.w3.org/2000/svg',
   width: size,
   height: size,
   viewBox: '0 0 24 24',
   fill: 'none',
   stroke: color,
-  strokeWidth,
+  strokeWidth: absoluteStrokeWidth ? Number(strokeWidth) * 24 / Number(rest.width ?? size) : strokeWidth,
   strokeLinecap: 'round' as const,
   strokeLinejoin: 'round' as const,
   className: ['lucide', name && `lucide-${name}`, className].filter(Boolean).join(' '),
@@ -43,8 +43,16 @@ const frame = ({ name, size = 24, color = 'currentColor', strokeWidth = 2, absol
   ...rest,
 })
 
+// vector-effect is not inherited. Apply it to the paths themselves, including
+// motion paths inside groups, just as Lucide does for its static drawing.
+const drawing = (children: ReactNode, nonScalingStroke?: boolean): ReactNode => nonScalingStroke
+  ? Children.map(children, child => isValidElement<SVGProps<SVGElement>>(child)
+    ? cloneElement(child, { vectorEffect: 'non-scaling-stroke' }, drawing(child.props.children, true))
+    : child)
+  : children
+
 /** A glyph whose drawing moves as a whole is still one element. */
-export const Glyph = ({ children, ...props }: FrameProps & { children?: ReactNode }) => <svg {...frame(props)}>{children}</svg>
+export const Glyph = ({ children, nonScalingStroke, ...props }: FrameProps & { children?: ReactNode }) => <svg {...frame(props)}>{drawing(children, nonScalingStroke)}</svg>
 
 /**
  * A glyph that rotates, shakes or scales as one — the `svg` itself is the
@@ -53,7 +61,8 @@ export const Glyph = ({ children, ...props }: FrameProps & { children?: ReactNod
  */
 export const MotionGlyph = ({
   children,
+  nonScalingStroke,
   ...props
 }: FrameProps & Pick<SVGMotionProps<SVGSVGElement>, 'animate' | 'initial' | 'variants' | 'transition' | 'style'> & { children?: ReactNode }) => (
-  <motion.svg {...(frame(props as FrameProps) as SVGMotionProps<SVGSVGElement>)}>{children}</motion.svg>
+  <motion.svg {...(frame(props as FrameProps) as SVGMotionProps<SVGSVGElement>)}>{drawing(children, nonScalingStroke)}</motion.svg>
 )
